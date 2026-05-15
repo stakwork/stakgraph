@@ -12,8 +12,13 @@
 package main
 
 import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/maximhq/bifrost/core/schemas"
@@ -21,6 +26,16 @@ import (
 
 // PluginName is the system identifier reported via GetName().
 const PluginName = "stakgraph-gateway"
+
+// Default port for the plugin's in-process HTTP server, which hosts
+// the `/_plugin/*` route namespace. The container's public listener
+// is owned by a thin Go wrapper (see gateway/wrapper) that reverse-
+// proxies most traffic to bifrost-http and routes `/_plugin/*` here.
+// Because the wrapper is the only client, this server binds to
+// loopback only and is unreachable from outside the container.
+//
+// Overridable via `BIFROST_PLUGIN_PORT` for local dev.
+const defaultPluginPort = "8189"
 
 // Context keys used to pass values between hooks for a single request.
 // Keys live in the BifrostContext for the lifetime of one request.
@@ -38,6 +53,20 @@ type pluginConfig struct {
 
 var cfg pluginConfig
 
+// pluginSrv is the in-process HTTP server that exposes the `/_plugin/*`
+// route namespace. Initialised in Init, shut down in Cleanup. Kept in
+// a package var so Cleanup can close it.
+//
+// First route is `/_plugin/admin-credentials`, which lets Hive bootstrap
+// itself with Bifrost's admin user/password on a fresh swarm. Future
+// routes will expose plugin-specific governance reads (per-agent cost,
+// run-id rollups, etc.) that Bifrost's built-in `/api/logs` doesn't
+// surface in the shape we need.
+var (
+	pluginOnce sync.Once
+	pluginSrv  *http.Server
+)
+
 // Init is called once when bifrost-http loads the plugin.
 func Init(config any) error {
 	// bifrost passes config as a map[string]interface{} (decoded JSON).
@@ -47,6 +76,12 @@ func Init(config any) error {
 		}
 	}
 	fmt.Fprintf(os.Stderr, "[%s] Init called config=%+v\n", PluginName, cfg)
+
+	// Start the plugin HTTP server on first Init only. bifrost-http
+	// calls Init exactly once per process today, but defending against
+	// future hot-reload behaviour costs nothing.
+	pluginOnce.Do(startPluginServer)
+
 	return nil
 }
 
@@ -59,6 +94,17 @@ func GetName() string {
 // Cleanup is called on bifrost shutdown.
 func Cleanup() error {
 	fmt.Fprintf(os.Stderr, "[%s] Cleanup called\n", PluginName)
+	if pluginSrv != nil {
+		// Best-effort shutdown — give in-flight requests a couple of
+		// seconds, but don't block the bifrost shutdown path forever.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := pluginSrv.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr,
+				"[%s] plugin server shutdown error: %v\n",
+				PluginName, err)
+		}
+	}
 	return nil
 }
 
@@ -184,6 +230,146 @@ func PostLLMHook(ctx *schemas.BifrostContext, resp *schemas.BifrostResponse, bif
 		elapsed.Milliseconds(),
 	)
 	return resp, bifrostErr, nil
+}
+
+// --- plugin HTTP server ------------------------------------------------
+//
+// Bifrost plugins (the .so we are) can't register arbitrary HTTP routes
+// through Bifrost's router — HTTPTransportPreHook only fires on inference
+// paths, and unknown URLs 404 before any middleware can see them. We
+// also need routes that AREN'T behind Bifrost's auth middleware so a
+// fresh swarm can bootstrap itself (chicken-and-egg if the route to
+// fetch the admin password needs the admin password).
+//
+// So the plugin runs its own HTTP server on loopback. The container's
+// public listener is owned by a thin Go wrapper (gateway/wrapper) which
+// reverse-proxies `/_plugin/*` to this server and everything else to
+// bifrost-http. End result: one public port (Traefik-friendly), but
+// the plugin owns a clean `/_plugin/*` namespace it can grow over time.
+//
+// Currently the only route is `/_plugin/admin-credentials`, used by
+// Hive to bootstrap on a fresh swarm via the shared boltwall stakwork
+// secret. Planned future routes:
+//   - GET /_plugin/metrics/agent-cost?since=…  (per-agent rollups)
+//   - GET /_plugin/metrics/run/{run_id}        (run-level breakdown)
+//   - GET /_plugin/health                      (combined plugin+bifrost
+//                                               readiness)
+//
+// All routes under /_plugin require Bearer auth with the shared token
+// (BIFROST_PROVISIONING_TOKEN, same value as boltwall.stakwork_secret).
+
+// startPluginServer brings up the in-process plugin HTTP server.
+// Returns immediately; the server runs in a goroutine.
+//
+// Required env (server is skipped if any are missing — see logf below):
+//   - BIFROST_ADMIN_USER, BIFROST_ADMIN_PASS: the admin credentials
+//     bifrost-http was started with (resolved from auth_config in
+//     config.json). The plugin only ECHOES them; bifrost is the
+//     source of truth for the actual hashed credential.
+//   - BIFROST_PROVISIONING_TOKEN: shared secret Hive presents as
+//     `Authorization: Bearer <token>`.
+//
+// Optional env:
+//   - BIFROST_PLUGIN_PORT (default 8189).
+//   - BIFROST_PLUGIN_BIND (default 127.0.0.1 — loopback only because
+//     the wrapper is the only intended client).
+//
+// If any required env var is missing the server is NOT started and a
+// warning is logged. This keeps the standalone-docker case (no swarm)
+// from failing hard — developers without a provisioning token simply
+// don't get the bootstrap endpoint.
+func startPluginServer() {
+	adminUser := os.Getenv("BIFROST_ADMIN_USER")
+	adminPass := os.Getenv("BIFROST_ADMIN_PASS")
+	token := os.Getenv("BIFROST_PROVISIONING_TOKEN")
+	port := os.Getenv("BIFROST_PLUGIN_PORT")
+	if port == "" {
+		port = defaultPluginPort
+	}
+	bind := os.Getenv("BIFROST_PLUGIN_BIND")
+	if bind == "" {
+		bind = "127.0.0.1"
+	}
+
+	if adminUser == "" || adminPass == "" || token == "" {
+		logf("plugin server NOT started: missing env "+
+			"(have BIFROST_ADMIN_USER=%t BIFROST_ADMIN_PASS=%t BIFROST_PROVISIONING_TOKEN=%t)",
+			adminUser != "", adminPass != "", token != "")
+		return
+	}
+
+	// Pre-encode the credentials body once. The values can't change at
+	// runtime (env is read at process start) so re-marshalling on every
+	// request would be pointless.
+	credsBody, err := json.Marshal(map[string]string{
+		"admin_username": adminUser,
+		"admin_password": adminPass,
+	})
+	if err != nil {
+		logf("plugin server NOT started: marshal credentials: %v", err)
+		return
+	}
+
+	// Constant-time compare to avoid leaking token length / prefix via
+	// response-time differences. Closed-over so we don't expose the
+	// token bytes via a package var.
+	tokenBytes := []byte(token)
+	authValid := func(presented string) bool {
+		// Strip optional "Bearer " prefix; accept either case.
+		if len(presented) > 7 && (presented[:7] == "Bearer " || presented[:7] == "bearer ") {
+			presented = presented[7:]
+		}
+		// subtle.ConstantTimeCompare returns 1 only when lengths AND
+		// bytes match; mismatched lengths short-circuit to 0.
+		return subtle.ConstantTimeCompare([]byte(presented), tokenBytes) == 1
+	}
+
+	// requireToken wraps a handler with Bearer auth. Use for every
+	// route under /_plugin except /_plugin/health.
+	requireToken := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !authValid(r.Header.Get("Authorization")) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next(w, r)
+		}
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/_plugin/admin-credentials", requireToken(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(credsBody)
+	}))
+	// Liveness probe — used by the wrapper's readiness check and
+	// useful for swarm/k8s. No auth (returns no sensitive data).
+	mux.HandleFunc("/_plugin/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+
+	addr := bind + ":" + port
+	pluginSrv = &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
+
+	go func() {
+		logf("plugin server listening on %s", addr)
+		if err := pluginSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logf("plugin server crashed: %v", err)
+		}
+	}()
 }
 
 // --- helpers -----------------------------------------------------------

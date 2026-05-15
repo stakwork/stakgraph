@@ -21,14 +21,35 @@ expects.
 
 ```
 gateway/
-├── main.go            # plugin implementation (Init/GetName/*Hook/Cleanup)
+├── main.go            # plugin: Init/GetName/*Hook/Cleanup + /_plugin/* HTTP server
 ├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
 ├── Makefile           # local + docker build targets
-├── Dockerfile         # dynamic bifrost-http + plugin, COPYs data/config.json
+├── Dockerfile         # bifrost-http + plugin .so + wrapper, all in one image
 ├── docker-compose.yml # host 8181 -> container 8080, named volume for /app/data
-└── data/
-    └── config.json    # seed config: providers + plugin entry (baked into image)
+├── data/
+│   └── config.json    # seed config: providers, plugin entry, auth_config (baked in)
+└── wrapper/
+    ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
+    └── main.go        # PID-1 binary: owns :8080, fronts bifrost + /_plugin/*
 ```
+
+## Process layout inside the container
+
+```
+tini (PID 1)
+ └─ wrapper                 :8080 public  (the only listener exposed by EXPOSE)
+     ├─ proxies /_plugin/*  ─► 127.0.0.1:8189   (plugin's in-process HTTP server)
+     └─ proxies everything  ─► 127.0.0.1:8181   (bifrost-http, loopback only)
+         └─ stakgraph-gateway.so      (the .so loaded by bifrost as a Go plugin)
+             └─ HTTP server on 127.0.0.1:8189   (started by Init)
+```
+
+The wrapper exists because Bifrost plugins can't register arbitrary HTTP
+routes through Bifrost's own router (HTTPTransportPreHook only fires on
+inference paths), and we need routes that *aren't* behind Bifrost's
+auth middleware so Hive can bootstrap on a fresh swarm. The wrapper
+gives the plugin a clean `/_plugin/*` namespace on the same public port
+as the dashboard, with one TLS terminator at the swarm/ingress edge.
 
 > **Why a named volume instead of `./data:/app/data`?** macOS Docker
 > Desktop's virtiofs bind mount silently drops a fraction of SQLite WAL
@@ -42,10 +63,68 @@ gateway/
 
 The upstream `maximhq/bifrost:latest` is statically linked and **cannot
 load `.so` plugins** ([docs](https://docs.getbifrost.ai/plugins/building-dynamic-binary)).
-The `Dockerfile` here clones `bifrost` at a pinned tag (`v1.5.8`), builds
-`bifrost-http` with CGO + dynamic linking, builds our plugin against the
-same source tree (avoiding the "plugin was built with a different version
-of package" trap), and produces a single Alpine runtime image with both.
+The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v1.5.2`),
+builds `bifrost-http` with CGO + dynamic linking, builds our plugin
+against the same source tree (avoiding the "plugin was built with a
+different version of package" trap), builds the (stdlib-only) wrapper
+binary, and produces a single Alpine runtime image with all three.
+
+## Authentication
+
+The dashboard UI and Bifrost's `/api/*` admin endpoints (governance,
+config, logs) require HTTP Basic auth. Inference endpoints (`/v1/*`,
+`/openai/*`, `/anthropic/*`, etc.) stay open so existing agents work
+unchanged.
+
+Credentials come from two env vars that get resolved at boot by
+Bifrost itself (config.json references `env.BIFROST_ADMIN_USER` and
+`env.BIFROST_ADMIN_PASS` — bifrost expands these into `auth_config`
+and bcrypt-hashes the password into config.db):
+
+```bash
+BIFROST_ADMIN_USER=admin                  # default in docker-compose.yml
+BIFROST_ADMIN_PASS=bifrost-dev-password   # default in docker-compose.yml
+```
+
+In production (sphinx-swarm), these are auto-generated random values
+per-swarm; the dev defaults above only exist so `make docker-up` works
+out of the box.
+
+To change the password later, edit the env, `make docker-build` to
+rebuild the image, then `docker compose down && docker compose up -d`.
+Bifrost detects the new `env.*` reference and re-hashes; existing
+sessions get flushed (matches `loadAuthConfig` behaviour in
+bifrost-http).
+
+## The `/_plugin/*` namespace
+
+The wrapper routes any path under `/_plugin/` to the plugin's
+in-process HTTP server (loopback :8189). All `/_plugin/*` routes
+require `Authorization: Bearer <BIFROST_PROVISIONING_TOKEN>`. The
+token is a shared secret with Hive (in swarm: same value as
+`boltwall.stakwork_secret`).
+
+Routes today:
+
+| Method | Path                              | Description                                                 |
+|--------|-----------------------------------|-------------------------------------------------------------|
+| GET    | `/_plugin/health`                 | Plain `{"ok":true}`. No auth. Used by the wrapper itself.   |
+| GET    | `/_plugin/admin-credentials`      | Returns `{"admin_username":"…","admin_password":"…"}` so Hive can bootstrap on a fresh swarm. Bearer auth. |
+
+The credentials endpoint exists because there is otherwise no way for
+Hive to learn the Bifrost admin password without an out-of-band
+channel — and we don't want to expose either the admin password or
+the bifrost API key to Hive's browser. Hive's backend hits this once,
+encrypts the result into its DB, and never calls it again unless the
+admin creds get lost. See `plans/phases/phase-3-swarm-handoff.md`
+for the full handoff design.
+
+Routes planned (drop into the same auth namespace as they're added):
+
+| Path                                        | Why a plugin route vs Bifrost's `/api/logs`        |
+|---------------------------------------------|----------------------------------------------------|
+| `/_plugin/metrics/agent-cost?since=…`       | per-`x-bf-dim-agent-name` rollups, not in Bifrost  |
+| `/_plugin/metrics/run/{run_id}`             | per-run cost + tool history, not in Bifrost        |
 
 ## Quick start
 
@@ -54,14 +133,13 @@ of package" trap), and produces a single Alpine runtime image with both.
 cd gateway
 ln -sf ../mcp/.env .env   # or: cp ../mcp/.env .env
 
-# 2. Build the dynamic-bifrost+plugin image and start it.
+# 2. Build the dynamic-bifrost+plugin+wrapper image and start it.
 make docker-up
 
 # 3. Tail the logs and watch the boilerplate hooks fire.
 make docker-logs
 
-# 4. Sanity check: hit the bifrost openai-compatible endpoint and look
-#    for the [stakgraph-gateway] lines in the log.
+# 4. Inference is open — same call as before.
 curl -s http://localhost:8181/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'x-macaroon: pretend.this.is.a.macaroon' \
@@ -75,14 +153,33 @@ curl -s http://localhost:8181/v1/chat/completions \
     "messages": [{"role":"user","content":"say hi in 3 words"}]
   }'
 
-# Then confirm the dims landed in the SQLite logs table. The DB lives
-# in the `stakgraph-gateway-data` docker volume now, not the host path:
+# 5. Dashboard / admin API now require Basic auth (defaults: admin /
+#    bifrost-dev-password — see docker-compose.yml). Without creds:
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8181/api/governance/customers
+# → 401
+
+# With creds:
+curl -s -u admin:bifrost-dev-password http://localhost:8181/api/governance/customers
+# → {"customers":[...], "count":0, ...}
+
+# 6. The /_plugin/admin-credentials route lets Hive bootstrap without
+#    ever seeing the password until it makes this single call:
+curl -s http://localhost:8181/_plugin/admin-credentials \
+  -H 'Authorization: Bearer dev-provisioning-token'
+# → {"admin_username":"admin","admin_password":"bifrost-dev-password"}
+
+# Wrong token / missing header → 401.
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8181/_plugin/admin-credentials
+# → 401
+
+# 7. Confirm the dims landed in the SQLite logs table. The DB lives
+#    in the `stakgraph-gateway-data` docker volume now, not the host path:
 docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \
   sh -c 'apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \
     "SELECT model, cost, metadata FROM logs ORDER BY created_at DESC LIMIT 1;"'
-# → claude-3-5-haiku-latest|0.000043|{"run-id":"r_test_001","agent-name":"smoke-test","workspace-id":"w1","user-id":"u1","session-id":"s_test_42"}
+# → claude-3-5-haiku-latest|0.000043|{"run-id":"r_test_001","agent-name":"smoke-test",...}
 
-# 5. (optional) end-to-end against the existing MCP harness — same port,
+# 8. (optional) end-to-end against the existing MCP harness — same port,
 #    so the existing test agent just works.
 cd ../mcp
 npx tsx docs/gateway/test-agent.ts "hi, how are you?"

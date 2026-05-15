@@ -11,10 +11,29 @@ services:
     container_name: stakgraph-gateway
     restart: unless-stopped
     environment:
-      APP_HOST: 0.0.0.0
-      APP_PORT: 8080
+      # Bifrost's listener inside the container is loopback-only; the
+      # wrapper owns the public :8080. APP_HOST/APP_PORT are passed
+      # through for parity with upstream docs but the wrapper passes
+      # -host 127.0.0.1 / -port 8181 as flags which take precedence.
+      APP_HOST: 127.0.0.1
+      APP_PORT: 8181
       LOG_LEVEL: info
       LOG_STYLE: pretty
+      # Bifrost admin credentials. Referenced from data/config.json's
+      # auth_config block as env.BIFROST_ADMIN_USER / env.BIFROST_ADMIN_PASS.
+      # Bifrost hashes the password (bcrypt) and persists the hash; the
+      # env.* reference is kept so a rebuild with a different value
+      # picks up the new password on next boot.
+      #
+      # Dev defaults below match `admin` / `bifrost-dev-password`. In
+      # swarm these get auto-generated random values per-instance and
+      # passed in from sphinx-swarm; see ../../sphinx-swarm/src/images/bifrost.rs.
+      BIFROST_ADMIN_USER: ${BIFROST_ADMIN_USER:-admin}
+      BIFROST_ADMIN_PASS: ${BIFROST_ADMIN_PASS:-bifrost-dev-password}
+      # Shared secret Hive presents to /_plugin/* routes (Bearer auth).
+      # In swarm this is the same value as boltwall.stakwork_secret so
+      # Hive already has it; dev default is a recognisable placeholder.
+      BIFROST_PROVISIONING_TOKEN: ${BIFROST_PROVISIONING_TOKEN:-dev-provisioning-token}
       # Provider keys are referenced by env.* in data/config.json.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

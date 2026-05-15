@@ -4,6 +4,12 @@
     "drop_excess_requests": false,
     "enforce_auth_on_inference": false
   },
+  "auth_config": {
+    "admin_username": "env.BIFROST_ADMIN_USER",
+    "admin_password": "env.BIFROST_ADMIN_PASS",
+    "is_enabled": true,
+    "disable_auth_on_inference": true
+  },
   "providers": {
     "anthropic": {
       "keys": [

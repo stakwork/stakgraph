@@ -1,18 +1,22 @@
 # syntax=docker/dockerfile:1.7
 #
-# Build a Bifrost image that can load our Go plugin.
+# Build a Bifrost image that can load our Go plugin AND owns the
+# container's public HTTP port via a thin Go wrapper.
 #
 # Upstream `maximhq/bifrost:latest` is statically linked and therefore cannot
 # load .so plugins (Go's plugin system requires dynamic linking — see
 # https://docs.getbifrost.ai/plugins/building-dynamic-binary ).
 #
-# This Dockerfile does three things, in one image, in one CI step:
+# This Dockerfile does four things, in one image, in one CI step:
 #   1. Clone bifrost @ ${BIFROST_VERSION} and build bifrost-http with CGO
 #      enabled and *without* the static-linking flags.
 #   2. Build our plugin .so against the same source tree, so every
 #      transitive dep (sonic, fasthttp, mcp-go, …) is at the exact version
 #      bifrost-http was built with — Go's plugin loader requires that.
-#   3. Produce a minimal Alpine runtime image with both artifacts in place.
+#   3. Build the wrapper binary that fronts both bifrost-http and the
+#      plugin's in-process HTTP server. See gateway/wrapper/main.go
+#      for the rationale. This is the container's entrypoint.
+#   4. Produce a minimal Alpine runtime image with all three artifacts.
 
 # Bifrost releases per-component tags (e.g. transports/v1.5.2, core/v1.5.8).
 # We pin the transports tag because that's what produces bifrost-http; the
@@ -103,6 +107,32 @@ RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
         -o /out/stakgraph-gateway.so .
 
 # ---------------------------------------------------------------------------
+# Stage 2c: build the wrapper binary.
+#
+# The wrapper owns the container's public listener and reverse-proxies
+# `/_plugin/*` to the plugin's in-process HTTP server (loopback:8189)
+# and everything else to bifrost-http (loopback:8181). Why we need
+# it: Bifrost plugins can't register arbitrary HTTP routes through
+# Bifrost's own router, and we want both the dashboard UI and the
+# plugin routes available on a single TLS-terminated host:port for
+# Traefik / k8s ingress. See gateway/wrapper/main.go for the full
+# story.
+#
+# Pure stdlib Go — no CGO, no bifrost dep tree, no plugin loader
+# constraint. Static binary so the runtime image doesn't need any
+# extra libs to run it.
+# ---------------------------------------------------------------------------
+FROM golang:${GO_VERSION}-alpine3.23 AS wrapper-builder
+WORKDIR /wrapper
+COPY wrapper/go.mod ./
+COPY wrapper/main.go ./
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build \
+        -ldflags="-w -s" \
+        -trimpath \
+        -o /out/wrapper .
+
+# ---------------------------------------------------------------------------
 # Stage 3: minimal runtime — Alpine + dynamic libc + ca-certs.
 # ---------------------------------------------------------------------------
 FROM alpine:3.23
@@ -115,16 +145,17 @@ RUN apk add --no-cache musl libgcc ca-certificates wget tini \
 
 WORKDIR /app
 
-COPY --from=builder /out/bifrost-http        /app/bifrost-http
-COPY --from=builder /out/stakgraph-gateway.so /app/plugins/stakgraph-gateway.so
-COPY --from=builder /src/BIFROST_COMMIT       /app/BIFROST_COMMIT
+COPY --from=builder         /out/bifrost-http             /app/bifrost-http
+COPY --from=builder         /out/stakgraph-gateway.so     /app/plugins/stakgraph-gateway.so
+COPY --from=builder         /src/BIFROST_COMMIT           /app/BIFROST_COMMIT
+COPY --from=wrapper-builder /out/wrapper                  /app/wrapper
 
 # Seed config.json into the image. Bifrost reads it on first boot to populate
 # config.db; subsequent boots ignore it. Baking it into the image (rather than
 # bind-mounting from the host) lets us use a docker-managed named volume for
 # /app/data, which avoids macOS virtiofs + SQLite WAL flush issues that
 # silently drop log rows. See plans/bifrost-log-drop-debug.md.
-COPY data/config.json                         /app/data/config.json
+COPY data/config.json                                     /app/data/config.json
 
 # Data dir is where bifrost reads config.json and writes config.db / logs.db.
 # Mount it as a named volume in docker-compose to persist across restarts.
@@ -132,23 +163,37 @@ RUN mkdir -p /app/data/logs && chown -R app:app /app
 
 USER app
 
-# Bifrost defaults: listen on 0.0.0.0 inside the container. Compose maps to 8181.
-ENV APP_HOST=0.0.0.0 \
-    APP_PORT=8080 \
+# Process layout inside the container:
+#   tini (PID 1)
+#     └─ wrapper      :8080 public — proxies / -> bifrost, /_plugin/* -> plugin
+#         └─ bifrost-http   127.0.0.1:8181 (loopback only)
+#             └─ stakgraph-gateway.so (loaded plugin)
+#                 └─ plugin HTTP server  127.0.0.1:8189 (loopback only)
+#
+# APP_HOST is documented for clarity but the wrapper passes -host 127.0.0.1
+# to bifrost-http explicitly, which overrides the env. We keep the env var
+# for parity with upstream Bifrost docs / for anyone who inspects the image.
+ENV APP_HOST=127.0.0.1 \
+    APP_PORT=8181 \
     APP_DIR=/app/data \
     LOG_LEVEL=info \
-    LOG_STYLE=pretty
+    LOG_STYLE=pretty \
+    BIFROST_PLUGIN_PORT=8189
 
 EXPOSE 8080
 VOLUME ["/app/data"]
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q --spider http://127.0.0.1:${APP_PORT}/metrics || exit 1
+# Healthcheck hits the wrapper (the public listener). The wrapper only
+# starts accepting once bifrost is ready, so a 200 here confirms the
+# whole chain is up. /health is unauthenticated even when auth_config
+# is enabled — it's in Bifrost's systemWhitelistedRoutes.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -q --spider http://127.0.0.1:8080/health || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["/app/bifrost-http", \
-     "-app-dir", "/app/data", \
-     "-host", "0.0.0.0", \
-     "-port", "8080", \
-     "-log-level", "info", \
-     "-log-style", "pretty"]
+# The wrapper runs with no flags: its defaults produce exactly the
+# argv we used to pass directly to bifrost-http, plus -host 127.0.0.1
+# so bifrost is loopback-only. To override (e.g. for debugging),
+# `docker run ... /app/wrapper -listen :9090 -bifrost-arg -log-level
+# -bifrost-arg debug` etc.
+CMD ["/app/wrapper"]
