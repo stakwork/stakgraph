@@ -26,7 +26,7 @@ gateway/
 ├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
 ├── Makefile           # local + docker build targets
 ├── Dockerfile         # bifrost-http + plugin .so + wrapper, all in one image
-├── docker-compose.yml # host 8181 -> container 8080, named volume for /app/data
+├── docker-compose.yml # host 8181 -> container 8181, named volume for /app/data
 ├── data/
 │   └── config.json    # seed config: providers, plugin entry, auth_config (baked in)
 ├── internal/          # plugin internals (no public API beyond what main.go re-exports)
@@ -39,16 +39,16 @@ gateway/
 │   └── auth/          # (stub) macaroon parsing + trust registry — coming soon
 └── wrapper/
     ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
-    └── main.go        # PID-1 binary: owns :8080, fronts bifrost + /_plugin/*
+    └── main.go        # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
 ```
 
 ## Process layout inside the container
 
 ```
 tini (PID 1)
- └─ wrapper                 :8080 public  (the only listener exposed by EXPOSE)
+ └─ wrapper                 :8181 public  (the only listener exposed by EXPOSE)
      ├─ proxies /_plugin/*  ─► 127.0.0.1:8189   (plugin's in-process HTTP server)
-     └─ proxies everything  ─► 127.0.0.1:8181   (bifrost-http, loopback only)
+     └─ proxies everything  ─► 127.0.0.1:8080   (bifrost-http, loopback only)
          └─ stakgraph-gateway.so      (the .so loaded by bifrost as a Go plugin)
              └─ HTTP server on 127.0.0.1:8189   (started by Init)
 ```

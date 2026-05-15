@@ -112,7 +112,7 @@ RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
 #
 # The wrapper owns the container's public listener and reverse-proxies
 # `/_plugin/*` to the plugin's in-process HTTP server (loopback:8189)
-# and everything else to bifrost-http (loopback:8181). Why we need
+# and everything else to bifrost-http (loopback:8080). Why we need
 # it: Bifrost plugins can't register arbitrary HTTP routes through
 # Bifrost's own router, and we want both the dashboard UI and the
 # plugin routes available on a single TLS-terminated host:port for
@@ -166,8 +166,8 @@ USER app
 
 # Process layout inside the container:
 #   tini (PID 1)
-#     └─ wrapper      :8080 public — proxies / -> bifrost, /_plugin/* -> plugin
-#         └─ bifrost-http   127.0.0.1:8181 (loopback only)
+#     └─ wrapper      :8181 public — proxies / -> bifrost, /_plugin/* -> plugin
+#         └─ bifrost-http   127.0.0.1:8080 (loopback only)
 #             └─ stakgraph-gateway.so (loaded plugin)
 #                 └─ plugin HTTP server  127.0.0.1:8189 (loopback only)
 #
@@ -175,13 +175,13 @@ USER app
 # to bifrost-http explicitly, which overrides the env. We keep the env var
 # for parity with upstream Bifrost docs / for anyone who inspects the image.
 ENV APP_HOST=127.0.0.1 \
-    APP_PORT=8181 \
+    APP_PORT=8080 \
     APP_DIR=/app/data \
     LOG_LEVEL=info \
     LOG_STYLE=pretty \
     BIFROST_PLUGIN_PORT=8189
 
-EXPOSE 8080
+EXPOSE 8181
 VOLUME ["/app/data"]
 
 # Healthcheck hits the wrapper (the public listener). The wrapper only
@@ -189,7 +189,7 @@ VOLUME ["/app/data"]
 # whole chain is up. /health is unauthenticated even when auth_config
 # is enabled — it's in Bifrost's systemWhitelistedRoutes.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -q --spider http://127.0.0.1:8080/health || exit 1
+    CMD wget -q --spider http://127.0.0.1:8181/health || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
 # The wrapper runs with no flags: its defaults produce exactly the

@@ -3,7 +3,7 @@
 // reverse-proxies traffic to two upstreams running on loopback:
 //
 //	/_plugin/*  ──► 127.0.0.1:8189   (the stakgraph-gateway .so plugin)
-//	everything  ──► 127.0.0.1:8181   (bifrost-http itself)
+//	everything  ──► 127.0.0.1:8080   (bifrost-http itself)
 //
 // Why a wrapper exists
 // --------------------
@@ -31,7 +31,7 @@
 // ----------------
 // Wrapper:
 //  1. Starts bifrost-http child process.
-//  2. Polls 127.0.0.1:8181 until /health responds (bifrost ready).
+//  2. Polls 127.0.0.1:8080 until /health responds (bifrost ready).
 //  3. Polls 127.0.0.1:8189 until /_plugin/health responds (plugin
 //     ready — skipped if plugin server didn't start, e.g. dev mode
 //     without BIFROST_PROVISIONING_TOKEN).
@@ -61,14 +61,14 @@ import (
 
 const (
 	// defaultPublicAddr is the address the wrapper binds for incoming
-	// public traffic. Matches Bifrost's historical default of :8080
-	// so docker-compose port mappings don't change.
-	defaultPublicAddr = ":8080"
+	// public traffic. 8181 matches Hive's DEFAULT_BIFROST_PORT and the
+	// historical port the MCP tests / smoke scripts hit.
+	defaultPublicAddr = ":8181"
 
 	// bifrostUpstream is where bifrost-http is configured to listen
 	// (loopback only — see Dockerfile's CMD). The wrapper proxies
 	// almost all traffic here.
-	bifrostUpstream = "http://127.0.0.1:8181"
+	bifrostUpstream = "http://127.0.0.1:8080"
 
 	// pluginUpstream is where the .so plugin's in-process HTTP server
 	// listens. The wrapper routes `/_plugin/*` here.
@@ -234,7 +234,7 @@ func defaultBifrostArgs() []string {
 	return []string{
 		"-app-dir", "/app/data",
 		"-host", "127.0.0.1",
-		"-port", "8181",
+		"-port", "8080",
 		"-log-level", "info",
 		"-log-style", "pretty",
 	}
