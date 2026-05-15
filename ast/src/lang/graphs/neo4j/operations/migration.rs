@@ -83,6 +83,10 @@ impl Neo4jGraph {
         }
 
         // Phase 2: chunked detach-delete.
+        // `connection.run` is the fire-and-forget auto-commit variant; the
+        // chunked delete returns no rows, so there is nothing to stream.
+        // (Crucially, this is NOT `start_txn` — `CALL { ... } IN TRANSACTIONS`
+        // is rejected inside an explicit transaction.)
         let delete_files = file_paths.to_vec();
         with_transient_retry_reconnect(self, "remove_nodes_by_files.delete", || {
             let delete_files = delete_files.clone();
@@ -94,10 +98,7 @@ impl Neo4jGraph {
                 for (k, v) in params.value.iter() {
                     query_obj = query_obj.param(k.value.as_str(), v.clone());
                 }
-                // Drain the result stream to ensure the server-side query
-                // actually completes before we return success.
-                let mut result = connection.execute(query_obj).await?;
-                while result.next().await?.is_some() {}
+                connection.run(query_obj).await?;
                 Ok::<(), shared::Error>(())
             }
         })
