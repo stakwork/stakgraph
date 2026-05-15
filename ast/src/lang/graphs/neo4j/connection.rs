@@ -4,34 +4,46 @@ use shared::{Error, Result};
 use crate::lang::graphs::{
     executor::{execute_batch, execute_queries_simple},
     migration::clear_graph_query,
+    Neo4jConfig,
 };
 
 use crate::lang::Neo4jGraph;
 pub struct Neo4jConnectionManager;
 
 impl Neo4jConnectionManager {
-    pub async fn initialize(
-        uri: &str,
-        username: &str,
-        password: &str,
-        database: &str,
-    ) -> Result<Neo4jConnection> {
-        // info!("Connecting to Neo4j at {}", uri);
+    /// Build a `neo4rs::Graph` (a pooled bolt connection handle).
+    ///
+    /// IMPORTANT: previously this ignored `Neo4jConfig::max_connections` and
+    /// `fetch_size`, so the entire service ran on neo4rs's default pool. In
+    /// production this manifested as a single long-lived bolt socket carrying
+    /// every query — when that socket got into a bad state (idle middlebox,
+    /// server-side bolt thread stuck, etc.) every subsequent query hung until
+    /// our tokio per-attempt timeout fired, and retries reused the same wedged
+    /// socket. Configuring an explicit pool size means a wedged socket can't
+    /// take down the whole service.
+    pub async fn initialize(cfg: &Neo4jConfig) -> Result<Neo4jConnection> {
+        let max_connections = std::env::var("NEO4J_MAX_CONNECTIONS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(cfg.max_connections)
+            .max(1);
+        let fetch_size = std::env::var("NEO4J_FETCH_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(500);
+
         let config = ConfigBuilder::new()
-            .uri(uri)
-            .user(username)
-            .password(password)
-            .db(database)
+            .uri(&cfg.uri)
+            .user(&cfg.username)
+            .password(&cfg.password)
+            .db(cfg.database.as_str())
+            .max_connections(max_connections)
+            .fetch_size(fetch_size)
             .build()?;
 
-        match Neo4jConnection::connect(config).await {
-            Ok(connection) => {
-                // info!("Successfully connected to Neo4j");
-                // *conn_guard = Some(Arc::new(connection));
-                Ok(connection)
-            }
-            Err(e) => Err(Error::dependency(format!("Failed to connect to Neo4j: {e}"))),
-        }
+        Neo4jConnection::connect(config)
+            .await
+            .map_err(|e| Error::dependency(format!("Failed to connect to Neo4j: {e}")))
     }
 }
 
