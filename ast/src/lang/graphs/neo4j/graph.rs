@@ -88,13 +88,7 @@ impl Neo4jGraph {
         // info!("Connecting to Neo4j database at {}", self.config.uri);
 
         //global connection manager
-        let conn = Neo4jConnectionManager::initialize(
-            &self.config.uri,
-            &self.config.username,
-            &self.config.password,
-            &self.config.database,
-        )
-        .await?;
+        let conn = Neo4jConnectionManager::initialize(&self.config).await?;
 
         *self.connection.lock().await = Some(conn);
         // info!("Successfully connected to Neo4j database");
@@ -126,6 +120,15 @@ impl Neo4jGraph {
             .await
             .clone()
             .context("Neo4j Connection is not established")
+    }
+
+    /// Drop the cached `neo4rs::Graph` and rebuild it. Used by the retry layer
+    /// when an attempt times out — the underlying bolt socket(s) may be wedged,
+    /// so reusing the same `Graph` would make every retry hang the same way.
+    pub async fn force_reconnect(&self) -> Result<Neo4jConnection> {
+        warn!("[neo4j] forcing reconnect (cached Graph will be dropped)");
+        *self.connection.lock().await = None;
+        self.ensure_connected().await
     }
 
     pub async fn add_node_async(&self, node_type: NodeType, node_data: NodeData) -> Result<()> {

@@ -1,6 +1,6 @@
 use crate::lang::graphs::helpers::MutedNodeIdentifier;
 use crate::lang::{
-    graphs::{helpers::*, queries::*},
+    graphs::{helpers::*, queries::*, Neo4jGraph},
     Edge, NodeData, NodeType,
 };
 use neo4rs::{query, BoltMap, BoltType, Graph as Neo4jConnection, Query};
@@ -30,7 +30,37 @@ fn is_transient_neo4j_error(err: &shared::Error) -> bool {
 /// surface as retryable failures instead of hanging the bolt connection.
 /// Defaults: 5 attempts, 120s per-attempt timeout. Tunable via
 /// `NEO4J_RETRY_ATTEMPTS` and `NEO4J_ATTEMPT_TIMEOUT_SECS` env vars.
-pub async fn with_transient_retry<F, Fut, T>(label: &str, mut op: F) -> Result<T>
+pub async fn with_transient_retry<F, Fut, T>(label: &str, op: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    with_transient_retry_inner(None, label, op).await
+}
+
+/// Same as `with_transient_retry`, but when an attempt times out we drop the
+/// cached `neo4rs::Graph` on the provided `Neo4jGraph` so the next attempt
+/// builds a fresh bolt connection pool. Without this, a single wedged bolt
+/// socket inside neo4rs's pool can cause every retry to hang the same way
+/// (we have seen this happen in production: one long-lived bolt connection
+/// stops responding and the per-attempt timeout fires for all N retries).
+pub async fn with_transient_retry_reconnect<F, Fut, T>(
+    graph: &Neo4jGraph,
+    label: &str,
+    op: F,
+) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    with_transient_retry_inner(Some(graph), label, op).await
+}
+
+async fn with_transient_retry_inner<F, Fut, T>(
+    graph: Option<&Neo4jGraph>,
+    label: &str,
+    mut op: F,
+) -> Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T>>,
@@ -71,6 +101,16 @@ where
                     "[neo4j-retry] attempt timed out after {}s on '{}' (attempt {}/{}), retrying in {}ms",
                     attempt_timeout_secs, label, attempt, max_attempts, backoff_ms
                 );
+                // The bolt socket(s) used by the in-flight future may be stuck.
+                // Reset the cached pool so the next attempt gets fresh sockets.
+                if let Some(g) = graph {
+                    if let Err(reconnect_err) = g.force_reconnect().await {
+                        warn!(
+                            "[neo4j-retry] force_reconnect after timeout failed on '{}': {}",
+                            label, reconnect_err
+                        );
+                    }
+                }
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                 continue;
             }

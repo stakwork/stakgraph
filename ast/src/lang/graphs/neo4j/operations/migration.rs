@@ -1,5 +1,5 @@
 use crate::lang::graphs::{
-    executor::{with_transient_retry, TransactionManager},
+    executor::{with_transient_retry_reconnect, TransactionManager},
     helpers::{boltmap_insert_list, boltmap_insert_str},
     queries::*,
     Edge, EdgeType, Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
@@ -31,26 +31,79 @@ impl Neo4jGraph {
         if file_paths.is_empty() {
             return Ok(0);
         }
-        let connection = self.ensure_connected().await?;
-        let (query_str, params) = remove_nodes_by_files_query(file_paths);
-        with_transient_retry("remove_nodes_by_files", || {
-            let query_str = query_str.clone();
-            let params = params.clone();
-            let connection = connection.clone();
+
+        // Two-phase delete:
+        //   1. count the matching nodes (cheap, uses `data_bank_file_index`)
+        //   2. detach-delete them via `CALL { ... } IN TRANSACTIONS`, which
+        //      commits in chunks and releases locks between chunks instead of
+        //      acquiring write locks for every node + every relationship in
+        //      one giant transaction.
+        //
+        // Why this matters: a previous version ran a single
+        //   MATCH (n:Data_Bank) WHERE n.file IN $files DETACH DELETE n RETURN count(n)
+        // which, for a modified-file set with high-degree nodes (e.g. a `File`
+        // with thousands of CONTAINS rels), produces a lock set large enough
+        // to stall on internal locking or hit the bolt-stream timeout. With
+        // CALL { ... } IN TRANSACTIONS each chunk commits independently, so
+        // worst case we lose progress on the current chunk on retry rather
+        // than blocking for minutes on the whole delete.
+        //
+        // Note: CALL { ... } IN TRANSACTIONS cannot run inside an explicit
+        // transaction — we deliberately use `connection.execute` (auto-commit)
+        // here, NOT `start_txn`.
+
+        let chunk_size: u32 = std::env::var("NEO4J_DELETE_CHUNK_ROWS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1000);
+
+        // Phase 1: count.
+        let count_files = file_paths.to_vec();
+        let count = with_transient_retry_reconnect(self, "remove_nodes_by_files.count", || {
+            let count_files = count_files.clone();
             async move {
-                let mut query_obj = query(&query_str);
+                let connection = self.ensure_connected().await?;
+                let (q, params) = count_nodes_by_files_query(&count_files);
+                let mut query_obj = query(&q);
                 for (k, v) in params.value.iter() {
                     query_obj = query_obj.param(k.value.as_str(), v.clone());
                 }
                 let mut result = connection.execute(query_obj).await?;
                 if let Some(row) = result.next().await? {
-                    Ok(row.get::<u32>("deleted").unwrap_or(0))
+                    Ok(row.get::<u32>("total").unwrap_or(0))
                 } else {
-                    Ok(0)
+                    Ok(0u32)
                 }
             }
         })
-        .await
+        .await?;
+
+        if count == 0 {
+            return Ok(0);
+        }
+
+        // Phase 2: chunked detach-delete.
+        let delete_files = file_paths.to_vec();
+        with_transient_retry_reconnect(self, "remove_nodes_by_files.delete", || {
+            let delete_files = delete_files.clone();
+            async move {
+                let connection = self.ensure_connected().await?;
+                let (q, params) =
+                    remove_nodes_by_files_chunked_query(&delete_files, chunk_size);
+                let mut query_obj = query(&q);
+                for (k, v) in params.value.iter() {
+                    query_obj = query_obj.param(k.value.as_str(), v.clone());
+                }
+                // Drain the result stream to ensure the server-side query
+                // actually completes before we return success.
+                let mut result = connection.execute(query_obj).await?;
+                while result.next().await?.is_some() {}
+                Ok::<(), shared::Error>(())
+            }
+        })
+        .await?;
+
+        Ok(count)
     }
 
     pub async fn update_repository_hash(&self, repo_url: &str, new_hash: &str) -> Result<()> {
@@ -261,6 +314,9 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
+/// Single-statement detach-delete. Kept for callers that explicitly want the
+/// all-in-one-transaction semantics; the incremental sync path prefers the
+/// chunked variant below to avoid massive lock sets.
 pub fn remove_nodes_by_files_query(file_paths: &[String]) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     let files: Vec<neo4rs::BoltType> = file_paths
@@ -277,6 +333,58 @@ pub fn remove_nodes_by_files_query(file_paths: &[String]) -> (String, BoltMap) {
     ";
 
     (query.to_string(), params)
+}
+
+/// Count `:Data_Bank` nodes belonging to the given file set. Uses the range
+/// index `data_bank_file_index` on `:Data_Bank(file)`, so it's cheap even for
+/// large file lists.
+pub fn count_nodes_by_files_query(file_paths: &[String]) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    let files: Vec<neo4rs::BoltType> = file_paths
+        .iter()
+        .map(|p| neo4rs::BoltType::String(p.clone().into()))
+        .collect();
+    boltmap_insert_list(&mut params, "files", files);
+
+    let query = "
+        MATCH (n:Data_Bank)
+        WHERE n.file IN $files
+        RETURN count(n) AS total
+    ";
+
+    (query.to_string(), params)
+}
+
+/// Chunked detach-delete using `CALL { ... } IN TRANSACTIONS`. Each chunk
+/// commits independently, so a single failing chunk does not roll back the
+/// whole delete and locks are released between chunks. MUST be run as an
+/// auto-commit query (`connection.execute` / `connection.run`), NOT inside
+/// `start_txn` — Neo4j rejects `CALL IN TRANSACTIONS` inside an explicit txn.
+pub fn remove_nodes_by_files_chunked_query(
+    file_paths: &[String],
+    chunk_rows: u32,
+) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    let files: Vec<neo4rs::BoltType> = file_paths
+        .iter()
+        .map(|p| neo4rs::BoltType::String(p.clone().into()))
+        .collect();
+    boltmap_insert_list(&mut params, "files", files);
+
+    // `chunk_rows` is interpolated rather than passed as a bolt parameter
+    // because Neo4j does not accept parameters in the `OF $x ROWS` clause.
+    // It is clamped + sourced from env / a typed `u32`, so there is no
+    // injection vector.
+    let chunk_rows = chunk_rows.max(1);
+    let query = format!(
+        "
+        MATCH (n:Data_Bank)
+        WHERE n.file IN $files
+        CALL {{ WITH n DETACH DELETE n }} IN TRANSACTIONS OF {chunk_rows} ROWS
+        "
+    );
+
+    (query, params)
 }
 
 pub fn update_repository_hash_query(repo_url: &str, new_hash: &str) -> (String, BoltMap) {
