@@ -1,0 +1,13 @@
+# how to herd your agent flock
+
+As LLMs become increasingly capable, intelligent, and autonomous, its becoming more common to run massive swarms of agents in the cloud. This enables agents to try lots of options in parallel, come up with their own plans and prototypes, and give humans the opportunity to do what we're best at: asking the right questions about WHAT we are actually building and WHY.
+
+But as anyone who keeps up with this stuff has noticed lately, running agents across a wide range of environments can lead to critical infra meltdowns and runaway costs. Managing permissions, capabilities, and budgets through a central hub either breaks down in practice, or hamstrings the agents and makes them less useful. In our cloud coding platform Hive, we manage this through a federated authority system that puts organization and people at the center, not LLMs.
+
+### How it works
+
+Work in Hive is done within the context of a Workspace (think a "team" or "product"), each which runs its own LLM gateway, through which all tokens flow. Whether an agent is using Claude, GPT, Gemini, or any other model, it derives its permissions and capabilities from a specific human in the hive ecosystem. Every single agent action or sub-agent workflow can be tied back to a human who authorized it in the first place! This is accomplished through macaroon tokens, that have nested signatures: at the top level, an organization signs off on the work that a human is allowed to do. The human then signs off on the capabilities of an agent. The agent itself can attenuate these capabilities for a sub-agent (unable to broaden the scope of what it is allowed to do). In this way, every action taken by an agent is cryptographically traceable back to the individual contributor in an organzation (or across a few organizations using multisig!)
+
+Agent budgets are also cryptographically stamped into the macaroon itself, so there is no possible way an agent can outlive the scope of what it was assigned to do. Every file read, knowledge base query, git commit, sub-agent invocation, etc can be logged, hashed, and linked directly back to the organization, human, permission set, and session in which it lives. An agent registry per workspace allows organization leaders to explicitly define the capabilities that each agent and human in the system has.
+
+This is how we keep our ever-growing flock of agents in line. It allows us to work in a completely flat team structure, where access is delegated up-front, and everyone knows exactly what they are able to do.
