@@ -21,13 +21,22 @@ expects.
 
 ```
 gateway/
-├── main.go            # plugin: Init/GetName/*Hook/Cleanup + /_plugin/* HTTP server
+├── main.go            # plugin entry points (Init, GetName, Cleanup, *Hook)
+│                      #   one-line delegations into internal/ — auditable at a glance
 ├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
 ├── Makefile           # local + docker build targets
 ├── Dockerfile         # bifrost-http + plugin .so + wrapper, all in one image
 ├── docker-compose.yml # host 8181 -> container 8080, named volume for /app/data
 ├── data/
 │   └── config.json    # seed config: providers, plugin entry, auth_config (baked in)
+├── internal/          # plugin internals (no public API beyond what main.go re-exports)
+│   ├── pluginlog/     # structured-ish stderr logging shim
+│   ├── env/           # typed env-var readers + defaults
+│   ├── pluginctx/     # typed wrappers around BifrostContext (dims, timing, request-id)
+│   ├── hooks/         # bodies of every plugin entry point, one file per hook
+│   ├── adminapi/      # /_plugin/* HTTP server (auth, credentials, health, …)
+│   ├── ratelimit/     # (stub) per-(agent|user|session) rate limits — coming soon
+│   └── auth/          # (stub) macaroon parsing + trust registry — coming soon
 └── wrapper/
     ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
     └── main.go        # PID-1 binary: owns :8080, fronts bifrost + /_plugin/*

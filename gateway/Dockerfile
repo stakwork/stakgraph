@@ -99,6 +99,7 @@ RUN ldd /out/bifrost-http | grep -q 'musl' && echo "OK: dynamic" \
 WORKDIR /plugin
 COPY go.mod ./
 COPY main.go ./
+COPY internal/ ./internal/
 RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
  && go mod tidy \
  && CGO_ENABLED=1 GOOS=linux \
