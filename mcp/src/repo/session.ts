@@ -53,6 +53,16 @@ function getSessionFile(sessionId: string): string {
   return path.join(sessionDir, `${sessionId}.jsonl`);
 }
 
+export function getSessionSidecarFile(sessionId: string, suffix: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}${suffix}`);
+}
+
 /**
  * Create a new session and return its ID.
  * If an ID is provided, use it; otherwise generate a random UUID.
@@ -193,6 +203,10 @@ export function deleteSession(sessionId: string): void {
   const annPath = getAnnotationsFile(sessionId);
   if (existsSync(annPath)) {
     unlinkSync(annPath);
+  }
+  const contextPath = getSessionSidecarFile(sessionId, ".context.json");
+  if (existsSync(contextPath)) {
+    unlinkSync(contextPath);
   }
 }
 
@@ -356,6 +370,8 @@ export function pruneExpiredSessions(): number {
         if (existsSync(metaPath)) unlinkSync(metaPath);
         const provPath = filePath.replace(/\.jsonl$/, ".provenance.jsonl");
         if (existsSync(provPath)) unlinkSync(provPath);
+        const contextPath = filePath.replace(/\.jsonl$/, ".context.json");
+        if (existsSync(contextPath)) unlinkSync(contextPath);
         pruned++;
       }
     } catch {

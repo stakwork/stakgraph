@@ -44,6 +44,10 @@ import {
   StepMeta,
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
+import {
+  getSessionContextHintMessage,
+  updateSessionOverflowContext,
+} from "./context.js";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
@@ -236,6 +240,7 @@ interface PreparedAgent {
   turnIndex: number;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
+  contextPressureDetected: boolean;
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -406,12 +411,19 @@ Apply the guidance from each skill throughout your response.`;
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
   let hasSystemTurn = false;
+  let contextPressureDetected = false;
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
       previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
+      if (!opts.isolatedContext) {
+        const contextHint = getSessionContextHintMessage(sessionId);
+        if (contextHint) {
+          previousMessages = [contextHint, ...previousMessages];
+        }
+      }
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
       hasSystemTurn = true;
@@ -458,6 +470,9 @@ Apply the guidance from each skill throughout your response.`;
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
       const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
+      if (truncated !== messages) {
+        contextPressureDetected = true;
+      }
       if (truncated === messages) return undefined;
       return { messages: truncated };
     },
@@ -487,6 +502,7 @@ Apply the guidance from each skill throughout your response.`;
     turnIndex,
     provenanceCollector,
     abortSignal: opts.abortSignal,
+    contextPressureDetected,
   };
 }
 
@@ -526,6 +542,7 @@ export async function get_context(
     startTime,
     stepMetas,
     provenanceCollector,
+    contextPressureDetected,
   } = prepared;
   const { schema } = opts;
 
@@ -566,6 +583,9 @@ export async function get_context(
     appendStepMeta(sessionId, stepMetas);
     if (provenanceCollector.entries.length > 0) {
       appendSearchProvenance(sessionId, provenanceCollector.entries);
+    }
+    if (contextPressureDetected) {
+      await updateSessionOverflowContext(sessionId, newMessages, model);
     }
 
     await appendSessionEnd(sessionId, {
@@ -631,6 +651,7 @@ export async function stream_context(
     startTime,
     stepMetas,
     provenanceCollector,
+    contextPressureDetected,
   } = prepared;
   const streamResult = await prepared.agent.stream(buildCallParams(prepared));
 
@@ -652,6 +673,9 @@ export async function stream_context(
         appendStepMeta(sessionId, stepMetas);
         if (provenanceCollector.entries.length > 0) {
           appendSearchProvenance(sessionId, provenanceCollector.entries);
+        }
+        if (contextPressureDetected) {
+          await updateSessionOverflowContext(sessionId, newMessages, prepared.model);
         }
         const stepUsage = stepMetas.length > 0
           ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
