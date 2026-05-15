@@ -12,6 +12,28 @@
 > VK provisioning, per-run enforcement, plugin architecture, Redis
 > hot state, rollout — stands as written. Read this doc first, then
 > read the identity doc for what changes at the signature layer.
+>
+> **Deltas applied by the identity doc** (search for these terms here
+> and read the identity doc's section of the same name for the current
+> shape):
+>
+> - "daily root macaroon" → **deleted.** Each invocation gets its own
+>   freshly-signed root. What v2 calls a daily root is just an
+>   invocation with longer caveats.
+> - "auth service" → **renamed to "Hive macaroon issuer"** and
+>   rescoped. Endpoints renamed (see identity doc, "Issuer endpoints").
+> - "HMAC root signing key" → **deleted.** The plugin holds no signing
+>   key. Macaroons are rooted in the org's secp256k1 key, with
+>   per-user Ed25519 signatures over invocation caveats.
+> - `/macaroons/attenuate` (spawner-called) → **renamed to
+>   `/macaroons/issue`** with a new body shape (see identity doc).
+>   Parent-to-child attenuation in the running agent is unchanged
+>   (local HMAC, no network).
+>
+> **Agent defaults** referenced as `AGENT_DEFAULTS[…]` below now live
+> in the Hive `AgentDefinition` table per
+> [`agent-registry.md`](./agent-registry.md). Open question #2 is
+> resolved by that doc.
 
 ## The organizing principle
 
@@ -314,6 +336,11 @@ how across sub-agents?"**
 
 ### Daily root macaroon
 
+> **Superseded by the identity doc.** Each invocation gets its own
+> user-signed root; there is no separate daily-root cryptographic
+> object. The text below describes v2's original shape and is kept
+> for context.
+
 Minted at login (or session refresh). 24h rolling TTL. Held server-side
 by Hive, keyed by alice's session:
 
@@ -573,13 +600,19 @@ agent_budgets: {}
 | Failure | Behavior |
 |---|---|
 | Redis down | **Fail closed** for macaroon checks. **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
-| Auth service down | Existing daily roots and invocation macaroons keep working until they expire. No new spawns possible. |
+| Hive macaroon issuer down | Existing invocation macaroons keep working until they expire. No new spawns possible. |
 | HMAC key rotation needed | Hot rotation via `kid` caveat (multi-key verifier). Implement when first rotation is needed; not in v1. |
 | Plugin panic | Fail-closed: reject the request. |
 
 ---
 
-## Auth service (issuer)
+## Hive macaroon issuer
+
+> Renamed from "auth service" by the identity doc, and rescoped. The
+> v2 endpoint set (`/macaroons/login`, `/macaroons/attenuate`,
+> `/macaroons/revoke`) is replaced by the set in the identity doc's
+> "Issuer endpoints" section (`/macaroons/issue`, `/macaroons/revoke`).
+> The text below describes v2's original shape and is kept for context.
 
 A small service exposing three endpoints. Lives in Hive's core (or as a
 sidecar to it). The only place besides plugins that holds the HMAC root
@@ -622,7 +655,10 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
    - Sends request to Hive's chat BFF with session cookie.
 
 2. HIVE CHAT BFF (spawner)
-   a. Looks up alice's daily root macaroon from her session.
+   a. Looks up alice's session.
+      (Pre-identity-doc: looked up alice's daily root macaroon held
+       server-side. Post-identity-doc: each invocation is freshly
+       signed; no daily root object exists.)
    b. Computes per-run budget:
         agent default for coder:          $5.00 / 100 steps
         alice's daily $ remaining:        $812.00  (info from Bifrost's customer state)
@@ -630,6 +666,9 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
    c. POST /macaroons/attenuate with caveats:
         agents=[coder], workspace=w1, run_id=r_01H..,
         max_cost_usd=5.00, max_steps=100, exp=now+10m
+      (Post-identity-doc: POST /macaroons/issue with
+        {org_id, user_id, workspace, agent, run_id, override?}
+       and the issuer resolves agent defaults from the registry.)
    d. Receives invocation macaroon M_inv.
    e. Looks up Hive's secret store:
         BIFROST_VK = vks[w1][u_alice]   = "sk-bf-…"
@@ -809,8 +848,9 @@ Each entity that spawns an agent is responsible for:
    }
    ```
 
-4. **Calling `/macaroons/attenuate`** with the computed budget +
-   workspace/agent/run_id caveats + 10m exp.
+4. **Calling `/macaroons/issue`** (renamed from
+   `/macaroons/attenuate` by the identity doc) with the computed
+   budget + workspace/agent/run_id caveats + 10m exp.
 
 5. **Spawning the process** with `BIFROST_VK`, `LLM_GATEWAY_URL`, the
    macaroon, and the dim values as env / args.
@@ -826,9 +866,14 @@ owner whose schedule triggered them. Clean and uniform.
 
 | Credential | Sensitivity | Where it lives | Blast radius if leaked |
 |---|---|---|---|
-| HMAC root signing key | **Crown jewel** | Auth service + plugin only | Forge any macaroon for any user |
+| HMAC root signing key | **Crown jewel** | Hive macaroon issuer + plugin only | Forge any macaroon for any user |
 | Daily root macaroon | High | Hive session store | All of alice's permissions for ≤24h, IF attacker also has a VK |
 | Invocation macaroon | Low | Agent process, run lifetime | One run, ≤ remaining run budget, ≤10m, IF attacker has the VK |
+
+> The "HMAC root signing key" and "Daily root macaroon" rows are
+> superseded by the three-row threat model in the identity doc
+> (org root key / user key / invocation signature). Kept here for
+> readers tracing the v2 design.
 | Sub-agent macaroon | Very low | Sub-process | Narrower scope, smaller cap, shorter exp |
 | User VK (`sk-bf-…`) | Low (without macaroon: useless) | Hive secret store + spawned agent env | After step 8: useless alone. Pre-step-8: that user's daily budget in that one workspace. |
 | Bifrost admin key | High | Ops only | Reconfigure VKs, change Customer budgets |
@@ -838,8 +883,8 @@ owner whose schedule triggered them. Clean and uniform.
 plugin requires a matching macaroon). A macaroon alone is useless (no
 VK → Bifrost auth rejects). Both must come from the same user, and the
 plugin cross-checks. **The HMAC root key is the only high-blast-radius
-secret, and it lives in the fewest places (auth service + plugin
-processes).**
+secret, and it lives in the fewest places (Hive macaroon issuer +
+  plugin processes).**
 
 ---
 
@@ -884,12 +929,12 @@ boilerplate is enough. The "spend per user" dashboard is now live.
   a new `/api/stakgraph/runs/:id/kill` endpoint).
 - Watch for a week of real data; tune.
 
-**Step 6: Build the auth service.** Implement `/macaroons/login`,
-`/macaroons/attenuate`, `/macaroons/revoke`. Hive issues daily root
-macaroons to logged-in sessions. Spawners call `/macaroons/attenuate`
-and stamp `x-macaroon` on outgoing LLM calls. Plugin **logs but does
-not enforce** macaroon presence — observability mode. Watch coverage
-climb as callers participate.
+**Step 6: Build the Hive macaroon issuer.** Implement
+`/macaroons/issue` and `/macaroons/revoke` per the identity doc.
+Spawners call `/macaroons/issue` per spawn and stamp `x-macaroon` on
+outgoing LLM calls. Plugin **logs but does not enforce** macaroon
+presence — observability mode. Watch coverage climb as callers
+participate.
 
 **Step 7: Plugin v2 (macaroon enforcement).** Plugin now:
 - verifies macaroons (HMAC + caveats);
@@ -932,8 +977,8 @@ LLM nodes, that's the schedule risk in the whole plan. Mitigation: a
 thin per-engine sidecar that injects headers in front of Bifrost.
 Doesn't block the rest of the rollout.
 
-**Auth service is in the critical path.** Every agent spawn calls
-`/macaroons/attenuate`. If auth service is down, spawns break.
+**Hive macaroon issuer is in the critical path.** Every agent spawn
+calls `/macaroons/issue`. If the issuer is down, spawns break.
 Mitigation: stateless service, multiple replicas, health-gated load
 balancer. Plugin and Bifrost don't depend on it being up; only
 spawning does.
@@ -974,10 +1019,12 @@ different failure surface).
 1. **HMAC root key storage.** Plain env var for v1, secrets service
    for v2. Driven by infra readiness.
 
-2. **Per-workspace `AGENT_DEFAULTS` map location.** Shared Hive
-   library? Auth-service endpoint (`GET /agents/defaults`)?
-   Per-spawner copy? Start with a shared TypeScript constant in Hive;
-   centralize when inconsistency bites.
+2. **Per-workspace `AGENT_DEFAULTS` map location.** **Resolved by
+   [`agent-registry.md`](./agent-registry.md):** defaults live in the
+   Hive `AgentDefinition` table, org-scoped, owned by the Hive
+   macaroon issuer. Spawners pass an agent name to `/macaroons/issue`
+   and the issuer reads defaults from the registry. There is no
+   shared TypeScript constant.
 
 3. **Sub-agent budget split policy.** Convention: child gets at most
    `parent.remaining * 0.5`; keep at least `parent.cap * 0.25` in
@@ -990,7 +1037,7 @@ different failure surface).
    prerequisite for org-level chat features.**
 
 5. **Macaroon library choice.** `gopkg.in/macaroon.v2` for the Go
-   plugin and auth service. TypeScript needs an implementation
+   plugin and Hive macaroon issuer. TypeScript needs an implementation
    (consumer-side: parsing root + attenuating). Wire format is small;
    compatibility-tested across both.
 
@@ -1088,4 +1135,4 @@ different failure surface).
 | Custom governance endpoints | Plugin claims `/api/stakgraph/*` via `HTTPTransportPreHook` short-circuit |
 | Default principal for unattributed agents | Workspace owner's `user_id` |
 | Caller obligation | Set `BIFROST_VK` + `LLM_GATEWAY_URL` from spawner; ship `x-bf-dim-*` + `x-macaroon` |
-| Spawner obligation | Resolve principal → lookup VK → call `/macaroons/attenuate` → inject env into spawn |
+| Spawner obligation | Resolve principal → lookup VK → call `/macaroons/issue` (identity doc) → inject env into spawn |

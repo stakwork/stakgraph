@@ -249,6 +249,62 @@ sees, and **the secp verify can be cached** by `(org_id,
 user_authorization.nonce)` because user_authorization changes far less
 often than per-invocation.
 
+## Issuer endpoints
+
+The Hive macaroon issuer replaces v2's auth service. The endpoint
+surface changes to match the new model: spawners no longer attenuate
+a server-side daily root, they request a freshly-signed invocation.
+
+```
+POST /macaroons/issue
+  body:    {
+    org_id:        "org_acme",
+    user_id:       "u_alice",
+    workspace:     "w1",
+    agent:         "coder",                   ← name from the agent registry
+    run_id:        "r_01H...",
+    override?:     {                          ← optional caller narrowing
+      max_cost_usd?:    number,
+      max_steps?:       number,
+      max_wallclock_s?: number,
+      exp?:             iso8601,
+    },
+  }
+  returns: complete invocation macaroon (the wire shape in "The
+           signature chain on the wire" above)
+  behavior:
+    1. Resolve agent defaults from the agent registry (see
+       agent-registry.md). Reject if the agent is unknown or
+       disabled for org_id.
+    2. Apply override fields as min() narrowings on the defaults;
+       the issuer never widens.
+    3. In phase 1 (custodial): sign user_authorization with the
+       org's custodial key, sign invocation with the user's
+       custodial key, return the assembled macaroon.
+    4. In phase 2+: hold a pre-signed user_authorization for the
+       (org, user) pair; request an invocation signature from the
+       user's device-held key; assemble and return.
+
+POST /macaroons/revoke
+  body:    { org_id, nonce } | { org_id, user_id }
+  effects: writes revoke:<nonce> or revoke_user_before:<user_id>
+           to every relevant workspace's Redis (fan-out).
+  auth:    requires org admin authorization in phase 1;
+           requires an org-root signature in phase 3.
+```
+
+v2's `POST /macaroons/login` and `POST /macaroons/attenuate`
+endpoints are **deleted.** Login produces a Hive session as it always
+did; the session no longer holds a daily root macaroon. Spawners that
+v2 documented as calling `/macaroons/attenuate` call `/macaroons/issue`
+instead — the difference is that the issuer is producing a new
+user-signed invocation rather than attenuating a server-held root.
+
+Parent-to-child attenuation **inside a running agent** is unchanged
+from v2: the parent attenuates its own macaroon locally with the
+HMAC chain, no network call. Only the issuance of a brand-new
+invocation root touches the issuer.
+
 ## Trust registration
 
 A swarm operator decides which orgs that swarm trusts. There is no
@@ -285,6 +341,32 @@ time: even if Org A's user_authorization permits $1000 invocations,
 if Swarm B's local trust policy caps Org A at $100, the invocation is
 bounded by $100 on Swarm B. The min of all caveats and policies along
 the chain wins.
+
+### Two separate auth concerns
+
+It's worth being explicit about a distinction that's easy to conflate:
+
+- **Transport auth on the trust-registry admin surface** — who is
+  allowed to mutate the swarm's trust registry over HTTP. This is a
+  swarm-operator concern, not an org concern. In the sphinx-swarm
+  integration this reuses the existing per-swarm shared secret
+  (`stakwork_secret` in boltwall); in non-swarm deployments it's any
+  bearer the operator configures. The plugin doesn't care which.
+- **Cryptographic identity of the org being registered** — the
+  secp256k1 pubkey (or multisig policy) that signs `user_authorization`
+  envelopes. This is the org's concern and is what every macaroon
+  ultimately verifies against.
+
+A swarm operator with the transport-auth secret can register an org's
+pubkey; they cannot *forge* that org's signatures. Conversely, an org
+that holds its root key cannot mutate a swarm's trust registry over
+HTTP without also holding the swarm's transport-auth secret. The two
+authorities are independent, which is correct: the swarm decides
+"do I trust this org," the org decides "am I the org I claim to be."
+
+How a swarm sources its trust registry (env-var seed, admin-API call,
+persisted state across restarts) is operator policy; see
+`phases/phase-2-trust-registry.md`.
 
 ## Revocation
 
@@ -411,15 +493,16 @@ v2 stands as written for everything **except**:
   the trust registry (org pubkeys) plus the user pubkeys carried in
   each macaroon.
 
-- v2's "Auth service" — **rescope.** What v2 calls the auth service
-  is the Hive subsystem that issued daily root macaroons and
-  attenuations. That subsystem is renamed **Hive Macaroon Issuer**
-  and its job changes: in phase 1 (custodial) it produces signatures
-  on behalf of the org and the user; in phase 2 it produces signatures
-  only on behalf of the org (and only for the user_authorization
-  envelope, not invocations); in phase 3 it produces no signatures
-  on its own — it orchestrates signing requests to org-key holders
-  and user-key holders.
+- v2's "auth service" — **rescope and rename to Hive macaroon
+  issuer.** What v2 calls the auth service is the Hive subsystem that
+  issued daily root macaroons and attenuations. That subsystem is
+  renamed **Hive macaroon issuer** and its job changes: in phase 1
+  (custodial) it produces signatures on behalf of the org and the
+  user; in phase 2 it produces signatures only on behalf of the org
+  (and only for the user_authorization envelope, not invocations);
+  in phase 3 it produces no signatures on its own — it orchestrates
+  signing requests to org-key holders and user-key holders. The
+  endpoint surface also changes — see "Issuer endpoints" below.
 
 - v2's "daily root macaroon" — **delete.** Each invocation gets its
   own user-signed root. Sessions are an invocation with longer
@@ -432,10 +515,12 @@ v2 stands as written for everything **except**:
   (low; bounded by caveats).
 
 - v2's rollout — **insert** a step between current step 6 ("Build the
-  auth service") and step 7 ("Plugin v2: macaroon enforcement") for
-  the cryptographic-identity work: stand up the org and user keys
-  (custodial first), wire the plugin verifier to the chain, register
-  swarm trust.
+  Hive macaroon issuer") and step 7 ("Plugin v2: macaroon
+  enforcement") for the cryptographic-identity work: stand up the org
+  and user keys (custodial first), wire the plugin verifier to the
+  chain, register swarm trust. Note that step 6 itself is reshaped by
+  this doc — its endpoint surface is `/macaroons/issue` and
+  `/macaroons/revoke`, not v2's original three endpoints.
 
 Everything else in v2 — Bifrost-per-workspace, customer/VK
 provisioning, per-run cost tracking, kill switches, tool-loop

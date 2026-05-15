@@ -27,6 +27,15 @@ UI or tool that needs to list or describe them.
 - **Custodial in phase 1.** Hive admins seed and edit the registry.
   Per-workspace customization is not in phase 1.
 
+This table is the home for the agent defaults that
+`llm-governance-v2.md` refers to as `AGENT_DEFAULTS[…]` (a TypeScript
+constant in spawner code) and lists as open question #2 ("per-workspace
+`AGENT_DEFAULTS` map location"). **That open question is resolved by
+this doc:** the defaults live in the `AgentDefinition` table, owned by
+the Hive macaroon issuer, scoped per org. Spawners no longer need to
+ship their own copy; they pass the agent name to `/macaroons/issue`
+and the issuer reads the defaults from the registry.
+
 ## Data model
 
 One new Hive table.
@@ -67,8 +76,36 @@ model AgentDefinition {
 and in the `x-bf-dim-agent-name` Bifrost log header. It's an
 identifier, not a label — stable, URL-safe, lowercase-with-hyphens.
 
+The `agents` caveat in the macaroon is an **array** so sub-agents
+can extend it (`["coder", "web-search"]`, etc.) — see v2's plugin
+canonicalization, which keys `agent-name` on the last (most-specific)
+entry. The issuer always writes a single-element array on first
+issuance; later entries are added by parent agents during local
+attenuation.
+
 `displayName` and `description` exist for UIs that need to render
 human-readable agent listings.
+
+### `allowedModels`
+
+`allowedModels` is a per-agent model allowlist that **does not**
+flow into the macaroon as a caveat in phase 1. It is enforced by the
+Hive macaroon issuer at issuance time: if the spawner asks for an
+agent and a specific model that isn't in `allowedModels`, the issuer
+rejects the spawn. Empty means "inherit whatever the user's VK
+permits" — which today is `["*"]` (every provider, every model) per
+v2's VK provisioning.
+
+The plugin and Bifrost continue to enforce VK-level model allowlists
+(v2, line 109) independently. The two layers compose: a model must be
+permitted by **both** the VK (org/workspace-wide) and the agent
+registry (per-agent) to be callable. If the layers disagree, the
+intersection wins.
+
+Promoting `allowedModels` to a macaroon caveat is a future option —
+it would make the per-agent constraint verifiable downstream on
+cross-swarm calls — but it's not needed for phase 1 since the issuer
+and the workspace's plugin are in the same trust domain.
 
 ## Resolution at issuance time
 
