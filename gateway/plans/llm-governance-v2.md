@@ -2,6 +2,16 @@
 
 > Supersedes `llm-governance.md`. Same goal, cleaner organizing
 > principle. Read this one.
+>
+> **Identity layer update:** the symmetric HMAC root key and the
+> daily-root-macaroon model described below are superseded by the
+> three-principal asymmetric trust chain in
+> [`cryptographic-identity.md`](./cryptographic-identity.md) (org →
+> user → invocation, with secp256k1 at the org root and Ed25519 at
+> the user). Everything else in this doc — Bifrost-per-workspace,
+> VK provisioning, per-run enforcement, plugin architecture, Redis
+> hot state, rollout — stands as written. Read this doc first, then
+> read the identity doc for what changes at the signature layer.
 
 ## The organizing principle
 
