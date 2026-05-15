@@ -69,7 +69,12 @@ export async function graph_agent(req: Request, res: Response) {
   // ── Streaming path: direct SSE response ─────────────────────────────
   if (body.stream) {
     const opId = startTracking("graph_agent_stream");
-    const abortController = registerAbortController(body.sessionId);
+    const request_id = randomUUID();
+    const abortController = registerAbortController(request_id);
+    // Also register under sessionId so abort works with either key
+    if (body.sessionId !== request_id) {
+      registerAbortController(body.sessionId, abortController);
+    }
 
     try {
       const { streamResult, finalizeSession } = await stream_context({
@@ -86,6 +91,7 @@ export async function graph_agent(req: Request, res: Response) {
       const streamResponse = streamResult.toUIMessageStreamResponse();
 
       res.status(streamResponse.status);
+      res.setHeader("X-Request-Id", request_id);
       res.setHeader("X-Session-Id", body.sessionId);
       streamResponse.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value);
@@ -100,7 +106,7 @@ export async function graph_agent(req: Request, res: Response) {
 
       const onClientClose = () => {
         if (!abortController.signal.aborted) {
-          console.log(`[graph_agent] Client disconnected; aborting session ${body.sessionId}`);
+          console.log(`[graph_agent] Client disconnected; aborting request_id=${request_id} session=${body.sessionId}`);
           try { abortController.abort(); } catch (_) {}
         }
       };
@@ -127,14 +133,20 @@ export async function graph_agent(req: Request, res: Response) {
         .finally(async () => {
           res.off("close", onClientClose);
           await finalizeSession();
-          unregisterAbortController(body.sessionId);
+          unregisterAbortController(request_id);
+          if (body.sessionId !== request_id) {
+            unregisterAbortController(body.sessionId);
+          }
           endTracking(opId);
         });
 
       return;
     } catch (error: any) {
       console.error("[graph_agent] Stream setup error:", error);
-      unregisterAbortController(body.sessionId);
+      unregisterAbortController(request_id);
+      if (body.sessionId !== request_id) {
+        unregisterAbortController(body.sessionId);
+      }
       endTracking(opId);
       if (!res.headersSent) {
         res.status(500).json({ error: error.message || "Internal server error" });
