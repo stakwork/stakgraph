@@ -12,11 +12,11 @@ services:
     restart: unless-stopped
     environment:
       # Bifrost's listener inside the container is loopback-only; the
-      # wrapper owns the public :8080. APP_HOST/APP_PORT are passed
+      # wrapper owns the public :8181. APP_HOST/APP_PORT are passed
       # through for parity with upstream docs but the wrapper passes
-      # -host 127.0.0.1 / -port 8181 as flags which take precedence.
+      # -host 127.0.0.1 / -port 8080 as flags which take precedence.
       APP_HOST: 127.0.0.1
-      APP_PORT: 8181
+      APP_PORT: 8080
       LOG_LEVEL: info
       LOG_STYLE: pretty
       # Bifrost admin credentials. Referenced from data/config.json's
@@ -40,9 +40,10 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
     ports:
-      # Host 8181 -> container 8080, same as mcp/docs/gateway/docker-compose.yml
-      # so existing MCP tests (LLM_GATEWAY_URL=http://localhost:8181) just work.
-      - "8181:8080"
+      # Host 8181 -> container 8181 (the wrapper's public listener).
+      # Matches Hive's DEFAULT_BIFROST_PORT and existing MCP tests
+      # (LLM_GATEWAY_URL=http://localhost:8181).
+      - "8181:8181"
     volumes:
       # Named volume (NOT bind mount). On macOS Docker Desktop, virtiofs
       # bind mounts silently drop a fraction of SQLite WAL writes, leaving
