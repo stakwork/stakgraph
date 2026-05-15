@@ -1,0 +1,96 @@
+// Package main is the Bifrost gateway plugin for stakgraph's LLM
+// governance layer.
+//
+// What this file is
+// -----------------
+// Bifrost loads us as a Go plugin (`-buildmode=plugin`). Its loader
+// (bifrost/framework/plugins/soloader.go) does `plugin.Lookup("Init")`,
+// `plugin.Lookup("GetName")`, `plugin.Lookup("HTTPTransportPreHook")`,
+// etc., and the symbols MUST sit on the `main` package of the .so.
+// So this file is exactly that — every Bifrost-required symbol, each
+// implemented as a one-line delegation into an `internal/` package
+// where the real logic lives.
+//
+// If you want to know what a hook actually DOES, jump into
+// `internal/hooks/`. If you want to know what HTTP routes the plugin
+// exposes outside Bifrost's router, jump into `internal/adminapi/`.
+// If you're auditing what bifrost-http calls into this plugin, this
+// file is your one-stop shop.
+//
+// See gateway/README.md for the architectural overview.
+package main
+
+import (
+	"github.com/maximhq/bifrost/core/schemas"
+
+	"github.com/stakwork/stakgraph/gateway/internal/adminapi"
+	"github.com/stakwork/stakgraph/gateway/internal/hooks"
+	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+)
+
+// PluginName is the system identifier reported via GetName(). Bifrost
+// uses it as a map key, so it must be stable across restarts.
+const PluginName = "stakgraph-gateway"
+
+// Init is called once when bifrost-http loads the plugin.
+func Init(config any) error {
+	pluginlog.Init(PluginName, config)
+	return adminapi.Start()
+}
+
+// GetName returns the plugin's system identifier.
+func GetName() string { return PluginName }
+
+// Cleanup is called on bifrost shutdown.
+func Cleanup() error { return adminapi.Stop() }
+
+// HTTPTransportPreHook fires at the HTTP transport layer, before the
+// request enters Bifrost core. Earliest place we can short-circuit a
+// request (return non-nil *HTTPResponse to do so).
+func HTTPTransportPreHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.HTTPRequest,
+) (*schemas.HTTPResponse, error) {
+	return hooks.TransportPre(ctx, req)
+}
+
+// HTTPTransportPostHook fires after the upstream provider call for
+// non-streaming responses.
+func HTTPTransportPostHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.HTTPRequest,
+	resp *schemas.HTTPResponse,
+) error {
+	return hooks.TransportPost(ctx, req, resp)
+}
+
+// HTTPTransportStreamChunkHook fires once per streamed chunk.
+// PostLLMHook/PostHook do NOT fire for streaming responses, so cost
+// accounting on streams hooks in here.
+func HTTPTransportStreamChunkHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.HTTPRequest,
+	chunk *schemas.BifrostStreamChunk,
+) (*schemas.BifrostStreamChunk, error) {
+	return hooks.StreamChunk(ctx, req, chunk)
+}
+
+// PreLLMHook fires after bifrost has parsed the request into its
+// internal BifrostRequest type — first place we see resolved provider
+// + model.
+func PreLLMHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.BifrostRequest,
+) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
+	return hooks.LLMPre(ctx, req)
+}
+
+// PostLLMHook fires after the upstream provider call (or after a
+// short-circuit).
+func PostLLMHook(
+	ctx *schemas.BifrostContext,
+	resp *schemas.BifrostResponse,
+	bifrostErr *schemas.BifrostError,
+) (*schemas.BifrostResponse, *schemas.BifrostError, error) {
+	return hooks.LLMPost(ctx, resp, bifrostErr)
+}

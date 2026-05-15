@@ -1,0 +1,12 @@
+# Plugin build output (built per-host, never checked in).
+build/
+
+# Bifrost runtime state (config DB, logs DB, log files).
+data/config.db
+data/config.db-*
+data/logs.db
+data/logs.db-*
+data/logs/
+
+# Local overrides.
+.env

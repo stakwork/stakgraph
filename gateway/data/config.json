@@ -1,0 +1,72 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "client": {
+    "drop_excess_requests": false,
+    "enforce_auth_on_inference": false
+  },
+  "auth_config": {
+    "admin_username": "env.BIFROST_ADMIN_USER",
+    "admin_password": "env.BIFROST_ADMIN_PASS",
+    "is_enabled": true,
+    "disable_auth_on_inference": true
+  },
+  "providers": {
+    "anthropic": {
+      "keys": [
+        {
+          "name": "anthropic-key-1",
+          "value": "env.ANTHROPIC_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ]
+    },
+    "openai": {
+      "keys": [
+        {
+          "name": "openai-key-1",
+          "value": "env.OPENAI_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ]
+    },
+    "openrouter": {
+      "keys": [
+        {
+          "name": "openrouter-key-1",
+          "value": "env.OPENROUTER_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ]
+    },
+    "gemini": {
+      "keys": [
+        {
+          "name": "gemini-key-1",
+          "value": "env.GOOGLE_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "plugins": [
+    {
+      "name": "stakgraph-gateway",
+      "enabled": true,
+      "path": "/app/plugins/stakgraph-gateway.so",
+      "config": {
+        "log_level": "info"
+      }
+    }
+  ],
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "./config.db"
+    }
+  }
+}
