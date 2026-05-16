@@ -17,17 +17,121 @@ export type Provider = "anthropic" | "google" | "openai" | "openrouter";
  */
 const LLM_GATEWAY_URL = process.env.LLM_GATEWAY_URL?.replace(/\/$/, "");
 
-const GATEWAY_PATHS: Record<Provider, string> = {
+/**
+ * Per-provider path Bifrost (and compatible gateways) expose for each
+ * provider's drop-in SDK. Exported so spawners can build per-provider
+ * URLs without hand-rolling the suffix.
+ *
+ * NOTE: OpenRouter has no dedicated Bifrost route and rides the OpenAI
+ * path. If you spawn an agent in a way where the runtime would override
+ * the model to an OpenRouter model, you want the OpenAI suffix here too.
+ */
+export const GATEWAY_PATHS: Record<Provider, string> = {
   anthropic: "/anthropic/v1",
   google: "/genai/v1beta",
   openai: "/openai/v1",
-  // OpenRouter has no dedicated Bifrost route; pass it through the OpenAI path.
   openrouter: "/openai/v1",
 };
 
 export function getGatewayBaseURL(provider: Provider): string | undefined {
   return LLM_GATEWAY_URL ? `${LLM_GATEWAY_URL}${GATEWAY_PATHS[provider]}` : undefined;
 }
+
+/**
+ * Build the fully-formed `<base>/<provider-path>` URL that an official
+ * SDK (or Goose, or a workflow LLM node) expects.
+ *
+ * This is the single source of truth for "which suffix do I add to the
+ * gateway root for this provider." Spawners (Hive, Stakwork, anyone
+ * launching an agent) should call this when stamping `ANTHROPIC_BASE_URL`,
+ * `OPENAI_BASE_URL`, `GOOGLE_BASE_URL`, etc. on a child process or
+ * workflow context.
+ *
+ * Behavior:
+ *  - Trims a trailing slash.
+ *  - Returns the URL unchanged if it already ends with the provider's
+ *    gateway path (`/anthropic/v1`, `/openai/v1`, `/genai/v1beta`), so
+ *    the function is idempotent.
+ *  - Returns the URL unchanged if it already targets a provider/version
+ *    path (e.g. `.../v1`, `.../v1beta`, `.../anthropic/...`). This lets
+ *    callers pass fully-qualified URLs through without surprise.
+ *  - Otherwise appends `GATEWAY_PATHS[provider]`.
+ *
+ * Examples
+ * --------
+ * gatewayUrlFor("anthropic", "https://swarm38.sphinx.chat:8181")
+ *   => "https://swarm38.sphinx.chat:8181/anthropic/v1"
+ *
+ * gatewayUrlFor("openai", "https://swarm38.sphinx.chat:8181/")
+ *   => "https://swarm38.sphinx.chat:8181/openai/v1"
+ *
+ * gatewayUrlFor("anthropic", "https://swarm38.sphinx.chat:8181/anthropic/v1")
+ *   => "https://swarm38.sphinx.chat:8181/anthropic/v1"   (idempotent)
+ *
+ * gatewayUrlFor("openai", "https://api.openai.com/v1")
+ *   => "https://api.openai.com/v1"                       (left alone)
+ */
+export function gatewayUrlFor(provider: Provider, baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/$/, "");
+  const providerPath = GATEWAY_PATHS[provider];
+  // Already provider-suffixed with the exact path we'd add.
+  if (trimmed.endsWith(providerPath)) {
+    return trimmed;
+  }
+  // Already targets a specific provider/version path; trust the caller.
+  // Common shapes: `.../anthropic/v1`, `.../openai/v1`, `.../genai/v1beta`,
+  // `.../v1`, `.../v1beta`.
+  if (/\/(anthropic|openai|genai)\/v\d+[a-z]*$/i.test(trimmed) ||
+      /\/v\d+[a-z]*$/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `${trimmed}${providerPath}`;
+}
+
+/**
+ * Like {@link gatewayUrlFor} but takes a model name (shortcut like
+ * `"sonnet"`, namespaced like `"anthropic/claude-sonnet-4-6"`, or a full
+ * model id like `"claude-sonnet-4-6"`) and resolves the provider for you.
+ *
+ * Convenient for spawners that have a model name in hand but not a
+ * provider — e.g. Hive picking up a user's chosen model and needing to
+ * tell the agent which Bifrost route to use.
+ */
+export function gatewayUrlForModel(modelName: string | undefined, baseUrl: string): string {
+  return gatewayUrlFor(getProviderForModel(modelName), baseUrl);
+}
+
+/**
+ * Build a `{ ANTHROPIC_BASE_URL, OPENAI_BASE_URL, GOOGLE_BASE_URL }`-style
+ * env map for spawning agents (Goose, Python, raw SDK callers) that
+ * don't normalize the URL themselves. Pass the gateway root once; get
+ * back the per-provider URLs.
+ *
+ * The keys match the env var names the official SDKs read by default:
+ *   - `ANTHROPIC_BASE_URL`        (anthropic-sdk-{ts,python,go})
+ *   - `OPENAI_BASE_URL`           (openai SDK)
+ *   - `GOOGLE_GENERATIVE_AI_BASE_URL` (google-genai SDK / `@ai-sdk/google`)
+ *
+ * Spawners can spread the result into the child's env. Callers that
+ * only need one provider should use {@link gatewayUrlFor} directly.
+ */
+export function gatewayEnvForProviders(baseUrl: string): {
+  ANTHROPIC_BASE_URL: string;
+  OPENAI_BASE_URL: string;
+  GOOGLE_GENERATIVE_AI_BASE_URL: string;
+} {
+  return {
+    ANTHROPIC_BASE_URL: gatewayUrlFor("anthropic", baseUrl),
+    OPENAI_BASE_URL: gatewayUrlFor("openai", baseUrl),
+    GOOGLE_GENERATIVE_AI_BASE_URL: gatewayUrlFor("google", baseUrl),
+  };
+}
+
+/**
+ * @deprecated Use {@link gatewayUrlFor}. Kept as an alias for internal
+ * call sites; both have identical behavior.
+ */
+export const normalizeCallerBaseURL = gatewayUrlFor;
 
 export const PROVIDERS: Provider[] = [
   "anthropic",
@@ -271,7 +375,11 @@ export function getModel(
     );
   }
   // Explicit baseUrl from caller takes precedence over the global LLM gateway.
-  const baseURL = opts?.baseUrl || getGatewayBaseURL(provider);
+  // Normalize caller-supplied URLs so a bare gateway root (e.g. the swarm
+  // host:port) gets the provider's drop-in path appended.
+  const baseURL = opts?.baseUrl
+    ? gatewayUrlFor(provider, opts.baseUrl)
+    : getGatewayBaseURL(provider);
   if (baseURL) {
     const source = opts?.baseUrl ? "caller" : "LLM_GATEWAY";
     console.log(`[${source}] routing ${provider} via ${baseURL}`);

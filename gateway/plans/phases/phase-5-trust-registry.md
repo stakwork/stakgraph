@@ -46,12 +46,12 @@ of authority at steady state:
 
 Each source maps to a deployment shape:
 
-| Deployment | Primary source | Why |
-|---|---|---|
-| Sphinx-swarm + Hive | Admin API | Hive decides which orgs trust each swarm; reconciles at workspace creation / grant-access time. |
-| Self-host (docker-compose, single-tenant) | Env-var seed | Operator knows the trust set up front; wants declarative config. |
-| Declarative infra (Terraform / Helm) | Env-var seed | Trust set lives in version control, matches the spec. |
-| Mixed | Env seed for initial set, API for runtime additions | Sensible defaults plus live mutation. |
+| Deployment                                | Primary source                                      | Why                                                                                             |
+| ----------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Sphinx-swarm + Hive                       | Admin API                                           | Hive decides which orgs trust each swarm; reconciles at workspace creation / grant-access time. |
+| Self-host (docker-compose, single-tenant) | Env-var seed                                        | Operator knows the trust set up front; wants declarative config.                                |
+| Declarative infra (Terraform / Helm)      | Env-var seed                                        | Trust set lives in version control, matches the spec.                                           |
+| Mixed                                     | Env seed for initial set, API for runtime additions | Sensible defaults plus live mutation.                                                           |
 
 ## Precedence: "persisted is canonical, env seeds only when empty"
 
@@ -107,13 +107,13 @@ with `/etc/bifrost/trust.json` containing:
 {
   "orgs": [
     {
-      "org_id":                  "org_acme",
-      "pubkey":                  "0x04abcd…",
+      "org_id": "org_acme",
+      "pubkey": "0204abcd…",
       "policy": {
         "max_invocation_cost_usd": 100,
-        "allowed_workspaces":      ["w1", "w2"]
+        "allowed_workspaces": ["w1", "w2"]
       },
-      "issuer_url":              "https://hive.acme.example.com",
+      "issuer_url": "https://hive.acme.example.com",
       "revocation_poll_seconds": 60
     }
   ]
@@ -157,7 +157,7 @@ Authorization: Bearer <stakwork_secret>
 ```
 
 `claimed` is `true` iff `org_count > 0`. `seed_source` records whether
-the *initial* registry came from env-var seed or from an API call;
+the _initial_ registry came from env-var seed or from an API call;
 purely informational.
 
 ### `POST /api/stakgraph/admin/trust`
@@ -208,10 +208,10 @@ Content-Type: application/json
 
 ```json
 {
-  "ok":                 true,
-  "active_pubkey":      "0x04ef01…",
-  "grace_until":        "2026-05-15T12:00:00Z",
-  "grace_pubkeys":      ["0x04abcd…"]
+  "ok": true,
+  "active_pubkey": "0x04ef01…",
+  "grace_until": "2026-05-15T12:00:00Z",
+  "grace_pubkeys": ["0x04abcd…"]
 }
 ```
 
@@ -241,13 +241,13 @@ reconcile landed correctly.
 
 ### Failure modes
 
-| Status | When |
-|---|---|
-| `401` | Missing or wrong `Authorization` bearer |
-| `400` | Invalid pubkey encoding, policy values out of range, malformed JSON |
-| `404` | `GET`/`DELETE`/`rotate` on an unknown `org_id` |
-| `409` | `POST` with an `org_id` already present and a non-matching pubkey, when `If-Match` semantics weren't satisfied (future; phase 1 just overwrites) |
-| `500` | Disk write failed or persisted-state corruption detected |
+| Status | When                                                                                                                                             |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `401`  | Missing or wrong `Authorization` bearer                                                                                                          |
+| `400`  | Invalid pubkey encoding, policy values out of range, malformed JSON                                                                              |
+| `404`  | `GET`/`DELETE`/`rotate` on an unknown `org_id`                                                                                                   |
+| `409`  | `POST` with an `org_id` already present and a non-matching pubkey, when `If-Match` semantics weren't satisfied (future; phase 1 just overwrites) |
+| `500`  | Disk write failed or persisted-state corruption detected                                                                                         |
 
 ## Persisted state
 
@@ -339,7 +339,7 @@ reconcile_trust(workspace_id):
 - On workspace creation, after Bifrost container is healthy, call
   `reconcile_trust(workspace_id)`.
 - On user-grant-access, no trust change needed (trust is per-org, not
-  per-user) — but the *existing* phase-1 reconciler still runs for
+  per-user) — but the _existing_ phase-1 reconciler still runs for
   the new user's VK.
 - Background sweep every N minutes (configurable; default 10m) walks
   every workspace and ensures trust is current. Catches drift after
@@ -364,7 +364,7 @@ services:
     environment:
       STAKWORK_SECRET: ${OPERATOR_ADMIN_BEARER}
       BIFROST_PLUGIN_TRUST_FILE: /etc/bifrost/trust.json
-      BIFROST_PLUGIN_TRUST_RECONCILE: refuse   # if you want strict declarative
+      BIFROST_PLUGIN_TRUST_RECONCILE: refuse # if you want strict declarative
     volumes:
       - ./trust.json:/etc/bifrost/trust.json:ro
       - bifrost-data:/app/data
@@ -384,12 +384,12 @@ recreated from env on every restart.
 When orgs adopt their own root keys (identity doc, phase 3):
 
 - Trust-registry mutations that change an org's pubkey will require
-  the request body to be signed by the *current* org root key, in
+  the request body to be signed by the _current_ org root key, in
   addition to bearing the swarm's admin token. The plugin verifies
   both. This is the rule "swarm decides who to trust, but the org
   must consent to changes to its own entry."
 - `POST /api/stakgraph/admin/trust` for a brand-new `org_id` still
-  works with admin-token-only auth — registering a *new* org is the
+  works with admin-token-only auth — registering a _new_ org is the
   swarm operator's call, not the new org's call.
 - `DELETE /api/stakgraph/admin/trust/:org_id` stays admin-token-only:
   the swarm operator can always un-trust an org without that org's
@@ -403,23 +403,23 @@ phase 3. Phase 2 ignores that header if present.
 ## Wire-up checklist for phase 2
 
 - [ ] Plugin reads `BIFROST_PLUGIN_TRUST` / `BIFROST_PLUGIN_TRUST_FILE`
-  at startup and applies precedence rules
+      at startup and applies precedence rules
 - [ ] Plugin reads admin bearer from `STAKWORK_SECRET` (or
-  `BIFROST_PLUGIN_ADMIN_TOKEN_ENV` if overridden)
+      `BIFROST_PLUGIN_ADMIN_TOKEN_ENV` if overridden)
 - [ ] Plugin persists trust state to `/app/data/trust.json` atomically
 - [ ] Plugin exposes `/api/stakgraph/admin/trust/*` endpoints
 - [ ] `bifrost.rs` adds `boltwall` to linked images and emits
-  `STAKWORK_SECRET` env var (sphinx-swarm path)
+      `STAKWORK_SECRET` env var (sphinx-swarm path)
 - [ ] Hive adds `reconcile_trust(workspace_id)` to its workspace
-  reconciler, called on workspace-create and on background sweep
+      reconciler, called on workspace-create and on background sweep
 - [ ] Hive's data model has `workspaces[wid].org_id` (or whatever
-  field names the org→workspace mapping)
+      field names the org→workspace mapping)
 - [ ] Hive's secret store accepts `(workspace_id) → stakwork_secret`
-  for the trust admin path (separate from per-user VK storage from
-  phase 1)
+      for the trust admin path (separate from per-user VK storage from
+      phase 1)
 - [ ] `enforce_auth_on_inference` and macaroon enforcement remain
-  off through phase 2 — trust registry is wired but the plugin is
-  still in observability mode for macaroons
+      off through phase 2 — trust registry is wired but the plugin is
+      still in observability mode for macaroons
 
 ## What this design buys
 

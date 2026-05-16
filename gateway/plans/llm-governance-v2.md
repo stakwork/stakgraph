@@ -3,37 +3,42 @@
 > Supersedes `llm-governance.md`. Same goal, cleaner organizing
 > principle. Read this one.
 >
-> **Identity layer update:** the symmetric HMAC root key and the
-> daily-root-macaroon model described below are superseded by the
-> three-principal asymmetric trust chain in
-> [`cryptographic-identity.md`](./cryptographic-identity.md) (org →
-> user → invocation, with secp256k1 at the org root and Ed25519 at
-> the user). Everything else in this doc — Bifrost-per-workspace,
-> VK provisioning, per-run enforcement, plugin architecture, Redis
-> hot state, rollout — stands as written. Read this doc first, then
-> read the identity doc for what changes at the signature layer.
+> v2 is the **architectural overview** of the governance stack —
+> three-layer identity, Bifrost-per-workspace, VK provisioning,
+> rollout. The concrete specs for each cryptographic and operational
+> piece live in companion docs and supersede v2's pseudocode where
+> they overlap:
 >
-> **Deltas applied by the identity doc** (search for these terms here
-> and read the identity doc's section of the same name for the current
-> shape):
+> | Concern | Authoritative spec |
+> |---|---|
+> | Three-principal identity model, key custody, trust registration | [`cryptographic-identity.md`](./cryptographic-identity.md) |
+> | Macaroon wire format, signing inputs, HMAC chain, verifier algorithm | [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md) |
+> | Trust registry storage, admin API, env-var seed | [`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md) |
+> | Plugin Redis schema, per-hook ops, TTL policy, failure modes | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
+> | Agent defaults / registry | [`agent-registry.md`](./agent-registry.md) |
+> | Bifrost Customer/VK reconciliation, duration vocabulary | [`phases/phase-1-reconciler.md`](./phases/phase-1-reconciler.md) |
 >
-> - "daily root macaroon" → **deleted.** Each invocation gets its own
->   freshly-signed root. What v2 calls a daily root is just an
->   invocation with longer caveats.
-> - "auth service" → **renamed to "Hive macaroon issuer"** and
->   rescoped. Endpoints renamed (see identity doc, "Issuer endpoints").
-> - "HMAC root signing key" → **deleted.** The plugin holds no signing
->   key. Macaroons are rooted in the org's secp256k1 key, with
->   per-user Ed25519 signatures over invocation caveats.
-> - `/macaroons/attenuate` (spawner-called) → **renamed to
->   `/macaroons/issue`** with a new body shape (see identity doc).
->   Parent-to-child attenuation in the running agent is unchanged
->   (local HMAC, no network).
+> **Deltas already applied to this doc:**
 >
-> **Agent defaults** referenced as `AGENT_DEFAULTS[…]` below now live
-> in the Hive `AgentDefinition` table per
-> [`agent-registry.md`](./agent-registry.md). Open question #2 is
-> resolved by that doc.
+> - The symmetric HMAC root key model is replaced by the asymmetric
+>   trust chain (org → user → invocation). The plugin holds no
+>   signing key.
+> - "daily root macaroon" is deleted; each invocation gets its own
+>   freshly-signed root.
+> - "auth service" was renamed to "Hive macaroon issuer" and
+>   rescoped. Its endpoint surface is `/macaroons/issue` and
+>   `/macaroons/revoke` (cryptographic-identity §"Issuer endpoints").
+>   v2's earlier `/macaroons/login` + `/macaroons/attenuate` are
+>   gone.
+> - The plugin's Redis schema, per-hook ops, and failure modes
+>   originally sketched here as pseudocode now live in phase 6 with
+>   concrete bucket-key formats, a TTL policy that works for
+>   long-lived sessions, and the `kill:agent:<name>` per-agent kill
+>   switch.
+>
+> Everything not listed above — Bifrost-per-workspace deployment,
+> VK provisioning, dim header propagation, the rollout schedule —
+> stands as written below.
 
 ## The organizing principle
 
@@ -334,46 +339,30 @@ Bifrost cannot answer: **"is this *particular invocation* in alice's
 tree authorized — for how much, by which agent, until when, narrowing
 how across sub-agents?"**
 
-### Daily root macaroon
-
-> **Superseded by the identity doc.** Each invocation gets its own
-> user-signed root; there is no separate daily-root cryptographic
-> object. The text below describes v2's original shape and is kept
-> for context.
-
-Minted at login (or session refresh). 24h rolling TTL. Held server-side
-by Hive, keyed by alice's session:
-
-```
-user_id     = u_alice
-workspaces  = [w1, w2, w3]      ← whichever alice has access to
-agents      = [*]               ← any agent her role allows
-iat         = 2026-05-13T09:00:00Z
-exp         = 2026-05-14T09:00:00Z
-nonce       = <random 128-bit>
-```
-
-Re-minted silently when an active session's prior root nears expiry.
-
 ### Invocation macaroon
 
-Minted by the spawner (Hive's chat backend, MCP, workflow engine,
-sandbox launcher, …) each time an agent is launched. 10-minute TTL.
-Held in the agent process for the run lifetime. Strictly narrower than
-the daily root:
+Issued by Hive's `/macaroons/issue` endpoint each time an agent is
+launched (or a session begins, or a workflow starts — "invocation" is
+whatever scope the caller asked the issuer to sign for; see
+[`cryptographic-identity.md`](./cryptographic-identity.md) §"Per
+invocation, not per day"). Held in the agent process for the run
+lifetime. Carries caveats the user authorized:
 
 ```
-parent_nonce     = <root's nonce>     ← so plugin can revoke whole chains
-user_id          = u_alice            ← inherited, redundant w/ Customer (defense-in-depth)
-workspace        = w1                 ← narrowed from root
-agents           = [coder]            ← narrowed from root
+user_id          = u_alice            ← from user_authorization, cross-checked against Customer
+workspace        = w1                 ← must be in user_authorization.permissions.workspaces
+agents           = [coder]            ← must be ⊆ user_authorization.permissions.agents
 run_id           = r_01H...
 max_cost_usd     = 5.00               ← THE per-run budget Bifrost cannot enforce
 max_steps        = 100
-max_wallclock_s  = 600
-exp              = now + 10m
+exp              = now + 10m          ← absolute, computed from defaults + iat at issuance
 nonce            = <random>
+user_sig         = <Ed25519 over the above>
 ```
+
+The full wire format including the org-signed `user_authorization`
+envelope that wraps the invocation lives in
+[`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md).
 
 **Why redundant `user_id`?** It's the cross-check. The plugin's
 `PreLLMHook` asserts `macaroon.user_id == ctx.customer_id`. A leaked
@@ -384,23 +373,28 @@ come from the same principal.
 ### Sub-agent macaroon (the prettiest part of the design)
 
 When a parent agent decides to spawn a sub-agent, the parent attenuates
-its own macaroon **locally** — macaroon attenuation requires only the
-parent's signature, not the HMAC root key. No network roundtrip, no
-auth-service call:
+its own macaroon **locally** — appending one HMAC link over the
+previous signature. No signing keys involved, no network roundtrip,
+no issuer call:
 
 ```
-parent_nonce     = <invocation macaroon's nonce>
-... (inherited caveats) ...
-agents           = [coder, web-search]   ← narrower (or same)
-max_cost_usd     = min(2.00,             ← parent's choice, bounded by parent's remaining
-                       parent.remaining())
-max_wallclock_s  = min(120, parent.exp - now)
-exp              = min(now + 120, parent.exp)
-nonce            = <new random>
+attenuations[i].caveats = {
+  agents:        [coder, web-search],          ← grows; must include parent's agents
+  max_cost_usd:  min(2.00, parent.remaining()), ← shrinks
+  max_steps:     min(40,   parent.remaining_steps()),
+  exp:           min(now + 120s, parent.exp),  ← shrinks
+  run_id:        <child's run_id>,
+  nonce:         <new random>,
+}
+attenuations[i].hmac = HMAC-SHA256(parent_sig_bytes, JCS(caveats))
 ```
 
 The macaroon protocol mathematically guarantees a child cannot widen
-any caveat. **Sub-agent containment is physics, not policy.**
+any caveat — the HMAC chain breaks if you try. **Sub-agent
+containment is physics, not policy.** Per-language attenuator
+implementations need only JCS + HMAC-SHA256 + hex; full spec in
+[`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md)
+§"The attenuations chain".
 
 ### Why attenuation is the right primitive
 
@@ -450,6 +444,19 @@ the *bound*; the parent picks the *distribution*.**
 
 ## Gateway plugin (Go, in-process with Bifrost)
 
+> **Operational spec moved.** The Redis schema, per-hook ops, TTL
+> policy, configuration block, and failure-mode contract for the
+> plugin live in [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md).
+> What this section sketched in pseudocode (Redis key shapes,
+> PreLLMHook / PostLLMHook flow, per-agent budgets) was always
+> intended as the contract; phase 6 pins it down with concrete
+> bucket-key formats, a TTL policy that works for long-lived
+> invocations, the `kill:agent:<name>` per-agent kill switch, and
+> the explicit atomicity / failure-mode decisions v2 left implicit.
+>
+> Read phase 6 for the implementation contract. The summary below
+> is the architectural framing only.
+
 A Bifrost custom plugin implementing the standard hook surface. Single
 binary, deployed alongside Bifrost in each workspace's swarm. Backed by
 Redis for hot enforcement state (not for analytics — Bifrost's built-in
@@ -459,190 +466,80 @@ The plugin must be registered **before** Bifrost's built-in logging
 plugin so dimensions stamped by macaroon canonicalization land in
 `logs.metadata`.
 
-### `HTTPTransportPreHook` (and route dispatch)
+### What the plugin does, at a glance
+
+- **`HTTPTransportPreHook`** dispatches plugin-owned routes
+  (`/api/stakgraph/*`) and otherwise lets the inference pipeline
+  continue.
+- **`PreLLMHook`** verifies the macaroon (via `gateway/auth/go`,
+  per phase 4), checks revocations / kills / cost caps in Redis,
+  canonicalizes log dimensions from caveats, and rejects with
+  appropriate 401/402 errors when any check fails.
+- **`PostLLMHook`** writes cost / step / tool accumulators back to
+  Redis, walking the ancestor chain so every level of a sub-agent
+  tree is charged for descendant spend.
+
+The dimension-canonicalization rule (phase 6's PreHook step 6) is the
+piece that makes per-user / per-agent / per-run attribution
+trustworthy in `logs.db`:
 
 ```
-1. CHECK FOR PLUGIN-OWNED ROUTES
-   - if req.Path starts with "/api/stakgraph/":
-       dispatch to internal handler, return *HTTPResponse, done.
-   - otherwise: continue with the inference pipeline.
-
-2. CAPTURE START TIME (for latency in PostHook)
+dims["user-id"]      = macaroon.user_id
+dims["workspace-id"] = macaroon.workspace
+dims["run-id"]       = macaroon.run_id
+dims["agent-name"]   = macaroon.agents[last]   ← most specific
 ```
 
-### `PreLLMHook` (auth + spending gate, runs before upstream call)
+Caller-supplied `x-bf-dim-*` values that disagree with the macaroon
+are silently replaced. Anything the caller sent that wasn't in the
+macaroon (e.g. `session-id`, `deployment`) is preserved as-is —
+those are observability dimensions only and are not signature-bound.
 
-```
-1. RESOLVE CALLER IDENTITY
-   - Bifrost has already auth'd the VK before our plugin runs.
-   - Read ctx values:
-       customer_id  = ctx.Value(BifrostContextKeyGovernanceCustomerID)
-       vk_id        = ctx.Value(BifrostContextKeyGovernanceVirtualKeyID)
-   - If missing → 401 vk_required (only if enforce_auth_on_inference=true)
-
-2. VERIFY MACAROON (skip-with-warning during step-7 observability mode)
-   - parse x-macaroon
-   - check HMAC chain against root signing key
-   - if missing  → 401 macaroon_required
-   - if invalid  → 401 macaroon_invalid
-
-3. CHECK USER MATCH
-   - ASSERT macaroon.user_id == customer_id
-   - if mismatched → 401 macaroon_user_mismatch
-     (this is what makes the two-credential design safe — neither alone
-      is replayable)
-
-4. CHECK MACAROON LIVENESS
-   - exp passed?                              → 401 macaroon_expired
-   - revoke:<leaf_nonce> in Redis?            → 401 macaroon_revoked
-   - revoke:<any_ancestor_nonce> in Redis?    → 401 macaroon_revoked
-   - revoke_user_before:<user_id> > iat?      → 401 macaroon_revoked
-
-5. CANONICALIZE DIMENSIONS FROM CAVEATS
-   - read existing dim map: ctx.Value(BifrostContextKeyDimensions)
-   - overwrite with macaroon-derived values:
-       dims["user-id"]      = macaroon.user_id     (also already in customer_id)
-       dims["workspace-id"] = macaroon.workspace
-       dims["run-id"]       = macaroon.run_id
-       dims["agent-name"]   = macaroon.agents[last]   ← most specific
-   - ctx.SetValue(BifrostContextKeyDimensions, dims)
-   (caller-supplied dim values that disagree with the macaroon are
-    silently replaced. anything they sent that wasn't in the macaroon
-    is preserved.)
-
-6. CHECK PER-RUN BUDGET (the macaroon's main job)
-   - macaroon.max_cost_usd > hard_ceiling?    → 402 budget_unreasonable
-   - cost:run:<run_id> >= macaroon.max_cost?  → 402 run_cost_exceeded
-   - for each ancestor run in the chain:
-       cost:run:<ancestor> >= ancestor.cap?   → 402 run_cost_exceeded
-   - steps:run:<run_id> >= macaroon.max_steps?→ 402 run_step_exceeded
-
-7. CHECK KILL SWITCH
-   - kill:<run_id> in Redis?                  → 402 run_killed
-   - for each ancestor run_id:
-       kill:<ancestor>?                       → 402 run_killed
-
-8. CHECK PER-AGENT BUDGET (future; v1 ships config block empty)
-   - if agent_budgets[macaroon.agents[last]] is configured:
-       cost:agent:<name>:<today> >= cap?      → 402 agent_cost_exceeded
-
-9. CHECK TOOL-LOOP HEURISTIC
-   - last 10 tool calls for run_id: same tool >= 8 of 10?
-                                               → 402 tool_loop_detected
-```
-
-### `PostLLMHook` (accounting, after upstream call or final stream chunk)
-
-```
-1. Read cost from BifrostResponse.Usage / Cost (Bifrost's pricing
-   manager has already computed it; for streams the final chunk
-   carries the accumulator's cost).
-
-2. Walk the ancestor chain, accumulating into Redis:
-   for r in [run_id, ...ancestor_run_ids]:
-     HINCRBYFLOAT cost:run:<r>   total $cost
-     HINCRBY      steps:run:<r>  total 1
-     EXPIRE       cost:run:<r>   3600
-     EXPIRE       steps:run:<r>  3600
-
-3. Optionally update per-agent counter (if budget configured):
-   HINCRBYFLOAT cost:agent:<agent>:<today>  total $cost
-   EXPIRE       cost:agent:<agent>:<today>  172800
-
-4. Update tool history for loop detection:
-   LPUSH  tools:run:<run_id> <tool_name>
-   LTRIM  tools:run:<run_id> 0 9
-   EXPIRE tools:run:<run_id> 3600
-```
-
-Total Redis overhead: ~3–6 ops per LLM call. Sub-millisecond on
-co-located Redis.
-
-### Redis schema
-
-```
-cost:run:<run_id>                   HASH    { total: float }
-steps:run:<run_id>                  HASH    { total: int   }
-tools:run:<run_id>                  LIST    ["bash", "read", ...] (capped at 10)
-kill:<run_id>                       STRING  "1"
-revoke:<nonce>                      STRING  "1"     TTL = macaroon.exp
-revoke_user_before:<user_id>        STRING  <iso8601>
-cost:agent:<agent_name>:<day>       HASH    { total: float }     (future)
-```
-
-All run/tool keys expire after 1h. Revocation keys expire at the
-referenced macaroon's `exp`.
-
-### Plugin configuration
-
-```yaml
-hmac_root_key:           ${HMAC_ROOT_KEY}     # macaroon HMAC key
-hard_ceiling_cost_usd:   1000.00              # per-run cap backstop
-hard_ceiling_steps:      10000                # per-run cap backstop
-redis_url:               redis://...
-tool_loop:
-  window:   10
-  threshold: 8
-
-# Future — empty in v1
-agent_budgets: {}
-# agent_budgets:
-#   repair-agent:
-#     cap_usd: 200.00
-#     window:  1d
-#   browser:
-#     cap_usd: 500.00
-#     window:  1d
-```
-
-### Failure modes
+### Failure modes (architectural posture)
 
 | Failure | Behavior |
 |---|---|
-| Redis down | **Fail closed** for macaroon checks. **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
+| Redis down | **Fail closed** for macaroon checks (revoke / kill / cap). **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
 | Hive macaroon issuer down | Existing invocation macaroons keep working until they expire. No new spawns possible. |
-| HMAC key rotation needed | Hot rotation via `kid` caveat (multi-key verifier). Implement when first rotation is needed; not in v1. |
 | Plugin panic | Fail-closed: reject the request. |
+
+Concrete error codes, retry behavior, drift bounds, and crash-mid-call
+recovery semantics are in phase 6's "Failure modes" section.
 
 ---
 
 ## Hive macaroon issuer
 
-> Renamed from "auth service" by the identity doc, and rescoped. The
-> v2 endpoint set (`/macaroons/login`, `/macaroons/attenuate`,
-> `/macaroons/revoke`) is replaced by the set in the identity doc's
-> "Issuer endpoints" section (`/macaroons/issue`, `/macaroons/revoke`).
-> The text below describes v2's original shape and is kept for context.
+> **Endpoint spec moved.** The issuer endpoint surface
+> (`/macaroons/issue`, `/macaroons/revoke`) is defined in
+> [`cryptographic-identity.md`](./cryptographic-identity.md)
+> §"Issuer endpoints". v2's earlier `/macaroons/login` +
+> `/macaroons/attenuate` design is deleted (there is no daily root
+> macaroon to log in against, and each invocation gets a freshly-
+> signed root).
 
-A small service exposing three endpoints. Lives in Hive's core (or as a
-sidecar to it). The only place besides plugins that holds the HMAC root
-signing key.
+The Hive macaroon issuer is the Hive subsystem that signs macaroons
+on behalf of an org (and, in custodial phase 1, on behalf of a
+user). It's the only component besides user devices and org
+key-holders that produces signatures — the plugin holds **no**
+signing keys and is a pure verifier.
 
-```
-POST /macaroons/login
-  body:    { user_id }
-  returns: daily root macaroon
-  stores:  session_id → macaroon in Hive's session store
+In phase 1 (custodial), the issuer signs both layers itself with
+keys in Hive's secret store. In phase 2+ (user keys move to
+Yubikey / mobile enclave), the issuer signs the `user_authorization`
+layer with the org's key and orchestrates a signing request to the
+user's device for each invocation's `user_sig`. In phase 3+ (org
+keys move to multisig), the issuer orchestrates signing requests to
+all org-key-holders. The wire format and verifier path are the
+same across phases — only who holds which key changes.
 
-POST /macaroons/attenuate
-  body:    { parent_macaroon, additional_caveats }
-  returns: attenuated child macaroon
-  validates: every new caveat is a strict narrowing of parent
-
-POST /macaroons/revoke
-  body:    { nonce | user_id }
-  effects: writes revoke:<nonce> or revoke_user_before:<user_id>
-           to every relevant workspace's Redis (fan-out)
-```
-
-The `/attenuate` endpoint is called by **spawners** (Hive's chat
-backend, MCP, workflow engine). It's never exposed to end users.
-
-Note: parent agents attenuating macaroons for their sub-agents do
-**not** call this endpoint — they attenuate locally with their own
-parent macaroon's signature, because that's all that's needed. The
-endpoint is only used when minting a fresh invocation macaroon from a
-session's daily root.
+Spawners (Hive's chat backend, MCP, workflow engine) call
+`/macaroons/issue` when starting an agent. Parent agents
+attenuating macaroons for their sub-agents do **not** call this
+endpoint — they attenuate locally with their own parent macaroon's
+signature, because that's all that's needed (the HMAC chain is
+keyless, see [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md)
+§"The attenuations chain").
 
 ---
 
@@ -655,24 +552,22 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
    - Sends request to Hive's chat BFF with session cookie.
 
 2. HIVE CHAT BFF (spawner)
-   a. Looks up alice's session.
-      (Pre-identity-doc: looked up alice's daily root macaroon held
-       server-side. Post-identity-doc: each invocation is freshly
-       signed; no daily root object exists.)
-   b. Computes per-run budget:
-        agent default for coder:          $5.00 / 100 steps
-        alice's daily $ remaining:        $812.00  (info from Bifrost's customer state)
-        effective:                        $5.00 / 100 steps / 10m
-   c. POST /macaroons/attenuate with caveats:
-        agents=[coder], workspace=w1, run_id=r_01H..,
-        max_cost_usd=5.00, max_steps=100, exp=now+10m
-      (Post-identity-doc: POST /macaroons/issue with
-        {org_id, user_id, workspace, agent, run_id, override?}
-       and the issuer resolves agent defaults from the registry.)
-   d. Receives invocation macaroon M_inv.
-   e. Looks up Hive's secret store:
+   a. Looks up alice's session (Hive's own session token; not a macaroon).
+   b. POST /macaroons/issue to the Hive macaroon issuer:
+        { org_id:    "org_acme",
+          user_id:   "u_alice",
+          workspace: "w1",
+          agent:     "coder",
+          run_id:    "r_01H..",
+          override?: { ... optional caller narrowing ... } }
+      Issuer resolves agent defaults from the agent registry,
+      applies any override as min() narrowing, signs the
+      user_authorization (org key) and invocation (user key)
+      layers, and returns a complete wire-format macaroon.
+   c. Receives invocation macaroon M_inv.
+   d. Looks up Hive's secret store:
         BIFROST_VK = vks[w1][u_alice]   = "sk-bf-…"
-   f. Spawns coder agent process with:
+   e. Spawns coder agent process with:
         LLM_GATEWAY_URL = http://w1-swarm-bifrost:8181
         BIFROST_VK      = sk-bf-…
         AGENT_MACAROON  = M_inv
@@ -702,12 +597,14 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
 
 5. OUR PLUGIN PreHook
    - Path is /anthropic/v1/messages (not a stakgraph route) → continue.
-   - Verifies macaroon (HMAC + caveats).
+   - Verifies macaroon: org ECDSA sig over user_authorization,
+     user Ed25519 sig over invocation, HMAC chain over any
+     attenuations. (Per phase 4.)
    - Asserts macaroon.user_id == customer_id (== u_alice). Match.
    - Canonicalizes the dim map from caveats.
    - cost:run:r_01H.. currently $3.21, cap is $5.00. Passes.
    - steps:run:r_01H.. currently 14, cap is 100. Passes.
-   - No kill, no loop.
+   - No kill, no loop, no revocation.
    - Returns pass.
 
 6. BIFROST CORE
@@ -745,12 +642,12 @@ loop terminates. Spawner notified by existing error path.
 ```python
 # inside the coder agent process
 child_macaroon = attenuate(self.macaroon, {
-    "agents":         self.agents + ["web-search"],
-    "run_id":         new_run_id(),
-    "max_cost_usd":   min(2.00, self.remaining_budget()),
-    "max_wallclock_s": 120,
-    "exp":            min(now + 120, self.macaroon.exp),
-    "nonce":          random_nonce(),
+    "agents":       self.agents + ["web-search"],
+    "run_id":       new_run_id(),
+    "max_cost_usd": min(2.00, self.remaining_budget()),
+    "max_steps":    min(40, self.remaining_steps()),
+    "exp":          min(now + 120s, self.macaroon.exp),
+    "nonce":        random_nonce(),
 })
 spawn_subagent(env={
     "AGENT_MACAROON": child_macaroon,
@@ -824,36 +721,17 @@ Each entity that spawns an agent is responsible for:
 2. **Looking up the VK.** `vks[workspace_id][principal]` from Hive's
    secret store.
 
-3. **Computing the per-run budget.**
+3. **Calling `/macaroons/issue`** with
+   `{org_id, user_id, workspace, agent, run_id, override?}`. The
+   issuer reads agent defaults (max_cost_usd, max_steps,
+   defaultMaxWallclockS) from the agent registry, applies any
+   `override` as min() narrowing, computes a concrete `exp` from
+   `iat + defaultMaxWallclockS`, and signs both layers. The spawner
+   does not compute defaults itself — the registry is the source of
+   truth and lives on the issuer.
 
-   ```ts
-   function budgetForRun(ctx: {
-     agent: string;
-     principal_remaining_today_usd: number;   // info from Bifrost customer state
-     parent_remaining?: { cost: number; wallclock: number };
-   }): RunBudget {
-     const def = AGENT_DEFAULTS[ctx.agent];   // { cost, steps, wallclock }
-     return {
-       max_cost_usd:    Math.min(
-                          def.cost,
-                          ctx.principal_remaining_today_usd,
-                          ctx.parent_remaining?.cost ?? Infinity,
-                        ),
-       max_steps:       def.steps,
-       max_wallclock_s: Math.min(
-                          def.wallclock,
-                          ctx.parent_remaining?.wallclock ?? Infinity,
-                        ),
-     };
-   }
-   ```
-
-4. **Calling `/macaroons/issue`** (renamed from
-   `/macaroons/attenuate` by the identity doc) with the computed
-   budget + workspace/agent/run_id caveats + 10m exp.
-
-5. **Spawning the process** with `BIFROST_VK`, `LLM_GATEWAY_URL`, the
-   macaroon, and the dim values as env / args.
+4. **Spawning the process** with `BIFROST_VK`, `LLM_GATEWAY_URL`, the
+   returned macaroon, and the dim values as env / args.
 
 Service identities (cron, webhooks, scheduled workflows) are treated
 exactly like users via the default-principal rule. There's no
@@ -866,25 +744,26 @@ owner whose schedule triggered them. Clean and uniform.
 
 | Credential | Sensitivity | Where it lives | Blast radius if leaked |
 |---|---|---|---|
-| HMAC root signing key | **Crown jewel** | Hive macaroon issuer + plugin only | Forge any macaroon for any user |
-| Daily root macaroon | High | Hive session store | All of alice's permissions for ≤24h, IF attacker also has a VK |
-| Invocation macaroon | Low | Agent process, run lifetime | One run, ≤ remaining run budget, ≤10m, IF attacker has the VK |
-
-> The "HMAC root signing key" and "Daily root macaroon" rows are
-> superseded by the three-row threat model in the identity doc
-> (org root key / user key / invocation signature). Kept here for
-> readers tracing the v2 design.
-| Sub-agent macaroon | Very low | Sub-process | Narrower scope, smaller cap, shorter exp |
+| Org root key | **Crown jewel** (phase 1: custodial in Hive; phase 3: multisig) | Hive secret store or org-key-holders' devices | Authorize any user under that org. Custodial in phase 1; offline / multisig in phase 3. See [`cryptographic-identity.md`](./cryptographic-identity.md) §"Phase staging". |
+| User key (Ed25519) | Medium (phase 1: custodial; phase 2: user device) | Hive secret store or user's Yubikey / Passkey / mobile enclave | Sign invocations as that user, within whatever permissions the org authorized. |
+| Invocation signature | Low | Agent process, run lifetime | One invocation's worth of work, bounded by its caveats. |
+| Sub-agent macaroon | Very low | Sub-process | Narrower scope, smaller cap, shorter exp. |
 | User VK (`sk-bf-…`) | Low (without macaroon: useless) | Hive secret store + spawned agent env | After step 8: useless alone. Pre-step-8: that user's daily budget in that one workspace. |
-| Bifrost admin key | High | Ops only | Reconfigure VKs, change Customer budgets |
-| Plugin Redis | Medium | Trusted swarm network | Manipulate run counters → bypass per-run caps; cannot forge macaroons |
+| Bifrost admin key | High | Ops only | Reconfigure VKs, change Customer budgets. |
+| Plugin Redis | Medium | Trusted swarm network | Manipulate run counters → bypass per-run caps; cannot forge macaroons (the plugin holds no signing keys). |
 
 **The two-credential design.** A VK alone is useless after step 8 (the
 plugin requires a matching macaroon). A macaroon alone is useless (no
 VK → Bifrost auth rejects). Both must come from the same user, and the
-plugin cross-checks. **The HMAC root key is the only high-blast-radius
-secret, and it lives in the fewest places (Hive macaroon issuer +
-  plugin processes).**
+plugin cross-checks via the `user_id == customer_id` assertion.
+
+**No single platform key is a system-wide crown jewel.** A plugin
+compromise affects accounting state in that one swarm; it cannot
+forge identity. A Hive compromise affects custodial keys until phase
+2/3 migrate them to user devices and org multisig. The
+cryptographic-identity model is designed so that the highest-value
+key material lives in the fewest places, can migrate off the platform
+entirely over time, and is never replicated across workspaces.
 
 ---
 
@@ -930,19 +809,31 @@ boilerplate is enough. The "spend per user" dashboard is now live.
 - Watch for a week of real data; tune.
 
 **Step 6: Build the Hive macaroon issuer.** Implement
-`/macaroons/issue` and `/macaroons/revoke` per the identity doc.
-Spawners call `/macaroons/issue` per spawn and stamp `x-macaroon` on
-outgoing LLM calls. Plugin **logs but does not enforce** macaroon
-presence — observability mode. Watch coverage climb as callers
-participate.
+`/macaroons/issue` and `/macaroons/revoke` per
+[`cryptographic-identity.md`](./cryptographic-identity.md) §"Issuer
+endpoints" using the wire format from
+[`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md).
+Phase 1 ships custodial signing (org + user keys in Hive's secret
+store). Spawners call `/macaroons/issue` per spawn and stamp
+`x-macaroon` on outgoing LLM calls. Plugin **logs but does not
+enforce** macaroon presence — observability mode. Watch coverage
+climb as callers participate.
 
-**Step 7: Plugin v2 (macaroon enforcement).** Plugin now:
-- verifies macaroons (HMAC + caveats);
-- asserts `macaroon.user_id == ctx.customer_id`;
-- canonicalizes dims from caveats;
-- enforces per-run budget *from the macaroon* (replacing plugin-config
-  per-run defaults);
-- enforces ancestor-chain budget walk;
+**Step 6.5: Stand up the trust registry.** Per
+[`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md),
+seed each workspace's plugin with the org's pubkey (or multisig
+policy) and the admin API for ongoing trust changes. The plugin
+needs this in place before it can verify anything.
+
+**Step 7: Plugin enforcement.** Implement the adapter at
+`gateway/internal/auth/` per
+[`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md):
+- verifies macaroons via `gateway/auth/go`
+  ([`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md));
+- asserts `claims.user_id == ctx.customer_id`;
+- canonicalizes log dims from the verified claims;
+- enforces per-run / per-ancestor / per-agent budgets from Redis;
+- enforces kill switches and revocations;
 - **Hard reject** on missing or invalid macaroon.
 
 Cutover from "observed" to "enforced." Per-workspace and per-user
@@ -983,10 +874,15 @@ Mitigation: stateless service, multiple replicas, health-gated load
 balancer. Plugin and Bifrost don't depend on it being up; only
 spawning does.
 
-**HMAC key compromise.** Forge fake macaroons for any user.
-Mitigation: short root TTLs limit historical damage; rotation
-procedure ready; secrets-service-backed delivery (not plain env) when
-infra supports.
+**Org-key compromise (custodial phase 1).** During phase 1, Hive
+holds the org root key and a leak would let an attacker authorize
+any user under that org. Mitigation: harden Hive's secret store as a
+high-value target; plan the phase-3 migration to multisig early
+(adding additional signers is non-breaking — the wire format already
+supports `multisig-v1` per
+[`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md)).
+A phase-3 org has no single key that can mint user authorizations
+alone.
 
 **Hive's secret store as a single point of failure.** Hive holds every
 user's VK for every workspace. If compromised, attacker has all of
@@ -1016,15 +912,16 @@ different failure surface).
 
 ## Open questions
 
-1. **HMAC root key storage.** Plain env var for v1, secrets service
-   for v2. Driven by infra readiness.
+1. **Org root key storage (custodial phase 1).** Plain env var for
+   v1, secrets service for v2. Driven by infra readiness. Migration
+   to user-held / multisig keys is phases 2-3 per
+   [`cryptographic-identity.md`](./cryptographic-identity.md).
 
-2. **Per-workspace `AGENT_DEFAULTS` map location.** **Resolved by
+2. **Per-workspace agent defaults location.** **Resolved by
    [`agent-registry.md`](./agent-registry.md):** defaults live in the
    Hive `AgentDefinition` table, org-scoped, owned by the Hive
    macaroon issuer. Spawners pass an agent name to `/macaroons/issue`
-   and the issuer reads defaults from the registry. There is no
-   shared TypeScript constant.
+   and the issuer reads defaults from the registry.
 
 3. **Sub-agent budget split policy.** Convention: child gets at most
    `parent.remaining * 0.5`; keep at least `parent.cap * 0.25` in
@@ -1036,10 +933,12 @@ different failure surface).
    triggering user's VK. **Out of scope of this doc, but a Hive-side
    prerequisite for org-level chat features.**
 
-5. **Macaroon library choice.** `gopkg.in/macaroon.v2` for the Go
-   plugin and Hive macaroon issuer. TypeScript needs an implementation
-   (consumer-side: parsing root + attenuating). Wire format is small;
-   compatibility-tested across both.
+5. **Macaroon library choice.** **Resolved:** in-repo at
+   [`gateway/auth/go/`](../auth/go/) (pure verifier + signer) and
+   [`gateway/auth/ts/`](../auth/ts/) (published as `@stakwork/macaroon`).
+   Wire format and verifier algorithm defined in
+   [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md);
+   cross-language byte-equivalence enforced by fixtures.
 
 6. **Cross-Bifrost user-id consistency.** Each workspace's Bifrost has
    its own Customer table. We use `user_id` as both Customer ID and
@@ -1047,21 +946,23 @@ different failure surface).
    everywhere. Hive enforces this — Bifrost doesn't know. Document the
    invariant so it's not accidentally broken.
 
-7. **Per-agent budgets.** Plugin supports them (Redis-based, config
-   block in plugin config). v1 ships with no agents configured. Turn
-   on per agent as ops finds runaway candidates. The plugin enforces
-   org-wide-per-workspace caps; there's no native Bifrost Team budget
-   in use, because Team and Customer are mutually exclusive on a VK
-   and we chose Customer.
+7. **Per-agent budgets.** **Resolved by
+   [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md).**
+   Plugin supports `agent_budgets.<name>.{cap_usd, window}` with
+   Bifrost's full duration vocabulary (`1d` / `1w` / `1M` / `1Y` /
+   sub-day rolling). v1 ships with no agents configured.
 
-8. **Frontend chat refresh semantics.** When alice's daily root is
-   10m from expiring, Hive's chat BFF should silently re-mint and
-   update her session. Standard refresh-token pattern.
+8. **Session refresh semantics.** When an active session's invocation
+   macaroon is near its `exp`, Hive's chat BFF silently re-mints
+   via `/macaroons/issue` and continues. Log grouping by
+   `x-bf-dim-session-id` keeps the analytics view intact across the
+   refresh.
 
 9. **Future xpub layer.** If non-repudiation or cross-org federation
-   ever becomes a hard requirement, add per-request secp256k1 signing
-   on top of the macaroon layer. Design the plugin's auth verifier as
-   one function so `verifyXpubSig` can sit alongside `verifyMacaroon`.
+   ever becomes a hard requirement beyond what `multisig-v1` already
+   supports, add per-request secp256k1 signing on top of the macaroon
+   layer. The plugin's verifier is already structured to admit
+   additional checks alongside `auth.Verify`.
 
 ---
 
@@ -1082,8 +983,10 @@ different failure surface).
 
 - **Two-credential safety.** A leaked VK without a matching macaroon
   is useless. A leaked macaroon without the matching VK is useless.
-  The HMAC root key is the only high-blast-radius secret and lives in
-  the fewest places.
+  No single platform-held key is a system-wide crown jewel: the org
+  root key migrates to multisig (phase 3), user keys migrate to
+  user devices (phase 2), and the plugin holds no signing keys at
+  any phase.
 
 - **Native per-user budget and rate limit.** Bifrost enforces alice's
   $1000/day backstop and her RPM/TPM caps in-process, before any
@@ -1122,10 +1025,12 @@ different failure surface).
 | Per-workspace attribution | One Bifrost per workspace + `x-bf-dim-workspace-id` for cross-instance aggregation |
 | Per-agent attribution | `x-bf-dim-agent-name` → `logs.metadata` |
 | Per-category attribution | `x-bf-dim-category` → `logs.metadata` |
-| **Per-run $ budget (spawner-set)** | **Macaroon `max_cost_usd` caveat** |
-| **Per-run step / wallclock budget** | **Macaroon `max_steps` / `max_wallclock_s` caveats** |
-| **Sub-agent budget bounded by parent** | **Local attenuation + plugin chain enforcement** |
-| Per-agent org-wide-per-workspace budget | Plugin + Redis `cost:agent:<n>:<day>` (future; config block in plugin) |
+| **Per-run $ budget (issuer-set)** | **Macaroon `max_cost_usd` caveat** |
+| **Per-run step budget** | **Macaroon `max_steps` caveat** |
+| **Per-run lifetime** | **Macaroon `exp` (absolute timestamp, stamped at issuance from agent-registry default)** |
+| **Sub-agent budget bounded by parent** | **Local HMAC attenuation + plugin chain enforcement** |
+| Per-agent budget (windowed) | Plugin + Redis `cost:agent:<n>:<bucket>` with Bifrost duration vocabulary (`1d` / `1w` / `1M` / `1Y` / sub-day rolling) per phase 6 |
+| Per-agent kill switch | Plugin checks `kill:agent:<name>` in Redis per phase 6 |
 | Per-workspace daily spend alerts | Query `logs.db` on schedule; alert on threshold |
 | Tool-loop detection | Plugin Redis tool history + threshold |
 | Mid-loop kill switch | Plugin checks `kill:<run-id>` in Redis |
