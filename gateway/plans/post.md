@@ -1,6 +1,6 @@
 # how to herd your agent flock
 
-Agents are growing up fast! With more freedom and autonomy comes the need for real guardrails, to keep agents in their lane. In our Hive code generation platform we run massive swarms of agents in the cloud, enabling them to experiment with lots of options in parallel, come up with their own plans and prototypes. This gives us humans the opportunity to do what we're best at: asking the right questions about WHAT we are actually building and WHY.
+Agents are growing up fast! With more freedom and autonomy comes the need for real guardrails, to keep agents in their lane. In our Hive code generation platform we run massive swarms of agents in the cloud, enabling them to experiment with lots of options in parallel, and come up with their own plans and prototypes. This gives us humans the opportunity to do what we're best at: asking the right questions about WHAT we are actually building and WHY.
 
 But as anyone who keeps up with this stuff has noticed lately, running agents across a wide range of environments can lead to critical infra meltdowns and runaway costs. Managing permissions, capabilities, and budgets through a central hub either breaks down in practice, or hamstrings the agents and makes them less useful. In our cloud coding platform Hive, we manage this through a federated authority system that puts organization and people at the center, not LLMs.
 
