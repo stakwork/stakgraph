@@ -188,6 +188,7 @@ async function structureFinalAnswer(
 export interface GetContextOptions {
   modelName?: ModelName;
   apiKey?: string;
+  baseUrl?: string;
   pat?: string | undefined;
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
@@ -261,6 +262,7 @@ async function prepareAgent(
     sessionConfig,
     mcpServers,
     apiKey: apiKeyIn,
+    baseUrl,
     repos,
     skills,
     subAgents,
@@ -268,7 +270,7 @@ async function prepareAgent(
     onStepEvent,
   } = opts;
   const startTime = Date.now();
-  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn);
+  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl);
   console.log("===> model", model, "contextLimit", contextLimit);
 
   const messagesRef: MessagesRef = { current: [] };
