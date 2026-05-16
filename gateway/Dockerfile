@@ -184,12 +184,16 @@ ENV APP_HOST=127.0.0.1 \
 EXPOSE 8080
 VOLUME ["/app/data"]
 
-# Healthcheck hits the wrapper (the public listener). The wrapper only
-# starts accepting once bifrost is ready, so a 200 here confirms the
-# whole chain is up. /health is unauthenticated even when auth_config
-# is enabled — it's in Bifrost's systemWhitelistedRoutes.
+# Healthcheck hits the wrapper (the public listener at :8181). The
+# wrapper only starts accepting once bifrost is ready, so a 200 here
+# confirms the whole chain is up. /health is unauthenticated even when
+# auth_config is enabled — it's in Bifrost's systemWhitelistedRoutes.
+#
+# `wget -O- > /dev/null` does a GET (not HEAD). `wget --spider` issues
+# HEAD which bifrost-http rejects with 405 → unhealthy container →
+# traefik filters it out → no routing.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -q --spider http://127.0.0.1:8080/health || exit 1
+    CMD wget -q -O- http://127.0.0.1:8181/health > /dev/null || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
 # The wrapper runs with no flags: its defaults produce exactly the
