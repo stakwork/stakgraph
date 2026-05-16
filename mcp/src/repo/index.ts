@@ -125,6 +125,7 @@ function parseAgentBody(req: Request) {
   const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
   const modelName = req.body.model as ModelName | undefined;
   const apiKey = req.body.apiKey as string | undefined;
+  const baseUrl = req.body.baseUrl as string | undefined;
   const logs = req.body.logs as boolean | undefined;
   const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
@@ -144,7 +145,7 @@ function parseAgentBody(req: Request) {
 
   return {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
-    modelName, apiKey, logs, sessionId, sessionConfig, mcpServers,
+    modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns,
   };
 }
@@ -162,6 +163,7 @@ export async function repo_agent(req: Request, res: Response) {
     stream: Boolean(req.body?.stream),
     hasApiKey: Boolean(req.body?.apiKey),
     apiKeyPrefix: req.body?.apiKey ? String(req.body.apiKey).slice(0, 12) + "..." : "(none)",
+    baseUrl: req.body?.baseUrl || "(none)",
     modelName: req.body?.model || "(none)",
   });
 
@@ -201,6 +203,7 @@ export async function repo_agent(req: Request, res: Response) {
           schema: body.schema,
           modelName: body.modelName,
           apiKey: body.apiKey,
+          baseUrl: body.baseUrl,
           logs: body.logs,
           sessionId: body.sessionId,
           sessionConfig: body.sessionConfig,
@@ -311,6 +314,7 @@ export async function repo_agent(req: Request, res: Response) {
           schema: body.schema,
           modelName: body.modelName,
           apiKey: body.apiKey,
+          baseUrl: body.baseUrl,
           logs: body.logs,
           sessionId: body.sessionId,
           sessionConfig: body.sessionConfig,
