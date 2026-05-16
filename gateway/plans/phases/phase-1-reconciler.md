@@ -300,10 +300,10 @@ Content-Type: application/json
   "description": "Hive user u_alice — auto-provisioned",
   "customer_id": "9f8e7d6c-…",
   "provider_configs": [
-    { "provider": "anthropic",  "allowed_models": ["*"] },
-    { "provider": "openai",     "allowed_models": ["*"] },
-    { "provider": "openrouter", "allowed_models": ["*"] },
-    { "provider": "gemini",     "allowed_models": ["*"] }
+    { "provider": "anthropic",  "allowed_models": ["*"], "key_ids": ["*"] },
+    { "provider": "openai",     "allowed_models": ["*"], "key_ids": ["*"] },
+    { "provider": "openrouter", "allowed_models": ["*"], "key_ids": ["*"] },
+    { "provider": "gemini",     "allowed_models": ["*"], "key_ids": ["*"] }
   ]
 }
 ```
@@ -316,6 +316,16 @@ Field notes:
 - `provider_configs` — empty array means deny-by-default; we want
   permissive, so list every provider we'll use. `allowed_models: ["*"]`
   permits all models for that provider.
+- `key_ids: ["*"]` — **required for inference to actually work.** Tells
+  Bifrost to set `allow_all_keys: true` on the resulting provider_config
+  so the VK can use every provider-level API key. If you omit this,
+  Bifrost defaults to "no keys attached" and every inference call fails
+  with `no keys found for provider: <p> and model: <m>`, even though
+  the provider key clearly exists in `/api/providers/<p>/keys`. The
+  field name is `key_ids` on the **request** — the response-side
+  `keys` array is hydrated/read-only and unrelated. Source:
+  `transports/bifrost-http/handlers/governance.go` (`KeyIDs
+  schemas.WhiteList json:"key_ids"`).
 - `budgets` (optional, omitted here) — Customer's $1000/day already
   governs alice's spend. If you ever want a *separate* VK-level cap
   (e.g. one VK $100/day on top of $1000/day customer cap), put it
