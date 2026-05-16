@@ -171,6 +171,7 @@ export function getApiKeyForProvider(provider: Provider | string): string {
 
 export interface GetModelOptions {
   apiKey?: string;
+  baseUrl?: string;
   modelName?: ModelName | string;
   cwd?: string;
   executablePath?: string;
@@ -195,7 +196,7 @@ interface ModelDetails {
   modelId: string,
   contextLimit: number,
 }
-export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string): ModelDetails {
+export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string, baseUrl?: string): ModelDetails {
   const provider = getProviderForModel(modelName);
   const apiKey = apiKeyIn || getApiKeyForProvider(provider);
   console.log("===> getModelDetails", {
@@ -203,10 +204,12 @@ export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: strin
     modelName: modelName || "(default)",
     keySource: apiKeyIn ? "request body" : "env var",
     apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
+    baseUrl: baseUrl || "(default)",
   });
   const model = getModel(provider, {
     modelName,
     apiKey,
+    baseUrl,
   });
   // Resolve the actual modelId to look up context limit
   let modelId: string;
@@ -267,9 +270,11 @@ export function getModel(
       `Getting model for provider: ${provider}, model: ${modelId}`
     );
   }
-  const baseURL = getGatewayBaseURL(provider);
+  // Explicit baseUrl from caller takes precedence over the global LLM gateway.
+  const baseURL = opts?.baseUrl || getGatewayBaseURL(provider);
   if (baseURL) {
-    console.log(`[LLM_GATEWAY] routing ${provider} via ${baseURL}`);
+    const source = opts?.baseUrl ? "caller" : "LLM_GATEWAY";
+    console.log(`[${source}] routing ${provider} via ${baseURL}`);
   }
   switch (provider) {
     case "anthropic":
