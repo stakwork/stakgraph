@@ -123,6 +123,16 @@ func Client() *redis.Client {
 	return client
 }
 
+// SetClientForTest overrides the package-level client. Tests use
+// this to inject a miniredis-backed *redis.Client without exporting
+// the mutex. Production code MUST go through Init. Pass nil to
+// restore observability mode for the next test.
+func SetClientForTest(c *redis.Client) {
+	mu.Lock()
+	client = c
+	mu.Unlock()
+}
+
 // Close shuts down the client if any. Called from main.Cleanup().
 func Close() error {
 	mu.Lock()

@@ -24,6 +24,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"github.com/stakwork/stakgraph/gateway/internal/adminapi"
+	"github.com/stakwork/stakgraph/gateway/internal/auth"
 	"github.com/stakwork/stakgraph/gateway/internal/hooks"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
@@ -51,7 +52,12 @@ const PluginName = "stakgraph-gateway"
 //     a malformed URL is fatal; an unreachable Redis logs a warning
 //     and falls back to observability mode. See
 //     gateway/plans/phases/phase-6-plugin-enforcement.md "Namespace".
-//  5. adminapi.Start — boots the loopback HTTP server.
+//  5. auth.Init + auth.SetTrustRegistry — parses the plugin's
+//     enforce_macaroons flag from the config block and wires the
+//     trust registry into the verifier. See
+//     gateway/plans/phases/phase-4-macaroon-shape.md ("Bifrost-
+//     plugin adapter").
+//  6. adminapi.Start — boots the loopback HTTP server.
 func Init(config any) error {
 	pluginlog.Init(PluginName, config)
 
@@ -71,6 +77,16 @@ func Init(config any) error {
 		pluginlog.Errf("redis: %v", err)
 		return err
 	}
+
+	if err := auth.Init(config); err != nil {
+		// Only malformed config JSON reaches this branch — same
+		// posture as redisclient.Init: a parse error is operator
+		// intent gone wrong, fail fast.
+		pluginlog.Errf("auth: %v", err)
+		return err
+	}
+	auth.SetTrustRegistry(reg)
+	pluginlog.Logf("auth: macaroon adapter wired enforce=%t", auth.GetConfig().EnforceMacaroons)
 
 	return adminapi.Start()
 }

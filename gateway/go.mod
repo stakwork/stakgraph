@@ -20,6 +20,8 @@ require (
 	github.com/redis/go-redis/v9 v9.17.2
 )
 
+require github.com/alicebob/miniredis/v2 v2.38.0
+
 require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -46,6 +48,7 @@ require (
 	github.com/valyala/fasthttp v1.68.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

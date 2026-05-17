@@ -28,13 +28,17 @@ import (
 //
 // Future responsibilities (NOT here yet)
 // --------------------------------------
-//   - Macaroon verification: read req's x-macaroon, verify HMAC +
-//     caveats against the trust registry, short-circuit with 401 if
-//     invalid.
 //   - Rate-limit lookup: keyed by (agent-name, user-id, …) — see
 //     internal/ratelimit.
 //   - Tool-loop detection short-circuit: if the request looks like
 //     it's about to push an agent past its tool budget, short-circuit.
+//
+// Cryptographic auth (macaroon verification) does NOT live here — it
+// lives in PreLLMHook, which is the canonical site for verified-
+// claims-aware logic per gateway/plans/phases/phase-6-plugin-enforcement.md.
+// What we do here is extract the raw x-macaroon header and stash it
+// on context: PreLLMHook doesn't have direct HTTP access, so this is
+// the handoff point.
 //
 // Returning (nil, nil) lets bifrost continue normally; returning a
 // non-nil *schemas.HTTPResponse short-circuits without ever hitting
@@ -43,6 +47,7 @@ func TransportPre(ctx *schemas.BifrostContext, req *schemas.HTTPRequest) (*schem
 	pluginctx.MarkStart(ctx)
 
 	macaroon := req.CaseInsensitiveHeaderLookup("x-macaroon")
+	pluginctx.SetRawMacaroon(ctx, macaroon)
 
 	dims := pluginctx.ExtractDims(req.Headers)
 	pluginctx.SetDims(ctx, dims)
