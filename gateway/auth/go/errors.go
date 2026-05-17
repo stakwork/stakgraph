@@ -14,6 +14,7 @@ const (
 	ErrUserAuthorizationExpired   ErrorCode = "user_authorization_expired"
 	ErrInvalidInvocationSig       ErrorCode = "invalid_invocation_signature"
 	ErrInvocationViolated         ErrorCode = "invocation_violated"
+	ErrUAPerInvocationExceeded    ErrorCode = "ua_per_invocation_exceeded"
 	ErrMacaroonExpired            ErrorCode = "macaroon_expired"
 	ErrAttenuationInvalid         ErrorCode = "attenuation_invalid"
 	ErrAttenuationWidened         ErrorCode = "attenuation_widened"

@@ -19,7 +19,7 @@ of view, the **system can spoof them.** From an org's point of view,
 the **system is the org.**
 
 That's wrong for what this platform actually is. The platform is
-infrastructure that *carries* org-authorized agent work — it isn't the
+infrastructure that _carries_ org-authorized agent work — it isn't the
 authority issuing that work. The cryptography should match the
 principal hierarchy in the real world:
 
@@ -46,7 +46,7 @@ There are three principals in this system, and exactly three keys:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  ORG ROOT KEY        secp256k1, multisig-capable              │
+│  ORG ROOT KEY        secp256k1, multisig-capable               │
 │    Represents the organization itself.                         │
 │    Held by the org (any multisig configuration the org wants). │
 │    Signs: user-key authorizations and revocations.             │
@@ -178,7 +178,7 @@ invocation can be:
   — for a scheduled cron task.
 
 The protocol doesn't distinguish. Only the caveats differ. The
-user-key signature commits to *some* set of caveats; whatever those
+user-key signature commits to _some_ set of caveats; whatever those
 caveats permit, the resulting macaroon can do. Sub-agents always
 attenuate within whatever the user signed.
 
@@ -358,7 +358,7 @@ It's worth being explicit about a distinction that's easy to conflate:
   ultimately verifies against.
 
 A swarm operator with the transport-auth secret can register an org's
-pubkey; they cannot *forge* that org's signatures. Conversely, an org
+pubkey; they cannot _forge_ that org's signatures. Conversely, an org
 that holds its root key cannot mutate a swarm's trust registry over
 HTTP without also holding the swarm's transport-auth secret. The two
 authorities are independent, which is correct: the swarm decides
@@ -372,13 +372,13 @@ persisted state across restarts) is operator policy; see
 
 Revocation happens at each layer independently:
 
-| Layer | Mechanism | Effect |
-|---|---|---|
-| Org revokes a user | Org publishes a revocation entry signed by org root | Plugin rejects any user_authorization for that user_id |
-| Org rotates root key | Org publishes a new root pubkey; old continues to verify until configured grace expires | All future user_authorizations signed by new root |
-| User revokes a session/invocation | User key signs a revocation entry for a nonce | Plugin rejects macaroons with that nonce |
-| Sub-agent kill | Run-id-keyed kill switch in plugin's Redis (as v2) | Plugin returns 402 run_killed |
-| Macaroon natural expiry | `exp` caveat | Plugin rejects expired |
+| Layer                             | Mechanism                                                                               | Effect                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Org revokes a user                | Org publishes a revocation entry signed by org root                                     | Plugin rejects any user_authorization for that user_id |
+| Org rotates root key              | Org publishes a new root pubkey; old continues to verify until configured grace expires | All future user_authorizations signed by new root      |
+| User revokes a session/invocation | User key signs a revocation entry for a nonce                                           | Plugin rejects macaroons with that nonce               |
+| Sub-agent kill                    | Run-id-keyed kill switch in plugin's Redis (as v2)                                      | Plugin returns 402 run_killed                          |
+| Macaroon natural expiry           | `exp` caveat                                                                            | Plugin rejects expired                                 |
 
 How revocation lists are **distributed** is a separate concern:
 
@@ -409,6 +409,7 @@ scope of this doc.
 Examples of policy that vary by deployment:
 
 **Org root key custody.**
+
 - One swarm operator's key (effectively 1-of-1; convenient for solo
   developers).
 - Multisig with the swarm key + the CEO's Sphinx-app key (2-of-2;
@@ -420,6 +421,7 @@ The plugin only needs the **verification rule** for the org's policy;
 it doesn't care how signatures get produced.
 
 **User key custody.**
+
 - Custodial — Hive holds the privkey. Phase-1 default.
 - Yubikey — user touches device per invocation. Appropriate for
   high-value or long-running invocations.
@@ -434,6 +436,7 @@ pubkey in the user_authorization; it doesn't care which device
 produced it.
 
 **Signing cadence.**
+
 - Per-invocation — fresh signature every spawn. Strongest binding,
   highest signing volume.
 - Per-session — one signature covers a session's worth of invocations,
@@ -454,8 +457,9 @@ The protocol stays the same across phases. What changes is who holds
 which keys.
 
 **Phase 1: custodial mode.**
+
 - Org root key: held by Hive (or by the swarm). Effectively a renamed
-  HMAC root, with the structural advantage that it's the *org's* key
+  HMAC root, with the structural advantage that it's the _org's_ key
   in name and in revocation semantics — and can be migrated to a
   user-held / multisig key without protocol changes.
 - User keys: held by Hive on behalf of each user.
@@ -466,6 +470,7 @@ which keys.
   registries make swarms first-class).
 
 **Phase 2: user-key migration.**
+
 - Users opt in to holding their own keys (Yubikey, Passkey, Sphinx
   app). The user_authorization envelope is signed once by the org
   (at onboarding, with the user's pubkey embedded). The invocation
@@ -474,6 +479,7 @@ which keys.
 - Hive stops being able to mint as that user.
 
 **Phase 3: org-key migration.**
+
 - Org adopts multisig for root. Swarm key + CEO Sphinx-app key (or
   whatever shape the org chooses). New user onboardings require the
   configured multisig threshold. Routine ops can still be 1-of-n

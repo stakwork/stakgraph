@@ -103,6 +103,7 @@ Canonical key shapes, value types, and TTLs. Supersedes v2 §561-575.
 
 ```
 cost:run:<run_id>                       HASH    { total: float }
+cost:ua:<ua_nonce>                      HASH    { total: float }
 steps:run:<run_id>                      HASH    { total: int   }
 tools:run:<run_id>                      LIST    [<tool>, ...] (capped at 10)
 kill:<run_id>                           STRING  "1"
@@ -123,6 +124,37 @@ precision; Redis `HINCRBYFLOAT` handles this natively).
   `effective_caveats.max_cost_usd` from the verified macaroon.
 - **TTL:** `max(macaroon.exp - now + 1h, 1h)`, capped at 7d. See
   "TTL policy" below.
+
+### `cost:ua:<ua_nonce>`
+
+Per-`user_authorization` cumulative cost accumulator. Tracks the
+**org-signed spending envelope** described in
+`phase-4-macaroon-shape.md` ("Budget envelope") — i.e. the org leader
+signs a UA from cold storage with `budget.max_total_usd = $X`, the
+employee's hot key signs many invocations under it, and the plugin
+enforces the cumulative cap across all of them.
+
+The accumulator is per-UA (keyed on `ua.nonce`), not per-user or
+per-org, because each UA represents one delegation envelope with its
+own ceiling and its own expiry. When the org leader signs a new UA
+the following week, that's a fresh nonce and a fresh bucket. The old
+UA's bucket TTLs out naturally.
+
+- **Updated by:** PostLLMHook on each call, only when
+  `claims.UABudget != nil && claims.UABudget.MaxTotalUSD > 0`.
+  Single `HINCRBYFLOAT cost:ua:<ua.nonce> total <cost>` added to the
+  existing accumulator pipeline — no extra round-trip.
+- **Read by:** PreLLMHook on each call, only when budget is set.
+  Single `HGET cost:ua:<ua.nonce> total` added to the existing
+  cap-walk pipeline. Compared against `claims.UABudget.MaxTotalUSD`.
+- **TTL:** `clamp(ua.exp - now + 1h, 1h, 7d)`. Same formula as
+  `cost:run`, but the lifetime axis is the UA's expiry (the
+  delegation envelope) rather than the invocation's. This keeps the
+  bucket alive across many short invocations under a long-lived UA.
+
+**No bucket ⇒ no enforcement.** Per-invocation budget caps
+(`max_per_invocation_usd`) are checked at signature-time in the
+verifier and need no Redis state.
 
 ### `steps:run:<run_id>`
 
@@ -332,21 +364,31 @@ PreLLMHook(ctx, req) → response | bifrost.Error:
      Build a pipeline issuing:
        - HGET cost:run:<inv.run_id>           total
        - HGET cost:run:<att[i].run_id>        total      (per attenuation)
+       - HGET cost:ua:<ua.nonce>              total      (if claims.UABudget.MaxTotalUSD > 0)
        - HGET steps:run:<leaf_run_id>         total
        - HGET cost:agent:<agents[last]>:<bucket>  total  (if configured)
      Submit pipeline; await response.
 
-     Evaluate (cap walk, leaf first, then each ancestor):
+     Evaluate (cap walk, leaf first, then each ancestor, then envelope):
        - cost:run:<leaf> >= claims.effective_caveats.max_cost_usd
          → 402 run_cost_exceeded.
        - For each ancestor in claims.macaroon_chain:
            cost:run:<ancestor.run_id> >= ancestor.max_cost_usd
            → 402 run_cost_exceeded.
+       - If claims.UABudget.MaxTotalUSD > 0 AND
+         cost:ua:<ua.nonce> >= claims.UABudget.MaxTotalUSD
+         → 402 ua_budget_exceeded.
        - steps:run:<leaf> >= claims.effective_caveats.max_steps
          → 402 run_step_exceeded.
        - If agent budget configured AND
          cost:agent:<name>:<bucket> >= configured cap
          → 402 agent_cost_exceeded.
+
+     Note: `max_per_invocation_usd` is enforced at signature-time in
+     the verifier (`phase-4-macaroon-shape.md` step 8), not here.
+     The verifier already rejected the macaroon if
+     `invocation.max_cost_usd > ua.budget.max_per_invocation_usd`,
+     so by this point we know the per-call cap is honoured.
 
   4. TOOL-LOOP CHECK (optional pipeline 3, only if request has tools)
      - LRANGE tools:run:<leaf_run_id> 0 9
@@ -367,6 +409,8 @@ PreLLMHook(ctx, req) → response | bifrost.Error:
      - ctx.LeafAgent      = agents[last]
      - ctx.AgentBucketKey = bucketKeyFor(agentBudget.window, now)
                             (cached for PostHook to reuse)
+     - ctx.UANonce        = claims.UANonce
+     - ctx.UABudget       = claims.UABudget   // nil if absent
 ```
 
 Total: at most three Redis round-trips. Two for the common case
@@ -388,20 +432,24 @@ PostLLMHook(ctx, resp) → none:
   2. COMPUTE TTL for per-run keys:
      ttl = clamp(claims.effective_caveats.exp - now + 1h, 1h, 7d)
 
-  3. PIPELINE 1 — ACCUMULATOR WRITES (one Redis round-trip)
-     Build a pipeline issuing, for each run_id in
-     [ctx.LeafRunID] + ctx.AncestorRunIDs:
-       - HINCRBYFLOAT cost:run:<r>   total <cost>
-       - HINCRBY      steps:run:<r>  total 1
-       - EXPIRE       cost:run:<r>   <ttl>
-       - EXPIRE       steps:run:<r>  <ttl>
-     If agent budget configured:
-       - HINCRBYFLOAT cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  total <cost>
-       - EXPIRE       cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  <agent_ttl>
-     If response includes a tool call:
-       - LPUSH        tools:run:<ctx.LeafRunID>  <tool_name>
-       - LTRIM        tools:run:<ctx.LeafRunID>  0 9
-       - EXPIRE       tools:run:<ctx.LeafRunID>  <ttl>
+   3. PIPELINE 1 — ACCUMULATOR WRITES (one Redis round-trip)
+      Build a pipeline issuing, for each run_id in
+      [ctx.LeafRunID] + ctx.AncestorRunIDs:
+        - HINCRBYFLOAT cost:run:<r>   total <cost>
+        - HINCRBY      steps:run:<r>  total 1
+        - EXPIRE       cost:run:<r>   <ttl>
+        - EXPIRE       steps:run:<r>  <ttl>
+      If ctx.UABudget.MaxTotalUSD > 0:
+        - HINCRBYFLOAT cost:ua:<ctx.UANonce>  total <cost>
+        - EXPIRE       cost:ua:<ctx.UANonce>  <ua_ttl>
+        // ua_ttl = clamp(ua.exp - now + 1h, 1h, 7d)
+      If agent budget configured:
+        - HINCRBYFLOAT cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  total <cost>
+        - EXPIRE       cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  <agent_ttl>
+      If response includes a tool call:
+        - LPUSH        tools:run:<ctx.LeafRunID>  <tool_name>
+        - LTRIM        tools:run:<ctx.LeafRunID>  0 9
+        - EXPIRE       tools:run:<ctx.LeafRunID>  <ttl>
      Submit pipeline; do NOT await response (fire-and-forget — see
      "Failure modes" below).
 

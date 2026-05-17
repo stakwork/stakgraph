@@ -26,6 +26,7 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/adminapi"
 	"github.com/stakwork/stakgraph/gateway/internal/hooks"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/stakgraph/gateway/internal/trust"
 )
 
 // PluginName is the system identifier reported via GetName(). Bifrost
@@ -33,8 +34,31 @@ import (
 const PluginName = "stakgraph-gateway"
 
 // Init is called once when bifrost-http loads the plugin.
+//
+// Order matters:
+//
+//  1. pluginlog.Init — so subsequent log lines are properly tagged.
+//  2. trust.LoadFromEnv — applies the precedence rules from
+//     gateway/plans/phases/phase-5-trust-registry.md. Failure here
+//     is fatal: an unparseable persisted file or "refuse" reconcile
+//     mode with a divergent seed must keep us from starting with an
+//     ambiguous registry.
+//  3. adminapi.SetTrustRegistry — hands the registry to the admin
+//     HTTP server so /_plugin/trust/* routes can register.
+//  4. adminapi.Start — boots the loopback HTTP server.
 func Init(config any) error {
 	pluginlog.Init(PluginName, config)
+
+	reg, err := trust.LoadFromEnv()
+	if err != nil {
+		// Fatal — return the error so bifrost-http's plugin loader
+		// reports it and refuses to bring the plugin up. Better
+		// than starting with a half-loaded registry.
+		pluginlog.Errf("trust: %v", err)
+		return err
+	}
+	adminapi.SetTrustRegistry(reg)
+
 	return adminapi.Start()
 }
 

@@ -137,6 +137,10 @@ either rejects or branches on version.
     "workspaces": ["w1", "w2"],
     "agents":     ["coder", "browser", "repair-agent"]
   },
+  "budget": {
+    "max_total_usd":          1000.00,
+    "max_per_invocation_usd": 25.00
+  },
   "iat":         "2026-05-14T09:00:00Z",
   "exp":         "2026-06-14T09:00:00Z",
   "nonce":       "9f4e…32-hex-chars…",
@@ -152,10 +156,77 @@ either rejects or branches on version.
 | `user_id`     | string | Hive's stable user identifier. Same string used as Bifrost Customer name (phase 1). |
 | `user_pubkey` | object | `{alg, key}`. `alg="ed25519"`, `key` = 32-byte hex (Ed25519 raw pubkey). |
 | `permissions` | object | What the user is allowed to do. `workspaces` and `agents` are arrays of identifiers; further fields can be added at `v=1` only if backward-compatible. |
+| `budget`      | object | **Optional.** Org-signed spending envelope. Omit (or set fields to 0) for "no org-side cap; user's `Invocation.max_cost_usd` is the only limit." See "Budget envelope" below. |
 | `iat`         | string | RFC 3339 / ISO 8601 UTC.                                           |
 | `exp`         | string | RFC 3339 / ISO 8601 UTC. Verifier rejects when `now > exp`.        |
-| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation.      |
+| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `cost:ua:<nonce>` cumulative-spend tracking when `budget` is set. |
 | `org_sig`     | object | See "Signature objects" below. Signs all other fields in this object. |
+
+### Budget envelope
+
+The optional `budget` substruct lets the org bound what the user-key
+can spend under this `user_authorization` without the org key needing
+to be online for every invocation. This is the canonical pattern for
+"org leader signs once a week from cold storage, employee's hot key
+signs many invocations under that ceiling."
+
+```json
+"budget": {
+  "max_total_usd":          1000.00,
+  "max_per_invocation_usd": 25.00
+}
+```
+
+| Field                     | Type   | Notes                                                              |
+| ------------------------- | ------ | ------------------------------------------------------------------ |
+| `max_total_usd`           | number | **Cumulative** cap across all invocations under this `user_authorization`. Plugin tracks via Redis key `cost:ua:<ua.nonce>` (same HASH/TTL pattern as `cost:run:*`). `0` ⇒ no cumulative cap. |
+| `max_per_invocation_usd`  | number | **Per-invocation** cap. Verifier rejects when `invocation.max_cost_usd > budget.max_per_invocation_usd`. Pure signature-time check — no Redis. `0` ⇒ no per-invocation cap. |
+
+**Both fields are independently optional.** Setting only
+`max_total_usd` lets the user pick per-invocation amounts freely up to
+the envelope total. Setting only `max_per_invocation_usd` caps each
+call but doesn't bound the total. Setting both gives the org full
+envelope control.
+
+**Backwards compatibility.** Absent `budget` (or both fields = 0) is
+indistinguishable on the wire from a pre-budget macaroon and verifies
+under the same rules — no UA-level budget checks. The verifier never
+fails open on a budget; an absent budget is "no cap by design," not
+"missing data."
+
+**Cold-storage flow** (the motivating scenario):
+
+1. Org leader, holding their secp256k1 key on a hardware wallet,
+   signs a `user_authorization` with
+   `budget = { max_total_usd: 5000, max_per_invocation_usd: 200 }`
+   and `exp = next-sunday`. Done once per week.
+2. The signed UA is handed to the employee (delivered via Hive's
+   user store). The employee's Ed25519 hot key signs many
+   `invocation`s under it through the week.
+3. Plugin tracks `cost:ua:<ua.nonce>` cumulatively; when it crosses
+   `max_total_usd`, every subsequent invocation under this UA is
+   rejected with `402 ua_budget_exceeded`.
+4. To extend or top up, the org leader signs a new UA next Sunday.
+   Old UA naturally expires at its `exp`; its Redis bucket TTLs out
+   shortly after.
+
+**Verifier rules.** See `phase-6-plugin-enforcement.md` for the full
+cap-walk integration. In summary:
+
+- Signature-time: reject if `budget.max_per_invocation_usd > 0` and
+  `invocation.max_cost_usd > budget.max_per_invocation_usd`.
+- Runtime (PreLLMHook): if `budget.max_total_usd > 0`, add one
+  `HGET cost:ua:<ua.nonce> total` to the existing cap-walk pipeline;
+  reject when accumulated total would meet or exceed the cap.
+- Runtime (PostLLMHook): if `budget.max_total_usd > 0`, add one
+  `HINCRBYFLOAT cost:ua:<ua.nonce> total <cost>` to the existing
+  accumulator pipeline. No new round-trips.
+
+**Why not just one `max_total_usd` field?** `max_per_invocation_usd`
+costs nothing at runtime (no Redis) and prevents an employee's
+compromised hot key from burning the full envelope in a single
+`Invocation.max_cost_usd: 5000` call. The two caps are
+complementary, not redundant.
 
 **Cadence.** `user_authorization` is long-lived (issued once per user
 onboarding or key rotation; per the identity doc, "rare — user
@@ -512,10 +583,14 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
      if !ed25519_verify(ua.user_pubkey.key, inv_msg, inv.user_sig.sig)
                                                          → invalid_invocation_signature
 
-  8. check inv caveats (intrinsic only):
-       inv.workspace not in ua.permissions.workspaces    → invocation_violated
-       any inv.agents not in ua.permissions.agents       → invocation_violated
-       now > inv.exp                                     → macaroon_expired
+   8. check inv caveats (intrinsic only):
+        inv.workspace not in ua.permissions.workspaces    → invocation_violated
+        any inv.agents not in ua.permissions.agents       → invocation_violated
+        now > inv.exp                                     → macaroon_expired
+        // Per-invocation budget cap (pure signature-time check).
+        if ua.budget != nil && ua.budget.max_per_invocation_usd > 0
+           && inv.max_cost_usd > ua.budget.max_per_invocation_usd
+                                                          → ua_per_invocation_exceeded
 
   9. walk attenuations:
        prev_sig_bytes = hex_decode(inv.user_sig.sig)
@@ -528,12 +603,14 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
          prev_sig_bytes = hex_decode(att.hmac)
          prev_caveats   = merge(prev_caveats, att.caveats)
 
- 10. return Claims {
-       org_id, user_id, workspace,
-       effective_caveats: prev_caveats,    // narrowed by entire chain
-       nonces: [ua.nonce, inv.nonce, att[*].caveats.nonce],
-       iat:   inv.iat,
-     }
+  10. return Claims {
+        org_id, user_id, workspace,
+        effective_caveats: prev_caveats,    // narrowed by entire chain
+        ua_nonce:          ua.nonce,        // for cost:ua:<nonce> tracking
+        ua_budget:         ua.budget,       // nil if absent
+        nonces: [ua.nonce, inv.nonce, att[*].caveats.nonce],
+        iat:   inv.iat,
+      }
 ```
 
 ### Bifrost-plugin adapter (`gateway/internal/auth/`)

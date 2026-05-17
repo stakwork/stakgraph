@@ -43,12 +43,45 @@ const (
 	// PluginBind controls the bind address for the plugin HTTP
 	// server. Default 127.0.0.1; only change for diagnostics.
 	PluginBind = "BIFROST_PLUGIN_BIND"
+
+	// TrustInline is an inline-JSON seed for the trust registry —
+	// used by self-host / declarative deployments. Ignored on the
+	// sphinx-swarm path where Hive populates the registry via the
+	// admin API. See gateway/plans/phases/phase-5-trust-registry.md
+	// ("Three configuration sources").
+	TrustInline = "BIFROST_PLUGIN_TRUST"
+
+	// TrustFile is a path to a JSON file with the same shape as
+	// TrustInline. Mutually exclusive with TrustInline; if both are
+	// set TrustInline wins (and a warning is logged).
+	TrustFile = "BIFROST_PLUGIN_TRUST_FILE"
+
+	// TrustReconcile selects the behaviour when persisted state and
+	// the env-supplied seed both exist and disagree:
+	//
+	//   - "ignore"    (default): use persisted, log a warning
+	//   - "overwrite": replace persisted with env, log loudly
+	//   - "refuse":    exit non-zero
+	//
+	// The default protects the most common upgrade path — someone
+	// set the env var months ago, the registry evolved via the API,
+	// and a restart shouldn't silently revert.
+	TrustReconcile = "BIFROST_PLUGIN_TRUST_RECONCILE"
+
+	// TrustPath is the on-disk location of the canonical trust
+	// registry. Defaults to /app/data/trust.json so it sits next to
+	// logs.db on the same data volume.
+	TrustPath = "BIFROST_PLUGIN_TRUST_PATH"
 )
 
 // Defaults that apply when an env var is unset.
 const (
 	DefaultPluginPort = "8189"
 	DefaultPluginBind = "127.0.0.1"
+	DefaultTrustPath  = "/app/data/trust.json"
+
+	// DefaultTrustReconcile is the safe default — see TrustReconcile.
+	DefaultTrustReconcile = "ignore"
 )
 
 // Get reads `name` and returns its value or "" if unset.
@@ -83,4 +116,35 @@ func AdminCreds() (user, pass string, ok bool) {
 func ProvisioningTokenValue() (string, bool) {
 	t := os.Getenv(ProvisioningToken)
 	return t, t != ""
+}
+
+// TrustPathValue returns the persisted-trust file path, falling back
+// to DefaultTrustPath.
+func TrustPathValue() string { return GetOr(TrustPath, DefaultTrustPath) }
+
+// TrustReconcileValue returns the configured reconcile mode, falling
+// back to DefaultTrustReconcile. The caller is responsible for
+// validating it against the known set ("ignore", "overwrite",
+// "refuse") — keeping the env package free of policy logic.
+func TrustReconcileValue() string { return GetOr(TrustReconcile, DefaultTrustReconcile) }
+
+// TrustSeed returns the env-supplied registry seed and where it came
+// from. Exactly one of the two env vars is honoured per
+// "Env-var preset shape" in the phase-5 doc:
+//
+//   - inline=true  : raw JSON from BIFROST_PLUGIN_TRUST
+//   - inline=false : path from BIFROST_PLUGIN_TRUST_FILE; caller reads it
+//   - ok=false     : neither set
+//
+// If both env vars are set, inline wins. Callers should log a warning
+// in that case — env.go intentionally doesn't log so it stays a leaf
+// dependency.
+func TrustSeed() (value string, inline bool, ok bool) {
+	if v := os.Getenv(TrustInline); v != "" {
+		return v, true, true
+	}
+	if v := os.Getenv(TrustFile); v != "" {
+		return v, false, true
+	}
+	return "", false, false
 }
