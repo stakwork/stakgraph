@@ -26,6 +26,7 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/adminapi"
 	"github.com/stakwork/stakgraph/gateway/internal/hooks"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
 	"github.com/stakwork/stakgraph/gateway/internal/trust"
 )
 
@@ -45,7 +46,12 @@ const PluginName = "stakgraph-gateway"
 //     ambiguous registry.
 //  3. adminapi.SetTrustRegistry — hands the registry to the admin
 //     HTTP server so /_plugin/trust/* routes can register.
-//  4. adminapi.Start — boots the loopback HTTP server.
+//  4. redisclient.Init — opens the macaroon-enforcement Redis
+//     connection (DBSIZE smoke test logs the size on success). Only
+//     a malformed URL is fatal; an unreachable Redis logs a warning
+//     and falls back to observability mode. See
+//     gateway/plans/phases/phase-6-plugin-enforcement.md "Namespace".
+//  5. adminapi.Start — boots the loopback HTTP server.
 func Init(config any) error {
 	pluginlog.Init(PluginName, config)
 
@@ -59,6 +65,13 @@ func Init(config any) error {
 	}
 	adminapi.SetTrustRegistry(reg)
 
+	if err := redisclient.Init(); err != nil {
+		// Only malformed URLs reach this branch; an unreachable
+		// Redis is non-fatal (handled inside redisclient.Init).
+		pluginlog.Errf("redis: %v", err)
+		return err
+	}
+
 	return adminapi.Start()
 }
 
@@ -66,7 +79,16 @@ func Init(config any) error {
 func GetName() string { return PluginName }
 
 // Cleanup is called on bifrost shutdown.
-func Cleanup() error { return adminapi.Stop() }
+//
+// Close the Redis client first so any in-flight pipeline gets a
+// clean error rather than the goroutine leak go-redis produces on
+// abrupt process exit; then stop the admin server.
+func Cleanup() error {
+	if err := redisclient.Close(); err != nil {
+		pluginlog.Warnf("redis: close: %v", err)
+	}
+	return adminapi.Stop()
+}
 
 // HTTPTransportPreHook fires at the HTTP transport layer, before the
 // request enters Bifrost core. Earliest place we can short-circuit a

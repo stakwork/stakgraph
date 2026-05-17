@@ -159,7 +159,7 @@ either rejects or branches on version.
 | `budget`      | object | **Optional.** Org-signed spending envelope. Omit (or set fields to 0) for "no org-side cap; user's `Invocation.max_cost_usd` is the only limit." See "Budget envelope" below. |
 | `iat`         | string | RFC 3339 / ISO 8601 UTC.                                           |
 | `exp`         | string | RFC 3339 / ISO 8601 UTC. Verifier rejects when `now > exp`.        |
-| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `cost:ua:<nonce>` cumulative-spend tracking when `budget` is set. |
+| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `bifrost:cost:ua:<nonce>` cumulative-spend tracking when `budget` is set. |
 | `org_sig`     | object | See "Signature objects" below. Signs all other fields in this object. |
 
 ### Budget envelope
@@ -179,7 +179,7 @@ signs many invocations under that ceiling."
 
 | Field                     | Type   | Notes                                                              |
 | ------------------------- | ------ | ------------------------------------------------------------------ |
-| `max_total_usd`           | number | **Cumulative** cap across all invocations under this `user_authorization`. Plugin tracks via Redis key `cost:ua:<ua.nonce>` (same HASH/TTL pattern as `cost:run:*`). `0` ⇒ no cumulative cap. |
+| `max_total_usd`           | number | **Cumulative** cap across all invocations under this `user_authorization`. Plugin tracks via Redis key `bifrost:cost:ua:<ua.nonce>` (same HASH/TTL pattern as `bifrost:cost:run:*`; see `phase-6-plugin-enforcement.md` "Namespace"). `0` ⇒ no cumulative cap. |
 | `max_per_invocation_usd`  | number | **Per-invocation** cap. Verifier rejects when `invocation.max_cost_usd > budget.max_per_invocation_usd`. Pure signature-time check — no Redis. `0` ⇒ no per-invocation cap. |
 
 **Both fields are independently optional.** Setting only
@@ -203,9 +203,9 @@ fails open on a budget; an absent budget is "no cap by design," not
 2. The signed UA is handed to the employee (delivered via Hive's
    user store). The employee's Ed25519 hot key signs many
    `invocation`s under it through the week.
-3. Plugin tracks `cost:ua:<ua.nonce>` cumulatively; when it crosses
-   `max_total_usd`, every subsequent invocation under this UA is
-   rejected with `402 ua_budget_exceeded`.
+3. Plugin tracks `bifrost:cost:ua:<ua.nonce>` cumulatively; when it
+   crosses `max_total_usd`, every subsequent invocation under this UA
+   is rejected with `402 ua_budget_exceeded`.
 4. To extend or top up, the org leader signs a new UA next Sunday.
    Old UA naturally expires at its `exp`; its Redis bucket TTLs out
    shortly after.
@@ -216,10 +216,10 @@ cap-walk integration. In summary:
 - Signature-time: reject if `budget.max_per_invocation_usd > 0` and
   `invocation.max_cost_usd > budget.max_per_invocation_usd`.
 - Runtime (PreLLMHook): if `budget.max_total_usd > 0`, add one
-  `HGET cost:ua:<ua.nonce> total` to the existing cap-walk pipeline;
-  reject when accumulated total would meet or exceed the cap.
+  `HGET bifrost:cost:ua:<ua.nonce> total` to the existing cap-walk
+  pipeline; reject when accumulated total would meet or exceed the cap.
 - Runtime (PostLLMHook): if `budget.max_total_usd > 0`, add one
-  `HINCRBYFLOAT cost:ua:<ua.nonce> total <cost>` to the existing
+  `HINCRBYFLOAT bifrost:cost:ua:<ua.nonce> total <cost>` to the existing
   accumulator pipeline. No new round-trips.
 
 **Why not just one `max_total_usd` field?** `max_per_invocation_usd`
@@ -260,7 +260,7 @@ bytes signed. See "Signing inputs" for the exact algorithm.
 | -------------- | -------------- | ------------------------------------------------------------------ |
 | `workspace`    | string         | Workspace identifier. Verifier checks it's in `user_authorization.permissions.workspaces`. |
 | `agents`       | array<string>  | Always single-element on first issuance. Sub-agents append on attenuation. The last element is the "most specific" agent (matches v2's plugin canonicalization). Verifier checks every entry is in `user_authorization.permissions.agents`. |
-| `run_id`       | string         | Stable id for this run. Used as the cost-accumulation key in plugin Redis (`cost:run:<run_id>`). |
+| `run_id`       | string         | Stable id for this run. Used as the cost-accumulation key in plugin Redis (`bifrost:cost:run:<run_id>`; see `phase-6-plugin-enforcement.md` "Namespace"). |
 | `max_cost_usd` | number         | USD budget for this run. Plugin enforces via Redis accumulator.    |
 | `max_steps`    | int            | Step budget. Plugin enforces.                                      |
 | `iat`          | string         | RFC 3339 UTC.                                                      |
@@ -606,7 +606,7 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
   10. return Claims {
         org_id, user_id, workspace,
         effective_caveats: prev_caveats,    // narrowed by entire chain
-        ua_nonce:          ua.nonce,        // for cost:ua:<nonce> tracking
+        ua_nonce:          ua.nonce,        // for bifrost:cost:ua:<nonce> tracking
         ua_budget:         ua.budget,       // nil if absent
         nonces: [ua.nonce, inv.nonce, att[*].caveats.nonce],
         iat:   inv.iat,
@@ -630,12 +630,13 @@ VerifyRequest(ctx, req, registry, redis) → bifrost.Error:
   3. claims, err = auth.Verify(macaroon_b64, policy, time.Now())
      if err != nil                                      → 401 with err.code
 
-  4. revocation checks (Redis):
-     redis.exists("revoke:" + claims.nonces[0])         → 401 user_authorization_revoked
-     redis.get("revoke_user_before:" + claims.user_id)
+   4. revocation checks (Redis; all keys carry the "bifrost:" prefix —
+      see phase-6 "Namespace"):
+     redis.exists("bifrost:revoke:" + claims.nonces[0]) → 401 user_authorization_revoked
+     redis.get("bifrost:revoke_user_before:" + claims.user_id)
        > claims.iat                                     → 401 user_authorization_revoked
      for each nonce in claims.nonces[1:]:
-       redis.exists("revoke:" + nonce)                  → 401 macaroon_revoked
+       redis.exists("bifrost:revoke:" + nonce)          → 401 macaroon_revoked
 
   5. defense-in-depth + plugin ceilings:
      claims.user_id != ctx.customer_id                  → 401 macaroon_user_mismatch
@@ -775,8 +776,9 @@ cross-language source of truth.
 - [ ] Update `doc.go` to reflect the split (pure verifier elsewhere,
       this package is the plugin adapter only)
 - [ ] `plugin.go`: `func VerifyRequest(ctx, req, registry, redis) bifrost.Error`
-- [ ] `revocation.go`: Redis lookups for `revoke:<nonce>` and
-      `revoke_user_before:<user_id>`
+- [ ] `revocation.go`: Redis lookups for `bifrost:revoke:<nonce>` and
+      `bifrost:revoke_user_before:<user_id>` (prefix is fixed; see
+      `phase-6-plugin-enforcement.md` "Namespace")
 - [ ] Imports `gateway/auth/go` for all cryptographic work
 - [ ] Adapter has no JCS / curve / HMAC code of its own
 

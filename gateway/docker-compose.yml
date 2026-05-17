@@ -1,4 +1,31 @@
 services:
+  # Macaroon-enforcement state lives here: revocation tombstones,
+  # per-run cost accumulators, kill switches, tool-loop history. The
+  # plugin namespaces every key with `bifrost:` (see
+  # gateway/plans/phases/phase-6-plugin-enforcement.md "Namespace") so
+  # this instance can be shared with other consumers; in
+  # docker-compose we keep it private to the gateway for simplicity.
+  #
+  # On sphinx-swarm the equivalent is the shared `redis.sphinx`
+  # container — wiring is in sphinx-swarm/src/images/bifrost.rs (the
+  # `redis` entry in bifrost.links).
+  redis:
+    image: redis:7-alpine
+    container_name: stakgraph-gateway-redis
+    restart: unless-stopped
+    # AOF on so revocations and cumulative budget counters survive
+    # restarts. RDB snapshot every 60s after 1000 writes for faster
+    # cold-start recovery. Both modest — workload is small.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # No host port: only the bifrost service needs to reach it.
+
   bifrost:
     # Built by `make docker-build` (see ../gateway/Dockerfile). This image
     # bundles a dynamically-linked bifrost-http + our governance plugin .so
@@ -34,11 +61,20 @@ services:
       # In swarm this is the same value as boltwall.stakwork_secret so
       # Hive already has it; dev default is a recognisable placeholder.
       BIFROST_PROVISIONING_TOKEN: ${BIFROST_PROVISIONING_TOKEN:-dev-provisioning-token}
+      # Redis URL for macaroon-enforcement state. `redis` resolves to
+      # the sidecar service above via the default docker-compose
+      # network. Logical DB 0 with the fixed `bifrost:` key prefix is
+      # the contract (phase-6 "Namespace"). Unset this var to run the
+      # plugin in observability mode (verifier only).
+      BIFROST_PLUGIN_REDIS_URL: redis://redis:6379/0
       # Provider keys are referenced by env.* in data/config.json.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       # Host 8181 -> container 8181 (the wrapper's public listener).
       # Matches Hive's DEFAULT_BIFROST_PORT and existing MCP tests
@@ -61,3 +97,5 @@ services:
 volumes:
   bifrost-data:
     name: stakgraph-gateway-data
+  redis-data:
+    name: stakgraph-gateway-redis-data

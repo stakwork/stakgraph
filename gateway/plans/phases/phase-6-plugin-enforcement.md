@@ -102,16 +102,46 @@ support for any new suffix Bifrost adds.
 Canonical key shapes, value types, and TTLs. Supersedes v2 §561-575.
 
 ```
-cost:run:<run_id>                       HASH    { total: float }
-cost:ua:<ua_nonce>                      HASH    { total: float }
-steps:run:<run_id>                      HASH    { total: int   }
-tools:run:<run_id>                      LIST    [<tool>, ...] (capped at 10)
-kill:<run_id>                           STRING  "1"
-kill:agent:<agent_name>                 STRING  "1"
-revoke:<nonce>                          STRING  "1"      TTL = nonce-bearing layer.exp
-revoke_user_before:<user_id>            STRING  <RFC 3339 UTC>
-cost:agent:<agent_name>:<bucket_key>    HASH    { total: float }
+bifrost:cost:run:<run_id>                       HASH    { total: float }
+bifrost:cost:ua:<ua_nonce>                      HASH    { total: float }
+bifrost:steps:run:<run_id>                      HASH    { total: int   }
+bifrost:tools:run:<run_id>                      LIST    [<tool>, ...] (capped at 10)
+bifrost:kill:<run_id>                           STRING  "1"
+bifrost:kill:agent:<agent_name>                 STRING  "1"
+bifrost:revoke:<nonce>                          STRING  "1"      TTL = nonce-bearing layer.exp
+bifrost:revoke_user_before:<user_id>            STRING  <RFC 3339 UTC>
+bifrost:cost:agent:<agent_name>:<bucket_key>    HASH    { total: float }
 ```
+
+### Namespace
+
+**Every key the gateway plugin reads or writes is prefixed with
+`bifrost:`.** This is load-bearing in the Sphinx-swarm deployment, where
+the gateway shares the `redis.sphinx` instance with Jarvis (see
+`gateway/images/bifrost.rs` and `gateway/docker-compose.yml`). The
+prefix keeps the plugin's keyspace cleanly partitioned from every other
+consumer's so:
+
+- `KEYS bifrost:*` / `SCAN MATCH bifrost:*` enumerates exactly the
+  plugin's state for ops debugging.
+- `FLUSHDB`-equivalent operations can be scoped via `SCAN + DEL` on the
+  prefix without touching Jarvis state.
+- Redis Cluster (future) routes via hash tags; cluster mode does not
+  support multi-DB but does support prefixes, so this scheme stays
+  valid if the deployment grows past a single redis instance.
+
+The prefix is fixed at `bifrost:` and is **not** configurable. A
+configurable prefix would split fixture vocabulary and admin-tooling
+docs in two for no operational gain — there is one plugin, it owns one
+prefix. Throughout the rest of this doc, every key shape shown is
+implicitly preceded by `bifrost:`; the body of each section omits the
+prefix for readability after this point, but every Go-side
+`redis.Client` call MUST emit it.
+
+The TS issuer side (Hive's `/macaroons/revoke`, etc.) MUST write the
+same prefixed keys when fanning out to a workspace's Redis. The
+operator-facing CLI examples in `llm-governance-v2.md` and
+`cryptographic-identity.md` use the prefixed form.
 
 ### `cost:run:<run_id>`
 
@@ -244,11 +274,11 @@ semantics from "Duration vocabulary" above.
 
 | Window | Bucket key format | Example |
 |---|---|---|
-| `Nd` | `YYYY-MM-DD` | `cost:agent:browser:2026-05-16` |
-| `Nw` | `YYYY-Www` (ISO week starting Monday) | `cost:agent:browser:2026-W20` |
-| `NM` | `YYYY-MM` | `cost:agent:browser:2026-05` |
-| `NY` | `YYYY` | `cost:agent:browser:2026` |
-| Sub-day (`Nh`, `Nm`, `Ns`) | unix epoch of window start | `cost:agent:browser:1747353600` |
+| `Nd` | `YYYY-MM-DD` | `bifrost:cost:agent:browser:2026-05-16` |
+| `Nw` | `YYYY-Www` (ISO week starting Monday) | `bifrost:cost:agent:browser:2026-W20` |
+| `NM` | `YYYY-MM` | `bifrost:cost:agent:browser:2026-05` |
+| `NY` | `YYYY` | `bifrost:cost:agent:browser:2026` |
+| Sub-day (`Nh`, `Nm`, `Ns`) | unix epoch of window start | `bifrost:cost:agent:browser:1747353600` |
 
 Sub-day windows use rolling semantics: the bucket key is the unix
 epoch of `now - N * unit`, rounded to that unit. This avoids the
@@ -343,45 +373,45 @@ PreLLMHook(ctx, req) → response | bifrost.Error:
      - On success, hold the verified Claims for the rest of the hook.
 
   2. PIPELINE 1 — REVOCATION + KILL CHECKS (one Redis round-trip)
-     Build a pipeline issuing:
-       - EXISTS revoke:<ua.nonce>
-       - EXISTS revoke:<inv.nonce>
-       - EXISTS revoke:<att[i].nonce> for each attenuation
-       - GET    revoke_user_before:<user_id>
-       - EXISTS kill:<inv.run_id>
-       - EXISTS kill:<att[i].caveats.run_id> for each attenuation
-       - EXISTS kill:agent:<agents[last]>
+      Build a pipeline issuing:
+       - EXISTS bifrost:revoke:<ua.nonce>
+       - EXISTS bifrost:revoke:<inv.nonce>
+       - EXISTS bifrost:revoke:<att[i].nonce> for each attenuation
+       - GET    bifrost:revoke_user_before:<user_id>
+       - EXISTS bifrost:kill:<inv.run_id>
+       - EXISTS bifrost:kill:<att[i].caveats.run_id> for each attenuation
+       - EXISTS bifrost:kill:agent:<agents[last]>
      Submit pipeline; await response.
 
      Evaluate:
-       - Any revoke:<nonce> EXISTS → 401 macaroon_revoked.
-       - revoke_user_before present AND ua.iat < that timestamp
+       - Any bifrost:revoke:<nonce> EXISTS → 401 macaroon_revoked.
+       - bifrost:revoke_user_before present AND ua.iat < that timestamp
          → 401 user_authorization_revoked.
-       - Any kill:<run_id> EXISTS → 402 run_killed.
-       - kill:agent:<agents[last]> EXISTS → 402 agent_killed.
+       - Any bifrost:kill:<run_id> EXISTS → 402 run_killed.
+       - bifrost:kill:agent:<agents[last]> EXISTS → 402 agent_killed.
 
   3. PIPELINE 2 — COST + STEP READS (one Redis round-trip)
      Build a pipeline issuing:
-       - HGET cost:run:<inv.run_id>           total
-       - HGET cost:run:<att[i].run_id>        total      (per attenuation)
-       - HGET cost:ua:<ua.nonce>              total      (if claims.UABudget.MaxTotalUSD > 0)
-       - HGET steps:run:<leaf_run_id>         total
-       - HGET cost:agent:<agents[last]>:<bucket>  total  (if configured)
+       - HGET bifrost:cost:run:<inv.run_id>           total
+       - HGET bifrost:cost:run:<att[i].run_id>        total      (per attenuation)
+       - HGET bifrost:cost:ua:<ua.nonce>              total      (if claims.UABudget.MaxTotalUSD > 0)
+       - HGET bifrost:steps:run:<leaf_run_id>         total
+       - HGET bifrost:cost:agent:<agents[last]>:<bucket>  total  (if configured)
      Submit pipeline; await response.
 
      Evaluate (cap walk, leaf first, then each ancestor, then envelope):
-       - cost:run:<leaf> >= claims.effective_caveats.max_cost_usd
+       - bifrost:cost:run:<leaf> >= claims.effective_caveats.max_cost_usd
          → 402 run_cost_exceeded.
        - For each ancestor in claims.macaroon_chain:
-           cost:run:<ancestor.run_id> >= ancestor.max_cost_usd
+           bifrost:cost:run:<ancestor.run_id> >= ancestor.max_cost_usd
            → 402 run_cost_exceeded.
        - If claims.UABudget.MaxTotalUSD > 0 AND
-         cost:ua:<ua.nonce> >= claims.UABudget.MaxTotalUSD
+         bifrost:cost:ua:<ua.nonce> >= claims.UABudget.MaxTotalUSD
          → 402 ua_budget_exceeded.
-       - steps:run:<leaf> >= claims.effective_caveats.max_steps
+       - bifrost:steps:run:<leaf> >= claims.effective_caveats.max_steps
          → 402 run_step_exceeded.
        - If agent budget configured AND
-         cost:agent:<name>:<bucket> >= configured cap
+         bifrost:cost:agent:<name>:<bucket> >= configured cap
          → 402 agent_cost_exceeded.
 
      Note: `max_per_invocation_usd` is enforced at signature-time in
@@ -435,21 +465,21 @@ PostLLMHook(ctx, resp) → none:
    3. PIPELINE 1 — ACCUMULATOR WRITES (one Redis round-trip)
       Build a pipeline issuing, for each run_id in
       [ctx.LeafRunID] + ctx.AncestorRunIDs:
-        - HINCRBYFLOAT cost:run:<r>   total <cost>
-        - HINCRBY      steps:run:<r>  total 1
-        - EXPIRE       cost:run:<r>   <ttl>
-        - EXPIRE       steps:run:<r>  <ttl>
+        - HINCRBYFLOAT bifrost:cost:run:<r>   total <cost>
+        - HINCRBY      bifrost:steps:run:<r>  total 1
+        - EXPIRE       bifrost:cost:run:<r>   <ttl>
+        - EXPIRE       bifrost:steps:run:<r>  <ttl>
       If ctx.UABudget.MaxTotalUSD > 0:
-        - HINCRBYFLOAT cost:ua:<ctx.UANonce>  total <cost>
-        - EXPIRE       cost:ua:<ctx.UANonce>  <ua_ttl>
+        - HINCRBYFLOAT bifrost:cost:ua:<ctx.UANonce>  total <cost>
+        - EXPIRE       bifrost:cost:ua:<ctx.UANonce>  <ua_ttl>
         // ua_ttl = clamp(ua.exp - now + 1h, 1h, 7d)
       If agent budget configured:
-        - HINCRBYFLOAT cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  total <cost>
-        - EXPIRE       cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  <agent_ttl>
+        - HINCRBYFLOAT bifrost:cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  total <cost>
+        - EXPIRE       bifrost:cost:agent:<ctx.LeafAgent>:<ctx.AgentBucketKey>  <agent_ttl>
       If response includes a tool call:
-        - LPUSH        tools:run:<ctx.LeafRunID>  <tool_name>
-        - LTRIM        tools:run:<ctx.LeafRunID>  0 9
-        - EXPIRE       tools:run:<ctx.LeafRunID>  <ttl>
+        - LPUSH        bifrost:tools:run:<ctx.LeafRunID>  <tool_name>
+        - LTRIM        bifrost:tools:run:<ctx.LeafRunID>  0 9
+        - EXPIRE       bifrost:tools:run:<ctx.LeafRunID>  <ttl>
      Submit pipeline; do NOT await response (fire-and-forget — see
      "Failure modes" below).
 
@@ -553,7 +583,7 @@ reserved here so it doesn't need a separate spec.
 
 The call has hit the upstream provider and burned money; the
 plugin crashes before PostHook can record the spend. On restart,
-the next call's PreHook reads `cost:run:<r>` and gets an
+the next call's PreHook reads `bifrost:cost:run:<r>` and gets an
 under-count.
 
 **Accepted.** Same posture as Redis-down accounting: the bound on
@@ -585,8 +615,8 @@ the time PostHook fires. Two questions:
 ### Bucket boundary mid-call
 
 The call arrives at 11:59:58 UTC and the PostHook fires at 12:00:01
-UTC, crossing a day boundary. PreHook checks `cost:agent:browser:
-2026-05-16`; PostHook writes to `cost:agent:browser:2026-05-17`.
+UTC, crossing a day boundary. PreHook checks `bifrost:cost:agent:browser:
+2026-05-16`; PostHook writes to `bifrost:cost:agent:browser:2026-05-17`.
 
 **Accepted.** The boundary is unambiguous from the time the op is
 issued (PostHook computes its own bucket key from its own clock,
@@ -648,26 +678,26 @@ grows the following admin endpoints in phase 6:
 
 ```
 POST /api/stakgraph/admin/runs/:run_id/kill
-  effect:  SET kill:<run_id> "1" EX 3600
+  effect:  SET bifrost:kill:<run_id> "1" EX 3600
   returns: { run_id, killed_at }
 
 POST /api/stakgraph/admin/agents/:name/kill
-  effect:  SET kill:agent:<name> "1" EX 86400
+  effect:  SET bifrost:kill:agent:<name> "1" EX 86400
   returns: { agent_name, killed_at }
 
 DELETE /api/stakgraph/admin/runs/:run_id/kill
-  effect:  DEL kill:<run_id>
+  effect:  DEL bifrost:kill:<run_id>
 
 DELETE /api/stakgraph/admin/agents/:name/kill
-  effect:  DEL kill:agent:<name>
+  effect:  DEL bifrost:kill:agent:<name>
 
 GET /api/stakgraph/admin/runs/:run_id/state
   returns: {
-    cost:  <float>,        // from HGET cost:run total
-    steps: <int>,          // from HGET steps:run total
-    tools: [<str>...],     // from LRANGE tools:run 0 9
-    killed: <bool>,        // EXISTS kill:run
-    ttl_seconds: <int>,    // TTL cost:run
+    cost:  <float>,        // from HGET bifrost:cost:run total
+    steps: <int>,          // from HGET bifrost:steps:run total
+    tools: [<str>...],     // from LRANGE bifrost:tools:run 0 9
+    killed: <bool>,        // EXISTS bifrost:kill:run
+    ttl_seconds: <int>,    // TTL bifrost:cost:run
   }
 
 GET /api/stakgraph/admin/agents/:name/state?window=1d
@@ -675,7 +705,7 @@ GET /api/stakgraph/admin/agents/:name/state?window=1d
     agent_name:      <str>,
     window:          <duration>,
     bucket_key:      <str>,
-    current_spend:   <float>,  // HGET cost:agent:<name>:<bucket> total
+    current_spend:   <float>,  // HGET bifrost:cost:agent:<name>:<bucket> total
     configured_cap:  <float | null>,  // from agent_budgets
     killed:          <bool>,
   }
@@ -732,8 +762,8 @@ roughly an order of magnitude above expected steady-state load.
   spend across all workspaces this week" is a Hive-side question
   answered against logs.db, not against plugin Redis.
 - **Revocation list distribution mechanism.** Phase 6 reads
-  `revoke:<nonce>` from Redis; how that key got there (Hive push,
-  swarm pull, macaroon-carried) is decided by phase 5 and the
+  `bifrost:revoke:<nonce>` from Redis; how that key got there (Hive
+  push, swarm pull, macaroon-carried) is decided by phase 5 and the
   identity doc.
 
 ## Wire-up checklist

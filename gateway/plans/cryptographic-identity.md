@@ -287,8 +287,9 @@ POST /macaroons/issue
 
 POST /macaroons/revoke
   body:    { org_id, nonce } | { org_id, user_id }
-  effects: writes revoke:<nonce> or revoke_user_before:<user_id>
-           to every relevant workspace's Redis (fan-out).
+  effects: writes bifrost:revoke:<nonce> or
+           bifrost:revoke_user_before:<user_id> to every relevant
+           workspace's Redis (fan-out; see phase-6 "Namespace").
   auth:    requires org admin authorization in phase 1;
            requires an org-root signature in phase 3.
 ```

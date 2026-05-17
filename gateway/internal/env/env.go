@@ -72,6 +72,17 @@ const (
 	// registry. Defaults to /app/data/trust.json so it sits next to
 	// logs.db on the same data volume.
 	TrustPath = "BIFROST_PLUGIN_TRUST_PATH"
+
+	// RedisURL is the connection string for the macaroon-enforcement
+	// Redis. In sphinx-swarm this points at the shared redis.sphinx
+	// instance; in docker-compose it points at the sidecar `redis`
+	// service. Expected format: redis://host:port/db
+	//
+	// Empty / unset ⇒ plugin runs in observability mode (verifies
+	// macaroon signatures but skips Redis-backed revocation / budget
+	// checks). See gateway/plans/phases/phase-6-plugin-enforcement.md
+	// "Namespace" for the keyspace contract.
+	RedisURL = "BIFROST_PLUGIN_REDIS_URL"
 )
 
 // Defaults that apply when an env var is unset.
@@ -127,6 +138,15 @@ func TrustPathValue() string { return GetOr(TrustPath, DefaultTrustPath) }
 // validating it against the known set ("ignore", "overwrite",
 // "refuse") — keeping the env package free of policy logic.
 func TrustReconcileValue() string { return GetOr(TrustReconcile, DefaultTrustReconcile) }
+
+// RedisURLValue returns (url, ok). `ok` is false when unset — callers
+// should treat that as "observability mode" and skip wiring the
+// Redis-dependent enforcement path. The plugin remains fully
+// functional as a signature verifier without it.
+func RedisURLValue() (string, bool) {
+	u := os.Getenv(RedisURL)
+	return u, u != ""
+}
 
 // TrustSeed returns the env-supplied registry seed and where it came
 // from. Exactly one of the two env vars is honoured per

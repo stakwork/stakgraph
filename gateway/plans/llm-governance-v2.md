@@ -186,7 +186,7 @@ catch any drift.
 ```
 for each workspace W the user had access to:
     PUT /api/governance/customers/<user_id> { is_active: false }   (on W's Bifrost)
-    SET revoke_user_before:<user_id> = <iso8601 now>               (in W's Redis)
+    SET bifrost:revoke_user_before:<user_id> = <iso8601 now>       (in W's Redis)
 ```
 The first call stops all *new* LLM activity from that user's VK in W.
 The second call kills any in-flight macaroon chains rooted at that
@@ -415,8 +415,8 @@ Three properties, free, that no other layer can provide:
 
 3. **The platform's job is just enforcement.** The plugin walks the chain
    on every LLM call from any descendant and accumulates spend into
-   `cost:run:<run_id>` for the leaf **and every ancestor**. If the
-   parent's $5 cap is hit by combined parent+children spend, every
+   `bifrost:cost:run:<run_id>` for the leaf **and every ancestor**. If
+   the parent's $5 cap is hit by combined parent+children spend, every
    descendant 402s on its next call, regardless of whether the
    descendant's own narrower cap has been hit. Belt and suspenders.
    Nothing escapes.
@@ -434,10 +434,10 @@ the *bound*; the parent picks the *distribution*.**
 | Action | Mechanism | Latency to effect |
 |---|---|---|
 | Disable alice org-wide | `PUT /customers/u_alice {is_active:false}` on every workspace's Bifrost | Next LLM call (Bifrost rejects at auth) |
-| Kill alice's in-flight chains | `revoke_user_before:u_alice = now` in every workspace's Redis | Next LLM call (plugin checks) |
-| Kill one specific run | `kill:<run_id>` in Redis | Next LLM call from any agent in chain |
-| Revoke one macaroon chain | `revoke:<nonce>` in Redis (with TTL = macaroon.exp) | Next LLM call in chain |
-| Hit run budget naturally | Plugin reads `cost:run:<run_id>` ≥ macaroon caveat | Next LLM call |
+| Kill alice's in-flight chains | `bifrost:revoke_user_before:u_alice = now` in every workspace's Redis | Next LLM call (plugin checks) |
+| Kill one specific run | `bifrost:kill:<run_id>` in Redis | Next LLM call from any agent in chain |
+| Revoke one macaroon chain | `bifrost:revoke:<nonce>` in Redis (with TTL = macaroon.exp) | Next LLM call in chain |
+| Hit run budget naturally | Plugin reads `bifrost:cost:run:<run_id>` ≥ macaroon caveat | Next LLM call |
 | Hit org-wide daily budget | Bifrost reads Customer budget | Immediate (at Bifrost auth) |
 
 ---
@@ -602,8 +602,8 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
      attenuations. (Per phase 4.)
    - Asserts macaroon.user_id == customer_id (== u_alice). Match.
    - Canonicalizes the dim map from caveats.
-   - cost:run:r_01H.. currently $3.21, cap is $5.00. Passes.
-   - steps:run:r_01H.. currently 14, cap is 100. Passes.
+   - bifrost:cost:run:r_01H.. currently $3.21, cap is $5.00. Passes.
+   - bifrost:steps:run:r_01H.. currently 14, cap is 100. Passes.
    - No kill, no loop, no revocation.
    - Returns pass.
 
@@ -616,9 +616,9 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
 
 8. BIFROST → our plugin's PostLLMHook:
    - Cost = $0.42.
-   - HINCRBYFLOAT cost:run:r_01H..  total 0.42 → now $3.63
-   - HINCRBY      steps:run:r_01H.. total 1     → now 15
-   - LPUSH        tools:run:r_01H.. "<tool>"
+   - HINCRBYFLOAT bifrost:cost:run:r_01H..  total 0.42 → now $3.63
+   - HINCRBY      bifrost:steps:run:r_01H.. total 1     → now 15
+   - LPUSH        bifrost:tools:run:r_01H.. "<tool>"
 
 9. BIFROST → built-in logging plugin:
    - Writes a logs row with cost=0.42, latency, tokens, model,
@@ -635,8 +635,8 @@ Next PreHook returns 402 `run_cost_exceeded`. AI SDK throws. Agent
 loop terminates. Spawner notified by existing error path.
 
 **When someone clicks "stop this agent."** Hive UI writes
-`SET kill:r_01H.. 1 EX 3600` to w1's Redis. Next PreHook returns 402
-`run_killed`. Same termination path.
+`SET bifrost:kill:r_01H.. 1 EX 3600` to w1's Redis. Next PreHook returns
+402 `run_killed`. Same termination path.
 
 **When the agent spawns a sub-agent.**
 ```python
@@ -657,9 +657,9 @@ spawn_subagent(env={
 })
 ```
 Plugin walks the chain on every sub-agent LLM call: spend counts
-against both `cost:run:<child>` and `cost:run:<parent>`. If parent's
-$5 cap is exhausted by combined spend, the child is killed even
-though its own $2 cap hasn't been hit.
+against both `bifrost:cost:run:<child>` and `bifrost:cost:run:<parent>`.
+If parent's $5 cap is exhausted by combined spend, the child is killed
+even though its own $2 cap hasn't been hit.
 
 ---
 
@@ -905,8 +905,8 @@ calling every workspace's Bifrost. If one workspace's Bifrost is
 unreachable, the disable is partial. Mitigation: Hive's offboarding
 job retries with exponential backoff; emits an alert if any workspace
 is still pending after N minutes; also stamps
-`revoke_user_before:<user_id>` in every workspace's Redis (which is a
-different failure surface).
+`bifrost:revoke_user_before:<user_id>` in every workspace's Redis
+(which is a different failure surface).
 
 ---
 
@@ -1030,12 +1030,12 @@ different failure surface).
 | **Per-run lifetime** | **Macaroon `exp` (absolute timestamp, stamped at issuance from agent-registry default)** |
 | **Sub-agent budget bounded by parent** | **Local HMAC attenuation + plugin chain enforcement** |
 | Per-agent budget (windowed) | Plugin + Redis `cost:agent:<n>:<bucket>` with Bifrost duration vocabulary (`1d` / `1w` / `1M` / `1Y` / sub-day rolling) per phase 6 |
-| Per-agent kill switch | Plugin checks `kill:agent:<name>` in Redis per phase 6 |
+| Per-agent kill switch | Plugin checks `bifrost:kill:agent:<name>` in Redis per phase 6 |
 | Per-workspace daily spend alerts | Query `logs.db` on schedule; alert on threshold |
 | Tool-loop detection | Plugin Redis tool history + threshold |
-| Mid-loop kill switch | Plugin checks `kill:<run-id>` in Redis |
-| User-revocation kill | Plugin checks `revoke_user_before:<user-id>` |
-| Macaroon-chain revocation | Plugin checks `revoke:<nonce>` for any ancestor |
+| Mid-loop kill switch | Plugin checks `bifrost:kill:<run-id>` in Redis |
+| User-revocation kill | Plugin checks `bifrost:revoke_user_before:<user-id>` |
+| Macaroon-chain revocation | Plugin checks `bifrost:revoke:<nonce>` for any ancestor |
 | Cryptographic proof of who | Macaroon `user_id` caveat, HMAC-signed, cross-checked against `customer_id` |
 | Custom governance endpoints | Plugin claims `/api/stakgraph/*` via `HTTPTransportPreHook` short-circuit |
 | Default principal for unattributed agents | Workspace owner's `user_id` |
