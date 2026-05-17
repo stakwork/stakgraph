@@ -328,13 +328,17 @@ class Db {
         body: record.get("body"),
       }));
       console.log(`Found ${data_bank.length} nodes without token counts`);
-      for (const node of data_bank) {
-        const tokens = tokenizer.encode(node.body || "", []);
-        const token_count = tokens.length;
-        await session.run(Q.UPDATE_TOKEN_COUNT_QUERY, {
-          node_key: node.node_key,
-          token_count,
+      const BATCH_SIZE = 256;
+      for (let i = 0; i < data_bank.length; i += BATCH_SIZE) {
+        const chunk = data_bank.slice(i, i + BATCH_SIZE);
+        const batch = chunk.map((node) => {
+          const tokens = tokenizer.encode(node.body || "", []);
+          return { node_key: node.node_key, token_count: tokens.length };
         });
+        await session.run(Q.BULK_UPDATE_TOKEN_COUNT_QUERY, { batch });
+        console.log(
+          `Updated token counts: ${Math.min(i + BATCH_SIZE, data_bank.length)}/${data_bank.length}`,
+        );
       }
     } catch (error) {
       console.error("Error updating token counts:", error);

@@ -78,9 +78,10 @@ export const DATA_BANK_BODIES_QUERY_NO_TOKEN_COUNT = `
   RETURN n.node_key as node_key, n.body as body
 `;
 
-export const UPDATE_TOKEN_COUNT_QUERY = `
-MATCH (n:${Data_Bank} {node_key: $node_key})
-SET n.token_count = $token_count
+export const BULK_UPDATE_TOKEN_COUNT_QUERY = `
+UNWIND $batch as item
+MATCH (n:${Data_Bank} {node_key: item.node_key})
+SET n.token_count = item.token_count
 `;
 
 export const CREATE_HINT_QUERY = `
