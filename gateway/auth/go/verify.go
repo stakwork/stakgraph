@@ -73,6 +73,8 @@ func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
 		AgentName:        agentName,
 		RunID:            runID,
 		EffectiveCaveats: effective,
+		UANonce:          m.UserAuthorization.Nonce,
+		UABudget:         m.UserAuthorization.Budget,
 		Nonces:           nonces,
 		IAT:              m.Invocation.IAT,
 	}, nil
@@ -212,6 +214,15 @@ func enforceInvocationCaveats(inv *Invocation, ua *UserAuthorization, now time.T
 	}
 	if expBefore(inv.Exp, now) {
 		return newError(ErrMacaroonExpired, fmt.Sprintf("invocation expired at %s", inv.Exp))
+	}
+	// Per-invocation budget cap. Pure signature-time check — the
+	// cumulative cap (MaxTotalUSD) is enforced by the adapter via
+	// Redis in PreLLMHook, not here.
+	if ua.Budget != nil && ua.Budget.MaxPerInvocationUSD > 0 &&
+		inv.MaxCostUSD > ua.Budget.MaxPerInvocationUSD {
+		return newError(ErrUAPerInvocationExceeded,
+			fmt.Sprintf("invocation max_cost_usd %v > ua.budget.max_per_invocation_usd %v",
+				inv.MaxCostUSD, ua.Budget.MaxPerInvocationUSD))
 	}
 	return nil
 }

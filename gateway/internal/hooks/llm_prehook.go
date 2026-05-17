@@ -3,6 +3,7 @@ package hooks
 import (
 	"github.com/maximhq/bifrost/core/schemas"
 
+	"github.com/stakwork/stakgraph/gateway/internal/auth"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 )
@@ -12,11 +13,15 @@ import (
 // first place we can see provider + model resolved (vs the raw URL
 // path in TransportPre).
 //
-// Dimensions stashed in TransportPre are read back via
-// pluginctx.Dims — at this stage Bifrost has also populated its own
-// BifrostContextKeyDimensions, but using our copy keeps the plugin's
-// auth path independent of Bifrost's internal context lifecycle (so
-// the same logic works for SDK-mode users too, when we get there).
+// Per gateway/plans/phases/phase-6-plugin-enforcement.md, PreLLMHook
+// is the canonical site for verified-claims-aware logic — not
+// TransportPre, which fires before the request has been parsed. The
+// raw x-macaroon header was stashed on context by TransportPre; we
+// pick it up here and run the full verify pipeline.
+//
+// Shadow-mode failures log loudly and pass through; enforce-mode
+// failures short-circuit with a *BifrostError carrying the
+// machine-readable AdapterError.Code.
 func LLMPre(
 	ctx *schemas.BifrostContext,
 	req *schemas.BifrostRequest,
@@ -33,5 +38,14 @@ func LLMPre(
 		dims[pluginctx.DimAgentName],
 		dims[pluginctx.DimSessionID],
 	)
+
+	// Macaroon adapter — verifies + stamps claims + decides shadow
+	// vs enforce. Returns nil short-circuit on pass-through (success
+	// or shadow-mode failure); non-nil short-circuit when
+	// enforce_macaroons is on and verification failed.
+	if shortCircuit := auth.ApplyToLLMPre(ctx); shortCircuit != nil {
+		return req, shortCircuit, nil
+	}
+
 	return req, nil, nil
 }

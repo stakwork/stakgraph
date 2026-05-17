@@ -58,7 +58,8 @@
       "enabled": true,
       "path": "/app/plugins/stakgraph-gateway.so",
       "config": {
-        "log_level": "info"
+        "log_level": "info",
+        "enforce_macaroons": false
       }
     }
   ],

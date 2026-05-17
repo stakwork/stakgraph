@@ -74,13 +74,41 @@ type UserPermissions struct {
 	Agents     []string `json:"agents"`
 }
 
+// UserBudget is the org-signed spending envelope for a
+// user_authorization. See phase-4-macaroon-shape.md ("Budget envelope")
+// for the motivating cold-storage flow: org leader signs a UA with a
+// weekly cap, employee's hot key signs many invocations under it.
+//
+// Both fields are independently optional. Zero means "no cap on this
+// axis" — consistent with the empty-by-default convention used for
+// agent_budgets in phase 6.
+//
+// The verifier:
+//   - Rejects at signature time if MaxPerInvocationUSD > 0 and the
+//     invocation's max_cost_usd exceeds it (pure field comparison;
+//     no Redis).
+//   - In phase 6's hot path, the plugin tracks cumulative spend in
+//     Redis key `cost:ua:<ua.nonce>` and rejects when the total
+//     would meet or exceed MaxTotalUSD. The pure verifier (this
+//     package) is I/O-free and surfaces the Budget on Claims for the
+//     adapter to enforce.
+type UserBudget struct {
+	MaxTotalUSD         float64 `json:"max_total_usd"`
+	MaxPerInvocationUSD float64 `json:"max_per_invocation_usd"`
+}
+
 // UserAuthorization is the org-signed envelope. The verifier strips
 // OrgSig, JCS-canonicalizes the rest, and verifies that canonical-
 // JSON-bytes against the org policy.
+//
+// Budget is optional (pointer + omitempty). Absent ⇒ no UA-level
+// budget enforcement; the wire bytes are byte-identical to a
+// pre-budget macaroon, so old fixtures continue to verify.
 type UserAuthorization struct {
 	UserID      string          `json:"user_id"`
 	UserPubkey  PubKey          `json:"user_pubkey"`
 	Permissions UserPermissions `json:"permissions"`
+	Budget      *UserBudget     `json:"budget,omitempty"`
 	IAT         string          `json:"iat"`
 	Exp         string          `json:"exp"`
 	Nonce       string          `json:"nonce"`
@@ -141,6 +169,14 @@ type EffectiveCaveats struct {
 
 // Claims is the verified output of Verify. Adapters stamp this on
 // their plugin context for downstream hooks.
+//
+// UANonce and UABudget are surfaced separately from the general
+// Nonces list because phase-6 cumulative-spend tracking
+// (cost:ua:<UANonce>) needs them by themselves, before any
+// attenuation processing. UABudget is nil when the UA carried no
+// budget — adapters MUST treat nil as "no UA-level cap" rather than
+// substituting defaults; absent budget is a design choice, not
+// missing data.
 type Claims struct {
 	OrgID            string
 	UserID           string
@@ -148,6 +184,8 @@ type Claims struct {
 	AgentName        string // last element of the final agents list
 	RunID            string // innermost attenuation's run_id, or invocation's if none
 	EffectiveCaveats EffectiveCaveats
-	Nonces           []string // [ua.nonce, inv.nonce, atts[*].caveats.nonce]
-	IAT              string   // invocation.iat
+	UANonce          string      // ua.nonce; key for cost:ua:<nonce>
+	UABudget         *UserBudget // nil if UA carried no budget
+	Nonces           []string    // [ua.nonce, inv.nonce, atts[*].caveats.nonce]
+	IAT              string      // invocation.iat
 }

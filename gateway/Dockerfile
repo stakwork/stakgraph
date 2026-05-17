@@ -100,6 +100,12 @@ WORKDIR /plugin
 COPY go.mod ./
 COPY main.go ./
 COPY internal/ ./internal/
+# The pure-Go macaroon verifier lives under gateway/auth/go and is
+# imported by gateway/internal/auth as github.com/stakwork/stakgraph/
+# gateway/auth/go. Must be copied into the build context — without
+# it, `go mod tidy` falls back to fetching the package from GOPROXY
+# (which only has tagged releases of the parent module) and fails.
+COPY auth/go/ ./auth/go/
 RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
  && go mod tidy \
  && CGO_ENABLED=1 GOOS=linux \
