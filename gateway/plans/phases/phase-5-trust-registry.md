@@ -442,15 +442,52 @@ later phase. Phase 5 ignores that header if present.
       → `gateway/internal/trust/registry_test.go`,
         `gateway/internal/adminapi/trust_test.go` (28 tests)
 
-### Hive (TS/Node) — TODO
+### Hive (TS/Node) — DONE
 
-- [ ] Hive adds `reconcile_trust(workspace_id)` to its workspace
-      reconciler, called on workspace-create and on background sweep
-- [ ] Hive's data model has `workspaces[wid].org_id` (or whatever
-      field names the org→workspace mapping)
-- [ ] Hive's secret store already holds `(workspace_id) →
-      stakwork_secret` from phase 3 — reuse the same value as the
-      trust admin bearer
+- [x] Hive adds `ensureBifrostTrust(workspace_id)` to its lazy-recon
+      path (sibling of phase-1's `reconcileBifrostVK`), called on
+      every LLM invocation via `maybeReconcileBifrost` ahead of the
+      VK reconcile. Failure is logged and non-blocking; VK reconcile
+      still runs.
+      → `hive/src/services/bifrost/trust-reconciler.ts`
+- [x] Hive autogenerates per-org macaroon-signing keys on first use
+      (`ensureMacaroonOrgKeys`) — keypair lives on `SourceControlOrg`,
+      privkey encrypted with the existing field-encryption service.
+      Custodial / phase-1; migrates to user devices in phase 2+ per
+      cryptographic-identity.md.
+      → `hive/src/services/bifrost/macaroon-org-keys.ts`
+- [x] Hive's data model maps org → workspace via existing
+      `Workspace.sourceControlOrgId → SourceControlOrg`. The macaroon
+      `org_id` derives as `gh_<githubLogin>`.
+      → `hive/prisma/schema.prisma` (SourceControlOrg.macaroonOrgId)
+- [x] Hive's secret store already holds `(workspace_id) →
+      swarmApiKey` from phase 3 — reused as the trust admin Bearer
+      via the new `BifrostPluginClient`.
+      → `hive/src/services/bifrost/BifrostPluginClient.ts`
+- [x] Content-addressed cache on `Swarm.bifrostTrustedOrgId` +
+      `bifrostTrustedPubkey` so the hot path is one DB read; only
+      cache misses talk to the plugin. Catches future key rotation
+      for free.
+      → `hive/prisma/migrations/20260517120000_add_macaroon_org_and_trust_fields/`
+- [x] Unit tests for both reconcilers + the orchestration in
+      `maybeReconcileBifrost` (33 new tests, 86/86 passing across
+      the bifrost suite)
+      → `hive/src/__tests__/unit/services/bifrost/{macaroon-org-keys,trust-reconciler}.test.ts`
+      → `hive/src/__tests__/unit/lib/ai/maybeReconcileBifrost.test.ts`
+
+**Trigger model — lazy, mirrors phase 1.** Hive does **not** call
+`ensureBifrostTrust` on workspace-create or as a background sweep
+in phase 5. It runs from `maybeReconcileBifrost`, which fires on
+the first LLM call for every workspace. Steady state is a single
+DB read per call (the content-addressed cache hit); cache misses
+take a per-workspace Redis lock and exchange one `GET
+/_plugin/trust/status` + at most one `POST /_plugin/trust`. Same
+"the next attempt is the retry" failure posture as phase 1.
+
+**Workspaces with no `sourceControlOrgId`** (personal / draft) are
+skipped silently (`status: "skipped-no-org"`); VK reconcile still
+runs. This matches the doc's design intent — trust is per-org, so
+no-org means nothing to register.
 
 ### Cross-cutting — TODO
 
