@@ -37,6 +37,7 @@ export async function logs_agent(req: Request, res: Response) {
   const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
   const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
   const workspaceSlug = req.body.workspaceSlug as string | undefined;
+  const pods = req.body.pods as string[] | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -50,20 +51,30 @@ export async function logs_agent(req: Request, res: Response) {
       const context: string[] = [];
       context.push(`The CloudWatch log group for this swarm is "${logGroup}". Use this log group when fetching logs.`);
       try {
-        const streams = await listCloudwatchLogStreams(logGroup);
+        const allStreams = await listCloudwatchLogStreams(logGroup);
+        const streams = pods && pods.length > 0
+          ? allStreams.filter((s) => pods.some((p) => s.name.includes(p)))
+          : allStreams;
         if (streams.length > 0) {
           context.push(`\nAvailable log streams (services) in this log group:`);
           for (const s of streams) {
             const serviceName = s.name.replace(/\.sphinx$/, "");
             context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
           }
-          context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
+          if (pods && pods.length > 0) {
+            context.push(`\nThese streams are pre-filtered to the workspace pods: ${pods.join(", ")}. Use the log_stream_names parameter with these streams when fetching logs.`);
+          } else {
+            context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
+          }
         }
       } catch (e) {
         console.warn("Failed to list log streams:", e);
       }
       finalPrompt = context.join("\n") + `\n\n${prompt}`;
     }
+  } else if (pods && pods.length > 0) {
+    const podList = pods.join(", ");
+    finalPrompt = `This workspace is associated with the following pods: ${podList}. When fetching CloudWatch logs, filter log_stream_names to only these pods. Use list_cloudwatch_groups to discover the relevant log group if needed.\n\n${prompt}`;
   }
 
   if (stakworkRuns && stakworkRuns.length > 0) {
@@ -85,14 +96,21 @@ export async function logs_agent(req: Request, res: Response) {
     const context: string[] = [];
     context.push(`The CloudWatch log group for Stakwork production is "${prodLogGroup}". Use this log group when fetching production logs.`);
     try {
-      const streams = await listCloudwatchLogStreams(prodLogGroup);
+      const allStreams = await listCloudwatchLogStreams(prodLogGroup);
+      const streams = pods && pods.length > 0
+        ? allStreams.filter((s) => pods.some((p) => s.name.includes(p)))
+        : allStreams;
       if (streams.length > 0) {
         context.push(`\nAvailable log streams (services) in this log group:`);
         for (const s of streams) {
           const serviceName = s.name.replace(/\.sphinx$/, "");
           context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
         }
-        context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
+        if (pods && pods.length > 0) {
+          context.push(`\nThese streams are pre-filtered to the workspace pods: ${pods.join(", ")}. Use the log_stream_names parameter with these streams when fetching logs.`);
+        } else {
+          context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
+        }
       }
     } catch (e) {
       console.warn("Failed to list log streams for /stakwork/production:", e);
