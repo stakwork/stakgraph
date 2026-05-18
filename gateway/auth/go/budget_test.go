@@ -64,7 +64,7 @@ func mustHex32(s string) []byte {
 //
 // The caller supplies the Budget pointer (nil for no budget) and the
 // invocation's max_cost_usd. Everything else is fixed and minimal:
-// one workspace, one agent, no attenuations. Times are wall-clock so
+// one realm, one agent, no attenuations. Times are wall-clock so
 // "now" passed to Verify can be the same time.Now we used to set
 // iat/exp.
 func buildVerifiableMacaroon(t *testing.T, budget *macaroon.UserBudget, invMaxCostUSD float64) (string, macaroon.Policy, time.Time) {
@@ -88,8 +88,8 @@ func buildVerifiableMacaroon(t *testing.T, budget *macaroon.UserBudget, invMaxCo
 		UserID:     "u_alice",
 		UserPubkey: macaroon.PubKey{Alg: macaroon.AlgEd25519, Key: macaroon.BytesToHex(userPub)},
 		Permissions: macaroon.UserPermissions{
-			Workspaces: []string{"w1"},
-			Agents:     []string{"coder"},
+			Realms: []string{"w1"},
+			Agents: []string{"coder"},
 		},
 		Budget: budget,
 		IAT:    iat,
@@ -104,7 +104,7 @@ func buildVerifiableMacaroon(t *testing.T, budget *macaroon.UserBudget, invMaxCo
 	}
 
 	inv := macaroon.Invocation{
-		Workspace:  "w1",
+		Realm:      "w1",
 		Agents:     []string{"coder"},
 		RunID:      "r_budget_test",
 		MaxCostUSD: invMaxCostUSD,

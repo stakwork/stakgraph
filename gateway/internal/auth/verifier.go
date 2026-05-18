@@ -41,9 +41,9 @@ var ErrUntrustedOrg = &AdapterError{
 // its own failure axes (missing header, untrusted org, Redis
 // unavailable) that don't exist in the pure verifier.
 type AdapterError struct {
-	Code       string                 // machine-readable, stable across versions
-	HTTPStatus int                    // 401 (auth) or 402 (budget) — phase-6 vocab
-	Message    string                 // human-readable diagnostic for logs
+	Code       string                // machine-readable, stable across versions
+	HTTPStatus int                   // 401 (auth) or 402 (budget) — phase-6 vocab
+	Message    string                // human-readable diagnostic for logs
 	Cause      *macaroon.VerifyError // non-nil when the failure came from the pure verifier
 }
 

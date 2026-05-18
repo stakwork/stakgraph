@@ -12,7 +12,7 @@
 ## Why this exists
 
 v2's macaroons are signed with a single symmetric HMAC root key shared
-between Hive's macaroon issuer and every workspace's plugin. That key
+between Hive's macaroon issuer and every workspace (realm) plugin. That key
 is the crown jewel: anyone holding it can mint a macaroon claiming to
 be any user, in any organization, for any amount. From a user's point
 of view, the **system can spoof them.** From an org's point of view,
@@ -63,7 +63,7 @@ There are three principals in this system, and exactly three keys:
 │  INVOCATION MACAROON   HMAC chain, attenuates to sub-agents    │
 │    Represents one unit of agent work in flight.                │
 │    Held in the agent process for the run lifetime.             │
-│    Carries: caveats (workspace, agent, max_cost_usd, exp, …).  │
+│    Carries: caveats (realm, agent, max_cost_usd, exp, …).  │
 │    Extends via HMAC attenuation when sub-agents are spawned.   │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -114,14 +114,14 @@ walk the chain back to the org root, without callbacks:
   user_authorization: {                       ← signed by ORG ROOT
     user_id:             "u_alice",
     user_pubkey:         <Ed25519 pubkey>,
-    permissions:         { workspaces: […], agents: […], … },
+    permissions:         { realms: […], agents: […], … },
     exp:                 <iso8601>,
     nonce:               <random>,
     org_sig:             <secp256k1 multisig over the above>,
   },
 
   invocation: {                               ← signed by USER KEY
-    workspace:           "w1",
+    realms:           "w1",
     agents:              ["coder"],
     run_id:              <uuid>,
     max_cost_usd:        5.00,
@@ -260,7 +260,7 @@ POST /macaroons/issue
   body:    {
     org_id:        "org_acme",
     user_id:       "u_alice",
-    workspace:     "w1",
+    realm:     "w1",
     agent:         "coder",                   ← name from the agent registry
     run_id:        "r_01H...",
     override?:     {                          ← optional caller narrowing
@@ -317,7 +317,7 @@ swarm.trust.orgs:
     pubkey: "0x..."                  # or multisig policy object
     policy:
       max_invocation_cost_usd: 100   # local backstop
-      allowed_workspaces: [w1, w2]   # if subset desired
+      allowed_realms: [w1, w2]   # if subset desired
   - org_id: "org_partner"
     pubkey: "0x..."
     policy:

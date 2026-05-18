@@ -65,19 +65,19 @@ SDKs keep their native protocol; only the base URL changes.
 Because there's one Bifrost per workspace, the Bifrost-native dimensions
 map cleanly to our model:
 
-| Bifrost concept | Our meaning |
-|---|---|
-| Bifrost instance | one workspace |
-| `virtual_key_id` | caller deployment (e.g. `mcp-prod`, `goose-prod`) |
-| `customer_id` (on the VK) | **environment** (`prod` / `staging`) — *reserved, not used yet* |
-| `team_id` (on the VK) | unused for now; available if we ever want VK-level agent grouping |
+| Bifrost concept                        | Our meaning                                                                 |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| Bifrost instance                       | one workspace                                                               |
+| `virtual_key_id`                       | caller deployment (e.g. `mcp-prod`, `goose-prod`)                           |
+| `customer_id` (on the VK)              | **environment** (`prod` / `staging`) — _reserved, not used yet_             |
+| `team_id` (on the VK)                  | unused for now; available if we ever want VK-level agent grouping           |
 | `metadata` (from `x-bf-dim-*` headers) | run_id, agent_name, user_id, session_id — anything else we care to slice on |
 
 `user_id`, `team_id`, `customer_id`, `business_unit_id` are first-class
 indexed columns on the `logs` table, but they are populated by Bifrost's
 **built-in governance plugin** from VK configuration (and `user_id` from
 its enterprise auth middleware). They are explicitly marked
-"DO NOT SET THIS MANUALLY" in Bifrost's source. We therefore do *not*
+"DO NOT SET THIS MANUALLY" in Bifrost's source. We therefore do _not_
 co-opt them from our plugin; we use `x-bf-dim-*` for everything that
 varies per-request.
 
@@ -105,13 +105,13 @@ Bifrost holds the real upstream provider keys. Callers never see them.
 Bifrost issues VKs (`sk-bf-…`) as bearer credentials carried in the
 caller's existing auth header:
 
-| SDK | Header it sends | Value we set it to |
-|---|---|---|
-| `@ai-sdk/anthropic` | `x-api-key` | `sk-bf-…` |
-| `@ai-sdk/openai`, `@openrouter/ai-sdk-provider` | `Authorization: Bearer …` | `sk-bf-…` |
-| `@ai-sdk/google` | `x-goog-api-key` | `sk-bf-…` |
-| Python `openai` client | `Authorization: Bearer …` | `sk-bf-…` |
-| Goose | provider config env vars | `sk-bf-…` |
+| SDK                                             | Header it sends           | Value we set it to |
+| ----------------------------------------------- | ------------------------- | ------------------ |
+| `@ai-sdk/anthropic`                             | `x-api-key`               | `sk-bf-…`          |
+| `@ai-sdk/openai`, `@openrouter/ai-sdk-provider` | `Authorization: Bearer …` | `sk-bf-…`          |
+| `@ai-sdk/google`                                | `x-goog-api-key`          | `sk-bf-…`          |
+| Python `openai` client                          | `Authorization: Bearer …` | `sk-bf-…`          |
+| Goose                                           | provider config env vars  | `sk-bf-…`          |
 
 Per-VK governance Bifrost enforces natively:
 
@@ -132,18 +132,18 @@ sit alongside VKs, a much simpler VK structure may be sufficient. The
 table below lays out the spectrum; we'll commit to one option before
 implementing step 3 of the rollout.
 
-| Option | Examples (per workspace) | Pros | Cons |
-|---|---|---|---|
-| **A. Single VK** | `sk-bf-default` | Trivially simple; one env var everywhere; all governance happens at macaroon + dim layer | No way to kill/cap/rate-limit one caller deployment independently of the rest; loses the indexed `virtual_key_id` log column as a slicing tool; can't restrict models per deployment at the gateway |
-| **B. Per environment** *(recommended starting point)* | `sk-bf-prod`, `sk-bf-staging` | Maps directly to the reserved `customer_id` slot; one env-wide budget per environment (staging gets a tiny cap, prod a generous one); two env vars to manage; still attributes per deployment via `x-bf-dim-deployment` | Buggy and well-behaved deployments inside the same environment share a budget and a rate-limit pool; can't surgically disable one deployment at the VK layer |
-| **C. Per (deployment × environment)** *(original plan)* | `sk-bf-mcp-prod`, `sk-bf-mcp-staging`, `sk-bf-goose-prod`, `sk-bf-chat-prod`, … | Surgical: each deployment has its own budget, RPM cap, model allowlist, and on/off switch; `virtual_key_id` directly answers "what did goose-prod cost today" | N env vars to provision and rotate; mostly redundant once macaroons enforce per-run caps and the kill-switch table catches runaways |
-| **D. Per env, with deployment as a dim** | `sk-bf-prod` + `x-bf-dim-deployment=mcp` | Same VK count as B; preserves per-deployment attribution in logs | Attribution is self-reported (buggy deployment can mis-tag itself); no per-deployment enforcement |
+| Option                                                  | Examples (per workspace)                                                        | Pros                                                                                                                                                                                                                    | Cons                                                                                                                                                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. Single VK**                                        | `sk-bf-default`                                                                 | Trivially simple; one env var everywhere; all governance happens at macaroon + dim layer                                                                                                                                | No way to kill/cap/rate-limit one caller deployment independently of the rest; loses the indexed `virtual_key_id` log column as a slicing tool; can't restrict models per deployment at the gateway |
+| **B. Per environment** _(recommended starting point)_   | `sk-bf-prod`, `sk-bf-staging`                                                   | Maps directly to the reserved `customer_id` slot; one env-wide budget per environment (staging gets a tiny cap, prod a generous one); two env vars to manage; still attributes per deployment via `x-bf-dim-deployment` | Buggy and well-behaved deployments inside the same environment share a budget and a rate-limit pool; can't surgically disable one deployment at the VK layer                                        |
+| **C. Per (deployment × environment)** _(original plan)_ | `sk-bf-mcp-prod`, `sk-bf-mcp-staging`, `sk-bf-goose-prod`, `sk-bf-chat-prod`, … | Surgical: each deployment has its own budget, RPM cap, model allowlist, and on/off switch; `virtual_key_id` directly answers "what did goose-prod cost today"                                                           | N env vars to provision and rotate; mostly redundant once macaroons enforce per-run caps and the kill-switch table catches runaways                                                                 |
+| **D. Per env, with deployment as a dim**                | `sk-bf-prod` + `x-bf-dim-deployment=mcp`                                        | Same VK count as B; preserves per-deployment attribution in logs                                                                                                                                                        | Attribution is self-reported (buggy deployment can mis-tag itself); no per-deployment enforcement                                                                                                   |
 
 > **Note on Option C and `agent-name`.** A tempting variant of Option C
 > is "VK per (agent-name × environment)" — minting one VK per agent
 > type (`browser`, `coder`, `chat`, `reviewer`, …) so the agent name
 > ends up in Bifrost's first-class `team_id` column and `GET
-> /api/logs/histogram/cost/by-dimension=team_id` answers "spend per
+/api/logs/histogram/cost/by-dimension=team_id` answers "spend per
 > agent" via HTTP for free. **Don't.** `deployment` is a small, mostly
 > static set (`mcp`, `goose`, `chat-bff`, `workflow-engine` —
 > single-digit count, changes rarely). `agent-name` is open-ended and
@@ -158,12 +158,12 @@ implementing step 3 of the rollout.
 **Recommendation: start with Option B (per environment), upgrade to C only when an incident or workflow demands surgical per-deployment control.** Rationale:
 
 1. Steps 5–7 of the rollout don't depend on VK count — observability is by dims, enforcement is by macaroons.
-2. Per-deployment VK budgets are most valuable as a stopgap *before* macaroons are deployed. Once macaroons land at step 8, that protection is largely redundant.
+2. Per-deployment VK budgets are most valuable as a stopgap _before_ macaroons are deployed. Once macaroons land at step 8, that protection is largely redundant.
 3. Migrating from B to C is one-line: mint a new VK, update one env var in the offending deployment. No code change.
 4. Maps cleanly to "customer_id = environment" — every log row gets indexed by env without extra config.
 5. The plan's own statement at "VKs in detail" already says VKs are "the big-blast-radius cap that catches a buggy deployment, not the fine-grained policy layer." Per-environment VKs are the natural shape of that statement.
 
-The *primary* defense against runaway is the **macaroon layer**, not the
+The _primary_ defense against runaway is the **macaroon layer**, not the
 VK layer. VKs are a coarse big-blast-radius backstop (most useful in
 steps 1–7 before macaroons) and an environment-isolation tool (forever).
 Whichever option we pick, that framing holds.
@@ -209,7 +209,7 @@ nonce            = <random>
 ```
 
 **Sub-agent macaroon.** When a parent agent spawns a sub-agent, the
-parent attenuates *locally* — macaroon attenuation requires only the
+parent attenuates _locally_ — macaroon attenuation requires only the
 parent's signature, not the HMAC root key. No network roundtrip:
 
 ```
@@ -230,7 +230,7 @@ caveat. Sub-agent containment is physics, not policy.
 A Bifrost custom plugin implementing the standard hook surface
 (`HTTPTransportPreHook`, `PreLLMHook`, `PostLLMHook`,
 `HTTPTransportStreamChunkHook`). Single binary, deployed alongside
-Bifrost. Backed by Redis (for hot enforcement state only — *not* for
+Bifrost. Backed by Redis (for hot enforcement state only — _not_ for
 analytics; Bifrost's built-in logging plugin handles per-call analytics).
 
 The plugin must be registered **before** Bifrost's built-in logging
@@ -352,7 +352,7 @@ POST /macaroons/revoke
 ```
 
 The auth service is the only place the HMAC root signing key lives
-besides the gateway plugin (which only needs it to *verify*, but in
+besides the gateway plugin (which only needs it to _verify_, but in
 practice HMAC verification requires the same key as minting — accept
 this trade-off; see Open Questions).
 
@@ -394,7 +394,7 @@ workspace w1" in the chat UI.
         headers: {
           "x-macaroon":            process.env.AGENT_MACAROON,
           "x-bf-dim-run-id":       process.env.RUN_ID,
-          "x-bf-dim-workspace-id": process.env.WORKSPACE_ID,
+          "x-bf-dim-realm-id": process.env.WORKSPACE_ID,
           "x-bf-dim-user-id":      process.env.USER_ID,
           "x-bf-dim-agent-name":   process.env.AGENT_NAME,
           "x-bf-dim-session-id":   <persistent conversation id>,
@@ -500,7 +500,7 @@ x-macaroon:           <invocation macaroon>         ← identity + scope (future
 x-bf-dim-run-id:       <uuid>                       ← this invocation
 x-bf-dim-session-id:   <persistent conversation id> ← long-lived thread
 x-bf-dim-agent-name:   browser                      ← which agent type
-x-bf-dim-workspace-id: w1                           ← which workspace
+x-bf-dim-realm-id: w1                           ← which workspace
 x-bf-dim-user-id:      u_01H...                     ← which human
 x-bf-dim-deployment:   mcp                          ← which caller (mcp/goose/chat/…)
 ```
@@ -548,7 +548,7 @@ fail-closed enforcement once macaroons exist).
 `x-bf-dim-run-id`. Everything else is optional but recommended.
 
 **Required after step 7 (enforcement phase):** `Authorization` (VK),
-`x-macaroon`. `run_id` and the other identity fields move *into* the
+`x-macaroon`. `run_id` and the other identity fields move _into_ the
 macaroon caveats; the dim headers become advisory only.
 
 **Optional always:** `x-bf-dim-session-id`. Used for grouping in
@@ -576,19 +576,19 @@ language." Every modern LLM SDK supports default headers in one line.
 ```ts
 const headers = {
   // credentials
-  "x-macaroon":           process.env.AGENT_MACAROON,    // optional pre-step-8
+  "x-macaroon": process.env.AGENT_MACAROON, // optional pre-step-8
 
   // observability dimensions → logs.metadata
-  "x-bf-dim-run-id":       process.env.RUN_ID,
-  "x-bf-dim-session-id":   sessionId,
-  "x-bf-dim-agent-name":   process.env.AGENT_NAME,
-  "x-bf-dim-workspace-id": process.env.WORKSPACE_ID,
-  "x-bf-dim-user-id":      process.env.USER_ID,
-  "x-bf-dim-deployment":   "mcp",                        // this caller's deployment label
+  "x-bf-dim-run-id": process.env.RUN_ID,
+  "x-bf-dim-session-id": sessionId,
+  "x-bf-dim-agent-name": process.env.AGENT_NAME,
+  "x-bf-dim-realm-id": process.env.WORKSPACE_ID,
+  "x-bf-dim-user-id": process.env.USER_ID,
+  "x-bf-dim-deployment": "mcp", // this caller's deployment label
 };
 
 const anthropic = createAnthropic({
-  apiKey:  process.env.BIFROST_VK,
+  apiKey: process.env.BIFROST_VK,
   baseURL: process.env.LLM_GATEWAY_URL + "/anthropic/v1",
   headers,
 });
@@ -607,7 +607,7 @@ client = OpenAI(
         "x-macaroon":            os.environ["AGENT_MACAROON"],
         "x-bf-dim-run-id":       os.environ["RUN_ID"],
         "x-bf-dim-agent-name":   os.environ["AGENT_NAME"],
-        "x-bf-dim-workspace-id": os.environ["WORKSPACE_ID"],
+        "x-bf-dim-realm-id":     os.environ["REALM_ID"],
         "x-bf-dim-user-id":      os.environ["USER_ID"],
         "x-bf-dim-deployment":   "pyapp",
     },
@@ -644,7 +644,7 @@ and makes the LLM call with the right headers. Frontend stays trivial.
 
 ## Spawner responsibilities
 
-Each entity that *spawns* an agent is responsible for:
+Each entity that _spawns_ an agent is responsible for:
 
 1. **Obtaining alice's daily root macaroon.** Either from her session
    store (the common case: chat BFF, MCP server invoked from web) or
@@ -659,19 +659,19 @@ Each entity that *spawns* an agent is responsible for:
      workspace: Workspace;
      parent_remaining?: { cost: number; wallclock: number };
    }): RunBudget {
-     const def = AGENT_DEFAULTS[ctx.agent];   // { cost, steps, wallclock }
+     const def = AGENT_DEFAULTS[ctx.agent]; // { cost, steps, wallclock }
      return {
-       max_cost_usd:    Math.min(
-                          def.cost,
-                          ctx.user.daily_remaining_usd,
-                          ctx.workspace.daily_remaining_usd,
-                          ctx.parent_remaining?.cost ?? Infinity,
-                        ),
-       max_steps:       def.steps,
+       max_cost_usd: Math.min(
+         def.cost,
+         ctx.user.daily_remaining_usd,
+         ctx.workspace.daily_remaining_usd,
+         ctx.parent_remaining?.cost ?? Infinity,
+       ),
+       max_steps: def.steps,
        max_wallclock_s: Math.min(
-                          def.wallclock,
-                          ctx.parent_remaining?.wallclock ?? Infinity,
-                        ),
+         def.wallclock,
+         ctx.parent_remaining?.wallclock ?? Infinity,
+       ),
      };
    }
    ```
@@ -717,16 +717,16 @@ In all options:
 The shape of governance differs across the options; the numbers below
 assume **Option B (per-environment VKs)**.
 
-| Field | Typical value (Option B) | Why |
-|---|---|---|
-| `budget` | $5000/day for `sk-bf-prod`, $200/day for `sk-bf-staging` | Env-wide ceiling against runaway anywhere in the env |
-| `rate_limit.request_max_limit` | 1000 RPM (prod), 60 RPM (staging) | Env-wide backstop |
-| `rate_limit.token_max_limit` | 5M TPM | Backstop |
-| `provider_configs` | `[anthropic, openai, openrouter, gemini]` all `["*"]` | Permissive by default |
-| `allowed_models` | `["*"]` initially | Tighten per deployment when there's a reason |
-| `is_active` | `true` | Self-explanatory |
+| Field                          | Typical value (Option B)                                 | Why                                                  |
+| ------------------------------ | -------------------------------------------------------- | ---------------------------------------------------- |
+| `budget`                       | $5000/day for `sk-bf-prod`, $200/day for `sk-bf-staging` | Env-wide ceiling against runaway anywhere in the env |
+| `rate_limit.request_max_limit` | 1000 RPM (prod), 60 RPM (staging)                        | Env-wide backstop                                    |
+| `rate_limit.token_max_limit`   | 5M TPM                                                   | Backstop                                             |
+| `provider_configs`             | `[anthropic, openai, openrouter, gemini]` all `["*"]`    | Permissive by default                                |
+| `allowed_models`               | `["*"]` initially                                        | Tighten per deployment when there's a reason         |
+| `is_active`                    | `true`                                                   | Self-explanatory                                     |
 
-The budgets here are intentionally generous. The *real* governance
+The budgets here are intentionally generous. The _real_ governance
 happens in the macaroon (per run, per workspace, per user). VKs are the
 big-blast-radius cap that catches a buggy deployment, not the
 fine-grained policy layer.
@@ -741,7 +741,7 @@ environment-wide ceiling distinct from individual VK budgets. Add then.
 ### Bifrost config flags
 
 ```yaml
-enforce_auth_on_inference: true     # required: reject calls without a VK
+enforce_auth_on_inference: true # required: reject calls without a VK
 # (default false during initial rollout; flipped to true once all
 #  callers participate)
 ```
@@ -761,12 +761,12 @@ weekly against Bifrost `main`. We deploy our own Bifrost image.
 Plugin reads on startup (env or config file):
 
 ```yaml
-hmac_root_key:           ${HMAC_ROOT_KEY}     # for macaroon verification
-hard_ceiling_cost_usd:   1000.00              # per-run cap backstop
-hard_ceiling_steps:      10000                # per-run cap backstop
-redis_url:               redis://...
+hmac_root_key: ${HMAC_ROOT_KEY} # for macaroon verification
+hard_ceiling_cost_usd: 1000.00 # per-run cap backstop
+hard_ceiling_steps: 10000 # per-run cap backstop
+redis_url: redis://...
 tool_loop:
-  window:   10
+  window: 10
   threshold: 8
 ```
 
@@ -796,26 +796,26 @@ referenced macaroon's `exp`.
 
 ### Failure modes
 
-| Failure | Behavior |
-|---|---|
-| Redis down | **Fail closed** for macaroon checks. **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
-| Auth service down | Existing daily roots and invocation macaroons keep working until they expire. No new spawns possible. |
-| HMAC key rotation needed | Hot rotation supported via `kid` caveat (multi-key verifier). Implement when first rotation is needed; not in v1. |
-| Plugin panic | Bifrost falls back to whatever the panic-isolation policy is. Configure: fail-closed (reject the request). |
+| Failure                  | Behavior                                                                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Redis down               | **Fail closed** for macaroon checks. **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
+| Auth service down        | Existing daily roots and invocation macaroons keep working until they expire. No new spawns possible.                                                          |
+| HMAC key rotation needed | Hot rotation supported via `kid` caveat (multi-key verifier). Implement when first rotation is needed; not in v1.                                              |
+| Plugin panic             | Bifrost falls back to whatever the panic-isolation policy is. Configure: fail-closed (reject the request).                                                     |
 
 ---
 
 ## Threat model: what each credential is worth if stolen
 
-| Credential | Sensitivity | Where it lives | Blast radius |
-|---|---|---|---|
-| HMAC root signing key | **Crown jewel** | Auth service + plugin only | Forge any macaroon, full impersonation |
-| Daily root macaroon | High | Server-side session store | All of alice's permissions for ≤24h |
-| Invocation macaroon | Low | Agent process, run lifetime | One agent, one workspace, ≤ remaining run budget, ≤10m |
-| Sub-agent macaroon | Very low | Sub-process | Narrower scope, ≤ shorter exp, ≤ smaller cap |
-| VK (`sk-bf-…`) | Low (without macaroon: useless) | Deployment env var | With `enforce_auth_on_inference`, useless alone; otherwise: DOS against deployment's RPM cap |
-| Bifrost admin key | High | Ops only | Reconfigure VKs, change deployment budgets |
-| Plugin Redis | Medium | Trusted network | Manipulate run counters → bypass per-run caps; cannot forge macaroons |
+| Credential            | Sensitivity                     | Where it lives              | Blast radius                                                                                 |
+| --------------------- | ------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| HMAC root signing key | **Crown jewel**                 | Auth service + plugin only  | Forge any macaroon, full impersonation                                                       |
+| Daily root macaroon   | High                            | Server-side session store   | All of alice's permissions for ≤24h                                                          |
+| Invocation macaroon   | Low                             | Agent process, run lifetime | One agent, one workspace, ≤ remaining run budget, ≤10m                                       |
+| Sub-agent macaroon    | Very low                        | Sub-process                 | Narrower scope, ≤ shorter exp, ≤ smaller cap                                                 |
+| VK (`sk-bf-…`)        | Low (without macaroon: useless) | Deployment env var          | With `enforce_auth_on_inference`, useless alone; otherwise: DOS against deployment's RPM cap |
+| Bifrost admin key     | High                            | Ops only                    | Reconfigure VKs, change deployment budgets                                                   |
+| Plugin Redis          | Medium                          | Trusted network             | Manipulate run counters → bypass per-run caps; cannot forge macaroons                        |
 
 Without the macaroon, the VK is inert. Without the HMAC key, the
 macaroon cannot be forged. The architecture deliberately makes the only
@@ -834,19 +834,19 @@ into each row's `metadata` JSON column.
 
 ### Schema we get for free
 
-| Column | Source | Use |
-|---|---|---|
-| `timestamp`, `created_at` | Bifrost | time-series slicing |
-| `provider`, `model` | Bifrost | per-model cost rollups |
-| `latency` | Bifrost | p50/p95 dashboards |
-| `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_read_tokens` | Bifrost | token accounting |
-| `cost` | Bifrost (pricing manager) | per-call $ — no plugin code |
-| `status`, `stop_reason`, `error_details` | Bifrost | reliability |
-| `virtual_key_id`, `virtual_key_name` | Bifrost (from VK) | per-caller-deployment |
-| `customer_id`, `team_id`, `business_unit_id` | Bifrost governance plugin (from VK config) | env / reserved future dims |
-| `metadata` (JSON) | **us, via `x-bf-dim-*`** | run_id, agent_name, workspace_id, user_id, session_id |
-| `parent_request_id` | Bifrost | request chain grouping |
-| `stream` | Bifrost | streaming-vs-non |
+| Column                                                                     | Source                                     | Use                                                   |
+| -------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------- |
+| `timestamp`, `created_at`                                                  | Bifrost                                    | time-series slicing                                   |
+| `provider`, `model`                                                        | Bifrost                                    | per-model cost rollups                                |
+| `latency`                                                                  | Bifrost                                    | p50/p95 dashboards                                    |
+| `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_read_tokens` | Bifrost                                    | token accounting                                      |
+| `cost`                                                                     | Bifrost (pricing manager)                  | per-call $ — no plugin code                           |
+| `status`, `stop_reason`, `error_details`                                   | Bifrost                                    | reliability                                           |
+| `virtual_key_id`, `virtual_key_name`                                       | Bifrost (from VK)                          | per-caller-deployment                                 |
+| `customer_id`, `team_id`, `business_unit_id`                               | Bifrost governance plugin (from VK config) | env / reserved future dims                            |
+| `metadata` (JSON)                                                          | **us, via `x-bf-dim-*`**                   | run_id, agent_name, workspace_id, user_id, session_id |
+| `parent_request_id`                                                        | Bifrost                                    | request chain grouping                                |
+| `stream`                                                                   | Bifrost                                    | streaming-vs-non                                      |
 
 All columns above have indexes (`idx_logs_*`). The `metadata` JSON
 column is queryable via SQLite's `json_extract()`.
@@ -940,7 +940,7 @@ for a week to validate that production traffic comfortably fits inside
 the caps.
 
 **Step 5: Observability via dimensions (no plugin code).** Ship
-`x-bf-dim-run-id`, `x-bf-dim-agent-name`, `x-bf-dim-workspace-id`,
+`x-bf-dim-run-id`, `x-bf-dim-agent-name`, `x-bf-dim-realm-id`,
 `x-bf-dim-user-id`, `x-bf-dim-session-id` propagation in MCP. Bifrost
 auto-extracts these and writes them into `logs.metadata`. Verify with
 the example SQL queries that we can slice cost/latency by every
@@ -950,13 +950,14 @@ to spend tuning time first.
 
 **Step 6: Plugin v1 (per-run hot state, no macaroon yet).** Add Redis.
 Plugin now enforces:
+
 - per-run cost cap and step cap from plugin config (hardcoded defaults
   per agent, keyed by `x-bf-dim-agent-name`)
 - tool-loop detection
 - `kill:<run-id>` switch (writable from any UI/service via direct Redis)
-Macaroon verification is still a no-op. `run_id` is still read from
-the dim header (`x-bf-dim-run-id`). Watch for a week of real data;
-tune thresholds.
+  Macaroon verification is still a no-op. `run_id` is still read from
+  the dim header (`x-bf-dim-run-id`). Watch for a week of real data;
+  tune thresholds.
 
 **Step 7: Build the auth service.** Implement `/macaroons/login`,
 `/macaroons/attenuate`, `/macaroons/revoke`. Issue daily root macaroons
@@ -966,11 +967,12 @@ Plugin **logs but does not enforce** macaroon presence — observability
 mode. Watch coverage climb as callers participate.
 
 **Step 8: Plugin v2 (macaroon enforcement).** Plugin now:
+
 - verifies macaroons
 - canonicalizes the dim map from caveats (overwrites
   `BifrostContextKeyDimensions` with macaroon-derived values, so logs
   always reflect the cryptographically-verified identity)
-- enforces per-run budgets *from the macaroon* instead of plugin config
+- enforces per-run budgets _from the macaroon_ instead of plugin config
 - enforces ancestor-chain budgets
 - **Hard reject** on missing or invalid macaroon
 
@@ -1033,7 +1035,7 @@ auth checks (a stale view rejects rather than over-permits).
 **Sub-agent budget accounting can fragment.** If a parent attenuates
 too eagerly to children, the parent's cap may go unused while children
 hit their own caps. Mitigation: parent's local accounting + plugin's
-chain enforcement means the *combined* spend is bounded by the parent
+chain enforcement means the _combined_ spend is bounded by the parent
 cap; how it's distributed across children is the parent's design call.
 
 ---
@@ -1072,10 +1074,10 @@ blocking for steps 1–5 of the rollout.
    Tightly coupled to the next question.
 
 5a. **How many VKs?** Per environment (Option B, recommended) vs per
-    deployment (Option C, original) vs single (Option A). See "How many
-    VKs?" under "Virtual Keys (VKs)". Decision pending team discussion;
-    parking at Option B as the working assumption. Whichever we pick
-    ships in step 3 of the rollout.
+deployment (Option C, original) vs single (Option A). See "How many
+VKs?" under "Virtual Keys (VKs)". Decision pending team discussion;
+parking at Option B as the working assumption. Whichever we pick
+ships in step 3 of the rollout.
 
 6. **Cross-workspace agents' cost attribution.** Agents like `org-chat`
    that legitimately span multiple workspaces. Options: (a) attribute
@@ -1150,21 +1152,21 @@ blocking for steps 1–5 of the rollout.
 
 ## Summary table
 
-| Capability | Mechanism |
-|---|---|
-| Single gateway host; SDKs keep native protocols | Bifrost + `LLM_GATEWAY_URL` + provider-specific drop-in paths |
-| Caller-deployment identification | Per-deployment Virtual Key (`sk-bf-…`) |
-| Org-wide $ / RPM caps per deployment | Bifrost VK budget + rate_limit |
-| Model allowlist per deployment | Bifrost VK `allowed_models` (optional) |
-| Identification of the human who triggered a run | Macaroon (`x-macaroon`) — step 8+ |
-| Scope: workspaces, agents, exp | Macaroon caveats |
-| **Per-run $ budget (spawner-set)** | **Macaroon `max_cost_usd` caveat** |
-| **Per-run step / wallclock budget** | **Macaroon `max_steps` / `max_wallclock_s` caveats** |
-| **Sub-agent budget bounded by parent** | **Local attenuation + plugin chain enforcement** |
-| Per-workspace / per-user / per-agent / per-day analytics | Bifrost `logs` SQLite table; populated via `x-bf-dim-*` headers; queried with SQL |
-| Per-workspace daily $ alert | Query the logs table on a schedule; alert on threshold |
-| Tool-loop detection | Plugin Redis tool history + threshold |
-| Mid-loop kill switch | Plugin checks `kill:<run-id>` in Redis |
-| Caller obligation (today) | Set `BIFROST_VK`; send `x-bf-dim-{run-id,agent-name,workspace-id,user-id,session-id}` on every LLM call |
-| Caller obligation (step 8+) | Above, plus `x-macaroon` |
-| Spawner obligation | Attenuate macaroon with `max_cost_usd` + run scope; pass to spawned process |
+| Capability                                               | Mechanism                                                                                               |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Single gateway host; SDKs keep native protocols          | Bifrost + `LLM_GATEWAY_URL` + provider-specific drop-in paths                                           |
+| Caller-deployment identification                         | Per-deployment Virtual Key (`sk-bf-…`)                                                                  |
+| Org-wide $ / RPM caps per deployment                     | Bifrost VK budget + rate_limit                                                                          |
+| Model allowlist per deployment                           | Bifrost VK `allowed_models` (optional)                                                                  |
+| Identification of the human who triggered a run          | Macaroon (`x-macaroon`) — step 8+                                                                       |
+| Scope: workspaces, agents, exp                           | Macaroon caveats                                                                                        |
+| **Per-run $ budget (spawner-set)**                       | **Macaroon `max_cost_usd` caveat**                                                                      |
+| **Per-run step / wallclock budget**                      | **Macaroon `max_steps` / `max_wallclock_s` caveats**                                                    |
+| **Sub-agent budget bounded by parent**                   | **Local attenuation + plugin chain enforcement**                                                        |
+| Per-workspace / per-user / per-agent / per-day analytics | Bifrost `logs` SQLite table; populated via `x-bf-dim-*` headers; queried with SQL                       |
+| Per-workspace daily $ alert                              | Query the logs table on a schedule; alert on threshold                                                  |
+| Tool-loop detection                                      | Plugin Redis tool history + threshold                                                                   |
+| Mid-loop kill switch                                     | Plugin checks `kill:<run-id>` in Redis                                                                  |
+| Caller obligation (today)                                | Set `BIFROST_VK`; send `x-bf-dim-{run-id,agent-name,workspace-id,user-id,session-id}` on every LLM call |
+| Caller obligation (step 8+)                              | Above, plus `x-macaroon`                                                                                |
+| Spawner obligation                                       | Attenuate macaroon with `max_cost_usd` + run scope; pass to spawned process                             |

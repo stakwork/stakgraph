@@ -41,35 +41,35 @@ const fixturesRelPath = "../fixtures"
 type fixtureFile struct {
 	Description string `json:"description"`
 	Inputs      struct {
-		OrgID       string             `json:"org_id"`
-		OrgPrivHex  string             `json:"org_priv_hex,omitempty"`
-		OrgPrivsHex map[string]string  `json:"org_privs_hex,omitempty"`
-		Signers     []int              `json:"participating_signers,omitempty"`
-		UserPrivHex string             `json:"user_priv_hex"`
-		Policy      macaroon.Policy    `json:"policy"`
-		UAUnsigned  json.RawMessage    `json:"ua_unsigned"`
-		InvUnsigned json.RawMessage    `json:"inv_unsigned"`
+		OrgID        string            `json:"org_id"`
+		OrgPrivHex   string            `json:"org_priv_hex,omitempty"`
+		OrgPrivsHex  map[string]string `json:"org_privs_hex,omitempty"`
+		Signers      []int             `json:"participating_signers,omitempty"`
+		UserPrivHex  string            `json:"user_priv_hex"`
+		Policy       macaroon.Policy   `json:"policy"`
+		UAUnsigned   json.RawMessage   `json:"ua_unsigned"`
+		InvUnsigned  json.RawMessage   `json:"inv_unsigned"`
 		AttsUnsigned []json.RawMessage `json:"atts_unsigned"`
 	} `json:"inputs"`
 	Expected struct {
-		UASigningBytesHex      string `json:"ua_signing_bytes_hex"`
-		InvSigningBytesHex     string `json:"inv_signing_bytes_hex"`
-		UACanonicalJSON        string `json:"ua_canonical_json"`
-		InvCanonicalJSON       string `json:"inv_canonical_json"`
-		MacaroonCanonicalJSON  string `json:"macaroon_canonical_json"`
-		MacaroonB64url         string `json:"macaroon_b64url"`
-		AttenuationHmacInputs  []struct {
-			PrevSigHex            string `json:"prev_sig_hex"`
-			CaveatsCanonicalJSON  string `json:"caveats_canonical_json"`
-			HmacInputHex          string `json:"hmac_input_hex"`
-			HmacOutputHex         string `json:"hmac_output_hex"`
+		UASigningBytesHex     string `json:"ua_signing_bytes_hex"`
+		InvSigningBytesHex    string `json:"inv_signing_bytes_hex"`
+		UACanonicalJSON       string `json:"ua_canonical_json"`
+		InvCanonicalJSON      string `json:"inv_canonical_json"`
+		MacaroonCanonicalJSON string `json:"macaroon_canonical_json"`
+		MacaroonB64url        string `json:"macaroon_b64url"`
+		AttenuationHmacInputs []struct {
+			PrevSigHex           string `json:"prev_sig_hex"`
+			CaveatsCanonicalJSON string `json:"caveats_canonical_json"`
+			HmacInputHex         string `json:"hmac_input_hex"`
+			HmacOutputHex        string `json:"hmac_output_hex"`
 		} `json:"attenuation_hmac_inputs"`
 		Claims struct {
-			OrgID            string   `json:"org_id"`
-			UserID           string   `json:"user_id"`
-			Workspace        string   `json:"workspace"`
-			AgentName        string   `json:"agent_name"`
-			RunID            string   `json:"run_id"`
+			OrgID            string `json:"org_id"`
+			UserID           string `json:"user_id"`
+			Realm            string `json:"realm"`
+			AgentName        string `json:"agent_name"`
+			RunID            string `json:"run_id"`
 			EffectiveCaveats struct {
 				Agents     []string `json:"agents"`
 				MaxCostUSD float64  `json:"max_cost_usd"`
@@ -221,8 +221,8 @@ func runFixture(t *testing.T, name string) {
 	if claims.UserID != fx.Expected.Claims.UserID {
 		t.Errorf("claims.UserID: got %q want %q", claims.UserID, fx.Expected.Claims.UserID)
 	}
-	if claims.Workspace != fx.Expected.Claims.Workspace {
-		t.Errorf("claims.Workspace: got %q want %q", claims.Workspace, fx.Expected.Claims.Workspace)
+	if claims.Realm != fx.Expected.Claims.Realm {
+		t.Errorf("claims.Realm: got %q want %q", claims.Realm, fx.Expected.Claims.Realm)
 	}
 	if claims.AgentName != fx.Expected.Claims.AgentName {
 		t.Errorf("claims.AgentName: got %q want %q", claims.AgentName, fx.Expected.Claims.AgentName)

@@ -69,7 +69,7 @@ func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
 	return &Claims{
 		OrgID:            m.OrgID,
 		UserID:           m.UserAuthorization.UserID,
-		Workspace:        m.Invocation.Workspace,
+		Realm:            m.Invocation.Realm,
 		AgentName:        agentName,
 		RunID:            runID,
 		EffectiveCaveats: effective,
@@ -202,9 +202,9 @@ func verifyInvocation(inv *Invocation, ua *UserAuthorization) error {
 }
 
 func enforceInvocationCaveats(inv *Invocation, ua *UserAuthorization, now time.Time) error {
-	if !containsString(ua.Permissions.Workspaces, inv.Workspace) {
+	if !containsString(ua.Permissions.Realms, inv.Realm) {
 		return newError(ErrInvocationViolated,
-			fmt.Sprintf("workspace %s not in user permissions", inv.Workspace))
+			fmt.Sprintf("realm %s not in user permissions", inv.Realm))
 	}
 	for _, a := range inv.Agents {
 		if !containsString(ua.Permissions.Agents, a) {

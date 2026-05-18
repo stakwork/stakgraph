@@ -13,9 +13,9 @@ package macaroon
 type SigAlg string
 
 const (
-	AlgEd25519             SigAlg = "ed25519"
+	AlgEd25519              SigAlg = "ed25519"
 	AlgEcdsaSecp256k1Sha256 SigAlg = "ecdsa-secp256k1-sha256"
-	AlgMultisigV1          SigAlg = "multisig-v1"
+	AlgMultisigV1           SigAlg = "multisig-v1"
 )
 
 // Sig is the on-wire shape of an org_sig or user_sig. Multisig
@@ -25,8 +25,8 @@ const (
 // verifier rather than carrying a sum type — it keeps json.Unmarshal
 // simple and matches what JCS round-trips.
 type Sig struct {
-	Alg  SigAlg `json:"alg"`
-	Sig  string `json:"sig,omitempty"`
+	Alg  SigAlg   `json:"alg"`
+	Sig  string   `json:"sig,omitempty"`
 	Sigs []SubSig `json:"sigs,omitempty"`
 }
 
@@ -68,10 +68,10 @@ type Policy struct {
 // ─── macaroon layers ──────────────────────────────────────────────────
 
 // UserPermissions is what the org grants the user. Verifier enforces
-// invocation.workspace ∈ workspaces and inv.agents ⊆ agents.
+// invocation.realm ∈ realms and inv.agents ⊆ agents.
 type UserPermissions struct {
-	Workspaces []string `json:"workspaces"`
-	Agents     []string `json:"agents"`
+	Realms []string `json:"realms"`
+	Agents []string `json:"agents"`
 }
 
 // UserBudget is the org-signed spending envelope for a
@@ -118,15 +118,15 @@ type UserAuthorization struct {
 // Invocation is the user-signed envelope. Strip UserSig and
 // canonicalize the rest to get the Ed25519 signing input.
 type Invocation struct {
-	Workspace   string   `json:"workspace"`
-	Agents      []string `json:"agents"`
-	RunID       string   `json:"run_id"`
-	MaxCostUSD  float64  `json:"max_cost_usd"`
-	MaxSteps    int      `json:"max_steps"`
-	IAT         string   `json:"iat"`
-	Exp         string   `json:"exp"`
-	Nonce       string   `json:"nonce"`
-	UserSig     Sig      `json:"user_sig"`
+	Realm      string   `json:"realm"`
+	Agents     []string `json:"agents"`
+	RunID      string   `json:"run_id"`
+	MaxCostUSD float64  `json:"max_cost_usd"`
+	MaxSteps   int      `json:"max_steps"`
+	IAT        string   `json:"iat"`
+	Exp        string   `json:"exp"`
+	Nonce      string   `json:"nonce"`
+	UserSig    Sig      `json:"user_sig"`
 }
 
 // AttenuationCaveats is the narrowed-scope object a parent agent
@@ -180,7 +180,7 @@ type EffectiveCaveats struct {
 type Claims struct {
 	OrgID            string
 	UserID           string
-	Workspace        string
+	Realm            string
 	AgentName        string // last element of the final agents list
 	RunID            string // innermost attenuation's run_id, or invocation's if none
 	EffectiveCaveats EffectiveCaveats
