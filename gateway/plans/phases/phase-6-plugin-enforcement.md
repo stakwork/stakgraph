@@ -210,7 +210,7 @@ LTRIM after each push.
 Per-run kill switch. Set by Hive UI or admin API when an operator
 clicks "stop this run."
 
-- **Updated by:** plugin's `/api/stakgraph/runs/:id/kill` admin
+- **Updated by:** plugin's `POST /_plugin/runs/:id/kill` admin
   endpoint, or external Redis client.
 - **Read by:** PreLLMHook, checks leaf run_id AND every ancestor —
   killing a parent kills every descendant.
@@ -223,7 +223,7 @@ Per-agent kill switch. Set when an operator wants to halt all runs
 under a given agent name across the entire swarm. Matches on
 `agents[last]` from the verified macaroon (the most-specific agent).
 
-- **Updated by:** plugin's `/api/stakgraph/agents/:name/kill` admin
+- **Updated by:** plugin's `POST /_plugin/agents/:name/kill` admin
   endpoint, or external Redis client.
 - **Read by:** PreLLMHook, after the per-run kill check.
 - **TTL:** 24h. Re-set if the kill needs to persist longer. (A kill
@@ -671,27 +671,35 @@ redis:
 Per-agent `window` accepts any Bifrost duration suffix. The bucket
 key format follows the table in "Duration vocabulary" above.
 
-## Admin endpoints
+## Plugin HTTP surface
 
-The plugin's existing `/api/stakgraph/*` short-circuit (v2 §296-309)
-grows the following admin endpoints in phase 6:
+All phase-6 endpoints live under the plugin's `/_plugin/*` namespace,
+served by `gateway/internal/adminapi/` on a loopback HTTP server
+(`127.0.0.1:8189`), reverse-proxied to the container's public port
+by the wrapper binary. See
+[`phase-3-swarm-handoff.md`](./phase-3-swarm-handoff.md) for the full
+wrapper architecture, and v2 §"Observability" for the broader
+endpoint inventory. All endpoints require the per-swarm shared
+bearer secret (same auth scheme as phase 5's `/_plugin/trust/*`).
+
+### Hot-state admin endpoints (Redis only)
 
 ```
-POST /api/stakgraph/admin/runs/:run_id/kill
+POST /_plugin/runs/:run_id/kill
   effect:  SET bifrost:kill:<run_id> "1" EX 3600
   returns: { run_id, killed_at }
 
-POST /api/stakgraph/admin/agents/:name/kill
+POST /_plugin/agents/:name/kill
   effect:  SET bifrost:kill:agent:<name> "1" EX 86400
   returns: { agent_name, killed_at }
 
-DELETE /api/stakgraph/admin/runs/:run_id/kill
+DELETE /_plugin/runs/:run_id/kill
   effect:  DEL bifrost:kill:<run_id>
 
-DELETE /api/stakgraph/admin/agents/:name/kill
+DELETE /_plugin/agents/:name/kill
   effect:  DEL bifrost:kill:agent:<name>
 
-GET /api/stakgraph/admin/runs/:run_id/state
+GET /_plugin/runs/:run_id/state
   returns: {
     cost:  <float>,        // from HGET bifrost:cost:run total
     steps: <int>,          // from HGET bifrost:steps:run total
@@ -700,7 +708,7 @@ GET /api/stakgraph/admin/runs/:run_id/state
     ttl_seconds: <int>,    // TTL bifrost:cost:run
   }
 
-GET /api/stakgraph/admin/agents/:name/state?window=1d
+GET /_plugin/agents/:name/state?window=1d
   returns: {
     agent_name:      <str>,
     window:          <duration>,
@@ -711,8 +719,34 @@ GET /api/stakgraph/admin/agents/:name/state?window=1d
   }
 ```
 
-All admin endpoints require the per-swarm shared bearer secret
-(same auth as phase 5's trust registry admin API).
+### Observability endpoints (logs.db, optionally mixed with Redis)
+
+Read endpoints that aggregate over Bifrost's `logs.db`. These do
+NOT touch SQLite/Postgres directly — instead they call Bifrost's
+own `/api/logs` API over loopback (`http://127.0.0.1:8080/api/logs`)
+and compose `SearchFilters.MetadataFilters` against the dim keys
+the plugin stamped during `PreLLMHook` canonicalization. This keeps
+the plugin decoupled from Bifrost's storage schema and works
+identically against SQLite and Postgres backends.
+
+```
+GET /_plugin/spend/by-user?window=24h
+GET /_plugin/spend/by-agent?window=24h         ← MetadataFilters: agent-name
+GET /_plugin/spend/by-realm?window=24h         ← MetadataFilters: realm-id
+GET /_plugin/spend/by-session?window=24h       ← MetadataFilters: session-id
+GET /_plugin/spend/by-model?window=24h
+GET /_plugin/histogram/cost?window=24h&bucket=1h&dimension=agent-name
+GET /_plugin/histogram/tokens?window=24h&bucket=1h&dimension=user-id
+
+GET /_plugin/runs/:run_id                      ← logs.db: all calls in run
+GET /_plugin/sessions/:session_id              ← logs.db: GetSessionLogs (native to LogStore)
+GET /_plugin/users/:user_id/spend?window=24h
+GET /_plugin/users/:user_id/quota              ← Bifrost customer cap + live Redis spend
+GET /_plugin/agents/:name/spend?window=24h
+```
+
+Observability shape evolves with Hive UI demand — the table above
+is the v1 surface. The full inventory lives in v2 §"Observability".
 
 ## Performance characteristics
 
@@ -779,12 +813,33 @@ roughly an order of magnitude above expected steady-state load.
       implementing clamp(exp-now+1h, 1h, 7d)
 - [ ] `enforcement.go`: PreLLMHook + PostLLMHook implementations
       against the verified Claims
-- [ ] `admin.go`: the `/api/stakgraph/admin/*` HTTP handlers for
-      kill/state queries
+- [ ] `admin.go`: state-query and mutation primitives (`RunState`,
+      `AgentState`, `KillRun`, `UnkillRun`, `KillAgent`,
+      `UnkillAgent`) — pure Redis logic, no HTTP. Consumed by the
+      `adminapi` handlers below.
 - [ ] `config.go`: structured `agent_budgets`, `hard_ceiling`,
       `tool_loop`, `redis` config types
 - [ ] Test fixtures covering: per-run cap walk, per-agent budget
       hit, kill:run, kill:agent, revocation, tool-loop, Redis-down
+
+**Plugin admin HTTP (`gateway/internal/adminapi/`):**
+
+- [ ] `runs.go`: `/_plugin/runs/:run_id/{state,kill}` handlers,
+      thin wrappers over `auth.RunState` / `auth.KillRun` and
+      friends
+- [ ] `agents.go`: `/_plugin/agents/:name/{state,kill,spend}`
+      handlers (state+kill → `auth/`; spend → logstore client)
+- [ ] `spend.go`: `/_plugin/spend/by-*` handlers — compose
+      `MetadataFilters` and call the logstore client
+- [ ] `histogram.go`: `/_plugin/histogram/*` handlers — call
+      `GetDimensionCostHistogram` etc. via the logstore client
+- [ ] `sessions.go`, `users.go`: drill-down handlers
+- [ ] `logstore_client.go`: HTTP client to
+      `http://127.0.0.1:8080/api/logs` with `SearchFilters`
+      serialization; reused by all observability handlers
+- [ ] Route registration in `server.go` (mirror the
+      `SetTrustRegistry` pattern: a `SetRedisClient` setter that
+      `main.Init` calls before `Start()`)
 
 **Internal duration util (`gateway/internal/duration/`):**
 
@@ -807,8 +862,11 @@ roughly an order of magnitude above expected steady-state load.
 
 - [ ] Update `gateway/internal/auth/doc.go` to drop "stub" and
       reference this phase doc
-- [ ] Update `llm-governance-v2.md` §475-575 with a forward-pointer
-      to phase 6
+- [ ] Update `gateway/internal/adminapi/server.go` doc to note the
+      new route families (runs, agents, spend, histogram, sessions,
+      users) alongside the existing trust/credentials routes
+- [ ] Update `llm-governance-v2.md` §"Gateway plugin" and
+      §"Observability" with forward-pointers to this phase
 
 **Gate:** plugin enforcement doesn't ship until the test fixtures
 demonstrate all six enforcement modes (per-run cap, per-agent
