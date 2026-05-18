@@ -280,6 +280,11 @@ export interface GetModelOptions {
   cwd?: string;
   executablePath?: string;
   logger?: Logger;
+  /**
+   * Custom HTTP headers to attach to every request the provider client makes
+   * to the LLM endpoint. Useful for gateway auth, tenant IDs, etc.
+   */
+  headers?: Record<string, string>;
 }
 
 function getModelForProvider(provider: Provider, modelName: ModelName): string {
@@ -300,7 +305,12 @@ interface ModelDetails {
   modelId: string,
   contextLimit: number,
 }
-export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string, baseUrl?: string): ModelDetails {
+export function getModelDetails(
+  modelName?: ModelName | string,
+  apiKeyIn?: string,
+  baseUrl?: string,
+  headers?: Record<string, string>,
+): ModelDetails {
   const provider = getProviderForModel(modelName);
   const apiKey = apiKeyIn || getApiKeyForProvider(provider);
   console.log("===> getModelDetails", {
@@ -309,11 +319,13 @@ export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: strin
     keySource: apiKeyIn ? "request body" : "env var",
     apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
     baseUrl: baseUrl || "(default)",
+    headerKeys: headers ? Object.keys(headers) : [],
   });
   const model = getModel(provider, {
     modelName,
     apiKey,
     baseUrl,
+    headers,
   });
   // Resolve the actual modelId to look up context limit
   let modelId: string;
@@ -384,29 +396,39 @@ export function getModel(
     const source = opts?.baseUrl ? "caller" : "LLM_GATEWAY";
     console.log(`[${source}] routing ${provider} via ${baseURL}`);
   }
+  const extraHeaders = opts?.headers && Object.keys(opts.headers).length > 0
+    ? opts.headers
+    : undefined;
+  if (extraHeaders) {
+    console.log(`[headers] attaching ${Object.keys(extraHeaders).length} custom header(s) to ${provider} client`);
+  }
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({
         apiKey,
         ...(baseURL && { baseURL }),
+        ...(extraHeaders && { headers: extraHeaders }),
       });
       return anthropic(modelId);
     case "google":
       const google = createGoogleGenerativeAI({
         apiKey,
         ...(baseURL && { baseURL }),
+        ...(extraHeaders && { headers: extraHeaders }),
       });
       return google(modelId);
     case "openai":
       const openai = createOpenAI({
         apiKey,
         ...(baseURL && { baseURL }),
+        ...(extraHeaders && { headers: extraHeaders }),
       });
       return openai(modelId);
     case "openrouter":
       const openrouter = createOpenRouter({
         apiKey,
         ...(baseURL && { baseURL }),
+        ...(extraHeaders && { headers: extraHeaders }),
       });
       return openrouter(modelId);
     // case "claude_code":
