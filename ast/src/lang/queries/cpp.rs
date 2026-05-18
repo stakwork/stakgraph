@@ -1,7 +1,6 @@
 use super::super::*;
 use super::consts::*;
 use shared::error::{Context, Result};
-// use lsp::{Cmd as LspCmd, CmdSender, Position, Res as LspRes};
 use crate::lang::parse::trim_quotes;
 use tree_sitter::{Language, Parser, Query, Tree};
 

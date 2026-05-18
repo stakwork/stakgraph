@@ -250,7 +250,6 @@ fn find_only_one_function_file<G: Graph>(
     if target_files_starts.len() == 1 {
         return Some(target_files_starts[0].clone());
     }
-    // TODO: disclude "mock"
     log_cmd(format!("::: found more than one {:?}", func_name));
     target_files_starts.retain(|x| !x.file.contains("mock"));
     if target_files_starts.len() == 1 {

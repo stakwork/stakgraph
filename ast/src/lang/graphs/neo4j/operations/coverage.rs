@@ -1,5 +1,6 @@
 use shared::Result;
 use std::collections::HashSet;
+use tracing::warn;
 
 use crate::lang::graphs::utils::tests_sources;
 use crate::lang::{
@@ -47,7 +48,7 @@ impl Neo4jGraph {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
             Err(e) => {
-                println!("Failed to connect to graph database: {:?}", e);
+                warn!("Failed to connect to graph database: {:?}", e);
                 return Ok(Vec::new());
             }
         };
@@ -67,7 +68,7 @@ impl Neo4jGraph {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
             Err(e) => {
-                println!("Failed to connect to graph database: {:?}", e);
+                warn!("Failed to connect to graph database: {:?}", e);
                 return Ok(0);
             }
         };

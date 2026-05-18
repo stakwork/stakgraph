@@ -102,7 +102,7 @@ impl Stack for Go {
             ) @{TRAIT}"#
         ))
     }
-    // FIXME for go this just gets every struct. Filter them out later. If class has no methods, delete it.
+    
     fn class_definition_query(&self) -> String {
         format!(
             "(type_spec
