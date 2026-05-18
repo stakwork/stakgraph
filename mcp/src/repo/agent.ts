@@ -44,6 +44,10 @@ import {
   StepMeta,
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
+import {
+  prepareSessionMessagesWithOverflowSummary,
+  updateSessionOverflowContext,
+} from "./context.js";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
@@ -234,6 +238,7 @@ interface PreparedAgent {
   turnIndex: number;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
+  usedOverflowSummary: boolean;
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -398,13 +403,26 @@ Apply the guidance from each skill throughout your response.`;
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
+  let sessionMessages: ModelMessage[] = [];
   let hasSystemTurn = false;
+  let usedOverflowSummary = false;
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
-      previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
+      sessionMessages = loadSessionMessages(sessionId);
+      if (opts.isolatedContext) {
+        previousMessages = [];
+      } else {
+        const preparedMessages = await prepareSessionMessagesWithOverflowSummary(
+          sessionId,
+          sessionMessages,
+          model,
+        );
+        previousMessages = preparedMessages.messages;
+        usedOverflowSummary = preparedMessages.usedOverflowSummary;
+      }
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
       hasSystemTurn = true;
@@ -419,7 +437,7 @@ Apply the guidance from each skill throughout your response.`;
   let cumInput = 0;
   let cumOutput = 0;
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length +
+    sessionMessages.filter((m) => m.role === "user").length +
     (hasSystemTurn ? 2 : 1);
 
   const agent = new ToolLoopAgent({
@@ -480,6 +498,7 @@ Apply the guidance from each skill throughout your response.`;
     turnIndex,
     provenanceCollector,
     abortSignal: opts.abortSignal,
+    usedOverflowSummary,
   };
 }
 
@@ -519,6 +538,7 @@ export async function get_context(
     startTime,
     stepMetas,
     provenanceCollector,
+    usedOverflowSummary,
   } = prepared;
   const { schema } = opts;
 
@@ -559,6 +579,9 @@ export async function get_context(
     appendStepMeta(sessionId, stepMetas);
     if (provenanceCollector.entries.length > 0) {
       appendSearchProvenance(sessionId, provenanceCollector.entries);
+    }
+    if (usedOverflowSummary) {
+      await updateSessionOverflowContext(sessionId, newMessages, model);
     }
 
     await appendSessionEnd(sessionId, {
@@ -624,6 +647,7 @@ export async function stream_context(
     startTime,
     stepMetas,
     provenanceCollector,
+    usedOverflowSummary,
   } = prepared;
   const streamResult = await prepared.agent.stream(buildCallParams(prepared));
 
@@ -645,6 +669,9 @@ export async function stream_context(
         appendStepMeta(sessionId, stepMetas);
         if (provenanceCollector.entries.length > 0) {
           appendSearchProvenance(sessionId, provenanceCollector.entries);
+        }
+        if (usedOverflowSummary) {
+          await updateSessionOverflowContext(sessionId, newMessages, prepared.model);
         }
         const stepUsage = stepMetas.length > 0
           ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
