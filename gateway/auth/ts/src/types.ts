@@ -70,7 +70,7 @@ export type Policy = SinglePolicy | MultisigPolicy;
 // ─── macaroon layers ──────────────────────────────────────────────────
 
 export interface UserPermissions {
-  workspaces: string[];
+  realms: string[];
   agents: string[];
 }
 
@@ -88,7 +88,7 @@ export interface UserAuthorization extends UserAuthorizationUnsigned {
 }
 
 export interface InvocationUnsigned {
-  workspace: string;
+  realm: string;
   agents: string[];
   run_id: string;
   max_cost_usd: number;
@@ -141,7 +141,7 @@ export interface EffectiveCaveats {
 export interface Claims {
   org_id: string;
   user_id: string;
-  workspace: string;
+  realm: string;
   /** Most-specific agent name (last element of the final `agents` list). */
   agent_name: string;
   /** Run id of the innermost attenuation, or the invocation if no attenuations. */

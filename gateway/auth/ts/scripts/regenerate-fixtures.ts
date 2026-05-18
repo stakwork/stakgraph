@@ -88,7 +88,7 @@ function baseUserAuthorization(): UserAuthorizationUnsigned {
     user_id: "u_alice",
     user_pubkey: { alg: "ed25519", key: userPubHex },
     permissions: {
-      workspaces: ["w1", "w2"],
+      realms: ["w1", "w2"],
       agents: ["coder", "browser", "web-search", "repair-agent"],
     },
     iat: UA_IAT,
@@ -99,7 +99,7 @@ function baseUserAuthorization(): UserAuthorizationUnsigned {
 
 function baseInvocation(): InvocationUnsigned {
   return {
-    workspace: "w1",
+    realm: "w1",
     agents: ["coder"],
     run_id: "r_01h8alpharootinvocation00",
     max_cost_usd: 5.0,
@@ -128,7 +128,7 @@ interface FixtureExpected {
   claims: {
     org_id: string;
     user_id: string;
-    workspace: string;
+    realm: string;
     agent_name: string;
     run_id: string;
     effective_caveats: {
@@ -219,7 +219,7 @@ function computeExpected(
     claims: {
       org_id: macaroon.org_id,
       user_id: signedUa.user_id,
-      workspace: signedInv.workspace,
+      realm: signedInv.realm,
       agent_name: agentName,
       run_id: runId,
       effective_caveats: effective,

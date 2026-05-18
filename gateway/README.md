@@ -11,7 +11,7 @@ expects.
 
 > **Observability is already free.** Bifrost extracts every `x-bf-dim-*`
 > request header into the SQLite `logs.metadata` JSON column. So sending
-> `x-bf-dim-run-id`, `x-bf-dim-workspace-id`, `x-bf-dim-agent-name`,
+> `x-bf-dim-run-id`, `x-bf-dim-realm-id`, `x-bf-dim-agent-name`,
 > `x-bf-dim-user-id`, `x-bf-dim-session-id` on each call is enough to
 > get fully-indexed per-call analytics without any plugin code. See the
 > ["Observability via Bifrost dimensions"](./plans/llm-governance.md#observability-via-bifrost-dimensions)
@@ -55,7 +55,7 @@ tini (PID 1)
 
 The wrapper exists because Bifrost plugins can't register arbitrary HTTP
 routes through Bifrost's own router (HTTPTransportPreHook only fires on
-inference paths), and we need routes that *aren't* behind Bifrost's
+inference paths), and we need routes that _aren't_ behind Bifrost's
 auth middleware so Hive can bootstrap on a fresh swarm. The wrapper
 gives the plugin a clean `/_plugin/*` namespace on the same public port
 as the dashboard, with one TLS terminator at the swarm/ingress edge.
@@ -115,10 +115,10 @@ token is a shared secret with Hive (in swarm: same value as
 
 Routes today:
 
-| Method | Path                              | Description                                                 |
-|--------|-----------------------------------|-------------------------------------------------------------|
-| GET    | `/_plugin/health`                 | Plain `{"ok":true}`. No auth. Used by the wrapper itself.   |
-| GET    | `/_plugin/admin-credentials`      | Returns `{"admin_username":"…","admin_password":"…"}` so Hive can bootstrap on a fresh swarm. Bearer auth. |
+| Method | Path                         | Description                                                                                                |
+| ------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| GET    | `/_plugin/health`            | Plain `{"ok":true}`. No auth. Used by the wrapper itself.                                                  |
+| GET    | `/_plugin/admin-credentials` | Returns `{"admin_username":"…","admin_password":"…"}` so Hive can bootstrap on a fresh swarm. Bearer auth. |
 
 The credentials endpoint exists because there is otherwise no way for
 Hive to learn the Bifrost admin password without an out-of-band
@@ -130,10 +130,10 @@ for the full handoff design.
 
 Routes planned (drop into the same auth namespace as they're added):
 
-| Path                                        | Why a plugin route vs Bifrost's `/api/logs`        |
-|---------------------------------------------|----------------------------------------------------|
-| `/_plugin/metrics/agent-cost?since=…`       | per-`x-bf-dim-agent-name` rollups, not in Bifrost  |
-| `/_plugin/metrics/run/{run_id}`             | per-run cost + tool history, not in Bifrost        |
+| Path                                  | Why a plugin route vs Bifrost's `/api/logs`       |
+| ------------------------------------- | ------------------------------------------------- |
+| `/_plugin/metrics/agent-cost?since=…` | per-`x-bf-dim-agent-name` rollups, not in Bifrost |
+| `/_plugin/metrics/run/{run_id}`       | per-run cost + tool history, not in Bifrost       |
 
 ## Quick start
 
@@ -154,7 +154,7 @@ curl -s http://localhost:8181/v1/chat/completions \
   -H 'x-macaroon: pretend.this.is.a.macaroon' \
   -H 'x-bf-dim-run-id: r_test_001' \
   -H 'x-bf-dim-agent-name: smoke-test' \
-  -H 'x-bf-dim-workspace-id: w1' \
+  -H 'x-bf-dim-realm-id: w1' \
   -H 'x-bf-dim-user-id: u1' \
   -H 'x-bf-dim-session-id: s_test_42' \
   -d '{
@@ -206,7 +206,7 @@ You should see lines like:
 ## Local plugin build (without docker)
 
 Useful while iterating on the Go code. You still need a dynamic
-bifrost-http to actually *load* the .so — typically the easiest path is
+bifrost-http to actually _load_ the .so — typically the easiest path is
 just to rebuild the docker image (`make docker-up` again).
 
 ```bash
@@ -218,15 +218,15 @@ arm64 ≠ amd64). Build inside the image when in doubt.
 
 ## Hook reference (what we log today)
 
-| Hook | When | Logged fields |
-|---|---|---|
-| `Init` | on plugin load | parsed config |
-| `HTTPTransportPreHook` | before bifrost core | method, path, body size, governance headers (`x-macaroon`, plus all `x-bf-dim-*`) |
-| `PreLLMHook` | before provider call | provider, model, request type, run_id |
-| `PostLLMHook` | after provider call (non-stream) | run_id, presence flags, usage tokens, elapsed |
-| `HTTPTransportPostHook` | after bifrost core (non-stream) | path, status, body size, run_id, elapsed |
-| `HTTPTransportStreamChunkHook` | per chunk (stream) | only on error chunks (rate-limit risk if we log every chunk) |
-| `Cleanup` | on shutdown | — |
+| Hook                           | When                             | Logged fields                                                                     |
+| ------------------------------ | -------------------------------- | --------------------------------------------------------------------------------- |
+| `Init`                         | on plugin load                   | parsed config                                                                     |
+| `HTTPTransportPreHook`         | before bifrost core              | method, path, body size, governance headers (`x-macaroon`, plus all `x-bf-dim-*`) |
+| `PreLLMHook`                   | before provider call             | provider, model, request type, run_id                                             |
+| `PostLLMHook`                  | after provider call (non-stream) | run_id, presence flags, usage tokens, elapsed                                     |
+| `HTTPTransportPostHook`        | after bifrost core (non-stream)  | path, status, body size, run_id, elapsed                                          |
+| `HTTPTransportStreamChunkHook` | per chunk (stream)               | only on error chunks (rate-limit risk if we log every chunk)                      |
+| `Cleanup`                      | on shutdown                      | —                                                                                 |
 
 The macaroon header is fingerprinted (`set(abcd…wxyz,len=N)`) rather than
 logged in full.

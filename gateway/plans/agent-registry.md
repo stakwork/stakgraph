@@ -216,7 +216,7 @@ chain:
 ```
 ORG          ← signs user_authorization
 USER         ← signs invocation
-WORKSPACE    ← caveat in invocation (which workspace this runs in)
+REALM        ← caveat in invocation (which workspace this runs in)
 AGENT        ← caveat in invocation; defaults sourced from this registry
 SUB-AGENT    ← HMAC attenuation, bounded by parent's caveats
 ```
