@@ -2,13 +2,32 @@ import { SimpleGitOptions, SimpleGit, simpleGit } from "simple-git";
 import path from "path";
 import fs from "fs";
 
+// Fail immediately on credential prompts instead of blocking on a TTY
+process.env.GIT_TERMINAL_PROMPT = "0";
+process.env.GIT_ASKPASS = "echo";
+
 const OPTIONS: SimpleGitOptions = {
   baseDir: "/tmp",
   binary: "git",
   maxConcurrentProcesses: 10,
   trimmed: true,
   config: [],
+  timeout: { block: 600_000 }, // 10 min — kill git if no output
 };
+
+const CLONE_TIMEOUT_MS = 10 * 60 * 1000;
+
+function cloneWithTimeout(promise: Promise<string>, label: string): Promise<string> {
+  return Promise.race([
+    promise,
+    new Promise<string>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`[clone] Timeout after 10 min: ${label}`)),
+        CLONE_TIMEOUT_MS
+      )
+    ),
+  ]);
+}
 
 const git: SimpleGit = simpleGit(OPTIONS);
 
@@ -63,8 +82,11 @@ async function cloneSingleRepo(
     return existingLock;
   }
 
-  // Create and store the promise for this clone operation
-  const clonePromise = doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit);
+  // Create and store the promise for this clone operation (with JS-level timeout guard)
+  const clonePromise = cloneWithTimeout(
+    doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit),
+    cloneDir
+  );
   cloneLocks.set(cloneDir, clonePromise);
 
   console.log("===> cloning into", cloneDir);
@@ -116,7 +138,7 @@ async function doCloneOrUpdate(
   if (fs.existsSync(cloneDir)) {
     try {
       // Only create simpleGit instance if directory exists
-      const repoGit = simpleGit(cloneDir);
+      const repoGit = simpleGit(cloneDir, { timeout: { block: 600_000 } });
       const isRepo = await repoGit.checkIsRepo();
 
       if (isRepo) {
@@ -140,7 +162,7 @@ async function doCloneOrUpdate(
       }
     } catch (error) {
       // If there's an error checking, try to remove and re-clone
-      console.log(`Error checking repo, re-cloning...`);
+      console.log(`Error checking repo, re-cloning... (${(error as Error).message})`);
       fs.rmSync(cloneDir, { recursive: true, force: true });
     }
   }
@@ -150,7 +172,7 @@ async function doCloneOrUpdate(
 
   // Checkout specific commit if provided
   if (commit) {
-    const repoGit = simpleGit(cloneDir);
+    const repoGit = simpleGit(cloneDir, { timeout: { block: 600_000 } });
     await repoGit.checkout(commit);
   }
 
