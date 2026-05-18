@@ -20,11 +20,11 @@ const dimHeaderPrefix = "x-bf-dim-"
 // the plugin (e.g. a rate-limit lookup key). Anonymous dims still
 // flow through fine — they just aren't exposed as named getters.
 const (
-	DimRunID       = "run-id"
-	DimSessionID   = "session-id"
-	DimAgentName   = "agent-name"
-	DimWorkspaceID = "workspace-id"
-	DimUserID      = "user-id"
+	DimRunID     = "run-id"
+	DimSessionID = "session-id"
+	DimAgentName = "agent-name"
+	DimRealmID   = "realm-id"
+	DimUserID    = "user-id"
 )
 
 // reservedDimNames are derived by Bifrost from the request itself, so

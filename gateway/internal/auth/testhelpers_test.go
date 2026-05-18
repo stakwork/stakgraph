@@ -87,22 +87,22 @@ func newMiniRedis(t *testing.T) *miniredis.Miniredis {
 // against the test keys. Knobs let each test tweak the fields it
 // cares about; everything else is fixed and minimal.
 type macaroonOptions struct {
-	orgID          string
-	userID         string
-	workspaces     []string
-	agents         []string
-	invWorkspace   string
-	invAgents      []string
-	runID          string
-	maxCostUSD     float64
-	maxSteps       int
-	uaExp          time.Time
-	uaIAT          time.Time
-	invExp         time.Time
-	invIAT         time.Time
-	uaNonce        string
-	invNonce       string
-	budget         *macaroon.UserBudget
+	orgID      string
+	userID     string
+	realms     []string
+	agents     []string
+	invRealm   string
+	invAgents  []string
+	runID      string
+	maxCostUSD float64
+	maxSteps   int
+	uaExp      time.Time
+	uaIAT      time.Time
+	invExp     time.Time
+	invIAT     time.Time
+	uaNonce    string
+	invNonce   string
+	budget     *macaroon.UserBudget
 	// signWithPriv overrides the org private key — used in tests
 	// that need to exercise the "signed by an untrusted key" path.
 	signWithOrgPriv []byte
@@ -110,21 +110,21 @@ type macaroonOptions struct {
 
 func defaultMacaroonOptions(now time.Time) macaroonOptions {
 	return macaroonOptions{
-		orgID:        testOrgID,
-		userID:       testUserID,
-		workspaces:   []string{"w1"},
-		agents:       []string{"coder"},
-		invWorkspace: "w1",
-		invAgents:    []string{"coder"},
-		runID:        "r_test_run_000000000000000",
-		maxCostUSD:   5.00,
-		maxSteps:     100,
-		uaIAT:        now.Add(-1 * time.Hour),
-		uaExp:        now.Add(24 * time.Hour),
-		invIAT:       now.Add(-1 * time.Minute),
-		invExp:       now.Add(10 * time.Minute),
-		uaNonce:      "aaaa000000000000000000000000aaaa",
-		invNonce:     "bbbb000000000000000000000000bbbb",
+		orgID:      testOrgID,
+		userID:     testUserID,
+		realms:     []string{"w1"},
+		agents:     []string{"coder"},
+		invRealm:   "w1",
+		invAgents:  []string{"coder"},
+		runID:      "r_test_run_000000000000000",
+		maxCostUSD: 5.00,
+		maxSteps:   100,
+		uaIAT:      now.Add(-1 * time.Hour),
+		uaExp:      now.Add(24 * time.Hour),
+		invIAT:     now.Add(-1 * time.Minute),
+		invExp:     now.Add(10 * time.Minute),
+		uaNonce:    "aaaa000000000000000000000000aaaa",
+		invNonce:   "bbbb000000000000000000000000bbbb",
 	}
 }
 
@@ -140,8 +140,8 @@ func buildMacaroon(t *testing.T, opts macaroonOptions) string {
 		UserID:     opts.userID,
 		UserPubkey: macaroon.PubKey{Alg: macaroon.AlgEd25519, Key: macaroon.BytesToHex(userPub)},
 		Permissions: macaroon.UserPermissions{
-			Workspaces: opts.workspaces,
-			Agents:     opts.agents,
+			Realms: opts.realms,
+			Agents: opts.agents,
 		},
 		Budget: opts.budget,
 		IAT:    opts.uaIAT.UTC().Format(time.RFC3339),
@@ -159,7 +159,7 @@ func buildMacaroon(t *testing.T, opts macaroonOptions) string {
 	}
 
 	inv := macaroon.Invocation{
-		Workspace:  opts.invWorkspace,
+		Realm:      opts.invRealm,
 		Agents:     opts.invAgents,
 		RunID:      opts.runID,
 		MaxCostUSD: opts.maxCostUSD,

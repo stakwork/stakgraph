@@ -85,7 +85,7 @@ export function verify(
   return {
     org_id: m.org_id,
     user_id: m.user_authorization.user_id,
-    workspace: m.invocation.workspace,
+    realm: m.invocation.realm,
     agent_name: agentName,
     run_id: runId,
     effective_caveats: effective,
@@ -195,9 +195,9 @@ function enforceInvocationCaveats(
   ua: UserAuthorization,
   now: Date,
 ): void {
-  if (!ua.permissions.workspaces.includes(inv.workspace)) {
+  if (!ua.permissions.realms.includes(inv.realm)) {
     throw new VerifyError("invocation_violated",
-      `workspace ${inv.workspace} not in user permissions`);
+      `realm ${inv.realm} not in user permissions`);
   }
   for (const a of inv.agents) {
     if (!ua.permissions.agents.includes(a)) {

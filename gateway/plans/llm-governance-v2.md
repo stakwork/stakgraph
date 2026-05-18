@@ -9,14 +9,14 @@
 > piece live in companion docs and supersede v2's pseudocode where
 > they overlap:
 >
-> | Concern | Authoritative spec |
-> |---|---|
-> | Three-principal identity model, key custody, trust registration | [`cryptographic-identity.md`](./cryptographic-identity.md) |
-> | Macaroon wire format, signing inputs, HMAC chain, verifier algorithm | [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md) |
-> | Trust registry storage, admin API, env-var seed | [`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md) |
-> | Plugin Redis schema, per-hook ops, TTL policy, failure modes | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
-> | Agent defaults / registry | [`agent-registry.md`](./agent-registry.md) |
-> | Bifrost Customer/VK reconciliation, duration vocabulary | [`phases/phase-1-reconciler.md`](./phases/phase-1-reconciler.md) |
+> | Concern                                                              | Authoritative spec                                                               |
+> | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+> | Three-principal identity model, key custody, trust registration      | [`cryptographic-identity.md`](./cryptographic-identity.md)                       |
+> | Macaroon wire format, signing inputs, HMAC chain, verifier algorithm | [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md)         |
+> | Trust registry storage, admin API, env-var seed                      | [`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md)         |
+> | Plugin Redis schema, per-hook ops, TTL policy, failure modes         | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
+> | Agent defaults / registry                                            | [`agent-registry.md`](./agent-registry.md)                                       |
+> | Bifrost Customer/VK reconciliation, duration vocabulary              | [`phases/phase-1-reconciler.md`](./phases/phase-1-reconciler.md)                 |
 >
 > **Deltas already applied to this doc:**
 >
@@ -128,14 +128,14 @@ Bifrost VK        = one per (workspace × user)
 
 Bifrost natively enforces:
 
-| Field | Where | v1 value |
-|---|---|---|
-| Daily $ budget | Customer (per user) | $1000/day |
-| Rate limit RPM | Customer (per user) | 1000 RPM |
-| Rate limit TPM | Customer (per user) | 5M TPM |
-| Provider allowlist | VK | `[anthropic, openai, openrouter, gemini]`, all `["*"]` |
-| Model allowlist | VK | `["*"]` initially |
-| `is_active` | Customer (per user) | `true` by default; `false` disables account org-wide |
+| Field              | Where               | v1 value                                               |
+| ------------------ | ------------------- | ------------------------------------------------------ |
+| Daily $ budget     | Customer (per user) | $1000/day                                              |
+| Rate limit RPM     | Customer (per user) | 1000 RPM                                               |
+| Rate limit TPM     | Customer (per user) | 5M TPM                                                 |
+| Provider allowlist | VK                  | `[anthropic, openai, openrouter, gemini]`, all `["*"]` |
+| Model allowlist    | VK                  | `["*"]` initially                                      |
+| `is_active`        | Customer (per user) | `true` by default; `false` disables account org-wide   |
 
 These are intentionally generous backstops. The real per-run governance
 happens in the macaroon. Customer enforcement exists to catch
@@ -156,6 +156,7 @@ to a workspace.
 
 **Workspace creation (or user-granted-access-to-workspace):**
 Hive calls the target workspace's Bifrost:
+
 ```
 POST /api/governance/customers
   { name: <user_id>,
@@ -174,6 +175,7 @@ POST /api/governance/virtual-keys
     ]
   }
 ```
+
 Stash the returned VK `value` in Hive's secret store keyed by
 `(workspace_id, user_id)`.
 
@@ -183,12 +185,14 @@ workspace creation, on user-grant-access, and as a background sweep to
 catch any drift.
 
 **User offboarding (revoked everywhere):**
+
 ```
 for each workspace W the user had access to:
     PUT /api/governance/customers/<user_id> { is_active: false }   (on W's Bifrost)
     SET bifrost:revoke_user_before:<user_id> = <iso8601 now>       (in W's Redis)
 ```
-The first call stops all *new* LLM activity from that user's VK in W.
+
+The first call stops all _new_ LLM activity from that user's VK in W.
 The second call kills any in-flight macaroon chains rooted at that
 user, at the next LLM call boundary. Both required: VK disable catches
 attempts to start new work; macaroon revocation catches work that's
@@ -229,7 +233,7 @@ Authorization: Bearer sk-bf-<user-VK>           ← Bifrost stamps customer_id =
 x-macaroon: <invocation macaroon>               ← per-run cryptographic scope (step 8+)
 
 # Attribution dimensions → logs.metadata JSON (automatically by Bifrost)
-x-bf-dim-workspace-id:  w1                      ← which workspace
+x-bf-dim-realm-id:  w1                      ← which workspace
 x-bf-dim-run-id:        <uuid>                  ← this invocation
 x-bf-dim-session-id:    <persistent thread id>  ← long-lived conversation grouping
 x-bf-dim-agent-name:    coder                   ← which specific agent
@@ -239,30 +243,30 @@ x-bf-dim-deployment:    sandbox-goose           ← where this call physically r
                                                     workflow-node / repo-agent / …)
 ```
 
-`workspace-id` is technically redundant with "which Bifrost instance"
+`realm-id` is technically redundant with "which Bifrost instance"
 (one per workspace), but stamping it explicitly makes cross-Bifrost
 aggregated queries trivial.
 
 What ends up indexed in `logs` natively, free, with no plugin code:
 
-| Column | Source | The question it answers cheaply |
-|---|---|---|
-| `customer_id` | Bifrost (from VK) = user_id | **"How much did alice spend?"** — primary axis |
-| `virtual_key_id` / `virtual_key_name` | Bifrost (from VK) = user_id | Same as above; redundant index |
-| `model`, `provider` | Bifrost | "Cost by model" |
-| `latency` | Bifrost | p50/p95 |
-| `cost` | Bifrost pricing manager | Per-call $ |
-| `created_at` | Bifrost | Time-series |
+| Column                                | Source                      | The question it answers cheaply                |
+| ------------------------------------- | --------------------------- | ---------------------------------------------- |
+| `customer_id`                         | Bifrost (from VK) = user_id | **"How much did alice spend?"** — primary axis |
+| `virtual_key_id` / `virtual_key_name` | Bifrost (from VK) = user_id | Same as above; redundant index                 |
+| `model`, `provider`                   | Bifrost                     | "Cost by model"                                |
+| `latency`                             | Bifrost                     | p50/p95                                        |
+| `cost`                                | Bifrost pricing manager     | Per-call $                                     |
+| `created_at`                          | Bifrost                     | Time-series                                    |
 
 What lives in `metadata` JSON (acceptable scan cost on small axes):
 
-| Field | Used for |
-|---|---|
-| `workspace-id` | Per-workspace rollups (when aggregating across Bifrosts) |
-| `agent-name` | Per-agent rollups; cardinality ~40, scan cheap |
-| `category` | Per-category rollups; cardinality ~5–8, scan trivial |
-| `run-id` | Drill into one run's calls |
-| `session-id` | Group all calls in a chat thread |
+| Field        | Used for                                                         |
+| ------------ | ---------------------------------------------------------------- |
+| `realm-id`   | Per-workspace rollups (when aggregating across Bifrosts)         |
+| `agent-name` | Per-agent rollups; cardinality ~40, scan cheap                   |
+| `category`   | Per-category rollups; cardinality ~5–8, scan trivial             |
+| `run-id`     | Drill into one run's calls                                       |
+| `session-id` | Group all calls in a chat thread                                 |
 | `deployment` | "Where did this call run" — useful for ops, not cost attribution |
 
 ---
@@ -308,7 +312,7 @@ v1 endpoints (small set; grow as Hive's UI asks):
 ```
 GET /api/stakgraph/spend/by-user?window=24h
 GET /api/stakgraph/spend/by-agent?window=24h
-GET /api/stakgraph/spend/by-workspace?window=24h
+GET /api/stakgraph/spend/by-realm?window=24h
 GET /api/stakgraph/runs/:run_id/state          ← live: Redis hot state
 GET /api/stakgraph/users/:user_id/quota        ← Bifrost customer cap + live spend
 ```
@@ -319,7 +323,7 @@ completes, kill-switch state, active-run enumeration).
 
 ### Cross-Bifrost aggregation
 
-Per-workspace queries answer themselves — each Bifrost's `logs.db` is
+Per-realm queries answer themselves — each Bifrost's `logs.db` is
 scoped to one workspace. For org-wide reporting across workspaces:
 
 1. **Short-term:** scheduled job pulls each instance's daily slice into
@@ -335,7 +339,7 @@ scoped to one workspace. For org-wide reporting across workspaces:
 
 The Customer layer answers "is this alice and is alice allowed to spend
 money today." The macaroon answers a **finer-grained** question that
-Bifrost cannot answer: **"is this *particular invocation* in alice's
+Bifrost cannot answer: **"is this _particular invocation_ in alice's
 tree authorized — for how much, by which agent, until when, narrowing
 how across sub-agents?"**
 
@@ -350,7 +354,7 @@ lifetime. Carries caveats the user authorized:
 
 ```
 user_id          = u_alice            ← from user_authorization, cross-checked against Customer
-workspace        = w1                 ← must be in user_authorization.permissions.workspaces
+realm        = w1                 ← must be in user_authorization.permissions.realm
 agents           = [coder]            ← must be ⊆ user_authorization.permissions.agents
 run_id           = r_01H...
 max_cost_usd     = 5.00               ← THE per-run budget Bifrost cannot enforce
@@ -405,7 +409,7 @@ Three properties, free, that no other layer can provide:
    policy file to misconfigure, no exception to handle. The HMAC chain
    breaks if you try to remove or weaken a caveat.
 
-2. **The child's choice of *its* sub-agent's budget is the child's call.**
+2. **The child's choice of _its_ sub-agent's budget is the child's call.**
    `coder` decides how to apportion its remaining $5 across however many
    sub-agents it spawns. Maybe it gives web-search $2 and review-changes
    $2 and keeps $1 for itself. Maybe it gives one sub-agent everything
@@ -427,18 +431,18 @@ The plan recommends a default convention (child gets at most
 `parent.remaining * 0.5`, keep at least `parent.cap * 0.25` in the
 parent), but doesn't enforce it centrally. Different agents will have
 different sensible splits, and that's fine. **The platform guarantees
-the *bound*; the parent picks the *distribution*.**
+the _bound_; the parent picks the _distribution_.**
 
 ### What gets killed at every layer
 
-| Action | Mechanism | Latency to effect |
-|---|---|---|
-| Disable alice org-wide | `PUT /customers/u_alice {is_active:false}` on every workspace's Bifrost | Next LLM call (Bifrost rejects at auth) |
-| Kill alice's in-flight chains | `bifrost:revoke_user_before:u_alice = now` in every workspace's Redis | Next LLM call (plugin checks) |
-| Kill one specific run | `bifrost:kill:<run_id>` in Redis | Next LLM call from any agent in chain |
-| Revoke one macaroon chain | `bifrost:revoke:<nonce>` in Redis (with TTL = macaroon.exp) | Next LLM call in chain |
-| Hit run budget naturally | Plugin reads `bifrost:cost:run:<run_id>` ≥ macaroon caveat | Next LLM call |
-| Hit org-wide daily budget | Bifrost reads Customer budget | Immediate (at Bifrost auth) |
+| Action                        | Mechanism                                                               | Latency to effect                       |
+| ----------------------------- | ----------------------------------------------------------------------- | --------------------------------------- |
+| Disable alice org-wide        | `PUT /customers/u_alice {is_active:false}` on every workspace's Bifrost | Next LLM call (Bifrost rejects at auth) |
+| Kill alice's in-flight chains | `bifrost:revoke_user_before:u_alice = now` in every workspace's Redis   | Next LLM call (plugin checks)           |
+| Kill one specific run         | `bifrost:kill:<run_id>` in Redis                                        | Next LLM call from any agent in chain   |
+| Revoke one macaroon chain     | `bifrost:revoke:<nonce>` in Redis (with TTL = macaroon.exp)             | Next LLM call in chain                  |
+| Hit run budget naturally      | Plugin reads `bifrost:cost:run:<run_id>` ≥ macaroon caveat              | Next LLM call                           |
+| Hit org-wide daily budget     | Bifrost reads Customer budget                                           | Immediate (at Bifrost auth)             |
 
 ---
 
@@ -485,7 +489,7 @@ trustworthy in `logs.db`:
 
 ```
 dims["user-id"]      = macaroon.user_id
-dims["workspace-id"] = macaroon.workspace
+dims["realm-id"] = macaroon.realm
 dims["run-id"]       = macaroon.run_id
 dims["agent-name"]   = macaroon.agents[last]   ← most specific
 ```
@@ -497,11 +501,11 @@ those are observability dimensions only and are not signature-bound.
 
 ### Failure modes (architectural posture)
 
-| Failure | Behavior |
-|---|---|
-| Redis down | **Fail closed** for macaroon checks (revoke / kill / cap). **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
-| Hive macaroon issuer down | Existing invocation macaroons keep working until they expire. No new spawns possible. |
-| Plugin panic | Fail-closed: reject the request. |
+| Failure                   | Behavior                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Redis down                | **Fail closed** for macaroon checks (revoke / kill / cap). **Fail open** for accounting (log loudly; spend goes uncounted; alerting fires). Auth-correctness wins over availability. |
+| Hive macaroon issuer down | Existing invocation macaroons keep working until they expire. No new spawns possible.                                                                                                |
+| Plugin panic              | Fail-closed: reject the request.                                                                                                                                                     |
 
 Concrete error codes, retry behavior, drift bounds, and crash-mid-call
 recovery semantics are in phase 6's "Failure modes" section.
@@ -556,7 +560,7 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
    b. POST /macaroons/issue to the Hive macaroon issuer:
         { org_id:    "org_acme",
           user_id:   "u_alice",
-          workspace: "w1",
+          realm: "w1",
           agent:     "coder",
           run_id:    "r_01H..",
           override?: { ... optional caller narrowing ... } }
@@ -583,7 +587,7 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
         headers = {
           "x-macaroon":            $AGENT_MACAROON,
           "x-bf-dim-run-id":       $RUN_ID,
-          "x-bf-dim-workspace-id": $WORKSPACE_ID,
+          "x-bf-dim-realm-id": $WORKSPACE_ID,
           "x-bf-dim-agent-name":   $AGENT_NAME,
           "x-bf-dim-session-id":   <persistent chat id>,
           "x-bf-dim-deployment":   "sandbox-coder",
@@ -623,7 +627,7 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
 9. BIFROST → built-in logging plugin:
    - Writes a logs row with cost=0.42, latency, tokens, model,
      customer_id=u_alice (indexed), virtual_key_name=u_alice,
-     metadata={"run-id":"r_01H..","workspace-id":"w1",
+     metadata={"run-id":"r_01H..","realm-id":"w1",
                "agent-name":"coder","session-id":"...",
                "deployment":"sandbox-coder"}.
 
@@ -639,6 +643,7 @@ loop terminates. Spawner notified by existing error path.
 402 `run_killed`. Same termination path.
 
 **When the agent spawns a sub-agent.**
+
 ```python
 # inside the coder agent process
 child_macaroon = attenuate(self.macaroon, {
@@ -656,6 +661,7 @@ spawn_subagent(env={
     # everything else inherited
 })
 ```
+
 Plugin walks the chain on every sub-agent LLM call: spend counts
 against both `bifrost:cost:run:<child>` and `bifrost:cost:run:<parent>`.
 If parent's $5 cap is exhausted by combined spend, the child is killed
@@ -673,24 +679,24 @@ The work for each caller:
 3. **Attach headers** to the LLM client at construction:
    - `Authorization: Bearer $BIFROST_VK` (or appropriate SDK header)
    - `x-macaroon: $AGENT_MACAROON`
-   - `x-bf-dim-*` for run/agent/workspace/session/deployment
-4. **If you spawn sub-agents:** attenuate your macaroon *locally* before
+   - `x-bf-dim-*` for run/agent/realm/session/deployment
+4. **If you spawn sub-agents:** attenuate your macaroon _locally_ before
    passing to the child process.
 
 ### TypeScript
 
 ```ts
 const headers = {
-  "x-macaroon":           process.env.AGENT_MACAROON,
-  "x-bf-dim-run-id":       process.env.RUN_ID,
-  "x-bf-dim-session-id":   sessionId,
-  "x-bf-dim-agent-name":   process.env.AGENT_NAME,
-  "x-bf-dim-workspace-id": process.env.WORKSPACE_ID,
-  "x-bf-dim-deployment":   "sandbox-coder",
+  "x-macaroon": process.env.AGENT_MACAROON,
+  "x-bf-dim-run-id": process.env.RUN_ID,
+  "x-bf-dim-session-id": sessionId,
+  "x-bf-dim-agent-name": process.env.AGENT_NAME,
+  "x-bf-dim-realm-id": process.env.WORKSPACE_ID,
+  "x-bf-dim-deployment": "sandbox-coder",
 };
 
 const anthropic = createAnthropic({
-  apiKey:  process.env.BIFROST_VK,
+  apiKey: process.env.BIFROST_VK,
   baseURL: process.env.LLM_GATEWAY_URL + "/anthropic/v1",
   headers,
 });
@@ -742,15 +748,15 @@ owner whose schedule triggered them. Clean and uniform.
 
 ## Threat model
 
-| Credential | Sensitivity | Where it lives | Blast radius if leaked |
-|---|---|---|---|
-| Org root key | **Crown jewel** (phase 1: custodial in Hive; phase 3: multisig) | Hive secret store or org-key-holders' devices | Authorize any user under that org. Custodial in phase 1; offline / multisig in phase 3. See [`cryptographic-identity.md`](./cryptographic-identity.md) §"Phase staging". |
-| User key (Ed25519) | Medium (phase 1: custodial; phase 2: user device) | Hive secret store or user's Yubikey / Passkey / mobile enclave | Sign invocations as that user, within whatever permissions the org authorized. |
-| Invocation signature | Low | Agent process, run lifetime | One invocation's worth of work, bounded by its caveats. |
-| Sub-agent macaroon | Very low | Sub-process | Narrower scope, smaller cap, shorter exp. |
-| User VK (`sk-bf-…`) | Low (without macaroon: useless) | Hive secret store + spawned agent env | After step 8: useless alone. Pre-step-8: that user's daily budget in that one workspace. |
-| Bifrost admin key | High | Ops only | Reconfigure VKs, change Customer budgets. |
-| Plugin Redis | Medium | Trusted swarm network | Manipulate run counters → bypass per-run caps; cannot forge macaroons (the plugin holds no signing keys). |
+| Credential           | Sensitivity                                                     | Where it lives                                                 | Blast radius if leaked                                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Org root key         | **Crown jewel** (phase 1: custodial in Hive; phase 3: multisig) | Hive secret store or org-key-holders' devices                  | Authorize any user under that org. Custodial in phase 1; offline / multisig in phase 3. See [`cryptographic-identity.md`](./cryptographic-identity.md) §"Phase staging". |
+| User key (Ed25519)   | Medium (phase 1: custodial; phase 2: user device)               | Hive secret store or user's Yubikey / Passkey / mobile enclave | Sign invocations as that user, within whatever permissions the org authorized.                                                                                           |
+| Invocation signature | Low                                                             | Agent process, run lifetime                                    | One invocation's worth of work, bounded by its caveats.                                                                                                                  |
+| Sub-agent macaroon   | Very low                                                        | Sub-process                                                    | Narrower scope, smaller cap, shorter exp.                                                                                                                                |
+| User VK (`sk-bf-…`)  | Low (without macaroon: useless)                                 | Hive secret store + spawned agent env                          | After step 8: useless alone. Pre-step-8: that user's daily budget in that one workspace.                                                                                 |
+| Bifrost admin key    | High                                                            | Ops only                                                       | Reconfigure VKs, change Customer budgets.                                                                                                                                |
+| Plugin Redis         | Medium                                                          | Trusted swarm network                                          | Manipulate run counters → bypass per-run caps; cannot forge macaroons (the plugin holds no signing keys).                                                                |
 
 **The two-credential design.** A VK alone is useless after step 8 (the
 plugin requires a matching macaroon). A macaroon alone is useless (no
@@ -789,13 +795,14 @@ background sweep. Hive's secret store now holds VK values. Stop
 hardcoding VKs in deploy env vars; Hive injects per-spawn.
 
 **Step 4: Observability via dimensions (no plugin code).** Spawners
-ship `x-bf-dim-{run-id, workspace-id, agent-name, session-id,
+ship `x-bf-dim-{run-id, realm-id, agent-name, session-id,
 deployment}` on every LLM call. Bifrost auto-stamps `customer_id` from
 the VK. Verify the example SQL queries return useful org-level
 dashboards. **No plugin code change needed for this step** — the v0
 boilerplate is enough. The "spend per user" dashboard is now live.
 
 **Step 5: Plugin v1 (HTTP endpoint dispatcher + per-run state).**
+
 - Add the `/api/stakgraph/*` short-circuit in `HTTPTransportPreHook`.
 - Ship 1–2 endpoints to prove the pattern: `spend/by-agent`,
   `runs/:id/state`.
@@ -828,6 +835,7 @@ needs this in place before it can verify anything.
 **Step 7: Plugin enforcement.** Implement the adapter at
 `gateway/internal/auth/` per
 [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md):
+
 - verifies macaroons via `gateway/auth/go`
   ([`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md));
 - asserts `claims.user_id == ctx.customer_id`;
@@ -852,6 +860,7 @@ also rejects calls without a VK. Belt-and-suspenders with the plugin's
 macaroon check.
 
 **Step 10: Observe and tune.** First month of real data drives:
+
 - per-agent default budget tuning
 - alerting thresholds for unusual user spend
 - whether to turn on per-agent budgets in plugin config
@@ -894,7 +903,7 @@ target.
 **Sub-agent budget fragmentation.** A parent that attenuates too
 eagerly may leave its own cap underused while children hit theirs.
 Mitigation: parent's local accounting + plugin's chain enforcement
-means *combined* spend is bounded by parent cap; how it's distributed
+means _combined_ spend is bounded by parent cap; how it's distributed
 is the parent's design call.
 
 **Redis as accounting SPOF.** Mitigation: Redis Sentinel / cluster,
@@ -979,7 +988,7 @@ is still pending after N minutes; also stamps
 
 - **Parent agents decide their children's budgets, locally.** No
   central policy server is in the loop on sub-agent spawn. The
-  platform enforces the *bound*; the parent picks the *distribution*.
+  platform enforces the _bound_; the parent picks the _distribution_.
 
 - **Two-credential safety.** A leaked VK without a matching macaroon
   is useless. A leaked macaroon without the matching VK is useless.
@@ -1015,29 +1024,29 @@ is still pending after N minutes; also stamps
 
 ## Summary table
 
-| Capability | Mechanism |
-|---|---|
-| Single gateway per workspace | Bifrost in each swarm; `LLM_GATEWAY_URL` per workspace |
-| Per-user identity (primary axis) | Bifrost Customer = `user_id`; indexed `customer_id` column |
-| Per-user daily $ backstop | Bifrost Customer budget ($1000/day) |
-| Per-user rate limit | Bifrost Customer rate limit (1000 RPM, 5M TPM) |
-| Per-user account disable | `PUT /customers/<u> { is_active: false }` (Hive fans out across workspaces) |
-| Per-workspace attribution | One Bifrost per workspace + `x-bf-dim-workspace-id` for cross-instance aggregation |
-| Per-agent attribution | `x-bf-dim-agent-name` → `logs.metadata` |
-| Per-category attribution | `x-bf-dim-category` → `logs.metadata` |
-| **Per-run $ budget (issuer-set)** | **Macaroon `max_cost_usd` caveat** |
-| **Per-run step budget** | **Macaroon `max_steps` caveat** |
-| **Per-run lifetime** | **Macaroon `exp` (absolute timestamp, stamped at issuance from agent-registry default)** |
-| **Sub-agent budget bounded by parent** | **Local HMAC attenuation + plugin chain enforcement** |
-| Per-agent budget (windowed) | Plugin + Redis `cost:agent:<n>:<bucket>` with Bifrost duration vocabulary (`1d` / `1w` / `1M` / `1Y` / sub-day rolling) per phase 6 |
-| Per-agent kill switch | Plugin checks `bifrost:kill:agent:<name>` in Redis per phase 6 |
-| Per-workspace daily spend alerts | Query `logs.db` on schedule; alert on threshold |
-| Tool-loop detection | Plugin Redis tool history + threshold |
-| Mid-loop kill switch | Plugin checks `bifrost:kill:<run-id>` in Redis |
-| User-revocation kill | Plugin checks `bifrost:revoke_user_before:<user-id>` |
-| Macaroon-chain revocation | Plugin checks `bifrost:revoke:<nonce>` for any ancestor |
-| Cryptographic proof of who | Macaroon `user_id` caveat, HMAC-signed, cross-checked against `customer_id` |
-| Custom governance endpoints | Plugin claims `/api/stakgraph/*` via `HTTPTransportPreHook` short-circuit |
-| Default principal for unattributed agents | Workspace owner's `user_id` |
-| Caller obligation | Set `BIFROST_VK` + `LLM_GATEWAY_URL` from spawner; ship `x-bf-dim-*` + `x-macaroon` |
-| Spawner obligation | Resolve principal → lookup VK → call `/macaroons/issue` (identity doc) → inject env into spawn |
+| Capability                                | Mechanism                                                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Single gateway per workspace              | Bifrost in each swarm; `LLM_GATEWAY_URL` per workspace                                                                              |
+| Per-user identity (primary axis)          | Bifrost Customer = `user_id`; indexed `customer_id` column                                                                          |
+| Per-user daily $ backstop                 | Bifrost Customer budget ($1000/day)                                                                                                 |
+| Per-user rate limit                       | Bifrost Customer rate limit (1000 RPM, 5M TPM)                                                                                      |
+| Per-user account disable                  | `PUT /customers/<u> { is_active: false }` (Hive fans out across workspaces)                                                         |
+| Per-workspace attribution                 | One Bifrost per workspace + `x-bf-dim-realm-id` for cross-instance aggregation                                                      |
+| Per-agent attribution                     | `x-bf-dim-agent-name` → `logs.metadata`                                                                                             |
+| Per-category attribution                  | `x-bf-dim-category` → `logs.metadata`                                                                                               |
+| **Per-run $ budget (issuer-set)**         | **Macaroon `max_cost_usd` caveat**                                                                                                  |
+| **Per-run step budget**                   | **Macaroon `max_steps` caveat**                                                                                                     |
+| **Per-run lifetime**                      | **Macaroon `exp` (absolute timestamp, stamped at issuance from agent-registry default)**                                            |
+| **Sub-agent budget bounded by parent**    | **Local HMAC attenuation + plugin chain enforcement**                                                                               |
+| Per-agent budget (windowed)               | Plugin + Redis `cost:agent:<n>:<bucket>` with Bifrost duration vocabulary (`1d` / `1w` / `1M` / `1Y` / sub-day rolling) per phase 6 |
+| Per-agent kill switch                     | Plugin checks `bifrost:kill:agent:<name>` in Redis per phase 6                                                                      |
+| Per-workspace daily spend alerts          | Query `logs.db` on schedule; alert on threshold                                                                                     |
+| Tool-loop detection                       | Plugin Redis tool history + threshold                                                                                               |
+| Mid-loop kill switch                      | Plugin checks `bifrost:kill:<run-id>` in Redis                                                                                      |
+| User-revocation kill                      | Plugin checks `bifrost:revoke_user_before:<user-id>`                                                                                |
+| Macaroon-chain revocation                 | Plugin checks `bifrost:revoke:<nonce>` for any ancestor                                                                             |
+| Cryptographic proof of who                | Macaroon `user_id` caveat, HMAC-signed, cross-checked against `customer_id`                                                         |
+| Custom governance endpoints               | Plugin claims `/api/stakgraph/*` via `HTTPTransportPreHook` short-circuit                                                           |
+| Default principal for unattributed agents | Workspace owner's `user_id`                                                                                                         |
+| Caller obligation                         | Set `BIFROST_VK` + `LLM_GATEWAY_URL` from spawner; ship `x-bf-dim-*` + `x-macaroon`                                                 |
+| Spawner obligation                        | Resolve principal → lookup VK → call `/macaroons/issue` (identity doc) → inject env into spawn                                      |

@@ -8,7 +8,7 @@
 //
 // Planned scope
 // -------------
-//   - Lookup keys: (workspace, user), (workspace, agent-name),
+//   - Lookup keys: (realm, user), (realm, agent-name),
 //     (run-id), (session-id, agent-name). Each can have an independent
 //     limit; the request is rejected if ANY exceeds.
 //   - Sliding-window counters in Redis (with an in-process LRU

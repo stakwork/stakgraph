@@ -54,7 +54,7 @@ func TransportPre(ctx *schemas.BifrostContext, req *schemas.HTTPRequest) (*schem
 	pluginctx.SetRequestID(ctx, dims[pluginctx.DimRunID])
 
 	pluginlog.Logf(
-		"HTTPTransportPreHook method=%s path=%s body_bytes=%d macaroon=%s run_id=%s session_id=%s agent=%s workspace=%s user=%s dims_count=%d",
+		"HTTPTransportPreHook method=%s path=%s body_bytes=%d macaroon=%s run_id=%s session_id=%s agent=%s realm=%s user=%s dims_count=%d",
 		req.Method,
 		req.Path,
 		len(req.Body),
@@ -62,7 +62,7 @@ func TransportPre(ctx *schemas.BifrostContext, req *schemas.HTTPRequest) (*schem
 		dims[pluginctx.DimRunID],
 		dims[pluginctx.DimSessionID],
 		dims[pluginctx.DimAgentName],
-		dims[pluginctx.DimWorkspaceID],
+		dims[pluginctx.DimRealmID],
 		dims[pluginctx.DimUserID],
 		len(dims),
 	)

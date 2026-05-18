@@ -71,7 +71,7 @@ interface FixtureShape {
     claims: {
       org_id: string;
       user_id: string;
-      workspace: string;
+      realm: string;
       agent_name: string;
       run_id: string;
       effective_caveats: {
@@ -193,7 +193,7 @@ for (const file of fixtureFiles()) {
     );
     assert.equal(claims.org_id, fx.expected.claims.org_id);
     assert.equal(claims.user_id, fx.expected.claims.user_id);
-    assert.equal(claims.workspace, fx.expected.claims.workspace);
+    assert.equal(claims.realm, fx.expected.claims.realm);
     assert.equal(claims.agent_name, fx.expected.claims.agent_name);
     assert.equal(claims.run_id, fx.expected.claims.run_id);
     assert.deepEqual(claims.effective_caveats, fx.expected.claims.effective_caveats);

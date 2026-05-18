@@ -68,7 +68,7 @@ call_llm() {
     -H "x-bf-dim-run-id: $run_id" \
     -H "x-bf-dim-session-id: $session" \
     -H "x-bf-dim-agent-name: $agent" \
-    -H "x-bf-dim-workspace-id: $workspace" \
+    -H "x-bf-dim-realm-id: $workspace" \
     -H "x-bf-dim-user-id: $user" \
     -H "x-bf-dim-deployment: smoke-test" \
     -d "{\"model\":\"$model\",\"max_tokens\":20,\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}]}")
@@ -94,7 +94,7 @@ call_llm_stream() {
     -H "x-bf-dim-run-id: $run_id" \
     -H "x-bf-dim-session-id: $session" \
     -H "x-bf-dim-agent-name: $agent" \
-    -H "x-bf-dim-workspace-id: $workspace" \
+    -H "x-bf-dim-realm-id: $workspace" \
     -H "x-bf-dim-user-id: $user" \
     -H "x-bf-dim-deployment: smoke-test" \
     -d "{\"model\":\"$model\",\"max_tokens\":20,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}]}" \

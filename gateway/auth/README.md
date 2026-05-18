@@ -28,12 +28,12 @@ walks them top-down; if any layer fails, the call is rejected.
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  USER  ──signs──▶  invocation                                       │
-│                    { workspace, agents, run_id,                     │
+│                    { realm, agents, run_id,                     │
 │                      max_cost_usd, max_steps, exp, … }              │
 │                                                                      │
 │        verify:    Ed25519 over JCS(invocation \ user_sig)           │
 │        against:   user_authorization.user_pubkey                     │
-│        narrow:    workspace ∈ permissions.workspaces                 │
+│        narrow:    realm ∈ permissions.realms                 │
 │                   agents    ⊆ permissions.agents                     │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │ user_sig bytes seed the HMAC chain
@@ -110,11 +110,12 @@ Signer, attenuator, and (optional) verifier. Published as
 ## Other languages
 
 Sub-agent attenuation requires only JCS canonicalization + HMAC-SHA256
-+ hex encoding — all of which are one-file implementations in any
-language. The spec (`phase-4-macaroon-shape.md`) and the fixtures
-together are the contract. There is no Stakwork-provided Python /
-Rust / Java / … library; agent authors implement the attenuator
-directly against the spec and validate against the fixtures.
+
+- hex encoding — all of which are one-file implementations in any
+  language. The spec (`phase-4-macaroon-shape.md`) and the fixtures
+  together are the contract. There is no Stakwork-provided Python /
+  Rust / Java / … library; agent authors implement the attenuator
+  directly against the spec and validate against the fixtures.
 
 ## Drift prevention
 

@@ -27,10 +27,11 @@
 
 For a `(workspace_id, user_id)` pair: ensure the workspace's Bifrost
 has exactly one Customer with `name=user_id` (with a $1000/day budget
-+ 1000 RPM / 5M TPM rate limit + `is_active=true`) and exactly one VK
-with `name=user_id` attached to that Customer (with permissive
-provider configs). Store the resulting VK `value` in Hive's secret
-store. Idempotent — running twice does nothing the second time.
+
+- 1000 RPM / 5M TPM rate limit + `is_active=true`) and exactly one VK
+  with `name=user_id` attached to that Customer (with permissive
+  provider configs). Store the resulting VK `value` in Hive's secret
+  store. Idempotent — running twice does nothing the second time.
 
 ## Reconciliation algorithm
 
@@ -88,7 +89,7 @@ Authorization: Basic <base64>
       "rate_limit_id": "rl1234…",
       "budget": {
         "id": "b1234…",
-        "max_limit": 1000.00,
+        "max_limit": 1000.0,
         "reset_duration": "1d",
         "current_usage": 12.47,
         "last_reset": "2026-05-14T00:00:00Z"
@@ -126,6 +127,7 @@ Authorization: Basic <base64>
   by `created_at`. Don't try to dedupe automatically in phase 1.
 
 **Possible non-200s:**
+
 - `401` — admin auth failed; misconfigured creds
 - `500` — `"failed to retrieve customers"` — bifrost-internal; retry
   with backoff
@@ -158,6 +160,7 @@ Content-Type: application/json
 ```
 
 Field notes:
+
 - `name` (required) — Hive's `user_id`.
 - `budget.max_limit` — USD float; `1000.00` per v2 plan.
 - `budget.reset_duration` — see "Valid reset_duration values" below.
@@ -194,12 +197,12 @@ what the next step needs.
 
 **Possible non-200s:**
 
-| Status | When | Body |
-|---|---|---|
-| `400` | `name` missing | `{"error":"Customer name is required"}` |
-| `400` | `rate_limit` validation failed | `{"error":"Invalid rate limit: <detail>"}` |
-| `400` | Bad JSON | `{"error":"Invalid JSON"}` |
-| `500` | DB or anything else | `{"error":"failed to create customer"}` |
+| Status | When                           | Body                                       |
+| ------ | ------------------------------ | ------------------------------------------ |
+| `400`  | `name` missing                 | `{"error":"Customer name is required"}`    |
+| `400`  | `rate_limit` validation failed | `{"error":"Invalid rate limit: <detail>"}` |
+| `400`  | Bad JSON                       | `{"error":"Invalid JSON"}`                 |
+| `500`  | DB or anything else            | `{"error":"failed to create customer"}`    |
 
 **Important: no built-in unique-name check.** Looking at
 `createCustomer` (lines 1920-1999): it validates `Name != ""` and
@@ -309,6 +312,7 @@ Content-Type: application/json
 ```
 
 Field notes:
+
 - `name` (required) — Hive's `user_id`. Unique per Bifrost (DB unique
   index `idx_virtual_key_name`).
 - `customer_id` — from §1 or §2. Mutually exclusive with `team_id`
@@ -325,9 +329,9 @@ Field notes:
   field name is `key_ids` on the **request** — the response-side
   `keys` array is hydrated/read-only and unrelated. Source:
   `transports/bifrost-http/handlers/governance.go` (`KeyIDs
-  schemas.WhiteList json:"key_ids"`).
+schemas.WhiteList json:"key_ids"`).
 - `budgets` (optional, omitted here) — Customer's $1000/day already
-  governs alice's spend. If you ever want a *separate* VK-level cap
+  governs alice's spend. If you ever want a _separate_ VK-level cap
   (e.g. one VK $100/day on top of $1000/day customer cap), put it
   here. **Phase 1: omit. Single source of truth for alice's budget is
   her Customer.**
@@ -369,17 +373,17 @@ create response as canonical).
 
 **Possible non-200s:**
 
-| Status | When | Body |
-|---|---|---|
-| `400` | `name` missing | `{"error":"Virtual key name is required"}` |
-| `400` | Both `team_id` and `customer_id` set | `{"error":"VirtualKey cannot be attached to both Team and Customer"}` |
-| `400` | Bad provider name in `provider_configs` | `{"error":"invalid provider name: <p>"}` |
-| `400` | Bad reset_duration | `{"error":"Invalid reset duration format: <d>"}` |
-| `400` | Negative budget | `{"error":"Budget max_limit cannot be negative: <n>"}` |
-| `400` | Duplicate `reset_duration` in budgets | `{"error":"Duplicate reset_duration in budgets: <d>"}` |
-| `400` | Bad JSON | `{"error":"Invalid JSON"}` |
-| `400` | DB-level dup `name` | `{"error":"Failed to ...: ... duplicate key ..."}` (treat as success: read back via §3) |
-| `500` | Anything else | `{"error":"<detail>"}` |
+| Status | When                                    | Body                                                                                    |
+| ------ | --------------------------------------- | --------------------------------------------------------------------------------------- |
+| `400`  | `name` missing                          | `{"error":"Virtual key name is required"}`                                              |
+| `400`  | Both `team_id` and `customer_id` set    | `{"error":"VirtualKey cannot be attached to both Team and Customer"}`                   |
+| `400`  | Bad provider name in `provider_configs` | `{"error":"invalid provider name: <p>"}`                                                |
+| `400`  | Bad reset_duration                      | `{"error":"Invalid reset duration format: <d>"}`                                        |
+| `400`  | Negative budget                         | `{"error":"Budget max_limit cannot be negative: <n>"}`                                  |
+| `400`  | Duplicate `reset_duration` in budgets   | `{"error":"Duplicate reset_duration in budgets: <d>"}`                                  |
+| `400`  | Bad JSON                                | `{"error":"Invalid JSON"}`                                                              |
+| `400`  | DB-level dup `name`                     | `{"error":"Failed to ...: ... duplicate key ..."}` (treat as success: read back via §3) |
+| `500`  | Anything else                           | `{"error":"<detail>"}`                                                                  |
 
 ---
 
@@ -409,7 +413,7 @@ Response: `200 OK` with the updated customer object (same shape as §1).
 
 **Use sparingly.** Resetting `max_limit` does not change `current_usage`
 — if alice has already spent $700 today, lowering the cap to $500
-takes effect for the *next* request (which 402s). That's the correct
+takes effect for the _next_ request (which 402s). That's the correct
 behavior but worth knowing.
 
 For phase 1, recommend **skip this entirely**. Drift repair is a
@@ -485,6 +489,7 @@ Numeric prefix can vary (`"10m"`, `"2h"`, etc.). Case-sensitive: `"1M"`
 is months, `"1m"` is minutes — keep them straight.
 
 For phase 1, use:
+
 - Customer budget: `"1d"` ($1000/day)
 - Customer rate_limit request: `"1m"` (1000 RPM)
 - Customer rate_limit token: `"1m"` (5M TPM)
@@ -574,7 +579,7 @@ on agent spawn / chat LLM call for (workspace W, user U):
   obvious instead of buried in a background-job log.
 - Bifrost outages don't block workspace-create or grant-access flows;
   they only block first-use of LLM in a workspace whose Bifrost is
-  unreachable — which is the *correct* behavior, since LLM is
+  unreachable — which is the _correct_ behavior, since LLM is
   unavailable in that workspace anyway.
 - Subsequent LLM calls hit the cached VK in the secret store; no
   Bifrost round-trip after the first success.
@@ -590,7 +595,7 @@ so ops sees it) and returns "LLM unavailable in this workspace right
 now" to the user. **No retry queue, no background sweep, no
 pending-reconciliation table in phase 1.** The next user attempt is
 itself the retry. If a workspace's Bifrost stays down, every LLM call
-in that workspace fails — which is correct: LLM *is* unavailable in
+in that workspace fails — which is correct: LLM _is_ unavailable in
 that workspace until ops fixes it.
 
 **Out of scope for phase 1, planned for phase 2:**
@@ -615,35 +620,35 @@ nothing about its design changes.
 - [ ] Hive's secret store schema accepts `(workspace_id, user_id) → vk_value`
 - [ ] `Reconcile()` function implemented per algorithm above
 - [ ] **Per-pair mutex** wrapping `Reconcile()` calls, keyed by
-  `(workspace_id, user_id)` — prevents racing dup creation on
-  first-use
+      `(workspace_id, user_id)` — prevents racing dup creation on
+      first-use
 - [ ] Pilot agent's spawn path / chat-LLM path performs the
-  lazy lookup-or-reconcile-then-cache sequence above
+      lazy lookup-or-reconcile-then-cache sequence above
 - [ ] Pilot agent's LLM client attaches the dim headers:
-  `x-bf-dim-{run-id, workspace-id, agent-name, session-id, deployment}`
+      `x-bf-dim-{run-id, realm-id, agent-name, session-id, deployment}`
 - [ ] Pilot agent's LLM client uses
-  `Authorization: Bearer <vk_value>` (or the SDK's provider-specific
-  equivalent — `x-api-key` for Anthropic, etc.)
+      `Authorization: Bearer <vk_value>` (or the SDK's provider-specific
+      equivalent — `x-api-key` for Anthropic, etc.)
 - [ ] Verification SQL queries (from `llm-governance-v2.md` §"Observability")
-  return non-empty results within ~1h of pilot deploy
+      return non-empty results within ~1h of pilot deploy
 - [ ] `enforce_auth_on_inference` stays `false` throughout phase 1
 
 ---
 
 ## Reference: file locations in Bifrost source
 
-| Concern | File |
-|---|---|
-| Route registration | `transports/bifrost-http/handlers/governance.go:283-338` |
-| Customer create handler | `transports/bifrost-http/handlers/governance.go:1919-1999` |
-| Customer list handler | `transports/bifrost-http/handlers/governance.go:1857-1917` |
-| VK create handler | `transports/bifrost-http/handlers/governance.go:453-693` |
-| VK list handler | `transports/bifrost-http/handlers/governance.go:342-451` |
-| Customer table schema | `framework/configstore/tables/customer.go` |
-| VK table schema | `framework/configstore/tables/virtualkey.go:198-280` |
-| Team table schema (not used in phase 1) | `framework/configstore/tables/team.go` |
-| Admin auth middleware | `transports/bifrost-http/handlers/middlewares.go:800-1000` |
-| VK→Customer resolver (how `customer_id` lands on log rows) | `plugins/governance/resolver.go:237-260` |
+| Concern                                                    | File                                                       |
+| ---------------------------------------------------------- | ---------------------------------------------------------- |
+| Route registration                                         | `transports/bifrost-http/handlers/governance.go:283-338`   |
+| Customer create handler                                    | `transports/bifrost-http/handlers/governance.go:1919-1999` |
+| Customer list handler                                      | `transports/bifrost-http/handlers/governance.go:1857-1917` |
+| VK create handler                                          | `transports/bifrost-http/handlers/governance.go:453-693`   |
+| VK list handler                                            | `transports/bifrost-http/handlers/governance.go:342-451`   |
+| Customer table schema                                      | `framework/configstore/tables/customer.go`                 |
+| VK table schema                                            | `framework/configstore/tables/virtualkey.go:198-280`       |
+| Team table schema (not used in phase 1)                    | `framework/configstore/tables/team.go`                     |
+| Admin auth middleware                                      | `transports/bifrost-http/handlers/middlewares.go:800-1000` |
+| VK→Customer resolver (how `customer_id` lands on log rows) | `plugins/governance/resolver.go:237-260`                   |
 
 If anything in this doc seems off, check those files first — Bifrost
 is evolving and the source is authoritative.

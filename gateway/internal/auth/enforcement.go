@@ -165,8 +165,8 @@ func logDecision(d Decision, enforce bool) {
 	switch {
 	case d.Claims != nil:
 		pluginlog.Logf(
-			"auth: verify ok mode=%s org=%s user=%s workspace=%s agent=%s run_id=%s",
-			mode, d.Claims.OrgID, d.Claims.UserID, d.Claims.Workspace,
+			"auth: verify ok mode=%s org=%s user=%s realm=%s agent=%s run_id=%s",
+			mode, d.Claims.OrgID, d.Claims.UserID, d.Claims.Realm,
 			d.Claims.AgentName, d.Claims.RunID,
 		)
 	case d.Err != nil && !d.HadHeader:

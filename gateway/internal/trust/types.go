@@ -39,8 +39,8 @@ type SeedSource string
 
 const (
 	SeedSourceUnknown SeedSource = ""
-	SeedSourceEnv    SeedSource = "env"
-	SeedSourceAPI    SeedSource = "api"
+	SeedSourceEnv     SeedSource = "env"
+	SeedSourceAPI     SeedSource = "api"
 )
 
 // Org is the canonical trust entry. One per org_id.
@@ -55,8 +55,8 @@ const (
 // directly on POST, but the field is exposed so an operator can
 // hand-edit the persisted file in an emergency.
 //
-// Intentionally NO budget / workspace fields: the macaroon already
-// carries those (UserAuthorization grants workspaces, Invocation
+// Intentionally NO budget / realm fields: the macaroon already
+// carries those (UserAuthorization grants realms, Invocation
 // caveats carry budgets), and the trust registry's job is purely
 // "do I trust this org's signatures?" — not "what limits should I
 // impose on top of theirs?" If the org ever wants to cap user-
@@ -64,7 +64,7 @@ const (
 // (org-signed), not the per-swarm trust registry.
 type Org struct {
 	OrgID                 string   `json:"org_id"`
-	Pubkey                string   `json:"pubkey"`                  // hex-encoded, 33-byte compressed secp256k1
+	Pubkey                string   `json:"pubkey"` // hex-encoded, 33-byte compressed secp256k1
 	IssuerURL             string   `json:"issuer_url"`
 	RevocationPollSeconds int      `json:"revocation_poll_seconds"`
 	GracePubkeys          []string `json:"grace_pubkeys,omitempty"` // previous-root keys during rotation grace
@@ -107,10 +107,10 @@ type RotateRequest struct {
 
 // RotateResponse mirrors the phase-5 doc's rotate example.
 type RotateResponse struct {
-	OK            bool     `json:"ok"`
-	ActivePubkey  string   `json:"active_pubkey"`
-	GraceUntil    string   `json:"grace_until"`
-	GracePubkeys  []string `json:"grace_pubkeys"`
+	OK           bool     `json:"ok"`
+	ActivePubkey string   `json:"active_pubkey"`
+	GraceUntil   string   `json:"grace_until"`
+	GracePubkeys []string `json:"grace_pubkeys"`
 }
 
 // ─── validation ───────────────────────────────────────────────────────

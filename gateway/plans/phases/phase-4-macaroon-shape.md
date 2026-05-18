@@ -50,12 +50,12 @@ This doc pins them down. After this:
 
 ## Implementation split
 
-| Component                | Language   | Location                       | Responsibilities                                         |
-| ------------------------ | ---------- | ------------------------------ | -------------------------------------------------------- |
-| Pure verifier            | Go         | `gateway/auth/go/`             | Parse, JCS-canonicalize, verify org-sig + user-sig + HMAC chain, enforce caveat narrowing. No I/O, no Bifrost types. |
-| Bifrost-plugin adapter   | Go         | `gateway/internal/auth/`       | Pull `x-macaroon` from `bifrost.Request`, look up the org's policy from the in-memory trust registry, call `gateway/auth/go`, layer Redis-backed revocation checks on top, translate failures into `bifrost.Error` codes. Holds no cryptographic knowledge. |
-| Signer + attenuator + verifier | TypeScript | `gateway/auth/ts/` (published as a public npm package) | JCS-canonicalize, sign org layer (custodial phase 1), sign user layer (custodial phase 1), attenuate (HMAC chain), optionally verify (for tests + Hive sanity-checks). Hive's issuer and `/mcp` import this package. |
-| Polyglot attenuators     | Other      | Agent processes (Python, Rust, …) | JCS-canonicalize own caveats, HMAC-SHA256 with prev_sig as key, append to chain. Not provided as a Stakwork lib; spec + fixtures are the contract. |
+| Component                      | Language   | Location                                               | Responsibilities                                                                                                                                                                                                                                            |
+| ------------------------------ | ---------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure verifier                  | Go         | `gateway/auth/go/`                                     | Parse, JCS-canonicalize, verify org-sig + user-sig + HMAC chain, enforce caveat narrowing. No I/O, no Bifrost types.                                                                                                                                        |
+| Bifrost-plugin adapter         | Go         | `gateway/internal/auth/`                               | Pull `x-macaroon` from `bifrost.Request`, look up the org's policy from the in-memory trust registry, call `gateway/auth/go`, layer Redis-backed revocation checks on top, translate failures into `bifrost.Error` codes. Holds no cryptographic knowledge. |
+| Signer + attenuator + verifier | TypeScript | `gateway/auth/ts/` (published as a public npm package) | JCS-canonicalize, sign org layer (custodial phase 1), sign user layer (custodial phase 1), attenuate (HMAC chain), optionally verify (for tests + Hive sanity-checks). Hive's issuer and `/mcp` import this package.                                        |
+| Polyglot attenuators           | Other      | Agent processes (Python, Rust, …)                      | JCS-canonicalize own caveats, HMAC-SHA256 with prev_sig as key, append to chain. Not provided as a Stakwork lib; spec + fixtures are the contract.                                                                                                          |
 
 The Go pure verifier and the TS signer are the two sides that must
 produce bit-identical canonicalized JSON for the same logical object.
@@ -112,12 +112,12 @@ the `x-macaroon` header:
 }
 ```
 
-| Field                | Type   | Notes                                                    |
-| -------------------- | ------ | -------------------------------------------------------- |
-| `v`                  | int    | Wire-format version. `1` for everything in this doc.     |
-| `org_id`             | string | Lookup key for the trust registry.                       |
-| `user_authorization` | object | Org-signed envelope; shape below.                        |
-| `invocation`         | object | User-signed root caveats; shape below.                   |
+| Field                | Type   | Notes                                                                                      |
+| -------------------- | ------ | ------------------------------------------------------------------------------------------ |
+| `v`                  | int    | Wire-format version. `1` for everything in this doc.                                       |
+| `org_id`             | string | Lookup key for the trust registry.                                                         |
+| `user_authorization` | object | Org-signed envelope; shape below.                                                          |
+| `invocation`         | object | User-signed root caveats; shape below.                                                     |
 | `attenuations`       | array  | Zero or more HMAC links; shape below. Empty for top-level invocations (no sub-agents yet). |
 
 The verifier rejects any unknown top-level field at `v=1` to keep the
@@ -128,39 +128,39 @@ either rejects or branches on version.
 
 ```json
 {
-  "user_id":     "u_alice",
+  "user_id": "u_alice",
   "user_pubkey": {
-    "alg":   "ed25519",
-    "key":   "8b2…32-byte-hex…"
+    "alg": "ed25519",
+    "key": "8b2…32-byte-hex…"
   },
   "permissions": {
-    "workspaces": ["w1", "w2"],
-    "agents":     ["coder", "browser", "repair-agent"]
+    "realms": ["w1", "w2"],
+    "agents": ["coder", "browser", "repair-agent"]
   },
   "budget": {
-    "max_total_usd":          1000.00,
-    "max_per_invocation_usd": 25.00
+    "max_total_usd": 1000.0,
+    "max_per_invocation_usd": 25.0
   },
-  "iat":         "2026-05-14T09:00:00Z",
-  "exp":         "2026-06-14T09:00:00Z",
-  "nonce":       "9f4e…32-hex-chars…",
-  "org_sig":     {
-    "alg":       "ecdsa-secp256k1-sha256",
-    "sig":       "3045…compact-or-policy-shaped…"
+  "iat": "2026-05-14T09:00:00Z",
+  "exp": "2026-06-14T09:00:00Z",
+  "nonce": "9f4e…32-hex-chars…",
+  "org_sig": {
+    "alg": "ecdsa-secp256k1-sha256",
+    "sig": "3045…compact-or-policy-shaped…"
   }
 }
 ```
 
-| Field         | Type   | Notes                                                              |
-| ------------- | ------ | ------------------------------------------------------------------ |
-| `user_id`     | string | Hive's stable user identifier. Same string used as Bifrost Customer name (phase 1). |
-| `user_pubkey` | object | `{alg, key}`. `alg="ed25519"`, `key` = 32-byte hex (Ed25519 raw pubkey). |
-| `permissions` | object | What the user is allowed to do. `workspaces` and `agents` are arrays of identifiers; further fields can be added at `v=1` only if backward-compatible. |
+| Field         | Type   | Notes                                                                                                                                                                         |
+| ------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `user_id`     | string | Hive's stable user identifier. Same string used as Bifrost Customer name (phase 1).                                                                                           |
+| `user_pubkey` | object | `{alg, key}`. `alg="ed25519"`, `key` = 32-byte hex (Ed25519 raw pubkey).                                                                                                      |
+| `permissions` | object | What the user is allowed to do. `realms` and `agents` are arrays of identifiers; further fields can be added at `v=1` only if backward-compatible.                            |
 | `budget`      | object | **Optional.** Org-signed spending envelope. Omit (or set fields to 0) for "no org-side cap; user's `Invocation.max_cost_usd` is the only limit." See "Budget envelope" below. |
-| `iat`         | string | RFC 3339 / ISO 8601 UTC.                                           |
-| `exp`         | string | RFC 3339 / ISO 8601 UTC. Verifier rejects when `now > exp`.        |
-| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `bifrost:cost:ua:<nonce>` cumulative-spend tracking when `budget` is set. |
-| `org_sig`     | object | See "Signature objects" below. Signs all other fields in this object. |
+| `iat`         | string | RFC 3339 / ISO 8601 UTC.                                                                                                                                                      |
+| `exp`         | string | RFC 3339 / ISO 8601 UTC. Verifier rejects when `now > exp`.                                                                                                                   |
+| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `bifrost:cost:ua:<nonce>` cumulative-spend tracking when `budget` is set.           |
+| `org_sig`     | object | See "Signature objects" below. Signs all other fields in this object.                                                                                                         |
 
 ### Budget envelope
 
@@ -177,10 +177,10 @@ signs many invocations under that ceiling."
 }
 ```
 
-| Field                     | Type   | Notes                                                              |
-| ------------------------- | ------ | ------------------------------------------------------------------ |
-| `max_total_usd`           | number | **Cumulative** cap across all invocations under this `user_authorization`. Plugin tracks via Redis key `bifrost:cost:ua:<ua.nonce>` (same HASH/TTL pattern as `bifrost:cost:run:*`; see `phase-6-plugin-enforcement.md` "Namespace"). `0` ⇒ no cumulative cap. |
-| `max_per_invocation_usd`  | number | **Per-invocation** cap. Verifier rejects when `invocation.max_cost_usd > budget.max_per_invocation_usd`. Pure signature-time check — no Redis. `0` ⇒ no per-invocation cap. |
+| Field                    | Type   | Notes                                                                                                                                                                                                                                                          |
+| ------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_total_usd`          | number | **Cumulative** cap across all invocations under this `user_authorization`. Plugin tracks via Redis key `bifrost:cost:ua:<ua.nonce>` (same HASH/TTL pattern as `bifrost:cost:run:*`; see `phase-6-plugin-enforcement.md` "Namespace"). `0` ⇒ no cumulative cap. |
+| `max_per_invocation_usd` | number | **Per-invocation** cap. Verifier rejects when `invocation.max_cost_usd > budget.max_per_invocation_usd`. Pure signature-time check — no Redis. `0` ⇒ no per-invocation cap.                                                                                    |
 
 **Both fields are independently optional.** Setting only
 `max_total_usd` lets the user pick per-invocation amounts freely up to
@@ -241,32 +241,32 @@ bytes signed. See "Signing inputs" for the exact algorithm.
 
 ```json
 {
-  "workspace":    "w1",
-  "agents":       ["coder"],
-  "run_id":       "r_01H8…",
-  "max_cost_usd": 5.00,
-  "max_steps":    100,
-  "iat":          "2026-05-14T10:00:00Z",
-  "exp":          "2026-05-14T10:10:00Z",
-  "nonce":        "7c2a…32-hex-chars…",
-  "user_sig":     {
-    "alg":        "ed25519",
-    "sig":        "a3b1…128-hex-chars…"
+  "realm": "w1",
+  "agents": ["coder"],
+  "run_id": "r_01H8…",
+  "max_cost_usd": 5.0,
+  "max_steps": 100,
+  "iat": "2026-05-14T10:00:00Z",
+  "exp": "2026-05-14T10:10:00Z",
+  "nonce": "7c2a…32-hex-chars…",
+  "user_sig": {
+    "alg": "ed25519",
+    "sig": "a3b1…128-hex-chars…"
   }
 }
 ```
 
-| Field          | Type           | Notes                                                              |
-| -------------- | -------------- | ------------------------------------------------------------------ |
-| `workspace`    | string         | Workspace identifier. Verifier checks it's in `user_authorization.permissions.workspaces`. |
-| `agents`       | array<string>  | Always single-element on first issuance. Sub-agents append on attenuation. The last element is the "most specific" agent (matches v2's plugin canonicalization). Verifier checks every entry is in `user_authorization.permissions.agents`. |
-| `run_id`       | string         | Stable id for this run. Used as the cost-accumulation key in plugin Redis (`bifrost:cost:run:<run_id>`; see `phase-6-plugin-enforcement.md` "Namespace"). |
-| `max_cost_usd` | number         | USD budget for this run. Plugin enforces via Redis accumulator.    |
-| `max_steps`    | int            | Step budget. Plugin enforces.                                      |
-| `iat`          | string         | RFC 3339 UTC.                                                      |
-| `exp`          | string         | RFC 3339 UTC. Replaces v2's `max_wallclock_s` — duration caps are computed by the issuer at signing time and stamped as a concrete `exp`. The macaroon only carries the timestamp. |
-| `nonce`        | string         | 128-bit random, lowercase hex, 32 chars. Per-invocation.           |
-| `user_sig`     | object         | See "Signature objects". Signs all other fields in this object.    |
+| Field          | Type          | Notes                                                                                                                                                                                                                                       |
+| -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `realm`        | string        | Workspace identifier. Verifier checks it's in `user_authorization.permissions.realms`.                                                                                                                                                      |
+| `agents`       | array<string> | Always single-element on first issuance. Sub-agents append on attenuation. The last element is the "most specific" agent (matches v2's plugin canonicalization). Verifier checks every entry is in `user_authorization.permissions.agents`. |
+| `run_id`       | string        | Stable id for this run. Used as the cost-accumulation key in plugin Redis (`bifrost:cost:run:<run_id>`; see `phase-6-plugin-enforcement.md` "Namespace").                                                                                   |
+| `max_cost_usd` | number        | USD budget for this run. Plugin enforces via Redis accumulator.                                                                                                                                                                             |
+| `max_steps`    | int           | Step budget. Plugin enforces.                                                                                                                                                                                                               |
+| `iat`          | string        | RFC 3339 UTC.                                                                                                                                                                                                                               |
+| `exp`          | string        | RFC 3339 UTC. Replaces v2's `max_wallclock_s` — duration caps are computed by the issuer at signing time and stamped as a concrete `exp`. The macaroon only carries the timestamp.                                                          |
+| `nonce`        | string        | 128-bit random, lowercase hex, 32 chars. Per-invocation.                                                                                                                                                                                    |
+| `user_sig`     | object        | See "Signature objects". Signs all other fields in this object.                                                                                                                                                                             |
 
 **On `exp` vs `max_wallclock_s`.** v2 and the identity doc carried
 both an absolute `exp` and a duration `max_wallclock_s`. They're
@@ -289,12 +289,12 @@ second; and so on.
 ```json
 {
   "caveats": {
-    "agents":       ["coder", "web-search"],
-    "max_cost_usd": 2.00,
-    "max_steps":    40,
-    "run_id":       "r_01H8…child…",
-    "exp":          "2026-05-14T10:02:00Z",
-    "nonce":        "1e8d…32-hex-chars…"
+    "agents": ["coder", "web-search"],
+    "max_cost_usd": 2.0,
+    "max_steps": 40,
+    "run_id": "r_01H8…child…",
+    "exp": "2026-05-14T10:02:00Z",
+    "nonce": "1e8d…32-hex-chars…"
   },
   "hmac": "5f3c…64-hex-chars…"
 }
@@ -340,16 +340,16 @@ attenuation's `caveats` strictly narrow the parent's effective caveats
 (parent = invocation for the first link, or the previous attenuation's
 caveats for later links, walked transitively up to the invocation):
 
-| Field          | Rule                                                                 |
-| -------------- | -------------------------------------------------------------------- |
-| `agents`       | `child.agents ⊇ parent.agents` (must include all parent entries; may add). The last entry is the most-specific agent. |
-| `max_cost_usd` | `child.max_cost_usd ≤ parent.max_cost_usd`                           |
-| `max_steps`    | `child.max_steps ≤ parent.max_steps`                                 |
-| `exp`          | `child.exp ≤ parent.exp` (lexicographic on RFC 3339 UTC works)       |
+| Field          | Rule                                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `agents`       | `child.agents ⊇ parent.agents` (must include all parent entries; may add). The last entry is the most-specific agent.                                  |
+| `max_cost_usd` | `child.max_cost_usd ≤ parent.max_cost_usd`                                                                                                             |
+| `max_steps`    | `child.max_steps ≤ parent.max_steps`                                                                                                                   |
+| `exp`          | `child.exp ≤ parent.exp` (lexicographic on RFC 3339 UTC works)                                                                                         |
 | `run_id`       | Free choice — child gets its own run_id, lets the plugin accumulate cost both at the child level and (transitively, via chain walk) at every ancestor. |
-| `nonce`        | Free choice — fresh per attenuation, used for per-link revocation. |
+| `nonce`        | Free choice — fresh per attenuation, used for per-link revocation.                                                                                     |
 
-`agents` is the one field that legitimately *grows*: a sub-agent's
+`agents` is the one field that legitimately _grows_: a sub-agent's
 identity is appended to the list, not replacing the parent's. The
 last element wins as the "agent-name" dimension for billing. This
 matches v2's existing plugin canonicalization (line 507:
@@ -415,7 +415,7 @@ policy. Carries one signature per participating key.
 
 ```json
 {
-  "alg":       "multisig-v1",
+  "alg": "multisig-v1",
   "sigs": [
     { "key_index": 0, "alg": "ecdsa-secp256k1-sha256", "sig": "…hex…" },
     { "key_index": 2, "alg": "ecdsa-secp256k1-sha256", "sig": "…hex…" }
@@ -453,7 +453,7 @@ Stored in the trust registry per org (phase 5). Two shapes:
 
 ```json
 {
-  "type":      "multisig",
+  "type": "multisig",
   "threshold": 2,
   "keys": [
     { "alg": "ecdsa-secp256k1-sha256", "key": "02a1…66-hex-chars…" },
@@ -521,15 +521,15 @@ Every other field in the layer is bound by the signature.
 
 ## Nonces, run_ids, and other identifiers
 
-| Identifier              | Format                              | Scope                                |
-| ----------------------- | ----------------------------------- | ------------------------------------ |
-| `user_authorization.nonce` | 128-bit random, hex lowercase, 32 chars | Per `user_authorization` issuance |
-| `invocation.nonce`      | 128-bit random, hex lowercase, 32 chars | Per invocation                       |
-| `attenuations[i].caveats.nonce` | 128-bit random, hex lowercase, 32 chars | Per attenuation                |
-| `user_id`               | Hive's stable string                | Globally meaningful within Hive      |
-| `org_id`                | string                              | Globally meaningful (trust registry key) |
-| `run_id`                | string, recommended `r_<26-char-ulid>` or `r_<uuid-v4>` | Per agent run (each attenuation gets a fresh one) |
-| `workspace`             | string                              | Workspace-id, matches Bifrost Customer scoping |
+| Identifier                      | Format                                                  | Scope                                             |
+| ------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
+| `user_authorization.nonce`      | 128-bit random, hex lowercase, 32 chars                 | Per `user_authorization` issuance                 |
+| `invocation.nonce`              | 128-bit random, hex lowercase, 32 chars                 | Per invocation                                    |
+| `attenuations[i].caveats.nonce` | 128-bit random, hex lowercase, 32 chars                 | Per attenuation                                   |
+| `user_id`                       | Hive's stable string                                    | Globally meaningful within Hive                   |
+| `org_id`                        | string                                                  | Globally meaningful (trust registry key)          |
+| `run_id`                        | string, recommended `r_<26-char-ulid>` or `r_<uuid-v4>` | Per agent run (each attenuation gets a fresh one) |
+| `realm`                         | string                                                  | Workspace-id, matches Bifrost Customer scoping    |
 
 Nonces are uniformly 16 random bytes hex-encoded to 32 chars, generated
 from a cryptographically secure RNG. The verifier doesn't impose any
@@ -584,7 +584,7 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
                                                          → invalid_invocation_signature
 
    8. check inv caveats (intrinsic only):
-        inv.workspace not in ua.permissions.workspaces    → invocation_violated
+        inv.realms not in ua.permissions.realms    → invocation_violated
         any inv.agents not in ua.permissions.agents       → invocation_violated
         now > inv.exp                                     → macaroon_expired
         // Per-invocation budget cap (pure signature-time check).
@@ -604,7 +604,7 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
          prev_caveats   = merge(prev_caveats, att.caveats)
 
   10. return Claims {
-        org_id, user_id, workspace,
+        org_id, user_id, realm,
         effective_caveats: prev_caveats,    // narrowed by entire chain
         ua_nonce:          ua.nonce,        // for bifrost:cost:ua:<nonce> tracking
         ua_budget:         ua.budget,       // nil if absent

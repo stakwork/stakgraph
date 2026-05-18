@@ -13,9 +13,9 @@ func TestCheckRevocations_ObservabilityMode_NoOp(t *testing.T) {
 	// Ensure no client (in case a prior test set one).
 	redisclient.SetClientForTest(nil)
 	claims := &macaroon.Claims{
-		UserID:  testUserID,
-		Nonces:  []string{"aaaa000000000000000000000000aaaa"},
-		IAT:     time.Now().UTC().Format(time.RFC3339),
+		UserID: testUserID,
+		Nonces: []string{"aaaa000000000000000000000000aaaa"},
+		IAT:    time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := CheckRevocations(context.Background(), claims); err != nil {
 		t.Fatalf("observability mode should be a no-op, got %+v", err)
