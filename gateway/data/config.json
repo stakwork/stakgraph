@@ -57,6 +57,7 @@
       "name": "stakgraph-gateway",
       "enabled": true,
       "path": "/app/plugins/stakgraph-gateway.so",
+      "placement": "pre_builtin",
       "config": {
         "log_level": "info",
         "enforce_macaroons": false

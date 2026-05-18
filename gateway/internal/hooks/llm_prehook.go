@@ -47,5 +47,34 @@ func LLMPre(
 		return req, shortCircuit, nil
 	}
 
+	// If a macaroon verified successfully, the verified claims are
+	// now stamped on context. Make them authoritative over the
+	// caller-supplied x-bf-dim-* headers for the four signature-
+	// bound dims (run-id, user-id, agent-name, realm-id) — anything
+	// the caller stamped that disagreed is overwritten so the
+	// metadata that lands in logs.db tells the cryptographic truth.
+	//
+	// REQUIRES the plugin to run at placement="pre_builtin" in
+	// config.json. The built-in logging plugin reads
+	// BifrostContextKeyDimensions in its PreLLMHook and snapshots
+	// the map into the pending log entry's metadata. If we run
+	// post_builtin (the default), the snapshot is already taken by
+	// the time we get here and the overwrite is too late — see the
+	// rationale in pluginctx/dims.go CanonicalizeFromClaims.
+	//
+	// In shadow mode with no macaroon (or a verify failure),
+	// VerifiedClaims is nil and the caller-stamped headers pass
+	// through unchanged — that preserves observability during the
+	// rollout phases where some callers haven't onboarded yet.
+	if claims := pluginctx.VerifiedClaims(ctx); claims != nil {
+		pluginctx.CanonicalizeFromClaims(
+			ctx,
+			claims.RunID,
+			claims.UserID,
+			claims.AgentName,
+			claims.Realm,
+		)
+	}
+
 	return req, nil, nil
 }
