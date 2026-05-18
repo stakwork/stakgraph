@@ -1,25 +1,27 @@
 use anyhow::Result;
-use ast::utils::logger;
+use ast::utils::{logger, print_json};
 use ast::{self, lang::Lang, repo::Repo};
 use std::str::FromStr;
+
+/*
+PARSE_LANG=go     cargo run --example minimal
+PARSE_LANG=python cargo run --example minimal
+PARSE_LANG=react  cargo run --example minimal   (default)
+PARSE_LANG=ruby   cargo run --example minimal
+*/
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
     logger();
 
-    let language = std::env::var("LANG").unwrap_or("react".to_string());
-    let files_filter = match std::env::var("FILES_FILTER") {
-        Ok(filter) => filter.split(',').map(|s| s.to_string()).collect(),
-        Err(_) => Vec::new(),
-    };
+    let language = std::env::var("PARSE_LANG").unwrap_or("react".to_string());
+    println!("parsing: {language}");
 
-    println!("minimal example for {}:", language);
     let lang = Lang::from_str(&language)?;
-    let repo = Repo::new("ast/examples/minimal", lang, true, files_filter, Vec::new())?;
-    println!("building graph...");
+    let repo = Repo::new("ast/examples/minimal", lang, true, Vec::new(), Vec::new())?;
     let graph = repo.build_graph().await?;
-    let pretty = serde_json::to_string_pretty(&graph)?;
-    let final_path = format!("ast/examples/minimal/{}.json", language);
-    std::fs::write(final_path, pretty)?;
+
+    println!("nodes: {}, edges: {}", graph.nodes.len(), graph.edges.len());
+    print_json(&graph, "minimal")?;
     Ok(())
 }

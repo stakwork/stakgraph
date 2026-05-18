@@ -76,40 +76,16 @@ rayon = "1.11.0"
 
 
 [[example]]
-name = "python"
-path = "examples/python.rs"
-
-[[example]]
 name = "minimal"
 path = "examples/minimal.rs"
 
 [[example]]
-name = "tribes"
-path = "examples/tribes.rs"
-
-[[example]]
-name = "tribes-front"
-path = "examples/tribes_front.rs"
-
-[[example]]
-name = "next"
-path = "examples/next.rs"
-
-[[example]]
-name = "ruby"
-path = "examples/ruby.rs"
-
-[[example]]
-name = "stak"
-path = "examples/stak.rs"
+name = "remote"
+path = "examples/remote.rs"
 
 [[example]]
 name = "url"
 path = "examples/url.rs"
-
-[[example]]
-name = "file"
-path = "examples/file.rs"
 
 [[bin]]
 name = "print_queries"
