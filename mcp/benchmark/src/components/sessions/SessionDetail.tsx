@@ -157,7 +157,8 @@ export function SessionDetail({
                     fontWeight: 700,
                     color: "#ededed",
                     flexShrink: 0,
-                    whiteSpace: "nowrap",
+                    whiteSpace: "normal",
+                    wordBreak: "break-word",
                     margin: 0,
                     lineHeight: 1.2,
                   }}
