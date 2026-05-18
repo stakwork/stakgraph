@@ -760,7 +760,6 @@ impl Lang {
         let mut res = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         // get each function call within that function
         while let Some(m) = matches.next() {
-            // FIXME can we only pass in the node code here? Need to sum line nums
             trace!("add_calls_for_function");
             let mut caller_name = "".to_string();
             let mut attributes = Vec::new();

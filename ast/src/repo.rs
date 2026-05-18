@@ -334,11 +334,7 @@ impl Repo {
                 Error::validation(format!("Failed to parse Git URL for {}: {}", url, e))
             })?;
             let root = format!("/tmp/{}", gurl.fullname);
-            println!(
-                "Cloning repo to {:?} with branch {}...",
-                &root,
-                branch.unwrap_or("default")
-            );
+            info!("Cloning repo to {:?} with branch {}...", &root, branch.unwrap_or("default"));
             clone_repo(url, &root, username.clone(), pat.clone(), commit, branch).await?;
             // Extract the revs for this specific repository
             let repo_revs = if revs_per_repo > 0 {
@@ -520,7 +516,7 @@ impl Repo {
 
         let gurl = GitUrl::parse(url)?;
         let root = format!("/tmp/{}", gurl.fullname);
-        println!("Cloning to {:?}... lsp: {}", &root, lsp);
+        info!("Cloning to {:?}... lsp: {}", &root, lsp);
         clone_repo(url, &root, username, pat, None, branch).await?;
         // if let Some(new_files) = check_revs(&root, revs) {
         //     files_filter = new_files;

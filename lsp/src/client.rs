@@ -201,7 +201,6 @@ pub fn strip_tmp(f: &Path) -> PathBuf {
 }
 
 pub(crate) fn strip_root(f: &Path, root: &Path) -> PathBuf {
-    // println!("strip_root: {:?} {:?}", f, root);
     if f.starts_with(root) {
         let endpart = f.strip_prefix(root).unwrap_or(f);
         endpart.into()
@@ -254,15 +253,15 @@ fn start(
         match lang {
             Language::Rust => {
                 router.notification::<Progress>(|this, prog| {
-                    println!("Progress: {:?}", prog);
-                    info!("{:?} {:?}", prog.token, prog.value);
+                    debug!("Progress: {:?}", prog);
+                    debug!("{:?} {:?}", prog.token, prog.value);
 
                     if matches!(prog.token, NumberOrString::String(s) if s == "rustAnalyzer/Indexing") {
                         let ProgressParamsValue::WorkDone(wd) = prog.value;
                         if let WorkDoneProgress::Report(report) = wd {
                             let per = report.percentage.unwrap_or(0);
                             if let Some(msg) = report.message {
-                                println!("=> {msg} ({per}%)");
+                                debug!("=> {msg} ({per}%)");
                             }
                             if per == 100 {
                                 if let Some(tx) = this.indexed_tx.take() {

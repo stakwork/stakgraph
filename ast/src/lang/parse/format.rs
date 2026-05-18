@@ -223,15 +223,18 @@ impl Lang {
                     }
                 }
             }
-            // fallback
-            let nodes = graph.find_nodes_by_name(NodeType::Function, &comp_name);
-            // only take the first? FIXME
-            let frontend_nodes = nodes
-                .iter()
-                .filter(|n| graph.is_frontend(&n.file))
-                .collect::<Vec<_>>();
-            if let Some(node) = frontend_nodes.first() {
-                page_renders.push(Edge::renders(&pag, node));
+           let import_names = get_imports_for_file(file, self, graph);
+            if let Some(node) = node_data_finder(
+                &comp_name,
+                &None,
+                graph,
+                file,
+                pag.start,
+                NodeType::Page,
+                import_names,
+                self,
+            ) {
+                page_renders.push(Edge::renders(&pag, &node));
             }
         }
         if page_names.is_empty() {

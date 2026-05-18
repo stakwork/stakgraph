@@ -6,6 +6,7 @@ use crate::lang::graphs::{
 };
 use neo4rs::{query, BoltMap};
 use shared::{Error, Result};
+use tracing::{info, warn};
 use std::str::FromStr;
 
 impl Neo4jGraph {
@@ -160,7 +161,7 @@ impl Neo4jGraph {
 
     pub async fn clear_existing_graph(&self, root: &str) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        println!("Clearing existing graph for root: {}", root);
+        info!("Clearing existing graph for root: {}", root);
         let (query_str, params) = clear_existing_graph_query(root);
         let mut txn = connection.start_txn().await?;
         let mut query_obj = query(&query_str);
@@ -284,7 +285,7 @@ impl Neo4jGraph {
                     }
                 }
                 Err(e) => {
-                    println!(
+                    warn!(
                         "Failed to restore edge {} -> {} -> {}:{}: {}",
                         source_ref_id, edge_type, target_type, target_name, e
                     );
