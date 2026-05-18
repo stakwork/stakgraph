@@ -7,7 +7,7 @@ governance. Three sibling implementations that all agree byte-for-byte:
 gateway/auth/
 ├── fixtures/   ← source-of-truth test vectors (JSON; language-neutral)
 ├── go/         ← pure verifier (used by gateway/internal/auth/ adapter)
-└── ts/         ← signer + attenuator + verifier (published as @stakwork/macaroon)
+└── ts/         ← signer + attenuator + verifier (published as `gatekey` on npm)
 ```
 
 ## The three layers, at a glance
@@ -97,8 +97,9 @@ cryptographic knowledge.
 
 ### `ts/`
 
-Signer, attenuator, and (optional) verifier. Published as
-`@stakwork/macaroon` (open source, MIT). Consumed by:
+Signer, attenuator, and (optional) verifier. Published on npm as
+[`gatekey`](https://www.npmjs.com/package/gatekey) (open source, MIT).
+Consumed by:
 
 - Hive's `/macaroons/issue` handler — signs `user_authorization`
   (custodial phase 1) and `invocation` layers.
