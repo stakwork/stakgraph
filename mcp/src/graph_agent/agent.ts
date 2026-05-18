@@ -47,6 +47,8 @@ export interface GraphAgentOptions {
   maxTurns?: number;
   // Forwarded L402/Authorization token for jarvis tool calls
   authToken?: string;
+  /** Custom HTTP headers attached to every LLM endpoint request (provider-level). */
+  headers?: Record<string, string>;
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -100,6 +102,7 @@ async function prepareGraphAgent(
     onStepEvent,
     maxTurns,
     authToken,
+    headers,
   } = opts;
 
   const startTime = Date.now();
@@ -108,6 +111,8 @@ async function prepareGraphAgent(
   const { model, apiKey: _apiKey, provider, contextLimit, modelId } = getModelDetails(
     modelName,
     apiKeyIn,
+    undefined,
+    headers,
   );
   console.log(`[graph_agent] model=${modelId} provider=${provider} contextLimit=${contextLimit}`);
 

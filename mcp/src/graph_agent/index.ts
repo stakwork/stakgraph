@@ -16,6 +16,22 @@ import { get_context, stream_context } from "./agent.js";
 
 // ── Shared request body parser ───────────────────────────────────────────
 
+/**
+ * Coerce a request-body `headers` value into a clean Record<string, string>.
+ * Accepts a plain object whose values are strings/numbers/booleans; drops
+ * non-string values and ignores anything else. Returns undefined when empty.
+ */
+function normalizeHeaders(input: unknown): Record<string, string> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof k !== "string" || !k) continue;
+    if (typeof v === "string") out[k] = v;
+    else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parseGraphAgentBody(req: Request) {
   const prompt = req.body.prompt as string | undefined;
   const modelName = req.body.model as ModelName | undefined;
@@ -34,7 +50,9 @@ function parseGraphAgentBody(req: Request) {
   // account's L402 balance (IDOR).
   const authToken = req.headers["authorization"] as string | undefined;
 
-  return { prompt, modelName, apiKey, sessionId, sessionConfig, stream, maxTurns, authToken };
+  const headers = normalizeHeaders(req.body.headers);
+
+  return { prompt, modelName, apiKey, sessionId, sessionConfig, stream, maxTurns, authToken, headers };
 }
 
 // ── POST /graph_agent ────────────────────────────────────────────────────
@@ -86,6 +104,7 @@ export async function graph_agent(req: Request, res: Response) {
         maxTurns: body.maxTurns,
         authToken: body.authToken,
         abortSignal: abortController.signal,
+        headers: body.headers,
       });
 
       const streamResponse = streamResult.toUIMessageStreamResponse();
@@ -183,6 +202,7 @@ export async function graph_agent(req: Request, res: Response) {
       maxTurns: body.maxTurns,
       authToken: body.authToken,
       abortSignal: abortController.signal,
+      headers: body.headers,
       onStepEvent: (content) => {
         const events = filterStepContent(content);
         for (const ev of events) bus.emit(ev);

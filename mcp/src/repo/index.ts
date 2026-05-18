@@ -137,6 +137,7 @@ function parseAgentBody(req: Request) {
   const ggnn = req.body.ggnn as GgnnConfig | undefined;
   const stream = req.body.stream as boolean | undefined;
   const maxTurns = typeof req.body.maxTurns === "number" ? req.body.maxTurns : undefined;
+  const headers = normalizeHeaders(req.body.headers);
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -146,8 +147,24 @@ function parseAgentBody(req: Request) {
   return {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
-    systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns,
+    systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
   };
+}
+
+/**
+ * Coerce a request-body `headers` value into a clean Record<string, string>.
+ * Accepts a plain object whose values are strings/numbers/booleans; drops
+ * non-string values and ignores anything else. Returns undefined when empty.
+ */
+function normalizeHeaders(input: unknown): Record<string, string> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof k !== "string" || !k) continue;
+    if (typeof v === "string") out[k] = v;
+    else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
@@ -216,6 +233,7 @@ export async function repo_agent(req: Request, res: Response) {
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
+          headers: body.headers,
         },
       );
 
@@ -327,6 +345,7 @@ export async function repo_agent(req: Request, res: Response) {
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
+          headers: body.headers,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);

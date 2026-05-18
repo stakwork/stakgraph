@@ -18,6 +18,22 @@ function swarmNameToLogGroup(swarmName: string): string | null {
   return `/swarms/${match[1]}`;
 }
 
+/**
+ * Coerce a request-body `headers` value into a clean Record<string, string>.
+ * Accepts a plain object whose values are strings/numbers/booleans; drops
+ * non-string values and ignores anything else. Returns undefined when empty.
+ */
+function normalizeHeaders(input: unknown): Record<string, string> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof k !== "string" || !k) continue;
+    if (typeof v === "string") out[k] = v;
+    else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export async function logs_agent(req: Request, res: Response) {
   console.log("===> logs_agent", req.method, req.path, {
     hasPrompt: Boolean(req.body?.prompt),
@@ -37,6 +53,7 @@ export async function logs_agent(req: Request, res: Response) {
   const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
   const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
   const workspaceSlug = req.body.workspaceSlug as string | undefined;
+  const headers = normalizeHeaders(req.body.headers);
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -107,7 +124,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, apiKey, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent" })
+    log_agent_context(finalPrompt, { modelName, apiKey, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,

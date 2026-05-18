@@ -217,6 +217,8 @@ export interface GetContextOptions {
   abortSignal?: AbortSignal;
   // Maximum number of agent steps (tool-call turns) before stopping
   maxTurns?: number;
+  // Custom HTTP headers attached to every LLM endpoint request (provider-level)
+  headers?: Record<string, string>;
 }
 
 interface PreparedAgent {
@@ -270,7 +272,7 @@ async function prepareAgent(
     onStepEvent,
   } = opts;
   const startTime = Date.now();
-  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl);
+  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers);
   console.log("===> model", model, "contextLimit", contextLimit);
 
   const messagesRef: MessagesRef = { current: [] };
