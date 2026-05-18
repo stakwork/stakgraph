@@ -52,6 +52,8 @@ export interface LogAgentOptions {
   logsDir: string;
   printAgentProgress?: boolean;
   source?: string;
+  /** Custom HTTP headers attached to every LLM endpoint request (provider-level). */
+  headers?: Record<string, string>;
 }
 
 export async function log_agent_context(
@@ -59,7 +61,7 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
-  const { model, provider, modelId } = getModelDetails(opts.modelName, opts.apiKey);
+  const { model, provider, modelId } = getModelDetails(opts.modelName, opts.apiKey, undefined, opts.headers);
   console.log("===> log_agent model", model);
 
   const tools = get_log_tools({
