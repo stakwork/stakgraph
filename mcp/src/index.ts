@@ -38,6 +38,7 @@ import * as importance from "./importance/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
+import * as ga from "./graph_agent/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
 import {
   getBus,
@@ -256,6 +257,9 @@ app.post("/learn_docs", learn_docs_agent);
 app.get("/docs", get_docs);
 app.put("/docs", update_docs);
 app.post("/logs/agent", logs_agent);
+
+app.post("/graph_agent", ga.graph_agent);
+app.post("/graph_agent/abort", ga.abort_graph_agent);
 
 // Gitree routes
 app.post("/gitree/process", gitree.gitree_process);
