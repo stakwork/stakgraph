@@ -108,9 +108,3 @@ pub async fn vectorize_code_document(code: &str) -> Result<Vec<f32>> {
     let pooled = weighted_pooling(&all_embeddings, &weights);
     Ok(normalize(&pooled))
 }
-/*
-TODO:
-- [X] Search with Rust
-- [] Text embedding with fastembed in TS
-- [] Explore embedding models best suited for code
-*/

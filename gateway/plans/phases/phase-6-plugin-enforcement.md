@@ -210,7 +210,7 @@ LTRIM after each push.
 Per-run kill switch. Set by Hive UI or admin API when an operator
 clicks "stop this run."
 
-- **Updated by:** plugin's `/api/stakgraph/runs/:id/kill` admin
+- **Updated by:** plugin's `POST /_plugin/runs/:id/kill` admin
   endpoint, or external Redis client.
 - **Read by:** PreLLMHook, checks leaf run_id AND every ancestor —
   killing a parent kills every descendant.
@@ -223,7 +223,7 @@ Per-agent kill switch. Set when an operator wants to halt all runs
 under a given agent name across the entire swarm. Matches on
 `agents[last]` from the verified macaroon (the most-specific agent).
 
-- **Updated by:** plugin's `/api/stakgraph/agents/:name/kill` admin
+- **Updated by:** plugin's `POST /_plugin/agents/:name/kill` admin
   endpoint, or external Redis client.
 - **Read by:** PreLLMHook, after the per-run kill check.
 - **TTL:** 24h. Re-set if the kill needs to persist longer. (A kill
@@ -289,7 +289,8 @@ For `N > 1` calendar windows (e.g. `2w`, `3M`), the bucket aligns to
 the standard calendar boundary of the **smaller** unit (e.g. `2w`
 buckets on the most recent Monday; the plugin tracks bucket
 ownership for the window length internally). In practice phase-6
-ships only `N=1` calendar windows; larger N is a phase-7 extension.
+ships only `N=1` calendar windows; larger N is a speculative
+extension.
 
 - **Updated by:** PostLLMHook, keyed on the verified
   `agents[last]` from the macaroon.
@@ -512,7 +513,7 @@ issues N commands and awaits N replies.
   is set-not-add). Out-of-order delivery of the pipeline writes
   produces the same final state regardless of order.
 
-**When atomicity would matter** (deferred to phase 7 if real
+**When atomicity would matter** (speculative; revisit if real
 operational data demands it):
 
 - **Strict cap enforcement** for keys with high write contention.
@@ -564,7 +565,7 @@ plugin restart between PreHook and PostHook, etc.).
 
 **Phase 6 PostHook is NOT idempotent on duplicate invocation.** A
 duplicate fire produces a duplicate `HINCRBYFLOAT`. This is a known
-quasi-bug whose remediation is in phase 7:
+quasi-bug whose remediation is speculative:
 
 - The simplest fix is a per-call dedupe key: `SETNX
   posthook:done:<response_id> 1 EX 600` at the top of PostHook;
@@ -673,25 +674,35 @@ key format follows the table in "Duration vocabulary" above.
 
 ## Admin endpoints
 
-The plugin's existing `/api/stakgraph/*` short-circuit (v2 §296-309)
-grows the following admin endpoints in phase 6:
+Hot-state admin endpoints under the plugin's `/_plugin/*` namespace,
+served by `gateway/internal/adminapi/` on a loopback HTTP server
+(`127.0.0.1:8189`), reverse-proxied to the container's public port
+by the wrapper binary. See
+[`phase-3-swarm-handoff.md`](./phase-3-swarm-handoff.md) for the full
+wrapper architecture. All endpoints require the per-swarm shared
+bearer secret (same auth scheme as phase 5's `/_plugin/trust/*`).
+
+These are the kill/state ops that touch the same Redis state phase 6
+owns. Read-only observability over `logs.db` (per-agent / per-session /
+per-user spend aggregations) is a separate concern and lives in
+[`phase-7-observability.md`](./phase-7-observability.md).
 
 ```
-POST /api/stakgraph/admin/runs/:run_id/kill
+POST /_plugin/runs/:run_id/kill
   effect:  SET bifrost:kill:<run_id> "1" EX 3600
   returns: { run_id, killed_at }
 
-POST /api/stakgraph/admin/agents/:name/kill
+POST /_plugin/agents/:name/kill
   effect:  SET bifrost:kill:agent:<name> "1" EX 86400
   returns: { agent_name, killed_at }
 
-DELETE /api/stakgraph/admin/runs/:run_id/kill
+DELETE /_plugin/runs/:run_id/kill
   effect:  DEL bifrost:kill:<run_id>
 
-DELETE /api/stakgraph/admin/agents/:name/kill
+DELETE /_plugin/agents/:name/kill
   effect:  DEL bifrost:kill:agent:<name>
 
-GET /api/stakgraph/admin/runs/:run_id/state
+GET /_plugin/runs/:run_id/state
   returns: {
     cost:  <float>,        // from HGET bifrost:cost:run total
     steps: <int>,          // from HGET bifrost:steps:run total
@@ -700,7 +711,7 @@ GET /api/stakgraph/admin/runs/:run_id/state
     ttl_seconds: <int>,    // TTL bifrost:cost:run
   }
 
-GET /api/stakgraph/admin/agents/:name/state?window=1d
+GET /_plugin/agents/:name/state?window=1d
   returns: {
     agent_name:      <str>,
     window:          <duration>,
@@ -710,9 +721,6 @@ GET /api/stakgraph/admin/agents/:name/state?window=1d
     killed:          <bool>,
   }
 ```
-
-All admin endpoints require the per-swarm shared bearer secret
-(same auth as phase 5's trust registry admin API).
 
 ## Performance characteristics
 
@@ -748,12 +756,15 @@ roughly an order of magnitude above expected steady-state load.
 
 - **PostHook idempotency / deduplication.** Reserved schema key
   `posthook:done:<response_id>` but no implementation; depends on
-  Bifrost's retry semantics being pinned down. Phase 7.
+  Bifrost's retry semantics being pinned down. Speculative.
 - **Lua atomic check-and-increment for cap enforcement.** Deferred
-  unless operational data shows real overshoot pain. Phase 7.
+  unless operational data shows real overshoot pain. Speculative.
 - **Multi-Redis sharding.** Single Redis per workspace, as v2
   assumes. If a single workspace's throughput ever outgrows this,
-  the plugin grows a hash-by-run_id sharder. Not phase 6.
+  the plugin grows a hash-by-run_id sharder. Speculative.
+- **Read-only observability over `logs.db`.** Per-agent /
+  per-session / per-user spend aggregations, histograms, drill-downs
+  — scoped to [`phase-7-observability.md`](./phase-7-observability.md).
 - **Per-user, per-workspace, or per-org budgets** at the plugin
   level. These are Bifrost-Customer-side concerns (v2 §115-122)
   and don't live in plugin Redis.
@@ -779,12 +790,30 @@ roughly an order of magnitude above expected steady-state load.
       implementing clamp(exp-now+1h, 1h, 7d)
 - [ ] `enforcement.go`: PreLLMHook + PostLLMHook implementations
       against the verified Claims
-- [ ] `admin.go`: the `/api/stakgraph/admin/*` HTTP handlers for
-      kill/state queries
+- [ ] `admin.go`: state-query and mutation primitives (`RunState`,
+      `AgentState`, `KillRun`, `UnkillRun`, `KillAgent`,
+      `UnkillAgent`) — pure Redis logic, no HTTP. Consumed by the
+      `adminapi` handlers below.
 - [ ] `config.go`: structured `agent_budgets`, `hard_ceiling`,
       `tool_loop`, `redis` config types
 - [ ] Test fixtures covering: per-run cap walk, per-agent budget
       hit, kill:run, kill:agent, revocation, tool-loop, Redis-down
+
+**Plugin admin HTTP (`gateway/internal/adminapi/`):**
+
+- [ ] `runs.go`: `/_plugin/runs/:run_id/{state,kill}` handlers,
+      thin wrappers over `auth.RunState` / `auth.KillRun` /
+      `auth.UnkillRun`
+- [ ] `agents.go`: `/_plugin/agents/:name/{state,kill}` handlers,
+      thin wrappers over `auth.AgentState` / `auth.KillAgent` /
+      `auth.UnkillAgent`
+- [ ] Route registration in `server.go` (mirror the
+      `SetTrustRegistry` pattern: a `SetRedisClient` setter that
+      `main.Init` calls before `Start()`)
+
+Read-only observability endpoints (`/_plugin/spend/*`,
+`/_plugin/histogram/*`, drill-downs) and the `logstore_client` they
+share are scoped to [`phase-7-observability.md`](./phase-7-observability.md).
 
 **Internal duration util (`gateway/internal/duration/`):**
 
@@ -807,8 +836,11 @@ roughly an order of magnitude above expected steady-state load.
 
 - [ ] Update `gateway/internal/auth/doc.go` to drop "stub" and
       reference this phase doc
-- [ ] Update `llm-governance-v2.md` §475-575 with a forward-pointer
-      to phase 6
+- [ ] Update `gateway/internal/adminapi/server.go` doc to note the
+      new route families (runs, agents kill/state) alongside the
+      existing trust/credentials routes
+- [ ] Update `llm-governance-v2.md` §"Gateway plugin" with a
+      forward-pointer to this phase
 
 **Gate:** plugin enforcement doesn't ship until the test fixtures
 demonstrate all six enforcement modes (per-run cap, per-agent

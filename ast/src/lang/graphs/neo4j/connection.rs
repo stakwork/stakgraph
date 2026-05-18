@@ -1,5 +1,6 @@
 use neo4rs::{query, BoltMap, ConfigBuilder, Graph as Neo4jConnection};
 use shared::{Error, Result};
+use tracing::warn;
 
 use crate::lang::graphs::{
     executor::{execute_batch, execute_queries_simple},
@@ -80,7 +81,7 @@ impl Neo4jGraph {
         let query_obj = query(&clear_query);
 
         if let Err(e) = txn.run(query_obj).await {
-            eprintln!("Error clearing stakgraph nodes: {:?}", e);
+            warn!("Error clearing stakgraph nodes: {:?}", e);
             txn.rollback().await?;
             return Err(Error::internal(format!("Neo4j clear graph error: {}", e)));
         }

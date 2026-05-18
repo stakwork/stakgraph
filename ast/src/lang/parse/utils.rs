@@ -39,7 +39,6 @@ pub fn is_capitalized(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-// FIXME also find it its in range!!! not just on the line!!!
 pub fn find_def<G: Graph>(
     pos: Option<Position>,
     lsp_tx: &CmdSender,

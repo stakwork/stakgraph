@@ -15,6 +15,7 @@
 > | Macaroon wire format, signing inputs, HMAC chain, verifier algorithm | [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md)         |
 > | Trust registry storage, admin API, env-var seed                      | [`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md)         |
 > | Plugin Redis schema, per-hook ops, TTL policy, failure modes         | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
+> | `/_plugin/*` observability over `logs.db` (per-dim analytics)        | [`phases/phase-7-observability.md`](./phases/phase-7-observability.md)           |
 > | Agent defaults / registry                                            | [`agent-registry.md`](./agent-registry.md)                                       |
 > | Bifrost Customer/VK reconciliation, duration vocabulary              | [`phases/phase-1-reconciler.md`](./phases/phase-1-reconciler.md)                 |
 >
@@ -271,60 +272,64 @@ What lives in `metadata` JSON (acceptable scan cost on small axes):
 
 ---
 
-## Observability: SQL today, custom endpoints when needed
+## Observability: plugin `/_plugin/*` endpoints over Bifrost's log store
 
-The headline win: **the v0 boilerplate plugin gets you full per-user
-attribution today.** No plugin code required for any of these queries:
+> **Authoritative spec moved.** Endpoint surface, response shapes,
+> query parameters, failure modes, and wire-up checklist live in
+> [`phases/phase-7-observability.md`](./phases/phase-7-observability.md).
+> The summary below is architectural framing only.
 
-```sql
--- Top spenders, this week
-SELECT customer_id, SUM(cost) AS spend
-FROM logs WHERE created_at >= datetime('now','-7 days')
-GROUP BY customer_id ORDER BY spend DESC LIMIT 10;
+**The dim headers are the whole game.** Every `x-bf-dim-*` we ship
+lands in Bifrost's `logs.metadata` map, and Bifrost's `LogStore`
+interface (`framework/logstore/store.go`) natively filters and
+aggregates on metadata. `SearchFilters.MetadataFilters map[string]string`
+is a first-class WHERE clause; `GetDimensionCostHistogram(dimension)`,
+`GetUserRankings`, `GetSessionLogs`, and friends give us
+pre-aggregated time-series and rankings without any plugin-side SQL.
+The Bifrost UI doesn't expose a filter widget for `metadata.*` —
+that's exactly the gap our `/_plugin/*` endpoints fill.
 
--- Which agent has alice been using
-SELECT json_extract(metadata,'$.agent-name') AS agent, SUM(cost), COUNT(*)
-FROM logs WHERE customer_id = 'u_alice'
-  AND created_at >= datetime('now','-24 hours')
-GROUP BY agent ORDER BY 2 DESC;
+### Plugin endpoint namespace
 
--- Top spending agents across the org, last 24h
-SELECT json_extract(metadata,'$.agent-name') AS agent, SUM(cost) AS spend
-FROM logs WHERE created_at >= datetime('now','-24 hours')
-GROUP BY agent ORDER BY spend DESC LIMIT 10;
+The plugin owns the `/_plugin/*` URL prefix on the gateway's public
+port. A small wrapper binary (`gateway/wrapper`) fronts the container's
+single public port and reverse-proxies `/_plugin/*` to the plugin's
+loopback admin server at `127.0.0.1:8189`; everything else goes to
+bifrost-http at `127.0.0.1:8080`. The plugin's admin server is the
+package at `gateway/internal/adminapi/`. See
+[`phases/phase-3-swarm-handoff.md`](./phases/phase-3-swarm-handoff.md)
+for the full wrapper architecture and bootstrap flow.
 
--- All calls in one run (drill-down)
-SELECT * FROM logs
-WHERE json_extract(metadata,'$.run-id') = 'r_01H...'
-ORDER BY created_at;
-```
+Why not the `HTTPTransportPreHook` short-circuit pattern: Bifrost
+plugins (.so) can't register arbitrary HTTP routes through Bifrost's
+own router (`HTTPTransportPreHook` only fires on inference paths,
+unknown URLs 404 before middleware), and we want some routes (e.g.
+`/_plugin/admin-credentials` bootstrap) to *not* sit behind Bifrost's
+auth middleware. The wrapper + loopback server solves both.
 
-### Plugin HTTP endpoints (when SQL isn't enough)
+### What's served under `/_plugin/*`
 
-Bifrost plugins can claim arbitrary URL prefixes by short-circuiting
-`HTTPTransportPreHook`: if `req.Path` starts with `/api/stakgraph/`,
-return an `*HTTPResponse` directly and Bifrost-core never sees the
-request. This is how the plugin exposes purpose-built read endpoints
-that mix `logs.db` SQL with real-time Redis state.
+| Routes | Phase | Purpose |
+|---|---|---|
+| `/_plugin/health`, `/_plugin/admin-credentials` | 3 | Swarm bootstrap |
+| `/_plugin/trust/*` | 5 | Trust registry CRUD |
+| `/_plugin/runs/:id/{state,kill}`, `/_plugin/agents/:name/{state,kill}` | 6 | Hot-state kill switches and Redis snapshots |
+| `/_plugin/spend/by-*`, `/_plugin/histogram/*`, `/_plugin/sessions/:id`, `/_plugin/users/:id/*`, `/_plugin/agents/:name/spend`, `/_plugin/runs/:id` (drill-down) | 7 | Per-dim analytics over `logs.db` |
 
-v1 endpoints (small set; grow as Hive's UI asks):
-
-```
-GET /api/stakgraph/spend/by-user?window=24h
-GET /api/stakgraph/spend/by-agent?window=24h
-GET /api/stakgraph/spend/by-realm?window=24h
-GET /api/stakgraph/runs/:run_id/state          ← live: Redis hot state
-GET /api/stakgraph/users/:user_id/quota        ← Bifrost customer cap + live spend
-```
-
-The historical query path is SQL-only. Redis is queried only for
-real-time / in-flight numbers (current run spend before the LLM call
-completes, kill-switch state, active-run enumeration).
+Aggregations call Bifrost's `/api/logs` over loopback
+(`http://127.0.0.1:8080/api/logs`), composing
+`SearchFilters.MetadataFilters` against the dim keys phase 6's
+`PreLLMHook` canonicalized from verified macaroon claims. The plugin
+never opens `logs.db` directly — Bifrost owns its storage, the
+plugin owns the question. This keeps the plugin decoupled from
+schema changes and from the SQLite ↔ Postgres swap v2 already plans
+for. All read endpoints are scoped to one Bifrost's `logs.db` (i.e.
+one workspace). Cross-workspace aggregation is below.
 
 ### Cross-Bifrost aggregation
 
-Per-realm queries answer themselves — each Bifrost's `logs.db` is
-scoped to one workspace. For org-wide reporting across workspaces:
+Per-workspace queries answer themselves — each Bifrost's `logs.db`
+is scoped to one workspace. For org-wide reporting across workspaces:
 
 1. **Short-term:** scheduled job pulls each instance's daily slice into
    a central store (Postgres or DuckDB on a daily file dump). Hive
@@ -451,6 +456,9 @@ the _bound_; the parent picks the _distribution_.**
 > **Operational spec moved.** The Redis schema, per-hook ops, TTL
 > policy, configuration block, and failure-mode contract for the
 > plugin live in [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md).
+> The read-only observability HTTP surface (per-dim analytics over
+> `logs.db`) lives in
+> [`phases/phase-7-observability.md`](./phases/phase-7-observability.md).
 > What this section sketched in pseudocode (Redis key shapes,
 > PreLLMHook / PostLLMHook flow, per-agent budgets) was always
 > intended as the contract; phase 6 pins it down with concrete
@@ -458,8 +466,8 @@ the _bound_; the parent picks the _distribution_.**
 > invocations, the `kill:agent:<name>` per-agent kill switch, and
 > the explicit atomicity / failure-mode decisions v2 left implicit.
 >
-> Read phase 6 for the implementation contract. The summary below
-> is the architectural framing only.
+> Read phases 6 and 7 for the implementation contracts. The summary
+> below is the architectural framing only.
 
 A Bifrost custom plugin implementing the standard hook surface. Single
 binary, deployed alongside Bifrost in each workspace's swarm. Backed by
@@ -472,9 +480,11 @@ plugin so dimensions stamped by macaroon canonicalization land in
 
 ### What the plugin does, at a glance
 
-- **`HTTPTransportPreHook`** dispatches plugin-owned routes
-  (`/api/stakgraph/*`) and otherwise lets the inference pipeline
-  continue.
+- **`HTTPTransportPreHook`** stamps dim headers onto the bifrost
+  context (so PreLLMHook/PostLLMHook can read them without re-parsing)
+  and lets the inference pipeline continue. Custom routes do NOT
+  live here — they live on the plugin's own admin server (see
+  "Plugin endpoint namespace" above and phase 3).
 - **`PreLLMHook`** verifies the macaroon (via `gateway/auth/go`,
   per phase 4), checks revocations / kills / cost caps in Redis,
   canonicalizes log dimensions from caveats, and rejects with
@@ -482,6 +492,9 @@ plugin so dimensions stamped by macaroon canonicalization land in
 - **`PostLLMHook`** writes cost / step / tool accumulators back to
   Redis, walking the ancestor chain so every level of a sub-agent
   tree is charged for descendant spend.
+- **`/_plugin/*` admin server** (separate loopback HTTP server in the
+  same process, fronted by the wrapper) serves observability reads,
+  kill-switch writes, and trust-registry CRUD.
 
 The dimension-canonicalization rule (phase 6's PreHook step 6) is the
 piece that makes per-user / per-agent / per-run attribution
@@ -801,19 +814,24 @@ the VK. Verify the example SQL queries return useful org-level
 dashboards. **No plugin code change needed for this step** — the v0
 boilerplate is enough. The "spend per user" dashboard is now live.
 
-**Step 5: Plugin v1 (HTTP endpoint dispatcher + per-run state).**
+**Step 5: Plugin v1 (admin server + per-run state).**
 
-- Add the `/api/stakgraph/*` short-circuit in `HTTPTransportPreHook`.
-- Ship 1–2 endpoints to prove the pattern: `spend/by-agent`,
-  `runs/:id/state`.
+- Stand up the plugin's loopback admin server under `/_plugin/*`
+  (see [phase 3](./phases/phase-3-swarm-handoff.md) for the wrapper
+  architecture). `/_plugin/health` and `/_plugin/admin-credentials`
+  ship first; phase 5 adds `/_plugin/trust/*`.
 - Add Redis.
 - Enforce per-run cost cap and step cap from plugin config (hardcoded
   defaults per agent, keyed by `x-bf-dim-agent-name`). Macaroon
   verification is still a no-op.
 - Tool-loop detection.
-- `kill:<run-id>` switch (writable from Hive UI via direct Redis or via
-  a new `/api/stakgraph/runs/:id/kill` endpoint).
+- `kill:<run-id>` switch (writable from Hive UI via direct Redis or
+  via `POST /_plugin/runs/:id/kill`).
 - Watch for a week of real data; tune.
+
+Read-only observability endpoints (`/_plugin/spend/*`, histograms,
+drill-downs) are deferred to step 7.5 — they depend on phase 6's
+dim canonicalization being trustworthy first.
 
 **Step 6: Build the Hive macaroon issuer.** Implement
 `/macaroons/issue` and `/macaroons/revoke` per
@@ -848,6 +866,16 @@ Cutover from "observed" to "enforced." Per-workspace and per-user
 daily caps remain native Bifrost (Customer). Per-agent budgets stay
 unenforced (config block empty) — turn on selectively per agent as
 needed.
+
+**Step 7.5: Ship observability endpoints.** Per
+[`phases/phase-7-observability.md`](./phases/phase-7-observability.md),
+add the read-only HTTP surface for per-dim analytics over `logs.db`:
+`/_plugin/spend/by-{user,agent,realm,session,model}`,
+`/_plugin/histogram/*`, `/_plugin/sessions/:id`,
+`/_plugin/users/:id/{spend,quota}`, `/_plugin/agents/:name/spend`,
+and the drill-down `/_plugin/runs/:id`. Requires phase 6's dim
+canonicalization (step 7) so the metadata filters return trustworthy
+results. Hive's analytics UI consumes these.
 
 **Step 8: Roll out remaining callers.** Goose, Python apps, workflow
 engine, Rust callers, repo-agent, test-agent. Each picks up
@@ -1046,7 +1074,7 @@ is still pending after N minutes; also stamps
 | User-revocation kill                      | Plugin checks `bifrost:revoke_user_before:<user-id>`                                                                                |
 | Macaroon-chain revocation                 | Plugin checks `bifrost:revoke:<nonce>` for any ancestor                                                                             |
 | Cryptographic proof of who                | Macaroon `user_id` caveat, HMAC-signed, cross-checked against `customer_id`                                                         |
-| Custom governance endpoints               | Plugin claims `/api/stakgraph/*` via `HTTPTransportPreHook` short-circuit                                                           |
+| Custom governance endpoints               | Plugin's loopback admin server under `/_plugin/*`, fronted by wrapper (see phase 3); served from `gateway/internal/adminapi/`        |
 | Default principal for unattributed agents | Workspace owner's `user_id`                                                                                                         |
 | Caller obligation                         | Set `BIFROST_VK` + `LLM_GATEWAY_URL` from spawner; ship `x-bf-dim-*` + `x-macaroon`                                                 |
 | Spawner obligation                        | Resolve principal → lookup VK → call `/macaroons/issue` (identity doc) → inject env into spawn                                      |

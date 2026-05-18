@@ -367,8 +367,6 @@ impl Stack for Java {
             nd.add_verb(http_verb);
             return;
         }
-        //TODO: check for the presence of the verb in the function call
-        // if all else fails, default to GET
         nd.add_verb("GET");
     }
 

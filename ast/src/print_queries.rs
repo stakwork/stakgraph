@@ -4,7 +4,6 @@ use std::env;
 use std::str::FromStr;
 
 fn main() -> Result<()> {
-    println!("Hello, world!");
     let args: Vec<String> = env::args().collect();
     let language = args
         .get(1)
