@@ -15,6 +15,7 @@
 > | Macaroon wire format, signing inputs, HMAC chain, verifier algorithm | [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md)         |
 > | Trust registry storage, admin API, env-var seed                      | [`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md)         |
 > | Plugin Redis schema, per-hook ops, TTL policy, failure modes         | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
+> | `/_plugin/*` observability over `logs.db` (per-dim analytics)        | [`phases/phase-7-observability.md`](./phases/phase-7-observability.md)           |
 > | Agent defaults / registry                                            | [`agent-registry.md`](./agent-registry.md)                                       |
 > | Bifrost Customer/VK reconciliation, duration vocabulary              | [`phases/phase-1-reconciler.md`](./phases/phase-1-reconciler.md)                 |
 >
@@ -273,6 +274,11 @@ What lives in `metadata` JSON (acceptable scan cost on small axes):
 
 ## Observability: plugin `/_plugin/*` endpoints over Bifrost's log store
 
+> **Authoritative spec moved.** Endpoint surface, response shapes,
+> query parameters, failure modes, and wire-up checklist live in
+> [`phases/phase-7-observability.md`](./phases/phase-7-observability.md).
+> The summary below is architectural framing only.
+
 **The dim headers are the whole game.** Every `x-bf-dim-*` we ship
 lands in Bifrost's `logs.metadata` map, and Bifrost's `LogStore`
 interface (`framework/logstore/store.go`) natively filters and
@@ -301,35 +307,24 @@ unknown URLs 404 before middleware), and we want some routes (e.g.
 `/_plugin/admin-credentials` bootstrap) to *not* sit behind Bifrost's
 auth middleware. The wrapper + loopback server solves both.
 
-### Read endpoints (logs.db + Redis)
+### What's served under `/_plugin/*`
 
-Aggregations call Bifrost's `LogStore` over loopback HTTP
-(`http://127.0.0.1:8080/api/logs`, composing `MetadataFilters` per
-dim). Real-time state is read from the plugin's own Redis. Mixing
-the two in one response is the point — "show me run r_01H..'s
-history *and* its current in-flight spend" is one call.
+| Routes | Phase | Purpose |
+|---|---|---|
+| `/_plugin/health`, `/_plugin/admin-credentials` | 3 | Swarm bootstrap |
+| `/_plugin/trust/*` | 5 | Trust registry CRUD |
+| `/_plugin/runs/:id/{state,kill}`, `/_plugin/agents/:name/{state,kill}` | 6 | Hot-state kill switches and Redis snapshots |
+| `/_plugin/spend/by-*`, `/_plugin/histogram/*`, `/_plugin/sessions/:id`, `/_plugin/users/:id/*`, `/_plugin/agents/:name/spend`, `/_plugin/runs/:id` (drill-down) | 7 | Per-dim analytics over `logs.db` |
 
-```
-# Aggregations (logs.db via Bifrost LogStore)
-GET /_plugin/spend/by-user?window=24h
-GET /_plugin/spend/by-agent?window=24h           ← MetadataFilters: agent-name
-GET /_plugin/spend/by-realm?window=24h           ← MetadataFilters: realm-id
-GET /_plugin/spend/by-session?window=24h         ← MetadataFilters: session-id
-GET /_plugin/spend/by-model?window=24h
-GET /_plugin/histogram/cost?window=24h&bucket=1h&dimension=agent-name
-GET /_plugin/histogram/tokens?window=24h&bucket=1h&dimension=user-id
-
-# Drill-down (one entity; mixes logs.db + Redis where useful)
-GET /_plugin/runs/:run_id                        ← logs.db: all calls in run
-GET /_plugin/runs/:run_id/state                  ← Redis: live cost / steps / tools / killed
-GET /_plugin/sessions/:session_id                ← logs.db: GetSessionLogs (native to LogStore)
-GET /_plugin/users/:user_id/spend?window=24h
-GET /_plugin/agents/:name/spend?window=24h
-GET /_plugin/users/:user_id/quota                ← Bifrost customer cap + live Redis spend
-```
-
-All read endpoints are scoped to one Bifrost's `logs.db` (i.e. one
-workspace). Cross-workspace aggregation is below.
+Aggregations call Bifrost's `/api/logs` over loopback
+(`http://127.0.0.1:8080/api/logs`), composing
+`SearchFilters.MetadataFilters` against the dim keys phase 6's
+`PreLLMHook` canonicalized from verified macaroon claims. The plugin
+never opens `logs.db` directly — Bifrost owns its storage, the
+plugin owns the question. This keeps the plugin decoupled from
+schema changes and from the SQLite ↔ Postgres swap v2 already plans
+for. All read endpoints are scoped to one Bifrost's `logs.db` (i.e.
+one workspace). Cross-workspace aggregation is below.
 
 ### Cross-Bifrost aggregation
 
@@ -461,6 +456,9 @@ the _bound_; the parent picks the _distribution_.**
 > **Operational spec moved.** The Redis schema, per-hook ops, TTL
 > policy, configuration block, and failure-mode contract for the
 > plugin live in [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md).
+> The read-only observability HTTP surface (per-dim analytics over
+> `logs.db`) lives in
+> [`phases/phase-7-observability.md`](./phases/phase-7-observability.md).
 > What this section sketched in pseudocode (Redis key shapes,
 > PreLLMHook / PostLLMHook flow, per-agent budgets) was always
 > intended as the contract; phase 6 pins it down with concrete
@@ -468,8 +466,8 @@ the _bound_; the parent picks the _distribution_.**
 > invocations, the `kill:agent:<name>` per-agent kill switch, and
 > the explicit atomicity / failure-mode decisions v2 left implicit.
 >
-> Read phase 6 for the implementation contract. The summary below
-> is the architectural framing only.
+> Read phases 6 and 7 for the implementation contracts. The summary
+> below is the architectural framing only.
 
 A Bifrost custom plugin implementing the standard hook surface. Single
 binary, deployed alongside Bifrost in each workspace's swarm. Backed by
@@ -819,13 +817,9 @@ boilerplate is enough. The "spend per user" dashboard is now live.
 **Step 5: Plugin v1 (admin server + per-run state).**
 
 - Stand up the plugin's loopback admin server under `/_plugin/*`
-  (see phase 3 for the wrapper architecture). `/_plugin/health` and
-  `/_plugin/admin-credentials` ship first; phase 5 adds
-  `/_plugin/trust/*`.
-- Ship 1–2 observability endpoints to prove the pattern:
-  `/_plugin/spend/by-agent`, `/_plugin/runs/:id/state`. The first
-  composes `MetadataFilters` against Bifrost's `LogStore` over
-  loopback; the second reads Redis hot state directly.
+  (see [phase 3](./phases/phase-3-swarm-handoff.md) for the wrapper
+  architecture). `/_plugin/health` and `/_plugin/admin-credentials`
+  ship first; phase 5 adds `/_plugin/trust/*`.
 - Add Redis.
 - Enforce per-run cost cap and step cap from plugin config (hardcoded
   defaults per agent, keyed by `x-bf-dim-agent-name`). Macaroon
@@ -834,6 +828,10 @@ boilerplate is enough. The "spend per user" dashboard is now live.
 - `kill:<run-id>` switch (writable from Hive UI via direct Redis or
   via `POST /_plugin/runs/:id/kill`).
 - Watch for a week of real data; tune.
+
+Read-only observability endpoints (`/_plugin/spend/*`, histograms,
+drill-downs) are deferred to step 7.5 — they depend on phase 6's
+dim canonicalization being trustworthy first.
 
 **Step 6: Build the Hive macaroon issuer.** Implement
 `/macaroons/issue` and `/macaroons/revoke` per
@@ -868,6 +866,16 @@ Cutover from "observed" to "enforced." Per-workspace and per-user
 daily caps remain native Bifrost (Customer). Per-agent budgets stay
 unenforced (config block empty) — turn on selectively per agent as
 needed.
+
+**Step 7.5: Ship observability endpoints.** Per
+[`phases/phase-7-observability.md`](./phases/phase-7-observability.md),
+add the read-only HTTP surface for per-dim analytics over `logs.db`:
+`/_plugin/spend/by-{user,agent,realm,session,model}`,
+`/_plugin/histogram/*`, `/_plugin/sessions/:id`,
+`/_plugin/users/:id/{spend,quota}`, `/_plugin/agents/:name/spend`,
+and the drill-down `/_plugin/runs/:id`. Requires phase 6's dim
+canonicalization (step 7) so the metadata filters return trustworthy
+results. Hive's analytics UI consumes these.
 
 **Step 8: Roll out remaining callers.** Goose, Python apps, workflow
 engine, Rust callers, repo-agent, test-agent. Each picks up

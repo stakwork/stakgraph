@@ -289,7 +289,8 @@ For `N > 1` calendar windows (e.g. `2w`, `3M`), the bucket aligns to
 the standard calendar boundary of the **smaller** unit (e.g. `2w`
 buckets on the most recent Monday; the plugin tracks bucket
 ownership for the window length internally). In practice phase-6
-ships only `N=1` calendar windows; larger N is a phase-7 extension.
+ships only `N=1` calendar windows; larger N is a speculative
+extension.
 
 - **Updated by:** PostLLMHook, keyed on the verified
   `agents[last]` from the macaroon.
@@ -512,7 +513,7 @@ issues N commands and awaits N replies.
   is set-not-add). Out-of-order delivery of the pipeline writes
   produces the same final state regardless of order.
 
-**When atomicity would matter** (deferred to phase 7 if real
+**When atomicity would matter** (speculative; revisit if real
 operational data demands it):
 
 - **Strict cap enforcement** for keys with high write contention.
@@ -564,7 +565,7 @@ plugin restart between PreHook and PostHook, etc.).
 
 **Phase 6 PostHook is NOT idempotent on duplicate invocation.** A
 duplicate fire produces a duplicate `HINCRBYFLOAT`. This is a known
-quasi-bug whose remediation is in phase 7:
+quasi-bug whose remediation is speculative:
 
 - The simplest fix is a per-call dedupe key: `SETNX
   posthook:done:<response_id> 1 EX 600` at the top of PostHook;
@@ -671,18 +672,20 @@ redis:
 Per-agent `window` accepts any Bifrost duration suffix. The bucket
 key format follows the table in "Duration vocabulary" above.
 
-## Plugin HTTP surface
+## Admin endpoints
 
-All phase-6 endpoints live under the plugin's `/_plugin/*` namespace,
+Hot-state admin endpoints under the plugin's `/_plugin/*` namespace,
 served by `gateway/internal/adminapi/` on a loopback HTTP server
 (`127.0.0.1:8189`), reverse-proxied to the container's public port
 by the wrapper binary. See
 [`phase-3-swarm-handoff.md`](./phase-3-swarm-handoff.md) for the full
-wrapper architecture, and v2 §"Observability" for the broader
-endpoint inventory. All endpoints require the per-swarm shared
+wrapper architecture. All endpoints require the per-swarm shared
 bearer secret (same auth scheme as phase 5's `/_plugin/trust/*`).
 
-### Hot-state admin endpoints (Redis only)
+These are the kill/state ops that touch the same Redis state phase 6
+owns. Read-only observability over `logs.db` (per-agent / per-session /
+per-user spend aggregations) is a separate concern and lives in
+[`phase-7-observability.md`](./phase-7-observability.md).
 
 ```
 POST /_plugin/runs/:run_id/kill
@@ -719,35 +722,6 @@ GET /_plugin/agents/:name/state?window=1d
   }
 ```
 
-### Observability endpoints (logs.db, optionally mixed with Redis)
-
-Read endpoints that aggregate over Bifrost's `logs.db`. These do
-NOT touch SQLite/Postgres directly — instead they call Bifrost's
-own `/api/logs` API over loopback (`http://127.0.0.1:8080/api/logs`)
-and compose `SearchFilters.MetadataFilters` against the dim keys
-the plugin stamped during `PreLLMHook` canonicalization. This keeps
-the plugin decoupled from Bifrost's storage schema and works
-identically against SQLite and Postgres backends.
-
-```
-GET /_plugin/spend/by-user?window=24h
-GET /_plugin/spend/by-agent?window=24h         ← MetadataFilters: agent-name
-GET /_plugin/spend/by-realm?window=24h         ← MetadataFilters: realm-id
-GET /_plugin/spend/by-session?window=24h       ← MetadataFilters: session-id
-GET /_plugin/spend/by-model?window=24h
-GET /_plugin/histogram/cost?window=24h&bucket=1h&dimension=agent-name
-GET /_plugin/histogram/tokens?window=24h&bucket=1h&dimension=user-id
-
-GET /_plugin/runs/:run_id                      ← logs.db: all calls in run
-GET /_plugin/sessions/:session_id              ← logs.db: GetSessionLogs (native to LogStore)
-GET /_plugin/users/:user_id/spend?window=24h
-GET /_plugin/users/:user_id/quota              ← Bifrost customer cap + live Redis spend
-GET /_plugin/agents/:name/spend?window=24h
-```
-
-Observability shape evolves with Hive UI demand — the table above
-is the v1 surface. The full inventory lives in v2 §"Observability".
-
 ## Performance characteristics
 
 Total per-call overhead in steady state:
@@ -782,12 +756,15 @@ roughly an order of magnitude above expected steady-state load.
 
 - **PostHook idempotency / deduplication.** Reserved schema key
   `posthook:done:<response_id>` but no implementation; depends on
-  Bifrost's retry semantics being pinned down. Phase 7.
+  Bifrost's retry semantics being pinned down. Speculative.
 - **Lua atomic check-and-increment for cap enforcement.** Deferred
-  unless operational data shows real overshoot pain. Phase 7.
+  unless operational data shows real overshoot pain. Speculative.
 - **Multi-Redis sharding.** Single Redis per workspace, as v2
   assumes. If a single workspace's throughput ever outgrows this,
-  the plugin grows a hash-by-run_id sharder. Not phase 6.
+  the plugin grows a hash-by-run_id sharder. Speculative.
+- **Read-only observability over `logs.db`.** Per-agent /
+  per-session / per-user spend aggregations, histograms, drill-downs
+  — scoped to [`phase-7-observability.md`](./phase-7-observability.md).
 - **Per-user, per-workspace, or per-org budgets** at the plugin
   level. These are Bifrost-Customer-side concerns (v2 §115-122)
   and don't live in plugin Redis.
@@ -825,21 +802,18 @@ roughly an order of magnitude above expected steady-state load.
 **Plugin admin HTTP (`gateway/internal/adminapi/`):**
 
 - [ ] `runs.go`: `/_plugin/runs/:run_id/{state,kill}` handlers,
-      thin wrappers over `auth.RunState` / `auth.KillRun` and
-      friends
-- [ ] `agents.go`: `/_plugin/agents/:name/{state,kill,spend}`
-      handlers (state+kill → `auth/`; spend → logstore client)
-- [ ] `spend.go`: `/_plugin/spend/by-*` handlers — compose
-      `MetadataFilters` and call the logstore client
-- [ ] `histogram.go`: `/_plugin/histogram/*` handlers — call
-      `GetDimensionCostHistogram` etc. via the logstore client
-- [ ] `sessions.go`, `users.go`: drill-down handlers
-- [ ] `logstore_client.go`: HTTP client to
-      `http://127.0.0.1:8080/api/logs` with `SearchFilters`
-      serialization; reused by all observability handlers
+      thin wrappers over `auth.RunState` / `auth.KillRun` /
+      `auth.UnkillRun`
+- [ ] `agents.go`: `/_plugin/agents/:name/{state,kill}` handlers,
+      thin wrappers over `auth.AgentState` / `auth.KillAgent` /
+      `auth.UnkillAgent`
 - [ ] Route registration in `server.go` (mirror the
       `SetTrustRegistry` pattern: a `SetRedisClient` setter that
       `main.Init` calls before `Start()`)
+
+Read-only observability endpoints (`/_plugin/spend/*`,
+`/_plugin/histogram/*`, drill-downs) and the `logstore_client` they
+share are scoped to [`phase-7-observability.md`](./phase-7-observability.md).
 
 **Internal duration util (`gateway/internal/duration/`):**
 
@@ -863,10 +837,10 @@ roughly an order of magnitude above expected steady-state load.
 - [ ] Update `gateway/internal/auth/doc.go` to drop "stub" and
       reference this phase doc
 - [ ] Update `gateway/internal/adminapi/server.go` doc to note the
-      new route families (runs, agents, spend, histogram, sessions,
-      users) alongside the existing trust/credentials routes
-- [ ] Update `llm-governance-v2.md` §"Gateway plugin" and
-      §"Observability" with forward-pointers to this phase
+      new route families (runs, agents kill/state) alongside the
+      existing trust/credentials routes
+- [ ] Update `llm-governance-v2.md` §"Gateway plugin" with a
+      forward-pointer to this phase
 
 **Gate:** plugin enforcement doesn't ship until the test fixtures
 demonstrate all six enforcement modes (per-run cap, per-agent
