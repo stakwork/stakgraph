@@ -8,6 +8,7 @@ export const FULLTEXT_COMPOSITE_INDEX = "nameBodyFileIndex";
 export const VECTOR_INDEX = "vectorIndex";
 
 export const KEY_INDEX_QUERY = `CREATE INDEX ${KEY_INDEX} IF NOT EXISTS FOR (n:${Data_Bank}) ON (n.node_key)`;
+export const REF_ID_INDEX_QUERY = `CREATE INDEX data_bank_ref_id_index IF NOT EXISTS FOR (n:${Data_Bank}) ON (n.ref_id)`;
 
 const ENGLISH_ANALYZER = `OPTIONS {
   indexConfig: {
@@ -409,17 +410,21 @@ WHERE file.name ENDS WITH 'Cargo.toml'
 RETURN DISTINCT file
 `;
 
-export const LIST_QUERY = `
-WITH $node_label AS nodeLabel
-MATCH (f)
-WHERE any(label IN labels(f) WHERE label = nodeLabel)
-AND
-CASE
-  WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
-  ELSE f.file IS NOT NULL AND ANY(ext IN $extensions WHERE f.file ENDS WITH ext)
-END
-RETURN f
+export function listQueryForLabel(label: string, withSince: boolean = false): string {
+  const orderBy = withSince
+    ? `\nORDER BY coalesce(toFloat(f.date_added_to_graph), 0) DESC, f.node_key`
+    : "";
+  return `
+MATCH (f:${label})
+WHERE ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND toFloat(f.date_added_to_graph) >= $since))
+  AND CASE
+    WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
+    ELSE f.file IS NOT NULL AND ANY(ext IN $extensions WHERE f.file ENDS WITH ext)
+  END
+RETURN f${orderBy}
+LIMIT toInteger($limit)
 `;
+}
 
 export const REF_IDS_LIST_QUERY = `
 WITH $ref_ids AS refIdList
@@ -431,37 +436,10 @@ CASE
   ELSE n.file IS NOT NULL AND ANY(ext IN $extensions WHERE n.file ENDS WITH ext)
 END
 RETURN n
+LIMIT toInteger($limit)
 `;
 
-export const MULTI_TYPE_LATEST_PER_TYPE_QUERY = `
-UNWIND $labels AS lbl
-MATCH (n)
-WHERE any(l IN labels(n) WHERE l = lbl)
-  AND ($since IS NULL OR (n.date_added_to_graph IS NOT NULL AND toFloat(n.date_added_to_graph) >= $since))
-  AND (
-    $extensions IS NULL OR size($extensions) = 0 OR
-    (n.file IS NOT NULL AND ANY(ext IN $extensions WHERE n.file ENDS WITH ext))
-  )
-WITH lbl, n, coalesce(toFloat(n.date_added_to_graph), 0) AS ts
-ORDER BY lbl, ts DESC, n.node_key
-WITH lbl, collect(n)[0..$limit_per_type] AS nodes
-UNWIND nodes AS n
-RETURN DISTINCT n;
-`;
 
-export const MULTI_TYPE_LATEST_TOTAL_QUERY = `
-MATCH (n)
-WHERE ($labelsSize = 0 OR any(l IN labels(n) WHERE l IN $labels))
-  AND ($since IS NULL OR (n.date_added_to_graph IS NOT NULL AND toFloat(n.date_added_to_graph) >= $since))
-  AND (
-    $extensions IS NULL OR size($extensions) = 0 OR
-    (n.file IS NOT NULL AND ANY(ext IN $extensions WHERE n.file ENDS WITH ext))
-  )
-WITH n, coalesce(toFloat(n.date_added_to_graph),0) AS ts
-ORDER BY ts DESC, n.node_key
-LIMIT $limit_total
-RETURN n;
-`;
 
 export const EDGES_BETWEEN_NODE_KEYS_QUERY = `
 MATCH (a)-[r]->(b)

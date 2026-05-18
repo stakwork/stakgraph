@@ -611,6 +611,13 @@ export async function get_nodes(req: Request, res: Response) {
     console.log("=> get_nodes", req.method, req.path);
     const node_type = req.query.node_type as NodeType;
     const concise = isTrue(req.query.concise as string);
+    const requestedLimit = parseLimit(req.query);
+    const defaultLimit = 5000;
+    const maxLimit = 10000;
+    const effectiveLimit = Math.min(
+      requestedLimit ?? defaultLimit,
+      maxLimit,
+    );
     let ref_ids: string[] = [];
     if (req.query.ref_ids) {
       ref_ids = (req.query.ref_ids as string).split(",");
@@ -623,7 +630,8 @@ export async function get_nodes(req: Request, res: Response) {
       concise,
       ref_ids,
       output,
-      language
+      language,
+      effectiveLimit,
     );
     if (output === "snippet") {
       res.send(result);
@@ -641,6 +649,20 @@ export async function post_nodes(req: Request, res: Response) {
     console.log("=> post_nodes", req.method, req.path);
     const node_type = req.body.node_type as NodeType;
     const concise = req.body.concise === true || req.body.concise === "true";
+    const parsedBodyLimit =
+      req.body.limit !== undefined
+        ? parseInt(String(req.body.limit), 10)
+        : undefined;
+    const requestedLimit =
+      parsedBodyLimit !== undefined && !isNaN(parsedBodyLimit)
+        ? parsedBodyLimit
+        : undefined;
+    const defaultLimit = 5000;
+    const maxLimit = 10000;
+    const effectiveLimit = Math.min(
+      requestedLimit ?? defaultLimit,
+      maxLimit,
+    );
     let ref_ids: string[] = [];
     if (req.body.ref_ids) {
       if (Array.isArray(req.body.ref_ids)) {
@@ -658,7 +680,8 @@ export async function post_nodes(req: Request, res: Response) {
       concise,
       ref_ids,
       output,
-      language
+      language,
+      effectiveLimit,
     );
     if (output === "snippet") {
       res.send(result);
