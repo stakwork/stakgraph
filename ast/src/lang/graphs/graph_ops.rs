@@ -482,13 +482,13 @@ impl GraphOps {
             return Ok(vec![]);
         }
 
-        println!("collect_muted_nodes_for_files - input files: {:?}", files);
+        debug!("collect_muted_nodes_for_files - input files: {:?}", files);
         let muted_nodes = self.graph.get_muted_nodes_for_files_async(files).await?;
 
         if muted_nodes.is_empty() {
-            println!("No muted nodes found in {} files", files.len());
+            debug!("No muted nodes found in {} files", files.len());
         } else {
-            println!(
+            debug!(
                 "Found {} muted nodes in {} files to preserve",
                 muted_nodes.len(),
                 files.len()
@@ -509,12 +509,12 @@ impl GraphOps {
         let restored_count = self.graph.restore_muted_nodes_async(&identifiers).await?;
 
         if restored_count > 0 {
-            println!(
+            debug!(
                 "Successfully restored muted status for {} nodes after rebuild",
                 restored_count
             );
         } else {
-            println!(
+            debug!(
                 "No nodes matched for muted status restoration ({} identifiers provided)",
                 identifiers.len()
             );

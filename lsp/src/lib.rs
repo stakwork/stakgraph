@@ -174,7 +174,7 @@ pub fn spawn_analyzer(
     let lang = lang.clone();
     let root_dir_absolute = Path::new(root_dir).canonicalize()?;
     let root_dir_relative = strip_tmp(root_dir);
-    println!("spawning analyzer for {:?} at {:?}", lang, root_dir);
+    info!("spawning analyzer for {:?} at {:?}", lang, root_dir);
 
     let _task = tokio::spawn(async move {
         if let Err(e) = spawn_inner(&lang, &root_dir_absolute, &root_dir_relative, cmd_rx).await {
@@ -291,40 +291,3 @@ async fn spawn_inner(
 async fn sleep(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
-
-// #[cfg(test)]
-// mod tests {
-
-//     use super::*;
-
-//     // multi_thread is required!!!
-//     #[tokio::test(flavor = "multi_thread")]
-//     async fn rusty() -> Result<()> {
-//         let root = PathBuf::from("/Users/evanfeenstra/code/sphinx-mobile/stakwork-lambda/lsp");
-//         let (tx, rx) = mpsc::channel();
-//         spawn_analyzer(&root, &Language::Rust, rx)?;
-//         let pos = Position::new("src/lib.rs", 40, 40)?;
-//         let res = Cmd::GotoDefinition(pos.clone()).send(&tx)?;
-//         println!("RES: {:?}", res);
-//         Ok(())
-//     }
-
-//     // multi_thread is required!!!
-//     #[tokio::test(flavor = "multi_thread")]
-//     async fn goy() -> Result<()> {
-//         let root = PathBuf::from(
-//             "/Users/evanfeenstra/code/sphinx-mobile/stakwork-lambda/ast/examples/sphinx-tribes",
-//         );
-//         let (tx, rx) = mpsc::channel();
-//         spawn_analyzer(&root, &Language::Go, rx)?;
-//         let pos = Position::new("main.go", 24, 19)?;
-//         println!("TRY!!");
-//         let res = Cmd::GotoDefinition(pos.clone()).send(&tx)?;
-//         println!("RES: {:?}", res);
-//         Ok(())
-//     }
-
-//     async fn _sleep(secs: u64) {
-//         tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-//     }
-// }
