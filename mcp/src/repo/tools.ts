@@ -11,7 +11,7 @@ import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
-import { callRemoteAgent, type SubAgent } from "./subagent.js";
+import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
 import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
@@ -607,9 +607,14 @@ export async function get_tools(
         continue;
       }
 
+      const repoNames = subAgentRepoNames(subAgent);
+      const reposPart = repoNames.length > 0
+        ? ` Available repos in this sub-agent: ${repoNames.join(", ")}.`
+        : "";
       const description =
-        subAgent.description ||
-        `Ask the "${subAgent.name}" sub-agent a question. This delegates to a separate agent instance that may have different codebase context.`;
+        (subAgent.description ||
+          `Ask the "${subAgent.name}" sub-agent a question. This delegates to a separate agent instance that may have different codebase context.`) +
+        reposPart;
 
       // Capture subAgent in closure (name is guaranteed non-empty after validation above)
       const sa = subAgent;

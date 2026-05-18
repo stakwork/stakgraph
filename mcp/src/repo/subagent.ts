@@ -1,4 +1,5 @@
 import { type ToolsConfig } from "./tools.js";
+import { parseRepoFromUrl } from "../gitree/store/utils.js";
 
 export interface SubAgent {
   /** Tool name exposed to the LLM, e.g. "backend_agent" (optional, derived from url hostname if omitted) */
@@ -17,6 +18,20 @@ export interface SubAgent {
   toolsConfig?: ToolsConfig;
   /** Max seconds to wait for the remote agent to finish (default: 300) */
   timeoutSeconds?: number;
+}
+
+/**
+ * Extract the list of "owner/repo" names from a SubAgent's repoUrl field.
+ * repoUrl is typically a comma-separated string of repository URLs.
+ */
+export function subAgentRepoNames(subAgent: SubAgent): string[] {
+  if (!subAgent.repoUrl) return [];
+  return subAgent.repoUrl
+    .split(",")
+    .map((u) => u.trim())
+    .filter((u) => u.length > 0)
+    .map((u) => parseRepoFromUrl(u))
+    .filter((r): r is string => !!r);
 }
 
 /** Derive a tool-safe name from a URL (e.g. "https://swarm3345.sphinx.chat" → "swarm3345") */
