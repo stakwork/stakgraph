@@ -1096,7 +1096,7 @@ WITH n, count(DISTINCT caller) AS in_degree
 OPTIONAL MATCH (n)-[:CALLS|HANDLER|RENDERS]->(callee)
 WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel OR callee:Request OR callee:Page
 WITH n, in_degree, count(DISTINCT callee) AS out_degree
-RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS node_type
+RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE NOT l IN ['Data_Bank', 'Code']][0] AS node_type
 `;
 
 export const BULK_UPDATE_IMPORTANCE_QUERY = `
@@ -1116,7 +1116,7 @@ MATCH (n)
 WHERE n.importance_tag = $tag
   AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
-       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+      [l IN labels(n) WHERE NOT l IN ['Data_Bank', 'Code']][0] AS label,
        n.pagerank AS pagerank,
        n.in_degree AS in_degree,
        n.out_degree AS out_degree,
@@ -1138,7 +1138,7 @@ MATCH (n)
 WHERE n.pagerank IS NOT NULL
   AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
-       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+      [l IN labels(n) WHERE NOT l IN ['Data_Bank', 'Code']][0] AS label,
        n.pagerank AS pagerank,
        n.in_degree AS in_degree,
        n.out_degree AS out_degree,

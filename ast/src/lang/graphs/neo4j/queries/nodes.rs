@@ -45,13 +45,14 @@ impl NodeQueryBuilder {
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
+        let labels = neo4j_node_labels(&self.node_type);
+
         let query = format!(
-            "MERGE (node:{}:{} {{node_key: $node_key}})
+            "MERGE (node:{} {{node_key: $node_key}})
          ON CREATE SET node += $properties, node.date_added_to_graph = $now
          ON MATCH SET node += $properties, node.date_added_to_graph = $now
          Return node",
-            self.node_type.to_string(),
-            DATA_BANK,
+            labels,
         );
 
         (query, properties)
@@ -83,12 +84,13 @@ impl NodeQueryBuilder {
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
+        let labels = neo4j_node_labels(&self.node_type);
+
         let query = format!(
-            "MERGE (node:{}:{} {{node_key: $node_key}})
+            "MERGE (node:{} {{node_key: $node_key}})
          ON CREATE SET node += $properties, node.date_added_to_graph = $now
          Return node",
-            self.node_type.to_string(),
-            DATA_BANK,
+            labels,
         );
 
         (query, properties)
@@ -500,7 +502,7 @@ pub fn get_muted_nodes_for_files_query(files: &[String]) -> (String, BoltMap) {
         .collect::<Vec<_>>();
     boltmap_insert_list(&mut params, "files", files_list);
 
-    let query = "MATCH (n:Data_Bank) 
+    let query = "MATCH (n:Code)
                  WHERE n.file IN $files
                  AND (n.is_muted = true OR n.is_muted = 'true')
                  WITH n, [label IN labels(n) WHERE label IN ['Function', 'Class', 'DataModel', 'Endpoint', 'Request', 'File', 'Directory', 'Repository', 'Language', 'Library', 'Import', 'Instance', 'Page', 'Var', 'UnitTest', 'IntegrationTest', 'E2eTest', 'Trait']][0] as node_type

@@ -16,6 +16,7 @@ import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
 import { relevant_node_types } from "../graph/types.js";
+import { semanticLabel } from "../graph/utils.js";
 
 export interface ProvenanceEntry {
   tool_call_id?: string;
@@ -488,8 +489,7 @@ export async function get_tools(
             );
             return results.map((node) => ({
               name: node.properties.name,
-              node_type:
-                node.labels.find((l) => l !== "Data_Bank") || node.labels[0],
+              node_type: semanticLabel(node.labels) || node.labels[0],
               file: node.properties.file,
               line: node.properties.start,
               score: node.score,

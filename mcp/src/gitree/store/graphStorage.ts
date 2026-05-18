@@ -1790,7 +1790,7 @@ export class GraphStorage extends Storage {
              COLLECT(DISTINCT {
                name: contained.name,
                ref_id: contained.ref_id,
-               node_type: [label IN labels(contained) WHERE label <> 'Data_Bank'][0]
+               node_type: [label IN labels(contained) WHERE NOT label IN ['Data_Bank', 'Code']][0]
              }) AS containedNodes`;
         }
 
@@ -1799,7 +1799,7 @@ export class GraphStorage extends Storage {
              COLLECT(DISTINCT {
                name: called.name,
                ref_id: called.ref_id,
-               node_type: [label IN labels(called) WHERE label <> 'Data_Bank'][0]
+               node_type: [label IN labels(called) WHERE NOT label IN ['Data_Bank', 'Code']][0]
              }) AS calledNodes`;
         }
 
@@ -2058,7 +2058,7 @@ export class GraphStorage extends Storage {
              COLLECT(DISTINCT {
                refId: entity.ref_id,
                name: entity.name,
-               nodeType: [label IN labels(entity) WHERE label <> 'Data_Bank'][0],
+               nodeType: [label IN labels(entity) WHERE NOT label IN ['Data_Bank', 'Code']][0],
                file: entity.file,
                start: toInteger(entity.start),
                end: toInteger(entity.end)
