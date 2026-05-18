@@ -1,0 +1,195 @@
+# gatekey
+
+Three-layer macaroon signer, attenuator, and verifier for cryptographic
+LLM governance. Issued by an organization, signed by a user, attenuated
+by sub-agents — every LLM call carries a chain of authority you can
+verify offline.
+
+```
+gatekey
+  org   ──ECDSA──▶  user_authorization   (who, for how long, in which realms)
+  user  ──Ed25519─▶ invocation           (this specific run, this budget)
+  agent ──HMAC───▶  attenuation[]        (narrower scope for each sub-agent)
+```
+
+The wire format, signing inputs, and HMAC chain are pinned to a
+language-neutral spec with fixtures, so a TS signer and a Go verifier
+(or any other implementation) agree byte-for-byte.
+
+## Install
+
+```sh
+npm install gatekey
+```
+
+Requires Node >= 20.
+
+## Quick start
+
+### Mint an invocation macaroon
+
+The custodial / phase-1 case: the issuer holds both the org private key
+and the user's private key, and produces a complete macaroon ready to
+put in an `x-macaroon` header.
+
+```ts
+import {
+  signUserAuthorizationSingle,
+  signInvocation,
+  encodeMacaroon,
+  type UserAuthorizationUnsigned,
+  type InvocationUnsigned,
+} from "gatekey";
+
+const uaUnsigned: UserAuthorizationUnsigned = {
+  user_id: "user_123",
+  user_pubkey: { alg: "ed25519", key: userPubkeyHex },
+  permissions: {
+    realms: ["workspace_acme"],
+    agents: ["browser-agent", "pr-monitor"],
+  },
+  iat: new Date().toISOString(),
+  exp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+  nonce: randomNonceHex(),
+};
+const ua = signUserAuthorizationSingle(uaUnsigned, orgPrivKey);
+
+const invUnsigned: InvocationUnsigned = {
+  realm: "workspace_acme",
+  agents: ["browser-agent"],
+  run_id: "run_abc",
+  max_cost_usd: 10.0,
+  max_steps: 200,
+  iat: new Date().toISOString(),
+  exp: new Date(Date.now() + 3600 * 1000).toISOString(),
+  nonce: randomNonceHex(),
+};
+const invocation = signInvocation(invUnsigned, userPrivKey);
+
+const macaroon = encodeMacaroon({
+  v: 1,
+  org_id: "org_acme",
+  user_authorization: ua,
+  invocation,
+  attenuations: [],
+});
+
+// → base64url string. Send as `x-macaroon: <macaroon>`.
+```
+
+### Attenuate before spawning a sub-agent
+
+A parent agent narrows the scope (smaller budget, narrower agent list)
+before handing control to a child. No network call, no extra signature —
+one HMAC.
+
+```ts
+import { attenuate, invocationSigBytes } from "gatekey";
+
+const childCaveats = {
+  agents: ["browser-agent", "browser-agent.search"],
+  max_cost_usd: 2.0,        // ≤ parent
+  max_steps: 50,             // ≤ parent
+  run_id: "run_child_xyz",
+  exp: new Date(Date.now() + 600 * 1000).toISOString(),  // ≤ parent
+  nonce: randomNonceHex(),
+};
+
+const link = attenuate(invocationSigBytes(invocation), childCaveats);
+// Append `link` to macaroon.attenuations and re-encode.
+```
+
+### Verify
+
+```ts
+import { verify, VerifyError } from "gatekey";
+
+try {
+  const claims = verify(macaroon, policy, new Date());
+  // claims.agent_name, claims.run_id, claims.effective_caveats, ...
+} catch (e) {
+  if (e instanceof VerifyError) {
+    // e.code is one of: macaroon_malformed, invalid_user_authorization,
+    // user_authorization_expired, invalid_invocation_signature,
+    // invocation_violated, macaroon_expired, attenuation_invalid,
+    // attenuation_widened, macaroon_unsupported_version.
+  }
+  throw e;
+}
+```
+
+The verifier is pure: no I/O, no clock except the one you hand it, no
+revocation list. Wrap it with whatever transport + freshness checks
+your environment needs.
+
+## Concepts
+
+- **`user_authorization`** — signed once by the organization. Names a
+  user, embeds their public key, and lists the realms / agents they
+  may act in. ECDSA-secp256k1 single-key or multisig (`multisig-v1`).
+- **`invocation`** — signed by the user (with the key embedded in the
+  UA above). Names one specific run with its own budget, step ceiling,
+  and expiry. Ed25519.
+- **`attenuation`** — appended by a parent agent for each sub-agent.
+  HMAC-SHA256 chained from the user's invocation signature, then from
+  each previous attenuation's HMAC. Each link narrows the effective
+  caveats; widening is rejected at verify time.
+
+The verifier returns `Claims` with the **effective caveats** — the
+intersection of the invocation and every attenuation in the chain.
+This is the authoritative answer to "what is this call allowed to do."
+
+## API surface
+
+| Export | Purpose |
+|---|---|
+| `signUserAuthorizationSingle`, `signUserAuthorizationMultisig` | Sign the org→user layer. |
+| `signInvocation`, `invocationSigBytes` | Sign the user→run layer. |
+| `attenuate`, `computeAttenuationHmac`, `attenuationSigBytes` | Append a sub-agent link. |
+| `encodeMacaroon`, `decodeMacaroon` | Base64url transport encoding. |
+| `verify`, `VerifyError` | Full end-to-end verifier. |
+| `jcs`, `signingBytes` | RFC 8785 canonicalization (advanced). |
+| `ed25519Sign/Verify/PublicKey`, `ecdsaSign/Verify/PublicKey` | Raw primitives (advanced / keygen). |
+| `bytesToHex`, `hexToBytes`, `bytesToBase64url`, `base64urlToBytes`, `utf8Bytes` | Encoding helpers. |
+
+Types: `Macaroon`, `UserAuthorization`, `Invocation`, `Attenuation`,
+`Claims`, `EffectiveCaveats`, `Policy`, `PubKey`, plus their `*Unsigned`
+variants. See `src/types.ts` for the wire shape.
+
+## Wire format
+
+```
+base64url( JCS({
+  v: 1,
+  org_id: "...",
+  user_authorization: {
+    user_id, user_pubkey, permissions, iat, exp, nonce,
+    org_sig: { alg, sig } | { alg: "multisig-v1", sigs: [...] }
+  },
+  invocation: {
+    realm, agents, run_id, max_cost_usd, max_steps,
+    iat, exp, nonce,
+    user_sig: { alg: "ed25519", sig }
+  },
+  attenuations: [
+    { caveats: {...}, hmac: "..." },
+    ...
+  ]
+}) )
+```
+
+All binary fields are lowercase hex (no `0x` prefix). All timestamps
+are RFC 3339 UTC strings. Canonical JSON is RFC 8785 (JCS).
+
+## Cross-language
+
+A Go verifier exists in the same source repository
+([`stakgraph/gateway/auth/go/`](https://github.com/stakwork/stakgraph/tree/main/gateway/auth/go))
+and shares the test fixtures, so byte-equivalence is enforced in CI.
+Sub-agent attenuation only requires HMAC-SHA256 + JCS + hex encoding —
+the spec and fixtures together let any language implement an attenuator
+in a few dozen lines.
+
+## License
+
+MIT

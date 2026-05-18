@@ -784,8 +784,8 @@ cross-language source of truth.
 
 **TypeScript package (`gateway/auth/ts/`):**
 
-- [ ] `package.json` with public name (e.g. `@stakwork/macaroon`),
-      MIT license, types, exports map
+- [ ] `package.json` with public name `gatekey`, MIT license, types,
+      exports map
 - [ ] `tsconfig.json` targeting ES2022, ESM + CJS dual output
 - [ ] Source: `index.ts`, `types.ts`, `encoding.ts` (base64url + hex),
       `jcs.ts`, `sigs.ts`, `sign.ts`, `attenuate.ts`, `verify.ts`
@@ -801,10 +801,10 @@ cross-language source of truth.
 
 **Consumers:**
 
-- [ ] Hive's `/macaroons/issue` handler imports `@stakwork/macaroon`
-      and calls `signUserAuthorization` + `signInvocation`
-- [ ] `/mcp` imports `@stakwork/macaroon` via workspace path (no
-      publish needed for in-repo consumers)
+- [ ] Hive's `/macaroons/issue` handler imports `gatekey` and calls
+      `signUserAuthorization` + `signInvocation`
+- [ ] `/mcp` imports `gatekey` via workspace path (no publish needed
+      for in-repo consumers)
 - [ ] Any agent-side TS code that attenuates imports the same package
       and calls `attenuate(parentSigBytes, caveats)`
 

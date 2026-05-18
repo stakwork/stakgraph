@@ -972,7 +972,7 @@ is still pending after N minutes; also stamps
 
 5. **Macaroon library choice.** **Resolved:** in-repo at
    [`gateway/auth/go/`](../auth/go/) (pure verifier + signer) and
-   [`gateway/auth/ts/`](../auth/ts/) (published as `@stakwork/macaroon`).
+   [`gateway/auth/ts/`](../auth/ts/) (published on npm as `gatekey`).
    Wire format and verifier algorithm defined in
    [`phases/phase-4-macaroon-shape.md`](./phases/phase-4-macaroon-shape.md);
    cross-language byte-equivalence enforced by fixtures.
