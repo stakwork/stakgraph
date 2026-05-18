@@ -17,7 +17,7 @@ import {
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
 import { SKILLS } from "./skills.js";
-import { type SubAgent } from "./subagent.js";
+import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
   appendTextToPrompt,
@@ -333,7 +333,12 @@ After getting high-level context back, use graph/bash tools on the actual codeba
     const validSubAgents = subAgents.filter(sa => sa.name && sa.url && sa.apiToken);
     if (validSubAgents.length > 0) {
       const agentList = validSubAgents
-        .map(sa => `  - @${sa.name}: ${sa.description || `Delegates to the "${sa.name}" sub-agent`}`)
+        .map(sa => {
+          const desc = sa.description || `Delegates to the "${sa.name}" sub-agent`;
+          const repos = subAgentRepoNames(sa);
+          const reposPart = repos.length > 0 ? ` (repos: ${repos.join(", ")})` : "";
+          return `  - @${sa.name}: ${desc}${reposPart}`;
+        })
         .join('\n');
       const subAgentBlock = `\n\nSUB-AGENTS:
 You have access to the following sub-agents as tools:
