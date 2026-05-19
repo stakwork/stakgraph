@@ -1,6 +1,7 @@
 {
   "$schema": "https://www.getbifrost.ai/schema",
   "client": {
+    "log_retention_days": 365,
     "drop_excess_requests": false,
     "enforce_auth_on_inference": false
   },

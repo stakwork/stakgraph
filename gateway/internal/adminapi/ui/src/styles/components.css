@@ -1,0 +1,379 @@
+/*
+ * Component utility classes — small, ops-console flavoured. Every
+ * page composes these into layouts; no styled-components, no css-in-js.
+ */
+
+/* ─── shell layout ───────────────────────────────────────────── */
+
+.shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas:
+    "sidebar topbar"
+    "sidebar main";
+  min-height: 100vh;
+}
+.shell-sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  padding: var(--sp-4) var(--sp-3);
+}
+.shell-topbar {
+  grid-area: topbar;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0 var(--sp-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.shell-main {
+  grid-area: main;
+  padding: var(--sp-5) var(--sp-6);
+  overflow: auto;
+}
+
+.brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin-bottom: var(--sp-5);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* Lock to one line so a future longer product name doesn't wrap
+   * the sidebar brand under the nav-dot. */
+  white-space: nowrap;
+}
+.brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.nav-item {
+  display: block;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.nav-item.is-active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ─── cards ──────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+.card-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* KPI cards on the dashboard. */
+.kpi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.kpi-card .kpi-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.kpi-card .kpi-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  margin-top: var(--sp-2);
+  color: var(--text);
+}
+
+/* ─── tables ─────────────────────────────────────────────────── */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+table.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table th,
+.table td {
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.table th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  position: sticky;
+  top: 0;
+}
+.table tr:last-child td {
+  border-bottom: none;
+}
+.table tr:hover td {
+  background: var(--surface-2);
+}
+.table td.num,
+.table th.num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.table .pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── controls ───────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  margin-bottom: var(--sp-4);
+}
+
+.btn {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-md);
+  transition: background 80ms ease;
+}
+.btn:hover {
+  background: var(--surface);
+}
+.btn.is-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0f14;
+}
+.btn.is-primary:hover {
+  background: var(--accent-strong);
+}
+.btn-group {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.btn-group .btn {
+  border: 0;
+  border-radius: 0;
+  border-right: 1px solid var(--border-strong);
+}
+.btn-group .btn:last-child {
+  border-right: 0;
+}
+.btn-group .btn.is-active {
+  background: var(--accent);
+  color: #0b0f14;
+}
+
+.input,
+.input-pwd {
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  width: 100%;
+}
+.input:focus,
+.input-pwd:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ─── login ──────────────────────────────────────────────────── */
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+.login-card {
+  width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6);
+}
+.login-card .brand {
+  font-size: 18px;
+  margin-bottom: var(--sp-5);
+}
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.login-form label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.login-error {
+  color: var(--danger);
+  font-size: 12px;
+  min-height: 16px;
+}
+
+/* ─── states ─────────────────────────────────────────────────── */
+
+.empty {
+  padding: var(--sp-6);
+  text-align: center;
+  color: var(--text-muted);
+}
+.loading {
+  padding: var(--sp-5);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.error-banner {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: var(--sp-4);
+}
+
+/* ─── chart ──────────────────────────────────────────────────── */
+
+.chart-frame {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.chart-frame .uplot,
+.chart-frame .u-wrap {
+  background: transparent !important;
+  width: 100% !important;
+  /* uPlot inlines width; pin to the container so the legend
+   * below isn't laid out against an offscreen origin. */
+}
+.chart-frame .u-legend {
+  color: var(--text-muted);
+  /* Wrap onto multiple rows when the dimension count overflows
+   * the container, instead of letting the rightmost series clip
+   * past the chart frame. */
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  justify-content: center;
+  padding: var(--sp-3) var(--sp-2) 0;
+}
+.chart-frame .u-legend tr,
+.chart-frame .u-legend th {
+  /* uPlot ships its legend as a table; the flex parent above
+   * overrides display per row so wrap actually works. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.chart-frame .u-legend .u-marker {
+  width: 10px;
+  height: 10px;
+  border-width: 2px !important;
+}
+
+/* ─── misc ───────────────────────────────────────────────────── */
+
+.page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--sp-5);
+}
+.page-header .crumbs {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-1);
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-5);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+.text-dim {
+  color: var(--text-dim);
+}
+.text-muted {
+  color: var(--text-muted);
+}
+.text-danger {
+  color: var(--danger);
+}
+.text-ok {
+  color: var(--ok);
+}
+
+.row-link {
+  cursor: pointer;
+}

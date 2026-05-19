@@ -83,6 +83,12 @@ const (
 	// checks). See gateway/plans/phases/phase-6-plugin-enforcement.md
 	// "Namespace" for the keyspace contract.
 	RedisURL = "BIFROST_PLUGIN_REDIS_URL"
+
+	// Production, when truthy, forces the `Secure` attribute on the
+	// session cookie regardless of the incoming request's scheme.
+	// Set in swarm/prod; left unset in dev so localhost HTTP works.
+	// Phase 8 "Cookie attributes".
+	Production = "PRODUCTION"
 )
 
 // Defaults that apply when an env var is unset.
@@ -146,6 +152,20 @@ func TrustReconcileValue() string { return GetOr(TrustReconcile, DefaultTrustRec
 func RedisURLValue() (string, bool) {
 	u := os.Getenv(RedisURL)
 	return u, u != ""
+}
+
+// IsProduction reports whether the plugin is running in a
+// production-like environment. Drives a small handful of
+// security-defaults (currently: forcing `Secure` on the session
+// cookie). Recognised truthy values: "1", "true", "yes". Anything
+// else — including unset — is treated as dev.
+func IsProduction() bool {
+	switch os.Getenv(Production) {
+	case "1", "true", "TRUE", "True", "yes", "YES":
+		return true
+	default:
+		return false
+	}
 }
 
 // TrustSeed returns the env-supplied registry seed and where it came

@@ -8,5 +8,15 @@ data/logs.db
 data/logs.db-*
 data/logs/
 
+# Vite output for the admin UI. The real bundle is produced inside
+# the Dockerfile's ui-builder stage and embedded via `go:embed`;
+# anything Vite writes locally for `npm run build` lives here and
+# is never checked in. The placeholder index.html + .gitkeep keep
+# the directory non-empty so `go build` works without Vite.
+internal/adminapi/ui/node_modules/
+internal/adminapi/ui/dist/*
+!internal/adminapi/ui/dist/.gitkeep
+!internal/adminapi/ui/dist/index.html
+
 # Local overrides.
 .env
