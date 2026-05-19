@@ -29,8 +29,6 @@ function cloneWithTimeout(promise: Promise<string>, label: string): Promise<stri
   ]);
 }
 
-const git: SimpleGit = simpleGit(OPTIONS);
-
 // Lock map to prevent concurrent clones to the same directory
 const cloneLocks = new Map<string, Promise<string>>();
 
@@ -44,18 +42,19 @@ export async function cloneOrUpdateRepo(
   repoUrls: string,
   username?: string,
   pat?: string,
-  commit?: string
+  commit?: string,
+  abortSignal?: AbortSignal
 ): Promise<string> {
   // Split by comma and trim whitespace
   const urls = repoUrls.split(",").map((url) => url.trim()).filter((url) => url.length > 0);
 
   if (urls.length === 1) {
     // Single repo - use original behavior for backward compatibility
-    return cloneSingleRepo(urls[0], username, pat, commit);
+    return cloneSingleRepo(urls[0], username, pat, commit, abortSignal);
   }
 
   // Multiple repos - clone all in parallel, return /tmp
-  return cloneMultipleRepos(urls, username, pat, commit);
+  return cloneMultipleRepos(urls, username, pat, commit, abortSignal);
 }
 
 /**
@@ -65,7 +64,8 @@ async function cloneSingleRepo(
   repoUrl: string,
   username?: string,
   pat?: string,
-  commit?: string
+  commit?: string,
+  abortSignal?: AbortSignal
 ): Promise<string> {
   // Extract owner and repo name from URL
   const urlParts = repoUrl.replace(/\.git$/, "").split("/");
@@ -82,9 +82,12 @@ async function cloneSingleRepo(
     return existingLock;
   }
 
-  // Create and store the promise for this clone operation (with JS-level timeout guard)
+  if (abortSignal?.aborted) {
+    return Promise.reject(new Error(`[clone] Aborted before start: ${cloneDir}`));
+  }
+
   const clonePromise = cloneWithTimeout(
-    doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit),
+    doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit, abortSignal),
     cloneDir
   );
   cloneLocks.set(cloneDir, clonePromise);
@@ -105,13 +108,14 @@ async function cloneMultipleRepos(
   repoUrls: string[],
   username?: string,
   pat?: string,
-  commit?: string
+  commit?: string,
+  abortSignal?: AbortSignal
 ): Promise<string> {
   console.log(`===> cloning ${repoUrls.length} repos into /tmp`);
 
   // Clone all repos in parallel using the same structure as single repos
   const clonePromises = repoUrls.map((repoUrl) => 
-    cloneSingleRepo(repoUrl, username, pat, commit)
+    cloneSingleRepo(repoUrl, username, pat, commit, abortSignal)
   );
 
   await Promise.all(clonePromises);
@@ -125,8 +129,13 @@ async function doCloneOrUpdate(
   cloneDir: string,
   username?: string,
   pat?: string,
-  commit?: string
+  commit?: string,
+  abortSignal?: AbortSignal
 ): Promise<string> {
+  const opts: SimpleGitOptions = abortSignal
+    ? { ...OPTIONS, abort: abortSignal }
+    : OPTIONS;
+  const git = simpleGit(opts);
   let url = repoUrl;
   if (pat) {
     // GitHub accepts PAT with any username (or just the token as username)
@@ -138,7 +147,7 @@ async function doCloneOrUpdate(
   if (fs.existsSync(cloneDir)) {
     try {
       // Only create simpleGit instance if directory exists
-      const repoGit = simpleGit(cloneDir, { timeout: { block: 600_000 } });
+      const repoGit = simpleGit(cloneDir, { timeout: { block: 600_000 }, ...(abortSignal ? { abort: abortSignal } : {}) });
       const isRepo = await repoGit.checkIsRepo();
 
       if (isRepo) {
@@ -172,7 +181,7 @@ async function doCloneOrUpdate(
 
   // Checkout specific commit if provided
   if (commit) {
-    const repoGit = simpleGit(cloneDir, { timeout: { block: 600_000 } });
+    const repoGit = simpleGit(cloneDir, { timeout: { block: 600_000 }, ...(abortSignal ? { abort: abortSignal } : {}) });
     await repoGit.checkout(commit);
   }
 
