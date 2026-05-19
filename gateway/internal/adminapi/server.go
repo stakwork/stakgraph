@@ -199,6 +199,17 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 		mux.HandleFunc("/_plugin/runs/", cookieOrBearer(obs.runDetail))
 	}
 
+	// Phase-8.5 per-agent budget view. Reads cap from plugin config
+	// (auth.GetConfig().AgentBudgets) and current-bucket spend from
+	// Redis (`bifrost:cost:agent:<name>:<bucket_key>`) with a
+	// fallback to summing `logs.db` rows when phase 6's PostHook
+	// hasn't filled the Redis hash yet. Subtree routing on
+	// `/_plugin/agents/`; the handler enforces the `<name>/budget`
+	// shape and 404s on anything else (phase-9 `:name/state` and
+	// `:name/kill` live under the same prefix later).
+	bgt := newBudgetHandlers(deps.logstore)
+	mux.HandleFunc("/_plugin/agents/", cookieOrBearer(bgt.budget))
+
 	// SPA — served WITHOUT middleware auth. The SPA itself probes
 	// /_plugin/me at boot and redirects to /login on 401; gating
 	// the static bundle at the server layer would short-circuit

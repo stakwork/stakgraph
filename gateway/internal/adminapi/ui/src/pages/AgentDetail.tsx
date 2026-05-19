@@ -15,8 +15,9 @@ import { Link } from "wouter-preact";
 import { CostHistogram } from "../components/charts/CostHistogram";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { WindowPicker } from "../components/controls/WindowPicker";
+import type { AgentBudgetResponse } from "../api/types";
 import { getErrorMessage } from "../api/client";
-import { useHistogramCost } from "../api/queries";
+import { useAgentBudget, useHistogramCost } from "../api/queries";
 import type { HistogramCostResponse, Window } from "../api/types";
 import { windowToSeconds } from "../api/window";
 
@@ -43,6 +44,7 @@ export function AgentDetail({ name }: Props) {
   const bucket = window === "1h" ? "5m" : window === "6h" ? "10m" : "1h";
   const windowSeconds = windowToSeconds(window);
 
+  const budget = useAgentBudget(name);
   const histogram = useHistogramCost({
     window,
     bucket,
@@ -102,6 +104,10 @@ export function AgentDetail({ name }: Props) {
         </div>
       </div>
 
+      {budget.data && budget.data.cap_usd != null ? (
+        <BudgetCard data={budget.data} />
+      ) : null}
+
       <section class="chart-frame">
         <div class="card-header">
           <div class="card-title">Cost over time</div>
@@ -152,5 +158,56 @@ export function AgentDetail({ name }: Props) {
         )}
       </section>
     </>
+  );
+}
+
+// BudgetCard renders the configured cap, the live spend against it,
+// remaining headroom, and a coloured progress bar. The same data is
+// summarised inline on the Agents list; here it gets the full
+// dashboard treatment because operators land on this page to decide
+// "is this agent about to be cut off?".
+function BudgetCard({ data }: { data: AgentBudgetResponse }) {
+  const cap = data.cap_usd ?? 0;
+  const spent = data.spent_usd;
+  const remaining = data.remaining_usd ?? 0;
+  const ratio = data.ratio ?? 0;
+  const pct = Math.min(100, Math.max(0, ratio * 100));
+  const tone =
+    ratio >= 1 ? "danger" : ratio >= 0.8 ? "warning" : "ok";
+  return (
+    <section class="card budget-card">
+      <div class="card-header">
+        <div class="card-title">Budget ({data.window})</div>
+        <div class="text-dim mono" style="font-size: 11px">
+          {data.period_start
+            ? "since " + new Date(data.period_start).toLocaleString()
+            : ""}
+        </div>
+      </div>
+      <div class="budget-row">
+        <div class="budget-figure">
+          <div class="budget-figure-label">Spent</div>
+          <div class={"budget-figure-val tone-" + tone}>{fmtUSD(spent)}</div>
+        </div>
+        <div class="budget-figure">
+          <div class="budget-figure-label">Cap</div>
+          <div class="budget-figure-val">{fmtUSD(cap)}</div>
+        </div>
+        <div class="budget-figure">
+          <div class="budget-figure-label">Remaining</div>
+          <div class="budget-figure-val">{fmtUSD(remaining)}</div>
+        </div>
+        <div class="budget-figure">
+          <div class="budget-figure-label">Usage</div>
+          <div class={"budget-figure-val tone-" + tone}>{pct.toFixed(1)}%</div>
+        </div>
+      </div>
+      <div class="budget-meter budget-meter-lg">
+        <div
+          class={`budget-meter-bar tone-${tone}`}
+          style={`width:${pct}%`}
+        />
+      </div>
+    </section>
   );
 }

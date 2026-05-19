@@ -88,6 +88,20 @@ export interface RunDetailResponse {
   stats: RunStats;
 }
 
+// Per-agent budget (phase-8.5). Cap and the derived fields can be
+// null when no budget is configured for the agent — the UI renders
+// "no budget" rather than "$0".
+export interface AgentBudgetResponse {
+  agent_name: string;
+  cap_usd: number | null;
+  window: string;
+  period_start?: string;
+  period_end?: string;
+  spent_usd: number;
+  remaining_usd: number | null;
+  ratio: number | null;
+}
+
 // Phase-7 error envelope (returned on 4xx/5xx).
 export interface ApiError {
   error: {

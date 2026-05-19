@@ -295,6 +295,81 @@ table.table {
   margin-bottom: var(--sp-4);
 }
 
+/* ─── budget ─────────────────────────────────────────────────── */
+
+.budget-card {
+  margin-bottom: var(--sp-5);
+}
+
+.budget-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.budget-figure-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-1);
+}
+.budget-figure-val {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The inline meter on the Agents list. ~120px wide so the column
+ * doesn't stretch out, but readable at a glance. */
+.budget-meter {
+  position: relative;
+  height: 8px;
+  width: 120px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+}
+.budget-meter-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+.budget-meter-bar.tone-ok {
+  background: var(--ok);
+}
+.budget-meter-bar.tone-warning {
+  background: var(--warning);
+}
+.budget-meter-bar.tone-danger {
+  background: var(--danger);
+}
+.budget-meter-label {
+  margin-left: var(--sp-2);
+  font-size: 11px;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+/* Big variant for the AgentDetail card — full width, taller bar. */
+.budget-meter-lg {
+  width: 100%;
+  height: 10px;
+}
+
+.budget-figure-val.tone-ok {
+  color: var(--text);
+}
+.budget-figure-val.tone-warning {
+  color: var(--warning);
+}
+.budget-figure-val.tone-danger {
+  color: var(--danger);
+}
+
 /* ─── chart ──────────────────────────────────────────────────── */
 
 .chart-frame {
@@ -334,6 +409,36 @@ table.table {
   width: 10px;
   height: 10px;
   border-width: 2px !important;
+}
+
+/* ─── provenance / key-value grid ────────────────────────────── */
+/*
+ * Two-column dl grid used on RunDetail's Provenance card. Label
+ * column sized to the longest realistic field name; values flex.
+ */
+
+.provenance {
+  margin-bottom: var(--sp-5);
+}
+
+.kvgrid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--sp-3) var(--sp-4);
+  margin: 0;
+}
+.kvgrid-key {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-self: center;
+}
+.kvgrid-val {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
 }
 
 /* ─── misc ───────────────────────────────────────────────────── */

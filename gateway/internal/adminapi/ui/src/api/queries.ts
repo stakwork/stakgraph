@@ -3,10 +3,11 @@
 // or retry policy. Those decisions live here, in one place, so
 // "should the dashboard poll every 30s" stays a one-line edit.
 
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "./client";
 import type {
+  AgentBudgetResponse,
   HistogramCostResponse,
   MeResponse,
   RunDetailResponse,
@@ -93,6 +94,51 @@ export function useHistogramCost(args: HistogramCostArgs) {
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
+}
+
+// ─── /agents/:name/budget ───────────────────────────────────────────
+//
+// 30s poll — the cap doesn't change often, but the spent-against-cap
+// number wants to feel live, especially during the demo as an
+// operator fires calls and watches the bar fill.
+
+export function useAgentBudget(name: string | undefined) {
+  return useQuery({
+    queryKey: ["agents", name, "budget"],
+    queryFn: () =>
+      apiFetch<AgentBudgetResponse>(
+        `/agents/${encodeURIComponent(name!)}/budget`
+      ),
+    enabled: !!name,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+}
+
+// `useAgentBudgets` fans out per-agent fetches for the Agents list
+// page — one query per row. Tanstack's `useQueries` is the right
+// primitive: variable-length list of queries, all subject to the
+// rules-of-hooks at the call boundary, results indexed positionally.
+//
+// Returns a name → response map for ergonomic lookup in the table
+// cell renderer. `undefined` for in-flight / missing.
+export function useAgentBudgets(names: string[]) {
+  const queries = useQueries({
+    queries: names.map((n) => ({
+      queryKey: ["agents", n, "budget"],
+      queryFn: () =>
+        apiFetch<AgentBudgetResponse>(
+          `/agents/${encodeURIComponent(n)}/budget`
+        ),
+      refetchInterval: 30_000,
+      staleTime: 10_000,
+    })),
+  });
+  const out: Record<string, AgentBudgetResponse | undefined> = {};
+  names.forEach((n, i) => {
+    out[n] = queries[i]?.data;
+  });
+  return out;
 }
 
 // ─── /runs/:id ──────────────────────────────────────────────────────

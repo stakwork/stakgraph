@@ -18,6 +18,180 @@
 > uPlot + tygo) is set up in full here so phase 9 can layer on top
 > without re-litigating the stack.
 
+## Progress (as of 2026-05-19)
+
+### Landed
+
+**Backend (`gateway/internal/`):**
+
+- `sessions/` — Redis-backed browser session store with miniredis
+  tests covering create / get / refresh (write-skipping) / delete /
+  kick-all-for-user / TTL expiry.
+- `adminapi/session.go` — middleware combining cookie + bearer auth
+  (`cookieOrBearer` + `bearerOnly` variants).
+- `adminapi/login.go` — `POST /_plugin/login` (Basic header → cookie),
+  `POST /_plugin/logout` (idempotent), `GET /_plugin/me`. Bearer
+  fallback works for Hive / curl.
+- `adminapi/ratelimit.go` — per-IP login attempt counter (10 fails /
+  15 min → 429 with Retry-After).
+- `adminapi/logstore_client.go` — HTTP client to Bifrost's loopback
+  `/api/logs` with Basic auth, pagination, and `searchAll` for
+  client-side aggregation.
+- `adminapi/observability.go` — phase-7 subset:
+  `GET /_plugin/spend/by-agent`, `GET /_plugin/spend/by-user`,
+  `GET /_plugin/histogram/cost`, `GET /_plugin/runs/:id`. Go-side
+  bucket/sum over `metadata.agent-name` (Bifrost's native
+  dimension histogram doesn't support metadata columns).
+- `adminapi/ui.go` — `//go:embed all:ui/dist` + SPA fallback so
+  client-side routes survive a hard refresh.
+- `env/env.go` — added `PRODUCTION` env var + `IsProduction()` so
+  the session cookie's `Secure` flag is forced on behind a TLS
+  ingress.
+
+**Frontend (`gateway/internal/adminapi/ui/`):**
+
+- Vite + Preact + wouter + Tanstack Query + uPlot scaffold; React
+  aliased through `preact/compat`; SPA mounted at `/_plugin/ui/`;
+  hashed asset filenames so browser caches bust on redeploy.
+- Dark theme via CSS variables (`base.css` + `components.css`),
+  desktop-only (≥1280px).
+- `api/client.ts` — typed fetch, 401 → `UnauthorizedError` sentinel
+  the QueryCache turns into a `/login?next=…` redirect; phase-7
+  error envelope mapping for everything else.
+- `api/queries.ts` — one hook per endpoint with the per-page
+  polling cadence from the original phase 8 plan (KPIs/rankings
+  30s, histograms 60s, run detail manual).
+- Components: `Shell` / `Sidebar` / `Topbar`, `WindowPicker`,
+  `DataTable` (sortable), `UplotChart` + `CostHistogram` (with
+  pinned x-axis to the query window so sparse data renders sanely),
+  `EmptyState`, `ErrorBoundary`.
+- Pages: `Login`, `Dashboard` (KPIs + chart + top-5 agents/users),
+  `Agents`, `AgentDetail` (per-agent histogram + recent runs),
+  `RunDetail` (call log, paginated), `NotFound`.
+
+**Build & docs:**
+
+- Dockerfile gained a `plugin-ui-builder` stage that runs
+  `npm ci && npm run build`, then copies `dist/` into the Go build
+  context before `go build` so `//go:embed` picks it up. Final
+  runtime image has no Node.
+- Makefile: `ui-install`, `ui-build`, `ui-dev`, `tygo`,
+  `tygo-check` targets.
+- `tygo.yaml` for Go → TS struct codegen (`make tygo` regenerates
+  `ui/src/api/types.ts`; CI hook fails on drift).
+- `docker-compose.yml` reuses the existing Redis sidecar for
+  sessions; added `PRODUCTION` env passthrough.
+- README updated with the new route table + UI dev flow + default
+  creds.
+
+**Tests (all passing under `go test ./internal/...`):**
+
+- `sessions/store_test.go` — 7 tests covering the full session
+  lifecycle and TTL semantics.
+- `adminapi/login_test.go` — login happy/sad paths, rate limit,
+  /me cookie + bearer, logout, SPA gating, deep-link fallback.
+- `adminapi/observability_test.go` — fake Bifrost upstream,
+  end-to-end tests for all four observability endpoints,
+  parameter validation, upstream-failure → 502 mapping.
+
+### Verified end-to-end
+
+`make docker-up` brings up the full stack; the dashboard is
+reachable at <http://localhost:8181/_plugin/ui/> with default dev
+creds `admin` / `bifrost-dev-password`. Fired a handful of
+inference calls with `x-bf-dim-*` headers and confirmed the
+Dashboard / Agents / AgentDetail / RunDetail pages all populate
+from the same `logs.db` Bifrost already writes.
+
+Branded as **"Agent Gateway"** in the UI for the demo (sidebar /
+login / browser tab title). Package names, env vars, log prefixes,
+and the `/_plugin/` URL prefix retain the `bifrost` / `stakgraph`
+identifiers — those are internal contracts and stable across
+renames.
+
+### What's NOT in this phase
+
+The original "explicitly does NOT do" list below remains accurate.
+Repeating the highlights for skim-readers:
+
+- No kill switches, no budget editors (mutations are phase 9).
+- No live Redis state (cap meters, in-flight badges, current
+  bucket spend) — all of that depends on phase 6 hot state.
+- No macaroon-anchored attribution yet — `metadata.*` reflects
+  what the caller sent until phase 6 canonicalizes dims from
+  verified claims. The UI doesn't change when that lands.
+
+### Demo gaps (need attention before the upcoming demo)
+
+Two things the dashboard doesn't yet surface that are non-negotiable
+for the demo narrative. Both are additive on top of phase 8's
+scaffold (no new infra; just new endpoints + pages):
+
+1. **Agent budgets.** Phase 6's plugin enforcement reads
+   `agent_budgets.<name>.{cap_usd, window}` from the plugin config
+   block, but the dashboard has no view of these caps or the
+   current-period spend against them. For the demo we need at
+   minimum a **read-only** display on the Agents list and Agent
+   detail pages:
+     - Column on `/agents`: "Budget" → e.g. `$5.00 / 1d`.
+     - Card on `/agents/:name`: "Current period spend: $1.23 /
+       $5.00 ▌▌▌▌▌░░░░░ 25%" (a progress bar against the cap).
+   - Backend: a new
+     `GET /_plugin/agents/:name/budget` endpoint that returns
+     `{cap_usd, window, period_start, period_end, spent_usd,
+     remaining_usd, ratio}`. Reads the cap from plugin config (or
+     phase-9's `bifrost:config:agent_budgets:<name>` Redis hash
+     once that lands) and the spent value from
+     `bifrost:cost:agent:<name>:<bucket_key>` per phase 6
+     "Redis schema". When neither source has a value, return
+     `{cap_usd: null}` and the page renders "no budget set".
+   - **Demo path:** even if phase 6's enforcement isn't fully
+     wired, we can seed a config block with a couple of caps
+     and Redis with mock cumulative spend so the UI renders
+     real-looking data on the demo branch.
+
+2. **Agent-run provenance.** The story "this run was authorized
+   by alice in workspace w1" is core to the demo and the data is
+   already on the wire — `logs.metadata` carries the `user-id` and
+   `realm-id` dim values that the caller stamps on every call
+   (and that phase 6 will canonicalize from the verified macaroon
+   when enforcement lands). The Run detail page today shows them
+   only inside the per-call metadata blob; the fix is purely a
+   frontend rearrangement.
+   - **Provenance card** above the call log on `/runs/:id`, read
+     directly from the first log row's `metadata`:
+       - `user-id` (rendered `mono`; Hive-side
+         user-id → name resolution is out of scope here)
+       - `realm-id` (workspace)
+       - `agent-name`
+       - `session-id` (collapses the run into its parent thread)
+       - First-seen / last-seen timestamps, derived from the
+         first and last log row in the response
+       - Total cost + total calls, already in `stats`
+   - **No backend change.** `GET /_plugin/runs/:id` already
+     returns the per-call `metadata` map and aggregate stats.
+   - When phase 6 lands and macaroon claims become the
+     authoritative source for these dims, the UI is unchanged —
+     the underlying values just become cryptographically attested.
+     Richer provenance (org_id, caveats, attenuation chain,
+     verification status) is a phase-9 concern; phase 8.5 just
+     pulls what's already in `logs.metadata` up to the top of the
+     page so an operator doesn't have to read it row-by-row.
+
+### What's next (in priority order)
+
+1. **Demo blockers above** — agent budgets and run provenance.
+   Both are scoped enough that they could ship as a "phase 8.5"
+   PR on top of the merged phase 8 without touching the
+   scaffolding.
+2. **tygo runs in CI** — currently `make tygo` works locally but
+   no CI hook fails the build on drift. Once tygo is installed in
+   the CI image, switch `make tygo-check` into the gate.
+3. **Phase 9 scope items** (kill switches, budget editors, live
+   state blends, users page, sessions page, config editor) — see
+   [phase-9-operator-ui.md](./phase-9-operator-ui.md) for the full
+   inventory and what each one needs from phases 6 / 7.
+
 ## What this phase decides
 
 Three things you can deliver right now, without any new enforcement
