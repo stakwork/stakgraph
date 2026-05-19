@@ -1,0 +1,5 @@
+# Placeholder so `go:embed all:ui/dist` finds a non-empty directory
+# even before Vite has populated it. The real bundle lands here
+# during `make docker-build` (via the plugin-ui-builder stage in
+# gateway/Dockerfile) or `npm run build` from
+# `gateway/internal/adminapi/ui/`.

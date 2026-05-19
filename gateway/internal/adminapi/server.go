@@ -25,6 +25,7 @@ import (
 
 	"github.com/stakwork/stakgraph/gateway/internal/env"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/stakgraph/gateway/internal/sessions"
 	"github.com/stakwork/stakgraph/gateway/internal/trust"
 )
 
@@ -92,12 +93,24 @@ func start() {
 		return
 	}
 
+	// Session store is best-effort — when Redis is in observability
+	// mode (no URL configured), NewStore returns nil and the login
+	// handler refuses to start a session rather than half-issue
+	// cookies that can't be persisted. Bearer-authed routes still
+	// work in that mode, which is what dev / standalone wants.
+	store := sessions.NewStore()
+	if store == nil {
+		pluginlog.Warnf("adminapi: session store disabled (redis not configured); /_plugin/login will 503")
+	}
+
 	mux := http.NewServeMux()
 	registerRoutes(mux, routeDeps{
 		adminUser:         adminUser,
 		adminPass:         adminPass,
 		provisioningToken: token,
 		trust:             registry,
+		sessions:          store,
+		logstore:          newLogstoreClient(adminUser, adminPass),
 	})
 
 	addr := env.PluginAddr()
@@ -125,29 +138,81 @@ type routeDeps struct {
 	adminUser         string
 	adminPass         string
 	provisioningToken string
-	trust             *trust.Registry // nil ⇒ skip /_plugin/trust/* registration
+	trust             *trust.Registry  // nil ⇒ skip /_plugin/trust/* registration
+	sessions          *sessions.Store  // nil ⇒ /_plugin/login returns 503
+	logstore          *logstoreClient  // nil ⇒ skip phase-7 observability routes
 }
 
 // registerRoutes is in its own function so each route lives in its
 // own file (credentials.go, health.go, …) but the routing table is
 // readable in one place.
+//
+// Auth model
+// ----------
+//   - `/_plugin/health`, `/_plugin/login`: anonymous.
+//   - `/_plugin/admin-credentials`, `/_plugin/trust/*`: bearer only
+//     (Hive's machine-to-plugin path; cookies are not honoured).
+//   - Everything else (observability, /me, /logout): cookie OR
+//     bearer, with cookie tried first.
+//
+// The /_plugin/ui/* SPA is also cookie-or-bearer so curl with a
+// bearer can pull it for diagnostics, but browsers always reach it
+// via a cookie.
 func registerRoutes(mux *http.ServeMux, deps routeDeps) {
-	auth := requireBearerToken(deps.provisioningToken)
+	guard := newSessionGuard(deps.sessions, deps.provisioningToken)
+	bearer := guard.bearerOnly
+	cookieOrBearer := guard.cookieOrBearer
 
-	mux.HandleFunc("/_plugin/admin-credentials",
-		auth(adminCredentialsHandler(deps.adminUser, deps.adminPass)))
+	// Anonymous routes.
 	mux.HandleFunc("/_plugin/health", healthHandler)
+
+	// Bearer-only routes (Hive's territory).
+	mux.HandleFunc("/_plugin/admin-credentials",
+		bearer(adminCredentialsHandler(deps.adminUser, deps.adminPass)))
 
 	if deps.trust != nil {
 		th := newTrustHandlers(deps.trust)
 		// Exact-match leaves first; ServeMux prefers longer matches
 		// so the prefix handler below only fires for paths the
 		// leaves don't cover.
-		mux.HandleFunc(trustStatusPath, auth(th.status))
-		mux.HandleFunc(trustRootPath, auth(th.upsert))
+		mux.HandleFunc(trustStatusPath, bearer(th.status))
+		mux.HandleFunc(trustRootPath, bearer(th.upsert))
 		// Prefix routing for /_plugin/trust/<org_id>[/rotate].
 		// Trailing slash on the pattern makes ServeMux treat this
 		// as a subtree match.
-		mux.HandleFunc(trustPrefixPath, auth(th.dispatchPrefix))
+		mux.HandleFunc(trustPrefixPath, bearer(th.dispatchPrefix))
 	}
+
+	// Cookie-or-bearer routes: session lifecycle.
+	loginH := newLoginHandlers(deps.sessions, newLoginLimiter(), deps.adminUser, deps.adminPass)
+	mux.HandleFunc("/_plugin/login", loginH.login) // anon; rate-limited inside the handler
+	mux.HandleFunc("/_plugin/logout", loginH.logout)
+	mux.HandleFunc("/_plugin/me", cookieOrBearer(loginH.me))
+
+	// Cookie-or-bearer routes: phase-7 observability subset.
+	if deps.logstore != nil {
+		obs := newObservabilityHandlers(deps.logstore)
+		mux.HandleFunc("/_plugin/spend/by-agent", cookieOrBearer(obs.spendByAgent))
+		mux.HandleFunc("/_plugin/spend/by-user", cookieOrBearer(obs.spendByUser))
+		mux.HandleFunc("/_plugin/histogram/cost", cookieOrBearer(obs.histogramCost))
+		// /_plugin/runs/ takes a trailing path segment as run-id
+		mux.HandleFunc("/_plugin/runs/", cookieOrBearer(obs.runDetail))
+	}
+
+	// SPA — served WITHOUT middleware auth. The SPA itself probes
+	// /_plugin/me at boot and redirects to /login on 401; gating
+	// the static bundle at the server layer would short-circuit
+	// that flow and surface "unauthorized" text instead of the
+	// login page.
+	//
+	// Safe because the bundle contains zero secrets — every API
+	// call the SPA makes still goes through cookie-or-bearer auth
+	// on its respective handler.
+	mux.Handle("/_plugin/ui/", uiHandler())
+	// `/_plugin/ui` (no trailing slash) is the typical URL users
+	// type; redirect them to the canonical /ui/ so the SPA router
+	// resolves correctly.
+	mux.HandleFunc("/_plugin/ui", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/_plugin/ui/", http.StatusFound)
+	})
 }

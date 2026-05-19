@@ -54,6 +54,28 @@ COPY --from=source /src/ui/ ./
 RUN npm run build-enterprise
 
 # ---------------------------------------------------------------------------
+# Stage 1b: build the gateway plugin's admin UI (Preact + Vite).
+#
+# The compiled bundle is dropped into gateway/internal/adminapi/ui/dist
+# before the Go build below so `//go:embed all:ui/dist` picks it up at
+# compile time. Cached separately from the rest of the Go build so
+# changes to *.go files don't re-run `npm`.
+#
+# See gateway/plans/phases/phase-8-observability-dashboard.md.
+# ---------------------------------------------------------------------------
+FROM node:${NODE_VERSION}-alpine3.23 AS plugin-ui-builder
+WORKDIR /pui
+COPY internal/adminapi/ui/package.json internal/adminapi/ui/package-lock.json* ./
+# `--no-audit --no-fund` keeps the output quiet and a hair faster.
+# Use `npm install` (not `ci`) until the lockfile exists; once the
+# first build commits package-lock.json this switches to `npm ci`
+# for reproducibility. The conditional below covers both.
+RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+COPY internal/adminapi/ui/ ./
+RUN npm run build
+# Output: /pui/dist
+
+# ---------------------------------------------------------------------------
 # Stage 2: build bifrost-http (dynamic) + our plugin from upstream sources.
 # ---------------------------------------------------------------------------
 FROM golang:${GO_VERSION}-alpine3.23 AS builder
@@ -106,6 +128,12 @@ COPY internal/ ./internal/
 # it, `go mod tidy` falls back to fetching the package from GOPROXY
 # (which only has tagged releases of the parent module) and fails.
 COPY auth/go/ ./auth/go/
+# Drop the compiled UI in place BEFORE `go build` so the
+# `//go:embed all:ui/dist` directive in
+# gateway/internal/adminapi/ui.go finds the real bundle, not the
+# placeholder index.html that lives in the repo for offline dev
+# builds.
+COPY --from=plugin-ui-builder /pui/dist /plugin/internal/adminapi/ui/dist
 RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
  && go mod tidy \
  && CGO_ENABLED=1 GOOS=linux \

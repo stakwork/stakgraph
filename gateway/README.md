@@ -24,9 +24,10 @@ gateway/
 ├── main.go            # plugin entry points (Init, GetName, Cleanup, *Hook)
 │                      #   one-line delegations into internal/ — auditable at a glance
 ├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
-├── Makefile           # local + docker build targets
-├── Dockerfile         # bifrost-http + plugin .so + wrapper, all in one image
+├── Makefile           # local + docker + UI build targets
+├── Dockerfile         # bifrost-http + plugin .so + wrapper + admin UI, all in one image
 ├── docker-compose.yml # host 8181 -> container 8181, named volume for /app/data
+├── tygo.yaml          # Go -> TS struct codegen config (drives ui/src/api/types.ts)
 ├── data/
 │   └── config.json    # seed config: providers, plugin entry, auth_config (baked in)
 ├── internal/          # plugin internals (no public API beyond what main.go re-exports)
@@ -34,9 +35,11 @@ gateway/
 │   ├── env/           # typed env-var readers + defaults
 │   ├── pluginctx/     # typed wrappers around BifrostContext (dims, timing, request-id)
 │   ├── hooks/         # bodies of every plugin entry point, one file per hook
-│   ├── adminapi/      # /_plugin/* HTTP server (auth, credentials, health, …)
+│   ├── sessions/      # Redis-backed browser session store (phase 8)
+│   ├── adminapi/      # /_plugin/* HTTP server (auth, credentials, health, observability, UI)
+│   │   └── ui/        # Preact + Vite admin dashboard, //go:embed'd at compile time
 │   ├── ratelimit/     # (stub) per-(agent|user|session) rate limits — coming soon
-│   └── auth/          # (stub) macaroon parsing + trust registry — coming soon
+│   └── auth/          # macaroon verifier adapter wiring (phases 4–6)
 └── wrapper/
     ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
     └── main.go        # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
@@ -115,10 +118,40 @@ token is a shared secret with Hive (in swarm: same value as
 
 Routes today:
 
-| Method | Path                         | Description                                                                                                |
-| ------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| GET    | `/_plugin/health`            | Plain `{"ok":true}`. No auth. Used by the wrapper itself.                                                  |
-| GET    | `/_plugin/admin-credentials` | Returns `{"admin_username":"…","admin_password":"…"}` so Hive can bootstrap on a fresh swarm. Bearer auth. |
+| Method | Path                                       | Auth                | Description                                                                                                |
+| ------ | ------------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| GET    | `/_plugin/health`                          | anon                | Plain `{"ok":true}`. Used by the wrapper itself.                                                           |
+| GET    | `/_plugin/admin-credentials`               | bearer              | `{"admin_username":"…","admin_password":"…"}` so Hive can bootstrap on a fresh swarm.                      |
+| POST   | `/_plugin/login`                           | Basic (in header)   | Sets the `bifrost_session` cookie. Rate-limited 10 attempts / 15min per-IP.                                |
+| POST   | `/_plugin/logout`                          | cookie or bearer    | Clears session + cookie. Idempotent.                                                                       |
+| GET    | `/_plugin/me`                              | cookie or bearer    | `{user, iat, last_seen}` for the SPA's boot probe.                                                         |
+| GET    | `/_plugin/ui/*`                            | cookie or bearer    | The embedded Preact dashboard. SPA fallback serves index.html on deep links.                               |
+| GET    | `/_plugin/spend/by-{agent,user}?window=…`  | cookie or bearer    | Phase-7 per-dim aggregations over `logs.db` via loopback to bifrost-http's `/api/logs`.                    |
+| GET    | `/_plugin/histogram/cost?window=…&bucket=…&dimension=…` | cookie or bearer | Time-bucketed cost series, grouped by dim. agent-name / run-id / session-id / realm-id / user-id. |
+| GET    | `/_plugin/runs/:run_id`                    | cookie or bearer    | Drill-down: every call recorded for one run_id, paginated.                                                 |
+| GET/POST/DELETE | `/_plugin/trust/*`                | bearer              | Phase-5 trust registry CRUD.                                                                               |
+
+### Admin UI (`/_plugin/ui/`)
+
+A Preact + Vite + wouter + Tanstack Query + uPlot single-page app that
+runs the operator dashboard. Source lives under
+`internal/adminapi/ui/`; the bundle is compiled by `make ui-build` or
+(in CI / docker) the `plugin-ui-builder` stage in the Dockerfile, then
+embedded into the plugin .so via `//go:embed all:ui/dist`.
+
+Pages in v1: Login, Dashboard, Agents, AgentDetail, RunDetail. All
+read-only; phase 9 adds the kill switches, budget editors, and live
+Redis-blended panels.
+
+Local UI dev with HMR (proxies `/_plugin/*` to a running plugin on
+`localhost:8181`):
+
+```bash
+make docker-up        # in one shell
+make ui-dev           # in another, opens http://localhost:5173/_plugin/ui/
+```
+
+Default dev credentials: `admin` / `bifrost-dev-password`.
 
 The credentials endpoint exists because there is otherwise no way for
 Hive to learn the Bifrost admin password without an out-of-band

@@ -111,6 +111,12 @@ bifrost:kill:agent:<agent_name>                 STRING  "1"
 bifrost:revoke:<nonce>                          STRING  "1"      TTL = nonce-bearing layer.exp
 bifrost:revoke_user_before:<user_id>            STRING  <RFC 3339 UTC>
 bifrost:cost:agent:<agent_name>:<bucket_key>    HASH    { total: float }
+
+# Config overrides (UI-editable; layer on top of plugin.yaml baseline).
+# Written by /_plugin/config/* endpoints. See "Config overrides" below.
+bifrost:config:agent_budgets:<agent_name>       HASH    { cap_usd: float, window: string }   no TTL
+bifrost:config:hard_ceiling                     HASH    { cost_usd: float, steps: int }      no TTL
+bifrost:config:tool_loop                        HASH    { window: int, threshold: int }      no TTL
 ```
 
 ### Namespace
@@ -301,6 +307,50 @@ extension.
   late PostHooks; not so long that buckets pile up indefinitely.
   Bucket rollover is implicit — a new day produces a new key with
   no value (Redis treats this as 0).
+
+### Config overrides (`config:agent_budgets`, `config:hard_ceiling`, `config:tool_loop`)
+
+Runtime-mutable overrides for the values otherwise read from
+`plugin.yaml`. Written by the `/_plugin/config/*` admin endpoints
+(introduced for the operator UI in
+[`phase-8-operator-ui.md`](./phase-8-operator-ui.md)) so operators
+can adjust per-agent budgets, hard ceilings, and tool-loop thresholds
+without redeploying.
+
+- **Updated by:** `PUT /_plugin/config/agent_budgets/:name`,
+  `DELETE /_plugin/config/agent_budgets/:name`,
+  `PUT /_plugin/config/hard_ceiling`, `PUT /_plugin/config/tool_loop`.
+- **Read by:** the plugin at boot and on cache invalidation,
+  composed with the YAML baseline into an in-memory effective config
+  that PreLLMHook/PostLLMHook consult. **Not** read on every hook
+  call — see "Precedence" below.
+- **TTL:** none. Overrides persist until explicitly deleted.
+
+**Precedence:**
+
+```
+1. Plugin loads plugin.yaml at boot → yaml_baseline in memory.
+2. Plugin reads bifrost:config:* → redis_overrides.
+3. effective_config = overlay(yaml_baseline, redis_overrides).
+   Per-agent overlays are by agent name; hard_ceiling and tool_loop
+   are whole-struct replacements.
+4. PreLLMHook / PostLLMHook read effective_config (in-memory, no
+   Redis round-trip on the hot path).
+5. PUT/DELETE to /_plugin/config/* writes Redis, then re-composes
+   effective_config and atomically swaps the in-memory pointer.
+```
+
+**Operator-of-last-resort:** to revert to the YAML baseline, an
+operator deletes the `bifrost:config:*` keys explicitly. Editing
+`plugin.yaml` and restarting **does not** clear Redis overrides —
+they layer on top of the new YAML baseline.
+
+**Why these are not on the hot path:** these values are rarely
+written (operator clicks in the UI; not per-call), so cache
+invalidation cost is irrelevant. Reading them per-call would add a
+Redis round-trip to every PreLLMHook for no benefit. The in-memory
+effective-config cache means hook code remains
+struct-field-access-fast.
 
 ## TTL policy
 
@@ -672,6 +722,15 @@ redis:
 Per-agent `window` accepts any Bifrost duration suffix. The bucket
 key format follows the table in "Duration vocabulary" above.
 
+**YAML is the baseline; Redis overrides layer on top.** The
+`agent_budgets`, `hard_ceiling`, and `tool_loop` blocks above are
+the values the plugin loads at boot. They can be runtime-overridden
+via the `/_plugin/config/*` endpoints, which write to
+`bifrost:config:*` (see "Config overrides" under Redis schema).
+The Redis keys are the source of truth for any operator edits
+made through the UI; YAML reapplies as the baseline on every
+restart and overrides reapply on top.
+
 ## Admin endpoints
 
 Hot-state admin endpoints under the plugin's `/_plugin/*` namespace,
@@ -717,9 +776,41 @@ GET /_plugin/agents/:name/state?window=1d
     window:          <duration>,
     bucket_key:      <str>,
     current_spend:   <float>,  // HGET bifrost:cost:agent:<name>:<bucket> total
-    configured_cap:  <float | null>,  // from agent_budgets
+    configured_cap:  <float | null>,  // from agent_budgets (YAML + overrides)
     killed:          <bool>,
   }
+
+# Config overrides — UI-driven mutations to agent_budgets / hard_ceiling /
+# tool_loop. Layered on top of plugin.yaml; see "Config overrides" under
+# Redis schema. Used by the operator UI in phase 8.
+
+GET /_plugin/config
+  returns: {
+    agent_budgets:  { "<name>": { cap_usd, window, source: "yaml"|"override" }, ... },
+    hard_ceiling:   { per_invocation_cost_usd, per_invocation_steps, source },
+    tool_loop:      { window, threshold, source },
+  }
+
+PUT /_plugin/config/agent_budgets/:name
+  body:    { cap_usd, window }    (window: Bifrost duration vocabulary)
+  effect:  HSET bifrost:config:agent_budgets:<name> cap_usd <v> window <v>
+           re-compose effective config in-memory
+  returns: 204
+
+DELETE /_plugin/config/agent_budgets/:name
+  effect:  DEL bifrost:config:agent_budgets:<name>
+           re-compose effective config in-memory (falls back to yaml or unset)
+  returns: 204
+
+PUT /_plugin/config/hard_ceiling
+  body:    { per_invocation_cost_usd, per_invocation_steps }
+  effect:  HSET bifrost:config:hard_ceiling cost_usd <v> steps <v>
+  returns: 204
+
+PUT /_plugin/config/tool_loop
+  body:    { window, threshold }
+  effect:  HSET bifrost:config:tool_loop window <v> threshold <v>
+  returns: 204
 ```
 
 ## Performance characteristics
@@ -795,9 +886,12 @@ roughly an order of magnitude above expected steady-state load.
       `UnkillAgent`) — pure Redis logic, no HTTP. Consumed by the
       `adminapi` handlers below.
 - [ ] `config.go`: structured `agent_budgets`, `hard_ceiling`,
-      `tool_loop`, `redis` config types
+      `tool_loop`, `redis` config types; YAML loader; Redis-overrides
+      reader (`bifrost:config:*`); `Compose(yaml, overrides)` builder;
+      atomic in-memory effective-config swap on writes
 - [ ] Test fixtures covering: per-run cap walk, per-agent budget
-      hit, kill:run, kill:agent, revocation, tool-loop, Redis-down
+      hit, kill:run, kill:agent, revocation, tool-loop, Redis-down,
+      override-layers-on-yaml, delete-override-falls-back-to-yaml
 
 **Plugin admin HTTP (`gateway/internal/adminapi/`):**
 
@@ -807,6 +901,11 @@ roughly an order of magnitude above expected steady-state load.
 - [ ] `agents.go`: `/_plugin/agents/:name/{state,kill}` handlers,
       thin wrappers over `auth.AgentState` / `auth.KillAgent` /
       `auth.UnkillAgent`
+- [ ] `config.go`: `GET /_plugin/config`, `PUT/DELETE
+      /_plugin/config/agent_budgets/:name`, `PUT
+      /_plugin/config/hard_ceiling`, `PUT /_plugin/config/tool_loop`.
+      Writes Redis (`bifrost:config:*`), then triggers re-compose of
+      the effective config the hooks read.
 - [ ] Route registration in `server.go` (mirror the
       `SetTrustRegistry` pattern: a `SetRedisClient` setter that
       `main.Init` calls before `Start()`)
@@ -837,8 +936,8 @@ share are scoped to [`phase-7-observability.md`](./phase-7-observability.md).
 - [ ] Update `gateway/internal/auth/doc.go` to drop "stub" and
       reference this phase doc
 - [ ] Update `gateway/internal/adminapi/server.go` doc to note the
-      new route families (runs, agents kill/state) alongside the
-      existing trust/credentials routes
+      new route families (runs, agents kill/state, config
+      overrides) alongside the existing trust/credentials routes
 - [ ] Update `llm-governance-v2.md` §"Gateway plugin" with a
       forward-pointer to this phase
 
