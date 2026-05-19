@@ -41,11 +41,22 @@ export const Data_Bank = Q.Data_Bank;
 const no_db = process.env.NO_DB === "true" || process.env.NO_DB === "1";
 if (!no_db) {
   const delay_start = parseInt(process.env.DELAY_START || "0") || 0;
+  const retry_interval =
+    parseInt(process.env.NEO4J_RETRY_INTERVAL || "5000") || 5000;
+
   setTimeout(async () => {
-    try {
-      await db.createIndexes();
-    } catch (error) {
-      console.error("Error creating indexes:", error);
+    while (true) {
+      try {
+        await db.createIndexes();
+        console.log("===> Neo4j indexes created successfully");
+        break;
+      } catch (error: any) {
+        console.warn(
+          `===> Neo4j not ready, retrying in ${retry_interval}ms:`,
+          error?.message || error
+        );
+        await new Promise((resolve) => setTimeout(resolve, retry_interval));
+      }
     }
   }, delay_start);
 }
