@@ -41,13 +41,14 @@ export async function get_nodes(
   concise: boolean,
   ref_ids: string[],
   output: OutputFormat = "snippet",
-  language?: string
+  language?: string,
+  limit: number = 5000,
 ) {
   let result: Neo4jNode[] = [];
   if (ref_ids.length > 0) {
-    result = await db.nodes_by_ref_ids(ref_ids, language);
+    result = await db.nodes_by_ref_ids(ref_ids, language, limit);
   } else {
-    result = await db.nodes_by_type(node_type, language);
+    result = await db.nodes_by_type(node_type, language, limit);
   }
 
   return toNodes(result, concise, output);

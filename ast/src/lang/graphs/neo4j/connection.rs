@@ -53,6 +53,7 @@ impl Neo4jGraph {
         let connection: Neo4jConnection = self.ensure_connected().await?;
         let queries = vec![
             "CREATE INDEX data_bank_node_key_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.node_key)",
+            "CREATE INDEX data_bank_ref_id_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.ref_id)",
             // Range index on `file` so incremental sync deletions
             // (`remove_nodes_by_files_query` -> `n.file IN $files`) and other
             // file-scoped lookups can do an index seek instead of a full
