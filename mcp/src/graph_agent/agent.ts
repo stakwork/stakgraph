@@ -40,6 +40,7 @@ export interface GraphAgentOptions {
   prompt: string | ModelMessage[];
   modelName?: ModelName;
   apiKey?: string;
+  baseUrl?: string;
   sessionId?: string;
   sessionConfig?: SessionConfig;
   abortSignal?: AbortSignal;
@@ -96,6 +97,7 @@ async function prepareGraphAgent(
     prompt,
     modelName,
     apiKey: apiKeyIn,
+    baseUrl,
     sessionId: inputSessionId,
     sessionConfig,
     abortSignal,
@@ -111,7 +113,7 @@ async function prepareGraphAgent(
   const { model, apiKey: _apiKey, provider, contextLimit, modelId } = getModelDetails(
     modelName,
     apiKeyIn,
-    undefined,
+    baseUrl,
     headers,
   );
   console.log(`[graph_agent] model=${modelId} provider=${provider} contextLimit=${contextLimit}`);

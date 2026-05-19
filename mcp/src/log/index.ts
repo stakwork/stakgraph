@@ -45,6 +45,7 @@ export async function logs_agent(req: Request, res: Response) {
   const prompt = req.body.prompt as string;
   const modelName = req.body.model as ModelName | undefined;
   const apiKey = req.body.apiKey as string | undefined;
+  const baseUrl = req.body.baseUrl as string | undefined;
   const logs = req.body.logs as boolean | undefined;
   const swarmName = req.body.swarmName as string | undefined;
   const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
@@ -124,7 +125,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, apiKey, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers })
+    log_agent_context(finalPrompt, { modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
