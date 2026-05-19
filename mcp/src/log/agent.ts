@@ -44,6 +44,7 @@ Your complete analysis here.
 export interface LogAgentOptions {
   modelName?: ModelName;
   apiKey?: string;
+  baseUrl?: string;
   logs?: boolean;
   sessionId?: string;
   sessionConfig?: SessionConfig;
@@ -61,7 +62,7 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
-  const { model, provider, modelId } = getModelDetails(opts.modelName, opts.apiKey, undefined, opts.headers);
+  const { model, provider, modelId } = getModelDetails(opts.modelName, opts.apiKey, opts.baseUrl, opts.headers);
   console.log("===> log_agent model", model);
 
   const tools = get_log_tools({

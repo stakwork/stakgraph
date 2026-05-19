@@ -36,6 +36,7 @@ function parseGraphAgentBody(req: Request) {
   const prompt = req.body.prompt as string | undefined;
   const modelName = req.body.model as ModelName | undefined;
   const apiKey = req.body.apiKey as string | undefined;
+  const baseUrl = req.body.baseUrl as string | undefined;
   const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const stream = req.body.stream as boolean | undefined;
@@ -52,7 +53,7 @@ function parseGraphAgentBody(req: Request) {
 
   const headers = normalizeHeaders(req.body.headers);
 
-  return { prompt, modelName, apiKey, sessionId, sessionConfig, stream, maxTurns, authToken, headers };
+  return { prompt, modelName, apiKey, baseUrl, sessionId, sessionConfig, stream, maxTurns, authToken, headers };
 }
 
 // ── POST /graph_agent ────────────────────────────────────────────────────
@@ -99,6 +100,7 @@ export async function graph_agent(req: Request, res: Response) {
         prompt: body.prompt,
         modelName: body.modelName,
         apiKey: body.apiKey,
+        baseUrl: body.baseUrl,
         sessionId: body.sessionId,
         sessionConfig: body.sessionConfig,
         maxTurns: body.maxTurns,
@@ -197,6 +199,7 @@ export async function graph_agent(req: Request, res: Response) {
       prompt: body.prompt,
       modelName: body.modelName,
       apiKey: body.apiKey,
+      baseUrl: body.baseUrl,
       sessionId: body.sessionId,
       sessionConfig: body.sessionConfig,
       maxTurns: body.maxTurns,
