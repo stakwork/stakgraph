@@ -81,3 +81,20 @@ export async function withNeo4jRetry<T>(
     }
   }
 }
+export class ResilientSession {
+  constructor(
+    private getDriver: () => Driver,
+    private setDriver: (d: Driver) => void,
+  ) {}
+
+  run(query: string, params?: Record<string, any>) {
+    return withNeo4jRetry(
+      this.getDriver,
+      this.setDriver,
+      (session) => session.run(query, params),
+      query.trimStart().slice(0, 60),
+    );
+  }
+
+  async close(): Promise<void> {}
+}
