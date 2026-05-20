@@ -21,7 +21,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     <aside class="shell-sidebar">
       <div class="brand">
         <span class="brand-dot" />
-        <span class="brand-label">Agent Gateway</span>
+        <span class="brand-label">Agent Mothership</span>
         {onCollapse ? (
           <button
             type="button"

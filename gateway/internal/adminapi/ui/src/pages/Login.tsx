@@ -51,7 +51,7 @@ export function Login() {
       <div class="login-card">
         <div class="brand">
           <span class="brand-dot" />
-          Agent Gateway
+          Agent Mothership
         </div>
         <form class="login-form" onSubmit={onSubmit}>
           <label for="login-user">Username</label>

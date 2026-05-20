@@ -7,8 +7,9 @@
 //   - No mock data — `Canvas.tsx` feeds the real
 //     /_plugin/spend/by-agent-user response into `buildCanvas`.
 //   - The `PROVIDER_DISPLAY` / `providerIcon` helpers (kept) are
-//     used by Canvas.tsx to map the env-side provider id (`google`)
-//     to a display label (`Gemini`) and the icon-lookup key.
+//     used by Canvas.tsx to map the Bifrost-reported provider id
+//     (`gemini`) to a display label (`Gemini`) and the icon-lookup
+//     key.
 //   - `platforms.ts` is gone — folded back into this file like the
 //     demo does, since the four brand-icon path strings are the
 //     entire payload.
@@ -19,8 +20,9 @@
 // runs unchanged.
 
 import React, { createElement } from "react";
-import type { CanvasTheme, SlotContext } from "system-canvas";
+import type { CanvasTheme, IconPathData, SlotContext } from "system-canvas";
 import { midnightTheme, resolveTheme } from "system-canvas";
+import { NodeIcon } from "system-canvas-react/primitives";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -44,7 +46,7 @@ function fmtUSD(v: number): string {
 /**
  * Render the gateway's hub-and-spoke network glyph + title as a single
  * `body` slot. The icon sits centered horizontally near the top of the
- * body region; the "Agent Gateway" title sits centered below it.
+ * body region; the "Agent Mothership" title sits centered below it.
  * Authored in a 24-unit source box and scaled to `iconSize`.
  */
 function renderGatewayBody(ctx: SlotContext): React.ReactNode {
@@ -164,7 +166,64 @@ function renderGatewayBody(ctx: SlotContext): React.ReactNode {
         fontFamily: theme.node.labelFont ?? theme.node.fontFamily,
         fontWeight: 600,
       },
-      "Agent Gateway",
+      "Agent Mothership",
+    ),
+  );
+}
+
+/**
+ * Provider body: brand icon on the left and the display name to the
+ * right of it, the pair vertically centered inside the body region
+ * and left-aligned to a fixed inset so all four provider cards line
+ * up column-style. Centered lockups looked messy because each label
+ * has a different width — left-alignment keeps the icons in a
+ * predictable vertical rail.
+ *
+ * Icon mode / viewBox / name all come from the per-node customData,
+ * matched the same way the original `topLeft` slot did.
+ */
+function renderProviderBody(ctx: SlotContext): React.ReactNode {
+  const { region, theme, node } = ctx;
+  const iconName = (node.customData?.icon as string) ?? "anthropic";
+  const meta = PROVIDER_ICON_META[iconName] ?? { mode: "fill", viewBox: 24 };
+  const label = (node.customData?.name as string) ?? "";
+
+  const iconSize = 28;
+  const fontSize = 14;
+  const gap = 10;
+  // Fixed left inset — pins every provider's icon to the same x so
+  // the four logos line up cleanly in a vertical rail.
+  const inset = 14;
+  const startX = region.x + inset;
+  const cy = region.y + region.height / 2;
+
+  return createElement(
+    "g",
+    { pointerEvents: "none" },
+    createElement(NodeIcon, {
+      key: "icon",
+      icon: iconName,
+      x: startX,
+      y: cy - iconSize / 2,
+      size: iconSize,
+      color: node.color ? node.color : theme.node.labelColor,
+      mode: meta.mode,
+      viewBox: meta.viewBox,
+      customIcons: theme.icons,
+    }),
+    createElement(
+      "text",
+      {
+        key: "label",
+        x: startX + iconSize + gap,
+        // Baseline sits ~0.36em below center for visual midline alignment.
+        y: cy + fontSize * 0.36,
+        fill: theme.node.labelColor,
+        fontSize,
+        fontFamily: theme.node.fontFamily,
+        fontWeight: 600,
+      },
+      label,
     ),
   );
 }
@@ -225,11 +284,29 @@ const OPENAI_PATHS = [
 const GEMINI_PATHS = [
   "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81",
 ];
-const OPENROUTER_PATHS = [
-  // Hand-rolled chain-link line glyph in 16-unit space, stroke mode.
-  "M 7 9 L 5 11 A 2.5 2.5 0 0 1 1.5 7.5 L 4 5",
-  "M 9 7 L 11 5 A 2.5 2.5 0 0 1 14.5 8.5 L 12 11",
-  "M 6 10 L 10 6",
+// Real OpenRouter logo — two curves with arrowheads, copied straight
+// from openrouter.ai (512x512 viewBox). The curves are stroked at
+// width 90 in source units; the two arrowhead triangles are filled.
+// Mixing modes per-path is what `IconPathData` was added for.
+const OPENROUTER_PATHS: IconPathData = [
+  {
+    d: "M3 248.945C18 248.945 76 236 106 219C136 202 136 202 198 158C276.497 102.293 332 120.945 423 120.945",
+    mode: "stroke",
+    strokeWidth: 90,
+  },
+  {
+    d: "M511 121.5L357.25 210.268L357.25 32.7324L511 121.5Z",
+    mode: "fill",
+  },
+  {
+    d: "M0 249C15 249 73 261.945 103 278.945C133 295.945 133 295.945 195 339.945C273.497 395.652 329 377 420 377",
+    mode: "stroke",
+    strokeWidth: 90,
+  },
+  {
+    d: "M508 376.445L354.25 287.678L354.25 465.213L508 376.445Z",
+    mode: "fill",
+  },
 ];
 
 // Person + bot glyphs in a 24-unit source box. The `l 0.001 0` segments
@@ -252,33 +329,43 @@ const BOT_PATHS = [
   "M 10 15.5 h 4",
 ];
 
+// Per-icon dispatch: viewBox of the source paths + the slot-level mode
+// fallback. OpenRouter declares per-path modes inside OPENROUTER_PATHS
+// so the slot-level `mode` is irrelevant for it — we still set one
+// so the type stays homogeneous.
 const PROVIDER_ICON_META: Record<
   string,
-  { mode: "fill" | "stroke"; viewBox: 16 | 24 }
+  { mode: "fill" | "stroke"; viewBox: number }
 > = {
   anthropic: { mode: "fill", viewBox: 24 },
   openai: { mode: "fill", viewBox: 24 },
   gemini: { mode: "fill", viewBox: 24 },
-  openrouter: { mode: "stroke", viewBox: 16 },
+  openrouter: { mode: "fill", viewBox: 512 },
 };
 
 // ---------------------------------------------------------------------------
 // Provider display table (label + icon key + brand color)
 //
-// Maps the env-side id (which can be `google` even though the brand is
-// "Gemini") to the user-facing display label, the icon lookup key in
-// `theme.icons`, and the per-card stroke color. Canvas.tsx reads this
-// when building provider nodes.
+// Keyed by the Bifrost-reported provider id (the value of
+// `l.Provider` on every log row, matching the keys in
+// `gateway/data/config.json`'s `providers` map). Canvas.tsx reads
+// this when building provider nodes and when looking up the display
+// name for a row's `providers[*].provider` slice.
 // ---------------------------------------------------------------------------
 
+// Brand colors sourced from each provider:
+//   - Anthropic: Claude coral, from anthropic.com
+//   - OpenAI:    mint, used across their docs + simple-icons
+//   - Gemini:    simple-icons "Google Gemini" (#8E75B2)
+//   - OpenRouter: openrouter.ai brand
 export const PROVIDER_DISPLAY: Record<
   string,
   { label: string; icon: string; color: string }
 > = {
-  anthropic: { label: "Anthropic", icon: "anthropic", color: "#d97706" },
-  openai: { label: "OpenAI", icon: "openai", color: "#10a37f" },
-  google: { label: "Gemini", icon: "gemini", color: "#4285f4" },
-  openrouter: { label: "OpenRouter", icon: "openrouter", color: "#a855f7" },
+  anthropic: { label: "Anthropic", icon: "anthropic", color: "#D97757" },
+  openai: { label: "OpenAI", icon: "openai", color: "#10A37F" },
+  gemini: { label: "Gemini", icon: "gemini", color: "#8E75B2" },
+  openrouter: { label: "OpenRouter", icon: "openrouter", color: "#6467F2" },
 };
 
 export function providerIcon(name: string): string {
@@ -313,7 +400,7 @@ export const canvasTheme: CanvasTheme = resolveTheme(
         type: "text",
         slots: {
           leftEdge: { kind: "color", extent: "full" },
-          topLeft: { kind: "icon", name: "bot", viewBox: 24, size: 14 },
+          topLeft: { kind: "icon", name: "bot", viewBox: 24, size: 20 },
           header: {
             kind: "text",
             value: (ctx: SlotContext) =>
@@ -347,7 +434,7 @@ export const canvasTheme: CanvasTheme = resolveTheme(
         type: "text",
         slots: {
           leftEdge: { kind: "color", extent: "full" },
-          topLeft: { kind: "icon", name: "person", viewBox: 24 },
+          topLeft: { kind: "icon", name: "person", viewBox: 24, size: 24 },
           header: {
             kind: "text",
             value: (ctx: SlotContext) =>
@@ -371,7 +458,7 @@ export const canvasTheme: CanvasTheme = resolveTheme(
 
       // ─── gateway ─────────────────────────────────────────────────
       // Singleton hub. Custom body renders the hex+spokes glyph and
-      // the "Agent Gateway" title together; footer carries the
+      // the "Agent Mothership" title together; footer carries the
       // swarm-wide total spend.
       gateway: {
         defaultWidth: 220,
@@ -396,9 +483,10 @@ export const canvasTheme: CanvasTheme = resolveTheme(
 
       // ─── provider ────────────────────────────────────────────────
       // Per-node brand color (set via `node.color` in Canvas.tsx)
-      // drives the stroke + the rightEdge color stripe. Icon picked
-      // per-node from `customData.icon` with per-provider mode +
-      // viewBox dispatched off PROVIDER_ICON_META.
+      // drives the stroke + the rightEdge color stripe. The body slot
+      // renders a vertically-centered logo + label lockup — different
+      // shape from agents/users on purpose, since providers are the
+      // identity targets of the flow.
       provider: {
         defaultWidth: 180,
         defaultHeight: 64,
@@ -408,26 +496,7 @@ export const canvasTheme: CanvasTheme = resolveTheme(
         type: "text",
         slots: {
           rightEdge: { kind: "color", extent: "full" },
-          topLeft: {
-            kind: "icon",
-            name: (ctx: SlotContext) =>
-              (ctx.node.customData?.icon as string) ?? "anthropic",
-            mode: (ctx: SlotContext) =>
-              PROVIDER_ICON_META[ctx.node.customData?.icon as string]?.mode ??
-              "fill",
-            viewBox: (ctx: SlotContext) =>
-              PROVIDER_ICON_META[ctx.node.customData?.icon as string]
-                ?.viewBox ?? 24,
-          },
-          header: {
-            kind: "text",
-            value: (ctx: SlotContext) =>
-              (ctx.node.customData?.name as string) ?? "",
-            fontSize: 13,
-            uppercase: false,
-            useLabelFont: false,
-            color: (ctx: SlotContext) => ctx.theme.node.labelColor,
-          },
+          body: { kind: "custom", render: renderProviderBody },
         },
       },
     },

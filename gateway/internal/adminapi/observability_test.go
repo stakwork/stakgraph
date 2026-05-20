@@ -346,6 +346,18 @@ func TestSpendByAgentUser(t *testing.T) {
 	if out.Results[1].AgentName != "web-search" || out.Results[1].UserID != "u_bob" {
 		t.Errorf("second row: %+v", out.Results[1])
 	}
+	// Provider breakdown — sampleLogs gives (coder, alice) two
+	// anthropic rows and (web-search, bob) one openai row.
+	if len(out.Results[0].Providers) != 1 ||
+		out.Results[0].Providers[0].Provider != "anthropic" ||
+		out.Results[0].Providers[0].RequestCount != 2 {
+		t.Errorf("coder/alice providers: %+v", out.Results[0].Providers)
+	}
+	if len(out.Results[1].Providers) != 1 ||
+		out.Results[1].Providers[0].Provider != "openai" ||
+		out.Results[1].Providers[0].RequestCount != 1 {
+		t.Errorf("web-search/bob providers: %+v", out.Results[1].Providers)
+	}
 }
 
 func TestSpendByAgentUser_FiltersUnattributed(t *testing.T) {

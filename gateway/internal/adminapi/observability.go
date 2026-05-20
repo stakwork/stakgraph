@@ -48,17 +48,34 @@ type SpendByUserResponse struct {
 	Results []UserSpend `json:"results"`
 }
 
+// ProviderSpend is the per-provider slice carried inside an
+// AgentUserSpend row. Lets the canvas drive gateway→provider edge
+// widths (and the provider drawer) from real spend without a second
+// round-trip — the data is already on every Bifrost log row, so
+// surfacing it costs only a second bucket in the same pass.
+type ProviderSpend struct {
+	Provider     string  `json:"provider"`
+	TotalCost    float64 `json:"total_cost"`
+	RequestCount int64   `json:"request_count"`
+}
+
 // AgentUserSpend is one row of /_plugin/spend/by-agent-user — the
 // fan-out crossing of (agent-name × user-id) so the flowchart UI can
 // render one box per pairing in a single round-trip. Rows missing
 // either dim are excluded (same policy as by-agent / by-user).
+//
+// `Providers` is the breakdown across providers for this pairing.
+// Sums of `Providers[*].TotalCost` and `Providers[*].RequestCount`
+// equal `TotalCost` and `RequestCount` — the breakdown is additive
+// to the top-line totals, not a replacement.
 type AgentUserSpend struct {
-	AgentName    string  `json:"agent_name"`
-	UserID       string  `json:"user_id"`
-	UserName     string  `json:"user_name"`
-	TotalCost    float64 `json:"total_cost"`
-	TotalTokens  int64   `json:"total_tokens"`
-	RequestCount int64   `json:"request_count"`
+	AgentName    string          `json:"agent_name"`
+	UserID       string          `json:"user_id"`
+	UserName     string          `json:"user_name"`
+	TotalCost    float64         `json:"total_cost"`
+	TotalTokens  int64           `json:"total_tokens"`
+	RequestCount int64           `json:"request_count"`
+	Providers    []ProviderSpend `json:"providers"`
 }
 
 // SpendByAgentUserResponse is the envelope for
@@ -392,13 +409,21 @@ func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.
 	// Compound-key bucket. Using "agent\x00user" as the map key
 	// avoids allocating a struct-keyed map (and any collision
 	// concern — \x00 is the one byte we know never appears in a
-	// metadata value).
+	// metadata value). `byProvider` is a sub-bucket keyed on the
+	// log row's `provider` column (anthropic/openai/...), so the
+	// per-pair breakdown comes out of the same single pass — no
+	// extra Bifrost calls.
+	type providerAgg struct {
+		cost  float64
+		count int64
+	}
 	type agg struct {
-		agent  string
-		user   string
-		cost   float64
-		tokens int64
-		count  int64
+		agent      string
+		user       string
+		cost       float64
+		tokens     int64
+		count      int64
+		byProvider map[string]*providerAgg
 	}
 	by := map[string]*agg{}
 	for _, l := range logs {
@@ -410,11 +435,30 @@ func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.
 		k := name + "\x00" + uid
 		a, ok := by[k]
 		if !ok {
-			a = &agg{agent: name, user: uid}
+			a = &agg{
+				agent:      name,
+				user:       uid,
+				byProvider: map[string]*providerAgg{},
+			}
 			by[k] = a
 		}
 		a.cost += l.Cost
 		a.count++
+		// Provider is recorded on every Bifrost log row; unattributed
+		// rows would skip the loop above before reaching here.
+		// Defensive: fall back to "unknown" so a missing provider
+		// can't silently drop request counts from the breakdown.
+		prov := l.Provider
+		if prov == "" {
+			prov = "unknown"
+		}
+		pa, ok := a.byProvider[prov]
+		if !ok {
+			pa = &providerAgg{}
+			a.byProvider[prov] = pa
+		}
+		pa.cost += l.Cost
+		pa.count++
 	}
 
 	out := SpendByAgentUserResponse{
@@ -422,6 +466,23 @@ func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.
 		Results: make([]AgentUserSpend, 0, len(by)),
 	}
 	for _, a := range by {
+		providers := make([]ProviderSpend, 0, len(a.byProvider))
+		for prov, pa := range a.byProvider {
+			providers = append(providers, ProviderSpend{
+				Provider:     prov,
+				TotalCost:    pa.cost,
+				RequestCount: pa.count,
+			})
+		}
+		// Deterministic order: cost desc, then provider name as a
+		// stable tiebreaker. Keeps the SPA's render order stable
+		// across refreshes so list animations don't reshuffle.
+		sort.Slice(providers, func(i, j int) bool {
+			if providers[i].TotalCost != providers[j].TotalCost {
+				return providers[i].TotalCost > providers[j].TotalCost
+			}
+			return providers[i].Provider < providers[j].Provider
+		})
 		out.Results = append(out.Results, AgentUserSpend{
 			AgentName:    a.agent,
 			UserID:       a.user,
@@ -429,6 +490,7 @@ func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.
 			TotalCost:    a.cost,
 			TotalTokens:  a.tokens,
 			RequestCount: a.count,
+			Providers:    providers,
 		})
 	}
 	sort.Slice(out.Results, func(i, j int) bool {

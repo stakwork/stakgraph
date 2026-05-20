@@ -42,7 +42,7 @@ export function Topbar({ sidebarCollapsed, onExpandSidebar }: TopbarProps) {
              *  "this is the gateway; click chevron to bring nav back." */}
             <div class="brand brand-inline">
               <span class="brand-dot" />
-              <span class="brand-label">Agent Gateway</span>
+              <span class="brand-label">Agent Mothership</span>
             </div>
             <button
               type="button"

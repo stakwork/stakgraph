@@ -52,10 +52,12 @@ const fmtUSD = (v: number) => {
 const fmtInt = (v: number) =>
   new Intl.NumberFormat("en-US").format(Math.round(v));
 
-// Hardcoded provider list — phase 1. Mirrors the env keys in
-// gateway/docker-compose.yml (ANTHROPIC_API_KEY etc). When the
-// matrix endpoint grows a provider axis, drive this from data.
-const PROVIDERS = ["anthropic", "openai", "openrouter", "google"];
+// Hardcoded provider list — these ids match Bifrost's `provider`
+// column on every log row (`gateway/data/config.json`'s `providers`
+// map), so the per-provider rollup from the matrix endpoint
+// dispatches against `customData.icon` cleanly. The order here is
+// the vertical render order in the providers column.
+const PROVIDERS = ["anthropic", "openai", "openrouter", "gemini"];
 
 // Column x-coordinates (canvas-space, centered around 0). Spacing
 // picked so even the widest columns (gateway 220) don't touch their
@@ -97,6 +99,15 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
     { totalCost: number; requestCount: number; userName: string }
   >();
   let swarmTotal = 0;
+  // Per-provider roll-up across all (agent, user) pairs. The matrix
+  // endpoint hands us one `providers[]` per row already aggregated by
+  // (agent, user, provider); we just fan them up to the gateway-wide
+  // band so we can size the gateway→provider edges and feed each
+  // provider card its real spend.
+  const providerTotals = new Map<
+    string,
+    { totalCost: number; requestCount: number }
+  >();
   for (const r of rows) {
     swarmTotal += r.total_cost;
     const u = userTotals.get(r.user_id);
@@ -109,6 +120,18 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
         requestCount: r.request_count,
         userName: r.user_name || r.user_id,
       });
+    }
+    for (const p of r.providers ?? []) {
+      const existing = providerTotals.get(p.provider);
+      if (existing) {
+        existing.totalCost += p.total_cost;
+        existing.requestCount += p.request_count;
+      } else {
+        providerTotals.set(p.provider, {
+          totalCost: p.total_cost,
+          requestCount: p.request_count,
+        });
+      }
     }
   }
 
@@ -169,7 +192,7 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
     id: "gateway",
     type: "text",
     category: "gateway",
-    text: "Agent Gateway", // suppressed by the `body` slot, but
+    text: "Agent Mothership", // suppressed by the `body` slot, but
                            // kept so screen readers + DOM
                            // inspectors still see a label.
     x: COL_X.gateway,
@@ -184,10 +207,12 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
   //   + rightEdge stripe inheritance).
   // - `node.text = ""` because the provider name flows through the
   //   header text slot (customData.name).
-  // - `display.label` decouples env id (`google`) from brand name
-  //   ("Gemini").
+  // - `customData.totalCost` / `requestCount` come from the
+  //   provider-rollup we computed above; consumed by the provider
+  //   drawer and any future provider-card slot.
   PROVIDERS.forEach((id, i) => {
     const display = PROVIDER_DISPLAY[id];
+    const totals = providerTotals.get(id);
     nodes.push({
       id: `provider:${id}`,
       type: "text",
@@ -198,7 +223,12 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
       width: SIZE.provider.w,
       height: SIZE.provider.h,
       color: display?.color,
-      customData: { name: display?.label ?? id, icon: providerIcon(id) },
+      customData: {
+        name: display?.label ?? id,
+        icon: providerIcon(id),
+        totalCost: totals?.totalCost ?? 0,
+        requestCount: totals?.requestCount ?? 0,
+      },
     });
   });
 
@@ -207,8 +237,8 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
   // matches the columns:
   //   1. agent → user (one per pairing row)
   //   2. user  → gateway (one per distinct user)
-  //   3. gateway → provider (one per provider — uniform weight, no
-  //      per-provider spend yet)
+  //   3. gateway → provider (one per provider, weighted by that
+  //      provider's swarm-wide spend)
   // fromSide/toSide pin the endpoints to the column-facing edges so
   // the routing doesn't loop around the node bodies.
   //
@@ -222,6 +252,10 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
   const maxRowCost = rows.reduce((m, r) => Math.max(m, r.total_cost), 0);
   const maxUserCost = Array.from(userTotals.values()).reduce(
     (m, u) => Math.max(m, u.totalCost),
+    0,
+  );
+  const maxProviderCost = Array.from(providerTotals.values()).reduce(
+    (m, p) => Math.max(m, p.totalCost),
     0,
   );
   rows.forEach((r) => {
@@ -247,6 +281,7 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
     });
   });
   PROVIDERS.forEach((id) => {
+    const cost = providerTotals.get(id)?.totalCost ?? 0;
     edges.push({
       id: `e:gateway-provider:${id}`,
       fromNode: "gateway",
@@ -254,6 +289,7 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
       toNode: `provider:${id}`,
       toSide: "left",
       toEnd: "none",
+      strokeWidth: weightToWidth(cost, maxProviderCost),
     });
   });
 
@@ -374,7 +410,7 @@ function drawerEyebrow(node: CanvasNode): string {
 
 function drawerTitle(node: CanvasNode): string {
   const cd = (node.customData ?? {}) as { name?: string };
-  return cd.name ?? "Agent Gateway";
+  return cd.name ?? "Agent Mothership";
 }
 
 function NodeDrawerBody({
@@ -392,7 +428,7 @@ function NodeDrawerBody({
     case "gateway":
       return <GatewayBody node={node} rows={rows} />;
     case "provider":
-      return <ProviderBody node={node} />;
+      return <ProviderBody node={node} rows={rows} />;
     default:
       return null;
   }
@@ -581,28 +617,73 @@ function GatewayBody({
           { label: "Active agents", value: fmtInt(agentCount) },
         ]}
       />
-      <div class="drawer-section text-dim">
-        Gateway is the swarm hub — no actions on this node. Drill into
-        a user or an agent to manage access.
-      </div>
     </>
   );
 }
 
-function ProviderBody({ node }: { node: CanvasNode }) {
-  const cd = (node.customData ?? {}) as { name?: string };
+function ProviderBody({
+  node,
+  rows,
+}: {
+  node: CanvasNode;
+  rows: AgentUserSpend[];
+}) {
+  const cd = (node.customData ?? {}) as {
+    name?: string;
+    totalCost?: number;
+    requestCount?: number;
+  };
   const providerID = node.id.slice("provider:".length);
+
+  // Top spenders for this provider — flatten the matrix to
+  // (agent, user, providerSlice) tuples, keep only ones touching
+  // this provider, sort by cost. Bounded to the matrix's 200k-row
+  // ceiling, so this is cheap even for busy swarms.
+  type TopRow = { agent: string; user: string; cost: number; calls: number };
+  const topPairs: TopRow[] = [];
+  for (const r of rows) {
+    for (const p of r.providers ?? []) {
+      if (p.provider !== providerID) continue;
+      topPairs.push({
+        agent: r.agent_name,
+        user: r.user_name || r.user_id,
+        cost: p.total_cost,
+        calls: p.request_count,
+      });
+    }
+  }
+  topPairs.sort((a, b) => b.cost - a.cost);
+
   return (
     <>
       <MetaGrid
         items={[
           { label: "Provider", value: cd.name ?? providerID },
           { label: "Provider ID", value: providerID },
+          { label: "Total spend", value: fmtUSD(cd.totalCost ?? 0) },
+          { label: "Calls", value: fmtInt(cd.requestCount ?? 0) },
         ]}
       />
-      <div class="drawer-section text-dim">
-        Per-provider spend lands once the matrix endpoint grows a
-        provider dimension.
+      <div class="drawer-section">
+        <div class="drawer-section-title">Top agent × user pairs</div>
+        {topPairs.length === 0 ? (
+          <div class="text-dim">No activity for this provider in this window.</div>
+        ) : (
+          <ul style="margin: 0; padding: 0; list-style: none;">
+            {topPairs.slice(0, 8).map((p) => (
+              <li
+                key={`${p.agent}\x00${p.user}`}
+                style="display: flex; justify-content: space-between; padding: var(--sp-2) 0; border-bottom: 1px solid var(--border);"
+              >
+                <span>
+                  {p.agent}
+                  <span class="text-dim"> · {p.user}</span>
+                </span>
+                <span class="mono text-dim">{fmtUSD(p.cost)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <div class="drawer-section">
         <div class="drawer-section-title">Actions</div>
