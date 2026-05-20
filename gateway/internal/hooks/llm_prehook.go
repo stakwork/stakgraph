@@ -73,6 +73,7 @@ func LLMPre(
 			claims.UserID,
 			claims.AgentName,
 			claims.Realm,
+			claims.OrgID,
 		)
 	}
 

@@ -63,9 +63,10 @@
         "log_level": "info",
         "enforce_macaroons": false,
         "agent_budgets": {
-          "coder":          { "cap_usd": 0.05, "window": "1d" },
-          "web-search":     { "cap_usd": 0.01, "window": "1h" },
-          "review-changes": { "cap_usd": 0.02, "window": "1d" }
+          "coder-agent": { "cap_usd": 100, "window": "1d" },
+          "plan-agent": { "cap_usd": 100, "window": "1h" },
+          "chat-agent": { "cap_usd": 100, "window": "1d" },
+          "canvas-agent": { "cap_usd": 100, "window": "1d" }
         }
       }
     }

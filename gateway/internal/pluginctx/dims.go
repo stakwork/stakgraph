@@ -25,6 +25,14 @@ const (
 	DimAgentName = "agent-name"
 	DimRealmID   = "realm-id"
 	DimUserID    = "user-id"
+	// DimOrgID is the id of the org that signed off on the
+	// invocation's user_authorization envelope. Surfaced on the
+	// dashboard's Provenance card so an operator can confirm
+	// "alice's call was authorized by org_acme, which is in our
+	// trust registry." See phase-4-macaroon-shape.md for the
+	// signing model and phase-5-trust-registry.md for how the
+	// org_id is resolved.
+	DimOrgID = "org-id"
 )
 
 // reservedDimNames are derived by Bifrost from the request itself, so
@@ -100,6 +108,7 @@ var signatureBoundDims = [...]string{
 	DimUserID,
 	DimAgentName,
 	DimRealmID,
+	DimOrgID,
 }
 
 // CanonicalizeFromClaims rewrites the signature-bound dims in BOTH our
@@ -127,7 +136,7 @@ var signatureBoundDims = [...]string{
 // Idempotent: re-calling with the same claims is a no-op.
 func CanonicalizeFromClaims(
 	ctx *schemas.BifrostContext,
-	runID, userID, agentName, realmID string,
+	runID, userID, agentName, realmID, orgID string,
 ) {
 	local := Dims(ctx) // never nil
 	// Bifrost's map may not exist yet (transport hook fires before
@@ -136,7 +145,7 @@ func CanonicalizeFromClaims(
 	// our values when it eventually reads.
 	bf, _ := ctx.Value(schemas.BifrostContextKeyDimensions).(map[string]string)
 	if bf == nil {
-		bf = make(map[string]string, 4)
+		bf = make(map[string]string, 5)
 	}
 
 	overwrite := func(key, val string) {
@@ -150,6 +159,7 @@ func CanonicalizeFromClaims(
 	overwrite(DimUserID, userID)
 	overwrite(DimAgentName, agentName)
 	overwrite(DimRealmID, realmID)
+	overwrite(DimOrgID, orgID)
 
 	ctx.SetValue(keyDimensions, local)
 	ctx.SetValue(schemas.BifrostContextKeyDimensions, bf)

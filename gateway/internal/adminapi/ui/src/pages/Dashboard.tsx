@@ -148,7 +148,11 @@ export function Dashboard() {
                 {
                   key: "user",
                   header: "User",
-                  cell: (r) => <span class="mono">{r.user_name || r.user_id}</span>,
+                  cell: (r) => (
+                    <Link href={`/people/${encodeURIComponent(r.user_id)}`}>
+                      <span class="mono">{r.user_name || r.user_id}</span>
+                    </Link>
+                  ),
                   sort: (r) => r.user_id,
                 },
                 {

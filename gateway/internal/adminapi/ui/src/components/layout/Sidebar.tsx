@@ -1,9 +1,14 @@
 import { Link, useLocation } from "wouter-preact";
 
-// Sidebar nav. Phase 8 only has Dashboard + Agents; phase 9 grows
-// Users, Sessions, Config — each is just another row here.
+// Sidebar nav. Phase 8 has Dashboard + People + Agents; phase 9
+// grows Sessions and Config — each is just another row here.
+//
+// People above Agents reflects the organising principle of the
+// governance plan: "every LLM call traces to a specific human."
+// The humans-first axis is the primary one; agents are tools.
 const NAV: { to: string; label: string }[] = [
   { to: "/", label: "Dashboard" },
+  { to: "/people", label: "People" },
   { to: "/agents", label: "Agents" },
 ];
 

@@ -97,7 +97,10 @@ func TestBudget_WithoutCap_SurfacesDaySpend(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/_plugin/agents/nobudget/budget", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)
-	resp, _ := srv.Client().Do(req)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var got AgentBudgetResponse
 	_ = json.NewDecoder(resp.Body).Decode(&got)
@@ -125,7 +128,10 @@ func TestBudget_HourlyWindow(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/_plugin/agents/web-search/budget", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)
-	resp, _ := srv.Client().Do(req)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var got AgentBudgetResponse
 	_ = json.NewDecoder(resp.Body).Decode(&got)

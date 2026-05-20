@@ -20,7 +20,9 @@ import { Agents } from "./pages/Agents";
 import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
 import { NotFound } from "./pages/NotFound";
+import { People } from "./pages/People";
 import { RunDetail } from "./pages/RunDetail";
+import { UserDetail } from "./pages/UserDetail";
 
 // Wouter mounts client-side routes relative to <Router base="…"/>.
 // All SPA paths live under /_plugin/ui — matches the Vite `base`
@@ -90,6 +92,18 @@ function AppShell() {
         <Route path="/agents">
           <Shell>
             <Agents />
+          </Shell>
+        </Route>
+        <Route path="/people/:id">
+          {(params) => (
+            <Shell>
+              <UserDetail userID={params.id} />
+            </Shell>
+          )}
+        </Route>
+        <Route path="/people">
+          <Shell>
+            <People />
           </Shell>
         </Route>
         <Route path="/">

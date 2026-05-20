@@ -8,9 +8,10 @@
 import { Link } from "wouter-preact";
 
 import { DataTable } from "../components/tables/DataTable";
+import { BotIcon, UserIcon } from "../components/icons";
 import { getErrorMessage } from "../api/client";
-import { useRunDetail } from "../api/queries";
-import type { RunLogEntry } from "../api/types";
+import { useRunDetail, useTrustOrg } from "../api/queries";
+import type { RunLogEntry, TrustOrg } from "../api/types";
 
 interface Props {
   runID: string;
@@ -75,6 +76,12 @@ export function RunDetail({ runID }: Props) {
   const realm = md["realm-id"] ?? "—";
   const session = md["session-id"] ?? "";
   const deployment = md["deployment"] ?? "";
+  const orgID = md["org-id"] ?? "";
+
+  // Lookup the org in the trust registry. `data === null` is a
+  // meaningful state (org_id present but not in registry → render
+  // "not in registry" badge); `undefined` is in-flight.
+  const trust = useTrustOrg(orgID || undefined);
 
   return (
     <>
@@ -119,14 +126,36 @@ export function RunDetail({ runID }: Props) {
                   from logs.metadata
                 </div>
               </div>
+
+              {/* Top section: which org's signature authorized
+                  this run. Cross-references the trust registry
+                  to surface pubkey + issuer + a verification
+                  badge. Hidden when the run carries no org-id
+                  dim (pre-phase-6 traffic without macaroon). */}
+              {orgID ? (
+                <AuthorizedBy orgID={orgID} trust={trust.data} loading={trust.isLoading} />
+              ) : null}
+
               <dl class="kvgrid">
-                <ProvField label="Agent">
-                  <Link href={`/agents/${encodeURIComponent(agent)}`}>
-                    <span class="mono">{agent}</span>
-                  </Link>
-                </ProvField>
+                {/* Order: User → Agent → Workspace. Human first,
+                    then the tool the human pointed at it, then
+                    the workspace context. The icons are
+                    decorative + a quick visual anchor for skimming. */}
                 <ProvField label="User">
-                  <span class="mono">{user}</span>
+                  <span class="prov-with-icon">
+                    <UserIcon class="prov-icon" />
+                    <Link href={`/people/${encodeURIComponent(user)}`}>
+                      <span class="mono">{user}</span>
+                    </Link>
+                  </span>
+                </ProvField>
+                <ProvField label="Agent">
+                  <span class="prov-with-icon">
+                    <BotIcon class="prov-icon" />
+                    <Link href={`/agents/${encodeURIComponent(agent)}`}>
+                      <span class="mono">{agent}</span>
+                    </Link>
+                  </span>
                 </ProvField>
                 <ProvField label="Workspace">
                   <span class="mono">{realm}</span>
@@ -252,5 +281,92 @@ function ProvField({
       <dt class="kvgrid-key">{label}</dt>
       <dd class="kvgrid-val">{children}</dd>
     </>
+  );
+}
+
+// AuthorizedBy is the "this run was signed off by org X" banner at
+// the top of the Provenance card. Three visual states:
+//
+//   - loading: skeleton placeholder
+//   - found:   green ✓ badge + pubkey + issuer URL
+//   - missing: amber ⚠ badge "Not in trust registry"
+//
+// The badge color is the operator's signal that the verifier
+// would (or wouldn't) accept this org's signatures. Pre-phase-6
+// the dim is caller-stamped, so "in registry" doesn't yet mean
+// "cryptographically verified" — it just means "the operator
+// has added this org to the local trust set." When phase 6 lands,
+// the same UI accurately reflects the verification chain.
+function AuthorizedBy({
+  orgID,
+  trust,
+  loading,
+}: {
+  orgID: string;
+  trust: TrustOrg | null | undefined;
+  loading: boolean;
+}) {
+  const fmtKey = (k: string) =>
+    k.length > 16 ? k.slice(0, 8) + "…" + k.slice(-6) : k;
+
+  if (loading) {
+    return (
+      <div class="authorized-by is-loading">
+        <div class="authorized-by-head">
+          <span class="authorized-by-label">Authorized by</span>
+          <span class="mono">{orgID}</span>
+        </div>
+        <div class="text-dim">Checking trust registry…</div>
+      </div>
+    );
+  }
+  if (!trust) {
+    return (
+      <div class="authorized-by tone-warning">
+        <div class="authorized-by-head">
+          <span class="authorized-by-label">Authorized by</span>
+          <span class="mono">{orgID}</span>
+          <span class="badge badge-warning">⚠ Not in trust registry</span>
+        </div>
+        <div class="text-dim" style="font-size: 12px">
+          The plugin has no public key on file for this org.
+          Signatures from it would fail verification.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div class="authorized-by tone-ok">
+      <div class="authorized-by-head">
+        <span class="authorized-by-label">Authorized by</span>
+        <span class="mono">{trust.org_id}</span>
+        <span class="badge badge-ok">✓ Trusted</span>
+      </div>
+      <dl class="authorized-by-grid">
+        <dt>Pubkey</dt>
+        <dd class="mono" title={trust.pubkey}>
+          {fmtKey(trust.pubkey)}
+        </dd>
+        {trust.issuer_url ? (
+          <>
+            <dt>Issuer</dt>
+            <dd class="mono">
+              <a href={trust.issuer_url} target="_blank" rel="noreferrer">
+                {trust.issuer_url}
+              </a>
+            </dd>
+          </>
+        ) : null}
+        {trust.grace_pubkeys && trust.grace_pubkeys.length > 0 ? (
+          <>
+            <dt>Grace</dt>
+            <dd class="mono text-dim">
+              {trust.grace_pubkeys.length} key(s){" "}
+              {trust.grace_until ? "until " + trust.grace_until : ""}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </div>
   );
 }

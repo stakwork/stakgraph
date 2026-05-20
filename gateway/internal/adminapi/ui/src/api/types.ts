@@ -88,6 +88,50 @@ export interface RunDetailResponse {
   stats: RunStats;
 }
 
+// One row of UserDetailResponse.AgentsUsed — which agents the user
+// invoked in the window, and how much each cost.
+export interface UserAgentUsage {
+  agent_name: string;
+  total_cost: number;
+  request_count: number;
+  last_seen?: string;
+}
+
+// One row of UserDetailResponse.RecentRuns — links into RunDetail.
+export interface UserRunSummary {
+  run_id: string;
+  agent_name: string;
+  total_cost: number;
+  request_count: number;
+  first_seen?: string;
+  last_seen?: string;
+}
+
+// /_plugin/users/:id response.
+export interface UserDetailResponse {
+  user_id: string;
+  window: string;
+  total_cost: number;
+  request_count: number;
+  agents_used: UserAgentUsage[];
+  recent_runs: UserRunSummary[];
+  first_seen?: string;
+  last_seen?: string;
+}
+
+// Trust-registry Org entry — mirrors gateway/internal/trust.Org.
+// Surfaced on the dashboard's Provenance card so an operator can
+// see which org's signature authorized a run, plus the pubkey /
+// issuer URL the plugin would verify against.
+export interface TrustOrg {
+  org_id: string;
+  pubkey: string;
+  issuer_url: string;
+  revocation_poll_seconds: number;
+  grace_pubkeys?: string[];
+  grace_until?: string;
+}
+
 // Per-agent budget (phase-8.5). Cap and the derived fields can be
 // null when no budget is configured for the agent — the UI renders
 // "no budget" rather than "$0".
