@@ -47,6 +47,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -54,6 +55,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -64,6 +66,17 @@ const (
 	// public traffic. 8181 matches Hive's DEFAULT_BIFROST_PORT and the
 	// historical port the MCP tests / smoke scripts hit.
 	defaultPublicAddr = ":8181"
+
+	// configSeedPath is where the Dockerfile drops the image's copy of
+	// config.json. The wrapper syncs it into appDir/config.json on
+	// every boot so a redeployed image's config wins over the named
+	// volume's stale copy. See syncSeedConfig.
+	configSeedPath = "/app/config.json.seed"
+
+	// defaultAppDir matches the value passed to bifrost-http via
+	// defaultBifrostArgs. Bifrost expects config.json to live in
+	// -app-dir alongside config.db / logs.db.
+	defaultAppDir = "/app/data"
 
 	// bifrostUpstream is where bifrost-http is configured to listen
 	// (loopback only — see Dockerfile's CMD). The wrapper proxies
@@ -119,6 +132,19 @@ func main() {
 	}
 
 	logger := log.New(os.Stderr, "[wrapper] ", log.LstdFlags|log.LUTC)
+
+	// Materialise config.json from the image's seed file into the
+	// app-dir volume before starting bifrost-http. Without this, a
+	// previously-populated volume keeps shadowing the image's
+	// config.json, so deploying a new image silently ships with the
+	// old config.
+	appDir := appDirFromArgs(bifrostArgs)
+	if err := syncSeedConfig(logger, configSeedPath, appDir); err != nil {
+		// Non-fatal: if the seed is missing (dev builds) or unwritable,
+		// fall through to whatever's already in the volume. Log loudly
+		// so the failure is visible in container logs.
+		logger.Printf("WARNING: failed to sync config.json from seed: %v", err)
+	}
 
 	// Start bifrost-http. The cancelable context is what we use to
 	// terminate it cleanly on shutdown.
@@ -232,12 +258,164 @@ func main() {
 // loopback only; the wrapper is the only public listener.
 func defaultBifrostArgs() []string {
 	return []string{
-		"-app-dir", "/app/data",
+		"-app-dir", defaultAppDir,
 		"-host", "127.0.0.1",
 		"-port", "8080",
 		"-log-level", "info",
 		"-log-style", "pretty",
 	}
+}
+
+// appDirFromArgs extracts the value of -app-dir from the bifrost-http
+// argv we're about to use, so syncSeedConfig writes to the same place
+// bifrost will read from. Falls back to defaultAppDir when -app-dir
+// isn't specified (which matches bifrost-http's own behaviour when
+// our defaults are in use).
+func appDirFromArgs(args []string) string {
+	for i, a := range args {
+		switch {
+		case a == "-app-dir" || a == "--app-dir":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		case strings.HasPrefix(a, "-app-dir="):
+			return strings.TrimPrefix(a, "-app-dir=")
+		case strings.HasPrefix(a, "--app-dir="):
+			return strings.TrimPrefix(a, "--app-dir=")
+		}
+	}
+	return defaultAppDir
+}
+
+// syncSeedConfig copies the image-baked config.json seed into the
+// app-dir volume, replacing any stale copy left there by a previous
+// image. Idempotent and safe to run on every boot.
+//
+// Why this exists
+// ---------------
+// /app/data is a docker named volume (and a PVC under k8s). Docker
+// only seeds a volume from the image's contents on FIRST attach to
+// an empty volume; subsequent images get shadowed by whatever the
+// volume already contains. So shipping config.json via
+// `COPY data/config.json /app/data/config.json` in the Dockerfile is
+// a write-once operation — updates never make it to prod.
+//
+// The fix: ship the file outside the volume (configSeedPath) and
+// have the wrapper unconditionally copy it into appDir on boot. This
+// gives "new image always wins" semantics for the static parts of
+// config (plugins block, auth_config, client flags, provider
+// definitions on first boot). Bifrost's config_store still owns
+// runtime-mutable state (VKs, customers, budgets) in config.db, which
+// IS in the volume and persists correctly across recreates.
+//
+// Failure modes
+// -------------
+// Missing seed file → log and return nil; dev builds and the upstream
+// bifrost image won't have it. Bifrost will start with whatever's in
+// the volume (possibly nothing, in which case it auto-bootstraps).
+//
+// Existing target unreadable / unwritable → log and return the error
+// so the caller can warn. We don't block startup on this.
+func syncSeedConfig(logger *log.Logger, seedPath, appDir string) error {
+	srcInfo, err := os.Stat(seedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Printf("no config seed at %s, skipping sync", seedPath)
+			return nil
+		}
+		return fmt.Errorf("stat seed: %w", err)
+	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("seed %s is not a regular file", seedPath)
+	}
+
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		return fmt.Errorf("create app-dir %s: %w", appDir, err)
+	}
+
+	dstPath := filepath.Join(appDir, "config.json")
+
+	// Skip the write when source and destination are byte-identical
+	// to avoid bumping mtime on every boot (which would mask "did the
+	// new image actually deploy" debugging by always showing a recent
+	// mtime).
+	if same, err := filesEqual(seedPath, dstPath); err == nil && same {
+		logger.Printf("config.json already in sync with seed at %s", dstPath)
+		return nil
+	}
+
+	// Write via temp file + rename for atomicity. A torn write here
+	// would leave Bifrost trying to parse half a JSON file on the
+	// next boot.
+	tmpPath := dstPath + ".tmp"
+	src, err := os.Open(seedPath)
+	if err != nil {
+		return fmt.Errorf("open seed: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("create temp %s: %w", tmpPath, err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("copy seed -> temp: %w", err)
+	}
+	if err := dst.Sync(); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("fsync temp: %w", err)
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, dstPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("rename temp -> %s: %w", dstPath, err)
+	}
+	logger.Printf("synced config.json from seed (%d bytes) -> %s", srcInfo.Size(), dstPath)
+	return nil
+}
+
+// filesEqual compares two files by content. Returns (false, nil) if
+// either file is missing or differs in size; surfaces other I/O
+// errors. Used to no-op syncSeedConfig when the volume copy already
+// matches the seed.
+func filesEqual(a, b string) (bool, error) {
+	aInfo, err := os.Stat(a)
+	if err != nil {
+		return false, err
+	}
+	bInfo, err := os.Stat(b)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if aInfo.Size() != bInfo.Size() {
+		return false, nil
+	}
+	aData, err := os.ReadFile(a)
+	if err != nil {
+		return false, err
+	}
+	bData, err := os.ReadFile(b)
+	if err != nil {
+		return false, err
+	}
+	if len(aData) != len(bData) {
+		return false, nil
+	}
+	for i := range aData {
+		if aData[i] != bData[i] {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // newProxy builds the public HTTP handler. Routes `/_plugin/*` to the

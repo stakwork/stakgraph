@@ -185,12 +185,24 @@ COPY --from=builder         /out/stakgraph-gateway.so     /app/plugins/stakgraph
 COPY --from=builder         /src/BIFROST_COMMIT           /app/BIFROST_COMMIT
 COPY --from=wrapper-builder /out/wrapper                  /app/wrapper
 
-# Seed config.json into the image. Bifrost reads it on first boot to populate
-# config.db; subsequent boots ignore it. Baking it into the image (rather than
-# bind-mounting from the host) lets us use a docker-managed named volume for
-# /app/data, which avoids macOS virtiofs + SQLite WAL flush issues that
-# silently drop log rows. See plans/bifrost-log-drop-debug.md.
-COPY data/config.json                                     /app/data/config.json
+# Ship config.json as a SEED file outside the /app/data volume. The wrapper
+# (see wrapper/main.go syncSeedConfig) copies it into /app/data/config.json on
+# every container start, so a new image always wins over the volume's stale
+# copy.
+#
+# Why not COPY directly to /app/data/config.json: that path is a named volume
+# in docker-compose / swarm. Docker only copies image contents into a volume
+# the first time the volume is empty; subsequent images get shadowed by the
+# volume's existing files. Net effect: deploying a new image with an updated
+# config.json had no effect on the running config, because the volume held the
+# old version. See plans/bifrost-log-drop-debug.md for the broader storage
+# investigation and the LLM governance docs for the original incident
+# (config_store path was relative -> resolved to /app/config.db inside the
+# writable layer -> VKs wiped on every container recreate).
+#
+# Bifrost itself still requires config.json to live in -app-dir (alongside
+# config.db / logs.db), so the wrapper materialises it there on boot.
+COPY data/config.json                                     /app/config.json.seed
 
 # Data dir is where bifrost reads config.json and writes config.db / logs.db.
 # Mount it as a named volume in docker-compose to persist across restarts.
