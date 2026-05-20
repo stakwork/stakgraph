@@ -2,8 +2,16 @@ import { useLocation } from "wouter-preact";
 
 import { apiPost, UnauthorizedError } from "../../api/client";
 import { useMe } from "../../api/queries";
+import { ChevronRightIcon } from "../icons";
 
-export function Topbar() {
+interface TopbarProps {
+  /** True ⇒ render the expand button on the left so the user has a
+   *  way to bring the sidebar back. Owned by Shell. */
+  sidebarCollapsed?: boolean;
+  onExpandSidebar?: () => void;
+}
+
+export function Topbar({ sidebarCollapsed, onExpandSidebar }: TopbarProps) {
   const me = useMe();
   const [, setLocation] = useLocation();
 
@@ -25,8 +33,32 @@ export function Topbar() {
   const user = me.data?.user;
   return (
     <header class="shell-topbar">
-      <div class="text-muted mono" style="font-size: 12px">
-        {/* Reserved for future breadcrumbs / time-window picker. */}
+      <div style="display:flex;align-items:center;gap:12px">
+        {sidebarCollapsed && onExpandSidebar ? (
+          <>
+            {/* When collapsed, the topbar absorbs the brand from the
+             *  (now-hidden) sidebar so the product name stays visible.
+             *  Expand button sits to its right so the affordance reads
+             *  "this is the gateway; click chevron to bring nav back." */}
+            <div class="brand brand-inline">
+              <span class="brand-dot" />
+              <span class="brand-label">Agent Mothership</span>
+            </div>
+            <button
+              type="button"
+              class="sidebar-toggle"
+              onClick={onExpandSidebar}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <ChevronRightIcon />
+            </button>
+          </>
+        ) : (
+          <div class="text-muted mono" style="font-size: 12px">
+            {/* Reserved for future breadcrumbs / time-window picker. */}
+          </div>
+        )}
       </div>
       <div style="display:flex;align-items:center;gap:16px">
         {user ? (

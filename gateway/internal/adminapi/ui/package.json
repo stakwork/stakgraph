@@ -15,6 +15,8 @@
     "@preact/signals": "^2.0.2",
     "@tanstack/react-query": "^5.62.0",
     "preact": "^10.25.0",
+    "system-canvas": "^0.1.19",
+    "system-canvas-react": "^0.1.25",
     "uplot": "^1.6.31",
     "wouter": "^3.4.2",
     "wouter-preact": "^3.4.2"

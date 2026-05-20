@@ -13,6 +13,7 @@ import type {
   MeResponse,
   RunDetailResponse,
   SpendByAgentResponse,
+  SpendByAgentUserResponse,
   SpendByUserResponse,
   TrustOrg,
   UserDetailResponse,
@@ -49,6 +50,24 @@ export function useSpendByAgent(window: Window, userID?: string) {
     queryKey: ["spend", "by-agent", window, userID ?? ""],
     queryFn: () =>
       apiFetch<SpendByAgentResponse>(`/spend/by-agent?${params.toString()}`),
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+}
+
+// ─── /spend/by-agent-user ───────────────────────────────────────────
+//
+// Single-pass (agent × user) crossing for the Canvas page. One
+// round-trip replaces N parallel by-agent?user_id=… calls. 30s poll
+// mirrors the other rollups so all three feel synchronized.
+
+export function useSpendByAgentUser(window: Window) {
+  return useQuery({
+    queryKey: ["spend", "by-agent-user", window],
+    queryFn: () =>
+      apiFetch<SpendByAgentUserResponse>(
+        `/spend/by-agent-user?window=${encodeURIComponent(window)}`
+      ),
     refetchInterval: 30_000,
     staleTime: 10_000,
   });

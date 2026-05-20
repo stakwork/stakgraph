@@ -17,6 +17,7 @@ import { UnauthorizedError } from "./api/client";
 import { Shell } from "./components/layout/Shell";
 import { AgentDetail } from "./pages/AgentDetail";
 import { Agents } from "./pages/Agents";
+import { Canvas } from "./pages/Canvas";
 import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
 import { NotFound } from "./pages/NotFound";
@@ -106,9 +107,14 @@ function AppShell() {
             <People />
           </Shell>
         </Route>
-        <Route path="/">
+        <Route path="/dashboard">
           <Shell>
             <Dashboard />
+          </Shell>
+        </Route>
+        <Route path="/">
+          <Shell>
+            <Canvas />
           </Shell>
         </Route>
         <Route>

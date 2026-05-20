@@ -23,7 +23,10 @@
        vite.config.ts and tell tsc the same thing here. */
     "paths": {
       "react": ["./node_modules/preact/compat/"],
-      "react-dom": ["./node_modules/preact/compat/"]
+      "react-dom": ["./node_modules/preact/compat/"],
+      "react/jsx-runtime": ["./node_modules/preact/compat/jsx-runtime"],
+      "react/jsx-dev-runtime": ["./node_modules/preact/compat/jsx-dev-runtime"],
+      "react-dom/client": ["./node_modules/preact/compat/client"]
     },
 
     /* Linting. */

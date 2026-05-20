@@ -49,6 +49,37 @@ export interface SpendByUserResponse {
   results: UserSpend[];
 }
 
+// Per-provider slice inside an AgentUserSpend row. Lets the canvas
+// drive gateway→provider edge widths from real spend; same Bifrost
+// call that computes the (agent × user) rollup also fills these,
+// so no extra round-trips.
+export interface ProviderSpend {
+  provider: string;
+  total_cost: number;
+  request_count: number;
+}
+
+// One row of /_plugin/spend/by-agent-user — the (agent × user) fan-out
+// the Canvas page uses to render one box per pairing without N round
+// trips. Rows missing either dim are excluded server-side.
+//
+// `providers` sums to `total_cost` / `request_count` and is sorted by
+// cost desc, with provider name as a stable tiebreaker.
+export interface AgentUserSpend {
+  agent_name: string;
+  user_id: string;
+  user_name: string;
+  total_cost: number;
+  total_tokens: number;
+  request_count: number;
+  providers: ProviderSpend[];
+}
+
+export interface SpendByAgentUserResponse {
+  window: string;
+  results: AgentUserSpend[];
+}
+
 export interface HistogramPoint {
   ts: string;
   cost: number;
