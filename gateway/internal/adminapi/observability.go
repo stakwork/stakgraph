@@ -189,12 +189,28 @@ func (h *observabilityHandlers) spendByAgent(w http.ResponseWriter, r *http.Requ
 
 // ─── /_plugin/spend/by-user ──────────────────────────────────────────
 //
-// `customer_id` is a first-class indexed column on Bifrost's logs
-// table (v2 invariant: customer_id = user_id). We could call
-// Bifrost's rankings endpoint, but it adds a "trends" calculation
-// against the previous window that complicates the shape and is
-// phase-9's job. Phase 8 just sums per-user from the same paged
-// row scan we already do for by-agent.
+// Identity source-of-truth
+// ------------------------
+// We aggregate by `metadata["user-id"]` only, NOT by the indexed
+// `customer_id` column. Two reasons:
+//
+//  1. The v2 invariant `customer_id = user_id` holds in theory, but
+//     `customer_id` is populated from the virtual key (whatever Hive
+//     issued), which for production traffic is a Hive UUID — not the
+//     human-readable identifier callers stamp on `x-bf-dim-user-id`.
+//     Mixing the two confuses the dashboard (UUID rows in the list,
+//     username rows on RunDetail) and breaks click-through (clicking
+//     a UUID queries by username and gets empty).
+//
+//  2. Post-phase-6 `metadata.user-id` is overwritten from the
+//     verified macaroon claim, so it becomes the cryptographically
+//     attested identity. Treating it as authoritative now means
+//     phase-6 lights up without any UI change.
+//
+// Rows with no `metadata.user-id` (e.g. ad-hoc curl without dim
+// headers, or pre-onboarding traffic) are intentionally excluded —
+// they'd otherwise pile up as orphan "unknown" entries that the
+// dashboard can't do anything useful with anyway.
 func (h *observabilityHandlers) spendByUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
@@ -222,12 +238,7 @@ func (h *observabilityHandlers) spendByUser(w http.ResponseWriter, r *http.Reque
 	}
 	by := map[string]*agg{}
 	for _, l := range logs {
-		uid := l.CustomerID
-		if uid == "" {
-			// Fall back to the verified macaroon dim so logs from
-			// before phase-6 canonicalisation still attribute.
-			uid = l.Metadata["user-id"]
-		}
+		uid := l.Metadata["user-id"]
 		if uid == "" {
 			continue
 		}
@@ -365,22 +376,17 @@ func seriesTotal(s HistogramSeries) float64 {
 }
 
 // dimensionValue returns the value of `dim` from a logstoreLog.
-// Metadata-backed dims (agent-name, run-id, session-id, realm-id)
-// are pulled from l.Metadata; the native customer_id column is
-// pulled from l.CustomerID. Unknown dimensions return "" — the
-// caller already rejected those in parseDimensionParam, so this
-// branch only fires for genuinely-empty rows.
+// Every dim — including user-id — is read from l.Metadata. The
+// `customer_id` column is intentionally NOT consulted: it carries
+// the virtual key's customer (a Hive UUID in production), which
+// disagrees with the human-readable `metadata.user-id` stamped by
+// callers. See the source-of-truth note on spendByUser above.
+//
+// Unknown dimensions return "" — the caller already rejected those
+// in parseDimensionParam, so this branch only fires for rows that
+// genuinely have no value for the dim.
 func dimensionValue(l logstoreLog, dim string) string {
-	switch dim {
-	case "user-id":
-		// user-id and customer_id are aliased per v2.
-		if l.CustomerID != "" {
-			return l.CustomerID
-		}
-		return l.Metadata["user-id"]
-	default:
-		return l.Metadata[dim]
-	}
+	return l.Metadata[dim]
 }
 
 // ─── /_plugin/runs/:run_id ───────────────────────────────────────────

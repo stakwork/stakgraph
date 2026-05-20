@@ -1,0 +1,35 @@
+# Keep the Docker build context small and deterministic — exclude
+# anything Vite / Go / pytest / IDE tooling drops in the working
+# tree that isn't a build input. The actual Dockerfile COPYs are
+# explicit (file-by-file) so missing entries here can't cause an
+# incorrect build, but pruning shrinks the upload to the daemon
+# (and to CI's docker buildx) materially.
+
+# Compiled / build outputs.
+build/
+internal/adminapi/ui/node_modules/
+internal/adminapi/ui/dist/assets/
+internal/adminapi/ui/.vite/
+*.so
+
+# Local Bifrost runtime state — never an input to the image build
+# (the image seeds /app/data from data/config.json at boot).
+data/config.db
+data/config.db-*
+data/logs.db
+data/logs.db-*
+data/logs/
+
+# Environment overrides — secrets / per-dev settings.
+.env
+.env.*
+
+# OS / IDE.
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Git metadata — buildkit doesn't need it.
+.git/
+.gitignore
