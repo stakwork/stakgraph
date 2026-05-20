@@ -317,6 +317,74 @@ func TestSpendByUser(t *testing.T) {
 	}
 }
 
+// ─── spend.by-agent-user ─────────────────────────────────────────────
+
+func TestSpendByAgentUser(t *testing.T) {
+	now := time.Now().UTC()
+	bf := newFakeBifrost(t, sampleLogs(now))
+	srv := newObservabilityTestServer(t, bf)
+
+	resp := bearerGet(t, srv, "/_plugin/spend/by-agent-user?window=1h")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var out SpendByAgentUserResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	// Sample data: (coder, u_alice, 0.15), (web-search, u_bob, 0.02).
+	if out.Window != "1h" || len(out.Results) != 2 {
+		t.Fatalf("unexpected: %+v", out)
+	}
+	if out.Results[0].AgentName != "coder" || out.Results[0].UserID != "u_alice" {
+		t.Errorf("first row: %+v", out.Results[0])
+	}
+	if out.Results[0].TotalCost < 0.149 || out.Results[0].RequestCount != 2 {
+		t.Errorf("coder/alice agg: %+v", out.Results[0])
+	}
+	if out.Results[1].AgentName != "web-search" || out.Results[1].UserID != "u_bob" {
+		t.Errorf("second row: %+v", out.Results[1])
+	}
+}
+
+func TestSpendByAgentUser_FiltersUnattributed(t *testing.T) {
+	now := time.Now().UTC()
+	logs := []fakeLog{
+		// no agent-name → excluded
+		{
+			ID: "a", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339Nano),
+			Status: "success", Cost: 1.0,
+			Metadata: map[string]string{"user-id": "u_alice"},
+		},
+		// no user-id → excluded
+		{
+			ID: "b", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339Nano),
+			Status: "success", Cost: 1.0,
+			Metadata: map[string]string{"agent-name": "coder"},
+		},
+		// both → included
+		{
+			ID: "c", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339Nano),
+			Status: "success", Cost: 0.5,
+			Metadata: map[string]string{"agent-name": "coder", "user-id": "u_alice"},
+		},
+	}
+	bf := newFakeBifrost(t, logs)
+	srv := newObservabilityTestServer(t, bf)
+
+	resp := bearerGet(t, srv, "/_plugin/spend/by-agent-user?window=1h")
+	defer resp.Body.Close()
+	var out SpendByAgentUserResponse
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Results) != 1 {
+		t.Fatalf("expected 1 row, got %d: %+v", len(out.Results), out.Results)
+	}
+	if out.Results[0].AgentName != "coder" || out.Results[0].UserID != "u_alice" {
+		t.Errorf("row: %+v", out.Results[0])
+	}
+}
+
 // ─── histogram.cost ──────────────────────────────────────────────────
 
 func TestHistogramCost_ByAgent(t *testing.T) {

@@ -48,6 +48,26 @@ type SpendByUserResponse struct {
 	Results []UserSpend `json:"results"`
 }
 
+// AgentUserSpend is one row of /_plugin/spend/by-agent-user — the
+// fan-out crossing of (agent-name × user-id) so the flowchart UI can
+// render one box per pairing in a single round-trip. Rows missing
+// either dim are excluded (same policy as by-agent / by-user).
+type AgentUserSpend struct {
+	AgentName    string  `json:"agent_name"`
+	UserID       string  `json:"user_id"`
+	UserName     string  `json:"user_name"`
+	TotalCost    float64 `json:"total_cost"`
+	TotalTokens  int64   `json:"total_tokens"`
+	RequestCount int64   `json:"request_count"`
+}
+
+// SpendByAgentUserResponse is the envelope for
+// /_plugin/spend/by-agent-user.
+type SpendByAgentUserResponse struct {
+	Window  string           `json:"window"`
+	Results []AgentUserSpend `json:"results"`
+}
+
 // HistogramPoint is one (timestamp, cost) datum in a per-dimension
 // series. Timestamp is the bucket's start time in RFC3339.
 type HistogramPoint struct {
@@ -327,6 +347,85 @@ func (h *observabilityHandlers) spendByUser(w http.ResponseWriter, r *http.Reque
 		out.Results = append(out.Results, UserSpend{
 			UserID:       uid,
 			UserName:     uid, // see plans note: user_id == user_name in v2
+			TotalCost:    a.cost,
+			TotalTokens:  a.tokens,
+			RequestCount: a.count,
+		})
+	}
+	sort.Slice(out.Results, func(i, j int) bool {
+		return out.Results[i].TotalCost > out.Results[j].TotalCost
+	})
+	writeJSON(w, http.StatusOK, out)
+}
+
+// ─── /_plugin/spend/by-agent-user ────────────────────────────────────
+//
+// Fan-out of by-agent × by-user in a single pass over the same
+// 200k-row ceiling as the other rollups. The flowchart canvas needs
+// one row per (agent, user) pair — calling by-agent once per user
+// would be N round-trips and N×200k row scans; doing it server-side
+// here is a single scan that buckets by a compound key.
+//
+// Same dim-filter contract as spendByAgent: the optional
+// ?user_id= / ?agent_name= scope down the data set at the Bifrost
+// query layer. With no filter you get the whole swarm matrix.
+func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	window, start, end, ok := parseWindow(w, r)
+	if !ok {
+		return
+	}
+
+	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+		StartTime: &start,
+		EndTime:   &end,
+		Metadata:  metadataFilterFromQuery(r),
+	}, 1000, 200_000)
+	if err != nil {
+		writeUpstreamError(w, err, "spend.by_agent_user")
+		return
+	}
+
+	// Compound-key bucket. Using "agent\x00user" as the map key
+	// avoids allocating a struct-keyed map (and any collision
+	// concern — \x00 is the one byte we know never appears in a
+	// metadata value).
+	type agg struct {
+		agent  string
+		user   string
+		cost   float64
+		tokens int64
+		count  int64
+	}
+	by := map[string]*agg{}
+	for _, l := range logs {
+		name := l.Metadata["agent-name"]
+		uid := l.Metadata["user-id"]
+		if name == "" || uid == "" {
+			continue
+		}
+		k := name + "\x00" + uid
+		a, ok := by[k]
+		if !ok {
+			a = &agg{agent: name, user: uid}
+			by[k] = a
+		}
+		a.cost += l.Cost
+		a.count++
+	}
+
+	out := SpendByAgentUserResponse{
+		Window:  window,
+		Results: make([]AgentUserSpend, 0, len(by)),
+	}
+	for _, a := range by {
+		out.Results = append(out.Results, AgentUserSpend{
+			AgentName:    a.agent,
+			UserID:       a.user,
+			UserName:     a.user, // user_id == user_name in v2 (see spendByUser note)
 			TotalCost:    a.cost,
 			TotalTokens:  a.tokens,
 			RequestCount: a.count,

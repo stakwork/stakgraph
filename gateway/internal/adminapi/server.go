@@ -232,6 +232,7 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 		obs := newObservabilityHandlers(deps.logstore)
 		mux.HandleFunc("/_plugin/spend/by-agent", cookieOrBearer(obs.spendByAgent))
 		mux.HandleFunc("/_plugin/spend/by-user", cookieOrBearer(obs.spendByUser))
+		mux.HandleFunc("/_plugin/spend/by-agent-user", cookieOrBearer(obs.spendByAgentUser))
 		mux.HandleFunc("/_plugin/histogram/cost", cookieOrBearer(obs.histogramCost))
 		// /_plugin/runs/ takes a trailing path segment as run-id
 		mux.HandleFunc("/_plugin/runs/", cookieOrBearer(obs.runDetail))

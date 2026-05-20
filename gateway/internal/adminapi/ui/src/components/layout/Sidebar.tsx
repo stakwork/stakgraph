@@ -1,5 +1,7 @@
 import { Link, useLocation } from "wouter-preact";
 
+import { ChevronLeftIcon } from "../icons";
+
 // Sidebar nav. Phase 8 has Dashboard + People + Agents; phase 9
 // grows Sessions and Config — each is just another row here.
 //
@@ -7,18 +9,30 @@ import { Link, useLocation } from "wouter-preact";
 // governance plan: "every LLM call traces to a specific human."
 // The humans-first axis is the primary one; agents are tools.
 const NAV: { to: string; label: string }[] = [
-  { to: "/", label: "Dashboard" },
+  { to: "/", label: "Canvas" },
+  { to: "/dashboard", label: "Dashboard" },
   { to: "/people", label: "People" },
   { to: "/agents", label: "Agents" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const [loc] = useLocation();
   return (
     <aside class="shell-sidebar">
       <div class="brand">
         <span class="brand-dot" />
-        Agent Gateway
+        <span class="brand-label">Agent Gateway</span>
+        {onCollapse ? (
+          <button
+            type="button"
+            class="sidebar-toggle"
+            onClick={onCollapse}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+          >
+            <ChevronLeftIcon />
+          </button>
+        ) : null}
       </div>
       <nav class="nav">
         {NAV.map((n) => {

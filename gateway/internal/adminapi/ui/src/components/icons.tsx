@@ -42,6 +42,25 @@ export function UserIcon(props: IconProps) {
   );
 }
 
+/** ChevronLeftIcon — used by the sidebar collapse button. */
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M15 6l-6 6 6 6" />
+    </svg>
+  );
+}
+
+/** ChevronRightIcon — used by the topbar expand button when the
+ *  sidebar is hidden. Mirror of ChevronLeftIcon. */
+export function ChevronRightIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
 /** BotIcon — friendly bot head (antenna, screen-face, side-ports). */
 export function BotIcon(props: IconProps) {
   return (

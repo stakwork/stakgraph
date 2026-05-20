@@ -49,6 +49,23 @@ export interface SpendByUserResponse {
   results: UserSpend[];
 }
 
+// One row of /_plugin/spend/by-agent-user — the (agent × user) fan-out
+// the Canvas page uses to render one box per pairing without N round
+// trips. Rows missing either dim are excluded server-side.
+export interface AgentUserSpend {
+  agent_name: string;
+  user_id: string;
+  user_name: string;
+  total_cost: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface SpendByAgentUserResponse {
+  window: string;
+  results: AgentUserSpend[];
+}
+
 export interface HistogramPoint {
   ts: string;
   cost: number;

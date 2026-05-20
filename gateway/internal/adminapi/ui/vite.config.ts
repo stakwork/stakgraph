@@ -27,7 +27,24 @@ export default defineConfig({
   base: "/_plugin/ui/",
   plugins: [preact()],
   resolve: {
+    // Order matters: more specific entries (the /jsx-runtime
+    // subpaths) MUST be listed before the bare `react` / `react-dom`
+    // aliases. Vite walks alias entries in order and short-circuits
+    // on the first prefix match — if `react` came first, it would
+    // rewrite `react/jsx-runtime` to `preact/compat/jsx-runtime`
+    // before this entry was consulted, which is actually what we
+    // want here, but we list both explicitly for clarity (and so a
+    // later refactor to use object-key aliases doesn't break it).
+    //
+    // `react/jsx-runtime` is what tsc emits for files compiled with
+    // `"jsx": "react-jsx"` — every component in system-canvas-react
+    // ships through that path. Without this alias, Vite tries to
+    // resolve a real `react/jsx-runtime` module and we get a
+    // build-time "Failed to resolve import" error.
     alias: {
+      "react/jsx-runtime": "preact/compat/jsx-runtime",
+      "react/jsx-dev-runtime": "preact/compat/jsx-dev-runtime",
+      "react-dom/client": "preact/compat/client",
       react: "preact/compat",
       "react-dom": "preact/compat",
     },
