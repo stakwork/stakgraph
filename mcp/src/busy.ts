@@ -5,6 +5,7 @@ interface TrackedOperation {
   routeName: string;
   startTime: number;
   timeout: NodeJS.Timeout;
+  externalAbortController?: AbortController;
 }
 
 const TIMEOUT_MS = 30 * 60 * 1000;
@@ -27,12 +28,22 @@ function cleanup(operationId: string): void {
   }
 }
 
-export function startTracking(routeName: string): string {
+export function startTracking(
+  routeName: string,
+  externalAbortController?: AbortController
+): string {
   const operationId = generateOperationId(routeName);
   const timeout = setTimeout(() => {
     console.warn(
       `[busy] TIMEOUT: Operation ${operationId} (${routeName}) exceeded 30 minutes, forcing cleanup`
     );
+    const op = activeOperations.get(operationId);
+    if (op?.externalAbortController && !op.externalAbortController.signal.aborted) {
+      console.warn(
+        `[busy] Safety-aborting operation ${operationId} via external abort controller`
+      );
+      try { op.externalAbortController.abort(); } catch (_) {}
+    }
     cleanup(operationId);
   }, TIMEOUT_MS);
 
@@ -41,6 +52,7 @@ export function startTracking(routeName: string): string {
     routeName,
     startTime: Date.now(),
     timeout,
+    externalAbortController,
   });
 
   console.log(

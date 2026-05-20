@@ -198,15 +198,14 @@ export async function repo_agent(req: Request, res: Response) {
   const promptWithRepoInfo = isExistingSession
     ? body.prompt
     : prependRepoInfo(body.prompt, body.repoList, graphRepos);
-  const repoDirPromise = body.repoUrl
-    ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit)
-    : Promise.resolve(resolveRepoDir(effectiveRepos));
-
   // ── Streaming path: direct SSE response ──────────────────────────────
   if (body.stream) {
-    const opId = startTracking("repo_agent_stream");
     // Register abort controller keyed by sessionId so a separate request can cancel it
     const abortController = registerAbortController(body.sessionId);
+    const opId = startTracking("repo_agent_stream", abortController);
+    const repoDirPromise = body.repoUrl
+      ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit, abortController.signal)
+      : Promise.resolve(resolveRepoDir(effectiveRepos));
     try {
       const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
@@ -302,7 +301,6 @@ export async function repo_agent(req: Request, res: Response) {
 
   // ── Non-streaming path: async job with event bus ─────────────────────
   const request_id = asyncReqs.startReq();
-  const opId = startTracking("repo_agent");
 
   // Create an event bus for real-time SSE streaming of this request
   const bus = createBus(request_id);
@@ -313,6 +311,11 @@ export async function repo_agent(req: Request, res: Response) {
   if (body.sessionId && body.sessionId !== request_id) {
     registerAbortController(body.sessionId, abortController);
   }
+  const opId = startTracking("repo_agent", abortController);
+
+  const repoDirPromise = body.repoUrl
+    ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit, abortController.signal)
+    : Promise.resolve(resolveRepoDir(effectiveRepos));
 
   // Generate a short-lived JWT scoped to this request_id (only if API_TOKEN is set)
   let events_token: string | undefined;
