@@ -8,6 +8,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { apiFetch, ApiCallError } from "./client";
 import type {
   AgentBudgetResponse,
+  CallDetailResponse,
   HistogramCostResponse,
   MeResponse,
   RunDetailResponse,
@@ -226,5 +227,30 @@ export function useRunDetail(runID: string | undefined) {
       apiFetch<RunDetailResponse>(`/runs/${encodeURIComponent(runID!)}`),
     enabled: !!runID,
     staleTime: Infinity,
+  });
+}
+
+// ─── /runs/:run_id/calls/:call_id ───────────────────────────────────
+//
+// Per-call drill-down. Fired only when the operator clicks a row in
+// the RunDetail call log — `enabled` gates the request on a non-null
+// callID, so closing the drawer doesn't keep the query alive but
+// switching between rows pulls cleanly out of cache.
+//
+// `staleTime: Infinity` — once fetched, a single call's body never
+// changes. Bifrost's row is immutable post-write.
+export function useRunCall(
+  runID: string | undefined,
+  callID: string | undefined,
+) {
+  return useQuery({
+    queryKey: ["runs", runID, "calls", callID],
+    queryFn: () =>
+      apiFetch<CallDetailResponse>(
+        `/runs/${encodeURIComponent(runID!)}/calls/${encodeURIComponent(callID!)}`,
+      ),
+    enabled: !!runID && !!callID,
+    staleTime: Infinity,
+    retry: false, // 404 on cross-run / unknown id is meaningful; no retry
   });
 }

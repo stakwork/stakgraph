@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -201,6 +202,78 @@ func (c *logstoreClient) searchAll(
 		o.Offset += pageSize
 	}
 	return all, nil
+}
+
+// ─── single-log lookup ───────────────────────────────────────────────
+
+// logstoreLogDetail mirrors the shape returned by Bifrost's
+// GET /api/logs/{id} — the same row as a list entry plus the
+// "heavy" TEXT columns that the list endpoint deliberately
+// trims (full input_history, output_message, params, tools,
+// error_details, raw_response).
+//
+// Every body field is delivered as a parsed JSON value (Bifrost's
+// `xParsed` GORM-ignored fields serialize under the bare name, see
+// framework/logstore/tables.go). We treat them as opaque
+// json.RawMessage here because the plugin doesn't introspect them —
+// it just relays the bytes to the SPA, which renders them as
+// pretty-printed JSON. This keeps the plugin's schema coupling to
+// Bifrost minimal: a new field in `schemas.ChatMessage` upstream is
+// invisible to us.
+type logstoreLogDetail struct {
+	ID         string            `json:"id"`
+	Timestamp  string            `json:"timestamp"`
+	Provider   string            `json:"provider"`
+	Model      string            `json:"model"`
+	Status     string            `json:"status"`
+	Cost       float64           `json:"cost"`
+	Latency    float64           `json:"latency"`
+	CustomerID string            `json:"customer_id"`
+	Metadata   map[string]string `json:"metadata"`
+
+	// Heavy body fields — present on /api/logs/{id}, absent on
+	// /api/logs. Optional because some rows (errors, realtime
+	// turns) won't populate every field.
+	InputHistory   json.RawMessage `json:"input_history,omitempty"`
+	OutputMessage  json.RawMessage `json:"output_message,omitempty"`
+	Params         json.RawMessage `json:"params,omitempty"`
+	Tools          json.RawMessage `json:"tools,omitempty"`
+	ErrorDetails   json.RawMessage `json:"error_details,omitempty"`
+	RawRequest     string          `json:"raw_request,omitempty"`
+	RawResponse    string          `json:"raw_response,omitempty"`
+	ContentSummary string          `json:"content_summary,omitempty"`
+
+	// TokenUsage carries the full provider-reported usage breakdown,
+	// including cached read/write splits (Anthropic prompt-cache,
+	// OpenAI cached_tokens). We pass it through as-is; the SPA
+	// renders the relevant sub-fields without the plugin having to
+	// stay in lockstep with provider-specific shape changes.
+	TokenUsage json.RawMessage `json:"token_usage,omitempty"`
+	// CacheDebug is Bifrost's *semantic* cache record (hit/miss,
+	// similarity, threshold). Separate from prompt-cache tokens.
+	CacheDebug json.RawMessage `json:"cache_debug,omitempty"`
+
+	StopReason      string `json:"stop_reason,omitempty"`
+	Stream          bool   `json:"stream"`
+	NumberOfRetries int    `json:"number_of_retries"`
+	FallbackIndex   int    `json:"fallback_index"`
+}
+
+// findByID fetches the full detail row for a single log entry via
+// Bifrost's GET /api/logs/{id}. Returns (nil, nil) on 404 so the
+// handler layer can map that to its own 404 without a sentinel
+// errors.Is dance.
+func (c *logstoreClient) findByID(ctx context.Context, id string) (*logstoreLogDetail, error) {
+	var out logstoreLogDetail
+	err := c.getJSON(ctx, "/api/logs/"+url.PathEscape(id), &out)
+	if err != nil {
+		var ue *upstreamError
+		if errors.As(err, &ue) && ue.status == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &out, nil
 }
 
 // ─── user rankings (bifrost native) ──────────────────────────────────

@@ -15,6 +15,10 @@ import (
 // We construct a small fixture by hand here so the tests don't take
 // a dependency on bifrost's framework/logstore package (which would
 // drag a lot of GORM weight into the test binary).
+//
+// Body fields (input_history etc.) are present here so the same
+// fixture drives both the list endpoint (which trims them via
+// `omitempty`) and the by-id endpoint (which returns them).
 type fakeLog struct {
 	ID         string            `json:"id"`
 	Timestamp  string            `json:"timestamp"`
@@ -25,6 +29,23 @@ type fakeLog struct {
 	Latency    float64           `json:"latency"`
 	CustomerID string            `json:"customer_id"`
 	Metadata   map[string]string `json:"metadata"`
+
+	InputHistory   json.RawMessage `json:"input_history,omitempty"`
+	OutputMessage  json.RawMessage `json:"output_message,omitempty"`
+	Params         json.RawMessage `json:"params,omitempty"`
+	Tools          json.RawMessage `json:"tools,omitempty"`
+	ErrorDetails   json.RawMessage `json:"error_details,omitempty"`
+	RawRequest     string          `json:"raw_request,omitempty"`
+	RawResponse    string          `json:"raw_response,omitempty"`
+	ContentSummary string          `json:"content_summary,omitempty"`
+
+	TokenUsage json.RawMessage `json:"token_usage,omitempty"`
+	CacheDebug json.RawMessage `json:"cache_debug,omitempty"`
+
+	StopReason      string `json:"stop_reason,omitempty"`
+	Stream          bool   `json:"stream"`
+	NumberOfRetries int    `json:"number_of_retries"`
+	FallbackIndex   int    `json:"fallback_index"`
 }
 
 // fakeBifrost is a small httptest.Server that mimics the slice of
@@ -68,12 +89,28 @@ func (f *fakeBifrost) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	switch r.URL.Path {
-	case "/api/logs":
+	switch {
+	case r.URL.Path == "/api/logs":
 		f.serveLogs(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/logs/"):
+		f.serveLogByID(w, r, strings.TrimPrefix(r.URL.Path, "/api/logs/"))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+// serveLogByID mimics Bifrost's GET /api/logs/{id} — returns the
+// full log row (body fields included) or 404.
+func (f *fakeBifrost) serveLogByID(w http.ResponseWriter, _ *http.Request, id string) {
+	for _, l := range f.logs {
+		if l.ID == id {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(l)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNotFound)
+	fmt.Fprintf(w, `{"error":"not found"}`)
 }
 
 func (f *fakeBifrost) serveLogs(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +234,16 @@ func sampleLogs(now time.Time) []fakeLog {
 			Provider: "anthropic", Model: "claude-3-5-haiku",
 			Status: "success", Cost: 0.05, Latency: 800, CustomerID: "u_alice",
 			Metadata: map[string]string{"agent-name": "coder", "run-id": "r1", "user-id": "u_alice"},
+			// Body fields exist on the row but the list endpoint
+			// strips them (Bifrost's listSelectColumns). The
+			// fakeBifrost above echoes them only on /api/logs/{id}.
+			InputHistory:  json.RawMessage(`[{"role":"user","content":"hello"}]`),
+			OutputMessage: json.RawMessage(`{"role":"assistant","content":"hi"}`),
+			Params:        json.RawMessage(`{"temperature":0.7}`),
+			RawResponse:   `{"id":"resp_1"}`,
+			TokenUsage:    json.RawMessage(`{"prompt_tokens":20,"completion_tokens":22,"total_tokens":42,"prompt_tokens_details":{"cached_read_tokens":8}}`),
+			CacheDebug:    json.RawMessage(`{"cache_hit":false,"similarity":0.42,"threshold":0.85}`),
+			StopReason:    "stop",
 		},
 		{
 			ID: "2", Timestamp: now.Add(-25 * time.Minute).Format(time.RFC3339Nano),
@@ -352,6 +399,84 @@ func TestRunDetail_404OnSubpath(t *testing.T) {
 	}
 }
 
+// ─── runs.call_detail ────────────────────────────────────────────────
+
+func TestRunCallDetail_ReturnsBodyFields(t *testing.T) {
+	now := time.Now().UTC()
+	bf := newFakeBifrost(t, sampleLogs(now))
+	srv := newObservabilityTestServer(t, bf)
+
+	resp := bearerGet(t, srv, "/_plugin/runs/r1/calls/1")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var out CallDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.ID != "1" || out.RunID != "r1" {
+		t.Fatalf("id/run: %+v", out)
+	}
+	if string(out.InputHistory) == "" {
+		t.Error("input_history missing — handler should pass through Bifrost's parsed body")
+	}
+	if string(out.OutputMessage) == "" {
+		t.Error("output_message missing")
+	}
+	if string(out.TokenUsage) == "" {
+		t.Error("token_usage missing — should pass through provider usage breakdown")
+	}
+	if string(out.CacheDebug) == "" {
+		t.Error("cache_debug missing — should pass through semantic cache record")
+	}
+	if out.StopReason != "stop" {
+		t.Errorf("stop_reason: %s", out.StopReason)
+	}
+	if out.Provider != "anthropic" {
+		t.Errorf("provider: %s", out.Provider)
+	}
+}
+
+// Cross-run access is rejected: a valid call-id belonging to one
+// run must 404 when fetched under a different run's URL. Prevents
+// the SPA from being tricked into rendering a call from a run the
+// operator didn't ask for.
+func TestRunCallDetail_404OnRunMismatch(t *testing.T) {
+	now := time.Now().UTC()
+	bf := newFakeBifrost(t, sampleLogs(now))
+	srv := newObservabilityTestServer(t, bf)
+
+	// Call id "3" belongs to run r2.
+	resp := bearerGet(t, srv, "/_plugin/runs/r1/calls/3")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404 on cross-run mismatch, got %d", resp.StatusCode)
+	}
+}
+
+func TestRunCallDetail_404OnUnknownID(t *testing.T) {
+	now := time.Now().UTC()
+	bf := newFakeBifrost(t, sampleLogs(now))
+	srv := newObservabilityTestServer(t, bf)
+
+	resp := bearerGet(t, srv, "/_plugin/runs/r1/calls/does-not-exist")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestRunCallDetail_404OnEmptyCallID(t *testing.T) {
+	bf := newFakeBifrost(t, nil)
+	srv := newObservabilityTestServer(t, bf)
+	resp := bearerGet(t, srv, "/_plugin/runs/r1/calls/")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404 on empty call id, got %d", resp.StatusCode)
+	}
+}
+
 // ─── upstream failure mapping ───────────────────────────────────────
 
 func TestUpstreamUnavailable_Maps502(t *testing.T) {
@@ -382,6 +507,7 @@ func TestObservability_RequiresAuth(t *testing.T) {
 		"/_plugin/spend/by-user",
 		"/_plugin/histogram/cost?bucket=1h&dimension=agent-name",
 		"/_plugin/runs/r1",
+		"/_plugin/runs/r1/calls/1",
 	}
 	for _, p := range paths {
 		resp, _ := http.Get(srv.URL + p)

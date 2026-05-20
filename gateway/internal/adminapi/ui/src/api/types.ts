@@ -88,6 +88,128 @@ export interface RunDetailResponse {
   stats: RunStats;
 }
 
+// One message in a chat-style input_history / output_message.
+// Mirrors Bifrost's `schemas.ChatMessage` to the depth the drawer
+// renders: role, content (string OR an array of content blocks),
+// optional tool-call list (assistant) and tool_call_id (tool reply).
+// Everything is optional because providers vary in which fields
+// they populate, and the drawer falls back to JSON for anything it
+// doesn't recognize.
+export interface ChatMessage {
+  role?: string;
+  name?: string;
+  /** OpenAI/Anthropic-style: either a plain string or an array of
+   *  typed content blocks. */
+  content?: string | ChatContentBlock[] | null;
+  /** Tool messages: which prior tool_call this is the result for. */
+  tool_call_id?: string;
+  /** Assistant tool calls. */
+  tool_calls?: ChatToolCall[];
+  /** Anthropic / OpenAI reasoning summaries. */
+  reasoning?: string;
+  refusal?: string;
+}
+
+export interface ChatContentBlock {
+  type: string;
+  text?: string;
+  refusal?: string;
+  /** Anthropic-style cache marker. When present on a block the
+   *  provider charged this block as a cache write (or read on a
+   *  subsequent call). */
+  cache_control?: { type?: string } | null;
+  cachePoint?: { type?: string } | null;
+  image_url?: unknown;
+  input_audio?: unknown;
+  file?: unknown;
+}
+
+export interface ChatToolCall {
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+}
+
+/** Provider-reported usage breakdown. Source: Bifrost
+ *  `schemas.BifrostLLMUsage`. The `prompt_tokens_details` sub-
+ *  object is where the cache split lives — Anthropic populates
+ *  `cached_write_tokens` (prompt cache writes) and
+ *  `cached_read_tokens`; OpenAI uses `cached_read_tokens` only. */
+export interface TokenUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_tokens_details?: {
+    text_tokens?: number;
+    audio_tokens?: number;
+    image_tokens?: number;
+    cached_read_tokens?: number;
+    cached_write_tokens?: number;
+    cached_write_token_details?: {
+      cached_write_tokens_5m?: number;
+      cached_write_tokens_1h?: number;
+    };
+  };
+  completion_tokens_details?: {
+    reasoning_tokens?: number;
+    accepted_prediction_tokens?: number;
+  };
+  cost?: unknown;
+}
+
+/** Semantic cache verdict. Source: `schemas.BifrostCacheDebug`.
+ *  Distinct from prompt-cache token splits (those live in
+ *  TokenUsage above). Present only when a semantic cache plugin
+ *  is configured. */
+export interface CacheDebug {
+  cache_hit: boolean;
+  cache_id?: string;
+  hit_type?: string;
+  requested_provider?: string;
+  requested_model?: string;
+  provider_used?: string;
+  model_used?: string;
+  input_tokens?: number;
+  threshold?: number;
+  similarity?: number;
+}
+
+// CallDetailResponse — /_plugin/runs/:run_id/calls/:call_id.
+//
+// The full body of one LLM call: same fields as a list row, plus
+// the heavy JSON columns Bifrost strips from /api/logs. Chat-shaped
+// fields (input_history / output_message) are typed so the drawer
+// can render bubble UIs; everything else stays opaque.
+export interface CallDetailResponse {
+  id: string;
+  run_id: string;
+  timestamp: string;
+  provider: string;
+  model: string;
+  status: string;
+  cost: number;
+  latency: number;
+  customer_id: string;
+  metadata: Record<string, string>;
+
+  stop_reason?: string;
+  stream: boolean;
+  number_of_retries: number;
+  fallback_index: number;
+
+  token_usage?: TokenUsage;
+  cache_debug?: CacheDebug;
+
+  input_history?: ChatMessage[];
+  output_message?: ChatMessage;
+  params?: unknown;
+  tools?: unknown;
+  error_details?: unknown;
+  raw_request?: string;
+  raw_response?: string;
+  content_summary?: string;
+}
+
 // One row of UserDetailResponse.AgentsUsed — which agents the user
 // invoked in the window, and how much each cost.
 export interface UserAgentUsage {
