@@ -292,30 +292,7 @@ pub fn find_dynamic_edges_for_file_query(file: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "file", file);
 
-    let static_types = vec![
-        "Repository",
-        "Package",
-        "Language",
-        "Directory",
-        "File",
-        "Import",
-        "Library",
-        "Class",
-        "Trait",
-        "Instance",
-        "Function",
-        "Endpoint",
-        "Request",
-        "Datamodel",
-        "Feature",
-        "Page",
-        "Var",
-        "UnitTest",
-        "IntegrationTest",
-        "E2etest",
-    ];
-
-    let static_labels = static_types
+    let static_labels = NodeType::all_labels()
         .iter()
         .map(|t| format!("source:{}", t))
         .collect::<Vec<_>>()
@@ -336,30 +313,7 @@ pub fn find_dynamic_edges_for_file_query(file: &str) -> (String, BoltMap) {
 pub fn find_all_dynamic_edges_query() -> (String, BoltMap) {
     let params = BoltMap::new();
 
-    let static_types = vec![
-        "Repository",
-        "Package",
-        "Language",
-        "Directory",
-        "File",
-        "Import",
-        "Library",
-        "Class",
-        "Trait",
-        "Instance",
-        "Function",
-        "Endpoint",
-        "Request",
-        "Datamodel",
-        "Feature",
-        "Page",
-        "Var",
-        "UnitTest",
-        "IntegrationTest",
-        "E2etest",
-    ];
-
-    let static_labels = static_types
+    let static_labels = NodeType::all_labels()
         .iter()
         .map(|t| format!("source:{}", t))
         .collect::<Vec<_>>()

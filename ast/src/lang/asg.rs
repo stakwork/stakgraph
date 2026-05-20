@@ -297,6 +297,34 @@ impl FromStr for NodeType {
         }
     }
 }
+impl NodeType {
+    pub fn all_labels() -> &'static [&'static str] {
+        &[
+            "Repository",
+            "Package",
+            "Language",
+            "Directory",
+            "File",
+            "Import",
+            "Library",
+            "Class",
+            "Trait",
+            "Instance",
+            "Function",
+            "Endpoint",
+            "Request",
+            "Datamodel",
+            "Feature",
+            "Page",
+            "Var",
+            "UnitTest",
+            "IntegrationTest",
+            "E2etest",
+            "Mock",
+        ]
+    }
+}
+
 impl std::fmt::Display for NodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
