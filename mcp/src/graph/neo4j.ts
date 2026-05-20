@@ -1,4 +1,9 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
+import {
+  createNeo4jDriver,
+  withNeo4jRetry,
+  ResilientSession,
+} from "../utils/neo4jRetry.js";
 import fs from "fs";
 import readline from "readline";
 import { ImportanceTag, ImportanceTopNode, TaggedNode } from "../importance/types.js";
@@ -65,15 +70,23 @@ class Db {
   private driver: Driver;
 
   constructor() {
-    const uri = `neo4j://${process.env.NEO4J_HOST || "localhost:7687"}`;
+    this.driver = createNeo4jDriver();
+    const host = process.env.NEO4J_HOST || "localhost:7687";
     const user = process.env.NEO4J_USER || "neo4j";
-    const pswd = process.env.NEO4J_PASSWORD || "testtest";
-    console.log("===> connecting to", uri, user);
-    this.driver = neo4j.driver(uri, neo4j.auth.basic(user, pswd));
+    console.log("===> connecting to", `bolt://${host}`, user);
+  }
+
+  private resilientSession(): ResilientSession {
+    return new ResilientSession(
+      () => this.driver,
+      (d) => {
+        this.driver = d;
+      },
+    );
   }
 
   async get_pkg_files(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.PKGS_QUERY);
       return r.records.map((record) => deser_node(record, "file"));
@@ -95,7 +108,7 @@ class Db {
   ): Promise<Neo4jNode[]> {
     const safe = this.sanitizeLabel(label);
     if (!safe) return [];
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
       const r = await session.run(Q.listQueryForLabel(safe, since != null), {
@@ -114,7 +127,7 @@ class Db {
     language?: string,
     limit?: number,
   ): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
       const effectiveLimit = limit ?? Math.max(ref_ids.length, 1);
@@ -170,7 +183,7 @@ class Db {
 
   async edges_between_node_keys(keys: string[]): Promise<Neo4jEdge[]> {
     if (keys.length === 0) return [];
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.EDGES_BETWEEN_NODE_KEYS_QUERY, { keys });
       return r.records.map((record) => {
@@ -215,7 +228,7 @@ class Db {
       disclude.push("UnitTest", "IntegrationTest", "E2etest");
     }
     const label_filter = this.skip_string(disclude);
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       return await session.run(Q.SUBGRAPH_QUERY, {
         node_label: node_type,
@@ -238,7 +251,7 @@ class Db {
     file: string,
     ref_id: string,
   ): Promise<Neo4jNode | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.FIND_NODE_QUERY, {
         node_label: node_type,
@@ -254,7 +267,7 @@ class Db {
   }
 
   async get_repositories(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.REPOSITORIES_QUERY);
       return r.records.map((record) => deser_node(record, "r"));
@@ -264,7 +277,7 @@ class Db {
   }
 
   async get_file_ends_with(file_end: string): Promise<Neo4jNode> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.FILE_ENDS_WITH_QUERY, {
         file_name: file_end,
@@ -292,7 +305,7 @@ class Db {
         (type) => type !== "Function" && type !== "Class",
       );
     }
-    const session = this.driver.session();
+    const session = this.resilientSession();
     // console.log("get_repo_subtree", name, ref_id, this.skip_string(disclude));
     try {
       return await session.run(Q.REPO_SUBGRAPH_QUERY, {
@@ -310,7 +323,7 @@ class Db {
   }
 
   async get_shortest_path(start_node_key: string, end_node_key: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       return await session.run(Q.SHORTEST_PATH_QUERY, {
         start_node_key,
@@ -322,7 +335,7 @@ class Db {
   }
 
   async get_shortest_path_ref_id(start_ref_id: string, end_ref_id: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       return await session.run(Q.SHORTEST_PATH_QUERY_REF_ID, {
         start_ref_id,
@@ -334,7 +347,7 @@ class Db {
   }
 
   async update_all_token_counts() {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const tokenizer = await createByModelName("gpt-4");
       const result = await session.run(
@@ -369,21 +382,27 @@ class Db {
 
   // Main function to process both nodes and edges
   async build_graph_from_files(node_file: string, edge_file: string) {
-    const session = this.driver.session();
     try {
-      console.log("Processing nodes...", node_file);
-      await process_file(session, node_file, (data) =>
-        construct_merge_node_query(data),
+      await withNeo4jRetry(
+        () => this.driver,
+        (d) => {
+          this.driver = d;
+        },
+        async (session) => {
+          console.log("Processing nodes...", node_file);
+          await process_file(session, node_file, (data) =>
+            construct_merge_node_query(data),
+          );
+          console.log("Processing edges...", edge_file);
+          await process_file(session, edge_file, (data) =>
+            construct_merge_edge_query(data),
+          );
+          console.log("Added nodes to graph!");
+        },
+        "build_graph_from_files",
       );
-      console.log("Processing edges...", edge_file);
-      await process_file(session, edge_file, (data) =>
-        construct_merge_edge_query(data),
-      );
-      console.log("Added nodes to graph!");
     } catch (error) {
       console.error("Error:", error);
-    } finally {
-      await session.close();
     }
   }
 
@@ -397,7 +416,7 @@ class Db {
     include_patterns?: string[],
     exclude_patterns?: string[],
   ): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
 
     const q_escaped = prepareFulltextSearchQuery(query);
     // console.log("===> search query escaped:", q_escaped);
@@ -408,8 +427,12 @@ class Db {
     }
 
     const extensions = language ? getExtensionsForLanguage(language) : [];
-    const normalized_include = (include_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
-    const normalized_exclude = (exclude_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
+    const normalized_include = (include_patterns ?? [])
+      .map(normalizeGlobToContains)
+      .filter(Boolean);
+    const normalized_exclude = (exclude_patterns ?? [])
+      .map(normalizeGlobToContains)
+      .filter(Boolean);
 
     try {
       const result = await session.run(Q.SEARCH_QUERY_COMPOSITE, {
@@ -462,9 +485,9 @@ class Db {
     include_patterns?: string[],
     exclude_patterns?: string[],
   ): Promise<Neo4jNode[]> {
-    let session: Session | null = null;
+    let session: ResilientSession | null = null;
     try {
-      session = this.driver.session();
+      session = this.resilientSession();
       const embeddings = await vectorizeQuery(query);
 
       if (!skip_node_types.includes("Import")) {
@@ -472,8 +495,12 @@ class Db {
       }
 
       const extensions = language ? getExtensionsForLanguage(language) : [];
-      const normalized_include = (include_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
-      const normalized_exclude = (exclude_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
+      const normalized_include = (include_patterns ?? [])
+        .map(normalizeGlobToContains)
+        .filter(Boolean);
+      const normalized_exclude = (exclude_patterns ?? [])
+        .map(normalizeGlobToContains)
+        .filter(Boolean);
 
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
@@ -525,7 +552,7 @@ class Db {
     embeddings: number[],
     persona: string = "PM",
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     const name = question.slice(0, 80);
     const node_key = create_node_key({
       node_type: "Hint",
@@ -556,7 +583,7 @@ class Db {
   }
 
   async get_connected_hints(prompt_ref_id: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_CONNECTED_HINTS_QUERY, {
         prompt_ref_id,
@@ -573,7 +600,7 @@ class Db {
     files: string[],
     mocked: boolean,
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     const node_key = create_node_key({
       node_type: "Mock",
       node_data: {
@@ -602,7 +629,7 @@ class Db {
   }
 
   async link_mock_to_file(mock_ref_id: string, file_path: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.LINK_MOCK_TO_FILE_QUERY, {
         mock_ref_id,
@@ -614,7 +641,7 @@ class Db {
   }
 
   async update_mock_status(name: string, mocked: boolean, files: string[]) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.UPDATE_MOCK_STATUS_QUERY, {
         name,
@@ -627,7 +654,7 @@ class Db {
   }
 
   async get_all_mocks(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_ALL_MOCKS_QUERY);
       return result.records.map((record) => clean_node(record.get("n")));
@@ -646,7 +673,7 @@ class Db {
       mocked: boolean;
     }[]
   > {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_MOCKS_INVENTORY_QUERY, {
         repo: repo || null,
@@ -671,7 +698,7 @@ class Db {
   }
 
   async get_node_with_related(ref_id: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_NODE_WITH_RELATED_QUERY, {
         ref_id,
@@ -713,7 +740,7 @@ class Db {
     ref_id: string,
     concise: boolean = false,
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         Q.GET_WORKFLOW_PUBLISHED_VERSION_SUBGRAPH_QUERY,
@@ -757,7 +784,7 @@ class Db {
   }
 
   async delete_node_by_ref_id(ref_id: string): Promise<number> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.DELETE_NODE_BY_REF_ID_QUERY, {
         ref_id,
@@ -770,7 +797,7 @@ class Db {
   }
 
   async add_node(node_type: NodeType, node_data: any): Promise<string> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const node_key = create_node_key({
         node_type,
@@ -800,7 +827,7 @@ class Db {
     source_ref_id: string,
     target_ref_id: string,
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.ADD_EDGE_QUERY(edge_type), {
         source_ref_id,
@@ -812,7 +839,7 @@ class Db {
   }
 
   async hints_without_siblings(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.HINTS_WITHOUT_SIBLINGS_QUERY);
       return result.records.map((record) => clean_node(record.get("h")));
@@ -825,7 +852,7 @@ class Db {
     source_ref_id: string,
     target_ref_id: string,
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.CREATE_SIBLING_EDGE_QUERY, {
         source_ref_id,
@@ -837,7 +864,7 @@ class Db {
   }
 
   async get_hint_siblings(ref_id: string): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_HINT_SIBLINGS_QUERY, { ref_id });
       return result.records.map((record) => clean_node(record.get("s")));
@@ -847,7 +874,7 @@ class Db {
   }
 
   async setHintPersona(ref_id: string, persona: string): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.SET_HINT_PERSONA_QUERY, { ref_id, persona });
     } finally {
@@ -856,7 +883,7 @@ class Db {
   }
 
   async create_prompt(question: string, answer: string, embeddings: number[]) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     const name = question.slice(0, 80);
     const node_key = create_node_key({
       node_type: "Prompt",
@@ -891,7 +918,7 @@ class Db {
     embeddings: number[],
     number: string,
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     const short_name = name.slice(0, 80);
     const node_key = create_node_key({
       node_type: "PullRequest",
@@ -929,7 +956,7 @@ class Db {
     embeddings: number[],
     reason?: string,
   ): Promise<{ ref_id: string; node_key: string }> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     const node_key = create_node_key({
       node_type: "Learning",
       node_data: {
@@ -958,7 +985,7 @@ class Db {
     name: string,
     embeddings: number[],
   ): Promise<{ ref_id: string }> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     const node_key = create_node_key({
       node_type: "Scope",
       node_data: {
@@ -985,7 +1012,7 @@ class Db {
     learning_id: string,
     scope_name: string,
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.CREATE_HAS_SCOPE_EDGE_QUERY, {
         learning_id,
@@ -999,7 +1026,7 @@ class Db {
   async get_all_learnings_with_scopes(): Promise<
     { id: string; rule: string; reason: string | null; scopes: string[] }[]
   > {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_ALL_LEARNINGS_WITH_SCOPES_QUERY);
       return result.records.map((record) => {
@@ -1018,7 +1045,7 @@ class Db {
   }
 
   async get_all_scopes(): Promise<string[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_ALL_SCOPES_QUERY);
       return result.records.map((record) => record.get("name") as string);
@@ -1032,7 +1059,7 @@ class Db {
   ): Promise<
     { id: string; rule: string; reason: string | null; scopes: string[] }[]
   > {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_LEARNINGS_BY_SCOPES_QUERY, {
         scope_names,
@@ -1056,7 +1083,7 @@ class Db {
     hint_ref_id: string,
     weightedRefIds: { ref_id: string; relevancy: number }[],
   ): Promise<{ edges_added: number; linked_ref_ids: string[] }> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.CREATE_HINT_EDGES_BY_REF_IDS_QUERY, {
         hint_ref_id,
@@ -1078,7 +1105,7 @@ class Db {
   }
 
   async findNodesByName(name: string, nodeType: string): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       if (nodeType !== "File") {
         const query = Q.FIND_NODES_BY_NAME_QUERY.replace("{LABEL}", nodeType);
@@ -1095,7 +1122,7 @@ class Db {
   }
 
   async get_orphaned_hints(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.ORPHANED_HINTS_QUERY);
       return result.records.map((record) => clean_node(record.get("h")));
@@ -1105,9 +1132,9 @@ class Db {
   }
 
   async createIndexes(): Promise<void> {
-    let session: Session | null = null;
+    let session: ResilientSession | null = null;
     try {
-      session = this.driver.session();
+      session = this.resilientSession();
       // console.log("Creating indexes...");
       // console.log(Q.KEY_INDEX_QUERY);
       // console.log(Q.FULLTEXT_BODY_INDEX_QUERY);
@@ -1121,7 +1148,7 @@ class Db {
       await session.run(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
       await session.run(Q.VECTOR_INDEX_QUERY);
       await session.run(
-        "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)"
+        "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)",
       );
     } finally {
       if (session) {
@@ -1130,7 +1157,7 @@ class Db {
     }
   }
   async get_rules_files(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.RULES_FILES_QUERY);
       return result.records.map((record) => deser_node(record, "f"));
@@ -1140,7 +1167,7 @@ class Db {
   }
 
   async get_env_vars(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.ENV_VARS_QUERY);
       return result.records.map((record) => deser_node(record, "n"));
@@ -1154,7 +1181,7 @@ class Db {
     language?: string,
     limit: number = 1000,
   ): Promise<Neo4jEdge[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
       const edge_types = edge_type ? [edge_type] : [];
@@ -1174,7 +1201,7 @@ class Db {
     language?: string,
     limit: number = 1000,
   ): Promise<Neo4jEdge[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
       const result = await session.run(Q.EDGES_BY_REF_IDS_QUERY, {
@@ -1192,7 +1219,7 @@ class Db {
     language?: string,
     limit: number = 1000,
   ): Promise<Neo4jEdge[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
       const result = await session.run(Q.ALL_EDGES_QUERY, {
@@ -1205,7 +1232,7 @@ class Db {
     }
   }
   async update_repository_documentation(ref_id: string, documentation: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.UPDATE_REPO_DOCS_QUERY, {
         ref_id,
@@ -1222,7 +1249,7 @@ class Db {
     repo_paths: string[] | null,
     file_paths: string[],
   ): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_NODES_WITHOUT_DESCRIPTION_QUERY, {
         limit: neo4j.int(limit),
@@ -1244,7 +1271,7 @@ class Db {
     description: string,
     embeddings: number[],
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.UPDATE_NODE_DESCRIPTION_AND_EMBEDDINGS_QUERY, {
         ref_id,
@@ -1257,7 +1284,7 @@ class Db {
   }
 
   async update_node_description_only(ref_id: string, description: string) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.UPDATE_NODE_DESCRIPTION_ONLY_QUERY, {
         ref_id,
@@ -1273,7 +1300,7 @@ class Db {
     repo_paths: string[] | null,
     file_paths: string[],
   ): Promise<{ ref_id: string; description: string }[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         Q.GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY,
@@ -1295,7 +1322,7 @@ class Db {
   async bulk_update_embeddings(
     batch: { ref_id: string; embeddings: number[] }[],
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY, { batch });
     } finally {
@@ -1306,7 +1333,7 @@ class Db {
   async bulk_update_descriptions(
     batch: { ref_id: string; description: string }[],
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY, { batch });
     } finally {
@@ -1317,7 +1344,7 @@ class Db {
   async bulk_update_descriptions_and_embeddings(
     batch: { ref_id: string; description: string; embeddings: number[] }[],
   ) {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY, {
         batch,
@@ -1328,7 +1355,7 @@ class Db {
   }
 
   async count_nodes_with_embeddings(): Promise<number> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.COUNT_NODES_WITH_EMBEDDINGS_QUERY);
       return r.records[0].get("c").toNumber();
@@ -1338,7 +1365,7 @@ class Db {
   }
 
   async count_eligible_nodes_for_embeddings(): Promise<number> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.COUNT_ELIGIBLE_NODES_FOR_EMBEDDINGS_QUERY);
       return r.records[0].get("c").toNumber();
@@ -1348,7 +1375,7 @@ class Db {
   }
 
   async count_workflow_nodes(): Promise<number> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.COUNT_WORKFLOWS_QUERY);
       return r.records[0].get("c").toNumber();
@@ -1358,7 +1385,7 @@ class Db {
   }
 
   async get_all_workflows(): Promise<any[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.GET_ALL_WORKFLOWS_QUERY);
       return r.records.map((rec) => rec.get("w").properties);
@@ -1371,7 +1398,7 @@ class Db {
     node_key: string,
     ref_id?: string,
   ): Promise<any | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       let r = await session.run(Q.GET_WORKFLOW_BY_KEY_QUERY, { node_key });
       if (r.records.length === 0 && ref_id) {
@@ -1384,7 +1411,7 @@ class Db {
   }
 
   async get_workflow_documentation(node_key: string): Promise<any | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.GET_WORKFLOW_DOCUMENTATION_QUERY, {
         node_key,
@@ -1400,7 +1427,7 @@ class Db {
     name: string,
     body: string,
   ): Promise<string> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const node_key = `workflow_documentation_${workflow_ref_id}`;
       const ts = Date.now();
@@ -1418,7 +1445,7 @@ class Db {
   }
 
   async project_importance_graph(graphName: string): Promise<number> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.IMPORTANCE_GRAPH_PROJECT_QUERY, {
         graphName,
@@ -1432,7 +1459,7 @@ class Db {
   async stream_pagerank(
     graphName: string,
   ): Promise<{ ref_id: string; score: number }[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.IMPORTANCE_PAGERANK_QUERY, { graphName });
       return r.records.map((rec) => ({
@@ -1452,7 +1479,7 @@ class Db {
       out_degree: number;
     }[]
   > {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.IMPORTANCE_DEGREE_QUERY);
       return r.records.map((rec) => ({
@@ -1467,7 +1494,7 @@ class Db {
   }
 
   async bulk_update_importance(batch: TaggedNode[]): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.BULK_UPDATE_IMPORTANCE_QUERY, { batch });
     } finally {
@@ -1476,7 +1503,7 @@ class Db {
   }
 
   async drop_importance_graph(graphName: string): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.IMPORTANCE_GRAPH_DROP_QUERY, { graphName });
     } finally {
@@ -1499,7 +1526,7 @@ class Db {
       throw new Error("repo is required");
     }
     const prefix = repo.trim();
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const fileRes = await session.run(
         `
@@ -1537,8 +1564,7 @@ class Db {
         `,
         { prefix, idPrefix: `${prefix}/` },
       );
-      const clues =
-        clueRes.records[0]?.get("deleted_count")?.toNumber?.() ?? 0;
+      const clues = clueRes.records[0]?.get("deleted_count")?.toNumber?.() ?? 0;
 
       return { file_nodes, features, clues };
     } finally {
@@ -1549,7 +1575,7 @@ class Db {
   async get_top_nodes_by_importance(
     limit: number,
   ): Promise<ImportanceTopNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.GET_TOP_NODES_BY_IMPORTANCE_QUERY, {
         limit: neo4j.int(limit),
@@ -1576,7 +1602,7 @@ class Db {
     tag: ImportanceTag,
     limit: number,
   ): Promise<ImportanceTopNode[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const r = await session.run(Q.GET_NODES_BY_IMPORTANCE_TAG_QUERY, {
         tag,
@@ -1617,7 +1643,7 @@ class Db {
     status: string;
     error_message: string;
   }): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(Q.UPSERT_AGENT_SESSION_QUERY, {
         ...params,
@@ -1629,7 +1655,7 @@ class Db {
   }
 
   async list_agent_sessions(): Promise<any[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY);
       return result.records.map((r) => ({
@@ -1641,9 +1667,11 @@ class Db {
   }
 
   async get_agent_session(session_id: string): Promise<any | null> {
-    const neo4jSession = this.driver.session();
+    const neo4jSession = this.resilientSession();
     try {
-      const result = await neo4jSession.run(Q.GET_AGENT_SESSION_QUERY, { session_id });
+      const result = await neo4jSession.run(Q.GET_AGENT_SESSION_QUERY, {
+        session_id,
+      });
       if (!result.records.length) return null;
       return {
         ...result.records[0].get("n").properties,
@@ -1659,7 +1687,7 @@ class Db {
     provider?: string | null;
     model?: string | null;
   }): Promise<any[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(Q.GET_SESSION_STATS_QUERY, {
         since: filters.since ?? null,

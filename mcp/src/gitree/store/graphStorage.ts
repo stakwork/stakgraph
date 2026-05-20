@@ -1,4 +1,5 @@
-import neo4j, { Driver } from "neo4j-driver";
+import neo4j, { Driver, Session } from "neo4j-driver";
+import { createNeo4jDriver, ResilientSession } from "../../utils/neo4jRetry.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
@@ -69,74 +70,77 @@ export class GraphStorage extends Storage {
 
   constructor() {
     super();
-    const uri = `neo4j://${process.env.NEO4J_HOST || "localhost:7687"}`;
+    this.driver = createNeo4jDriver();
+    const host = process.env.NEO4J_HOST || "localhost:7687";
     const user = process.env.NEO4J_USER || "neo4j";
-    const pswd = process.env.NEO4J_PASSWORD || "testtest";
-    console.log("===> GraphStorage connecting to", uri, user);
-    this.driver = neo4j.driver(uri, neo4j.auth.basic(user, pswd));
+    console.log("===> GraphStorage connecting to", `bolt://${host}`, user);
+  }
+
+  private resilientSession(): ResilientSession {
+    return new ResilientSession(() => this.driver, (d) => { this.driver = d; });
   }
 
   /**
    * Initialize indexes for better query performance
    */
   async initialize(): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
-      // Create indexes on id/number/sha for fast lookups
-      await session.run(
-        "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
-      );
-      await session.run(
-        "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
-      );
-      await session.run(
-        "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
-      );
-      await session.run(
-        "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
-      );
-      await session.run(
-        "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
-      );
-      // Indexes for code nodes (for REFERENCES edges)
-      await session.run(
-        "CREATE INDEX function_name_index IF NOT EXISTS FOR (f:Function) ON (f.name)"
-      );
-      await session.run(
-        "CREATE INDEX class_name_index IF NOT EXISTS FOR (c:Class) ON (c.name)"
-      );
-      await session.run(
-        "CREATE INDEX endpoint_name_index IF NOT EXISTS FOR (e:Endpoint) ON (e.name)"
-      );
-      await session.run(
-        "CREATE INDEX datamodel_name_index IF NOT EXISTS FOR (d:Datamodel) ON (d.name)"
-      );
-      await session.run(
-        "CREATE INDEX var_name_index IF NOT EXISTS FOR (v:Var) ON (v.name)"
-      );
-      
-      // Multi-repo indexes
-      await session.run(
-        "CREATE INDEX feature_repo_index IF NOT EXISTS FOR (f:Feature) ON (f.repo)"
-      );
-      await session.run(
-        "CREATE INDEX pr_repo_index IF NOT EXISTS FOR (p:PullRequest) ON (p.repo)"
-      );
-      await session.run(
-        "CREATE INDEX commit_repo_index IF NOT EXISTS FOR (c:Commit) ON (c.repo)"
-      );
-      await session.run(
-        "CREATE INDEX clue_repo_index IF NOT EXISTS FOR (c:Clue) ON (c.repo)"
-      );
-      await session.run(
-        "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
-      );
-      await session.run(
-        "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
-      );
-      
-      // Run migration if needed
-      await this.migrateToMultiRepo();
+        // Create indexes on id/number/sha for fast lookups
+        await session.run(
+          "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
+        );
+        await session.run(
+          "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
+        );
+        await session.run(
+          "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
+        );
+        await session.run(
+          "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
+        );
+        await session.run(
+          "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
+        );
+        // Indexes for code nodes (for REFERENCES edges)
+        await session.run(
+          "CREATE INDEX function_name_index IF NOT EXISTS FOR (f:Function) ON (f.name)"
+        );
+        await session.run(
+          "CREATE INDEX class_name_index IF NOT EXISTS FOR (c:Class) ON (c.name)"
+        );
+        await session.run(
+          "CREATE INDEX endpoint_name_index IF NOT EXISTS FOR (e:Endpoint) ON (e.name)"
+        );
+        await session.run(
+          "CREATE INDEX datamodel_name_index IF NOT EXISTS FOR (d:Datamodel) ON (d.name)"
+        );
+        await session.run(
+          "CREATE INDEX var_name_index IF NOT EXISTS FOR (v:Var) ON (v.name)"
+        );
+
+        // Multi-repo indexes
+        await session.run(
+          "CREATE INDEX feature_repo_index IF NOT EXISTS FOR (f:Feature) ON (f.repo)"
+        );
+        await session.run(
+          "CREATE INDEX pr_repo_index IF NOT EXISTS FOR (p:PullRequest) ON (p.repo)"
+        );
+        await session.run(
+          "CREATE INDEX commit_repo_index IF NOT EXISTS FOR (c:Commit) ON (c.repo)"
+        );
+        await session.run(
+          "CREATE INDEX clue_repo_index IF NOT EXISTS FOR (c:Clue) ON (c.repo)"
+        );
+        await session.run(
+          "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
+        );
+        await session.run(
+          "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
+        );
+
+        // Run migration if needed
+        await this.migrateToMultiRepo();
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
     } finally {
@@ -149,7 +153,7 @@ export class GraphStorage extends Storage {
    * Only runs if migration is needed (checks first)
    */
   private async migrateToMultiRepo(): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // Check if migration is needed by looking for PRs without repo field that have a URL
       const checkResult = await session.run(`
@@ -256,7 +260,7 @@ export class GraphStorage extends Storage {
   // Features
 
   async saveFeature(feature: Feature): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(feature.lastUpdated.getTime() / 1000);
@@ -378,7 +382,7 @@ export class GraphStorage extends Storage {
   }
 
   async getFeature(id: string, repo?: string): Promise<Feature | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and id doesn't have prefix, construct full id
       const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
@@ -403,7 +407,7 @@ export class GraphStorage extends Storage {
   }
 
   async getAllFeatures(repo?: string): Promise<Feature[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -424,7 +428,7 @@ export class GraphStorage extends Storage {
   }
 
   async deleteFeature(id: string, repo?: string): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and id doesn't have prefix, construct full id
       const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
@@ -444,7 +448,7 @@ export class GraphStorage extends Storage {
   // PRs
 
   async savePR(pr: PRRecord): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(pr.mergedAt.getTime() / 1000);
@@ -508,7 +512,7 @@ export class GraphStorage extends Storage {
   }
 
   async getPR(number: number, repo?: string): Promise<PRRecord | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       let query: string;
       let params: Record<string, any>;
@@ -538,7 +542,7 @@ export class GraphStorage extends Storage {
   }
 
   async getAllPRs(repo?: string): Promise<PRRecord[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -559,7 +563,7 @@ export class GraphStorage extends Storage {
   // Commits
 
   async saveCommit(commit: CommitRecord): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(commit.committedAt.getTime() / 1000);
@@ -627,7 +631,7 @@ export class GraphStorage extends Storage {
   }
 
   async getCommit(sha: string, repo?: string): Promise<CommitRecord | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       let query: string;
       let params: Record<string, any>;
@@ -656,7 +660,7 @@ export class GraphStorage extends Storage {
   }
 
   async getAllCommits(repo?: string): Promise<CommitRecord[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -677,7 +681,7 @@ export class GraphStorage extends Storage {
   // Clues
 
   async saveClue(clue: Clue): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
       const createdAtTimestamp = Math.floor(clue.createdAt.getTime() / 1000);
@@ -794,7 +798,7 @@ export class GraphStorage extends Storage {
   }
 
   async getClue(id: string, repo?: string): Promise<Clue | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and id doesn't have prefix, construct full id
       const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
@@ -819,7 +823,7 @@ export class GraphStorage extends Storage {
   }
 
   async getAllClues(repo?: string): Promise<Clue[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -841,7 +845,7 @@ export class GraphStorage extends Storage {
    * Get clues relevant to a specific feature (via RELEVANT_TO edges)
    */
   async getCluesForFeature(featureId: string, limit?: number, repo?: string): Promise<Clue[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and featureId doesn't have prefix, construct full id
       const fullFeatureId = repo && !featureId.includes('/') ? `${repo}/${featureId}` : featureId;
@@ -863,7 +867,7 @@ export class GraphStorage extends Storage {
   }
 
   async deleteClue(id: string, repo?: string): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and id doesn't have prefix, construct full id
       const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
@@ -891,7 +895,7 @@ export class GraphStorage extends Storage {
     similarityThreshold: number = 0.5,
     repo?: string
   ): Promise<Array<Clue & { score: number; relevanceBreakdown: any }>> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and featureId doesn't have prefix, construct full id
       const fullFeatureId = repo && featureId && !featureId.includes('/') 
@@ -981,7 +985,7 @@ export class GraphStorage extends Storage {
   // Metadata - now per-repo
 
   async getLastProcessedPR(repo: string): Promise<number> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -1014,7 +1018,7 @@ export class GraphStorage extends Storage {
   }
 
   async setLastProcessedPR(repo: string, number: number): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
 
@@ -1040,7 +1044,7 @@ export class GraphStorage extends Storage {
   }
 
   async getLastProcessedCommit(repo: string): Promise<string | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -1069,7 +1073,7 @@ export class GraphStorage extends Storage {
   }
 
   async setLastProcessedCommit(repo: string, sha: string): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
 
@@ -1095,7 +1099,7 @@ export class GraphStorage extends Storage {
   }
 
   async getChronologicalCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -1127,7 +1131,7 @@ export class GraphStorage extends Storage {
     repo: string,
     checkpoint: ChronologicalCheckpoint
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
 
@@ -1153,7 +1157,7 @@ export class GraphStorage extends Storage {
   }
 
   async getClueAnalysisCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -1185,7 +1189,7 @@ export class GraphStorage extends Storage {
     repo: string,
     checkpoint: ChronologicalCheckpoint
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
 
@@ -1213,7 +1217,7 @@ export class GraphStorage extends Storage {
   // Themes - now per-repo
 
   async addThemes(repo: string, themes: string[]): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
 
@@ -1265,7 +1269,7 @@ export class GraphStorage extends Storage {
   }
 
   async getRecentThemes(repo: string): Promise<string[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -1291,7 +1295,7 @@ export class GraphStorage extends Storage {
   // Total Usage - cumulative token usage across all processing runs
 
   async getTotalUsage(repo: string): Promise<Usage> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `
@@ -1335,7 +1339,7 @@ export class GraphStorage extends Storage {
   }
 
   async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
 
@@ -1374,7 +1378,7 @@ export class GraphStorage extends Storage {
     lastProcessedTimestamp: string | null;
     cumulativeUsage: Usage;
   }> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const result = await session.run(
         `MATCH (m:${Data_Bank}:FeaturesMetadata)
@@ -1437,7 +1441,7 @@ export class GraphStorage extends Storage {
     featureId: string,
     documentation: string
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       await session.run(
         `
@@ -1573,7 +1577,7 @@ export class GraphStorage extends Storage {
   }
 
   async linkFeaturesToFiles(featureId?: string, repo?: string): Promise<LinkResult> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // Get features to process
       const features = featureId
@@ -1724,7 +1728,7 @@ export class GraphStorage extends Storage {
   async linkFeatureToFilesByPaths(featureId: string, filePaths: string[]): Promise<number> {
     if (filePaths.length === 0) return 0;
 
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       let totalLinked = 0;
 
@@ -1758,7 +1762,7 @@ export class GraphStorage extends Storage {
     featureId: string,
     expand?: string[]
   ): Promise<any[]> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       const shouldExpandContains = expand?.includes("CONTAINS") || false;
       const shouldExpandCalls = expand?.includes("CALLS") || false;
@@ -1874,7 +1878,7 @@ export class GraphStorage extends Storage {
     modifiesEdges: any[];
     containsEdges: any[];
   }> {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // Get all features (optionally filtered by repo)
       const featuresResult = await session.run(
@@ -2032,7 +2036,7 @@ export class GraphStorage extends Storage {
       }>;
     }>
   > {
-    const session = this.driver.session();
+    const session = this.resilientSession();
     try {
       // If repo provided and IDs don't have prefix, construct full IDs
       const fullConceptIds = repo 
