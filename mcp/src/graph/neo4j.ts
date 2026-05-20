@@ -1,4 +1,5 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
+import { createNeo4jDriver, withNeo4jRetry } from "../utils/neo4jRetry.js";
 import fs from "fs";
 import readline from "readline";
 import { ImportanceTag, ImportanceTopNode, TaggedNode } from "../importance/types.js";
@@ -65,11 +66,14 @@ class Db {
   private driver: Driver;
 
   constructor() {
-    const uri = `neo4j://${process.env.NEO4J_HOST || "localhost:7687"}`;
+    this.driver = createNeo4jDriver();
+    const host = process.env.NEO4J_HOST || "localhost:7687";
     const user = process.env.NEO4J_USER || "neo4j";
-    const pswd = process.env.NEO4J_PASSWORD || "testtest";
-    console.log("===> connecting to", uri, user);
-    this.driver = neo4j.driver(uri, neo4j.auth.basic(user, pswd));
+    console.log("===> connecting to", `bolt://${host}`, user);
+  }
+
+  private async runWithRetry<T>(op: (session: Session) => Promise<T>, label: string): Promise<T> {
+    return withNeo4jRetry(() => this.driver, (d) => { this.driver = d; }, op, label);
   }
 
   async get_pkg_files(): Promise<Neo4jNode[]> {
@@ -1607,15 +1611,12 @@ class Db {
     status: string;
     error_message: string;
   }): Promise<void> {
-    const session = this.driver.session();
-    try {
+    await this.runWithRetry(async (session) => {
       await session.run(Q.UPSERT_AGENT_SESSION_QUERY, {
         ...params,
         ts: Date.now() / 1000,
       });
-    } finally {
-      await session.close();
-    }
+    }, "Db.upsert_agent_session");
   }
 
   async list_agent_sessions(): Promise<any[]> {
