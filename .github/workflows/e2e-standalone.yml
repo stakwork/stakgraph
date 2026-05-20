@@ -227,6 +227,12 @@ jobs:
             exit 1
           fi
 
+      - name: Run comprehensive endpoint tests
+        working-directory: ./mcp
+        run: |
+          chmod +x ./testing/test-endpoints.sh
+          MCP_URL=http://localhost:3355 ./testing/test-endpoints.sh
+
       - name: Cleanup
         if: always()
         run: |

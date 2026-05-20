@@ -611,6 +611,7 @@ export async function get_nodes(req: Request, res: Response) {
     console.log("=> get_nodes", req.method, req.path);
     const node_type = req.query.node_type as NodeType;
     const concise = isTrue(req.query.concise as string);
+    const limit = Math.min(parseLimit(req.query) ?? 5000, 10000);
     let ref_ids: string[] = [];
     if (req.query.ref_ids) {
       ref_ids = (req.query.ref_ids as string).split(",");
@@ -623,7 +624,8 @@ export async function get_nodes(req: Request, res: Response) {
       concise,
       ref_ids,
       output,
-      language
+      language,
+      limit,
     );
     if (output === "snippet") {
       res.send(result);
@@ -641,6 +643,8 @@ export async function post_nodes(req: Request, res: Response) {
     console.log("=> post_nodes", req.method, req.path);
     const node_type = req.body.node_type as NodeType;
     const concise = req.body.concise === true || req.body.concise === "true";
+    const bodyLimit = req.body.limit !== undefined ? parseInt(String(req.body.limit), 10) : undefined;
+    const limit = Math.min(!isNaN(bodyLimit as number) && bodyLimit !== undefined ? bodyLimit : 5000, 10000);
     let ref_ids: string[] = [];
     if (req.body.ref_ids) {
       if (Array.isArray(req.body.ref_ids)) {
@@ -658,7 +662,8 @@ export async function post_nodes(req: Request, res: Response) {
       concise,
       ref_ids,
       output,
-      language
+      language,
+      limit,
     );
     if (output === "snippet") {
       res.send(result);

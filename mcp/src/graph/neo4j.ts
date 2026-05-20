@@ -82,16 +82,26 @@ class Db {
     }
   }
 
+  private sanitizeLabel(label: string): string | null {
+    const allowed = new Set<string>(all_node_types() as string[]);
+    return allowed.has(label) ? label : null;
+  }
+
   async nodes_by_type(
     label: NodeType,
     language?: string,
+    limit: number = 5000,
+    since?: number,
   ): Promise<Neo4jNode[]> {
+    const safe = this.sanitizeLabel(label);
+    if (!safe) return [];
     const session = this.driver.session();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
-      const r = await session.run(Q.LIST_QUERY, {
-        node_label: label,
+      const r = await session.run(Q.listQueryForLabel(safe, since != null), {
         extensions,
+        limit,
+        since: since ?? null,
       });
       return r.records.map((record) => deser_node(record, "f"));
     } finally {
@@ -102,13 +112,16 @@ class Db {
   async nodes_by_ref_ids(
     ref_ids: string[],
     language?: string,
+    limit?: number,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
       const extensions = language ? getExtensionsForLanguage(language) : [];
+      const effectiveLimit = limit ?? Math.max(ref_ids.length, 1);
       const r = await session.run(Q.REF_IDS_LIST_QUERY, {
         ref_ids,
         extensions,
+        limit: effectiveLimit,
       });
       return r.records.map((record) => deser_node(record, "n"));
     } finally {
@@ -122,19 +135,14 @@ class Db {
     since?: number,
     language?: string,
   ): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
-    try {
-      const extensions = language ? getExtensionsForLanguage(language) : [];
-      const r = await session.run(Q.MULTI_TYPE_LATEST_PER_TYPE_QUERY, {
-        labels,
-        limit_per_type,
-        since: since ?? null,
-        extensions,
-      });
-      return r.records.map((record) => deser_node(record, "n"));
-    } finally {
-      await session.close();
-    }
+    const safe = labels.filter((l) => this.sanitizeLabel(l)) as NodeType[];
+    if (safe.length === 0) return [];
+    const results = await Promise.all(
+      safe.map((label) =>
+        this.nodes_by_type(label, language, limit_per_type, since)
+      )
+    );
+    return results.flat();
   }
 
   async nodes_by_types_total(
@@ -143,20 +151,21 @@ class Db {
     since?: number,
     language?: string,
   ): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
-    try {
-      const extensions = language ? getExtensionsForLanguage(language) : [];
-      const r = await session.run(Q.MULTI_TYPE_LATEST_TOTAL_QUERY, {
-        labels,
-        labelsSize: labels.length,
-        limit_total,
-        since: since ?? null,
-        extensions,
-      });
-      return r.records.map((record) => deser_node(record, "n"));
-    } finally {
-      await session.close();
-    }
+    const safe = labels.filter((l) => this.sanitizeLabel(l)) as NodeType[];
+    if (safe.length === 0) return [];
+    const results = await Promise.all(
+      safe.map((label) =>
+        this.nodes_by_type(label, language, limit_total, since)
+      )
+    );
+    return results
+      .flat()
+      .sort((a, b) => {
+        const at = Number(a.properties.date_added_to_graph || 0);
+        const bt = Number(b.properties.date_added_to_graph || 0);
+        return bt - at;
+      })
+      .slice(0, limit_total);
   }
 
   async edges_between_node_keys(keys: string[]): Promise<Neo4jEdge[]> {
@@ -1106,6 +1115,7 @@ class Db {
       // console.log(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
       // console.log(Q.VECTOR_INDEX_QUERY);
       await session.run(Q.KEY_INDEX_QUERY);
+      await session.run(Q.REF_ID_INDEX_QUERY);
       await session.run(Q.FULLTEXT_BODY_INDEX_QUERY);
       await session.run(Q.FULLTEXT_NAME_INDEX_QUERY);
       await session.run(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);

@@ -390,7 +390,7 @@ pub fn restore_dynamic_edge_query(
     boltmap_insert_str(&mut params, "target_file", target_file);
 
     let query = format!(
-        "MATCH (source {{ref_id: $source_ref_id}})
+        "MATCH (source:Data_Bank {{ref_id: $source_ref_id}})
          MATCH (target:{} {{name: $target_name, file: $target_file}})
          MERGE (source)-[r:{}]->(target)
          RETURN r",
