@@ -61,7 +61,13 @@
       "placement": "pre_builtin",
       "config": {
         "log_level": "info",
-        "enforce_macaroons": false
+        "enforce_macaroons": false,
+        "agent_budgets": {
+          "coder-agent": { "cap_usd": 100, "window": "1d" },
+          "plan-agent": { "cap_usd": 100, "window": "1h" },
+          "chat-agent": { "cap_usd": 100, "window": "1d" },
+          "canvas-agent": { "cap_usd": 100, "window": "1d" }
+        }
       }
     }
   ],

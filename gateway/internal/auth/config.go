@@ -14,7 +14,11 @@ import (
 //
 //	"config": {
 //	  "log_level":         "info",
-//	  "enforce_macaroons": false
+//	  "enforce_macaroons": false,
+//	  "agent_budgets": {
+//	    "coder":      { "cap_usd": 5.00, "window": "1d" },
+//	    "web-search": { "cap_usd": 1.00, "window": "1h" }
+//	  }
 //	}
 //
 // Default-zero is shadow mode (verify + log mismatches, don't reject).
@@ -28,6 +32,23 @@ type Config struct {
 	// mismatches loudly, but lets the request continue. When true,
 	// failures short-circuit with a bifrost.Error.
 	EnforceMacaroons bool `json:"enforce_macaroons"`
+
+	// AgentBudgets is the per-agent windowed spend cap declared
+	// in plugin.yaml. Phase 6's PreLLMHook reads these to gate
+	// inference; phase 8's dashboard reads them to render the
+	// budget column / progress bar. Empty map ⇒ no agent has a
+	// cap, every request passes the budget check.
+	AgentBudgets map[string]AgentBudget `json:"agent_budgets"`
+}
+
+// AgentBudget is one row in `agent_budgets`. Window uses the Bifrost
+// duration vocabulary (`1d`, `1w`, `1M`, `1Y`, or sub-day `Nh`/`Nm`/`Ns`).
+// See plans/phases/phase-6-plugin-enforcement.md §"Duration vocabulary"
+// for the full grammar; phase 8 ships read-only — no validation needed
+// beyond "the string is non-empty."
+type AgentBudget struct {
+	CapUSD float64 `json:"cap_usd"`
+	Window string  `json:"window"`
 }
 
 // pluginConfigEnvelope mirrors the shape pluginlog.Init receives. We
@@ -36,7 +57,8 @@ type Config struct {
 // JSON object verbatim, so json.Marshal+Unmarshal round-trips through
 // whatever shape it actually has.
 type pluginConfigEnvelope struct {
-	EnforceMacaroons bool `json:"enforce_macaroons"`
+	EnforceMacaroons bool                   `json:"enforce_macaroons"`
+	AgentBudgets     map[string]AgentBudget `json:"agent_budgets"`
 }
 
 var (
@@ -96,5 +118,8 @@ func parseConfig(raw any) (Config, error) {
 	if err := json.Unmarshal(buf, &env); err != nil {
 		return Config{}, err
 	}
-	return Config{EnforceMacaroons: env.EnforceMacaroons}, nil
+	return Config{
+		EnforceMacaroons: env.EnforceMacaroons,
+		AgentBudgets:     env.AgentBudgets,
+	}, nil
 }

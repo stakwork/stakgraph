@@ -137,9 +137,14 @@ func (h *observabilityHandlers) spendByAgent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Optional ?user_id=<id> scopes the aggregation to one user's
+	// calls — used by the People > UserDetail page to render
+	// "which agents did this person use?". Without the filter the
+	// handler returns the same swarm-wide rollup it always did.
 	logs, err := h.logs.searchAll(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
+		Metadata:  metadataFilterFromQuery(r),
 	}, 1000, 200_000)
 	if err != nil {
 		writeUpstreamError(w, err, "spend.by_agent")
@@ -203,6 +208,7 @@ func (h *observabilityHandlers) spendByUser(w http.ResponseWriter, r *http.Reque
 	logs, err := h.logs.searchAll(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
+		Metadata:  metadataFilterFromQuery(r),
 	}, 1000, 200_000)
 	if err != nil {
 		writeUpstreamError(w, err, "spend.by_user")
@@ -278,9 +284,14 @@ func (h *observabilityHandlers) histogramCost(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Optional ?user_id= / ?agent_name= scope the histogram to one
+	// dim value. Used by UserDetail / AgentDetail pages so the
+	// chart shows only this person/agent's contribution rather
+	// than all activity sliced by dimension.
 	logs, err := h.logs.searchAll(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
+		Metadata:  metadataFilterFromQuery(r),
 	}, 1000, 200_000)
 	if err != nil {
 		writeUpstreamError(w, err, "histogram.cost")
@@ -548,6 +559,41 @@ func parsePagination(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 		offset = v
 	}
 	return limit, offset, true
+}
+
+// metadataFilterFromQuery is the common parser for the optional
+// `?user_id=` / `?agent_name=` / `?run_id=` / `?session_id=` /
+// `?realm_id=` / `?org_id=` query params. Each maps to the matching
+// `metadata.<dim>` filter that Bifrost's /api/logs accepts.
+//
+// Why this exists in one place: every handler that rolls up
+// metadata accepts the same scoping params, and we want adding a
+// new dim (e.g. business-unit later) to be a one-line edit here
+// rather than scattered across spend / histogram / future endpoints.
+//
+// Empty values are skipped — `?user_id=` with no value doesn't add
+// a filter (so the SPA can pass `userID` directly without
+// short-circuiting on the empty string).
+func metadataFilterFromQuery(r *http.Request) map[string]string {
+	q := r.URL.Query()
+	out := map[string]string{}
+	pairs := []struct{ qparam, dim string }{
+		{"user_id", "user-id"},
+		{"agent_name", "agent-name"},
+		{"run_id", "run-id"},
+		{"session_id", "session-id"},
+		{"realm_id", "realm-id"},
+		{"org_id", "org-id"},
+	}
+	for _, p := range pairs {
+		if v := q.Get(p.qparam); v != "" {
+			out[p.dim] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // writeUpstreamError maps an upstream-failure error to phase-7's

@@ -295,6 +295,81 @@ table.table {
   margin-bottom: var(--sp-4);
 }
 
+/* ─── budget ─────────────────────────────────────────────────── */
+
+.budget-card {
+  margin-bottom: var(--sp-5);
+}
+
+.budget-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.budget-figure-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-1);
+}
+.budget-figure-val {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The inline meter on the Agents list. ~120px wide so the column
+ * doesn't stretch out, but readable at a glance. */
+.budget-meter {
+  position: relative;
+  height: 8px;
+  width: 120px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+}
+.budget-meter-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+.budget-meter-bar.tone-ok {
+  background: var(--ok);
+}
+.budget-meter-bar.tone-warning {
+  background: var(--warning);
+}
+.budget-meter-bar.tone-danger {
+  background: var(--danger);
+}
+.budget-meter-label {
+  margin-left: var(--sp-2);
+  font-size: 11px;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+/* Big variant for the AgentDetail card — full width, taller bar. */
+.budget-meter-lg {
+  width: 100%;
+  height: 10px;
+}
+
+.budget-figure-val.tone-ok {
+  color: var(--text);
+}
+.budget-figure-val.tone-warning {
+  color: var(--warning);
+}
+.budget-figure-val.tone-danger {
+  color: var(--danger);
+}
+
 /* ─── chart ──────────────────────────────────────────────────── */
 
 .chart-frame {
@@ -334,6 +409,135 @@ table.table {
   width: 10px;
   height: 10px;
   border-width: 2px !important;
+}
+
+/* ─── provenance / key-value grid ────────────────────────────── */
+/*
+ * Two-column dl grid used on RunDetail's Provenance card. Label
+ * column sized to the longest realistic field name; values flex.
+ */
+
+.provenance {
+  margin-bottom: var(--sp-5);
+}
+
+/* "Authorized by <org>" banner at the top of the Provenance card.
+ * Larger and more visually weighted than the rest of the card —
+ * this is the cryptographic-trust signal an operator wants to see
+ * at-a-glance when auditing a run. */
+.authorized-by {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  background: var(--surface-2);
+}
+.authorized-by.tone-ok {
+  border-color: rgba(105, 214, 164, 0.4);
+  background: linear-gradient(
+    180deg,
+    rgba(105, 214, 164, 0.06),
+    rgba(105, 214, 164, 0)
+  );
+}
+.authorized-by.tone-warning {
+  border-color: rgba(245, 184, 108, 0.4);
+  background: linear-gradient(
+    180deg,
+    rgba(245, 184, 108, 0.06),
+    rgba(245, 184, 108, 0)
+  );
+}
+.authorized-by-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  font-size: 15px;
+}
+.authorized-by-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+.authorized-by-grid {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+  font-size: 12px;
+}
+.authorized-by-grid dt {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  align-self: center;
+}
+.authorized-by-grid dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+/* Badges — small inline pills for status. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.badge-ok {
+  background: rgba(105, 214, 164, 0.15);
+  color: var(--ok);
+  border: 1px solid rgba(105, 214, 164, 0.3);
+}
+.badge-warning {
+  background: rgba(245, 184, 108, 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(245, 184, 108, 0.3);
+}
+
+.kvgrid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--sp-3) var(--sp-4);
+  margin: 0;
+}
+.kvgrid-key {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-self: center;
+}
+.kvgrid-val {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* Inline icon + value pairing — used for User / Agent rows on the
+ * Provenance card. The icon picks up `color` from the parent so it
+ * matches the muted text tone unless explicitly overridden. */
+.prov-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.prov-icon {
+  /* Slightly larger than the inherited 1em so it reads as a glyph
+   * rather than a punctuation mark. The muted color de-emphasizes
+   * it against the more important monospaced value. */
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 /* ─── misc ───────────────────────────────────────────────────── */

@@ -4,13 +4,13 @@
 // bucket spend (all phase 9). Just name + spend + tokens + calls,
 // each row linking to AgentDetail.
 
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 import { Link, useLocation } from "wouter-preact";
 
 import { DataTable } from "../components/tables/DataTable";
 import { WindowPicker } from "../components/controls/WindowPicker";
 import { getErrorMessage } from "../api/client";
-import { useSpendByAgent } from "../api/queries";
+import { useAgentBudgets, useSpendByAgent } from "../api/queries";
 import type { AgentSpend, Window } from "../api/types";
 
 const fmtUSD = (v: number) => {
@@ -31,6 +31,16 @@ export function Agents() {
   const [window, setWindow] = useState<Window>("24h");
   const [, setLocation] = useLocation();
   const q = useSpendByAgent(window);
+
+  // Fan out per-agent budget queries. The list of names comes from
+  // the by-agent query; useMemo so the fan-out doesn't churn on
+  // every render (which would resubscribe the per-row Tanstack
+  // queries and reset their polling clocks).
+  const agentNames = useMemo(
+    () => (q.data?.results ?? []).map((r) => r.agent_name),
+    [q.data]
+  );
+  const budgets = useAgentBudgets(agentNames);
 
   return (
     <>
@@ -70,11 +80,37 @@ export function Agents() {
               sort: (r) => r.total_cost,
             },
             {
-              key: "tokens",
-              header: "Tokens",
+              key: "budget",
+              header: "Budget",
               align: "num",
-              cell: (r) => fmtInt(r.total_tokens),
-              sort: (r) => r.total_tokens,
+              cell: (r) => {
+                const b = budgets[r.agent_name];
+                if (!b || b.cap_usd == null) {
+                  return <span class="text-dim">—</span>;
+                }
+                return (
+                  <span class="mono">
+                    {fmtUSD(b.cap_usd)}
+                    <span class="text-dim"> / {b.window}</span>
+                  </span>
+                );
+              },
+              // Sort by cap, treating "no budget" as -1 so they sink
+              // to the bottom of a desc sort.
+              sort: (r) => budgets[r.agent_name]?.cap_usd ?? -1,
+            },
+            {
+              key: "usage",
+              header: "Budget used",
+              align: "num",
+              cell: (r) => {
+                const b = budgets[r.agent_name];
+                if (!b || b.cap_usd == null || b.ratio == null) {
+                  return <span class="text-dim">—</span>;
+                }
+                return <BudgetMeter ratio={b.ratio} />;
+              },
+              sort: (r) => budgets[r.agent_name]?.ratio ?? -1,
             },
             {
               key: "calls",
@@ -88,5 +124,19 @@ export function Agents() {
         />
       )}
     </>
+  );
+}
+
+// Tiny inline meter for the Agents list. The richer card-style
+// progress bar lives on AgentDetail.
+function BudgetMeter({ ratio }: { ratio: number }) {
+  const pct = Math.min(100, Math.max(0, ratio * 100));
+  const tone =
+    ratio >= 1 ? "danger" : ratio >= 0.8 ? "warning" : "ok";
+  return (
+    <div class="budget-meter" title={`${(ratio * 100).toFixed(1)}%`}>
+      <div class={`budget-meter-bar tone-${tone}`} style={`width:${pct}%`} />
+      <span class="budget-meter-label mono">{Math.round(pct)}%</span>
+    </div>
   );
 }

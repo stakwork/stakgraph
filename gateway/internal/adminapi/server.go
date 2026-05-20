@@ -143,6 +143,33 @@ type routeDeps struct {
 	logstore          *logstoreClient  // nil ⇒ skip phase-7 observability routes
 }
 
+// methodMuxedAuth picks one of two middleware chains based on the
+// request's HTTP method. Used for endpoints whose read path should
+// be accessible from the browser dashboard (cookie auth) but whose
+// write path stays gated to Hive's machine-to-plugin bearer.
+//
+//	GET → permissive auth (e.g. cookieOrBearer)
+//	*   → strict   auth (e.g. bearerOnly)
+//
+// Defining this here (rather than calling both wrappers and picking
+// in the handler) keeps the middleware chain declarative — server.go
+// is the only place that reasons about who-can-do-what.
+func methodMuxedAuth(
+	permissive, strict func(http.HandlerFunc) http.HandlerFunc,
+	readMethod string,
+	h http.HandlerFunc,
+) http.HandlerFunc {
+	permissiveH := permissive(h)
+	strictH := strict(h)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == readMethod {
+			permissiveH(w, r)
+			return
+		}
+		strictH(w, r)
+	}
+}
+
 // registerRoutes is in its own function so each route lives in its
 // own file (credentials.go, health.go, …) but the routing table is
 // readable in one place.
@@ -172,15 +199,26 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 
 	if deps.trust != nil {
 		th := newTrustHandlers(deps.trust)
-		// Exact-match leaves first; ServeMux prefers longer matches
-		// so the prefix handler below only fires for paths the
-		// leaves don't cover.
-		mux.HandleFunc(trustStatusPath, bearer(th.status))
+		// Trust registry reads (status + per-org lookup) are
+		// non-sensitive — pubkeys, issuer URLs, and the org-id list
+		// are public-by-design (operators paste pubkeys when
+		// seeding the registry). Phase-8.5 needs the dashboard's
+		// cookie auth to be able to render the Provenance card's
+		// "authorized by <org>" badge, so GET-side endpoints
+		// accept either cookie OR bearer. Mutations stay strictly
+		// bearer-only (Hive's territory).
+		mux.HandleFunc(trustStatusPath, methodMuxedAuth(
+			cookieOrBearer, bearer, http.MethodGet, th.status,
+		))
+		// /_plugin/trust (exact): POST upsert ⇒ bearer.
 		mux.HandleFunc(trustRootPath, bearer(th.upsert))
-		// Prefix routing for /_plugin/trust/<org_id>[/rotate].
-		// Trailing slash on the pattern makes ServeMux treat this
-		// as a subtree match.
-		mux.HandleFunc(trustPrefixPath, bearer(th.dispatchPrefix))
+		// Prefix /_plugin/trust/<org_id>[/rotate]: GET is read,
+		// POST/DELETE are mutations. Dispatch by method so the GET
+		// path is reachable from the SPA without leaking the
+		// provisioning token to the browser.
+		mux.HandleFunc(trustPrefixPath, methodMuxedAuth(
+			cookieOrBearer, bearer, http.MethodGet, th.dispatchPrefix,
+		))
 	}
 
 	// Cookie-or-bearer routes: session lifecycle.
@@ -197,7 +235,22 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 		mux.HandleFunc("/_plugin/histogram/cost", cookieOrBearer(obs.histogramCost))
 		// /_plugin/runs/ takes a trailing path segment as run-id
 		mux.HandleFunc("/_plugin/runs/", cookieOrBearer(obs.runDetail))
+		// /_plugin/users/ takes a trailing path segment as user-id.
+		// Phase-8 only exposes the rollup (KPIs + agents-used +
+		// runs); phase-9 adds /:id/quota for spend-vs-cap.
+		mux.HandleFunc("/_plugin/users/", cookieOrBearer(obs.userDetail))
 	}
+
+	// Phase-8.5 per-agent budget view. Reads cap from plugin config
+	// (auth.GetConfig().AgentBudgets) and current-bucket spend from
+	// Redis (`bifrost:cost:agent:<name>:<bucket_key>`) with a
+	// fallback to summing `logs.db` rows when phase 6's PostHook
+	// hasn't filled the Redis hash yet. Subtree routing on
+	// `/_plugin/agents/`; the handler enforces the `<name>/budget`
+	// shape and 404s on anything else (phase-9 `:name/state` and
+	// `:name/kill` live under the same prefix later).
+	bgt := newBudgetHandlers(deps.logstore)
+	mux.HandleFunc("/_plugin/agents/", cookieOrBearer(bgt.budget))
 
 	// SPA — served WITHOUT middleware auth. The SPA itself probes
 	// /_plugin/me at boot and redirects to /login on 401; gating
