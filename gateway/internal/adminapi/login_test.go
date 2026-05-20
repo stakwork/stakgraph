@@ -80,7 +80,10 @@ func TestLogin_HappyPath(t *testing.T) {
 	if body.User != "admin" {
 		t.Fatalf("user: %q", body.User)
 	}
-	// Cookie must be HttpOnly + SameSite=Strict + Path=/_plugin.
+	// Cookie must be HttpOnly + Path=/_plugin. SameSite is Lax in
+	// dev (httptest is plain HTTP so the request is non-secure)
+	// and None in prod — both are valid; we just assert it isn't
+	// Strict, which would block the iframe-embed flow.
 	var sc *http.Cookie
 	for _, c := range resp.Cookies() {
 		if c.Name == sessionCookieName {
@@ -93,8 +96,8 @@ func TestLogin_HappyPath(t *testing.T) {
 	if !sc.HttpOnly {
 		t.Error("cookie not HttpOnly")
 	}
-	if sc.SameSite != http.SameSiteStrictMode {
-		t.Errorf("SameSite: %v", sc.SameSite)
+	if sc.SameSite == http.SameSiteStrictMode {
+		t.Errorf("SameSite must not be Strict (got %v); cookie has to ride iframe requests", sc.SameSite)
 	}
 	if sc.Path != "/_plugin" {
 		t.Errorf("Path: %q", sc.Path)
