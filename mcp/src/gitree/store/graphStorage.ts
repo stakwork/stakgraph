@@ -1,4 +1,5 @@
-import neo4j, { Driver } from "neo4j-driver";
+import neo4j, { Driver, Session } from "neo4j-driver";
+import { createNeo4jDriver, withNeo4jRetry } from "../../utils/neo4jRetry.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
@@ -69,78 +70,80 @@ export class GraphStorage extends Storage {
 
   constructor() {
     super();
-    const uri = `neo4j://${process.env.NEO4J_HOST || "localhost:7687"}`;
+    this.driver = createNeo4jDriver();
+    const host = process.env.NEO4J_HOST || "localhost:7687";
     const user = process.env.NEO4J_USER || "neo4j";
-    const pswd = process.env.NEO4J_PASSWORD || "testtest";
-    console.log("===> GraphStorage connecting to", uri, user);
-    this.driver = neo4j.driver(uri, neo4j.auth.basic(user, pswd));
+    console.log("===> GraphStorage connecting to", `bolt://${host}`, user);
+  }
+
+  private async runWithRetry<T>(op: (session: Session) => Promise<T>, label: string): Promise<T> {
+    return withNeo4jRetry(() => this.driver, (d) => { this.driver = d; }, op, label);
   }
 
   /**
    * Initialize indexes for better query performance
    */
   async initialize(): Promise<void> {
-    const session = this.driver.session();
     try {
-      // Create indexes on id/number/sha for fast lookups
-      await session.run(
-        "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
-      );
-      await session.run(
-        "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
-      );
-      await session.run(
-        "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
-      );
-      await session.run(
-        "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
-      );
-      await session.run(
-        "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
-      );
-      // Indexes for code nodes (for REFERENCES edges)
-      await session.run(
-        "CREATE INDEX function_name_index IF NOT EXISTS FOR (f:Function) ON (f.name)"
-      );
-      await session.run(
-        "CREATE INDEX class_name_index IF NOT EXISTS FOR (c:Class) ON (c.name)"
-      );
-      await session.run(
-        "CREATE INDEX endpoint_name_index IF NOT EXISTS FOR (e:Endpoint) ON (e.name)"
-      );
-      await session.run(
-        "CREATE INDEX datamodel_name_index IF NOT EXISTS FOR (d:Datamodel) ON (d.name)"
-      );
-      await session.run(
-        "CREATE INDEX var_name_index IF NOT EXISTS FOR (v:Var) ON (v.name)"
-      );
-      
-      // Multi-repo indexes
-      await session.run(
-        "CREATE INDEX feature_repo_index IF NOT EXISTS FOR (f:Feature) ON (f.repo)"
-      );
-      await session.run(
-        "CREATE INDEX pr_repo_index IF NOT EXISTS FOR (p:PullRequest) ON (p.repo)"
-      );
-      await session.run(
-        "CREATE INDEX commit_repo_index IF NOT EXISTS FOR (c:Commit) ON (c.repo)"
-      );
-      await session.run(
-        "CREATE INDEX clue_repo_index IF NOT EXISTS FOR (c:Clue) ON (c.repo)"
-      );
-      await session.run(
-        "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
-      );
-      await session.run(
-        "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
-      );
-      
-      // Run migration if needed
-      await this.migrateToMultiRepo();
+      await this.runWithRetry(async (session) => {
+        // Create indexes on id/number/sha for fast lookups
+        await session.run(
+          "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
+        );
+        await session.run(
+          "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
+        );
+        await session.run(
+          "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
+        );
+        await session.run(
+          "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
+        );
+        await session.run(
+          "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
+        );
+        // Indexes for code nodes (for REFERENCES edges)
+        await session.run(
+          "CREATE INDEX function_name_index IF NOT EXISTS FOR (f:Function) ON (f.name)"
+        );
+        await session.run(
+          "CREATE INDEX class_name_index IF NOT EXISTS FOR (c:Class) ON (c.name)"
+        );
+        await session.run(
+          "CREATE INDEX endpoint_name_index IF NOT EXISTS FOR (e:Endpoint) ON (e.name)"
+        );
+        await session.run(
+          "CREATE INDEX datamodel_name_index IF NOT EXISTS FOR (d:Datamodel) ON (d.name)"
+        );
+        await session.run(
+          "CREATE INDEX var_name_index IF NOT EXISTS FOR (v:Var) ON (v.name)"
+        );
+
+        // Multi-repo indexes
+        await session.run(
+          "CREATE INDEX feature_repo_index IF NOT EXISTS FOR (f:Feature) ON (f.repo)"
+        );
+        await session.run(
+          "CREATE INDEX pr_repo_index IF NOT EXISTS FOR (p:PullRequest) ON (p.repo)"
+        );
+        await session.run(
+          "CREATE INDEX commit_repo_index IF NOT EXISTS FOR (c:Commit) ON (c.repo)"
+        );
+        await session.run(
+          "CREATE INDEX clue_repo_index IF NOT EXISTS FOR (c:Clue) ON (c.repo)"
+        );
+        await session.run(
+          "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
+        );
+        await session.run(
+          "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
+        );
+
+        // Run migration if needed
+        await this.migrateToMultiRepo();
+      }, "GraphStorage.initialize");
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
-    } finally {
-      await session.close();
     }
   }
   
@@ -403,8 +406,7 @@ export class GraphStorage extends Storage {
   }
 
   async getAllFeatures(repo?: string): Promise<Feature[]> {
-    const session = this.driver.session();
-    try {
+    return this.runWithRetry(async (session) => {
       const result = await session.run(
         `
         MATCH (f:Feature)
@@ -418,9 +420,7 @@ export class GraphStorage extends Storage {
       return result.records.map((record) =>
         this.nodeToFeature(record.get("f"))
       );
-    } finally {
-      await session.close();
-    }
+    }, "GraphStorage.getAllFeatures");
   }
 
   async deleteFeature(id: string, repo?: string): Promise<void> {
