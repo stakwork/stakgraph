@@ -80,12 +80,48 @@ const SIZE = {
   provider: { w: 180, h: 64, gap: 16 },
 } as const;
 
+// Extra vertical space inserted between agent groups (one group per
+// user) on top of the usual `SIZE.agent.gap`. Keeps the visual
+// chunking subtle — operators read "these three boxes belong to
+// Alice, these two to Bob" without the column feeling sparse.
+const AGENT_GROUP_GAP = 18;
+
 // Stack a column of nodes vertically and center the whole stack
 // around y=0. Returns the y for the i-th item.
 function stackY(count: number, i: number, h: number, gap: number): number {
   const totalH = count * h + (count - 1) * gap;
   const startY = -totalH / 2;
   return startY + i * (h + gap) + h / 2; // node centers at this y
+}
+
+// Stack a column where items are partitioned into groups; an extra
+// `groupGap` is inserted between groups on top of the normal `gap`.
+// `groupSizes` is the count of items in each group, in render order.
+// Returns the y-center for the `globalIdx`-th item across the whole
+// column. Used for the agent column so that boxes belonging to the
+// same user cluster visually.
+function groupedStackY(
+  groupSizes: number[],
+  groupIdx: number,
+  withinIdx: number,
+  h: number,
+  gap: number,
+  groupGap: number,
+): number {
+  const totalItems = groupSizes.reduce((a, b) => a + b, 0);
+  const totalH =
+    totalItems * h +
+    (totalItems - groupSizes.length) * gap +
+    (groupSizes.length - 1) * (gap + groupGap);
+  let y = -totalH / 2;
+  for (let g = 0; g < groupIdx; g++) {
+    const n = groupSizes[g];
+    // Group g contributes n boxes + (n-1) within-group gaps + one
+    // between-group gap on its trailing edge.
+    y += n * h + (n - 1) * gap + gap + groupGap;
+  }
+  y += withinIdx * (h + gap) + h / 2;
+  return y;
 }
 
 // Build the four-column canvas from the live matrix. Pure — easy
@@ -136,47 +172,92 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
   }
 
   const users = Array.from(userTotals.entries());
-  // Sort: highest spend at the top. The matrix endpoint already
-  // sorts pairs by cost desc, so iterating `rows` in order gives
-  // us agent boxes top-to-bottom by spend.
+  // Sort users by total spend desc. The agent column is laid out
+  // group-by-group in this same order, and each user box sits at
+  // the vertical center of its agent group so the user→agent
+  // edges land cleanly.
   users.sort((a, b) => b[1].totalCost - a[1].totalCost);
+
+  // Bucket rows by user (in users-column order), sorted by cost desc
+  // within each bucket. Drives both the agent-column stack and the
+  // y-center of each user box.
+  const rowsByUser = new Map<string, AgentUserSpend[]>();
+  for (const r of rows) {
+    const bucket = rowsByUser.get(r.user_id);
+    if (bucket) bucket.push(r);
+    else rowsByUser.set(r.user_id, [r]);
+  }
+  for (const bucket of rowsByUser.values()) {
+    bucket.sort((a, b) => b.total_cost - a.total_cost);
+  }
+  const orderedGroups = users
+    .map(([userID]) => rowsByUser.get(userID) ?? [])
+    .filter((g) => g.length > 0);
+  const groupSizes = orderedGroups.map((g) => g.length);
 
   const nodes: CanvasNode[] = [];
 
   // ─── Agents column (one per pairing) ──────────────────────────
+  // Boxes are grouped by user with a small extra gap between
+  // groups (AGENT_GROUP_GAP) so the visual chunking reads. Within
+  // each group, boxes are top-to-bottom by spend.
+  //
   // Name flows through the header text slot (driven by
   // customData.name), so node.text is left empty — that suppresses
   // the default label render which would otherwise double up.
-  rows.forEach((r, i) => {
-    nodes.push({
-      id: `agent:${r.agent_name}:${r.user_id}`,
-      type: "text",
-      category: "agent",
-      text: "",
-      x: COL_X.agent,
-      y: stackY(rows.length, i, SIZE.agent.h, SIZE.agent.gap),
-      width: SIZE.agent.w,
-      height: SIZE.agent.h,
-      customData: {
-        name: r.agent_name,
-        cost: r.total_cost,
-        calls: r.request_count,
-      },
+  //
+  // Capture each group's y-center as we go so the user box can be
+  // pinned to it.
+  const userGroupCenterY = new Map<string, number>();
+  orderedGroups.forEach((group, groupIdx) => {
+    const ys: number[] = [];
+    group.forEach((r, withinIdx) => {
+      const y = groupedStackY(
+        groupSizes,
+        groupIdx,
+        withinIdx,
+        SIZE.agent.h,
+        SIZE.agent.gap,
+        AGENT_GROUP_GAP,
+      );
+      ys.push(y);
+      nodes.push({
+        id: `agent:${r.agent_name}:${r.user_id}`,
+        type: "text",
+        category: "agent",
+        text: "",
+        x: COL_X.agent,
+        y,
+        width: SIZE.agent.w,
+        height: SIZE.agent.h,
+        customData: {
+          name: r.agent_name,
+          cost: r.total_cost,
+          calls: r.request_count,
+        },
+      });
     });
+    // Group center = midpoint of first and last node centers. With
+    // a single-item group this is just that one node's y.
+    const userID = group[0].user_id;
+    userGroupCenterY.set(userID, (ys[0] + ys[ys.length - 1]) / 2);
   });
 
   // ─── Users column ─────────────────────────────────────────────
+  // Each user box is pinned vertically to the center of its agent
+  // group, so the user→agent edges fan out symmetrically.
   // Username flows through the header text slot (driven by
   // customData.name); node.text empty so the default label
   // doesn't double-render.
-  users.forEach(([userID, agg], i) => {
+  users.forEach(([userID, agg]) => {
+    const y = userGroupCenterY.get(userID) ?? 0;
     nodes.push({
       id: `user:${userID}`,
       type: "text",
       category: "user",
       text: "",
       x: COL_X.user,
-      y: stackY(users.length, i, SIZE.user.h, SIZE.user.gap),
+      y,
       width: SIZE.user.w,
       height: SIZE.user.h,
       customData: {
