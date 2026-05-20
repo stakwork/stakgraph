@@ -16,6 +16,14 @@ import (
 // `/_plugin` so it never collides with anything Bifrost-side sets.
 const sessionCookieName = "bifrost_session"
 
+// csrfHeader is required on every cookie-authed non-GET request.
+// Browsers won't send a custom header on a cross-origin form / image
+// / link request, so requiring its presence blocks the classic CSRF
+// vectors that SameSite=None opens up. The SPA's apiFetch adds it
+// on every non-GET; bearer-authed callers (Hive) are exempt because
+// they aren't relying on ambient cookie auth.
+const csrfHeader = "X-Bifrost-CSRF"
+
 // sessionLookupTimeout bounds the Redis call the middleware makes on
 // every authed request. Generous because Redis is loopback in swarm,
 // but tight enough that an unresponsive Redis surfaces as a 401 (and
@@ -90,10 +98,20 @@ func (g *sessionGuard) bearerOnly(next http.HandlerFunc) http.HandlerFunc {
 // cookieOrBearer returns middleware that accepts EITHER a valid
 // session cookie OR the provisioning bearer. When a cookie is used,
 // the resolved Session is stashed on the request context.
+//
+// Cookie-authed mutations (any non-GET/HEAD method) additionally
+// require the `X-Bifrost-CSRF` header. The SPA's apiFetch adds it
+// automatically. Bearer-authed requests skip the check — they aren't
+// vulnerable to CSRF because the attacker can't add the header on
+// behalf of the victim's bearer.
 func (g *sessionGuard) cookieOrBearer(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Cookie first — the common case for the dashboard.
 		if sess, ok := g.resolveCookie(r); ok {
+			if !csrfOK(r) {
+				http.Error(w, "csrf header required", http.StatusForbidden)
+				return
+			}
 			ctx := context.WithValue(r.Context(), sessionContextKey, sess)
 			next(w, r.WithContext(ctx))
 			return
@@ -104,6 +122,20 @@ func (g *sessionGuard) cookieOrBearer(next http.HandlerFunc) http.HandlerFunc {
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
+}
+
+// csrfOK reports whether the request satisfies the CSRF rule:
+// GET / HEAD / OPTIONS are exempt (idempotent reads); every other
+// method must carry the `X-Bifrost-CSRF` header. Any non-empty value
+// is accepted — the header's presence is the signal; the contents
+// don't matter because a cross-origin attacker can't set custom
+// headers at all.
+func csrfOK(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return r.Header.Get(csrfHeader) != ""
 }
 
 // resolveCookie returns the Session associated with the inbound
@@ -156,10 +188,15 @@ func (g *sessionGuard) bearerOK(r *http.Request) bool {
 // attributes (HttpOnly / Secure / SameSite / Path / Max-Age) stay in
 // sync between login (set) and logout (clear).
 //
-// Secure is set if either: (a) the inbound request announces HTTPS
-// via X-Forwarded-Proto (typical behind a TLS-terminating ingress),
-// or (b) PRODUCTION=1 is set in env. Local dev over plain HTTP
-// gets a non-Secure cookie so it actually works.
+// SameSite=None is required so the cookie rides cross-origin iframe
+// requests from Hive. Browsers reject SameSite=None without Secure,
+// so Secure is forced on regardless of the inbound request's scheme
+// in production. Local dev over plain HTTP still gets Lax so the
+// cookie can actually land — `SameSite=None` over HTTP is dropped.
+//
+// CSRF defence is upgraded to the `X-Bifrost-CSRF` header check on
+// every cookie-authed mutation (see session.go's middleware); the
+// `frame-ancestors` CSP on the UI shell blocks rogue embedders.
 func setSessionCookie(w http.ResponseWriter, r *http.Request, id string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -167,7 +204,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, id string) {
 		Path:     "/_plugin",
 		HttpOnly: true,
 		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sessionSameSite(r),
 		MaxAge:   int(sessions.SessionTTL.Seconds()),
 	})
 }
@@ -183,9 +220,20 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 		Path:     "/_plugin",
 		HttpOnly: true,
 		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sessionSameSite(r),
 		MaxAge:   -1,
 	})
+}
+
+// sessionSameSite picks the SameSite attribute for the session cookie.
+// Prod always uses None (so the cookie rides inside Hive's iframe);
+// dev falls back to Lax because browsers silently drop `None` over
+// plain HTTP and we want localhost to keep working.
+func sessionSameSite(r *http.Request) http.SameSite {
+	if isSecureRequest(r) {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
 }
 
 // isSecureRequest mirrors the rule used by `setSessionCookie` so a

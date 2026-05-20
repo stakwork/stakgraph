@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+
+	"github.com/stakwork/stakgraph/gateway/internal/env"
 )
 
 // uiFS is the compiled SPA bundle, dropped here by the Dockerfile's
@@ -46,7 +48,21 @@ func uiHandler() http.Handler {
 		})
 	}
 	fsrv := http.FileServer(http.FS(sub))
-	return http.StripPrefix("/_plugin/ui/", spaFallback(sub, fsrv))
+	return withFrameAncestors(http.StripPrefix("/_plugin/ui/", spaFallback(sub, fsrv)))
+}
+
+// withFrameAncestors wraps a handler so every response carries a
+// `Content-Security-Policy: frame-ancestors 'self' <HiveOrigin>`
+// header. This is the only thing standing between the dashboard
+// and clickjacking by a rogue site, now that the session cookie is
+// SameSite=None. The list is small and constant (Hive + the plugin
+// itself, so direct browser sessions also work).
+func withFrameAncestors(next http.Handler) http.Handler {
+	csp := "frame-ancestors 'self' " + env.HiveOriginValue()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", csp)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // spaFallback wraps a FileServer so that any path that doesn't

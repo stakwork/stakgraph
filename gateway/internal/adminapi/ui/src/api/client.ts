@@ -61,6 +61,13 @@ export async function apiFetch<T>(
   const ctl = new AbortController();
   const tid = setTimeout(() => ctl.abort(), timeoutMs);
 
+  // CSRF: the gateway requires `X-Bifrost-CSRF` on every cookie-
+  // authed mutation. Browsers won't auto-send a custom header on
+  // cross-origin requests, so its presence is the signal that "this
+  // request was made by our own SPA, not a forged form post." Any
+  // value works — we use "1" for brevity. GET / HEAD are exempt
+  // server-side, but adding the header unconditionally keeps the
+  // request shape uniform and is harmless.
   let resp: Response;
   try {
     resp = await fetch(PLUGIN_PREFIX + path, {
@@ -69,6 +76,7 @@ export async function apiFetch<T>(
       headers: {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         Accept: "application/json",
+        "X-Bifrost-CSRF": "1",
         ...headers,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,

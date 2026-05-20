@@ -227,6 +227,15 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	mux.HandleFunc("/_plugin/logout", loginH.logout)
 	mux.HandleFunc("/_plugin/me", cookieOrBearer(loginH.me))
 
+	// Ticket-based bootstrap for iframe embedding. Hive calls
+	// /auth/ticket with its bearer to mint a short-lived single-
+	// use ticket, embeds the iframe with `?ticket=<value>`, and
+	// the SPA POSTs that to /auth/redeem on boot to receive the
+	// session cookie. Admin password never reaches the browser.
+	ticketH := newTicketHandlers(deps.sessions, deps.adminUser)
+	mux.HandleFunc("/_plugin/auth/ticket", bearer(ticketH.mint))
+	mux.HandleFunc("/_plugin/auth/redeem", ticketH.redeem) // anon; ticket IS the proof
+
 	// Cookie-or-bearer routes: phase-7 observability subset.
 	if deps.logstore != nil {
 		obs := newObservabilityHandlers(deps.logstore)

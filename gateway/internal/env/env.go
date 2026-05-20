@@ -89,6 +89,15 @@ const (
 	// Set in swarm/prod; left unset in dev so localhost HTTP works.
 	// Phase 8 "Cookie attributes".
 	Production = "PRODUCTION"
+
+	// HiveOrigin is the scheme+host of the Hive deployment that's
+	// allowed to embed the dashboard in an iframe. Drives the
+	// `Content-Security-Policy: frame-ancestors` header on the SPA
+	// shell and on the ticket-redemption endpoint. A single origin
+	// is sufficient because Hive is multi-tenant — every workspace
+	// is served from the same Hive origin and proxies to whichever
+	// per-swarm gateway plugin it needs.
+	HiveOrigin = "HIVE_ORIGIN"
 )
 
 // Defaults that apply when an env var is unset.
@@ -99,6 +108,10 @@ const (
 
 	// DefaultTrustReconcile is the safe default — see TrustReconcile.
 	DefaultTrustReconcile = "ignore"
+
+	// DefaultHiveOrigin is production Hive. Override via HIVE_ORIGIN
+	// for staging / dev (e.g. `http://localhost:8080`).
+	DefaultHiveOrigin = "https://hive.sphinx.chat"
 )
 
 // Get reads `name` and returns its value or "" if unset.
@@ -167,6 +180,12 @@ func IsProduction() bool {
 		return false
 	}
 }
+
+// HiveOriginValue returns the Hive origin allowed to embed the
+// dashboard, falling back to DefaultHiveOrigin. Used both for the
+// CSP `frame-ancestors` directive and (in future) as an allowlist
+// for cookie-authed mutation `Origin` checks.
+func HiveOriginValue() string { return GetOr(HiveOrigin, DefaultHiveOrigin) }
 
 // TrustSeed returns the env-supplied registry seed and where it came
 // from. Exactly one of the two env vars is honoured per
