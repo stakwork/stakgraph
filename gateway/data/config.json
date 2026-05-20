@@ -75,7 +75,7 @@
     "enabled": true,
     "type": "sqlite",
     "config": {
-      "path": "./config.db"
+      "path": "/app/data/config.db"
     }
   }
 }
