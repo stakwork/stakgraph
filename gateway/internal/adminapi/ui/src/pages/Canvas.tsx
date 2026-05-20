@@ -398,7 +398,16 @@ export function Canvas() {
   const [selectedID, setSelectedID] = useState<string | null>(null);
 
   const rows = matrix.data?.results ?? [];
-  const canvas = useMemo(() => buildCanvas(rows), [rows]);
+  // Defer building the canvas until the matrix has loaded. The
+  // SystemCanvas auto-fits to content on its first non-empty render
+  // and never re-fits while the canvasRef stays the same, so if we
+  // fed it the gateway+providers stub while `rows` was still empty,
+  // the fit would zoom in tight on those 5 nodes — and the
+  // agent/user nodes would land off-screen when the data arrives.
+  const canvas = useMemo(
+    () => (matrix.data ? buildCanvas(rows) : { nodes: [], edges: [] }),
+    [rows, matrix.data],
+  );
 
   const selectedNode = selectedID
     ? canvas.nodes?.find((n) => n.id === selectedID) ?? null
@@ -409,7 +418,7 @@ export function Canvas() {
   // anchors the absolutely-positioned WindowPicker overlay.
   return (
     <div
-      style="position: relative; height: 100%; margin: calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));"
+      style="position: relative; height: calc(100vh - 56px); margin: calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));"
     >
       <SystemCanvas
         canvas={canvas}
