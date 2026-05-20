@@ -129,6 +129,7 @@ Routes today:
 | GET    | `/_plugin/spend/by-{agent,user}?window=…`  | cookie or bearer    | Phase-7 per-dim aggregations over `logs.db` via loopback to bifrost-http's `/api/logs`.                    |
 | GET    | `/_plugin/histogram/cost?window=…&bucket=…&dimension=…` | cookie or bearer | Time-bucketed cost series, grouped by dim. agent-name / run-id / session-id / realm-id / user-id. |
 | GET    | `/_plugin/runs/:run_id`                    | cookie or bearer    | Drill-down: every call recorded for one run_id, paginated.                                                 |
+| GET    | `/_plugin/runs/:run_id/calls/:call_id`     | cookie or bearer    | Single call body — full input_history / output_message / params / tools / error_details / raw_response.    |
 | GET/POST/DELETE | `/_plugin/trust/*`                | bearer              | Phase-5 trust registry CRUD.                                                                               |
 
 ### Admin UI (`/_plugin/ui/`)

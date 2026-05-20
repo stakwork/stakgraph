@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
@@ -94,6 +95,75 @@ type RunDetailResponse struct {
 	RunID string        `json:"run_id"`
 	Logs  []RunLogEntry `json:"logs"`
 	Stats RunStats      `json:"stats"`
+}
+
+// CallDetailResponse is the envelope for
+// /_plugin/runs/:run_id/calls/:call_id — the full request/response
+// content for a single LLM call, fetched on-demand when the
+// operator clicks a row in the RunDetail call log.
+//
+// Run-scoping rationale: we verify that the fetched log's
+// metadata.run-id matches the URL's run_id before returning, so a
+// caller can't enumerate other workspaces' logs by guessing IDs.
+// Bifrost's /api/logs/{id} doesn't do this check itself (it just
+// looks up by primary key), so the plugin enforces it.
+//
+// Body fields are pass-through json.RawMessage from Bifrost — the
+// SPA pretty-prints them; the plugin doesn't introspect them. This
+// keeps the schema coupling minimal: new fields upstream surface in
+// the UI without code changes here.
+type CallDetailResponse struct {
+	ID         string            `json:"id"`
+	RunID      string            `json:"run_id"`
+	Timestamp  string            `json:"timestamp"`
+	Provider   string            `json:"provider"`
+	Model      string            `json:"model"`
+	Status     string            `json:"status"`
+	Cost       float64           `json:"cost"`
+	Latency    float64           `json:"latency"`
+	CustomerID string            `json:"customer_id"`
+	Metadata   map[string]string `json:"metadata"`
+
+	// Per-request descriptors stamped by Bifrost. `stop_reason`
+	// tells the operator why the model stopped (stop, length,
+	// content_filter, tool_calls, refusal). `stream` flags
+	// streaming responses (which lack a single output_message and
+	// surface their content via Bifrost's stream chunk replay).
+	// Retries / fallback_index are zero on the happy path; non-zero
+	// means Bifrost had to retry the call or fall back to a
+	// different provider, which is useful provenance.
+	StopReason      string `json:"stop_reason,omitempty"`
+	Stream          bool   `json:"stream"`
+	NumberOfRetries int    `json:"number_of_retries"`
+	FallbackIndex   int    `json:"fallback_index"`
+
+	// TokenUsage is the provider-reported usage breakdown
+	// (BifrostLLMUsage). Includes prompt/completion/total totals
+	// plus cached read/write splits (Anthropic prompt-cache,
+	// OpenAI cached_tokens), audio/image token counts, and a
+	// per-call cost record. Pass-through JSON — the SPA introspects
+	// it. Bifrost's row-level prompt_tokens / completion_tokens /
+	// total_tokens columns are denormalized helpers tagged
+	// `json:"-"`, so this is the only place token data is on the
+	// wire.
+	TokenUsage json.RawMessage `json:"token_usage,omitempty"`
+
+	// CacheDebug carries Bifrost's *semantic* cache verdict for
+	// this call (hit/miss + similarity score). Distinct from
+	// prompt-cache tokens, which live in TokenUsage above. Absent
+	// when no semantic cache is configured for this swarm.
+	CacheDebug json.RawMessage `json:"cache_debug,omitempty"`
+
+	// All optional; missing on failures, realtime turns, or rows
+	// recorded before a given column existed.
+	InputHistory   json.RawMessage `json:"input_history,omitempty"`
+	OutputMessage  json.RawMessage `json:"output_message,omitempty"`
+	Params         json.RawMessage `json:"params,omitempty"`
+	Tools          json.RawMessage `json:"tools,omitempty"`
+	ErrorDetails   json.RawMessage `json:"error_details,omitempty"`
+	RawRequest     string          `json:"raw_request,omitempty"`
+	RawResponse    string          `json:"raw_response,omitempty"`
+	ContentSummary string          `json:"content_summary,omitempty"`
 }
 
 // ─── handler scaffold ────────────────────────────────────────────────
@@ -391,10 +461,15 @@ func dimensionValue(l logstoreLog, dim string) string {
 
 // ─── /_plugin/runs/:run_id ───────────────────────────────────────────
 //
-// Routed under `/_plugin/runs/` (subtree); the trailing segment is
-// the run_id. We don't pull in a router library for this since
-// phase 8 only has one such route — extracting the segment with
-// string ops is shorter than gluing in a dependency.
+// Routed under `/_plugin/runs/` (subtree); the trailing segments
+// dispatch by shape:
+//
+//   /_plugin/runs/{run_id}                       → runDetail (list)
+//   /_plugin/runs/{run_id}/calls/{call_id}       → runCallDetail (body)
+//
+// Phase 6 will add /:id/state and /:id/kill under the same prefix;
+// any other shape returns 404. We don't pull in a router library
+// since the dispatch fits in a switch.
 func (h *observabilityHandlers) runDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
@@ -402,17 +477,29 @@ func (h *observabilityHandlers) runDetail(w http.ResponseWriter, r *http.Request
 	}
 	const prefix = "/_plugin/runs/"
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
-	if rest == "" || strings.ContainsRune(rest, '/') {
-		// Phase 6 will introduce /_plugin/runs/:id/state and
-		// /_plugin/runs/:id/kill — both contain a slash after the
-		// id. Phase 8 doesn't serve those, so reject early with a
-		// crisp 404 rather than confusing the caller with a
-		// stripped-id query.
+	if rest == "" {
 		http.NotFound(w, r)
 		return
 	}
-	runID := rest
 
+	// Two valid shapes: "{run_id}" (list) and "{run_id}/calls/{call_id}".
+	parts := strings.Split(rest, "/")
+	switch {
+	case len(parts) == 1:
+		h.runDetailList(w, r, parts[0])
+	case len(parts) == 3 && parts[1] == "calls" && parts[2] != "":
+		h.runCallDetail(w, r, parts[0], parts[2])
+	default:
+		// Anything else (e.g. /:id/state, /:id/kill, trailing slash,
+		// 4-segment paths) is phase-6 territory or malformed; 404.
+		http.NotFound(w, r)
+	}
+}
+
+// runDetailList serves the paginated call-log envelope for a run.
+// Extracted from runDetail's dispatch so the URL parsing stays one
+// concern and the data path another.
+func (h *observabilityHandlers) runDetailList(w http.ResponseWriter, r *http.Request, runID string) {
 	limit, offset, ok := parsePagination(w, r)
 	if !ok {
 		return
@@ -452,6 +539,69 @@ func (h *observabilityHandlers) runDetail(w http.ResponseWriter, r *http.Request
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// runCallDetail serves the full content of one LLM call. Backed by
+// Bifrost's GET /api/logs/{id}, which (unlike /api/logs) returns
+// the parsed input_history / output_message / params / tools /
+// error_details / raw_response fields the list endpoint trims.
+//
+// The {run_id} segment isn't strictly needed to look up the row
+// (Bifrost's primary key is the call id), but we verify it matches
+// `metadata.run-id` on the row before returning. Two reasons:
+//
+//   1. Defence in depth — keeps the call-detail URL self-describing
+//      and prevents the SPA from being tricked into enumerating
+//      call IDs across runs.
+//   2. Symmetric with /_plugin/runs/{id} which is already run-scoped.
+//      Operators reasonably expect /runs/A/calls/X and /runs/B/calls/X
+//      to give 404 for whichever doesn't actually contain X.
+func (h *observabilityHandlers) runCallDetail(w http.ResponseWriter, r *http.Request, runID, callID string) {
+	log, err := h.logs.findByID(r.Context(), callID)
+	if err != nil {
+		writeUpstreamError(w, err, "runs.call_detail")
+		return
+	}
+	if log == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if log.Metadata["run-id"] != runID {
+		// Either the caller guessed an ID from a different run, or
+		// the run-id dim was never stamped. Either way we don't
+		// want to leak the row's existence — 404 matches the
+		// "row doesn't exist under this run" semantic the URL
+		// implies.
+		http.NotFound(w, r)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, CallDetailResponse{
+		ID:               log.ID,
+		RunID:            runID,
+		Timestamp:        log.Timestamp,
+		Provider:         log.Provider,
+		Model:            log.Model,
+		Status:           log.Status,
+		Cost:             log.Cost,
+		Latency:          log.Latency,
+		CustomerID:       log.CustomerID,
+		Metadata:         log.Metadata,
+		StopReason:      log.StopReason,
+		Stream:          log.Stream,
+		NumberOfRetries: log.NumberOfRetries,
+		FallbackIndex:   log.FallbackIndex,
+		TokenUsage:      log.TokenUsage,
+		CacheDebug:      log.CacheDebug,
+		InputHistory:     log.InputHistory,
+		OutputMessage:    log.OutputMessage,
+		Params:           log.Params,
+		Tools:            log.Tools,
+		ErrorDetails:     log.ErrorDetails,
+		RawRequest:       log.RawRequest,
+		RawResponse:      log.RawResponse,
+		ContentSummary:   log.ContentSummary,
+	})
 }
 
 // ─── parameter parsing ───────────────────────────────────────────────

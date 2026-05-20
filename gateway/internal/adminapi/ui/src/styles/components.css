@@ -581,3 +581,372 @@ table.table {
 .row-link {
   cursor: pointer;
 }
+
+/* ─── call-detail drawer ─────────────────────────────────────── */
+/*
+ * Right-side overlay used by RunDetail to surface a single call's
+ * request/response bodies. The shell is two siblings: a full-screen
+ * backdrop that dismisses on click, and a fixed-width panel pinned
+ * to the right edge. No transition on first paint — the operator
+ * clicked a row, they expect it to land immediately.
+ */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(680px, 90vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  z-index: 41;
+}
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+.drawer-eyebrow {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.drawer-title {
+  font-size: 15px;
+  margin-top: 2px;
+  /* Long call ids overflow gracefully — the full id is on the
+     parent's `title` attribute for hover-to-copy. */
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--r-sm);
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.drawer-close:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.drawer-body {
+  padding: var(--sp-4) var(--sp-5);
+  overflow-y: auto;
+  flex: 1;
+}
+.drawer-section {
+  margin-bottom: var(--sp-5);
+}
+.drawer-section.tone-danger .json-block {
+  border-color: var(--danger);
+}
+.drawer-section-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-2);
+}
+.drawer-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.drawer-meta-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+.drawer-meta-value {
+  font-size: 13px;
+}
+.json-block {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  /* JSON bodies are sometimes long. Cap height so the drawer
+     scrolls one section at a time rather than the whole panel
+     drifting away from the header. Each block scrolls
+     independently. */
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+  color: var(--text);
+}
+
+/* ─── drawer: status pills row ───────────────────────────────── */
+/*
+ * Replaces the original "timestamp / provider / model / cost / latency"
+ * grid. The row already shows provider/model/timestamp/cost; the
+ * pills surface only what the row *doesn't* carry — stop_reason,
+ * stream, retries, prompt-cache.
+ */
+.drawer-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.pill-ok {
+  border-color: rgba(105, 214, 164, 0.35);
+  background: rgba(105, 214, 164, 0.12);
+  color: var(--ok);
+}
+.pill-danger {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--danger);
+}
+.pill-warning {
+  border-color: rgba(245, 184, 108, 0.35);
+  background: rgba(245, 184, 108, 0.12);
+  color: var(--warning);
+}
+.pill-accent {
+  border-color: rgba(110, 168, 255, 0.35);
+  background: rgba(110, 168, 255, 0.12);
+  color: var(--accent);
+}
+
+/* ─── drawer: chat thread ────────────────────────────────────── */
+/*
+ * Chat-bubble rendering for input_history + output_message. We don't
+ * want a full messenger UI — these are admin logs, not a chat app —
+ * but role-keyed alignment and color make a hundred-message
+ * conversation skimmable in a way that nested JSON never is.
+ *
+ *   user      → right, accent-tinted
+ *   assistant → left, neutral surface
+ *   tool      → left, dim (function-return colour)
+ *   system    → centered, dim italic
+ */
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.chat-bubble-row {
+  display: flex;
+}
+.chat-bubble-row.align-right {
+  justify-content: flex-end;
+}
+.chat-bubble-row.align-left {
+  justify-content: flex-start;
+}
+.chat-bubble-row.align-center {
+  justify-content: center;
+}
+.chat-bubble-stack {
+  display: flex;
+  flex-direction: column;
+  max-width: 86%;
+}
+.chat-bubble-row.align-right .chat-bubble-stack {
+  align-items: flex-end;
+}
+.chat-bubble-row.align-center .chat-bubble-stack {
+  align-items: center;
+  max-width: 92%;
+}
+.chat-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-chip {
+  /* tiny "cache_control" marker — Anthropic's prompt-cache
+     breakpoint surfaced as a chip on the bubble's role line. */
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(110, 168, 255, 0.35);
+  background: rgba(110, 168, 255, 0.12);
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.chat-bubble {
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  /* Long lines (e.g. unbroken URLs, base64) must wrap. Bifrost
+     emits chat content with literal "\n" escapes; preserving them
+     as line breaks keeps the conversation readable. */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.chat-bubble.tone-user {
+  background: rgba(110, 168, 255, 0.10);
+  border-color: rgba(110, 168, 255, 0.30);
+}
+.chat-bubble.tone-assistant {
+  background: var(--surface-2);
+}
+.chat-bubble.tone-tool {
+  background: var(--bg);
+  border-color: var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.chat-bubble.tone-system {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.chat-bubble.tone-other {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.chat-text {
+  white-space: pre-wrap;
+}
+.chat-text + .chat-text,
+.chat-text + .chat-block-placeholder,
+.chat-block-placeholder + .chat-text {
+  margin-top: var(--sp-2);
+}
+.chat-block-placeholder {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.chat-sub-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.chat-reasoning,
+.chat-refusal,
+.chat-tool-calls {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.chat-refusal {
+  color: var(--danger);
+}
+.chat-tool-call + .chat-tool-call {
+  margin-top: var(--sp-2);
+}
+.chat-tool-args {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre;
+}
+.chat-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: var(--sp-2) 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.chat-divider::before,
+.chat-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+.chat-divider span {
+  padding: 0 var(--sp-3);
+}
+
+/* ─── drawer: token + cache cards ────────────────────────────── */
+.token-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-3);
+}
+.token-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+}
+.token-box.is-accent {
+  border-color: rgba(110, 168, 255, 0.35);
+}
+.token-box-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.token-box-value {
+  font-size: 16px;
+}
+.token-cache {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid rgba(110, 168, 255, 0.25);
+  background: rgba(110, 168, 255, 0.06);
+  border-radius: var(--r-md);
+}
+.token-cache-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  font-size: 12px;
+}
