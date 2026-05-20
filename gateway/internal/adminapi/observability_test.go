@@ -338,7 +338,12 @@ func TestRunDetail_FiltersByRunID(t *testing.T) {
 		t.Fatalf("logs: %+v", out)
 	}
 	if out.Stats.TotalRequests != 2 {
-		t.Errorf("stats: %+v", out.Stats)
+		t.Errorf("stats requests: %+v", out.Stats)
+	}
+	// total_cost is derived from row sums in Go, not Bifrost's
+	// stats block. r1 = 0.05 + 0.10 in sampleLogs.
+	if out.Stats.TotalCost < 0.149 || out.Stats.TotalCost > 0.151 {
+		t.Errorf("stats cost: got %v, want ~0.15", out.Stats.TotalCost)
 	}
 }
 

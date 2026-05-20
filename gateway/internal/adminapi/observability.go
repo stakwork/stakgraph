@@ -418,28 +418,62 @@ func (h *observabilityHandlers) runDetail(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	res, err := h.logs.search(r.Context(), searchOpts{
+	// We need two things: (1) the paginated page of logs the UI's
+	// call-log table renders, and (2) the *full* run aggregate for
+	// the KPI cards at the top. Bifrost's /api/logs returns a
+	// `stats` block with the search query, but in practice that
+	// number is unreliable for a single run — observed empirically
+	// to come back zero while the per-row `cost` is populated
+	// (offset != 0 path, async cost-backfill races, replica lag).
+	//
+	// Every other handler in this file (spendByAgent, spendByUser,
+	// histogramCost, users.userDetail) already ignores Bifrost's
+	// aggregate and sums `l.Cost` in Go — we do the same here so
+	// the KPI always equals the visible column sum. Runs are
+	// scoped narrowly (typically tens of calls, rarely >hundreds),
+	// so `searchAll` over a single run-id is cheap: usually one
+	// round-trip to Bifrost, bounded by maxRows=200_000.
+	allLogs, err := h.logs.searchAll(r.Context(), searchOpts{
 		Metadata: map[string]string{"run-id": runID},
-		Limit:    limit,
-		Offset:   offset,
 		SortBy:   "timestamp",
 		Order:    "desc",
-	})
+	}, 1000, 200_000)
 	if err != nil {
 		writeUpstreamError(w, err, "runs.detail")
 		return
 	}
 
+	// Stats: aggregate over the entire run, not just the visible
+	// page. The call-log table is paginated but the KPI cards must
+	// reflect the true run total.
+	var totalCost float64
+	for _, l := range allLogs {
+		totalCost += l.Cost
+	}
 	out := RunDetailResponse{
 		RunID: runID,
-		Logs:  make([]RunLogEntry, 0, len(res.Logs)),
 		Stats: RunStats{
-			TotalRequests: res.Stats.TotalRequests,
-			TotalCost:     res.Stats.TotalCost,
-			TotalTokens:   res.Stats.TotalTokens,
+			TotalRequests: int64(len(allLogs)),
+			TotalCost:     totalCost,
+			TotalTokens:   0, // not in our trimmed Log; left 0 (same as spend.by-agent)
 		},
 	}
-	for _, l := range res.Logs {
+
+	// Slice the visible page out of the full result. searchAll
+	// returns rows in the order Bifrost gave us (timestamp desc),
+	// so plain offset/limit slicing matches what /api/logs would
+	// have returned for the same paginated query.
+	start := offset
+	if start > len(allLogs) {
+		start = len(allLogs)
+	}
+	end := start + limit
+	if end > len(allLogs) {
+		end = len(allLogs)
+	}
+	page := allLogs[start:end]
+	out.Logs = make([]RunLogEntry, 0, len(page))
+	for _, l := range page {
 		out.Logs = append(out.Logs, RunLogEntry{
 			ID:        l.ID,
 			Timestamp: l.Timestamp,
