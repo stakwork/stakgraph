@@ -421,9 +421,16 @@ func filesEqual(a, b string) (bool, error) {
 // newProxy builds the public HTTP handler. Routes `/_plugin/*` to the
 // plugin's loopback server (if reachable) and everything else to
 // bifrost-http.
+//
+// The bifrost-bound proxy additionally runs the bearer-concat auth
+// rewrite (see authsplit.go) so harnesses that can't set custom
+// headers can deliver both VK and macaroon in a single API-key field.
+// The plugin proxy intentionally does NOT run that rewrite — its
+// /_plugin/* admin surface uses a different auth scheme entirely.
 func newProxy(logger *log.Logger, pluginReady bool) http.Handler {
 	bifrostURL := mustParseURL(bifrostUpstream)
 	bifrostProxy := newSingleHostReverseProxy(bifrostURL, logger, "bifrost")
+	installAuthRewrite(bifrostProxy)
 
 	var pluginProxy *httputil.ReverseProxy
 	if pluginReady {

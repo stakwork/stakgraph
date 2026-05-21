@@ -160,7 +160,13 @@ RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
 FROM golang:${GO_VERSION}-alpine3.23 AS wrapper-builder
 WORKDIR /wrapper
 COPY wrapper/go.mod ./
-COPY wrapper/main.go ./
+# Copy every wrapper source file. Previously this was a single
+# `COPY wrapper/main.go ./` which broke whenever a second .go file was
+# added (silent "undefined: …" errors at build time). The wildcard
+# pulls in main.go plus any sibling .go files (authsplit.go, etc).
+# `*_test.go` are also matched but ignored by `go build .` and the
+# whole stage is discarded — only /out/wrapper is copied forward.
+COPY wrapper/*.go ./
 RUN CGO_ENABLED=0 GOOS=linux \
     go build \
         -ldflags="-w -s" \
