@@ -175,12 +175,8 @@ impl Neo4jGraph {
         node_type: NodeType,
         name_part: &str,
     ) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_by_name_contains_async");
-            return vec![];
-        };
         let (query, params) = find_nodes_by_name_contains_query(&node_type, name_part);
-        let nodes = execute_node_query(&connection, query, params).await;
+        let nodes = execute_node_query(self, query, params).await;
 
         let lang_nodes: Vec<NodeData> = nodes
             .into_iter()
@@ -190,24 +186,16 @@ impl Neo4jGraph {
         lang_nodes
     }
     pub async fn find_nodes_by_type_async(&self, node_type: NodeType) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_by_type_async");
-            return vec![];
-        };
         let (query, params) = find_nodes_by_type_query(&node_type);
-        execute_node_query(&connection, query, params).await
+        execute_node_query(self, query, params).await
     }
     pub async fn find_nodes_by_file_ends_with_async(
         &self,
         node_type: NodeType,
         file: &str,
     ) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_by_file_ends_with_async");
-            return vec![];
-        };
         let (query, params) = find_nodes_by_file_pattern_query(&node_type, file);
-        let nodes = execute_node_query(&connection, query, params).await;
+        let nodes = execute_node_query(self, query, params).await;
         let lang_nodes: Vec<NodeData> = nodes
             .into_iter()
             .filter(|n| self.lang_kind.is_from_language(&n.file))
@@ -222,59 +210,52 @@ impl Neo4jGraph {
         target_type: NodeType,
         edge_type: EdgeType,
     ) -> Vec<(NodeData, NodeData)> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_with_edge_type_async");
-            return vec![];
-        };
         let (query_str, params) =
             find_nodes_with_edge_type_query(&source_type, &target_type, &edge_type);
 
-        let mut query_obj = query(&query_str);
-        for (key, value) in params.value.iter() {
-            query_obj = query_obj.param(key.value.as_str(), value.clone());
-        }
-        let mut node_pairs = Vec::new();
-        match connection.execute(query_obj).await {
-            Ok(mut result) => {
-                while let Ok(Some(row)) = result.next().await {
-                    let source_name: String = row.get("source_name").unwrap_or_default();
-                    let source_file: String = row.get("source_file").unwrap_or_default();
-                    let source_start: i64 = row.get("source_start").unwrap_or_default();
-                    let target_name: String = row.get("target_name").unwrap_or_default();
-                    let target_file: String = row.get("target_file").unwrap_or_default();
-                    let target_start: i64 = row.get("target_start").unwrap_or_default();
-
+        let result = with_transient_retry_reconnect(self, "find_nodes_with_edge_type", || {
+            let query_str = query_str.clone();
+            let params = params.clone();
+            async move {
+                let conn = self.ensure_connected().await?;
+                let mut query_obj = query(&query_str);
+                for (key, value) in params.value.iter() {
+                    query_obj = query_obj.param(key.value.as_str(), value.clone());
+                }
+                let mut node_pairs = Vec::new();
+                let mut stream = conn.execute(query_obj).await.map_err(|e| {
+                  Error::dependency(format!("[neo4j-read] find_nodes_with_edge_type: {}", e))
+                })?;
+                while let Ok(Some(row)) = stream.next().await {
                     let source_node = NodeData {
-                        name: source_name,
-                        file: source_file,
-                        start: source_start as usize,
+                        name: row.get("source_name").unwrap_or_default(),
+                        file: row.get("source_file").unwrap_or_default(),
+                        start: row.get::<i64>("source_start").unwrap_or_default() as usize,
                         ..Default::default()
                     };
                     let target_node = NodeData {
-                        name: target_name,
-                        file: target_file,
-                        start: target_start as usize,
+                        name: row.get("target_name").unwrap_or_default(),
+                        file: row.get("target_file").unwrap_or_default(),
+                        start: row.get::<i64>("target_start").unwrap_or_default() as usize,
                         ..Default::default()
                     };
                     node_pairs.push((source_node, target_node));
                 }
+                Ok(node_pairs)
             }
-            Err(e) => {
-                debug!("Error executing find_nodes_with_edge_type query: {}", e);
-            }
-        }
-        node_pairs
+        })
+        .await;
+
+        result.unwrap_or_else(|e| {
+            warn!(error = %e, "neo4j find_nodes_with_edge_type failed after retries");
+            vec![]
+        })
     }
 
     pub async fn find_nodes_by_name_async(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_by_name_async");
-            return vec![];
-        };
-
         let (query_str, params_map) = find_nodes_by_name_query(&node_type, name, &self.root);
 
-        let nodes = execute_node_query(&connection, query_str, params_map).await;
+        let nodes = execute_node_query(self, query_str, params_map).await;
 
         let lang_nodes: Vec<NodeData> = nodes
             .into_iter()
@@ -288,16 +269,8 @@ impl Neo4jGraph {
         node_type: NodeType,
         name: &str,
     ) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_by_name_async");
-            return vec![];
-        };
-
         let (query_str, params_map) = find_nodes_by_name_query(&node_type, name, &self.root);
-
-        let nodes = execute_node_query(&connection, query_str, params_map).await;
-
-        nodes
+        execute_node_query(self, query_str, params_map).await
     }
 
     pub async fn find_node_by_name_in_file_async(
@@ -306,14 +279,9 @@ impl Neo4jGraph {
         name: &str,
         file: &str,
     ) -> Option<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_node_by_name_in_file_async");
-            return None;
-        };
-
         let (query, params) = find_node_by_name_file_query(&node_type, name, file);
 
-        let nodes = execute_node_query(&connection, query, params)
+        let nodes = execute_node_query(self, query, params)
             .await
             .into_iter();
 
@@ -330,13 +298,9 @@ impl Neo4jGraph {
         file: &str,
         verb: &str,
     ) -> Option<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_endpoint_async");
-            return None;
-        };
         let (query, params) = find_endpoint_query(name, file, verb);
 
-        let nodes = execute_node_query(&connection, query, params).await;
+        let nodes = execute_node_query(self, query, params).await;
         nodes.into_iter().next()
     }
     pub async fn find_resource_nodes_async(
@@ -345,22 +309,12 @@ impl Neo4jGraph {
         verb: &str,
         path: &str,
     ) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_resource_nodes_async");
-            return vec![];
-        };
         let (query, params) = find_resource_nodes_query(&node_type, verb, path);
-
-        execute_node_query(&connection, query, params).await
+        execute_node_query(self, query, params).await
     }
     pub async fn find_handlers_for_endpoint_async(&self, endpoint: &NodeData) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_handlers_for_endpoint_async");
-            return vec![];
-        };
         let (query, params) = find_handlers_for_endpoint_query(endpoint);
-
-        execute_node_query(&connection, query, params).await
+        execute_node_query(self, query, params).await
     }
 
     pub async fn check_direct_data_model_usage_async(
@@ -368,32 +322,35 @@ impl Neo4jGraph {
         function_name: &str,
         data_model: &str,
     ) -> bool {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in check_direct_data_model_usage_async");
-            return false;
-        };
         let (query_str, params) = check_direct_data_model_usage_query(function_name, data_model);
 
-        let mut query_obj = query(&query_str);
-        for (key, value) in params.value.iter() {
-            query_obj = query_obj.param(key.value.as_str(), value.clone());
-        }
-
-        if let Ok(mut result) = connection.execute(query_obj).await {
-            if let Ok(Some(row)) = result.next().await {
-                return row.get::<bool>("exists").unwrap_or(false);
+        let result = with_transient_retry_reconnect(self, "check_direct_data_model_usage", || {
+            let query_str = query_str.clone();
+            let params = params.clone();
+            async move {
+                let conn = self.ensure_connected().await?;
+                let mut query_obj = query(&query_str);
+                for (key, value) in params.value.iter() {
+                    query_obj = query_obj.param(key.value.as_str(), value.clone());
+                }
+                let mut result = conn.execute(query_obj).await?;
+                if let Ok(Some(row)) = result.next().await {
+                    Ok(row.get::<bool>("exists").unwrap_or(false))
+                } else {
+                    Ok(false)
+                }
             }
-        }
-        false
+        })
+        .await;
+
+        result.unwrap_or_else(|e| {
+            warn!(error = %e, "neo4j check_direct_data_model_usage failed after retries");
+            false
+        })
     }
     pub async fn find_functions_called_by_async(&self, function: &NodeData) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_functions_called_by_async");
-            return vec![];
-        };
         let (query, params) = find_functions_called_by_query(function);
-
-        execute_node_query(&connection, query, params).await
+        execute_node_query(self, query, params).await
     }
     pub async fn find_source_edge_by_name_and_file_async(
         &self,
@@ -401,37 +358,37 @@ impl Neo4jGraph {
         target_name: &str,
         target_file: &str,
     ) -> Option<NodeKeys> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_source_edge_by_name_and_file_async");
-            return None;
-        };
         let (query_str, params) =
             find_source_edge_by_name_and_file_query(&edge_type, target_name, target_file);
 
-        let mut query_obj = query(&query_str);
-        for (key, value) in params.value.iter() {
-            query_obj = query_obj.param(key.value.as_str(), value.clone());
-        }
-
-        if let Ok(mut result) = connection.execute(query_obj).await {
-            if let Ok(Some(row)) = result.next().await {
-                let name = row.get::<String>("name").unwrap_or_default();
-                let file = row.get::<String>("file").unwrap_or_default();
-                let start = row.get::<i64>("start").unwrap_or_default() as usize;
-                let verb = match row.get::<String>("verb") {
-                    Ok(value) => Some(value),
-                    Err(_) => None,
-                };
-
-                return Some(NodeKeys {
-                    name,
-                    file,
-                    start,
-                    verb,
-                });
+        let result = with_transient_retry_reconnect(self, "find_source_edge_by_name_and_file", || {
+            let query_str = query_str.clone();
+            let params = params.clone();
+            async move {
+                let conn = self.ensure_connected().await?;
+                let mut query_obj = query(&query_str);
+                for (key, value) in params.value.iter() {
+                    query_obj = query_obj.param(key.value.as_str(), value.clone());
+                }
+                let mut result = conn.execute(query_obj).await?;
+                if let Ok(Some(row)) = result.next().await {
+                    Ok(Some(NodeKeys {
+                        name: row.get::<String>("name").unwrap_or_default(),
+                        file: row.get::<String>("file").unwrap_or_default(),
+                        start: row.get::<i64>("start").unwrap_or_default() as usize,
+                        verb: row.get::<String>("verb").ok(),
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
-        }
-        None
+        })
+        .await;
+
+        result.unwrap_or_else(|e| {
+            warn!(error = %e, "neo4j find_source_edge failed after retries");
+            None
+        })
     }
     pub async fn find_node_in_range_async(
         &self,
@@ -439,13 +396,8 @@ impl Neo4jGraph {
         row: u32,
         file: &str,
     ) -> Option<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_node_in_range_async");
-            return None;
-        };
         let (query, params) = find_nodes_in_range_query(&node_type, file, row);
-
-        let nodes = execute_node_query(&connection, query, params).await;
+        let nodes = execute_node_query(self, query, params).await;
         nodes.into_iter().next()
     }
     pub async fn find_node_at_async(
@@ -454,12 +406,8 @@ impl Neo4jGraph {
         file: &str,
         line: u32,
     ) -> Option<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_node_at_async");
-            return None;
-        };
         let (query, params) = find_node_at_query(&node_type, file, line);
-        let nodes = execute_node_query(&connection, query, params).await;
+        let nodes = execute_node_query(self, query, params).await;
         nodes.into_iter().next()
     }
     pub async fn find_node_by_name_and_file_end_with_async(
@@ -571,16 +519,19 @@ impl Neo4jGraph {
     }
 
     pub async fn get_graph_size_async(&self) -> Result<(u32, u32)> {
-        let connection = self.ensure_connected().await?;
-        let query_str = count_nodes_edges_query();
-        let mut result = connection.execute(query(&query_str)).await?;
-        if let Some(row) = result.next().await? {
-            let nodes = row.get::<u32>("nodes").unwrap_or(0);
-            let edges = row.get::<u32>("edges").unwrap_or(0);
-            Ok((nodes, edges))
-        } else {
-            Ok((0, 0))
-        }
+        with_transient_retry_reconnect(self, "get_graph_size", || async {
+            let connection = self.ensure_connected().await?;
+            let query_str = count_nodes_edges_query();
+            let mut result = connection.execute(query(&query_str)).await?;
+            if let Some(row) = result.next().await? {
+                let nodes = row.get::<u32>("nodes").unwrap_or(0);
+                let edges = row.get::<u32>("edges").unwrap_or(0);
+                Ok((nodes, edges))
+            } else {
+                Ok((0, 0))
+            }
+        })
+        .await
     }
     pub async fn analysis_async(&self) -> Result<()> {
         let connection = self.ensure_connected().await?;
@@ -782,38 +733,40 @@ impl Neo4jGraph {
     }
 
     pub async fn find_top_level_functions_async(&self) -> Vec<NodeData> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_top_level_functions_async");
-            return vec![];
-        };
         let (query, params) = find_top_level_functions_query();
-        execute_node_query(&connection, query, params).await
+        execute_node_query(self, query, params).await
     }
 
     pub async fn set_missing_data_bank(&self) -> Result<u32> {
-        let connection = self.ensure_connected().await?;
-        let query_str = set_missing_data_bank_query();
-        let mut result = connection.execute(query(&query_str)).await?;
-        if let Some(row) = result.next().await? {
-            let count = row.get::<i64>("updated_count").unwrap_or(0);
-            info!("Set Data_Bank property for {} nodes", count);
-            Ok(count as u32)
-        } else {
-            Ok(0)
-        }
+        with_transient_retry_reconnect(self, "set_missing_data_bank", || async {
+            let connection = self.ensure_connected().await?;
+            let query_str = set_missing_data_bank_query();
+            let mut result = connection.execute(query(&query_str)).await?;
+            if let Some(row) = result.next().await? {
+                let count = row.get::<i64>("updated_count").unwrap_or(0);
+                info!("Set Data_Bank property for {} nodes", count);
+                Ok(count as u32)
+            } else {
+                Ok(0)
+            }
+        })
+        .await
     }
 
     pub async fn set_default_namespace(&self) -> Result<u32> {
-        let connection = self.ensure_connected().await?;
-        let query_str = set_default_namespace_query();
-        let mut result = connection.execute(query(&query_str)).await?;
-        if let Some(row) = result.next().await? {
-            let count = row.get::<i64>("updated_count").unwrap_or(0);
-            info!("Set namespace property to 'default' for {} nodes", count);
-            Ok(count as u32)
-        } else {
-            Ok(0)
-        }
+        with_transient_retry_reconnect(self, "set_default_namespace", || async {
+            let connection = self.ensure_connected().await?;
+            let query_str = set_default_namespace_query();
+            let mut result = connection.execute(query(&query_str)).await?;
+            if let Some(row) = result.next().await? {
+                let count = row.get::<i64>("updated_count").unwrap_or(0);
+                info!("Set namespace property to 'default' for {} nodes", count);
+                Ok(count as u32)
+            } else {
+                Ok(0)
+            }
+        })
+        .await
     }
 
     pub async fn get_data_models_within_async(&self, lang: &Lang) -> Result<()> {

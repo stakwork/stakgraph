@@ -195,30 +195,35 @@ fn extract_coverage_data(row: &neo4rs::Row) -> Result<(NodeData, usize, bool, us
     ))
 }
 
-async fn execute_query<T>(
-    conn: &Neo4jConnection,
+async fn execute_query<T: Send + 'static>(
+    graph: &Neo4jGraph,
     query_str: String,
     params: BoltMap,
-    extractor: impl Fn(&neo4rs::Row) -> Result<T>,
+    extractor: impl Fn(&neo4rs::Row) -> Result<T> + Send + Sync + 'static,
 ) -> Result<Vec<T>> {
-    let query_obj = bind_parameters(&query_str, params);
-    let mut results = Vec::new();
-
-    match conn.execute(query_obj).await {
-        Ok(mut stream) => {
+    let label = query_str.chars().take(80).collect::<String>();
+    let extractor = std::sync::Arc::new(extractor);
+    with_transient_retry_reconnect(graph, &label, || {
+        let query_str = query_str.clone();
+        let params = params.clone();
+        let extractor = extractor.clone();
+        async move {
+            let conn = graph.ensure_connected().await?;
+            let query_obj = bind_parameters(&query_str, params);
+            let mut results = Vec::new();
+            let mut stream = conn.execute(query_obj).await.map_err(|e| {
+                shared::Error::dependency(format!("[neo4j-read] {}: {}", query_str.chars().take(80).collect::<String>(), e))
+            })?;
             while let Ok(Some(row)) = stream.next().await {
                 match extractor(&row) {
                     Ok(item) => results.push(item),
                     Err(_) => continue,
                 }
             }
+            Ok(results)
         }
-        Err(e) => {
-            return Err(e.into());
-        }
-    }
-
-    Ok(results)
+    })
+    .await
 }
 
 pub struct TransactionManager<'a> {
@@ -340,62 +345,76 @@ pub async fn execute_queries_simple(
 }
 
 pub async fn execute_node_query(
-    conn: &Neo4jConnection,
+    graph: &Neo4jGraph,
     query_str: String,
     params: BoltMap,
 ) -> Vec<NodeData> {
-    execute_query(conn, query_str, params, extract_node_data)
+    let q = query_str.clone();
+    execute_query(graph, query_str, params, extract_node_data)
         .await
         .unwrap_or_else(|e| {
-            warn!("Error executing query: {}", e);
+            warn!(query = %q.chars().take(120).collect::<String>(), error = %e, "neo4j read failed after retries");
             Vec::new()
         })
 }
 
 pub async fn execute_nodes_with_coverage_query(
-    conn: &Neo4jConnection,
+    graph: &Neo4jGraph,
     query_str: String,
     params: BoltMap,
 ) -> Vec<(NodeData, usize, bool, usize, String)> {
-    execute_query(conn, query_str, params, extract_coverage_data)
+    let q = query_str.clone();
+    execute_query(graph, query_str, params, extract_coverage_data)
         .await
         .unwrap_or_else(|e| {
-            warn!("Error executing nodes with coverage query: {}", e);
+            warn!(query = %q.chars().take(120).collect::<String>(), error = %e, "neo4j coverage read failed after retries");
             Vec::new()
         })
 }
 
 pub async fn execute_muted_nodes_query(
-    conn: &Neo4jConnection,
+    graph: &Neo4jGraph,
     query_str: String,
     params: BoltMap,
 ) -> Vec<MutedNodeIdentifier> {
-    execute_query(conn, query_str, params, extract_muted_identifier)
+    let q = query_str.clone();
+    execute_query(graph, query_str, params, extract_muted_identifier)
         .await
-        .unwrap_or_else(|_| Vec::new())
+        .unwrap_or_else(|e| {
+            warn!(query = %q.chars().take(120).collect::<String>(), error = %e, "neo4j muted-nodes read failed after retries");
+            Vec::new()
+        })
 }
 
 pub async fn execute_count_query(
-    conn: &Neo4jConnection,
+    graph: &Neo4jGraph,
     query_str: String,
     params: BoltMap,
 ) -> usize {
-    execute_query(conn, query_str, params, extract_count)
+    let q = query_str.clone();
+    execute_query(graph, query_str, params, extract_count)
         .await
-        .unwrap_or_else(|_| Vec::new())
+        .unwrap_or_else(|e| {
+            warn!(query = %q.chars().take(120).collect::<String>(), error = %e, "neo4j count read failed after retries");
+            Vec::new()
+        })
         .first()
         .copied()
         .unwrap_or(0)
 }
 
 pub async fn execute_boolean_query(
-    conn: &Neo4jConnection,
+    graph: &Neo4jGraph,
     query_str: String,
     params: BoltMap,
 ) -> bool {
-    execute_query(conn, query_str, params, extract_boolean)
+    let q = query_str.clone();
+    execute_query(graph, query_str, params, extract_boolean)
         .await
-        .unwrap_or_else(|_| Vec::new())
+        .unwrap_or_else(|e| {
+            warn!(query = %q.chars().take(120).collect::<String>(), error = %e, "neo4j boolean read failed after retries");
+            Vec::new()
+        })
         .first()
         .copied()
         .unwrap_or(false)

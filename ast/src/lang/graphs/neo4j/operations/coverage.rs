@@ -1,6 +1,5 @@
 use shared::Result;
 use std::collections::HashSet;
-use tracing::warn;
 
 use crate::lang::graphs::utils::tests_sources;
 use crate::lang::{
@@ -45,16 +44,8 @@ impl Neo4jGraph {
         &self,
         files: &[String],
     ) -> Result<Vec<MutedNodeIdentifier>> {
-        let conn = match self.ensure_connected().await {
-            Ok(conn) => conn,
-            Err(e) => {
-                warn!("Failed to connect to graph database: {:?}", e);
-                return Ok(Vec::new());
-            }
-        };
-
         let (query_str, params) = get_muted_nodes_for_files_query(files);
-        Ok(execute_muted_nodes_query(&conn, query_str, params).await)
+        Ok(execute_muted_nodes_query(self, query_str, params).await)
     }
 
     pub async fn restore_muted_nodes_async(
@@ -65,16 +56,8 @@ impl Neo4jGraph {
             return Ok(0);
         }
 
-        let conn = match self.ensure_connected().await {
-            Ok(conn) => conn,
-            Err(e) => {
-                warn!("Failed to connect to graph database: {:?}", e);
-                return Ok(0);
-            }
-        };
-
         let (query_str, params) = restore_muted_status_query(identifiers);
-        Ok(execute_count_query(&conn, query_str, params).await)
+        Ok(execute_count_query(self, query_str, params).await)
     }
 
     pub async fn set_node_muted_async(
@@ -84,15 +67,8 @@ impl Neo4jGraph {
         file: &str,
         is_muted: bool,
     ) -> Result<usize> {
-        let conn = match self.ensure_connected().await {
-            Ok(conn) => conn,
-            Err(_) => {
-                return Ok(0);
-            }
-        };
-
         let (query_str, params) = set_node_muted_query(node_type, name, file, is_muted);
-        let result = execute_count_query(&conn, query_str, params).await;
+        let result = execute_count_query(self, query_str, params).await;
         Ok(result)
     }
 
@@ -102,14 +78,8 @@ impl Neo4jGraph {
         name: &str,
         file: &str,
     ) -> Result<bool> {
-        let conn = match self.ensure_connected().await {
-            Ok(conn) => conn,
-            Err(_) => {
-                return Ok(false);
-            }
-        };
         let (query_str, params) = check_node_muted_query(node_type, name, file);
-        let is_muted = execute_boolean_query(&conn, query_str, params).await;
+        let is_muted = execute_boolean_query(self, query_str, params).await;
         Ok(is_muted)
     }
 }
