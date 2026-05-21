@@ -211,7 +211,7 @@ RETURN n
 `;
 
 export const DELETE_NODE_BY_REF_ID_QUERY = `
-MATCH (n {ref_id: $ref_id})
+MATCH (n:Data_Bank {ref_id: $ref_id})
 DETACH DELETE n
 RETURN count(n) as deleted_count
 `;
@@ -944,12 +944,12 @@ LIMIT toInteger($limit)
 `;
 
 export const UPDATE_NODE_DESCRIPTION_AND_EMBEDDINGS_QUERY = `
-MATCH (n {ref_id: $ref_id})
+MATCH (n:Data_Bank {ref_id: $ref_id})
 SET n.description = $description, n.embeddings = $embeddings
 `;
 
 export const UPDATE_NODE_DESCRIPTION_ONLY_QUERY = `
-MATCH (n {ref_id: $ref_id})
+MATCH (n:Data_Bank {ref_id: $ref_id})
 SET n.description = $description
 `;
 
@@ -967,19 +967,19 @@ LIMIT toInteger($limit)
 
 export const BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY = `
 UNWIND $batch AS item
-MATCH (n {ref_id: item.ref_id})
+MATCH (n:Data_Bank {ref_id: item.ref_id})
 SET n.embeddings = item.embeddings
 `;
 
 export const BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY = `
 UNWIND $batch AS item
-MATCH (n {ref_id: item.ref_id})
+MATCH (n:Data_Bank {ref_id: item.ref_id})
 SET n.description = item.description
 `;
 
 export const BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY = `
 UNWIND $batch AS item
-MATCH (n {ref_id: item.ref_id})
+MATCH (n:Data_Bank {ref_id: item.ref_id})
 SET n.description = item.description, n.embeddings = item.embeddings
 `;
 
@@ -1082,9 +1082,15 @@ WITH n, in_degree, count(DISTINCT callee) AS out_degree
 RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS node_type
 `;
 
+// NOTE: the `:Data_Bank` label is required so the planner uses the
+// `constraint_2cc4938c` RANGE index on `:Data_Bank(ref_id)`. Without the label
+// the planner falls back to AllNodesScan + filter (462k+ DB hits per UNWIND
+// row in production), which holds write locks on every matched node for
+// multiple minutes per batch and blocks any concurrent
+// `remove_nodes_by_files` from the standalone sync path.
 export const BULK_UPDATE_IMPORTANCE_QUERY = `
 UNWIND $batch AS item
-MATCH (n {ref_id: item.ref_id})
+MATCH (n:Data_Bank {ref_id: item.ref_id})
 SET n.pagerank      = item.pagerank,
     n.in_degree     = item.in_degree,
     n.out_degree    = item.out_degree,
