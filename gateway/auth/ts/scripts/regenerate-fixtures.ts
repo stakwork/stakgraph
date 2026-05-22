@@ -34,6 +34,7 @@ import {
 import type {
   Attenuation,
   AttenuationCaveats,
+  Budget,
   Invocation,
   InvocationUnsigned,
   Macaroon,
@@ -87,10 +88,10 @@ function baseUserAuthorization(): UserAuthorizationUnsigned {
   return {
     user_id: "u_alice",
     user_pubkey: { alg: "ed25519", key: userPubHex },
-    permissions: {
-      realms: ["w1", "w2"],
-      agents: ["coder", "browser", "web-search", "repair-agent"],
-    },
+    // Phase 11: agents lifted out of the (deleted) `permissions`
+    // wrapper. No singular `realm` grant — multi-swarm scoping is
+    // encoded in `budget.realm_budgets` when needed.
+    agents: ["coder", "browser", "web-search", "repair-agent"],
     iat: UA_IAT,
     exp: UA_EXP,
     nonce: "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b",
@@ -99,7 +100,8 @@ function baseUserAuthorization(): UserAuthorizationUnsigned {
 
 function baseInvocation(): InvocationUnsigned {
   return {
-    realm: "w1",
+    // Phase 11: no `realm` field. Single-swarm deployments need no
+    // realm scoping; multi-swarm scoping rides on `budget.realm_budgets`.
     agents: ["coder"],
     run_id: "r_01h8alpharootinvocation00",
     max_cost_usd: 5.0,
@@ -128,17 +130,18 @@ interface FixtureExpected {
   claims: {
     org_id: string;
     user_id: string;
-    realm: string;
     agent_name: string;
     run_id: string;
     effective_caveats: {
       agents: string[];
       max_cost_usd: number;
       max_steps: number;
+      budget: Budget | null;
       exp: string;
     };
     ua_nonce: string;
-    ua_budget: { max_total_usd: number; max_per_invocation_usd: number } | null;
+    ua_budget: Budget | null;
+    permitted_realms: string[] | null;
     nonces: string[];
     iat: string;
   };
@@ -186,26 +189,38 @@ function computeExpected(
     prevSig = hexToBytes(att.hmac);
   }
 
-  // Build claims by replaying narrowing locally (mirror of the verifier).
-  let effective = {
+  // Build claims by replaying narrowing locally (mirror of the
+  // verifier). Phase 11 effective_caveats carries the propagated
+  // Budget block; permitted_realms is the sorted keys of the
+  // effective budget's realm_budgets, or null. Inherit the UA's
+  // budget when the invocation omits its own ("Mixed mode" rule).
+  let effectiveBudget: Budget | null =
+    signedInv.budget ?? signedUa.budget ?? null;
+  let effective: FixtureExpected["claims"]["effective_caveats"] = {
     agents: [...signedInv.agents],
     max_cost_usd: signedInv.max_cost_usd,
     max_steps: signedInv.max_steps,
+    budget: effectiveBudget,
     exp: signedInv.exp,
   };
   let runId = signedInv.run_id;
   const attNonces: string[] = [];
   for (const att of atts) {
+    effectiveBudget = att.caveats.budget ?? effectiveBudget;
     effective = {
       agents: att.caveats.agents,
       max_cost_usd: att.caveats.max_cost_usd,
       max_steps: att.caveats.max_steps,
+      budget: effectiveBudget,
       exp: att.caveats.exp,
     };
     runId = att.caveats.run_id;
     attNonces.push(att.caveats.nonce);
   }
   const agentName = effective.agents[effective.agents.length - 1] ?? "";
+  const permittedRealms = effectiveBudget?.realm_budgets
+    ? Object.keys(effectiveBudget.realm_budgets).sort()
+    : null;
 
   const macaroonCanonical = jcs(macaroon as unknown as Record<string, unknown>);
   const macaroonB64 = bytesToBase64url(utf8Bytes(macaroonCanonical));
@@ -221,12 +236,12 @@ function computeExpected(
     claims: {
       org_id: macaroon.org_id,
       user_id: signedUa.user_id,
-      realm: signedInv.realm,
       agent_name: agentName,
       run_id: runId,
       effective_caveats: effective,
       ua_nonce: signedUa.nonce,
       ua_budget: signedUa.budget ?? null,
+      permitted_realms: permittedRealms,
       nonces: [signedUa.nonce, signedInv.nonce, ...attNonces],
       iat: signedInv.iat,
     },
@@ -253,7 +268,7 @@ function makeFixture01Simple() {
   const macaroon = buildMacaroon("org_acme", signedUa, signedInv, []);
   return {
     description:
-      "single-key org, custodial phase 1: one user_authorization, one invocation, zero attenuations",
+      "single-key org, custodial phase 1: one user_authorization, one invocation, zero attenuations. Single-swarm shape — no realm fields anywhere.",
     inputs: {
       org_id: "org_acme",
       org_priv_hex: ORG_PRIV_HEX,
@@ -289,7 +304,7 @@ function makeFixture02OneAttenuation() {
   const macaroon = buildMacaroon("org_acme", signedUa, signedInv, [att1]);
   return {
     description:
-      "single-key org with one sub-agent attenuation narrowing budget and adding a web-search agent",
+      "single-key org with one sub-agent attenuation narrowing budget and adding a web-search agent (lineage extension)",
     inputs: {
       org_id: "org_acme",
       org_priv_hex: ORG_PRIV_HEX,
@@ -457,6 +472,141 @@ function makeFixture04Multisig() {
   };
 }
 
+function makeFixture06MultiRealm() {
+  // Phase 11 multi-swarm scenario: the org signs a UA with per-realm
+  // caps for two swarms (w1, w2). The user's invocation narrows the
+  // realm_budgets to a subset with smaller caps for this run.
+  //
+  // The verifier checks budget narrowing at the UA→invocation
+  // boundary; the plugin (out of scope for the pure verifier) reads
+  // claims.permitted_realms to assert this swarm's realm_id is in
+  // the set, then enforces the per-realm cap against Redis.
+  const ua: UserAuthorizationUnsigned = {
+    ...baseUserAuthorization(),
+    budget: {
+      max_total_usd: 1000.0,
+      max_per_invocation_usd: 25.0,
+      realm_budgets: {
+        w1: { max_total_usd: 500.0 },
+        w2: { max_total_usd: 200.0 },
+      },
+    },
+    nonce: "f06e1d2c3b4a5968778899aabbccddee",
+  };
+  const inv: InvocationUnsigned = {
+    ...baseInvocation(),
+    run_id: "r_01h8multirealmrun000000000",
+    max_cost_usd: 5.0,
+    nonce: "f16e1d2c3b4a5968778899aabbccddee",
+    budget: {
+      // Narrowing per axis: child caps ≤ parent caps; both child
+      // realms exist in parent's set.
+      realm_budgets: {
+        w1: { max_total_usd: 5.0 },
+        w2: { max_total_usd: 2.0 },
+      },
+    },
+  };
+  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
+  const signedInv = signInvocation(inv, userPriv);
+  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, []);
+  return {
+    description:
+      "multi-realm UA + invocation: org grants per-realm caps {w1:$500, w2:$200}, invocation narrows to {w1:$5, w2:$2}; no attenuations",
+    inputs: {
+      org_id: "org_acme",
+      org_priv_hex: ORG_PRIV_HEX,
+      user_priv_hex: USER_PRIV_HEX,
+      policy: {
+        type: "single" as const,
+        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
+      },
+      ua_unsigned: ua,
+      inv_unsigned: inv,
+      atts_unsigned: [] as AttenuationCaveats[],
+    },
+    expected: computeExpected(ua, signedUa, inv, signedInv, [], macaroon),
+  };
+}
+
+function makeFixture07CrossRealmAttenuation() {
+  // Cross-realm sub-agent spawn: the parent invocation authorizes
+  // spend on w1+w2, then attenuates locally to delegate a
+  // sub-agent that should only spend on w2 with a smaller cap. No
+  // Hive round-trip on the spawn path; the verifier checks the
+  // HMAC chain + symmetric budget narrowing.
+  const ua: UserAuthorizationUnsigned = {
+    ...baseUserAuthorization(),
+    budget: {
+      max_total_usd: 1000.0,
+      max_per_invocation_usd: 25.0,
+      realm_budgets: {
+        w1: { max_total_usd: 500.0 },
+        w2: { max_total_usd: 200.0 },
+      },
+    },
+    nonce: "07e1d2c3b4a596778899aabbccddee01",
+  };
+  const inv: InvocationUnsigned = {
+    ...baseInvocation(),
+    run_id: "r_01h8crossrealmparent00000",
+    max_cost_usd: 5.0,
+    nonce: "07e1d2c3b4a596778899aabbccddee02",
+    budget: {
+      realm_budgets: {
+        w1: { max_total_usd: 5.0 },
+        w2: { max_total_usd: 4.0 },
+      },
+    },
+  };
+  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
+  const signedInv = signInvocation(inv, userPriv);
+
+  const subAgentCaveats: AttenuationCaveats = {
+    // Lineage extension: child agents ⊇ parent agents.
+    agents: ["coder", "web-search"],
+    max_cost_usd: 2.0,
+    max_steps: 40,
+    run_id: "r_01h8crossrealmsubchild00",
+    exp: ATT1_EXP,
+    nonce: "07e1d2c3b4a596778899aabbccddee03",
+    budget: {
+      // Narrow to a single realm with a smaller cap. Parent has w1+w2,
+      // child drops w1 (allowed) and tightens w2's cap.
+      realm_budgets: {
+        w2: { max_total_usd: 1.0 },
+      },
+    },
+  };
+  const subAgent = attenuate(invocationSigBytes(signedInv), subAgentCaveats);
+
+  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, [subAgent]);
+  return {
+    description:
+      "cross-realm sub-agent attenuation: parent invocation allows w1+w2, child attenuates to w2 only with a smaller cap (HMAC-chained, no issuer round-trip)",
+    inputs: {
+      org_id: "org_acme",
+      org_priv_hex: ORG_PRIV_HEX,
+      user_priv_hex: USER_PRIV_HEX,
+      policy: {
+        type: "single" as const,
+        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
+      },
+      ua_unsigned: ua,
+      inv_unsigned: inv,
+      atts_unsigned: [subAgentCaveats],
+    },
+    expected: computeExpected(
+      ua,
+      signedUa,
+      inv,
+      signedInv,
+      [subAgent],
+      macaroon,
+    ),
+  };
+}
+
 // ─── keys.json (the deterministic seed set) ───────────────────────────
 
 function makeKeysJson() {
@@ -509,6 +659,8 @@ function main() {
   writeJson(join(FIXTURES_DIR, "03-two-attenuations.json"), makeFixture03TwoAttenuations());
   writeJson(join(FIXTURES_DIR, "04-multisig-2of3.json"), makeFixture04Multisig());
   writeJson(join(FIXTURES_DIR, "05-budget-envelope.json"), makeFixture05BudgetEnvelope());
+  writeJson(join(FIXTURES_DIR, "06-multi-realm.json"), makeFixture06MultiRealm());
+  writeJson(join(FIXTURES_DIR, "07-cross-realm-attenuation.json"), makeFixture07CrossRealmAttenuation());
 }
 
 main();

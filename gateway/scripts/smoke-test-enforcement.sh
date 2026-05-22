@@ -109,28 +109,48 @@ new_run_id() {
   printf 'r_enforce_%s_%s' "$(date +%s)" "$RANDOM"
 }
 
-# mint_macaroon <run_id>
+# mint_macaroon <run_id> [realm_budgets_json]
 #
 # Calls mint-macaroon.ts and emits the b64url macaroon on stdout. Any
 # tsx errors land on stderr and we propagate the non-zero exit.
+#
+# Phase 11: the singular `--realm` flag is gone. Pass the optional
+# second arg (a JSON `realm_budgets` map) to mint a multi-swarm
+# macaroon — both the UA and the invocation receive that scoping.
+# Omit it for the simple single-swarm shape.
 mint_macaroon() {
   local run_id="$1"
+  local realm_budgets="${2:-}"
   # Run tsx from the TS package dir so node module resolution picks
   # up the @noble/* / canonicalize deps. The mint script resolves
   # fixture paths relative to its own __dirname, so it works fine
   # from any cwd.
-  (
-    cd "$TS_DIR" && \
-    "$TSX" "$SCRIPT_DIR/mint-macaroon.ts" \
-      --org-id "$ORG_ID" \
-      --user-id u_alice \
-      --realm w1 \
-      --agent coder \
-      --run-id "$run_id" \
-      --max-cost-usd 1.00 \
-      --max-steps 50 \
-      --ttl-seconds 600
-  )
+  if [ -n "$realm_budgets" ]; then
+    (
+      cd "$TS_DIR" && \
+      "$TSX" "$SCRIPT_DIR/mint-macaroon.ts" \
+        --org-id "$ORG_ID" \
+        --user-id u_alice \
+        --agent coder \
+        --run-id "$run_id" \
+        --max-cost-usd 1.00 \
+        --max-steps 50 \
+        --ttl-seconds 600 \
+        --realm-budgets "$realm_budgets"
+    )
+  else
+    (
+      cd "$TS_DIR" && \
+      "$TSX" "$SCRIPT_DIR/mint-macaroon.ts" \
+        --org-id "$ORG_ID" \
+        --user-id u_alice \
+        --agent coder \
+        --run-id "$run_id" \
+        --max-cost-usd 1.00 \
+        --max-steps 50 \
+        --ttl-seconds 600
+    )
+  fi
 }
 
 # call_llm_with_macaroon <run_id> <macaroon-b64>
@@ -148,7 +168,6 @@ call_llm_with_macaroon() {
     -H "x-bf-dim-run-id: $run_id" \
     -H "x-bf-dim-session-id: s_smoke_enforce" \
     -H "x-bf-dim-agent-name: coder" \
-    -H "x-bf-dim-realm-id: w1" \
     -H "x-bf-dim-user-id: u_alice" \
     -H "x-bf-dim-deployment: smoke-enforcement" \
     -d '{"model":"anthropic/claude-haiku-4-5-20251001","max_tokens":20,"messages":[{"role":"user","content":"reply in 3 words"}]}')
@@ -160,15 +179,19 @@ call_llm_with_macaroon() {
   fi
 }
 
-# call_llm_mismatched <macaroon-b64> <lie-run-id> <lie-user> <lie-agent> <lie-realm>
+# call_llm_mismatched <macaroon-b64> <lie-run-id> <lie-user> <lie-agent>
 #
 # Send the macaroon (with truthful claims) but DELIBERATELY MISMATCHED
 # x-bf-dim-* headers. Used by the canonicalization test below: after
 # the fix, the plugin must drop the lying header values and stamp the
 # macaroon's claims into logs.metadata. Before the fix, the headers
 # win and the logs row records the lies.
+#
+# Phase 11: realm-id is no longer signature-bound, so we don't try to
+# canonicalize it — the three remaining bound dims are run, user,
+# agent.
 call_llm_mismatched() {
-  local macaroon="$1" lie_run="$2" lie_user="$3" lie_agent="$4" lie_realm="$5"
+  local macaroon="$1" lie_run="$2" lie_user="$3" lie_agent="$4"
   local started status
   started=$(date -u +%H:%M:%S)
   status=$(curl -sS -o /tmp/smoke_llm.json -w '%{http_code}' \
@@ -178,12 +201,11 @@ call_llm_mismatched() {
     -H "x-bf-dim-run-id: $lie_run" \
     -H "x-bf-dim-user-id: $lie_user" \
     -H "x-bf-dim-agent-name: $lie_agent" \
-    -H "x-bf-dim-realm-id: $lie_realm" \
     -H "x-bf-dim-session-id: s_smoke_mismatch" \
     -H "x-bf-dim-deployment: smoke-mismatch" \
     -d '{"model":"anthropic/claude-haiku-4-5-20251001","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}')
-  printf '  %s  headers={run=%s user=%s agent=%s realm=%s}  http=%s\n' \
-    "$started" "$lie_run" "$lie_user" "$lie_agent" "$lie_realm" "$status"
+  printf '  %s  headers={run=%s user=%s agent=%s}  http=%s\n' \
+    "$started" "$lie_run" "$lie_user" "$lie_agent" "$status"
   if [ "$status" != "200" ] && [ -s /tmp/smoke_llm.json ]; then
     echo "  body:"
     sed 's/^/    /' /tmp/smoke_llm.json
@@ -195,20 +217,24 @@ call_llm_mismatched() {
 #
 # Pulls one row from the gateway's logs.db whose metadata.run-id
 # matches the argument. Output format: pipe-delimited
-# run-id|user-id|agent-name|realm-id. Empty string on no-match.
+# run-id|user-id|agent-name. Empty string on no-match.
 #
 # Used by the mismatch assertion: after the canonicalization fix the
 # row keyed by the MACAROON's run-id is the only one that exists; the
 # row keyed by the HEADER's run-id is gone (proving the headers were
 # overwritten).
+#
+# Phase 11: dropped the realm-id column from the row format because
+# realm-id is no longer a signature-bound dim (the macaroon doesn't
+# carry a singular realm). Every row in this swarm's logs.db is by
+# definition for this swarm's realm.
 fetch_logs_row() {
   local run_id="$1"
   docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \
     sh -c "apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \
       \"SELECT json_extract(metadata,'\$.run-id') || '|' ||
               COALESCE(json_extract(metadata,'\$.user-id'),'') || '|' ||
-              COALESCE(json_extract(metadata,'\$.agent-name'),'') || '|' ||
-              COALESCE(json_extract(metadata,'\$.realm-id'),'')
+              COALESCE(json_extract(metadata,'\$.agent-name'),'')
        FROM logs WHERE json_extract(metadata,'\$.run-id')='$run_id' LIMIT 1;\"" \
     2>/dev/null
 }
@@ -373,7 +399,6 @@ MISMATCH_RUN_ID=$(new_run_id)
 LIE_RUN_ID="r_HEADER_LIE_${MISMATCH_RUN_ID}"
 LIE_USER="u_LIAR"
 LIE_AGENT="malicious-agent"
-LIE_REALM="w_evil"
 
 echo "  minting macaroon for truthful run_id=$MISMATCH_RUN_ID..."
 MISMATCH_MACAROON=$(mint_macaroon "$MISMATCH_RUN_ID")
@@ -384,7 +409,7 @@ if [ $mint_status -ne 0 ] || [ -z "$MISMATCH_MACAROON" ]; then
 fi
 
 echo "  calling /v1/chat/completions with mismatched headers..."
-call_llm_mismatched "$MISMATCH_MACAROON" "$LIE_RUN_ID" "$LIE_USER" "$LIE_AGENT" "$LIE_REALM"
+call_llm_mismatched "$MISMATCH_MACAROON" "$LIE_RUN_ID" "$LIE_USER" "$LIE_AGENT"
 
 echo "  waiting 3s for log flush..."
 sleep 3
@@ -420,10 +445,10 @@ echo "  Assertions (post-canonicalization-fix expected):"
 # Post-fix: the macaroon-keyed row exists and carries macaroon values.
 # Pre-fix:  this row does not exist; the lie-keyed row does.
 expect_eq "macaroon row exists" \
-  "$MISMATCH_RUN_ID|u_alice|coder|w1" \
+  "$MISMATCH_RUN_ID|u_alice|coder" \
   "$mac_row"
 # Post-fix: the lie-keyed row does not exist (headers were overwritten).
-# Pre-fix:  this row exists with all four lies.
+# Pre-fix:  this row exists with all three lies.
 expect_eq "lie row does not exist" \
   "" \
   "$lie_row"

@@ -1,5 +1,15 @@
 # Phase 6 — Plugin Enforcement: Redis Schema, Hot-Path Ops, Failure Modes
 
+> **Status (phase 11 cutover):** Redis bucket keys and hot-path
+> flow are unchanged from the description below. Phase 11
+> (`phase-11-symmetric-recursive-authorization.md`) adds one
+> realm-membership check in PreLLMHook after macaroon verify
+> (compares the swarm's `realm_id` against
+> `claims.EffectiveCaveats.Budget.RealmBudgets`), and removes
+> `realm-id` from `signatureBoundDims` (the macaroon no longer
+> carries a singular realm to canonicalize from). The current
+> implementation matches phase 11.
+>
 > Concrete operational spec for the Bifrost-plugin adapter at
 > `gateway/internal/auth/`. Companion to `phase-4-macaroon-shape.md`
 > (which defines the cryptographic verifier the plugin wraps) and

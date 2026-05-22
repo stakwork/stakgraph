@@ -6,15 +6,22 @@
  *   cd gateway/auth/ts && node --import tsx ../../scripts/mint-macaroon.ts \
  *     --org-id org_smoke \
  *     --user-id u_alice \
- *     --realm w1 \
  *     --agent coder \
  *     --run-id r_smoke_<unix> \
  *     --max-cost-usd 1.00 \
  *     --max-steps 50 \
- *     --ttl-seconds 600
+ *     --ttl-seconds 600 \
+ *     [--realm-budgets '{"w1":{"max_total_usd":50}}']
  *
  * Prints the base64url-encoded macaroon on stdout (one line, no
  * trailing newline cruft). Errors go to stderr.
+ *
+ * Phase 11 dropped the singular `--realm` flag. Single-swarm
+ * deployments mint without any realm scoping. Multi-swarm deployments
+ * pass `--realm-budgets` as a JSON map of realm-id → per-realm cap
+ * (`{ max_total_usd: <number> }`), which lands on both the UA's
+ * Budget and the invocation's Budget so the verifier can run its
+ * symmetric narrowing checks end-to-end.
  *
  * Why this lives in gateway/scripts/ instead of gateway/auth/ts/scripts/
  * --------------------------------------------------------------------
@@ -60,8 +67,10 @@ import {
   utf8Bytes,
 } from "../auth/ts/src/index.js";
 import type {
+  Budget,
   InvocationUnsigned,
   Macaroon,
+  RealmBudget,
   UserAuthorizationUnsigned,
 } from "../auth/ts/src/index.js";
 
@@ -70,19 +79,19 @@ import type {
 interface Args {
   orgId: string;
   userId: string;
-  realm: string;
   agent: string;
   runId: string;
   maxCostUsd: number;
   maxSteps: number;
   ttlSeconds: number;
+  /** Optional phase-11 multi-swarm scoping. JSON map of realm-id → RealmBudget. */
+  realmBudgets?: Record<string, RealmBudget>;
 }
 
 function parseArgs(argv: string[]): Args {
   const required = new Set([
     "--org-id",
     "--user-id",
-    "--realm",
     "--agent",
     "--run-id",
   ]);
@@ -98,10 +107,25 @@ function parseArgs(argv: string[]): Args {
   for (const r of required) {
     if (!out[r]) die(`missing required flag ${r}`);
   }
+  // realm-budgets is optional JSON. Parsed once up-front so a bad
+  // argument fails fast (rather than crashing later inside the
+  // signing path with a confusing stack trace).
+  let realmBudgets: Record<string, RealmBudget> | undefined;
+  if (out["--realm-budgets"]) {
+    try {
+      const parsed = JSON.parse(out["--realm-budgets"]);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        realmBudgets = parsed as Record<string, RealmBudget>;
+      } else {
+        die("--realm-budgets must be a JSON object");
+      }
+    } catch (e) {
+      die(`--realm-budgets is not valid JSON: ${String(e)}`);
+    }
+  }
   return {
     orgId: out["--org-id"]!,
     userId: out["--user-id"]!,
-    realm: out["--realm"]!,
     agent: out["--agent"]!,
     runId: out["--run-id"]!,
     // Numeric flags default to values that match a typical
@@ -111,6 +135,7 @@ function parseArgs(argv: string[]): Args {
     maxCostUsd: out["--max-cost-usd"] ? Number(out["--max-cost-usd"]) : 1.0,
     maxSteps: out["--max-steps"] ? Number(out["--max-steps"]) : 50,
     ttlSeconds: out["--ttl-seconds"] ? Number(out["--ttl-seconds"]) : 600,
+    realmBudgets,
   };
 }
 
@@ -182,30 +207,40 @@ function main() {
   const uaExp = rfc3339(new Date(now.getTime() + 60 * 60 * 1000));
   const invExp = rfc3339(new Date(now.getTime() + args.ttlSeconds * 1000));
 
-  // user_authorization grants this user the realm and agent we're
-  // about to use. Permissions are deliberately broad enough that the
-  // smoke script can vary the agent/realm via flags without
-  // regenerating the UA grant — the realistic Hive flow would issue
-  // one UA per user with their full granted set, then narrow per
-  // invocation.
+  // Phase-11 budget block. When --realm-budgets is supplied we put it
+  // on the UA (org-grant) AND on the invocation (this-run's scope)
+  // so both layers carry the same set — the simplest shape that
+  // exercises the symmetric narrowing path without bringing in
+  // attenuation. A real Hive issuer might narrow on the invocation
+  // side; that's a follow-up smoke test.
+  let uaBudget: Budget | undefined;
+  let invBudget: Budget | undefined;
+  if (args.realmBudgets) {
+    uaBudget = { realm_budgets: args.realmBudgets };
+    invBudget = { realm_budgets: args.realmBudgets };
+  }
+
+  // user_authorization grants this user the agent we're about to
+  // use. Permissions are deliberately broad enough that the smoke
+  // script can vary the agent via flags without regenerating the UA
+  // grant — the realistic Hive flow would issue one UA per user
+  // with their full granted set, then narrow per invocation.
   const ua: UserAuthorizationUnsigned = {
     user_id: args.userId,
     user_pubkey: { alg: "ed25519", key: userPubHex },
-    permissions: {
-      realms: [args.realm],
-      agents: [args.agent],
-    },
+    agents: [args.agent],
+    budget: uaBudget,
     iat,
     exp: uaExp,
     nonce: randomNonceHex(),
   };
 
   const inv: InvocationUnsigned = {
-    realm: args.realm,
     agents: [args.agent],
     run_id: args.runId,
     max_cost_usd: args.maxCostUsd,
     max_steps: args.maxSteps,
+    budget: invBudget,
     iat,
     exp: invExp,
     nonce: randomNonceHex(),

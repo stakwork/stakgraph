@@ -76,12 +76,16 @@ func (h *trustHandlers) upsert(w http.ResponseWriter, r *http.Request) {
 // dispatchPrefix routes everything under /_plugin/trust/ except the
 // status leaf. The trailing path is one of:
 //
+//	realm_id           → PUT (set swarm self-identity, phase 11)
 //	<org_id>           → GET or DELETE
 //	<org_id>/rotate    → POST
 //
 // Anything else returns 404 (org_id with extra path segments) so we
 // don't silently accept malformed URLs that look like they should
-// have done something.
+// have done something. `realm_id` is a reserved path segment — orgs
+// can't be named that, which is fine since validateRealmID's slash
+// rejection mirrors validate's org_id rejection (so realm-ids can't
+// collide with org-ids on the wire either).
 func (h *trustHandlers) dispatchPrefix(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, trustPrefixPath)
 	if rest == "" || rest == "status" {
@@ -93,6 +97,14 @@ func (h *trustHandlers) dispatchPrefix(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.NotFound(w, r)
+		return
+	}
+
+	// /_plugin/trust/realm_id is the swarm-self-identity endpoint
+	// (phase 11). Handled out-of-band from the org-id dispatch
+	// because the URL segment is fixed, not a variable.
+	if rest == "realm_id" {
+		h.realmID(w, r)
 		return
 	}
 
@@ -111,6 +123,37 @@ func (h *trustHandlers) dispatchPrefix(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// realmID handles PUT /_plugin/trust/realm_id — set the swarm's own
+// realm identity (phase 11). Empty value clears it (single-swarm
+// deployment). Bearer-only (same auth model as other trust
+// mutations); the SPA never writes this.
+//
+// Hive's reconciler is the typical caller, setting this at
+// workspace provisioning for multi-swarm deployments. Operators can
+// also set it by hand for diagnostics.
+func (h *trustHandlers) realmID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		methodNotAllowed(w, http.MethodPut)
+		return
+	}
+	var req trust.RealmIDRequest
+	if err := decodeJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	v, err := h.reg.SetRealmID(req.RealmID)
+	if err != nil {
+		if errors.Is(err, trust.ErrInvalidRealmID) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		pluginlog.Errf("adminapi: trust set realm_id: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, trust.RealmIDResponse{OK: true, RealmID: v})
 }
 
 // byOrg dispatches GET / DELETE on /_plugin/trust/<org_id>.

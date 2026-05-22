@@ -16,6 +16,7 @@ import type {
   SpendByAgentUserResponse,
   SpendByUserResponse,
   TrustOrg,
+  TrustStatus,
   UserDetailResponse,
   Window,
   Bucket,
@@ -230,6 +231,25 @@ export function useTrustOrg(orgID: string | undefined) {
     },
     enabled: !!orgID,
     staleTime: 5 * 60_000, // org records change rarely
+    retry: false,
+  });
+}
+
+// ─── /trust/status ──────────────────────────────────────────────────
+//
+// Surfaces the swarm's self-identity (`realm_id`) plus the trusted
+// org list. The Provenance card on RunDetail reads `realm_id` to
+// render "this swarm processes realm w1" — phase 11 moved the realm
+// off per-row metadata and onto this single, signed-out status
+// surface. Long stale time: the value changes only when an operator
+// hits PUT /_plugin/trust/realm_id, which is human-scale (workspace
+// provisioning, debugging).
+
+export function useTrustStatus() {
+  return useQuery({
+    queryKey: ["trust", "status"],
+    queryFn: () => apiFetch<TrustStatus>("/trust/status"),
+    staleTime: 5 * 60_000,
     retry: false,
   });
 }

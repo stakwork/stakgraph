@@ -33,6 +33,7 @@ import {
 import type {
   Attenuation,
   AttenuationCaveats,
+  Budget,
   InvocationUnsigned,
   Macaroon,
   Policy,
@@ -71,17 +72,18 @@ interface FixtureShape {
     claims: {
       org_id: string;
       user_id: string;
-      realm: string;
       agent_name: string;
       run_id: string;
       effective_caveats: {
         agents: string[];
         max_cost_usd: number;
         max_steps: number;
+        budget: Budget | null;
         exp: string;
       };
       ua_nonce: string;
-      ua_budget: { max_total_usd: number; max_per_invocation_usd: number } | null;
+      ua_budget: Budget | null;
+      permitted_realms: string[] | null;
       nonces: string[];
       iat: string;
     };
@@ -195,12 +197,12 @@ for (const file of fixtureFiles()) {
     );
     assert.equal(claims.org_id, fx.expected.claims.org_id);
     assert.equal(claims.user_id, fx.expected.claims.user_id);
-    assert.equal(claims.realm, fx.expected.claims.realm);
     assert.equal(claims.agent_name, fx.expected.claims.agent_name);
     assert.equal(claims.run_id, fx.expected.claims.run_id);
     assert.deepEqual(claims.effective_caveats, fx.expected.claims.effective_caveats);
     assert.equal(claims.ua_nonce, fx.expected.claims.ua_nonce);
     assert.deepEqual(claims.ua_budget, fx.expected.claims.ua_budget);
+    assert.deepEqual(claims.permitted_realms, fx.expected.claims.permitted_realms);
     assert.deepEqual(claims.nonces, fx.expected.claims.nonces);
     assert.equal(claims.iat, fx.expected.claims.iat);
   });

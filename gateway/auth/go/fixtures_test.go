@@ -67,19 +67,20 @@ type fixtureFile struct {
 		Claims struct {
 			OrgID            string `json:"org_id"`
 			UserID           string `json:"user_id"`
-			Realm            string `json:"realm"`
 			AgentName        string `json:"agent_name"`
 			RunID            string `json:"run_id"`
 			EffectiveCaveats struct {
-				Agents     []string `json:"agents"`
-				MaxCostUSD float64  `json:"max_cost_usd"`
-				MaxSteps   int      `json:"max_steps"`
-				Exp        string   `json:"exp"`
+				Agents     []string         `json:"agents"`
+				MaxCostUSD float64          `json:"max_cost_usd"`
+				MaxSteps   int              `json:"max_steps"`
+				Budget     *macaroon.Budget `json:"budget"`
+				Exp        string           `json:"exp"`
 			} `json:"effective_caveats"`
-			UANonce  string              `json:"ua_nonce"`
-			UABudget *macaroon.UserBudget `json:"ua_budget"`
-			Nonces   []string            `json:"nonces"`
-			IAT      string              `json:"iat"`
+			UANonce         string           `json:"ua_nonce"`
+			UABudget        *macaroon.Budget `json:"ua_budget"`
+			PermittedRealms []string         `json:"permitted_realms"`
+			Nonces          []string         `json:"nonces"`
+			IAT             string           `json:"iat"`
 		} `json:"claims"`
 		VerifyResult string `json:"verify_result"`
 	} `json:"expected"`
@@ -223,9 +224,6 @@ func runFixture(t *testing.T, name string) {
 	if claims.UserID != fx.Expected.Claims.UserID {
 		t.Errorf("claims.UserID: got %q want %q", claims.UserID, fx.Expected.Claims.UserID)
 	}
-	if claims.Realm != fx.Expected.Claims.Realm {
-		t.Errorf("claims.Realm: got %q want %q", claims.Realm, fx.Expected.Claims.Realm)
-	}
 	if claims.AgentName != fx.Expected.Claims.AgentName {
 		t.Errorf("claims.AgentName: got %q want %q", claims.AgentName, fx.Expected.Claims.AgentName)
 	}
@@ -260,6 +258,24 @@ func runFixture(t *testing.T, name string) {
 	if !reflect.DeepEqual(claims.UABudget, fx.Expected.Claims.UABudget) {
 		t.Errorf("claims.UABudget: got %+v want %+v", claims.UABudget, fx.Expected.Claims.UABudget)
 	}
+	if !reflect.DeepEqual(claims.EffectiveCaveats.Budget, fx.Expected.Claims.EffectiveCaveats.Budget) {
+		t.Errorf("claims.EffectiveCaveats.Budget: got %+v want %+v",
+			claims.EffectiveCaveats.Budget, fx.Expected.Claims.EffectiveCaveats.Budget)
+	}
+	if !equalPermittedRealms(claims.PermittedRealms, fx.Expected.Claims.PermittedRealms) {
+		t.Errorf("claims.PermittedRealms: got %v want %v",
+			claims.PermittedRealms, fx.Expected.Claims.PermittedRealms)
+	}
+}
+
+// equalPermittedRealms handles the fixture-vs-claims nil/empty
+// distinction. Fixture JSON encodes null when there are no realms;
+// Go decodes that to nil. Both sides agree on "no realms" → nil.
+func equalPermittedRealms(got, want []string) bool {
+	if len(got) == 0 && len(want) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(got, want)
 }
 
 // jcsStripFromRaw runs JCS on raw JSON. If field is non-empty, that

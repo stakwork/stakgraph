@@ -11,7 +11,7 @@ import { Link } from "wouter-preact";
 import { DataTable } from "../components/tables/DataTable";
 import { BotIcon, UserIcon } from "../components/icons";
 import { getErrorMessage } from "../api/client";
-import { useRunCall, useRunDetail, useTrustOrg } from "../api/queries";
+import { useRunCall, useRunDetail, useTrustOrg, useTrustStatus } from "../api/queries";
 import type {
   CacheDebug,
   CallDetailResponse,
@@ -102,7 +102,6 @@ export function RunDetail({ runID }: Props) {
 
   const agent = md["agent-name"] ?? "—";
   const user = md["user-id"] ?? "—";
-  const realm = md["realm-id"] ?? "—";
   const session = md["session-id"] ?? "";
   const deployment = md["deployment"] ?? "";
   const orgID = md["org-id"] ?? "";
@@ -111,6 +110,12 @@ export function RunDetail({ runID }: Props) {
   // meaningful state (org_id present but not in registry → render
   // "not in registry" badge); `undefined` is in-flight.
   const trust = useTrustOrg(orgID || undefined);
+
+  // Trust status carries the swarm's own realm_id (phase 11). Used
+  // by the AuthorizedBy banner to surface "processed by swarm w1"
+  // — the realm dropped off per-row metadata, so the registry
+  // status is the only place it lives now.
+  const trustStatus = useTrustStatus();
 
   return (
     <>
@@ -162,7 +167,12 @@ export function RunDetail({ runID }: Props) {
                   badge. Hidden when the run carries no org-id
                   dim (pre-phase-6 traffic without macaroon). */}
               {orgID ? (
-                <AuthorizedBy orgID={orgID} trust={trust.data} loading={trust.isLoading} />
+                <AuthorizedBy
+                  orgID={orgID}
+                  trust={trust.data}
+                  loading={trust.isLoading}
+                  swarmRealmID={trustStatus.data?.realm_id}
+                />
               ) : null}
 
               <dl class="kvgrid">
@@ -185,9 +195,6 @@ export function RunDetail({ runID }: Props) {
                       <span class="mono">{agent}</span>
                     </Link>
                   </span>
-                </ProvField>
-                <ProvField label="Workspace">
-                  <span class="mono">{realm}</span>
                 </ProvField>
                 {session ? (
                   <ProvField label="Session">
@@ -329,7 +336,7 @@ function ProvField({
 // the top of the Provenance card. Three visual states:
 //
 //   - loading: skeleton placeholder
-//   - found:   green ✓ badge + pubkey + issuer URL
+//   - found:   green ✓ badge + pubkey + issuer URL + swarm realm_id
 //   - missing: amber ⚠ badge "Not in trust registry"
 //
 // The badge color is the operator's signal that the verifier
@@ -338,14 +345,22 @@ function ProvField({
 // "cryptographically verified" — it just means "the operator
 // has added this org to the local trust set." When phase 6 lands,
 // the same UI accurately reflects the verification chain.
+//
+// Phase 11: when the swarm has a `realm_id` configured (multi-swarm
+// deployments), render it on the same card. Per-row realm-id
+// metadata is gone (every row in this swarm's logs is by definition
+// for this swarm's realm), so the trust card is the right home for
+// "what's this swarm's identity?".
 function AuthorizedBy({
   orgID,
   trust,
   loading,
+  swarmRealmID,
 }: {
   orgID: string;
   trust: TrustOrg | null | undefined;
   loading: boolean;
+  swarmRealmID?: string;
 }) {
   const fmtKey = (k: string) =>
     k.length > 16 ? k.slice(0, 8) + "…" + k.slice(-6) : k;
@@ -395,6 +410,14 @@ function AuthorizedBy({
               <a href={trust.issuer_url} target="_blank" rel="noreferrer">
                 {trust.issuer_url}
               </a>
+            </dd>
+          </>
+        ) : null}
+        {swarmRealmID ? (
+          <>
+            <dt>Realm</dt>
+            <dd class="mono" title="This swarm's realm_id (set via PUT /_plugin/trust/realm_id)">
+              {swarmRealmID}
             </dd>
           </>
         ) : null}

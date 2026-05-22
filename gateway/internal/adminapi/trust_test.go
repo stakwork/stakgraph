@@ -296,6 +296,94 @@ func TestTrust_MethodEnforcement(t *testing.T) {
 	resp.Body.Close()
 }
 
+// ─── phase 11: realm_id endpoint ──────────────────────────────────────
+
+func TestTrust_RealmID_PutSetsAndStatusReturns(t *testing.T) {
+	srv, reg := newTestServer(t)
+	defer srv.Close()
+
+	resp := do(t, srv, http.MethodPut, "/_plugin/trust/realm_id",
+		trust.RealmIDRequest{RealmID: "w1"}, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("put realm_id: %d", resp.StatusCode)
+	}
+	var put trust.RealmIDResponse
+	decode(t, resp, &put)
+	if !put.OK || put.RealmID != "w1" {
+		t.Fatalf("put response: %+v", put)
+	}
+	if reg.RealmID() != "w1" {
+		t.Fatalf("registry not updated: %q", reg.RealmID())
+	}
+
+	// /status surfaces it.
+	resp = do(t, srv, http.MethodGet, "/_plugin/trust/status", nil, true)
+	var st trust.StatusResponse
+	decode(t, resp, &st)
+	if st.RealmID != "w1" {
+		t.Fatalf("status realm_id: %+v", st)
+	}
+}
+
+func TestTrust_RealmID_PutRejectsBadShape(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp := do(t, srv, http.MethodPut, "/_plugin/trust/realm_id",
+		trust.RealmIDRequest{RealmID: "has space"}, true)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTrust_RealmID_PutClears(t *testing.T) {
+	srv, reg := newTestServer(t)
+	defer srv.Close()
+
+	_ = do(t, srv, http.MethodPut, "/_plugin/trust/realm_id",
+		trust.RealmIDRequest{RealmID: "w1"}, true).Body.Close()
+
+	resp := do(t, srv, http.MethodPut, "/_plugin/trust/realm_id",
+		trust.RealmIDRequest{RealmID: ""}, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("clear: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	if reg.RealmID() != "" {
+		t.Fatalf("expected cleared, got %q", reg.RealmID())
+	}
+}
+
+func TestTrust_RealmID_MethodEnforced(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	// GET is not allowed on the realm_id endpoint — its value is
+	// part of /_plugin/trust/status, so a dedicated GET would just
+	// duplicate that surface.
+	resp := do(t, srv, http.MethodGet, "/_plugin/trust/realm_id", nil, true)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("want 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTrust_RealmID_RequiresBearer(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	// PUT is a mutation → bearer-only via methodMuxedAuth (GET-only
+	// goes through cookieOrBearer; everything else goes through
+	// bearerOnly). Sending no auth must 401.
+	resp := do(t, srv, http.MethodPut, "/_plugin/trust/realm_id",
+		trust.RealmIDRequest{RealmID: "w1"}, false)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 // ─── 404 dispatch ─────────────────────────────────────────────────────
 
 func TestTrust_UnknownSubpath_404(t *testing.T) {

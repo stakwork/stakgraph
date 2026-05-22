@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -52,7 +53,7 @@ func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
 		return nil, err
 	}
 
-	effective, runID, attNonces, err := walkAttenuations(&m.Invocation, m.Attenuations, now)
+	effective, runID, attNonces, err := walkAttenuations(&m.Invocation, m.UserAuthorization.Budget, m.Attenuations, now)
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +70,12 @@ func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
 	return &Claims{
 		OrgID:            m.OrgID,
 		UserID:           m.UserAuthorization.UserID,
-		Realm:            m.Invocation.Realm,
 		AgentName:        agentName,
 		RunID:            runID,
 		EffectiveCaveats: effective,
 		UANonce:          m.UserAuthorization.Nonce,
 		UABudget:         m.UserAuthorization.Budget,
+		PermittedRealms:  permittedRealms(&effective),
 		Nonces:           nonces,
 		IAT:              m.Invocation.IAT,
 	}, nil
@@ -201,19 +202,29 @@ func verifyInvocation(inv *Invocation, ua *UserAuthorization) error {
 	return nil
 }
 
+// enforceInvocationCaveats is the UA→invocation boundary check. This
+// is the one boundary where `agents` narrows (`child ⊆ parent`) — the
+// user grants a set of agents on the UA, and the invocation picks a
+// subset to actually use this run. Subsequent attenuation boundaries
+// extend lineage (`child ⊇ parent`); see narrowAttenuation.
 func enforceInvocationCaveats(inv *Invocation, ua *UserAuthorization, now time.Time) error {
-	if !containsString(ua.Permissions.Realms, inv.Realm) {
-		return newError(ErrInvocationViolated,
-			fmt.Sprintf("realm %s not in user permissions", inv.Realm))
+	if len(inv.Agents) == 0 {
+		return newError(ErrInvocationViolated, "invocation.agents must be non-empty")
 	}
 	for _, a := range inv.Agents {
-		if !containsString(ua.Permissions.Agents, a) {
+		if !containsString(ua.Agents, a) {
 			return newError(ErrInvocationViolated,
 				fmt.Sprintf("agent %s not in user permissions", a))
 		}
 	}
 	if expBefore(inv.Exp, now) {
 		return newError(ErrMacaroonExpired, fmt.Sprintf("invocation expired at %s", inv.Exp))
+	}
+	// Exp narrowing: invocation must not outlive the UA. Signature-
+	// time field comparison, no clock dependency.
+	if inv.Exp > ua.Exp {
+		return newError(ErrInvocationViolated,
+			fmt.Sprintf("invocation exp %s > ua exp %s", inv.Exp, ua.Exp))
 	}
 	// Per-invocation budget cap. Pure signature-time check — the
 	// cumulative cap (MaxTotalUSD) is enforced by the adapter via
@@ -224,21 +235,34 @@ func enforceInvocationCaveats(inv *Invocation, ua *UserAuthorization, now time.T
 			fmt.Sprintf("invocation max_cost_usd %v > ua.budget.max_per_invocation_usd %v",
 				inv.MaxCostUSD, ua.Budget.MaxPerInvocationUSD))
 	}
+	// Budget narrowing: phase 11's symmetric rule applies between
+	// the UA's Budget and the invocation's Budget block. The
+	// invocation block, when present, must not widen any axis the UA
+	// constrained.
+	if err := narrowBudget(ua.Budget, inv.Budget); err != nil {
+		return err
+	}
 	return nil
 }
 
 // ─── attenuation chain walk ───────────────────────────────────────────
 
-func walkAttenuations(inv *Invocation, atts []Attenuation, now time.Time) (EffectiveCaveats, string, []string, error) {
+func walkAttenuations(inv *Invocation, uaBudget *Budget, atts []Attenuation, now time.Time) (EffectiveCaveats, string, []string, error) {
 	prevSigBytes, err := HexToBytes(inv.UserSig.Sig)
 	if err != nil {
 		return EffectiveCaveats{}, "", nil, newError(ErrAttenuationInvalid,
 			fmt.Sprintf("invocation user_sig hex: %v", err))
 	}
+	// Effective Budget at the invocation layer = the invocation's
+	// own block when set, else inherit the UA's. This mirrors the
+	// "Mixed mode" rule in phase-11: parent has budget, child omits
+	// → child inherits unchanged. Without this, realm_budgets set
+	// only at the UA wouldn't propagate to the membership check.
 	effective := EffectiveCaveats{
 		Agents:     append([]string{}, inv.Agents...),
 		MaxCostUSD: inv.MaxCostUSD,
 		MaxSteps:   inv.MaxSteps,
+		Budget:     mergeAttenuationBudget(uaBudget, inv.Budget),
 		Exp:        inv.Exp,
 	}
 	runID := inv.RunID
@@ -259,7 +283,7 @@ func walkAttenuations(inv *Invocation, atts []Attenuation, now time.Time) (Effec
 			return effective, runID, nonces, newError(ErrAttenuationInvalid,
 				fmt.Sprintf("attenuation[%d] hmac mismatch", i))
 		}
-		if err := enforceNarrowing(effective, att.Caveats); err != nil {
+		if err := narrowAttenuation(effective, att.Caveats); err != nil {
 			return effective, runID, nonces, err
 		}
 		if expBefore(att.Caveats.Exp, now) {
@@ -270,6 +294,7 @@ func walkAttenuations(inv *Invocation, atts []Attenuation, now time.Time) (Effec
 			Agents:     append([]string{}, att.Caveats.Agents...),
 			MaxCostUSD: att.Caveats.MaxCostUSD,
 			MaxSteps:   att.Caveats.MaxSteps,
+			Budget:     mergeAttenuationBudget(effective.Budget, att.Caveats.Budget),
 			Exp:        att.Caveats.Exp,
 		}
 		runID = att.Caveats.RunID
@@ -280,9 +305,15 @@ func walkAttenuations(inv *Invocation, atts []Attenuation, now time.Time) (Effec
 	return effective, runID, nonces, nil
 }
 
-func enforceNarrowing(parent EffectiveCaveats, child AttenuationCaveats) error {
+// narrowAttenuation is the parent→child check at every attenuation
+// boundary. Agents is the lineage-extension axis (child ⊇ parent);
+// every other axis is shrink-only (child ≤ parent). This is the half
+// of phase 11's symmetric rule that differs from the UA→invocation
+// boundary handled in enforceInvocationCaveats.
+func narrowAttenuation(parent EffectiveCaveats, child AttenuationCaveats) error {
 	// agents: child ⊇ parent — child must include every parent entry,
 	// and may add. (The agents list grows; cost/steps/exp shrink.)
+	// The last entry remains "the most-specific agent" for billing.
 	for _, a := range parent.Agents {
 		if !containsString(child.Agents, a) {
 			return newError(ErrAttenuationWidened,
@@ -303,7 +334,93 @@ func enforceNarrowing(parent EffectiveCaveats, child AttenuationCaveats) error {
 		return newError(ErrAttenuationWidened,
 			fmt.Sprintf("child exp %s > parent %s", child.Exp, parent.Exp))
 	}
+	if err := narrowBudget(parent.Budget, child.Budget); err != nil {
+		return err
+	}
 	return nil
+}
+
+// narrowBudget enforces the symmetric budget-narrowing rule between
+// any parent→child layer boundary (UA→invocation, invocation→
+// attenuation, attenuation→attenuation). Returns ErrAttenuationWidened
+// when the child widens any axis. nil child means "inherits parent
+// unchanged"; nil parent + non-nil child means "child introduces a
+// constraint that didn't exist" — that's narrowing, allowed.
+//
+// Realm-budgets narrowing (rule 4 in phase-11): for each realm-id
+// key in child.RealmBudgets, the same key must exist in
+// parent.RealmBudgets (if parent set realm_budgets at all), and the
+// child's per-realm cap must be ≤ parent's. Child may also OMIT
+// realms the parent permitted — that's narrowing, allowed.
+func narrowBudget(parent, child *Budget) error {
+	if child == nil {
+		return nil
+	}
+	if parent != nil {
+		if parent.MaxPerInvocationUSD > 0 && child.MaxPerInvocationUSD > 0 &&
+			child.MaxPerInvocationUSD > parent.MaxPerInvocationUSD {
+			return newError(ErrAttenuationWidened,
+				fmt.Sprintf("child budget.max_per_invocation_usd %v > parent %v",
+					child.MaxPerInvocationUSD, parent.MaxPerInvocationUSD))
+		}
+		if parent.MaxTotalUSD > 0 && child.MaxTotalUSD > 0 &&
+			child.MaxTotalUSD > parent.MaxTotalUSD {
+			return newError(ErrAttenuationWidened,
+				fmt.Sprintf("child budget.max_total_usd %v > parent %v",
+					child.MaxTotalUSD, parent.MaxTotalUSD))
+		}
+	}
+	if len(child.RealmBudgets) == 0 {
+		return nil
+	}
+	// If parent set realm_budgets, every child key must appear in it
+	// and not widen its cap. If parent did NOT set realm_budgets,
+	// the child is introducing per-realm scoping that didn't exist
+	// upstream — that's narrowing, allowed.
+	if parent == nil || len(parent.RealmBudgets) == 0 {
+		return nil
+	}
+	for r, cb := range child.RealmBudgets {
+		pb, ok := parent.RealmBudgets[r]
+		if !ok {
+			return newError(ErrAttenuationWidened,
+				fmt.Sprintf("child budget.realm_budgets[%s] not in parent", r))
+		}
+		if pb.MaxTotalUSD > 0 && cb.MaxTotalUSD > 0 &&
+			cb.MaxTotalUSD > pb.MaxTotalUSD {
+			return newError(ErrAttenuationWidened,
+				fmt.Sprintf("child budget.realm_budgets[%s].max_total_usd %v > parent %v",
+					r, cb.MaxTotalUSD, pb.MaxTotalUSD))
+		}
+	}
+	return nil
+}
+
+// mergeAttenuationBudget propagates the effective Budget down the
+// chain. The rule mirrors narrowBudget's intent: a child that omits
+// budget inherits the parent's; a child that sets budget replaces
+// the parent's (already validated as narrowing by narrowBudget).
+func mergeAttenuationBudget(parent, child *Budget) *Budget {
+	if child == nil {
+		return parent
+	}
+	return child
+}
+
+// permittedRealms returns the sorted list of realm-ids the effective
+// caveats authorize spend on. Returns nil when no realm_budgets
+// appears anywhere in the chain — single-swarm deployments rely on
+// this nil-ness to skip the membership check entirely.
+func permittedRealms(eff *EffectiveCaveats) []string {
+	if eff == nil || eff.Budget == nil || len(eff.Budget.RealmBudgets) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(eff.Budget.RealmBudgets))
+	for r := range eff.Budget.RealmBudgets {
+		out = append(out, r)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────

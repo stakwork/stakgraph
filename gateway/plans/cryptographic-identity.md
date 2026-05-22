@@ -8,6 +8,16 @@
 >
 > Read v2 first for context. Then read this for what changes at the
 > identity layer.
+>
+> **Status (phase 11 cutover):** the three-layer model (org → user
+> → agent) and the asymmetric trust chain described below are
+> unchanged. The "permissions.realms[]" grant and the singular
+> "realm" invocation field are gone — phase 11
+> (`phases/phase-11-symmetric-recursive-authorization.md`) replaced
+> them with an opt-in per-realm budget map (`budget.realm_budgets`)
+> that single-swarm deployments don't configure at all. Read this
+> doc for the *identity model*; read phase 11 for the *current
+> realm-scoping mechanics*.
 
 ## Why this exists
 

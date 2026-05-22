@@ -17,18 +17,12 @@
         "alg": "ed25519",
         "key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
       },
-      "permissions": {
-        "realms": [
-          "w1",
-          "w2"
-        ],
-        "agents": [
-          "coder",
-          "browser",
-          "web-search",
-          "repair-agent"
-        ]
-      },
+      "agents": [
+        "coder",
+        "browser",
+        "web-search",
+        "repair-agent"
+      ],
       "iat": "2026-05-14T09:00:00Z",
       "exp": "2026-06-14T09:00:00Z",
       "nonce": "ab1234567890abcdef1234567890abcd",
@@ -38,7 +32,6 @@
       }
     },
     "inv_unsigned": {
-      "realm": "w1",
       "agents": [
         "coder"
       ],
@@ -52,17 +45,16 @@
     "atts_unsigned": []
   },
   "expected": {
-    "ua_signing_bytes_hex": "7b22627564676574223a7b226d61785f7065725f696e766f636174696f6e5f757364223a32352c226d61785f746f74616c5f757364223a313030307d2c22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a226162313233343536373839306162636465663132333435363738393061626364222c227065726d697373696f6e73223a7b226167656e7473223a5b22636f646572222c2262726f77736572222c227765622d736561726368222c227265706169722d6167656e74225d2c227265616c6d73223a5b227731222c227732225d7d2c22757365725f6964223a22755f616c696365222c22757365725f7075626b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d7d",
-    "inv_signing_bytes_hex": "7b226167656e7473223a5b22636f646572225d2c22657870223a22323032362d30352d31345431303a31303a30305a222c22696174223a22323032362d30352d31345431303a30303a30305a222c226d61785f636f73745f757364223a352c226d61785f7374657073223a3130302c226e6f6e6365223a226364313233343536373839306162636465663132333435363738393061626364222c227265616c6d223a227731222c2272756e5f6964223a22725f30316838627564676574656e76656c6f706572756e30303030227d",
-    "ua_canonical_json": "{\"budget\":{\"max_per_invocation_usd\":25,\"max_total_usd\":1000},\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"ab1234567890abcdef1234567890abcd\",\"permissions\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"realms\":[\"w1\",\"w2\"]},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}}",
-    "inv_canonical_json": "{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"cd1234567890abcdef1234567890abcd\",\"realm\":\"w1\",\"run_id\":\"r_01h8budgetenveloperun0000\"}",
-    "macaroon_canonical_json": "{\"attenuations\":[],\"invocation\":{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"cd1234567890abcdef1234567890abcd\",\"realm\":\"w1\",\"run_id\":\"r_01h8budgetenveloperun0000\",\"user_sig\":{\"alg\":\"ed25519\",\"sig\":\"840f1bc001ef31aefd0a94ba51a0c04484aa4b7060e120ff3de5e66684bd13ad839f423d7c594ac70b66125daf765097f31c0cf4620542755187b18ee6c14502\"}},\"org_id\":\"org_acme\",\"user_authorization\":{\"budget\":{\"max_per_invocation_usd\":25,\"max_total_usd\":1000},\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"ab1234567890abcdef1234567890abcd\",\"org_sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"d4cac4a46ce2423033f84c76a28f1f0aab75fe36e5b1c660193a1a4e2283f2710903b79ba898647fd762d511124c5bd3b915f2f174011bdb06d731803e23d007\"},\"permissions\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"realms\":[\"w1\",\"w2\"]},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}},\"v\":1}",
-    "macaroon_b64url": "eyJhdHRlbnVhdGlvbnMiOltdLCJpbnZvY2F0aW9uIjp7ImFnZW50cyI6WyJjb2RlciJdLCJleHAiOiIyMDI2LTA1LTE0VDEwOjEwOjAwWiIsImlhdCI6IjIwMjYtMDUtMTRUMTA6MDA6MDBaIiwibWF4X2Nvc3RfdXNkIjo1LCJtYXhfc3RlcHMiOjEwMCwibm9uY2UiOiJjZDEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZCIsInJlYWxtIjoidzEiLCJydW5faWQiOiJyXzAxaDhidWRnZXRlbnZlbG9wZXJ1bjAwMDAiLCJ1c2VyX3NpZyI6eyJhbGciOiJlZDI1NTE5Iiwic2lnIjoiODQwZjFiYzAwMWVmMzFhZWZkMGE5NGJhNTFhMGMwNDQ4NGFhNGI3MDYwZTEyMGZmM2RlNWU2NjY4NGJkMTNhZDgzOWY0MjNkN2M1OTRhYzcwYjY2MTI1ZGFmNzY1MDk3ZjMxYzBjZjQ2MjA1NDI3NTUxODdiMThlZTZjMTQ1MDIifX0sIm9yZ19pZCI6Im9yZ19hY21lIiwidXNlcl9hdXRob3JpemF0aW9uIjp7ImJ1ZGdldCI6eyJtYXhfcGVyX2ludm9jYXRpb25fdXNkIjoyNSwibWF4X3RvdGFsX3VzZCI6MTAwMH0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6ImFiMTIzNDU2Nzg5MGFiY2RlZjEyMzQ1Njc4OTBhYmNkIiwib3JnX3NpZyI6eyJhbGciOiJlY2RzYS1zZWNwMjU2azEtc2hhMjU2Iiwic2lnIjoiZDRjYWM0YTQ2Y2UyNDIzMDMzZjg0Yzc2YTI4ZjFmMGFhYjc1ZmUzNmU1YjFjNjYwMTkzYTFhNGUyMjgzZjI3MTA5MDNiNzliYTg5ODY0N2ZkNzYyZDUxMTEyNGM1YmQzYjkxNWYyZjE3NDAxMWJkYjA2ZDczMTgwM2UyM2QwMDcifSwicGVybWlzc2lvbnMiOnsiYWdlbnRzIjpbImNvZGVyIiwiYnJvd3NlciIsIndlYi1zZWFyY2giLCJyZXBhaXItYWdlbnQiXSwicmVhbG1zIjpbIncxIiwidzIiXX0sInVzZXJfaWQiOiJ1X2FsaWNlIiwidXNlcl9wdWJrZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifX0sInYiOjF9",
+    "ua_signing_bytes_hex": "7b226167656e7473223a5b22636f646572222c2262726f77736572222c227765622d736561726368222c227265706169722d6167656e74225d2c22627564676574223a7b226d61785f7065725f696e766f636174696f6e5f757364223a32352c226d61785f746f74616c5f757364223a313030307d2c22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a226162313233343536373839306162636465663132333435363738393061626364222c22757365725f6964223a22755f616c696365222c22757365725f7075626b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d7d",
+    "inv_signing_bytes_hex": "7b226167656e7473223a5b22636f646572225d2c22657870223a22323032362d30352d31345431303a31303a30305a222c22696174223a22323032362d30352d31345431303a30303a30305a222c226d61785f636f73745f757364223a352c226d61785f7374657073223a3130302c226e6f6e6365223a226364313233343536373839306162636465663132333435363738393061626364222c2272756e5f6964223a22725f30316838627564676574656e76656c6f706572756e30303030227d",
+    "ua_canonical_json": "{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"budget\":{\"max_per_invocation_usd\":25,\"max_total_usd\":1000},\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"ab1234567890abcdef1234567890abcd\",\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}}",
+    "inv_canonical_json": "{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"cd1234567890abcdef1234567890abcd\",\"run_id\":\"r_01h8budgetenveloperun0000\"}",
+    "macaroon_canonical_json": "{\"attenuations\":[],\"invocation\":{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"cd1234567890abcdef1234567890abcd\",\"run_id\":\"r_01h8budgetenveloperun0000\",\"user_sig\":{\"alg\":\"ed25519\",\"sig\":\"cea7ca9d4ea12badf733f2bd5478e6c5cff6f11a195af78f49e81f362b98139528855aa20ce68d87bcb4c6d6ef0241846ce219b965b63a5f71737eb0a49d6b01\"}},\"org_id\":\"org_acme\",\"user_authorization\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"budget\":{\"max_per_invocation_usd\":25,\"max_total_usd\":1000},\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"ab1234567890abcdef1234567890abcd\",\"org_sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"376649daaf34d3d83367728ce338bc733c27045488f38c66dd3550c91011ba364868ef9c4a9b0cff22158f92ea2298c943d40e2b611c64a39f77f7cf42f1fea1\"},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}},\"v\":1}",
+    "macaroon_b64url": "eyJhdHRlbnVhdGlvbnMiOltdLCJpbnZvY2F0aW9uIjp7ImFnZW50cyI6WyJjb2RlciJdLCJleHAiOiIyMDI2LTA1LTE0VDEwOjEwOjAwWiIsImlhdCI6IjIwMjYtMDUtMTRUMTA6MDA6MDBaIiwibWF4X2Nvc3RfdXNkIjo1LCJtYXhfc3RlcHMiOjEwMCwibm9uY2UiOiJjZDEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZCIsInJ1bl9pZCI6InJfMDFoOGJ1ZGdldGVudmVsb3BlcnVuMDAwMCIsInVzZXJfc2lnIjp7ImFsZyI6ImVkMjU1MTkiLCJzaWciOiJjZWE3Y2E5ZDRlYTEyYmFkZjczM2YyYmQ1NDc4ZTZjNWNmZjZmMTFhMTk1YWY3OGY0OWU4MWYzNjJiOTgxMzk1Mjg4NTVhYTIwY2U2OGQ4N2JjYjRjNmQ2ZWYwMjQxODQ2Y2UyMTliOTY1YjYzYTVmNzE3MzdlYjBhNDlkNmIwMSJ9fSwib3JnX2lkIjoib3JnX2FjbWUiLCJ1c2VyX2F1dGhvcml6YXRpb24iOnsiYWdlbnRzIjpbImNvZGVyIiwiYnJvd3NlciIsIndlYi1zZWFyY2giLCJyZXBhaXItYWdlbnQiXSwiYnVkZ2V0Ijp7Im1heF9wZXJfaW52b2NhdGlvbl91c2QiOjI1LCJtYXhfdG90YWxfdXNkIjoxMDAwfSwiZXhwIjoiMjAyNi0wNi0xNFQwOTowMDowMFoiLCJpYXQiOiIyMDI2LTA1LTE0VDA5OjAwOjAwWiIsIm5vbmNlIjoiYWIxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MGFiY2QiLCJvcmdfc2lnIjp7ImFsZyI6ImVjZHNhLXNlY3AyNTZrMS1zaGEyNTYiLCJzaWciOiIzNzY2NDlkYWFmMzRkM2Q4MzM2NzcyOGNlMzM4YmM3MzNjMjcwNDU0ODhmMzhjNjZkZDM1NTBjOTEwMTFiYTM2NDg2OGVmOWM0YTliMGNmZjIyMTU4ZjkyZWEyMjk4Yzk0M2Q0MGUyYjYxMWM2NGEzOWY3N2Y3Y2Y0MmYxZmVhMSJ9LCJ1c2VyX2lkIjoidV9hbGljZSIsInVzZXJfcHVia2V5Ijp7ImFsZyI6ImVkMjU1MTkiLCJrZXkiOiJkMDRhYjIzMjc0MmJiNGFiM2ExMzY4YmQ0NjE1ZTRlNmQwMjI0YWI3MWEwMTZiYWY4NTIwYTMzMmM5Nzc4NzM3In19LCJ2IjoxfQ",
     "attenuation_hmac_inputs": [],
     "claims": {
       "org_id": "org_acme",
       "user_id": "u_alice",
-      "realm": "w1",
       "agent_name": "coder",
       "run_id": "r_01h8budgetenveloperun0000",
       "effective_caveats": {
@@ -71,6 +63,10 @@
         ],
         "max_cost_usd": 5,
         "max_steps": 100,
+        "budget": {
+          "max_total_usd": 1000,
+          "max_per_invocation_usd": 25
+        },
         "exp": "2026-05-14T10:10:00Z"
       },
       "ua_nonce": "ab1234567890abcdef1234567890abcd",
@@ -78,6 +74,7 @@
         "max_total_usd": 1000,
         "max_per_invocation_usd": 25
       },
+      "permitted_realms": null,
       "nonces": [
         "ab1234567890abcdef1234567890abcd",
         "cd1234567890abcdef1234567890abcd"

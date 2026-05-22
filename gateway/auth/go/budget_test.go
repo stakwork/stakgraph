@@ -67,7 +67,7 @@ func mustHex32(s string) []byte {
 // one realm, one agent, no attenuations. Times are wall-clock so
 // "now" passed to Verify can be the same time.Now we used to set
 // iat/exp.
-func buildVerifiableMacaroon(t *testing.T, budget *macaroon.UserBudget, invMaxCostUSD float64) (string, macaroon.Policy, time.Time) {
+func buildVerifiableMacaroon(t *testing.T, budget *macaroon.Budget, invMaxCostUSD float64) (string, macaroon.Policy, time.Time) {
 	t.Helper()
 
 	orgPub, err := macaroon.EcdsaSecp256k1PublicKey(budgetOrgPriv)
@@ -87,13 +87,10 @@ func buildVerifiableMacaroon(t *testing.T, budget *macaroon.UserBudget, invMaxCo
 	ua := macaroon.UserAuthorization{
 		UserID:     "u_alice",
 		UserPubkey: macaroon.PubKey{Alg: macaroon.AlgEd25519, Key: macaroon.BytesToHex(userPub)},
-		Permissions: macaroon.UserPermissions{
-			Realms: []string{"w1"},
-			Agents: []string{"coder"},
-		},
-		Budget: budget,
-		IAT:    iat,
-		Exp:    uaExp,
+		Agents:     []string{"coder"},
+		Budget:     budget,
+		IAT:        iat,
+		Exp:        uaExp,
 		// 32 hex chars (128-bit nonce) — fixed because nothing in
 		// these tests cares about uniqueness.
 		Nonce: "9f4e000000000000000000000000abcd",
@@ -104,7 +101,6 @@ func buildVerifiableMacaroon(t *testing.T, budget *macaroon.UserBudget, invMaxCo
 	}
 
 	inv := macaroon.Invocation{
-		Realm:      "w1",
 		Agents:     []string{"coder"},
 		RunID:      "r_budget_test",
 		MaxCostUSD: invMaxCostUSD,
@@ -153,7 +149,7 @@ func TestBudget_Absent_VerifiesAsBefore(t *testing.T) {
 }
 
 func TestBudget_WithinPerInvocationCap_Verifies(t *testing.T) {
-	budget := &macaroon.UserBudget{
+	budget := &macaroon.Budget{
 		MaxTotalUSD:         1000,
 		MaxPerInvocationUSD: 25,
 	}
@@ -174,7 +170,7 @@ func TestBudget_WithinPerInvocationCap_Verifies(t *testing.T) {
 }
 
 func TestBudget_ExceedsPerInvocationCap_Rejected(t *testing.T) {
-	budget := &macaroon.UserBudget{
+	budget := &macaroon.Budget{
 		MaxTotalUSD:         1000,
 		MaxPerInvocationUSD: 25,
 	}
@@ -197,7 +193,7 @@ func TestBudget_ZeroPerInvocationDisablesCap(t *testing.T) {
 	// MaxPerInvocationUSD=0 means "no per-call cap" (only the
 	// cumulative MaxTotalUSD applies, and that's adapter-enforced).
 	// An invocation with a large MaxCostUSD must still verify.
-	budget := &macaroon.UserBudget{
+	budget := &macaroon.Budget{
 		MaxTotalUSD:         1000,
 		MaxPerInvocationUSD: 0, // explicit "no cap"
 	}
@@ -210,7 +206,7 @@ func TestBudget_ZeroPerInvocationDisablesCap(t *testing.T) {
 func TestBudget_ExactlyAtCap_Verifies(t *testing.T) {
 	// Boundary: invocation == cap should be allowed. Only strictly
 	// greater is rejected (matches the > comparison in verify.go).
-	budget := &macaroon.UserBudget{MaxPerInvocationUSD: 25}
+	budget := &macaroon.Budget{MaxPerInvocationUSD: 25}
 	encoded, policy, now := buildVerifiableMacaroon(t, budget, 25.00)
 	if _, err := macaroon.Verify(encoded, policy, now); err != nil {
 		t.Fatalf("at-cap should be allowed: %v", err)

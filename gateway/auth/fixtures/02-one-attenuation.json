@@ -1,5 +1,5 @@
 {
-  "description": "single-key org with one sub-agent attenuation narrowing budget and adding a web-search agent",
+  "description": "single-key org with one sub-agent attenuation narrowing budget and adding a web-search agent (lineage extension)",
   "inputs": {
     "org_id": "org_acme",
     "org_priv_hex": "0000000000000000000000000000000000000000000000000000000000000001",
@@ -17,24 +17,17 @@
         "alg": "ed25519",
         "key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
       },
-      "permissions": {
-        "realms": [
-          "w1",
-          "w2"
-        ],
-        "agents": [
-          "coder",
-          "browser",
-          "web-search",
-          "repair-agent"
-        ]
-      },
+      "agents": [
+        "coder",
+        "browser",
+        "web-search",
+        "repair-agent"
+      ],
       "iat": "2026-05-14T09:00:00Z",
       "exp": "2026-06-14T09:00:00Z",
       "nonce": "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b"
     },
     "inv_unsigned": {
-      "realm": "w1",
       "agents": [
         "coder"
       ],
@@ -60,24 +53,23 @@
     ]
   },
   "expected": {
-    "ua_signing_bytes_hex": "7b22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a223966346531633862326133643465356636613762386339643065316632613362222c227065726d697373696f6e73223a7b226167656e7473223a5b22636f646572222c2262726f77736572222c227765622d736561726368222c227265706169722d6167656e74225d2c227265616c6d73223a5b227731222c227732225d7d2c22757365725f6964223a22755f616c696365222c22757365725f7075626b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d7d",
-    "inv_signing_bytes_hex": "7b226167656e7473223a5b22636f646572225d2c22657870223a22323032362d30352d31345431303a31303a30305a222c22696174223a22323032362d30352d31345431303a30303a30305a222c226d61785f636f73745f757364223a352c226d61785f7374657073223a3130302c226e6f6e6365223a223763326133623463356436653766386139623063316432653366346135623663222c227265616c6d223a227731222c2272756e5f6964223a22725f30316838616c706861726f6f74696e766f636174696f6e3030227d",
-    "ua_canonical_json": "{\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b\",\"permissions\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"realms\":[\"w1\",\"w2\"]},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}}",
-    "inv_canonical_json": "{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c\",\"realm\":\"w1\",\"run_id\":\"r_01h8alpharootinvocation00\"}",
-    "macaroon_canonical_json": "{\"attenuations\":[{\"caveats\":{\"agents\":[\"coder\",\"web-search\"],\"exp\":\"2026-05-14T10:02:00Z\",\"max_cost_usd\":2,\"max_steps\":40,\"nonce\":\"1e8d2c3b4a5f6e7d8c9b0a1f2e3d4c5b\",\"run_id\":\"r_01h8alphachildlevel1run00\"},\"hmac\":\"6e81acf116db5dc07b33ff5aee4b6c78d40a637ad132a4fdec5f35642a864c61\"}],\"invocation\":{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c\",\"realm\":\"w1\",\"run_id\":\"r_01h8alpharootinvocation00\",\"user_sig\":{\"alg\":\"ed25519\",\"sig\":\"9835547aa1f05a02b129e3a8f39a1389d2bee62b15c8996f6d9776bab6f68853830042e118f7cf1bcfc087e57d8c48115325d1370e3f494bd02b558c76d97202\"}},\"org_id\":\"org_acme\",\"user_authorization\":{\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b\",\"org_sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"8f1dc45d5fb83ea7f4f06e11ba2a7540f2ecbca0aa8c0c0b357b24c35ff4c70017b23592b91b174f2c0540312d94a4b90e8a6477518a88436039405bcdcd4e5b\"},\"permissions\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"realms\":[\"w1\",\"w2\"]},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}},\"v\":1}",
-    "macaroon_b64url": "eyJhdHRlbnVhdGlvbnMiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwid2ViLXNlYXJjaCJdLCJleHAiOiIyMDI2LTA1LTE0VDEwOjAyOjAwWiIsIm1heF9jb3N0X3VzZCI6MiwibWF4X3N0ZXBzIjo0MCwibm9uY2UiOiIxZThkMmMzYjRhNWY2ZTdkOGM5YjBhMWYyZTNkNGM1YiIsInJ1bl9pZCI6InJfMDFoOGFscGhhY2hpbGRsZXZlbDFydW4wMCJ9LCJobWFjIjoiNmU4MWFjZjExNmRiNWRjMDdiMzNmZjVhZWU0YjZjNzhkNDBhNjM3YWQxMzJhNGZkZWM1ZjM1NjQyYTg2NGM2MSJ9XSwiaW52b2NhdGlvbiI6eyJhZ2VudHMiOlsiY29kZXIiXSwiZXhwIjoiMjAyNi0wNS0xNFQxMDoxMDowMFoiLCJpYXQiOiIyMDI2LTA1LTE0VDEwOjAwOjAwWiIsIm1heF9jb3N0X3VzZCI6NSwibWF4X3N0ZXBzIjoxMDAsIm5vbmNlIjoiN2MyYTNiNGM1ZDZlN2Y4YTliMGMxZDJlM2Y0YTViNmMiLCJyZWFsbSI6IncxIiwicnVuX2lkIjoicl8wMWg4YWxwaGFyb290aW52b2NhdGlvbjAwIiwidXNlcl9zaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6Ijk4MzU1NDdhYTFmMDVhMDJiMTI5ZTNhOGYzOWExMzg5ZDJiZWU2MmIxNWM4OTk2ZjZkOTc3NmJhYjZmNjg4NTM4MzAwNDJlMTE4ZjdjZjFiY2ZjMDg3ZTU3ZDhjNDgxMTUzMjVkMTM3MGUzZjQ5NGJkMDJiNTU4Yzc2ZDk3MjAyIn19LCJvcmdfaWQiOiJvcmdfYWNtZSIsInVzZXJfYXV0aG9yaXphdGlvbiI6eyJleHAiOiIyMDI2LTA2LTE0VDA5OjAwOjAwWiIsImlhdCI6IjIwMjYtMDUtMTRUMDk6MDA6MDBaIiwibm9uY2UiOiI5ZjRlMWM4YjJhM2Q0ZTVmNmE3YjhjOWQwZTFmMmEzYiIsIm9yZ19zaWciOnsiYWxnIjoiZWNkc2Etc2VjcDI1NmsxLXNoYTI1NiIsInNpZyI6IjhmMWRjNDVkNWZiODNlYTdmNGYwNmUxMWJhMmE3NTQwZjJlY2JjYTBhYThjMGMwYjM1N2IyNGMzNWZmNGM3MDAxN2IyMzU5MmI5MWIxNzRmMmMwNTQwMzEyZDk0YTRiOTBlOGE2NDc3NTE4YTg4NDM2MDM5NDA1YmNkY2Q0ZTViIn0sInBlcm1pc3Npb25zIjp7ImFnZW50cyI6WyJjb2RlciIsImJyb3dzZXIiLCJ3ZWItc2VhcmNoIiwicmVwYWlyLWFnZW50Il0sInJlYWxtcyI6WyJ3MSIsIncyIl19LCJ1c2VyX2lkIjoidV9hbGljZSIsInVzZXJfcHVia2V5Ijp7ImFsZyI6ImVkMjU1MTkiLCJrZXkiOiJkMDRhYjIzMjc0MmJiNGFiM2ExMzY4YmQ0NjE1ZTRlNmQwMjI0YWI3MWEwMTZiYWY4NTIwYTMzMmM5Nzc4NzM3In19LCJ2IjoxfQ",
+    "ua_signing_bytes_hex": "7b226167656e7473223a5b22636f646572222c2262726f77736572222c227765622d736561726368222c227265706169722d6167656e74225d2c22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a223966346531633862326133643465356636613762386339643065316632613362222c22757365725f6964223a22755f616c696365222c22757365725f7075626b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d7d",
+    "inv_signing_bytes_hex": "7b226167656e7473223a5b22636f646572225d2c22657870223a22323032362d30352d31345431303a31303a30305a222c22696174223a22323032362d30352d31345431303a30303a30305a222c226d61785f636f73745f757364223a352c226d61785f7374657073223a3130302c226e6f6e6365223a223763326133623463356436653766386139623063316432653366346135623663222c2272756e5f6964223a22725f30316838616c706861726f6f74696e766f636174696f6e3030227d",
+    "ua_canonical_json": "{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b\",\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}}",
+    "inv_canonical_json": "{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c\",\"run_id\":\"r_01h8alpharootinvocation00\"}",
+    "macaroon_canonical_json": "{\"attenuations\":[{\"caveats\":{\"agents\":[\"coder\",\"web-search\"],\"exp\":\"2026-05-14T10:02:00Z\",\"max_cost_usd\":2,\"max_steps\":40,\"nonce\":\"1e8d2c3b4a5f6e7d8c9b0a1f2e3d4c5b\",\"run_id\":\"r_01h8alphachildlevel1run00\"},\"hmac\":\"1e26a1a911d44618bb6933a99b551d50fd5f6c8f8ed2cf0f0921c39773b526cc\"}],\"invocation\":{\"agents\":[\"coder\"],\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c\",\"run_id\":\"r_01h8alpharootinvocation00\",\"user_sig\":{\"alg\":\"ed25519\",\"sig\":\"c82c8f3ec3ac0ef87d5e28a47c578d33729ba630091bbdc767bd75f55e7af84bb30f9c4bce363205ef79e513caca60758a8f1e02d8d520225a6e317a5092560c\"}},\"org_id\":\"org_acme\",\"user_authorization\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b\",\"org_sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"c81da96f9881db1fa86f04ca40c403d33d0e0020c5c58e22cb7f27a695aec6e650d9383af1101ac13338f867905693f4129861e88d69d07cbcb986662638d8c9\"},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}},\"v\":1}",
+    "macaroon_b64url": "eyJhdHRlbnVhdGlvbnMiOlt7ImNhdmVhdHMiOnsiYWdlbnRzIjpbImNvZGVyIiwid2ViLXNlYXJjaCJdLCJleHAiOiIyMDI2LTA1LTE0VDEwOjAyOjAwWiIsIm1heF9jb3N0X3VzZCI6MiwibWF4X3N0ZXBzIjo0MCwibm9uY2UiOiIxZThkMmMzYjRhNWY2ZTdkOGM5YjBhMWYyZTNkNGM1YiIsInJ1bl9pZCI6InJfMDFoOGFscGhhY2hpbGRsZXZlbDFydW4wMCJ9LCJobWFjIjoiMWUyNmExYTkxMWQ0NDYxOGJiNjkzM2E5OWI1NTFkNTBmZDVmNmM4ZjhlZDJjZjBmMDkyMWMzOTc3M2I1MjZjYyJ9XSwiaW52b2NhdGlvbiI6eyJhZ2VudHMiOlsiY29kZXIiXSwiZXhwIjoiMjAyNi0wNS0xNFQxMDoxMDowMFoiLCJpYXQiOiIyMDI2LTA1LTE0VDEwOjAwOjAwWiIsIm1heF9jb3N0X3VzZCI6NSwibWF4X3N0ZXBzIjoxMDAsIm5vbmNlIjoiN2MyYTNiNGM1ZDZlN2Y4YTliMGMxZDJlM2Y0YTViNmMiLCJydW5faWQiOiJyXzAxaDhhbHBoYXJvb3RpbnZvY2F0aW9uMDAiLCJ1c2VyX3NpZyI6eyJhbGciOiJlZDI1NTE5Iiwic2lnIjoiYzgyYzhmM2VjM2FjMGVmODdkNWUyOGE0N2M1NzhkMzM3MjliYTYzMDA5MWJiZGM3NjdiZDc1ZjU1ZTdhZjg0YmIzMGY5YzRiY2UzNjMyMDVlZjc5ZTUxM2NhY2E2MDc1OGE4ZjFlMDJkOGQ1MjAyMjVhNmUzMTdhNTA5MjU2MGMifX0sIm9yZ19pZCI6Im9yZ19hY21lIiwidXNlcl9hdXRob3JpemF0aW9uIjp7ImFnZW50cyI6WyJjb2RlciIsImJyb3dzZXIiLCJ3ZWItc2VhcmNoIiwicmVwYWlyLWFnZW50Il0sImV4cCI6IjIwMjYtMDYtMTRUMDk6MDA6MDBaIiwiaWF0IjoiMjAyNi0wNS0xNFQwOTowMDowMFoiLCJub25jZSI6IjlmNGUxYzhiMmEzZDRlNWY2YTdiOGM5ZDBlMWYyYTNiIiwib3JnX3NpZyI6eyJhbGciOiJlY2RzYS1zZWNwMjU2azEtc2hhMjU2Iiwic2lnIjoiYzgxZGE5NmY5ODgxZGIxZmE4NmYwNGNhNDBjNDAzZDMzZDBlMDAyMGM1YzU4ZTIyY2I3ZjI3YTY5NWFlYzZlNjUwZDkzODNhZjExMDFhYzEzMzM4Zjg2NzkwNTY5M2Y0MTI5ODYxZTg4ZDY5ZDA3Y2JjYjk4NjY2MjYzOGQ4YzkifSwidXNlcl9pZCI6InVfYWxpY2UiLCJ1c2VyX3B1YmtleSI6eyJhbGciOiJlZDI1NTE5Iiwia2V5IjoiZDA0YWIyMzI3NDJiYjRhYjNhMTM2OGJkNDYxNWU0ZTZkMDIyNGFiNzFhMDE2YmFmODUyMGEzMzJjOTc3ODczNyJ9fSwidiI6MX0",
     "attenuation_hmac_inputs": [
       {
-        "prev_sig_hex": "9835547aa1f05a02b129e3a8f39a1389d2bee62b15c8996f6d9776bab6f68853830042e118f7cf1bcfc087e57d8c48115325d1370e3f494bd02b558c76d97202",
+        "prev_sig_hex": "c82c8f3ec3ac0ef87d5e28a47c578d33729ba630091bbdc767bd75f55e7af84bb30f9c4bce363205ef79e513caca60758a8f1e02d8d520225a6e317a5092560c",
         "caveats_canonical_json": "{\"agents\":[\"coder\",\"web-search\"],\"exp\":\"2026-05-14T10:02:00Z\",\"max_cost_usd\":2,\"max_steps\":40,\"nonce\":\"1e8d2c3b4a5f6e7d8c9b0a1f2e3d4c5b\",\"run_id\":\"r_01h8alphachildlevel1run00\"}",
         "hmac_input_hex": "7b226167656e7473223a5b22636f646572222c227765622d736561726368225d2c22657870223a22323032362d30352d31345431303a30323a30305a222c226d61785f636f73745f757364223a322c226d61785f7374657073223a34302c226e6f6e6365223a223165386432633362346135663665376438633962306131663265336434633562222c2272756e5f6964223a22725f30316838616c7068616368696c646c6576656c3172756e3030227d",
-        "hmac_output_hex": "6e81acf116db5dc07b33ff5aee4b6c78d40a637ad132a4fdec5f35642a864c61"
+        "hmac_output_hex": "1e26a1a911d44618bb6933a99b551d50fd5f6c8f8ed2cf0f0921c39773b526cc"
       }
     ],
     "claims": {
       "org_id": "org_acme",
       "user_id": "u_alice",
-      "realm": "w1",
       "agent_name": "web-search",
       "run_id": "r_01h8alphachildlevel1run00",
       "effective_caveats": {
@@ -87,10 +79,12 @@
         ],
         "max_cost_usd": 2,
         "max_steps": 40,
+        "budget": null,
         "exp": "2026-05-14T10:02:00Z"
       },
       "ua_nonce": "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b",
       "ua_budget": null,
+      "permitted_realms": null,
       "nonces": [
         "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b",
         "7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c",

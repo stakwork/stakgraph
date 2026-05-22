@@ -15,6 +15,7 @@ import { ecdsaVerify, ed25519Verify } from "./sigs.js";
 import type {
   Attenuation,
   AttenuationCaveats,
+  Budget,
   Claims,
   EffectiveCaveats,
   Invocation,
@@ -79,6 +80,7 @@ export function verify(
 
   const { effective, runId, agentName, nonces } = walkAttenuations(
     m.invocation,
+    m.user_authorization.budget ?? null,
     m.attenuations,
     now,
   );
@@ -86,12 +88,12 @@ export function verify(
   return {
     org_id: m.org_id,
     user_id: m.user_authorization.user_id,
-    realm: m.invocation.realm,
     agent_name: agentName,
     run_id: runId,
     effective_caveats: effective,
     ua_nonce: m.user_authorization.nonce,
     ua_budget: m.user_authorization.budget ?? null,
+    permitted_realms: permittedRealms(effective),
     nonces: [m.user_authorization.nonce, m.invocation.nonce, ...nonces],
     iat: m.invocation.iat,
   };
@@ -193,28 +195,42 @@ function verifyInvocation(inv: Invocation, ua: UserAuthorization): void {
   }
 }
 
+/**
+ * UA→invocation boundary check. This is the one boundary where
+ * `agents` narrows (`child ⊆ parent`) — the user grants a set of
+ * agents on the UA, and the invocation picks a subset to actually
+ * use this run. Subsequent attenuation boundaries extend lineage
+ * (`child ⊇ parent`); see `narrowAttenuation`.
+ */
 function enforceInvocationCaveats(
   inv: Invocation,
   ua: UserAuthorization,
   now: Date,
 ): void {
-  if (!ua.permissions.realms.includes(inv.realm)) {
+  if (inv.agents.length === 0) {
     throw new VerifyError("invocation_violated",
-      `realm ${inv.realm} not in user permissions`);
+      "invocation.agents must be non-empty");
   }
   for (const a of inv.agents) {
-    if (!ua.permissions.agents.includes(a)) {
+    if (!ua.agents.includes(a)) {
       throw new VerifyError("invocation_violated", `agent ${a} not in user permissions`);
     }
   }
   if (asDate(inv.exp) < now) {
     throw new VerifyError("macaroon_expired", `invocation expired at ${inv.exp}`);
   }
+  // Exp narrowing: invocation must not outlive the UA. Signature-
+  // time field comparison, no clock dependency.
+  if (inv.exp > ua.exp) {
+    throw new VerifyError("invocation_violated",
+      `invocation exp ${inv.exp} > ua exp ${ua.exp}`);
+  }
   // Per-invocation budget cap. Pure signature-time check — the
   // cumulative cap (max_total_usd) is enforced by the adapter via
   // Redis in PreLLMHook, not here.
   if (
     ua.budget &&
+    ua.budget.max_per_invocation_usd !== undefined &&
     ua.budget.max_per_invocation_usd > 0 &&
     inv.max_cost_usd > ua.budget.max_per_invocation_usd
   ) {
@@ -223,6 +239,10 @@ function enforceInvocationCaveats(
       `invocation max_cost_usd ${inv.max_cost_usd} > ua.budget.max_per_invocation_usd ${ua.budget.max_per_invocation_usd}`,
     );
   }
+  // Budget narrowing: phase 11's symmetric rule applies between the
+  // UA's Budget and the invocation's Budget block. The invocation
+  // block, when present, must not widen any axis the UA constrained.
+  narrowBudget(ua.budget ?? null, inv.budget ?? null);
 }
 
 // ─── attenuation chain walk ───────────────────────────────────────────
@@ -236,14 +256,21 @@ interface WalkResult {
 
 function walkAttenuations(
   inv: Invocation,
+  uaBudget: Budget | null,
   atts: Attenuation[],
   now: Date,
 ): WalkResult {
   let prevSigBytes = hexToBytes(inv.user_sig.sig);
+  // Effective Budget at the invocation layer = the invocation's own
+  // block when set, else inherit the UA's. This mirrors the "Mixed
+  // mode" rule in phase-11: parent has budget, child omits → child
+  // inherits unchanged. Without this, realm_budgets set only at the
+  // UA wouldn't propagate to the membership check.
   let effective: EffectiveCaveats = {
     agents: [...inv.agents],
     max_cost_usd: inv.max_cost_usd,
     max_steps: inv.max_steps,
+    budget: mergeAttenuationBudget(uaBudget, inv.budget ?? null),
     exp: inv.exp,
   };
   let runId = inv.run_id;
@@ -255,7 +282,7 @@ function walkAttenuations(
     if (expectedHex !== att.hmac) {
       throw new VerifyError("attenuation_invalid", "hmac mismatch");
     }
-    enforceNarrowing(effective, att.caveats);
+    narrowAttenuation(effective, att.caveats);
     if (asDate(att.caveats.exp) < now) {
       throw new VerifyError("macaroon_expired", `attenuation expired at ${att.caveats.exp}`);
     }
@@ -263,6 +290,7 @@ function walkAttenuations(
       agents: att.caveats.agents,
       max_cost_usd: att.caveats.max_cost_usd,
       max_steps: att.caveats.max_steps,
+      budget: mergeAttenuationBudget(effective.budget, att.caveats.budget ?? null),
       exp: att.caveats.exp,
     };
     runId = att.caveats.run_id;
@@ -274,8 +302,16 @@ function walkAttenuations(
   return { effective, runId, agentName, nonces };
 }
 
-function enforceNarrowing(parent: EffectiveCaveats, child: AttenuationCaveats): void {
-  // agents: child must include every parent entry (child ⊇ parent)
+/**
+ * Parent→child check at every attenuation boundary. Agents is the
+ * lineage-extension axis (child ⊇ parent); every other axis is
+ * shrink-only (child ≤ parent). This is the half of phase 11's
+ * symmetric rule that differs from the UA→invocation boundary
+ * handled in `enforceInvocationCaveats`.
+ */
+function narrowAttenuation(parent: EffectiveCaveats, child: AttenuationCaveats): void {
+  // agents: child must include every parent entry (child ⊇ parent).
+  // The last entry remains "the most-specific agent" for billing.
   for (const a of parent.agents) {
     if (!child.agents.includes(a)) {
       throw new VerifyError("attenuation_widened",
@@ -295,6 +331,83 @@ function enforceNarrowing(parent: EffectiveCaveats, child: AttenuationCaveats): 
     throw new VerifyError("attenuation_widened",
       `child exp ${child.exp} > parent ${parent.exp}`);
   }
+  narrowBudget(parent.budget, child.budget ?? null);
+}
+
+/**
+ * Symmetric budget-narrowing rule between any parent→child layer
+ * boundary (UA→invocation, invocation→attenuation, attenuation→
+ * attenuation). Throws `attenuation_widened` when the child widens
+ * any axis. null child means "inherits parent unchanged"; null
+ * parent + non-null child means "child introduces a constraint that
+ * didn't exist" — that's narrowing, allowed.
+ *
+ * Realm-budgets narrowing (rule 4 in phase-11): for each realm-id
+ * key in `child.realm_budgets`, the same key must exist in
+ * `parent.realm_budgets` (if parent set realm_budgets at all), and
+ * the child's per-realm cap must be ≤ parent's. Child may also OMIT
+ * realms the parent permitted — that's narrowing, allowed.
+ */
+function narrowBudget(parent: Budget | null, child: Budget | null): void {
+  if (!child) return;
+  if (parent) {
+    const ppi = parent.max_per_invocation_usd ?? 0;
+    const cpi = child.max_per_invocation_usd ?? 0;
+    if (ppi > 0 && cpi > 0 && cpi > ppi) {
+      throw new VerifyError("attenuation_widened",
+        `child budget.max_per_invocation_usd ${cpi} > parent ${ppi}`);
+    }
+    const pt = parent.max_total_usd ?? 0;
+    const ct = child.max_total_usd ?? 0;
+    if (pt > 0 && ct > 0 && ct > pt) {
+      throw new VerifyError("attenuation_widened",
+        `child budget.max_total_usd ${ct} > parent ${pt}`);
+    }
+  }
+  const childRealms = child.realm_budgets;
+  if (!childRealms || Object.keys(childRealms).length === 0) return;
+  // If parent set realm_budgets, every child key must appear in it
+  // and not widen its cap. If parent did NOT set realm_budgets, the
+  // child is introducing per-realm scoping that didn't exist upstream
+  // — that's narrowing, allowed.
+  const parentRealms = parent?.realm_budgets;
+  if (!parentRealms || Object.keys(parentRealms).length === 0) return;
+  for (const [r, cb] of Object.entries(childRealms)) {
+    const pb = parentRealms[r];
+    if (!pb) {
+      throw new VerifyError("attenuation_widened",
+        `child budget.realm_budgets[${r}] not in parent`);
+    }
+    if (pb.max_total_usd > 0 && cb.max_total_usd > 0 &&
+        cb.max_total_usd > pb.max_total_usd) {
+      throw new VerifyError("attenuation_widened",
+        `child budget.realm_budgets[${r}].max_total_usd ${cb.max_total_usd} > parent ${pb.max_total_usd}`);
+    }
+  }
+}
+
+/**
+ * Propagate the effective Budget down the chain. The rule mirrors
+ * `narrowBudget`'s intent: a child that omits budget inherits the
+ * parent's; a child that sets budget replaces the parent's (already
+ * validated as narrowing by `narrowBudget`).
+ */
+function mergeAttenuationBudget(parent: Budget | null, child: Budget | null): Budget | null {
+  if (!child) return parent;
+  return child;
+}
+
+/**
+ * Sorted list of realm-ids the effective caveats authorize spend on.
+ * Returns null when no `realm_budgets` appears anywhere in the chain
+ * — single-swarm deployments rely on this null-ness to skip the
+ * membership check entirely.
+ */
+function permittedRealms(eff: EffectiveCaveats): string[] | null {
+  if (!eff.budget || !eff.budget.realm_budgets) return null;
+  const keys = Object.keys(eff.budget.realm_budgets);
+  if (keys.length === 0) return null;
+  return keys.sort();
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────
