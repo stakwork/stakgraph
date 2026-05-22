@@ -76,8 +76,10 @@ type fixtureFile struct {
 				MaxSteps   int      `json:"max_steps"`
 				Exp        string   `json:"exp"`
 			} `json:"effective_caveats"`
-			Nonces []string `json:"nonces"`
-			IAT    string   `json:"iat"`
+			UANonce  string              `json:"ua_nonce"`
+			UABudget *macaroon.UserBudget `json:"ua_budget"`
+			Nonces   []string            `json:"nonces"`
+			IAT      string              `json:"iat"`
 		} `json:"claims"`
 		VerifyResult string `json:"verify_result"`
 	} `json:"expected"`
@@ -251,6 +253,12 @@ func runFixture(t *testing.T, name string) {
 	if claims.EffectiveCaveats.Exp != fx.Expected.Claims.EffectiveCaveats.Exp {
 		t.Errorf("claims.EffectiveCaveats.Exp: got %q want %q",
 			claims.EffectiveCaveats.Exp, fx.Expected.Claims.EffectiveCaveats.Exp)
+	}
+	if claims.UANonce != fx.Expected.Claims.UANonce {
+		t.Errorf("claims.UANonce: got %q want %q", claims.UANonce, fx.Expected.Claims.UANonce)
+	}
+	if !reflect.DeepEqual(claims.UABudget, fx.Expected.Claims.UABudget) {
+		t.Errorf("claims.UABudget: got %+v want %+v", claims.UABudget, fx.Expected.Claims.UABudget)
 	}
 }
 

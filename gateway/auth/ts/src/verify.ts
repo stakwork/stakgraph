@@ -31,6 +31,7 @@ export type VerifyErrorCode =
   | "user_authorization_expired"
   | "invalid_invocation_signature"
   | "invocation_violated"
+  | "ua_per_invocation_exceeded"
   | "macaroon_expired"
   | "attenuation_invalid"
   | "attenuation_widened";
@@ -89,6 +90,8 @@ export function verify(
     agent_name: agentName,
     run_id: runId,
     effective_caveats: effective,
+    ua_nonce: m.user_authorization.nonce,
+    ua_budget: m.user_authorization.budget ?? null,
     nonces: [m.user_authorization.nonce, m.invocation.nonce, ...nonces],
     iat: m.invocation.iat,
   };
@@ -206,6 +209,19 @@ function enforceInvocationCaveats(
   }
   if (asDate(inv.exp) < now) {
     throw new VerifyError("macaroon_expired", `invocation expired at ${inv.exp}`);
+  }
+  // Per-invocation budget cap. Pure signature-time check — the
+  // cumulative cap (max_total_usd) is enforced by the adapter via
+  // Redis in PreLLMHook, not here.
+  if (
+    ua.budget &&
+    ua.budget.max_per_invocation_usd > 0 &&
+    inv.max_cost_usd > ua.budget.max_per_invocation_usd
+  ) {
+    throw new VerifyError(
+      "ua_per_invocation_exceeded",
+      `invocation max_cost_usd ${inv.max_cost_usd} > ua.budget.max_per_invocation_usd ${ua.budget.max_per_invocation_usd}`,
+    );
   }
 }
 

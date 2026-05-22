@@ -137,6 +137,8 @@ interface FixtureExpected {
       max_steps: number;
       exp: string;
     };
+    ua_nonce: string;
+    ua_budget: { max_total_usd: number; max_per_invocation_usd: number } | null;
     nonces: string[];
     iat: string;
   };
@@ -223,6 +225,8 @@ function computeExpected(
       agent_name: agentName,
       run_id: runId,
       effective_caveats: effective,
+      ua_nonce: signedUa.nonce,
+      ua_budget: signedUa.budget ?? null,
       nonces: [signedUa.nonce, signedInv.nonce, ...attNonces],
       iat: signedInv.iat,
     },
@@ -360,6 +364,60 @@ function makeFixture03TwoAttenuations() {
   };
 }
 
+function makeFixture05BudgetEnvelope() {
+  // Cold-storage motivating flow: org leader signs a UA with a
+  // weekly cumulative cap + a per-invocation cap, then the
+  // employee's hot key signs invocations under it.
+  //
+  // - max_total_usd:          $1000 cumulative across all invocations
+  //                           under this UA (enforced by the adapter
+  //                           via Redis cost:ua:<nonce>; the pure
+  //                           verifier surfaces it on Claims).
+  // - max_per_invocation_usd: $25 per single invocation (enforced at
+  //                           signature time; pure field comparison).
+  //
+  // The invocation asks for $5 < $25 → verifies. The cumulative cap
+  // is not exercised by the verifier (no Redis here) but appears on
+  // Claims so adapters can plumb it into the hot path.
+  const ua: UserAuthorizationUnsigned = {
+    ...baseUserAuthorization(),
+    budget: {
+      max_total_usd: 1000.0,
+      max_per_invocation_usd: 25.0,
+    },
+    // Distinct nonce so cost:ua:<nonce> buckets don't collide with
+    // other fixtures in any downstream integration tests that load
+    // multiple fixtures into one Redis.
+    nonce: "ab1234567890abcdef1234567890abcd",
+  };
+  const inv: InvocationUnsigned = {
+    ...baseInvocation(),
+    run_id: "r_01h8budgetenveloperun0000",
+    max_cost_usd: 5.0, // within both per-invocation and total caps
+    nonce: "cd1234567890abcdef1234567890abcd",
+  };
+  const signedUa = signUserAuthorizationSingle(ua, orgPriv);
+  const signedInv = signInvocation(inv, userPriv);
+  const macaroon = buildMacaroon("org_acme", signedUa, signedInv, []);
+  return {
+    description:
+      "single-key org with a UA budget envelope (max_total_usd + max_per_invocation_usd); invocation within both caps verifies and Claims surfaces ua_nonce + ua_budget",
+    inputs: {
+      org_id: "org_acme",
+      org_priv_hex: ORG_PRIV_HEX,
+      user_priv_hex: USER_PRIV_HEX,
+      policy: {
+        type: "single" as const,
+        key: { alg: "ecdsa-secp256k1-sha256" as const, key: orgPubHex },
+      },
+      ua_unsigned: ua,
+      inv_unsigned: inv,
+      atts_unsigned: [] as AttenuationCaveats[],
+    },
+    expected: computeExpected(ua, signedUa, inv, signedInv, [], macaroon),
+  };
+}
+
 function makeFixture04Multisig() {
   const ua = baseUserAuthorization();
   const inv = baseInvocation();
@@ -450,6 +508,7 @@ function main() {
   writeJson(join(FIXTURES_DIR, "02-one-attenuation.json"), makeFixture02OneAttenuation());
   writeJson(join(FIXTURES_DIR, "03-two-attenuations.json"), makeFixture03TwoAttenuations());
   writeJson(join(FIXTURES_DIR, "04-multisig-2of3.json"), makeFixture04Multisig());
+  writeJson(join(FIXTURES_DIR, "05-budget-envelope.json"), makeFixture05BudgetEnvelope());
 }
 
 main();

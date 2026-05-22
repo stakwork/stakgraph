@@ -20,6 +20,7 @@ export type {
   Policy,
   // macaroon layers
   UserPermissions,
+  UserBudget,
   UserAuthorizationUnsigned,
   UserAuthorization,
   InvocationUnsigned,

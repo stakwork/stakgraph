@@ -80,6 +80,8 @@ interface FixtureShape {
         max_steps: number;
         exp: string;
       };
+      ua_nonce: string;
+      ua_budget: { max_total_usd: number; max_per_invocation_usd: number } | null;
       nonces: string[];
       iat: string;
     };
@@ -197,6 +199,8 @@ for (const file of fixtureFiles()) {
     assert.equal(claims.agent_name, fx.expected.claims.agent_name);
     assert.equal(claims.run_id, fx.expected.claims.run_id);
     assert.deepEqual(claims.effective_caveats, fx.expected.claims.effective_caveats);
+    assert.equal(claims.ua_nonce, fx.expected.claims.ua_nonce);
+    assert.deepEqual(claims.ua_budget, fx.expected.claims.ua_budget);
     assert.deepEqual(claims.nonces, fx.expected.claims.nonces);
     assert.equal(claims.iat, fx.expected.claims.iat);
   });

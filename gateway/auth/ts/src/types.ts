@@ -74,10 +74,43 @@ export interface UserPermissions {
   agents: string[];
 }
 
+/**
+ * Org-signed spending envelope for a `user_authorization`. Optional;
+ * if omitted, no UA-level budget enforcement happens.
+ *
+ * Both fields are independently optional. Zero means "no cap on this
+ * axis" — consistent with the empty-by-default convention used for
+ * agent_budgets in phase 6.
+ *
+ * See `gateway/plans/phases/phase-4-macaroon-shape.md` ("Budget
+ * envelope") for the motivating cold-storage flow: org leader signs
+ * a UA from cold storage with `max_total_usd: $X`, the employee's
+ * hot key signs many invocations under it through the week.
+ *
+ * The verifier:
+ *  - Rejects at signature time if `max_per_invocation_usd > 0` and
+ *    the invocation's `max_cost_usd` exceeds it (pure field
+ *    comparison; no Redis).
+ *  - In phase 6's hot path, the plugin tracks cumulative spend in
+ *    Redis key `cost:ua:<ua.nonce>` and rejects when the total
+ *    would meet or exceed `max_total_usd`. The pure verifier (this
+ *    package) is I/O-free and surfaces the budget on Claims for
+ *    the adapter to enforce.
+ */
+export interface UserBudget {
+  max_total_usd: number;
+  max_per_invocation_usd: number;
+}
+
 export interface UserAuthorizationUnsigned {
   user_id: string;
   user_pubkey: Ed25519PubKey;
   permissions: UserPermissions;
+  /**
+   * Optional. Absent on the wire ⇒ no UA-level budget enforcement.
+   * Byte-identical to a pre-budget macaroon when omitted.
+   */
+  budget?: UserBudget;
   iat: string;
   exp: string;
   nonce: string;
@@ -147,6 +180,20 @@ export interface Claims {
   /** Run id of the innermost attenuation, or the invocation if no attenuations. */
   run_id: string;
   effective_caveats: EffectiveCaveats;
+  /**
+   * `user_authorization.nonce` — surfaced separately from the general
+   * `nonces` list because phase-6 cumulative-spend tracking
+   * (`cost:ua:<ua_nonce>`) needs it by itself, before any attenuation
+   * processing.
+   */
+  ua_nonce: string;
+  /**
+   * `user_authorization.budget` passed through unchanged. `null` when
+   * the UA carried no budget — adapters MUST treat null as "no
+   * UA-level cap" rather than substituting defaults; absent budget
+   * is a design choice, not missing data.
+   */
+  ua_budget: UserBudget | null;
   /** Nonces in order: user_authorization, invocation, attenuations[0..]. */
   nonces: string[];
   /** Invocation iat — used by adapters for revoke_user_before checks. */

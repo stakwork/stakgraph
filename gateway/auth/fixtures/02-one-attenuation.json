@@ -89,6 +89,8 @@
         "max_steps": 40,
         "exp": "2026-05-14T10:02:00Z"
       },
+      "ua_nonce": "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b",
+      "ua_budget": null,
       "nonces": [
         "9f4e1c8b2a3d4e5f6a7b8c9d0e1f2a3b",
         "7c2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c",
