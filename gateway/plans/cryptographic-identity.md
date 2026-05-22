@@ -121,7 +121,7 @@ walk the chain back to the org root, without callbacks:
   },
 
   invocation: {                               ← signed by USER KEY
-    realms:           "w1",
+    realm:               "w1",                ← one of user_authorization.permissions.realms
     agents:              ["coder"],
     run_id:              <uuid>,
     max_cost_usd:        5.00,
@@ -276,12 +276,18 @@ POST /macaroons/issue
     1. Resolve agent defaults from the agent registry (see
        agent-registry.md). Reject if the agent is unknown or
        disabled for org_id.
-    2. Apply override fields as min() narrowings on the defaults;
+    2. Reject if `realm` is not a member of the (org, user)
+       authorization's `permissions.realms`, or if `agent` is not
+       a member of its `permissions.agents`. The verifier enforces
+       these too — issuer-side rejection is a fail-fast convenience
+       so spawners get a clear error instead of producing a macaroon
+       the plugin will reject.
+    3. Apply override fields as min() narrowings on the defaults;
        the issuer never widens.
-    3. In phase 1 (custodial): sign user_authorization with the
+    4. In phase 1 (custodial): sign user_authorization with the
        org's custodial key, sign invocation with the user's
        custodial key, return the assembled macaroon.
-    4. In phase 2+: hold a pre-signed user_authorization for the
+    5. In phase 2+: hold a pre-signed user_authorization for the
        (org, user) pair; request an invocation signature from the
        user's device-held key; assemble and return.
 
@@ -314,14 +320,9 @@ implicit global trust.
 ```
 swarm.trust.orgs:
   - org_id: "org_acme"
-    pubkey: "0x..."                  # or multisig policy object
-    policy:
-      max_invocation_cost_usd: 100   # local backstop
-      allowed_realms: [w1, w2]   # if subset desired
+    pubkey: "<hex>"                  # or multisig policy object
   - org_id: "org_partner"
-    pubkey: "0x..."
-    policy:
-      max_invocation_cost_usd: 25    # smaller trust budget
+    pubkey: "<hex>"
 ```
 
 A swarm can trust:
@@ -329,19 +330,38 @@ A swarm can trust:
 - **Its own org** — the common case. The swarm runs inside an org's
   infrastructure and trusts that org's root.
 - **Other orgs** — for cross-org agent work (partner integrations,
-  service offerings). Each trusted org gets its own local policy
-  layered on top of whatever the org's user_authorization claims.
+  service offerings).
 
 This is what makes cross-swarm agent work clean. Swarm B doesn't need
 to call Hive or Org A's servers to verify an agent acting under Org
 A's authority — Swarm B verifies the signatures locally against Org
 A's registered pubkey.
 
-A swarm's local policy is a **further attenuation** at verification
-time: even if Org A's user_authorization permits $1000 invocations,
-if Swarm B's local trust policy caps Org A at $100, the invocation is
-bounded by $100 on Swarm B. The min of all caveats and policies along
-the chain wins.
+### What the trust registry does NOT carry
+
+The registry's job is exactly one thing: **"do I trust this org's
+signatures?"** It does not carry per-org budgets, realm allow-lists,
+agent allow-lists, or any other swarm-side policy on what the org's
+users can do. Those concerns belong in the macaroon itself, signed
+by the right principal:
+
+- Which realms a user is allowed in →
+  `UserAuthorization.Permissions.Realms` (org-signed).
+- Which agents a user is allowed to invoke →
+  `UserAuthorization.Permissions.Agents` (org-signed).
+- Per-invocation budget → `Invocation.MaxCostUSD` (user-signed),
+  optionally capped by `UserAuthorization.Budget` (org-signed; see
+  `phase-4-macaroon-shape.md` "Budget envelope").
+- Sub-agent narrowing → `AttenuationCaveats` (HMAC-chained).
+
+A swarm that doesn't want a trusted org's users running unbounded
+work expresses that by not trusting the org's root, not by layering
+a local cap on top. If a defense-in-depth swarm-side cap is ever
+actually needed (cross-org scenarios where Swarm B trusts Org A but
+wants its own ceiling on Org A's spend), it lands as a separate
+`swarm_limits` config block, not as a trust-registry field — see
+`phases/phase-5-trust-registry.md` "Deliberately NOT in the trust
+registry."
 
 ### Two separate auth concerns
 
@@ -367,7 +387,7 @@ authorities are independent, which is correct: the swarm decides
 
 How a swarm sources its trust registry (env-var seed, admin-API call,
 persisted state across restarts) is operator policy; see
-`phases/phase-2-trust-registry.md`.
+`phases/phase-5-trust-registry.md`.
 
 ## Revocation
 

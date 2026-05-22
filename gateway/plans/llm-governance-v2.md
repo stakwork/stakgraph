@@ -359,7 +359,7 @@ lifetime. Carries caveats the user authorized:
 
 ```
 user_id          = u_alice            ← from user_authorization, cross-checked against Customer
-realm        = w1                 ← must be in user_authorization.permissions.realm
+realm            = w1                 ← must be in user_authorization.permissions.realms (the org-signed set)
 agents           = [coder]            ← must be ⊆ user_authorization.permissions.agents
 run_id           = r_01H...
 max_cost_usd     = 5.00               ← THE per-run budget Bifrost cannot enforce

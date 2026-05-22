@@ -342,6 +342,7 @@ caveats for later links, walked transitively up to the invocation):
 
 | Field          | Rule                                                                                                                                                   |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `realm`        | **Not a caveat at the attenuation layer.** Realm is pinned by the invocation and inherited unchanged by every descendant; `AttenuationCaveats` has no `realm` field on the wire. Sub-agents always run in their root invocation's realm. |
 | `agents`       | `child.agents ⊇ parent.agents` (must include all parent entries; may add). The last entry is the most-specific agent.                                  |
 | `max_cost_usd` | `child.max_cost_usd ≤ parent.max_cost_usd`                                                                                                             |
 | `max_steps`    | `child.max_steps ≤ parent.max_steps`                                                                                                                   |
@@ -584,7 +585,7 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
                                                          → invalid_invocation_signature
 
    8. check inv caveats (intrinsic only):
-        inv.realms not in ua.permissions.realms    → invocation_violated
+        inv.realm not in ua.permissions.realms     → invocation_violated
         any inv.agents not in ua.permissions.agents       → invocation_violated
         now > inv.exp                                     → macaroon_expired
         // Per-invocation budget cap (pure signature-time check).
