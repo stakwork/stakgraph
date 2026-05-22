@@ -137,6 +137,10 @@ either rejects or branches on version.
 
 ## The `user_authorization` layer (org-signed)
 
+> Phase 11 lifted `agents` out of the `permissions` wrapper to the
+> top level, and removed `permissions.realms` entirely — multi-swarm
+> scoping now lives in `budget.realm_budgets` (see "Budget envelope").
+
 ```json
 {
   "user_id": "u_alice",
@@ -144,10 +148,7 @@ either rejects or branches on version.
     "alg": "ed25519",
     "key": "8b2…32-byte-hex…"
   },
-  "permissions": {
-    "realms": ["w1", "w2"],
-    "agents": ["coder", "browser", "repair-agent"]
-  },
+  "agents": ["coder", "browser", "repair-agent"],
   "budget": {
     "max_total_usd": 1000.0,
     "max_per_invocation_usd": 25.0
@@ -162,16 +163,16 @@ either rejects or branches on version.
 }
 ```
 
-| Field         | Type   | Notes                                                                                                                                                                         |
-| ------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `user_id`     | string | Hive's stable user identifier. Same string used as Bifrost Customer name (phase 1).                                                                                           |
-| `user_pubkey` | object | `{alg, key}`. `alg="ed25519"`, `key` = 32-byte hex (Ed25519 raw pubkey).                                                                                                      |
-| `permissions` | object | What the user is allowed to do. `realms` and `agents` are arrays of identifiers; further fields can be added at `v=1` only if backward-compatible.                            |
-| `budget`      | object | **Optional.** Org-signed spending envelope. Omit (or set fields to 0) for "no org-side cap; user's `Invocation.max_cost_usd` is the only limit." See "Budget envelope" below. |
-| `iat`         | string | RFC 3339 / ISO 8601 UTC.                                                                                                                                                      |
-| `exp`         | string | RFC 3339 / ISO 8601 UTC. Verifier rejects when `now > exp`.                                                                                                                   |
-| `nonce`       | string | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `bifrost:cost:ua:<nonce>` cumulative-spend tracking when `budget` is set.           |
-| `org_sig`     | object | See "Signature objects" below. Signs all other fields in this object.                                                                                                         |
+| Field         | Type          | Notes                                                                                                                                                                         |
+| ------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `user_id`     | string        | Hive's stable user identifier. Same string used as Bifrost Customer name (phase 1).                                                                                           |
+| `user_pubkey` | object        | `{alg, key}`. `alg="ed25519"`, `key` = 32-byte hex (Ed25519 raw pubkey).                                                                                                      |
+| `agents`      | array<string> | Agent identifiers the org grants this user. Non-empty. The invocation layer picks a subset; sub-agent attenuations extend lineage from there.                                 |
+| `budget`      | object        | **Optional.** Org-signed spending envelope. Omit (or set fields to 0) for "no org-side cap; user's `Invocation.max_cost_usd` is the only limit." See "Budget envelope" below. |
+| `iat`         | string        | RFC 3339 / ISO 8601 UTC.                                                                                                                                                      |
+| `exp`         | string        | RFC 3339 / ISO 8601 UTC. Verifier rejects when `now > exp`.                                                                                                                   |
+| `nonce`       | string        | 128-bit random, lowercase hex, 32 chars. Used for revocation **and** as the Redis key for `bifrost:cost:ua:<nonce>` cumulative-spend tracking when `budget` is set.           |
+| `org_sig`     | object        | See "Signature objects" below. Signs all other fields in this object.                                                                                                         |
 
 ### Budget envelope
 
@@ -250,9 +251,11 @@ bytes signed. See "Signing inputs" for the exact algorithm.
 
 ## The `invocation` layer (user-signed)
 
+> Phase 11 removed the singular `realm` field. Per-realm scoping
+> (when wanted) lives in the optional `budget.realm_budgets` map.
+
 ```json
 {
-  "realm": "w1",
   "agents": ["coder"],
   "run_id": "r_01H8…",
   "max_cost_usd": 5.0,
@@ -269,11 +272,11 @@ bytes signed. See "Signing inputs" for the exact algorithm.
 
 | Field          | Type          | Notes                                                                                                                                                                                                                                       |
 | -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `realm`        | string        | Workspace identifier. Verifier checks it's in `user_authorization.permissions.realms`.                                                                                                                                                      |
-| `agents`       | array<string> | Always single-element on first issuance. Sub-agents append on attenuation. The last element is the "most specific" agent (matches v2's plugin canonicalization). Verifier checks every entry is in `user_authorization.permissions.agents`. |
+| `agents`       | array<string> | Always single-element on first issuance. Sub-agents append on attenuation. The last element is the "most specific" agent (matches v2's plugin canonicalization). Verifier checks every entry is in `user_authorization.agents`.            |
 | `run_id`       | string        | Stable id for this run. Used as the cost-accumulation key in plugin Redis (`bifrost:cost:run:<run_id>`; see `phase-6-plugin-enforcement.md` "Namespace").                                                                                   |
 | `max_cost_usd` | number        | USD budget for this run. Plugin enforces via Redis accumulator.                                                                                                                                                                             |
 | `max_steps`    | int           | Step budget. Plugin enforces.                                                                                                                                                                                                               |
+| `budget`       | object        | **Optional.** Same shape as the UA's `budget`. When present, must narrow against the UA's per the phase-11 symmetric rule. Carries `realm_budgets` for cross-realm-aware sub-agents.                                                       |
 | `iat`          | string        | RFC 3339 UTC.                                                                                                                                                                                                                               |
 | `exp`          | string        | RFC 3339 UTC. Replaces v2's `max_wallclock_s` — duration caps are computed by the issuer at signing time and stamped as a concrete `exp`. The macaroon only carries the timestamp.                                                          |
 | `nonce`        | string        | 128-bit random, lowercase hex, 32 chars. Per-invocation.                                                                                                                                                                                    |
@@ -353,11 +356,11 @@ caveats for later links, walked transitively up to the invocation):
 
 | Field          | Rule                                                                                                                                                   |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `realm`        | **Not a caveat at the attenuation layer.** Realm is pinned by the invocation and inherited unchanged by every descendant; `AttenuationCaveats` has no `realm` field on the wire. Sub-agents always run in their root invocation's realm. |
 | `agents`       | `child.agents ⊇ parent.agents` (must include all parent entries; may add). The last entry is the most-specific agent.                                  |
 | `max_cost_usd` | `child.max_cost_usd ≤ parent.max_cost_usd`                                                                                                             |
 | `max_steps`    | `child.max_steps ≤ parent.max_steps`                                                                                                                   |
 | `exp`          | `child.exp ≤ parent.exp` (lexicographic on RFC 3339 UTC works)                                                                                         |
+| `budget`       | Optional. When present, narrows against the parent's `budget` per the phase-11 symmetric rule (each axis shrink-only; `realm_budgets` keys ⊆ parent's, per-realm caps shrink-only). Cross-realm sub-agents attenuate locally — no Hive round-trip. |
 | `run_id`       | Free choice — child gets its own run_id, lets the plugin accumulate cost both at the child level and (transitively, via chain walk) at every ancestor. |
 | `nonce`        | Free choice — fresh per attenuation, used for per-link revocation.                                                                                     |
 
@@ -569,7 +572,7 @@ Every other field in the layer is bound by the signature.
 | `user_id`                       | Hive's stable string                                    | Globally meaningful within Hive                   |
 | `org_id`                        | string                                                  | Globally meaningful (trust registry key)          |
 | `run_id`                        | string, recommended `r_<26-char-ulid>` or `r_<uuid-v4>` | Per agent run (each attenuation gets a fresh one) |
-| `realm`                         | string                                                  | Workspace-id, matches Bifrost Customer scoping    |
+| `realm_id` (multi-swarm only)   | string, opt-in via `budget.realm_budgets` keys          | Phase 11 swarm-self-identity (trust registry)     |
 
 Nonces are uniformly 16 random bytes hex-encoded to 32 chars, generated
 from a cryptographically secure RNG. The verifier doesn't impose any
@@ -624,13 +627,15 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
                                                          → invalid_invocation_signature
 
    8. check inv caveats (intrinsic only):
-        inv.realm not in ua.permissions.realms     → invocation_violated
-        any inv.agents not in ua.permissions.agents       → invocation_violated
+        any inv.agents not in ua.agents                   → invocation_violated
         now > inv.exp                                     → macaroon_expired
+        inv.exp > ua.exp                                  → invocation_violated
         // Per-invocation budget cap (pure signature-time check).
         if ua.budget != nil && ua.budget.max_per_invocation_usd > 0
            && inv.max_cost_usd > ua.budget.max_per_invocation_usd
                                                           → ua_per_invocation_exceeded
+        // Phase-11 symmetric narrowing on the budget block.
+        narrow_budget(ua.budget, inv.budget)              → attenuation_widened (on fail)
 
   9. walk attenuations:
        prev_sig_bytes = hex_decode(inv.user_sig.sig)
@@ -643,11 +648,14 @@ Verify(macaroon_b64url, policy, now) → (Claims, error):
          prev_sig_bytes = hex_decode(att.hmac)
          prev_caveats   = merge(prev_caveats, att.caveats)
 
-  10. return Claims {
-        org_id, user_id, realm,
+   10. return Claims {
+        org_id, user_id,
+        agent_name:        prev_caveats.agents[last],  // most-specific agent
+        run_id:            innermost_attenuation_run_id_or_invocation_run_id,
         effective_caveats: prev_caveats,    // narrowed by entire chain
         ua_nonce:          ua.nonce,        // for bifrost:cost:ua:<nonce> tracking
         ua_budget:         ua.budget,       // nil if absent
+        permitted_realms:  sorted_keys(prev_caveats.budget.realm_budgets) or nil,
         nonces: [ua.nonce, inv.nonce, att[*].caveats.nonce],
         iat:   inv.iat,
       }

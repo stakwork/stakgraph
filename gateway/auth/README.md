@@ -18,7 +18,7 @@ walks them top-down; if any layer fails, the call is rejected.
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  ORG  ──signs──▶  user_authorization                                │
-│                   { user_id, user_pubkey, permissions, exp, … }     │
+│                   { user_id, user_pubkey, agents, budget?, exp, … } │
 │                                                                      │
 │        verify:    ECDSA-secp256k1-SHA256 (or multisig m-of-n)       │
 │                   over JCS(user_authorization \ org_sig)             │
@@ -28,13 +28,13 @@ walks them top-down; if any layer fails, the call is rejected.
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  USER  ──signs──▶  invocation                                       │
-│                    { realm, agents, run_id,                     │
-│                      max_cost_usd, max_steps, exp, … }              │
+│                    { agents, run_id, max_cost_usd, max_steps,       │
+│                      budget?, exp, … }                              │
 │                                                                      │
 │        verify:    Ed25519 over JCS(invocation \ user_sig)           │
 │        against:   user_authorization.user_pubkey                     │
-│        narrow:    realm ∈ permissions.realms                 │
-│                   agents    ⊆ permissions.agents                     │
+│        narrow:    agents     ⊆ user_authorization.agents            │
+│                   budget     narrows per phase-11 symmetric rule    │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │ user_sig bytes seed the HMAC chain
                            ▼
@@ -51,20 +51,28 @@ walks them top-down; if any layer fails, the call is rejected.
 │                   max_cost   ≤ parent.max_cost                       │
 │                   max_steps  ≤ parent.max_steps                      │
 │                   exp        ≤ parent.exp                            │
+│                   budget     narrows per phase-11 symmetric rule    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 Three signature kinds, three layers of narrowing, one chain of
 authority. The org signs the user, the user signs the invocation, the
-invocation extends to sub-agents via HMAC. Spec:
-[`../plans/phases/phase-4-macaroon-shape.md`](../plans/phases/phase-4-macaroon-shape.md).
+invocation extends to sub-agents via HMAC. Every signed layer has the
+same shape (`agents` + optional `budget`), and phase 11's symmetric
+`narrow(parent, child)` rule applies at every boundary — including
+optional per-realm caps in `budget.realm_budgets` for multi-swarm
+deployments. Spec:
+[`../plans/phases/phase-4-macaroon-shape.md`](../plans/phases/phase-4-macaroon-shape.md)
++ [`../plans/phases/phase-11-symmetric-recursive-authorization.md`](../plans/phases/phase-11-symmetric-recursive-authorization.md).
 
 ## Where to start
 
-- **Spec:** `../plans/phases/phase-4-macaroon-shape.md` — the wire
-  format, signing inputs, HMAC chain definition, and verifier
-  algorithm. Read this first; nothing in `go/` or `ts/` makes sense
-  without it.
+- **Spec:** `../plans/phases/phase-4-macaroon-shape.md` (wire format,
+  signing inputs, HMAC chain, verifier algorithm) +
+  `../plans/phases/phase-11-symmetric-recursive-authorization.md`
+  (current field set: flat `agents`, optional `budget` with
+  `realm_budgets`, symmetric narrowing rule at every layer). Read
+  both first; nothing in `go/` or `ts/` makes sense without them.
 - **Context:** `../plans/cryptographic-identity.md` (why the
   three-principal model exists), `../plans/llm-governance-v2.md`
   (how the macaroon plugs into the rest of the governance stack).

@@ -124,19 +124,23 @@ walk the chain back to the org root, without callbacks:
   user_authorization: {                       ← signed by ORG ROOT
     user_id:             "u_alice",
     user_pubkey:         <Ed25519 pubkey>,
-    permissions:         { realms: […], agents: […], … },
+    agents:              ["coder", "browser", …],          ← phase-11: flat top-level
+    budget:              {                                   ← optional; phase-11 shape
+      max_per_invocation_usd: 25,
+      max_total_usd:          1000,
+      realm_budgets:          { "w1": { max_total_usd: 500 } },  ← opt-in, multi-swarm
+    },
     exp:                 <iso8601>,
     nonce:               <random>,
     org_sig:             <secp256k1 multisig over the above>,
   },
 
   invocation: {                               ← signed by USER KEY
-    realm:               "w1",                ← one of user_authorization.permissions.realms
-    agents:              ["coder"],
+    agents:              ["coder"],           ← ⊆ user_authorization.agents
     run_id:              <uuid>,
     max_cost_usd:        5.00,
     max_steps:           100,
-    max_wallclock_s:     600,
+    budget:              { … },                ← optional; narrows the UA's
     iat:                 <iso8601>,
     exp:                 <iso8601>,
     nonce:               <random>,
@@ -270,9 +274,12 @@ POST /macaroons/issue
   body:    {
     org_id:        "org_acme",
     user_id:       "u_alice",
-    realm:     "w1",
     agent:         "coder",                   ← name from the agent registry
     run_id:        "r_01H...",
+    realm_budgets?: {                          ← optional, multi-swarm only
+      "w1": { max_total_usd: 5 },
+      "w2": { max_total_usd: 2 },
+    },
     override?:     {                          ← optional caller narrowing
       max_cost_usd?:    number,
       max_steps?:       number,
@@ -286,12 +293,14 @@ POST /macaroons/issue
     1. Resolve agent defaults from the agent registry (see
        agent-registry.md). Reject if the agent is unknown or
        disabled for org_id.
-    2. Reject if `realm` is not a member of the (org, user)
-       authorization's `permissions.realms`, or if `agent` is not
-       a member of its `permissions.agents`. The verifier enforces
-       these too — issuer-side rejection is a fail-fast convenience
-       so spawners get a clear error instead of producing a macaroon
-       the plugin will reject.
+    2. Reject if `agent` is not a member of the (org, user)
+       authorization's `agents`. The verifier enforces this too —
+       issuer-side rejection is a fail-fast convenience so spawners
+       get a clear error instead of producing a macaroon the plugin
+       will reject. If `realm_budgets` is supplied, every key MUST
+       be a key in the UA's `budget.realm_budgets`, and every
+       per-realm cap MUST be ≤ the UA's (phase-11 symmetric
+       narrowing).
     3. Apply override fields as min() narrowings on the defaults;
        the issuer never widens.
     4. In phase 1 (custodial): sign user_authorization with the
@@ -355,10 +364,13 @@ agent allow-lists, or any other swarm-side policy on what the org's
 users can do. Those concerns belong in the macaroon itself, signed
 by the right principal:
 
-- Which realms a user is allowed in →
-  `UserAuthorization.Permissions.Realms` (org-signed).
 - Which agents a user is allowed to invoke →
-  `UserAuthorization.Permissions.Agents` (org-signed).
+  `UserAuthorization.Agents` (org-signed; phase 11 lifted this out
+  of the deleted `permissions` wrapper).
+- Per-swarm spend caps for multi-swarm deployments →
+  `UserAuthorization.Budget.RealmBudgets` (org-signed; phase 11,
+  opt-in). The keys of this map are the realms the macaroon
+  authorizes spend on.
 - Per-invocation budget → `Invocation.MaxCostUSD` (user-signed),
   optionally capped by `UserAuthorization.Budget` (org-signed; see
   `phase-4-macaroon-shape.md` "Budget envelope").

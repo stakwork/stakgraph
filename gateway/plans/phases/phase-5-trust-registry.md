@@ -48,14 +48,16 @@ backstop" on what the org's users can do.
 Why: the macaroon shape (`phase-4-macaroon-shape.md`) already
 encodes those concerns at the right layer:
 
-- `UserAuthorization.Permissions.Workspaces` — org grants user a set
-  of workspaces (org-signed)
-- `UserAuthorization.Permissions.Agents` — org grants user a set of
-  agents (org-signed)
+- `UserAuthorization.Agents` — org grants user a set of agents
+  (org-signed; phase 11 lifted this out of the deleted `permissions`
+  wrapper).
+- `UserAuthorization.Budget.RealmBudgets` — org-signed per-realm
+  spending caps for multi-swarm deployments (phase 11, opt-in).
 - `Invocation.MaxCostUSD` / `MaxSteps` — user picks per-invocation
-  budget (user-signed)
-- `AttenuationCaveats.MaxCostUSD` / `MaxSteps` — sub-agent narrowing
-  (HMAC-chained)
+  budget (user-signed).
+- `AttenuationCaveats.MaxCostUSD` / `MaxSteps` / `Budget` —
+  sub-agent narrowing (HMAC-chained; phase 11's symmetric rule
+  applies to every layer, including cross-realm-aware `Budget`).
 
 If a swarm operator wanted a defense-in-depth cap on a _trusted_
 org (cross-org scenario where Swarm B trusts Org A but doesn't want

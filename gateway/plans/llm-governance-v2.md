@@ -235,7 +235,6 @@ Authorization: Bearer sk-bf-<user-VK>           ← Bifrost stamps customer_id =
 x-macaroon: <invocation macaroon>               ← per-run cryptographic scope (step 8+)
 
 # Attribution dimensions → logs.metadata JSON (automatically by Bifrost)
-x-bf-dim-realm-id:  w1                      ← which workspace
 x-bf-dim-run-id:        <uuid>                  ← this invocation
 x-bf-dim-session-id:    <persistent thread id>  ← long-lived conversation grouping
 x-bf-dim-agent-name:    coder                   ← which specific agent
@@ -245,9 +244,13 @@ x-bf-dim-deployment:    sandbox-goose           ← where this call physically r
                                                     workflow-node / repo-agent / …)
 ```
 
-`realm-id` is technically redundant with "which Bifrost instance"
-(one per workspace), but stamping it explicitly makes cross-Bifrost
-aggregated queries trivial.
+> Phase 11 dropped the signature-bound `realm-id` dim. Every row in
+> a swarm's `logs.db` is by definition for that swarm's realm (its
+> `trust.realm_id`); a per-row column would be redundant with the
+> database's own identity. Cross-swarm analytics stamp the realm at
+> central-aggregator import time. Callers may still send
+> `x-bf-dim-realm-id` as an ad-hoc observability header, but the
+> plugin no longer writes it from macaroon claims.
 
 What ends up indexed in `logs` natively, free, with no plugin code:
 
@@ -264,12 +267,15 @@ What lives in `metadata` JSON (acceptable scan cost on small axes):
 
 | Field        | Used for                                                         |
 | ------------ | ---------------------------------------------------------------- |
-| `realm-id`   | Per-workspace rollups (when aggregating across Bifrosts)         |
 | `agent-name` | Per-agent rollups; cardinality ~40, scan cheap                   |
 | `category`   | Per-category rollups; cardinality ~5–8, scan trivial             |
 | `run-id`     | Drill into one run's calls                                       |
 | `session-id` | Group all calls in a chat thread                                 |
 | `deployment` | "Where did this call run" — useful for ops, not cost attribution |
+
+> Cross-swarm rollups by realm are handled by the central aggregator
+> stamping the swarm's `trust.realm_id` at import time, not by a
+> per-row column inside each swarm's `logs.db` (phase 11).
 
 ---
 
@@ -360,15 +366,20 @@ lifetime. Carries caveats the user authorized:
 
 ```
 user_id          = u_alice            ← from user_authorization, cross-checked against Customer
-realm            = w1                 ← must be in user_authorization.permissions.realms (the org-signed set)
-agents           = [coder]            ← must be ⊆ user_authorization.permissions.agents
+agents           = [coder]            ← must be ⊆ user_authorization.agents
 run_id           = r_01H...
 max_cost_usd     = 5.00               ← THE per-run budget Bifrost cannot enforce
 max_steps        = 100
+budget?          = { realm_budgets: { … } }  ← phase-11 opt-in (multi-swarm); narrows the UA's
 exp              = now + 10m          ← absolute, computed from defaults + iat at issuance
 nonce            = <random>
 user_sig         = <Ed25519 over the above>
 ```
+
+> Phase 11 removed the singular `realm` field from the invocation;
+> multi-swarm scoping (when wanted) now lives in the optional
+> `budget.realm_budgets` map carried on the UA and narrowed through
+> every layer.
 
 The full wire format including the org-signed `user_authorization`
 envelope that wraps the invocation lives in
@@ -503,10 +514,16 @@ trustworthy in `logs.db`:
 
 ```
 dims["user-id"]      = macaroon.user_id
-dims["realm-id"] = macaroon.realm
+dims["org-id"]       = macaroon.org_id
 dims["run-id"]       = macaroon.run_id
 dims["agent-name"]   = macaroon.agents[last]   ← most specific
 ```
+
+> Phase 11 dropped `realm-id` from the signature-bound dim set:
+> every row in a swarm's `logs.db` is by definition for that swarm's
+> realm (its `trust.realm_id`), and a per-row column would be
+> redundant with the database's own identity. Cross-swarm analytics
+> stamp the realm at central-aggregator import time.
 
 Caller-supplied `x-bf-dim-*` values that disagree with the macaroon
 are silently replaced. Anything the caller sent that wasn't in the
@@ -574,9 +591,9 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
    b. POST /macaroons/issue to the Hive macaroon issuer:
         { org_id:    "org_acme",
           user_id:   "u_alice",
-          realm: "w1",
           agent:     "coder",
           run_id:    "r_01H..",
+          realm_budgets?: { "w1": { max_total_usd: 5 } },  // multi-swarm opt-in
           override?: { ... optional caller narrowing ... } }
       Issuer resolves agent defaults from the agent registry,
       applies any override as min() narrowing, signs the
@@ -601,10 +618,12 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
         headers = {
           "x-macaroon":            $AGENT_MACAROON,
           "x-bf-dim-run-id":       $RUN_ID,
-          "x-bf-dim-realm-id": $WORKSPACE_ID,
           "x-bf-dim-agent-name":   $AGENT_NAME,
           "x-bf-dim-session-id":   <persistent chat id>,
           "x-bf-dim-deployment":   "sandbox-coder",
+          // No x-bf-dim-realm-id: phase 11 dropped the signature-bound
+          // realm dim; the swarm's own realm_id (trust registry) is
+          // implicit for every row in this swarm's logs.db.
         }
    b. Runs agent loop. Each model call ships with all the above.
 
@@ -641,9 +660,12 @@ End-to-end. Alice clicks "run coder on workspace w1" in the chat UI.
 9. BIFROST → built-in logging plugin:
    - Writes a logs row with cost=0.42, latency, tokens, model,
      customer_id=u_alice (indexed), virtual_key_name=u_alice,
-     metadata={"run-id":"r_01H..","realm-id":"w1",
+     metadata={"run-id":"r_01H..","org-id":"org_acme",
                "agent-name":"coder","session-id":"...",
                "deployment":"sandbox-coder"}.
+     (No "realm-id" — phase 11 dropped the per-row realm column;
+     this swarm's own realm is implicit in which logs.db this row
+     lands in.)
 
 10. RESPONSE to agent → next step in the loop.
 ```
@@ -693,7 +715,8 @@ The work for each caller:
 3. **Attach headers** to the LLM client at construction:
    - `Authorization: Bearer $BIFROST_VK` (or appropriate SDK header)
    - `x-macaroon: $AGENT_MACAROON`
-   - `x-bf-dim-*` for run/agent/realm/session/deployment
+   - `x-bf-dim-*` for run/agent/session/deployment (phase 11 dropped
+     the signature-bound `realm-id` dim)
 4. **If you spawn sub-agents:** attenuate your macaroon _locally_ before
    passing to the child process.
 
@@ -705,8 +728,10 @@ const headers = {
   "x-bf-dim-run-id": process.env.RUN_ID,
   "x-bf-dim-session-id": sessionId,
   "x-bf-dim-agent-name": process.env.AGENT_NAME,
-  "x-bf-dim-realm-id": process.env.WORKSPACE_ID,
   "x-bf-dim-deployment": "sandbox-coder",
+  // No x-bf-dim-realm-id: phase 11 dropped the signature-bound
+  // realm dim; the swarm's own realm_id (trust registry) is
+  // implicit for every row in this swarm's logs.db.
 };
 
 const anthropic = createAnthropic({
@@ -809,8 +834,10 @@ background sweep. Hive's secret store now holds VK values. Stop
 hardcoding VKs in deploy env vars; Hive injects per-spawn.
 
 **Step 4: Observability via dimensions (no plugin code).** Spawners
-ship `x-bf-dim-{run-id, realm-id, agent-name, session-id,
-deployment}` on every LLM call. Bifrost auto-stamps `customer_id` from
+ship `x-bf-dim-{run-id, agent-name, session-id, deployment}` on
+every LLM call (phase 11 dropped the signature-bound `realm-id`
+dim — each swarm's `logs.db` is implicitly for that swarm's realm).
+Bifrost auto-stamps `customer_id` from
 the VK. Verify the example SQL queries return useful org-level
 dashboards. **No plugin code change needed for this step** — the v0
 boilerplate is enough. The "spend per user" dashboard is now live.
@@ -871,7 +898,9 @@ needed.
 **Step 7.5: Ship observability endpoints.** Per
 [`phases/phase-7-observability.md`](./phases/phase-7-observability.md),
 add the read-only HTTP surface for per-dim analytics over `logs.db`:
-`/_plugin/spend/by-{user,agent,realm,session,model}`,
+`/_plugin/spend/by-{user,agent,session,model}` (phase 11 removed
+the `by-realm` rollup — cross-swarm "spend by realm" is the central
+aggregator's job, not a per-swarm endpoint),
 `/_plugin/histogram/*`, `/_plugin/sessions/:id`,
 `/_plugin/users/:id/{spend,quota}`, `/_plugin/agents/:name/spend`,
 and the drill-down `/_plugin/runs/:id`. Requires phase 6's dim
@@ -1060,7 +1089,7 @@ is still pending after N minutes; also stamps
 | Per-user daily $ backstop                 | Bifrost Customer budget ($1000/day)                                                                                                 |
 | Per-user rate limit                       | Bifrost Customer rate limit (1000 RPM, 5M TPM)                                                                                      |
 | Per-user account disable                  | `PUT /customers/<u> { is_active: false }` (Hive fans out across workspaces)                                                         |
-| Per-workspace attribution                 | One Bifrost per workspace + `x-bf-dim-realm-id` for cross-instance aggregation                                                      |
+| Per-workspace attribution                 | One Bifrost per workspace; the swarm's `trust.realm_id` (phase 11) is stamped at central-aggregator import time for cross-swarm rollups |
 | Per-agent attribution                     | `x-bf-dim-agent-name` → `logs.metadata`                                                                                             |
 | Per-category attribution                  | `x-bf-dim-category` → `logs.metadata`                                                                                               |
 | **Per-run $ budget (issuer-set)**         | **Macaroon `max_cost_usd` caveat**                                                                                                  |

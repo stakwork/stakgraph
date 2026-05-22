@@ -44,9 +44,13 @@ import {
 const uaUnsigned: UserAuthorizationUnsigned = {
   user_id: "user_123",
   user_pubkey: { alg: "ed25519", key: userPubkeyHex },
-  permissions: {
-    realms: ["workspace_acme"],
-    agents: ["browser-agent", "pr-monitor"],
+  agents: ["browser-agent", "pr-monitor"],
+  // Optional. Single-swarm deployments can omit `budget` entirely.
+  // Multi-swarm deployments can opt into per-realm caps via
+  // `budget.realm_budgets`.
+  budget: {
+    max_per_invocation_usd: 25,
+    max_total_usd: 1000,
   },
   iat: new Date().toISOString(),
   exp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
@@ -55,7 +59,6 @@ const uaUnsigned: UserAuthorizationUnsigned = {
 const ua = signUserAuthorizationSingle(uaUnsigned, orgPrivKey);
 
 const invUnsigned: InvocationUnsigned = {
-  realm: "workspace_acme",
   agents: ["browser-agent"],
   run_id: "run_abc",
   max_cost_usd: 10.0,
@@ -125,8 +128,11 @@ your environment needs.
 ## Concepts
 
 - **`user_authorization`** — signed once by the organization. Names a
-  user, embeds their public key, and lists the realms / agents they
-  may act in. ECDSA-secp256k1 single-key or multisig (`multisig-v1`).
+  user, embeds their public key, and lists the agents they may act
+  as. Optionally carries a `budget` block with per-invocation and
+  cumulative caps, plus opt-in per-realm caps (`realm_budgets`) for
+  multi-swarm deployments. ECDSA-secp256k1 single-key or multisig
+  (`multisig-v1`).
 - **`invocation`** — signed by the user (with the key embedded in the
   UA above). Names one specific run with its own budget, step ceiling,
   and expiry. Ed25519.
@@ -134,6 +140,15 @@ your environment needs.
   HMAC-SHA256 chained from the user's invocation signature, then from
   each previous attenuation's HMAC. Each link narrows the effective
   caveats; widening is rejected at verify time.
+
+Every signed layer (UA, invocation, attenuation) shares the same
+shape — a flat `agents` set plus an optional `budget` — and phase
+11's symmetric `narrow(parent, child)` rule applies at every
+boundary. See
+[`phase-11-symmetric-recursive-authorization.md`](https://github.com/stakwork/stakgraph/blob/main/gateway/plans/phases/phase-11-symmetric-recursive-authorization.md)
+for the protocol; the `agents[]` axis flips direction at the
+UA→invocation boundary (subset) versus the attenuation boundaries
+(lineage extension).
 
 The verifier returns `Claims` with the **effective caveats** — the
 intersection of the invocation and every attenuation in the chain.
@@ -163,19 +178,31 @@ base64url( JCS({
   v: 1,
   org_id: "...",
   user_authorization: {
-    user_id, user_pubkey, permissions, iat, exp, nonce,
+    user_id, user_pubkey, agents, budget?, iat, exp, nonce,
     org_sig: { alg, sig } | { alg: "multisig-v1", sigs: [...] }
   },
   invocation: {
-    realm, agents, run_id, max_cost_usd, max_steps,
+    agents, run_id, max_cost_usd, max_steps, budget?,
     iat, exp, nonce,
     user_sig: { alg: "ed25519", sig }
   },
   attenuations: [
-    { caveats: {...}, hmac: "..." },
+    { caveats: { agents, max_cost_usd, max_steps, run_id, budget?,
+                 exp, nonce },
+      hmac: "..." },
     ...
   ]
 }) )
+```
+
+`budget` is the same shape at every layer:
+
+```
+budget: {
+  max_per_invocation_usd?: number,
+  max_total_usd?:          number,
+  realm_budgets?:          { [realm_id]: { max_total_usd: number } }
+}
 ```
 
 All binary fields are lowercase hex (no `0x` prefix). All timestamps
