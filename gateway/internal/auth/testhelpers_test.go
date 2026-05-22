@@ -86,12 +86,14 @@ func newMiniRedis(t *testing.T) *miniredis.Miniredis {
 // buildMacaroon assembles a fully-signed wire-format macaroon
 // against the test keys. Knobs let each test tweak the fields it
 // cares about; everything else is fixed and minimal.
+//
+// Phase 11 changes: the UA's grant is just `agents` (no separate
+// `realms`); the invocation has no singular `realm` field; per-realm
+// scoping rides on the optional Budget.RealmBudgets map.
 type macaroonOptions struct {
 	orgID      string
 	userID     string
-	realms     []string
 	agents     []string
-	invRealm   string
 	invAgents  []string
 	runID      string
 	maxCostUSD float64
@@ -102,7 +104,8 @@ type macaroonOptions struct {
 	invIAT     time.Time
 	uaNonce    string
 	invNonce   string
-	budget     *macaroon.UserBudget
+	budget     *macaroon.Budget
+	invBudget  *macaroon.Budget
 	// signWithPriv overrides the org private key — used in tests
 	// that need to exercise the "signed by an untrusted key" path.
 	signWithOrgPriv []byte
@@ -112,9 +115,7 @@ func defaultMacaroonOptions(now time.Time) macaroonOptions {
 	return macaroonOptions{
 		orgID:      testOrgID,
 		userID:     testUserID,
-		realms:     []string{"w1"},
 		agents:     []string{"coder"},
-		invRealm:   "w1",
 		invAgents:  []string{"coder"},
 		runID:      "r_test_run_000000000000000",
 		maxCostUSD: 5.00,
@@ -139,14 +140,11 @@ func buildMacaroon(t *testing.T, opts macaroonOptions) string {
 	ua := macaroon.UserAuthorization{
 		UserID:     opts.userID,
 		UserPubkey: macaroon.PubKey{Alg: macaroon.AlgEd25519, Key: macaroon.BytesToHex(userPub)},
-		Permissions: macaroon.UserPermissions{
-			Realms: opts.realms,
-			Agents: opts.agents,
-		},
-		Budget: opts.budget,
-		IAT:    opts.uaIAT.UTC().Format(time.RFC3339),
-		Exp:    opts.uaExp.UTC().Format(time.RFC3339),
-		Nonce:  opts.uaNonce,
+		Agents:     opts.agents,
+		Budget:     opts.budget,
+		IAT:        opts.uaIAT.UTC().Format(time.RFC3339),
+		Exp:        opts.uaExp.UTC().Format(time.RFC3339),
+		Nonce:      opts.uaNonce,
 	}
 
 	signKey := opts.signWithOrgPriv
@@ -159,11 +157,11 @@ func buildMacaroon(t *testing.T, opts macaroonOptions) string {
 	}
 
 	inv := macaroon.Invocation{
-		Realm:      opts.invRealm,
 		Agents:     opts.invAgents,
 		RunID:      opts.runID,
 		MaxCostUSD: opts.maxCostUSD,
 		MaxSteps:   opts.maxSteps,
+		Budget:     opts.invBudget,
 		IAT:        opts.invIAT.UTC().Format(time.RFC3339),
 		Exp:        opts.invExp.UTC().Format(time.RFC3339),
 		Nonce:      opts.invNonce,

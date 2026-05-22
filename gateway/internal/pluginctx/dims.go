@@ -101,13 +101,19 @@ func Dims(ctx *schemas.BifrostContext) map[string]string {
 // signatureBoundDims is the set of dim keys whose values are bound
 // by macaroon caveats and therefore cryptographically authoritative.
 // Anything not in this set (session-id, deployment, custom caller
-// labels) is observability-only and passes through whatever the
-// caller stamped.
+// labels, realm-id) is observability-only and passes through
+// whatever the caller stamped.
+//
+// Phase 11 removed `realm-id` from this set: the macaroon no longer
+// carries a singular realm, and every row in a swarm's logs.db is
+// implicitly for that swarm's realm — adding a redundant column
+// would just confuse cross-swarm analytics. The DimRealmID
+// constant survives so callers can still stamp `x-bf-dim-realm-id`
+// manually for ad-hoc observability with no semantic guarantee.
 var signatureBoundDims = [...]string{
 	DimRunID,
 	DimUserID,
 	DimAgentName,
-	DimRealmID,
 	DimOrgID,
 }
 
@@ -115,7 +121,7 @@ var signatureBoundDims = [...]string{
 // local map AND Bifrost's BifrostContextKeyDimensions to match the
 // verified macaroon claims. Caller-stamped values that disagreed are
 // silently overwritten — the macaroon is the source of truth for
-// "which run, which user, which agent, which realm" by design.
+// "which run, which user, which agent" by design.
 //
 // Why we touch both maps
 // ----------------------
@@ -128,15 +134,20 @@ var signatureBoundDims = [...]string{
 //     config.json). The two stores must be kept consistent — a future
 //     reader that grabs dims from either side gets the same answer.
 //
-// Non-signature dims (session-id, deployment, ad-hoc x-bf-dim-*) are
-// preserved verbatim. Empty claim values are treated as "no narrowing
-// available" and leave the existing value untouched (defense in
-// depth against a hypothetical claims object with a blank field).
+// Non-signature dims (session-id, deployment, realm-id, ad-hoc
+// x-bf-dim-*) are preserved verbatim. Empty claim values are treated
+// as "no narrowing available" and leave the existing value untouched
+// (defense in depth against a hypothetical claims object with a
+// blank field).
+//
+// Phase 11 dropped the singular realm dim: macaroons no longer carry
+// a single realm, and every row in a swarm's logs.db is implicitly
+// for that swarm's realm.
 //
 // Idempotent: re-calling with the same claims is a no-op.
 func CanonicalizeFromClaims(
 	ctx *schemas.BifrostContext,
-	runID, userID, agentName, realmID, orgID string,
+	runID, userID, agentName, orgID string,
 ) {
 	local := Dims(ctx) // never nil
 	// Bifrost's map may not exist yet (transport hook fires before
@@ -145,7 +156,7 @@ func CanonicalizeFromClaims(
 	// our values when it eventually reads.
 	bf, _ := ctx.Value(schemas.BifrostContextKeyDimensions).(map[string]string)
 	if bf == nil {
-		bf = make(map[string]string, 5)
+		bf = make(map[string]string, 4)
 	}
 
 	overwrite := func(key, val string) {
@@ -158,7 +169,6 @@ func CanonicalizeFromClaims(
 	overwrite(DimRunID, runID)
 	overwrite(DimUserID, userID)
 	overwrite(DimAgentName, agentName)
-	overwrite(DimRealmID, realmID)
 	overwrite(DimOrgID, orgID)
 
 	ctx.SetValue(keyDimensions, local)

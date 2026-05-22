@@ -832,9 +832,15 @@ func parseBucket(w http.ResponseWriter, r *http.Request, window time.Duration) (
 }
 
 // parseDimensionParam reads ?dimension=… and enforces the set of
-// dims phase 8 supports. agent-name, run-id, session-id, realm-id
-// are metadata-backed; user-id is aliased to customer_id (see
+// dims phase 8 supports. agent-name, run-id, session-id are
+// metadata-backed; user-id is aliased to customer_id (see
 // dimensionValue).
+//
+// Phase 11 removed realm-id from the allow-list: every row in a
+// swarm's logs.db is implicitly for that swarm's realm, so adding
+// a redundant column would just confuse the dashboard. Cross-swarm
+// analytics add the realm column at import time in the central
+// aggregator.
 func parseDimensionParam(w http.ResponseWriter, r *http.Request) (string, bool) {
 	q := r.URL.Query().Get("dimension")
 	if q == "" {
@@ -842,11 +848,11 @@ func parseDimensionParam(w http.ResponseWriter, r *http.Request) (string, bool) 
 		q = "agent-name"
 	}
 	switch q {
-	case "agent-name", "run-id", "session-id", "realm-id", "user-id":
+	case "agent-name", "run-id", "session-id", "user-id":
 		return q, true
 	default:
 		writeError(w, http.StatusBadRequest, "bad_request",
-			"dimension must be one of: agent-name, run-id, session-id, realm-id, user-id")
+			"dimension must be one of: agent-name, run-id, session-id, user-id")
 		return "", false
 	}
 }
@@ -880,7 +886,7 @@ func parsePagination(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 
 // metadataFilterFromQuery is the common parser for the optional
 // `?user_id=` / `?agent_name=` / `?run_id=` / `?session_id=` /
-// `?realm_id=` / `?org_id=` query params. Each maps to the matching
+// `?org_id=` query params. Each maps to the matching
 // `metadata.<dim>` filter that Bifrost's /api/logs accepts.
 //
 // Why this exists in one place: every handler that rolls up
@@ -891,6 +897,8 @@ func parsePagination(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 // Empty values are skipped — `?user_id=` with no value doesn't add
 // a filter (so the SPA can pass `userID` directly without
 // short-circuiting on the empty string).
+//
+// Phase 11 dropped `?realm_id=` — see parseDimensionParam.
 func metadataFilterFromQuery(r *http.Request) map[string]string {
 	q := r.URL.Query()
 	out := map[string]string{}
@@ -899,7 +907,6 @@ func metadataFilterFromQuery(r *http.Request) map[string]string {
 		{"agent_name", "agent-name"},
 		{"run_id", "run-id"},
 		{"session_id", "session-id"},
-		{"realm_id", "realm-id"},
 		{"org_id", "org-id"},
 	}
 	for _, p := range pairs {

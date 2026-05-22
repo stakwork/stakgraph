@@ -19,7 +19,8 @@ export type {
   MultisigPolicy,
   Policy,
   // macaroon layers
-  UserPermissions,
+  RealmBudget,
+  Budget,
   UserBudget,
   UserAuthorizationUnsigned,
   UserAuthorization,

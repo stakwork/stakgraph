@@ -49,10 +49,16 @@ func LLMPre(
 
 	// If a macaroon verified successfully, the verified claims are
 	// now stamped on context. Make them authoritative over the
-	// caller-supplied x-bf-dim-* headers for the four signature-
-	// bound dims (run-id, user-id, agent-name, realm-id) — anything
-	// the caller stamped that disagreed is overwritten so the
-	// metadata that lands in logs.db tells the cryptographic truth.
+	// caller-supplied x-bf-dim-* headers for the three signature-
+	// bound dims (run-id, user-id, agent-name) — anything the caller
+	// stamped that disagreed is overwritten so the metadata that
+	// lands in logs.db tells the cryptographic truth.
+	//
+	// Phase 11 dropped the singular `realm` claim: a multi-realm
+	// macaroon can authorize spend on a set of realms, and every
+	// log row in this swarm's logs.db is implicitly for this
+	// swarm's realm (which is captured at the central-aggregator
+	// import level for cross-swarm analytics).
 	//
 	// REQUIRES the plugin to run at placement="pre_builtin" in
 	// config.json. The built-in logging plugin reads
@@ -72,7 +78,6 @@ func LLMPre(
 			claims.RunID,
 			claims.UserID,
 			claims.AgentName,
-			claims.Realm,
 			claims.OrgID,
 		)
 	}

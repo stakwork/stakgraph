@@ -369,6 +369,143 @@ func TestLoadFromEnv_InvalidSeedJSON_Fatal(t *testing.T) {
 	}
 }
 
+// ─── phase 11: realm_id (swarm self-identity) ────────────────────────
+
+func TestRegistry_RealmID_DefaultEmpty(t *testing.T) {
+	r := New()
+	if got := r.RealmID(); got != "" {
+		t.Fatalf("default realm_id should be empty, got %q", got)
+	}
+	if r.Status().RealmID != "" {
+		t.Fatalf("default Status.RealmID should be empty, got %q", r.Status().RealmID)
+	}
+}
+
+func TestRegistry_SetRealmID_RoundTrip(t *testing.T) {
+	r := newWithTempPath(t)
+	v, err := r.SetRealmID("w1")
+	if err != nil {
+		t.Fatalf("SetRealmID: %v", err)
+	}
+	if v != "w1" || r.RealmID() != "w1" || r.Status().RealmID != "w1" {
+		t.Fatalf("round-trip: got %q / %q / %q", v, r.RealmID(), r.Status().RealmID)
+	}
+	// Persisted to disk.
+	raw, _ := os.ReadFile(r.path)
+	var f File
+	must(t, json.Unmarshal(raw, &f))
+	if f.RealmID != "w1" {
+		t.Fatalf("persisted realm_id: %q", f.RealmID)
+	}
+}
+
+func TestRegistry_SetRealmID_TrimsAndClears(t *testing.T) {
+	r := newWithTempPath(t)
+	if _, err := r.SetRealmID("  w2  "); err != nil {
+		t.Fatalf("SetRealmID trimmable: %v", err)
+	}
+	if r.RealmID() != "w2" {
+		t.Fatalf("expected trimmed value, got %q", r.RealmID())
+	}
+	// Empty / whitespace-only clears.
+	if _, err := r.SetRealmID("   "); err != nil {
+		t.Fatalf("SetRealmID clear: %v", err)
+	}
+	if r.RealmID() != "" {
+		t.Fatalf("expected empty after clear, got %q", r.RealmID())
+	}
+}
+
+func TestRegistry_SetRealmID_RejectsBadShape(t *testing.T) {
+	r := New()
+	for _, bad := range []string{"has space", "has/slash", "has\ttab", "has\nnewline"} {
+		if _, err := r.SetRealmID(bad); err == nil {
+			t.Fatalf("expected error for realm_id=%q", bad)
+		}
+	}
+}
+
+func TestRegistry_SetRealmID_Idempotent(t *testing.T) {
+	r := newWithTempPath(t)
+	if _, err := r.SetRealmID("w1"); err != nil {
+		t.Fatalf("first set: %v", err)
+	}
+	first := r.Status().LastModified
+	if _, err := r.SetRealmID("w1"); err != nil {
+		t.Fatalf("second set: %v", err)
+	}
+	if r.Status().LastModified != first {
+		t.Fatalf("idempotent set bumped last_modified: %s -> %s",
+			first, r.Status().LastModified)
+	}
+}
+
+func TestLoadFromEnv_SeedsRealmID(t *testing.T) {
+	dir := t.TempDir()
+	seed := mustJSON(Seed{
+		RealmID: "w1",
+		Orgs:    []Org{validOrg("org_acme", testPub1)},
+	})
+	withEnv(t, map[string]string{
+		"BIFROST_PLUGIN_TRUST_PATH":      filepath.Join(dir, "trust.json"),
+		"BIFROST_PLUGIN_TRUST":           seed,
+		"BIFROST_PLUGIN_TRUST_RECONCILE": "",
+	})
+	r, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv: %v", err)
+	}
+	if r.RealmID() != "w1" {
+		t.Fatalf("seed realm_id should land in registry: got %q", r.RealmID())
+	}
+}
+
+func TestLoadFromEnv_PersistedRealmIDSurvives(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "trust.json")
+	pre := File{
+		Version: SchemaVersion, SeedSource: SeedSourceAPI,
+		LastModified: "2025-01-01T00:00:00Z",
+		RealmID:      "w-persisted",
+		Orgs:         []Org{validOrg("org_acme", testPub1)},
+	}
+	must(t, os.WriteFile(path, []byte(mustJSON(pre)), 0o644))
+	withEnv(t, map[string]string{
+		"BIFROST_PLUGIN_TRUST_PATH": path,
+	})
+	r, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv: %v", err)
+	}
+	if r.RealmID() != "w-persisted" {
+		t.Fatalf("persisted realm_id not loaded: got %q", r.RealmID())
+	}
+}
+
+func TestLoadFromEnv_RealmIDMismatchTriggersReconcile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "trust.json")
+	org := validOrg("org_acme", testPub1)
+	pre := File{
+		Version: SchemaVersion, SeedSource: SeedSourceAPI,
+		LastModified: "2025-01-01T00:00:00Z",
+		RealmID:      "w-old",
+		Orgs:         []Org{org},
+	}
+	must(t, os.WriteFile(path, []byte(mustJSON(pre)), 0o644))
+
+	// Same orgs but realm_id differs → mismatch under refuse mode.
+	seed := mustJSON(Seed{RealmID: "w-new", Orgs: []Org{org}})
+	withEnv(t, map[string]string{
+		"BIFROST_PLUGIN_TRUST_PATH":      path,
+		"BIFROST_PLUGIN_TRUST":           seed,
+		"BIFROST_PLUGIN_TRUST_RECONCILE": "refuse",
+	})
+	if _, err := LoadFromEnv(); err != ErrReconcileRefused {
+		t.Fatalf("want ErrReconcileRefused for realm_id mismatch, got %v", err)
+	}
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────
 
 // newWithTempPath builds a *Registry that persists to a temp file.

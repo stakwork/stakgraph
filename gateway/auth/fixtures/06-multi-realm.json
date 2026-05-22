@@ -1,0 +1,121 @@
+{
+  "description": "multi-realm UA + invocation: org grants per-realm caps {w1:$500, w2:$200}, invocation narrows to {w1:$5, w2:$2}; no attenuations",
+  "inputs": {
+    "org_id": "org_acme",
+    "org_priv_hex": "0000000000000000000000000000000000000000000000000000000000000001",
+    "user_priv_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+    "policy": {
+      "type": "single",
+      "key": {
+        "alg": "ecdsa-secp256k1-sha256",
+        "key": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      }
+    },
+    "ua_unsigned": {
+      "user_id": "u_alice",
+      "user_pubkey": {
+        "alg": "ed25519",
+        "key": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+      },
+      "agents": [
+        "coder",
+        "browser",
+        "web-search",
+        "repair-agent"
+      ],
+      "iat": "2026-05-14T09:00:00Z",
+      "exp": "2026-06-14T09:00:00Z",
+      "nonce": "f06e1d2c3b4a5968778899aabbccddee",
+      "budget": {
+        "max_total_usd": 1000,
+        "max_per_invocation_usd": 25,
+        "realm_budgets": {
+          "w1": {
+            "max_total_usd": 500
+          },
+          "w2": {
+            "max_total_usd": 200
+          }
+        }
+      }
+    },
+    "inv_unsigned": {
+      "agents": [
+        "coder"
+      ],
+      "run_id": "r_01h8multirealmrun000000000",
+      "max_cost_usd": 5,
+      "max_steps": 100,
+      "iat": "2026-05-14T10:00:00Z",
+      "exp": "2026-05-14T10:10:00Z",
+      "nonce": "f16e1d2c3b4a5968778899aabbccddee",
+      "budget": {
+        "realm_budgets": {
+          "w1": {
+            "max_total_usd": 5
+          },
+          "w2": {
+            "max_total_usd": 2
+          }
+        }
+      }
+    },
+    "atts_unsigned": []
+  },
+  "expected": {
+    "ua_signing_bytes_hex": "7b226167656e7473223a5b22636f646572222c2262726f77736572222c227765622d736561726368222c227265706169722d6167656e74225d2c22627564676574223a7b226d61785f7065725f696e766f636174696f6e5f757364223a32352c226d61785f746f74616c5f757364223a313030302c227265616c6d5f62756467657473223a7b227731223a7b226d61785f746f74616c5f757364223a3530307d2c227732223a7b226d61785f746f74616c5f757364223a3230307d7d7d2c22657870223a22323032362d30362d31345430393a30303a30305a222c22696174223a22323032362d30352d31345430393a30303a30305a222c226e6f6e6365223a226630366531643263336234613539363837373838393961616262636364646565222c22757365725f6964223a22755f616c696365222c22757365725f7075626b6579223a7b22616c67223a2265643235353139222c226b6579223a2264303461623233323734326262346162336131333638626434363135653465366430323234616237316130313662616638353230613333326339373738373337227d7d",
+    "inv_signing_bytes_hex": "7b226167656e7473223a5b22636f646572225d2c22627564676574223a7b227265616c6d5f62756467657473223a7b227731223a7b226d61785f746f74616c5f757364223a357d2c227732223a7b226d61785f746f74616c5f757364223a327d7d7d2c22657870223a22323032362d30352d31345431303a31303a30305a222c22696174223a22323032362d30352d31345431303a30303a30305a222c226d61785f636f73745f757364223a352c226d61785f7374657073223a3130302c226e6f6e6365223a226631366531643263336234613539363837373838393961616262636364646565222c2272756e5f6964223a22725f303168386d756c74697265616c6d72756e303030303030303030227d",
+    "ua_canonical_json": "{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"budget\":{\"max_per_invocation_usd\":25,\"max_total_usd\":1000,\"realm_budgets\":{\"w1\":{\"max_total_usd\":500},\"w2\":{\"max_total_usd\":200}}},\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"f06e1d2c3b4a5968778899aabbccddee\",\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}}",
+    "inv_canonical_json": "{\"agents\":[\"coder\"],\"budget\":{\"realm_budgets\":{\"w1\":{\"max_total_usd\":5},\"w2\":{\"max_total_usd\":2}}},\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"f16e1d2c3b4a5968778899aabbccddee\",\"run_id\":\"r_01h8multirealmrun000000000\"}",
+    "macaroon_canonical_json": "{\"attenuations\":[],\"invocation\":{\"agents\":[\"coder\"],\"budget\":{\"realm_budgets\":{\"w1\":{\"max_total_usd\":5},\"w2\":{\"max_total_usd\":2}}},\"exp\":\"2026-05-14T10:10:00Z\",\"iat\":\"2026-05-14T10:00:00Z\",\"max_cost_usd\":5,\"max_steps\":100,\"nonce\":\"f16e1d2c3b4a5968778899aabbccddee\",\"run_id\":\"r_01h8multirealmrun000000000\",\"user_sig\":{\"alg\":\"ed25519\",\"sig\":\"9e4cec9fbc3dde2a432f47b22135070b7d1b6dc253cbf74f03f1b06e6cb7a353058c6a6c85c4dc011ece4fee9f77970d99b6cd4cb3a515e06ef9009849062c0f\"}},\"org_id\":\"org_acme\",\"user_authorization\":{\"agents\":[\"coder\",\"browser\",\"web-search\",\"repair-agent\"],\"budget\":{\"max_per_invocation_usd\":25,\"max_total_usd\":1000,\"realm_budgets\":{\"w1\":{\"max_total_usd\":500},\"w2\":{\"max_total_usd\":200}}},\"exp\":\"2026-06-14T09:00:00Z\",\"iat\":\"2026-05-14T09:00:00Z\",\"nonce\":\"f06e1d2c3b4a5968778899aabbccddee\",\"org_sig\":{\"alg\":\"ecdsa-secp256k1-sha256\",\"sig\":\"9fb3898276eebdc3e622d532aff6a2c33ba82b9fa137b3e770253c550863ac2f2828fb165c87b7c51f810b95430133025902fb1cabea1f6158700931b00f9f91\"},\"user_id\":\"u_alice\",\"user_pubkey\":{\"alg\":\"ed25519\",\"key\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\"}},\"v\":1}",
+    "macaroon_b64url": "eyJhdHRlbnVhdGlvbnMiOltdLCJpbnZvY2F0aW9uIjp7ImFnZW50cyI6WyJjb2RlciJdLCJidWRnZXQiOnsicmVhbG1fYnVkZ2V0cyI6eyJ3MSI6eyJtYXhfdG90YWxfdXNkIjo1fSwidzIiOnsibWF4X3RvdGFsX3VzZCI6Mn19fSwiZXhwIjoiMjAyNi0wNS0xNFQxMDoxMDowMFoiLCJpYXQiOiIyMDI2LTA1LTE0VDEwOjAwOjAwWiIsIm1heF9jb3N0X3VzZCI6NSwibWF4X3N0ZXBzIjoxMDAsIm5vbmNlIjoiZjE2ZTFkMmMzYjRhNTk2ODc3ODg5OWFhYmJjY2RkZWUiLCJydW5faWQiOiJyXzAxaDhtdWx0aXJlYWxtcnVuMDAwMDAwMDAwIiwidXNlcl9zaWciOnsiYWxnIjoiZWQyNTUxOSIsInNpZyI6IjllNGNlYzlmYmMzZGRlMmE0MzJmNDdiMjIxMzUwNzBiN2QxYjZkYzI1M2NiZjc0ZjAzZjFiMDZlNmNiN2EzNTMwNThjNmE2Yzg1YzRkYzAxMWVjZTRmZWU5Zjc3OTcwZDk5YjZjZDRjYjNhNTE1ZTA2ZWY5MDA5ODQ5MDYyYzBmIn19LCJvcmdfaWQiOiJvcmdfYWNtZSIsInVzZXJfYXV0aG9yaXphdGlvbiI6eyJhZ2VudHMiOlsiY29kZXIiLCJicm93c2VyIiwid2ViLXNlYXJjaCIsInJlcGFpci1hZ2VudCJdLCJidWRnZXQiOnsibWF4X3Blcl9pbnZvY2F0aW9uX3VzZCI6MjUsIm1heF90b3RhbF91c2QiOjEwMDAsInJlYWxtX2J1ZGdldHMiOnsidzEiOnsibWF4X3RvdGFsX3VzZCI6NTAwfSwidzIiOnsibWF4X3RvdGFsX3VzZCI6MjAwfX19LCJleHAiOiIyMDI2LTA2LTE0VDA5OjAwOjAwWiIsImlhdCI6IjIwMjYtMDUtMTRUMDk6MDA6MDBaIiwibm9uY2UiOiJmMDZlMWQyYzNiNGE1OTY4Nzc4ODk5YWFiYmNjZGRlZSIsIm9yZ19zaWciOnsiYWxnIjoiZWNkc2Etc2VjcDI1NmsxLXNoYTI1NiIsInNpZyI6IjlmYjM4OTgyNzZlZWJkYzNlNjIyZDUzMmFmZjZhMmMzM2JhODJiOWZhMTM3YjNlNzcwMjUzYzU1MDg2M2FjMmYyODI4ZmIxNjVjODdiN2M1MWY4MTBiOTU0MzAxMzMwMjU5MDJmYjFjYWJlYTFmNjE1ODcwMDkzMWIwMGY5ZjkxIn0sInVzZXJfaWQiOiJ1X2FsaWNlIiwidXNlcl9wdWJrZXkiOnsiYWxnIjoiZWQyNTUxOSIsImtleSI6ImQwNGFiMjMyNzQyYmI0YWIzYTEzNjhiZDQ2MTVlNGU2ZDAyMjRhYjcxYTAxNmJhZjg1MjBhMzMyYzk3Nzg3MzcifX0sInYiOjF9",
+    "attenuation_hmac_inputs": [],
+    "claims": {
+      "org_id": "org_acme",
+      "user_id": "u_alice",
+      "agent_name": "coder",
+      "run_id": "r_01h8multirealmrun000000000",
+      "effective_caveats": {
+        "agents": [
+          "coder"
+        ],
+        "max_cost_usd": 5,
+        "max_steps": 100,
+        "budget": {
+          "realm_budgets": {
+            "w1": {
+              "max_total_usd": 5
+            },
+            "w2": {
+              "max_total_usd": 2
+            }
+          }
+        },
+        "exp": "2026-05-14T10:10:00Z"
+      },
+      "ua_nonce": "f06e1d2c3b4a5968778899aabbccddee",
+      "ua_budget": {
+        "max_total_usd": 1000,
+        "max_per_invocation_usd": 25,
+        "realm_budgets": {
+          "w1": {
+            "max_total_usd": 500
+          },
+          "w2": {
+            "max_total_usd": 200
+          }
+        }
+      },
+      "permitted_realms": [
+        "w1",
+        "w2"
+      ],
+      "nonces": [
+        "f06e1d2c3b4a5968778899aabbccddee",
+        "f16e1d2c3b4a5968778899aabbccddee"
+      ],
+      "iat": "2026-05-14T10:00:00Z"
+    },
+    "verify_result": "ok"
+  }
+}

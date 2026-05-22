@@ -1,5 +1,13 @@
 # Phase 5 — Trust Registry: Sourcing and Admin Surface
 
+> **Status (phase 11 cutover):** the on-disk file and the org-list
+> admin surface described here are unchanged. Phase 11
+> (`phase-11-symmetric-recursive-authorization.md`) adds one
+> optional top-level field — `realm_id` — to the persisted file and
+> the env seed, and one new admin endpoint, `PUT /_plugin/trust/realm_id`,
+> for setting the swarm's own identity. Single-swarm deployments
+> omit it entirely. The current implementation matches phase 11.
+>
 > Concrete shape for how a Bifrost+plugin instance learns which orgs
 > it trusts. Companion to `cryptographic-identity.md` ("Trust
 > registration") and `phases/phase-1-reconciler.md` (which assumes a

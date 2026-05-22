@@ -1,5 +1,16 @@
 # Phase 4 — Macaroon Shape: Wire Format, Encoding, Verification
 
+> **Status (phase 11 cutover):** the wire shape described here is
+> the phase-4 baseline. Phase 11 (`phase-11-symmetric-recursive-authorization.md`)
+> refines it: the `permissions` wrapper is gone (UA carries flat
+> `agents[]`); `Invocation` and `AttenuationCaveats` no longer carry
+> a singular `realm`; `UserBudget` is renamed `Budget` and grows a
+> `realm_budgets` map; the symmetric narrowing rule applies at
+> every parent→child layer boundary. The current implementation
+> matches phase 11. Read this doc for the *protocol shape*
+> (signing inputs, JCS, HMAC chain, base64url transport), and
+> phase 11 for the *current field set and narrowing rules*.
+>
 > Concrete cryptographic spec for the three-layer macaroon described
 > abstractly in `cryptographic-identity.md`. Pins down byte-level
 > encoding, signing inputs, the HMAC chain definition, and the
@@ -355,6 +366,34 @@ identity is appended to the list, not replacing the parent's. The
 last element wins as the "agent-name" dimension for billing. This
 matches v2's existing plugin canonicalization (line 507:
 `dims["agent-name"] = macaroon.agents[last]`).
+
+**On the `agents` axis as provenance, not permission.** Below the
+invocation, `agents[]` is a lineage claim by the spawning agent, not
+a permission grant. A parent agent's process can attenuate with any
+child name it wants — including a name that was not in
+`UserAuthorization.Agents`. The UA's `agents` set is consulted **only**
+at the UA → invocation boundary, where it bounds what the human's
+hot key can launch as a root run. After that, the HMAC chain key
+(the parent's signature bytes) is what gates who can mint a child;
+the string in `agents[]` is a label the parent chose, recorded for
+billing and audit.
+
+This is deliberate. The macaroon's job is to bound **spend, time,
+and realm**, and to make spawning agents accountable by binding
+their names into the signed provenance chain. What a sub-agent can
+actually *do* — which tools it can call, which MCP servers it can
+reach, which network endpoints are open to it — is gated at the
+tool/capability layer, not at the macaroon layer. A compromised
+parent agent at runtime can already exercise the full tool surface
+it was granted; restricting child names wouldn't expand or contract
+that surface, only the post-incident audit trail.
+
+If a deployment needs agent-name allow-listing as defense-in-depth
+(e.g. "only registered agent names can appear as the leaf"), that's
+a runtime policy concern enforced by the plugin or agent registry
+after verify succeeds, not a macaroon-shape concern. The wire format
+already carries enough information (`claims.AgentName`) for such a
+check to be added without protocol changes.
 
 Any other field present in a child's `caveats` that wasn't present in
 the parent is permitted only if it strictly narrows (in the

@@ -38,6 +38,12 @@ type Registry struct {
 	// here (not derived from time.Now on read) so /status reflects
 	// the actual last write, even after a reload from disk.
 	lastModified string
+
+	// realmID is the swarm's own identity (phase 11). Empty for
+	// single-swarm deployments. The hot-path adapter reads this
+	// via the RealmID() accessor to drive the per-realm membership
+	// check against verified macaroon claims.
+	realmID string
 }
 
 // New constructs an empty in-memory registry. Useful for tests and
@@ -78,7 +84,47 @@ func (r *Registry) Status() StatusResponse {
 		Orgs:         ids,
 		SeedSource:   r.seedSource,
 		LastModified: r.lastModified,
+		RealmID:      r.realmID,
 	}
+}
+
+// RealmID returns the swarm's own realm identity, or "" when none is
+// configured (single-swarm deployment). Hot-path safe: just a
+// read-locked accessor.
+//
+// The adapter uses this to drive the phase-11 realm-membership
+// check against verified macaroon claims. Empty string is a
+// meaningful value (no per-realm scoping) — callers should not
+// substitute defaults.
+func (r *Registry) RealmID() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.realmID
+}
+
+// SetRealmID updates the swarm's own realm identity and persists.
+// Trimmed/validated via validateRealmID; passing "" clears the
+// identity (back to single-swarm mode). Returns ErrInvalidRealmID
+// on whitespace / slashes.
+//
+// Idempotent: setting the same value as currently stored skips the
+// disk write (preserves LastModified).
+func (r *Registry) SetRealmID(realmID string) (string, error) {
+	v, err := validateRealmID(realmID)
+	if err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.realmID == v {
+		return v, nil // idempotent no-op
+	}
+	r.realmID = v
+	r.lastModified = nowRFC3339()
+	if err := r.persistLocked(); err != nil {
+		return "", err
+	}
+	return v, nil
 }
 
 // Upsert validates `o`, inserts or replaces the entry, and persists
@@ -194,6 +240,7 @@ func (r *Registry) snapshot() File {
 		Version:      SchemaVersion,
 		SeedSource:   r.seedSource,
 		LastModified: r.lastModified,
+		RealmID:      r.realmID,
 		Orgs:         orgs,
 	}
 }

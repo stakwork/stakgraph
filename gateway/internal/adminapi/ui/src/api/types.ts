@@ -285,6 +285,20 @@ export interface TrustOrg {
   grace_until?: string;
 }
 
+// Trust-registry status — mirrors gateway/internal/trust.StatusResponse.
+// The Provenance card on RunDetail uses `realm_id` to show the
+// swarm's self-identity ("this run was processed by swarm w1"),
+// since phase 11 dropped the per-row realm-id metadata column.
+export interface TrustStatus {
+  claimed: boolean;
+  org_count: number;
+  orgs: string[];
+  seed_source: "" | "env" | "api";
+  last_modified: string;
+  /** Set on multi-swarm deployments; absent / empty on single-swarm. */
+  realm_id?: string;
+}
+
 // Per-agent budget (phase-8.5). Cap and the derived fields can be
 // null when no budget is configured for the agent — the UI renders
 // "no budget" rather than "$0".
@@ -315,10 +329,12 @@ export type Window = "1h" | "6h" | "24h" | "7d" | "30d";
 // note as Window.
 export type Bucket = "1m" | "5m" | "10m" | "1h" | "6h" | "1d";
 
-// Dimension values the histogram endpoint accepts.
+// Dimension values the histogram endpoint accepts. Phase 11 removed
+// `realm-id` — every row in a swarm's logs.db is implicitly for
+// that swarm's realm, and the realm is surfaced on the trust-status
+// card instead of as a per-row column.
 export type Dimension =
   | "agent-name"
   | "run-id"
   | "session-id"
-  | "realm-id"
   | "user-id";

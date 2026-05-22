@@ -191,7 +191,19 @@ The map itself is the set of permitted realms; there's no separate
 For every parent → child boundary (org → UA, UA → invocation,
 invocation → attenuation, attenuation → attenuation):
 
-1. `child.agents ⊆ parent.agents` (non-empty).
+1. **`agents` — direction depends on the layer.**
+   - **UA → invocation:** `child.agents ⊆ parent.agents` (the human's
+     invocation picks a subset of the org-granted set; non-empty).
+   - **invocation → attenuation, attenuation → attenuation:**
+     `child.agents ⊇ parent.agents` (lineage extension; the child
+     must preserve every ancestor entry and may append its own
+     identity at the tail). The last entry is the most-specific
+     agent (used as the billing dim).
+
+   This is the one axis whose direction flips. Below the invocation,
+   `agents[]` is a provenance chain, not a permission set — see
+   phase 4 §"Caveat narrowing rules" for the rationale.
+
 2. `child.budget.max_per_invocation_usd ≤ parent.budget.max_per_invocation_usd`
    (if parent set it).
 3. `child.budget.max_total_usd ≤ parent.budget.max_total_usd`
@@ -207,7 +219,9 @@ invocation → attenuation, attenuation → attenuation):
 7. Signature (or HMAC) verifies.
 
 One function: `narrow(parent, child) -> effective | err`. Called
-in a loop down the chain from UA to leaf.
+in a loop down the chain from UA to leaf. The function takes the
+layer kind as an argument so rule 1 can dispatch on direction; every
+other rule is uniform.
 
 ### Mixed mode
 

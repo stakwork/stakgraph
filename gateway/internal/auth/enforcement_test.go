@@ -7,6 +7,7 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
+	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
 )
 
@@ -225,6 +226,106 @@ func TestApplyToLLMPre_EnforceMode_RedisDownFailsClosed(t *testing.T) {
 	if sc.Error.Error == nil || sc.Error.Error.Code == nil ||
 		*sc.Error.Error.Code != "revocation_check_unavailable" {
 		t.Fatalf("want revocation_check_unavailable, got %+v", sc.Error)
+	}
+}
+
+// ─── phase 11: realm-membership check ────────────────────────────────
+
+// realmOpts produces macaroonOptions whose UA carries a
+// realm_budgets map covering the supplied realms. The invocation
+// inherits the same set (no narrowing), so claims.PermittedRealms
+// equals `realms`.
+func realmOpts(now time.Time, realms ...string) macaroonOptions {
+	opts := defaultMacaroonOptions(now)
+	rb := map[string]macaroon.RealmBudget{}
+	for _, r := range realms {
+		rb[r] = macaroon.RealmBudget{MaxTotalUSD: 100}
+	}
+	opts.budget = &macaroon.Budget{RealmBudgets: rb}
+	return opts
+}
+
+func TestEvaluate_SimpleDeployment_NoRealmsAnywhere(t *testing.T) {
+	// Both swarm and macaroon are realm-naive → no membership check.
+	reg := newTestRegistry(t)
+	SetTrustRegistry(reg)
+	t.Cleanup(func() { SetTrustRegistry(nil) })
+	_ = newMiniRedis(t)
+
+	encoded := buildMacaroon(t, defaultMacaroonOptions(time.Now()))
+	d := Evaluate(context.Background(), encoded)
+	if d.Err != nil {
+		t.Fatalf("simple deployment should pass: %+v", d.Err)
+	}
+}
+
+func TestEvaluate_MultiRealmSwarmAndMacaroon_Permitted(t *testing.T) {
+	reg := newTestRegistry(t)
+	if _, err := reg.SetRealmID("w1"); err != nil {
+		t.Fatalf("set realm_id: %v", err)
+	}
+	SetTrustRegistry(reg)
+	t.Cleanup(func() { SetTrustRegistry(nil) })
+	_ = newMiniRedis(t)
+
+	encoded := buildMacaroon(t, realmOpts(time.Now(), "w1", "w2"))
+	d := Evaluate(context.Background(), encoded)
+	if d.Err != nil {
+		t.Fatalf("permitted realm should pass: %+v", d.Err)
+	}
+	if d.Claims == nil || len(d.Claims.PermittedRealms) != 2 {
+		t.Fatalf("permitted_realms not surfaced: %+v", d.Claims)
+	}
+}
+
+func TestEvaluate_MultiRealmSwarmAndMacaroon_NotPermitted(t *testing.T) {
+	reg := newTestRegistry(t)
+	if _, err := reg.SetRealmID("w3"); err != nil {
+		t.Fatalf("set realm_id: %v", err)
+	}
+	SetTrustRegistry(reg)
+	t.Cleanup(func() { SetTrustRegistry(nil) })
+	_ = newMiniRedis(t)
+
+	// macaroon authorizes w1+w2 only; swarm claims w3 → reject.
+	encoded := buildMacaroon(t, realmOpts(time.Now(), "w1", "w2"))
+	d := Evaluate(context.Background(), encoded)
+	if d.Err == nil || d.Err.Code != "realm_not_permitted" {
+		t.Fatalf("want realm_not_permitted, got %+v", d.Err)
+	}
+}
+
+func TestEvaluate_SwarmIDOnly_NoMacaroonRealms_Accepts(t *testing.T) {
+	// Case 3 from the phase doc: swarm has realm_id but the
+	// macaroon didn't scope per-realm — accept and rely on the
+	// non-realm caps.
+	reg := newTestRegistry(t)
+	if _, err := reg.SetRealmID("w1"); err != nil {
+		t.Fatalf("set realm_id: %v", err)
+	}
+	SetTrustRegistry(reg)
+	t.Cleanup(func() { SetTrustRegistry(nil) })
+	_ = newMiniRedis(t)
+
+	encoded := buildMacaroon(t, defaultMacaroonOptions(time.Now()))
+	d := Evaluate(context.Background(), encoded)
+	if d.Err != nil {
+		t.Fatalf("non-realm macaroon on multi-realm swarm should pass: %+v", d.Err)
+	}
+}
+
+func TestEvaluate_MacaroonRealmsOnly_NoSwarmID_Misconfigured(t *testing.T) {
+	// Case 4: multi-realm macaroon, swarm has no identity to match
+	// against — treat as a configuration error.
+	reg := newTestRegistry(t)
+	SetTrustRegistry(reg)
+	t.Cleanup(func() { SetTrustRegistry(nil) })
+	_ = newMiniRedis(t)
+
+	encoded := buildMacaroon(t, realmOpts(time.Now(), "w1", "w2"))
+	d := Evaluate(context.Background(), encoded)
+	if d.Err == nil || d.Err.Code != "realm_not_configured" {
+		t.Fatalf("want realm_not_configured, got %+v", d.Err)
 	}
 }
 

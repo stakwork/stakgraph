@@ -73,30 +73,58 @@ type Org struct {
 
 // File is the on-disk shape — Org list plus bookkeeping. We persist
 // this verbatim with atomic write-temp-fsync-rename.
+//
+// RealmID is the swarm's own identity, added in phase 11. Optional
+// (empty for single-swarm deployments). When set, the plugin's
+// realm-membership check asserts macaroons with realm_budgets list
+// this swarm's RealmID as a permitted realm. See
+// gateway/plans/phases/phase-11-symmetric-recursive-authorization.md
+// for the multi-swarm model.
 type File struct {
 	Version      int        `json:"version"`
 	SeedSource   SeedSource `json:"seed_source"`
 	LastModified string     `json:"last_modified"`
+	RealmID      string     `json:"realm_id,omitempty"`
 	Orgs         []Org      `json:"orgs"`
 }
 
-// Seed is the env-supplied JSON shape — just the org list, no
-// bookkeeping. Used for both BIFROST_PLUGIN_TRUST (inline) and
-// BIFROST_PLUGIN_TRUST_FILE (path → JSON).
+// Seed is the env-supplied JSON shape — just the org list and the
+// optional swarm self-identity, no bookkeeping. Used for both
+// BIFROST_PLUGIN_TRUST (inline) and BIFROST_PLUGIN_TRUST_FILE
+// (path → JSON).
 type Seed struct {
-	Orgs []Org `json:"orgs"`
+	RealmID string `json:"realm_id,omitempty"`
+	Orgs    []Org  `json:"orgs"`
 }
 
 // StatusResponse is the body of GET /_plugin/trust/status. Defined
 // here (not in adminapi) so the admin layer is a thin shell — the
 // Registry produces this struct and the handler just JSON-encodes
 // it.
+//
+// RealmID is included so operators and the dashboard's Provenance
+// card can show the swarm's own identity. omitempty hides the field
+// from single-swarm deployments that never set it.
 type StatusResponse struct {
 	Claimed      bool       `json:"claimed"`
 	OrgCount     int        `json:"org_count"`
 	Orgs         []string   `json:"orgs"`
 	SeedSource   SeedSource `json:"seed_source"`
 	LastModified string     `json:"last_modified"`
+	RealmID      string     `json:"realm_id,omitempty"`
+}
+
+// RealmIDRequest is the body of PUT /_plugin/trust/realm_id.
+// Sending an empty string clears the swarm's self-identity (back
+// to single-swarm mode).
+type RealmIDRequest struct {
+	RealmID string `json:"realm_id"`
+}
+
+// RealmIDResponse mirrors the other admin handlers' shape.
+type RealmIDResponse struct {
+	OK      bool   `json:"ok"`
+	RealmID string `json:"realm_id"`
 }
 
 // RotateRequest is the body of POST /_plugin/trust/:org_id/rotate.
@@ -198,3 +226,28 @@ func decodePubkey(s string) ([]byte, error) {
 // LastModified / GraceUntil. Centralised so changing the precision
 // (e.g. to RFC3339Nano) is a one-line edit.
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// ErrInvalidRealmID is returned by validateRealmID when the supplied
+// realm-id has whitespace, slashes, or other characters that would
+// confuse downstream consumers (e.g. Redis key suffixes, URLs).
+var ErrInvalidRealmID = errors.New("invalid realm_id")
+
+// validateRealmID enforces the same id-shape rules as Org.OrgID:
+// non-empty when set, no whitespace, no slashes. Empty string is
+// allowed and means "single-swarm deployment, no self-identity".
+//
+// Returns the trimmed value. The Registry uses the returned string
+// rather than the input so an operator sending " w1 " ends up with
+// "w1" on disk.
+func validateRealmID(s string) (string, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		// Empty is a valid state: it clears the swarm's identity.
+		// Surface it as "" so callers don't need to nil-check.
+		return "", nil
+	}
+	if strings.ContainsAny(trimmed, " \t\r\n/") {
+		return "", fmt.Errorf("%w: contains whitespace or slash", ErrInvalidRealmID)
+	}
+	return trimmed, nil
+}

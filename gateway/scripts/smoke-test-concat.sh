@@ -115,7 +115,8 @@ new_run_id() {
 # mint_macaroon <run_id>
 #
 # Same shape as the enforcement smoke. Outputs the base64url macaroon
-# on stdout.
+# on stdout. Phase 11: no `--realm` flag — single-swarm shape is the
+# default and matches what this concat-transport test needs.
 mint_macaroon() {
   local run_id="$1"
   (
@@ -123,7 +124,6 @@ mint_macaroon() {
     "$TSX" "$SCRIPT_DIR/mint-macaroon.ts" \
       --org-id "$ORG_ID" \
       --user-id u_alice \
-      --realm w1 \
       --agent coder \
       --run-id "$run_id" \
       --max-cost-usd 1.00 \
@@ -164,16 +164,16 @@ call_llm_concat() {
 # fetch_logs_row <run_id>
 #
 # Same query as smoke-test-enforcement.sh: pipe-delimited
-# run-id|user-id|agent-name|realm-id from logs.metadata. Empty on
-# no-match.
+# run-id|user-id|agent-name from logs.metadata. Empty on no-match.
+# Phase 11 dropped realm-id from the row format (no longer
+# signature-bound).
 fetch_logs_row() {
   local run_id="$1"
   docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \
     sh -c "apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \
       \"SELECT json_extract(metadata,'\$.run-id') || '|' ||
               COALESCE(json_extract(metadata,'\$.user-id'),'') || '|' ||
-              COALESCE(json_extract(metadata,'\$.agent-name'),'') || '|' ||
-              COALESCE(json_extract(metadata,'\$.realm-id'),'')
+              COALESCE(json_extract(metadata,'\$.agent-name'),'')
        FROM logs WHERE json_extract(metadata,'\$.run-id')='$run_id' LIMIT 1;\"" \
     2>/dev/null
 }
@@ -373,7 +373,7 @@ for label in "Authorization:$AUTH_RUN_ID" \
   name="${label%%:*}"
   rid="${label#*:}"
   row=$(fetch_logs_row "$rid")
-  expect_eq "logs row [$name]" "$rid|u_alice|coder|w1" "$row"
+  expect_eq "logs row [$name]" "$rid|u_alice|coder" "$row"
 done
 
 # --- summary ---------------------------------------------------------------

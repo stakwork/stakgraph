@@ -72,18 +72,28 @@ func LoadFromEnv() (*Registry, error) {
 			return nil, fmt.Errorf("trust: env seed orgs[%d]: %w", i, err)
 		}
 	}
+	// Validate the seed's optional realm_id the same way. Empty is
+	// fine; whitespace / slashes are rejected up front so a
+	// "refuse" deployment fails fast rather than at first request.
+	seedRealmID, err := validateRealmID(seed.RealmID)
+	if err != nil {
+		return nil, fmt.Errorf("trust: env seed realm_id: %w", err)
+	}
+	seed.RealmID = seedRealmID
 
 	if !hadPersisted || len(r.orgs) == 0 {
 		// Empty persisted state → seed from env (write to disk).
 		r.seedSource = SeedSourceEnv
 		r.lastModified = nowRFC3339()
+		r.realmID = seed.RealmID
 		for _, o := range seed.Orgs {
 			r.orgs[o.OrgID] = cloneOrg(o)
 		}
 		if err := r.persistLocked(); err != nil {
 			return nil, err
 		}
-		pluginlog.Logf("trust: seeded from env (%d orgs)", len(seed.Orgs))
+		pluginlog.Logf("trust: seeded from env (%d orgs, realm_id=%q)",
+			len(seed.Orgs), seed.RealmID)
 		return r, nil
 	}
 
@@ -107,6 +117,7 @@ func LoadFromEnv() (*Registry, error) {
 		}
 		r.seedSource = SeedSourceEnv
 		r.lastModified = nowRFC3339()
+		r.realmID = seed.RealmID
 		if err := r.persistLocked(); err != nil {
 			return nil, err
 		}
@@ -128,6 +139,7 @@ func (r *Registry) absorbFile(f File) {
 	}
 	r.seedSource = f.SeedSource
 	r.lastModified = f.LastModified
+	r.realmID = f.RealmID
 }
 
 // loadPersisted reads the on-disk trust file. Returns (file, true, nil)
@@ -195,6 +207,9 @@ func parseSeed(value string, inline bool) (Seed, error) {
 // behaviour. Grace state is a runtime concern.
 func seedMatchesRegistry(seed Seed, r *Registry) bool {
 	if len(seed.Orgs) != len(r.orgs) {
+		return false
+	}
+	if seed.RealmID != r.realmID {
 		return false
 	}
 	for _, o := range seed.Orgs {
