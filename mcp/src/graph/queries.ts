@@ -267,7 +267,7 @@ RETURN h, allNodes,
 
 export const GET_WORKFLOW_PUBLISHED_VERSION_SUBGRAPH_QUERY = `
 // Match the Workflow node by ref_id
-MATCH (w:Workflow {ref_id: $ref_id})
+MATCH (w:Workflow:Data_Bank {ref_id: $ref_id})
 
 // Get the published_workflow_version_id property
 WITH w, w.published_workflow_version_id AS version_id
@@ -1002,17 +1002,17 @@ WHERE n.embeddings IS NOT NULL
 RETURN count(n) AS c
 `;
 
-export const GET_WORKFLOW_BY_KEY_QUERY = `MATCH (w:Workflow {node_key: $node_key}) RETURN w`;
+export const GET_WORKFLOW_BY_KEY_QUERY = `MATCH (w:Workflow:Data_Bank {node_key: $node_key}) RETURN w`;
 
-export const GET_WORKFLOW_BY_REF_ID_QUERY = `MATCH (w:Workflow {ref_id: $ref_id}) RETURN w`;
+export const GET_WORKFLOW_BY_REF_ID_QUERY = `MATCH (w:Workflow:Data_Bank {ref_id: $ref_id}) RETURN w`;
 
 export const GET_WORKFLOW_DOCUMENTATION_QUERY = `
-MATCH (w:Workflow {node_key: $node_key})<-[:DOCUMENTS]-(d:Workflow_documentation)
+MATCH (w:Workflow:Data_Bank {node_key: $node_key})<-[:DOCUMENTS]-(d:Workflow_documentation)
 RETURN d
 `;
 
 export const UPSERT_WORKFLOW_DOCUMENTATION_QUERY = `
-MATCH (w:Workflow {ref_id: $workflow_ref_id})
+MATCH (w:Workflow:Data_Bank {ref_id: $workflow_ref_id})
 MERGE (d:Workflow_documentation {node_key: $node_key})
 ON CREATE SET d.ref_id = randomUUID(), d.date_added_to_graph = $ts, d.namespace = 'default'
 SET d.name = $name, d.body = $body, d.date_added_to_graph = $ts, d.namespace = 'default'
@@ -1147,8 +1147,8 @@ RETURN n
 `;
 
 export const CREATE_HAS_REQUIREMENT_EDGE_QUERY = `
-MATCH (es:EvalSet {ref_id: $eval_set_ref_id})
-MATCH (er:EvalRequirement {ref_id: $eval_req_ref_id})
+MATCH (es:EvalSet:Data_Bank {ref_id: $eval_set_ref_id})
+MATCH (er:EvalRequirement:Data_Bank {ref_id: $eval_req_ref_id})
 MERGE (es)-[r:HAS_REQUIREMENT]->(er)
 ON CREATE SET r.ref_id = randomUUID()
 SET r.order = $order
@@ -1156,7 +1156,7 @@ RETURN r
 `;
 
 export const CREATE_EVAL_RUN_EDGE_QUERY = `
-MATCH (er:EvalRequirement {ref_id: $eval_req_ref_id})
+MATCH (er:EvalRequirement:Data_Bank {ref_id: $eval_req_ref_id})
 MATCH (s:AgentSession {node_key: $session_id})
 MERGE (er)-[r:EVAL_RUN]->(s)
 ON CREATE SET r.ref_id = randomUUID()
@@ -1164,7 +1164,7 @@ RETURN r
 `;
 
 export const GET_EVAL_SET_WITH_REQUIREMENTS_QUERY = `
-MATCH (es:EvalSet {ref_id: $eval_set_ref_id})
+MATCH (es:EvalSet:Data_Bank {ref_id: $eval_set_ref_id})
 OPTIONAL MATCH (es)-[rel:HAS_REQUIREMENT]->(er:EvalRequirement)
 OPTIONAL MATCH (er)-[:EVAL_RUN]->(session:AgentSession)
 WITH es, er, rel.order AS req_order, collect(session) AS runs
