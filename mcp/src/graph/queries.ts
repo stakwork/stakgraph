@@ -1122,6 +1122,56 @@ CALL gds.graph.drop($graphName, false)
 YIELD graphName
 `;
 
+// === EvalRequirement + EvalSet system ===
+
+export const UPSERT_EVAL_REQUIREMENT_QUERY = `
+MERGE (n:EvalRequirement:${Data_Bank} {node_key: $node_key})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts,
+  n.namespace = 'default', n.file = 'eval://generated', n.start = 0, n.end = 0,
+  n.created_at = $ts
+SET n.name = $name, n.body = $description, n.description = $description,
+    n.prompt_snippet = $prompt_snippet,
+    n.positive_cases = $positive_cases, n.negative_cases = $negative_cases,
+    n.updated_at = $ts
+RETURN n
+`;
+
+export const UPSERT_EVAL_SET_QUERY = `
+MERGE (n:EvalSet:${Data_Bank} {node_key: $node_key})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts,
+  n.namespace = 'default', n.file = 'eval://generated', n.start = 0, n.end = 0,
+  n.created_at = $ts
+SET n.name = $name, n.body = $description, n.description = $description,
+    n.updated_at = $ts
+RETURN n
+`;
+
+export const CREATE_HAS_REQUIREMENT_EDGE_QUERY = `
+MATCH (es:EvalSet {ref_id: $eval_set_ref_id})
+MATCH (er:EvalRequirement {ref_id: $eval_req_ref_id})
+MERGE (es)-[r:HAS_REQUIREMENT]->(er)
+ON CREATE SET r.ref_id = randomUUID()
+SET r.order = $order
+RETURN r
+`;
+
+export const CREATE_EVAL_RUN_EDGE_QUERY = `
+MATCH (er:EvalRequirement {ref_id: $eval_req_ref_id})
+MATCH (s:AgentSession {node_key: $session_id})
+MERGE (er)-[r:EVAL_RUN]->(s)
+ON CREATE SET r.ref_id = randomUUID()
+RETURN r
+`;
+
+export const GET_EVAL_SET_WITH_REQUIREMENTS_QUERY = `
+MATCH (es:EvalSet {ref_id: $eval_set_ref_id})
+OPTIONAL MATCH (es)-[rel:HAS_REQUIREMENT]->(er:EvalRequirement)
+OPTIONAL MATCH (er)-[:EVAL_RUN]->(session:AgentSession)
+WITH es, er, rel.order AS req_order, collect(session) AS runs
+ORDER BY req_order ASC
+RETURN es, collect({requirement: er, order: req_order, runs: runs}) AS requirements
+`;
+
 export const GET_TOP_NODES_BY_IMPORTANCE_QUERY = `
 MATCH (n)
 WHERE n.pagerank IS NOT NULL
