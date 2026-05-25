@@ -460,6 +460,14 @@ export const canvasTheme: CanvasTheme = resolveTheme(
       // Singleton hub. Custom body renders the hex+spokes glyph and
       // the "Agent Mothership" title together; footer carries the
       // swarm-wide total spend.
+      //
+      // Zoom in past the threshold and a Provenance reveal panel
+      // fades in below the node — a 1:1 mirror of the AuthorizedBy
+      // card on RunDetail, showing which org's signature authorized
+      // this swarm's runs (org_id / pubkey / issuer / realm). The
+      // accessors here read `customData` field names that match the
+      // wire shape (`TrustOrg` in api/types.ts) — Canvas.tsx feeds
+      // those fields from useTrustOrg() + useTrustStatus().
       gateway: {
         defaultWidth: 220,
         defaultHeight: 100,
@@ -477,6 +485,72 @@ export const canvasTheme: CanvasTheme = resolveTheme(
             fontSize: 11,
             align: "center",
             color: "#9ca3af",
+          },
+        },
+        reveals: {
+          below: {
+            kind: "list",
+            // Fully opaque at zoom 1.6; starts fading in around 1.2.
+            threshold: 1.6,
+            fadeWindow: 0.4,
+            offset: 14,
+            // Pin the panel's left edge to the node's left edge and
+            // match the node's width so the reveal reads as a
+            // continuation of the card rather than a floating
+            // tooltip.
+            width: 220,
+            align: "start",
+            alignValues: true,
+            // Reference details, not headline figures — render label
+            // and value at normal weight so the panel reads as a
+            // flat key/value dump (matches the .authorized-by-grid
+            // styling on RunDetail).
+            valueWeight: 400,
+            labelWeight: 400,
+            rows: [
+              {
+                icon: "shield",
+                label: "Org",
+                value: (ctx) =>
+                  (ctx.node.customData?.org_id as string) ?? null,
+              },
+              {
+                label: "Pubkey",
+                // Mirror RunDetail.tsx's `fmtKey`: keep the first 8
+                // and last 6 chars of the key, joined by "…", but
+                // only when the original is longer than 16 chars
+                // (shorter keys render verbatim). The lib clamps to
+                // the panel width as a safety net regardless.
+                value: (ctx) => {
+                  const pk = ctx.node.customData?.pubkey as
+                    | string
+                    | undefined;
+                  if (!pk) return null;
+                  return pk.length > 16
+                    ? `${pk.slice(0, 8)}…${pk.slice(-6)}`
+                    : pk;
+                },
+                mono: true,
+              },
+              {
+                // Conditional on RunDetail too — only rendered when
+                // issuer_url is truthy. Returning null from the
+                // accessor drops the row and reflows siblings.
+                label: "Issuer",
+                value: (ctx) =>
+                  (ctx.node.customData?.issuer_url as string) || null,
+              },
+              {
+                // Realm comes from a sibling endpoint (GET
+                // /trust/status.realm_id) on the live UI, not from
+                // TrustOrg itself — Canvas.tsx merges both into
+                // customData on the gateway node.
+                label: "Realm",
+                value: (ctx) =>
+                  (ctx.node.customData?.realm_id as string) || null,
+                mono: true,
+              },
+            ],
           },
         },
       },

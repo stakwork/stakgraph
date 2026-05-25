@@ -30,8 +30,12 @@ import { useMemo, useState } from "preact/hooks";
 import type { CanvasData, CanvasEdge, CanvasNode } from "system-canvas";
 import { SystemCanvas } from "system-canvas-react";
 
-import { useSpendByAgentUser } from "../api/queries";
-import type { AgentUserSpend, Window } from "../api/types";
+import {
+  useSpendByAgentUser,
+  useTrustOrg,
+  useTrustStatus,
+} from "../api/queries";
+import type { AgentUserSpend, TrustOrg, Window } from "../api/types";
 import { WindowPicker } from "../components/controls/WindowPicker";
 
 import { canvasTheme, PROVIDER_DISPLAY, providerIcon } from "./canvasTheme";
@@ -124,9 +128,23 @@ function groupedStackY(
   return y;
 }
 
+// Trust-registry info threaded into the gateway node's customData
+// so the Provenance reveal can render it. Both fields are optional
+// — the reveal accessors return null for missing data, dropping
+// individual rows or the whole panel as appropriate.
+interface TrustInfo {
+  /** The org record fetched via GET /trust/:org_id. */
+  trust: TrustOrg | null | undefined;
+  /** realm_id from GET /trust/status (set on multi-swarm deployments). */
+  realmID: string | undefined;
+}
+
 // Build the four-column canvas from the live matrix. Pure — easy
 // to unit-test later if we want.
-function buildCanvas(rows: AgentUserSpend[]): CanvasData {
+function buildCanvas(
+  rows: AgentUserSpend[],
+  trustInfo: TrustInfo,
+): CanvasData {
   // Roll up by user (for the User column) and collect all
   // (agent, user) pairs (for the Agent column). Walking the rows
   // once produces both views.
@@ -269,6 +287,21 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
   });
 
   // ─── Gateway singleton ────────────────────────────────────────
+  //
+  // customData carries two unrelated payloads that happen to share
+  // the same node:
+  //   - `totalCost` (existing) — drives the footer "swarm total" text.
+  //   - Trust-registry fields (org_id / pubkey / issuer_url /
+  //     realm_id) — drive the zoom-gated Provenance reveal panel
+  //     (see `reveals.below` on the `gateway` category in
+  //     canvasTheme.ts). Field names are the live wire shape
+  //     (snake_case, matching `TrustOrg` in api/types.ts) so the
+  //     reveal accessors mirror RunDetail's AuthorizedBy verbatim.
+  //
+  // Missing fields are handled gracefully by the reveal accessors:
+  // each row returns null when its source field is absent, the lib
+  // drops that row, and an empty reveal disappears entirely.
+  const { trust, realmID } = trustInfo;
   nodes.push({
     id: "gateway",
     type: "text",
@@ -280,7 +313,13 @@ function buildCanvas(rows: AgentUserSpend[]): CanvasData {
     y: 0,
     width: SIZE.gateway.w,
     height: SIZE.gateway.h,
-    customData: { totalCost: swarmTotal },
+    customData: {
+      totalCost: swarmTotal,
+      org_id: trust?.org_id,
+      pubkey: trust?.pubkey,
+      issuer_url: trust?.issuer_url,
+      realm_id: realmID,
+    },
   });
 
   // ─── Providers column ─────────────────────────────────────────
@@ -397,6 +436,18 @@ export function Canvas() {
   // objects — doesn't strand the drawer on a stale reference.
   const [selectedID, setSelectedID] = useState<string | null>(null);
 
+  // Trust-registry data for the gateway hub's Provenance reveal.
+  // Two fetches: `useTrustStatus` for the roster (we take orgs[0]
+  // as the swarm's canonical org) plus the swarm-wide `realm_id`;
+  // then `useTrustOrg` to fetch the org record (pubkey / issuer).
+  // Both are 5min-stale — registry changes are human-scale, so the
+  // fetches don't churn even on a busy dashboard. Empty registry
+  // (orgs[]) leaves `canonicalOrgID` undefined and the reveal just
+  // drops all its rows.
+  const trustStatus = useTrustStatus();
+  const canonicalOrgID = trustStatus.data?.orgs?.[0];
+  const trustOrg = useTrustOrg(canonicalOrgID);
+
   const rows = matrix.data?.results ?? [];
   // Defer building the canvas until the matrix has loaded. The
   // SystemCanvas auto-fits to content on its first non-empty render
@@ -405,8 +456,14 @@ export function Canvas() {
   // the fit would zoom in tight on those 5 nodes — and the
   // agent/user nodes would land off-screen when the data arrives.
   const canvas = useMemo(
-    () => (matrix.data ? buildCanvas(rows) : { nodes: [], edges: [] }),
-    [rows, matrix.data],
+    () =>
+      matrix.data
+        ? buildCanvas(rows, {
+            trust: trustOrg.data,
+            realmID: trustStatus.data?.realm_id,
+          })
+        : { nodes: [], edges: [] },
+    [rows, matrix.data, trustOrg.data, trustStatus.data?.realm_id],
   );
 
   const selectedNode = selectedID
