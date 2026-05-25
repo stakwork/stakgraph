@@ -10,6 +10,7 @@ interface SessionSidebarProps {
   runs: ProductionRun[];
   filteredRuns: ProductionRun[];
   selected: ProductionRun | null;
+  quickSearch: string;
   repoSearch: string;
   sourceFilter: string;
   rangeFilter: "24h" | "7d" | "30d" | "all";
@@ -18,6 +19,7 @@ interface SessionSidebarProps {
   sourceOptions: string[];
   load: () => void;
   loadDetail: (run: ProductionRun) => void;
+  setQuickSearch: (v: string) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
   setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
@@ -30,6 +32,7 @@ export function SessionSidebar({
   runs,
   filteredRuns,
   selected,
+  quickSearch,
   repoSearch,
   sourceFilter,
   rangeFilter,
@@ -38,6 +41,7 @@ export function SessionSidebar({
   sourceOptions,
   load,
   loadDetail,
+  setQuickSearch,
   setRepoSearch,
   setSourceFilter,
   setRangeFilter,
@@ -151,6 +155,12 @@ export function SessionSidebar({
             }}
           >
             <input
+              placeholder={"Search id, repo, model, prompt\u2026"}
+              value={quickSearch}
+              onChange={(e) => setQuickSearch(e.target.value)}
+              style={inputStyle}
+            />
+            <input
               placeholder={"Filter by repo\u2026"}
               value={repoSearch}
               onChange={(e) => setRepoSearch(e.target.value)}
@@ -189,7 +199,8 @@ export function SessionSidebar({
                 <option key={r} value={r} />
               ))}
             </datalist>
-            {(repoSearch ||
+            {(quickSearch ||
+              repoSearch ||
               sourceFilter !== "all" ||
               rangeFilter !== "all" ||
               dayFilter) && (

@@ -11,6 +11,7 @@ export function Sessions() {
         runs={state.runs}
         filteredRuns={state.filteredRuns}
         selected={state.selected}
+        quickSearch={state.quickSearch}
         repoSearch={state.repoSearch}
         sourceFilter={state.sourceFilter}
         rangeFilter={state.rangeFilter}
@@ -19,6 +20,7 @@ export function Sessions() {
         sourceOptions={state.sourceOptions}
         load={state.load}
         loadDetail={state.loadDetail}
+        setQuickSearch={state.setQuickSearch}
         setRepoSearch={state.setRepoSearch}
         setSourceFilter={state.setSourceFilter}
         setRangeFilter={state.setRangeFilter}

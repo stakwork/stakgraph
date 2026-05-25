@@ -19,6 +19,7 @@ export interface SessionsState {
   filteredRuns: ProductionRun[];
   selected: ProductionRun | null;
   annotations: Annotation[];
+  quickSearch: string;
   repoSearch: string;
   sourceFilter: string;
   rangeFilter: "24h" | "7d" | "30d" | "all";
@@ -42,6 +43,7 @@ export interface SessionsState {
     toolCallId?: string,
   ) => void;
   handleTurnToggle: (turnId: string) => void;
+  setQuickSearch: (v: string) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
   setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
@@ -67,6 +69,9 @@ export function useSessionsState(): SessionsState {
   const [showSessionAnnotationForm, setShowSessionAnnotationForm] =
     useState(false);
   const [loading, setLoading] = useState(true);
+  const [quickSearch, setQuickSearch] = useState(
+    searchParams.get("q") || "",
+  );
   const [repoSearch, setRepoSearch] = useState(
     searchParams.get("repo") || "",
   );
@@ -166,6 +171,7 @@ export function useSessionsState(): SessionsState {
   );
 
   useEffect(() => {
+    setQuickSearch(searchParams.get("q") || "");
     setRepoSearch(searchParams.get("repo") || "");
     setSourceFilter(searchParams.get("source") || "all");
     setRangeFilter(
@@ -176,12 +182,13 @@ export function useSessionsState(): SessionsState {
 
   useEffect(() => {
     const nextParams = new URLSearchParams();
+    if (quickSearch) nextParams.set("q", quickSearch);
     if (repoSearch) nextParams.set("repo", repoSearch);
     if (sourceFilter !== "all") nextParams.set("source", sourceFilter);
     if (rangeFilter !== "all") nextParams.set("range", rangeFilter);
     if (dayFilter) nextParams.set("day", dayFilter);
     setSearchParams(nextParams, { replace: true });
-  }, [dayFilter, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
+  }, [dayFilter, quickSearch, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
 
   useEffect(() => {
     if (parsed.turns.length === 0) {
@@ -211,12 +218,23 @@ export function useSessionsState(): SessionsState {
         const rangeStart = getRangeStart(rangeFilter);
         if (rangeStart && new Date(r.timestamp).getTime() < rangeStart)
           return false;
+        if (quickSearch) {
+          const q = quickSearch.toLowerCase();
+          const matches =
+            r.id.toLowerCase().includes(q) ||
+            r.repo.toLowerCase().includes(q) ||
+            (r.source || "").toLowerCase().includes(q) ||
+            (r.model || "").toLowerCase().includes(q) ||
+            (r.user_prompt_preview || "").toLowerCase().includes(q);
+          if (!matches) return false;
+        }
         return true;
       }),
-    [runs, dayFilter, repoSearch, rangeFilter, sourceFilter],
+    [runs, dayFilter, quickSearch, repoSearch, rangeFilter, sourceFilter],
   );
 
   const clearFilters = () => {
+    setQuickSearch("");
     setRepoSearch("");
     setSourceFilter("all");
     setRangeFilter("all");
@@ -229,6 +247,7 @@ export function useSessionsState(): SessionsState {
     filteredRuns,
     selected,
     annotations,
+    quickSearch,
     repoSearch,
     sourceFilter,
     rangeFilter,
@@ -248,6 +267,7 @@ export function useSessionsState(): SessionsState {
     loadDetail,
     handleAnnotate,
     handleTurnToggle,
+    setQuickSearch,
     setRepoSearch,
     setSourceFilter,
     setRangeFilter,
