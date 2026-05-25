@@ -71,9 +71,7 @@ export type NodeType =
   | "Mock"
   | "Learning"
   | "Scope"
-  | "UserObjective"
-  | "EvalRequirement"
-  | "EvalSet";
+  | "UserObjective";
 
 export type EdgeType =
   | "CALLS"
@@ -101,9 +99,7 @@ export type EdgeType =
   | "MODIFIES"
   | "REFERENCES"
   | "HAS_SCOPE"
-  | "MEMBER_OF"
-  | "HAS_REQUIREMENT"
-  | "EVAL_RUN";
+  | "MEMBER_OF";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
@@ -190,8 +186,6 @@ export function relevant_node_types(): NodeType[] {
     "Topic",
     "Feature",
     "UserObjective",
-    "EvalRequirement",
-    "EvalSet",
   ];
 }
 
@@ -235,8 +229,6 @@ export function all_node_types(): NodeType[] {
     "Learning",
     "Scope",
     "UserObjective",
-    "EvalRequirement",
-    "EvalSet",
   ];
 }
 
@@ -263,8 +255,6 @@ export function all_edge_types(): EdgeType[] {
     "METADATA_FOR",
     "MOCKS",
     "MEMBER_OF",
-    "HAS_REQUIREMENT",
-    "EVAL_RUN",
   ];
 }
 
@@ -329,8 +319,6 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Learning: "A rule or guideline capturing knowledge about the codebase, linked to scopes that define where it applies.",
     Scope: "A scope label that groups related learnings, such as a technology, pattern, or area of the codebase.",
     UserObjective: "A specific goal or objective that a user wants to achieve within the application.",
-    EvalRequirement: "An evaluation requirement defining a prompt snippet with positive and negative test cases for assessing AI agent behavior.",
-    EvalSet: "A named collection of evaluation requirements used to assess AI agent capabilities.",
   };
 }
 
