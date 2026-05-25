@@ -7,10 +7,20 @@ import type { TraceTurn, DisplayUnit, ProvenanceMatchState } from "../../trace/t
 import type { StepMeta, SearchProvenanceEntry } from "../../types";
 import type { Annotation, AnnotationMarker } from "../Annotations";
 
+function formatTimeOfDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
 function StepDivider({ meta }: { meta: StepMeta }) {
   const label = meta.label;
   const isFinal = meta.toolCalls.length === 0 && !label;
   const usage = usageOf(meta.usage);
+  const timeOfDay = formatTimeOfDay(meta.timestamp);
   return (
     <div
       style={{
@@ -46,6 +56,14 @@ function StepDivider({ meta }: { meta: StepMeta }) {
       <span style={{ color: "#71717a" }}>
         total {formatNumber(usage.total)}
       </span>
+      {timeOfDay ? (
+        <span
+          title={new Date(meta.timestamp).toLocaleString()}
+          style={{ color: "#52525b", marginLeft: "auto" }}
+        >
+          {timeOfDay}
+        </span>
+      ) : null}
     </div>
   );
 }
