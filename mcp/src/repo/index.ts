@@ -172,16 +172,35 @@ export async function repo_agent(req: Request, res: Response) {
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive,https://github.com/stakwork/stakgraph", "prompt": "how do these two repos relate to each other?"}' "http://localhost:3355/repo/agent"
   // curl "http://localhost:3355/progress?request_id=5c501254-cc7b-44f4-9537-6fa18f642b5c"
+  const subAgentNames = Array.isArray(req.body?.subAgents)
+    ? req.body.subAgents.map((a: any) => a?.name).filter(Boolean)
+    : [];
+  const repoListPreview = (req.body?.repo_url || "")
+    .split(",")
+    .map((url: string) => normalizeRepoRef(url))
+    .filter((url: string) => url.length > 0);
+  const toolsConfigKeys =
+    req.body?.toolsConfig && typeof req.body.toolsConfig === "object"
+      ? Object.keys(req.body.toolsConfig)
+      : [];
+  const mcpServersCount = Array.isArray(req.body?.mcpServers) ? req.body.mcpServers.length : 0;
   console.log("===> repo_agent", req.method, req.path, {
+    sessionId: req.body?.sessionId || "(new)",
     hasPat: Boolean(req.body?.pat),
     hasUsername: Boolean(req.body?.username),
     hasRepoUrl: Boolean(req.body?.repo_url),
+    repoList: repoListPreview.length > 0 ? repoListPreview : "(none)",
     hasPrompt: Boolean(req.body?.prompt),
     stream: Boolean(req.body?.stream),
     hasApiKey: Boolean(req.body?.apiKey),
     apiKeyPrefix: req.body?.apiKey ? String(req.body.apiKey).slice(0, 12) + "..." : "(none)",
     baseUrl: req.body?.baseUrl || "(none)",
     modelName: req.body?.model || "(none)",
+    subAgents: subAgentNames.length > 0 ? subAgentNames : "(none)",
+    toolsConfig: toolsConfigKeys.length > 0 ? toolsConfigKeys : "(default)",
+    hasSchema: Boolean(req.body?.jsonSchema),
+    hasSystemOverride: Boolean(req.body?.systemOverride),
+    mcpServers: mcpServersCount,
   });
 
   const body = parseAgentBody(req);
