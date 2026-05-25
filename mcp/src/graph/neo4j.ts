@@ -1131,126 +1131,6 @@ class Db {
     }
   }
 
-  // === EvalRequirement + EvalSet system ===
-
-  async upsert_eval_requirement(params: {
-    name: string;
-    description: string;
-    prompt_snippet: string;
-    positive_cases: string[];
-    negative_cases: string[];
-  }): Promise<{ ref_id: string; node_key: string }> {
-    const session = this.resilientSession();
-    const node_key = create_node_key({
-      node_type: "EvalRequirement",
-      node_data: {
-        name: params.name,
-        file: "eval://generated",
-        start: 0,
-      },
-    } as Node);
-    try {
-      const result = await session.run(Q.UPSERT_EVAL_REQUIREMENT_QUERY, {
-        node_key,
-        name: params.name,
-        description: params.description,
-        prompt_snippet: params.prompt_snippet,
-        positive_cases: params.positive_cases,
-        negative_cases: params.negative_cases,
-        ts: Date.now() / 1000,
-      });
-      const n = result.records[0].get("n");
-      return { ref_id: n.properties.ref_id, node_key };
-    } finally {
-      await session.close();
-    }
-  }
-
-  async upsert_eval_set(params: {
-    name: string;
-    description: string;
-  }): Promise<{ ref_id: string; node_key: string }> {
-    const session = this.resilientSession();
-    const node_key = create_node_key({
-      node_type: "EvalSet",
-      node_data: {
-        name: params.name,
-        file: "eval://generated",
-        start: 0,
-      },
-    } as Node);
-    try {
-      const result = await session.run(Q.UPSERT_EVAL_SET_QUERY, {
-        node_key,
-        name: params.name,
-        description: params.description,
-        ts: Date.now() / 1000,
-      });
-      const n = result.records[0].get("n");
-      return { ref_id: n.properties.ref_id, node_key };
-    } finally {
-      await session.close();
-    }
-  }
-
-  async create_has_requirement_edge(
-    eval_set_ref_id: string,
-    eval_req_ref_id: string,
-    order: number,
-  ): Promise<void> {
-    const session = this.resilientSession();
-    try {
-      await session.run(Q.CREATE_HAS_REQUIREMENT_EDGE_QUERY, {
-        eval_set_ref_id,
-        eval_req_ref_id,
-        order,
-      });
-    } finally {
-      await session.close();
-    }
-  }
-
-  async create_eval_run_edge(
-    eval_req_ref_id: string,
-    session_id: string,
-  ): Promise<void> {
-    const session = this.resilientSession();
-    try {
-      await session.run(Q.CREATE_EVAL_RUN_EDGE_QUERY, {
-        eval_req_ref_id,
-        session_id,
-      });
-    } finally {
-      await session.close();
-    }
-  }
-
-  async get_eval_set_with_requirements(eval_set_ref_id: string): Promise<{
-    evalSet: any;
-    requirements: { requirement: any; order: number; runs: any[] }[];
-  }> {
-    const session = this.resilientSession();
-    try {
-      const result = await session.run(
-        Q.GET_EVAL_SET_WITH_REQUIREMENTS_QUERY,
-        { eval_set_ref_id },
-      );
-      if (result.records.length === 0) {
-        return { evalSet: null, requirements: [] };
-      }
-      const record = result.records[0];
-      const evalSet = record.get("es");
-      const requirements = record.get("requirements").map((r: any) => ({
-        requirement: r.requirement,
-        order: r.order,
-        runs: r.runs,
-      }));
-      return { evalSet, requirements };
-    } finally {
-      await session.close();
-    }
-  }
-
   async createIndexes(): Promise<void> {
     let session: ResilientSession | null = null;
     try {
@@ -1269,12 +1149,6 @@ class Db {
       await session.run(Q.VECTOR_INDEX_QUERY);
       await session.run(
         "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)",
-      );
-      await session.run(
-        "CREATE INDEX eval_requirement_node_key_index IF NOT EXISTS FOR (n:EvalRequirement) ON (n.node_key)",
-      );
-      await session.run(
-        "CREATE INDEX eval_set_node_key_index IF NOT EXISTS FOR (n:EvalSet) ON (n.node_key)",
       );
     } finally {
       if (session) {
