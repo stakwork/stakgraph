@@ -84,11 +84,18 @@ const SIZE = {
   provider: { w: 180, h: 64, gap: 16 },
 } as const;
 
-// Extra vertical space inserted between agent groups (one group per
-// user) on top of the usual `SIZE.agent.gap`. Keeps the visual
-// chunking subtle — operators read "these three boxes belong to
-// Alice, these two to Bob" without the column feeling sparse.
-const AGENT_GROUP_GAP = 18;
+// Extra vertical space inserted between user blocks. Keeps the
+// visual chunking obvious — operators read "these boxes belong to
+// Alice, these to Bob" without the column feeling cramped.
+const USER_BLOCK_GAP = 32;
+
+// Agents pack into columns of `AGENTS_PER_COL` max. Column 0 sits
+// at `COL_X.agent` (closest to the users column); additional
+// columns wrap to the LEFT by `AGENT_COL_SPACING`. So a user with
+// 12 agents gets 3 columns × 4, growing leftward away from the
+// user card.
+const AGENTS_PER_COL = 3;
+const AGENT_COL_SPACING = SIZE.agent.w + 24;
 
 // Stack a column of nodes vertically and center the whole stack
 // around y=0. Returns the y for the i-th item.
@@ -96,36 +103,6 @@ function stackY(count: number, i: number, h: number, gap: number): number {
   const totalH = count * h + (count - 1) * gap;
   const startY = -totalH / 2;
   return startY + i * (h + gap) + h / 2; // node centers at this y
-}
-
-// Stack a column where items are partitioned into groups; an extra
-// `groupGap` is inserted between groups on top of the normal `gap`.
-// `groupSizes` is the count of items in each group, in render order.
-// Returns the y-center for the `globalIdx`-th item across the whole
-// column. Used for the agent column so that boxes belonging to the
-// same user cluster visually.
-function groupedStackY(
-  groupSizes: number[],
-  groupIdx: number,
-  withinIdx: number,
-  h: number,
-  gap: number,
-  groupGap: number,
-): number {
-  const totalItems = groupSizes.reduce((a, b) => a + b, 0);
-  const totalH =
-    totalItems * h +
-    (totalItems - groupSizes.length) * gap +
-    (groupSizes.length - 1) * (gap + groupGap);
-  let y = -totalH / 2;
-  for (let g = 0; g < groupIdx; g++) {
-    const n = groupSizes[g];
-    // Group g contributes n boxes + (n-1) within-group gaps + one
-    // between-group gap on its trailing edge.
-    y += n * h + (n - 1) * gap + gap + groupGap;
-  }
-  y += withinIdx * (h + gap) + h / 2;
-  return y;
 }
 
 // Trust-registry info threaded into the gateway node's customData
@@ -211,40 +188,61 @@ function buildCanvas(
   const orderedGroups = users
     .map(([userID]) => rowsByUser.get(userID) ?? [])
     .filter((g) => g.length > 0);
-  const groupSizes = orderedGroups.map((g) => g.length);
+
+  // ─── Per-user vertical slots ─────────────────────────────────
+  // Each user gets a slot tall enough to hold the bigger of (user
+  // card, agent block). Agent block height is bounded by the
+  // column cap — anything beyond `AGENTS_PER_COL` wraps into a new
+  // column to the left rather than growing the slot taller. Slots
+  // stack with `USER_BLOCK_GAP` between them, centered around y=0.
+  const slotHeights = users.map(([userID]) => {
+    const agents = rowsByUser.get(userID) ?? [];
+    const rowsInTallestCol = Math.min(agents.length, AGENTS_PER_COL);
+    const agentBlockH =
+      rowsInTallestCol * SIZE.agent.h +
+      Math.max(0, rowsInTallestCol - 1) * SIZE.agent.gap;
+    return Math.max(SIZE.user.h, agentBlockH);
+  });
+  const totalLayoutH =
+    slotHeights.reduce((s, h) => s + h, 0) +
+    Math.max(0, users.length - 1) * USER_BLOCK_GAP;
+  let cursorY = -totalLayoutH / 2;
+  // Top-Y of each user slot, indexed by user index.
+  const slotTopY: number[] = [];
+  for (let i = 0; i < users.length; i++) {
+    slotTopY.push(cursorY);
+    cursorY += slotHeights[i] + USER_BLOCK_GAP;
+  }
 
   const nodes: CanvasNode[] = [];
 
   // ─── Agents column (one per pairing) ──────────────────────────
-  // Boxes are grouped by user with a small extra gap between
-  // groups (AGENT_GROUP_GAP) so the visual chunking reads. Within
-  // each group, boxes are top-to-bottom by spend.
+  // Each user's agents are packed into wrapping columns: column 0
+  // sits at `COL_X.agent` (closest to the users column); additional
+  // columns wrap to the LEFT by `AGENT_COL_SPACING`. The block is
+  // top-left anchored — every column starts at the top of the
+  // user's slot and fills downward, so a partial trailing column
+  // is short but still flush to the top of the row.
   //
   // Name flows through the header text slot (driven by
   // customData.name), so node.text is left empty — that suppresses
   // the default label render which would otherwise double up.
-  //
-  // Capture each group's y-center as we go so the user box can be
-  // pinned to it.
-  const userGroupCenterY = new Map<string, number>();
-  orderedGroups.forEach((group, groupIdx) => {
-    const ys: number[] = [];
-    group.forEach((r, withinIdx) => {
-      const y = groupedStackY(
-        groupSizes,
-        groupIdx,
-        withinIdx,
-        SIZE.agent.h,
-        SIZE.agent.gap,
-        AGENT_GROUP_GAP,
-      );
-      ys.push(y);
+  orderedGroups.forEach((group, userIdx) => {
+    const slotTop = slotTopY[userIdx];
+    group.forEach((r, agentIdx) => {
+      const col = Math.floor(agentIdx / AGENTS_PER_COL);
+      const rowInCol = agentIdx % AGENTS_PER_COL;
+      const y =
+        slotTop +
+        rowInCol * (SIZE.agent.h + SIZE.agent.gap) +
+        SIZE.agent.h / 2;
+      const x = COL_X.agent - col * AGENT_COL_SPACING;
       nodes.push({
         id: `agent:${r.agent_name}:${r.user_id}`,
         type: "text",
         category: "agent",
         text: "",
-        x: COL_X.agent,
+        x,
         y,
         width: SIZE.agent.w,
         height: SIZE.agent.h,
@@ -255,27 +253,21 @@ function buildCanvas(
         },
       });
     });
-    // Group center = midpoint of first and last node centers. With
-    // a single-item group this is just that one node's y.
-    const userID = group[0].user_id;
-    userGroupCenterY.set(userID, (ys[0] + ys[ys.length - 1]) / 2);
   });
 
   // ─── Users column ─────────────────────────────────────────────
-  // Each user box is pinned vertically to the center of its agent
-  // group, so the user→agent edges fan out symmetrically.
-  // Username flows through the header text slot (driven by
-  // customData.name); node.text empty so the default label
-  // doesn't double-render.
-  users.forEach(([userID, agg]) => {
-    const y = userGroupCenterY.get(userID) ?? 0;
+  // Each user box sits at the vertical center of its slot, so the
+  // user card aligns with its agent block. Username flows through
+  // the header text slot (driven by customData.name); node.text
+  // empty so the default label doesn't double-render.
+  users.forEach(([userID, agg], i) => {
     nodes.push({
       id: `user:${userID}`,
       type: "text",
       category: "user",
       text: "",
       x: COL_X.user,
-      y,
+      y: slotTopY[i] + slotHeights[i] / 2,
       width: SIZE.user.w,
       height: SIZE.user.h,
       customData: {
