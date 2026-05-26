@@ -62,7 +62,10 @@ type ToolName =
   | "list_workflows"
   | "learn_workflow"
   | "read_workflow_json"
-  | "vector_search";
+  | "vector_search"
+  | "stakgraph_search"
+  | "stakgraph_map"
+  | "stakgraph_code";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -71,7 +74,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "fulltext_search", "web_search", "bash", "final_answer",
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
-  "vector_search",
+  "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -165,6 +168,11 @@ Rules:
   learn_workflow: 'Get the generated documentation for a specific workflow by its node_key.',
   read_workflow_json: 'Read the raw workflow_json property of a Workflow node by its node_key.',
   vector_search: 'Search for code nodes by semantic similarity using vector embeddings. Use this when you want to find code related to a concept or description, even if the exact terms are not present in the code. Returns the node name, type, filename, and line number for each match.',
+  stakgraph_search:
+    "Search the code graph by keyword, semantic meaning, or hybrid. Returns compact results with name, file, ref_id, and description. Use stakgraph_code with a ref_id to read full source.",
+  stakgraph_map: "Trace relationships from a node in the code graph. Use direction 'up' for callers and 'down' for callees.",
+  stakgraph_code:
+    "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
 };
 
 export async function get_tools(
@@ -512,8 +520,7 @@ export async function get_tools(
   // Register stakgraph graph tools (requires Neo4j connection)
   if (db) {
     allTools.stakgraph_search = tool({
-      description:
-        "Search the code graph by keyword, semantic meaning, or hybrid. Returns compact results with name, file, ref_id, and description. Use stakgraph_code with a ref_id to read full source.",
+      description: defaultDescriptions.stakgraph_search,
       inputSchema: stak.SearchSchema,
       execute: async (args: z.infer<typeof stak.SearchSchema>) => {
         const valid = new Set(relevant_node_types());
@@ -554,7 +561,7 @@ export async function get_tools(
       },
     });
     allTools.stakgraph_map = tool({
-      description: stak.GetMapTool.description,
+      description: stak.GetMapTool.description || defaultDescriptions.stakgraph_map,
       inputSchema: stak.GetMapSchema,
       execute: async (args: z.infer<typeof stak.GetMapSchema>) => {
         const result = await stak.getMap(args);
@@ -562,8 +569,7 @@ export async function get_tools(
       },
     });
     allTools.stakgraph_code = tool({
-      description:
-        "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
+      description: defaultDescriptions.stakgraph_code,
       inputSchema: stak.GetCodeSchema,
       execute: async (args: z.infer<typeof stak.GetCodeSchema>) => {
         const result = await stak.getCode(args);
