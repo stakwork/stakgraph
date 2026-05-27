@@ -3,7 +3,7 @@ import { SystemCanvas } from "system-canvas-react";
 import type { CanvasData, CanvasNode } from "system-canvas";
 import yaml from "js-yaml";
 import * as api from "./api";
-import { flowToCanvas } from "./flow-to-canvas";
+import { flowToCanvas, veinTheme } from "./flow-to-canvas";
 import type { FlowData, StepData, RunEventData } from "./flow-to-canvas";
 import "./styles/base.css";
 import "./styles/components.css";
@@ -24,7 +24,7 @@ steps:
       message: "Fetched: {{ fetch.body }}"
 `;
 
-const STEP_TYPES = ["http", "log", "if", "loop", "parallel", "subflow", "llm"];
+const STEP_TYPES = ["http", "log", "if", "loop", "parallel", "subflow", "llm", "wait"];
 
 export function App() {
   const [workflows, setWorkflows] = useState<api.WorkflowEntry[]>([]);
@@ -104,9 +104,16 @@ export function App() {
     refreshRuns(selectedWf);
   }, [selectedWf]);
 
-  // Load run events when a run is selected
+  // Load run events when a run is selected; clear overlay when deselected
   useEffect(() => {
-    if (!selectedRun || !selectedWf) { setEvents([]); return; }
+    if (!selectedRun || !selectedWf) {
+      setEvents([]);
+      // Rebuild canvas without run overlay
+      if (selectedWf && localSteps) {
+        rebuildCanvas(selectedWf, localSteps, null);
+      }
+      return;
+    }
     api.getRunEvents(selectedWf, selectedRun).then((evts) => {
       setEvents(evts);
       if (localSteps) {
@@ -125,11 +132,25 @@ export function App() {
   }
 
   const handleRun = useCallback(async () => {
-    if (!selectedWf) return;
-    const result = await api.runWorkflow(selectedWf, {});
-    await refreshRuns(selectedWf);
-    setSelectedRun(result.runId);
-  }, [selectedWf, refreshRuns]);
+    if (!selectedWf || !localSteps) return;
+    const wf = selectedWf;
+    const steps = localSteps;
+    const accumulated: RunEventData[] = [];
+
+    // Show pending status on all nodes immediately
+    rebuildCanvas(wf, steps, []);
+
+    const result = await api.runWorkflow(wf, {}, (event) => {
+      accumulated.push(event as RunEventData);
+      rebuildCanvas(wf, steps, [...accumulated]);
+      setEvents([...accumulated] as api.RunEvent[]);
+    });
+
+    if (result?.runId) {
+      setSelectedRun(result.runId);
+    }
+    await refreshRuns(wf);
+  }, [selectedWf, localSteps, refreshRuns]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
     await api.publishWorkflowYaml(name, "v1", yamlStr, desc || undefined);
@@ -237,7 +258,7 @@ export function App() {
       {/* Canvas */}
       <div class="shell-canvas">
         {canvas
-          ? <SystemCanvas canvas={canvas} onNodeClick={handleNodeClick} />
+          ? <SystemCanvas canvas={canvas} onNodeClick={handleNodeClick} themes={{ vein: veinTheme }} />
           : <div class="empty">{workflows.length === 0 ? "Create a workflow to get started" : "Select a workflow to view its flow graph"}</div>}
       </div>
 

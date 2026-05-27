@@ -11,8 +11,8 @@
   "dependencies": {
     "js-yaml": "^4.1.1",
     "preact": "^10.28.0",
-    "system-canvas": "^0.2.20",
-    "system-canvas-react": "^0.2.20"
+    "system-canvas": "^0.2.22",
+    "system-canvas-react": "^0.2.22"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.9.0",

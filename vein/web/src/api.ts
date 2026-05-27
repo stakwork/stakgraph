@@ -67,11 +67,55 @@ export const getWorkflowYaml = async (name: string, version: string) => {
   return res.text();
 };
 
-export const runWorkflow = (name: string, input: unknown) =>
-  fetchJSON<any>(`/workflows/${name}/run`, {
+/**
+ * Run a workflow via SSE. Calls `onEvent` for each event as it streams in.
+ * Returns the final RunResult when the stream closes.
+ */
+export async function runWorkflow(
+  name: string,
+  input: unknown,
+  onEvent?: (event: RunEvent) => void,
+): Promise<any> {
+  const res = await fetch(`${BASE}/workflows/${name}/run`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input }),
   });
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: any = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse SSE lines
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    let eventType = "message";
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const data = JSON.parse(line.slice(6));
+        if (eventType === "done") {
+          result = data;
+        } else {
+          onEvent?.(data as RunEvent);
+        }
+        eventType = "message";
+      }
+    }
+  }
+
+  return result;
+}
 
 // ── Steps ──────────────────────────────────────────────────────────────────
 

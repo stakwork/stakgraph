@@ -17,8 +17,8 @@
     "ai": "^4.3.0",
     "hono": "^4.12.23",
     "js-yaml": "^4.1.1",
-    "system-canvas": "^0.2.20",
-    "system-canvas-react": "^0.2.20",
+    "system-canvas": "^0.2.22",
+    "system-canvas-react": "^0.2.22",
     "uuid": "^11.1.0",
     "zod": "^3.23.0"
   },

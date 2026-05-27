@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
+import { streamSSE } from "hono/streaming";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { readFile, readdir, access } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -172,7 +173,7 @@ app.put("/workflows/:name/active", async (c) => {
 app.get("/steps", async (c) => {
   const coreSteps = Object.keys(registry).map((type) => ({
     type,
-    source: ["http", "if", "loop", "parallel", "subflow", "log", "llm"].includes(type)
+    source: ["http", "if", "loop", "parallel", "subflow", "log", "llm", "wait"].includes(type)
       ? "core"
       : type.includes("/")
         ? "lib"
@@ -216,7 +217,7 @@ app.post("/steps", async (c) => {
 
 // ── Run workflows ──────────────────────────────────────────────────────────
 
-/** Run a workflow (active version) */
+/** Run a workflow (active version) — SSE stream of events */
 app.post("/workflows/:name/run", async (c) => {
   const name = c.req.param("name");
   const body = await c.req.json<{ input?: unknown; runId?: string }>();
@@ -231,16 +232,19 @@ app.post("/workflows/:name/run", async (c) => {
     );
   }
 
-  const result = await runWorkflow(flow, body.input ?? {}, registry, {
-    runId: body.runId,
-    store,
+  return streamSSE(c, async (stream) => {
+    const result = await runWorkflow(flow, body.input ?? {}, registry, {
+      runId: body.runId,
+      store,
+      onEvent: async (event) => {
+        await stream.writeSSE({ data: JSON.stringify(event) });
+      },
+    });
+    await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
   });
-
-  const status = result.status === "success" ? 200 : 500;
-  return c.json(result, status);
 });
 
-/** Run a specific workflow version */
+/** Run a specific workflow version — SSE stream of events */
 app.post("/workflows/:name/:version/run", async (c) => {
   const { name, version } = c.req.param();
   const body = await c.req.json<{ input?: unknown; runId?: string }>();
@@ -255,13 +259,16 @@ app.post("/workflows/:name/:version/run", async (c) => {
     );
   }
 
-  const result = await runWorkflow(flow, body.input ?? {}, registry, {
-    runId: body.runId,
-    store,
+  return streamSSE(c, async (stream) => {
+    const result = await runWorkflow(flow, body.input ?? {}, registry, {
+      runId: body.runId,
+      store,
+      onEvent: async (event) => {
+        await stream.writeSSE({ data: JSON.stringify(event) });
+      },
+    });
+    await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
   });
-
-  const status = result.status === "success" ? 200 : 500;
-  return c.json(result, status);
 });
 
 // ── Health ─────────────────────────────────────────────────────────────────

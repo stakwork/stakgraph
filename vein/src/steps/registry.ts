@@ -12,6 +12,7 @@ import parallel from "./core/parallel.js";
 import subflow from "./core/subflow.js";
 import log from "./core/log.js";
 import llm from "./core/llm.js";
+import wait from "./core/wait.js";
 
 const CORE_STEPS: StepRegistry = {
   http,
@@ -21,6 +22,7 @@ const CORE_STEPS: StepRegistry = {
   subflow,
   log,
   llm,
+  wait,
 };
 
 // ── Auto-discovery ─────────────────────────────────────────────────────────

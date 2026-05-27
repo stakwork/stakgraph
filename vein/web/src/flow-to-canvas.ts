@@ -1,4 +1,12 @@
-import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
+import { createElement } from "preact";
+import type {
+  CanvasData,
+  CanvasNode,
+  CanvasEdge,
+  CanvasTheme,
+  SlotContext,
+} from "system-canvas";
+import { midnightTheme, resolveTheme } from "system-canvas";
 
 /**
  * Step data as returned by the API (serialized from the Flow object).
@@ -37,11 +45,10 @@ const NODE_W = 180;
 const NODE_H = 60;
 const GAP_Y = 40;
 const GAP_X = 60;
-const PARALLEL_GAP = 220;
 
-// ── Step type → category colors ────────────────────────────────────────────
+// ── Step type colors (each becomes a theme category) ───────────────────────
 
-const STEP_CATEGORIES: Record<string, { fill: string; stroke: string }> = {
+const STEP_COLORS: Record<string, { fill: string; stroke: string }> = {
   http:     { fill: "rgba(6, 78, 59, 0.4)",   stroke: "#34d399" },
   log:      { fill: "rgba(30, 58, 138, 0.4)", stroke: "#60a5fa" },
   if:       { fill: "rgba(120, 53, 15, 0.4)", stroke: "#f59e0b" },
@@ -49,23 +56,139 @@ const STEP_CATEGORIES: Record<string, { fill: string; stroke: string }> = {
   parallel: { fill: "rgba(127, 29, 29, 0.4)", stroke: "#f87171" },
   subflow:  { fill: "rgba(21, 94, 117, 0.4)", stroke: "#22d3ee" },
   llm:      { fill: "rgba(76, 29, 149, 0.4)", stroke: "#c084fc" },
+  wait:     { fill: "rgba(71, 85, 105, 0.4)", stroke: "#94a3b8" },
   default:  { fill: "rgba(38, 38, 38, 0.6)",  stroke: "#737373" },
 };
 
-function categoryFor(type: string) {
-  return STEP_CATEGORIES[type] ?? STEP_CATEGORIES["default"]!;
+function colorsFor(type: string) {
+  return STEP_COLORS[type] ?? STEP_COLORS["default"]!;
 }
 
-// ── Status colors (for run overlay) ────────────────────────────────────────
+// ── Status indicator (topRight custom slot) ────────────────────────────────
 
-function statusColor(status?: string): string | undefined {
-  switch (status) {
-    case "success": return "#22c55e";
-    case "error":   return "#ef4444";
-    case "running": return "#f59e0b";
-    default:        return undefined;
+const STATUS_CHECK = "#22c55e";
+const STATUS_ERROR = "#ef4444";
+const STATUS_RUNNING = "#f59e0b";
+const STATUS_PENDING = "#6b7689";
+
+/**
+ * Render a status indicator in the topRight slot region:
+ *   - success  → green checkmark
+ *   - error    → red X
+ *   - running  → yellow pulsing dot
+ *   - pending  → grey clock icon
+ */
+function renderStatusIndicator(ctx: SlotContext): unknown {
+  const status = ctx.node.customData?.status as string | undefined;
+  if (!status) return null;
+
+  const { region } = ctx;
+  const cx = region.x + region.width / 2;
+  const cy = region.y + region.height / 2;
+  const r = Math.min(region.width, region.height) / 2;
+
+  if (status === "success") {
+    // Green checkmark
+    const s = r * 0.7;
+    return createElement("g", { pointerEvents: "none" },
+      createElement("path", {
+        d: `M ${cx - s} ${cy} L ${cx - s * 0.2} ${cy + s * 0.7} L ${cx + s} ${cy - s * 0.5}`,
+        stroke: STATUS_CHECK,
+        strokeWidth: 2,
+        fill: "none",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+      }),
+    );
   }
+
+  if (status === "error") {
+    // Red X
+    const s = r * 0.5;
+    return createElement("g", { pointerEvents: "none" },
+      createElement("line", {
+        x1: cx - s, y1: cy - s, x2: cx + s, y2: cy + s,
+        stroke: STATUS_ERROR, strokeWidth: 2, strokeLinecap: "round",
+      }),
+      createElement("line", {
+        x1: cx + s, y1: cy - s, x2: cx - s, y2: cy + s,
+        stroke: STATUS_ERROR, strokeWidth: 2, strokeLinecap: "round",
+      }),
+    );
+  }
+
+  if (status === "running") {
+    // Yellow pulsing dot
+    return createElement("g", { pointerEvents: "none" },
+      createElement("circle", {
+        cx, cy, r: r * 0.4,
+        fill: STATUS_RUNNING, opacity: 0.9,
+      }),
+    );
+  }
+
+  // pending → grey clock icon
+  const cr = r * 0.55;
+  return createElement("g", { pointerEvents: "none" },
+    createElement("circle", {
+      cx, cy, r: cr,
+      fill: "none", stroke: STATUS_PENDING, strokeWidth: 1.3,
+    }),
+    // hour hand (12 o'clock to 3 o'clock)
+    createElement("line", {
+      x1: cx, y1: cy, x2: cx, y2: cy - cr * 0.55,
+      stroke: STATUS_PENDING, strokeWidth: 1.3, strokeLinecap: "round",
+    }),
+    createElement("line", {
+      x1: cx, y1: cy, x2: cx + cr * 0.45, y2: cy,
+      stroke: STATUS_PENDING, strokeWidth: 1.3, strokeLinecap: "round",
+    }),
+  );
 }
+
+// ── Build theme categories from step types ─────────────────────────────────
+
+function buildStepCategory(type: string, colors: { fill: string; stroke: string }): any {
+  return {
+    fill: colors.fill,
+    stroke: colors.stroke,
+    cornerRadius: 8,
+    defaultWidth: NODE_W,
+    defaultHeight: NODE_H,
+    type: "text" as const,
+    slots: {
+      header: {
+        kind: "text",
+        value: type.toUpperCase(),
+        color: colors.stroke,
+        fontSize: 10,
+        fontWeight: 600,
+      },
+      topRight: {
+        kind: "custom",
+        render: renderStatusIndicator,
+      },
+    },
+  };
+}
+
+function buildCategories(): Record<string, any> {
+  const categories: Record<string, any> = {};
+  for (const [type, colors] of Object.entries(STEP_COLORS)) {
+    categories[`step-${type}`] = buildStepCategory(type, colors);
+  }
+  return categories;
+}
+
+// ── Build theme ────────────────────────────────────────────────────────────
+
+const veinTheme: CanvasTheme = resolveTheme(
+  {
+    name: "vein",
+    categories: buildCategories(),
+  },
+  midnightTheme,
+);
 
 // ── Convert Flow → CanvasData ──────────────────────────────────────────────
 
@@ -74,6 +197,20 @@ interface LayoutResult {
   edges: CanvasEdge[];
   width: number;
   height: number;
+}
+
+function stepStatus(
+  stepPath: string,
+  runEvents?: RunEventData[],
+): string | undefined {
+  if (!runEvents) return undefined;
+  const stepEvts = runEvents.filter((e) => e.path === stepPath);
+  if (stepEvts.length === 0) return "pending";
+  const hasError = stepEvts.some((e) => e.type === "step.error");
+  const hasEnd = stepEvts.some((e) => e.type === "step.end");
+  if (hasError) return "error";
+  if (hasEnd) return "success";
+  return "running";
 }
 
 function layoutSteps(
@@ -91,16 +228,9 @@ function layoutSteps(
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i]!;
     const stepPath = `${pathPrefix}/${s.id}`;
-    const cat = categoryFor(s.type);
-
-    // Determine status from run events
-    const stepEvents = runEvents?.filter((e) => e.path === stepPath) ?? [];
-    const endEvent = stepEvents.find((e) => e.type === "step.end");
-    const errorEvent = stepEvents.find((e) => e.type === "step.error");
-    const status = errorEvent ? "error" : endEvent ? "success" : stepEvents.length > 0 ? "running" : undefined;
-    const borderColor = statusColor(status);
-
-    const label = `${s.id}\n${s.type}`;
+    const colors = colorsFor(s.type);
+    const category = `step-${STEP_COLORS[s.type] ? s.type : "default"}`;
+    const status = stepStatus(stepPath, runEvents);
 
     if (s.type === "parallel" && s.config.branches) {
       // Parallel: lay out branches side by side
@@ -128,13 +258,13 @@ function layoutSteps(
       nodes.push({
         id: forkId,
         type: "text",
-        text: label,
+        category,
+        text: s.id,
         x: forkX,
         y: curY,
         width: NODE_W,
         height: NODE_H,
-        color: borderColor ?? cat.stroke,
-        customData: { stepId: s.id, stepIndex: i },
+        customData: { stepId: s.id, stepIndex: i, status },
       });
 
       // Add branch nodes and connect
@@ -160,12 +290,12 @@ function layoutSteps(
       nodes.push({
         id: joinId,
         type: "text",
-        text: `${s.id}\njoin`,
+        category,
+        text: `${s.id} (join)`,
         x: forkX,
         y: joinY,
         width: NODE_W,
         height: NODE_H / 2,
-        color: cat.stroke,
       });
 
       // Edges from last node of each branch to join
@@ -206,13 +336,13 @@ function layoutSteps(
       nodes.push({
         id: condId,
         type: "text",
-        text: `${s.id}\nif`,
+        category,
+        text: s.id,
         x: startX,
         y: curY,
         width: NODE_W,
         height: NODE_H,
-        color: borderColor ?? cat.stroke,
-        customData: { stepId: s.id, stepIndex: i },
+        customData: { stepId: s.id, stepIndex: i, status },
       });
 
       const thenStep = s.config.then as StepData | undefined;
@@ -221,16 +351,18 @@ function layoutSteps(
       if (thenStep) {
         const thenX = startX - NODE_W / 2 - GAP_X / 2;
         const thenId = `${condId}/then/${thenStep.id}`;
-        const thenCat = categoryFor(thenStep.type);
+        const thenCategory = `step-${STEP_COLORS[thenStep.type] ? thenStep.type : "default"}`;
+        const thenStatus = stepStatus(thenId, runEvents);
         nodes.push({
           id: thenId,
           type: "text",
-          text: `${thenStep.id}\n${thenStep.type}`,
+          category: thenCategory,
+          text: thenStep.id,
           x: thenX,
           y: curY + NODE_H + GAP_Y,
           width: NODE_W,
           height: NODE_H,
-          color: thenCat.stroke,
+          customData: { status: thenStatus },
         });
         edges.push({
           id: `${condId}__then__${thenId}`,
@@ -243,16 +375,18 @@ function layoutSteps(
       if (elseStep) {
         const elseX = startX + NODE_W / 2 + GAP_X / 2;
         const elseId = `${condId}/else/${elseStep.id}`;
-        const elseCat = categoryFor(elseStep.type);
+        const elseCategory = `step-${STEP_COLORS[elseStep.type] ? elseStep.type : "default"}`;
+        const elseStatus = stepStatus(elseId, runEvents);
         nodes.push({
           id: elseId,
           type: "text",
-          text: `${elseStep.id}\n${elseStep.type}`,
+          category: elseCategory,
+          text: elseStep.id,
           x: elseX,
           y: curY + NODE_H + GAP_Y,
           width: NODE_W,
           height: NODE_H,
-          color: elseCat.stroke,
+          customData: { status: elseStatus },
         });
         edges.push({
           id: `${condId}__else__${elseId}`,
@@ -282,20 +416,20 @@ function layoutSteps(
     }
 
     if (s.type === "loop") {
-      // Loop: show loop node with a self-referencing note
+      // Loop: show loop node with body info
       const loopId = `${pathPrefix}/${s.id}`;
       const bodyStep = s.config.body as StepData | undefined;
-      const bodyLabel = bodyStep ? `${bodyStep.id} (${bodyStep.type})` : "body";
+      const bodyLabel = bodyStep ? `${s.id} → ${bodyStep.id}` : s.id;
       nodes.push({
         id: loopId,
         type: "text",
-        text: `${s.id}\nloop: ${bodyLabel}`,
+        category,
+        text: bodyLabel,
         x: startX,
         y: curY,
         width: NODE_W + 40,
         height: NODE_H + 10,
-        color: borderColor ?? cat.stroke,
-        customData: { stepId: s.id, stepIndex: i },
+        customData: { stepId: s.id, stepIndex: i, status },
       });
 
       if (i > 0) {
@@ -321,13 +455,13 @@ function layoutSteps(
     nodes.push({
       id: nodeId,
       type: "text",
-      text: label,
+      category,
+      text: s.id,
       x: startX,
       y: curY,
       width: NODE_W,
       height: NODE_H,
-      color: borderColor ?? cat.stroke,
-      customData: { stepId: s.id, stepIndex: i },
+      customData: { stepId: s.id, stepIndex: i, status },
     });
 
     // Sequential edge
@@ -376,7 +510,11 @@ export function flowToCanvas(
     nodes,
     edges,
     theme: {
-      base: "midnight",
+      base: "vein",
     },
   };
 }
+
+// ── Register the vein theme so system-canvas can resolve `base: "vein"` ────
+
+export { veinTheme };

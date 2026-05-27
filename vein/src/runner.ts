@@ -16,6 +16,8 @@ import { MemoryRunStore, generateRunId } from "./store.js";
 export interface RunOptions {
   runId?: string;
   store?: RunStore;
+  /** Called for every event as it happens (for SSE streaming). */
+  onEvent?: (event: RunEvent) => void | Promise<void>;
 }
 
 export async function runWorkflow(
@@ -29,6 +31,7 @@ export async function runWorkflow(
   const wfName = workflow.name;
   const startedAt = new Date().toISOString();
 
+  const onEvent = opts?.onEvent;
   const emit = async (event: Partial<RunEvent> & { type: RunEvent["type"] }) => {
     const full: RunEvent = {
       ts: new Date().toISOString(),
@@ -37,6 +40,7 @@ export async function runWorkflow(
       ...event,
     };
     await store.append(wfName, runId, full);
+    await onEvent?.(full);
   };
 
   // Validate input
@@ -288,8 +292,9 @@ async function dispatchStep(
         throw new Error(`Unknown step type: "${step.type}"`);
       }
 
-      // Validate config against step's input schema
-      const validConfig = def.input.parse(resolvedConfig);
+      // Validate config against step's input schema.
+      // Default to {} when no config is provided in the YAML.
+      const validConfig = def.input.parse(resolvedConfig ?? {});
 
       const ctx: StepContext = {
         runId,

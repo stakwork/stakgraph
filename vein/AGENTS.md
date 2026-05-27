@@ -1,3 +1,5 @@
+GOAL: AS SIMPLE AS POSSIBLE!
+
 # vein
 
 Minimal workflow engine with HTTP API and web UI. See `SPEC.md` for
@@ -12,8 +14,8 @@ on the codebase.
 | HTTP        | Hono + @hono/node-server                                                   |
 | Persistence | Filesystem (JSONL events + JSON summaries). Swappable via `RunStore` iface |
 | Web UI      | Preact + Vite + system-canvas-react. Vanilla CSS, no Tailwind              |
-| Tests       | Node native test runner (`node:test`) via tsx                               |
-| LLM step    | Vercel AI SDK (ai + @ai-sdk/anthropic + @ai-sdk/openai) — lazy-loaded     |
+| Tests       | Node native test runner (`node:test`) via tsx                              |
+| LLM step    | Vercel AI SDK (ai + @ai-sdk/anthropic + @ai-sdk/openai) — lazy-loaded      |
 
 ## Layout
 
@@ -31,7 +33,7 @@ vein/
 │   ├── server.ts          # Hono HTTP API + static file serving (entry point)
 │   ├── index.ts           # barrel export
 │   ├── steps/
-│   │   ├── core/          # 7 built-in steps: http, log, if, loop, parallel, subflow, llm
+│   │   ├── core/          # 8 built-in steps: http, log, if, loop, parallel, subflow, llm, wait
 │   │   └── registry.ts    # auto-discovery: merges core + workspace lib/ + custom/
 │   ├── *.test.ts          # 188 tests across 6 files
 └── web/
@@ -69,12 +71,12 @@ cd vein && npm run dev        # serves API + UI on :3000
 
 ## Environment
 
-| Variable           | Default       | Description                          |
-| ------------------ | ------------- | ------------------------------------ |
-| `VEIN_WORKSPACE`   | `./workspace` | Persistent volume for workflows/runs |
-| `VEIN_PORT`        | `3000`        | HTTP server port                     |
-| `VEIN_LLM_PROVIDER`| `anthropic`   | Default LLM provider for llm step    |
-| `VEIN_LLM_MODEL`   | (per-provider)| Override model name                  |
+| Variable            | Default        | Description                          |
+| ------------------- | -------------- | ------------------------------------ |
+| `VEIN_WORKSPACE`    | `./workspace`  | Persistent volume for workflows/runs |
+| `VEIN_PORT`         | `3000`         | HTTP server port                     |
+| `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
+| `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
 
 ## Key concepts
 
@@ -126,10 +128,14 @@ cd vein && npm run dev        # serves API + UI on :3000
   component classes). No JS styles, no CSS-in-JS, no Tailwind.
   Same pattern as `gateway/internal/adminapi/ui/`.
 
-- **`system-canvas`** for flow visualization. Nodes carry
-  `customData: { stepId, stepIndex }` so click handlers can map
-  back to steps. Color-coded by step type, overlaid with run
-  status colors (green/red/yellow).
+- **`system-canvas`** for flow visualization. Each step type is
+  a theme **category** (`step-http`, `step-log`, etc.) with a
+  `header` slot showing the uppercase type and a `topRight`
+  custom slot for run status indicators (checkmark = success,
+  X = error, dot = running, clock = pending). Node `text` is
+  the step name (left-aligned by the category layout). Nodes
+  carry `customData: { stepId, stepIndex, status }` so click
+  handlers can map back to steps.
 
 - **Tests** use `node:test` + `assert/strict`. Each test file
   creates its own helper step definitions (echo, value, fail,
@@ -147,7 +153,8 @@ cd vein && npm run dev        # serves API + UI on :3000
 3. If it's control flow, add to `SELF_RESOLVING_STEPS` in `runner.ts`
    and handle it in `dispatchStep`.
 4. Add to `STEP_TYPES` array in `web/src/app.tsx` (for the type dropdown).
-5. Add a color entry in `STEP_CATEGORIES` in `web/src/flow-to-canvas.ts`.
+5. Add a color entry in `STEP_COLORS` in `web/src/flow-to-canvas.ts`
+   (categories are auto-generated from this map via `buildCategories()`).
 6. Write tests in the appropriate test file.
 7. Run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
 
