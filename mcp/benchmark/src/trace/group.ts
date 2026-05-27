@@ -4,6 +4,7 @@ import type { SearchProvenanceEntry } from "../types";
 export const SEARCH_TOOL_NAMES = new Set([
   "stakgraph_search",
   "fulltext_search",
+  "graph_search",
 ]);
 
 export function groupEvents(events: TraceEvent[]): DisplayUnit[] {
