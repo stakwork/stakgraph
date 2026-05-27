@@ -1,0 +1,56 @@
+:root {
+  --bg: #0a0e13;
+  --surface: #111820;
+  --surface-2: #1a2230;
+  --border: #232c3b;
+  --border-strong: #2f3a4c;
+
+  --text: #e7ecf3;
+  --text-muted: #97a1b1;
+  --text-dim: #6b7689;
+
+  --accent: #6ea8ff;
+  --accent-strong: #8db8ff;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --ok: #22c55e;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; cursor: pointer; }
+code, pre, .mono { font-family: var(--font-mono); }

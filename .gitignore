@@ -70,3 +70,10 @@ out.txt
 
 #Local AI files
 .github/copilot-*
+
+# Vein
+vein/workspace
+vein/build
+vein/node_modules
+vein/web/dist
+vein/web/node_modules

@@ -1,0 +1,837 @@
+# Mini Workflow Engine — Spec
+
+A minimal, LLM-friendly workflow engine. Workflows are YAML. Steps are TypeScript files. Runs are persisted to disk as JSONL. Ships with an HTTP API and a web UI.
+
+---
+
+## 1. Goals
+
+- Workflows are YAML files — easy for LLMs and humans to read, edit, and compose.
+- Trivially renderable in a visual UI (boxes + nested boxes). Ships with a built-in web UI using system-canvas.
+- Steps are TypeScript code (`defineStep()`) — the leaf nodes that actually do things.
+- Huge workflows scale via child workflows (`subflow`) — one workflow per file.
+- Runs are observable: every step start/end/error is logged to JSONL on disk.
+- HTTP API for all operations: publish, run, inspect, manage versions.
+
+---
+
+## 2. File Layout
+
+The engine has two layers: the **engine** (immutable, baked into a Docker image) and the **workspace** (mutable, user content on a persistent volume).
+
+### 2.1 Engine (immutable)
+
+```
+src/
+  core.ts               # flow(), step(), defineStep(), types
+  runner.ts             # execution engine
+  expr.ts               # template expression evaluator
+  store.ts              # RunStore interface + filesystem implementation
+  workspace.ts          # workspace manager (discovery, versioning)
+  server.ts             # Hono HTTP API + static file serving
+  steps/
+    core/               # built-ins, never modified
+      http.ts
+      if.ts
+      loop.ts
+      parallel.ts
+      subflow.ts
+      log.ts
+      llm.ts
+    registry.ts         # auto-discovers and registers all step types
+web/                    # Preact + system-canvas UI (built to web/dist/)
+  src/
+    app.tsx             # main app: sidebar, canvas, event log
+    api.ts              # typed API client
+    flow-to-canvas.ts   # Flow → CanvasData converter for visualization
+    styles/
+      base.css          # palette, reset, custom properties
+      components.css    # shell layout, sidebar, badges, dialog, events
+```
+
+### 2.2 Workspace (mutable, persistent volume)
+
+Set via `VEIN_WORKSPACE` env var (default: `./workspace`). This is a mounted volume in Docker.
+
+```
+$VEIN_WORKSPACE/
+  workflows/
+    deploy/
+      _metadata.json    # { "active": "v2", "versions": { ... } }
+      v1.yaml           # workflow definition
+      v2.yaml
+      runs/             # runs scoped to this workflow
+        1748374800123/  # timestamp-based run ID (ms)
+          events.jsonl
+          run.json
+        1748374856789/
+          events.jsonl
+          run.json
+    poll-and-notify/
+      _metadata.json
+      v1.yaml
+      runs/
+  steps/
+    lib/                # reusable domain steps (integrations, services)
+      github/
+        _metadata.json
+        fetch-prs.ts
+        fetch-commit.ts
+        list-files.ts
+      neo4j/
+        _metadata.json
+        query.ts
+        save-node.ts
+      slack/
+        _metadata.json
+        send-message.ts
+    custom/             # user/LLM-created steps, generated at runtime
+      _metadata.json
+      my-scorer.ts
+      parse-diff.ts
+```
+
+- **`steps/core/`** (engine): built-in control flow and primitives. Frozen — never edited by users or LLMs.
+- **`steps/lib/`** (workspace): reusable domain steps organized by integration/service (e.g. `github/`, `neo4j/`, `slack/`). Grows as you add integrations. Shared across all workflows.
+- **`steps/custom/`** (workspace): user-created or LLM-generated steps. An LLM can create a new step by writing a `.ts` file here; it's immediately usable in workflows.
+- Each workflow lives in its own directory under `workflows/`, with versioned `.yaml` files and a `_metadata.json`.
+- Child workflows are referenced by name via the `subflow` step type.
+
+---
+
+## 3. Authoring API
+
+### 3.1 `flow(name, input, steps)`
+
+```ts
+import { z } from "zod";
+import { flow, step } from "../core";
+
+export default flow("deploy", {
+  input: z.object({ service: z.string() }),
+  steps: [
+    step("kick", "http", { url: "/deploy", method: "POST" }),
+    step("done", "log", { message: "deployed {{ input.service }}" }),
+  ],
+});
+```
+
+- `name`: unique workflow name (string).
+- `input`: Zod schema for the workflow's input. Required (use `z.object({})` if none).
+- `steps`: ordered array of steps. Runs sequentially. Workflow's return value is the **last step's output**.
+
+### 3.2 `step(id, type, config)`
+
+```ts
+step("check", "http", { url: "{{ input.url }}" });
+```
+
+- `id`: unique within the enclosing `flow` or branch. String, `[a-zA-Z_][a-zA-Z0-9_]*`.
+- `type`: a key in the step registry. Type-checked.
+- `config`: shape determined by the step's input schema. Type-checked.
+
+### 3.3 `defineStep(...)` (authoring a step type)
+
+```ts
+// steps/http.ts
+import { z } from "zod";
+import { defineStep } from "../core";
+
+export default defineStep({
+  type: "http",
+  input: z.object({
+    url: z.string(),
+    method: z.enum(["GET", "POST", "PUT", "DELETE"]).default("GET"),
+    body: z.any().optional(),
+    headers: z.record(z.string()).optional(),
+  }),
+  output: z.any(),
+  async run(cfg, ctx) {
+    const res = await fetch(cfg.url, {
+      method: cfg.method,
+      body: cfg.body ? JSON.stringify(cfg.body) : undefined,
+      headers: cfg.headers,
+    });
+    return { status: res.status, body: await res.json() };
+  },
+});
+```
+
+Step registry (`steps/index.ts`) imports each step and exposes a typed union; `step()`'s type/config args are inferred from this registry.
+
+---
+
+## 4. Step Type Resolution
+
+Step type names are resolved by path relative to `steps/`, with the directory prefix as namespace:
+
+- `"http"` → `steps/core/http.ts`
+- `"github/fetch-prs"` → `steps/lib/github/fetch-prs.ts`
+- `"neo4j/query"` → `steps/lib/neo4j/query.ts`
+- `"my-scorer"` → `steps/custom/my-scorer.ts`
+
+Resolution order: `core/` → `lib/` → `custom/`. If a name has no `/`, it's looked up in `core/` first, then `custom/`. Names with `/` are looked up directly in `lib/` (or `custom/` if prefixed with `custom/`).
+
+The registry auto-discovers all three directories at startup and builds the typed union. Adding a file to any directory registers a new step type — no manual wiring needed.
+
+### 4.1 Core Steps
+
+All core steps live in `steps/core/`. These are built-in control flow primitives and basic utilities.
+
+#### 4.1.1 `http`
+
+Config: `{ url, method?, body?, headers? }` (templates allowed in all string fields).
+Output: `{ status, body }`.
+
+#### 4.1.2 `log`
+
+Config: `{ message: string, level?: "info"|"warn"|"error" }`.
+Output: the resolved message string.
+
+#### 4.1.3 `if`
+
+Config: `{ cond: string /* {{ expr }} */, then: Step, else: Step }`.
+Output: the executed branch's output.
+
+#### 4.1.4 `loop`
+
+Config:
+
+```ts
+{
+  until: string,        // {{ expr }} evaluated against the body's last output
+  maxIterations: number,
+  delayMs?: number,
+  body: Step,
+}
+```
+
+- Iteration N runs `body`. Inside `body`'s config, `{{ $current }}` is the **previous iteration's** output (undefined on iteration 0).
+- After each iteration, `until` is evaluated; if true, loop exits.
+- If `maxIterations` is reached without `until` becoming true, the loop **fails** (errors the run).
+- Output: the **last iteration's** output.
+
+#### 4.1.5 `parallel`
+
+Config:
+
+```ts
+{
+  branches: Record<string, Flow>;
+}
+```
+
+- Each branch is a `flow(...)` (a sub-flow, _not_ a single step). Branches run concurrently via `Promise.all`.
+- All branches receive the same parent context.
+- Output: `{ [branchName]: <last step output of that branch> }`.
+- A branch failure fails the whole `parallel` step (unless wrapped in step-level `onError`).
+
+Example:
+
+```ts
+step("fan", "parallel", {
+  branches: {
+    left:  flow("left",  { input: z.any(), steps: [ /* many steps */ ] }),
+    right: flow("right", { input: z.any(), steps: [ /* many steps */ ] }),
+  },
+}),
+step("merge", "http", {
+  url: "/merge",
+  method: "POST",
+  body: { l: "{{ fan.left }}", r: "{{ fan.right }}" },
+}),
+```
+
+#### 4.1.6 `subflow`
+
+Config: `{ flow: Flow, input: object }`.
+
+- Runs the imported flow as a child. Input must satisfy that flow's `input` schema (validated at load + at run).
+- Output: that flow's output (its last step's output).
+- Child runs share the parent `runId` and write events into the same `events.jsonl` with a `path` prefix (see §7).
+
+#### 4.1.7 `llm`
+
+Config:
+
+```ts
+{
+  prompt: string,       // template string
+  schema?: z.ZodSchema, // optional structured output schema
+  provider?: string,    // e.g. "anthropic", "openai" — defaults to env
+  model?: string,       // override model
+}
+```
+
+- Calls an LLM with the resolved prompt. If `schema` is provided, uses structured output (e.g. `generateObject`).
+- Output: `{ text: string }` (no schema) or the parsed object (with schema).
+
+### 4.2 Lib Steps
+
+Lib steps live in `steps/lib/<namespace>/`. They are reusable domain-specific integrations shared across all workflows. Each file is a `defineStep(...)` export, same as core steps.
+
+Step type name = `"<namespace>/<filename>"` (e.g. `"github/fetch-prs"`).
+
+Example:
+
+```ts
+// steps/lib/github/fetch-prs.ts
+import { z } from "zod";
+import { defineStep } from "../../core";
+
+export default defineStep({
+  type: "github/fetch-prs",
+  input: z.object({
+    owner: z.string(),
+    repo: z.string(),
+    state: z.enum(["open", "closed", "all"]).default("closed"),
+    token: z.string().optional(),
+  }),
+  output: z.array(z.any()),
+  async run(cfg, ctx) {
+    // Octokit call
+  },
+});
+```
+
+Usage in a workflow:
+
+```ts
+step("prs", "github/fetch-prs", { owner: "{{ input.owner }}", repo: "{{ input.repo }}" }),
+```
+
+### 4.3 Custom Steps
+
+Custom steps live in `steps/custom/`. They are created by users or LLMs at runtime. An LLM can create a new step type by writing a single `.ts` file to this directory — the registry auto-discovers it and it's immediately usable in workflows.
+
+Same `defineStep(...)` format as core and lib steps. Step type name = the filename without extension (e.g. `"my-scorer"` for `steps/custom/my-scorer.ts`). Subdirectories within `custom/` are allowed and follow the same `"dir/name"` naming convention.
+
+---
+
+## 5. Expression Language (`{{ ... }}`)
+
+A small, deterministic evaluator. **Not** `eval`. Implemented from scratch (~100 LOC) or via `expr-eval`.
+
+### 5.1 Scope
+
+Available bindings inside a step config:
+
+- `input` — the workflow's input object.
+- `<stepId>` — output of any previously completed step at the same level.
+- `$current` — only inside a `loop` body; previous iteration's output (undefined on iteration 0).
+
+### 5.2 Syntax
+
+- A config field's value is either a **literal** (non-string, or a string with no `{{`) or a **template string** containing one or more `{{ expr }}` segments.
+- If the entire string is a single `{{ expr }}`, the result keeps the expression's type (object, number, etc.).
+- Otherwise, segments are stringified and concatenated.
+
+### 5.3 Supported expression grammar
+
+- Property access: `foo.bar.baz`, `foo["bar"]`, `arr[0]`.
+- Literals: numbers, strings (single or double quotes), `true`, `false`, `null`.
+- Operators: `=== !== == != < <= > >= && || !  + - * / %`.
+- Ternary: `a ? b : c`.
+- Function calls: **none** in v1.
+
+Examples:
+
+```
+{{ input.url }}
+{{ poll.body.status === "complete" }}
+{{ fan.left.count + fan.right.count }}
+{{ items[0].name }}
+```
+
+### 5.4 Resolution
+
+Before running a step, the runner walks its `config` recursively and resolves every string. Unresolved references (`foo.bar` where `foo` is undefined) throw a `TemplateError` and fail the step.
+
+---
+
+## 6. Error Handling
+
+Every step accepts two optional fields at the **step level** (not inside `config`):
+
+```ts
+step(
+  "check",
+  "http",
+  { url: "/health" },
+  {
+    retry: { max: 3, delayMs: 1000 },
+    onError: step("notify-fail", "http", { url: "/alert", method: "POST" }),
+  },
+);
+```
+
+- `retry`: if `run` throws, retry up to `max` times with `delayMs` between attempts. Default: no retry.
+- `onError`: if all retries fail (or no retry), run this single fallback step. Its output becomes this step's output. The original error is available as `{{ $error }}` inside the fallback's config only.
+- If neither is set and the step throws, the run **fails** (parent `parallel` branches and parent flows propagate the failure).
+
+---
+
+## 7. Persistence & Logging
+
+### 7.1 Run identity
+
+A run is created with a millisecond-timestamp `runId` (e.g. `1748374800123`). Timestamp IDs give natural sort order and easy pagination (runs after X). Runs are stored under the workflow directory:
+
+```
+workflows/<name>/runs/<runId>/events.jsonl
+workflows/<name>/runs/<runId>/run.json     (written at end)
+```
+
+This scoping means listing runs for a workflow is a single `readdir` — no scanning across all workflows.
+
+### 7.2 Event format (JSONL, append-only)
+
+One JSON object per line. Common fields:
+
+```ts
+{
+  ts: "2026-05-26T12:34:56.789Z",
+  runId: "uuid",
+  path: "deploy/fan.left/check",   // slash-separated step path including subflows/branches
+  type: "step.start" | "step.end" | "step.error" | "step.retry" | "run.start" | "run.end" | "run.error",
+  stepType?: "http",
+  input?: any,        // resolved config
+  output?: any,
+  error?: { message: string, stack?: string },
+  durationMs?: number,
+  iteration?: number, // for loop bodies
+}
+```
+
+- `path` uniquely identifies a step instance across subflows, parallel branches, and loop iterations. Loop iterations are appended as `#0`, `#1`, … (e.g. `deploy/wait/check#3`).
+
+### 7.3 `run.json` (final summary)
+
+```ts
+{
+  runId: "uuid",
+  workflow: "deploy",
+  startedAt, finishedAt, durationMs,
+  status: "success" | "error",
+  input: any,
+  output?: any,
+  error?: { message, stack },
+}
+```
+
+### 7.4 Storage interface
+
+Default writer is filesystem. The runner depends on an interface:
+
+```ts
+interface RunStore {
+  append(runId: string, event: object): Promise<void>;
+  finalize(runId: string, summary: object): Promise<void>;
+}
+```
+
+Swap in S3, Postgres, etc. without changing the runner.
+
+---
+
+## 8. Type Safety
+
+The registry is the single source of truth. It is auto-built by scanning `steps/core/`, `steps/lib/`, and `steps/custom/`:
+
+```ts
+// steps/index.ts (auto-generated or dynamic)
+// core
+import http from "./core/http";
+import iff from "./core/if";
+import loop from "./core/loop";
+import parallel from "./core/parallel";
+import subflow from "./core/subflow";
+import log from "./core/log";
+import llm from "./core/llm";
+// lib
+import githubFetchPrs from "./lib/github/fetch-prs";
+import neo4jQuery from "./lib/neo4j/query";
+// custom
+import myScorer from "./custom/my-scorer";
+
+export const registry = {
+  http,
+  if: iff,
+  loop,
+  parallel,
+  subflow,
+  log,
+  llm,
+  "github/fetch-prs": githubFetchPrs,
+  "neo4j/query": neo4jQuery,
+  "my-scorer": myScorer,
+};
+export type Registry = typeof registry;
+```
+
+`step()` is generic over `keyof Registry`, so:
+
+```ts
+step("a", "http", { url: "x" }); // OK
+step("a", "http", { uri: "x" }); // TS error
+step("a", "htttp", { url: "x" }); // TS error
+step("a", "github/fetch-prs", { owner: "x" }); // OK — namespaced type
+step("a", "github/fetch-prs", { user: "x" }); // TS error
+```
+
+Cross-step template references are **not** statically checked (they are strings). They are validated at **load time** by parsing each template and resolving against the known step ids — this happens in `flow()` before any execution, and throws on unknown references.
+
+---
+
+## 9. Runner Contract
+
+```ts
+async function runWorkflow(
+  flow: Flow,
+  input: unknown,
+  opts?: { runId?: string; store?: RunStore },
+): Promise<{
+  runId: string;
+  status: "success" | "error";
+  output?: any;
+  error?: any;
+}>;
+```
+
+Behavior:
+
+1. Generate `runId` if not provided.
+2. Validate `input` against `flow.input`. Validation failure → `run.error`, no steps run.
+3. Emit `run.start`.
+4. Walk `flow.steps` sequentially. For each step:
+   - Resolve templates in `config`.
+   - Emit `step.start`.
+   - Run the step (with retry/onError as configured).
+   - Emit `step.end` or `step.error`.
+   - Store output keyed by step id for later templates at this scope.
+5. Workflow output = last step's output.
+6. Emit `run.end` (or `run.error`).
+7. Call `store.finalize(...)`.
+
+Scope rules:
+
+- Each `flow` (top-level or subflow or parallel branch) has its own step-output scope.
+- A step inside a subflow **cannot** reference steps in the parent.
+- Inputs to subflows must pass through their `input` config explicitly.
+
+---
+
+## 10. Workspace & Deployment
+
+### 10.1 Workspace directory
+
+The engine discovers user content from a single workspace root, configured via:
+
+```
+VEIN_WORKSPACE=/data/vein
+```
+
+Default: `./workspace` relative to the engine's working directory. In Docker, this is a mounted persistent volume.
+
+The engine's built-in `steps/core/` lives inside the engine image. At startup, the registry merges core steps (from the engine) with lib and custom steps (from the workspace).
+
+### 10.2 Docker model
+
+```dockerfile
+# Engine image — immutable
+COPY src/ /app/src/
+# Workspace — mounted at runtime
+VOLUME /data/vein
+ENV VEIN_WORKSPACE=/data/vein
+```
+
+Users never modify the engine image. They publish workflows and steps by writing files to the workspace volume.
+
+---
+
+## 11. Versioning & `_metadata.json`
+
+### 11.1 Workflow versioning
+
+Each workflow lives in its own directory. Versions are separate `.yaml` files. A `_metadata.json` tracks which version is active.
+
+```
+workflows/
+  deploy/
+    _metadata.json
+    v1.yaml
+    v2.yaml
+  poll-and-notify/
+    _metadata.json
+    v1.yaml
+```
+
+**`_metadata.json`** for workflows:
+
+```json
+{
+  "active": "v2",
+  "versions": {
+    "v1": { "createdAt": "2026-05-20T10:00:00Z", "description": "initial deploy flow" },
+    "v2": { "createdAt": "2026-05-27T14:30:00Z", "description": "added retry on kick" },
+    "v3": { "createdAt": "2026-05-27T16:00:00Z", "description": "draft — not yet active" }
+  }
+}
+```
+
+- **`active`**: the version key the runner uses when you say "run deploy." Must match a key in `versions`.
+- **`versions`**: metadata about each version. The engine doesn't strictly need this to run — it can resolve `active` to `<active>.ts` — but it enables UI listing, audit, and rollback.
+- **Publishing a new version**: write the `.yaml` file, add an entry to `versions`, set `active` to the new key. The API handles this automatically.
+- **Rollback**: change `active` back to a previous version key (`PUT /workflows/:name/active`).
+
+When the runner resolves a workflow name:
+1. Look up `workflows/<name>/_metadata.json`.
+2. Read `active` field → load `workflows/<name>/<active>.yaml`.
+
+#### YAML workflow format
+
+```yaml
+name: deploy
+steps:
+  - id: kick
+    type: http
+    config:
+      url: "/deploy/{{ input.service }}"
+      method: POST
+  - id: done
+    type: log
+    config:
+      message: "deployed {{ input.service }}"
+```
+
+YAML workflows accept any input (equivalent to `z.any()`). The engine parses the YAML at load time and constructs a `Flow` object.
+
+### 11.2 Step metadata
+
+Step directories use `_metadata.json` for discoverability and documentation, not versioning (steps are not versioned in v1 — they are single files).
+
+**`_metadata.json`** for step directories:
+
+```json
+{
+  "steps": {
+    "fetch-prs": { "createdAt": "2026-05-20T10:00:00Z", "description": "List PRs from GitHub" },
+    "fetch-commit": { "createdAt": "2026-05-25T12:00:00Z", "description": "Fetch a single commit" }
+  }
+}
+```
+
+The engine can function without these files — it discovers steps by scanning `.ts` files. The metadata is for UI rendering, LLM context, and documentation.
+
+### 11.3 WorkspaceManager API
+
+The engine exposes programmatic helpers used by the HTTP server:
+
+```ts
+interface WorkspaceManager {
+  // Workflows
+  listWorkflows(): Promise<WorkflowInfo[]>;
+  getWorkflow(name: string): Promise<Flow>;
+  getWorkflowSource(name: string, version: string): Promise<string>; // raw YAML
+  publishWorkflow(name: string, version: string, content: { steps: any[] } | string, description?: string): Promise<void>;
+  setActiveVersion(name: string, version: string): Promise<void>;
+
+  // Steps
+  listSteps(): Promise<StepInfo[]>;
+  publishStep(namespace: string, name: string, code: string, description?: string): Promise<void>;
+}
+```
+
+---
+
+## 12. HTTP API
+
+The engine ships with an HTTP server (Hono) that exposes all operations. Set `VEIN_PORT` (default: `3000`).
+
+### 12.1 Workflows
+
+| Method | Path                           | Description                                                      |
+| ------ | ------------------------------ | ---------------------------------------------------------------- |
+| GET    | `/workflows`                   | List all workflows with metadata                                 |
+| GET    | `/workflows/:name`             | Get workflow metadata (versions, active)                         |
+| GET    | `/workflows/:name/flow`        | Get parsed flow structure (JSON) for the active version          |
+| GET    | `/workflows/:name/:version`    | Get workflow YAML source for a specific version                  |
+| POST   | `/workflows/:name`             | Publish new version: `{ version, steps }` or `{ version, yaml }` |
+| PUT    | `/workflows/:name/active`      | Set active version: `{ version }`                                |
+| POST   | `/workflows/:name/run`         | Run active version: `{ input?, runId? }`                         |
+| POST   | `/workflows/:name/:version/run`| Run specific version: `{ input?, runId? }`                       |
+
+### 12.2 Steps
+
+| Method | Path     | Description                                                       |
+| ------ | -------- | ----------------------------------------------------------------- |
+| GET    | `/steps` | List all steps (core + workspace lib + custom)                    |
+| POST   | `/steps` | Publish step: `{ namespace, name, code, description? }`           |
+
+### 12.3 Runs & Logs
+
+Runs are scoped to workflows. Run IDs are millisecond timestamps.
+
+| Method | Path                                      | Description                                    |
+| ------ | ----------------------------------------- | ---------------------------------------------- |
+| GET    | `/workflows/:name/runs`                   | List runs for a workflow (newest first)         |
+| GET    | `/workflows/:name/runs/:runId`            | Get run summary (run.json)                      |
+| GET    | `/workflows/:name/runs/:runId/events`     | Get all events as JSON array                    |
+
+### 12.4 Health
+
+| Method | Path      | Description                                    |
+| ------ | --------- | ---------------------------------------------- |
+| GET    | `/health` | Returns workspace path and registered step count |
+
+---
+
+## 13. Web UI
+
+The engine serves a built-in web UI at the root path (`/`). Stack: Preact + system-canvas-react. Vanilla CSS, no Tailwind. ~75 KB gzipped total.
+
+### 13.1 Features
+
+- **Workflow list** — sidebar showing all workflows with active version badges.
+- **Create workflow** — dialog with YAML editor and pre-filled example.
+- **Flow graph** — system-canvas viewport rendering the workflow's steps as connected nodes. Step types are color-coded (green=http, blue=log, yellow=if, purple=loop, red=parallel, cyan=subflow).
+- **Run workflow** — button to execute the active version. Accepts input JSON.
+- **Run history** — sidebar list of runs with status badges (green/red/yellow).
+- **Event log** — bottom panel showing the JSONL event stream for the selected run, color-coded by event type.
+- **Run status overlay** — canvas nodes color green (success), red (error), or yellow (running) when viewing a run.
+
+### 13.2 Development
+
+```bash
+# Dev mode (vite + API proxy)
+cd vein && npm run dev        # API on :3000
+cd vein/web && npm run dev    # UI on :5173 (proxies API to :3000)
+
+# Production (single server)
+cd vein/web && npm run build  # build to web/dist/
+cd vein && npm run dev        # serves API + UI on :3000
+```
+
+### 13.3 Flow visualization
+
+The `flow-to-canvas.ts` module converts a `Flow` object into a `CanvasData` for system-canvas:
+
+- **Sequential steps** → vertical chain of nodes connected by edges
+- **`parallel`** → fork node, side-by-side branches, join node
+- **`if`** → condition node with labeled then/else branch edges
+- **`loop`** → enlarged node showing body step name
+- **`subflow`** → navigable sub-canvas (via system-canvas `ref`)
+
+---
+
+## 14. Out of Scope (v1)
+
+- True DAGs (arbitrary cross-branch joins). Use nested `parallel` + `subflow` instead.
+- Function values in configs.
+- Function calls inside template expressions.
+- Cancellation / pause / resume.
+- Distributed execution.
+
+---
+
+## 15. Minimal Examples
+
+### 15.1 Poll until ready, then webhook
+
+```ts
+import { z } from "zod";
+import { flow, step } from "../core";
+
+export default flow("poll-and-notify", {
+  input: z.object({ pollUrl: z.string(), webhookUrl: z.string() }),
+  steps: [
+    step("poll", "loop", {
+      until: "{{ $current.body.status === 'complete' }}",
+      maxIterations: 30,
+      delayMs: 2000,
+      body: step("check", "http", { url: "{{ input.pollUrl }}" }),
+    }),
+    step("notify", "http", {
+      url: "{{ input.webhookUrl }}",
+      method: "POST",
+      body: "{{ poll.body.result }}",
+    }),
+  ],
+});
+```
+
+### 15.2 Parallel branches with merge
+
+```ts
+export default flow("enrich", {
+  input: z.object({ id: z.string() }),
+  steps: [
+    step("fan", "parallel", {
+      branches: {
+        profile: flow("profile-branch", {
+          input: z.any(),
+          steps: [step("p", "http", { url: "/profile/{{ input.id }}" })],
+        }),
+        orders: flow("orders-branch", {
+          input: z.any(),
+          steps: [step("o", "http", { url: "/orders/{{ input.id }}" })],
+        }),
+      },
+    }),
+    step("save", "http", {
+      url: "/save",
+      method: "POST",
+      body: { profile: "{{ fan.profile }}", orders: "{{ fan.orders }}" },
+    }),
+  ],
+});
+```
+
+### 15.3 Child workflow (subflow)
+
+```ts
+import notify from "./notify";
+
+export default flow("deploy", {
+  input: z.object({ service: z.string() }),
+  steps: [
+    step("kick", "http", {
+      url: "/deploy/{{ input.service }}",
+      method: "POST",
+    }),
+    step("tell", "subflow", { flow: notify, input: { message: "deployed" } }),
+  ],
+});
+```
+
+### 15.4 Publishing via API
+
+```bash
+# Create a workflow (steps array — server serializes to YAML)
+curl -X POST http://localhost:3000/workflows/hello \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "version": "v1",
+    "steps": [
+      { "id": "greet", "type": "log", "config": { "message": "Hello {{ input.name }}!" } },
+      { "id": "fetch", "type": "http", "config": { "url": "https://httpbin.org/json" } }
+    ],
+    "description": "A hello world workflow"
+  }'
+
+# Or publish raw YAML
+curl -X POST http://localhost:3000/workflows/hello \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "version": "v1",
+    "yaml": "name: hello\nsteps:\n  - id: greet\n    type: log\n    config:\n      message: \"Hello {{ input.name }}!\"\n"
+  }'
+
+# Run it
+curl -X POST http://localhost:3000/workflows/hello/run \
+  -H 'Content-Type: application/json' \
+  -d '{ "input": { "name": "World" } }'
+
+# View the run events
+curl http://localhost:3000/workflows/hello/runs/<runId>/events
+```
