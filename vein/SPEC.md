@@ -34,7 +34,6 @@ src/
       http.ts
       if.ts
       loop.ts
-      parallel.ts
       subflow.ts
       log.ts
       llm.ts
@@ -118,17 +117,20 @@ export default flow("deploy", {
 
 - `name`: unique workflow name (string).
 - `input`: Zod schema for the workflow's input. Required (use `z.object({})` if none).
-- `steps`: ordered array of steps. Runs sequentially. Workflow's return value is the **last step's output**.
+- `steps`: ordered array of steps. By default, steps run sequentially (each implicitly depends on the previous). Steps with explicit `depends` form a DAG — steps sharing the same dependency run concurrently. Workflow's return value is the **last step's output** (by array order).
 
-### 3.2 `step(id, type, config)`
+### 3.2 `step(id, type, config, options?)`
 
 ```ts
 step("check", "http", { url: "{{ input.url }}" });
+step("fast", "http", { url: "/fast" }, { depends: [] });           // no deps = run immediately
+step("merge", "log", { message: "done" }, { depends: ["a", "b"] }); // wait for a & b
 ```
 
 - `id`: unique within the enclosing `flow` or branch. String, `[a-zA-Z_][a-zA-Z0-9_]*`.
 - `type`: a key in the step registry. Type-checked.
 - `config`: shape determined by the step's input schema. Type-checked.
+- `depends`: optional. `string | string[]`. If omitted, the step implicitly depends on the previous step in the array (sequential). `depends: []` means no dependencies — runs immediately in parallel. `depends: "stepId"` or `depends: ["a", "b"]` waits for those steps.
 
 ### 3.3 `defineStep(...)` (authoring a step type)
 
@@ -211,38 +213,7 @@ Config:
 - If `maxIterations` is reached without `until` becoming true, the loop **fails** (errors the run).
 - Output: the **last iteration's** output.
 
-#### 4.1.5 `parallel`
-
-Config:
-
-```ts
-{
-  branches: Record<string, Flow>;
-}
-```
-
-- Each branch is a `flow(...)` (a sub-flow, _not_ a single step). Branches run concurrently via `Promise.all`.
-- All branches receive the same parent context.
-- Output: `{ [branchName]: <last step output of that branch> }`.
-- A branch failure fails the whole `parallel` step (unless wrapped in step-level `onError`).
-
-Example:
-
-```ts
-step("fan", "parallel", {
-  branches: {
-    left:  flow("left",  { input: z.any(), steps: [ /* many steps */ ] }),
-    right: flow("right", { input: z.any(), steps: [ /* many steps */ ] }),
-  },
-}),
-step("merge", "http", {
-  url: "/merge",
-  method: "POST",
-  body: { l: "{{ fan.left }}", r: "{{ fan.right }}" },
-}),
-```
-
-#### 4.1.6 `subflow`
+#### 4.1.5 `subflow`
 
 Config: `{ flow: Flow, input: object }`.
 
@@ -250,7 +221,7 @@ Config: `{ flow: Flow, input: object }`.
 - Output: that flow's output (its last step's output).
 - Child runs share the parent `runId` and write events into the same `events.jsonl` with a `path` prefix (see §7).
 
-#### 4.1.7 `llm`
+#### 4.1.6 `llm`
 
 Config:
 
@@ -367,7 +338,7 @@ step(
 
 - `retry`: if `run` throws, retry up to `max` times with `delayMs` between attempts. Default: no retry.
 - `onError`: if all retries fail (or no retry), run this single fallback step. Its output becomes this step's output. The original error is available as `{{ $error }}` inside the fallback's config only.
-- If neither is set and the step throws, the run **fails** (parent `parallel` branches and parent flows propagate the failure).
+- If neither is set and the step throws, the run **fails** (the `Promise.all` in the DAG executor rejects and the error propagates).
 
 ---
 
@@ -444,7 +415,6 @@ The registry is the single source of truth. It is auto-built by scanning `steps/
 import http from "./core/http";
 import iff from "./core/if";
 import loop from "./core/loop";
-import parallel from "./core/parallel";
 import subflow from "./core/subflow";
 import log from "./core/log";
 import llm from "./core/llm";
@@ -458,7 +428,6 @@ export const registry = {
   http,
   if: iff,
   loop,
-  parallel,
   subflow,
   log,
   llm,
@@ -503,19 +472,20 @@ Behavior:
 1. Generate `runId` if not provided.
 2. Validate `input` against `flow.input`. Validation failure → `run.error`, no steps run.
 3. Emit `run.start`.
-4. Walk `flow.steps` sequentially. For each step:
+4. Build dependency graph from `depends` fields (implicit sequential if omitted).
+5. Launch all steps via `Promise.all`. Each step waits for its own dependencies internally before executing:
    - Resolve templates in `config`.
    - Emit `step.start`.
    - Run the step (with retry/onError as configured).
    - Emit `step.end` or `step.error`.
    - Store output keyed by step id for later templates at this scope.
-5. Workflow output = last step's output.
-6. Emit `run.end` (or `run.error`).
-7. Call `store.finalize(...)`.
+6. Workflow output = last step's output (by array order).
+7. Emit `run.end` (or `run.error`).
+8. Call `store.finalize(...)`.
 
 Scope rules:
 
-- Each `flow` (top-level or subflow or parallel branch) has its own step-output scope.
+- Each `flow` (top-level or subflow) has its own step-output scope.
 - A step inside a subflow **cannot** reference steps in the parent.
 - Inputs to subflows must pass through their `input` config explicitly.
 
@@ -602,6 +572,27 @@ steps:
     type: log
     config:
       message: "deployed {{ input.service }}"
+```
+
+Steps can include an optional `depends` field for DAG execution:
+
+```yaml
+name: enrich
+steps:
+  - id: profile
+    type: http
+    config:
+      url: "/profile/{{ input.id }}"
+  - id: orders
+    type: http
+    config:
+      url: "/orders/{{ input.id }}"
+    depends: []                          # no deps = runs in parallel with profile
+  - id: save
+    type: log
+    config:
+      message: "done"
+    depends: [profile, orders]           # waits for both
 ```
 
 YAML workflows accept any input (equivalent to `z.any()`). The engine parses the YAML at load time and constructs a `Flow` object.
@@ -694,11 +685,12 @@ The engine serves a built-in web UI at the root path (`/`). Stack: Preact + syst
 
 - **Workflow list** — sidebar showing all workflows with active version badges.
 - **Create workflow** — dialog with YAML editor and pre-filled example.
-- **Flow graph** — system-canvas viewport rendering the workflow's steps as connected nodes. Step types are color-coded (green=http, blue=log, yellow=if, purple=loop, red=parallel, cyan=subflow).
+- **Flow graph** — system-canvas viewport rendering the workflow's steps as a DAG. Step types are color-coded (green=http, blue=log, yellow=if, purple=loop, cyan=subflow). Edges from `depends`. Topological layer layout (same-depth steps side by side).
+- **Visual editing** — canvas is editable when not viewing a run. Drag-to-connect creates `depends` edges. "+" FAB opens searchable Add Step dialog (core/lib/custom). Delete key removes nodes/edges. Click node to edit in flyout.
 - **Run workflow** — button to execute the active version. Accepts input JSON.
 - **Run history** — sidebar list of runs with status badges (green/red/yellow).
 - **Event log** — bottom panel showing the JSONL event stream for the selected run, color-coded by event type.
-- **Run status overlay** — canvas nodes color green (success), red (error), or yellow (running) when viewing a run.
+- **Run status overlay** — canvas nodes show green (success), red (error), or yellow (running) when viewing a run.
 
 ### 13.2 Development
 
@@ -712,21 +704,25 @@ cd vein/web && npm run build  # build to web/dist/
 cd vein && npm run dev        # serves API + UI on :3000
 ```
 
-### 13.3 Flow visualization
+### 13.3 Flow visualization & editing
 
-The `flow-to-canvas.ts` module converts a `Flow` object into a `CanvasData` for system-canvas:
+The `flow-to-canvas.ts` module converts a `Flow` object into a `CanvasData` for system-canvas. Layout uses topological layers — steps at the same dependency depth are placed side by side.
 
-- **Sequential steps** → vertical chain of nodes connected by edges
-- **`parallel`** → fork node, side-by-side branches, join node
+- **Edges** come from `depends` (or implicit sequential)
 - **`if`** → condition node with labeled then/else branch edges
 - **`loop`** → enlarged node showing body step name
-- **`subflow`** → navigable sub-canvas (via system-canvas `ref`)
+
+The canvas is `editable={true}` when not viewing a run:
+
+- **Drag-to-connect** between nodes creates `depends` edges
+- **"+" FAB** opens a searchable Add Step dialog (core/lib/custom types)
+- **Delete key** removes selected nodes/edges
+- **Click node** opens the step edit flyout (YAML editor with id, type, config, depends)
 
 ---
 
 ## 14. Out of Scope (v1)
 
-- True DAGs (arbitrary cross-branch joins). Use nested `parallel` + `subflow` instead.
 - Function values in configs.
 - Function calls inside template expressions.
 - Cancellation / pause / resume.
@@ -760,29 +756,19 @@ export default flow("poll-and-notify", {
 });
 ```
 
-### 15.2 Parallel branches with merge
+### 15.2 Parallel branches with merge (DAG)
 
 ```ts
 export default flow("enrich", {
   input: z.object({ id: z.string() }),
   steps: [
-    step("fan", "parallel", {
-      branches: {
-        profile: flow("profile-branch", {
-          input: z.any(),
-          steps: [step("p", "http", { url: "/profile/{{ input.id }}" })],
-        }),
-        orders: flow("orders-branch", {
-          input: z.any(),
-          steps: [step("o", "http", { url: "/orders/{{ input.id }}" })],
-        }),
-      },
-    }),
+    step("profile", "http", { url: "/profile/{{ input.id }}" }),
+    step("orders", "http", { url: "/orders/{{ input.id }}" }, { depends: [] }),
     step("save", "http", {
       url: "/save",
       method: "POST",
-      body: { profile: "{{ fan.profile }}", orders: "{{ fan.orders }}" },
-    }),
+      body: { profile: "{{ profile }}", orders: "{{ orders }}" },
+    }, { depends: ["profile", "orders"] }),
   ],
 });
 ```

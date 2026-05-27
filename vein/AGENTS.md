@@ -27,15 +27,15 @@ vein/
 ├── src/
 │   ├── core.ts            # flow(), step(), defineStep(), all types
 │   ├── expr.ts            # {{ }} template evaluator (~300 LOC recursive descent)
-│   ├── runner.ts          # execution engine: sequential, retry, onError, control flow
+│   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore
 │   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, JSON + .ts loading
 │   ├── server.ts          # Hono HTTP API + static file serving (entry point)
 │   ├── index.ts           # barrel export
 │   ├── steps/
-│   │   ├── core/          # 8 built-in steps: http, log, if, loop, parallel, subflow, llm, wait
+│   │   ├── core/          # 7 built-in steps: http, log, if, loop, subflow, llm, wait
 │   │   └── registry.ts    # auto-discovery: merges core + workspace lib/ + custom/
-│   ├── *.test.ts          # 188 tests across 6 files
+│   ├── *.test.ts          # 197 tests across 7 files
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000
@@ -56,7 +56,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 196 tests, ~200ms
+npm test                    # 197 tests, ~200ms
 npm run dev                 # starts Hono server on :3000
 
 # Web UI (dev mode with HMR)
@@ -85,9 +85,21 @@ cd vein && npm run dev        # serves API + UI on :3000
   serializes to YAML) or a raw `yaml` string. Files are stored as
   `<version>.yaml` in the workflow directory. `js-yaml` for parsing.
 
-- **Control flow steps** (`if`, `loop`, `parallel`, `subflow`) are
-  intercepted by the runner before registry lookup. Their config is
-  NOT pre-resolved by `executeStep` — they manage their own template
+- **DAG execution via `depends`**. Steps have an optional `depends`
+  field (`string | string[]`). If set, the step waits for those
+  dependencies before running. If omitted, the step implicitly
+  depends on the previous step in the array (sequential by default).
+  `depends: []` means no dependencies — the step runs immediately
+  in parallel with others. The runner launches all steps via
+  `Promise.all`, each waiting on its own deps internally.
+
+- **No `parallel` step type**. Parallelism is expressed purely via
+  `depends`. Two steps with the same `depends` run concurrently.
+  A downstream step with `depends: ["a", "b"]` waits for both.
+
+- **Control flow steps** (`if`, `loop`, `subflow`) are intercepted
+  by the runner before registry lookup. Their config is NOT
+  pre-resolved by `executeStep` — they manage their own template
   resolution (see `SELF_RESOLVING_STEPS` set in `runner.ts`). This
   is because `loop`'s `until` references `$current` which doesn't
   exist until iteration time.
@@ -128,14 +140,23 @@ cd vein && npm run dev        # serves API + UI on :3000
   component classes). No JS styles, no CSS-in-JS, no Tailwind.
   Same pattern as `gateway/internal/adminapi/ui/`.
 
-- **`system-canvas`** for flow visualization. Each step type is
-  a theme **category** (`step-http`, `step-log`, etc.) with a
-  `header` slot showing the uppercase type and a `topRight`
+- **`system-canvas`** for flow visualization **and editing**. The
+  canvas is `editable={true}` when not viewing a run. Each step
+  type is a theme **category** (`step-http`, `step-log`, etc.)
+  with a `header` slot showing the uppercase type and a `topRight`
   custom slot for run status indicators (checkmark = success,
-  X = error, dot = running, clock = pending). Node `text` is
-  the step name (left-aligned by the category layout). Nodes
-  carry `customData: { stepId, stepIndex, status }` so click
-  handlers can map back to steps.
+  X = error, dot = running, clock = pending). Nodes carry
+  `customData: { stepId, stepIndex, status }`. Interactive
+  features: drag-to-connect creates `depends` edges, the "+"
+  FAB opens a searchable Add Step dialog (core/lib/custom),
+  delete key removes nodes/edges. `panMode="trackpad"` for
+  Figma-style two-finger-scroll panning.
+
+- **Add Step dialog** opens from the canvas FAB button. Fetches
+  all available step types from the `/steps` API, groups them
+  by source (core / library / custom), and supports type-ahead
+  search. Selecting a type adds the step with `depends: []` and
+  opens the flyout for configuration.
 
 - **Tests** use `node:test` + `assert/strict`. Each test file
   creates its own helper step definitions (echo, value, fail,
