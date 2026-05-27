@@ -10,12 +10,12 @@ import { midnightTheme, resolveTheme } from "system-canvas";
 
 /**
  * Step data as returned by the API (serialized from the Flow object).
- * The API returns the raw step objects, not the typed Step interface.
  */
 export interface StepData {
   id: string;
   type: string;
   config: Record<string, any>;
+  depends?: string | string[];
   options?: {
     retry?: { max: number; delayMs: number };
     onError?: StepData;
@@ -43,8 +43,8 @@ export interface RunEventData {
 
 const NODE_W = 180;
 const NODE_H = 60;
-const GAP_Y = 40;
-const GAP_X = 60;
+const GAP_Y = 50;
+const GAP_X = 40;
 
 // ── Step type colors (each becomes a theme category) ───────────────────────
 
@@ -53,7 +53,6 @@ const STEP_COLORS: Record<string, { fill: string; stroke: string }> = {
   log:      { fill: "rgba(30, 58, 138, 0.4)", stroke: "#60a5fa" },
   if:       { fill: "rgba(120, 53, 15, 0.4)", stroke: "#f59e0b" },
   loop:     { fill: "rgba(88, 28, 135, 0.4)", stroke: "#a78bfa" },
-  parallel: { fill: "rgba(127, 29, 29, 0.4)", stroke: "#f87171" },
   subflow:  { fill: "rgba(21, 94, 117, 0.4)", stroke: "#22d3ee" },
   llm:      { fill: "rgba(76, 29, 149, 0.4)", stroke: "#c084fc" },
   wait:     { fill: "rgba(71, 85, 105, 0.4)", stroke: "#94a3b8" },
@@ -71,13 +70,6 @@ const STATUS_ERROR = "#ef4444";
 const STATUS_RUNNING = "#f59e0b";
 const STATUS_PENDING = "#6b7689";
 
-/**
- * Render a status indicator in the topRight slot region:
- *   - success  → green checkmark
- *   - error    → red X
- *   - running  → yellow pulsing dot
- *   - pending  → grey clock icon
- */
 function renderStatusIndicator(ctx: SlotContext): unknown {
   const status = ctx.node.customData?.status as string | undefined;
   if (!status) return null;
@@ -88,7 +80,6 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
   const r = Math.min(region.width, region.height) / 2;
 
   if (status === "success") {
-    // Green checkmark
     const s = r * 0.7;
     return createElement("g", { pointerEvents: "none" },
       createElement("path", {
@@ -103,7 +94,6 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
   }
 
   if (status === "error") {
-    // Red X
     const s = r * 0.5;
     return createElement("g", { pointerEvents: "none" },
       createElement("line", {
@@ -118,7 +108,6 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
   }
 
   if (status === "running") {
-    // Yellow pulsing dot
     return createElement("g", { pointerEvents: "none" },
       createElement("circle", {
         cx, cy, r: r * 0.4,
@@ -127,14 +116,13 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
     );
   }
 
-  // pending → grey clock icon
+  // pending
   const cr = r * 0.55;
   return createElement("g", { pointerEvents: "none" },
     createElement("circle", {
       cx, cy, r: cr,
       fill: "none", stroke: STATUS_PENDING, strokeWidth: 1.3,
     }),
-    // hour hand (12 o'clock to 3 o'clock)
     createElement("line", {
       x1: cx, y1: cy, x2: cx, y2: cy - cr * 0.55,
       stroke: STATUS_PENDING, strokeWidth: 1.3, strokeLinecap: "round",
@@ -190,13 +178,39 @@ const veinTheme: CanvasTheme = resolveTheme(
   midnightTheme,
 );
 
-// ── Convert Flow → CanvasData ──────────────────────────────────────────────
+// ── DAG layout helpers ─────────────────────────────────────────────────────
 
-interface LayoutResult {
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
-  width: number;
-  height: number;
+/**
+ * Get explicit deps for a step. If `depends` is set, use it.
+ * Otherwise, implicit sequential: depends on previous step in array.
+ */
+function getDeps(step: StepData, index: number, steps: StepData[]): string[] {
+  if (step.depends != null) {
+    return Array.isArray(step.depends) ? step.depends : [step.depends];
+  }
+  if (index > 0) return [steps[index - 1]!.id];
+  return [];
+}
+
+/**
+ * Assign each step to a topological layer (depth).
+ * Steps with no deps are layer 0. A step's layer = max(dep layers) + 1.
+ */
+function assignLayers(steps: StepData[]): Map<string, number> {
+  const layers = new Map<string, number>();
+
+  function getLayer(id: string): number {
+    if (layers.has(id)) return layers.get(id)!;
+    const idx = steps.findIndex((s) => s.id === id);
+    if (idx === -1) return 0;
+    const deps = getDeps(steps[idx]!, idx, steps);
+    const depth = deps.length === 0 ? 0 : Math.max(...deps.map(getLayer)) + 1;
+    layers.set(id, depth);
+    return depth;
+  }
+
+  for (const s of steps) getLayer(s.id);
+  return layers;
 }
 
 function stepStatus(
@@ -213,153 +227,115 @@ function stepStatus(
   return "running";
 }
 
-function layoutSteps(
-  steps: StepData[],
-  startX: number,
-  startY: number,
-  pathPrefix: string,
+// ── Convert Flow → CanvasData ──────────────────────────────────────────────
+
+export function flowToCanvas(
+  flow: FlowData,
   runEvents?: RunEventData[],
-): LayoutResult {
+): CanvasData {
+  const { steps } = flow;
   const nodes: CanvasNode[] = [];
   const edges: CanvasEdge[] = [];
-  let curY = startY;
-  let maxWidth = NODE_W;
 
+  if (steps.length === 0) {
+    return { nodes, edges, theme: { base: "vein" } };
+  }
+
+  // Assign layers
+  const layers = assignLayers(steps);
+
+  // Group steps by layer
+  const maxLayer = Math.max(...Array.from(layers.values()), 0);
+  const layerGroups: StepData[][] = Array.from({ length: maxLayer + 1 }, () => []);
+  for (const s of steps) {
+    layerGroups[layers.get(s.id) ?? 0]!.push(s);
+  }
+
+  // Layout: each layer is a row, nodes in same layer are side by side
+  const nodePositions = new Map<string, { x: number; y: number }>();
+  let curY = 50;
+
+  for (let layer = 0; layer <= maxLayer; layer++) {
+    const group = layerGroups[layer]!;
+    const totalWidth = group.length * NODE_W + (group.length - 1) * GAP_X;
+    let startX = 100 + (NODE_W - totalWidth) / 2; // center around x=100+NODE_W/2
+
+    for (let i = 0; i < group.length; i++) {
+      const s = group[i]!;
+      const x = startX + i * (NODE_W + GAP_X);
+      nodePositions.set(s.id, { x, y: curY });
+    }
+
+    curY += NODE_H + GAP_Y;
+  }
+
+  // Create nodes
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i]!;
-    const stepPath = `${pathPrefix}/${s.id}`;
-    const colors = colorsFor(s.type);
+    const pos = nodePositions.get(s.id)!;
+    const stepPath = `${flow.name}/${s.id}`;
     const category = `step-${STEP_COLORS[s.type] ? s.type : "default"}`;
     const status = stepStatus(stepPath, runEvents);
 
-    if (s.type === "parallel" && s.config.branches) {
-      // Parallel: lay out branches side by side
-      const branches = Object.entries(s.config.branches as Record<string, FlowData>);
-      const branchLayouts: { name: string; layout: LayoutResult }[] = [];
-      let branchX = startX;
+    const w = s.type === "loop" ? NODE_W + 40 : NODE_W;
+    const h = s.type === "loop" ? NODE_H + 10 : NODE_H;
 
-      for (const [name, branchFlow] of branches) {
-        const branchSteps = branchFlow.steps ?? [];
-        const layout = layoutSteps(
-          branchSteps,
-          branchX,
-          curY + NODE_H + GAP_Y,
-          `${stepPath}.${name}`,
-          runEvents,
-        );
-        branchLayouts.push({ name, layout });
-        branchX += Math.max(layout.width, NODE_W) + GAP_X;
-      }
-
-      // Fork node
-      const forkId = `${pathPrefix}/${s.id}__fork`;
-      const totalBranchWidth = branchX - startX - GAP_X;
-      const forkX = startX + totalBranchWidth / 2 - NODE_W / 2;
-      nodes.push({
-        id: forkId,
-        type: "text",
-        category,
-        text: s.id,
-        x: forkX,
-        y: curY,
-        width: NODE_W,
-        height: NODE_H,
-        customData: { stepId: s.id, stepIndex: i, status },
-      });
-
-      // Add branch nodes and connect
-      for (const { name, layout } of branchLayouts) {
-        nodes.push(...layout.nodes);
-        edges.push(...layout.edges);
-
-        // Edge from fork to first node in branch
-        if (layout.nodes.length > 0) {
-          edges.push({
-            id: `${forkId}__to__${layout.nodes[0]!.id}`,
-            fromNode: forkId,
-            toNode: layout.nodes[0]!.id,
-            label: name,
-          });
-        }
-      }
-
-      // Join node
-      const joinId = `${pathPrefix}/${s.id}__join`;
-      const maxBranchH = Math.max(...branchLayouts.map((b) => b.layout.height), 0);
-      const joinY = curY + NODE_H + GAP_Y + maxBranchH + GAP_Y;
-      nodes.push({
-        id: joinId,
-        type: "text",
-        category,
-        text: `${s.id} (join)`,
-        x: forkX,
-        y: joinY,
-        width: NODE_W,
-        height: NODE_H / 2,
-      });
-
-      // Edges from last node of each branch to join
-      for (const { layout } of branchLayouts) {
-        if (layout.nodes.length > 0) {
-          const lastNode = layout.nodes[layout.nodes.length - 1]!;
-          edges.push({
-            id: `${lastNode.id}__to__${joinId}`,
-            fromNode: lastNode.id,
-            toNode: joinId,
-          });
-        }
-      }
-
-      maxWidth = Math.max(maxWidth, totalBranchWidth);
-      curY = joinY + NODE_H / 2 + GAP_Y;
-
-      // Connect to previous step
-      if (i > 0) {
-        const prevId = nodes.find(
-          (n) => n.id === `${pathPrefix}/${steps[i - 1]!.id}` ||
-                 n.id === `${pathPrefix}/${steps[i - 1]!.id}__join`,
-        )?.id;
-        if (prevId) {
-          edges.push({
-            id: `${prevId}__to__${forkId}`,
-            fromNode: prevId,
-            toNode: forkId,
-          });
-        }
-      }
-      continue;
+    let text = s.id;
+    if (s.type === "loop") {
+      const bodyStep = s.config.body as StepData | undefined;
+      if (bodyStep) text = `${s.id} → ${bodyStep.id}`;
     }
 
-    if (s.type === "if") {
-      // If: show condition with then/else branches
-      const condId = `${pathPrefix}/${s.id}`;
-      nodes.push({
-        id: condId,
-        type: "text",
-        category,
-        text: s.id,
-        x: startX,
-        y: curY,
-        width: NODE_W,
-        height: NODE_H,
-        customData: { stepId: s.id, stepIndex: i, status },
-      });
+    nodes.push({
+      id: `${flow.name}/${s.id}`,
+      type: "text",
+      category,
+      text,
+      x: pos.x,
+      y: pos.y,
+      width: w,
+      height: h,
+      customData: { stepId: s.id, stepIndex: i, status },
+    });
+  }
 
+  // Create edges from depends
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]!;
+    const deps = getDeps(s, i, steps);
+    for (const dep of deps) {
+      const fromId = `${flow.name}/${dep}`;
+      const toId = `${flow.name}/${s.id}`;
+      edges.push({
+        id: `${fromId}__to__${toId}`,
+        fromNode: fromId,
+        toNode: toId,
+      });
+    }
+  }
+
+  // If step: add labeled edges to then/else child nodes
+  for (const s of steps) {
+    if (s.type === "if") {
+      const condId = `${flow.name}/${s.id}`;
       const thenStep = s.config.then as StepData | undefined;
       const elseStep = s.config.else as StepData | undefined;
 
       if (thenStep) {
-        const thenX = startX - NODE_W / 2 - GAP_X / 2;
         const thenId = `${condId}/then/${thenStep.id}`;
         const thenCategory = `step-${STEP_COLORS[thenStep.type] ? thenStep.type : "default"}`;
         const thenStatus = stepStatus(thenId, runEvents);
+        const condPos = nodePositions.get(s.id)!;
+        const thenX = condPos.x - NODE_W / 2 - GAP_X / 2;
+        const thenY = condPos.y + NODE_H + GAP_Y * 0.6;
+
         nodes.push({
           id: thenId,
           type: "text",
           category: thenCategory,
           text: thenStep.id,
           x: thenX,
-          y: curY + NODE_H + GAP_Y,
+          y: thenY,
           width: NODE_W,
           height: NODE_H,
           customData: { status: thenStatus },
@@ -373,17 +349,20 @@ function layoutSteps(
       }
 
       if (elseStep) {
-        const elseX = startX + NODE_W / 2 + GAP_X / 2;
         const elseId = `${condId}/else/${elseStep.id}`;
         const elseCategory = `step-${STEP_COLORS[elseStep.type] ? elseStep.type : "default"}`;
         const elseStatus = stepStatus(elseId, runEvents);
+        const condPos = nodePositions.get(s.id)!;
+        const elseX = condPos.x + NODE_W / 2 + GAP_X / 2;
+        const elseY = condPos.y + NODE_H + GAP_Y * 0.6;
+
         nodes.push({
           id: elseId,
           type: "text",
           category: elseCategory,
           text: elseStep.id,
           x: elseX,
-          y: curY + NODE_H + GAP_Y,
+          y: elseY,
           width: NODE_W,
           height: NODE_H,
           customData: { status: elseStatus },
@@ -395,123 +374,13 @@ function layoutSteps(
           label: "else",
         });
       }
-
-      maxWidth = Math.max(maxWidth, NODE_W * 2 + GAP_X);
-      curY += NODE_H + GAP_Y + NODE_H + GAP_Y;
-
-      if (i > 0) {
-        const prevNodeId = `${pathPrefix}/${steps[i - 1]!.id}`;
-        const prevNode = nodes.find(
-          (n) => n.id === prevNodeId || n.id === `${prevNodeId}__join`,
-        );
-        if (prevNode) {
-          edges.push({
-            id: `${prevNode.id}__to__${condId}`,
-            fromNode: prevNode.id,
-            toNode: condId,
-          });
-        }
-      }
-      continue;
     }
-
-    if (s.type === "loop") {
-      // Loop: show loop node with body info
-      const loopId = `${pathPrefix}/${s.id}`;
-      const bodyStep = s.config.body as StepData | undefined;
-      const bodyLabel = bodyStep ? `${s.id} → ${bodyStep.id}` : s.id;
-      nodes.push({
-        id: loopId,
-        type: "text",
-        category,
-        text: bodyLabel,
-        x: startX,
-        y: curY,
-        width: NODE_W + 40,
-        height: NODE_H + 10,
-        customData: { stepId: s.id, stepIndex: i, status },
-      });
-
-      if (i > 0) {
-        const prevNodeId = `${pathPrefix}/${steps[i - 1]!.id}`;
-        const prevNode = nodes.find(
-          (n) => n.id === prevNodeId || n.id === `${prevNodeId}__join`,
-        );
-        if (prevNode) {
-          edges.push({
-            id: `${prevNode.id}__to__${loopId}`,
-            fromNode: prevNode.id,
-            toNode: loopId,
-          });
-        }
-      }
-
-      curY += NODE_H + 10 + GAP_Y;
-      continue;
-    }
-
-    // Default: simple step node
-    const nodeId = `${pathPrefix}/${s.id}`;
-    nodes.push({
-      id: nodeId,
-      type: "text",
-      category,
-      text: s.id,
-      x: startX,
-      y: curY,
-      width: NODE_W,
-      height: NODE_H,
-      customData: { stepId: s.id, stepIndex: i, status },
-    });
-
-    // Sequential edge
-    if (i > 0) {
-      const prevNodeId = `${pathPrefix}/${steps[i - 1]!.id}`;
-      const prevNode = nodes.find(
-        (n) => n.id === prevNodeId || n.id === `${prevNodeId}__join`,
-      );
-      if (prevNode) {
-        edges.push({
-          id: `${prevNode.id}__to__${nodeId}`,
-          fromNode: prevNode.id,
-          toNode: nodeId,
-        });
-      }
-    }
-
-    curY += NODE_H + GAP_Y;
   }
 
   return {
     nodes,
     edges,
-    width: maxWidth,
-    height: curY - startY,
-  };
-}
-
-/**
- * Convert a Flow (as returned by the API) into a CanvasData for system-canvas.
- * Optionally overlay run status from events.
- */
-export function flowToCanvas(
-  flow: FlowData,
-  runEvents?: RunEventData[],
-): CanvasData {
-  const { nodes, edges } = layoutSteps(
-    flow.steps,
-    100,
-    50,
-    flow.name,
-    runEvents,
-  );
-
-  return {
-    nodes,
-    edges,
-    theme: {
-      base: "vein",
-    },
+    theme: { base: "vein" },
   };
 }
 

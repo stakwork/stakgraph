@@ -98,37 +98,21 @@ describe("integration: complete workflow patterns", () => {
     assert.equal(result.output, "deployed api to prod");
   });
 
-  it("fan-out/fan-in pattern: parallel branches then merge", async () => {
+  it("fan-out/fan-in pattern: DAG branches then merge", async () => {
     const wf = flow("enrich", {
       input: z.object({ id: z.string() }),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            profile: flow("profile-branch", {
-              input: z.any(),
-              steps: [
-                step("fetch", "echo", { url: "/profile/{{ input.id }}" }),
-                step("result", "value", {
-                  result: { name: "User-{{ input.id }}", age: 30 },
-                }),
-              ],
-            }),
-            orders: flow("orders-branch", {
-              input: z.any(),
-              steps: [
-                step("fetch", "echo", { url: "/orders/{{ input.id }}" }),
-                step("result", "value", {
-                  result: { count: 5, total: 250 },
-                }),
-              ],
-            }),
-          },
+        step("profile", "value", {
+          result: { name: "User-{{ input.id }}", age: 30 },
         }),
+        step("orders", "value", {
+          result: { count: 5, total: 250 },
+        }, { depends: [] }),
         step("save", "echo", {
-          profile: "{{ fan.profile }}",
-          orders: "{{ fan.orders }}",
+          profile: "{{ profile }}",
+          orders: "{{ orders }}",
           combined: true,
-        }),
+        }, { depends: ["profile", "orders"] }),
       ],
     });
 
@@ -357,7 +341,7 @@ describe("integration: FileRunStore with runner", () => {
 // ── Integration: Complex nested workflows ──────────────────────────────────
 
 describe("integration: complex nested workflows", () => {
-  it("parallel branches each containing subflows", async () => {
+  it("DAG branches each containing subflows", async () => {
     const worker = flow("worker", {
       input: z.object({ id: z.number() }),
       steps: [
@@ -365,36 +349,22 @@ describe("integration: complex nested workflows", () => {
       ],
     });
 
-    const wf = flow("parallel-subflows", {
+    const wf = flow("dag-subflows", {
       input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            a: flow("branch-a", {
-              input: z.any(),
-              steps: [
-                step("sub", "subflow", {
-                  flow: worker,
-                  input: { id: 1 },
-                }),
-              ],
-            }),
-            b: flow("branch-b", {
-              input: z.any(),
-              steps: [
-                step("sub", "subflow", {
-                  flow: worker,
-                  input: { id: 2 },
-                }),
-              ],
-            }),
-          },
+        step("a", "subflow", {
+          flow: worker,
+          input: { id: 1 },
         }),
+        step("b", "subflow", {
+          flow: worker,
+          input: { id: 2 },
+        }, { depends: [] }),
         step("merge", "echo", {
-          a: "{{ fan.a }}",
-          b: "{{ fan.b }}",
-          sum: "{{ fan.a + fan.b }}",
-        }),
+          a: "{{ a }}",
+          b: "{{ b }}",
+          sum: "{{ a + b }}",
+        }, { depends: ["a", "b"] }),
       ],
     });
 
@@ -406,25 +376,14 @@ describe("integration: complex nested workflows", () => {
     assert.equal(output.sum, 30);
   });
 
-  it("if-then-else with parallel in each branch", async () => {
-    const wf = flow("if-with-parallel", {
+  it("if-then-else branching", async () => {
+    const wf = flow("if-branching", {
       input: z.object({ fast: z.boolean() }),
       steps: [
         step("decide", "if", {
           cond: "{{ input.fast }}",
           then: step("quick", "value", { result: "fast-path" }),
-          else: step("slow", "parallel", {
-            branches: {
-              x: flow("x", {
-                input: z.any(),
-                steps: [step("s", "value", { result: "x-done" })],
-              }),
-              y: flow("y", {
-                input: z.any(),
-                steps: [step("s", "value", { result: "y-done" })],
-              }),
-            },
-          }),
+          else: step("slow", "value", { result: "slow-path" }),
         }),
       ],
     });
@@ -433,9 +392,7 @@ describe("integration: complex nested workflows", () => {
     assert.equal(fast.output, "fast-path");
 
     const slow = await runWorkflow(wf, { fast: false }, makeRegistry());
-    const output = slow.output as any;
-    assert.equal(output.x, "x-done");
-    assert.equal(output.y, "y-done");
+    assert.equal(slow.output, "slow-path");
   });
 
   it("long chain of 10 sequential steps", async () => {
@@ -486,25 +443,15 @@ describe("integration: complex nested workflows", () => {
           then: step("full", "value", { result: "full-mode" }),
           else: step("lite", "value", { result: "lite-mode" }),
         }),
-        // Step 2: parallel
-        step("fan", "parallel", {
-          branches: {
-            left: flow("l", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "left" })],
-            }),
-            right: flow("r", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "right" })],
-            }),
-          },
-        }),
-        // Step 3: loop
+        // Step 2: DAG parallel branches (both depend on "decide")
+        step("left", "value", { result: "left" }, { depends: "decide" }),
+        step("right", "value", { result: "right" }, { depends: "decide" }),
+        // Step 3: loop (depends on both branches)
         step("poll", "loop", {
           until: "{{ $current.tick >= 3 }}",
           maxIterations: 10,
           body: step("tick", "ticker", {}),
-        }),
+        }, { depends: ["left", "right"] }),
         // Step 4: subflow
         step("sub", "subflow", {
           flow: child,
@@ -513,7 +460,8 @@ describe("integration: complex nested workflows", () => {
         // Step 5: echo everything
         step("summary", "echo", {
           mode: "{{ decide }}",
-          branches: "{{ fan }}",
+          left: "{{ left }}",
+          right: "{{ right }}",
           loopResult: "{{ poll }}",
           subResult: "{{ sub }}",
         }),
@@ -528,7 +476,8 @@ describe("integration: complex nested workflows", () => {
     assert.equal(result.status, "success");
     const output = result.output as any;
     assert.equal(output.mode, "full-mode");
-    assert.deepEqual(output.branches, { left: "left", right: "right" });
+    assert.equal(output.left, "left");
+    assert.equal(output.right, "right");
     assert.deepEqual(output.loopResult, { tick: 3 });
     assert.deepEqual(output.subResult, { received: "full-mode" });
   });
@@ -537,20 +486,13 @@ describe("integration: complex nested workflows", () => {
 // ── Integration: Event path tracking ───────────────────────────────────────
 
 describe("integration: event path tracking", () => {
-  it("tracks correct paths through nested control flow", async () => {
+  it("tracks correct paths through DAG", async () => {
     const store = new MemoryRunStore();
     const wf = flow("paths", {
       input: z.object({}),
       steps: [
         step("a", "value", { result: 1 }),
-        step("fan", "parallel", {
-          branches: {
-            left: flow("l", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "L" })],
-            }),
-          },
-        }),
+        step("b", "value", { result: "B" }),
       ],
     });
 
@@ -562,9 +504,9 @@ describe("integration: event path tracking", () => {
     const events = store.getEvents("paths", "path-test");
     const paths = events.map((e) => e.path);
 
-    // Should see paths like: paths, paths/a, paths/fan, paths/fan.left, paths/fan.left/s
+    // Should see paths: paths, paths/a, paths/b
     assert.ok(paths.includes("paths"));
     assert.ok(paths.some((p) => p === "paths/a"));
-    assert.ok(paths.some((p) => p.includes("fan.left")));
+    assert.ok(paths.some((p) => p === "paths/b"));
   });
 });

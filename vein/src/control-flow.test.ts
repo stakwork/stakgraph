@@ -328,74 +328,51 @@ describe("loop step", () => {
   });
 });
 
-// ── parallel step ──────────────────────────────────────────────────────────
+// ── DAG depends (parallel via shared dependency) ───────────────────────────
 
-describe("parallel step", () => {
-  it("runs branches concurrently and returns keyed results", async () => {
-    const wf = flow("par-basic", {
-      input: z.object({ id: z.string() }),
+describe("DAG depends", () => {
+  it("steps with same depends run concurrently", async () => {
+    const wf = flow("dag-basic", {
+      input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            left: flow("left-branch", {
-              input: z.any(),
-              steps: [step("l", "value", { result: "left-result" })],
-            }),
-            right: flow("right-branch", {
-              input: z.any(),
-              steps: [step("r", "value", { result: "right-result" })],
-            }),
-          },
-        }),
+        step("setup", "value", { result: "ready" }),
+        step("left", "value", { result: "left-result" }, { depends: "setup" }),
+        step("right", "value", { result: "right-result" }, { depends: "setup" }),
+        step("merge", "echo", {
+          l: "{{ left }}",
+          r: "{{ right }}",
+        }, { depends: ["left", "right"] }),
       ],
     });
 
-    const result = await runWorkflow(wf, { id: "x" }, makeRegistry());
+    const result = await runWorkflow(wf, {}, makeRegistry());
     assert.equal(result.status, "success");
-    const output = result.output as Record<string, unknown>;
-    assert.equal(output["left"], "left-result");
-    assert.equal(output["right"], "right-result");
+    assert.deepEqual(result.output, { l: "left-result", r: "right-result" });
   });
 
-  it("branches receive parent input", async () => {
-    const wf = flow("par-input", {
+  it("parallel branches can access input", async () => {
+    const wf = flow("dag-input", {
       input: z.object({ id: z.string() }),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            a: flow("a-branch", {
-              input: z.any(),
-              steps: [step("s", "echo", { received: "{{ input.id }}" })],
-            }),
-          },
-        }),
+        step("a", "echo", { received: "{{ input.id }}" }),
+        step("b", "echo", { also: "{{ input.id }}" }, { depends: [] }),
       ],
     });
 
     const result = await runWorkflow(wf, { id: "test-id" }, makeRegistry());
-    const output = result.output as any;
-    assert.deepEqual(output["a"], { received: "test-id" });
+    // b is the last step in array, so its output is returned
+    assert.deepEqual(result.output, { also: "test-id" });
   });
 
-  it("parallel output is available to subsequent steps", async () => {
-    const wf = flow("par-merge", {
+  it("fan-out outputs are available to downstream merge step", async () => {
+    const wf = flow("dag-merge", {
       input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            left: flow("l", {
-              input: z.any(),
-              steps: [step("s", "value", { result: 10 })],
-            }),
-            right: flow("r", {
-              input: z.any(),
-              steps: [step("s", "value", { result: 20 })],
-            }),
-          },
-        }),
+        step("left", "value", { result: 10 }),
+        step("right", "value", { result: 20 }, { depends: [] }),
         step("merge", "echo", {
-          total: "{{ fan.left + fan.right }}",
-        }),
+          total: "{{ left + right }}",
+        }, { depends: ["left", "right"] }),
       ],
     });
 
@@ -403,22 +380,12 @@ describe("parallel step", () => {
     assert.deepEqual(result.output, { total: 30 });
   });
 
-  it("branch failure fails the parallel step", async () => {
-    const wf = flow("par-fail", {
+  it("failure in one parallel branch fails the workflow", async () => {
+    const wf = flow("dag-fail", {
       input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            ok: flow("ok-branch", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "fine" })],
-            }),
-            bad: flow("bad-branch", {
-              input: z.any(),
-              steps: [step("s", "fail", { message: "branch failed" })],
-            }),
-          },
-        }),
+        step("ok", "value", { result: "fine" }),
+        step("bad", "fail", { message: "branch failed" }, { depends: [] }),
       ],
     });
 
@@ -427,34 +394,41 @@ describe("parallel step", () => {
     assert.ok(result.error?.message.includes("branch failed"));
   });
 
-  it("runs three branches", async () => {
-    const wf = flow("par-three", {
+  it("runs three independent branches", async () => {
+    const wf = flow("dag-three", {
       input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            a: flow("a", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "A" })],
-            }),
-            b: flow("b", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "B" })],
-            }),
-            c: flow("c", {
-              input: z.any(),
-              steps: [step("s", "value", { result: "C" })],
-            }),
-          },
-        }),
+        step("a", "value", { result: "A" }),
+        step("b", "value", { result: "B" }, { depends: [] }),
+        step("c", "value", { result: "C" }, { depends: [] }),
+        step("collect", "echo", {
+          a: "{{ a }}",
+          b: "{{ b }}",
+          c: "{{ c }}",
+        }, { depends: ["a", "b", "c"] }),
       ],
     });
 
     const result = await runWorkflow(wf, {}, makeRegistry());
-    const output = result.output as Record<string, unknown>;
-    assert.equal(output["a"], "A");
-    assert.equal(output["b"], "B");
-    assert.equal(output["c"], "C");
+    const output = result.output as any;
+    assert.equal(output.a, "A");
+    assert.equal(output.b, "B");
+    assert.equal(output.c, "C");
+  });
+
+  it("implicit sequential when no depends specified", async () => {
+    const wf = flow("dag-implicit", {
+      input: z.object({}),
+      steps: [
+        step("a", "value", { result: 1 }),
+        step("b", "value", { result: "{{ a + 1 }}" }),
+        step("c", "value", { result: "{{ b + 1 }}" }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.equal(result.output, 3);
   });
 });
 
@@ -560,91 +534,71 @@ describe("subflow step", () => {
 // ── Nested control flow ────────────────────────────────────────────────────
 
 describe("nested control flow", () => {
-  it("if inside parallel", async () => {
-    const wf = flow("nested-if-par", {
+  it("if with parallel independent branches", async () => {
+    const wf = flow("nested-if-dag", {
       input: z.object({ flag: z.boolean() }),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            conditional: flow("cond-branch", {
-              input: z.any(),
-              steps: [
-                step("check", "if", {
-                  cond: "{{ input.flag }}",
-                  then: step("yes", "value", { result: "yes" }),
-                  else: step("no", "value", { result: "no" }),
-                }),
-              ],
-            }),
-          },
+        step("check", "if", {
+          cond: "{{ input.flag }}",
+          then: step("yes", "value", { result: "yes" }),
+          else: step("no", "value", { result: "no" }),
         }),
+        step("use", "echo", { result: "{{ check }}" }),
       ],
     });
 
     const r1 = await runWorkflow(wf, { flag: true }, makeRegistry());
-    assert.equal((r1.output as any)["conditional"], "yes");
+    assert.deepEqual(r1.output, { result: "yes" });
 
     const r2 = await runWorkflow(wf, { flag: false }, makeRegistry());
-    assert.equal((r2.output as any)["conditional"], "no");
+    assert.deepEqual(r2.output, { result: "no" });
   });
 
-  it("subflow inside parallel", async () => {
+  it("subflow alongside parallel step", async () => {
     const child = flow("child", {
       input: z.object({ val: z.number() }),
       steps: [step("calc", "value", { result: "{{ input.val * 3 }}" })],
     });
 
-    const wf = flow("sub-in-par", {
+    const wf = flow("sub-dag", {
       input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            branch: flow("wrapper", {
-              input: z.any(),
-              steps: [
-                step("sub", "subflow", {
-                  flow: child,
-                  input: { val: 7 },
-                }),
-              ],
-            }),
-          },
+        step("sub", "subflow", {
+          flow: child,
+          input: { val: 7 },
         }),
       ],
     });
 
     const result = await runWorkflow(wf, {}, makeRegistry());
-    assert.equal((result.output as any)["branch"], 21);
+    assert.equal(result.output, 21);
   });
 
-  it("parallel with multiple sequential steps in each branch", async () => {
-    const wf = flow("multi-step-branches", {
+  it("DAG with subflows in parallel branches", async () => {
+    const child = flow("child", {
+      input: z.object({ val: z.number() }),
+      steps: [step("calc", "value", { result: "{{ input.val * 3 }}" })],
+    });
+
+    const wf = flow("dag-sub-par", {
       input: z.object({}),
       steps: [
-        step("fan", "parallel", {
-          branches: {
-            left: flow("left", {
-              input: z.any(),
-              steps: [
-                step("a", "value", { result: 10 }),
-                step("b", "echo", { doubled: "{{ a * 2 }}" }),
-              ],
-            }),
-            right: flow("right", {
-              input: z.any(),
-              steps: [
-                step("a", "value", { result: 5 }),
-                step("b", "echo", { tripled: "{{ a * 3 }}" }),
-              ],
-            }),
-          },
+        step("left", "subflow", {
+          flow: child,
+          input: { val: 7 },
         }),
+        step("right", "subflow", {
+          flow: child,
+          input: { val: 3 },
+        }, { depends: [] }),
+        step("merge", "echo", {
+          l: "{{ left }}",
+          r: "{{ right }}",
+        }, { depends: ["left", "right"] }),
       ],
     });
 
     const result = await runWorkflow(wf, {}, makeRegistry());
-    const output = result.output as any;
-    assert.deepEqual(output["left"], { doubled: 20 });
-    assert.deepEqual(output["right"], { tripled: 15 });
+    assert.deepEqual(result.output, { l: 21, r: 9 });
   });
 });

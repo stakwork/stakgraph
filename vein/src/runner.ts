@@ -113,9 +113,23 @@ export async function runWorkflow(
   }
 }
 
-// ── Internal: execute a flow's steps sequentially ──────────────────────────
+// ── Internal: execute a flow's steps as a DAG ─────────────────────────────
 
 type EmitFn = (event: Partial<RunEvent> & { type: RunEvent["type"] }) => Promise<void>;
+
+/**
+ * Get the dependency list for a step. If `depends` is set, use it.
+ * Otherwise, the step implicitly depends on the previous step in the array
+ * (sequential by default).
+ */
+function getDeps(step: Step, index: number, steps: Step[]): string[] {
+  if (step.depends != null) {
+    return Array.isArray(step.depends) ? step.depends : [step.depends];
+  }
+  // Implicit: depends on previous step (if any)
+  if (index > 0) return [steps[index - 1]!.id];
+  return [];
+}
 
 async function executeFlow(
   workflow: Flow,
@@ -126,22 +140,64 @@ async function executeFlow(
   emit: EmitFn,
 ): Promise<unknown> {
   const scope: Record<string, unknown> = { input };
-  let lastOutput: unknown = undefined;
+  const steps = workflow.steps;
 
-  for (const step of workflow.steps) {
-    const stepPath = `${basePath}/${step.id}`;
-    lastOutput = await executeStep(step, scope, registry, runId, stepPath, emit);
-    scope[step.id] = lastOutput;
+  if (steps.length === 0) return undefined;
+
+  // Build dependency graph
+  const depMap = new Map<string, string[]>();
+  const stepById = new Map<string, Step>();
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]!;
+    stepById.set(s.id, s);
+    depMap.set(s.id, getDeps(s, i, steps));
   }
 
-  return lastOutput;
+  // Find which steps depend on each step (reverse map)
+  const dependents = new Map<string, Set<string>>();
+  for (const s of steps) dependents.set(s.id, new Set());
+  for (const [id, deps] of depMap) {
+    for (const dep of deps) {
+      dependents.get(dep)?.add(id);
+    }
+  }
+
+  // Track completion
+  const completed = new Set<string>();
+  const pending = new Map<string, { resolve: () => void; promise: Promise<void> }>();
+
+  // Create a promise for each step that resolves when it completes
+  for (const s of steps) {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => { resolve = r; });
+    pending.set(s.id, { resolve, promise });
+  }
+
+  // Execute a single step once its deps are met
+  async function runStep(s: Step): Promise<void> {
+    // Wait for all dependencies
+    const deps = depMap.get(s.id) ?? [];
+    await Promise.all(deps.map((d) => pending.get(d)!.promise));
+
+    const stepPath = `${basePath}/${s.id}`;
+    const output = await executeStep(s, scope, registry, runId, stepPath, emit);
+    scope[s.id] = output;
+    completed.add(s.id);
+    pending.get(s.id)!.resolve();
+  }
+
+  // Launch all steps — each waits for its own deps internally
+  await Promise.all(steps.map((s) => runStep(s)));
+
+  // Return last step's output (by array order)
+  return scope[steps[steps.length - 1]!.id];
 }
 
 // ── Internal: execute a single step with retry/onError ─────────────────────
 
 // Control flow steps that manage their own template resolution.
 // These should NOT have their config pre-resolved by executeStep.
-const SELF_RESOLVING_STEPS = new Set(["if", "loop", "parallel", "subflow"]);
+const SELF_RESOLVING_STEPS = new Set(["if", "loop", "subflow"]);
 
 async function executeStep(
   step: Step,
@@ -279,9 +335,6 @@ async function dispatchStep(
     case "loop":
       return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit);
 
-    case "parallel":
-      return executeParallel(resolvedConfig, scope, registry, runId, path, emit);
-
     case "subflow":
       return executeSubflow(resolvedConfig, scope, registry, runId, path, emit);
 
@@ -396,39 +449,6 @@ async function executeLoop(
   throw new Error(
     `Loop "${step.id}" exceeded maxIterations (${maxIterations}) without until becoming true`,
   );
-}
-
-async function executeParallel(
-  config: Record<string, unknown>,
-  scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
-  path: string,
-  emit: EmitFn,
-): Promise<unknown> {
-  const branches = config["branches"] as Record<string, Flow>;
-  if (!branches || typeof branches !== "object") {
-    throw new Error("parallel step requires a 'branches' config with Flow values");
-  }
-
-  const entries = Object.entries(branches);
-  const results = await Promise.all(
-    entries.map(async ([name, branchFlow]) => {
-      // Each branch gets the parent's input as its input
-      const branchInput = scope["input"];
-      const output = await executeFlow(
-        branchFlow,
-        branchInput,
-        registry,
-        runId,
-        `${path}.${name}`,
-        emit,
-      );
-      return [name, output] as const;
-    }),
-  );
-
-  return Object.fromEntries(results);
 }
 
 async function executeSubflow(

@@ -34,6 +34,7 @@ export interface Step {
   id: string;
   type: string;
   config: Record<string, unknown>;
+  depends?: string | string[];
   options?: StepOptions;
 }
 
@@ -134,14 +135,22 @@ export function step(
   id: string,
   type: string,
   config: Record<string, unknown>,
-  options?: StepOptions,
+  options?: StepOptions & { depends?: string | string[] },
 ): Step {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
     throw new Error(
       `Invalid step id "${id}": must match [a-zA-Z_][a-zA-Z0-9_]*`,
     );
   }
-  return { id, type, config, ...(options ? { options } : {}) };
+  const { depends, ...opts } = options ?? {};
+  const hasOpts = Object.keys(opts).length > 0;
+  return {
+    id,
+    type,
+    config,
+    ...(depends ? { depends } : {}),
+    ...(hasOpts ? { options: opts } : {}),
+  };
 }
 
 /**

@@ -173,7 +173,7 @@ app.put("/workflows/:name/active", async (c) => {
 app.get("/steps", async (c) => {
   const coreSteps = Object.keys(registry).map((type) => ({
     type,
-    source: ["http", "if", "loop", "parallel", "subflow", "log", "llm", "wait"].includes(type)
+    source: ["http", "if", "loop", "subflow", "log", "llm", "wait"].includes(type)
       ? "core"
       : type.includes("/")
         ? "lib"

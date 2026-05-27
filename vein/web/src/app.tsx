@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from "preact/hooks";
+import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
 import { SystemCanvas } from "system-canvas-react";
-import type { CanvasData, CanvasNode } from "system-canvas";
+import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
+import type { AddNodeButtonRenderProps } from "system-canvas-react";
 import yaml from "js-yaml";
 import * as api from "./api";
 import { flowToCanvas, veinTheme } from "./flow-to-canvas";
@@ -24,7 +25,13 @@ steps:
       message: "Fetched: {{ fetch.body }}"
 `;
 
-const STEP_TYPES = ["http", "log", "if", "loop", "parallel", "subflow", "llm", "wait"];
+const STEP_TYPES = ["http", "log", "if", "loop", "subflow", "llm", "wait"];
+
+interface StepTypeEntry {
+  type: string;
+  source: "core" | "lib" | "custom";
+  description?: string;
+}
 
 export function App() {
   const [workflows, setWorkflows] = useState<api.WorkflowEntry[]>([]);
@@ -34,6 +41,8 @@ export function App() {
   const [canvas, setCanvas] = useState<CanvasData | null>(null);
   const [events, setEvents] = useState<api.RunEvent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [showAddStep, setShowAddStep] = useState(false);
+  const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
   const [publishedSteps, setPublishedSteps] = useState<StepData[] | null>(null);
   const [localSteps, setLocalSteps] = useState<StepData[] | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
@@ -75,7 +84,18 @@ export function App() {
     setRuns(rs);
   }, [selectedWf]);
 
-  useEffect(() => { refreshWorkflows(); }, []);
+  const refreshStepTypes = useCallback(async () => {
+    try {
+      const resp = await api.listSteps();
+      const entries: StepTypeEntry[] = [
+        ...resp.core.map((s) => ({ type: s.type, source: s.source as "core" | "lib" | "custom" })),
+        ...resp.workspace.map((s) => ({ type: s.type, source: "custom" as const, description: s.description })),
+      ];
+      setStepTypes(entries);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { refreshWorkflows(); refreshStepTypes(); }, []);
 
   // Load workflow + its runs when selected
   useEffect(() => {
@@ -185,6 +205,87 @@ export function App() {
     }
   }, []);
 
+  const handleNodeAdd = useCallback((_node: CanvasNode) => {
+    // Intercepted by renderAddNodeButton — should not fire
+  }, []);
+
+  const handleAddStepSelect = useCallback((stepType: string) => {
+    if (!localSteps || !selectedWf) return;
+    // Generate a unique step id from the type name
+    const base = stepType.replace(/[^a-zA-Z0-9_]/g, "_");
+    let id = base;
+    let n = 1;
+    while (localSteps.some((s) => s.id === id)) {
+      id = `${base}_${n++}`;
+    }
+    const newStep: StepData = {
+      id,
+      type: stepType,
+      config: {},
+      depends: [],
+    };
+    const next = [...localSteps, newStep];
+    updateLocalSteps(next);
+    setShowAddStep(false);
+    // Open flyout for the new step
+    setFlyoutStepId(id);
+    setFlyoutStepIndex(next.length - 1);
+  }, [localSteps, selectedWf]);
+
+  const handleEdgeAdd = useCallback((edge: CanvasEdge) => {
+    if (!localSteps || !selectedWf) return;
+    // Extract step ids from node ids (format: "workflowName/stepId")
+    const fromStepId = edge.fromNode.split("/").pop();
+    const toStepId = edge.toNode.split("/").pop();
+    if (!fromStepId || !toStepId) return;
+
+    const next = localSteps.map((s) => {
+      if (s.id !== toStepId) return s;
+      // Add the dependency
+      const currentDeps = s.depends == null ? [] : Array.isArray(s.depends) ? [...s.depends] : [s.depends];
+      if (!currentDeps.includes(fromStepId)) {
+        currentDeps.push(fromStepId);
+      }
+      return { ...s, depends: currentDeps };
+    });
+    updateLocalSteps(next);
+  }, [localSteps, selectedWf]);
+
+  const handleEdgeDelete = useCallback((edgeId: string) => {
+    if (!localSteps || !selectedWf) return;
+    // Edge id format: "wfName/fromId__to__wfName/toId"
+    const parts = edgeId.split("__to__");
+    if (parts.length !== 2) return;
+    const fromStepId = parts[0]!.split("/").pop();
+    const toStepId = parts[1]!.split("/").pop();
+    if (!fromStepId || !toStepId) return;
+
+    const next = localSteps.map((s) => {
+      if (s.id !== toStepId) return s;
+      const currentDeps = s.depends == null ? [] : Array.isArray(s.depends) ? [...s.depends] : [s.depends];
+      const filtered = currentDeps.filter((d) => d !== fromStepId);
+      return { ...s, depends: filtered };
+    });
+    updateLocalSteps(next);
+  }, [localSteps, selectedWf]);
+
+  const handleNodeDelete = useCallback((nodeId: string) => {
+    if (!localSteps || !selectedWf) return;
+    const stepId = nodeId.split("/").pop();
+    if (!stepId) return;
+    // Remove the step and clean up depends references
+    const next = localSteps
+      .filter((s) => s.id !== stepId)
+      .map((s) => {
+        if (!s.depends) return s;
+        const deps = Array.isArray(s.depends) ? s.depends : [s.depends];
+        const filtered = deps.filter((d) => d !== stepId);
+        return { ...s, depends: filtered };
+      });
+    updateLocalSteps(next);
+    if (flyoutStepId === stepId) closeFlyout();
+  }, [localSteps, selectedWf, flyoutStepId]);
+
   const handleStepSave = useCallback((index: number, updated: StepData) => {
     if (!localSteps) return;
     const next = [...localSteps];
@@ -258,7 +359,22 @@ export function App() {
       {/* Canvas */}
       <div class="shell-canvas">
         {canvas
-          ? <SystemCanvas canvas={canvas} onNodeClick={handleNodeClick} themes={{ vein: veinTheme }} />
+          ? <SystemCanvas
+              panMode="trackpad"
+              canvas={canvas}
+              editable={!isRunView}
+              onNodeClick={handleNodeClick}
+              onNodeAdd={handleNodeAdd}
+              onNodeDelete={handleNodeDelete}
+              onEdgeAdd={handleEdgeAdd}
+              onEdgeDelete={handleEdgeDelete}
+              renderAddNodeButton={(_props: AddNodeButtonRenderProps) => (
+                selectedWf && !isRunView
+                  ? <button class="add-step-fab" onClick={() => setShowAddStep(true)}>+</button>
+                  : null
+              )}
+              themes={{ vein: veinTheme }}
+            />
           : <div class="empty">{workflows.length === 0 ? "Create a workflow to get started" : "Select a workflow to view its flow graph"}</div>}
       </div>
 
@@ -267,6 +383,9 @@ export function App() {
 
       {/* Create dialog */}
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
+
+      {/* Add step dialog */}
+      {showAddStep && <AddStepDialog stepTypes={stepTypes} onSelect={handleAddStepSelect} onClose={() => setShowAddStep(false)} />}
 
       {/* Step flyout */}
       {flyoutStepId != null && flyoutStepIndex != null && localSteps && localSteps[flyoutStepIndex] && (
@@ -416,21 +535,32 @@ function StepEditFlyout(props: {
   onSave: (updated: StepData) => void;
   onClose: () => void;
 }) {
+  const stepObj: Record<string, any> = {
+    id: props.step.id,
+    type: props.step.type,
+    config: props.step.config,
+  };
+  if (props.step.depends != null) {
+    const deps = Array.isArray(props.step.depends) ? props.step.depends : [props.step.depends];
+    if (deps.length > 0) stepObj.depends = deps;
+  }
+
   const [stepYaml, setStepYaml] = useState(
-    yaml.dump(
-      { id: props.step.id, type: props.step.type, config: props.step.config },
-      { lineWidth: 120, noRefs: true },
-    ),
+    yaml.dump(stepObj, { lineWidth: 120, noRefs: true }),
   );
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setStepYaml(
-      yaml.dump(
-        { id: props.step.id, type: props.step.type, config: props.step.config },
-        { lineWidth: 120, noRefs: true },
-      ),
-    );
+    const obj: Record<string, any> = {
+      id: props.step.id,
+      type: props.step.type,
+      config: props.step.config,
+    };
+    if (props.step.depends != null) {
+      const deps = Array.isArray(props.step.depends) ? props.step.depends : [props.step.depends];
+      if (deps.length > 0) obj.depends = deps;
+    }
+    setStepYaml(yaml.dump(obj, { lineWidth: 120, noRefs: true }));
     setError("");
   }, [props.step]);
 
@@ -443,12 +573,16 @@ function StepEditFlyout(props: {
         setError("ID must match [a-zA-Z_][a-zA-Z0-9_]*");
         return;
       }
-      props.onSave({
+      const updated: StepData = {
         id: data.id,
         type: data.type,
         config: data.config ?? {},
         options: props.step.options,
-      });
+      };
+      if (data.depends != null) {
+        updated.depends = Array.isArray(data.depends) ? data.depends : [data.depends];
+      }
+      props.onSave(updated);
     } catch (e) {
       setError(`Invalid YAML: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -481,6 +615,90 @@ function StepEditFlyout(props: {
         </div>
       </div>
     </>
+  );
+}
+
+// ── Add Step Dialog (searchable) ────────────────────────────────────────────
+
+function AddStepDialog(props: {
+  stepTypes: StepTypeEntry[];
+  onSelect: (type: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const q = query.toLowerCase().trim();
+  const filtered = q
+    ? props.stepTypes.filter((s) => s.type.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q))
+    : props.stepTypes;
+
+  // Group by source
+  const core = filtered.filter((s) => s.source === "core");
+  const lib = filtered.filter((s) => s.source === "lib");
+  const custom = filtered.filter((s) => s.source === "custom");
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") props.onClose();
+    if (e.key === "Enter" && filtered.length === 1) {
+      props.onSelect(filtered[0]!.type);
+    }
+  };
+
+  return (
+    <div class="dialog-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
+      <div class="dialog add-step-dialog">
+        <div class="dialog-title">Add Step</div>
+        <div class="add-step-search">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search step types..."
+          />
+        </div>
+        <div class="add-step-list">
+          {core.length > 0 && (
+            <StepGroup label="Core" items={core} onSelect={props.onSelect} />
+          )}
+          {lib.length > 0 && (
+            <StepGroup label="Library" items={lib} onSelect={props.onSelect} />
+          )}
+          {custom.length > 0 && (
+            <StepGroup label="Custom" items={custom} onSelect={props.onSelect} />
+          )}
+          {filtered.length === 0 && (
+            <div class="add-step-empty">No matching step types</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepGroup(props: {
+  label: string;
+  items: StepTypeEntry[];
+  onSelect: (type: string) => void;
+}) {
+  return (
+    <div class="add-step-group">
+      <div class="add-step-group-label">{props.label}</div>
+      {props.items.map((s) => (
+        <button
+          key={s.type}
+          class="add-step-item"
+          onClick={() => props.onSelect(s.type)}
+        >
+          <span class="add-step-item-type">{s.type}</span>
+          {s.description && <span class="add-step-item-desc">{s.description}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -517,7 +735,7 @@ function CreateDialog(props: {
         <div class="dialog-field">
           <label>Workflow (YAML)</label>
           <textarea value={yamlStr} onInput={(e) => { setYamlStr((e.target as HTMLTextAreaElement).value); setError(""); }} rows={16} />
-          <div class="dialog-hint">Define name and steps. Types: http, log, if, loop, parallel, subflow, llm</div>
+          <div class="dialog-hint">Define name and steps. Types: http, log, if, loop, subflow, llm. Use depends: to set DAG edges.</div>
         </div>
         {error && <div style="color:var(--danger);font-size:12px;margin-bottom:8px;">{error}</div>}
         <div class="dialog-actions">
