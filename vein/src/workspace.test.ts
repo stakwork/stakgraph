@@ -93,6 +93,63 @@ describe("WorkspaceManager", () => {
     });
   });
 
+  // ── createWorkflow ─────────────────────────────────────────────────────
+
+  describe("createWorkflow", () => {
+    it("creates a new workflow at v1 and returns the resolved name", async () => {
+      const result = await ws.createWorkflow(
+        "deploy",
+        { steps: SAMPLE_STEPS },
+        "initial",
+      );
+      assert.deepEqual(result, { name: "deploy", version: "v1" });
+
+      const flow = await ws.getWorkflow("deploy");
+      assert.equal(flow.name, "deploy");
+      assert.equal(flow.steps.length, 2);
+    });
+
+    it("auto-suffixes when the name collides with an existing workflow", async () => {
+      await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS });
+      const second = await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS });
+      assert.equal(second.name, "deploy-2");
+
+      const list = await ws.listWorkflows();
+      assert.deepEqual(list.map((w) => w.name).sort(), ["deploy", "deploy-2"]);
+    });
+
+    it("keeps incrementing the suffix until a free slot is found", async () => {
+      await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS });
+      await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS }); // deploy-2
+      const third = await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS });
+      assert.equal(third.name, "deploy-3");
+    });
+
+    it("rewrites the embedded YAML `name:` field to match the resolved name", async () => {
+      await ws.createWorkflow("deploy", SAMPLE_YAML);
+      const second = await ws.createWorkflow("deploy", SAMPLE_YAML);
+      assert.equal(second.name, "deploy-2");
+
+      // The on-disk YAML for the suffixed workflow must reference the new
+      // name so `runner.ts` writes runs under `deploy-2/`, not `deploy/`.
+      const flow = await ws.getWorkflow("deploy-2");
+      assert.equal(flow.name, "deploy-2");
+    });
+
+    it("leaves the original workflow untouched on collision", async () => {
+      await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS }, "first");
+      await ws.createWorkflow("deploy", { steps: SAMPLE_STEPS }, "second");
+
+      const meta = JSON.parse(
+        await readFile(
+          join(tempDir, "workflows", "deploy", "_metadata.json"),
+          "utf-8",
+        ),
+      );
+      assert.equal(meta.versions["v1"].description, "first");
+    });
+  });
+
   // ── getWorkflow ────────────────────────────────────────────────────────
 
   describe("getWorkflow", () => {
