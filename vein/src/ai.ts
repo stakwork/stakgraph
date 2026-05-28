@@ -2,12 +2,15 @@ import { z } from "zod";
 import { tool } from "ai";
 import type { StepRegistry } from "./core.js";
 import type { WorkspaceManager } from "./workspace.js";
+import type { RunStore } from "./store.js";
+import { runWorkflow } from "./runner.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface AiDeps {
   workspace: WorkspaceManager;
   registry: StepRegistry;
+  store: RunStore;
   getRegistry: () => Promise<StepRegistry>;
 }
 
@@ -66,6 +69,7 @@ Workflow:
 2. Call get_step for EVERY step type you will use. Each has a description with the exact YAML config format — you MUST read it before writing. Do not guess config fields.
 3. If you see lib namespaces, explore the relevant ones with list_steps.
 4. Call create_workflow with the final YAML.
+5. Call run_workflow with a sample input to test it. Report the result (success/error, output, or which step failed) to the user.
 
 Be concise. Don't over-explain.`;
 
@@ -173,6 +177,44 @@ export function buildTools(deps: AiDeps) {
         // Rebuild registry in case the workflow references new patterns
         deps.registry = await deps.getRegistry();
         return { ok: true, name, version: "v1" };
+      },
+    }),
+
+    run_workflow: tool({
+      description:
+        "Run a published workflow with a given input and return the result. Use this to test workflows you just created. Returns status (success/error), output (on success), error details (on failure), and the runId.",
+      inputSchema: z.object({
+        name: z.string().describe("Workflow name to run"),
+        input: z
+          .any()
+          .optional()
+          .describe(
+            "Input object passed to the workflow. Shape depends on the workflow's input schema; use {} if none.",
+          ),
+        version: z
+          .string()
+          .optional()
+          .describe("Optional specific version. Defaults to the active version."),
+      }),
+      execute: async ({ name, input, version }) => {
+        let flow;
+        try {
+          flow = version
+            ? await deps.workspace.getWorkflowVersion(name, version)
+            : await deps.workspace.getWorkflow(name);
+        } catch (err) {
+          return {
+            ok: false,
+            error: `Workflow not found: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+
+        const result = await runWorkflow(flow, input ?? {}, deps.registry, {
+          store: deps.store,
+          workspace: deps.workspace,
+        });
+
+        return result;
       },
     }),
   };

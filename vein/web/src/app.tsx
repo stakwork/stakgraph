@@ -14,7 +14,9 @@ import { CreateDialog } from "./components/CreateDialog";
 import { AddStepDialog, StepTypeEntry } from "./components/AddStepDialog";
 import { StepEditFlyout } from "./components/StepEditFlyout";
 import { EventsPanel } from "./components/EventsPanel";
+import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
+import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
 
 export function App() {
   const [workflows, setWorkflows] = useState<api.WorkflowEntry[]>([]);
@@ -31,6 +33,7 @@ export function App() {
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
+  const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
@@ -136,16 +139,17 @@ export function App() {
     if (selectedWf) rebuildCanvas(selectedWf, steps, null);
   }
 
-  const handleRun = useCallback(async () => {
+  const submitRun = useCallback(async (input: Record<string, unknown>) => {
     if (!selectedWf || !localSteps) return;
     const wf = selectedWf;
     const steps = localSteps;
     const accumulated: RunEventData[] = [];
 
+    setRunBindings(null);
     // Show pending status on all nodes immediately
     rebuildCanvas(wf, steps, []);
 
-    const result = await api.runWorkflow(wf, {}, (event) => {
+    const result = await api.runWorkflow(wf, input, (event) => {
       accumulated.push(event as RunEventData);
       rebuildCanvas(wf, steps, [...accumulated]);
       setEvents([...accumulated] as api.RunEvent[]);
@@ -156,6 +160,23 @@ export function App() {
     }
     await refreshRuns(wf);
   }, [selectedWf, localSteps, refreshRuns]);
+
+  const handleRun = useCallback(async () => {
+    if (!selectedWf || !localSteps || localSteps.length === 0) return;
+    const first = localSteps[0]!;
+    try {
+      const { fields } = await api.getStepSchema(first.type);
+      const bindings = deriveInputBindings(first, fields);
+      if (bindings.length === 0) {
+        await submitRun({});
+      } else {
+        setRunBindings(bindings);
+      }
+    } catch {
+      // If we can't load the schema, fall back to running with no input.
+      await submitRun({});
+    }
+  }, [selectedWf, localSteps, submitRun]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
     await api.publishWorkflowYaml(name, "v1", yamlStr, desc || undefined);
@@ -302,7 +323,7 @@ export function App() {
         <div class="sidebar-section">
           <div class="section-title">
             Workflows
-            <button class="btn" style="float:right;padding:1px 8px;font-size:11px;" onClick={() => setShowCreate(true)}>+</button>
+            <button class="btn" style="float:right;padding:1px 8px;font-size:11px;margin-top:-3px;" onClick={() => setShowCreate(true)}>+</button>
           </div>
           <div class="sidebar-scroll">
             {workflows.length === 0 && <div class="empty-sidebar">No workflows yet</div>}
@@ -348,7 +369,19 @@ export function App() {
         </span>
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
-          {selectedWf && <button class="btn btn-primary" onClick={handleRun}>Run</button>}
+          {selectedWf && (
+            <div class="run-anchor">
+              <button class="btn btn-primary" onClick={handleRun}>Run</button>
+              {runBindings && selectedWf && (
+                <RunInputPopover
+                  workflow={selectedWf}
+                  bindings={runBindings}
+                  onSubmit={submitRun}
+                  onClose={() => setRunBindings(null)}
+                />
+              )}
+            </div>
+          )}
           <button class="btn" onClick={() => setShowChat(!showChat)}>AI</button>
         </div>
       </div>
@@ -360,6 +393,7 @@ export function App() {
               panMode="trackpad"
               canvas={canvas}
               editable={!isRunView}
+              showNodeToolbar={false}
               onNodeClick={handleNodeClick}
               onNodeAdd={handleNodeAdd}
               onNodeDelete={handleNodeDelete}
@@ -375,7 +409,8 @@ export function App() {
           : <div class="empty">{workflows.length === 0 ? "Create a workflow to get started" : "Select a workflow to view its flow graph"}</div>}
       </div>
 
-      {/* Events panel */}
+      {/* Events panel + resize handle */}
+      {events.length > 0 && <EventsResizer />}
       {events.length > 0 && <EventsPanel events={events} />}
 
       {/* Create dialog */}

@@ -109,7 +109,7 @@ export function StepEditFlyout(props: {
             {fields.map((f) => (
               <ConfigField
                 key={f.name}
-                field={f}
+                field={asStringIfTemplated(f, config[f.name])}
                 value={config[f.name]}
                 onChange={(v) => updateConfig(f.name, v)}
               />
@@ -199,4 +199,17 @@ export function StepEditFlyout(props: {
       </div>
     </div>
   );
+}
+
+/**
+ * If the current value contains a `{{ ... }}` template, render the field
+ * as a plain string input so the user can edit the template directly. The
+ * underlying schema is left untouched — once the template is removed the
+ * field reverts to its declared kind on next render.
+ */
+function asStringIfTemplated(field: api.FieldDesc, value: unknown): api.FieldDesc {
+  if (typeof value === "string" && value.includes("{{")) {
+    return { ...field, kind: "string" };
+  }
+  return field;
 }

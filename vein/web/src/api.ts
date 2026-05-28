@@ -140,7 +140,7 @@ export interface StepSchemaResponse {
 }
 
 export const getStepSchema = (type: string) =>
-  fetchJSON<StepSchemaResponse>(`/steps/${type}/schema`);
+  fetchJSON<StepSchemaResponse>(`/steps/${encodeURIComponent(type)}/schema`);
 
 // ── Runs ───────────────────────────────────────────────────────────────────
 

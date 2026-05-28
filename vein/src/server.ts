@@ -8,7 +8,7 @@ import { serve } from "@hono/node-server";
 import { z } from "zod";
 import { WorkspaceManager } from "./workspace.js";
 import { FileRunStore } from "./store.js";
-import { buildRegistry } from "./steps/registry.js";
+import { buildRegistry, CORE_STEP_TYPES } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import type { StepRegistry } from "./core.js";
 import { buildTools, SYSTEM } from "./ai.js";
@@ -245,18 +245,15 @@ app.put("/workflows/:name/active", async (c) => {
 
 /** List all steps (core + lib + custom) */
 app.get("/steps", async (c) => {
-  const coreSteps = Object.keys(registry).map((type) => ({
+  const coreSet = new Set<string>(CORE_STEP_TYPES);
+  const allSteps = Object.keys(registry).map((type) => ({
     type,
-    source: ["http", "if", "loop", "subflow", "log", "llm", "wait"].includes(type)
-      ? "core"
-      : type.includes("/")
-        ? "lib"
-        : "custom",
+    source: coreSet.has(type) ? "core" : type.includes("/") ? "lib" : "custom",
   }));
 
   const workspaceSteps = await workspace.listSteps();
 
-  return c.json({ core: coreSteps, workspace: workspaceSteps });
+  return c.json({ core: allSteps, workspace: workspaceSteps });
 });
 
 /** Get input schema for a step type as a simple field descriptor */
@@ -270,10 +267,9 @@ app.get("/steps/:type/schema", async (c) => {
   return c.json({ type, fields });
 });
 
-/** Publish a new step */
+/** Publish a new custom step. Lib steps ship with the engine and cannot be created here. */
 app.post("/steps", async (c) => {
   const body = await c.req.json<{
-    namespace: string;
     name: string;
     code: string;
     description?: string;
@@ -283,21 +279,12 @@ app.post("/steps", async (c) => {
     return c.json({ error: "name and code are required" }, 400);
   }
 
-  await workspace.publishStep(
-    body.namespace ?? "custom",
-    body.name,
-    body.code,
-    body.description,
-  );
+  await workspace.publishStep(body.name, body.code, body.description);
 
-  // Rebuild registry
+  // Rebuild registry to pick up the new step
   registry = await buildRegistry(workspace.path);
 
-  const type = body.namespace && body.namespace !== "custom"
-    ? `${body.namespace}/${body.name}`
-    : body.name;
-
-  return c.json({ ok: true, type }, 201);
+  return c.json({ ok: true, type: body.name }, 201);
 });
 
 // ── Run workflows ──────────────────────────────────────────────────────────
@@ -373,6 +360,7 @@ app.post("/chat", async (c) => {
   const deps = {
     workspace,
     registry,
+    store,
     getRegistry: () => buildRegistry(workspace.path),
   };
   const tools = buildTools(deps);

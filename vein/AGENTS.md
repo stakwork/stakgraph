@@ -33,8 +33,9 @@ vein/
 │   ├── server.ts          # Hono HTTP API + static file serving (entry point)
 │   ├── index.ts           # barrel export
 │   ├── steps/
-│   │   ├── core/          # 7 built-in steps: http, log, if, loop, subflow, llm, wait
-│   │   └── registry.ts    # auto-discovery: merges core + workspace lib/ + custom/
+│   │   ├── core/          # 7 built-in steps: http, log, if, loop, subflow, llm, wait (static import)
+│   │   ├── lib/           # built-in domain integrations (github/, neo4j/, ...) — dynamic import
+│   │   └── registry.ts    # auto-discovery: core (static) + lib (dynamic) + workspace custom/ (dynamic)
 │   ├── *.test.ts          # 197 tests across 7 files
 └── web/
     ├── package.json       # preact, system-canvas, vite

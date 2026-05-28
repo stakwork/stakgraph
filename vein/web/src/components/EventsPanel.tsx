@@ -1,4 +1,4 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import * as api from "../api";
 import { formatJson, eventTone, statusTone } from "../helpers";
 import { StepData } from "../flow-to-canvas";
@@ -9,6 +9,7 @@ import yaml from "js-yaml";
 
 export function EventsPanel(props: { events: api.RunEvent[] }) {
   const [expanded, setExpanded] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-expand run.end when it arrives
   useEffect(() => {
@@ -16,8 +17,14 @@ export function EventsPanel(props: { events: api.RunEvent[] }) {
     if (idx >= 0) setExpanded(idx);
   }, [props.events]);
 
+  // Auto-scroll to the bottom whenever events change
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [props.events.length, expanded]);
+
   return (
-    <div class="shell-events">
+    <div class="shell-events" ref={scrollRef}>
       <div class="events-header">Events ({props.events.length})</div>
       {props.events.map((evt, i) => {
         const hasData = evt.input != null || evt.output != null || evt.error != null;

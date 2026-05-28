@@ -182,8 +182,8 @@ describe("WorkspaceManager", () => {
   // ── publishStep ────────────────────────────────────────────────────────
 
   describe("publishStep", () => {
-    it("publishes a custom step", async () => {
-      await ws.publishStep("custom", "my-scorer", "export default {};", "A custom scorer");
+    it("writes the step file under steps/custom/", async () => {
+      await ws.publishStep("my-scorer", "export default {};", "A custom scorer");
 
       const code = await readFile(join(tempDir, "steps", "custom", "my-scorer.ts"), "utf-8");
       assert.equal(code, "export default {};");
@@ -195,53 +195,39 @@ describe("WorkspaceManager", () => {
       assert.equal(meta.steps["my-scorer"].description, "A custom scorer");
     });
 
-    it("publishes a lib step with namespace", async () => {
-      await ws.publishStep("github", "fetch-prs", "export default {};", "Fetch PRs");
-
-      const code = await readFile(join(tempDir, "steps", "lib", "github", "fetch-prs.ts"), "utf-8");
-      assert.equal(code, "export default {};");
+    it("preserves earlier steps when publishing additional ones", async () => {
+      await ws.publishStep("a", "// a");
+      await ws.publishStep("b", "// b");
 
       const meta = JSON.parse(
-        await readFile(join(tempDir, "steps", "lib", "github", "_metadata.json"), "utf-8"),
+        await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
       );
-      assert.ok(meta.steps["fetch-prs"]);
+      assert.ok(meta.steps["a"]);
+      assert.ok(meta.steps["b"]);
     });
 
-    it("publishes multiple steps to same namespace", async () => {
-      await ws.publishStep("github", "fetch-prs", "// prs");
-      await ws.publishStep("github", "fetch-commit", "// commit");
+    it("overwrites an existing step with the same name", async () => {
+      await ws.publishStep("dupe", "// v1");
+      await ws.publishStep("dupe", "// v2", "second version");
 
+      const code = await readFile(join(tempDir, "steps", "custom", "dupe.ts"), "utf-8");
+      assert.equal(code, "// v2");
       const meta = JSON.parse(
-        await readFile(join(tempDir, "steps", "lib", "github", "_metadata.json"), "utf-8"),
+        await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
       );
-      assert.ok(meta.steps["fetch-prs"]);
-      assert.ok(meta.steps["fetch-commit"]);
-    });
-
-    it("uses custom dir when namespace is empty string", async () => {
-      await ws.publishStep("", "my-step", "// step");
-      const code = await readFile(join(tempDir, "steps", "custom", "my-step.ts"), "utf-8");
-      assert.equal(code, "// step");
+      assert.equal(meta.steps["dupe"].description, "second version");
     });
   });
 
   // ── listSteps ──────────────────────────────────────────────────────────
 
   describe("listSteps", () => {
-    it("returns empty array when no steps", async () => {
+    it("returns empty array when no custom steps exist", async () => {
       assert.deepEqual(await ws.listSteps(), []);
     });
 
-    it("lists lib steps with namespaced types", async () => {
-      await ws.publishStep("github", "fetch-prs", "// prs", "Fetch PRs");
-      await ws.publishStep("github", "list-files", "// files", "List files");
-
-      const list = await ws.listSteps();
-      assert.deepEqual(list.map((s) => s.type).sort(), ["github/fetch-prs", "github/list-files"]);
-    });
-
     it("lists custom steps with plain types", async () => {
-      await ws.publishStep("custom", "my-scorer", "// scorer", "A scorer");
+      await ws.publishStep("my-scorer", "// scorer", "A scorer");
 
       const list = await ws.listSteps();
       assert.equal(list.length, 1);
@@ -249,17 +235,16 @@ describe("WorkspaceManager", () => {
       assert.equal(list[0]!.description, "A scorer");
     });
 
-    it("lists both lib and custom steps", async () => {
-      await ws.publishStep("github", "fetch-prs", "// prs");
-      await ws.publishStep("custom", "my-scorer", "// scorer");
+    it("lists multiple custom steps", async () => {
+      await ws.publishStep("alpha", "// alpha");
+      await ws.publishStep("beta", "// beta");
 
       const list = await ws.listSteps();
-      assert.equal(list.length, 2);
-      assert.deepEqual(list.map((s) => s.type).sort(), ["github/fetch-prs", "my-scorer"]);
+      assert.deepEqual(list.map((s) => s.type).sort(), ["alpha", "beta"]);
     });
 
     it("skips _metadata.json files in listing", async () => {
-      await ws.publishStep("custom", "my-step", "// step");
+      await ws.publishStep("my-step", "// step");
       const list = await ws.listSteps();
       assert.equal(list.length, 1);
       assert.equal(list[0]!.type, "my-step");

@@ -2,6 +2,7 @@ import * as api from "../api";
 import { StepData } from "../flow-to-canvas";
 import { formatJson, statusTone } from "../helpers";
 import { CloseIcon } from "../icons";
+import { Markdown, hasMarkdownField } from "./Markdown";
 import yaml from "js-yaml";
 
 // ── Step Run Results Flyout (read-only) ────────────────────────────────────
@@ -60,12 +61,28 @@ export function StepRunFlyout(props: {
           )}
 
           {/* Output */}
-          {events.end?.output != null && (
-            <div class="flyout-section">
-              <div class="flyout-section-title">Output</div>
-              <pre class="flyout-json">{formatJson(events.end.output)}</pre>
-            </div>
-          )}
+          {events.end?.output != null && (() => {
+            const output = events.end.output;
+            if (hasMarkdownField(output)) {
+              const { markdown, ...rest } = output;
+              const hasRest = Object.keys(rest).length > 0;
+              return (
+                <div class="flyout-section">
+                  <div class="flyout-section-title">Output</div>
+                  <div class="flyout-markdown-wrap">
+                    <Markdown source={markdown} class="md-compact" />
+                  </div>
+                  {hasRest && <pre class="flyout-json flyout-json-after-md">{formatJson(rest)}</pre>}
+                </div>
+              );
+            }
+            return (
+              <div class="flyout-section">
+                <div class="flyout-section-title">Output</div>
+                <pre class="flyout-json">{formatJson(output)}</pre>
+              </div>
+            );
+          })()}
 
           {/* Error */}
           {events.error?.error != null && (
