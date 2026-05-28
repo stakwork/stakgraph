@@ -55,17 +55,31 @@ export function buildTools(deps: AiDeps) {
     }),
 
     create_workflow: tool({
-      description: "Create and publish a new workflow from YAML.",
+      description:
+        "Create and publish a new workflow from YAML. If the name already " +
+        "exists, a numeric suffix is appended (e.g. `send-email-2`). The " +
+        "response includes the final name used. To publish a new version of " +
+        "an existing workflow, use `edit_workflow` (coming soon) instead.",
       inputSchema: z.object({
         name: z.string().describe("Workflow name (kebab-case)"),
         yaml: z.string().describe("Full workflow YAML"),
         description: z.string().optional(),
       }),
       execute: async ({ name, yaml, description }) => {
-        await deps.workspace.publishWorkflow(name, "v1", yaml, description);
+        const { name: finalName, version } = await deps.workspace.createWorkflow(
+          name,
+          yaml,
+          description,
+        );
         // Rebuild registry in case the workflow references new patterns
         deps.registry = await deps.getRegistry();
-        return { ok: true, name, version: "v1" };
+        return {
+          ok: true,
+          name: finalName,
+          version,
+          renamed: finalName !== name,
+          requested: name,
+        };
       },
     }),
 

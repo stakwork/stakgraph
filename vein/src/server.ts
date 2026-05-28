@@ -102,6 +102,52 @@ app.get("/workflows", async (c) => {
   return c.json(workflows);
 });
 
+/**
+ * Create a brand-new workflow at v1. Auto-suffixes the name on collision
+ * (`<name>-2`, `<name>-3`, ...). Body: `{ name, yaml?, steps?, description? }`.
+ * To add a new version to an existing workflow, use `POST /workflows/:name`.
+ */
+app.post("/workflows", async (c) => {
+  const body = await c.req.json<{
+    name: string;
+    steps?: any[];
+    yaml?: string;
+    description?: string;
+  }>();
+
+  if (!body.name) {
+    return c.json({ error: "name is required" }, 400);
+  }
+
+  let result;
+  if (body.yaml) {
+    result = await workspace.createWorkflow(body.name, body.yaml, body.description);
+  } else if (body.steps) {
+    result = await workspace.createWorkflow(
+      body.name,
+      { steps: body.steps },
+      body.description,
+    );
+  } else {
+    return c.json({ error: "either steps or yaml is required" }, 400);
+  }
+
+  // Rebuild registry to pick up any new step types
+  registry = await buildRegistry(workspace.path);
+
+  return c.json(
+    {
+      ok: true,
+      workflow: result.name,
+      version: result.version,
+      active: result.version,
+      renamed: result.name !== body.name,
+      requested: body.name,
+    },
+    201,
+  );
+});
+
 /** Get workflow metadata (versions, active) */
 app.get("/workflows/:name", async (c) => {
   const name = c.req.param("name");

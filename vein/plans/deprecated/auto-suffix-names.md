@@ -1,5 +1,7 @@
 # Auto-suffix workflow & step names
 
+THIS PLAN WAS WRONG! WE CREATED createWorkflow separately from "publish" flow (those are separate intentions)
+
 ## Problem
 
 `publishWorkflow` and `publishStep` silently overwrite existing entries

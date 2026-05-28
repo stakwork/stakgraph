@@ -48,6 +48,28 @@ export interface FlowDef {
 export const getWorkflowFlow = (name: string) =>
   fetchJSON<FlowDef>(`/workflows/${name}/flow`);
 
+export interface CreateWorkflowResponse {
+  ok: true;
+  /** Final workflow name (may differ from `requested` if auto-suffixed). */
+  workflow: string;
+  version: string;
+  active: string;
+  renamed: boolean;
+  requested: string;
+}
+
+/** Create a brand-new workflow at v1. Auto-suffixes the name on collision. */
+export const createWorkflowYaml = (
+  name: string,
+  yamlStr: string,
+  description?: string,
+) =>
+  fetchJSON<CreateWorkflowResponse>(`/workflows`, {
+    method: "POST",
+    body: JSON.stringify({ name, yaml: yamlStr, description }),
+  });
+
+/** Publish a new version of an existing workflow. */
 export const publishWorkflow = (
   name: string,
   version: string,
@@ -59,6 +81,7 @@ export const publishWorkflow = (
     body: JSON.stringify({ version, steps, description }),
   });
 
+/** Publish a new version of an existing workflow (raw YAML). */
 export const publishWorkflowYaml = (
   name: string,
   version: string,

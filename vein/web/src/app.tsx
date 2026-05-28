@@ -179,9 +179,10 @@ export function App() {
   }, [selectedWf, localSteps, submitRun]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
-    await api.publishWorkflowYaml(name, "v1", yamlStr, desc || undefined);
+    // Server auto-suffixes on collision; navigate to the resolved name.
+    const res = await api.createWorkflowYaml(name, yamlStr, desc || undefined);
     await refreshWorkflows();
-    setSelectedWf(name);
+    setSelectedWf(res.workflow);
     setShowCreate(false);
   }, [refreshWorkflows]);
 

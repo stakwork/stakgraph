@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, mkdir } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
@@ -111,6 +111,42 @@ export class WorkspaceManager {
       input: z.any(),
       steps: data.steps,
     };
+  }
+
+  /**
+   * Create a brand-new workflow at v1. If `<workspace>/workflows/<name>/`
+   * already exists, a numeric suffix is appended (`<name>-2`, `<name>-3`, ...)
+   * until a free slot is found. Returns the actual name written.
+   *
+   * Use this for "create" intents (UI's Create Workflow dialog, AI's
+   * `create_workflow` tool). For adding a new version to an existing workflow,
+   * call `publishWorkflow` directly with the existing name and the next version.
+   */
+  async createWorkflow(
+    name: string,
+    content: { steps: any[] } | string,
+    description?: string,
+  ): Promise<{ name: string; version: string }> {
+    const workflowsDir = join(this.root, "workflows");
+    let finalName = name;
+    let n = 2;
+    while (await pathExists(join(workflowsDir, finalName))) {
+      finalName = `${name}-${n++}`;
+    }
+
+    // If the YAML embeds a `name:` field, rewrite it so the on-disk name
+    // matches the directory — runner.ts keys run storage off `workflow.name`.
+    let resolvedContent = content;
+    if (finalName !== name && typeof content === "string") {
+      const parsed = yaml.load(content) as any;
+      if (parsed && typeof parsed === "object") {
+        parsed.name = finalName;
+        resolvedContent = yaml.dump(parsed, { lineWidth: 120, noRefs: true });
+      }
+    }
+
+    await this.publishWorkflow(finalName, "v1", resolvedContent, description);
+    return { name: finalName, version: "v1" };
   }
 
   /** Publish a new workflow version. Accepts steps array or raw YAML string. */
@@ -258,5 +294,14 @@ async function safeReaddir(dir: string) {
     return await readdir(dir, { withFileTypes: true });
   } catch {
     return [];
+  }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
   }
 }
