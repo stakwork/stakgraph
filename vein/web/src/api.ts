@@ -126,6 +126,22 @@ export interface StepsResponse {
 
 export const listSteps = () => fetchJSON<StepsResponse>("/steps");
 
+export interface FieldDesc {
+  name: string;
+  kind: "string" | "number" | "boolean" | "enum" | "json";
+  required: boolean;
+  default?: unknown;
+  enumValues?: string[];
+}
+
+export interface StepSchemaResponse {
+  type: string;
+  fields: FieldDesc[];
+}
+
+export const getStepSchema = (type: string) =>
+  fetchJSON<StepSchemaResponse>(`/steps/${type}/schema`);
+
 // ── Runs ───────────────────────────────────────────────────────────────────
 
 export interface RunSummary {
@@ -161,3 +177,89 @@ export const getRun = (workflow: string, runId: string) =>
 
 export const getRunEvents = (workflow: string, runId: string) =>
   fetchJSON<RunEvent[]>(`/workflows/${workflow}/runs/${runId}/events`);
+
+// ── Chat (AI workflow builder) ─────────────────────────────────────────────
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ToolCallInfo {
+  name: string;
+  input: any;
+}
+
+export interface ChatCallbacks {
+  onTextDelta: (delta: string) => void;
+  onToolCall: (tc: ToolCallInfo) => void;
+  onStepFinish: () => void;
+  onFinish: () => void;
+}
+
+/**
+ * Stream a chat message to the AI workflow builder.
+ * Uses the same UI message stream protocol as Vercel AI SDK.
+ */
+export async function chat(
+  messages: ChatMessage[],
+  callbacks: ChatCallbacks,
+): Promise<void> {
+  const res = await fetch(`${BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buf = "";
+  const toolCalls: Record<string, { name: string; inputBuf: string }> = {};
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const raw = line.trim();
+      let data = "";
+      if (raw.startsWith("data:")) data = raw.slice(5).trim();
+      else if (raw.startsWith("{")) data = raw;
+      else continue;
+      if (data === "[DONE]") continue;
+
+      try {
+        const msg = JSON.parse(data);
+        switch (msg.type) {
+          case "text-delta":
+            if (msg.delta) callbacks.onTextDelta(msg.delta);
+            break;
+          case "tool-input-start":
+            toolCalls[msg.toolCallId] = { name: msg.toolName, inputBuf: "" };
+            break;
+          case "tool-input-delta":
+            if (toolCalls[msg.toolCallId]) {
+              toolCalls[msg.toolCallId].inputBuf += msg.inputTextDelta;
+            }
+            break;
+          case "tool-input-available": {
+            callbacks.onToolCall({ name: msg.toolName, input: msg.input });
+            break;
+          }
+          case "finish-step":
+            callbacks.onStepFinish();
+            break;
+        }
+      } catch {
+        // skip unparseable lines
+      }
+    }
+  }
+
+  callbacks.onFinish();
+}

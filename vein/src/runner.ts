@@ -381,7 +381,7 @@ async function executeIf(
   if (!branch) return undefined;
 
   const branchName = cond ? "then" : "else";
-  return executeStep(branch, scope, registry, runId, `${path}/${branchName}`, emit);
+  return executeStep(branch, scope, registry, runId, `${path}/${branchName}/${branch.id}`, emit);
 }
 
 async function executeLoop(

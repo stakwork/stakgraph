@@ -1,8 +1,16 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
 
+const EXAMPLE = `- id: summarize
+  type: llm
+  config:
+    prompt: "Summarize this: {{ fetch.body }}"
+    provider: anthropic
+    model: claude-sonnet-4-20250514`;
+
 export default defineStep({
   type: "llm",
+  description: `Call an LLM. Output: { text } for free-form, or structured object if "schema" is set. Providers: anthropic, openai.\n\n${EXAMPLE}`,
   input: z.object({
     prompt: z.string(),
     schema: z.any().optional(), // Zod schema for structured output

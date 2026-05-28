@@ -69,6 +69,7 @@ const STATUS_CHECK = "#22c55e";
 const STATUS_ERROR = "#ef4444";
 const STATUS_RUNNING = "#f59e0b";
 const STATUS_PENDING = "#6b7689";
+const STATUS_SKIPPED = "#4b5563";
 
 function renderStatusIndicator(ctx: SlotContext): unknown {
   const status = ctx.node.customData?.status as string | undefined;
@@ -112,6 +113,15 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
       createElement("circle", {
         cx, cy, r: r * 0.4,
         fill: STATUS_RUNNING, opacity: 0.9,
+      }),
+    );
+  }
+
+  if (status === "skipped") {
+    return createElement("g", { pointerEvents: "none" },
+      createElement("circle", {
+        cx, cy, r: r * 0.3,
+        fill: STATUS_SKIPPED, opacity: 0.7,
       }),
     );
   }
@@ -216,10 +226,18 @@ function assignLayers(steps: StepData[]): Map<string, number> {
 function stepStatus(
   stepPath: string,
   runEvents?: RunEventData[],
+  parentEndedPath?: string,
 ): string | undefined {
   if (!runEvents) return undefined;
   const stepEvts = runEvents.filter((e) => e.path === stepPath);
-  if (stepEvts.length === 0) return "pending";
+  if (stepEvts.length === 0) {
+    // If the parent control-flow step has already ended and this branch
+    // produced no events, it was the unchosen branch.
+    if (parentEndedPath && runEvents.some((e) => e.path === parentEndedPath && e.type === "step.end")) {
+      return "skipped";
+    }
+    return "pending";
+  }
   const hasError = stepEvts.some((e) => e.type === "step.error");
   const hasEnd = stepEvts.some((e) => e.type === "step.end");
   if (hasError) return "error";
@@ -324,7 +342,7 @@ export function flowToCanvas(
       if (thenStep) {
         const thenId = `${condId}/then/${thenStep.id}`;
         const thenCategory = `step-${STEP_COLORS[thenStep.type] ? thenStep.type : "default"}`;
-        const thenStatus = stepStatus(thenId, runEvents);
+        const thenStatus = stepStatus(thenId, runEvents, condId);
         const condPos = nodePositions.get(s.id)!;
         const thenX = condPos.x - NODE_W / 2 - GAP_X / 2;
         const thenY = condPos.y + NODE_H + GAP_Y * 0.6;
@@ -338,7 +356,7 @@ export function flowToCanvas(
           y: thenY,
           width: NODE_W,
           height: NODE_H,
-          customData: { status: thenStatus },
+          customData: { stepId: thenStep.id, nestedPath: thenId, status: thenStatus },
         });
         edges.push({
           id: `${condId}__then__${thenId}`,
@@ -351,7 +369,7 @@ export function flowToCanvas(
       if (elseStep) {
         const elseId = `${condId}/else/${elseStep.id}`;
         const elseCategory = `step-${STEP_COLORS[elseStep.type] ? elseStep.type : "default"}`;
-        const elseStatus = stepStatus(elseId, runEvents);
+        const elseStatus = stepStatus(elseId, runEvents, condId);
         const condPos = nodePositions.get(s.id)!;
         const elseX = condPos.x + NODE_W / 2 + GAP_X / 2;
         const elseY = condPos.y + NODE_H + GAP_Y * 0.6;
@@ -365,7 +383,7 @@ export function flowToCanvas(
           y: elseY,
           width: NODE_W,
           height: NODE_H,
-          customData: { status: elseStatus },
+          customData: { stepId: elseStep.id, nestedPath: elseId, status: elseStatus },
         });
         edges.push({
           id: `${condId}__else__${elseId}`,

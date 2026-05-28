@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
+import { useState, useEffect, useCallback, useMemo, useRef, type StateUpdater } from "preact/hooks";
 import { SystemCanvas } from "system-canvas-react";
 import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
 import type { AddNodeButtonRenderProps } from "system-canvas-react";
@@ -47,6 +47,8 @@ export function App() {
   const [localSteps, setLocalSteps] = useState<StepData[] | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
+  const [flyoutPath, setFlyoutPath] = useState<string | null>(null);
+  const [showChat, setShowChat] = useState(false);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
@@ -61,14 +63,14 @@ export function App() {
   // Events for the flyout step
   const flyoutEvents = useMemo(() => {
     if (!flyoutStepId || !selectedWf || events.length === 0) return null;
-    const path = `${selectedWf}/${flyoutStepId}`;
+    const path = flyoutPath ?? `${selectedWf}/${flyoutStepId}`;
     const stepEvts = events.filter((e) => e.path === path);
     if (stepEvts.length === 0) return null;
     const start = stepEvts.find((e) => e.type === "step.start");
     const end = stepEvts.find((e) => e.type === "step.end");
     const error = stepEvts.find((e) => e.type === "step.error");
     return { start, end, error, all: stepEvts };
-  }, [flyoutStepId, selectedWf, events]);
+  }, [flyoutStepId, flyoutPath, selectedWf, events]);
 
   const isRunView = selectedRun != null && events.length > 0;
 
@@ -199,9 +201,11 @@ export function App() {
   const handleNodeClick = useCallback((node: CanvasNode) => {
     const stepId = node.customData?.stepId as string | undefined;
     const stepIndex = node.customData?.stepIndex as number | undefined;
+    const nestedPath = node.customData?.nestedPath as string | undefined;
     if (stepId != null) {
       setFlyoutStepId(stepId);
       setFlyoutStepIndex(stepIndex ?? null);
+      setFlyoutPath(nestedPath ?? null);
     }
   }, []);
 
@@ -288,14 +292,25 @@ export function App() {
 
   const handleStepSave = useCallback((index: number, updated: StepData) => {
     if (!localSteps) return;
-    const next = [...localSteps];
+    const oldId = localSteps[index]!.id;
+    const newId = updated.id;
+    let next = [...localSteps];
     next[index] = updated;
+    // If the ID changed, update all depends references in other steps
+    if (oldId !== newId) {
+      next = next.map((s, i) => {
+        if (i === index || !s.depends) return s;
+        const deps = Array.isArray(s.depends) ? s.depends : [s.depends];
+        if (!deps.includes(oldId)) return s;
+        return { ...s, depends: deps.map((d) => d === oldId ? newId : d) };
+      });
+    }
     updateLocalSteps(next);
     setFlyoutStepId(null);
     setFlyoutStepIndex(null);
   }, [localSteps, selectedWf]);
 
-  const closeFlyout = () => { setFlyoutStepId(null); setFlyoutStepIndex(null); };
+  const closeFlyout = () => { setFlyoutStepId(null); setFlyoutStepIndex(null); setFlyoutPath(null); };
 
   return (
     <div class="shell">
@@ -353,6 +368,7 @@ export function App() {
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
           {selectedWf && <button class="btn btn-primary" onClick={handleRun}>Run</button>}
+          <button class="btn" onClick={() => setShowChat(!showChat)}>AI</button>
         </div>
       </div>
 
@@ -387,20 +403,40 @@ export function App() {
       {/* Add step dialog */}
       {showAddStep && <AddStepDialog stepTypes={stepTypes} onSelect={handleAddStepSelect} onClose={() => setShowAddStep(false)} />}
 
-      {/* Step flyout */}
-      {flyoutStepId != null && flyoutStepIndex != null && localSteps && localSteps[flyoutStepIndex] && (
-        isRunView && flyoutEvents
-          ? <StepRunFlyout
-              step={localSteps[flyoutStepIndex]!}
-              events={flyoutEvents}
-              onClose={closeFlyout}
-            />
-          : <StepEditFlyout
-              step={localSteps[flyoutStepIndex]!}
-              onSave={(updated) => handleStepSave(flyoutStepIndex!, updated)}
-              onClose={closeFlyout}
-            />
+      {/* Chat flyout */}
+      {showChat && (
+        <ChatFlyout
+          onClose={() => setShowChat(false)}
+          onWorkflowCreated={async (name) => {
+            await refreshWorkflows();
+            setSelectedWf(name);
+            setShowChat(false);
+          }}
+        />
       )}
+
+      {/* Step flyout */}
+      {flyoutStepId != null && localSteps && (() => {
+        // Find step data: either top-level by index, or nested in if/loop config
+        const topStep = flyoutStepIndex != null ? localSteps[flyoutStepIndex] : null;
+        const step = topStep ?? findNestedStep(localSteps, flyoutStepId);
+        if (!step) return null;
+
+        if (isRunView && flyoutEvents) {
+          return <StepRunFlyout step={step} events={flyoutEvents} onClose={closeFlyout} />;
+        }
+        if (topStep && flyoutStepIndex != null) {
+          return (
+            <StepEditFlyout
+              step={topStep}
+              allStepIds={localSteps.map((s) => s.id)}
+              onSave={(updated) => handleStepSave(flyoutStepIndex, updated)}
+              onClose={closeFlyout}
+            />
+          );
+        }
+        return null;
+      })()}
     </div>
   );
 }
@@ -409,6 +445,12 @@ export function App() {
 
 function EventsPanel(props: { events: api.RunEvent[] }) {
   const [expanded, setExpanded] = useState<number | null>(null);
+
+  // Auto-expand run.end when it arrives
+  useEffect(() => {
+    const idx = props.events.findIndex((e) => e.type === "run.end");
+    if (idx >= 0) setExpanded(idx);
+  }, [props.events]);
 
   return (
     <div class="shell-events">
@@ -532,89 +574,255 @@ function StepRunFlyout(props: {
 
 function StepEditFlyout(props: {
   step: StepData;
+  allStepIds: string[];
   onSave: (updated: StepData) => void;
   onClose: () => void;
 }) {
-  const stepObj: Record<string, any> = {
-    id: props.step.id,
-    type: props.step.type,
-    config: props.step.config,
-  };
-  if (props.step.depends != null) {
-    const deps = Array.isArray(props.step.depends) ? props.step.depends : [props.step.depends];
-    if (deps.length > 0) stepObj.depends = deps;
-  }
-
-  const [stepYaml, setStepYaml] = useState(
-    yaml.dump(stepObj, { lineWidth: 120, noRefs: true }),
-  );
+  const [id, setId] = useState(props.step.id);
+  const [config, setConfig] = useState<Record<string, any>>({ ...props.step.config });
+  const [depends, setDepends] = useState<string[]>(() => {
+    if (props.step.depends == null) return [];
+    return Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
+  });
+  const [fields, setFields] = useState<api.FieldDesc[]>([]);
   const [error, setError] = useState("");
 
+  // Fetch schema for this step type
   useEffect(() => {
-    const obj: Record<string, any> = {
-      id: props.step.id,
-      type: props.step.type,
-      config: props.step.config,
-    };
-    if (props.step.depends != null) {
-      const deps = Array.isArray(props.step.depends) ? props.step.depends : [props.step.depends];
-      if (deps.length > 0) obj.depends = deps;
-    }
-    setStepYaml(yaml.dump(obj, { lineWidth: 120, noRefs: true }));
+    api.getStepSchema(props.step.type).then((resp) => {
+      setFields(resp.fields);
+    }).catch(() => setFields([]));
+  }, [props.step.type]);
+
+  // Reset state when step changes
+  useEffect(() => {
+    setId(props.step.id);
+    setConfig({ ...props.step.config });
+    const deps = props.step.depends == null ? [] : Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
+    setDepends(deps);
     setError("");
   }, [props.step]);
 
-  const handleSave = () => {
-    try {
-      const data = yaml.load(stepYaml) as any;
-      if (!data?.id) { setError("Step must have an 'id'"); return; }
-      if (!data?.type) { setError("Step must have a 'type'"); return; }
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(data.id)) {
-        setError("ID must match [a-zA-Z_][a-zA-Z0-9_]*");
-        return;
-      }
-      const updated: StepData = {
-        id: data.id,
-        type: data.type,
-        config: data.config ?? {},
-        options: props.step.options,
-      };
-      if (data.depends != null) {
-        updated.depends = Array.isArray(data.depends) ? data.depends : [data.depends];
-      }
-      props.onSave(updated);
-    } catch (e) {
-      setError(`Invalid YAML: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  const updateConfig = (name: string, value: unknown) => {
+    setConfig((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleSave = () => {
+    if (!id) { setError("Step must have an id"); return; }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
+      setError("ID must match [a-zA-Z_][a-zA-Z0-9_]*");
+      return;
+    }
+    // Strip empty-string values for optional fields
+    const cleanConfig: Record<string, any> = {};
+    for (const [k, v] of Object.entries(config)) {
+      if (v !== "" && v !== undefined) cleanConfig[k] = v;
+    }
+    const updated: StepData = {
+      id,
+      type: props.step.type,
+      config: cleanConfig,
+      options: props.step.options,
+    };
+    if (depends.length > 0) updated.depends = depends;
+    props.onSave(updated);
+  };
+
+  // Build YAML preview
+  const previewObj: Record<string, any> = { id, type: props.step.type, config };
+  if (depends.length > 0) previewObj.depends = depends;
+  const yamlPreview = yaml.dump(previewObj, { lineWidth: 120, noRefs: true });
+
+  // Other step ids for depends checkboxes (exclude self)
+  const otherStepIds = props.allStepIds.filter((sid) => sid !== props.step.id);
+
   return (
-    <>
-      <div class="flyout">
-        <div class="flyout-header">
-          <div>
-            <div class="flyout-eyebrow">Edit Step</div>
-            <div class="flyout-title">{props.step.id}</div>
-          </div>
-          <button class="flyout-close" onClick={props.onClose}>x</button>
+    <div class="flyout">
+      <div class="flyout-header">
+        <div>
+          <div class="flyout-eyebrow">Edit Step</div>
+          <div class="flyout-title">{props.step.type}</div>
         </div>
-        <div class="flyout-body">
-          <div class="flyout-field">
-            <label>Step (YAML)</label>
-            <textarea
-              value={stepYaml}
-              onInput={(e) => { setStepYaml((e.target as HTMLTextAreaElement).value); setError(""); }}
-              rows={14}
-            />
-          </div>
-          {error && <div style="color:var(--danger);font-size:12px;">{error}</div>}
-        </div>
-        <div class="flyout-actions">
-          <button class="btn" onClick={props.onClose}>Cancel</button>
-          <button class="btn btn-primary" onClick={handleSave}>Save</button>
-        </div>
+        <button class="flyout-close" onClick={props.onClose}>x</button>
       </div>
-    </>
+      <div class="flyout-body">
+        {/* Step ID */}
+        <div class="flyout-field">
+          <label>ID</label>
+          <input
+            type="text"
+            value={id}
+            onInput={(e) => { setId((e.target as HTMLInputElement).value); setError(""); }}
+          />
+        </div>
+
+        {/* Config fields from schema */}
+        {fields.length > 0 && (
+          <div class="flyout-section">
+            <div class="flyout-section-title">Config</div>
+            {fields.map((f) => (
+              <ConfigField
+                key={f.name}
+                field={f}
+                value={config[f.name]}
+                onChange={(v) => updateConfig(f.name, v)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Fallback: if no schema loaded yet, show raw config fields */}
+        {fields.length === 0 && Object.keys(config).length > 0 && (
+          <div class="flyout-section">
+            <div class="flyout-section-title">Config</div>
+            {Object.entries(config).map(([key, val]) => (
+              <div class="flyout-field" key={key}>
+                <label>{key}</label>
+                <input
+                  type="text"
+                  value={typeof val === "string" ? val : JSON.stringify(val)}
+                  onInput={(e) => {
+                    const raw = (e.target as HTMLInputElement).value;
+                    try { updateConfig(key, JSON.parse(raw)); } catch { updateConfig(key, raw); }
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Depends */}
+        {otherStepIds.length > 0 && (
+          <div class="flyout-section">
+            <div class="flyout-section-title">Depends on</div>
+            <div class="flyout-checkbox-group">
+              {otherStepIds.map((sid) => (
+                <label key={sid} class="flyout-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={depends.includes(sid)}
+                    onChange={(e) => {
+                      const checked = (e.target as HTMLInputElement).checked;
+                      setDepends((prev) =>
+                        checked ? [...prev, sid] : prev.filter((d) => d !== sid)
+                      );
+                    }}
+                  />
+                  {sid}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* YAML preview (read-only) */}
+        <div class="flyout-section">
+          <div class="flyout-section-title">YAML Preview</div>
+          <pre class="flyout-yaml-preview">{yamlPreview}</pre>
+        </div>
+
+        {error && <div style="color:var(--danger);font-size:12px;">{error}</div>}
+      </div>
+      <div class="flyout-actions">
+        <button class="btn" onClick={props.onClose}>Cancel</button>
+        <button class="btn btn-primary" onClick={handleSave}>Save</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Config Field Renderer ──────────────────────────────────────────────────
+
+function ConfigField(props: {
+  field: api.FieldDesc;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const { field, value, onChange } = props;
+  const label = `${field.name}${field.required ? "" : " (optional)"}`;
+
+  if (field.kind === "enum" && field.enumValues) {
+    return (
+      <div class="flyout-field">
+        <label>{label}</label>
+        <select
+          value={value != null ? String(value) : (field.default != null ? String(field.default) : "")}
+          onChange={(e) => onChange((e.target as HTMLSelectElement).value)}
+        >
+          {!field.required && <option value="">--</option>}
+          {field.enumValues.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  if (field.kind === "boolean") {
+    const checked = value != null ? Boolean(value) : (field.default != null ? Boolean(field.default) : false);
+    return (
+      <div class="flyout-field">
+        <label class="flyout-checkbox-label">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
+          />
+          {label}
+        </label>
+      </div>
+    );
+  }
+
+  if (field.kind === "number") {
+    return (
+      <div class="flyout-field">
+        <label>{label}</label>
+        <input
+          type="number"
+          value={value != null ? String(value) : (field.default != null ? String(field.default) : "")}
+          placeholder={field.default != null ? `default: ${field.default}` : undefined}
+          onInput={(e) => {
+            const raw = (e.target as HTMLInputElement).value;
+            onChange(raw === "" ? undefined : Number(raw));
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (field.kind === "json") {
+    const display = value != null
+      ? (typeof value === "string" ? value : JSON.stringify(value, null, 2))
+      : "";
+    return (
+      <div class="flyout-field">
+        <label>{label}</label>
+        <textarea
+          value={display}
+          rows={4}
+          placeholder="JSON or template expression"
+          onInput={(e) => {
+            const raw = (e.target as HTMLTextAreaElement).value;
+            if (raw === "") { onChange(undefined); return; }
+            try { onChange(JSON.parse(raw)); } catch { onChange(raw); }
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Default: string
+  return (
+    <div class="flyout-field">
+      <label>{label}</label>
+      <input
+        type="text"
+        value={value != null ? String(value) : ""}
+        placeholder={field.default != null ? `default: ${field.default}` : undefined}
+        onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+      />
+    </div>
   );
 }
 
@@ -748,6 +956,188 @@ function CreateDialog(props: {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+// ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
+
+type ChatEntry =
+  | { kind: "user"; content: string }
+  | { kind: "text"; content: string }
+  | { kind: "tool"; calls: api.ToolCallInfo[] };
+
+function ChatFlyout(props: {
+  onClose: () => void;
+  onWorkflowCreated: (name: string) => void;
+}) {
+  const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Auto-scroll on new content
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    setEntries((prev) => [...prev, { kind: "user", content: text }]);
+    setInput("");
+    setLoading(true);
+
+    // Build API messages: flatten entries into role/content pairs
+    const allEntries = [...entries, { kind: "user" as const, content: text }];
+    const apiMessages: api.ChatMessage[] = [];
+    for (const e of allEntries) {
+      if (e.kind === "user") {
+        apiMessages.push({ role: "user", content: e.content });
+      } else if (e.kind === "text" && e.content) {
+        apiMessages.push({ role: "assistant", content: e.content });
+      }
+    }
+
+    let textBuf = "";
+    let toolBuf: api.ToolCallInfo[] = [];
+
+    try {
+      await api.chat(apiMessages, {
+        onTextDelta: (delta) => {
+          textBuf += delta;
+          const content = textBuf;
+          setEntries((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.kind === "text") {
+              const next = [...prev];
+              next[next.length - 1] = { kind: "text", content };
+              return next;
+            }
+            return [...prev, { kind: "text", content }];
+          });
+        },
+        onToolCall: (tc) => {
+          toolBuf.push(tc);
+          if (tc.name === "create_workflow" && tc.input?.name) {
+            props.onWorkflowCreated(tc.input.name);
+          }
+          const calls = [...toolBuf];
+          setEntries((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.kind === "tool") {
+              const next = [...prev];
+              next[next.length - 1] = { kind: "tool", calls };
+              return next;
+            }
+            return [...prev, { kind: "tool", calls }];
+          });
+        },
+        onStepFinish: () => {
+          // Reset buffers so next step starts a fresh bubble
+          textBuf = "";
+          toolBuf = [];
+        },
+        onFinish: () => {
+          setLoading(false);
+        },
+      });
+    } catch {
+      setEntries((prev) => [...prev, { kind: "text", content: "Error connecting to AI." }]);
+      setLoading(false);
+    }
+  }, [input, loading, entries, props.onWorkflowCreated]);
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <div class="flyout chat-flyout">
+      <div class="flyout-header">
+        <div>
+          <div class="flyout-eyebrow">AI Builder</div>
+          <div class="flyout-title">Create Workflow</div>
+        </div>
+        <button class="flyout-close" onClick={props.onClose}>x</button>
+      </div>
+      <div class="chat-messages" ref={scrollRef}>
+        {entries.length === 0 && (
+          <div class="chat-empty">Describe the workflow you want to build.</div>
+        )}
+        {entries.map((entry, i) => {
+          if (entry.kind === "user") {
+            return (
+              <div key={i} class="chat-msg chat-msg-user">
+                <div class="chat-msg-text">{entry.content}</div>
+              </div>
+            );
+          }
+          if (entry.kind === "tool") {
+            return (
+              <div key={i} class="chat-tool-calls">
+                {entry.calls.map((tc, j) => (
+                  <div key={j} class="chat-tool-call">
+                    <span class="chat-tool-name">{tc.name}</span>
+                    <pre class="chat-tool-input">{formatJson(tc.input)}</pre>
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          // kind === "text"
+          return (
+            <div key={i} class="chat-msg chat-msg-assistant">
+              <div class="chat-msg-text">{entry.content}</div>
+            </div>
+          );
+        })}
+        {loading && (entries.length === 0 || entries[entries.length - 1]?.kind === "user") && (
+          <div class="chat-msg chat-msg-assistant">
+            <div class="chat-msg-text chat-thinking">Thinking...</div>
+          </div>
+        )}
+      </div>
+      <div class="chat-input-row">
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onInput={(e) => setInput((e.target as HTMLInputElement).value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Describe your workflow..."
+          disabled={loading}
+        />
+        <button class="btn btn-primary" onClick={send} disabled={loading}>Send</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Search if/loop configs for a nested step by id. */
+function findNestedStep(steps: StepData[], id: string): StepData | null {
+  for (const s of steps) {
+    if (s.type === "if") {
+      const t = s.config.then as StepData | undefined;
+      const e = s.config.else as StepData | undefined;
+      if (t?.id === id) return t;
+      if (e?.id === id) return e;
+    }
+    if (s.type === "loop") {
+      const b = s.config.body as StepData | undefined;
+      if (b?.id === id) return b;
+    }
+  }
+  return null;
+}
 
 function statusTone(s: string) { return s === "success" ? "ok" : s === "error" ? "danger" : "warning"; }
 function eventTone(t: string) { return t.includes("error") ? "error" : t.includes("end") ? "end" : t.includes("start") ? "start" : t.includes("retry") ? "retry" : "other"; }

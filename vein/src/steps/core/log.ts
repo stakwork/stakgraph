@@ -1,8 +1,15 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
 
+const EXAMPLE = `- id: greet
+  type: log
+  config:
+    message: "Hello {{ input.name }}"
+    level: info`;
+
 export default defineStep({
   type: "log",
+  description: `Log a message to the console. Output: the message string.\n\n${EXAMPLE}`,
   input: z.object({
     message: z.string(),
     level: z.enum(["info", "warn", "error"]).default("info"),

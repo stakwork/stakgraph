@@ -1,8 +1,17 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
 
+const EXAMPLE = `- id: fetch
+  type: http
+  config:
+    url: "https://api.example.com/data"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ input.token }}"`;
+
 export default defineStep({
   type: "http",
+  description: `Make an HTTP request. Output: { status, body }.\n\n${EXAMPLE}`,
   input: z.object({
     url: z.string(),
     method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).default("GET"),

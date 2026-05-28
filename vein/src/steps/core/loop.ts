@@ -1,13 +1,21 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
 
-/**
- * The `loop` step is handled as a control flow primitive by the runner.
- * This definition exists for registry/type-checking purposes.
- * The runner intercepts `type: "loop"` and handles iteration directly.
- */
+const EXAMPLE = `- id: poll
+  type: loop
+  config:
+    maxIterations: 10
+    delayMs: 2000
+    until: "{{ $current.body.status === 'complete' }}"
+    body:
+      id: check
+      type: http
+      config:
+        url: "https://api.example.com/status"`;
+
 export default defineStep({
   type: "loop",
+  description: `Repeat a step until a condition is met. Config: "body" (single Step), "until" (template expression, use $current for last output), "maxIterations", optional "delayMs".\n\n${EXAMPLE}`,
   input: z.object({
     until: z.string(), // template expression
     maxIterations: z.number().int().positive(),

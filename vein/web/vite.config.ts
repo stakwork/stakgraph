@@ -19,6 +19,7 @@ export default defineConfig({
         },
       },
       "/steps": "http://localhost:3000",
+      "/chat": "http://localhost:3000",
       "/health": "http://localhost:3000",
     },
   },

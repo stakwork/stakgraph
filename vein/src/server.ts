@@ -5,11 +5,85 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { readFile, readdir, access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
+import { z } from "zod";
 import { WorkspaceManager } from "./workspace.js";
 import { FileRunStore } from "./store.js";
 import { buildRegistry } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import type { StepRegistry } from "./core.js";
+import { buildTools, SYSTEM } from "./ai.js";
+
+// ── Zod → field descriptors ────────────────────────────────────────────────
+
+interface FieldDesc {
+  name: string;
+  kind: "string" | "number" | "boolean" | "enum" | "json";
+  required: boolean;
+  default?: unknown;
+  enumValues?: string[];
+  description?: string;
+}
+
+/** Walk a ZodObject and produce a flat field list for the UI. */
+function zodToFields(schema: z.ZodTypeAny): FieldDesc[] {
+  const shape = getObjectShape(schema);
+  if (!shape) return [];
+
+  const fields: FieldDesc[] = [];
+  for (const [name, fieldSchema] of Object.entries(shape)) {
+    fields.push(describeField(name, fieldSchema as z.ZodTypeAny));
+  }
+  return fields;
+}
+
+function getObjectShape(s: z.ZodTypeAny): Record<string, z.ZodTypeAny> | null {
+  const def = s._def;
+  if (def.typeName === "ZodObject") return (def as any).shape();
+  if (def.typeName === "ZodEffects") return getObjectShape(def.schema);
+  return null;
+}
+
+function describeField(name: string, s: z.ZodTypeAny): FieldDesc {
+  let required = true;
+  let defaultVal: unknown = undefined;
+  let inner = s;
+
+  // Unwrap optional / default wrappers
+  for (;;) {
+    const def = inner._def;
+    if (def.typeName === "ZodOptional") {
+      required = false;
+      inner = def.innerType;
+    } else if (def.typeName === "ZodDefault") {
+      required = false;
+      defaultVal = def.defaultValue();
+      inner = def.innerType;
+    } else if (def.typeName === "ZodNullable") {
+      required = false;
+      inner = def.innerType;
+    } else {
+      break;
+    }
+  }
+
+  const typeName = inner._def.typeName as string;
+
+  if (typeName === "ZodEnum") {
+    return { name, kind: "enum", required, default: defaultVal, enumValues: inner._def.values };
+  }
+  if (typeName === "ZodString") {
+    return { name, kind: "string", required, default: defaultVal };
+  }
+  if (typeName === "ZodNumber") {
+    return { name, kind: "number", required, default: defaultVal };
+  }
+  if (typeName === "ZodBoolean") {
+    return { name, kind: "boolean", required, default: defaultVal };
+  }
+
+  // Anything complex (ZodAny, ZodRecord, ZodArray, etc.) → json textarea
+  return { name, kind: "json", required, default: defaultVal };
+}
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 
@@ -185,6 +259,17 @@ app.get("/steps", async (c) => {
   return c.json({ core: coreSteps, workspace: workspaceSteps });
 });
 
+/** Get input schema for a step type as a simple field descriptor */
+app.get("/steps/:type/schema", async (c) => {
+  const type = c.req.param("type");
+  const def = registry[type];
+  if (!def) {
+    return c.json({ error: `Step type "${type}" not found` }, 404);
+  }
+  const fields = zodToFields(def.input);
+  return c.json({ type, fields });
+});
+
 /** Publish a new step */
 app.post("/steps", async (c) => {
   const body = await c.req.json<{
@@ -271,6 +356,37 @@ app.post("/workflows/:name/:version/run", async (c) => {
   });
 });
 
+// ── Chat (AI workflow builder) ─────────────────────────────────────────────
+
+app.post("/chat", async (c) => {
+  const body = await c.req.json<{ messages: any[] }>();
+  const messages = (body.messages ?? []).map((m: any) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  const { ToolLoopAgent, stepCountIs } = await import("ai");
+  const { anthropic } = await import("@ai-sdk/anthropic");
+
+  const deps = {
+    workspace,
+    registry,
+    getRegistry: () => buildRegistry(workspace.path),
+  };
+  const tools = buildTools(deps);
+
+  const agent = new ToolLoopAgent({
+    model: anthropic("claude-sonnet-4-20250514"),
+    instructions: SYSTEM,
+    tools,
+    stopWhen: stepCountIs(10),
+    onFinish: () => { registry = deps.registry; },
+  });
+
+  const result = await agent.stream({ messages });
+  return result.toUIMessageStreamResponse();
+});
+
 // ── Health ─────────────────────────────────────────────────────────────────
 
 app.get("/health", (c) => {
@@ -293,6 +409,7 @@ app.get("*", async (c) => {
   if (
     path.startsWith("/workflows") ||
     path.startsWith("/steps") ||
+    path.startsWith("/chat") ||
     path.startsWith("/health")
   ) {
     return c.notFound();

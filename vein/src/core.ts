@@ -9,6 +9,7 @@ export interface StepDef<
   TOutput extends z.ZodTypeAny = z.ZodTypeAny,
 > {
   type: TType;
+  description?: string;
   input: TInput;
   output: TOutput;
   run: (cfg: z.infer<TInput>, ctx: StepContext) => Promise<z.infer<TOutput>>;
@@ -93,6 +94,7 @@ export interface RunSummary {
 /** A step definition with erased generics, for use in the registry. */
 export interface AnyStepDef {
   type: string;
+  description?: string;
   input: z.ZodTypeAny;
   output: z.ZodTypeAny;
   run: (cfg: any, ctx: StepContext) => Promise<any>;
