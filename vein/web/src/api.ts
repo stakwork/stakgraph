@@ -5,6 +5,14 @@ export async function fetchJSON<T>(path: string, opts?: RequestInit): Promise<T>
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error) msg = body.error;
+    } catch {}
+    throw new Error(`${path}: ${msg}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -190,9 +198,16 @@ export interface ToolCallInfo {
   input: any;
 }
 
+export interface ToolResultInfo {
+  name: string;
+  input: any;
+  output: any;
+}
+
 export interface ChatCallbacks {
   onTextDelta: (delta: string) => void;
   onToolCall: (tc: ToolCallInfo) => void;
+  onToolResult?: (tr: ToolResultInfo) => void;
   onStepFinish: () => void;
   onFinish: () => void;
 }
@@ -216,7 +231,7 @@ export async function chat(
 
   const decoder = new TextDecoder();
   let buf = "";
-  const toolCalls: Record<string, { name: string; inputBuf: string }> = {};
+  const toolCalls: Record<string, { name: string; inputBuf: string; input?: any }> = {};
 
   while (true) {
     const { done, value } = await reader.read();
@@ -248,7 +263,24 @@ export async function chat(
             }
             break;
           case "tool-input-available": {
+            // Remember the call so we can correlate with output later.
+            toolCalls[msg.toolCallId] = {
+              name: msg.toolName,
+              inputBuf: "",
+              input: msg.input,
+            };
             callbacks.onToolCall({ name: msg.toolName, input: msg.input });
+            break;
+          }
+          case "tool-output-available": {
+            const call = toolCalls[msg.toolCallId];
+            if (call && callbacks.onToolResult) {
+              callbacks.onToolResult({
+                name: call.name,
+                input: call.input,
+                output: msg.output,
+              });
+            }
             break;
           }
           case "finish-step":

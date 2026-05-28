@@ -792,19 +792,48 @@ body.is-resizing-events * {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  padding: var(--sp-2) var(--sp-3);
   font-size: 11px;
+  overflow: hidden;
+}
+.chat-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-1) var(--sp-3);
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-tool-head:hover {
+  background: var(--surface-2);
 }
 .chat-tool-name {
   font-weight: 600;
   color: var(--accent);
   font-family: var(--font-mono);
 }
+.chat-tool-count {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-left: auto;
+}
+.chat-tool-body {
+  padding: 0 var(--sp-3) var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  border-top: 1px solid var(--border);
+}
 .chat-tool-input {
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 11px;
-  margin: var(--sp-1) 0 0 0;
+  margin: var(--sp-2) 0 0 0;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 120px;

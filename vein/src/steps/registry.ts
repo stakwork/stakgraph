@@ -26,7 +26,7 @@ const CORE_STEPS: StepRegistry = {
 export const CORE_STEP_TYPES = Object.freeze(Object.keys(CORE_STEPS));
 
 /** Directory containing built-in lib steps, resolved relative to this file. */
-const LIB_DIR = join(dirname(fileURLToPath(import.meta.url)), "lib");
+export const LIB_DIR = join(dirname(fileURLToPath(import.meta.url)), "lib");
 
 // ── Auto-discovery ─────────────────────────────────────────────────────────
 

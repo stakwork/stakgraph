@@ -426,7 +426,12 @@ export function App() {
           onWorkflowCreated={async (name) => {
             await refreshWorkflows();
             setSelectedWf(name);
-            setShowChat(false);
+          }}
+          onWorkflowRan={async (name, runId) => {
+            // Make sure the run's workflow is selected, then surface the new run.
+            if (selectedWf !== name) setSelectedWf(name);
+            await refreshRuns(name);
+            setSelectedRun(runId);
           }}
         />
       )}

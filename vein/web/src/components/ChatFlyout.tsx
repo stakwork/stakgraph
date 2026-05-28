@@ -5,18 +5,39 @@ import { CloseIcon } from "../icons";
 
 // ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
 
+type ToolGroup = { name: string; calls: api.ToolCallInfo[] };
+
 type ChatEntry =
   | { kind: "user"; content: string }
   | { kind: "text"; content: string }
-  | { kind: "tool"; calls: api.ToolCallInfo[] };
+  | { kind: "tool"; groups: ToolGroup[] };
+
+// Coalesce consecutive same-name tool calls into groups.
+function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
+  const groups: ToolGroup[] = [];
+  for (const tc of calls) {
+    const last = groups[groups.length - 1];
+    if (last && last.name === tc.name) {
+      last.calls.push(tc);
+    } else {
+      groups.push({ name: tc.name, calls: [tc] });
+    }
+  }
+  return groups;
+}
 
 export function ChatFlyout(props: {
   onClose: () => void;
   onWorkflowCreated: (name: string) => void;
+  onWorkflowRan: (name: string, runId: string) => void;
 }) {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const toggleExpanded = (key: string) =>
+    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -71,16 +92,21 @@ export function ChatFlyout(props: {
           if (tc.name === "create_workflow" && tc.input?.name) {
             props.onWorkflowCreated(tc.input.name);
           }
-          const calls = [...toolBuf];
+          const groups = groupCalls(toolBuf);
           setEntries((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.kind === "tool") {
               const next = [...prev];
-              next[next.length - 1] = { kind: "tool", calls };
+              next[next.length - 1] = { kind: "tool", groups };
               return next;
             }
-            return [...prev, { kind: "tool", calls }];
+            return [...prev, { kind: "tool", groups }];
           });
+        },
+        onToolResult: (tr) => {
+          if (tr.name === "run_workflow" && tr.input?.name && tr.output?.runId) {
+            props.onWorkflowRan(tr.input.name, tr.output.runId);
+          }
         },
         onStepFinish: () => {
           // Reset buffers so next step starts a fresh bubble
@@ -128,12 +154,31 @@ export function ChatFlyout(props: {
           if (entry.kind === "tool") {
             return (
               <div key={i} class="chat-tool-calls">
-                {entry.calls.map((tc, j) => (
-                  <div key={j} class="chat-tool-call">
-                    <span class="chat-tool-name">{tc.name}</span>
-                    <pre class="chat-tool-input">{formatJson(tc.input)}</pre>
-                  </div>
-                ))}
+                {entry.groups.map((g, j) => {
+                  const key = `${i}:${j}`;
+                  const isOpen = !!expanded[key];
+                  const count = g.calls.length;
+                  return (
+                    <div key={j} class={`chat-tool-call${isOpen ? " is-open" : ""}`}>
+                      <button
+                        type="button"
+                        class="chat-tool-head"
+                        onClick={() => toggleExpanded(key)}
+                        aria-expanded={isOpen}
+                      >
+                        <span class="chat-tool-name">{g.name}</span>
+                        {count > 1 && <span class="chat-tool-count">×{count}</span>}
+                      </button>
+                      {isOpen && (
+                        <div class="chat-tool-body">
+                          {g.calls.map((tc, k) => (
+                            <pre key={k} class="chat-tool-input">{formatJson(tc.input)}</pre>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           }

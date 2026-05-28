@@ -11,7 +11,7 @@ import { FileRunStore } from "./store.js";
 import { buildRegistry, CORE_STEP_TYPES } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import type { StepRegistry } from "./core.js";
-import { buildTools, SYSTEM } from "./ai.js";
+import { buildTools, buildSystem } from "./ai/index.js";
 
 // ── Zod → field descriptors ────────────────────────────────────────────────
 
@@ -144,13 +144,11 @@ app.get("/workflows/:name/runs/:runId", async (c) => {
   return c.json(summary);
 });
 
-/** Get run events (JSON array) */
+/** Get run events (JSON array). Returns [] for runs that exist but have no
+ * events yet (just started) — only 404 when the run dir doesn't exist. */
 app.get("/workflows/:name/runs/:runId/events", async (c) => {
   const { name, runId } = c.req.param();
   const events = await store.getRunEvents(name, runId);
-  if (events.length === 0) {
-    return c.json({ error: `Events for run "${runId}" not found` }, 404);
-  }
   return c.json(events);
 });
 
@@ -367,13 +365,29 @@ app.post("/chat", async (c) => {
 
   const agent = new ToolLoopAgent({
     model: anthropic("claude-sonnet-4-20250514"),
-    instructions: SYSTEM,
+    instructions: await buildSystem(deps),
     tools,
     stopWhen: stepCountIs(10),
     onFinish: () => { registry = deps.registry; },
   });
 
-  const result = await agent.stream({ messages });
+  const chatId = Date.now().toString(36);
+  console.log(`[chat ${chatId}] start (${messages.length} msgs)`);
+
+  const result = await agent.stream({
+    messages,
+    onStepFinish: (step) => {
+      const u = step.usage;
+      console.log(
+        `[chat ${chatId}] step ${step.stepNumber} finish=${step.finishReason} tokens=in:${u?.inputTokens ?? "?"}/out:${u?.outputTokens ?? "?"}`,
+      );
+      for (const tc of step.toolCalls) {
+        const input = JSON.stringify((tc as any).input ?? {});
+        const truncated = input.length > 200 ? input.slice(0, 200) + "…" : input;
+        console.log(`[chat ${chatId}]   → ${tc.toolName} ${truncated}`);
+      }
+    },
+  });
   return result.toUIMessageStreamResponse();
 });
 
