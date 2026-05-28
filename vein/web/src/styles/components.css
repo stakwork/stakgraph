@@ -299,16 +299,20 @@
   border-radius: var(--r-sm);
   width: 28px;
   height: 28px;
-  font-size: 18px;
-  line-height: 1;
+  padding: 0;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.flyout-close svg {
+  display: block;
 }
 .flyout-close:hover {
   color: var(--text);
   border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
 }
 .flyout-body {
   padding: var(--sp-4) var(--sp-5);
