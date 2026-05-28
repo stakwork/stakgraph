@@ -172,27 +172,12 @@ export class WorkspaceManager {
 
   // ── Steps ──────────────────────────────────────────────────────────────
 
+  /**
+   * List user-authored custom steps from `<workspace>/steps/custom/`.
+   * Lib steps live in the engine source tree and are not listed here.
+   */
   async listSteps(): Promise<StepListEntry[]> {
     const results: StepListEntry[] = [];
-
-    const libDir = join(this.root, "steps", "lib");
-    const libNamespaces = await safeReaddir(libDir);
-    for (const ns of libNamespaces) {
-      if (!ns.isDirectory()) continue;
-      const meta = await this.readStepMetadata(join(libDir, ns.name));
-      const files = await safeReaddir(join(libDir, ns.name));
-      for (const f of files) {
-        if (!f.isFile() || !f.name.endsWith(".ts") || f.name.startsWith("_"))
-          continue;
-        const stepName = f.name.replace(/\.ts$/, "");
-        const fullType = `${ns.name}/${stepName}`;
-        results.push({
-          type: fullType,
-          description: meta?.steps[stepName]?.description,
-          createdAt: meta?.steps[stepName]?.createdAt,
-        });
-      }
-    }
 
     const customDir = join(this.root, "steps", "custom");
     const meta = await this.readStepMetadata(customDir);
@@ -211,16 +196,16 @@ export class WorkspaceManager {
     return results;
   }
 
+  /**
+   * Write a user-authored step to `<workspace>/steps/custom/<name>.ts`.
+   * Lib steps cannot be published at runtime — they ship with the engine.
+   */
   async publishStep(
-    namespace: string,
     name: string,
     code: string,
     description?: string,
   ): Promise<void> {
-    const isCustom = namespace === "custom" || !namespace;
-    const dir = isCustom
-      ? join(this.root, "steps", "custom")
-      : join(this.root, "steps", "lib", namespace);
+    const dir = join(this.root, "steps", "custom");
 
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `${name}.ts`), code, "utf-8");

@@ -42,7 +42,7 @@ export interface RunEventData {
 
 // ── Node dimensions ────────────────────────────────────────────────────────
 
-const NODE_W = 180;
+const NODE_W = 160;
 const NODE_H = 60;
 const GAP_Y = 50;
 const GAP_X = 40;

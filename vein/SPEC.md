@@ -30,13 +30,21 @@ src/
   workspace.ts          # workspace manager (discovery, versioning)
   server.ts             # Hono HTTP API + static file serving
   steps/
-    core/               # built-ins, never modified
+    core/               # built-ins, never modified (statically imported)
       http.ts
       if.ts
       loop.ts
       subflow.ts
       log.ts
       llm.ts
+      wait.ts
+    lib/                # built-in domain integrations (dynamically imported)
+      github/
+        fetch-pr.ts
+      neo4j/
+        query.ts
+      slack/
+        send-message.ts
     registry.ts         # auto-discovers and registers all step types
 web/                    # Preact + system-canvas UI (built to web/dist/)
   src/
@@ -71,28 +79,15 @@ $VEIN_WORKSPACE/
       v1.yaml
       runs/
   steps/
-    lib/                # reusable domain steps (integrations, services)
-      github/
-        _metadata.json
-        fetch-prs.ts
-        fetch-commit.ts
-        list-files.ts
-      neo4j/
-        _metadata.json
-        query.ts
-        save-node.ts
-      slack/
-        _metadata.json
-        send-message.ts
     custom/             # user/LLM-created steps, generated at runtime
       _metadata.json
       my-scorer.ts
       parse-diff.ts
 ```
 
-- **`steps/core/`** (engine): built-in control flow and primitives. Frozen — never edited by users or LLMs.
-- **`steps/lib/`** (workspace): reusable domain steps organized by integration/service (e.g. `github/`, `neo4j/`, `slack/`). Grows as you add integrations. Shared across all workflows.
-- **`steps/custom/`** (workspace): user-created or LLM-generated steps. An LLM can create a new step by writing a `.ts` file here; it's immediately usable in workflows.
+- **`steps/core/`** (engine): built-in control flow and primitives. Frozen — never edited by users or LLMs. Statically imported, so they're always loaded.
+- **`steps/lib/`** (engine): built-in domain steps organized by integration/service (e.g. `github/`, `neo4j/`, `slack/`). Shipped with the engine but **dynamically imported** — heavy dependencies (e.g. `@octokit/rest`) are only pulled in when a workflow actually uses the step.
+- **`steps/custom/`** (workspace): user-created or LLM-generated steps. An LLM can create a new step by writing a `.ts` file here; it's immediately usable in workflows. Dynamically imported.
 - Each workflow lives in its own directory under `workflows/`, with versioned `.yaml` files and a `_metadata.json`.
 - Child workflows are referenced by name via the `subflow` step type.
 
@@ -165,16 +160,17 @@ Step registry (`steps/index.ts`) imports each step and exposes a typed union; `s
 
 ## 4. Step Type Resolution
 
-Step type names are resolved by path relative to `steps/`, with the directory prefix as namespace:
+Step type names are derived from a file's path relative to its base directory:
 
-- `"http"` → `steps/core/http.ts`
-- `"github/fetch-prs"` → `steps/lib/github/fetch-prs.ts`
-- `"neo4j/query"` → `steps/lib/neo4j/query.ts`
-- `"my-scorer"` → `steps/custom/my-scorer.ts`
+- `"http"` → `src/steps/core/http.ts` (engine, static import)
+- `"github/fetch-pr"` → `src/steps/lib/github/fetch-pr.ts` (engine, dynamic import)
+- `"neo4j/query"` → `src/steps/lib/neo4j/query.ts` (engine, dynamic import)
+- `"my-scorer"` → `<workspace>/steps/custom/my-scorer.ts` (workspace, dynamic import)
+- `"utils/parse-diff"` → `<workspace>/steps/custom/utils/parse-diff.ts` (workspace, dynamic import)
 
-Resolution order: `core/` → `lib/` → `custom/`. If a name has no `/`, it's looked up in `core/` first, then `custom/`. Names with `/` are looked up directly in `lib/` (or `custom/` if prefixed with `custom/`).
+Resolution order: `core/` → `lib/` → `custom/`. A name in a higher tier cannot shadow a lower one — the registry logs a warning and skips the collision. Names with a `/` are namespaced (typically lib steps); flat names without a `/` are typically core or custom.
 
-The registry auto-discovers all three directories at startup and builds the typed union. Adding a file to any directory registers a new step type — no manual wiring needed.
+The registry auto-discovers `lib/` and `custom/` at startup using dynamic `import()`, so each step's dependencies are only resolved when it is actually loaded. Core steps are statically imported and always present. Adding a file to any directory registers a new step type — no manual wiring needed.
 
 ### 4.1 Core Steps
 
@@ -269,41 +265,52 @@ Config:
 
 ### 4.2 Lib Steps
 
-Lib steps live in `steps/lib/<namespace>/`. They are reusable domain-specific integrations shared across all workflows. Each file is a `defineStep(...)` export, same as core steps.
+Lib steps live in `src/steps/lib/<namespace>/` inside the engine itself. They are reusable domain-specific integrations (GitHub, Neo4j, Slack, …) that ship with vein but are kept out of the static dependency graph. Each file is a `defineStep(...)` export, same as core steps.
 
-Step type name = `"<namespace>/<filename>"` (e.g. `"github/fetch-prs"`).
+Lib steps are loaded with **dynamic `import()`** at registry build time. The practical consequence: a workflow that doesn't use the `github/*` steps never resolves `@octokit/rest`. This keeps the cold-start surface small even as the lib catalog grows to many integrations.
+
+Step type name = `"<namespace>/<filename>"` (e.g. `"github/fetch-pr"`).
 
 Example:
 
 ```ts
-// steps/lib/github/fetch-prs.ts
+// src/steps/lib/github/fetch-pr.ts
 import { z } from "zod";
-import { defineStep } from "../../core";
+import { Octokit } from "@octokit/rest";
+import { defineStep } from "../../../core.js";
 
 export default defineStep({
-  type: "github/fetch-prs",
+  type: "github/fetch-pr",
   input: z.object({
     owner: z.string(),
     repo: z.string(),
-    state: z.enum(["open", "closed", "all"]).default("closed"),
+    pull_number: z.number().int().positive(),
     token: z.string().optional(),
   }),
-  output: z.array(z.any()),
-  async run(cfg, ctx) {
-    // Octokit call
+  output: z.object({ markdown: z.string(), pr: z.any() }),
+  async run(cfg) {
+    const octokit = new Octokit({ auth: cfg.token ?? process.env["GITHUB_TOKEN"] });
+    // …fetch + format
   },
 });
 ```
 
 Usage in a workflow:
 
-```ts
-step("prs", "github/fetch-prs", { owner: "{{ input.owner }}", repo: "{{ input.repo }}" }),
+```yaml
+- id: pr
+  type: github/fetch-pr
+  config:
+    owner: "{{ input.owner }}"
+    repo: "{{ input.repo }}"
+    pull_number: "{{ input.prNumber }}"
 ```
+
+Because lib steps are part of the engine source tree, adding a new one is a code change — there is no `POST /steps` route for lib. Users contribute lib steps via PRs.
 
 ### 4.3 Custom Steps
 
-Custom steps live in `steps/custom/`. They are created by users or LLMs at runtime. An LLM can create a new step type by writing a single `.ts` file to this directory — the registry auto-discovers it and it's immediately usable in workflows.
+Custom steps live in `<workspace>/steps/custom/`. They are created by users or LLMs at runtime — the `POST /steps` endpoint writes a `.ts` file there and the registry picks it up on the next rebuild. Same dynamic-import loading as lib.
 
 Same `defineStep(...)` format as core and lib steps. Step type name = the filename without extension (e.g. `"my-scorer"` for `steps/custom/my-scorer.ts`). Subdirectories within `custom/` are allowed and follow the same `"dir/name"` naming convention.
 
@@ -437,36 +444,33 @@ Swap in S3, Postgres, etc. without changing the runner.
 
 ## 8. Type Safety
 
-The registry is the single source of truth. It is auto-built by scanning `steps/core/`, `steps/lib/`, and `steps/custom/`:
+The registry is the single source of truth. It is built at server startup by `buildRegistry(workspacePath?)` in `src/steps/registry.ts`:
+
+- **Core** steps are statically imported (always present, always in the bundle).
+- **Lib** steps are discovered by walking `src/steps/lib/` and `await import()`-ing each `.ts` file. Their step name is derived from the path (e.g. `lib/github/fetch-pr.ts` → `"github/fetch-pr"`).
+- **Custom** steps are discovered the same way under `<workspace>/steps/custom/`.
+
+Sketch:
 
 ```ts
-// steps/index.ts (auto-generated or dynamic)
-// core
-import http from "./core/http";
-import iff from "./core/if";
-import loop from "./core/loop";
-import subflow from "./core/subflow";
-import log from "./core/log";
-import llm from "./core/llm";
-// lib
-import githubFetchPrs from "./lib/github/fetch-prs";
-import neo4jQuery from "./lib/neo4j/query";
-// custom
-import myScorer from "./custom/my-scorer";
+// src/steps/registry.ts
+import http from "./core/http.js";
+// …other core imports
 
-export const registry = {
-  http,
-  if: iff,
-  loop,
-  subflow,
-  log,
-  llm,
-  "github/fetch-prs": githubFetchPrs,
-  "neo4j/query": neo4jQuery,
-  "my-scorer": myScorer,
-};
-export type Registry = typeof registry;
+const CORE_STEPS = { http, if: ifStep, loop, subflow, log, llm, wait };
+const LIB_DIR = join(dirname(fileURLToPath(import.meta.url)), "lib");
+
+export async function buildRegistry(workspacePath?: string): Promise<StepRegistry> {
+  const registry: StepRegistry = { ...CORE_STEPS };
+  await loadStepsFrom(LIB_DIR, registry, "lib");
+  if (workspacePath) {
+    await loadStepsFrom(join(workspacePath, "steps", "custom"), registry, "custom");
+  }
+  return registry;
+}
 ```
+
+`loadStepsFrom` recursively walks the directory, derives the step name from the relative path, and dynamically imports the file. A collision with an already-registered name is skipped with a warning, so higher tiers (custom) cannot shadow lower ones (lib, core).
 
 `step()` is generic over `keyof Registry`, so:
 
@@ -533,7 +537,7 @@ VEIN_WORKSPACE=/data/vein
 
 Default: `./workspace` relative to the engine's working directory. In Docker, this is a mounted persistent volume.
 
-The engine's built-in `steps/core/` lives inside the engine image. At startup, the registry merges core steps (from the engine) with lib and custom steps (from the workspace).
+The engine's built-in `steps/core/` and `steps/lib/` both live inside the engine image. At startup, the registry merges them with custom steps loaded from `<workspace>/steps/custom/`. Lib steps are bundled with the engine but only dynamically imported on demand, so their dependencies don't bloat cold start.
 
 ### 10.2 Docker model
 
@@ -686,7 +690,7 @@ The engine ships with an HTTP server (Hono) that exposes all operations. Set `VE
 
 | Method | Path     | Description                                                       |
 | ------ | -------- | ----------------------------------------------------------------- |
-| GET    | `/steps` | List all steps (core + workspace lib + custom)                    |
+| GET    | `/steps` | List all steps (core + lib + workspace custom)                    |
 | POST   | `/steps` | Publish step: `{ namespace, name, code, description? }`           |
 
 ### 12.3 Runs & Logs

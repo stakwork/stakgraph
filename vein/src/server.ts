@@ -8,10 +8,10 @@ import { serve } from "@hono/node-server";
 import { z } from "zod";
 import { WorkspaceManager } from "./workspace.js";
 import { FileRunStore } from "./store.js";
-import { buildRegistry } from "./steps/registry.js";
+import { buildRegistry, CORE_STEP_TYPES } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import type { StepRegistry } from "./core.js";
-import { buildTools, SYSTEM } from "./ai.js";
+import { buildTools, buildSystem } from "./ai/index.js";
 
 // ── Zod → field descriptors ────────────────────────────────────────────────
 
@@ -144,13 +144,11 @@ app.get("/workflows/:name/runs/:runId", async (c) => {
   return c.json(summary);
 });
 
-/** Get run events (JSON array) */
+/** Get run events (JSON array). Returns [] for runs that exist but have no
+ * events yet (just started) — only 404 when the run dir doesn't exist. */
 app.get("/workflows/:name/runs/:runId/events", async (c) => {
   const { name, runId } = c.req.param();
   const events = await store.getRunEvents(name, runId);
-  if (events.length === 0) {
-    return c.json({ error: `Events for run "${runId}" not found` }, 404);
-  }
   return c.json(events);
 });
 
@@ -245,18 +243,15 @@ app.put("/workflows/:name/active", async (c) => {
 
 /** List all steps (core + lib + custom) */
 app.get("/steps", async (c) => {
-  const coreSteps = Object.keys(registry).map((type) => ({
+  const coreSet = new Set<string>(CORE_STEP_TYPES);
+  const allSteps = Object.keys(registry).map((type) => ({
     type,
-    source: ["http", "if", "loop", "subflow", "log", "llm", "wait"].includes(type)
-      ? "core"
-      : type.includes("/")
-        ? "lib"
-        : "custom",
+    source: coreSet.has(type) ? "core" : type.includes("/") ? "lib" : "custom",
   }));
 
   const workspaceSteps = await workspace.listSteps();
 
-  return c.json({ core: coreSteps, workspace: workspaceSteps });
+  return c.json({ core: allSteps, workspace: workspaceSteps });
 });
 
 /** Get input schema for a step type as a simple field descriptor */
@@ -270,10 +265,9 @@ app.get("/steps/:type/schema", async (c) => {
   return c.json({ type, fields });
 });
 
-/** Publish a new step */
+/** Publish a new custom step. Lib steps ship with the engine and cannot be created here. */
 app.post("/steps", async (c) => {
   const body = await c.req.json<{
-    namespace: string;
     name: string;
     code: string;
     description?: string;
@@ -283,21 +277,12 @@ app.post("/steps", async (c) => {
     return c.json({ error: "name and code are required" }, 400);
   }
 
-  await workspace.publishStep(
-    body.namespace ?? "custom",
-    body.name,
-    body.code,
-    body.description,
-  );
+  await workspace.publishStep(body.name, body.code, body.description);
 
-  // Rebuild registry
+  // Rebuild registry to pick up the new step
   registry = await buildRegistry(workspace.path);
 
-  const type = body.namespace && body.namespace !== "custom"
-    ? `${body.namespace}/${body.name}`
-    : body.name;
-
-  return c.json({ ok: true, type }, 201);
+  return c.json({ ok: true, type: body.name }, 201);
 });
 
 // ── Run workflows ──────────────────────────────────────────────────────────
@@ -373,19 +358,36 @@ app.post("/chat", async (c) => {
   const deps = {
     workspace,
     registry,
+    store,
     getRegistry: () => buildRegistry(workspace.path),
   };
   const tools = buildTools(deps);
 
   const agent = new ToolLoopAgent({
     model: anthropic("claude-sonnet-4-20250514"),
-    instructions: SYSTEM,
+    instructions: await buildSystem(deps),
     tools,
     stopWhen: stepCountIs(10),
     onFinish: () => { registry = deps.registry; },
   });
 
-  const result = await agent.stream({ messages });
+  const chatId = Date.now().toString(36);
+  console.log(`[chat ${chatId}] start (${messages.length} msgs)`);
+
+  const result = await agent.stream({
+    messages,
+    onStepFinish: (step) => {
+      const u = step.usage;
+      console.log(
+        `[chat ${chatId}] step ${step.stepNumber} finish=${step.finishReason} tokens=in:${u?.inputTokens ?? "?"}/out:${u?.outputTokens ?? "?"}`,
+      );
+      for (const tc of step.toolCalls) {
+        const input = JSON.stringify((tc as any).input ?? {});
+        const truncated = input.length > 200 ? input.slice(0, 200) + "…" : input;
+        console.log(`[chat ${chatId}]   → ${tc.toolName} ${truncated}`);
+      }
+    },
+  });
   return result.toUIMessageStreamResponse();
 });
 

@@ -5,31 +5,18 @@ import type { AddNodeButtonRenderProps } from "system-canvas-react";
 import yaml from "js-yaml";
 import * as api from "./api";
 import { flowToCanvas, veinTheme } from "./flow-to-canvas";
-import type { FlowData, StepData, RunEventData } from "./flow-to-canvas";
+import type { StepData, RunEventData } from "./flow-to-canvas";
 import "./styles/base.css";
 import "./styles/components.css";
-
-const EXAMPLE_YAML = `name: my-workflow
-steps:
-  - id: greet
-    type: log
-    config:
-      message: "Hello from vein!"
-  - id: fetch
-    type: http
-    config:
-      url: https://httpbin.org/json
-  - id: done
-    type: log
-    config:
-      message: "Fetched: {{ fetch.body }}"
-`;
-
-interface StepTypeEntry {
-  type: string;
-  source: "core" | "lib" | "custom";
-  description?: string;
-}
+import { deepEqual, normalizeSteps, statusTone } from "./helpers";
+import { ChatFlyout } from "./components/ChatFlyout";
+import { CreateDialog } from "./components/CreateDialog";
+import { AddStepDialog, StepTypeEntry } from "./components/AddStepDialog";
+import { StepEditFlyout } from "./components/StepEditFlyout";
+import { EventsPanel } from "./components/EventsPanel";
+import { EventsResizer } from "./components/EventsResizer";
+import { StepRunFlyout } from "./components/StepRunFlyout";
+import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
 
 export function App() {
   const [workflows, setWorkflows] = useState<api.WorkflowEntry[]>([]);
@@ -46,10 +33,11 @@ export function App() {
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
+  const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
-    return JSON.stringify(publishedSteps) !== JSON.stringify(localSteps);
+    return !deepEqual(normalizeSteps(publishedSteps), normalizeSteps(localSteps));
   }, [publishedSteps, localSteps]);
 
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
@@ -151,16 +139,17 @@ export function App() {
     if (selectedWf) rebuildCanvas(selectedWf, steps, null);
   }
 
-  const handleRun = useCallback(async () => {
+  const submitRun = useCallback(async (input: Record<string, unknown>) => {
     if (!selectedWf || !localSteps) return;
     const wf = selectedWf;
     const steps = localSteps;
     const accumulated: RunEventData[] = [];
 
+    setRunBindings(null);
     // Show pending status on all nodes immediately
     rebuildCanvas(wf, steps, []);
 
-    const result = await api.runWorkflow(wf, {}, (event) => {
+    const result = await api.runWorkflow(wf, input, (event) => {
       accumulated.push(event as RunEventData);
       rebuildCanvas(wf, steps, [...accumulated]);
       setEvents([...accumulated] as api.RunEvent[]);
@@ -171,6 +160,23 @@ export function App() {
     }
     await refreshRuns(wf);
   }, [selectedWf, localSteps, refreshRuns]);
+
+  const handleRun = useCallback(async () => {
+    if (!selectedWf || !localSteps || localSteps.length === 0) return;
+    const first = localSteps[0]!;
+    try {
+      const { fields } = await api.getStepSchema(first.type);
+      const bindings = deriveInputBindings(first, fields);
+      if (bindings.length === 0) {
+        await submitRun({});
+      } else {
+        setRunBindings(bindings);
+      }
+    } catch {
+      // If we can't load the schema, fall back to running with no input.
+      await submitRun({});
+    }
+  }, [selectedWf, localSteps, submitRun]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
     await api.publishWorkflowYaml(name, "v1", yamlStr, desc || undefined);
@@ -317,7 +323,7 @@ export function App() {
         <div class="sidebar-section">
           <div class="section-title">
             Workflows
-            <button class="btn" style="float:right;padding:1px 8px;font-size:11px;" onClick={() => setShowCreate(true)}>+</button>
+            <button class="btn" style="float:right;padding:1px 8px;font-size:11px;margin-top:-3px;" onClick={() => setShowCreate(true)}>+</button>
           </div>
           <div class="sidebar-scroll">
             {workflows.length === 0 && <div class="empty-sidebar">No workflows yet</div>}
@@ -363,7 +369,19 @@ export function App() {
         </span>
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
-          {selectedWf && <button class="btn btn-primary" onClick={handleRun}>Run</button>}
+          {selectedWf && (
+            <div class="run-anchor">
+              <button class="btn btn-primary" onClick={handleRun}>Run</button>
+              {runBindings && selectedWf && (
+                <RunInputPopover
+                  workflow={selectedWf}
+                  bindings={runBindings}
+                  onSubmit={submitRun}
+                  onClose={() => setRunBindings(null)}
+                />
+              )}
+            </div>
+          )}
           <button class="btn" onClick={() => setShowChat(!showChat)}>AI</button>
         </div>
       </div>
@@ -375,6 +393,7 @@ export function App() {
               panMode="trackpad"
               canvas={canvas}
               editable={!isRunView}
+              showNodeToolbar={false}
               onNodeClick={handleNodeClick}
               onNodeAdd={handleNodeAdd}
               onNodeDelete={handleNodeDelete}
@@ -390,7 +409,8 @@ export function App() {
           : <div class="empty">{workflows.length === 0 ? "Create a workflow to get started" : "Select a workflow to view its flow graph"}</div>}
       </div>
 
-      {/* Events panel */}
+      {/* Events panel + resize handle */}
+      {events.length > 0 && <EventsResizer />}
       {events.length > 0 && <EventsPanel events={events} />}
 
       {/* Create dialog */}
@@ -406,7 +426,12 @@ export function App() {
           onWorkflowCreated={async (name) => {
             await refreshWorkflows();
             setSelectedWf(name);
-            setShowChat(false);
+          }}
+          onWorkflowRan={async (name, runId) => {
+            // Make sure the run's workflow is selected, then surface the new run.
+            if (selectedWf !== name) setSelectedWf(name);
+            await refreshRuns(name);
+            setSelectedRun(runId);
           }}
         />
       )}
@@ -430,738 +455,4 @@ export function App() {
       })()}
     </div>
   );
-}
-
-// ── Events Panel (expandable rows) ─────────────────────────────────────────
-
-function EventsPanel(props: { events: api.RunEvent[] }) {
-  const [expanded, setExpanded] = useState<number | null>(null);
-
-  // Auto-expand run.end when it arrives
-  useEffect(() => {
-    const idx = props.events.findIndex((e) => e.type === "run.end");
-    if (idx >= 0) setExpanded(idx);
-  }, [props.events]);
-
-  return (
-    <div class="shell-events">
-      <div class="events-header">Events ({props.events.length})</div>
-      {props.events.map((evt, i) => {
-        const hasData = evt.input != null || evt.output != null || evt.error != null;
-        const isOpen = expanded === i;
-        return (
-          <div key={i} class="event-row">
-            <div class="event-row-summary" onClick={() => hasData && setExpanded(isOpen ? null : i)}>
-              <span class={`event-type event-type-${eventTone(evt.type)}`}>{evt.type}</span>
-              <span class="event-path">{evt.path}</span>
-              <span class="event-duration">{evt.durationMs != null ? `${evt.durationMs}ms` : ""}</span>
-            </div>
-            {isOpen && (
-              <div class="event-detail">
-                {evt.input != null && (
-                  <>
-                    <div class="event-detail-label">Input</div>
-                    <pre class="event-detail-block">{formatJson(evt.input)}</pre>
-                  </>
-                )}
-                {evt.output != null && (
-                  <>
-                    <div class="event-detail-label">Output</div>
-                    <pre class="event-detail-block">{formatJson(evt.output)}</pre>
-                  </>
-                )}
-                {evt.error != null && (
-                  <>
-                    <div class="event-detail-label">Error</div>
-                    <pre class="event-detail-block tone-error">{formatJson(evt.error)}</pre>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Step Run Results Flyout (read-only) ────────────────────────────────────
-
-function StepRunFlyout(props: {
-  step: StepData;
-  events: { start?: api.RunEvent; end?: api.RunEvent; error?: api.RunEvent; skipped?: api.RunEvent; all: api.RunEvent[] };
-  onClose: () => void;
-}) {
-  const { step, events } = props;
-  const status = events.error
-    ? "error"
-    : events.skipped
-      ? "skipped"
-      : events.end
-        ? "success"
-        : "running";
-
-  return (
-    <>
-      <div class="flyout">
-        <div class="flyout-header">
-          <div>
-            <div class="flyout-eyebrow">Step Results</div>
-            <div class="flyout-title">{step.id} <span style="color:var(--text-dim);font-weight:400;">({step.type})</span></div>
-          </div>
-          <button class="flyout-close" onClick={props.onClose}>x</button>
-        </div>
-        <div class="flyout-body">
-          {/* Status */}
-          <div class="flyout-section">
-            <div class="flyout-meta-row">
-              <span class="flyout-meta-label">Status</span>
-              <span class={`badge badge-${statusTone(status)}`}>{status}</span>
-            </div>
-            {events.end?.durationMs != null && (
-              <div class="flyout-meta-row">
-                <span class="flyout-meta-label">Duration</span>
-                <span class="flyout-meta-value">{events.end.durationMs}ms</span>
-              </div>
-            )}
-            {events.start?.ts && (
-              <div class="flyout-meta-row">
-                <span class="flyout-meta-label">Started</span>
-                <span class="flyout-meta-value">{new Date(events.start.ts).toLocaleTimeString()}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Input (resolved config) */}
-          {events.start?.input != null && (
-            <div class="flyout-section">
-              <div class="flyout-section-title">Input (resolved config)</div>
-              <pre class="flyout-json">{formatJson(events.start.input)}</pre>
-            </div>
-          )}
-
-          {/* Output */}
-          {events.end?.output != null && (
-            <div class="flyout-section">
-              <div class="flyout-section-title">Output</div>
-              <pre class="flyout-json">{formatJson(events.end.output)}</pre>
-            </div>
-          )}
-
-          {/* Error */}
-          {events.error?.error != null && (
-            <div class="flyout-section">
-              <div class="flyout-section-title">Error</div>
-              <pre class="flyout-json tone-error">{formatJson(events.error.error)}</pre>
-            </div>
-          )}
-
-          {/* Original config (from workflow definition) */}
-          <div class="flyout-section">
-            <div class="flyout-section-title">Config (workflow definition)</div>
-            <pre class="flyout-json">{yaml.dump(step.config, { lineWidth: 120, noRefs: true }).trim()}</pre>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ── Step Edit Flyout ───────────────────────────────────────────────────────
-
-function StepEditFlyout(props: {
-  step: StepData;
-  allSteps: StepData[];
-  onSave: (updated: StepData) => void;
-  onClose: () => void;
-}) {
-  const [id, setId] = useState(props.step.id);
-  const [config, setConfig] = useState<Record<string, any>>({ ...props.step.config });
-  const [depends, setDepends] = useState<string[]>(() => {
-    if (props.step.depends == null) return [];
-    return Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
-  });
-  const [when, setWhen] = useState<boolean | undefined>(props.step.when);
-  const [fields, setFields] = useState<api.FieldDesc[]>([]);
-  const [error, setError] = useState("");
-
-  // Fetch schema for this step type
-  useEffect(() => {
-    api.getStepSchema(props.step.type).then((resp) => {
-      setFields(resp.fields);
-    }).catch(() => setFields([]));
-  }, [props.step.type]);
-
-  // Reset state when step changes
-  useEffect(() => {
-    setId(props.step.id);
-    setConfig({ ...props.step.config });
-    const deps = props.step.depends == null ? [] : Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
-    setDepends(deps);
-    setWhen(props.step.when);
-    setError("");
-  }, [props.step]);
-
-  const updateConfig = (name: string, value: unknown) => {
-    setConfig((prev) => ({ ...prev, [name]: value }));
-  };
-
-  // Detect if any of the current deps is an `if` gate (enables the `when` field)
-  const hasGateDep = depends.some((d) => {
-    const dep = props.allSteps.find((s) => s.id === d);
-    return dep?.type === "if";
-  });
-
-  const handleSave = () => {
-    if (!id) { setError("Step must have an id"); return; }
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
-      setError("ID must match [a-zA-Z_][a-zA-Z0-9_]*");
-      return;
-    }
-    // Strip empty-string values for optional fields
-    const cleanConfig: Record<string, any> = {};
-    for (const [k, v] of Object.entries(config)) {
-      if (v !== "" && v !== undefined) cleanConfig[k] = v;
-    }
-    const updated: StepData = {
-      id,
-      type: props.step.type,
-      config: cleanConfig,
-      options: props.step.options,
-    };
-    if (depends.length > 0) updated.depends = depends;
-    // Only persist `when` if there's a gate dep
-    if (when != null && hasGateDep) updated.when = when;
-    props.onSave(updated);
-  };
-
-  // Build YAML preview
-  const previewObj: Record<string, any> = { id, type: props.step.type, config };
-  if (depends.length > 0) previewObj.depends = depends;
-  if (when != null && hasGateDep) previewObj.when = when;
-  const yamlPreview = yaml.dump(previewObj, { lineWidth: 120, noRefs: true });
-
-  // Other step ids for depends checkboxes (exclude self)
-  const otherStepIds = props.allSteps.map((s) => s.id).filter((sid) => sid !== props.step.id);
-
-  return (
-    <div class="flyout">
-      <div class="flyout-header">
-        <div>
-          <div class="flyout-eyebrow">Edit Step</div>
-          <div class="flyout-title">{props.step.type}</div>
-        </div>
-        <button class="flyout-close" onClick={props.onClose}>x</button>
-      </div>
-      <div class="flyout-body">
-        {/* Step ID */}
-        <div class="flyout-field">
-          <label>ID</label>
-          <input
-            type="text"
-            value={id}
-            onInput={(e) => { setId((e.target as HTMLInputElement).value); setError(""); }}
-          />
-        </div>
-
-        {/* Config fields from schema */}
-        {fields.length > 0 && (
-          <div class="flyout-section">
-            <div class="flyout-section-title">Config</div>
-            {fields.map((f) => (
-              <ConfigField
-                key={f.name}
-                field={f}
-                value={config[f.name]}
-                onChange={(v) => updateConfig(f.name, v)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Fallback: if no schema loaded yet, show raw config fields */}
-        {fields.length === 0 && Object.keys(config).length > 0 && (
-          <div class="flyout-section">
-            <div class="flyout-section-title">Config</div>
-            {Object.entries(config).map(([key, val]) => (
-              <div class="flyout-field" key={key}>
-                <label>{key}</label>
-                <input
-                  type="text"
-                  value={typeof val === "string" ? val : JSON.stringify(val)}
-                  onInput={(e) => {
-                    const raw = (e.target as HTMLInputElement).value;
-                    try { updateConfig(key, JSON.parse(raw)); } catch { updateConfig(key, raw); }
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Depends */}
-        {otherStepIds.length > 0 && (
-          <div class="flyout-section">
-            <div class="flyout-section-title">Depends on</div>
-            <div class="flyout-checkbox-group">
-              {otherStepIds.map((sid) => {
-                const dep = props.allSteps.find((s) => s.id === sid);
-                const isGate = dep?.type === "if";
-                return (
-                  <label key={sid} class="flyout-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={depends.includes(sid)}
-                      onChange={(e) => {
-                        const checked = (e.target as HTMLInputElement).checked;
-                        setDepends((prev) =>
-                          checked ? [...prev, sid] : prev.filter((d) => d !== sid)
-                        );
-                      }}
-                    />
-                    {sid}{isGate && <span style="color:var(--text-dim);font-size:11px;"> (gate)</span>}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* When (gate condition) — only shown when depending on an `if` gate */}
-        {hasGateDep && (
-          <div class="flyout-section">
-            <div class="flyout-section-title">When (gate branch)</div>
-            <div class="flyout-field">
-              <select
-                value={when == null ? "" : String(when)}
-                onChange={(e) => {
-                  const v = (e.target as HTMLSelectElement).value;
-                  setWhen(v === "" ? undefined : v === "true");
-                }}
-              >
-                <option value="">always (no gating)</option>
-                <option value="true">true branch</option>
-                <option value="false">false branch</option>
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* YAML preview (read-only) */}
-        <div class="flyout-section">
-          <div class="flyout-section-title">YAML Preview</div>
-          <pre class="flyout-yaml-preview">{yamlPreview}</pre>
-        </div>
-
-        {error && <div style="color:var(--danger);font-size:12px;">{error}</div>}
-      </div>
-      <div class="flyout-actions">
-        <button class="btn" onClick={props.onClose}>Cancel</button>
-        <button class="btn btn-primary" onClick={handleSave}>Save</button>
-      </div>
-    </div>
-  );
-}
-
-// ── Config Field Renderer ──────────────────────────────────────────────────
-
-function ConfigField(props: {
-  field: api.FieldDesc;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}) {
-  const { field, value, onChange } = props;
-  const label = `${field.name}${field.required ? "" : " (optional)"}`;
-
-  if (field.kind === "enum" && field.enumValues) {
-    return (
-      <div class="flyout-field">
-        <label>{label}</label>
-        <select
-          value={value != null ? String(value) : (field.default != null ? String(field.default) : "")}
-          onChange={(e) => onChange((e.target as HTMLSelectElement).value)}
-        >
-          {!field.required && <option value="">--</option>}
-          {field.enumValues.map((v) => (
-            <option key={v} value={v}>{v}</option>
-          ))}
-        </select>
-      </div>
-    );
-  }
-
-  if (field.kind === "boolean") {
-    const checked = value != null ? Boolean(value) : (field.default != null ? Boolean(field.default) : false);
-    return (
-      <div class="flyout-field">
-        <label class="flyout-checkbox-label">
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
-          />
-          {label}
-        </label>
-      </div>
-    );
-  }
-
-  if (field.kind === "number") {
-    return (
-      <div class="flyout-field">
-        <label>{label}</label>
-        <input
-          type="number"
-          value={value != null ? String(value) : (field.default != null ? String(field.default) : "")}
-          placeholder={field.default != null ? `default: ${field.default}` : undefined}
-          onInput={(e) => {
-            const raw = (e.target as HTMLInputElement).value;
-            onChange(raw === "" ? undefined : Number(raw));
-          }}
-        />
-      </div>
-    );
-  }
-
-  if (field.kind === "json") {
-    const display = value != null
-      ? (typeof value === "string" ? value : JSON.stringify(value, null, 2))
-      : "";
-    return (
-      <div class="flyout-field">
-        <label>{label}</label>
-        <textarea
-          value={display}
-          rows={4}
-          placeholder="JSON or template expression"
-          onInput={(e) => {
-            const raw = (e.target as HTMLTextAreaElement).value;
-            if (raw === "") { onChange(undefined); return; }
-            try { onChange(JSON.parse(raw)); } catch { onChange(raw); }
-          }}
-        />
-      </div>
-    );
-  }
-
-  // Default: string
-  return (
-    <div class="flyout-field">
-      <label>{label}</label>
-      <input
-        type="text"
-        value={value != null ? String(value) : ""}
-        placeholder={field.default != null ? `default: ${field.default}` : undefined}
-        onInput={(e) => onChange((e.target as HTMLInputElement).value)}
-      />
-    </div>
-  );
-}
-
-// ── Add Step Dialog (searchable) ────────────────────────────────────────────
-
-function AddStepDialog(props: {
-  stepTypes: StepTypeEntry[];
-  onSelect: (type: string) => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const q = query.toLowerCase().trim();
-  const filtered = q
-    ? props.stepTypes.filter((s) => s.type.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q))
-    : props.stepTypes;
-
-  // Group by source
-  const core = filtered.filter((s) => s.source === "core");
-  const lib = filtered.filter((s) => s.source === "lib");
-  const custom = filtered.filter((s) => s.source === "custom");
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") props.onClose();
-    if (e.key === "Enter" && filtered.length === 1) {
-      props.onSelect(filtered[0]!.type);
-    }
-  };
-
-  return (
-    <div class="dialog-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
-      <div class="dialog add-step-dialog">
-        <div class="dialog-title">Add Step</div>
-        <div class="add-step-search">
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search step types..."
-          />
-        </div>
-        <div class="add-step-list">
-          {core.length > 0 && (
-            <StepGroup label="Core" items={core} onSelect={props.onSelect} />
-          )}
-          {lib.length > 0 && (
-            <StepGroup label="Library" items={lib} onSelect={props.onSelect} />
-          )}
-          {custom.length > 0 && (
-            <StepGroup label="Custom" items={custom} onSelect={props.onSelect} />
-          )}
-          {filtered.length === 0 && (
-            <div class="add-step-empty">No matching step types</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepGroup(props: {
-  label: string;
-  items: StepTypeEntry[];
-  onSelect: (type: string) => void;
-}) {
-  return (
-    <div class="add-step-group">
-      <div class="add-step-group-label">{props.label}</div>
-      {props.items.map((s) => (
-        <button
-          key={s.type}
-          class="add-step-item"
-          onClick={() => props.onSelect(s.type)}
-        >
-          <span class="add-step-item-type">{s.type}</span>
-          {s.description && <span class="add-step-item-desc">{s.description}</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ── Create Workflow Dialog ──────────────────────────────────────────────────
-
-function CreateDialog(props: {
-  onClose: () => void;
-  onCreate: (name: string, yamlStr: string, description: string) => void;
-}) {
-  const [desc, setDesc] = useState("");
-  const [yamlStr, setYamlStr] = useState(EXAMPLE_YAML);
-  const [error, setError] = useState("");
-
-  const handleSubmit = () => {
-    try {
-      const data = yaml.load(yamlStr) as any;
-      if (!data?.name) { setError("YAML must have a 'name' field"); return; }
-      if (!data?.steps || !Array.isArray(data.steps)) { setError("YAML must have a 'steps' array"); return; }
-      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(data.name)) { setError("Name must be alphanumeric (hyphens/underscores ok)"); return; }
-      props.onCreate(data.name, yamlStr, desc);
-    } catch (e) {
-      setError(`Invalid YAML: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-
-  return (
-    <div class="dialog-backdrop" onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
-      <div class="dialog">
-        <div class="dialog-title">Create Workflow</div>
-        <div class="dialog-field">
-          <label>Description</label>
-          <input type="text" value={desc} onInput={(e) => setDesc((e.target as HTMLInputElement).value)} placeholder="What this workflow does" />
-        </div>
-        <div class="dialog-field">
-          <label>Workflow (YAML)</label>
-          <textarea value={yamlStr} onInput={(e) => { setYamlStr((e.target as HTMLTextAreaElement).value); setError(""); }} rows={16} />
-          <div class="dialog-hint">Define name and steps. Types: http, log, if, loop, subflow, llm. Use depends: to set DAG edges.</div>
-        </div>
-        {error && <div style="color:var(--danger);font-size:12px;margin-bottom:8px;">{error}</div>}
-        <div class="dialog-actions">
-          <button class="btn" onClick={props.onClose}>Cancel</button>
-          <button class="btn btn-primary" onClick={handleSubmit}>Create</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-// ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
-
-type ChatEntry =
-  | { kind: "user"; content: string }
-  | { kind: "text"; content: string }
-  | { kind: "tool"; calls: api.ToolCallInfo[] };
-
-function ChatFlyout(props: {
-  onClose: () => void;
-  onWorkflowCreated: (name: string) => void;
-}) {
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  // Auto-scroll on new content
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [entries]);
-
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || loading) return;
-
-    setEntries((prev) => [...prev, { kind: "user", content: text }]);
-    setInput("");
-    setLoading(true);
-
-    // Build API messages: flatten entries into role/content pairs
-    const allEntries = [...entries, { kind: "user" as const, content: text }];
-    const apiMessages: api.ChatMessage[] = [];
-    for (const e of allEntries) {
-      if (e.kind === "user") {
-        apiMessages.push({ role: "user", content: e.content });
-      } else if (e.kind === "text" && e.content) {
-        apiMessages.push({ role: "assistant", content: e.content });
-      }
-    }
-
-    let textBuf = "";
-    let toolBuf: api.ToolCallInfo[] = [];
-
-    try {
-      await api.chat(apiMessages, {
-        onTextDelta: (delta) => {
-          textBuf += delta;
-          const content = textBuf;
-          setEntries((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.kind === "text") {
-              const next = [...prev];
-              next[next.length - 1] = { kind: "text", content };
-              return next;
-            }
-            return [...prev, { kind: "text", content }];
-          });
-        },
-        onToolCall: (tc) => {
-          toolBuf.push(tc);
-          if (tc.name === "create_workflow" && tc.input?.name) {
-            props.onWorkflowCreated(tc.input.name);
-          }
-          const calls = [...toolBuf];
-          setEntries((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.kind === "tool") {
-              const next = [...prev];
-              next[next.length - 1] = { kind: "tool", calls };
-              return next;
-            }
-            return [...prev, { kind: "tool", calls }];
-          });
-        },
-        onStepFinish: () => {
-          // Reset buffers so next step starts a fresh bubble
-          textBuf = "";
-          toolBuf = [];
-        },
-        onFinish: () => {
-          setLoading(false);
-        },
-      });
-    } catch {
-      setEntries((prev) => [...prev, { kind: "text", content: "Error connecting to AI." }]);
-      setLoading(false);
-    }
-  }, [input, loading, entries, props.onWorkflowCreated]);
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
-
-  return (
-    <div class="flyout chat-flyout">
-      <div class="flyout-header">
-        <div>
-          <div class="flyout-eyebrow">AI Builder</div>
-          <div class="flyout-title">Create Workflow</div>
-        </div>
-        <button class="flyout-close" onClick={props.onClose}>x</button>
-      </div>
-      <div class="chat-messages" ref={scrollRef}>
-        {entries.length === 0 && (
-          <div class="chat-empty">Describe the workflow you want to build.</div>
-        )}
-        {entries.map((entry, i) => {
-          if (entry.kind === "user") {
-            return (
-              <div key={i} class="chat-msg chat-msg-user">
-                <div class="chat-msg-text">{entry.content}</div>
-              </div>
-            );
-          }
-          if (entry.kind === "tool") {
-            return (
-              <div key={i} class="chat-tool-calls">
-                {entry.calls.map((tc, j) => (
-                  <div key={j} class="chat-tool-call">
-                    <span class="chat-tool-name">{tc.name}</span>
-                    <pre class="chat-tool-input">{formatJson(tc.input)}</pre>
-                  </div>
-                ))}
-              </div>
-            );
-          }
-          // kind === "text"
-          return (
-            <div key={i} class="chat-msg chat-msg-assistant">
-              <div class="chat-msg-text">{entry.content}</div>
-            </div>
-          );
-        })}
-        {loading && (entries.length === 0 || entries[entries.length - 1]?.kind === "user") && (
-          <div class="chat-msg chat-msg-assistant">
-            <div class="chat-msg-text chat-thinking">Thinking...</div>
-          </div>
-        )}
-      </div>
-      <div class="chat-input-row">
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onInput={(e) => setInput((e.target as HTMLInputElement).value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Describe your workflow..."
-          disabled={loading}
-        />
-        <button class="btn btn-primary" onClick={send} disabled={loading}>Send</button>
-      </div>
-    </div>
-  );
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function statusTone(s: string) {
-  if (s === "success") return "ok";
-  if (s === "error") return "danger";
-  if (s === "skipped") return "muted";
-  return "warning";
-}
-function eventTone(t: string) { return t.includes("error") ? "error" : t.includes("end") ? "end" : t.includes("start") ? "start" : t.includes("retry") ? "retry" : "other"; }
-function formatJson(v: unknown): string {
-  if (typeof v === "string") return v;
-  try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }

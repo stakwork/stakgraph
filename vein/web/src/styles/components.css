@@ -1,6 +1,7 @@
 /* ─── shell layout ───────────────────────────────────────────── */
 
 .shell {
+  --events-height: 220px;
   display: grid;
   grid-template-columns: 260px 1fr;
   grid-template-rows: 48px 1fr auto;
@@ -38,16 +39,59 @@
   overscroll-behavior: none;
 }
 
+/* Resize is not supported yet — hide the corner handle indicators that
+   system-canvas renders for the selected node. */
+.shell-canvas .system-canvas-resize-handles {
+  display: none;
+}
+
 .shell-events {
   grid-area: events;
   background: var(--bg);
   border-top: 1px solid var(--border);
   overflow-y: auto;
   padding: var(--sp-3);
-  max-height: 220px;
+  height: var(--events-height);
+  position: relative;
 }
 .shell-events:empty {
   display: none;
+}
+
+/* ─── events resize handle ───────────────────────────────────── */
+
+.events-resizer {
+  grid-area: events;
+  position: relative;
+  height: 5px;
+  margin-top: -3px;
+  margin-bottom: -2px;
+  cursor: ns-resize;
+  z-index: 5;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.events-resizer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.events-resizer:hover::after,
+.events-resizer.is-dragging::after {
+  background: var(--accent);
+}
+.events-resizer.is-dragging {
+  background: rgba(110, 168, 255, 0.06);
+}
+body.is-resizing-events,
+body.is-resizing-events * {
+  cursor: ns-resize !important;
+  user-select: none !important;
 }
 
 /* ─── sidebar ────────────────────────────────────────────────── */
@@ -299,16 +343,20 @@
   border-radius: var(--r-sm);
   width: 28px;
   height: 28px;
-  font-size: 18px;
-  line-height: 1;
+  padding: 0;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.flyout-close svg {
+  display: block;
 }
 .flyout-close:hover {
   color: var(--text);
   border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
 }
 .flyout-body {
   padding: var(--sp-4) var(--sp-5);
@@ -744,19 +792,48 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  padding: var(--sp-2) var(--sp-3);
   font-size: 11px;
+  overflow: hidden;
+}
+.chat-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-1) var(--sp-3);
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-tool-head:hover {
+  background: var(--surface-2);
 }
 .chat-tool-name {
   font-weight: 600;
   color: var(--accent);
   font-family: var(--font-mono);
 }
+.chat-tool-count {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-left: auto;
+}
+.chat-tool-body {
+  padding: 0 var(--sp-3) var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  border-top: 1px solid var(--border);
+}
 .chat-tool-input {
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 11px;
-  margin: var(--sp-1) 0 0 0;
+  margin: var(--sp-2) 0 0 0;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 120px;
@@ -786,3 +863,149 @@
 .chat-input-row input:disabled {
   opacity: 0.5;
 }
+
+/* ─── run input popover ──────────────────────────────────────── */
+
+.run-anchor {
+  position: relative;
+  display: inline-block;
+}
+.run-popover {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  width: min(320px, 90vw);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.run-popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-2);
+}
+.run-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+/* ─── markdown (compact, sidebar-sized) ──────────────────────── */
+
+.flyout-markdown-wrap {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  max-height: 360px;
+  overflow: auto;
+  color: var(--text);
+}
+.flyout-json-after-md {
+  margin-top: var(--sp-2);
+}
+
+.md-view {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.md-view > *:first-child { margin-top: 0; }
+.md-view > *:last-child { margin-bottom: 0; }
+
+.md-view p {
+  margin: 0 0 var(--sp-2) 0;
+}
+
+.md-view .md-h {
+  font-weight: 600;
+  line-height: 1.25;
+  margin: var(--sp-3) 0 var(--sp-1) 0;
+  color: var(--text);
+}
+.md-view .md-h1 { font-size: 16px; }
+.md-view .md-h2 { font-size: 14.5px; }
+.md-view .md-h3 { font-size: 13.5px; }
+.md-view .md-h4 { font-size: 12.5px; color: var(--text-muted); text-transform: none; }
+.md-view .md-h5,
+.md-view .md-h6 {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.md-view .md-ul,
+.md-view .md-ol {
+  margin: 0 0 var(--sp-2) 0;
+  padding-left: 1.25em;
+}
+.md-view .md-ul li,
+.md-view .md-ol li {
+  margin: 2px 0;
+}
+.md-view .md-ul { list-style: disc; }
+.md-view .md-ol { list-style: decimal; }
+
+.md-view .md-quote {
+  margin: 0 0 var(--sp-2) 0;
+  padding: 2px 0 2px var(--sp-3);
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+}
+
+.md-view .md-hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--sp-3) 0;
+}
+
+.md-view a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.md-view a:hover { text-decoration: underline; }
+
+.md-view .md-code-inline {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+}
+
+.md-view .md-code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow: auto;
+  margin: 0 0 var(--sp-2) 0;
+  white-space: pre;
+}
+.md-view .md-code-block code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+}
+
+.md-view strong { font-weight: 600; color: var(--text); }
+.md-view em { font-style: italic; }
+

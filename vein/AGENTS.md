@@ -16,6 +16,7 @@ on the codebase.
 | Web UI      | Preact + Vite + system-canvas-react. Vanilla CSS, no Tailwind              |
 | Tests       | Node native test runner (`node:test`) via tsx                              |
 | LLM step    | Vercel AI SDK (ai + @ai-sdk/anthropic + @ai-sdk/openai) — lazy-loaded      |
+| AI builder  | Vercel AI SDK `ToolLoopAgent` + Anthropic, streamed to UI via `/chat` SSE  |
 
 ## Layout
 
@@ -26,28 +27,50 @@ vein/
 ├── tsconfig.json          # strict, Node16 module, types: ["node"]
 ├── src/
 │   ├── core.ts            # flow(), step(), defineStep(), all types
-│   ├── expr.ts            # {{ }} template evaluator (~300 LOC recursive descent)
+│   ├── expr.ts            # {{ }} template evaluator (~460 LOC recursive descent)
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore
-│   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, JSON + .ts loading
-│   ├── server.ts          # Hono HTTP API + static file serving (entry point)
+│   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
+│   ├── server.ts          # Hono HTTP API + SSE run streaming + /chat + static file serving
 │   ├── index.ts           # barrel export
 │   ├── steps/
-│   │   ├── core/          # 7 built-in steps: http, log, if, loop, subflow, llm, wait
-│   │   └── registry.ts    # auto-discovery: merges core + workspace lib/ + custom/
-│   ├── *.test.ts          # 197 tests across 7 files
+│   │   ├── core/          # 7 built-in steps: http, log, if, loop, subflow, llm, wait (static import)
+│   │   ├── lib/           # built-in domain integrations (github/, ...) — dynamic import
+│   │   └── registry.ts    # auto-discovery: core (static) + lib (dynamic) + workspace custom/ (dynamic)
+│   ├── ai/                # AI workflow-builder backend (used by POST /chat)
+│   │   ├── index.ts       # barrel export
+│   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree)
+│   │   ├── tools.ts       # buildTools(deps): list_steps, search_steps, get_step,
+│   │   │                  #                   create_workflow, run_workflow
+│   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
+│   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
+│   └── *.test.ts          # 199 tests across 7 files
 └── web/
     ├── package.json       # preact, system-canvas, vite
-    ├── vite.config.ts     # preact preset, dev proxy to :3000
+    ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
     ├── index.html
     └── src/
         ├── main.tsx       # entry: renders <App/>
-        ├── app.tsx        # main app: sidebar, canvas, flyout, events panel
-        ├── api.ts         # typed fetch wrapper for all API endpoints
-        ├── flow-to-canvas.ts  # Flow → CanvasData converter for system-canvas
+        ├── app.tsx        # shell: sidebar, topbar, canvas, events panel, dialog/flyout orchestration
+        ├── api.ts         # typed fetch wrapper for all API endpoints (+ SSE/chat stream parser)
+        ├── flow-to-canvas.ts  # Flow → CanvasData converter; STEP_COLORS → canvas categories
+        ├── helpers.ts     # normalizeSteps, formatJson, etc.
+        ├── icons.tsx      # inline SVG icons
+        ├── storage.ts     # crash-safe localStorage wrapper (UI prefs, session state)
+        ├── components/
+        │   ├── AddStepDialog.tsx     # searchable Add Step picker (core / lib / custom)
+        │   ├── ChatFlyout.tsx        # AI workflow-builder chat (streams from /chat)
+        │   ├── ConfigField.tsx       # field renderer driven by Zod-derived FieldDesc
+        │   ├── CreateDialog.tsx      # new-workflow dialog
+        │   ├── EventsPanel.tsx       # bottom run-events panel
+        │   ├── EventsResizer.tsx     # drag handle for events panel height
+        │   ├── Markdown.tsx          # tiny markdown renderer for chat output
+        │   ├── RunInputPopover.tsx   # input-payload editor when triggering a run
+        │   ├── StepEditFlyout.tsx    # edit step (id / type / config / depends / options)
+        │   └── StepRunFlyout.tsx     # view a single step's input/output/error/duration in a run
         └── styles/
             ├── base.css       # palette (CSS vars on :root), reset, type
-            └── components.css # shell grid, sidebar, flyout, dialog, events, badges
+            └── components.css # shell grid, sidebar, flyout, dialog, events, chat, badges
 ```
 
 ## Running
@@ -56,7 +79,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 197 tests, ~200ms
+npm test                    # 199 tests, ~200ms
 npm run dev                 # starts Hono server on :3000
 
 # Web UI (dev mode with HMR)
@@ -133,6 +156,18 @@ cd vein && npm run dev        # serves API + UI on :3000
   duration). No backdrop — flyout stays open when clicking between
   nodes for smooth transitions.
 
+- **AI workflow builder** (`src/ai/` + `POST /chat`). The chat
+  flyout streams a `ToolLoopAgent` (Vercel AI SDK + Anthropic) that
+  can browse step types (`list_steps`, `search_steps`, `get_step`),
+  publish workflows (`create_workflow`), and test them
+  (`run_workflow`). The system prompt is built per-request by
+  `buildSystem(deps)` which pre-seeds the available steps tree so
+  the model can skip the initial `list_steps` calls. Tool inputs
+  and step finish events are logged server-side with a `[chat <id>]`
+  prefix. The browser parses the AI SDK UI-message stream protocol
+  in `web/src/api.ts:chat()` and dispatches text deltas, tool
+  calls, and tool results back to `ChatFlyout`.
+
 ## Conventions
 
 - **Vanilla CSS** with custom properties. Two files only:
@@ -173,11 +208,11 @@ cd vein && npm run dev        # serves API + UI on :3000
 2. Import it in `src/steps/registry.ts` and add to `CORE_STEPS`.
 3. If it's control flow, add to `SELF_RESOLVING_STEPS` in `runner.ts`
    and handle it in `dispatchStep`.
-4. Add to `STEP_TYPES` array in `web/src/app.tsx` (for the type dropdown).
-5. Add a color entry in `STEP_COLORS` in `web/src/flow-to-canvas.ts`
-   (categories are auto-generated from this map via `buildCategories()`).
-6. Write tests in the appropriate test file.
-7. Run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
+4. Add a color entry in `STEP_COLORS` in `web/src/flow-to-canvas.ts`
+   (categories are auto-generated from this map via `buildCategories()`;
+   the Add Step dialog discovers types via the `/steps` API).
+5. Write tests in the appropriate test file.
+6. Run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
 
 ## When adding an API endpoint
 
@@ -187,8 +222,10 @@ cd vein && npm run dev        # serves API + UI on :3000
 2. Add the typed function in `web/src/api.ts`.
 3. Wire it into `web/src/app.tsx`.
 4. The Vite dev proxy in `web/vite.config.ts` only proxies known
-   prefixes (`/workflows`, `/steps`, `/health`). Runs are under
-   `/workflows/` so they're already proxied. Add new prefixes if needed.
+   prefixes (`/workflows`, `/steps`, `/chat`, `/health`). Runs are
+   under `/workflows/` so they're already proxied. SSE responses
+   get `cache-control: no-cache` + `x-accel-buffering: no` injected
+   by the proxy. Add new prefixes if needed.
 
 ## When modifying the web UI
 

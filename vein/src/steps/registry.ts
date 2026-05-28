@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AnyStepDef, StepRegistry } from "../core.js";
 
 // ── Built-in core steps (always available) ─────────────────────────────────
@@ -22,6 +22,11 @@ const CORE_STEPS: StepRegistry = {
   llm,
   wait,
 };
+
+export const CORE_STEP_TYPES = Object.freeze(Object.keys(CORE_STEPS));
+
+/** Directory containing built-in lib steps, resolved relative to this file. */
+export const LIB_DIR = join(dirname(fileURLToPath(import.meta.url)), "lib");
 
 // ── Auto-discovery ─────────────────────────────────────────────────────────
 
@@ -94,48 +99,48 @@ async function loadStepFile(filePath: string): Promise<AnyStepDef | null> {
 }
 
 /**
- * Build the complete step registry by merging core steps with
- * workspace lib and custom steps.
+ * Build the complete step registry by merging core steps (statically
+ * imported) with lib steps (dynamically imported from `src/steps/lib/`)
+ * and custom steps (dynamically imported from `<workspace>/steps/custom/`).
  *
- * Resolution order: core/ → lib/ → custom/
- * Core steps cannot be overridden.
+ * Resolution order: core/ → lib/ → custom/. Higher tiers cannot shadow
+ * lower ones — a name collision is skipped with a warning.
+ *
+ * Lib and custom steps are loaded with dynamic `import()` so their
+ * dependencies are only resolved when actually used.
  */
 export async function buildRegistry(workspacePath?: string): Promise<StepRegistry> {
   const registry: StepRegistry = { ...CORE_STEPS };
 
-  if (!workspacePath) return registry;
+  await loadStepsFrom(LIB_DIR, registry, "lib");
 
-  // Discover lib steps
-  const libDir = join(workspacePath, "steps", "lib");
-  const libFiles = await findStepFiles(libDir);
-  for (const file of libFiles) {
-    const name = stepNameFromPath(file, libDir);
-    if (name in CORE_STEPS) {
-      console.warn(`Warning: lib step "${name}" conflicts with core step, skipping`);
-      continue;
-    }
-    const def = await loadStepFile(file);
-    if (def) {
-      registry[name] = def;
-    }
-  }
-
-  // Discover custom steps
-  const customDir = join(workspacePath, "steps", "custom");
-  const customFiles = await findStepFiles(customDir);
-  for (const file of customFiles) {
-    const name = stepNameFromPath(file, customDir);
-    if (name in CORE_STEPS) {
-      console.warn(`Warning: custom step "${name}" conflicts with core step, skipping`);
-      continue;
-    }
-    const def = await loadStepFile(file);
-    if (def) {
-      registry[name] = def;
-    }
+  if (workspacePath) {
+    await loadStepsFrom(join(workspacePath, "steps", "custom"), registry, "custom");
   }
 
   return registry;
+}
+
+/**
+ * Discover and dynamically import all step files in `baseDir`, adding them
+ * to `registry`. Names that collide with already-registered steps are
+ * skipped with a warning.
+ */
+async function loadStepsFrom(
+  baseDir: string,
+  registry: StepRegistry,
+  tier: "lib" | "custom",
+): Promise<void> {
+  const files = await findStepFiles(baseDir);
+  for (const file of files) {
+    const name = stepNameFromPath(file, baseDir);
+    if (name in registry) {
+      console.warn(`Warning: ${tier} step "${name}" conflicts with existing step, skipping`);
+      continue;
+    }
+    const def = await loadStepFile(file);
+    if (def) registry[name] = def;
+  }
 }
 
 /**
