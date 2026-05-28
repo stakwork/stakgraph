@@ -138,6 +138,7 @@ function parseAgentBody(req: Request) {
   const stream = req.body.stream as boolean | undefined;
   const maxTurns = typeof req.body.maxTurns === "number" ? req.body.maxTurns : undefined;
   const headers = normalizeHeaders(req.body.headers);
+  const ignoreRepoInfo = req.body.ignoreRepoInfo as boolean | undefined;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -148,6 +149,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
+    ignoreRepoInfo,
   };
 }
 
@@ -214,7 +216,7 @@ export async function repo_agent(req: Request, res: Response) {
   const effectiveRepos = body.repoList.length > 0 ? body.repoList : graphRepos;
   // Only prepend repo info on the first message of a session (or when there's no session)
   const isExistingSession = body.sessionId && sessionExists(body.sessionId);
-  const promptWithRepoInfo = isExistingSession
+  const promptWithRepoInfo = (isExistingSession || body.ignoreRepoInfo)
     ? body.prompt
     : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   // ── Streaming path: direct SSE response ──────────────────────────────
