@@ -349,7 +349,7 @@ export function App() {
               <div key={run.runId} class={`list-item ${selectedRun === run.runId ? "is-active" : ""}`}
                 onClick={() => { setSelectedRun(run.runId); closeFlyout(); }}>
                 <div class="list-item-stack">
-                  <span class="list-item-name">{run.runId.slice(0, 8)}</span>
+                  <span class="list-item-name">{run.runId.slice(0, 10)}</span>
                   <span class="list-item-sub">
                     {run.startedAt ? new Date(run.startedAt).toLocaleTimeString() : "..."}
                     {run.durationMs != null && ` (${run.durationMs}ms)`}
