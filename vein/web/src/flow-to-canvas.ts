@@ -16,6 +16,7 @@ export interface StepData {
   type: string;
   config: Record<string, any>;
   depends?: string | string[];
+  when?: boolean;
   options?: {
     retry?: { max: number; delayMs: number };
     onError?: StepData;
@@ -226,21 +227,15 @@ function assignLayers(steps: StepData[]): Map<string, number> {
 function stepStatus(
   stepPath: string,
   runEvents?: RunEventData[],
-  parentEndedPath?: string,
 ): string | undefined {
   if (!runEvents) return undefined;
   const stepEvts = runEvents.filter((e) => e.path === stepPath);
-  if (stepEvts.length === 0) {
-    // If the parent control-flow step has already ended and this branch
-    // produced no events, it was the unchosen branch.
-    if (parentEndedPath && runEvents.some((e) => e.path === parentEndedPath && e.type === "step.end")) {
-      return "skipped";
-    }
-    return "pending";
-  }
+  if (stepEvts.length === 0) return "pending";
   const hasError = stepEvts.some((e) => e.type === "step.error");
   const hasEnd = stepEvts.some((e) => e.type === "step.end");
+  const hasSkipped = stepEvts.some((e) => e.type === "step.skipped");
   if (hasError) return "error";
+  if (hasSkipped) return "skipped";
   if (hasEnd) return "success";
   return "running";
 }
@@ -259,6 +254,10 @@ export function flowToCanvas(
     return { nodes, edges, theme: { base: "vein" } };
   }
 
+  // Build a quick lookup of step ids → step (for finding gates)
+  const stepById = new Map<string, StepData>();
+  for (const s of steps) stepById.set(s.id, s);
+
   // Assign layers
   const layers = assignLayers(steps);
 
@@ -276,7 +275,7 @@ export function flowToCanvas(
   for (let layer = 0; layer <= maxLayer; layer++) {
     const group = layerGroups[layer]!;
     const totalWidth = group.length * NODE_W + (group.length - 1) * GAP_X;
-    let startX = 100 + (NODE_W - totalWidth) / 2; // center around x=100+NODE_W/2
+    const startX = 100 + (NODE_W - totalWidth) / 2;
 
     for (let i = 0; i < group.length; i++) {
       const s = group[i]!;
@@ -317,81 +316,25 @@ export function flowToCanvas(
     });
   }
 
-  // Create edges from depends
+  // Create edges from depends. If the step has `when` and the dep is an
+  // `if` gate, label the edge with "true" or "false".
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i]!;
     const deps = getDeps(s, i, steps);
     for (const dep of deps) {
       const fromId = `${flow.name}/${dep}`;
       const toId = `${flow.name}/${s.id}`;
-      edges.push({
+      const depStep = stepById.get(dep);
+      const isGateEdge = s.when != null && depStep?.type === "if";
+      const edge: CanvasEdge = {
         id: `${fromId}__to__${toId}`,
         fromNode: fromId,
         toNode: toId,
-      });
-    }
-  }
-
-  // If step: add labeled edges to then/else child nodes
-  for (const s of steps) {
-    if (s.type === "if") {
-      const condId = `${flow.name}/${s.id}`;
-      const thenStep = s.config.then as StepData | undefined;
-      const elseStep = s.config.else as StepData | undefined;
-
-      if (thenStep) {
-        const thenId = `${condId}/then/${thenStep.id}`;
-        const thenCategory = `step-${STEP_COLORS[thenStep.type] ? thenStep.type : "default"}`;
-        const thenStatus = stepStatus(thenId, runEvents, condId);
-        const condPos = nodePositions.get(s.id)!;
-        const thenX = condPos.x - NODE_W / 2 - GAP_X / 2;
-        const thenY = condPos.y + NODE_H + GAP_Y * 0.6;
-
-        nodes.push({
-          id: thenId,
-          type: "text",
-          category: thenCategory,
-          text: thenStep.id,
-          x: thenX,
-          y: thenY,
-          width: NODE_W,
-          height: NODE_H,
-          customData: { stepId: thenStep.id, nestedPath: thenId, status: thenStatus },
-        });
-        edges.push({
-          id: `${condId}__then__${thenId}`,
-          fromNode: condId,
-          toNode: thenId,
-          label: "then",
-        });
+      };
+      if (isGateEdge) {
+        edge.label = s.when ? "true" : "false";
       }
-
-      if (elseStep) {
-        const elseId = `${condId}/else/${elseStep.id}`;
-        const elseCategory = `step-${STEP_COLORS[elseStep.type] ? elseStep.type : "default"}`;
-        const elseStatus = stepStatus(elseId, runEvents, condId);
-        const condPos = nodePositions.get(s.id)!;
-        const elseX = condPos.x + NODE_W / 2 + GAP_X / 2;
-        const elseY = condPos.y + NODE_H + GAP_Y * 0.6;
-
-        nodes.push({
-          id: elseId,
-          type: "text",
-          category: elseCategory,
-          text: elseStep.id,
-          x: elseX,
-          y: elseY,
-          width: NODE_W,
-          height: NODE_H,
-          customData: { stepId: elseStep.id, nestedPath: elseId, status: elseStatus },
-        });
-        edges.push({
-          id: `${condId}__else__${elseId}`,
-          fromNode: condId,
-          toNode: elseId,
-          label: "else",
-        });
-      }
+      edges.push(edge);
     }
   }
 

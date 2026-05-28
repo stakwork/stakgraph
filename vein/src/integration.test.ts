@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { flow, step, defineStep, type StepRegistry, type RunEvent } from "./core.js";
-import { runWorkflow } from "./runner.js";
+import { flow, step, defineStep, type StepRegistry, type Flow } from "./core.js";
+import { runWorkflow, type SubflowResolver } from "./runner.js";
 import { FileRunStore, MemoryRunStore } from "./store.js";
 import { readFile } from "node:fs/promises";
+import ifStep from "./steps/core/if.js";
+import loopStep from "./steps/core/loop.js";
+import subflowStep from "./steps/core/subflow.js";
 
 // ── Test helpers ───────────────────────────────────────────────────────────
 
@@ -62,8 +65,26 @@ function makeRegistry(extra: Record<string, any> = {}): StepRegistry {
     value: valueStep,
     fail: failStep,
     mock_api: mockApiStep,
+    if: ifStep,
+    loop: loopStep,
+    subflow: subflowStep,
     ...extra,
   } as StepRegistry;
+}
+
+function makeResolver(flows: Record<string, Flow>): SubflowResolver {
+  return {
+    async getWorkflow(name: string) {
+      const f = flows[name];
+      if (!f) throw new Error(`Workflow "${name}" not found`);
+      return f;
+    },
+    async getWorkflowVersion(name: string, _version: string) {
+      const f = flows[name];
+      if (!f) throw new Error(`Workflow "${name}" not found`);
+      return f;
+    },
+  };
 }
 
 // ── Integration: Full workflow patterns ────────────────────────────────────
@@ -131,15 +152,14 @@ describe("integration: complete workflow patterns", () => {
         canary: z.boolean(),
       }),
       steps: [
-        step("strategy", "if", {
-          cond: "{{ input.canary }}",
-          then: step("canary", "value", { result: "canary-deploy" }),
-          else: step("full", "value", { result: "full-deploy" }),
-        }),
+        step("strategy", "if", { cond: "{{ input.canary }}" }),
+        step("canary", "value", { result: "canary-deploy" }, { depends: "strategy", when: true }),
+        step("full", "value", { result: "full-deploy" }, { depends: "strategy", when: false }),
         step("execute", "echo", {
-          type: "{{ strategy }}",
+          canaryType: "{{ canary }}",
+          fullType: "{{ full }}",
           service: "{{ input.service }}",
-        }),
+        }, { depends: ["canary", "full"] }),
       ],
     });
 
@@ -149,7 +169,8 @@ describe("integration: complete workflow patterns", () => {
       makeRegistry(),
     );
     assert.deepEqual(r1.output, {
-      type: "canary-deploy",
+      canaryType: "canary-deploy",
+      fullType: undefined,
       service: "api",
     });
 
@@ -159,7 +180,8 @@ describe("integration: complete workflow patterns", () => {
       makeRegistry(),
     );
     assert.deepEqual(r2.output, {
-      type: "full-deploy",
+      canaryType: undefined,
+      fullType: "full-deploy",
       service: "api",
     });
   });
@@ -228,11 +250,11 @@ describe("integration: complete workflow patterns", () => {
       input: z.object({}),
       steps: [
         step("sub1", "subflow", {
-          flow: processItem,
+          workflow: "process-item",
           input: { item: { id: "a", value: 10 } },
         }),
         step("sub2", "subflow", {
-          flow: processItem,
+          workflow: "process-item",
           input: { item: { id: "b", value: 20 } },
         }),
         step("summary", "echo", {
@@ -242,7 +264,9 @@ describe("integration: complete workflow patterns", () => {
       ],
     });
 
-    const result = await runWorkflow(parent, {}, makeRegistry());
+    const result = await runWorkflow(parent, {}, makeRegistry(), {
+      workspace: makeResolver({ "process-item": processItem }),
+    });
     assert.equal(result.status, "success");
     const output = result.output as any;
     assert.deepEqual(output.item1, {
@@ -353,11 +377,11 @@ describe("integration: complex nested workflows", () => {
       input: z.object({}),
       steps: [
         step("a", "subflow", {
-          flow: worker,
+          workflow: "worker",
           input: { id: 1 },
         }),
         step("b", "subflow", {
-          flow: worker,
+          workflow: "worker",
           input: { id: 2 },
         }, { depends: [] }),
         step("merge", "echo", {
@@ -368,7 +392,9 @@ describe("integration: complex nested workflows", () => {
       ],
     });
 
-    const result = await runWorkflow(wf, {}, makeRegistry());
+    const result = await runWorkflow(wf, {}, makeRegistry(), {
+      workspace: makeResolver({ worker }),
+    });
     assert.equal(result.status, "success");
     const output = result.output as any;
     assert.equal(output.a, 10);
@@ -380,19 +406,21 @@ describe("integration: complex nested workflows", () => {
     const wf = flow("if-branching", {
       input: z.object({ fast: z.boolean() }),
       steps: [
-        step("decide", "if", {
-          cond: "{{ input.fast }}",
-          then: step("quick", "value", { result: "fast-path" }),
-          else: step("slow", "value", { result: "slow-path" }),
-        }),
+        step("decide", "if", { cond: "{{ input.fast }}" }),
+        step("quick", "value", { result: "fast-path" }, { depends: "decide", when: true }),
+        step("slow", "value", { result: "slow-path" }, { depends: "decide", when: false }),
+        step("done", "echo", {
+          fast: "{{ quick }}",
+          slow: "{{ slow }}",
+        }, { depends: ["quick", "slow"] }),
       ],
     });
 
     const fast = await runWorkflow(wf, { fast: true }, makeRegistry());
-    assert.equal(fast.output, "fast-path");
+    assert.deepEqual(fast.output, { fast: "fast-path", slow: undefined });
 
     const slow = await runWorkflow(wf, { fast: false }, makeRegistry());
-    assert.equal(slow.output, "slow-path");
+    assert.deepEqual(slow.output, { fast: undefined, slow: "slow-path" });
   });
 
   it("long chain of 10 sequential steps", async () => {
@@ -437,29 +465,33 @@ describe("integration: complex nested workflows", () => {
     const wf = flow("kitchen-sink", {
       input: z.object({ mode: z.string() }),
       steps: [
-        // Step 1: if
-        step("decide", "if", {
-          cond: "{{ input.mode === 'full' }}",
-          then: step("full", "value", { result: "full-mode" }),
-          else: step("lite", "value", { result: "lite-mode" }),
-        }),
-        // Step 2: DAG parallel branches (both depend on "decide")
-        step("left", "value", { result: "left" }, { depends: "decide" }),
-        step("right", "value", { result: "right" }, { depends: "decide" }),
-        // Step 3: loop (depends on both branches)
+        // Step 1: if gate
+        step("decide", "if", { cond: "{{ input.mode === 'full' }}" }),
+        // Step 2: branches
+        step("full", "value", { result: "full-mode" }, { depends: "decide", when: true }),
+        step("lite", "value", { result: "lite-mode" }, { depends: "decide", when: false }),
+        // Step 3: pick the chosen mode
+        step("mode", "echo", {
+          value: "{{ full }}",
+          fallback: "{{ lite }}",
+        }, { depends: ["full", "lite"] }),
+        // Step 4: DAG parallel branches (both depend on "mode")
+        step("left", "value", { result: "left" }, { depends: "mode" }),
+        step("right", "value", { result: "right" }, { depends: "mode" }),
+        // Step 5: loop (depends on both branches)
         step("poll", "loop", {
           until: "{{ $current.tick >= 3 }}",
           maxIterations: 10,
           body: step("tick", "ticker", {}),
         }, { depends: ["left", "right"] }),
-        // Step 4: subflow
+        // Step 6: subflow
         step("sub", "subflow", {
-          flow: child,
-          input: { val: "{{ decide }}" },
+          workflow: "child-flow",
+          input: { val: "{{ full }}" },
         }),
-        // Step 5: echo everything
+        // Step 7: echo everything
         step("summary", "echo", {
-          mode: "{{ decide }}",
+          full: "{{ full }}",
           left: "{{ left }}",
           right: "{{ right }}",
           loopResult: "{{ poll }}",
@@ -471,11 +503,12 @@ describe("integration: complex nested workflows", () => {
     const result = await runWorkflow(
       wf,
       { mode: "full" },
-      makeRegistry({ ticker }) as StepRegistry,
+      makeRegistry({ ticker }),
+      { workspace: makeResolver({ "child-flow": child }) },
     );
     assert.equal(result.status, "success");
     const output = result.output as any;
-    assert.equal(output.mode, "full-mode");
+    assert.equal(output.full, "full-mode");
     assert.equal(output.left, "left");
     assert.equal(output.right, "right");
     assert.deepEqual(output.loopResult, { tick: 3 });

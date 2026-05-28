@@ -35,6 +35,32 @@ Rules:
 - Use {{ }} templates to reference previous step outputs or input, e.g. {{ fetch.body.name }} or {{ input.url }}.
 - Use === for equality in expressions, not ==.
 
+Branching (if):
+- The "if" step is a GATE. It evaluates "cond" and returns a boolean.
+- Downstream steps branch using "depends: <if-id>" plus "when: true" or "when: false".
+- Each branch can be a chain of multiple steps — they all flow from the gate via "depends".
+- A step that fans in (depends on both branches) runs as long as at least one branch ran.
+- Example:
+    - id: check
+      type: if
+      config:
+        cond: "{{ input.fast }}"
+    - id: quick
+      type: log
+      config: { message: "fast path" }
+      depends: check
+      when: true
+    - id: slow
+      type: log
+      config: { message: "slow path" }
+      depends: check
+      when: false
+
+Subflows:
+- The "subflow" step calls a PUBLISHED workflow by name (and optional version).
+- Config: { workflow: "<name>", version?: "<version>", input: { ... } }.
+- The referenced workflow must already exist in the workspace.
+
 Workflow:
 1. Call list_steps to see what's available.
 2. Call get_step for EVERY step type you will use. Each has a description with the exact YAML config format — you MUST read it before writing. Do not guess config fields.

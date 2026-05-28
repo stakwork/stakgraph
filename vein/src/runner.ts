@@ -5,7 +5,6 @@ import type {
   StepRegistry,
   RunEvent,
   RunResult,
-  RunSummary,
 } from "./core.js";
 import { resolveConfig } from "./expr.js";
 import type { RunStore } from "./store.js";
@@ -13,11 +12,29 @@ import { MemoryRunStore, generateRunId } from "./store.js";
 
 // ── Runner ─────────────────────────────────────────────────────────────────
 
+/**
+ * Workspace interface for loading subflows by reference.
+ * The real WorkspaceManager satisfies this; tests can stub it.
+ */
+export interface SubflowResolver {
+  getWorkflow(name: string): Promise<Flow>;
+  getWorkflowVersion(name: string, version: string): Promise<Flow>;
+}
+
 export interface RunOptions {
   runId?: string;
   store?: RunStore;
   /** Called for every event as it happens (for SSE streaming). */
   onEvent?: (event: RunEvent) => void | Promise<void>;
+  /** Resolves subflow references to Flow objects. Required if any step uses `subflow`. */
+  workspace?: SubflowResolver;
+}
+
+/** Sentinel returned by steps that were skipped because their `when` didn't match. */
+const SKIP = Symbol("vein.skip");
+
+function isSkipped(v: unknown): boolean {
+  return v === SKIP;
 }
 
 export async function runWorkflow(
@@ -77,6 +94,7 @@ export async function runWorkflow(
       runId,
       wfName,
       emit,
+      opts?.workspace,
     );
 
     const finishedAt = new Date().toISOString();
@@ -138,6 +156,7 @@ async function executeFlow(
   runId: string,
   basePath: string,
   emit: EmitFn,
+  workspace: SubflowResolver | undefined,
 ): Promise<unknown> {
   const scope: Record<string, unknown> = { input };
   const steps = workflow.steps;
@@ -153,51 +172,96 @@ async function executeFlow(
     depMap.set(s.id, getDeps(s, i, steps));
   }
 
-  // Find which steps depend on each step (reverse map)
-  const dependents = new Map<string, Set<string>>();
-  for (const s of steps) dependents.set(s.id, new Set());
-  for (const [id, deps] of depMap) {
-    for (const dep of deps) {
-      dependents.get(dep)?.add(id);
-    }
-  }
-
   // Track completion
   const completed = new Set<string>();
-  const pending = new Map<string, { resolve: () => void; promise: Promise<void> }>();
+  // Each pending promise resolves with the step's output (or SKIP if skipped)
+  const pending = new Map<string, { resolve: (v: unknown) => void; promise: Promise<unknown> }>();
 
-  // Create a promise for each step that resolves when it completes
   for (const s of steps) {
-    let resolve!: () => void;
-    const promise = new Promise<void>((r) => { resolve = r; });
+    let resolve!: (v: unknown) => void;
+    const promise = new Promise<unknown>((r) => { resolve = r; });
     pending.set(s.id, { resolve, promise });
   }
 
   // Execute a single step once its deps are met
   async function runStep(s: Step): Promise<void> {
-    // Wait for all dependencies
+    // Wait for all dependencies, collecting their outputs
     const deps = depMap.get(s.id) ?? [];
-    await Promise.all(deps.map((d) => pending.get(d)!.promise));
+    const depOutputs = await Promise.all(
+      deps.map((d) => pending.get(d)?.promise ?? Promise.resolve(undefined)),
+    );
+
+    // Skip propagation: if this step has deps and ALL of them were skipped,
+    // skip this step too (no useful inputs available).
+    // A step with at least one real dep still runs — fan-in pattern.
+    // Steps with `when` use gate logic below regardless.
+    const hasGate = s.when != null;
+    if (deps.length > 0 && !hasGate) {
+      const allSkipped = depOutputs.every(isSkipped);
+      if (allSkipped) {
+        scope[s.id] = undefined;
+        await emit({
+          type: "step.skipped",
+          path: `${basePath}/${s.id}`,
+          stepType: s.type,
+        });
+        pending.get(s.id)!.resolve(SKIP);
+        return;
+      }
+    }
+
+    // Gate check: if `when` is set, find the gate dependency (the one whose
+    // boolean output matters). The gate is the dep whose output is boolean —
+    // but more precisely, we check ALL non-skipped deps for a boolean that
+    // matches `when`. If any boolean dep doesn't match, skip.
+    if (hasGate) {
+      // Find boolean deps (these are gates) and verify at least one matches.
+      // A skipped dep can never satisfy a gate (the gate didn't run).
+      let matched = false;
+      let sawGate = false;
+      for (let i = 0; i < deps.length; i++) {
+        const out = depOutputs[i];
+        if (isSkipped(out)) continue;
+        if (typeof out === "boolean") {
+          sawGate = true;
+          if (out === s.when) {
+            matched = true;
+            break;
+          }
+        }
+      }
+      if (!sawGate || !matched) {
+        // Either no gate ran, or its value doesn't match `when` → skip
+        scope[s.id] = undefined;
+        await emit({
+          type: "step.skipped",
+          path: `${basePath}/${s.id}`,
+          stepType: s.type,
+        });
+        pending.get(s.id)!.resolve(SKIP);
+        return;
+      }
+    }
 
     const stepPath = `${basePath}/${s.id}`;
-    const output = await executeStep(s, scope, registry, runId, stepPath, emit);
+    const output = await executeStep(s, scope, registry, runId, stepPath, emit, workspace);
     scope[s.id] = output;
     completed.add(s.id);
-    pending.get(s.id)!.resolve();
+    pending.get(s.id)!.resolve(output);
   }
 
   // Launch all steps — each waits for its own deps internally
   await Promise.all(steps.map((s) => runStep(s)));
 
-  // Return last step's output (by array order)
-  return scope[steps[steps.length - 1]!.id];
+  // Return last step's output (by array order). If skipped, return undefined.
+  const lastOut = scope[steps[steps.length - 1]!.id];
+  return isSkipped(lastOut) ? undefined : lastOut;
 }
 
 // ── Internal: execute a single step with retry/onError ─────────────────────
 
 // Control flow steps that manage their own template resolution.
-// These should NOT have their config pre-resolved by executeStep.
-const SELF_RESOLVING_STEPS = new Set(["if", "loop", "subflow"]);
+const SELF_RESOLVING_STEPS = new Set(["loop", "subflow"]);
 
 async function executeStep(
   step: Step,
@@ -206,6 +270,7 @@ async function executeStep(
   runId: string,
   path: string,
   emit: EmitFn,
+  workspace: SubflowResolver | undefined,
 ): Promise<unknown> {
   const maxRetries = step.options?.retry?.max ?? 0;
   const retryDelay = step.options?.retry?.delayMs ?? 0;
@@ -249,6 +314,7 @@ async function executeStep(
         runId,
         path,
         emit,
+        workspace,
       );
 
       const durationMs = Date.now() - startTime;
@@ -281,6 +347,7 @@ async function executeStep(
               runId,
               `${path}/onError`,
               emit,
+              workspace,
             );
             return fallbackOutput;
           } catch (fallbackErr) {
@@ -326,17 +393,15 @@ async function dispatchStep(
   runId: string,
   path: string,
   emit: EmitFn,
+  workspace: SubflowResolver | undefined,
 ): Promise<unknown> {
   // Handle core control flow steps specially
   switch (step.type) {
-    case "if":
-      return executeIf(resolvedConfig, scope, registry, runId, path, emit);
-
     case "loop":
-      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit);
+      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace);
 
     case "subflow":
-      return executeSubflow(resolvedConfig, scope, registry, runId, path, emit);
+      return executeSubflow(step, scope, registry, runId, path, emit, workspace);
 
     default: {
       // Look up in registry
@@ -364,26 +429,6 @@ async function dispatchStep(
 
 // ── Control flow implementations ───────────────────────────────────────────
 
-async function executeIf(
-  config: Record<string, unknown>,
-  scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
-  path: string,
-  emit: EmitFn,
-): Promise<unknown> {
-  // Resolve the condition (but not then/else which are Step objects)
-  const cond = resolveConfig(config["cond"], scope);
-  const thenStep = config["then"] as Step;
-  const elseStep = config["else"] as Step;
-
-  const branch = cond ? thenStep : elseStep;
-  if (!branch) return undefined;
-
-  const branchName = cond ? "then" : "else";
-  return executeStep(branch, scope, registry, runId, `${path}/${branchName}/${branch.id}`, emit);
-}
-
 async function executeLoop(
   step: Step,
   _config: Record<string, unknown>,
@@ -392,6 +437,7 @@ async function executeLoop(
   runId: string,
   path: string,
   emit: EmitFn,
+  workspace: SubflowResolver | undefined,
 ): Promise<unknown> {
   // Resolve scalar config values (but not `until` or `body` which need per-iteration resolution)
   const maxIterations = resolveConfig(step.config["maxIterations"], scope) as number;
@@ -425,6 +471,7 @@ async function executeLoop(
       runId,
       `${path}#${i}`,
       emit,
+      workspace,
     );
 
     await emit({
@@ -452,25 +499,39 @@ async function executeLoop(
 }
 
 async function executeSubflow(
-  config: Record<string, unknown>,
+  step: Step,
   scope: Record<string, unknown>,
   registry: StepRegistry,
   runId: string,
   path: string,
   emit: EmitFn,
+  workspace: SubflowResolver | undefined,
 ): Promise<unknown> {
-  const childFlow = config["flow"] as Flow;
-  // Resolve the input (may contain templates referencing parent scope)
-  const childInput = resolveConfig(config["input"], scope);
+  // Resolve workflow name, version, and input from parent scope
+  const wfName = resolveConfig(step.config["workflow"], scope) as string;
+  const version = step.config["version"] != null
+    ? (resolveConfig(step.config["version"], scope) as string)
+    : undefined;
+  const childInput = resolveConfig(step.config["input"], scope);
 
-  if (!childFlow || !childFlow.name || !childFlow.steps) {
-    throw new Error("subflow step requires a 'flow' config with a Flow value");
+  if (!wfName || typeof wfName !== "string") {
+    throw new Error(`subflow step "${step.id}" requires a "workflow" config (workflow name)`);
   }
+
+  if (!workspace) {
+    throw new Error(
+      `subflow step "${step.id}" references workflow "${wfName}" but no workspace was provided to runWorkflow`,
+    );
+  }
+
+  const childFlow = version
+    ? await workspace.getWorkflowVersion(wfName, version)
+    : await workspace.getWorkflow(wfName);
 
   // Validate child flow input against its schema
   const validatedInput = childFlow.input.parse(childInput);
 
-  return executeFlow(childFlow, validatedInput, registry, runId, path, emit);
+  return executeFlow(childFlow, validatedInput, registry, runId, path, emit, workspace);
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────

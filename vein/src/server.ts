@@ -321,6 +321,7 @@ app.post("/workflows/:name/run", async (c) => {
     const result = await runWorkflow(flow, body.input ?? {}, registry, {
       runId: body.runId,
       store,
+      workspace,
       onEvent: async (event) => {
         await stream.writeSSE({ data: JSON.stringify(event) });
       },
@@ -348,6 +349,7 @@ app.post("/workflows/:name/:version/run", async (c) => {
     const result = await runWorkflow(flow, body.input ?? {}, registry, {
       runId: body.runId,
       store,
+      workspace,
       onEvent: async (event) => {
         await stream.writeSSE({ data: JSON.stringify(event) });
       },

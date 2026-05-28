@@ -36,6 +36,10 @@ export interface Step {
   type: string;
   config: Record<string, unknown>;
   depends?: string | string[];
+  /** Gate condition: only run this step when the gate step it depends on
+   *  evaluated to this value. `true`/`false` match the boolean result of
+   *  an `if` gate. Omit to always run (no gating). */
+  when?: boolean;
   options?: StepOptions;
 }
 
@@ -52,6 +56,7 @@ export type RunEventType =
   | "step.end"
   | "step.error"
   | "step.retry"
+  | "step.skipped"
   | "run.start"
   | "run.end"
   | "run.error";
@@ -137,20 +142,21 @@ export function step(
   id: string,
   type: string,
   config: Record<string, unknown>,
-  options?: StepOptions & { depends?: string | string[] },
+  options?: StepOptions & { depends?: string | string[]; when?: boolean },
 ): Step {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
     throw new Error(
       `Invalid step id "${id}": must match [a-zA-Z_][a-zA-Z0-9_]*`,
     );
   }
-  const { depends, ...opts } = options ?? {};
+  const { depends, when, ...opts } = options ?? {};
   const hasOpts = Object.keys(opts).length > 0;
   return {
     id,
     type,
     config,
-    ...(depends ? { depends } : {}),
+    ...(depends != null ? { depends } : {}),
+    ...(when != null ? { when } : {}),
     ...(hasOpts ? { options: opts } : {}),
   };
 }

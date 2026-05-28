@@ -5,28 +5,27 @@ const EXAMPLE = `- id: check
   type: if
   config:
     cond: "{{ fetch.body.status === 'active' }}"
-    then:
-      id: yes
-      type: log
-      config:
-        message: "Active!"
-    else:
-      id: no
-      type: log
-      config:
-        message: "Inactive"`;
+  - id: yes
+    type: log
+    config:
+      message: "Active!"
+    depends: check
+    when: true
+  - id: no
+    type: log
+    config:
+      message: "Inactive"
+    depends: check
+    when: false`;
 
 export default defineStep({
   type: "if",
-  description: `Conditional branch. Config: "cond" (template expression), "then" (single Step), optional "else" (single Step). NOT arrays — one step each.\n\n${EXAMPLE}`,
+  description: `Conditional gate. Config: "cond" (template expression). Evaluates the condition and returns true or false. Downstream steps use "when: true" or "when: false" to branch.\n\n${EXAMPLE}`,
   input: z.object({
     cond: z.any(),
-    then: z.any(), // Step object
-    else: z.any().optional(), // Step object
   }),
-  output: z.any(),
-  async run() {
-    // Control flow handled by runner — this should never be called directly
-    throw new Error("if step must be executed by the runner");
+  output: z.boolean(),
+  async run(cfg) {
+    return Boolean(cfg.cond);
   },
 });

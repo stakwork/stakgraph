@@ -4,25 +4,21 @@ import { defineStep } from "../../core.js";
 const EXAMPLE = `- id: child
   type: subflow
   config:
-    input: "{{ input.data }}"
-    flow:
-      name: child-flow
-      steps:
-        - id: process
-          type: log
-          config:
-            message: "Processing {{ input }}"`;
+    workflow: notify-flow
+    version: v2
+    input:
+      message: "{{ deploy.result }}"`;
 
 export default defineStep({
   type: "subflow",
-  description: `Run a nested workflow. Config: "flow" (inline Flow with name + steps), "input" (passed as the child's input).\n\n${EXAMPLE}`,
+  description: `Run a published workflow. Config: "workflow" (name of a published workflow), optional "version" (defaults to active version), "input" (passed as the child's input).\n\n${EXAMPLE}`,
   input: z.object({
-    flow: z.any(), // Flow object
-    input: z.any(), // passed to the child flow
+    workflow: z.string(),
+    version: z.string().optional(),
+    input: z.any(),
   }),
   output: z.any(),
   async run() {
-    // Control flow handled by runner — this should never be called directly
     throw new Error("subflow step must be executed by the runner");
   },
 });

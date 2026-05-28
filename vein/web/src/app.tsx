@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type StateUpdater } from "preact/hooks";
+import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
 import { SystemCanvas } from "system-canvas-react";
 import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
 import type { AddNodeButtonRenderProps } from "system-canvas-react";
@@ -25,8 +25,6 @@ steps:
       message: "Fetched: {{ fetch.body }}"
 `;
 
-const STEP_TYPES = ["http", "log", "if", "loop", "subflow", "llm", "wait"];
-
 interface StepTypeEntry {
   type: string;
   source: "core" | "lib" | "custom";
@@ -47,7 +45,6 @@ export function App() {
   const [localSteps, setLocalSteps] = useState<StepData[] | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
-  const [flyoutPath, setFlyoutPath] = useState<string | null>(null);
   const [showChat, setShowChat] = useState(false);
 
   const isDirty = useMemo(() => {
@@ -63,14 +60,15 @@ export function App() {
   // Events for the flyout step
   const flyoutEvents = useMemo(() => {
     if (!flyoutStepId || !selectedWf || events.length === 0) return null;
-    const path = flyoutPath ?? `${selectedWf}/${flyoutStepId}`;
+    const path = `${selectedWf}/${flyoutStepId}`;
     const stepEvts = events.filter((e) => e.path === path);
     if (stepEvts.length === 0) return null;
     const start = stepEvts.find((e) => e.type === "step.start");
     const end = stepEvts.find((e) => e.type === "step.end");
     const error = stepEvts.find((e) => e.type === "step.error");
-    return { start, end, error, all: stepEvts };
-  }, [flyoutStepId, flyoutPath, selectedWf, events]);
+    const skipped = stepEvts.find((e) => e.type === "step.skipped");
+    return { start, end, error, skipped, all: stepEvts };
+  }, [flyoutStepId, selectedWf, events]);
 
   const isRunView = selectedRun != null && events.length > 0;
 
@@ -201,11 +199,9 @@ export function App() {
   const handleNodeClick = useCallback((node: CanvasNode) => {
     const stepId = node.customData?.stepId as string | undefined;
     const stepIndex = node.customData?.stepIndex as number | undefined;
-    const nestedPath = node.customData?.nestedPath as string | undefined;
     if (stepId != null) {
       setFlyoutStepId(stepId);
       setFlyoutStepIndex(stepIndex ?? null);
-      setFlyoutPath(nestedPath ?? null);
     }
   }, []);
 
@@ -310,7 +306,7 @@ export function App() {
     setFlyoutStepIndex(null);
   }, [localSteps, selectedWf]);
 
-  const closeFlyout = () => { setFlyoutStepId(null); setFlyoutStepIndex(null); setFlyoutPath(null); };
+  const closeFlyout = () => { setFlyoutStepId(null); setFlyoutStepIndex(null); };
 
   return (
     <div class="shell">
@@ -416,26 +412,21 @@ export function App() {
       )}
 
       {/* Step flyout */}
-      {flyoutStepId != null && localSteps && (() => {
-        // Find step data: either top-level by index, or nested in if/loop config
-        const topStep = flyoutStepIndex != null ? localSteps[flyoutStepIndex] : null;
-        const step = topStep ?? findNestedStep(localSteps, flyoutStepId);
+      {flyoutStepId != null && localSteps && flyoutStepIndex != null && (() => {
+        const step = localSteps[flyoutStepIndex];
         if (!step) return null;
 
         if (isRunView && flyoutEvents) {
           return <StepRunFlyout step={step} events={flyoutEvents} onClose={closeFlyout} />;
         }
-        if (topStep && flyoutStepIndex != null) {
-          return (
-            <StepEditFlyout
-              step={topStep}
-              allStepIds={localSteps.map((s) => s.id)}
-              onSave={(updated) => handleStepSave(flyoutStepIndex, updated)}
-              onClose={closeFlyout}
-            />
-          );
-        }
-        return null;
+        return (
+          <StepEditFlyout
+            step={step}
+            allSteps={localSteps}
+            onSave={(updated) => handleStepSave(flyoutStepIndex, updated)}
+            onClose={closeFlyout}
+          />
+        );
       })()}
     </div>
   );
@@ -498,11 +489,17 @@ function EventsPanel(props: { events: api.RunEvent[] }) {
 
 function StepRunFlyout(props: {
   step: StepData;
-  events: { start?: api.RunEvent; end?: api.RunEvent; error?: api.RunEvent; all: api.RunEvent[] };
+  events: { start?: api.RunEvent; end?: api.RunEvent; error?: api.RunEvent; skipped?: api.RunEvent; all: api.RunEvent[] };
   onClose: () => void;
 }) {
   const { step, events } = props;
-  const status = events.error ? "error" : events.end ? "success" : "running";
+  const status = events.error
+    ? "error"
+    : events.skipped
+      ? "skipped"
+      : events.end
+        ? "success"
+        : "running";
 
   return (
     <>
@@ -574,7 +571,7 @@ function StepRunFlyout(props: {
 
 function StepEditFlyout(props: {
   step: StepData;
-  allStepIds: string[];
+  allSteps: StepData[];
   onSave: (updated: StepData) => void;
   onClose: () => void;
 }) {
@@ -584,6 +581,7 @@ function StepEditFlyout(props: {
     if (props.step.depends == null) return [];
     return Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
   });
+  const [when, setWhen] = useState<boolean | undefined>(props.step.when);
   const [fields, setFields] = useState<api.FieldDesc[]>([]);
   const [error, setError] = useState("");
 
@@ -600,12 +598,19 @@ function StepEditFlyout(props: {
     setConfig({ ...props.step.config });
     const deps = props.step.depends == null ? [] : Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
     setDepends(deps);
+    setWhen(props.step.when);
     setError("");
   }, [props.step]);
 
   const updateConfig = (name: string, value: unknown) => {
     setConfig((prev) => ({ ...prev, [name]: value }));
   };
+
+  // Detect if any of the current deps is an `if` gate (enables the `when` field)
+  const hasGateDep = depends.some((d) => {
+    const dep = props.allSteps.find((s) => s.id === d);
+    return dep?.type === "if";
+  });
 
   const handleSave = () => {
     if (!id) { setError("Step must have an id"); return; }
@@ -625,16 +630,19 @@ function StepEditFlyout(props: {
       options: props.step.options,
     };
     if (depends.length > 0) updated.depends = depends;
+    // Only persist `when` if there's a gate dep
+    if (when != null && hasGateDep) updated.when = when;
     props.onSave(updated);
   };
 
   // Build YAML preview
   const previewObj: Record<string, any> = { id, type: props.step.type, config };
   if (depends.length > 0) previewObj.depends = depends;
+  if (when != null && hasGateDep) previewObj.when = when;
   const yamlPreview = yaml.dump(previewObj, { lineWidth: 120, noRefs: true });
 
   // Other step ids for depends checkboxes (exclude self)
-  const otherStepIds = props.allStepIds.filter((sid) => sid !== props.step.id);
+  const otherStepIds = props.allSteps.map((s) => s.id).filter((sid) => sid !== props.step.id);
 
   return (
     <div class="flyout">
@@ -696,21 +704,45 @@ function StepEditFlyout(props: {
           <div class="flyout-section">
             <div class="flyout-section-title">Depends on</div>
             <div class="flyout-checkbox-group">
-              {otherStepIds.map((sid) => (
-                <label key={sid} class="flyout-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={depends.includes(sid)}
-                    onChange={(e) => {
-                      const checked = (e.target as HTMLInputElement).checked;
-                      setDepends((prev) =>
-                        checked ? [...prev, sid] : prev.filter((d) => d !== sid)
-                      );
-                    }}
-                  />
-                  {sid}
-                </label>
-              ))}
+              {otherStepIds.map((sid) => {
+                const dep = props.allSteps.find((s) => s.id === sid);
+                const isGate = dep?.type === "if";
+                return (
+                  <label key={sid} class="flyout-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={depends.includes(sid)}
+                      onChange={(e) => {
+                        const checked = (e.target as HTMLInputElement).checked;
+                        setDepends((prev) =>
+                          checked ? [...prev, sid] : prev.filter((d) => d !== sid)
+                        );
+                      }}
+                    />
+                    {sid}{isGate && <span style="color:var(--text-dim);font-size:11px;"> (gate)</span>}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* When (gate condition) — only shown when depending on an `if` gate */}
+        {hasGateDep && (
+          <div class="flyout-section">
+            <div class="flyout-section-title">When (gate branch)</div>
+            <div class="flyout-field">
+              <select
+                value={when == null ? "" : String(when)}
+                onChange={(e) => {
+                  const v = (e.target as HTMLSelectElement).value;
+                  setWhen(v === "" ? undefined : v === "true");
+                }}
+              >
+                <option value="">always (no gating)</option>
+                <option value="true">true branch</option>
+                <option value="false">false branch</option>
+              </select>
             </div>
           </div>
         )}
@@ -1122,24 +1154,12 @@ function ChatFlyout(props: {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Search if/loop configs for a nested step by id. */
-function findNestedStep(steps: StepData[], id: string): StepData | null {
-  for (const s of steps) {
-    if (s.type === "if") {
-      const t = s.config.then as StepData | undefined;
-      const e = s.config.else as StepData | undefined;
-      if (t?.id === id) return t;
-      if (e?.id === id) return e;
-    }
-    if (s.type === "loop") {
-      const b = s.config.body as StepData | undefined;
-      if (b?.id === id) return b;
-    }
-  }
-  return null;
+function statusTone(s: string) {
+  if (s === "success") return "ok";
+  if (s === "error") return "danger";
+  if (s === "skipped") return "muted";
+  return "warning";
 }
-
-function statusTone(s: string) { return s === "success" ? "ok" : s === "error" ? "danger" : "warning"; }
 function eventTone(t: string) { return t.includes("error") ? "error" : t.includes("end") ? "end" : t.includes("start") ? "start" : t.includes("retry") ? "retry" : "other"; }
 function formatJson(v: unknown): string {
   if (typeof v === "string") return v;

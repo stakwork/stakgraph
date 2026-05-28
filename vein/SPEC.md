@@ -192,8 +192,35 @@ Output: the resolved message string.
 
 #### 4.1.3 `if`
 
-Config: `{ cond: string /* {{ expr }} */, then: Step, else: Step }`.
-Output: the executed branch's output.
+Config: `{ cond: string /* {{ expr }} */ }`.
+Output: the boolean result of evaluating `cond`.
+
+`if` is a **gate**, not a container. Downstream steps branch by declaring
+`depends: <if-id>` and `when: true` or `when: false`. A step's `when` must
+match the boolean output of the gate it depends on, or the step is skipped.
+Skipped steps cascade: a step whose dependencies are **all** skipped is itself
+skipped. A step with mixed real and skipped deps (a fan-in) still runs.
+
+```yaml
+- id: check
+  type: if
+  config:
+    cond: "{{ input.fast }}"
+- id: quick
+  type: log
+  config: { message: "fast path" }
+  depends: check
+  when: true
+- id: slow
+  type: log
+  config: { message: "slow path" }
+  depends: check
+  when: false
+- id: done                       # fan-in: runs after whichever branch ran
+  type: log
+  config: { message: "branch complete" }
+  depends: [quick, slow]
+```
 
 #### 4.1.4 `loop`
 
@@ -215,11 +242,14 @@ Config:
 
 #### 4.1.5 `subflow`
 
-Config: `{ flow: Flow, input: object }`.
+Config: `{ workflow: string, version?: string, input: object }`.
 
-- Runs the imported flow as a child. Input must satisfy that flow's `input` schema (validated at load + at run).
-- Output: that flow's output (its last step's output).
+- Looks up the workflow by `workflow` (name) in the workspace and runs it as a child.
+- If `version` is omitted, the workflow's active version is used.
+- Input must satisfy the child workflow's `input` schema (validated at run).
+- Output: that workflow's output (its last step's output).
 - Child runs share the parent `runId` and write events into the same `events.jsonl` with a `path` prefix (see §7).
+- Subflows reference **published** workflows by name — they are not defined inline.
 
 #### 4.1.6 `llm`
 
@@ -709,7 +739,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 The `flow-to-canvas.ts` module converts a `Flow` object into a `CanvasData` for system-canvas. Layout uses topological layers — steps at the same dependency depth are placed side by side.
 
 - **Edges** come from `depends` (or implicit sequential)
-- **`if`** → condition node with labeled then/else branch edges
+- **`if`** → a normal node like any other. Edges from an `if` gate to steps with a `when` field are labeled `true` or `false`.
 - **`loop`** → enlarged node showing body step name
 
 The canvas is `editable={true}` when not viewing a run:
@@ -775,9 +805,9 @@ export default flow("enrich", {
 
 ### 15.3 Child workflow (subflow)
 
-```ts
-import notify from "./notify";
+Subflows reference a published workflow by name. The child must already exist in the workspace.
 
+```ts
 export default flow("deploy", {
   input: z.object({ service: z.string() }),
   steps: [
@@ -785,7 +815,11 @@ export default flow("deploy", {
       url: "/deploy/{{ input.service }}",
       method: "POST",
     }),
-    step("tell", "subflow", { flow: notify, input: { message: "deployed" } }),
+    step("tell", "subflow", {
+      workflow: "notify",          // name of a published workflow
+      // version: "v2",            // optional; defaults to active version
+      input: { message: "deployed {{ input.service }}" },
+    }),
   ],
 });
 ```
