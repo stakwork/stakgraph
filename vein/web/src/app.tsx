@@ -49,7 +49,7 @@ export function App() {
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
-    return JSON.stringify(publishedSteps) !== JSON.stringify(localSteps);
+    return !deepEqual(normalizeSteps(publishedSteps), normalizeSteps(localSteps));
   }, [publishedSteps, localSteps]);
 
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
@@ -1153,6 +1153,48 @@ function ChatFlyout(props: {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Normalize a step list so that semantically-equal lists compare equal,
+ *  regardless of key order or whether `depends` is a string vs single-item array. */
+function normalizeSteps(steps: StepData[]): unknown {
+  return steps.map((s) => {
+    const deps = s.depends == null
+      ? undefined
+      : Array.isArray(s.depends) ? s.depends : [s.depends];
+    return {
+      id: s.id,
+      type: s.type,
+      config: s.config ?? {},
+      depends: deps,
+      when: s.when,
+      options: s.options,
+    };
+  });
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== "object") return a === b;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(b)) return false;
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const aKeys = Object.keys(ao).filter((k) => ao[k] !== undefined);
+  const bKeys = Object.keys(bo).filter((k) => bo[k] !== undefined);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (!deepEqual(ao[k], bo[k])) return false;
+  }
+  return true;
+}
 
 function statusTone(s: string) {
   if (s === "success") return "ok";

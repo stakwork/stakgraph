@@ -17,6 +17,7 @@ export default defineStep({
     method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).default("GET"),
     body: z.any().optional(),
     headers: z.record(z.string()).optional(),
+    timeout: z.number().positive().optional(),
   }),
   output: z.any(),
   async run(cfg) {
@@ -29,6 +30,7 @@ export default defineStep({
           : {}),
         ...cfg.headers,
       },
+      signal: cfg.timeout ? AbortSignal.timeout(cfg.timeout) : undefined,
     });
 
     let body: unknown;
