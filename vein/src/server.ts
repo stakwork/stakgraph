@@ -8,10 +8,12 @@ import { serve } from "@hono/node-server";
 import { z } from "zod";
 import { WorkspaceManager } from "./workspace.js";
 import { FileRunStore } from "./store.js";
-import { buildRegistry, CORE_STEP_TYPES } from "./steps/registry.js";
+import { buildRegistry } from "./steps/registry.js";
+import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import type { StepRegistry } from "./core.js";
 import { buildTools, buildSystem } from "./ai/index.js";
+import { requireApiKey, warnIfUnconfigured } from "./auth.js";
 
 // ── Zod → field descriptors ────────────────────────────────────────────────
 
@@ -90,6 +92,13 @@ function describeField(name: string, s: z.ZodTypeAny): FieldDesc {
 const workspace = new WorkspaceManager();
 const store = new FileRunStore(workspace.path);
 let registry: StepRegistry;
+let stepSources: StepSources = {};
+
+async function rebuildRegistry(): Promise<void> {
+  const bundle = await buildRegistry(workspace.path);
+  registry = bundle.registry;
+  stepSources = bundle.sources;
+}
 
 const app = new Hono();
 app.use(logger());
@@ -133,7 +142,7 @@ app.post("/workflows", async (c) => {
   }
 
   // Rebuild registry to pick up any new step types
-  registry = await buildRegistry(workspace.path);
+  await rebuildRegistry();
 
   return c.json(
     {
@@ -255,7 +264,7 @@ app.post("/workflows/:name", async (c) => {
   }
 
   // Rebuild registry to pick up any new step types
-  registry = await buildRegistry(workspace.path);
+  await rebuildRegistry();
 
   return c.json({
     ok: true,
@@ -287,12 +296,13 @@ app.put("/workflows/:name/active", async (c) => {
 
 // ── Steps ──────────────────────────────────────────────────────────────────
 
-/** List all steps (core + lib + custom) */
+/** List all steps (core + lib + custom). Each entry carries its `source`
+ *  tier as recorded at load time — `gitree/save-feature` (uploaded by a
+ *  service) reports as `custom` even though its name has a slash. */
 app.get("/steps", async (c) => {
-  const coreSet = new Set<string>(CORE_STEP_TYPES);
   const allSteps = Object.keys(registry).map((type) => ({
     type,
-    source: coreSet.has(type) ? "core" : type.includes("/") ? "lib" : "custom",
+    source: stepSources[type] ?? "core",
   }));
 
   const workspaceSteps = await workspace.listSteps();
@@ -300,8 +310,9 @@ app.get("/steps", async (c) => {
   return c.json({ core: allSteps, workspace: workspaceSteps });
 });
 
-/** Get input schema for a step type as a simple field descriptor */
-app.get("/steps/:type/schema", async (c) => {
+/** Get input schema for a step type as a simple field descriptor. Route
+ *  uses `{type:.+}` so nested names like `gitree/save-feature` match. */
+app.get("/steps/:type{.+}/schema", async (c) => {
   const type = c.req.param("type");
   const def = registry[type];
   if (!def) {
@@ -311,24 +322,96 @@ app.get("/steps/:type/schema", async (c) => {
   return c.json({ type, fields });
 });
 
-/** Publish a new custom step. Lib steps ship with the engine and cannot be created here. */
-app.post("/steps", async (c) => {
+/**
+ * Publish a custom step. `name` may contain `/` for nesting
+ * (e.g. `"gitree/save-feature"`) and may start with `_` for helper files
+ * that are importable by sibling steps but not registered as their own
+ * step type. Optional `publisher` is tracked in metadata for bulk
+ * lifecycle ops via `DELETE /steps?publisher=X`.
+ *
+ * Lib steps ship with the engine and cannot be created here.
+ */
+app.post("/steps", requireApiKey, async (c) => {
   const body = await c.req.json<{
     name: string;
     code: string;
     description?: string;
+    publisher?: string;
   }>();
 
   if (!body.name || !body.code) {
     return c.json({ error: "name and code are required" }, 400);
   }
 
-  await workspace.publishStep(body.name, body.code, body.description);
+  try {
+    await workspace.publishStep(
+      body.name,
+      body.code,
+      body.description,
+      body.publisher,
+    );
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      400,
+    );
+  }
 
   // Rebuild registry to pick up the new step
-  registry = await buildRegistry(workspace.path);
+  await rebuildRegistry();
 
   return c.json({ ok: true, type: body.name }, 201);
+});
+
+/**
+ * Bulk-delete all custom steps published by `publisher`. Typically
+ * called by a service on graceful shutdown to tear down everything it
+ * registered. Returns the list of removed step names.
+ *
+ * `?publisher=X` is required — there's no "delete every custom step"
+ * shortcut by design.
+ */
+app.delete("/steps", requireApiKey, async (c) => {
+  const publisher = c.req.query("publisher");
+  if (!publisher) {
+    return c.json({ error: "publisher query parameter is required" }, 400);
+  }
+
+  const deleted = await workspace.deleteStepsByPublisher(publisher);
+  if (deleted.length > 0) {
+    await rebuildRegistry();
+  }
+
+  return c.json({ ok: true, deleted });
+});
+
+/**
+ * Delete a single custom step by name. The name segment can contain
+ * slashes (e.g. `DELETE /steps/gitree/save-feature`). Returns 404 if no
+ * matching step file or metadata entry exists.
+ */
+app.delete("/steps/:name{.+}", requireApiKey, async (c) => {
+  const name = c.req.param("name");
+  if (!name) {
+    return c.json({ error: "step name is required" }, 400);
+  }
+
+  let removed: boolean;
+  try {
+    removed = await workspace.deleteStep(name);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      400,
+    );
+  }
+
+  if (!removed) {
+    return c.json({ error: `Step "${name}" not found` }, 404);
+  }
+
+  await rebuildRegistry();
+  return c.json({ ok: true, type: name });
 });
 
 // ── Run workflows ──────────────────────────────────────────────────────────
@@ -405,7 +488,13 @@ app.post("/chat", async (c) => {
     workspace,
     registry,
     store,
-    getRegistry: () => buildRegistry(workspace.path),
+    getRegistry: async () => {
+      const bundle = await buildRegistry(workspace.path);
+      // Keep module-level state in sync so subsequent /steps requests are accurate.
+      registry = bundle.registry;
+      stepSources = bundle.sources;
+      return bundle.registry;
+    },
   };
   const tools = buildTools(deps);
 
@@ -478,7 +567,8 @@ app.get("*", async (c) => {
 export { app };
 
 export async function startServer(port?: number) {
-  registry = await buildRegistry(workspace.path);
+  await rebuildRegistry();
+  warnIfUnconfigured();
   const p = port ?? parseInt(process.env["VEIN_PORT"] ?? "3000", 10);
 
   console.log(`vein workspace: ${workspace.path}`);

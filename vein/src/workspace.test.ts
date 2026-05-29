@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, rm, mkdir } from "node:fs/promises";
+import { readFile, rm, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -274,6 +274,86 @@ describe("WorkspaceManager", () => {
       );
       assert.equal(meta.steps["dupe"].description, "second version");
     });
+
+    it("writes nested step names under subdirectories", async () => {
+      await ws.publishStep(
+        "gitree/save-feature",
+        "// save-feature",
+        "Persist a Feature",
+      );
+
+      const code = await readFile(
+        join(tempDir, "steps", "custom", "gitree", "save-feature.ts"),
+        "utf-8",
+      );
+      assert.equal(code, "// save-feature");
+
+      const meta = JSON.parse(
+        await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
+      );
+      // Full slash-name is the metadata key
+      assert.ok(meta.steps["gitree/save-feature"]);
+      assert.equal(
+        meta.steps["gitree/save-feature"].description,
+        "Persist a Feature",
+      );
+    });
+
+    it("records publisher in metadata when provided", async () => {
+      await ws.publishStep("gitree/get-pr", "// get-pr", undefined, "mcp-gitree");
+
+      const meta = JSON.parse(
+        await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
+      );
+      assert.equal(meta.steps["gitree/get-pr"].publisher, "mcp-gitree");
+    });
+
+    it("writes helper files with a leading underscore", async () => {
+      await ws.publishStep("gitree/_shared", "export const x = 1;");
+
+      const code = await readFile(
+        join(tempDir, "steps", "custom", "gitree", "_shared.ts"),
+        "utf-8",
+      );
+      assert.equal(code, "export const x = 1;");
+    });
+
+    it("rejects path traversal attempts", async () => {
+      await assert.rejects(
+        () => ws.publishStep("../escape", "// nope"),
+        /Invalid step name/,
+      );
+      await assert.rejects(
+        () => ws.publishStep("gitree/../escape", "// nope"),
+        /Invalid step name/,
+      );
+    });
+
+    it("rejects absolute paths and empty segments", async () => {
+      await assert.rejects(
+        () => ws.publishStep("/abs", "// nope"),
+        /Invalid step name/,
+      );
+      await assert.rejects(
+        () => ws.publishStep("gitree//double", "// nope"),
+        /Invalid step name/,
+      );
+      await assert.rejects(
+        () => ws.publishStep("trailing/", "// nope"),
+        /Invalid step name/,
+      );
+    });
+
+    it("rejects names with invalid characters", async () => {
+      await assert.rejects(
+        () => ws.publishStep("has spaces", "// nope"),
+        /Invalid step name/,
+      );
+      await assert.rejects(
+        () => ws.publishStep("9starts-with-digit", "// nope"),
+        /Invalid step name/,
+      );
+    });
   });
 
   // ── listSteps ──────────────────────────────────────────────────────────
@@ -305,6 +385,124 @@ describe("WorkspaceManager", () => {
       const list = await ws.listSteps();
       assert.equal(list.length, 1);
       assert.equal(list[0]!.type, "my-step");
+    });
+
+    it("lists nested steps with their slash-names", async () => {
+      await ws.publishStep("flat", "// flat");
+      await ws.publishStep("gitree/save-feature", "// sf");
+      await ws.publishStep("gitree/get-pr", "// gp");
+
+      const list = await ws.listSteps();
+      assert.deepEqual(
+        list.map((s) => s.type).sort(),
+        ["flat", "gitree/get-pr", "gitree/save-feature"],
+      );
+    });
+
+    it("omits helper files (leading underscore)", async () => {
+      await ws.publishStep("gitree/save-feature", "// sf");
+      await ws.publishStep("gitree/_shared", "// helper");
+
+      const list = await ws.listSteps();
+      assert.deepEqual(list.map((s) => s.type), ["gitree/save-feature"]);
+    });
+
+    it("surfaces publisher in the listing", async () => {
+      await ws.publishStep("anon", "// anon");
+      await ws.publishStep("owned", "// owned", undefined, "mcp-gitree");
+
+      const list = await ws.listSteps();
+      const byName = Object.fromEntries(list.map((s) => [s.type, s]));
+      assert.equal(byName["anon"]!.publisher, undefined);
+      assert.equal(byName["owned"]!.publisher, "mcp-gitree");
+    });
+
+    it("filters by publisher when requested", async () => {
+      await ws.publishStep("a", "// a", undefined, "svc-1");
+      await ws.publishStep("b", "// b", undefined, "svc-2");
+      await ws.publishStep("c", "// c"); // no publisher
+
+      const onlySvc1 = await ws.listSteps({ publisher: "svc-1" });
+      assert.deepEqual(onlySvc1.map((s) => s.type), ["a"]);
+    });
+  });
+
+  // ── deleteStep / deleteStepsByPublisher ────────────────────────────────
+
+  describe("deleteStep", () => {
+    it("removes the file and metadata entry", async () => {
+      await ws.publishStep("doomed", "// bye");
+      const ok = await ws.deleteStep("doomed");
+      assert.equal(ok, true);
+
+      const list = await ws.listSteps();
+      assert.equal(list.length, 0);
+
+      const meta = JSON.parse(
+        await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
+      );
+      assert.equal(meta.steps["doomed"], undefined);
+    });
+
+    it("returns false when the step doesn't exist", async () => {
+      const ok = await ws.deleteStep("nope");
+      assert.equal(ok, false);
+    });
+
+    it("removes nested step files and prunes empty parent directories", async () => {
+      await ws.publishStep("gitree/save-feature", "// sf");
+      assert.equal(await ws.deleteStep("gitree/save-feature"), true);
+
+      // Parent `gitree/` dir should be gone since it's now empty
+      await assert.rejects(
+        () => stat(join(tempDir, "steps", "custom", "gitree")),
+      );
+    });
+
+    it("does not prune a parent that still contains siblings", async () => {
+      await ws.publishStep("gitree/save-feature", "// sf");
+      await ws.publishStep("gitree/get-pr", "// gp");
+
+      await ws.deleteStep("gitree/save-feature");
+
+      // Parent dir still holds get-pr.ts
+      const remaining = await readFile(
+        join(tempDir, "steps", "custom", "gitree", "get-pr.ts"),
+        "utf-8",
+      );
+      assert.equal(remaining, "// gp");
+    });
+  });
+
+  describe("deleteStepsByPublisher", () => {
+    it("removes all steps owned by a publisher and returns their names", async () => {
+      await ws.publishStep("gitree/save-feature", "// sf", undefined, "mcp");
+      await ws.publishStep("gitree/get-pr", "// gp", undefined, "mcp");
+      await ws.publishStep("other", "// o", undefined, "different-svc");
+      await ws.publishStep("anonymous", "// a"); // no publisher
+
+      const deleted = await ws.deleteStepsByPublisher("mcp");
+      assert.deepEqual(deleted.sort(), [
+        "gitree/get-pr",
+        "gitree/save-feature",
+      ]);
+
+      const remaining = await ws.listSteps();
+      assert.deepEqual(
+        remaining.map((s) => s.type).sort(),
+        ["anonymous", "other"],
+      );
+    });
+
+    it("returns an empty array when no steps match", async () => {
+      await ws.publishStep("anon", "// a");
+      const deleted = await ws.deleteStepsByPublisher("nobody");
+      assert.deepEqual(deleted, []);
+    });
+
+    it("is a no-op when the workspace has no custom steps at all", async () => {
+      const deleted = await ws.deleteStepsByPublisher("anyone");
+      assert.deepEqual(deleted, []);
     });
   });
 

@@ -1,5 +1,5 @@
-import { readFile, writeFile, readdir, mkdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile, readdir, mkdir, stat, unlink, rmdir } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import type { Flow } from "./core.js";
@@ -19,9 +19,13 @@ export interface WorkflowMetadata {
 export interface StepInfo {
   createdAt: string;
   description?: string;
+  /** Optional identifier of the service that published this step.
+   *  Used by `deleteStepsByPublisher` for bulk lifecycle ops. */
+  publisher?: string;
 }
 
 export interface StepDirMetadata {
+  /** Keys are full step names with optional slashes (e.g. "gitree/save-feature"). */
   steps: Record<string, StepInfo>;
 }
 
@@ -36,6 +40,7 @@ export interface StepListEntry {
   type: string;
   description?: string;
   createdAt?: string;
+  publisher?: string;
 }
 
 // ── Workspace Manager ──────────────────────────────────────────────────────
@@ -209,23 +214,30 @@ export class WorkspaceManager {
   // ── Steps ──────────────────────────────────────────────────────────────
 
   /**
-   * List user-authored custom steps from `<workspace>/steps/custom/`.
+   * List user-authored custom steps from `<workspace>/steps/custom/`,
+   * recursively. Files starting with `_` are treated as helpers (importable
+   * by sibling steps but not registered as their own step type) and are
+   * omitted from the result.
+   *
    * Lib steps live in the engine source tree and are not listed here.
+   *
+   * Pass `filter.publisher` to limit results to a specific publisher.
    */
-  async listSteps(): Promise<StepListEntry[]> {
-    const results: StepListEntry[] = [];
-
+  async listSteps(filter?: { publisher?: string }): Promise<StepListEntry[]> {
     const customDir = join(this.root, "steps", "custom");
     const meta = await this.readStepMetadata(customDir);
-    const customFiles = await safeReaddir(customDir);
-    for (const f of customFiles) {
-      if (!f.isFile() || !f.name.endsWith(".ts") || f.name.startsWith("_"))
-        continue;
-      const stepName = f.name.replace(/\.ts$/, "");
+    const results: StepListEntry[] = [];
+
+    const files = await findStepFilesRecursive(customDir);
+    for (const file of files) {
+      const stepName = stepNameFromFile(file, customDir);
+      const info = meta?.steps[stepName];
+      if (filter?.publisher && info?.publisher !== filter.publisher) continue;
       results.push({
         type: stepName,
-        description: meta?.steps[stepName]?.description,
-        createdAt: meta?.steps[stepName]?.createdAt,
+        description: info?.description,
+        createdAt: info?.createdAt,
+        publisher: info?.publisher,
       });
     }
 
@@ -234,29 +246,103 @@ export class WorkspaceManager {
 
   /**
    * Write a user-authored step to `<workspace>/steps/custom/<name>.ts`.
+   *
+   * `name` may contain slashes to nest the file under subdirectories
+   * (e.g. `"gitree/save-feature"` writes to `custom/gitree/save-feature.ts`).
+   * Names starting with `_` (or with any path segment starting with `_`)
+   * are treated as helper files: they're saved and importable by sibling
+   * steps but are skipped by registry discovery.
+   *
    * Lib steps cannot be published at runtime — they ship with the engine.
    */
   async publishStep(
     name: string,
     code: string,
     description?: string,
+    publisher?: string,
   ): Promise<void> {
-    const dir = join(this.root, "steps", "custom");
+    validateStepName(name);
 
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, `${name}.ts`), code, "utf-8");
+    const customDir = join(this.root, "steps", "custom");
+    const filePath = join(customDir, `${name}.ts`);
 
-    const meta = (await this.readStepMetadata(dir)) ?? { steps: {} };
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, code, "utf-8");
+
+    const meta = (await this.readStepMetadata(customDir)) ?? { steps: {} };
     meta.steps[name] = {
       createdAt: new Date().toISOString(),
-      description,
+      ...(description !== undefined ? { description } : {}),
+      ...(publisher !== undefined ? { publisher } : {}),
     };
 
     await writeFile(
-      join(dir, "_metadata.json"),
+      join(customDir, "_metadata.json"),
       JSON.stringify(meta, null, 2),
       "utf-8",
     );
+  }
+
+  /**
+   * Delete a single custom step by name. Removes the source file and its
+   * metadata entry, then cleans up any empty parent directories within
+   * `steps/custom/` so namespace directories disappear once their last step
+   * is removed.
+   *
+   * No-ops silently if the step does not exist.
+   */
+  async deleteStep(name: string): Promise<boolean> {
+    validateStepName(name);
+
+    const customDir = join(this.root, "steps", "custom");
+    const filePath = join(customDir, `${name}.ts`);
+
+    let removed = false;
+    try {
+      await unlink(filePath);
+      removed = true;
+    } catch (err: any) {
+      if (err?.code !== "ENOENT") throw err;
+    }
+
+    const meta = await this.readStepMetadata(customDir);
+    if (meta && meta.steps[name]) {
+      delete meta.steps[name];
+      await writeFile(
+        join(customDir, "_metadata.json"),
+        JSON.stringify(meta, null, 2),
+        "utf-8",
+      );
+      removed = true;
+    }
+
+    if (removed) {
+      await pruneEmptyDirs(dirname(filePath), customDir);
+    }
+
+    return removed;
+  }
+
+  /**
+   * Bulk delete all custom steps published by `publisher`. Returns the list
+   * of step names that were removed. Useful for service shutdown:
+   * `await ws.deleteStepsByPublisher("mcp-gitree")` on SIGTERM tears down
+   * everything a service registered in one call.
+   */
+  async deleteStepsByPublisher(publisher: string): Promise<string[]> {
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    if (!meta) return [];
+
+    const toDelete = Object.entries(meta.steps)
+      .filter(([, info]) => info.publisher === publisher)
+      .map(([name]) => name);
+
+    for (const name of toDelete) {
+      await this.deleteStep(name);
+    }
+
+    return toDelete;
   }
 
   // ── Private helpers ────────────────────────────────────────────────────
@@ -303,5 +389,97 @@ async function pathExists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Validate a custom step name. Allows nested names with slashes
+ * (e.g. `gitree/save-feature`) and helper names with leading underscores
+ * (e.g. `gitree/_shared`). Rejects path traversal and absolute paths.
+ */
+function validateStepName(name: string): void {
+  if (!name) {
+    throw new Error("Step name cannot be empty");
+  }
+  if (name.startsWith("/") || name.includes("\\")) {
+    throw new Error(`Invalid step name "${name}": must not contain absolute or back-slash paths`);
+  }
+  if (name.includes("//") || name.endsWith("/") || name.startsWith("/")) {
+    throw new Error(`Invalid step name "${name}": malformed path`);
+  }
+  const segments = name.split("/");
+  for (const seg of segments) {
+    if (!seg || seg === "." || seg === "..") {
+      throw new Error(`Invalid step name "${name}": path traversal not allowed`);
+    }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(seg)) {
+      throw new Error(
+        `Invalid step name "${name}": each segment must match [a-zA-Z_][a-zA-Z0-9_-]*`,
+      );
+    }
+  }
+}
+
+/**
+ * Recursively find step files (`.ts` / `.js`) under `dir`, skipping helper
+ * files (`_*`), hidden files, and test files. Returns absolute paths.
+ *
+ * This mirrors the registry's discovery rules so `listSteps` shows exactly
+ * what the registry will load.
+ */
+async function findStepFilesRecursive(dir: string): Promise<string[]> {
+  const results: string[] = [];
+
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) {
+      if (e.name.startsWith("_") || e.name.startsWith(".")) continue;
+      const nested = await findStepFilesRecursive(full);
+      results.push(...nested);
+    } else if (e.isFile()) {
+      if (
+        e.name.startsWith("_") ||
+        e.name.startsWith(".") ||
+        !(e.name.endsWith(".ts") || e.name.endsWith(".js")) ||
+        e.name.endsWith(".test.ts") ||
+        e.name.endsWith(".spec.ts")
+      ) continue;
+      results.push(full);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Convert an absolute file path under `baseDir` to a slash-separated step
+ * name (extension stripped). E.g. `<base>/gitree/save-feature.ts` → `"gitree/save-feature"`.
+ */
+function stepNameFromFile(filePath: string, baseDir: string): string {
+  const rel = relative(baseDir, filePath).replace(/\.(ts|js)$/, "");
+  return rel.split(sep).join("/");
+}
+
+/**
+ * Walk upward from `startDir` removing empty directories, stopping when
+ * `stopDir` is reached (inclusive boundary — we never remove `stopDir`).
+ * Silently ignores non-empty dirs and any errors.
+ */
+async function pruneEmptyDirs(startDir: string, stopDir: string): Promise<void> {
+  let dir = startDir;
+  while (dir.startsWith(stopDir) && dir !== stopDir) {
+    try {
+      await rmdir(dir);
+    } catch {
+      return; // not empty, or doesn't exist
+    }
+    dir = dirname(dir);
   }
 }
