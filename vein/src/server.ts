@@ -13,6 +13,7 @@ import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import type { StepRegistry } from "./core.js";
 import { buildTools, buildSystem } from "./ai/index.js";
+import { requireApiKey, warnIfUnconfigured } from "./auth.js";
 
 // ── Zod → field descriptors ────────────────────────────────────────────────
 
@@ -330,7 +331,7 @@ app.get("/steps/:type{.+}/schema", async (c) => {
  *
  * Lib steps ship with the engine and cannot be created here.
  */
-app.post("/steps", async (c) => {
+app.post("/steps", requireApiKey, async (c) => {
   const body = await c.req.json<{
     name: string;
     code: string;
@@ -370,7 +371,7 @@ app.post("/steps", async (c) => {
  * `?publisher=X` is required — there's no "delete every custom step"
  * shortcut by design.
  */
-app.delete("/steps", async (c) => {
+app.delete("/steps", requireApiKey, async (c) => {
   const publisher = c.req.query("publisher");
   if (!publisher) {
     return c.json({ error: "publisher query parameter is required" }, 400);
@@ -389,8 +390,11 @@ app.delete("/steps", async (c) => {
  * slashes (e.g. `DELETE /steps/gitree/save-feature`). Returns 404 if no
  * matching step file or metadata entry exists.
  */
-app.delete("/steps/:name{.+}", async (c) => {
+app.delete("/steps/:name{.+}", requireApiKey, async (c) => {
   const name = c.req.param("name");
+  if (!name) {
+    return c.json({ error: "step name is required" }, 400);
+  }
 
   let removed: boolean;
   try {
@@ -564,6 +568,7 @@ export { app };
 
 export async function startServer(port?: number) {
   await rebuildRegistry();
+  warnIfUnconfigured();
   const p = port ?? parseInt(process.env["VEIN_PORT"] ?? "3000", 10);
 
   console.log(`vein workspace: ${workspace.path}`);

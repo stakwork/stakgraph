@@ -6,6 +6,7 @@ import { runWorkflow, type SubflowResolver } from "./runner.js";
 import { MemoryRunStore } from "./store.js";
 import ifStep from "./steps/core/if.js";
 import loopStep from "./steps/core/loop.js";
+import foreachStep from "./steps/core/foreach.js";
 import subflowStep from "./steps/core/subflow.js";
 
 // ── Test helpers ───────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ function makeRegistry(extra: Record<string, any> = {}): StepRegistry {
     fail: failStep,
     if: ifStep,
     loop: loopStep,
+    foreach: foreachStep,
     subflow: subflowStep,
     ...extra,
   } as StepRegistry;
@@ -386,6 +388,248 @@ describe("loop step", () => {
 
     const result = await runWorkflow(wf, {}, makeRegistry({ counter }));
     assert.deepEqual(result.output, { result: 2 });
+  });
+});
+
+// ── foreach step ───────────────────────────────────────────────────────────
+
+describe("foreach step", () => {
+  it("iterates a list and returns an array of body outputs in order", async () => {
+    const wf = flow("foreach-basic", {
+      input: z.object({ items: z.array(z.number()) }),
+      steps: [
+        step("each", "foreach", {
+          items: "{{ input.items }}",
+          body: step("double", "value", { result: "{{ $current * 2 }}" }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, { items: [1, 2, 3, 4] }, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.deepEqual(result.output, [2, 4, 6, 8]);
+  });
+
+  it("exposes $index alongside $current", async () => {
+    const wf = flow("foreach-index", {
+      input: z.object({ items: z.array(z.string()) }),
+      steps: [
+        step("each", "foreach", {
+          items: "{{ input.items }}",
+          body: step("pair", "echo", {
+            value: "{{ $current }}",
+            index: "{{ $index }}",
+          }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(
+      wf,
+      { items: ["a", "b", "c"] },
+      makeRegistry(),
+    );
+    assert.deepEqual(result.output, [
+      { value: "a", index: 0 },
+      { value: "b", index: 1 },
+      { value: "c", index: 2 },
+    ]);
+  });
+
+  it("returns an empty array when items is empty", async () => {
+    const wf = flow("foreach-empty", {
+      input: z.object({}),
+      steps: [
+        step("each", "foreach", {
+          items: [],
+          body: step("noop", "value", { result: "should not run" }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.deepEqual(result.output, []);
+  });
+
+  it("body is not invoked when items is empty", async () => {
+    let calls = 0;
+    const counter = defineStep({
+      type: "tally",
+      input: z.any(),
+      output: z.any(),
+      async run() {
+        calls++;
+        return { calls };
+      },
+    });
+
+    const wf = flow("foreach-no-calls", {
+      input: z.object({}),
+      steps: [
+        step("each", "foreach", {
+          items: [],
+          body: step("t", "tally", {}),
+        }),
+      ],
+    });
+
+    await runWorkflow(wf, {}, makeRegistry({ tally: counter }));
+    assert.equal(calls, 0);
+  });
+
+  it("throws when items does not resolve to an array", async () => {
+    const wf = flow("foreach-bad-items", {
+      input: z.object({ items: z.any() }),
+      steps: [
+        step("each", "foreach", {
+          items: "{{ input.items }}",
+          body: step("noop", "value", { result: 1 }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, { items: "not-an-array" }, makeRegistry());
+    assert.equal(result.status, "error");
+    assert.ok(
+      result.error?.message.includes("to resolve to an array"),
+      `expected error about array resolution, got: ${result.error?.message}`,
+    );
+  });
+
+  it("enforces maxIterations as a safety cap", async () => {
+    const wf = flow("foreach-cap", {
+      input: z.object({}),
+      steps: [
+        step("each", "foreach", {
+          items: [1, 2, 3, 4, 5],
+          maxIterations: 3,
+          body: step("v", "value", { result: "{{ $current }}" }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "error");
+    assert.ok(result.error?.message.includes("maxIterations"));
+  });
+
+  it("body output is available to subsequent steps as an array", async () => {
+    const wf = flow("foreach-output", {
+      input: z.object({}),
+      steps: [
+        step("nums", "value", { result: [10, 20, 30] }),
+        step("each", "foreach", {
+          items: "{{ nums }}",
+          body: step("plus_one", "value", { result: "{{ $current + 1 }}" }),
+        }, { depends: "nums" }),
+        step("collect", "echo", { sums: "{{ each }}" }, { depends: "each" }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.deepEqual(result.output, { sums: [11, 21, 31] });
+  });
+
+  it("preserves order even with async body work", async () => {
+    // Sequential semantics: items finish in input order regardless of work time.
+    const order: number[] = [];
+    const slow = defineStep({
+      type: "slow",
+      input: z.object({ v: z.number(), delay: z.number() }),
+      output: z.any(),
+      async run(cfg) {
+        await new Promise((r) => setTimeout(r, cfg.delay));
+        order.push(cfg.v);
+        return cfg.v;
+      },
+    });
+
+    const wf = flow("foreach-order", {
+      input: z.object({}),
+      steps: [
+        step("each", "foreach", {
+          items: [1, 2, 3],
+          // Item 1 sleeps longest; sequential ordering must still produce [1,2,3].
+          body: step(
+            "s",
+            "slow",
+            { v: "{{ $current }}", delay: "{{ $index === 0 ? 15 : 1 }}" },
+          ),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry({ slow }));
+    assert.deepEqual(result.output, [1, 2, 3]);
+    assert.deepEqual(order, [1, 2, 3]);
+  });
+
+  it("emits step.start/end events with iteration path (#0, #1, ...)", async () => {
+    const wf = flow("foreach-events", {
+      input: z.object({}),
+      steps: [
+        step("each", "foreach", {
+          items: ["x", "y"],
+          body: step("v", "value", { result: "{{ $current }}" }),
+        }),
+      ],
+    });
+
+    const store = new MemoryRunStore();
+    await runWorkflow(wf, {}, makeRegistry(), {
+      runId: "fe-ev",
+      store,
+    });
+
+    const starts = eventsOfType(store, "foreach-events", "fe-ev", "step.start");
+    const iter = starts.filter((e) => e.path.includes("#"));
+    assert.ok(iter.some((e) => e.path.includes("#0")));
+    assert.ok(iter.some((e) => e.path.includes("#1")));
+    // Iteration metadata is set on per-item events.
+    assert.equal(iter.find((e) => e.path.includes("#0"))?.iteration, 0);
+    assert.equal(iter.find((e) => e.path.includes("#1"))?.iteration, 1);
+  });
+
+  it("works with a subflow body for per-item composition", async () => {
+    const inner = flow("double-inner", {
+      input: z.object({ n: z.number() }),
+      steps: [step("d", "value", { result: "{{ input.n * 2 }}" })],
+    });
+
+    const outer = flow("foreach-subflow", {
+      input: z.object({ items: z.array(z.number()) }),
+      steps: [
+        step("each", "foreach", {
+          items: "{{ input.items }}",
+          body: step("call", "subflow", {
+            workflow: "double-inner",
+            input: { n: "{{ $current }}" },
+          }),
+        }),
+      ],
+    });
+
+    const resolver = makeResolver({ "double-inner": inner });
+    const result = await runWorkflow(outer, { items: [3, 5, 7] }, makeRegistry(), {
+      workspace: resolver,
+    });
+
+    assert.deepEqual(result.output, [6, 10, 14]);
+  });
+
+  it("throws when body is missing", async () => {
+    const wf = flow("foreach-no-body", {
+      input: z.object({}),
+      steps: [
+        step("each", "foreach", { items: [1, 2] }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "error");
+    assert.ok(result.error?.message.includes("body"));
   });
 });
 

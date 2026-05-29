@@ -21,6 +21,7 @@ export interface RegistryBundle {
 import http from "./core/http.js";
 import ifStep from "./core/if.js";
 import loop from "./core/loop.js";
+import foreach from "./core/foreach.js";
 import subflow from "./core/subflow.js";
 import log from "./core/log.js";
 import llm from "./core/llm.js";
@@ -30,6 +31,7 @@ const CORE_STEPS: StepRegistry = {
   http,
   if: ifStep,
   loop,
+  foreach,
   subflow,
   log,
   llm,

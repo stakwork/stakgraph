@@ -34,7 +34,7 @@ vein/
 │   ├── server.ts          # Hono HTTP API + SSE run streaming + /chat + static file serving
 │   ├── index.ts           # barrel export
 │   ├── steps/
-│   │   ├── core/          # 7 built-in steps: http, log, if, loop, subflow, llm, wait (static import)
+│   │   ├── core/          # 8 built-in steps: http, log, if, loop, foreach, subflow, llm, wait (static import)
 │   │   ├── lib/           # built-in domain integrations (github/, ...) — dynamic import
 │   │   └── registry.ts    # auto-discovery: core (static) + lib (dynamic) + workspace custom/ (dynamic)
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
@@ -44,7 +44,7 @@ vein/
 │   │   │                  #                   create_workflow, run_workflow
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
-│   └── *.test.ts          # 199 tests across 7 files
+│   └── *.test.ts          # 251 tests across 9 files
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -79,7 +79,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 199 tests, ~200ms
+npm test                    # 251 tests, ~250ms
 npm run dev                 # starts Hono server on :3000
 
 # Web UI (dev mode with HMR)
@@ -98,8 +98,32 @@ cd vein && npm run dev        # serves API + UI on :3000
 | ------------------- | -------------- | ------------------------------------ |
 | `VEIN_WORKSPACE`    | `./workspace`  | Persistent volume for workflows/runs |
 | `VEIN_PORT`         | `3000`         | HTTP server port                     |
+| `VEIN_API_KEY`      | (unset)        | Deployment-scoped shared secret. See "Auth" below. |
 | `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
+
+## Auth
+
+`VEIN_API_KEY` is a **deployment-scoped shared secret**. Set it on every
+container in the compose (vein and any service that registers steps).
+
+- **Unset (dev mode):** registration mutations (`POST /steps`,
+  `DELETE /steps/:name`, `DELETE /steps?publisher=X`) are unauthenticated.
+  Vein logs a one-time warning at boot so the lax posture is visible.
+  `GET /steps` and workflow execution are always public.
+- **Set (production):** the gated endpoints require
+  `Authorization: Bearer <VEIN_API_KEY>`. Anything else returns `401`.
+
+The same secret authenticates **both directions** within a deployment:
+
+1. Mcp → vein: registers steps with `Authorization: Bearer $VEIN_API_KEY`.
+2. Step files inside vein → mcp: read `process.env.VEIN_API_KEY` and send
+   it on callbacks to `mcp/gitree/cmd` (mcp validates the same value).
+
+This is sufficient when both services live in the same trust domain
+(same compose, same private network). Per-publisher keys can be added
+later without breaking this contract — they'd be additive env vars
+(`VEIN_API_KEY_<NAMESPACE>`) checked in addition to the shared key.
 
 ## Key concepts
 

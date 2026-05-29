@@ -261,7 +261,7 @@ async function executeFlow(
 // ── Internal: execute a single step with retry/onError ─────────────────────
 
 // Control flow steps that manage their own template resolution.
-const SELF_RESOLVING_STEPS = new Set(["loop", "subflow"]);
+const SELF_RESOLVING_STEPS = new Set(["loop", "foreach", "subflow"]);
 
 async function executeStep(
   step: Step,
@@ -400,6 +400,9 @@ async function dispatchStep(
     case "loop":
       return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace);
 
+    case "foreach":
+      return executeForeach(step, scope, registry, runId, path, emit, workspace);
+
     case "subflow":
       return executeSubflow(step, scope, registry, runId, path, emit, workspace);
 
@@ -496,6 +499,97 @@ async function executeLoop(
   throw new Error(
     `Loop "${step.id}" exceeded maxIterations (${maxIterations}) without until becoming true`,
   );
+}
+
+/**
+ * Execute a `foreach` step: resolve `items` to an array, run `body` once
+ * per item, and return the collected outputs as an array (in input order).
+ *
+ * Per-iteration scope exposes:
+ *   - `$current` — the current item
+ *   - `$index`   — the zero-based position
+ *
+ * Body config is re-resolved each iteration so templates referencing
+ * `$current` / `$index` see the right values.
+ */
+async function executeForeach(
+  step: Step,
+  scope: Record<string, unknown>,
+  registry: StepRegistry,
+  runId: string,
+  path: string,
+  emit: EmitFn,
+  workspace: SubflowResolver | undefined,
+): Promise<unknown> {
+  // Resolve `items` once against the parent scope.
+  const itemsResolved = resolveConfig(step.config["items"], scope);
+
+  if (!Array.isArray(itemsResolved)) {
+    throw new Error(
+      `foreach step "${step.id}" requires "items" to resolve to an array, got ${
+        itemsResolved === null
+          ? "null"
+          : typeof itemsResolved === "object"
+            ? "object"
+            : typeof itemsResolved
+      }`,
+    );
+  }
+
+  const items = itemsResolved as unknown[];
+  const maxIterations = step.config["maxIterations"] != null
+    ? (resolveConfig(step.config["maxIterations"], scope) as number)
+    : undefined;
+
+  if (maxIterations !== undefined && items.length > maxIterations) {
+    throw new Error(
+      `foreach step "${step.id}" received ${items.length} items, which exceeds maxIterations (${maxIterations})`,
+    );
+  }
+
+  const rawBody = step.config["body"] as Step;
+  if (!rawBody || typeof rawBody !== "object" || !rawBody.type) {
+    throw new Error(`foreach step "${step.id}" requires a "body" step`);
+  }
+
+  const results: unknown[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const iterScope = { ...scope, $current: items[i], $index: i };
+    const resolvedBodyConfig = resolveConfig(rawBody.config, iterScope) as Record<string, unknown>;
+
+    await emit({
+      type: "step.start",
+      path: `${path}#${i}`,
+      stepType: rawBody.type,
+      iteration: i,
+    });
+
+    const startTime = Date.now();
+    const output = await dispatchStep(
+      rawBody,
+      resolvedBodyConfig,
+      iterScope,
+      registry,
+      runId,
+      `${path}#${i}`,
+      emit,
+      workspace,
+    );
+
+    await emit({
+      type: "step.end",
+      path: `${path}#${i}`,
+      stepType: rawBody.type,
+      output,
+      durationMs: Date.now() - startTime,
+      iteration: i,
+    });
+
+    results.push(output);
+  }
+
+  return results;
 }
 
 async function executeSubflow(
