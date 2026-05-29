@@ -319,7 +319,7 @@ export function getModelDetails(
     keySource: apiKeyIn ? "request body" : "env var",
     apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
     baseUrl: baseUrl || "(default)",
-    headerKeys: headers ? Object.keys(headers) : [],
+    hasHeaders: Boolean(headers && Object.keys(headers).length > 0),
   });
   const model = getModel(provider, {
     modelName,
@@ -400,7 +400,7 @@ export function getModel(
     ? opts.headers
     : undefined;
   if (extraHeaders) {
-    console.log(`[headers] attaching ${Object.keys(extraHeaders).length} custom header(s) to ${provider} client`);
+    console.log(`[headers] custom headers present for ${provider} client`);
   }
   switch (provider) {
     case "anthropic":
