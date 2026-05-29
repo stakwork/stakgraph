@@ -103,6 +103,8 @@ async function cloneSingleRepo(
 /**
  * Clone multiple repositories to /tmp/owner/repo each.
  * Returns /tmp as the parent directory containing all repos.
+ * Failures are tolerated: as long as at least one repo clones successfully,
+ * the process continues. Failed repos are logged and skipped.
  */
 async function cloneMultipleRepos(
   repoUrls: string[],
@@ -113,12 +115,35 @@ async function cloneMultipleRepos(
 ): Promise<string> {
   console.log(`===> cloning ${repoUrls.length} repos into /tmp`);
 
-  // Clone all repos in parallel using the same structure as single repos
-  const clonePromises = repoUrls.map((repoUrl) => 
-    cloneSingleRepo(repoUrl, username, pat, commit, abortSignal)
+  // Clone all repos in parallel; use allSettled so one failure doesn't abort the rest
+  const results = await Promise.allSettled(
+    repoUrls.map((repoUrl) =>
+      cloneSingleRepo(repoUrl, username, pat, commit, abortSignal)
+    )
   );
 
-  await Promise.all(clonePromises);
+  const succeeded: string[] = [];
+  const failed: { url: string; error: string }[] = [];
+  results.forEach((result, idx) => {
+    const url = repoUrls[idx];
+    if (result.status === "fulfilled") {
+      succeeded.push(url);
+    } else {
+      const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      failed.push({ url, error: msg });
+      console.warn(`[clone] Failed to clone ${url}: ${msg}`);
+    }
+  });
+
+  console.log(
+    `===> clone summary: ${succeeded.length}/${repoUrls.length} succeeded` +
+      (failed.length ? `, ${failed.length} failed` : "")
+  );
+
+  if (succeeded.length === 0) {
+    const details = failed.map((f) => `${f.url}: ${f.error}`).join("; ");
+    throw new Error(`[clone] All ${repoUrls.length} repos failed to clone. ${details}`);
+  }
 
   // Return /tmp as the parent directory containing all repos
   return "/tmp";
