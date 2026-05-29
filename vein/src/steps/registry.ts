@@ -3,6 +3,19 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AnyStepDef, StepRegistry } from "../core.js";
 
+/** Where a registered step type came from. */
+export type StepSource = "core" | "lib" | "custom";
+
+/** Map of step type name → its source tier. */
+export type StepSources = Record<string, StepSource>;
+
+/** Result of building the registry: the registry itself plus a parallel
+ *  map recording where each step was loaded from. */
+export interface RegistryBundle {
+  registry: StepRegistry;
+  sources: StepSources;
+}
+
 // ── Built-in core steps (always available) ─────────────────────────────────
 
 import http from "./core/http.js";
@@ -108,27 +121,42 @@ async function loadStepFile(filePath: string): Promise<AnyStepDef | null> {
  *
  * Lib and custom steps are loaded with dynamic `import()` so their
  * dependencies are only resolved when actually used.
+ *
+ * Returns both the registry and a parallel `sources` map so callers can
+ * report which tier each step came from without guessing from the name.
  */
-export async function buildRegistry(workspacePath?: string): Promise<StepRegistry> {
+export async function buildRegistry(workspacePath?: string): Promise<RegistryBundle> {
   const registry: StepRegistry = { ...CORE_STEPS };
+  const sources: StepSources = {};
 
-  await loadStepsFrom(LIB_DIR, registry, "lib");
-
-  if (workspacePath) {
-    await loadStepsFrom(join(workspacePath, "steps", "custom"), registry, "custom");
+  for (const name of Object.keys(CORE_STEPS)) {
+    sources[name] = "core";
   }
 
-  return registry;
+  await loadStepsFrom(LIB_DIR, registry, sources, "lib");
+
+  if (workspacePath) {
+    await loadStepsFrom(
+      join(workspacePath, "steps", "custom"),
+      registry,
+      sources,
+      "custom",
+    );
+  }
+
+  return { registry, sources };
 }
 
 /**
  * Discover and dynamically import all step files in `baseDir`, adding them
- * to `registry`. Names that collide with already-registered steps are
- * skipped with a warning.
+ * to `registry` and recording the load tier in `sources`. Names that
+ * collide with already-registered steps are skipped with a warning so a
+ * lower-priority tier can never shadow a higher one.
  */
 async function loadStepsFrom(
   baseDir: string,
   registry: StepRegistry,
+  sources: StepSources,
   tier: "lib" | "custom",
 ): Promise<void> {
   const files = await findStepFiles(baseDir);
@@ -139,7 +167,10 @@ async function loadStepsFrom(
       continue;
     }
     const def = await loadStepFile(file);
-    if (def) registry[name] = def;
+    if (def) {
+      registry[name] = def;
+      sources[name] = tier;
+    }
   }
 }
 

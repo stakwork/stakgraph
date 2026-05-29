@@ -137,8 +137,28 @@ cd vein && npm run dev        # serves API + UI on :3000
   the greedy backtracking bug with multi-segment templates.
 
 - **`_metadata.json`** in each workflow dir tracks versions and the
-  active version. In each step dir it tracks descriptions. The
-  engine can run without these files but the UI needs them.
+  active version. In `steps/custom/_metadata.json` it tracks
+  per-step `{ createdAt, description?, publisher? }` keyed by full
+  slash-name (e.g. `"gitree/save-feature"`). The engine can run
+  without these files but the UI needs them.
+
+- **Step registration is filesystem-based.** External services
+  register steps by `POST /steps { name, code, description?, publisher? }`.
+  Names may be nested (`"gitree/save-feature"` writes
+  `steps/custom/gitree/save-feature.ts`) and helper files use a
+  leading `_` (`"gitree/_shared"`) — these are saved and importable
+  by sibling steps but skipped by registry discovery. A service
+  cleans up on shutdown via `DELETE /steps?publisher=X`, which
+  removes every step it owns and prunes empty namespace dirs.
+  Namespaces are pure naming convention (just slashes in the name) —
+  no ownership enforcement, last writer wins.
+
+- **`buildRegistry()` returns `{ registry, sources }`.** The
+  `sources` map records where each step was loaded from
+  (`"core" | "lib" | "custom"`). Always use this map instead of
+  guessing from the name — a custom step like `gitree/save-feature`
+  has a slash but is `custom`, not `lib`. The `/steps` endpoint
+  uses this map.
 
 - **Runs are stored per-workflow** under
   `workflows/<name>/runs/<runId>/`. Run IDs are millisecond

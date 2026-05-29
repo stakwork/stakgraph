@@ -39,7 +39,13 @@ export {
 } from "./store.js";
 
 // Registry
-export { buildRegistry, coreRegistry } from "./steps/registry.js";
+export {
+  buildRegistry,
+  coreRegistry,
+  type StepSource,
+  type StepSources,
+  type RegistryBundle,
+} from "./steps/registry.js";
 
 // Workspace
 export {
