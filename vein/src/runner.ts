@@ -21,13 +21,18 @@ export interface SubflowResolver {
   getWorkflowVersion(name: string, version: string): Promise<Flow>;
 }
 
-export interface RunOptions {
+export interface RunOptions<TServices = unknown> {
   runId?: string;
   store?: RunStore;
   /** Called for every event as it happens (for SSE streaming). */
   onEvent?: (event: RunEvent) => void | Promise<void>;
   /** Resolves subflow references to Flow objects. Required if any step uses `subflow`. */
   workspace?: SubflowResolver;
+  /** Consumer-defined capabilities bag exposed to every step via
+   *  `ctx.services`. Use this to inject environment-specific
+   *  implementations (Neo4j vs in-memory store, real vs fake LLM, …)
+   *  without changing the workflow or registry. Defaults to `{}`. */
+  services?: TServices;
 }
 
 /** Sentinel returned by steps that were skipped because their `when` didn't match. */
@@ -37,16 +42,18 @@ function isSkipped(v: unknown): boolean {
   return v === SKIP;
 }
 
-export async function runWorkflow(
+export async function runWorkflow<TServices = unknown>(
   workflow: Flow,
   input: unknown,
   registry: StepRegistry,
-  opts?: RunOptions,
+  opts?: RunOptions<TServices>,
 ): Promise<RunResult> {
   const runId = opts?.runId ?? generateRunId();
   const store = opts?.store ?? new MemoryRunStore();
   const wfName = workflow.name;
   const startedAt = new Date().toISOString();
+  // Default services to an empty object so steps can destructure freely.
+  const services = (opts?.services ?? ({} as TServices)) as TServices;
 
   const onEvent = opts?.onEvent;
   const emit = async (event: Partial<RunEvent> & { type: RunEvent["type"] }) => {
@@ -95,6 +102,7 @@ export async function runWorkflow(
       wfName,
       emit,
       opts?.workspace,
+      services,
     );
 
     const finishedAt = new Date().toISOString();
@@ -157,6 +165,7 @@ async function executeFlow(
   basePath: string,
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
+  services: unknown,
 ): Promise<unknown> {
   const scope: Record<string, unknown> = { input };
   const steps = workflow.steps;
@@ -244,7 +253,7 @@ async function executeFlow(
     }
 
     const stepPath = `${basePath}/${s.id}`;
-    const output = await executeStep(s, scope, registry, runId, stepPath, emit, workspace);
+    const output = await executeStep(s, scope, registry, runId, stepPath, emit, workspace, services);
     scope[s.id] = output;
     completed.add(s.id);
     pending.get(s.id)!.resolve(output);
@@ -271,6 +280,7 @@ async function executeStep(
   path: string,
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
+  services: unknown,
 ): Promise<unknown> {
   const maxRetries = step.options?.retry?.max ?? 0;
   const retryDelay = step.options?.retry?.delayMs ?? 0;
@@ -315,6 +325,7 @@ async function executeStep(
         path,
         emit,
         workspace,
+        services,
       );
 
       const durationMs = Date.now() - startTime;
@@ -348,6 +359,7 @@ async function executeStep(
               `${path}/onError`,
               emit,
               workspace,
+              services,
             );
             return fallbackOutput;
           } catch (fallbackErr) {
@@ -394,17 +406,18 @@ async function dispatchStep(
   path: string,
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
+  services: unknown,
 ): Promise<unknown> {
   // Handle core control flow steps specially
   switch (step.type) {
     case "loop":
-      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace);
+      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace, services);
 
     case "foreach":
-      return executeForeach(step, scope, registry, runId, path, emit, workspace);
+      return executeForeach(step, scope, registry, runId, path, emit, workspace, services);
 
     case "subflow":
-      return executeSubflow(step, scope, registry, runId, path, emit, workspace);
+      return executeSubflow(step, scope, registry, runId, path, emit, workspace, services);
 
     default: {
       // Look up in registry
@@ -417,12 +430,13 @@ async function dispatchStep(
       // Default to {} when no config is provided in the YAML.
       const validConfig = def.input.parse(resolvedConfig ?? {});
 
-      const ctx: StepContext = {
+      const ctx: StepContext<unknown> = {
         runId,
         path,
         scope,
         input: scope["input"],
         emit,
+        services,
       };
 
       return def.run(validConfig, ctx);
@@ -441,6 +455,7 @@ async function executeLoop(
   path: string,
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
+  services: unknown,
 ): Promise<unknown> {
   // Resolve scalar config values (but not `until` or `body` which need per-iteration resolution)
   const maxIterations = resolveConfig(step.config["maxIterations"], scope) as number;
@@ -475,6 +490,7 @@ async function executeLoop(
       `${path}#${i}`,
       emit,
       workspace,
+      services,
     );
 
     await emit({
@@ -520,6 +536,7 @@ async function executeForeach(
   path: string,
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
+  services: unknown,
 ): Promise<unknown> {
   // Resolve `items` once against the parent scope.
   const itemsResolved = resolveConfig(step.config["items"], scope);
@@ -575,6 +592,7 @@ async function executeForeach(
       `${path}#${i}`,
       emit,
       workspace,
+      services,
     );
 
     await emit({
@@ -600,6 +618,7 @@ async function executeSubflow(
   path: string,
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
+  services: unknown,
 ): Promise<unknown> {
   // Resolve workflow name, version, and input from parent scope
   const wfName = resolveConfig(step.config["workflow"], scope) as string;
@@ -625,7 +644,7 @@ async function executeSubflow(
   // Validate child flow input against its schema
   const validatedInput = childFlow.input.parse(childInput);
 
-  return executeFlow(childFlow, validatedInput, registry, runId, path, emit, workspace);
+  return executeFlow(childFlow, validatedInput, registry, runId, path, emit, workspace, services);
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────

@@ -42,6 +42,7 @@ export {
 export {
   buildRegistry,
   coreRegistry,
+  createRegistry,
   type StepSource,
   type StepSources,
   type RegistryBundle,
@@ -58,5 +59,13 @@ export {
   type StepListEntry,
 } from "./workspace.js";
 
-// Server
-export { app, startServer } from "./server.js";
+// Vein factory — the primary entry point for library usage.
+export {
+  createVein,
+  type Vein,
+  type VeinOptions,
+  type VeinRunOptions,
+} from "./createVein.js";
+
+// Default filesystem-backed server (a thin wrapper over createVein).
+export { getApp, startServer } from "./server.js";

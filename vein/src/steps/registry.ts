@@ -182,3 +182,64 @@ async function loadStepsFrom(
 export function coreRegistry(): StepRegistry {
   return { ...CORE_STEPS };
 }
+
+/**
+ * Build a registry from in-code step definitions, layered on top of the
+ * engine-shipped **core** and **lib** steps. For consumers using vein
+ * as a library who prefer registering steps in code rather than via
+ * filesystem discovery.
+ *
+ * The resulting registry contains:
+ *   - **core/** — 8 built-in steps (http, log, if, loop, foreach,
+ *     subflow, llm, wait)
+ *   - **lib/** — engine-shipped domain integrations (e.g.
+ *     `github/fetch-pr`). These are dynamically imported, so their
+ *     deps are only resolved at registry-build time.
+ *   - whatever you pass in `steps`
+ *
+ * Workspace **custom/** steps live on disk and are loaded via
+ * `buildRegistry(workspacePath)` instead — they're never included
+ * here.
+ *
+ * Each step is keyed by its `type` field. Duplicates among `steps`
+ * throw. A user step whose `type` collides with a core or lib step
+ * shadows it (with a warning), so callers can deliberately override
+ * e.g. the built-in `http` step.
+ *
+ * ```ts
+ * const registry = await createRegistry([myStep, anotherStep]);
+ * await runWorkflow(flow, input, registry, { services });
+ * ```
+ */
+export async function createRegistry(
+  steps: AnyStepDef[],
+): Promise<StepRegistry> {
+  const registry: StepRegistry = { ...CORE_STEPS };
+
+  // Load lib/ steps (dynamic imports).
+  const sources: StepSources = {};
+  for (const name of Object.keys(CORE_STEPS)) sources[name] = "core";
+  await loadStepsFrom(LIB_DIR, registry, sources, "lib");
+
+  // Layer user-supplied steps on top (shadowing allowed, with warnings).
+  const seen = new Set<string>();
+  for (const def of steps) {
+    if (!def || typeof def !== "object" || !def.type || !def.run) {
+      throw new Error(
+        `createRegistry: invalid step definition (missing "type" or "run")`,
+      );
+    }
+    if (seen.has(def.type)) {
+      throw new Error(`createRegistry: duplicate step type "${def.type}"`);
+    }
+    seen.add(def.type);
+    if (def.type in registry) {
+      const tier = def.type in CORE_STEPS ? "core" : "lib";
+      console.warn(
+        `[vein] createRegistry: user step "${def.type}" shadows built-in ${tier} step`,
+      );
+    }
+    registry[def.type] = def;
+  }
+  return registry;
+}
