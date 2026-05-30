@@ -4,6 +4,61 @@ import { join } from "node:path";
 import { CORE_STEP_TYPES, LIB_DIR } from "../steps/registry.js";
 import { AiDeps } from "./prompts.js";
 
+/**
+ * Registry entries that don't come from any of the discoverable tiers
+ * (core, on-disk lib, on-disk workspace custom). These are steps a
+ * consumer passed via `createRegistry([...])` when embedding vein as a
+ * library. We surface them under the `custom/` bucket so the AI's
+ * existing `list_steps` / pre-seeded prompt tree just sees them.
+ */
+async function inCodeRegistryExtras(
+  deps: AiDeps,
+): Promise<Array<{ type: string; description?: string }>> {
+  const onDiskCustom = new Set(
+    (await deps.workspace.listSteps()).map((s) => s.type),
+  );
+  const libTypes = new Set<string>();
+  for (const f of await findLibStepFiles(LIB_DIR, "")) libTypes.add(f);
+
+  const extras: Array<{ type: string; description?: string }> = [];
+  for (const [type, def] of Object.entries(deps.registry)) {
+    if (CORE_STEP_TYPES.includes(type)) continue;
+    if (libTypes.has(type)) continue;
+    if (onDiskCustom.has(type)) continue;
+    extras.push({ type, description: (def as any).description });
+  }
+  return extras;
+}
+
+/** Recursively walk LIB_DIR and yield step type names (path minus extension). */
+async function findLibStepFiles(dir: string, prefix: string): Promise<string[]> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const name of names) {
+    if (name.startsWith("_") || name.startsWith(".")) continue;
+    const full = join(dir, name);
+    const st = await stat(full);
+    if (st.isDirectory()) {
+      const nested = await findLibStepFiles(full, prefix ? `${prefix}/${name}` : name);
+      out.push(...nested);
+    } else if (
+      st.isFile() &&
+      (name.endsWith(".ts") || name.endsWith(".js")) &&
+      !name.endsWith(".test.ts") &&
+      !name.endsWith(".spec.ts")
+    ) {
+      const base = name.replace(/\.(ts|js)$/, "");
+      out.push(prefix ? `${prefix}/${base}` : base);
+    }
+  }
+  return out;
+}
+
 // ── Step explorer helpers ──────────────────────────────────────────────────
 
 /** Normalize a path like "/steps", "steps/", "steps" → "steps". */
@@ -47,11 +102,19 @@ export async function lsSteps(path: string, deps: AiDeps) {
     return { entries };
   }
 
-  // ls steps/custom  → list workspace custom steps (flat)
+  // ls steps/custom  → list workspace custom steps (flat), plus any
+  // steps a library consumer injected via createRegistry([...]). The
+  // user doesn't care that one source is on disk and the other lives
+  // in memory — they're all "custom" from the workflow author's POV.
   if (root === "custom" && parts.length === 2) {
     const custom = await deps.workspace.listSteps();
+    const extras = await inCodeRegistryExtras(deps);
+    const merged = [
+      ...custom.map((s) => ({ type: s.type, description: s.description })),
+      ...extras,
+    ];
     return {
-      entries: custom.map((s) =>
+      entries: merged.map((s) =>
         s.description ? `${s.type}  — ${s.description}` : s.type,
       ),
     };
