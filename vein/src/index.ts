@@ -1,5 +1,10 @@
 // ── Public API ─────────────────────────────────────────────────────────────
 
+// Re-export the engine's own zod so consumers define step schemas against
+// the exact version `defineStep` and the schema-introspection helpers expect
+// (avoids dual zod-version type/runtime mismatches in host apps).
+export { z } from "zod";
+
 // Core types and builders
 export {
   flow,
@@ -42,6 +47,7 @@ export {
 export {
   buildRegistry,
   coreRegistry,
+  createRegistry,
   type StepSource,
   type StepSources,
   type RegistryBundle,
@@ -58,5 +64,13 @@ export {
   type StepListEntry,
 } from "./workspace.js";
 
-// Server
-export { app, startServer } from "./server.js";
+// Vein factory — the primary entry point for library usage.
+export {
+  createVein,
+  type Vein,
+  type VeinOptions,
+  type VeinRunOptions,
+} from "./createVein.js";
+
+// Default filesystem-backed server (a thin wrapper over createVein).
+export { getApp, startServer } from "./server.js";

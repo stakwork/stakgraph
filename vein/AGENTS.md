@@ -26,17 +26,19 @@ vein/
 ├── package.json           # engine deps (hono, zod, ai sdk)
 ├── tsconfig.json          # strict, Node16 module, types: ["node"]
 ├── src/
-│   ├── core.ts            # flow(), step(), defineStep(), all types
+│   ├── core.ts            # flow(), step(), defineStep(), services bag, all types
 │   ├── expr.ts            # {{ }} template evaluator (~460 LOC recursive descent)
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore
 │   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
-│   ├── server.ts          # Hono HTTP API + SSE run streaming + /chat + static file serving
-│   ├── index.ts           # barrel export
+│   ├── createVein.ts      # createVein() factory: Hono HTTP API + SSE run streaming + /chat + static serving; injectable registry/store/services
+│   ├── server.ts          # thin wrapper over createVein() (getApp/startServer) — default filesystem-backed server
+│   ├── auth.ts            # requireApiKey middleware + warnIfUnconfigured (VEIN_API_KEY shared secret)
+│   ├── index.ts           # barrel export — createVein (primary entry), createRegistry, coreRegistry, all types
 │   ├── steps/
 │   │   ├── core/          # 8 built-in steps: http, log, if, loop, foreach, subflow, llm, wait (static import)
-│   │   ├── lib/           # built-in domain integrations (github/, ...) — dynamic import
-│   │   └── registry.ts    # auto-discovery: core (static) + lib (dynamic) + workspace custom/ (dynamic)
+│   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — dynamic import
+│   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
 │   │   ├── index.ts       # barrel export
 │   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree)
@@ -44,7 +46,7 @@ vein/
 │   │   │                  #                   create_workflow, run_workflow
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
-│   └── *.test.ts          # 251 tests across 9 files
+│   └── *.test.ts          # 278 tests across 12 files
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -79,7 +81,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 251 tests, ~250ms
+npm test                    # 278 tests, ~280ms
 npm run dev                 # starts Hono server on :3000
 
 # Web UI (dev mode with HMR)
@@ -126,6 +128,28 @@ later without breaking this contract — they'd be additive env vars
 (`VEIN_API_KEY_<NAMESPACE>`) checked in addition to the shared key.
 
 ## Key concepts
+
+- **`createVein()` is the primary entry point** (`src/createVein.ts`).
+  It builds a configured instance — Hono `app`, `workspace`, `store`,
+  `services`, plus `run()`/`listen()`/`rebuildRegistry()` helpers — and
+  mounts every route (`/workflows`, `/steps`, `/chat`, `/health`, static
+  UI). Everything is injectable via `VeinOptions`: pass your own
+  `registry` (disables filesystem step discovery + publishing), `store`
+  (e.g. `MemoryRunStore`), `services` bag, or toggle `serveUi`/
+  `enableChat`. `server.ts` is just a thin default wrapper
+  (`getApp`/`startServer`) over `createVein()` with filesystem defaults.
+
+- **`services` bag** is a consumer-defined capabilities object exposed to
+  every step via `ctx.services` (typed by `defineStep`, untyped at
+  runtime). Inject env-specific implementations (Neo4j vs in-memory,
+  real vs fake LLM) without touching workflows or the registry. Threaded
+  through `createVein({ services })` / `vein.run(wf, input, { services })`
+  / `runWorkflow(flow, input, registry, { services })`.
+
+- **`createRegistry(steps)`** builds a registry from in-code step defs
+  layered on core + lib (no filesystem custom/ discovery) — the
+  library-usage counterpart to `buildRegistry(workspacePath)`. User
+  steps may shadow core/lib steps (with a warning); duplicates throw.
 
 - **Workflows are YAML**. One format everywhere — no `.ts` workflows,
   no JSON workflows. The API accepts either a `steps` array (server
@@ -260,9 +284,10 @@ later without breaking this contract — they'd be additive env vars
 
 ## When adding an API endpoint
 
-1. Add the route in `src/server.ts`. Watch route ordering — specific
-   paths like `/workflows/:name/flow` must come BEFORE catch-all
-   params like `/workflows/:name/:version`.
+1. Add the route in `src/createVein.ts` (inside the `createVein()`
+   factory, where all routes are mounted). Watch route ordering —
+   specific paths like `/workflows/:name/flow` must come BEFORE
+   catch-all params like `/workflows/:name/:version`.
 2. Add the typed function in `web/src/api.ts`.
 3. Wire it into `web/src/app.tsx`.
 4. The Vite dev proxy in `web/vite.config.ts` only proxies known

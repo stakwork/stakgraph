@@ -4,12 +4,24 @@
   "description": "Minimal, LLM-friendly workflow engine",
   "type": "module",
   "private": true,
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc",
     "build:web": "npm --prefix web run build",
     "dev": "npm run build:web && tsx --env-file=.env src/server.ts",
     "start": "node build/server.js",
-    "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/steps/registry.test.ts src/auth.test.ts"
+    "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/services.test.ts src/createVein.test.ts src/ai-integration.test.ts src/steps/registry.test.ts src/auth.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.80",

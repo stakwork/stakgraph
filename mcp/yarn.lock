@@ -2,7 +2,7 @@
 # yarn lockfile v1
 
 
-"@ai-sdk/anthropic@2.0.59", "@ai-sdk/anthropic@3.0.0-beta.66", "@ai-sdk/anthropic@3.0.37", "@ai-sdk/anthropic@3.0.75", "@ai-sdk/anthropic@^2.0.34":
+"@ai-sdk/anthropic@2.0.59", "@ai-sdk/anthropic@3.0.0-beta.66", "@ai-sdk/anthropic@3.0.37", "@ai-sdk/anthropic@3.0.75", "@ai-sdk/anthropic@^2.0.34", "@ai-sdk/anthropic@^3.0.80":
   version "3.0.75"
   resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-3.0.75.tgz#f6b3a627a0b5e5fb0b1bc79de190777bd91e16fb"
   integrity sha512-5AV3CKwaOJFdGXhihVgvRLNrjwRn2Xmy71YygT8DYOA+5zTx93Seg2QSIS8b3tJxzZ7X4H84pEtrE8VZKBCZGA==
@@ -105,7 +105,7 @@
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.26"
 
-"@ai-sdk/openai@2.0.89", "@ai-sdk/openai@3.0.0-beta.74", "@ai-sdk/openai@3.0.61", "@ai-sdk/openai@^2.0.53":
+"@ai-sdk/openai@2.0.89", "@ai-sdk/openai@3.0.0-beta.74", "@ai-sdk/openai@3.0.61", "@ai-sdk/openai@^2.0.53", "@ai-sdk/openai@^3.0.65":
   version "3.0.61"
   resolved "https://registry.yarnpkg.com/@ai-sdk/openai/-/openai-3.0.61.tgz#f284eb15b1a234ae5578b7732702569801f5b6ee"
   integrity sha512-L5FdlTo+7IBOdXbnTZqVzowRdLGWnxPn01vHe4leLPp0G4ydoXhySu0tp0ttkoO0ZSzPjHo7iiAkYoT0J91Q8Q==
@@ -1223,6 +1223,11 @@
     protobufjs "^7.5.4"
     ws "^8.18.0"
 
+"@hono/node-server@2.0.4", "@hono/node-server@^2.0.4":
+  version "2.0.4"
+  resolved "https://registry.yarnpkg.com/@hono/node-server/-/node-server-2.0.4.tgz#22d7ae19fb961eaf189916014c707529fd667eca"
+  integrity sha512-Ut3y0dMMPWy6bZ2kVfx25EOVbZlm15dhF4mOsezMlhpNHy+4MkU1qN9Y6lnruYi4wPmFzimGX2X7LF/FwHli4A==
+
 "@hono/node-server@^1.19.9":
   version "1.19.9"
   resolved "https://registry.yarnpkg.com/@hono/node-server/-/node-server-1.19.9.tgz#8f37119b1acf283fd3f6035f3d1356fdb97a09ac"
@@ -1549,7 +1554,7 @@
     "@octokit/types" "^13.1.0"
     universal-user-agent "^6.0.0"
 
-"@octokit/rest@22.0.1":
+"@octokit/rest@22.0.1", "@octokit/rest@^22.0.1":
   version "22.0.1"
   resolved "https://registry.yarnpkg.com/@octokit/rest/-/rest-22.0.1.tgz#4d866c32b76b711d3f736f91992e2b534163b416"
   integrity sha512-Jzbhzl3CEexhnivb1iQ0KJ7s5vvjMWcmRtq5aUsKmKDrRW6z3r84ngmiFKFvpZjpiU/9/S6ITPFRpn5s/3uQJw==
@@ -2553,7 +2558,7 @@ agentkeepalive@^4.2.1:
   dependencies:
     humanize-ms "^1.2.1"
 
-ai@6.0.0-beta.124, ai@6.0.175, ai@6.0.72, ai@^5.0.0:
+ai@6.0.0-beta.124, ai@6.0.175, ai@6.0.72, ai@^5.0.0, ai@^6.0.191:
   version "6.0.175"
   resolved "https://registry.yarnpkg.com/ai/-/ai-6.0.175.tgz#0bc8ca45f224571d73b3372d8142a38bc7eb2dc6"
   integrity sha512-6fFFHzbh6FIZnYc31V6osOxq25ABJYCShfG0O6ajHiA4FB/DgnPi1mP8cO5aAU3HNSbQHiMazdlh9bIsp97mVA==
@@ -3283,7 +3288,7 @@ d3-shape@3:
   resolved "https://registry.yarnpkg.com/d3-timer/-/d3-timer-3.0.1.tgz#6284d2a2708285b1abb7e201eda4380af35e63b0"
   integrity sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==
 
-"d3-transition@2 - 3", d3-transition@3:
+"d3-transition@2 - 3", d3-transition@3, d3-transition@^3.0.0:
   version "3.0.1"
   resolved "https://registry.yarnpkg.com/d3-transition/-/d3-transition-3.0.1.tgz#6869fdde1448868077fdd5989200cb61b2a1645f"
   integrity sha512-ApKvfjsSR6tg06xrL434C0WydLr7JewBB3V+/39RMHsaXTOG0zmt/OAXeng5M5LBm0ojmxJrpomQVZ1aPvBL4w==
@@ -4263,6 +4268,11 @@ hono@^4.11.4:
   resolved "https://registry.yarnpkg.com/hono/-/hono-4.11.7.tgz#f5b8d0b0b503ef0d913a246012dda52ea23dbe53"
   integrity sha512-l7qMiNee7t82bH3SeyUCt9UF15EVmaBvsppY2zQtrbIhl/yzBTny+YUxsVjSjQ6gaqaeVtZmGocom8TzBlA4Yw==
 
+hono@^4.12.23:
+  version "4.12.23"
+  resolved "https://registry.yarnpkg.com/hono/-/hono-4.12.23.tgz#998b91651686149f0e6edbb8564d604da04f3cf8"
+  integrity sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==
+
 htm@3.1.1:
   version "3.1.1"
   resolved "https://registry.yarnpkg.com/htm/-/htm-3.1.1.tgz#49266582be0dc66ed2235d5ea892307cc0c24b78"
@@ -4526,6 +4536,13 @@ js-yaml@4.1.1:
   version "4.1.1"
   resolved "https://registry.yarnpkg.com/js-yaml/-/js-yaml-4.1.1.tgz#854c292467705b699476e1a2decc0c8a3458806b"
   integrity sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==
+  dependencies:
+    argparse "^2.0.1"
+
+js-yaml@^4.1.1:
+  version "4.2.0"
+  resolved "https://registry.yarnpkg.com/js-yaml/-/js-yaml-4.2.0.tgz#2bd9e85682dd91bd469afb809d816043b3d49524"
+  integrity sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==
   dependencies:
     argparse "^2.0.1"
 
@@ -5933,6 +5950,21 @@ system-architecture@^0.1.0:
   resolved "https://registry.yarnpkg.com/system-architecture/-/system-architecture-0.1.0.tgz#71012b3ac141427d97c67c56bc7921af6bff122d"
   integrity sha512-ulAk51I9UVUyJgxlv9M6lFot2WP3e7t8Kz9+IS6D4rVba1tR9kON+Ey69f+1R4Q8cd45Lod6a4IcJIxnzGc/zA==
 
+system-canvas-react@^0.2.22:
+  version "0.2.31"
+  resolved "https://registry.yarnpkg.com/system-canvas-react/-/system-canvas-react-0.2.31.tgz#9168a48b400a7b3805b78a724850ff4196a670e2"
+  integrity sha512-/70Z3IoFyRpzNJQyszdQl4yXtT9qqS78zJ7LhHj9iz7fuGgisY40LQqajWhbTKkXjhSx9psmsk06EzXKjCMC6g==
+  dependencies:
+    d3-selection "^3.0.0"
+    d3-transition "^3.0.0"
+    d3-zoom "^3.0.0"
+    system-canvas "^0.2.31"
+
+system-canvas@^0.2.22, system-canvas@^0.2.31:
+  version "0.2.31"
+  resolved "https://registry.yarnpkg.com/system-canvas/-/system-canvas-0.2.31.tgz#5dc5798cf0e6e772fdc93f982aeb65e89ca69a87"
+  integrity sha512-xhRoPotaV5skh7fZIOzAr/uljGpzC8tWxim+cA+hDru+VVKdKFDKyKjx9irmW/7ZCgPbMSwpwf51qHEO0jAnug==
+
 tar-fs@^3.0.6:
   version "3.1.1"
   resolved "https://registry.yarnpkg.com/tar-fs/-/tar-fs-3.1.1.tgz#4f164e59fb60f103d472360731e8c6bb4a7fe9ef"
@@ -6253,6 +6285,21 @@ vary@^1, vary@^1.1.2, vary@~1.1.2:
   resolved "https://registry.yarnpkg.com/vary/-/vary-1.1.2.tgz#2299f02c6ded30d4a5961b0b9f74524a18f634fc"
   integrity sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==
 
+"vein@file:../vein":
+  version "0.1.0"
+  dependencies:
+    "@ai-sdk/anthropic" "^3.0.80"
+    "@ai-sdk/openai" "^3.0.65"
+    "@hono/node-server" "^2.0.4"
+    "@octokit/rest" "^22.0.1"
+    ai "^6.0.191"
+    hono "^4.12.23"
+    js-yaml "^4.1.1"
+    system-canvas "^0.2.22"
+    system-canvas-react "^0.2.22"
+    uuid "^11.1.0"
+    zod "^3.23.0"
+
 web-streams-polyfill@4.0.0-beta.3:
   version "4.0.0-beta.3"
   resolved "https://registry.yarnpkg.com/web-streams-polyfill/-/web-streams-polyfill-4.0.0-beta.3.tgz#2898486b74f5156095e473efe989dcf185047a38"
@@ -6399,7 +6446,7 @@ zod@4.3.6, "zod@^3.25 || ^4.0", "zod@^3.25.0 || ^4.0.0", zod@^4.1.8:
   resolved "https://registry.yarnpkg.com/zod/-/zod-4.3.6.tgz#89c56e0aa7d2b05107d894412227087885ab112a"
   integrity sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==
 
-zod@^3.22.4, zod@^3.25.32:
+zod@^3.22.4, zod@^3.23.0, zod@^3.25.32:
   version "3.25.76"
   resolved "https://registry.yarnpkg.com/zod/-/zod-3.25.76.tgz#26841c3f6fd22a6a2760e7ccb719179768471e34"
   integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==

@@ -1,4 +1,20 @@
-const BASE = "";
+// Mount-path-agnostic API base. Derived at runtime from the app's own
+// script URL so the UI works whether vein is served at the root (`/`) or
+// under any sub-path (`/lab`, `/foo/bar`, …) — no build-time base needed.
+// In a production build the bundle loads from `<mount>/assets/...`, so the
+// prefix is everything before `/assets/`. In dev (vite) there is no
+// `/assets/` segment, so the base is empty and the dev proxy handles it.
+function deriveBase(): string {
+  try {
+    const path = new URL(import.meta.url).pathname;
+    const m = path.match(/^(.*)\/assets\//);
+    return m ? m[1] : "";
+  } catch {
+    return "";
+  }
+}
+
+const BASE = deriveBase();
 
 export async function fetchJSON<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -36,7 +52,7 @@ export const getWorkflowMeta = (name: string) =>
   fetchJSON<WorkflowMeta>(`/workflows/${name}`);
 
 export const getWorkflowCode = async (name: string, version: string) => {
-  const res = await fetch(`/workflows/${name}/${version}`);
+  const res = await fetch(`${BASE}/workflows/${name}/${version}`);
   return res.text();
 };
 
@@ -94,7 +110,7 @@ export const publishWorkflowYaml = (
   });
 
 export const getWorkflowYaml = async (name: string, version: string) => {
-  const res = await fetch(`/workflows/${name}/${version}`);
+  const res = await fetch(`${BASE}/workflows/${name}/${version}`);
   return res.text();
 };
 

@@ -2,26 +2,43 @@ import { z } from "zod";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-/** A step definition registered in the step registry. */
+/** A step definition registered in the step registry.
+ *
+ * `TServices` is the shape of the capabilities bag injected at run time
+ * via `runWorkflow({ services })`. Consumers define this as an interface
+ * in their own app and pass concrete implementations per environment
+ * (e.g. Neo4j in prod, in-memory in tests). Steps that don't touch
+ * services leave it as the default `unknown` and ignore `ctx.services`.
+ */
 export interface StepDef<
   TType extends string = string,
   TInput extends z.ZodTypeAny = z.ZodTypeAny,
   TOutput extends z.ZodTypeAny = z.ZodTypeAny,
+  TServices = unknown,
 > {
   type: TType;
   description?: string;
   input: TInput;
   output: TOutput;
-  run: (cfg: z.infer<TInput>, ctx: StepContext) => Promise<z.infer<TOutput>>;
+  run: (
+    cfg: z.infer<TInput>,
+    ctx: StepContext<TServices>,
+  ) => Promise<z.infer<TOutput>>;
 }
 
-/** Context passed to every step's `run` function. */
-export interface StepContext {
+/** Context passed to every step's `run` function.
+ *
+ * `services` is the consumer-defined capabilities bag — typically a
+ * record of typed interfaces (graph store, file system, LLM client, …)
+ * whose concrete implementations are swapped per environment.
+ */
+export interface StepContext<TServices = unknown> {
   runId: string;
   path: string;
   scope: Record<string, unknown>;
   input: unknown;
   emit: (event: RunEvent) => Promise<void>;
+  services: TServices;
 }
 
 /** Error handling options for a step. */
@@ -96,13 +113,19 @@ export interface RunSummary {
   error?: { message: string; stack?: string };
 }
 
-/** A step definition with erased generics, for use in the registry. */
+/** A step definition with erased generics, for use in the registry.
+ *
+ * The runtime is intentionally untyped over services — a registry can
+ * hold steps from different consumers expecting different service
+ * shapes, and the runner just hands each step whatever was passed in
+ * via `RunOptions.services`. Type safety lives at `defineStep` time.
+ */
 export interface AnyStepDef {
   type: string;
   description?: string;
   input: z.ZodTypeAny;
   output: z.ZodTypeAny;
-  run: (cfg: any, ctx: StepContext) => Promise<any>;
+  run: (cfg: any, ctx: StepContext<any>) => Promise<any>;
 }
 
 /** Step registry — maps step type names to their definitions. */
@@ -126,7 +149,10 @@ export function defineStep<
   TType extends string,
   TInput extends z.ZodTypeAny,
   TOutput extends z.ZodTypeAny,
->(def: StepDef<TType, TInput, TOutput>): StepDef<TType, TInput, TOutput> {
+  TServices = unknown,
+>(
+  def: StepDef<TType, TInput, TOutput, TServices>,
+): StepDef<TType, TInput, TOutput, TServices> {
   return def;
 }
 

@@ -26,6 +26,7 @@
     "build": "tsc",
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
+    "refresh-vein": "cd ../vein && npm run build && npm run build:web && cd ../mcp && rm -rf node_modules/vein && yarn install --force",
     "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
@@ -47,6 +48,7 @@
     "@ai-sdk/anthropic": "3.0.75",
     "@ai-sdk/mcp": "1.0.18",
     "@anthropic-ai/sdk": "0.37.0",
+    "@hono/node-server": "2.0.4",
     "@aws-sdk/client-cloudwatch-logs": "3.994.0",
     "@aws-sdk/credential-providers": "3.994.0",
     "@browserbasehq/stagehand": "3.0.8",
@@ -78,6 +80,7 @@
     "p-queue": "^6.6.2",
     "simple-git": "3.30.0",
     "uuid": "11.1.0",
+    "vein": "file:../vein",
     "zod": "4.3.6"
   },
   "devDependencies": {
