@@ -22,6 +22,9 @@ export function StepEditFlyout(props: {
   const [when, setWhen] = useState<boolean | undefined>(props.step.when);
   const [fields, setFields] = useState<api.FieldDesc[]>([]);
   const [error, setError] = useState("");
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [source, setSource] = useState<api.StepSourceResponse | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
 
   // Fetch schema for this step type
   useEffect(() => {
@@ -29,6 +32,24 @@ export function StepEditFlyout(props: {
       setFields(resp.fields);
     }).catch(() => setFields([]));
   }, [props.step.type]);
+
+  // Lazily fetch source the first time the section is expanded (per type).
+  useEffect(() => {
+    setSourceOpen(false);
+    setSource(null);
+  }, [props.step.type]);
+
+  const toggleSource = () => {
+    const next = !sourceOpen;
+    setSourceOpen(next);
+    if (next && source === null && !sourceLoading) {
+      setSourceLoading(true);
+      api.getStepSource(props.step.type)
+        .then(setSource)
+        .catch(() => setSource({ type: props.step.type, source: null, origin: null }))
+        .finally(() => setSourceLoading(false));
+    }
+  };
 
   // Reset state when step changes
   useEffect(() => {
@@ -189,6 +210,26 @@ export function StepEditFlyout(props: {
         <div class="flyout-section">
           <div class="flyout-section-title">YAML Preview</div>
           <pre class="flyout-yaml-preview">{yamlPreview}</pre>
+        </div>
+
+        {/* Step source (lazily fetched, read-only) */}
+        <div class="flyout-section">
+          <button class="flyout-source-toggle" onClick={toggleSource} type="button">
+            <span class={`flyout-source-caret${sourceOpen ? " open" : ""}`}>▶</span>
+            Source
+            {source?.origin && (
+              <span class="flyout-source-origin">{source.origin}</span>
+            )}
+          </button>
+          {sourceOpen && (
+            sourceLoading ? (
+              <div class="flyout-source-empty">Loading…</div>
+            ) : source?.source ? (
+              <pre class="flyout-source-code">{source.source}</pre>
+            ) : (
+              <div class="flyout-source-empty">No source available for this step.</div>
+            )
+          )}
         </div>
 
         {error && <div style="color:var(--danger);font-size:12px;">{error}</div>}

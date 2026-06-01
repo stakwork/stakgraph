@@ -189,6 +189,15 @@ export interface StepSchemaResponse {
 export const getStepSchema = (type: string) =>
   fetchJSON<StepSchemaResponse>(`/steps/${encodeURIComponent(type)}/schema`);
 
+export interface StepSourceResponse {
+  type: string;
+  source: string | null;
+  origin: "registry" | "core" | "lib" | "custom" | null;
+}
+
+export const getStepSource = (type: string) =>
+  fetchJSON<StepSourceResponse>(`/steps/${encodeURIComponent(type)}/source`);
+
 // ── Runs ───────────────────────────────────────────────────────────────────
 
 export interface RunSummary {

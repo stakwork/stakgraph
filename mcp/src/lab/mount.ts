@@ -37,6 +37,13 @@ function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
  */
 export function mountLab(app: Express): void {
   // Trailing slash so the SPA's relative asset URLs resolve under /lab/.
-  app.get("/lab", (_req, res) => res.redirect(308, "/lab/"));
+  // Express routing is non-strict, so `/lab` also matches `/lab/`; guard
+  // against redirecting `/lab/` to itself (an infinite 308 loop) by only
+  // redirecting the exact, slash-less path and letting `/lab/` fall through
+  // to the vein bridge below.
+  app.get("/lab", (req, res, next) => {
+    if (req.path === "/lab/") return next();
+    res.redirect(308, "/lab/");
+  });
   app.use("/lab", bridge(() => createLabVein({ serveUi: true })));
 }

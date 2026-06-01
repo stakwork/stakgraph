@@ -17,18 +17,13 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { storage } = ctx.services as ConceptServices;
-    // Lazy import: keeps the agentic/repo deps out of the registry's
-    // static import graph (they connect to Neo4j at load).
-    const { bootstrapConcepts } = await import("../bootstrap.js");
-    const result = await bootstrapConcepts(
+    const { bootstrap } = ctx.services as ConceptServices;
+    const { concepts, usage } = await bootstrap(
       cfg.owner,
       cfg.repo,
       cfg.repoPath,
-      storage,
-      undefined,
       cfg.lookbackDays,
     );
-    return { concepts: result.features, usage: result.usage };
+    return { concepts, usage };
   },
 });

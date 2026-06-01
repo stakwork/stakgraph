@@ -20,6 +20,11 @@ export interface StepDef<
   description?: string;
   input: TInput;
   output: TOutput;
+  /** Optional source code for this step, surfaced by `GET /steps/:type/source`
+   *  and the UI's step viewer. Set by consumers that inject in-code steps via
+   *  `createRegistry([...])` (which have no discoverable on-disk file) so their
+   *  real implementation can still be inspected. */
+  source?: string;
   run: (
     cfg: z.infer<TInput>,
     ctx: StepContext<TServices>,
@@ -125,6 +130,8 @@ export interface AnyStepDef {
   description?: string;
   input: z.ZodTypeAny;
   output: z.ZodTypeAny;
+  /** Optional source code for in-code steps (see `StepDef.source`). */
+  source?: string;
   run: (cfg: any, ctx: StepContext<any>) => Promise<any>;
 }
 

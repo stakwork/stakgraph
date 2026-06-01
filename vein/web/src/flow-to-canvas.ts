@@ -146,6 +146,36 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
   );
 }
 
+// ── Header label sizing / truncation ───────────────────────────────────────
+
+// Header font size (px). Slightly smaller than the node body so long,
+// namespaced step types (e.g. `concepts/prioritize-changes`) read as a
+// kicker and fit within the node.
+const HEADER_FONT_SIZE = 9;
+
+// system-canvas measures truncation with a flat ~0.55em/glyph estimate and
+// ignores letter-spacing, so uppercase, letter-spaced headers overflow the
+// node before its ellipsis logic triggers. We pre-truncate here with an
+// uppercase-aware estimate — wider glyphs (~0.64em) plus the 0.8px tracking
+// the renderer applies — so the ellipsis lands at the node's edge.
+const HEADER_GLYPH_RATIO = 0.64;
+const HEADER_LETTER_SPACING = 0.8;
+
+function measureHeader(text: string, fontSize: number): number {
+  return text.length * (fontSize * HEADER_GLYPH_RATIO + HEADER_LETTER_SPACING);
+}
+
+function fitHeaderLabel(label: string, maxWidth: number, fontSize: number): string {
+  if (maxWidth <= 0 || measureHeader(label, fontSize) <= maxWidth) return label;
+  const ellipsis = "…";
+  for (let i = label.length - 1; i >= 0; i--) {
+    if (measureHeader(label.slice(0, i) + ellipsis, fontSize) <= maxWidth) {
+      return label.slice(0, i) + ellipsis;
+    }
+  }
+  return ellipsis;
+}
+
 // ── Build theme categories from step types ─────────────────────────────────
 
 function buildStepCategory(type: string, colors: { fill: string; stroke: string }): any {
@@ -159,9 +189,16 @@ function buildStepCategory(type: string, colors: { fill: string; stroke: string 
     slots: {
       header: {
         kind: "text",
-        value: type.toUpperCase(),
+        // Render the node's actual step type (from customData), not the
+        // category name — namespaced steps (e.g. `concepts/decide`) share
+        // the `default` category but should still show their real type
+        // instead of a static "DEFAULT" label.
+        value: (ctx: SlotContext) => {
+          const raw = (ctx.node.customData?.["stepType"] as string | undefined) ?? type;
+          return fitHeaderLabel(raw.toUpperCase(), ctx.region.width, HEADER_FONT_SIZE);
+        },
         color: colors.stroke,
-        fontSize: 10,
+        fontSize: HEADER_FONT_SIZE,
         fontWeight: 600,
       },
       topRight: {
@@ -313,7 +350,7 @@ export function flowToCanvas(
       y: pos.y,
       width: w,
       height: h,
-      customData: { stepId: s.id, stepIndex: i, status },
+      customData: { stepId: s.id, stepIndex: i, status, stepType: s.type },
     });
   }
 

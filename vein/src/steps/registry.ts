@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AnyStepDef, StepRegistry } from "../core.js";
@@ -42,6 +42,49 @@ export const CORE_STEP_TYPES = Object.freeze(Object.keys(CORE_STEPS));
 
 /** Directory containing built-in lib steps, resolved relative to this file. */
 export const LIB_DIR = join(dirname(fileURLToPath(import.meta.url)), "lib");
+
+/** Directory containing built-in core steps, resolved relative to this file. */
+export const CORE_DIR = join(dirname(fileURLToPath(import.meta.url)), "core");
+
+/**
+ * Read a step's source code from disk. Resolves core, built-in lib, and
+ * workspace custom steps (trying both `.ts` and `.js` so it works whether
+ * vein runs from source via tsx or from a compiled build). Returns the
+ * code plus which tier it came from, or `null` when no file is found.
+ *
+ * In-code steps injected via `createRegistry([...])` have no on-disk file —
+ * those carry their source on the step def itself (`AnyStepDef.source`) and
+ * are handled by the caller before falling back to this.
+ */
+export async function readStepSourceFromDisk(
+  type: string,
+  workspacePath: string,
+): Promise<{ code: string; origin: StepSource } | null> {
+  const parts = type.split("/");
+  const leaf = parts.at(-1)!;
+  const nested = parts.slice(0, -1);
+
+  const candidates: Array<{ base: string; origin: StepSource }> = [];
+  if (CORE_STEP_TYPES.includes(type)) {
+    candidates.push({ base: join(CORE_DIR, type), origin: "core" });
+  }
+  candidates.push({ base: join(LIB_DIR, ...nested, leaf), origin: "lib" });
+  candidates.push({
+    base: join(workspacePath, "steps", "custom", ...nested, leaf),
+    origin: "custom",
+  });
+
+  for (const { base, origin } of candidates) {
+    for (const ext of [".ts", ".js"]) {
+      try {
+        return { code: await readFile(base + ext, "utf-8"), origin };
+      } catch {
+        // try next
+      }
+    }
+  }
+  return null;
+}
 
 // ── Auto-discovery ─────────────────────────────────────────────────────────
 
@@ -100,7 +143,18 @@ function stepNameFromPath(filePath: string, baseDir: string): string {
  */
 async function loadStepFile(filePath: string): Promise<AnyStepDef | null> {
   try {
-    const url = pathToFileURL(filePath).href;
+    // Cache-bust the ESM module cache with the file's mtime so that
+    // re-publishing a step (overwriting `custom/<name>.ts`) and rebuilding
+    // the registry actually re-imports the new source instead of serving the
+    // stale cached module. Unchanged files keep a stable URL (no churn).
+    let suffix = "";
+    try {
+      const { mtimeMs } = await stat(filePath);
+      suffix = `?v=${mtimeMs}`;
+    } catch {
+      // stat failed — fall back to no cache-bust
+    }
+    const url = pathToFileURL(filePath).href + suffix;
     const mod = await import(url);
     const def = mod.default ?? mod;
     if (def && typeof def === "object" && "type" in def && "run" in def) {

@@ -54,3 +54,5 @@ knowledge-base/
 
 # Async request storage (file-backed instead of in-memory)
 .reqs/
+
+lab-workspace

@@ -12,7 +12,7 @@ import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
 import type { RunStore } from "./store.js";
 import { FileRunStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
-import { buildRegistry } from "./steps/registry.js";
+import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
 import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import { requireApiKey, warnIfUnconfigured } from "./auth.js";
@@ -396,6 +396,69 @@ export async function createVein<TServices = unknown>(
     return c.json({ type, fields: zodToFields(def.input) });
   });
 
+  // Source code for a step. In-code steps (injected via createRegistry) carry
+  // their source on the def; everything else is read from disk
+  // (core / lib / workspace custom). `source` is null when none is available.
+  app.get("/steps/:type{.+}/source", async (c) => {
+    const type = c.req.param("type");
+    const def = registry[type];
+    if (!def) return c.json({ error: `Step type "${type}" not found` }, 404);
+    if (def.source) {
+      return c.json({ type, source: def.source, origin: "registry" });
+    }
+    const onDisk = await readStepSourceFromDisk(type, workspace.path);
+    return c.json({
+      type,
+      source: onDisk?.code ?? null,
+      origin: onDisk?.origin ?? null,
+    });
+  });
+
+  // List a step's versions + its active version id (parallels workflows).
+  app.get("/steps/:type{.+}/versions", async (c) => {
+    const type = c.req.param("type");
+    try {
+      return c.json({ type, ...(await workspace.listStepVersions(type)) });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+  });
+
+  // Source for a specific archived step version.
+  app.get("/steps/:type{.+}/version/:version", async (c) => {
+    const { type, version } = c.req.param();
+    try {
+      const src = await workspace.getStepVersionSource(type, version);
+      return c.json({ type, version, source: src });
+    } catch {
+      return c.json(
+        { error: `Version "${version}" of step "${type}" not found` },
+        404,
+      );
+    }
+  });
+
+  // Switch a step's active version.
+  app.put("/steps/:type{.+}/active", requireApiKey, async (c) => {
+    if (registryWasInjected) {
+      return c.json(
+        { error: "Step versioning is disabled when the registry is provided at construction time" },
+        409,
+      );
+    }
+    const type = c.req.param("type");
+    const body = await c.req.json<{ version: string }>();
+    if (!type) return c.json({ error: "step type is required" }, 400);
+    if (!body.version) return c.json({ error: "version is required" }, 400);
+    try {
+      await workspace.setActiveStepVersion(type, body.version);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+    await rebuildRegistry();
+    return c.json({ ok: true, type, active: body.version });
+  });
+
   app.post("/steps", requireApiKey, async (c) => {
     if (registryWasInjected) {
       return c.json(
@@ -410,13 +473,14 @@ export async function createVein<TServices = unknown>(
       publisher?: string;
     }>();
     if (!body.name || !body.code) return c.json({ error: "name and code are required" }, 400);
+    let result: { version: string; changed: boolean };
     try {
-      await workspace.publishStep(body.name, body.code, body.description, body.publisher);
+      result = await workspace.publishStep(body.name, body.code, body.description, body.publisher);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
-    await rebuildRegistry();
-    return c.json({ ok: true, type: body.name }, 201);
+    if (result.changed) await rebuildRegistry();
+    return c.json({ ok: true, type: body.name, version: result.version, changed: result.changed }, 201);
   });
 
   app.delete("/steps", requireApiKey, async (c) => {

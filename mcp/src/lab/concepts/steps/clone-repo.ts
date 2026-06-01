@@ -1,4 +1,5 @@
 import { z, defineStep } from "vein";
+import type { ConceptServices } from "../services.js";
 
 /**
  * Clone (or update) the repo locally so bootstrap / doc generation can
@@ -13,14 +14,9 @@ export default defineStep({
     token: z.string().optional(),
   }),
   output: z.any(),
-  async run(cfg) {
-    const { cloneOrUpdateRepo } = await import("../../../repo/clone.js");
-    const token = cfg.token ?? process.env["GITHUB_TOKEN"];
-    const repoPath = await cloneOrUpdateRepo(
-      `https://github.com/${cfg.owner}/${cfg.repo}`,
-      undefined,
-      token,
-    );
+  async run(cfg, ctx) {
+    const { clone } = ctx.services as ConceptServices;
+    const repoPath = await clone(cfg.owner, cfg.repo, cfg.token);
     return { repoPath };
   },
 });
