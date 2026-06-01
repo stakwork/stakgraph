@@ -12,6 +12,7 @@ import { WorkspaceManager } from "./workspace.js";
 import { MemoryRunStore } from "./store.js";
 import { lsSteps, searchSteps, readStepSource } from "./ai/stepHelpers.js";
 import { buildSystem } from "./ai/prompts.js";
+import { buildTools } from "./ai/tools.js";
 import { zodToFields } from "./ai/schemaHelpers.js";
 
 /**
@@ -191,5 +192,86 @@ describe("AI tools see in-code registered steps", () => {
       1,
       `expected exactly one 'shared' entry, got: ${JSON.stringify(matches)}`,
     );
+  });
+});
+
+describe("AI create_step / edit_step tools", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-ai-steps-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  function makeDeps(opts: { publishingEnabled?: boolean } = {}) {
+    const ws = new WorkspaceManager(tempDir);
+    return {
+      workspace: ws,
+      registry: {} as any,
+      store: new MemoryRunStore(),
+      // Static getRegistry — the temp workspace lives outside the project tree
+      // so a published .ts can't resolve `vein` to actually load. These tests
+      // verify publish/version semantics, not registry loading.
+      getRegistry: async () => ({} as any),
+      ...opts,
+    };
+  }
+
+  const code = (n: number) =>
+    `import { z, defineStep } from "vein";\nexport default defineStep({ type: "my/step", input: z.object({}), output: z.any(), async run(){ return ${n}; } });\n`;
+
+  it("create_step publishes a new step at v1; edit_step bumps to v2", async () => {
+    const deps = makeDeps();
+    const tools = buildTools(deps) as any;
+
+    const created = await tools.create_step.execute({ name: "my/step", code: code(1) });
+    assert.equal(created.ok, true);
+    assert.equal(created.version, "v1");
+
+    const edited = await tools.edit_step.execute({ type: "my/step", code: code(2) });
+    assert.equal(edited.ok, true);
+    assert.equal(edited.version, "v2");
+    assert.equal(edited.changed, true);
+
+    const { active, versions } = await deps.workspace.listStepVersions("my/step");
+    assert.equal(active, "v2");
+    assert.deepEqual(versions, ["v1", "v2"]);
+  });
+
+  it("create_step rejects an existing step name", async () => {
+    const deps = makeDeps();
+    const tools = buildTools(deps) as any;
+    await tools.create_step.execute({ name: "my/step", code: code(1) });
+    const again = await tools.create_step.execute({ name: "my/step", code: code(2) });
+    assert.ok(again.error && /already exists/.test(again.error));
+  });
+
+  it("edit_step rejects a step that does not exist", async () => {
+    const deps = makeDeps();
+    const tools = buildTools(deps) as any;
+    const res = await tools.edit_step.execute({ type: "nope/missing", code: code(1) });
+    assert.ok(res.error && /not found/.test(res.error));
+  });
+
+  it("edit_step is a no-op (changed:false) for identical content", async () => {
+    const deps = makeDeps();
+    const tools = buildTools(deps) as any;
+    await tools.create_step.execute({ name: "my/step", code: code(1) });
+    const same = await tools.edit_step.execute({ type: "my/step", code: code(1) });
+    assert.equal(same.changed, false);
+    assert.equal(same.version, "v1");
+  });
+
+  it("both tools refuse when publishing is disabled", async () => {
+    const deps = makeDeps({ publishingEnabled: false });
+    const tools = buildTools(deps) as any;
+    const c = await tools.create_step.execute({ name: "my/step", code: code(1) });
+    assert.ok(c.error && /disabled/.test(c.error));
+    const e = await tools.edit_step.execute({ type: "my/step", code: code(1) });
+    assert.ok(e.error && /disabled/.test(e.error));
   });
 });

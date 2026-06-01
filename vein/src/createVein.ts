@@ -571,6 +571,7 @@ export async function createVein<TServices = unknown>(
         workspace,
         registry,
         store,
+        publishingEnabled: !registryWasInjected,
         getRegistry: async () => {
           if (registryWasInjected) return registry;
           const bundle = await buildRegistry(workspace.path);
