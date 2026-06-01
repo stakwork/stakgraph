@@ -4,6 +4,18 @@
   "description": "Minimal, LLM-friendly workflow engine",
   "type": "module",
   "private": true,
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc",
     "build:web": "npm --prefix web run build",

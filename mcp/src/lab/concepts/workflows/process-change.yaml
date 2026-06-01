@@ -1,0 +1,33 @@
+name: process-change
+# Per-change body subflow: fetch one PR/commit's content, ask the LLM
+# which concept(s) it belongs to, and apply the decision. Invoked once
+# per change by `process-repo-chronological`'s foreach. Returns the
+# apply-decision output ({ modifiedConceptIds, usage }).
+steps:
+  - id: fetch
+    type: concepts/fetch-content
+    config:
+      change: "{{ input.change }}"
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+
+  - id: decide
+    type: concepts/decide
+    config:
+      change: "{{ input.change }}"
+      markdown: "{{ fetch.markdown }}"
+      skipped: "{{ fetch.skipped }}"
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      systemPrompt: "{{ input.systemPrompt }}"
+      guidelines: "{{ input.guidelines }}"
+
+  - id: apply
+    type: concepts/apply-decision
+    config:
+      change: "{{ input.change }}"
+      decision: "{{ decide.decision }}"
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      repoPath: "{{ input.repoPath }}"
+      usage: "{{ decide.usage }}"

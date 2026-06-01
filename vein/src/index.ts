@@ -1,5 +1,10 @@
 // ── Public API ─────────────────────────────────────────────────────────────
 
+// Re-export the engine's own zod so consumers define step schemas against
+// the exact version `defineStep` and the schema-introspection helpers expect
+// (avoids dual zod-version type/runtime mismatches in host apps).
+export { z } from "zod";
+
 // Core types and builders
 export {
   flow,

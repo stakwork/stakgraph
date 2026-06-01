@@ -1,0 +1,51 @@
+name: bootstrap-then-process
+# Top-level orchestration: bootstrap a brand-new repo (clone + explore to
+# seed initial concepts), then run the chronological processing sweep.
+#
+# The bootstrap branch (clone + bootstrap) only runs when `is-new-repo`
+# is true — gated via `when: true` on that boolean step. The processing
+# subflow always runs (fan-in on `check`), receiving `repoPath` when a
+# clone happened so newly-created concepts can be explored for docs.
+#
+# Input: { owner, repo, token?, lookbackDays?, strategy?, systemPrompt?, guidelines? }
+steps:
+  - id: check
+    type: concepts/is-new-repo
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+
+  - id: clone
+    type: concepts/clone-repo
+    depends: check
+    when: true
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      token: "{{ input.token }}"
+
+  - id: bootstrap
+    type: concepts/bootstrap-explore
+    depends: [check, clone]
+    when: true
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      repoPath: "{{ clone.repoPath }}"
+      # How many days back to set the checkpoint after seeding (default 10).
+      # Edit this literal, or pass `lookbackDays` in the run input.
+      lookbackDays: "{{ input.lookbackDays }}"
+
+  - id: process
+    type: subflow
+    depends: [check, bootstrap]
+    config:
+      workflow: process-repo-chronological
+      input:
+        owner: "{{ input.owner }}"
+        repo: "{{ input.repo }}"
+        token: "{{ input.token }}"
+        repoPath: "{{ clone.repoPath }}"
+        strategy: "{{ input.strategy }}"
+        systemPrompt: "{{ input.systemPrompt }}"
+        guidelines: "{{ input.guidelines }}"

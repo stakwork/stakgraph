@@ -1,0 +1,58 @@
+name: process-repo-chronological
+# Walk a repo's PRs + commits oldest-first, classifying each into concepts.
+# This is the default (chronological) orchestration. Swap `prioritize`'s
+# strategy — or fork this workflow — to experiment with different orderings.
+#
+# Input: { owner, repo, token?, repoPath?, strategy?, systemPrompt?, guidelines? }
+steps:
+  - id: checkpoint
+    type: concepts/resolve-checkpoint
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+
+  - id: fetch
+    type: concepts/fetch-changes
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      checkpoint: "{{ checkpoint.checkpoint }}"
+
+  - id: prioritize
+    type: concepts/prioritize-changes
+    config:
+      changes: "{{ fetch.changes }}"
+      strategy: "{{ input.strategy }}"
+
+  - id: process
+    type: foreach
+    config:
+      items: "{{ prioritize.changes }}"
+      body:
+        id: change
+        type: subflow
+        config:
+          workflow: process-change
+          input:
+            change: "{{ $current }}"
+            owner: "{{ input.owner }}"
+            repo: "{{ input.repo }}"
+            repoPath: "{{ input.repoPath }}"
+            systemPrompt: "{{ input.systemPrompt }}"
+            guidelines: "{{ input.guidelines }}"
+
+  - id: collect
+    type: concepts/collect-results
+    config:
+      results: "{{ process }}"
+
+  - id: summarize
+    type: concepts/summarize
+    config:
+      conceptIds: "{{ collect.modifiedConceptIds }}"
+
+  - id: link
+    type: concepts/link-files
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"

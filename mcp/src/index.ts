@@ -23,6 +23,7 @@ import * as r from "./graph/routes.js";
 import * as l from "./graph/learnings.js";
 import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
+import { mountLab } from "./lab/mount.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
@@ -65,6 +66,10 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
+
+// Lab experiments (vein workflows) — bridged before body parsing so vein
+// receives raw request streams for SSE + POST bodies.
+mountLab(app);
 
 // Real-time agent step events via SSE
 // Auth: JWT query param (?token=xxx) scoped to the request_id, OR x-api-token header
