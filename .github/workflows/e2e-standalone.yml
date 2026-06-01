@@ -84,6 +84,16 @@ jobs:
           tail -n +1 -f standalone.log &
           npx wait-on http://localhost:7799 -t 600000
 
+      # mcp depends on vein via `file:../vein`; yarn COPIES that dep at
+      # install time, and vein's build/ is gitignored — so vein must be
+      # built BEFORE mcp's `yarn install` copies it. (Only the engine
+      # build is needed to boot; the /lab web UI isn't exercised here.)
+      - name: Build vein (workflow engine lib)
+        working-directory: ./vein
+        run: |
+          yarn install
+          yarn build
+
       - name: Prepare Node Server
         working-directory: ./mcp
         run: yarn install
