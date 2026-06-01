@@ -4,7 +4,8 @@ import { streamSSE } from "hono/streaming";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { serve } from "@hono/node-server";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
@@ -53,6 +54,13 @@ export interface VeinOptions<TServices = unknown> {
   /** Mount the `POST /chat` AI workflow-builder endpoint. Defaults to
    *  true; disable to avoid pulling in the `ai`/`@ai-sdk/anthropic` deps. */
   enableChat?: boolean;
+
+  /** Directory containing the built web UI (the `dist` folder). Defaults
+   *  to vein's own bundled UI resolved relative to this module, so it
+   *  works regardless of the host process's CWD. The built UI uses
+   *  relative asset paths, so it can be mounted at any sub-path (e.g.
+   *  `/lab`) as long as the host serves it with a trailing slash. */
+  webDist?: string;
 }
 
 /**
@@ -191,6 +199,9 @@ export async function createVein<TServices = unknown>(
   const services = (opts.services ?? ({} as TServices)) as TServices;
   const serveUi = opts.serveUi ?? true;
   const enableChat = opts.enableChat ?? true;
+  const webDist =
+    opts.webDist ??
+    resolve(dirname(fileURLToPath(import.meta.url)), "../web/dist");
   const registryWasInjected = opts.registry !== undefined;
 
   // Mutable closure state — `app` handlers read through these.
@@ -548,7 +559,7 @@ export async function createVein<TServices = unknown>(
   // ── Static files (web UI) ────────────────────────────────────────────────
 
   if (serveUi) {
-    app.use("/assets/*", serveStatic({ root: "./web/dist" }));
+    app.use("/assets/*", serveStatic({ root: webDist }));
 
     app.get("*", async (c) => {
       const path = c.req.path;
@@ -561,7 +572,7 @@ export async function createVein<TServices = unknown>(
         return c.notFound();
       }
       try {
-        const html = await readFile(resolve("./web/dist/index.html"), "utf-8");
+        const html = await readFile(join(webDist, "index.html"), "utf-8");
         return c.html(html);
       } catch {
         return c.text("UI not built. Run: cd web && npm run build", 404);

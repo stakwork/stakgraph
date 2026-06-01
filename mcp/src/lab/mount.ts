@@ -27,13 +27,16 @@ function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
  * experiments share this one instance — they're groups of workflows
  * inside it, not separate servers.
  *
- * UI note: `serveUi` is false — vein's web UI assumes root-absolute
- * asset/API paths and can't be served under a sub-path without a
- * base-path rebuild; run the vein UI separately during experimentation.
+ * The vein UI is served too: its build uses relative asset paths and a
+ * runtime-derived API base, so it works under `/lab` as long as we
+ * redirect `/lab` → `/lab/` (so relative `./assets/...` resolve under the
+ * mount dir).
  *
  * Registration MUST happen before `express.json()` so vein receives the
  * raw request stream (same constraint as the graph SSE routes).
  */
 export function mountLab(app: Express): void {
-  app.use("/lab", bridge(() => createLabVein({ serveUi: false })));
+  // Trailing slash so the SPA's relative asset URLs resolve under /lab/.
+  app.get("/lab", (_req, res) => res.redirect(308, "/lab/"));
+  app.use("/lab", bridge(() => createLabVein({ serveUi: true })));
 }
