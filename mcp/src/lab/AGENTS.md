@@ -105,5 +105,12 @@ copied into `build/lab/` by `scripts/copy-lab-assets.mjs`, run after `tsc`
 in the `build` script. Add new lab assets under a `workflows/` (`.yaml`) or
 `steps/` (`.ts`) dir and they're picked up automatically.
 
+**Prod runs with a TS loader.** Seeded steps are published as `.ts` source
+into the workspace and vein loads them via dynamic `import()`. Plain `node`
+can't import `.ts`, so the prod server runs as `node --import tsx
+build/index.js` (`start` script + Docker `CMD`); `tsx` is a runtime
+dependency. This is what lets agents/users author steps in TypeScript and
+have them run in prod without a compile step.
+
 **Known follow-ups** (not blockers for a basic run): `/lab` runs bypass mcp
 auth (mounted before auth middleware).

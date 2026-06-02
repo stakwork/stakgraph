@@ -119,5 +119,7 @@ EXPOSE 3000
 
 WORKDIR /usr/src/app
 
-# Define the command to run your app
-CMD ["node", "build/index.js"]
+# Define the command to run your app.
+# `--import tsx` registers a TypeScript loader so vein can dynamically import
+# `.ts` custom steps at runtime (the lab seeds steps as TS source).
+CMD ["node", "--import", "tsx", "build/index.js"]

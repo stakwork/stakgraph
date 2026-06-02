@@ -219,6 +219,14 @@ later without breaking this contract — they'd be additive env vars
   `PUT /steps/:type/active`. Versioning is disabled when the registry
   is injected at construction time.
 
+- **Custom steps are loaded as `.ts` via dynamic `import()`**
+  (`registry.ts:loadStepFile`), so the **host process must run with a
+  TypeScript-capable loader** — fine in dev (`tsx`), but a plain
+  `node build/index.js` can't import `.ts`. Hosts that serve
+  filesystem custom steps in production must register a loader (mcp runs
+  `node --import tsx build/index.js`). Consumers using only core/lib or an
+  in-code `createRegistry([...])` don't need this.
+
 - **Step registration is filesystem-based.** External services
   register steps by `POST /steps { name, code, description?, publisher? }`.
   Names may be nested (`"gitree/save-feature"` writes

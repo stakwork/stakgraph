@@ -24,7 +24,7 @@
   "scripts": {
     "dev": "([ -n \"$CI\" ] || npm run refresh-vein); tsx src/index.ts",
     "build": "tsc && node scripts/copy-lab-assets.mjs",
-    "start": "node build/index.js",
+    "start": "node --import tsx build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
     "refresh-vein": "cd ../vein && npm run build && npm run build:web && cd ../mcp && rm -rf node_modules/vein && yarn install --force",
     "stage-vein": "rm -rf .vein && rsync -a --exclude node_modules --exclude web/node_modules --exclude build --exclude web/dist --exclude .git --exclude .env --exclude workspace ../vein/ .vein/",
@@ -80,6 +80,7 @@
     "node-cache": "5.1.2",
     "p-queue": "^6.6.2",
     "simple-git": "3.30.0",
+    "tsx": "4.21.0",
     "uuid": "11.1.0",
     "vein": "file:../vein",
     "zod": "4.3.6"
@@ -102,7 +103,6 @@
     "preact": "10.28.3",
     "ts-node": "10.9.2",
     "tsup": "8.5.1",
-    "tsx": "4.21.0",
     "typescript": "5.9.3"
   },
   "scarfSettings": {
