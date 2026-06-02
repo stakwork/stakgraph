@@ -395,4 +395,6 @@ later without breaking this contract — they'd be additive env vars
   copied `file:../vein` dep, UI bundled into `web/dist`). After a web
   change, `mcp`'s `yarn dev` runs `refresh-vein` (rebuild vein + web,
   reinstall into mcp) before starting on `:3355` — so changes only reach
-  `/lab` after that, not on a bare vite rebuild.
+  `/lab` after that, not on a bare vite rebuild. (The refresh is **skipped
+  when `$CI` is set** — CI installs/builds vein separately and doesn't have
+  `web/` deps, so running `vite` there would fail.)

@@ -57,10 +57,11 @@ Experimentation seams (edit without touching code):
   edited/versioned via the vein UI.
 - vein is consumed as a `file:` dep, which **yarn copies** (not symlinks):
   changes to `../../../vein` (engine or `web/`) only reach `/lab` after a
-  rebuild + reinstall. `yarn dev` now runs `refresh-vein` automatically
-  before starting, so a plain `yarn dev` picks up vein changes; run
-  `yarn refresh-vein` by hand if you need the copy refreshed without a
-  restart. CI builds vein before `mcp` install for the same reason.
+  rebuild + reinstall. `yarn dev` runs `refresh-vein` automatically before
+  starting (**skipped when `$CI` is set** — CI has no `web/` deps, so `vite`
+  would fail), so a plain local `yarn dev` picks up vein changes; run
+  `yarn refresh-vein` by hand to refresh without a restart. CI builds vein
+  before `mcp` install for the same reason.
 - The vein UI is path-agnostic (relative assets + runtime API base), so it
   works under `/lab` (with the `/lab` → `/lab/` redirect in `mount.ts`).
 - Trigger a run: `POST /lab/workflows/bootstrap-then-process/run` with
@@ -73,9 +74,10 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
 1. **Neo4j**: `cd mcp && docker compose -f neo4j.yaml up -d` (wait healthy).
 2. **Env**: `GITHUB_TOKEN`, `ANTHROPIC_API_KEY` (and `NEO4J_HOST`/`NEO4J_USER`/
    `NEO4J_PASSWORD` if not default).
-3. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`). `dev` runs
-   `refresh-vein` first, so vein (engine + `web/`) is rebuilt and reinstalled
-   automatically — no separate build step needed.
+3. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`). Locally, `dev`
+   runs `refresh-vein` first, so vein (engine + `web/`) is rebuilt and
+   reinstalled automatically — no separate build step needed. (Skipped when
+   `$CI` is set.)
 4. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
    then `curl localhost:3355/lab/workflows` to confirm the 3 workflows
    seeded.

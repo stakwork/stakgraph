@@ -22,7 +22,7 @@
     "@ai-sdk/xai": "3.0.88"
   },
   "scripts": {
-    "dev": "npm run refresh-vein && tsx src/index.ts",
+    "dev": "([ -n \"$CI\" ] || npm run refresh-vein); tsx src/index.ts",
     "build": "tsc",
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
