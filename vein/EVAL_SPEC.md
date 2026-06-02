@@ -10,8 +10,28 @@ This builds on `SPEC.md` (the engine) and reuses its existing primitives
 wherever possible. It is **not** a CLI — every operation is a first-class
 API endpoint, visible in the UI, and (later) drivable by the AI agent.
 
-> GOAL: AS SIMPLE AS POSSIBLE. Reuse runs, `params`, and versioning. Add
-> the smallest set of new concepts: **Dataset, Rubric, Experiment**.
+> GOAL: AS SIMPLE AS POSSIBLE. **Everything is a workflow + its `params`.**
+> The dataset (expected gold), the rubric, and the candidate knobs are all
+> just `params` — which vein already stores, versions, and (now) edits in the
+> UI. We do **not** add new `Dataset`/`Rubric`/`Experiment` resource types.
+> The only new pieces are a couple of small **steps** (a collector and a
+> scorer) and one engine primitive (keyed param overrides).
+
+---
+
+## 0. Status (what's implemented)
+
+| Piece | State |
+| --- | --- |
+| Keyed `paramOverrides` engine primitive (§3) | **done** (`runner.ts`, exposed on `/run` + `run()`) |
+| Params **visible + editable + persistable** in the UI (§4, §8) | **done** (`ParamsFlyout`; Publish writes params into the new version) |
+| Bootstrap prompt paramified (§6.1) | **done** (`bootstrap-then-process` `params`) |
+| `concepts/collect-for-eval` — run output = scoreable concept set (§5) | **done** (final step of `bootstrap-then-process`) |
+| `eval/score` step + `eval-score` workflow (rubric in `params`) (§5) | **done** (`mcp/src/lab/eval`) |
+| Snapshot capture/injection, namespacing + teardown (§6) | todo |
+| `eval/reflect` + orchestrator + optimize stream (§5) | todo |
+| Optimize UI: generations chart / diff / drill (§8) | todo |
+| Agent tools (§9) | todo |
 
 ---
 
@@ -49,12 +69,13 @@ target has or where they live, as long as they are exposed as `params`.
 | # | Decision | Rationale |
 | --- | --- | --- |
 | D1 | **Thin orchestrator + everything-is-a-workflow.** `score`/`reflect` are vein workflows; the GEPA loop is thin engine code streamed via SSE. | Ports the proven harness; every sub-step is an inspectable run; no fragile new looping primitives. |
-| D2 | **Resources live in the vein workspace**, versioned like workflows. | Consistent with how workflows/steps already work; one persistence model. |
+| D2 | **No new resource types. Eval config = workflow `params`.** The rubric, the expected gold, and the dataset (`examples`) are `params` on an eval/experiment workflow. | `params` are already workspace-stored, versioned, and (now) UI-editable. **Changing a param IS a new workflow version** — exactly the persistence/versioning we'd otherwise rebuild. |
 | D3 | **Candidate scope = `params` only** (prompts/thresholds/selectors), as a **multi-scope union** across `{workflow, key}`. | Matches the existing "experiment surface"; smallest search space; covers multi-prompt targets. |
 | D4 | **Nested/scoped param override** is added to the engine (keyed by workflow name). | The tunable prompts live in subflows; per-run `params` don't propagate today. General; opt-in; back-compat. |
 | D5 | **Pin-by-snapshot** datasets. | Deterministic, offline, fast, cheap evals — no GitHub during optimization. |
 | D6 | **Holistic reflection** for credit assignment (start). | Simplest; reflector sees all prompts + insights and may change any. Component sub-rubrics / staged optimization can come later. |
 | D7 | **Human-driven first, agent-driven later.** | The agent layer is thin tool wrappers over the same endpoints; build them tool-friendly from day one. |
+| D8 | **Params are editable + persistable in the UI** (the `ParamsFlyout`); edits publish a new workflow version. | This is what makes "set up an eval in the UI" real without any new resource/storage/API. |
 
 ---
 
@@ -92,143 +113,101 @@ a candidate is just a `paramOverrides` map spanning several workflows.
 
 ---
 
-## 4. Resources
+## 4. No new resources — eval config is `params`
 
-Stored in the workspace next to `workflows/` and `steps/`. JSON shapes are
-intentionally simple (tool-friendly for the future agent layer).
+The earlier draft proposed `datasets/`, `rubrics/`, and `experiments/`
+resource types (storage + API + UI). We **dropped that**: vein's `params`
+already are the dynamic-state mechanism we need — workspace-stored, versioned,
+and now UI-editable. So the rubric, the expected gold, and the dataset all
+live as `params` on ordinary workflows.
 
+> **Changing a param = a new workflow version.** Editing a param in the
+> `ParamsFlyout` marks the workflow dirty; **Publish** writes the params into
+> the next version's YAML (the existing `POST /workflows/:name` already
+> accepts `{ steps, params }`). No new storage, API, or resource type.
+
+### 4.1 Rubric → a `param` of the scorer workflow
+
+The rubric (the fixed measuring stick — WHAT to weigh) is the `rubric` param
+of `eval-score`. Editable in the UI; the optimizer never mutates it.
+
+```yaml
+# eval-score.yaml (seeded)  —  input: { actual, expected }
+steps:
+  - id: judge
+    type: eval/score
+    config: { actual: "{{ input.actual }}", expected: "{{ input.expected }}", rubric: "{{ params.rubric }}" }
+params:
+  rubric: |-
+    Score produced Concepts vs the expected gold set. Match semantically, not
+    by string. Weigh RECALL / PRECISION / NAMING / DESCRIPTION. …
 ```
-workspace/
-  workflows/   steps/                                   (exist)
-  datasets/<name>/
-     dataset.json                                       # metadata + example index
-     examples/<exampleId>/
-        input.json        # EXACTLY the target workflow's input
-        expected.json     # the gold label
-        snapshot.json     # captured change-set / fixtures (pin-by-snapshot)
-        notes.txt         # optional
-  rubrics/<name>.json                                   # judge prompt + scale
-  experiments/<name>.json                               # the binding + budget
-  experiments/<name>/runs/<ts>/
-     gen-<N>/{ candidate.json, results.json, aggregate } 
-     summary.json
+
+The `eval/score` **step** is pure mechanism: it appends the strict
+`SCORE / REASON / INSIGHT` contract and parses the verdict
+(`{ score, reason, insight, markdown }`). The `INSIGHT` feeds reflection.
+
+### 4.2 Dataset (expected gold) → a `param`
+
+The "dataset" is just `params` too. For a single repo, the gold is an
+`expected` param; for several, an `examples` array param (each
+`{ input, expected }`). Authored/edited in the `ParamsFlyout` (JSON for the
+array), versioned on Publish.
+
+```yaml
+# an "experiment" workflow's params
+params:
+  rubric: |- …                       # the measuring stick
+  examples:
+    - input:    { owner: stakwork, repo: hive, rev: a1b2c3, until: "2025-09-01" }
+      expected: |
+        # Concepts: stakwork/hive
+        ## Real-time Chat
+        Users can …
+        ## Task Management
+        …
 ```
 
-### 4.1 Dataset
+`expected` is authored in the **same markdown shape** `collect-for-eval`
+emits, so scoring is apples-to-apples (semantic, so PR/commit counts don't
+matter). **Pin-by-snapshot (D5)** still applies for reproducibility — the
+pinned change-set is carried in the example's `input` (or a `snapshot` field)
+and injected into `fetch-changes`/`fetch-content`.
 
-A reusable, re-labeled-rarely collection of **pinned examples**. Each
-example's `input` is exactly what the target workflow takes; `expected` is
-the human-authored gold; `snapshot` makes the run deterministic.
+### 4.3 Experiment → a workflow whose params hold the dataset + rubric
+
+An "experiment" is an ordinary workflow that orchestrates one eval pass:
+`foreach` over `params.examples` → run the **target** (with the candidate's
+`paramOverrides`) → `collect-for-eval` → `eval-score` against that example's
+`expected`. The **candidate** (what the optimizer evolves) is the target's
+own `params`, addressed via keyed `paramOverrides` (§3) — *not* stored on the
+experiment; it's proposed per generation by reflection and promoted into the
+target's `params` defaults on a win.
+
+### 4.4 Generations (optimize history)
+
+The one place a small new artifact is still useful: the per-generation record
+the optimizer writes (candidate params tried, per-example scores, aggregate,
+reflection). Persist these under the experiment workflow's run storage
+(`runs/<ts>/gen-N/…`) — reusing the existing run store, not a new resource.
 
 ```jsonc
-// datasets/concepts-goldset/dataset.json
-{
-  "name": "concepts-goldset",
-  "kind": "concepts",              // informal tag: compatible targets/rubrics
-  "examples": ["hive@a1b2c3"]
-}
-```
-```jsonc
-// datasets/concepts-goldset/examples/hive@a1b2c3/input.json
-{ "owner": "stakwork", "repo": "hive",
-  "rev": "a1b2c3d4",                       // pins the clone (working tree)
-  "until": "2025-09-01T00:00:00Z" }        // upper bound on the change-set
-```
-```jsonc
-// expected.json
-{ "concepts": [
-    { "name": "Real-time Chat",  "description": "Users can…" },
-    { "name": "Task Management", "description": "…" }
-    /* ~10 */ ] }
-```
-```jsonc
-// snapshot.json — captured once at label time; bypasses GitHub at eval time
-{ "changes": [ { "type": "pr", "id": "42", "data": { … }, "markdown": "…" }, … ] }
-```
-
-**Pin-by-snapshot (D5).** `fetch-changes` / `fetch-content` gain a seam:
-when `input.snapshot` is present, return it instead of calling GitHub. A
-**capture** workflow produces the snapshot from `{owner, repo, until}`.
-Note: today `fetch-changes` only has a *lower* bound (the checkpoint); the
-capture path introduces the upper bound (`until`) and freezes the result.
-
-### 4.2 Rubric
-
-The **fixed measuring stick** — how to turn `(output, expected)` into a
-score. It is a prompt (editable in the UI) but the optimizer **never
-mutates it**. Reusable across every experiment of the same `output_kind`.
-
-```jsonc
-// rubrics/concept-quality.json
-{
-  "name": "concept-quality",
-  "output_kind": "concepts",
-  "scale": [0, 0.5, 1],
-  "judgePrompt": "Score produced Concepts vs the expected gold set. Match \
-semantically, not by string. Weigh: RECALL (expected capabilities present), \
-PRECISION (penalize junk / over-granular / implementation-named concepts), \
-NAMING (capability-focused: 'Real-time Chat' good, 'Pusher WebSockets' bad), \
-DESCRIPTION accuracy. Output SCORE / REASON / INSIGHT.",
-  "aggregation": "mean"
-}
-```
-
-Score format (ported from the prior harness): `SCORE` (0 / 0.5 / 1) +
-`REASON` (what's right/wrong) + `INSIGHT` (one prompt-level suggestion).
-The `INSIGHT` is what feeds reflection.
-
-### 4.3 Experiment
-
-Binds a **target** workflow + **dataset** + **rubric** + the **candidate
-surface** + an **output extractor** + **isolation** + **budget**. This is
-the entity you press "Optimize" on.
-
-```jsonc
-// experiments/concepts-prompt-tuning.json
-{
-  "name": "concepts-prompt-tuning",
-  "target": "process-repo-chronological",     // workflow being optimized
-  "dataset": "concepts-goldset",
-  "rubric": "concept-quality",
-
-  "candidate": {                              // multi-scope param union (D3)
-    "tunable": [
-      { "scope": "bootstrap-then-process", "keys": ["bootstrapSystem","sizing"] },
-      { "scope": "process-change",         "keys": ["systemPrompt","guidelines"] }
-    ],
-    "seed": "from-workflow-defaults"
-  },
-
-  "output":    { "extractor": "concepts/collect-for-eval" }, // → { concepts }
-  "isolation": { "namespace": "per-run", "teardown": true },
-  "budget":    { "maxGenerations": 8, "perfectScore": 0.9 }
-}
-```
-
-### 4.4 ExperimentRun (generations)
-
-One `optimize` invocation produces a sequence of generations. This is
-exactly the `runs/gen-N/` artifact layout the prior harness wrote.
-
-```jsonc
-// experiments/<name>/runs/<ts>/gen-3/results.json
-[{ "exampleId": "hive@a1b2c3",
-   "output": { "concepts": [ … ] },
-   "score": 0.5, "reason": "…", "insight": "…" }]
-// .../gen-3/candidate.json     → the params tried this generation
-// .../summary.json             → { best_score, best_gen, history:[…] }
+// gen-3: { candidate, results:[{exampleId, score, reason, insight}], aggregate }
 ```
 
 ---
 
 ## 5. The optimize loop
 
-### 5.1 Two built-in workflows (everything-is-a-workflow, D1)
+### 5.1 Two small workflows (everything-is-a-workflow, D1)
 
-- **`eval/score`** — input `{ output, expected, rubric }`; one `llm` step
-  using `rubric.judgePrompt`; output `{ score, reason, insight }`.
-- **`eval/reflect`** — input `{ candidate, results, history }`; one `llm`
-  step; output a new candidate (`paramOverrides`-shaped JSON over the
+- **`eval-score`** (built) — input `{ actual, expected }`, `rubric` in
+  `params`. The `eval/score` step is a self-contained LLM-judge (like vein's
+  core `llm` step, via dynamic `import("ai")`) that enforces the
+  `SCORE / REASON / INSIGHT` contract and returns
+  `{ score, reason, insight, markdown }`.
+- **`eval-reflect`** (todo) — input `{ candidate, results, history }`; one
+  `llm` step; output a new candidate (`paramOverrides`-shaped JSON over the
   tunable keys). The reflection prompt is this workflow's own `params`, so
   it is itself editable. Holistic (D6): it sees **all** prompts + insights
   and may change any of them; given prior attempts so it doesn't repeat.
@@ -281,42 +260,47 @@ than returning a value. Three mechanical requirements:
 - **Snapshot injection (D5).** `fetch-changes`/`fetch-content` read
   `input.snapshot` when present (no GitHub).
 
-### 6.1 Prerequisite paramification
+### 6.1 Paramification (done)
 
-To make the bootstrap prompt tunable (it is currently hardcoded in
-`bootstrap.ts`: `buildBootstrapPrompt`, the `systemOverride`, sizing
-thresholds), lift those into `concepts/bootstrap-explore` config sourced
-from the workflow's `params`. `concepts/decide` is already paramified.
-After this, the candidate surface is a clean union of `params` across the
-two workflows.
+The bootstrap prompt was hardcoded in `bootstrap.ts` (`buildBootstrapPrompt`,
+the `systemOverride`). It is now lifted into `bootstrap-then-process`'s
+`params` (`bootstrapSystem` + `bootstrapPrompt`, with `{slot}` placeholders
+filled at runtime) and consumed by `concepts/bootstrap-explore` — mirroring
+`concepts/decide`. The candidate surface is now a clean union of `params`
+across the two workflows: `paramOverrides["bootstrap-then-process"]` (bootstrap)
++ `paramOverrides["process-change"]` (decide).
 
 ---
 
 ## 7. API surface
 
-Mirrors `/workflows`. All JSON in/out (tool-friendly).
+There are **no new resource endpoints** — datasets/rubrics/experiments are
+workflows + params, so they use the existing surface:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET/POST | `/datasets`, `/datasets/:name` | list / read / create datasets |
-| POST | `/datasets/:name/capture` | run the capture flow → write a snapshot example |
-| GET/POST | `/rubrics`, `/rubrics/:name` | list / read / create rubrics |
-| GET/POST | `/experiments`, `/experiments/:name` | list / read / create experiments |
-| POST | `/experiments/:name/eval` | score current params once (no evolution) |
-| POST | `/experiments/:name/optimize` | **SSE stream** of generation events |
-| GET | `/experiments/:name/runs[/:ts]` | generation history |
-| POST | `/experiments/:name/promote` | write winning candidate into target `params` defaults + publish a new workflow version |
+| GET | `/workflows/:name/flow` | read a workflow incl. its `params` (done) |
+| POST | `/workflows/:name` | publish a new version with `{ steps, params }` — persists edited rubric/expected/examples (done) |
+| POST | `/workflows/:name/run` | run a target/experiment; accepts `params` **and** keyed `paramOverrides` (done) |
 
-`promote` closes the loop using the **existing** versioning machinery.
+The only genuinely new endpoints are for the optimize loop (todo):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/workflows/:name/optimize` | run the experiment workflow across `params.examples`, evolving the target's params; **SSE stream** of generation events |
+| POST | `/workflows/:name/promote` | write the winning candidate into the target's `params` defaults + publish a new version (reuses versioning) |
 
 ---
 
 ## 8. UI surface
 
-- New **Experiments** section in the sidebar (alongside Workflows/Steps).
-- Experiment detail:
+- **Setting up an eval = editing workflow params** (done). The `ParamsFlyout`
+  (topbar **Params** button) edits a workflow's `rubric` / `expected` /
+  `examples`; **Publish** persists them as a new version. No separate
+  Datasets/Rubrics/Experiments UI.
+- **Optimize view** (todo) — for an experiment workflow's optimize run:
   - **score-over-generations** chart,
-  - **candidate diff** viewer (params gen N vs N+1),
+  - **candidate diff** (params gen N vs N+1),
   - **per-example drill** (output vs expected + judge reason/insight),
   - **Promote winner** button.
 - Reuses the existing run flyout/canvas: each target/score/reflect run is a
@@ -326,37 +310,39 @@ Mirrors `/workflows`. All JSON in/out (tool-friendly).
 
 ## 9. Human-first / agent-later layering (D7)
 
-The chat agent already has `run_workflow` with a `params` override
-(`ai/tools.ts`), so it can do crude one-off trials today. The eval
-framework adds the substrate. The **agent layer (v2)** is then just thin
-tools over the §7 endpoints:
+The chat agent already has `create_workflow` and `run_workflow` (with a
+`params` override) in `ai/tools.ts`. Because datasets/rubrics/experiments are
+just workflows + params, the agent mostly **already has what it needs** — it
+authors an experiment workflow and sets its `rubric`/`examples` params via
+`create_workflow`. The **agent layer (v2)** adds only:
 
-- `create_dataset`, `capture_snapshot`
-- `create_rubric`
-- `create_experiment`
-- `run_experiment` (eval / optimize)
-- `get_experiment_run`
-- `promote`
+- `edit_workflow_params` (or reuse `create_workflow`) — set rubric/expected/examples
+- `optimize` + `promote` — drive and land the loop
+- `run_workflow` already accepts `paramOverrides` (done) for candidate trials
 
-plus a system-prompt section. No engine changes — the human flow and the
-agent flow call the same endpoints. A human says "make the concepts
-workflow produce a better top-10 set"; the agent builds the dataset/rubric/
-experiment and runs the optimization.
+plus a system-prompt section. No new resource machinery. A human says "make
+the concepts workflow produce a better top-10 set"; the agent authors the
+experiment workflow (params = examples + rubric) and runs `optimize`.
 
 ---
 
 ## 10. Build order
 
-| Phase | Scope | Notes |
+| Phase | Scope | State |
 | --- | --- | --- |
-| **P0** | Engine: keyed `paramOverrides` (§3) | Small, isolated, unit-testable in vein alone. |
-| **P1** | Dataset/Rubric/Experiment resources + storage + read API + UI lists | No loop yet. Establishes the data model. |
-| **P2** | Snapshot capture + injection seam; namespacing + teardown; paramify bootstrap (§6) | Concepts-specific prerequisite work. |
-| **P3** | `eval/score` + `eval/reflect` workflows + orchestrator + `/eval` + `/optimize` SSE (§5) | The actual loop. Ports the prior GEPA harness. |
-| **P4** | Optimize UI (chart, diff, drill) + `/promote` (§7–8) | Human-driven experience complete. |
-| **P5** | Agent tools (§9) | Agent-driven layer. |
+| **P0** | Engine: keyed `paramOverrides` (§3) | **done** |
+| **P1** | Params **visible + editable + persistable** in the UI (§4, §8) — the "set up an eval" surface (replaces the old Dataset/Rubric/Experiment resources) | **done** |
+| **P1b** | `collect-for-eval` (run output = concept set) + `eval-score` (scorer + rubric param) (§5) | **done**; bootstrap paramified (§6.1) **done** |
+| **P2** | Snapshot capture + injection seam; namespacing + teardown (§6) | todo — reproducible, isolated eval runs |
+| **P3** | An **experiment workflow** (foreach `examples` → target+collect+score) + `eval-reflect` + orchestrator + `/optimize` SSE (§5) | todo — the loop |
+| **P4** | Optimize UI (chart, diff, drill) + `/promote` (§7–8) | todo |
+| **P5** | Agent tools (§9) | todo |
 
-First concrete experiment: **`concepts-prompt-tuning`** on
+Manual eval works **today** (P0–P1b): run `bootstrap-then-process` (optionally
+with `paramOverrides`), copy the `result.markdown`, run `eval-score` with it +
+`expected`. P3 automates that across `params.examples`.
+
+First concrete experiment: **concepts prompt tuning** on
 `process-repo-chronological` (skip bootstrap initially to reduce variables;
 add it as a second tunable scope once the loop is green), `0/0.5/1`
 scoring, 1–2 pinned repos.

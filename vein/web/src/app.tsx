@@ -72,15 +72,20 @@ export function App() {
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
-  // The selected workflow's `params` defaults (tunable knobs), if any.
+  // The selected workflow's `params` defaults (tunable knobs). `wfParams` is
+  // the published baseline; `localParams` is the editable working copy. Editing
+  // a param and publishing = a new workflow version (params live in the YAML).
   const [wfParams, setWfParams] = useState<Record<string, unknown> | null>(null);
-  // Whether the read-only Params flyout is open.
+  const [localParams, setLocalParams] = useState<Record<string, unknown> | null>(null);
+  // Whether the Params flyout (editable) is open.
   const [showParams, setShowParams] = useState(false);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
-    return !deepEqual(normalizeSteps(publishedSteps), normalizeSteps(localSteps));
-  }, [publishedSteps, localSteps]);
+    const stepsDirty = !deepEqual(normalizeSteps(publishedSteps), normalizeSteps(localSteps));
+    const paramsDirty = !deepEqual(wfParams ?? {}, localParams ?? {});
+    return stepsDirty || paramsDirty;
+  }, [publishedSteps, localSteps, wfParams, localParams]);
 
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
 
@@ -178,6 +183,7 @@ export function App() {
       setPublishedSteps(null);
       setLocalSteps(null);
       setWfParams(null);
+      setLocalParams(null);
       setRuns([]);
       setFlyoutStepId(null);
       setFlyoutStepIndex(null);
@@ -188,6 +194,7 @@ export function App() {
       setPublishedSteps(steps);
       setLocalSteps(steps);
       setWfParams(flow.params ?? null);
+      setLocalParams(flow.params ?? null);
     }).catch(() => {
       setPublishedSteps(null);
       setLocalSteps(null);
@@ -304,7 +311,7 @@ export function App() {
     try {
       const { fields } = await api.getStepSchema(first.type);
       const bindings = deriveInputBindings(first, fields);
-      const hasParams = wfParams != null && Object.keys(wfParams).length > 0;
+      const hasParams = localParams != null && Object.keys(localParams).length > 0;
       if (bindings.length === 0 && !hasParams) {
         await submitRun({});
       } else {
@@ -314,7 +321,7 @@ export function App() {
       // If we can't load the schema, fall back to running with no input.
       await submitRun({});
     }
-  }, [selectedWf, localSteps, submitRun, wfParams]);
+  }, [selectedWf, localSteps, submitRun, localParams]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
     // Server auto-suffixes on collision; navigate to the resolved name.
@@ -328,8 +335,9 @@ export function App() {
     if (!selectedWf || !localSteps || !activeVersion) return;
     const num = parseInt(activeVersion.replace(/^v/, ""), 10);
     const nextVersion = `v${(isNaN(num) ? 1 : num) + 1}`;
+    const hasParams = localParams != null && Object.keys(localParams).length > 0;
     const yamlStr = yaml.dump(
-      { name: selectedWf, steps: localSteps },
+      { name: selectedWf, steps: localSteps, ...(hasParams ? { params: localParams } : {}) },
       { lineWidth: 120, noRefs: true },
     );
     await api.publishWorkflowYaml(selectedWf, nextVersion, yamlStr);
@@ -338,7 +346,9 @@ export function App() {
     const steps = flow.steps as StepData[];
     setPublishedSteps(steps);
     setLocalSteps(steps);
-  }, [selectedWf, localSteps, activeVersion, refreshWorkflows]);
+    setWfParams(flow.params ?? null);
+    setLocalParams(flow.params ?? null);
+  }, [selectedWf, localSteps, localParams, activeVersion, refreshWorkflows]);
 
   // Clicking a node (body) always opens its flyout — leaf I/O, or a
   // container's aggregate I/O. Drilling into children is the arrow's job.
@@ -510,7 +520,7 @@ export function App() {
         </span>
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
-          {selectedWf && wfParams && Object.keys(wfParams).length > 0 && (
+          {selectedWf && localParams && Object.keys(localParams).length > 0 && (
             <button
               class={`btn${showParams ? " is-active" : ""}`}
               onClick={() => { setShowParams((s) => !s); setFlyoutStepId(null); }}
@@ -523,7 +533,7 @@ export function App() {
                 <RunInputPopover
                   workflow={selectedWf}
                   bindings={runBindings}
-                  params={wfParams}
+                  params={localParams}
                   onSubmit={submitRun}
                   onClose={() => setRunBindings(null)}
                 />
@@ -614,9 +624,15 @@ export function App() {
         />
       )}
 
-      {/* Params flyout — read-only view of the workflow's tunable knobs */}
-      {showParams && selectedWf && wfParams && (
-        <ParamsFlyout workflow={selectedWf} params={wfParams} onClose={() => setShowParams(false)} />
+      {/* Params flyout — edit the workflow's tunable knobs; Publish persists
+          them as a new version (params live in the workflow YAML). */}
+      {showParams && selectedWf && localParams && (
+        <ParamsFlyout
+          workflow={selectedWf}
+          params={localParams}
+          onChange={setLocalParams}
+          onClose={() => setShowParams(false)}
+        />
       )}
 
       {/* Step flyout — operates on the current view (root or drilled child) */}

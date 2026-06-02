@@ -1,0 +1,45 @@
+name: eval-score
+# Score a produced artifact against an expected gold standard via LLM-as-judge.
+# Generic: pass `actual` (e.g. the `markdown` from a collect-for-eval run) and
+# `expected` (the gold markdown) as input. The scoring criteria live in the
+# `rubric` param below — the experiment surface. Output: { score, reason,
+# insight, markdown }.
+#
+# Input: { actual, expected }
+steps:
+  - id: judge
+    type: eval/score
+    config:
+      actual: "{{ input.actual }}"
+      expected: "{{ input.expected }}"
+      # The rubric (scoring criteria) lives in this workflow's `params` block
+      # below. Swap it per run via POST /run { params: { rubric } }, or edit
+      # the default to retune the measuring stick.
+      rubric: "{{ params.rubric }}"
+      # Optionally override the judge model (e.g. a stronger model for scoring):
+      # model: claude-opus-4-20250514
+
+# ── params: the rubric (the measuring stick) ────────────────────────────────
+params:
+  rubric: |-
+    You are scoring a produced set of software Concepts against an expected gold
+    set. Each Concept is a user-facing capability or business feature
+    (## Name + description).
+
+    Match produced Concepts to expected ones SEMANTICALLY, not by exact string.
+    Weigh:
+    - RECALL: what fraction of the expected capabilities are present?
+    - PRECISION: penalize junk, over-granular, or implementation-named concepts
+      (e.g. "Pusher WebSockets", "Redis Caching") that aren't real user-facing
+      capabilities.
+    - NAMING: capability-focused names are good ("Real-time Chat"); technology
+      names are bad ("Pusher WebSockets").
+    - DESCRIPTION: are the descriptions accurate and capability-focused?
+
+    Scoring:
+    - 1   = strong match: nearly all expected capabilities present, good names,
+            little noise.
+    - 0.5 = partial: the right shape but missing capabilities, noisy extras, or
+            poor (implementation-y) naming.
+    - 0   = wrong or missing: few/none of the expected capabilities, or mostly
+            noise.

@@ -649,6 +649,34 @@ body.is-resizing-flyout * {
   border-color: rgba(248, 113, 113, 0.3);
   color: var(--danger);
 }
+.param-edit {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  resize: vertical;
+}
+.param-edit:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.param-type-tag {
+  margin-left: var(--sp-2);
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .flyout-meta-row {
   display: flex;
   justify-content: space-between;

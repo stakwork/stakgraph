@@ -9,6 +9,7 @@ import {
   type BuildServicesOptions,
 } from "./concepts/services.js";
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
+import { seedEvalWorkflows, seedEvalSteps } from "./eval/seed.js";
 
 /**
  * The merged capabilities bag for ALL lab experiments. Each experiment's
@@ -63,6 +64,9 @@ export async function createLabVein(
   const workspace = new WorkspaceManager(workspacePath);
   await seedConceptWorkflows(workspace);
   await seedConceptSteps(workspace);
+  // Generic eval machinery (scorer step + eval-score workflow).
+  await seedEvalSteps(workspace);
+  await seedEvalWorkflows(workspace);
 
   const vein = await createVein<LabServices>({
     workspace,
