@@ -110,6 +110,9 @@ export interface VeinRunOptions<TServices = unknown> {
   /** Per-run overrides for the workflow's `params` knobs (shallow-merged
    *  over the flow's `params` defaults). */
   params?: Record<string, unknown>;
+  /** Per-run overrides keyed by workflow name, applied at every level of the
+   *  execution tree (entry + nested subflows). See `RunOptions.paramOverrides`. */
+  paramOverrides?: Record<string, Record<string, unknown>>;
 }
 
 // ── Zod → field descriptors (UI helper, used by /steps/:type/schema) ──────
@@ -526,6 +529,7 @@ export async function createVein<TServices = unknown>(
     const body = await c.req.json<{
       input?: unknown;
       params?: Record<string, unknown>;
+      paramOverrides?: Record<string, Record<string, unknown>>;
       runId?: string;
     }>();
     let flow;
@@ -541,6 +545,7 @@ export async function createVein<TServices = unknown>(
         workspace,
         services,
         params: body.params,
+        paramOverrides: body.paramOverrides,
         onEvent: async (event) => {
           await stream.writeSSE({ data: JSON.stringify(event) });
         },
@@ -554,6 +559,7 @@ export async function createVein<TServices = unknown>(
     const body = await c.req.json<{
       input?: unknown;
       params?: Record<string, unknown>;
+      paramOverrides?: Record<string, Record<string, unknown>>;
       runId?: string;
     }>();
     let flow;
@@ -569,6 +575,7 @@ export async function createVein<TServices = unknown>(
         workspace,
         services,
         params: body.params,
+        paramOverrides: body.paramOverrides,
         onEvent: async (event) => {
           await stream.writeSSE({ data: JSON.stringify(event) });
         },
@@ -689,6 +696,7 @@ export async function createVein<TServices = unknown>(
       workspace,
       services: runOpts?.services ?? services,
       params: runOpts?.params,
+      paramOverrides: runOpts?.paramOverrides,
       onEvent: runOpts?.onEvent,
     });
   }

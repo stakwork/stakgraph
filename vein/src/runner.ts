@@ -39,6 +39,14 @@ export interface RunOptions<TServices = unknown> {
    *  subflows use their own `params` defaults. Exposed to step configs via
    *  `{{ params.* }}`. */
   params?: Record<string, unknown>;
+  /** Per-run overrides keyed by workflow name, applied at EVERY level of the
+   *  execution tree (entry flow + nested subflows), unlike `params` which only
+   *  reaches the entry flow. Use this to tune a knob that lives in a subflow
+   *  (e.g. a prompt in `process-change` invoked two levels down). For each
+   *  flow, `paramOverrides[flow.name]` is shallow-merged over that flow's
+   *  `params` defaults. Precedence: step `.default()` < flow `params` default
+   *  < `paramOverrides[name]` < (entry only) `params`. */
+  paramOverrides?: Record<string, Record<string, unknown>>;
 }
 
 /** Sentinel returned by steps that were skipped because their `when` didn't match. */
@@ -110,6 +118,7 @@ export async function runWorkflow<TServices = unknown>(
       opts?.workspace,
       services,
       opts?.params,
+      opts?.paramOverrides,
     );
 
     const finishedAt = new Date().toISOString();
@@ -174,10 +183,18 @@ async function executeFlow(
   workspace: SubflowResolver | undefined,
   services: unknown,
   paramsOverride?: Record<string, unknown>,
+  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // `params` = workflow defaults, shallow-merged with per-run overrides.
   // Exposed to step configs via `{{ params.* }}`. Distinct from `input`.
-  const params = { ...(workflow.params ?? {}), ...(paramsOverride ?? {}) };
+  //   - `paramOverrides[workflow.name]` applies at every level (entry + nested).
+  //   - `paramsOverride` (flat) is only passed for the entry flow.
+  // Precedence: flow defaults < keyed override < entry flat override.
+  const params = {
+    ...(workflow.params ?? {}),
+    ...(paramOverrides?.[workflow.name] ?? {}),
+    ...(paramsOverride ?? {}),
+  };
   const scope: Record<string, unknown> = { input, params };
   const steps = workflow.steps;
 
@@ -264,7 +281,7 @@ async function executeFlow(
     }
 
     const stepPath = `${basePath}/${s.id}`;
-    const output = await executeStep(s, scope, registry, runId, stepPath, emit, workspace, services);
+    const output = await executeStep(s, scope, registry, runId, stepPath, emit, workspace, services, paramOverrides);
     scope[s.id] = output;
     completed.add(s.id);
     pending.get(s.id)!.resolve(output);
@@ -292,6 +309,7 @@ async function executeStep(
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
   services: unknown,
+  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   const maxRetries = step.options?.retry?.max ?? 0;
   const retryDelay = step.options?.retry?.delayMs ?? 0;
@@ -350,6 +368,7 @@ async function executeStep(
         emit,
         workspace,
         services,
+        paramOverrides,
       );
 
       const durationMs = Date.now() - startTime;
@@ -384,6 +403,7 @@ async function executeStep(
               emit,
               workspace,
               services,
+              paramOverrides,
             );
             return fallbackOutput;
           } catch (fallbackErr) {
@@ -431,17 +451,18 @@ async function dispatchStep(
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
   services: unknown,
+  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Handle core control flow steps specially
   switch (step.type) {
     case "loop":
-      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace, services);
+      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace, services, paramOverrides);
 
     case "foreach":
-      return executeForeach(step, scope, registry, runId, path, emit, workspace, services);
+      return executeForeach(step, scope, registry, runId, path, emit, workspace, services, paramOverrides);
 
     case "subflow":
-      return executeSubflow(step, scope, registry, runId, path, emit, workspace, services);
+      return executeSubflow(step, scope, registry, runId, path, emit, workspace, services, paramOverrides);
 
     default: {
       // Look up in registry
@@ -480,6 +501,7 @@ async function executeLoop(
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
   services: unknown,
+  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Resolve scalar config values (but not `until` or `body` which need per-iteration resolution)
   const maxIterations = resolveConfig(step.config["maxIterations"], scope) as number;
@@ -516,6 +538,7 @@ async function executeLoop(
       emit,
       workspace,
       services,
+      paramOverrides,
     );
 
     await emit({
@@ -562,6 +585,7 @@ async function executeForeach(
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
   services: unknown,
+  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Resolve `items` once against the parent scope.
   const itemsResolved = resolveConfig(step.config["items"], scope);
@@ -619,6 +643,7 @@ async function executeForeach(
       emit,
       workspace,
       services,
+      paramOverrides,
     );
 
     await emit({
@@ -645,6 +670,7 @@ async function executeSubflow(
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
   services: unknown,
+  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Resolve workflow name, version, and input from parent scope
   const wfName = resolveConfig(step.config["workflow"], scope) as string;
@@ -670,7 +696,9 @@ async function executeSubflow(
   // Validate child flow input against its schema
   const validatedInput = childFlow.input.parse(childInput);
 
-  return executeFlow(childFlow, validatedInput, registry, runId, path, emit, workspace, services);
+  // Thread `paramOverrides` (but NOT the entry-only flat `paramsOverride`) into
+  // the child so a keyed override can reach knobs that live in this subflow.
+  return executeFlow(childFlow, validatedInput, registry, runId, path, emit, workspace, services, undefined, paramOverrides);
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────

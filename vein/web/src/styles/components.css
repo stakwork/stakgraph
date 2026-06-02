@@ -279,6 +279,10 @@ body.is-resizing-events * {
 .btn:hover {
   background: var(--surface);
 }
+.btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);

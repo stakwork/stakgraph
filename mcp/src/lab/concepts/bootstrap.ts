@@ -105,39 +105,46 @@ function classifyRepo(fileCount: number): {
 }
 
 /**
- * Build the bootstrap prompt with sizing hints
+ * Bootstrap prompt configuration — the experiment surface. NOT baked in here:
+ * the prompt text lives in the calling workflow's `params` block
+ * (`workflows/bootstrap-then-process.yaml`) and is passed in via the
+ * `concepts/bootstrap-explore` step config (mirrors how `concepts/decide`
+ * sources its prompt). This keeps the big prompt visible + editable + tunable
+ * in the vein UI rather than hidden in code.
+ *
+ *   - `system`   — the system override (no placeholders).
+ *   - `template` — the exploration prompt, with `{slot}` placeholders the step
+ *     fills with runtime-computed values: {owner}, {repo}, {size},
+ *     {fileCount}, {min}, {max}.
  */
-function buildBootstrapPrompt(
-  owner: string,
-  repo: string,
-  fileCount: number,
-  sizing: { size: RepoSize; min: number; max: number }
+export interface BootstrapPromptConfig {
+  system: string;
+  template: string;
+}
+
+/**
+ * Fill the `{slot}` placeholders in a bootstrap prompt template with the
+ * runtime-computed sizing values. (Single-brace slots, distinct from vein's
+ * `{{ }}` templates, so they survive config resolution untouched.)
+ */
+function fillBootstrapPrompt(
+  template: string,
+  vals: {
+    owner: string;
+    repo: string;
+    size: RepoSize;
+    fileCount: number;
+    min: number;
+    max: number;
+  }
 ): string {
-  return `Explore the repository "${owner}/${repo}" and identify its core features.
-
-This is a ${sizing.size} repository (~${fileCount} source files). Aim for ${sizing.min}-${sizing.max} features.
-
-A "feature" is a distinct user-facing capability or business function — something a product owner or end user would recognize. Examples: "Authentication System", "Payment Processing", "Real-time Notifications", "Search and Filtering".
-
-Do NOT create features for:
-- Build tooling, CI/CD, or infrastructure
-- Individual utility functions or helpers
-- Code style, linting, or formatting
-- Generic "bug fixes" or "refactoring"
-- Testing infrastructure (unless it IS the product)
-
-For each feature provide:
-- **name**: A clear, non-technical name (no framework/library names)
-- **description**: 1-2 sentences explaining what this capability does for users
-- **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this feature's CURRENT state
-- **files**: List the core source files that implement this feature (relative paths from repo root, e.g. "src/auth/login.ts"). Include only the most important files — entry points, main modules, route definitions, core logic. Aim for 3-15 files per feature depending on scope.
-
-**Summary requirements** — focus on what developers need to know to work on this feature:
-${DOC_GUIDELINES.include}
-
-${DOC_GUIDELINES.avoid}
-
-Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two.`;
+  return template
+    .replaceAll("{owner}", vals.owner)
+    .replaceAll("{repo}", vals.repo)
+    .replaceAll("{size}", vals.size)
+    .replaceAll("{fileCount}", String(vals.fileCount))
+    .replaceAll("{min}", String(vals.min))
+    .replaceAll("{max}", String(vals.max));
 }
 
 /**
@@ -191,6 +198,7 @@ export async function bootstrapConcepts(
   repo: string,
   repoPath: string,
   storage: Storage,
+  promptConfig: BootstrapPromptConfig,
   sessionId?: string,
   lookbackDays: number = DEFAULT_BOOTSTRAP_LOOKBACK_DAYS
 ): Promise<BootstrapResult> {
@@ -205,12 +213,19 @@ export async function bootstrapConcepts(
     `   📊 Found ${fileCount} source files (${sizing.size} repo, targeting ${sizing.min}-${sizing.max} features)`
   );
 
-  // 2. Build prompt and call get_context with structured schema
-  const prompt = buildBootstrapPrompt(owner, repo, fileCount, sizing);
+  // 2. Fill the prompt template (the experiment surface) and call get_context.
+  const prompt = fillBootstrapPrompt(promptConfig.template, {
+    owner,
+    repo,
+    size: sizing.size,
+    fileCount,
+    min: sizing.min,
+    max: sizing.max,
+  });
 
   const result = await get_context(prompt, repoPath, {
     schema: BOOTSTRAP_SCHEMA,
-    systemOverride: `You are a software architect analyzing a codebase to identify its core features. Use the provided tools to explore the repository structure, read key files (README, entry points, route definitions, main modules), and identify the distinct user-facing capabilities this software provides. Be thorough but focused — read enough to understand what each feature does, but don't try to read every file.`,
+    systemOverride: promptConfig.system,
     sessionId,
     isolatedContext: true,
   });

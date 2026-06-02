@@ -43,6 +43,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "collect-results.ts", type: "concepts/collect-results" },
   { file: "summarize-concept.ts", type: "concepts/summarize" },
   { file: "link-files.ts", type: "concepts/link-files" },
+  { file: "collect-for-eval.ts", type: "concepts/collect-for-eval" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

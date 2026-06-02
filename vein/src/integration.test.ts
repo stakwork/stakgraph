@@ -280,6 +280,63 @@ describe("integration: complete workflow patterns", () => {
       doubled: 40,
     });
   });
+
+  it("keyed paramOverrides reach a nested subflow (flat params do not)", async () => {
+    // Child workflow with its own `params` default consumed via {{ params.* }}.
+    const child = flow("child-prompt", {
+      input: z.object({}),
+      params: { prompt: "CHILD_DEFAULT" },
+      steps: [step("emit", "echo", { used: "{{ params.prompt }}" })],
+    });
+
+    // Parent: call the child, then combine the child's resolved value with the
+    // parent's own param so the workflow output exposes BOTH.
+    const parent = flow("parent", {
+      input: z.object({}),
+      params: { prompt: "PARENT_DEFAULT" },
+      steps: [
+        step("call", "subflow", { workflow: "child-prompt", input: {} }),
+        step("combine", "echo", {
+          child: "{{ call.used }}",
+          entry: "{{ params.prompt }}",
+        }),
+      ],
+    });
+
+    const opts = { workspace: makeResolver({ "child-prompt": child }) };
+
+    // 1. Flat `params` only reaches the entry flow — the subflow keeps its default.
+    const flat = await runWorkflow(parent, {}, makeRegistry(), {
+      ...opts,
+      params: { prompt: "FLAT" },
+    });
+    assert.equal(flat.status, "success");
+    assert.equal((flat.output as any).entry, "FLAT"); // entry sees flat override
+    assert.equal((flat.output as any).child, "CHILD_DEFAULT"); // child unaffected
+
+    // 2. Keyed `paramOverrides` reach the named subflow at any depth.
+    const keyed = await runWorkflow(parent, {}, makeRegistry(), {
+      ...opts,
+      paramOverrides: { "child-prompt": { prompt: "KEYED" } },
+    });
+    assert.equal(keyed.status, "success");
+    assert.equal((keyed.output as any).child, "KEYED");
+    assert.equal((keyed.output as any).entry, "PARENT_DEFAULT"); // entry untouched
+
+    // 3. Both at once: keyed reaches child; for the entry flow, flat `params`
+    //    wins over a keyed override of the entry's own name.
+    const both = await runWorkflow(parent, {}, makeRegistry(), {
+      ...opts,
+      params: { prompt: "FLAT_ENTRY" },
+      paramOverrides: {
+        parent: { prompt: "KEYED_ENTRY" },
+        "child-prompt": { prompt: "KEYED_CHILD" },
+      },
+    });
+    assert.equal(both.status, "success");
+    assert.equal((both.output as any).child, "KEYED_CHILD");
+    assert.equal((both.output as any).entry, "FLAT_ENTRY");
+  });
 });
 
 // ── Integration: FileRunStore with runner ──────────────────────────────────

@@ -16,6 +16,7 @@ import { StepEditFlyout } from "./components/StepEditFlyout";
 import { EventsPanel } from "./components/EventsPanel";
 import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
+import { ParamsFlyout } from "./components/ParamsFlyout";
 import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
 
 // A nested run-execution the user has drilled into. `pathPrefix` is the
@@ -73,6 +74,8 @@ export function App() {
   const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
   // The selected workflow's `params` defaults (tunable knobs), if any.
   const [wfParams, setWfParams] = useState<Record<string, unknown> | null>(null);
+  // Whether the read-only Params flyout is open.
+  const [showParams, setShowParams] = useState(false);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
@@ -170,6 +173,7 @@ export function App() {
   useEffect(() => {
     setRunDrill([]);
     setLoadError(false);
+    setShowParams(false);
     if (!selectedWf) {
       setPublishedSteps(null);
       setLocalSteps(null);
@@ -342,6 +346,7 @@ export function App() {
     const stepId = node.customData?.stepId as string | undefined;
     const stepIndex = node.customData?.stepIndex as number | undefined;
     if (stepId == null) return;
+    setShowParams(false);
     setFlyoutStepId(stepId);
     setFlyoutStepIndex(stepIndex ?? null);
   }, []);
@@ -505,6 +510,12 @@ export function App() {
         </span>
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
+          {selectedWf && wfParams && Object.keys(wfParams).length > 0 && (
+            <button
+              class={`btn${showParams ? " is-active" : ""}`}
+              onClick={() => { setShowParams((s) => !s); setFlyoutStepId(null); }}
+            >Params</button>
+          )}
           {selectedWf && (
             <div class="run-anchor">
               <button class="btn btn-primary" onClick={handleRun}>Run</button>
@@ -601,6 +612,11 @@ export function App() {
             setSelectedRun(runId);
           }}
         />
+      )}
+
+      {/* Params flyout — read-only view of the workflow's tunable knobs */}
+      {showParams && selectedWf && wfParams && (
+        <ParamsFlyout workflow={selectedWf} params={wfParams} onClose={() => setShowParams(false)} />
       )}
 
       {/* Step flyout — operates on the current view (root or drilled child) */}
