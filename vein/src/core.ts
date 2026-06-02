@@ -70,6 +70,13 @@ export interface Flow {
   name: string;
   input: z.ZodTypeAny;
   steps: Step[];
+  /** Tunable default knobs (prompts, thresholds, sample sizes, …) exposed
+   *  to step configs via `{{ params.* }}`. Distinct from `input`: `input`
+   *  is the per-run subject (validated, no defaults); `params` are the
+   *  experiment surface (all defaults, sparsely overridden per run via
+   *  `RunOptions.params`). Override precedence: run override > these
+   *  defaults. Omit for workflows with no knobs. */
+  params?: Record<string, unknown>;
 }
 
 /** Run event types for the JSONL log. */
@@ -209,7 +216,7 @@ export function step(
  */
 export function flow(
   name: string,
-  opts: { input: z.ZodTypeAny; steps: Step[] },
+  opts: { input: z.ZodTypeAny; steps: Step[]; params?: Record<string, unknown> },
 ): Flow {
   // Validate step id uniqueness within this flow
   const ids = new Set<string>();
@@ -221,5 +228,10 @@ export function flow(
     }
     ids.add(s.id);
   }
-  return { name, input: opts.input, steps: opts.steps };
+  return {
+    name,
+    input: opts.input,
+    steps: opts.steps,
+    ...(opts.params != null ? { params: opts.params } : {}),
+  };
 }

@@ -45,6 +45,50 @@
   display: none;
 }
 
+/* Run drill-down breadcrumb (overlaid top-left of the canvas) */
+.drill-bar {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+}
+.drill-crumb {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-family: var(--mono, monospace);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.drill-crumb:hover { color: var(--text); background: var(--surface-2); }
+.drill-crumb.is-active { color: var(--accent); font-weight: 600; }
+.drill-sep { color: var(--text-dim); padding: 0 2px; }
+.drill-iter {
+  margin-left: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
 .shell-events {
   grid-area: events;
   background: var(--bg);
@@ -210,6 +254,17 @@ body.is-resizing-events * {
   font-size: 14px;
   font-weight: 600;
 }
+.topbar-run {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim, var(--text));
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--mono, monospace);
+}
 
 .btn {
   padding: var(--sp-2) var(--sp-4);
@@ -310,13 +365,49 @@ body.is-resizing-events * {
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(420px, 85vw);
+  width: min(var(--flyout-width, 420px), 95vw);
   background: var(--surface);
   border-left: 1px solid var(--border-strong);
   box-shadow: -6px 0 20px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
   z-index: 31;
+}
+
+/* ─── flyout resize handle ───────────────────────────────────── */
+
+.flyout-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  margin-left: -3px;
+  cursor: ew-resize;
+  z-index: 32;
+  background: transparent;
+}
+.flyout-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.flyout-resizer:hover::after,
+.flyout-resizer.is-dragging::after {
+  background: var(--accent);
+}
+.flyout-resizer.is-dragging {
+  background: rgba(110, 168, 255, 0.06);
+}
+body.is-resizing-flyout,
+body.is-resizing-flyout * {
+  cursor: ew-resize !important;
+  user-select: none !important;
 }
 .flyout-header {
   display: flex;
@@ -963,6 +1054,42 @@ body.is-resizing-events * {
   justify-content: flex-end;
   gap: var(--sp-2);
   margin-top: var(--sp-3);
+}
+.run-popover-params {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.run-popover-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.run-popover-param {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.run-popover-param-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+.run-popover-param input,
+.run-popover-param textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-2);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
 }
 
 /* ─── markdown (compact, sidebar-sized) ──────────────────────── */

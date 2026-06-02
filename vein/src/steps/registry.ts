@@ -113,6 +113,7 @@ async function findStepFiles(dir: string): Promise<string[]> {
       st.isFile() &&
       (name.endsWith(".ts") || name.endsWith(".js")) &&
       !name.startsWith("_") &&
+      !name.endsWith(".d.ts") &&
       !name.endsWith(".test.ts") &&
       !name.endsWith(".spec.ts")
     ) {

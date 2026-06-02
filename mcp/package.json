@@ -22,7 +22,7 @@
     "@ai-sdk/xai": "3.0.88"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "npm run refresh-vein && tsx src/index.ts",
     "build": "tsc",
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
@@ -48,10 +48,10 @@
     "@ai-sdk/anthropic": "3.0.75",
     "@ai-sdk/mcp": "1.0.18",
     "@anthropic-ai/sdk": "0.37.0",
-    "@hono/node-server": "2.0.4",
     "@aws-sdk/client-cloudwatch-logs": "3.994.0",
     "@aws-sdk/credential-providers": "3.994.0",
     "@browserbasehq/stagehand": "3.0.8",
+    "@hono/node-server": "2.0.4",
     "@microsoft/tiktokenizer": "1.0.10",
     "@modelcontextprotocol/sdk": "1.26.0",
     "@noble/ed25519": "2.3.0",

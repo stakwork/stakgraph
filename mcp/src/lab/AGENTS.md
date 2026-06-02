@@ -40,7 +40,11 @@ concepts, summarizes, and links to code files.
   `summarizer.ts`, `pr.ts`, `commit.ts` — ported domain logic.
 
 Experimentation seams (edit without touching code):
-- **prompts** → `concepts/decide` step config (`systemPrompt`, `guidelines`)
+- **prompts** → `process-change` workflow's `params` block
+  (`systemPrompt`, `guidelines`); the `concepts/decide` step consumes
+  them via `{{ params.* }}` config. Sweep by running `process-change`
+  with a per-run `params` override; promote a winner by editing the
+  `params` default and publishing a new workflow version.
 - **ordering** → `concepts/prioritize-changes` strategy (swap the step)
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
@@ -52,8 +56,11 @@ Experimentation seams (edit without touching code):
   (`VEIN_LAB_WORKSPACE`, default `./lab-workspace`) on first boot, then
   edited/versioned via the vein UI.
 - vein is consumed as a `file:` dep, which **yarn copies** (not symlinks):
-  after any change to `../../../vein`, run `yarn refresh-vein` from `mcp/`.
-  CI builds vein before `mcp` install for the same reason.
+  changes to `../../../vein` (engine or `web/`) only reach `/lab` after a
+  rebuild + reinstall. `yarn dev` now runs `refresh-vein` automatically
+  before starting, so a plain `yarn dev` picks up vein changes; run
+  `yarn refresh-vein` by hand if you need the copy refreshed without a
+  restart. CI builds vein before `mcp` install for the same reason.
 - The vein UI is path-agnostic (relative assets + runtime API base), so it
   works under `/lab` (with the `/lab` → `/lab/` redirect in `mount.ts`).
 - Trigger a run: `POST /lab/workflows/bootstrap-then-process/run` with
@@ -66,20 +73,20 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
 1. **Neo4j**: `cd mcp && docker compose -f neo4j.yaml up -d` (wait healthy).
 2. **Env**: `GITHUB_TOKEN`, `ANTHROPIC_API_KEY` (and `NEO4J_HOST`/`NEO4J_USER`/
    `NEO4J_PASSWORD` if not default).
-3. **Build vein** (first time / after vein changes): from `mcp/`, run
-   `yarn refresh-vein`.
-4. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`).
-5. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
+3. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`). `dev` runs
+   `refresh-vein` first, so vein (engine + `web/`) is rebuilt and reinstalled
+   automatically — no separate build step needed.
+4. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
    then `curl localhost:3355/lab/workflows` to confirm the 3 workflows
    seeded.
-6. **Run** (SSE stream):
+5. **Run** (SSE stream):
    ```
    curl -N -X POST localhost:3355/lab/workflows/bootstrap-then-process/run \
      -H 'content-type: application/json' \
      -d '{"input":{"owner":"OWNER","repo":"REPO","token":"<gh token>"}}'
    ```
    Use a **tiny repo** first (LLM cost/time per PR+commit).
-7. **Verify**: query Neo4j directly — `MATCH (c:Concept) RETURN c.name,
+6. **Verify**: query Neo4j directly — `MATCH (c:Concept) RETURN c.name,
    c.description` — or watch the SSE `step.*` events. (There is no
    concept-listing HTTP endpoint yet; vein only exposes `/workflows`.)
 

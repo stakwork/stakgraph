@@ -2,6 +2,7 @@ import { useState, useEffect } from "preact/hooks";
 import * as api from "../api";
 import { StepData } from "../flow-to-canvas";
 import { ConfigField } from "./ConfigField";
+import { FlyoutResizer } from "./FlyoutResizer";
 import { CloseIcon } from "../icons";
 import yaml from "js-yaml";
 
@@ -105,6 +106,7 @@ export function StepEditFlyout(props: {
 
   return (
     <div class="flyout">
+      <FlyoutResizer />
       <div class="flyout-header">
         <div>
           <div class="flyout-eyebrow">Edit Step</div>

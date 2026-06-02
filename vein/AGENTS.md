@@ -46,7 +46,7 @@ vein/
 │   │   │                  #                   create_workflow, run_workflow
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
-│   └── *.test.ts          # 278 tests across 12 files
+│   └── *.test.ts          # 298 tests across 12 files
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -55,7 +55,7 @@ vein/
         ├── main.tsx       # entry: renders <App/>
         ├── app.tsx        # shell: sidebar, topbar, canvas, events panel, dialog/flyout orchestration
         ├── api.ts         # typed fetch wrapper for all API endpoints (+ SSE/chat stream parser)
-        ├── flow-to-canvas.ts  # Flow → CanvasData converter; STEP_COLORS → canvas categories
+        ├── flow-to-canvas.ts  # Flow → CanvasData; STEP_COLORS → categories; childRefForStep/stepWorkflow (container nav)
         ├── helpers.ts     # normalizeSteps, formatJson, etc.
         ├── icons.tsx      # inline SVG icons
         ├── storage.ts     # crash-safe localStorage wrapper (UI prefs, session state)
@@ -69,7 +69,8 @@ vein/
         │   ├── Markdown.tsx          # tiny markdown renderer for chat output
         │   ├── RunInputPopover.tsx   # input-payload editor when triggering a run
         │   ├── StepEditFlyout.tsx    # edit step (id / type / config / depends / options)
-        │   └── StepRunFlyout.tsx     # view a single step's input/output/error/duration in a run
+        │   ├── StepRunFlyout.tsx     # view a step's run I/O (leaf: input/output; container: aggregate summary)
+        │   └── FlyoutResizer.tsx     # drag handle for flyout width
         └── styles/
             ├── base.css       # palette (CSS vars on :root), reset, type
             └── components.css # shell grid, sidebar, flyout, dialog, events, chat, badges
@@ -81,7 +82,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 278 tests, ~280ms
+npm test                    # 298 tests, ~330ms
 npm run dev                 # starts Hono server on :3000
 
 # Web UI (dev mode with HMR)
@@ -156,6 +157,22 @@ later without breaking this contract — they'd be additive env vars
   serializes to YAML) or a raw `yaml` string. Files are stored as
   `<version>.yaml` in the workflow directory. `js-yaml` for parsing.
 
+- **`params` = the experiment surface.** A workflow may declare a
+  top-level `params:` block of tunable default knobs (prompts,
+  thresholds, sample sizes). Step configs reference them via
+  `{{ params.* }}`, parsed in `workspace.ts:loadFlowYaml` and seeded
+  into runner scope as `{ ...flow.params, ...runOverride }` (see
+  `executeFlow` in `runner.ts`). Deliberately distinct from `input`:
+  `input` is the run *subject* (validated, no defaults), `params` is
+  *how* it's processed (all defaults, sparsely overridden per run via
+  `POST /run { params }` / `runWorkflow({ params })`). Override
+  precedence: step Zod `.default()` < `params` default < per-run
+  override. Subflows use their own `params`; the parent override does
+  not propagate. This is what lets overnight experiments sweep 100
+  prompt variants as 100 **runs** (logged in `run.json`) rather than
+  100 workflow versions — promote a winner by editing the `params`
+  default and publishing one new version.
+
 - **DAG execution via `depends`**. Steps have an optional `depends`
   field (`string | string[]`). If set, the step waits for those
   dependencies before running. If omitted, the step implicitly
@@ -186,9 +203,21 @@ later without breaking this contract — they'd be additive env vars
 
 - **`_metadata.json`** in each workflow dir tracks versions and the
   active version. In `steps/custom/_metadata.json` it tracks
-  per-step `{ createdAt, description?, publisher? }` keyed by full
-  slash-name (e.g. `"gitree/save-feature"`). The engine can run
-  without these files but the UI needs them.
+  per-step `{ active, versions, publisher? }` keyed by full
+  slash-name (e.g. `"gitree/save-feature"`), where `versions` maps
+  each version id (`v1`, `v2`, …) to `{ createdAt, description?, hash }`.
+  The engine can run without these files but the UI needs them.
+
+- **Custom steps are versioned** (like workflows). `publishStep`
+  is keyed by content hash (`src/version.ts`) but labeled with
+  sequential `vN` ids: identical content re-activates the existing
+  version (no-op if already active), changed content publishes the
+  next `vN`. The active version's source is materialized at
+  `steps/custom/<name>.ts` (what the registry loads); every version
+  is archived under `steps/_history/<name>/<vid>.ts` for rollback.
+  Endpoints: `GET /steps/:type/versions`, `GET /steps/:type/version/:version`,
+  `PUT /steps/:type/active`. Versioning is disabled when the registry
+  is injected at construction time.
 
 - **Step registration is filesystem-based.** External services
   register steps by `POST /steps { name, code, description?, publisher? }`.
@@ -222,7 +251,47 @@ later without breaking this contract — they'd be additive env vars
   canvas node opens the step editor (edit id, type, config). When
   a run is selected, it opens run results (input, output, error,
   duration). No backdrop — flyout stays open when clicking between
-  nodes for smooth transitions.
+  nodes for smooth transitions. Clicking is always **inspect**;
+  entering a container's children is the **arrow's** job (below).
+
+- **Container nodes & navigation** (`flow-to-canvas.ts` +
+  `app.tsx`). `subflow`/`foreach`/`loop` steps that target a child
+  workflow (`stepWorkflow()` resolves a name — a subflow's
+  `config.workflow`, or a foreach/loop whose `body` is a subflow)
+  get a navigable **ref arrow** (`childRefForStep` sets
+  `node.ref = "wf:<name>"`; `refCorner: "topRight"` so it clears the
+  left-aligned name label). The arrow means different things by mode
+  (we use system-canvas's `externalNavigation` so a ref click only
+  fires `onNavigate`, never the lib's internal drill):
+  - **Edit view** → **go-to-definition**: `handleNavigate` switches
+    the selected workflow (the target is a standalone, separately
+    editable workflow — not an inline sub-canvas).
+  - **Run view** → **drill into this run's nested execution**: a
+    read-only sub-canvas built from the child's steps + the run's
+    events **re-keyed** to the nested path prefix. Subflows execute
+    inline under one `runId` with hierarchical event paths
+    (`wf/subflowId/childId`, `wf/foreachId#i/...`), so
+    `viewEvents` strips the `<prefix>/` and re-prefixes with the
+    child workflow name — the existing path-based status overlay +
+    flyout lookups then work unchanged at any depth. A `runDrill`
+    frame stack + breadcrumb bar handles back-navigation. foreach/
+    loop frames carry an **iteration count + selected `iter`**
+    (`framePrefix` appends `#<iter>`), surfaced as a dropdown in the
+    drill bar (`countIterations` derives N from the events).
+  - **Container I/O is the "summary"**: a leaf's flyout shows its
+    `input → output`; a container's shows its aggregate (subflow:
+    child input → child result; foreach: items array → results
+    array). The runner emits these as the container's `step.start`
+    input (`subflow` → `config.input`, `foreach` → resolved
+    `items`); `loop` has no natural input.
+
+- **`canvas` and `flyoutEvents` are derived** (`useMemo`) from a
+  **view context** — root (`selectedWf` + `localSteps` + `events`)
+  or the deepest `runDrill` child (its workflow + steps + re-keyed
+  events). There is no imperative `rebuildCanvas`; setting
+  `localSteps`/`events`/`runDrill` recomputes the canvas. A
+  `running` flag drives the pending-status overlay during a live
+  streamed run (events are still empty at run start).
 
 - **AI workflow builder** (`src/ai/` + `POST /chat`). The chat
   flyout streams a `ToolLoopAgent` (Vercel AI SDK + Anthropic) that
@@ -246,14 +315,30 @@ later without breaking this contract — they'd be additive env vars
 - **`system-canvas`** for flow visualization **and editing**. The
   canvas is `editable={true}` when not viewing a run. Each step
   type is a theme **category** (`step-http`, `step-log`, etc.)
-  with a `header` slot showing the uppercase type and a `topRight`
-  custom slot for run status indicators (checkmark = success,
-  X = error, dot = running, clock = pending). Nodes carry
-  `customData: { stepId, stepIndex, status }`. Interactive
-  features: drag-to-connect creates `depends` edges, the "+"
-  FAB opens a searchable Add Step dialog (core/lib/custom),
+  with a `header` slot showing the uppercase type and a run-status
+  slot (checkmark = success, X = error, dot = running, clock =
+  pending) — `topRight` for leaves, `bottomRight` for container
+  nodes (whose `topRight` carries the ref arrow). Container
+  categories also add a `body` text slot (the workflow name, small,
+  left-aligned, ellipsized) and set `refCorner: "topRight"`. Nodes
+  carry `customData: { stepId, stepIndex, status, stepType }`.
+  Interactive features: drag-to-connect creates `depends` edges,
+  the "+" FAB opens a searchable Add Step dialog (core/lib/custom),
   delete key removes nodes/edges. `panMode="trackpad"` for
   Figma-style two-finger-scroll panning.
+
+- **`system-canvas` is a sibling library** at
+  `/Users/evanfeenstra/code/sphinx2/system-canvas` (its own repo,
+  published to npm in lockstep as `system-canvas` +
+  `system-canvas-react`). vein consumes the **published** version
+  (`web/package.json`). Features vein relies on: `node.ref` +
+  `externalNavigation` (ref click fires `onNavigate` only, no
+  internal drill), per-node/category `refCorner`, category `slots`.
+  To land a lib change: edit the lib, `npm run build`, push to
+  `main` (auto-release bumps the patch), then `npm install
+  system-canvas@<v> system-canvas-react@<v>` in `web/` and rebuild.
+  (For local iteration you can copy the built `dist/` into
+  `web/node_modules/...`, but a fresh `npm install` overwrites it.)
 
 - **Add Step dialog** opens from the canvas FAB button. Fetches
   all available step types from the `/steps` API, groups them
@@ -306,3 +391,8 @@ later without breaking this contract — they'd be additive env vars
   canvas clicks pass through for node-to-node transitions).
 - Rebuild with `cd web && npm run build` before testing against the
   engine server.
+- vein is also embedded by **mcp** under `/lab` (it consumes vein as a
+  copied `file:../vein` dep, UI bundled into `web/dist`). After a web
+  change, `mcp`'s `yarn dev` runs `refresh-vein` (rebuild vein + web,
+  reinstall into mcp) before starting on `:3355` — so changes only reach
+  `/lab` after that, not on a bare vite rebuild.

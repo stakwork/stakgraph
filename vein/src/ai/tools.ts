@@ -181,14 +181,20 @@ export function buildTools(deps: AiDeps) {
           .any()
           .optional()
           .describe(
-            "Input object passed to the workflow. Shape depends on the workflow's input schema; use {} if none.",
+            "Input object passed to the workflow (the run subject — e.g. PR number, repo). Shape depends on the workflow's input schema; use {} if none.",
+          ),
+        params: z
+          .record(z.any())
+          .optional()
+          .describe(
+            "Optional overrides for the workflow's `params` knobs (prompts, thresholds, sample sizes). Shallow-merged over the workflow's `params` defaults — set just the knobs you want to vary for this trial. Referenced in step configs via {{ params.* }}.",
           ),
         version: z
           .string()
           .optional()
           .describe("Optional specific version. Defaults to the active version."),
       }),
-      execute: async ({ name, input, version }) => {
+      execute: async ({ name, input, params, version }) => {
         let flow;
         try {
           flow = version
@@ -204,6 +210,7 @@ export function buildTools(deps: AiDeps) {
         const result = await runWorkflow(flow, input ?? {}, deps.registry, {
           store: deps.store,
           workspace: deps.workspace,
+          params,
         });
 
         return result;

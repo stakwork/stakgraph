@@ -33,6 +33,12 @@ export interface RunOptions<TServices = unknown> {
    *  implementations (Neo4j vs in-memory store, real vs fake LLM, …)
    *  without changing the workflow or registry. Defaults to `{}`. */
   services?: TServices;
+  /** Per-run overrides for the workflow's `params` knobs. Shallow-merged
+   *  over `flow.params` defaults, so a trial typically sets just one key
+   *  (e.g. `{ systemPrompt: "..." }`). Only applies to the top-level flow;
+   *  subflows use their own `params` defaults. Exposed to step configs via
+   *  `{{ params.* }}`. */
+  params?: Record<string, unknown>;
 }
 
 /** Sentinel returned by steps that were skipped because their `when` didn't match. */
@@ -103,6 +109,7 @@ export async function runWorkflow<TServices = unknown>(
       emit,
       opts?.workspace,
       services,
+      opts?.params,
     );
 
     const finishedAt = new Date().toISOString();
@@ -166,8 +173,12 @@ async function executeFlow(
   emit: EmitFn,
   workspace: SubflowResolver | undefined,
   services: unknown,
+  paramsOverride?: Record<string, unknown>,
 ): Promise<unknown> {
-  const scope: Record<string, unknown> = { input };
+  // `params` = workflow defaults, shallow-merged with per-run overrides.
+  // Exposed to step configs via `{{ params.* }}`. Distinct from `input`.
+  const params = { ...(workflow.params ?? {}), ...(paramsOverride ?? {}) };
+  const scope: Record<string, unknown> = { input, params };
   const steps = workflow.steps;
 
   if (steps.length === 0) return undefined;
@@ -308,11 +319,24 @@ async function executeStep(
         ? step.config
         : (resolveConfig(step.config, scope) as Record<string, unknown>);
 
+      // Container steps don't have a scalar config-as-input, but they DO have
+      // a meaningful "summary" input: a subflow's input is what it passes to
+      // the child workflow; a foreach's input is the array it iterates. Emit
+      // that so the run flyout shows the left column (items / child input).
+      // (`loop` repeats until a condition — no natural input.)
+      const startInput = SELF_RESOLVING_STEPS.has(step.type)
+        ? step.type === "subflow"
+          ? resolveConfig(step.config["input"], scope)
+          : step.type === "foreach"
+            ? resolveConfig(step.config["items"], scope)
+            : undefined
+        : resolvedConfig;
+
       await emit({
         type: "step.start",
         path,
         stepType: step.type,
-        input: SELF_RESOLVING_STEPS.has(step.type) ? undefined : resolvedConfig,
+        input: startInput,
       });
 
       // Execute based on step type
@@ -478,6 +502,7 @@ async function executeLoop(
       path: `${path}#${i}`,
       stepType: rawBody.type,
       iteration: i,
+      input: resolvedBodyConfig,
     });
 
     const startTime = Date.now();
@@ -580,6 +605,7 @@ async function executeForeach(
       path: `${path}#${i}`,
       stepType: rawBody.type,
       iteration: i,
+      input: resolvedBodyConfig,
     });
 
     const startTime = Date.now();

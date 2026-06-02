@@ -136,6 +136,7 @@ export class WorkspaceManager {
       name: data.name ?? name,
       input: z.any(),
       steps: data.steps,
+      ...(data.params != null ? { params: data.params } : {}),
     };
   }
 
@@ -150,7 +151,7 @@ export class WorkspaceManager {
    */
   async createWorkflow(
     name: string,
-    content: { steps: any[] } | string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
     description?: string,
   ): Promise<{ name: string; version: string }> {
     const workflowsDir = join(this.root, "workflows");
@@ -179,7 +180,7 @@ export class WorkspaceManager {
   async publishWorkflow(
     name: string,
     version: string,
-    content: { steps: any[] } | string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
     description?: string,
   ): Promise<void> {
     const dir = join(this.root, "workflows", name);
@@ -189,7 +190,14 @@ export class WorkspaceManager {
     const yamlStr =
       typeof content === "string"
         ? content
-        : yaml.dump({ name, steps: content.steps }, { lineWidth: 120, noRefs: true });
+        : yaml.dump(
+            {
+              name,
+              steps: content.steps,
+              ...(content.params != null ? { params: content.params } : {}),
+            },
+            { lineWidth: 120, noRefs: true },
+          );
 
     await writeFile(join(dir, `${version}.yaml`), yamlStr, "utf-8");
 

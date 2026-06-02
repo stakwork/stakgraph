@@ -42,7 +42,7 @@ export interface RunEventData {
 
 // ── Node dimensions ────────────────────────────────────────────────────────
 
-const NODE_W = 160;
+const NODE_W = 200;
 const NODE_H = 60;
 const GAP_Y = 50;
 const GAP_X = 40;
@@ -146,39 +146,101 @@ function renderStatusIndicator(ctx: SlotContext): unknown {
   );
 }
 
-// ── Header label sizing / truncation ───────────────────────────────────────
+// ── Label sizing / truncation ───────────────────────────────────────────────
 
 // Header font size (px). Slightly smaller than the node body so long,
 // namespaced step types (e.g. `concepts/prioritize-changes`) read as a
 // kicker and fit within the node.
 const HEADER_FONT_SIZE = 9;
 
+// Body (workflow name) font size — see buildStepCategory's `body` slot.
+const BODY_FONT_SIZE = 12;
+
 // system-canvas measures truncation with a flat ~0.55em/glyph estimate and
-// ignores letter-spacing, so uppercase, letter-spaced headers overflow the
-// node before its ellipsis logic triggers. We pre-truncate here with an
-// uppercase-aware estimate — wider glyphs (~0.64em) plus the 0.8px tracking
-// the renderer applies — so the ellipsis lands at the node's edge.
+// ignores letter-spacing, so text overflows the node before its own ellipsis
+// logic triggers. We pre-truncate here with a font-aware estimate so the
+// ellipsis lands inside the node:
+//   - headers are uppercase + letter-spaced (~0.64em glyphs, 0.8px tracking)
+//   - body labels use the monospace label font (~0.62em glyphs, 0.2px tracking)
 const HEADER_GLYPH_RATIO = 0.64;
 const HEADER_LETTER_SPACING = 0.8;
+const BODY_GLYPH_RATIO = 0.62;
+const BODY_LETTER_SPACING = 0.2;
 
-function measureHeader(text: string, fontSize: number): number {
-  return text.length * (fontSize * HEADER_GLYPH_RATIO + HEADER_LETTER_SPACING);
-}
-
-function fitHeaderLabel(label: string, maxWidth: number, fontSize: number): string {
-  if (maxWidth <= 0 || measureHeader(label, fontSize) <= maxWidth) return label;
+function fitLabel(
+  label: string,
+  maxWidth: number,
+  fontSize: number,
+  glyphRatio: number,
+  letterSpacing: number,
+): string {
+  const measure = (t: string) => t.length * (fontSize * glyphRatio + letterSpacing);
+  if (maxWidth <= 0 || measure(label) <= maxWidth) return label;
   const ellipsis = "…";
   for (let i = label.length - 1; i >= 0; i--) {
-    if (measureHeader(label.slice(0, i) + ellipsis, fontSize) <= maxWidth) {
+    if (measure(label.slice(0, i) + ellipsis) <= maxWidth) {
       return label.slice(0, i) + ellipsis;
     }
   }
   return ellipsis;
 }
 
+function fitHeaderLabel(label: string, maxWidth: number, fontSize: number): string {
+  return fitLabel(label, maxWidth, fontSize, HEADER_GLYPH_RATIO, HEADER_LETTER_SPACING);
+}
+
+function fitBodyLabel(label: string, maxWidth: number): string {
+  return fitLabel(label, maxWidth, BODY_FONT_SIZE, BODY_GLYPH_RATIO, BODY_LETTER_SPACING);
+}
+
 // ── Build theme categories from step types ─────────────────────────────────
 
+// Step types that target a child workflow. These get a navigable corner
+// arrow (from the node `ref`) that opens the referenced workflow.
+const CONTAINER_TYPES = new Set(["subflow", "foreach", "loop"]);
+
 function buildStepCategory(type: string, colors: { fill: string; stroke: string }): any {
+  const isContainer = CONTAINER_TYPES.has(type);
+
+  const slots: Record<string, any> = {
+    header: {
+      kind: "text",
+      // Render the node's actual step type (from customData), not the
+      // category name — namespaced steps (e.g. `concepts/decide`) share
+      // the `default` category but should still show their real type
+      // instead of a static "DEFAULT" label.
+      value: (ctx: SlotContext) => {
+        const raw = (ctx.node.customData?.["stepType"] as string | undefined) ?? type;
+        return fitHeaderLabel(raw.toUpperCase(), ctx.region.width, HEADER_FONT_SIZE);
+      },
+      color: colors.stroke,
+      fontSize: HEADER_FONT_SIZE,
+      fontWeight: 600,
+    },
+    // Run-status indicator. On container nodes the navigable ref arrow takes
+    // the top-right corner, so put the status in the bottom-right there.
+    [isContainer ? "bottomRight" : "topRight"]: {
+      kind: "custom",
+      render: renderStatusIndicator,
+    },
+  };
+
+  // Container steps render their label (e.g. a subflow's workflow name) via a
+  // custom `body` slot: small, left-aligned, single line. This both suppresses
+  // the oversized default node label and auto-truncates with an ellipsis (the
+  // full name shows in the breadcrumb on drill-in).
+  if (isContainer) {
+    slots.body = {
+      kind: "text",
+      value: (ctx: SlotContext) =>
+        fitBodyLabel((ctx.node.text ?? "") as string, ctx.region.width),
+      fontSize: BODY_FONT_SIZE,
+      fontWeight: 600,
+      align: "start",
+      wrap: false,
+    };
+  }
+
   return {
     fill: colors.fill,
     stroke: colors.stroke,
@@ -186,26 +248,10 @@ function buildStepCategory(type: string, colors: { fill: string; stroke: string 
     defaultWidth: NODE_W,
     defaultHeight: NODE_H,
     type: "text" as const,
-    slots: {
-      header: {
-        kind: "text",
-        // Render the node's actual step type (from customData), not the
-        // category name — namespaced steps (e.g. `concepts/decide`) share
-        // the `default` category but should still show their real type
-        // instead of a static "DEFAULT" label.
-        value: (ctx: SlotContext) => {
-          const raw = (ctx.node.customData?.["stepType"] as string | undefined) ?? type;
-          return fitHeaderLabel(raw.toUpperCase(), ctx.region.width, HEADER_FONT_SIZE);
-        },
-        color: colors.stroke,
-        fontSize: HEADER_FONT_SIZE,
-        fontWeight: 600,
-      },
-      topRight: {
-        kind: "custom",
-        render: renderStatusIndicator,
-      },
-    },
+    // Carve the navigable ref arrow into the top-right corner so it clears the
+    // left-aligned workflow-name label (which can run the full node width).
+    ...(isContainer ? { refCorner: "topRight" } : {}),
+    slots,
   };
 }
 
@@ -223,6 +269,15 @@ const veinTheme: CanvasTheme = resolveTheme(
   {
     name: "vein",
     categories: buildCategories(),
+    // Override midnight's neon-green breadcrumbs to match the app palette.
+    breadcrumbs: {
+      background: "rgba(17, 24, 32, 0.95)", // --surface
+      textColor: "#97a1b1",                 // --text-muted
+      activeColor: "#6ea8ff",               // --accent
+      separatorColor: "#2f3a4c",            // --border-strong
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 11,
+    },
   },
   midnightTheme,
 );
@@ -276,6 +331,39 @@ function stepStatus(
   if (hasSkipped) return "skipped";
   if (hasEnd) return "success";
   return "running";
+}
+
+// ── Child-workflow references (go-to-definition) ───────────────────────────
+
+/**
+ * The published workflow a step ultimately runs, or `undefined` if none.
+ *
+ * - `subflow` → its `config.workflow`.
+ * - `foreach` / `loop` whose `body` is a `subflow` → that body's workflow.
+ *   (We collapse the trivial single-step body indirection: a `foreach`
+ *   running a subflow per item just *is* "run this workflow for each item".)
+ */
+export function stepWorkflow(step: StepData): string | undefined {
+  let wf: unknown;
+  if (step.type === "subflow") {
+    wf = step.config?.workflow;
+  } else if (step.type === "foreach" || step.type === "loop") {
+    const body = step.config?.body as StepData | undefined;
+    if (body?.type === "subflow") wf = body.config?.workflow;
+  }
+  return typeof wf === "string" && wf.length > 0 ? wf : undefined;
+}
+
+/**
+ * Navigable ref for a step that targets a child workflow (`wf:<name>`). The
+ * canvas renders a corner arrow for it; clicking it opens that workflow
+ * (go-to-definition via `externalNavigation` + `onNavigate`). `undefined`
+ * when there's no workflow or the name is a template (`{{ }}`).
+ */
+export function childRefForStep(step: StepData): string | undefined {
+  const wf = stepWorkflow(step);
+  if (wf && !wf.includes("{{")) return `wf:${wf}`;
+  return undefined;
 }
 
 // ── Convert Flow → CanvasData ──────────────────────────────────────────────
@@ -333,15 +421,24 @@ export function flowToCanvas(
     const status = stepStatus(stepPath, runEvents);
 
     const w = s.type === "loop" ? NODE_W + 40 : NODE_W;
-    const h = s.type === "loop" ? NODE_H + 10 : NODE_H;
+    const h = NODE_H;
 
+    // A container step's identity IS the workflow it runs — show that name
+    // (it also becomes the breadcrumb label when you drill in). Falls back to
+    // the step id, or `id → bodyId` for a loop with a non-subflow body.
     let text = s.id;
     if (s.type === "loop") {
       const bodyStep = s.config.body as StepData | undefined;
       if (bodyStep) text = `${s.id} → ${bodyStep.id}`;
     }
+    const wf = stepWorkflow(s);
+    if (wf) text = wf;
 
-    nodes.push({
+    // Sub-canvas drill-down: container steps get a `ref` so the canvas renders
+    // a navigable corner indicator that drills straight into the workflow.
+    const ref = childRefForStep(s);
+
+    const node: CanvasNode = {
       id: `${flow.name}/${s.id}`,
       type: "text",
       category,
@@ -351,7 +448,9 @@ export function flowToCanvas(
       width: w,
       height: h,
       customData: { stepId: s.id, stepIndex: i, status, stepType: s.type },
-    });
+    };
+    if (ref) node.ref = ref;
+    nodes.push(node);
   }
 
   // Create edges from depends. If the step has `when` and the dep is an

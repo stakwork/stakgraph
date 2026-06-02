@@ -489,3 +489,70 @@ describe("runWorkflow - template resolution", () => {
     });
   });
 });
+
+// ── params (tunable knobs) ──────────────────────────────────────────────────
+
+describe("runWorkflow - params", () => {
+  it("exposes flow.params defaults to step configs via {{ params.* }}", async () => {
+    const wf = flow("with-params", {
+      input: z.object({}),
+      params: { greeting: "hello", max: 5 },
+      steps: [
+        step("echo", "echo", {
+          msg: "{{ params.greeting }}",
+          n: "{{ params.max }}",
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.deepEqual(result.output, { msg: "hello", n: 5 });
+  });
+
+  it("run-level params override defaults per-key (shallow merge)", async () => {
+    const wf = flow("override", {
+      input: z.object({}),
+      params: { greeting: "hello", max: 5 },
+      steps: [
+        step("echo", "echo", {
+          msg: "{{ params.greeting }}",
+          n: "{{ params.max }}",
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry(), {
+      params: { greeting: "bonjour" }, // only override one knob
+    });
+    assert.deepEqual(result.output, { msg: "bonjour", n: 5 });
+  });
+
+  it("params and input are independent scopes", async () => {
+    const wf = flow("split", {
+      input: z.object({ prNumber: z.number() }),
+      params: { prompt: "review" },
+      steps: [
+        step("echo", "echo", {
+          subject: "{{ input.prNumber }}",
+          knob: "{{ params.prompt }}",
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, { prNumber: 42 }, makeRegistry(), {
+      params: { prompt: "audit" },
+    });
+    assert.deepEqual(result.output, { subject: 42, knob: "audit" });
+  });
+
+  it("params default to {} when the flow declares none", async () => {
+    const wf = flow("no-params", {
+      input: z.object({}),
+      steps: [step("echo", "echo", { has: "{{ params }}" })],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.deepEqual(result.output, { has: {} });
+  });
+});

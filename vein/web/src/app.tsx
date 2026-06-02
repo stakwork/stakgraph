@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
+import { useState, useEffect, useCallback, useMemo } from "preact/hooks";
 import { SystemCanvas } from "system-canvas-react";
 import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
 import type { AddNodeButtonRenderProps } from "system-canvas-react";
 import yaml from "js-yaml";
 import * as api from "./api";
-import { flowToCanvas, veinTheme } from "./flow-to-canvas";
+import { flowToCanvas, stepWorkflow, veinTheme } from "./flow-to-canvas";
 import type { StepData, RunEventData } from "./flow-to-canvas";
 import "./styles/base.css";
 import "./styles/components.css";
@@ -18,13 +18,50 @@ import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
 import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
 
+// A nested run-execution the user has drilled into. `pathPrefix` is the
+// original event-path prefix this child lives under (e.g. `wf/subflowId`),
+// `workflow` is the child workflow name, `steps` its loaded definition.
+// For a foreach/loop the body runs N times under `<pathPrefix>#<i>`, so the
+// frame carries the iteration `count` and the selected `iter`.
+interface DrillFrame {
+  pathPrefix: string;
+  workflow: string;
+  steps: StepData[];
+  iterations?: number;
+  iter?: number;
+}
+
+// The actual event-path prefix for a frame, accounting for the selected
+// foreach/loop iteration.
+function framePrefix(f: DrillFrame): string {
+  return f.iterations != null ? `${f.pathPrefix}#${f.iter ?? 0}` : f.pathPrefix;
+}
+
+// Count foreach/loop iterations from the run events: bodies execute under
+// `<prefix>#<i>`, so the count is (max index + 1) seen across all such paths.
+function countIterations(events: api.RunEvent[], prefix: string): number {
+  let max = -1;
+  for (const e of events) {
+    if (!e.path.startsWith(prefix + "#")) continue;
+    const rest = e.path.slice(prefix.length + 1); // after `#`
+    const num = parseInt(rest, 10);
+    if (!isNaN(num) && num > max) max = num;
+  }
+  return max + 1;
+}
+
 export function App() {
   const [workflows, setWorkflows] = useState<api.WorkflowEntry[]>([]);
   const [runs, setRuns] = useState<api.RunSummary[]>([]);
   const [selectedWf, setSelectedWf] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
-  const [canvas, setCanvas] = useState<CanvasData | null>(null);
   const [events, setEvents] = useState<api.RunEvent[]>([]);
+  const [running, setRunning] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  // Run-view drill-down stack: each frame is a nested child execution. Each
+  // carries the original event-path prefix it lives under, the child workflow
+  // name, and that workflow's steps. Empty = viewing the root.
+  const [runDrill, setRunDrill] = useState<DrillFrame[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddStep, setShowAddStep] = useState(false);
   const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
@@ -34,6 +71,8 @@ export function App() {
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
+  // The selected workflow's `params` defaults (tunable knobs), if any.
+  const [wfParams, setWfParams] = useState<Record<string, unknown> | null>(null);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
@@ -45,20 +84,62 @@ export function App() {
   // Runs are already filtered by workflow (fetched per-workflow)
   const filteredRuns = runs;
 
-  // Events for the flyout step
+  const isRunView = selectedRun != null && events.length > 0;
+
+  // ── View context: what the canvas + flyout operate on ───────────────────
+  // Root view = the selected workflow. When drilled into a run's nested
+  // execution, the deepest frame's child workflow + its re-keyed events.
+  const drill = runDrill.length > 0 ? runDrill[runDrill.length - 1]! : null;
+  const viewWorkflow = drill ? drill.workflow : selectedWf;
+  const viewSteps = drill ? drill.steps : localSteps;
+
+  // Re-key the run events into the drilled child's namespace: events under
+  // `<prefix>/...` become `<childWorkflow>/...` so the existing path-based
+  // status overlay + flyout lookups work unchanged at any depth.
+  const viewEvents = useMemo(() => {
+    if (!drill) return events;
+    const prefix = framePrefix(drill);
+    const { workflow } = drill;
+    const out: api.RunEvent[] = [];
+    for (const e of events) {
+      if (e.path === prefix || e.path.startsWith(prefix + "/")) {
+        out.push({ ...e, path: workflow + e.path.slice(prefix.length) });
+      }
+    }
+    return out;
+  }, [drill, events]);
+
+  // Canvas is derived from the current view (root or drilled child). Run/live
+  // events overlay status; in plain edit mode there are no events.
+  const canvas = useMemo<CanvasData | null>(() => {
+    if (loadError && selectedWf) {
+      return {
+        nodes: [{ id: "err", type: "text", text: `${selectedWf}\n\nCould not load`, x: 100, y: 100, width: 260, height: 70, color: "1" }],
+        edges: [], theme: { base: "midnight" },
+      };
+    }
+    if (!viewWorkflow || !viewSteps) return null;
+    const overlay = events.length > 0 || running;
+    return flowToCanvas(
+      { name: viewWorkflow, steps: viewSteps },
+      overlay ? (viewEvents as RunEventData[]) : undefined,
+    );
+  }, [loadError, selectedWf, viewWorkflow, viewSteps, viewEvents, events.length, running]);
+
+  // Events for the flyout step (within the current view). Containers show
+  // their own aggregate I/O here (subflow → child input/output; foreach →
+  // items array / results array); per-child detail is via the drill arrow.
   const flyoutEvents = useMemo(() => {
-    if (!flyoutStepId || !selectedWf || events.length === 0) return null;
-    const path = `${selectedWf}/${flyoutStepId}`;
-    const stepEvts = events.filter((e) => e.path === path);
+    if (!flyoutStepId || !viewWorkflow || viewEvents.length === 0) return null;
+    const path = `${viewWorkflow}/${flyoutStepId}`;
+    const stepEvts = viewEvents.filter((e) => e.path === path);
     if (stepEvts.length === 0) return null;
     const start = stepEvts.find((e) => e.type === "step.start");
     const end = stepEvts.find((e) => e.type === "step.end");
     const error = stepEvts.find((e) => e.type === "step.error");
     const skipped = stepEvts.find((e) => e.type === "step.skipped");
     return { start, end, error, skipped, all: stepEvts };
-  }, [flyoutStepId, selectedWf, events]);
-
-  const isRunView = selectedRun != null && events.length > 0;
+  }, [flyoutStepId, viewWorkflow, viewEvents]);
 
   const refreshWorkflows = useCallback(async () => {
     const wfs = await api.listWorkflows();
@@ -87,10 +168,12 @@ export function App() {
 
   // Load workflow + its runs when selected
   useEffect(() => {
+    setRunDrill([]);
+    setLoadError(false);
     if (!selectedWf) {
-      setCanvas(null);
       setPublishedSteps(null);
       setLocalSteps(null);
+      setWfParams(null);
       setRuns([]);
       setFlyoutStepId(null);
       setFlyoutStepIndex(null);
@@ -100,65 +183,115 @@ export function App() {
       const steps = flow.steps as StepData[];
       setPublishedSteps(steps);
       setLocalSteps(steps);
-      rebuildCanvas(selectedWf, steps, null);
+      setWfParams(flow.params ?? null);
     }).catch(() => {
       setPublishedSteps(null);
       setLocalSteps(null);
-      setCanvas({
-        nodes: [{ id: "err", type: "text", text: `${selectedWf}\n\nCould not load`, x: 100, y: 100, width: 260, height: 70, color: "1" }],
-        edges: [], theme: { base: "midnight" },
-      });
+      setLoadError(true);
     });
     refreshRuns(selectedWf);
   }, [selectedWf]);
 
-  // Load run events when a run is selected; clear overlay when deselected
+  // Load run events when a run is selected; clear overlay + drill when deselected
   useEffect(() => {
+    setRunDrill([]);
+    setFlyoutStepId(null);
+    setFlyoutStepIndex(null);
     if (!selectedRun || !selectedWf) {
       setEvents([]);
-      // Rebuild canvas without run overlay
-      if (selectedWf && localSteps) {
-        rebuildCanvas(selectedWf, localSteps, null);
-      }
       return;
     }
     api.getRunEvents(selectedWf, selectedRun).then((evts) => {
       setEvents(evts);
-      if (localSteps) {
-        rebuildCanvas(selectedWf, localSteps, evts as RunEventData[]);
-      }
     }).catch(console.error);
   }, [selectedRun]);
 
-  function rebuildCanvas(wfName: string, steps: StepData[], evts: RunEventData[] | null) {
-    setCanvas(flowToCanvas({ name: wfName, steps }, evts ?? undefined));
-  }
+  // A container node's ref arrow means "open this workflow" — go-to-definition.
+  // We switch the selected workflow rather than drilling into an inline
+  // sub-canvas (a subflow target is a standalone, separately-editable workflow).
+  // In run view it instead drills into that node's nested execution.
+  const handleNavigate = useCallback((ref: string) => {
+    if (!ref.startsWith("wf:")) return;
+    const name = ref.slice(3);
+    if (isRunView) {
+      // Run view: the arrow drills into this node's nested execution.
+      const step = (viewSteps ?? []).find((s) => stepWorkflow(s) === name);
+      if (step) drillIntoStep(step);
+      return;
+    }
+    if (name === selectedWf) return;
+    setSelectedWf(name);
+    setSelectedRun(null);
+    setEvents([]);
+    setFlyoutStepId(null);
+    setFlyoutStepIndex(null);
+  }, [selectedWf, isRunView, viewSteps]);
+
+  // Drill into a container step's nested execution (run view). Loads the child
+  // workflow definition and pushes a frame; events are re-keyed by `viewEvents`.
+  // foreach/loop bodies run N times under `<prefix>#<i>`, so we count the
+  // iterations and start at #0.
+  const drillIntoStep = useCallback((step: StepData) => {
+    const childName = stepWorkflow(step);
+    if (!childName) return;
+    const base = runDrill.length > 0 ? framePrefix(runDrill[runDrill.length - 1]!) : (selectedWf ?? "");
+    const pathPrefix = `${base}/${step.id}`;
+    const isIter = step.type === "foreach" || step.type === "loop";
+    api.getWorkflowFlow(childName).then((flow) => {
+      const frame: DrillFrame = { pathPrefix, workflow: childName, steps: flow.steps as StepData[] };
+      if (isIter) {
+        frame.iterations = countIterations(events, pathPrefix);
+        frame.iter = 0;
+      }
+      setRunDrill((prev) => [...prev, frame]);
+      setFlyoutStepId(null);
+      setFlyoutStepIndex(null);
+    }).catch(console.error);
+  }, [runDrill, selectedWf, events]);
+
+  // Select a different iteration on the deepest (foreach/loop) drill frame.
+  const setDrillIter = useCallback((iter: number) => {
+    setRunDrill((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      next[next.length - 1] = { ...next[next.length - 1]!, iter };
+      return next;
+    });
+    setFlyoutStepId(null);
+    setFlyoutStepIndex(null);
+  }, []);
 
   function updateLocalSteps(steps: StepData[]) {
     setLocalSteps(steps);
-    if (selectedWf) rebuildCanvas(selectedWf, steps, null);
   }
 
-  const submitRun = useCallback(async (input: Record<string, unknown>) => {
+  const submitRun = useCallback(async (
+    input: Record<string, unknown>,
+    params?: Record<string, unknown>,
+  ) => {
     if (!selectedWf || !localSteps) return;
     const wf = selectedWf;
-    const steps = localSteps;
     const accumulated: RunEventData[] = [];
 
     setRunBindings(null);
-    // Show pending status on all nodes immediately
-    rebuildCanvas(wf, steps, []);
+    setRunDrill([]);
+    setRunning(true);
+    // Empty events + running → pending status overlay on all nodes immediately.
+    setEvents([] as api.RunEvent[]);
 
-    const result = await api.runWorkflow(wf, input, (event) => {
-      accumulated.push(event as RunEventData);
-      rebuildCanvas(wf, steps, [...accumulated]);
-      setEvents([...accumulated] as api.RunEvent[]);
-    });
+    try {
+      const result = await api.runWorkflow(wf, input, (event) => {
+        accumulated.push(event as RunEventData);
+        setEvents([...accumulated] as api.RunEvent[]);
+      }, params);
 
-    if (result?.runId) {
-      setSelectedRun(result.runId);
+      if (result?.runId) {
+        setSelectedRun(result.runId);
+      }
+      await refreshRuns(wf);
+    } finally {
+      setRunning(false);
     }
-    await refreshRuns(wf);
   }, [selectedWf, localSteps, refreshRuns]);
 
   const handleRun = useCallback(async () => {
@@ -167,7 +300,8 @@ export function App() {
     try {
       const { fields } = await api.getStepSchema(first.type);
       const bindings = deriveInputBindings(first, fields);
-      if (bindings.length === 0) {
+      const hasParams = wfParams != null && Object.keys(wfParams).length > 0;
+      if (bindings.length === 0 && !hasParams) {
         await submitRun({});
       } else {
         setRunBindings(bindings);
@@ -176,7 +310,7 @@ export function App() {
       // If we can't load the schema, fall back to running with no input.
       await submitRun({});
     }
-  }, [selectedWf, localSteps, submitRun]);
+  }, [selectedWf, localSteps, submitRun, wfParams]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
     // Server auto-suffixes on collision; navigate to the resolved name.
@@ -200,16 +334,16 @@ export function App() {
     const steps = flow.steps as StepData[];
     setPublishedSteps(steps);
     setLocalSteps(steps);
-    rebuildCanvas(selectedWf, steps, null);
   }, [selectedWf, localSteps, activeVersion, refreshWorkflows]);
 
+  // Clicking a node (body) always opens its flyout — leaf I/O, or a
+  // container's aggregate I/O. Drilling into children is the arrow's job.
   const handleNodeClick = useCallback((node: CanvasNode) => {
     const stepId = node.customData?.stepId as string | undefined;
     const stepIndex = node.customData?.stepIndex as number | undefined;
-    if (stepId != null) {
-      setFlyoutStepId(stepId);
-      setFlyoutStepIndex(stepIndex ?? null);
-    }
+    if (stepId == null) return;
+    setFlyoutStepId(stepId);
+    setFlyoutStepIndex(stepIndex ?? null);
   }, []);
 
   const handleNodeAdd = useCallback((_node: CanvasNode) => {
@@ -366,6 +500,7 @@ export function App() {
       <div class="shell-topbar">
         <span class="topbar-title">
           {selectedWf ?? "Select a workflow"}
+          {selectedRun && <span class="topbar-run">{selectedRun.slice(0, 10)}</span>}
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
         <div class="topbar-actions">
@@ -377,6 +512,7 @@ export function App() {
                 <RunInputPopover
                   workflow={selectedWf}
                   bindings={runBindings}
+                  params={wfParams}
                   onSubmit={submitRun}
                   onClose={() => setRunBindings(null)}
                 />
@@ -389,10 +525,40 @@ export function App() {
 
       {/* Canvas */}
       <div class="shell-canvas">
+        {runDrill.length > 0 && (
+          <div class="drill-bar">
+            <button class="drill-crumb" onClick={() => setRunDrill([])}>{selectedWf}</button>
+            {runDrill.map((f, i) => (
+              <span key={f.pathPrefix}>
+                <span class="drill-sep">›</span>
+                <button
+                  class={`drill-crumb${i === runDrill.length - 1 ? " is-active" : ""}`}
+                  onClick={() => setRunDrill(runDrill.slice(0, i + 1))}
+                >{f.workflow}</button>
+              </span>
+            ))}
+            {drill?.iterations != null && drill.iterations > 0 && (
+              <select
+                class="drill-iter"
+                value={String(drill.iter ?? 0)}
+                onChange={(e) => setDrillIter(parseInt((e.target as HTMLSelectElement).value, 10))}
+              >
+                {Array.from({ length: drill.iterations }, (_, i) => (
+                  <option key={i} value={String(i)}>iteration #{i}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
         {canvas
           ? <SystemCanvas
               panMode="trackpad"
               canvas={canvas}
+              // A container node's ref arrow opens the referenced workflow
+              // (go-to-definition) instead of drilling into an inline
+              // sub-canvas — onNavigate routes via the sidebar selection.
+              externalNavigation
+              onNavigate={handleNavigate}
               editable={!isRunView}
               showNodeToolbar={false}
               onNodeClick={handleNodeClick}
@@ -437,14 +603,16 @@ export function App() {
         />
       )}
 
-      {/* Step flyout */}
-      {flyoutStepId != null && localSteps && flyoutStepIndex != null && (() => {
-        const step = localSteps[flyoutStepIndex];
+      {/* Step flyout — operates on the current view (root or drilled child) */}
+      {flyoutStepId != null && viewSteps && flyoutStepIndex != null && (() => {
+        const step = viewSteps[flyoutStepIndex];
         if (!step) return null;
 
         if (isRunView && flyoutEvents) {
           return <StepRunFlyout step={step} events={flyoutEvents} onClose={closeFlyout} />;
         }
+        // Editing only applies at the root (drilled views are read-only run views).
+        if (drill || !localSteps) return null;
         return (
           <StepEditFlyout
             step={step}

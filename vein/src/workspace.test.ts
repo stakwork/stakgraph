@@ -167,6 +167,27 @@ describe("WorkspaceManager", () => {
     it("throws for non-existent workflow", async () => {
       await assert.rejects(() => ws.getWorkflow("nope"), /not found/);
     });
+
+    it("round-trips a params block through publish (steps form) and load", async () => {
+      await ws.publishWorkflow("knobs", "v1", {
+        steps: SAMPLE_STEPS,
+        params: { systemPrompt: "be concise", maxFiles: 12 },
+      });
+
+      const flow = await ws.getWorkflow("knobs");
+      assert.deepEqual(flow.params, { systemPrompt: "be concise", maxFiles: 12 });
+
+      // And it's serialized into the on-disk YAML.
+      const src = await ws.getWorkflowSource("knobs", "v1");
+      assert.match(src, /params:/);
+      assert.match(src, /systemPrompt/);
+    });
+
+    it("omits params on the Flow when the workflow declares none", async () => {
+      await ws.publishWorkflow("plain", "v1", { steps: SAMPLE_STEPS });
+      const flow = await ws.getWorkflow("plain");
+      assert.equal(flow.params, undefined);
+    });
   });
 
   // ── getWorkflowSource ─────────────────────────────────────────────────

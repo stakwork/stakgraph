@@ -107,6 +107,9 @@ export interface VeinRunOptions<TServices = unknown> {
   onEvent?: (event: RunEvent) => void | Promise<void>;
   /** Override the instance-level services for a single run. */
   services?: TServices;
+  /** Per-run overrides for the workflow's `params` knobs (shallow-merged
+   *  over the flow's `params` defaults). */
+  params?: Record<string, unknown>;
 }
 
 // ── Zod → field descriptors (UI helper, used by /steps/:type/schema) ──────
@@ -233,6 +236,7 @@ export async function createVein<TServices = unknown>(
     const body = await c.req.json<{
       name: string;
       steps?: any[];
+      params?: Record<string, unknown>;
       yaml?: string;
       description?: string;
     }>();
@@ -245,7 +249,7 @@ export async function createVein<TServices = unknown>(
     } else if (body.steps) {
       result = await workspace.createWorkflow(
         body.name,
-        { steps: body.steps },
+        { steps: body.steps, ...(body.params != null ? { params: body.params } : {}) },
         body.description,
       );
     } else {
@@ -323,7 +327,11 @@ export async function createVein<TServices = unknown>(
     const name = c.req.param("name");
     try {
       const flow = await workspace.getWorkflow(name);
-      return c.json({ name: flow.name, steps: flow.steps });
+      return c.json({
+        name: flow.name,
+        steps: flow.steps,
+        ...(flow.params != null ? { params: flow.params } : {}),
+      });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
     }
@@ -347,6 +355,7 @@ export async function createVein<TServices = unknown>(
     const body = await c.req.json<{
       version: string;
       steps?: any[];
+      params?: Record<string, unknown>;
       yaml?: string;
       description?: string;
     }>();
@@ -356,7 +365,12 @@ export async function createVein<TServices = unknown>(
     if (body.yaml) {
       await workspace.publishWorkflow(name, body.version, body.yaml, body.description);
     } else if (body.steps) {
-      await workspace.publishWorkflow(name, body.version, { steps: body.steps }, body.description);
+      await workspace.publishWorkflow(
+        name,
+        body.version,
+        { steps: body.steps, ...(body.params != null ? { params: body.params } : {}) },
+        body.description,
+      );
     } else {
       return c.json({ error: "either steps or yaml is required" }, 400);
     }
@@ -509,7 +523,11 @@ export async function createVein<TServices = unknown>(
 
   app.post("/workflows/:name/run", async (c) => {
     const name = c.req.param("name");
-    const body = await c.req.json<{ input?: unknown; runId?: string }>();
+    const body = await c.req.json<{
+      input?: unknown;
+      params?: Record<string, unknown>;
+      runId?: string;
+    }>();
     let flow;
     try {
       flow = await workspace.getWorkflow(name);
@@ -522,6 +540,7 @@ export async function createVein<TServices = unknown>(
         store,
         workspace,
         services,
+        params: body.params,
         onEvent: async (event) => {
           await stream.writeSSE({ data: JSON.stringify(event) });
         },
@@ -532,7 +551,11 @@ export async function createVein<TServices = unknown>(
 
   app.post("/workflows/:name/:version/run", async (c) => {
     const { name, version } = c.req.param();
-    const body = await c.req.json<{ input?: unknown; runId?: string }>();
+    const body = await c.req.json<{
+      input?: unknown;
+      params?: Record<string, unknown>;
+      runId?: string;
+    }>();
     let flow;
     try {
       flow = await workspace.getWorkflowVersion(name, version);
@@ -545,6 +568,7 @@ export async function createVein<TServices = unknown>(
         store,
         workspace,
         services,
+        params: body.params,
         onEvent: async (event) => {
           await stream.writeSSE({ data: JSON.stringify(event) });
         },
@@ -664,6 +688,7 @@ export async function createVein<TServices = unknown>(
       store,
       workspace,
       services: runOpts?.services ?? services,
+      params: runOpts?.params,
       onEvent: runOpts?.onEvent,
     });
   }
