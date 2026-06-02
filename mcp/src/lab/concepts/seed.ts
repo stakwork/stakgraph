@@ -21,6 +21,7 @@ const SEED_WORKFLOWS = [
   "process-change",
   "process-repo-chronological",
   "bootstrap-then-process",
+  "eval-concepts",
 ];
 
 /**
@@ -44,6 +45,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "summarize-concept.ts", type: "concepts/summarize" },
   { file: "link-files.ts", type: "concepts/link-files" },
   { file: "collect-for-eval.ts", type: "concepts/collect-for-eval" },
+  { file: "reset-repo.ts", type: "concepts/reset-repo" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

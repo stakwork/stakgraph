@@ -1,0 +1,60 @@
+name: eval-concepts
+# Bootstrap-only eval: produce a repo's Concept set from JUST the bootstrap
+# agent (lookbackDays: 0 → no PR/commit processing), then score it against an
+# expected gold set. Iterate on the bootstrap prompt (in `bootstrap-then-process`
+# params, or via paramOverrides) until the score is high.
+#
+# Input: { owner, repo, token? }
+# Output: { score, reason, insight, markdown } (from eval-score)
+steps:
+  # 1. Clear existing concepts so bootstrap re-runs fresh (the is-new-repo gate
+  #    only bootstraps an empty repo).
+  - id: reset
+    type: concepts/reset-repo
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+
+  # 2. Produce concepts via the full pipeline, but lookbackDays: 0 makes the
+  #    checkpoint "now" so no PRs/commits are processed — bootstrap only.
+  #    Tune the bootstrap prompt via bootstrap-then-process's `params`, or per
+  #    run via paramOverrides: { "bootstrap-then-process": { bootstrapPrompt } }.
+  - id: produce
+    type: subflow
+    config:
+      workflow: bootstrap-then-process
+      input:
+        owner: "{{ input.owner }}"
+        repo: "{{ input.repo }}"
+        token: "{{ input.token }}"
+        lookbackDays: 0
+    # subflow output = bootstrap-then-process's `result` = { count, concepts, markdown }
+
+  # 3. Score the produced concept set against the expected gold (a param).
+  - id: score
+    type: subflow
+    config:
+      workflow: eval-score
+      input:
+        actual: "{{ produce.markdown }}"
+        expected: "{{ params.expected }}"
+
+# ── params: the expected gold concept set (the dataset, as a param) ──────────
+# Edit this in the Params flyout and Publish to set up the eval; authored in the
+# same markdown shape `collect-for-eval` emits (scoring is semantic, so counts
+# and exact wording don't need to match).
+params:
+  expected: |-
+    # Concepts: owner/repo
+
+    ## Authentication
+
+    Users can sign up, log in, and manage sessions.
+
+    ## Task Management
+
+    Users can create, assign, track, and complete tasks.
+
+    ## Real-time Chat
+
+    Users can exchange messages in real time within a workspace.

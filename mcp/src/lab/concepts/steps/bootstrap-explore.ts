@@ -23,7 +23,7 @@ export default defineStep({
     repoPath: z.string(),
     systemPrompt: z.string(),
     promptTemplate: z.string(),
-    lookbackDays: z.number().int().positive().default(10),
+    lookbackDays: z.number().int().nonnegative().default(10),
   }),
   output: z.any(),
   async run(cfg, ctx) {
