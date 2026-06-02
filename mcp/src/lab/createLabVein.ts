@@ -1,16 +1,14 @@
 import {
   createVein,
-  createRegistry,
   WorkspaceManager,
   type Vein,
 } from "vein";
-import { conceptSteps } from "./concepts/steps/index.js";
 import {
   buildConceptServices,
   type ConceptServices,
   type BuildServicesOptions,
 } from "./concepts/services.js";
-import { seedConceptWorkflows } from "./concepts/seed.js";
+import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 
 /**
  * The merged capabilities bag for ALL lab experiments. Each experiment's
@@ -32,13 +30,16 @@ export interface CreateLabVeinOptions extends BuildServicesOptions {
 }
 
 /**
- * Build THE single lab vein instance: one workspace, one UI, one
- * registry composed of every experiment's steps, one merged services
- * bag. Experiments are just groups of workflows/steps inside it — not
- * separate servers.
+ * Build THE single lab vein instance: one workspace, one UI, one merged
+ * services bag. Experiments are just groups of workflows/steps inside it —
+ * not separate servers.
  *
- * Adding an experiment = register its steps in the registry, merge its
- * services, and seed its workflow templates here.
+ * Steps and workflows are seeded into the workspace as content-hash–versioned
+ * artifacts and discovered from disk (no in-code registry injection), so they
+ * are editable + versioned through the vein API/UI.
+ *
+ * Adding an experiment = seed its step + workflow templates here and merge its
+ * services into the bag.
  */
 export async function createLabVein(
   opts: CreateLabVeinOptions = {},
@@ -48,23 +49,26 @@ export async function createLabVein(
   const services: LabServices =
     opts.services ?? (await buildConceptServices(opts));
 
-  // Registry = vein core + lib + every experiment's steps.
-  const registry = await createRegistry([...conceptSteps]);
-
   const workspacePath =
     opts.workspacePath ??
     process.env["VEIN_LAB_WORKSPACE"] ??
     "./lab-workspace";
 
+  // Seed each experiment's workflow + step templates into the workspace
+  // BEFORE building the vein, so the registry's disk discovery picks up the
+  // seeded steps. Steps are now self-contained custom steps on disk (not
+  // injected in-code) — content-hash reconciled, editable + versioned via the
+  // vein API/UI. No `registry` is passed, so createVein discovers core + lib +
+  // these custom steps from `workspace.path` (and step publishing is enabled).
+  const workspace = new WorkspaceManager(workspacePath);
+  await seedConceptWorkflows(workspace);
+  await seedConceptSteps(workspace);
+
   const vein = await createVein<LabServices>({
-    workspace: new WorkspaceManager(workspacePath),
-    registry,
+    workspace,
     services,
     serveUi: opts.serveUi ?? true,
   });
-
-  // Seed each experiment's workflow templates (idempotent).
-  await seedConceptWorkflows(vein.workspace);
 
   return vein;
 }

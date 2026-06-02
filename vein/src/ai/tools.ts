@@ -54,6 +54,95 @@ export function buildTools(deps: AiDeps) {
       },
     }),
 
+    create_step: tool({
+      description:
+        "Author a NEW custom step type from TypeScript source. The code MUST be a self-contained vein step: the ONLY runtime import is `import { z, defineStep } from \"vein\"`, it `export default defineStep({ type, input, output, async run(cfg, ctx) {...} })`, and it reaches every external capability (db, http clients, llm, git, …) through `ctx.services` — never by importing other files. Use this only for step types that don't exist yet; use edit_step to change an existing one. Publishing as a new step creates version v1.",
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe(
+            "Step type name. Slashes nest it (e.g. 'concepts/my-fetcher') and become the registry type.",
+          ),
+        code: z
+          .string()
+          .describe(
+            "Full TypeScript source. Shape: import { z, defineStep } from \"vein\"; export default defineStep({ type: \"<name>\", input: z.object({...}), output: z.any(), async run(cfg, ctx) { /* use ctx.services for capabilities */ } });",
+          ),
+        description: z.string().optional(),
+      }),
+      execute: async ({ name, code, description }) => {
+        if (deps.publishingEnabled === false) {
+          return { error: "Step publishing is disabled (the registry was injected at construction)." };
+        }
+        const customs = await deps.workspace.listSteps();
+        if (customs.some((s) => s.type === name)) {
+          return { error: `Step "${name}" already exists. Use edit_step to publish a new version.` };
+        }
+        if (deps.registry[name]) {
+          return { error: `"${name}" conflicts with a built-in (core/lib) step. Choose another name.` };
+        }
+        let result;
+        try {
+          result = await deps.workspace.publishStep(name, code, description, "ai");
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+        deps.registry = await deps.getRegistry();
+        const loaded = Boolean(deps.registry[name]);
+        return {
+          ok: true,
+          type: name,
+          version: result.version,
+          loaded,
+          ...(loaded
+            ? {}
+            : {
+                warning:
+                  "Published but failed to load into the registry — check the source imports only 'vein' and has a valid defineStep default export.",
+              }),
+        };
+      },
+    }),
+
+    edit_step: tool({
+      description:
+        "Publish a NEW VERSION of an EXISTING custom step (e.g. tweak its prompt, logic, or config schema). Same self-contained rules as create_step. Call get_step first to read the current source. Identical content is a no-op; a change increments the version (v1 → v2 → …) and prior versions are kept for rollback. Built-in core/lib steps cannot be edited.",
+      inputSchema: z.object({
+        type: z.string().describe("Existing custom step type to edit, e.g. 'concepts/decide'."),
+        code: z
+          .string()
+          .describe("Full updated TypeScript source (same self-contained shape as create_step)."),
+        description: z.string().optional(),
+      }),
+      execute: async ({ type, code, description }) => {
+        if (deps.publishingEnabled === false) {
+          return { error: "Step publishing is disabled (the registry was injected at construction)." };
+        }
+        const customs = await deps.workspace.listSteps();
+        if (!customs.some((s) => s.type === type)) {
+          return {
+            error: deps.registry[type]
+              ? `"${type}" is a built-in step and can't be edited. Use create_step with a new name.`
+              : `Step "${type}" not found. Use create_step to author a new step.`,
+          };
+        }
+        let result;
+        try {
+          result = await deps.workspace.publishStep(type, code, description);
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+        deps.registry = await deps.getRegistry();
+        return {
+          ok: true,
+          type,
+          version: result.version,
+          changed: result.changed,
+          loaded: Boolean(deps.registry[type]),
+        };
+      },
+    }),
+
     create_workflow: tool({
       description:
         "Create and publish a new workflow from YAML. If the name already " +
@@ -92,14 +181,20 @@ export function buildTools(deps: AiDeps) {
           .any()
           .optional()
           .describe(
-            "Input object passed to the workflow. Shape depends on the workflow's input schema; use {} if none.",
+            "Input object passed to the workflow (the run subject — e.g. PR number, repo). Shape depends on the workflow's input schema; use {} if none.",
+          ),
+        params: z
+          .record(z.any())
+          .optional()
+          .describe(
+            "Optional overrides for the workflow's `params` knobs (prompts, thresholds, sample sizes). Shallow-merged over the workflow's `params` defaults — set just the knobs you want to vary for this trial. Referenced in step configs via {{ params.* }}.",
           ),
         version: z
           .string()
           .optional()
           .describe("Optional specific version. Defaults to the active version."),
       }),
-      execute: async ({ name, input, version }) => {
+      execute: async ({ name, input, params, version }) => {
         let flow;
         try {
           flow = version
@@ -115,6 +210,7 @@ export function buildTools(deps: AiDeps) {
         const result = await runWorkflow(flow, input ?? {}, deps.registry, {
           store: deps.store,
           workspace: deps.workspace,
+          params,
         });
 
         return result;

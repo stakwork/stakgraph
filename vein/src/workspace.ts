@@ -1,14 +1,18 @@
-import { readFile, writeFile, readdir, mkdir, stat, unlink, rmdir } from "node:fs/promises";
+import { readFile, writeFile, readdir, mkdir, stat, unlink, rmdir, rm } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import type { Flow } from "./core.js";
+import { contentHash, nextVersionLabel } from "./version.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface WorkflowVersionInfo {
   createdAt: string;
   description?: string;
+  /** Content hash of this version's source — internal dedup key for
+   *  content-hash publishing. Not the user-facing version id. */
+  hash?: string;
 }
 
 export interface WorkflowMetadata {
@@ -16,9 +20,21 @@ export interface WorkflowMetadata {
   versions: Record<string, WorkflowVersionInfo>;
 }
 
-export interface StepInfo {
+export interface StepVersionInfo {
   createdAt: string;
   description?: string;
+  /** Content hash of this version's source — internal dedup key. */
+  hash?: string;
+}
+
+export interface StepInfo {
+  /** Active version id (a content hash, e.g. "c-1a2b3c4d5e"). The active
+   *  version's source is materialized at `custom/<name>.ts` for the registry
+   *  loader; every version (incl. active) is archived under
+   *  `steps/_history/<name>/<vid>.ts`. */
+  active: string;
+  /** All known versions, keyed by content-hash version id. */
+  versions: Record<string, StepVersionInfo>;
   /** Optional identifier of the service that published this step.
    *  Used by `deleteStepsByPublisher` for bulk lifecycle ops. */
   publisher?: string;
@@ -27,6 +43,11 @@ export interface StepInfo {
 export interface StepDirMetadata {
   /** Keys are full step names with optional slashes (e.g. "gitree/save-feature"). */
   steps: Record<string, StepInfo>;
+}
+
+export interface StepVersionsResult {
+  active: string;
+  versions: string[];
 }
 
 export interface WorkflowListEntry {
@@ -115,6 +136,7 @@ export class WorkspaceManager {
       name: data.name ?? name,
       input: z.any(),
       steps: data.steps,
+      ...(data.params != null ? { params: data.params } : {}),
     };
   }
 
@@ -129,7 +151,7 @@ export class WorkspaceManager {
    */
   async createWorkflow(
     name: string,
-    content: { steps: any[] } | string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
     description?: string,
   ): Promise<{ name: string; version: string }> {
     const workflowsDir = join(this.root, "workflows");
@@ -158,7 +180,7 @@ export class WorkspaceManager {
   async publishWorkflow(
     name: string,
     version: string,
-    content: { steps: any[] } | string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
     description?: string,
   ): Promise<void> {
     const dir = join(this.root, "workflows", name);
@@ -168,7 +190,14 @@ export class WorkspaceManager {
     const yamlStr =
       typeof content === "string"
         ? content
-        : yaml.dump({ name, steps: content.steps }, { lineWidth: 120, noRefs: true });
+        : yaml.dump(
+            {
+              name,
+              steps: content.steps,
+              ...(content.params != null ? { params: content.params } : {}),
+            },
+            { lineWidth: 120, noRefs: true },
+          );
 
     await writeFile(join(dir, `${version}.yaml`), yamlStr, "utf-8");
 
@@ -181,6 +210,7 @@ export class WorkspaceManager {
     meta.versions[version] = {
       createdAt: new Date().toISOString(),
       description,
+      hash: contentHash(yamlStr),
     };
     meta.active = version;
 
@@ -211,6 +241,40 @@ export class WorkspaceManager {
     );
   }
 
+  /**
+   * Publish a workflow keyed by content hash but labeled with a friendly,
+   * sequential version id (`v1`, `v2`, …). The hash is an internal dedup key;
+   * the version id is what the UI shows. Idempotent: identical content that's
+   * already active is a no-op; identical content of an older version re-points
+   * active at it (no new version); changed content publishes the next `vN` and
+   * activates it, retaining prior versions. This is the content-hash seeder's
+   * primitive. Returns the version id and whether anything changed.
+   */
+  async publishWorkflowByContent(
+    name: string,
+    yamlStr: string,
+    description?: string,
+  ): Promise<{ version: string; changed: boolean }> {
+    const hash = contentHash(yamlStr);
+    const meta = await this.readWorkflowMetadata(name);
+
+    if (meta) {
+      const match = Object.entries(meta.versions).find(
+        ([, info]) => info.hash === hash,
+      );
+      if (match) {
+        const [vid] = match;
+        if (meta.active === vid) return { version: vid, changed: false };
+        await this.setActiveVersion(name, vid);
+        return { version: vid, changed: true };
+      }
+    }
+
+    const next = nextVersionLabel(meta ? Object.keys(meta.versions) : []);
+    await this.publishWorkflow(name, next, yamlStr, description);
+    return { version: next, changed: true };
+  }
+
   // ── Steps ──────────────────────────────────────────────────────────────
 
   /**
@@ -233,10 +297,11 @@ export class WorkspaceManager {
       const stepName = stepNameFromFile(file, customDir);
       const info = meta?.steps[stepName];
       if (filter?.publisher && info?.publisher !== filter.publisher) continue;
+      const activeVer = info ? info.versions[info.active] : undefined;
       results.push({
         type: stepName,
-        description: info?.description,
-        createdAt: info?.createdAt,
+        description: activeVer?.description,
+        createdAt: activeVer?.createdAt,
         publisher: info?.publisher,
       });
     }
@@ -245,13 +310,23 @@ export class WorkspaceManager {
   }
 
   /**
-   * Write a user-authored step to `<workspace>/steps/custom/<name>.ts`.
+   * Publish a custom step, keyed by content hash but labeled with a friendly,
+   * sequential version id (`v1`, `v2`, …). Writes the active source to
+   * `<workspace>/steps/custom/<name>.ts` (what the registry loads) and
+   * archives every version under `steps/_history/<name>/<vid>.ts`.
    *
    * `name` may contain slashes to nest the file under subdirectories
    * (e.g. `"gitree/save-feature"` writes to `custom/gitree/save-feature.ts`).
    * Names starting with `_` (or with any path segment starting with `_`)
    * are treated as helper files: they're saved and importable by sibling
    * steps but are skipped by registry discovery.
+   *
+   * Idempotent by content hash: republishing identical content that's already
+   * active is a no-op; identical content of an older version re-activates it
+   * (no new version); changed content publishes the next `vN` and activates it
+   * while prior versions are retained for rollback.
+   *
+   * Returns the version id and whether anything changed.
    *
    * Lib steps cannot be published at runtime — they ship with the engine.
    */
@@ -260,22 +335,80 @@ export class WorkspaceManager {
     code: string,
     description?: string,
     publisher?: string,
-  ): Promise<void> {
+  ): Promise<{ version: string; changed: boolean }> {
     validateStepName(name);
 
     const customDir = join(this.root, "steps", "custom");
     const filePath = join(customDir, `${name}.ts`);
-
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, code, "utf-8");
+    const hash = contentHash(code);
 
     const meta = (await this.readStepMetadata(customDir)) ?? { steps: {} };
+    const existing = meta.steps[name];
+
+    // Content already known → no-op (if active) or re-activate that version.
+    if (existing) {
+      const match = Object.entries(existing.versions).find(
+        ([, info]) => info.hash === hash,
+      );
+      if (match) {
+        const [vid] = match;
+        let changed = false;
+        if (existing.active !== vid) {
+          const archived = await readFile(this.stepVersionPath(name, vid), "utf-8");
+          await mkdir(dirname(filePath), { recursive: true });
+          await writeFile(filePath, archived, "utf-8");
+          existing.active = vid;
+          changed = true;
+        }
+        if (publisher !== undefined && existing.publisher !== publisher) {
+          existing.publisher = publisher;
+          await this.writeStepMetadata(customDir, meta);
+        } else if (changed) {
+          await this.writeStepMetadata(customDir, meta);
+        }
+        return { version: vid, changed };
+      }
+    }
+
+    // New content → next sequential version. Materialize active source for the
+    // registry loader + archive it.
+    const vid = nextVersionLabel(existing ? Object.keys(existing.versions) : []);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, code, "utf-8");
+    const archivePath = this.stepVersionPath(name, vid);
+    await mkdir(dirname(archivePath), { recursive: true });
+    await writeFile(archivePath, code, "utf-8");
+
     meta.steps[name] = {
-      createdAt: new Date().toISOString(),
-      ...(description !== undefined ? { description } : {}),
-      ...(publisher !== undefined ? { publisher } : {}),
+      active: vid,
+      versions: {
+        ...(existing?.versions ?? {}),
+        [vid]: {
+          createdAt: new Date().toISOString(),
+          hash,
+          ...(description !== undefined ? { description } : {}),
+        },
+      },
+      ...(publisher !== undefined
+        ? { publisher }
+        : existing?.publisher !== undefined
+          ? { publisher: existing.publisher }
+          : {}),
     };
 
+    await this.writeStepMetadata(customDir, meta);
+    return { version: vid, changed: true };
+  }
+
+  /** Absolute path to an archived step version source file. */
+  private stepVersionPath(name: string, version: string): string {
+    return join(this.root, "steps", "_history", name, `${version}.ts`);
+  }
+
+  private async writeStepMetadata(
+    customDir: string,
+    meta: StepDirMetadata,
+  ): Promise<void> {
     await writeFile(
       join(customDir, "_metadata.json"),
       JSON.stringify(meta, null, 2),
@@ -283,11 +416,51 @@ export class WorkspaceManager {
     );
   }
 
+  /** List a step's versions and its active version id. */
+  async listStepVersions(name: string): Promise<StepVersionsResult> {
+    validateStepName(name);
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    const info = meta?.steps[name];
+    if (!info) throw new Error(`Step "${name}" not found`);
+    return { active: info.active, versions: Object.keys(info.versions) };
+  }
+
+  /** Get the archived source for a specific step version. */
+  async getStepVersionSource(name: string, version: string): Promise<string> {
+    validateStepName(name);
+    return readFile(this.stepVersionPath(name, version), "utf-8");
+  }
+
   /**
-   * Delete a single custom step by name. Removes the source file and its
-   * metadata entry, then cleans up any empty parent directories within
-   * `steps/custom/` so namespace directories disappear once their last step
-   * is removed.
+   * Switch a step's active version. Copies the archived version's source
+   * into the flat `custom/<name>.ts` the registry loads, and updates the
+   * active pointer in metadata.
+   */
+  async setActiveStepVersion(name: string, version: string): Promise<void> {
+    validateStepName(name);
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    const info = meta?.steps[name];
+    if (!meta || !info) throw new Error(`Step "${name}" not found`);
+    if (!(version in info.versions)) {
+      throw new Error(
+        `Version "${version}" not found for step "${name}". Available: ${Object.keys(info.versions).join(", ")}`,
+      );
+    }
+    const code = await readFile(this.stepVersionPath(name, version), "utf-8");
+    const filePath = join(customDir, `${name}.ts`);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, code, "utf-8");
+    info.active = version;
+    await this.writeStepMetadata(customDir, meta);
+  }
+
+  /**
+   * Delete a single custom step by name. Removes the source file, its
+   * version archive, and its metadata entry, then cleans up any empty parent
+   * directories within `steps/custom/` so namespace directories disappear
+   * once their last step is removed.
    *
    * No-ops silently if the step does not exist.
    */
@@ -304,6 +477,12 @@ export class WorkspaceManager {
     } catch (err: any) {
       if (err?.code !== "ENOENT") throw err;
     }
+
+    // Remove the version archive dir for this step (best-effort).
+    await rm(join(this.root, "steps", "_history", name), {
+      recursive: true,
+      force: true,
+    });
 
     const meta = await this.readStepMetadata(customDir);
     if (meta && meta.steps[name]) {

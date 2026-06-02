@@ -61,8 +61,13 @@ export {
   type WorkflowListEntry,
   type StepDirMetadata,
   type StepInfo,
+  type StepVersionInfo,
   type StepListEntry,
+  type StepVersionsResult,
 } from "./workspace.js";
+
+// Content-hash versioning (internal dedup) + sequential version labels
+export { contentHash, nextVersionLabel } from "./version.js";
 
 // Vein factory — the primary entry point for library usage.
 export {

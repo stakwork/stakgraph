@@ -324,9 +324,12 @@ A small, deterministic evaluator. **Not** `eval`. Implemented from scratch (~100
 
 Available bindings inside a step config:
 
-- `input` — the workflow's input object.
+- `input` — the workflow's input object (the per-run *subject* — e.g. PR number, repo).
+- `params` — the workflow's tunable *knobs* (prompts, thresholds, sample sizes). Defaults live in the workflow's `params:` block and are shallow-merged with per-run overrides. Always present (`{}` if the workflow declares none).
 - `<stepId>` — output of any previously completed step at the same level.
 - `$current` — only inside a `loop` body; previous iteration's output (undefined on iteration 0).
+
+`input` vs `params` is a deliberate split: `input` is *what* a run is about (no defaults, validated), `params` is *how* it's processed (all defaults, sparsely overridden per run). The experiment surface is `params` — an agent or human sweeps it without touching `input` or step code. See §11.1.
 
 ### 5.2 Syntax
 
@@ -631,22 +634,69 @@ steps:
 
 YAML workflows accept any input (equivalent to `z.any()`). The engine parses the YAML at load time and constructs a `Flow` object.
 
-### 11.2 Step metadata
+#### `params` — tunable defaults (the experiment surface)
 
-Step directories use `_metadata.json` for discoverability and documentation, not versioning (steps are not versioned in v1 — they are single files).
+A workflow may declare a top-level `params:` block of default knobs — prompts, thresholds, sample sizes, model names. Step configs reference them via `{{ params.* }}`, exactly like `input`. Position in the file is cosmetic; conventionally it sits at the bottom (like Docker Compose's `volumes:`).
 
-**`_metadata.json`** for step directories:
+```yaml
+name: review-pr
+steps:
+  - id: review
+    type: llm
+    config:
+      model: "{{ params.model }}"
+      prompt: |
+        {{ params.systemPrompt }}
+        Review: {{ pr.markdown }}
+
+# tunable knobs — the experiment surface
+params:
+  model: claude-sonnet-4
+  systemPrompt: |
+    You are a senior engineer reviewing a PR. Be concise.
+```
+
+A single run overrides individual knobs without editing the file — the override is **shallow-merged over the defaults**, so a trial typically sets just one key:
+
+```bash
+curl -X POST .../workflows/review-pr/run -d '{
+  "input":  { "owner": "x", "repo": "y", "prNumber": 42 },
+  "params": { "systemPrompt": "You are a paranoid security auditor..." }
+}'
+```
+
+This is how overnight experiments work: a hundred prompt variants are a hundred **runs** (each fully logged in `run.json`), *not* a hundred workflow versions. When a winner emerges, paste it into the `params` default and publish one new version — a clean, single-block diff. (Override precedence: step Zod `.default()` < workflow `params` default < per-run override.)
+
+Subflows use their own `params` defaults; the parent's per-run override does not propagate into a child flow.
+
+### 11.2 Step versioning & metadata
+
+Custom steps are versioned, the same way workflows are. `publishStep` is keyed by a content **hash** (internal dedup) but labeled with friendly, sequential `vN` ids:
+
+- Identical content that's already active → no-op.
+- Identical content of an older version → re-activates it (no new version).
+- Changed content → publishes the next `vN` and activates it; prior versions are retained for rollback.
+
+The **active** version's source is materialized at `steps/custom/<name>.ts` (what the registry loads). Every version (including the active one) is archived under `steps/_history/<name>/<vid>.ts`.
+
+**`_metadata.json`** for the `steps/custom/` directory, keyed by full slash-name:
 
 ```json
 {
   "steps": {
-    "fetch-prs": { "createdAt": "2026-05-20T10:00:00Z", "description": "List PRs from GitHub" },
-    "fetch-commit": { "createdAt": "2026-05-25T12:00:00Z", "description": "Fetch a single commit" }
+    "fetch-prs": {
+      "active": "v2",
+      "versions": {
+        "v1": { "createdAt": "2026-05-20T10:00:00Z", "description": "List PRs from GitHub", "hash": "1a2b3c4d5e6f" },
+        "v2": { "createdAt": "2026-05-25T12:00:00Z", "description": "added pagination", "hash": "6f5e4d3c2b1a" }
+      },
+      "publisher": "mcp-gitree"
+    }
   }
 }
 ```
 
-The engine can function without these files — it discovers steps by scanning `.ts` files. The metadata is for UI rendering, LLM context, and documentation.
+The engine can function without this file — it discovers steps by scanning `.ts` files — but the UI needs it for version listing and rollback. Versioning is disabled when the registry is injected at construction time (`createRegistry`/`registry` option).
 
 ### 11.3 WorkspaceManager API
 
@@ -683,15 +733,26 @@ The engine ships with an HTTP server (Hono) that exposes all operations. Set `VE
 | GET    | `/workflows/:name/:version`    | Get workflow YAML source for a specific version                  |
 | POST   | `/workflows/:name`             | Publish new version: `{ version, steps }` or `{ version, yaml }` |
 | PUT    | `/workflows/:name/active`      | Set active version: `{ version }`                                |
-| POST   | `/workflows/:name/run`         | Run active version: `{ input?, runId? }`                         |
-| POST   | `/workflows/:name/:version/run`| Run specific version: `{ input?, runId? }`                       |
+| POST   | `/workflows/:name/run`         | Run active version: `{ input?, params?, runId? }`                |
+| POST   | `/workflows/:name/:version/run`| Run specific version: `{ input?, params?, runId? }`              |
+
+`params` (optional) shallow-merges over the workflow's `params:` defaults for that one run — the per-trial override surface (see §11.1).
 
 ### 12.2 Steps
 
-| Method | Path     | Description                                                       |
-| ------ | -------- | ----------------------------------------------------------------- |
-| GET    | `/steps` | List all steps (core + lib + workspace custom)                    |
-| POST   | `/steps` | Publish step: `{ namespace, name, code, description? }`           |
+| Method | Path                            | Description                                                          |
+| ------ | ------------------------------- | -------------------------------------------------------------------- |
+| GET    | `/steps`                        | List all steps (core + lib + workspace custom)                       |
+| GET    | `/steps/:type/schema`           | Zod-derived field descriptors for a step's config                    |
+| GET    | `/steps/:type/source`           | Source code for a step (registry, core, lib, or custom)              |
+| GET    | `/steps/:type/versions`         | List a custom step's versions + active id                            |
+| GET    | `/steps/:type/version/:version` | Archived source for a specific step version                          |
+| PUT    | `/steps/:type/active`           | Switch active version: `{ version }` (auth; rebuilds registry)       |
+| POST   | `/steps`                        | Publish step: `{ name, code, description?, publisher? }` (auth)      |
+| DELETE | `/steps/:name`                  | Delete a single custom step (auth)                                   |
+| DELETE | `/steps?publisher=X`            | Bulk-delete all steps owned by a publisher (auth)                    |
+
+Publishing is content-hash idempotent and returns `{ version, changed }`. The auth-gated mutations require `Authorization: Bearer <VEIN_API_KEY>` when that env var is set (see "Auth" in AGENTS.md).
 
 ### 12.3 Runs & Logs
 

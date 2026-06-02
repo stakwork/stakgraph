@@ -1,4 +1,10 @@
 # docker buildx build --platform linux/amd64,linux/arm64 -t repo2graph .
+#
+# NOTE: mcp depends on vein (`file:../vein`), which lives OUTSIDE this build
+# context (`./mcp`). Stage vein's source into the context first so it can be
+# COPY'd and built in-image:
+#     yarn stage-vein   # (from mcp/) — copies ../vein into ./.vein
+# CI does this in .github/workflows/publish-mcp.yml before the build.
 
 # Use an official Node.js runtime as a parent image
 FROM node:22-bookworm-slim
@@ -35,6 +41,16 @@ RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/m
 
 RUN npx -y playwright install-deps
 RUN npx -y playwright install
+
+# Build vein (engine + web UI). mcp consumes it as `file:../vein` and serves
+# its UI under /lab. `.vein` is vein's source staged into this context (see
+# the header note / publish-mcp.yml). Built at /usr/src/vein so that
+# `file:../vein` from /usr/src/app resolves to it. node_modules are dropped
+# after build so mcp's `yarn` provides vein's runtime deps via the shared tree.
+COPY ./.vein /usr/src/vein
+RUN cd /usr/src/vein && npm ci && npm run build && \
+    npm --prefix web ci && npm --prefix web run build && \
+    rm -rf node_modules web/node_modules
 
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json
@@ -103,5 +119,7 @@ EXPOSE 3000
 
 WORKDIR /usr/src/app
 
-# Define the command to run your app
-CMD ["node", "build/index.js"]
+# Define the command to run your app.
+# `--import tsx` registers a TypeScript loader so vein can dynamically import
+# `.ts` custom steps at runtime (the lab seeds steps as TS source).
+CMD ["node", "--import", "tsx", "build/index.js"]

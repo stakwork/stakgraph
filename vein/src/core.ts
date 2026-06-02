@@ -20,6 +20,11 @@ export interface StepDef<
   description?: string;
   input: TInput;
   output: TOutput;
+  /** Optional source code for this step, surfaced by `GET /steps/:type/source`
+   *  and the UI's step viewer. Set by consumers that inject in-code steps via
+   *  `createRegistry([...])` (which have no discoverable on-disk file) so their
+   *  real implementation can still be inspected. */
+  source?: string;
   run: (
     cfg: z.infer<TInput>,
     ctx: StepContext<TServices>,
@@ -65,6 +70,13 @@ export interface Flow {
   name: string;
   input: z.ZodTypeAny;
   steps: Step[];
+  /** Tunable default knobs (prompts, thresholds, sample sizes, …) exposed
+   *  to step configs via `{{ params.* }}`. Distinct from `input`: `input`
+   *  is the per-run subject (validated, no defaults); `params` are the
+   *  experiment surface (all defaults, sparsely overridden per run via
+   *  `RunOptions.params`). Override precedence: run override > these
+   *  defaults. Omit for workflows with no knobs. */
+  params?: Record<string, unknown>;
 }
 
 /** Run event types for the JSONL log. */
@@ -125,6 +137,8 @@ export interface AnyStepDef {
   description?: string;
   input: z.ZodTypeAny;
   output: z.ZodTypeAny;
+  /** Optional source code for in-code steps (see `StepDef.source`). */
+  source?: string;
   run: (cfg: any, ctx: StepContext<any>) => Promise<any>;
 }
 
@@ -202,7 +216,7 @@ export function step(
  */
 export function flow(
   name: string,
-  opts: { input: z.ZodTypeAny; steps: Step[] },
+  opts: { input: z.ZodTypeAny; steps: Step[]; params?: Record<string, unknown> },
 ): Flow {
   // Validate step id uniqueness within this flow
   const ids = new Set<string>();
@@ -214,5 +228,10 @@ export function flow(
     }
     ids.add(s.id);
   }
-  return { name, input: opts.input, steps: opts.steps };
+  return {
+    name,
+    input: opts.input,
+    steps: opts.steps,
+    ...(opts.params != null ? { params: opts.params } : {}),
+  };
 }

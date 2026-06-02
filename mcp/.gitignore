@@ -54,3 +54,8 @@ knowledge-base/
 
 # Async request storage (file-backed instead of in-memory)
 .reqs/
+
+lab-workspace
+
+# Vein source staged into the Docker build context (see Dockerfile / stage-vein)
+.vein/

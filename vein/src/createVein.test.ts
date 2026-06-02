@@ -281,6 +281,53 @@ describe("createVein", () => {
     assert.equal(res.status, 409);
   });
 
+  it("exposes step version endpoints (list / get-version / set-active)", async () => {
+    const vein = await createVein({
+      workspace: new WorkspaceManager(tempDir),
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+    });
+    const headers = { "content-type": "application/json" };
+
+    // Publish v1, then a changed v2 of the same step.
+    const pub1 = await vein.app.request("/steps", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "scorer", code: "// v1" }),
+    });
+    const { version: v1 } = (await pub1.json()) as { version: string };
+    await vein.app.request("/steps", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "scorer", code: "// v2" }),
+    });
+
+    // versions lists both, active is v2
+    const verRes = await vein.app.request("/steps/scorer/versions");
+    assert.equal(verRes.status, 200);
+    const ver = (await verRes.json()) as { active: string; versions: string[] };
+    assert.equal(ver.versions.length, 2);
+    assert.notEqual(ver.active, v1);
+
+    // archived source for v1 is retrievable
+    const srcRes = await vein.app.request(`/steps/scorer/version/${v1}`);
+    assert.equal(srcRes.status, 200);
+    const src = (await srcRes.json()) as { source: string };
+    assert.equal(src.source, "// v1");
+
+    // set active back to v1
+    const actRes = await vein.app.request("/steps/scorer/active", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ version: v1 }),
+    });
+    assert.equal(actRes.status, 200);
+    const ver2Res = await vein.app.request("/steps/scorer/versions");
+    const ver2 = (await ver2Res.json()) as { active: string };
+    assert.equal(ver2.active, v1);
+  });
+
   it("runs a registered workflow over HTTP via SSE", async () => {
     const ws = new WorkspaceManager(tempDir);
     await ws.publishWorkflow("echo-flow", "v1", {

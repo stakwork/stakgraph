@@ -7,7 +7,7 @@ name: bootstrap-then-process
 # subflow always runs (fan-in on `check`), receiving `repoPath` when a
 # clone happened so newly-created concepts can be explored for docs.
 #
-# Input: { owner, repo, token?, lookbackDays?, strategy?, systemPrompt?, guidelines? }
+# Input: { owner, repo, token?, lookbackDays?, strategy? }
 steps:
   - id: check
     type: concepts/is-new-repo
@@ -47,5 +47,3 @@ steps:
         token: "{{ input.token }}"
         repoPath: "{{ clone.repoPath }}"
         strategy: "{{ input.strategy }}"
-        systemPrompt: "{{ input.systemPrompt }}"
-        guidelines: "{{ input.guidelines }}"

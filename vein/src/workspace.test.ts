@@ -167,6 +167,27 @@ describe("WorkspaceManager", () => {
     it("throws for non-existent workflow", async () => {
       await assert.rejects(() => ws.getWorkflow("nope"), /not found/);
     });
+
+    it("round-trips a params block through publish (steps form) and load", async () => {
+      await ws.publishWorkflow("knobs", "v1", {
+        steps: SAMPLE_STEPS,
+        params: { systemPrompt: "be concise", maxFiles: 12 },
+      });
+
+      const flow = await ws.getWorkflow("knobs");
+      assert.deepEqual(flow.params, { systemPrompt: "be concise", maxFiles: 12 });
+
+      // And it's serialized into the on-disk YAML.
+      const src = await ws.getWorkflowSource("knobs", "v1");
+      assert.match(src, /params:/);
+      assert.match(src, /systemPrompt/);
+    });
+
+    it("omits params on the Flow when the workflow declares none", async () => {
+      await ws.publishWorkflow("plain", "v1", { steps: SAMPLE_STEPS });
+      const flow = await ws.getWorkflow("plain");
+      assert.equal(flow.params, undefined);
+    });
   });
 
   // ── getWorkflowSource ─────────────────────────────────────────────────
@@ -248,8 +269,9 @@ describe("WorkspaceManager", () => {
       const meta = JSON.parse(
         await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
       );
-      assert.ok(meta.steps["my-scorer"]);
-      assert.equal(meta.steps["my-scorer"].description, "A custom scorer");
+      const info = meta.steps["my-scorer"];
+      assert.ok(info);
+      assert.equal(info.versions[info.active].description, "A custom scorer");
     });
 
     it("preserves earlier steps when publishing additional ones", async () => {
@@ -263,16 +285,20 @@ describe("WorkspaceManager", () => {
       assert.ok(meta.steps["b"]);
     });
 
-    it("overwrites an existing step with the same name", async () => {
+    it("publishes a new active version when the same name is updated", async () => {
       await ws.publishStep("dupe", "// v1");
       await ws.publishStep("dupe", "// v2", "second version");
 
+      // Flat active file holds the latest content (what the registry loads).
       const code = await readFile(join(tempDir, "steps", "custom", "dupe.ts"), "utf-8");
       assert.equal(code, "// v2");
       const meta = JSON.parse(
         await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
       );
-      assert.equal(meta.steps["dupe"].description, "second version");
+      const info = meta.steps["dupe"];
+      // Both versions retained; active points at the latest.
+      assert.equal(Object.keys(info.versions).length, 2);
+      assert.equal(info.versions[info.active].description, "second version");
     });
 
     it("writes nested step names under subdirectories", async () => {
@@ -292,11 +318,9 @@ describe("WorkspaceManager", () => {
         await readFile(join(tempDir, "steps", "custom", "_metadata.json"), "utf-8"),
       );
       // Full slash-name is the metadata key
-      assert.ok(meta.steps["gitree/save-feature"]);
-      assert.equal(
-        meta.steps["gitree/save-feature"].description,
-        "Persist a Feature",
-      );
+      const info = meta.steps["gitree/save-feature"];
+      assert.ok(info);
+      assert.equal(info.versions[info.active].description, "Persist a Feature");
     });
 
     it("records publisher in metadata when provided", async () => {
@@ -353,6 +377,109 @@ describe("WorkspaceManager", () => {
         () => ws.publishStep("9starts-with-digit", "// nope"),
         /Invalid step name/,
       );
+    });
+  });
+
+  // ── step versioning ──────────────────────────────────────────────────────
+
+  describe("step versioning", () => {
+    it("is idempotent: republishing identical content does not change", async () => {
+      const first = await ws.publishStep("idem", "// same");
+      const second = await ws.publishStep("idem", "// same");
+      assert.equal(first.changed, true);
+      assert.equal(second.changed, false);
+      assert.equal(first.version, second.version);
+
+      const { versions } = await ws.listStepVersions("idem");
+      assert.equal(versions.length, 1);
+    });
+
+    it("uses sequential version labels (v1, v2, …)", async () => {
+      const a = await ws.publishStep("seq", "// content A");
+      const b = await ws.publishStep("seq", "// content B");
+      assert.equal(a.version, "v1");
+      assert.equal(b.version, "v2");
+    });
+
+    it("re-activates an older version (no new version) when content matches", async () => {
+      await ws.publishStep("react", "// one"); // v1
+      await ws.publishStep("react", "// two"); // v2
+      const back = await ws.publishStep("react", "// one"); // matches v1
+      assert.equal(back.version, "v1");
+      assert.equal(back.changed, true);
+      const { active, versions } = await ws.listStepVersions("react");
+      assert.equal(active, "v1");
+      assert.equal(versions.length, 2);
+    });
+
+    it("archives every version under steps/_history/<name>/", async () => {
+      const v1 = await ws.publishStep("arch", "// one");
+      const v2 = await ws.publishStep("arch", "// two");
+
+      const a = await ws.getStepVersionSource("arch", v1.version);
+      const b = await ws.getStepVersionSource("arch", v2.version);
+      assert.equal(a, "// one");
+      assert.equal(b, "// two");
+    });
+
+    it("setActiveStepVersion checks out an older version into the flat file", async () => {
+      const v1 = await ws.publishStep("roll", "// original");
+      await ws.publishStep("roll", "// updated");
+
+      let code = await readFile(join(tempDir, "steps", "custom", "roll.ts"), "utf-8");
+      assert.equal(code, "// updated");
+
+      await ws.setActiveStepVersion("roll", v1.version);
+      code = await readFile(join(tempDir, "steps", "custom", "roll.ts"), "utf-8");
+      assert.equal(code, "// original");
+
+      const { active } = await ws.listStepVersions("roll");
+      assert.equal(active, v1.version);
+    });
+
+    it("setActiveStepVersion throws on an unknown version", async () => {
+      await ws.publishStep("known", "// a");
+      await assert.rejects(
+        () => ws.setActiveStepVersion("known", "c-doesnotexist"),
+        /not found/,
+      );
+    });
+
+    it("deleteStep removes the version archive too", async () => {
+      const v1 = await ws.publishStep("gone", "// bye");
+      assert.equal(await ws.deleteStep("gone"), true);
+      await assert.rejects(
+        () => ws.getStepVersionSource("gone", v1.version),
+        /ENOENT/,
+      );
+    });
+  });
+
+  // ── workflow content-hash publishing ───────────────────────────────────────
+
+  describe("publishWorkflowByContent", () => {
+    const wf = (n: number) =>
+      `name: hashwf\nsteps:\n  - id: s${n}\n    type: log\n    config:\n      message: "v${n}"\n`;
+
+    it("is idempotent for identical content and re-activates known versions", async () => {
+      const a = await ws.publishWorkflowByContent("hashwf", wf(1));
+      const b = await ws.publishWorkflowByContent("hashwf", wf(1));
+      assert.equal(a.changed, true);
+      assert.equal(b.changed, false);
+      assert.equal(a.version, b.version);
+
+      // New content → new active version; both retained.
+      const c = await ws.publishWorkflowByContent("hashwf", wf(2));
+      assert.equal(c.changed, true);
+      assert.notEqual(c.version, a.version);
+
+      // Re-publishing the older content flips active back without a new version.
+      const d = await ws.publishWorkflowByContent("hashwf", wf(1));
+      assert.equal(d.version, a.version);
+      const list = await ws.listWorkflows();
+      const entry = list.find((w) => w.name === "hashwf")!;
+      assert.equal(entry.activeVersion, a.version);
+      assert.equal(entry.versions.length, 2);
     });
   });
 

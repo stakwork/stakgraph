@@ -59,6 +59,8 @@ export const getWorkflowCode = async (name: string, version: string) => {
 export interface FlowDef {
   name: string;
   steps: { id: string; type: string; config: Record<string, any>; options?: any }[];
+  /** Tunable default knobs (prompts, thresholds, …), overridable per run. */
+  params?: Record<string, unknown>;
 }
 
 export const getWorkflowFlow = (name: string) =>
@@ -122,11 +124,15 @@ export async function runWorkflow(
   name: string,
   input: unknown,
   onEvent?: (event: RunEvent) => void,
+  params?: Record<string, unknown>,
 ): Promise<any> {
   const res = await fetch(`${BASE}/workflows/${name}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({
+      input,
+      ...(params && Object.keys(params).length > 0 ? { params } : {}),
+    }),
   });
 
   const reader = res.body?.getReader();
@@ -188,6 +194,15 @@ export interface StepSchemaResponse {
 
 export const getStepSchema = (type: string) =>
   fetchJSON<StepSchemaResponse>(`/steps/${encodeURIComponent(type)}/schema`);
+
+export interface StepSourceResponse {
+  type: string;
+  source: string | null;
+  origin: "registry" | "core" | "lib" | "custom" | null;
+}
+
+export const getStepSource = (type: string) =>
+  fetchJSON<StepSourceResponse>(`/steps/${encodeURIComponent(type)}/source`);
 
 // ── Runs ───────────────────────────────────────────────────────────────────
 

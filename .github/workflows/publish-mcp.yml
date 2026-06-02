@@ -15,6 +15,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Stage vein into the mcp build context
+        # mcp depends on `file:../vein`, which is outside the ./mcp build
+        # context. Copy its source in so the Dockerfile can build it in-image.
+        run: |
+          rm -rf mcp/.vein
+          rsync -a \
+            --exclude node_modules \
+            --exclude web/node_modules \
+            --exclude build \
+            --exclude web/dist \
+            --exclude .git \
+            --exclude .env \
+            --exclude workspace \
+            vein/ mcp/.vein/
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

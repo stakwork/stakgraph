@@ -3,27 +3,37 @@ import { StepData } from "../flow-to-canvas";
 import { formatJson, statusTone } from "../helpers";
 import { CloseIcon } from "../icons";
 import { Markdown, hasMarkdownField } from "./Markdown";
+import { FlyoutResizer } from "./FlyoutResizer";
 import yaml from "js-yaml";
 
+export interface StepRunEvents {
+  start?: api.RunEvent;
+  end?: api.RunEvent;
+  error?: api.RunEvent;
+  skipped?: api.RunEvent;
+  all: api.RunEvent[];
+}
+
 // ── Step Run Results Flyout (read-only) ────────────────────────────────────
+//
+// Shows a step's own I/O. For a leaf step that's input → output; for a
+// container (subflow/foreach/loop) it's the aggregate "summary" (subflow:
+// child input → child result; foreach: items array → results array).
+// Per-child detail is reached by drilling in via the node's arrow.
 
 export function StepRunFlyout(props: {
   step: StepData;
-  events: { start?: api.RunEvent; end?: api.RunEvent; error?: api.RunEvent; skipped?: api.RunEvent; all: api.RunEvent[] };
+  events: StepRunEvents;
   onClose: () => void;
 }) {
-  const { step, events } = props;
-  const status = events.error
-    ? "error"
-    : events.skipped
-      ? "skipped"
-      : events.end
-        ? "success"
-        : "running";
+  const { step } = props;
+  const disp = props.events;
+  const status = disp.error ? "error" : disp.skipped ? "skipped" : disp.end ? "success" : "running";
 
   return (
     <>
       <div class="flyout">
+        <FlyoutResizer />
         <div class="flyout-header">
           <div>
             <div class="flyout-eyebrow">Step Results</div>
@@ -38,31 +48,31 @@ export function StepRunFlyout(props: {
               <span class="flyout-meta-label">Status</span>
               <span class={`badge badge-${statusTone(status)}`}>{status}</span>
             </div>
-            {events.end?.durationMs != null && (
+            {disp.end?.durationMs != null && (
               <div class="flyout-meta-row">
                 <span class="flyout-meta-label">Duration</span>
-                <span class="flyout-meta-value">{events.end.durationMs}ms</span>
+                <span class="flyout-meta-value">{disp.end.durationMs}ms</span>
               </div>
             )}
-            {events.start?.ts && (
+            {disp.start?.ts && (
               <div class="flyout-meta-row">
                 <span class="flyout-meta-label">Started</span>
-                <span class="flyout-meta-value">{new Date(events.start.ts).toLocaleTimeString()}</span>
+                <span class="flyout-meta-value">{new Date(disp.start.ts).toLocaleTimeString()}</span>
               </div>
             )}
           </div>
 
           {/* Input (resolved config) */}
-          {events.start?.input != null && (
+          {disp.start?.input != null && (
             <div class="flyout-section">
               <div class="flyout-section-title">Input (resolved config)</div>
-              <pre class="flyout-json">{formatJson(events.start.input)}</pre>
+              <pre class="flyout-json">{formatJson(disp.start.input)}</pre>
             </div>
           )}
 
           {/* Output */}
-          {events.end?.output != null && (() => {
-            const output = events.end.output;
+          {disp.end?.output != null && (() => {
+            const output = disp.end.output;
             if (hasMarkdownField(output)) {
               const { markdown, ...rest } = output;
               const hasRest = Object.keys(rest).length > 0;
@@ -85,10 +95,10 @@ export function StepRunFlyout(props: {
           })()}
 
           {/* Error */}
-          {events.error?.error != null && (
+          {disp.error?.error != null && (
             <div class="flyout-section">
               <div class="flyout-section-title">Error</div>
-              <pre class="flyout-json tone-error">{formatJson(events.error.error)}</pre>
+              <pre class="flyout-json tone-error">{formatJson(disp.error.error)}</pre>
             </div>
           )}
 

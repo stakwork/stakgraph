@@ -3,6 +3,7 @@ target/
 node_modules
 mcp/node_modules
 mcp/build
+mcp/.vein
 mcp/data
 mcp/local_cache
 mcp/uploads
