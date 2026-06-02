@@ -27,6 +27,7 @@
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
     "refresh-vein": "cd ../vein && npm run build && npm run build:web && cd ../mcp && rm -rf node_modules/vein && yarn install --force",
+    "stage-vein": "rm -rf .vein && rsync -a --exclude node_modules --exclude web/node_modules --exclude build --exclude web/dist --exclude .git --exclude .env --exclude workspace ../vein/ .vein/",
     "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
