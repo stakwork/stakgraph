@@ -98,6 +98,12 @@ been ingested** (stakgraph parse → Neo4j). Without ingestion the run still
 succeeds, but produces 0 `MODIFIES` edges. To exercise linking, ingest the
 same repo first (e.g. via the standalone `/ingest` or mcp's upload flow).
 
-**Known follow-ups** (not blockers for a basic run): prod build doesn't copy
-`concepts/workflows/*.yaml` into `build/` (dev/tsx reads from `src/`, fine);
-`/lab` runs bypass mcp auth (mounted before auth middleware).
+**Build assets:** `seed.ts` locates its templates relative to its own
+compiled module (`import.meta.url`), but `tsc` only emits `.js` — so the
+workflow `*.yaml` templates and the `steps/*.ts` sources (read as text) are
+copied into `build/lab/` by `scripts/copy-lab-assets.mjs`, run after `tsc`
+in the `build` script. Add new lab assets under a `workflows/` (`.yaml`) or
+`steps/` (`.ts`) dir and they're picked up automatically.
+
+**Known follow-ups** (not blockers for a basic run): `/lab` runs bypass mcp
+auth (mounted before auth middleware).

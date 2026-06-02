@@ -23,7 +23,7 @@
   },
   "scripts": {
     "dev": "([ -n \"$CI\" ] || npm run refresh-vein); tsx src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-lab-assets.mjs",
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
     "refresh-vein": "cd ../vein && npm run build && npm run build:web && cd ../mcp && rm -rf node_modules/vein && yarn install --force",
