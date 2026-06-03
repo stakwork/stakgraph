@@ -71,9 +71,12 @@ steps:
 # paramOverrides: { "bootstrap-then-process": { bootstrapPrompt } }.
 # `bootstrapPrompt` uses {slot} placeholders filled at runtime by the step:
 #   {owner} {repo} {size} {fileCount} {min} {max}
-# NB: the `bootstrapPrompt` default below was promoted from a `concepts-optimize`
-# run (gen 1, score 0.96 vs 0.85 seed) — it added an explicit "include media /
-# real-time" section + sharpened infra/agent/eval exclusions.
+# NB: the `bootstrapPrompt` default below was promoted from a multi-repo
+# `concepts-optimize` run (gen 3, mean score 0.92 vs 0.855 seed across the repo
+# cohort) — it broadened "include" to cover orchestration/gateway/service-API
+# capabilities (treated as one cohesive capability, not fragments) and sharpened
+# exclusions for setup/config/bootstrapping, ops/monitoring, and agent-internal
+# tooling (prompt/eval/model-testing) unless they ARE the product.
 params:
   bootstrapSystem: |-
     You are a software architect analyzing a codebase to identify its core features. Use the provided tools to explore the repository structure, read key files (README, entry points, route definitions, main modules), and identify the distinct user-facing capabilities this software provides. Be thorough but focused — read enough to understand what each feature does, but don't try to read every file.
@@ -92,14 +95,33 @@ params:
     - Search, filtering, and discovery
     - Authentication and user management
     - Payment and billing workflows
+    - Core service APIs that enable user interactions
+    - Essential data processing pipelines that deliver user value
+    - Automated quality assurance, testing, and code generation tools that users interact with
+    - Agent orchestration, session management, and gateway services that facilitate user workflows — treat these as architectural-level capabilities, not implementation fragments
+    - Essential backend services that directly power user-facing functionality
+    - Centralized routing, coordination, and management interfaces that users interact with
 
     Do NOT create features for:
-    - Build tooling, CI/CD, or infrastructure
+    - Initial setup, installation, configuration, or workspace bootstrapping
+    - Administrative tooling, monitoring, observability, or operational dashboards
+    - Logging systems, metrics collection, or performance monitoring
+    - Build tooling, CI/CD, or infrastructure deployment
     - Individual utility functions or helpers
     - Code style, linting, or formatting
     - Generic "bug fixes" or "refactoring"
-    - Testing infrastructure (unless it IS the product)
-    - Integration plumbing or API connectors (unless the integration itself is the user value)
+    - Testing infrastructure (unless automated testing IS the user-facing product)
+    - Simple API connectors or integration plumbing (unless the integration workflow itself is the primary user value)
+    - Development environments, compute management, or resource provisioning
+    - Internal evaluation systems, model testing, or administrative controls (unless evaluation/testing IS the core product)
+    - Agent-internal capabilities like prompt management, model evaluation, or workflow testing (unless these are user-facing products themselves)
+    - Speculative or conceptual features that may exist in the future but aren't substantially implemented
+
+    **Key principles**:
+    - Focus on what users DO with the product, not how it's set up, operated, or maintained
+    - Prefer orchestration and coordination capabilities over their constituent parts — if there's a gateway, session manager, or orchestrator, treat it as one cohesive capability rather than breaking it into fragments
+    - Include foundational service components if they directly enable user-facing interactions, but avoid setup/configuration workflows
+    - Avoid inventing features that aren't clearly implemented
 
     For each feature provide:
     - **name**: A clear, non-technical name focusing on user value (no framework/library names)
