@@ -5,7 +5,10 @@ name: concepts-eval
 # bootstrap prompt (in `bootstrap-then-process` params, or via paramOverrides)
 # until the score is high.
 #
-# Input: { owner, repo, token? }
+# Input: { owner, repo, token?, expected? }
+#   expected — per-example gold set; falls back to params.expected when omitted.
+#   This is what lets the multi-repo optimize loop carry a DIFFERENT gold per
+#   repo on each dataset entry (evalInputs: [{ owner, repo, expected }, ...]).
 # Output: { score, recall, precision, missing, spurious, reason, insight, markdown }
 #         (from concepts-eval-score)
 steps:
@@ -39,7 +42,8 @@ steps:
       workflow: concepts-eval-score
       input:
         actual: "{{ produce.markdown }}"
-        expected: "{{ params.expected }}"
+        # Per-example gold (from input) when provided; else the param default.
+        expected: "{{ input.expected ? input.expected : params.expected }}"
 
 # ── params: the expected gold concept set (the dataset, as a param) ──────────
 # Edit this in the Params flyout and Publish to set up the eval; authored in the

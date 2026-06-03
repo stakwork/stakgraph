@@ -61,6 +61,11 @@ Domain-agnostic eval substrate, shared by every experiment. See
 - `eval/steps/optimize.ts` (`eval/optimize`) — the `eval → keep best → reflect`
   loop, run as a single detached "background job" (EVAL_SPEC §8). Runs
   sub-workflows via an injected `services.optimizer` (closure over `vein.run`).
+  Multi-example: takes a dataset (`evalInputs[]`), evals the candidate over
+  every entry per generation and AVERAGES the scores (the overfitting fix,
+  §11.2) — the per-example results array is fed to reflect. Each entry carries
+  its own gold (e.g. `{ owner, repo, expected }`), read by the eval workflow
+  from `input`. A single `evalInput` is still accepted (a 1-entry dataset).
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

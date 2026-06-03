@@ -1,15 +1,21 @@
 name: concepts-optimize
-# Self-improving loop (EVAL_SPEC §7/§11.4) for the concepts bootstrap prompt:
-# repeatedly eval the prompt (via concepts-eval) and reflect a better one (via
-# concepts-eval-reflect), keeping the best. Each generation injects the candidate
-# prompt into bootstrap-then-process via paramOverrides.
+# Self-improving loop (EVAL_SPEC §7/§11.4) for the concepts bootstrap prompt,
+# MULTI-REPO: each generation evals the candidate prompt over the whole `dataset`
+# (via concepts-eval, once per repo), AVERAGES the scores, and reflects a better
+# prompt (via concepts-eval-reflect) from the aggregated per-repo results —
+# keeping the best mean. Averaging across repos is the overfitting fix: the
+# prompt only improves on patterns that recur across repos, not one repo's
+# quirks. Each generation injects the candidate into bootstrap-then-process via
+# paramOverrides (applied to every repo's eval run).
 #
-# Launch DETACHED (§8) — it's a multi-run background job:
-#   RUN=$(curl -s -X POST .../concepts-optimize/run -d '{"input":{"owner":"O","repo":"R"}}' | jq -r .runId)
+# Launch DETACHED (§8) — it's a multi-run background job. No per-repo input now;
+# the repos live in `params.dataset` (edit + Publish to change the cohort):
+#   RUN=$(curl -s -X POST .../concepts-optimize/run -d '{"input":{}}' | jq -r .runId)
 #   curl -N .../concepts-optimize/runs/$RUN/stream
 #
-# Input:  { owner, repo }
-# Output: { bestScore, bestGen, bestPrompt, firstScore, generations }
+# Input:  {} (the cohort is params.dataset)
+# Output: { bestScore (best MEAN across repos), bestGen, bestPrompt, firstScore, generations }
+#         generations[].results = per-repo { label, score, missing, spurious }.
 # Promote a winner by writing bestPrompt into bootstrap-then-process's
 # bootstrapPrompt param default + publishing a new version.
 steps:
@@ -17,17 +23,110 @@ steps:
     type: eval/optimize
     config:
       evalWorkflow: concepts-eval
-      evalInput:
-        owner: "{{ input.owner }}"
-        repo: "{{ input.repo }}"
+      # The dataset: one entry per repo, each carrying its OWN gold (`expected`),
+      # which concepts-eval reads from input. Averaged into the generation score.
+      evalInputs: "{{ params.dataset }}"
       targetWorkflow: bootstrap-then-process
       promptParam: bootstrapPrompt
       reflectWorkflow: concepts-eval-reflect
-      label: "{{ input.owner }}/{{ input.repo }}"
       maxGenerations: "{{ params.maxGenerations }}"
       threshold: "{{ params.threshold }}"
 
-# ── params: the loop's stopping knobs (the experiment surface) ──────────────
+# ── params: the cohort (dataset) + the loop's stopping knobs ────────────────
+# `dataset` is the experiment surface for multi-repo. Each entry: { owner, repo,
+# token?, expected }. `expected` is the per-repo gold concept set (markdown, same
+# shape `collect-for-eval` emits; scoring is semantic so wording/counts are
+# loose). `label` is optional (defaults to owner/repo) and only labels the digest.
+# Fill in all 5 repos + their golds before running.
 params:
   maxGenerations: 5
   threshold: 0.9
+  dataset:
+    - owner: stakwork
+      repo: hive
+      expected: |-
+        # Concepts: stakwork/hive
+
+        ## AI-assisted code generation
+
+        Users can create feature plans and coding tasks, and chat with AI agents who help them implement the tasks.
+
+        ## Github Integration
+
+        User can sign in with github, and also connect a Github App to their repos, to process and create PRs for them.
+
+        ## Knowledge Graph
+
+        A detailed knowledge graph of code and higher-level Concepts is created for each workspace, and users can chat with the graph to learn about the codebase and the concepts.
+
+        ## AI Chat & Codebase Assistant
+
+        An AI chat assistant is available, that can do deep research into codebases and knowledge graphs in order to answer complex questions.
+
+        ## Org Canvas
+
+        An interactive canvas whiteboard of the organzation, allowing users + LLMs to create a mind-map of the organization, with concepts and links between them.
+
+        ## Automatied code quality and test generation janitors
+
+        Automated code quality and test generation janitors can suggest and generate test cases and optimizationsfor code.
+
+        ## Feature Planning & Roadmap
+
+        Users can create feature plans and roadmap, with a conversational AI assistant who can research the codebase and wider context.
+
+        ## Call Recording & Voice
+
+        Calls are recorded and transcribed, and can be viewed after the fact. Also real-time voice integration with the AI assistant.
+
+        ## Collaborative Whiteboards
+
+        Collaborative whiteboards allow users to create and share diagrams, mind maps, and other visualizations with their team.
+
+        ## Workflow Automation
+
+        Workflow assistant can help you construct and edit workflows, to build sophisticated processes automating diverse tasks.
+    - owner: stakwork
+      repo: stakgraph
+      expected: |-
+        # Concepts: stakwork/stakraph
+
+        ## Code syntax tree
+
+        Software is parsed with tree-sitter AST to create a knowledge graph of the codebase, with nodes and edges representing functions, classes, endpoints, data models, tests, and their relationships.
+
+        ## Structured knowledge graph
+
+        Software project Concepts are created on top of the code syntax tree, documenting the core capabilites of the project.
+
+        ## MCP Server for AI Agents
+
+        MCP tools to allow AI agents to explore, search, and understand a codebase.
+
+        ## Repo Agent
+
+        A built-in code exploration agent that is very customisable, allowing users to define the tools, sub-agents, external MCP servers, etc.
+
+        ## AI Agent Gateway
+
+        AI Agent gateway between applications and LLM providers, enabling bugeting, rate limiting, and provider selection.
+
+        ## Stakgraph CLI
+
+        CLI for parsing files and directories into LLM-ready textual summaries of the core capabilities in a piece of code.
+
+        ## Vein Workflow Engine
+
+        Dynamic workflow engine that can be edited and executed directly by an AI Agent Assistant.
+
+        ## Logs Agent
+
+        Agent that can search and filter through logs to find relevant information.
+
+        ## AI Agents session management and UI
+
+        Session management and UI for AI Agents, allowing users to view details of past sessions.
+
+        ## Standalone repo analyzer
+
+        Standalone HTTP server (Rust) that exposes the AST and knowledge graph of a repository.

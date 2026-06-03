@@ -22,9 +22,13 @@ import { z, defineStep, type RunEvent } from "vein";
  * `createLabVein`. Each eval/reflect is its own `vein.run`, because the
  * candidate prompt varies per generation via `paramOverrides` (run-global).
  *
- * Single-example for now: `results` passed to reflect has one entry. Multi-
- * example (the real overfitting fix, §11.2) = loop the eval over a dataset of
- * `evalInput`s and pass the aggregate array — reflect already accepts it.
+ * MULTI-EXAMPLE (the real overfitting fix, §11.2): a generation evals the
+ * candidate over a DATASET of inputs (`evalInputs`, e.g. 5 repos), AVERAGES the
+ * per-example scores into the generation score, and passes the full per-example
+ * array to reflect (which already aggregates — it optimizes for the common
+ * failure modes, not one example's quirks). A single `evalInput` still works (a
+ * 1-example dataset). Each example's own gold set rides on its dataset entry
+ * (e.g. `{ owner, repo, expected }`) — the eval workflow reads it from `input`.
  */
 
 interface EvalOutput {
@@ -58,20 +62,30 @@ interface Optimizer {
   getParams(name: string): Promise<Record<string, unknown>>;
 }
 
+/** Derive a human label for a dataset entry (for the reflect digest + run refs):
+ *  explicit `label`, else `owner/repo`, else its position. */
+function labelFor(datum: unknown, fallback: string | undefined, i: number): string {
+  const d = (datum ?? {}) as Record<string, unknown>;
+  if (typeof d["label"] === "string" && d["label"].trim()) return d["label"];
+  if (typeof d["owner"] === "string" && typeof d["repo"] === "string") return `${d["owner"]}/${d["repo"]}`;
+  return fallback ?? `example ${i + 1}`;
+}
+
 export default defineStep({
   type: "eval/optimize",
   description:
-    "Generic self-improving loop: eval the candidate prompt → keep best → reflect a better one → repeat until score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInput, targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value), label?. Output: { bestScore, bestGen, bestPrompt, firstScore, generations }.",
+    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset — or legacy single `evalInput`), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value), label? (legacy single-example label). Output: { bestScore, bestGen, bestPrompt, firstScore, generations }.",
   input: z.object({
     evalWorkflow: z.string().describe("workflow that scores a candidate; output must have { score, missing, spurious, insight }"),
-    evalInput: z.any().describe("input passed to evalWorkflow each generation (e.g. { owner, repo })"),
+    evalInputs: z.array(z.any()).optional().describe("the dataset: inputs evaluated each generation and averaged (e.g. [{ owner, repo, expected }, ...]). Each entry's gold rides on the entry."),
+    evalInput: z.any().optional().describe("legacy single example (equivalent to a 1-entry evalInputs)"),
     targetWorkflow: z.string().describe("workflow whose param is being tuned"),
     promptParam: z.string().describe("the param on targetWorkflow to tune (overridden per generation via paramOverrides)"),
     reflectWorkflow: z.string().describe("workflow that proposes the next prompt; output must have { prompt }"),
     maxGenerations: z.number().int().positive().default(5),
     threshold: z.number().min(0).max(1).default(0.9),
     prompt: z.string().optional().describe("starting candidate; defaults to targetWorkflow's current promptParam value"),
-    label: z.string().optional().describe("label for this example in the reflect digest"),
+    label: z.string().optional().describe("label for the legacy single example in the reflect digest"),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -90,13 +104,34 @@ export default defineStep({
       );
     }
 
-    const generations: Array<{
-      gen: number;
+    // The dataset: prefer `evalInputs` (multi-example), fall back to the legacy
+    // single `evalInput`. A generation evals the candidate over EVERY entry and
+    // averages — that mean is the generation's score (the overfitting fix).
+    const dataset: unknown[] =
+      cfg.evalInputs && cfg.evalInputs.length
+        ? cfg.evalInputs
+        : cfg.evalInput != null
+          ? [cfg.evalInput]
+          : [];
+    if (!dataset.length) {
+      throw new Error("eval/optimize needs a non-empty `evalInputs` (or legacy `evalInput`).");
+    }
+
+    // One per-example score for a generation.
+    interface ExampleResult {
+      label: string;
       score: number;
-      prompt: string;
       missing: string[];
       spurious: string[];
+      insight?: string;
       evalRunId: string;
+    }
+
+    const generations: Array<{
+      gen: number;
+      score: number; // mean across the dataset
+      prompt: string;
+      results: ExampleResult[];
     }> = [];
     let best = { gen: -1, prompt: candidate, score: -1 };
 
@@ -129,37 +164,72 @@ export default defineStep({
       });
 
       try {
-        // ── eval the current candidate ────────────────────────────────────
-        const evalRun = await opt.run(cfg.evalWorkflow, cfg.evalInput ?? {}, {
-          paramOverrides: { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } },
-        });
-        if (evalRun.status !== "success") {
-          throw new Error(`eval run failed: ${evalRun.error?.message ?? "unknown"}`);
-        }
-        const out = (evalRun.output ?? {}) as EvalOutput;
-        const score = out.score ?? 0;
-        const missing = out.missing ?? [];
-        const spurious = out.spurious ?? [];
-        // `evalRunId` links this generation to its full eval run (which nests
-        // the bootstrap-then-process subflow — i.e. the bootstrap logs).
-        generations.push({ gen, score, prompt: candidate, missing, spurious, evalRunId: evalRun.runId });
+        // ── eval the current candidate over the WHOLE dataset ─────────────
+        // Each example is its own run (so its own gold + logs); the candidate
+        // prompt is injected into all of them via the same paramOverrides.
+        const paramOverrides = { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } };
+        const evalRuns = await Promise.all(
+          dataset.map((datum, i) =>
+            opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides }).then((run) => {
+              if (run.status !== "success") {
+                throw new Error(`eval run for "${labelFor(datum, cfg.label, i)}" failed: ${run.error?.message ?? "unknown"}`);
+              }
+              const out = (run.output ?? {}) as EvalOutput;
+              const result: ExampleResult = {
+                label: labelFor(datum, cfg.label, i),
+                score: out.score ?? 0,
+                missing: out.missing ?? [],
+                spurious: out.spurious ?? [],
+                insight: out.insight,
+                evalRunId: run.runId,
+              };
+              return result;
+            }),
+          ),
+        );
+
+        // The generation score = MEAN across the dataset (the overfitting fix).
+        const score = evalRuns.reduce((s, r) => s + r.score, 0) / evalRuns.length;
+        // `evalRunId` per example links to its full eval run (which nests the
+        // bootstrap-then-process subflow — i.e. the bootstrap logs).
+        generations.push({ gen, score, prompt: candidate, results: evalRuns });
 
         if (score > best.score) best = { gen, prompt: candidate, score };
 
-        const evalRef: RunRef = { label: "eval run", workflow: cfg.evalWorkflow, runId: evalRun.runId };
+        // One run ref per example so the UI can open each generation's evals.
+        const runs: RunRef[] = evalRuns.map((r) => ({
+          label: `eval: ${r.label}`,
+          workflow: cfg.evalWorkflow,
+          runId: r.evalRunId,
+        }));
         await emitGen(gen, {
           type: "step.end",
           durationMs: Date.now() - genStart,
-          output: { gen, score, bestScore: best.score, bestGen: best.gen, missing, spurious, runs: [evalRef] },
+          output: {
+            gen,
+            score,
+            bestScore: best.score,
+            bestGen: best.gen,
+            results: evalRuns.map((r) => ({ label: r.label, score: r.score, missing: r.missing, spurious: r.spurious })),
+            runs,
+          },
         });
 
         // "until it's satisfied": stop once good enough, or on the last generation.
         if (score >= cfg.threshold || gen === cfg.maxGenerations - 1) break;
 
-        // ── reflect → next candidate (generalizing across the dataset) ─────
+        // ── reflect → next candidate (generalizing ACROSS the dataset) ─────
+        // Pass the full per-example array so reflect optimizes for the COMMON
+        // failure modes, not one example's quirks.
         const reflectRun = await opt.run(cfg.reflectWorkflow, {
           prompt: candidate,
-          results: [{ label: cfg.label, score, missing, spurious, insight: out.insight }],
+          results: evalRuns.map((r) => ({
+            label: r.label,
+            score: r.score,
+            missing: r.missing,
+            spurious: r.spurious,
+            insight: r.insight,
+          })),
         });
         if (reflectRun.status !== "success") {
           throw new Error(`reflect run failed: ${reflectRun.error?.message ?? "unknown"}`);
