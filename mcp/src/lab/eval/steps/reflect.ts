@@ -45,6 +45,18 @@ interface Proposal {
   prompt: string;
 }
 
+/** Explicit shape of a `results[]` entry — annotated so the aggregation
+ *  callbacks below don't depend on zod inference flowing through
+ *  `defineStep` (which widens to `any` when vein is consumed as built
+ *  `.d.ts` rather than raw `.ts`, tripping noImplicitAny in the prod build). */
+interface Result {
+  label?: string;
+  score?: number;
+  missing: string[];
+  spurious: string[];
+  insight?: string;
+}
+
 export default defineStep({
   type: "eval/reflect",
   description:
@@ -80,10 +92,12 @@ export default defineStep({
         throw new Error(`Unknown LLM provider: "${provider}". Supported: anthropic, openai`);
     }
 
+    const results = cfg.results as Result[];
+
     // Aggregate the dataset into a compact, labeled digest so the model
     // optimizes for the COMMON failure modes, not one example's quirks.
-    const digest = cfg.results
-      .map((r, i) => {
+    const digest = results
+      .map((r: Result, i: number) => {
         const tag = r.label ?? `example ${i + 1}`;
         const score = r.score != null ? ` (score ${r.score})` : "";
         const missing = r.missing.length ? `\n  missing:  ${r.missing.join(", ")}` : "";
@@ -94,8 +108,8 @@ export default defineStep({
       .join("\n");
 
     const meanScore =
-      cfg.results.length && cfg.results.every((r) => r.score != null)
-        ? cfg.results.reduce((s, r) => s + (r.score ?? 0), 0) / cfg.results.length
+      results.length && results.every((r: Result) => r.score != null)
+        ? results.reduce((s: number, r: Result) => s + (r.score ?? 0), 0) / results.length
         : undefined;
 
     const prompt = `You are optimizing a PROMPT. ${cfg.task ?? "The prompt produces a set of items that we score against a gold set for recall (did we recover the real items?) and precision (did we avoid noise?)."}
