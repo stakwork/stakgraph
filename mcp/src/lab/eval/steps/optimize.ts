@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep, type RunEvent } from "vein";
 
 /**
  * GENERIC self-improving LOOP (EVAL_SPEC §7/§11.4). Runs the optimize cycle as a
@@ -90,37 +90,79 @@ export default defineStep({
     }> = [];
     let best = { gen: -1, prompt: candidate, score: -1 };
 
+    // Per-generation progress is emitted under a synthetic `<path>#<gen>` path
+    // (the loop runs inside one step, so generations aren't real runner events).
+    // These show up live as rows in the Events panel and persist to the log, so
+    // you can watch the individual tries — and reattach to them — mid-run.
+    const emitGen = (gen: number, e: Partial<RunEvent> & { type: RunEvent["type"] }) =>
+      ctx.emit({
+        ts: new Date().toISOString(),
+        runId: ctx.runId,
+        path: `${ctx.path}#${gen}`,
+        stepType: "eval/optimize",
+        iteration: gen,
+        ...e,
+      });
+
+    // Why the current candidate looks the way it does (the prior reflect's
+    // rationale). Surfaced in each generation's start so you can read the
+    // prompt's evolution try-by-try. Undefined for gen 0 (the seed prompt).
+    let rationale: string | undefined;
+
     for (let gen = 0; gen < cfg.maxGenerations; gen++) {
-      // ── eval the current candidate ──────────────────────────────────────
-      const evalRun = await opt.run(cfg.evalWorkflow, cfg.evalInput ?? {}, {
-        paramOverrides: { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } },
-      });
-      if (evalRun.status !== "success") {
-        throw new Error(`eval run (gen ${gen}) failed: ${evalRun.error?.message ?? "unknown"}`);
-      }
-      const out = (evalRun.output ?? {}) as EvalOutput;
-      const score = out.score ?? 0;
-      const missing = out.missing ?? [];
-      const spurious = out.spurious ?? [];
-      generations.push({ gen, score, prompt: candidate, missing, spurious });
+      const genStart = Date.now();
+      await emitGen(gen, { type: "step.start", input: { gen, prompt: candidate, rationale } });
 
-      if (score > best.score) best = { gen, prompt: candidate, score };
-      // "until it's satisfied": stop once good enough, or on the last generation.
-      if (score >= cfg.threshold || gen === cfg.maxGenerations - 1) break;
+      try {
+        // ── eval the current candidate ────────────────────────────────────
+        const evalRun = await opt.run(cfg.evalWorkflow, cfg.evalInput ?? {}, {
+          paramOverrides: { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } },
+        });
+        if (evalRun.status !== "success") {
+          throw new Error(`eval run failed: ${evalRun.error?.message ?? "unknown"}`);
+        }
+        const out = (evalRun.output ?? {}) as EvalOutput;
+        const score = out.score ?? 0;
+        const missing = out.missing ?? [];
+        const spurious = out.spurious ?? [];
+        generations.push({ gen, score, prompt: candidate, missing, spurious });
 
-      // ── reflect → next candidate (generalizing across the dataset) ───────
-      const reflectRun = await opt.run(cfg.reflectWorkflow, {
-        prompt: candidate,
-        results: [{ label: cfg.label, score, missing, spurious, insight: out.insight }],
-      });
-      if (reflectRun.status !== "success") {
-        throw new Error(`reflect run (gen ${gen}) failed: ${reflectRun.error?.message ?? "unknown"}`);
+        if (score > best.score) best = { gen, prompt: candidate, score };
+
+        await emitGen(gen, {
+          type: "step.end",
+          durationMs: Date.now() - genStart,
+          output: { gen, score, bestScore: best.score, bestGen: best.gen, missing, spurious },
+        });
+
+        // "until it's satisfied": stop once good enough, or on the last generation.
+        if (score >= cfg.threshold || gen === cfg.maxGenerations - 1) break;
+
+        // ── reflect → next candidate (generalizing across the dataset) ─────
+        const reflectRun = await opt.run(cfg.reflectWorkflow, {
+          prompt: candidate,
+          results: [{ label: cfg.label, score, missing, spurious, insight: out.insight }],
+        });
+        if (reflectRun.status !== "success") {
+          throw new Error(`reflect run failed: ${reflectRun.error?.message ?? "unknown"}`);
+        }
+        const proposal = reflectRun.output as { prompt?: string; rationale?: string } | undefined;
+        if (typeof proposal?.prompt !== "string" || !proposal.prompt.trim()) {
+          throw new Error(`reflect returned no prompt`);
+        }
+        candidate = proposal.prompt;
+        rationale = proposal.rationale;
+      } catch (err) {
+        // Log the failure on THIS generation's row before bubbling up, so a
+        // failed try is visible in the panel (not just the outer step error).
+        const message = err instanceof Error ? err.message : String(err);
+        await emitGen(gen, {
+          type: "step.error",
+          durationMs: Date.now() - genStart,
+          error: { message: `gen ${gen}: ${message}` },
+        });
+        throw err;
       }
-      const next = (reflectRun.output as { prompt?: string } | undefined)?.prompt;
-      if (typeof next !== "string" || !next.trim()) {
-        throw new Error(`reflect (gen ${gen}) returned no prompt`);
-      }
-      candidate = next;
     }
 
     return {
