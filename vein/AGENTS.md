@@ -31,7 +31,7 @@ vein/
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore
 │   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
-│   ├── createVein.ts      # createVein() factory: Hono HTTP API + SSE run streaming + /chat + static serving; injectable registry/store/services
+│   ├── createVein.ts      # createVein() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + /chat + static serving; injectable registry/store/services
 │   ├── server.ts          # thin wrapper over createVein() (getApp/startServer) — default filesystem-backed server
 │   ├── auth.ts            # requireApiKey middleware + warnIfUnconfigured (VEIN_API_KEY shared secret)
 │   ├── index.ts           # barrel export — createVein (primary entry), createRegistry, coreRegistry, all types
@@ -249,6 +249,34 @@ later without breaking this contract — they'd be additive env vars
   `workflows/<name>/runs/<runId>/`. Run IDs are millisecond
   timestamps (not UUIDs) for natural sort order and easy
   pagination. Listing runs for a workflow is a single `readdir`.
+
+- **Runs launch detached; viewing is reattach-by-tail** (the
+  background-job model, `EVAL_SPEC.md` §8). `POST /workflows/:name/run`
+  (and `/:version/run`) does **not** stream — it kicks off
+  `runWorkflow` **without awaiting it in the request** (`launchDetached`
+  in `createVein.ts`) and returns `{ runId }` (202) immediately. The
+  run executes server-side and persists every event to the
+  append-only `events.jsonl`; its liveness is decoupled from any
+  connection (closing the client, proxy timeouts, etc. can't kill it).
+  To watch a run — live **or** after it finished — open
+  `GET /workflows/:name/runs/:runId/stream` (SSE). That endpoint calls
+  `FileRunStore.tailEvents`, which **tails the events file**: replay
+  from byte offset 0 → EOF (history), then follow appends (polling
+  `intervalMs`, default 250ms) until the terminal event
+  (`run.end`/`run.error`), then sends a final `done` carrying the
+  RunResult. Because the append-only log is the ordered source of
+  truth, the history→live join is **race-free** (read to EOF, follow
+  from EOF — no sequence numbers, no dedupe), and **one code path
+  serves completed and in-flight runs**. Pass an `AbortSignal` (wired
+  to `stream.onAbort` on client disconnect) to stop the tail early.
+  Streaming requires a `FileRunStore` (the tail reads the file);
+  `MemoryRunStore` runs still launch but the stream endpoint returns
+  501. **Crash caveat:** in-flight *execution* is in-memory, so a
+  crash mid-run loses the remaining work (the log up to the crash
+  survives); true resume is a later add. The web UI's
+  `api.runWorkflow` hides the two steps — it POSTs to launch, then
+  `streamRun(name, runId)` reattaches to the tail — so callers see the
+  same `(onEvent, → RunResult)` interface as before.
 
 - **`RunStore.append/finalize`** take `(workflow, runId, ...)`
   — the workflow name is the first param. `MemoryRunStore` keys

@@ -10,7 +10,7 @@ import { createVein } from "./createVein.js";
 import { createRegistry } from "./steps/registry.js";
 import { defineStep, flow, step } from "./core.js";
 import { WorkspaceManager } from "./workspace.js";
-import { MemoryRunStore } from "./store.js";
+import { MemoryRunStore, FileRunStore } from "./store.js";
 
 // ── createRegistry ─────────────────────────────────────────────────────────
 
@@ -328,14 +328,14 @@ describe("createVein", () => {
     assert.equal(ver2.active, v1);
   });
 
-  it("runs a registered workflow over HTTP via SSE", async () => {
+  it("launches a run detached over HTTP, returning a runId immediately", async () => {
     const ws = new WorkspaceManager(tempDir);
     await ws.publishWorkflow("echo-flow", "v1", {
       steps: [{ id: "g", type: "log", config: { message: "hi" } }],
     });
     const vein = await createVein({
       workspace: ws,
-      store: new MemoryRunStore(),
+      store: new FileRunStore(tempDir),
       serveUi: false,
       enableChat: false,
     });
@@ -344,11 +344,77 @@ describe("createVein", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ input: {} }),
     });
+    // Detached: 202 + { runId }, no streamed body.
+    assert.equal(res.status, 202);
+    const { runId } = (await res.json()) as { runId: string };
+    assert.ok(runId, "should return a runId");
+    // Drain to completion so the background writes settle before teardown.
+    const drain = await vein.app.request(`/workflows/echo-flow/runs/${runId}/stream`);
+    await drain.text();
+  });
+
+  it("reattaches to a run via SSE tail (history + final done)", async () => {
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishWorkflow("echo-flow", "v1", {
+      steps: [{ id: "g", type: "log", config: { message: "hi" } }],
+    });
+    const vein = await createVein({
+      workspace: ws,
+      store: new FileRunStore(tempDir),
+      serveUi: false,
+      enableChat: false,
+    });
+
+    // Launch detached, then tail its log to completion.
+    const launch = await vein.app.request("/workflows/echo-flow/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: {} }),
+    });
+    const { runId } = (await launch.json()) as { runId: string };
+
+    const res = await vein.app.request(`/workflows/echo-flow/runs/${runId}/stream`);
     assert.equal(res.status, 200);
     const text = await res.text();
-    // SSE stream contains at least one event and a final done event.
+    assert.ok(text.includes("run.start"), "replays history");
+    assert.ok(text.includes("run.end"), "follows to the terminal event");
+    assert.ok(text.includes("event: done"), "sends a final done with the result");
+  });
+
+  it("streams a run reattached after it already finished", async () => {
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishWorkflow("echo-flow", "v1", {
+      steps: [{ id: "g", type: "log", config: { message: "hi" } }],
+    });
+    const vein = await createVein({
+      workspace: ws,
+      store: new FileRunStore(tempDir),
+      serveUi: false,
+      enableChat: false,
+    });
+
+    // Run to completion *first* (so the log is fully written), then attach.
+    const result = await vein.run("echo-flow", {});
+    assert.equal(result.status, "success");
+
+    const res = await vein.app.request(
+      `/workflows/echo-flow/runs/${result.runId}/stream`,
+    );
+    assert.equal(res.status, 200);
+    const text = await res.text();
     assert.ok(text.includes("run.start"));
     assert.ok(text.includes("event: done"));
+  });
+
+  it("refuses run streaming when the store is not a FileRunStore", async () => {
+    const vein = await createVein({
+      workspace: new WorkspaceManager(tempDir),
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+    });
+    const res = await vein.app.request("/workflows/x/runs/123/stream");
+    assert.equal(res.status, 501);
   });
 
   it("rebuildRegistry is a no-op when the registry was injected", async () => {

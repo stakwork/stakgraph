@@ -1,0 +1,40 @@
+name: concepts-eval-score
+# Concept-specific scorer: wraps the generic `eval/score` step with the CONCEPT
+# rubric (the matching criteria for software Concepts). Score a produced concept
+# set against an expected gold set; the step computes the numeric score.
+#
+# Input:  { actual, expected }
+# Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }
+steps:
+  - id: judge
+    type: eval/score
+    config:
+      actual: "{{ input.actual }}"
+      expected: "{{ input.expected }}"
+      # The rubric (matching criteria) lives in this workflow's `params` block
+      # below. Swap it per run via POST /run { params: { rubric } }, or edit the
+      # default to retune the measuring stick.
+      rubric: "{{ params.rubric }}"
+      # Optionally override the judge model (e.g. a stronger model for scoring):
+      # model: claude-opus-4-20250514
+
+# ── params: the rubric (the concept-specific matching criteria) ─────────────
+# The step does the scoring math (recall-weighted F-beta); this tells the judge
+# HOW to decide what counts as a match / what's spurious for software Concepts.
+params:
+  rubric: |-
+    You are matching a PRODUCED set of software Concepts against an EXPECTED gold
+    set. Each Concept is a user-facing capability or business feature (a name +
+    description). The goal is to recover the repo's core user-facing capabilities.
+
+    Matching rules:
+    - Match by CAPABILITY, semantically — not by exact wording. "Real-time Chat",
+      "Messaging", and "Live Chat" are the same capability. A poorly-named
+      produced concept (e.g. "Pusher WebSockets") still MATCHES "Real-time Chat"
+      if it clearly covers that capability — note the weak naming in `reason`.
+    - A produced concept is SPURIOUS if it is not a real user-facing capability
+      (infrastructure, generic UI, build tooling), is over-granular (a slice of a
+      larger capability already matched), or simply isn't in the expected set.
+    - Prefer recall: it is more important to cover every expected capability than
+      to be perfectly clean. Surface the MISSING capabilities clearly — those are
+      what the workflow needs to learn to find.

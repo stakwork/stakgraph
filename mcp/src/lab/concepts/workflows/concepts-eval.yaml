@@ -1,0 +1,90 @@
+name: concepts-eval
+# Bootstrap-only eval HARNESS for the concepts experiment: produce a repo's
+# Concept set from JUST the bootstrap agent (lookbackDays: 0 → no PR/commit
+# processing), then score it against an expected gold set. Iterate on the
+# bootstrap prompt (in `bootstrap-then-process` params, or via paramOverrides)
+# until the score is high.
+#
+# Input: { owner, repo, token? }
+# Output: { score, recall, precision, missing, spurious, reason, insight, markdown }
+#         (from concepts-eval-score)
+steps:
+  # 1. Clear existing concepts so bootstrap re-runs fresh (the is-new-repo gate
+  #    only bootstraps an empty repo).
+  - id: reset
+    type: concepts/reset-repo
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+
+  # 2. Produce concepts via the full pipeline, but lookbackDays: 0 makes the
+  #    checkpoint "now" so no PRs/commits are processed — bootstrap only.
+  #    Tune the bootstrap prompt via bootstrap-then-process's `params`, or per
+  #    run via paramOverrides: { "bootstrap-then-process": { bootstrapPrompt } }.
+  - id: produce
+    type: subflow
+    config:
+      workflow: bootstrap-then-process
+      input:
+        owner: "{{ input.owner }}"
+        repo: "{{ input.repo }}"
+        token: "{{ input.token }}"
+        lookbackDays: 0
+    # subflow output = bootstrap-then-process's `result` = { count, concepts, markdown }
+
+  # 3. Score the produced concept set against the expected gold (a param).
+  - id: score
+    type: subflow
+    config:
+      workflow: concepts-eval-score
+      input:
+        actual: "{{ produce.markdown }}"
+        expected: "{{ params.expected }}"
+
+# ── params: the expected gold concept set (the dataset, as a param) ──────────
+# Edit this in the Params flyout and Publish to set up the eval; authored in the
+# same markdown shape `collect-for-eval` emits (scoring is semantic, so counts
+# and exact wording don't need to match).
+params:
+  expected: |-
+    # Concepts: owner/repo
+
+    ## AI-assisted code generation
+
+    Users can create feature plans and coding tasks, and chat with AI agents who help them implement the tasks.
+
+    ## Github Integration
+
+    User can sign in with github, and also connect a Github App to their repos, to process and create PRs for them.
+
+    ## Knowledge Graph
+
+    A detailed knowledge graph of code and higher-level Concepts is created for each workspace, and users can chat with the graph to learn about the codebase and the concepts.
+
+    ## AI Chat & Codebase Assistant
+
+    An AI chat assistant is available, that can do deep research into codebases and knowledge graphs in order to answer complex questions.
+
+    ## Org Canvas
+
+    An interactive canvas whiteboard of the organzation, allowing users + LLMs to create a mind-map of the organization, with concepts and links between them.
+
+    ## Automatied code quality and test generation janitors
+
+    Automated code quality and test generation janitors can suggest and generate test cases and optimizationsfor code.
+
+    ## Feature Planning & Roadmap
+
+    Users can create feature plans and roadmap, with a conversational AI assistant who can research the codebase and wider context.
+
+    ## Call Recording & Voice
+
+    Calls are recorded and transcribed, and can be viewed after the fact. Also real-time voice integration with the AI assistant.
+
+    ## Collaborative Whiteboards
+
+    Collaborative whiteboards allow users to create and share diagrams, mind maps, and other visualizations with their team.
+
+    ## Workflow Automation
+
+    Workflow assistant can help you construct and edit workflows, to build sophisticated processes automating diverse tasks.

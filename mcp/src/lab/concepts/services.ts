@@ -34,11 +34,14 @@ export interface ConceptServices {
   clone(owner: string, repo: string, token?: string): Promise<string>;
 
   /** Agentically explore a fresh clone to seed initial concepts and set the
-   *  checkpoint to a recent lookback window. */
+   *  checkpoint to a recent lookback window. The prompt (`system` + `template`)
+   *  is the experiment surface — supplied by the workflow's `params` via the
+   *  `concepts/bootstrap-explore` step, not baked into the service. */
   bootstrap(
     owner: string,
     repo: string,
     repoPath: string,
+    promptConfig: { system: string; template: string },
     lookbackDays?: number,
   ): Promise<{ concepts: Concept[]; usage: Usage }>;
 
@@ -104,13 +107,14 @@ export async function buildConceptServices(
       );
     },
 
-    async bootstrap(owner, repo, repoPath, lookbackDays) {
+    async bootstrap(owner, repo, repoPath, promptConfig, lookbackDays) {
       const { bootstrapConcepts } = await import("./bootstrap.js");
       const result = await bootstrapConcepts(
         owner,
         repo,
         repoPath,
         storage,
+        promptConfig,
         undefined,
         lookbackDays,
       );

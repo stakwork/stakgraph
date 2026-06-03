@@ -2,6 +2,7 @@ import {
   createVein,
   WorkspaceManager,
   type Vein,
+  type RunResult,
 } from "vein";
 import {
   buildConceptServices,
@@ -9,6 +10,22 @@ import {
   type BuildServicesOptions,
 } from "./concepts/services.js";
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
+import { seedEvalSteps } from "./eval/seed.js";
+
+/**
+ * Lets a step run other workflows (and read their params) from inside a run —
+ * the `eval/optimize` loop uses this to eval/reflect across generations. A leaf
+ * step has no runner of its own, so we hand it a closure over `vein.run`. Set
+ * AFTER the vein is built (it closes over the instance); see `createLabVein`.
+ */
+export interface OptimizerCapability {
+  run(
+    name: string,
+    input: unknown,
+    opts?: { paramOverrides?: Record<string, Record<string, unknown>> },
+  ): Promise<RunResult>;
+  getParams(name: string): Promise<Record<string, unknown>>;
+}
 
 /**
  * The merged capabilities bag for ALL lab experiments. Each experiment's
@@ -16,7 +33,10 @@ import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
  * untyped at runtime), so a single merged bag serves every experiment.
  * Extend this as experiments are added.
  */
-export interface LabServices extends ConceptServices {}
+export interface LabServices extends ConceptServices {
+  /** Run-sub-workflows capability for the optimize loop. Injected post-build. */
+  optimizer?: OptimizerCapability;
+}
 
 export interface CreateLabVeinOptions extends BuildServicesOptions {
   /** Pre-built merged services bag. If omitted, built from env. */
@@ -61,6 +81,10 @@ export async function createLabVein(
   // vein API/UI. No `registry` is passed, so createVein discovers core + lib +
   // these custom steps from `workspace.path` (and step publishing is enabled).
   const workspace = new WorkspaceManager(workspacePath);
+  // Generic, domain-agnostic eval primitives (steps). The concept-specific eval
+  // WORKFLOWS that wire them (concepts-eval*) are seeded with the concepts
+  // experiment below.
+  await seedEvalSteps(workspace);
   await seedConceptWorkflows(workspace);
   await seedConceptSteps(workspace);
 
@@ -69,6 +93,14 @@ export async function createLabVein(
     services,
     serveUi: opts.serveUi ?? true,
   });
+
+  // Inject the run-sub-workflows capability now that the instance exists. We
+  // mutate the SAME `services` object createVein holds by reference, so steps
+  // see it at run time. This is what lets `eval/optimize` loop eval→reflect.
+  services.optimizer = {
+    run: (name, input, runOpts) => vein.run(name, input, runOpts),
+    getParams: async (name) => (await vein.workspace.getWorkflow(name)).params ?? {},
+  };
 
   return vein;
 }

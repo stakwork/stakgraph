@@ -162,13 +162,24 @@ async function structureFinalAnswer(
     msgs.push({ role: "user", content: finalPrompt });
   }
 
-  // Add the assistant's answer and the structuring request
+  // Add the assistant's answer and the structuring request.
+  // IMPORTANT: this is a pure reformatting step, NOT a regeneration step.
+  // Without strict instructions the model "rephrases" opaque literals (file
+  // paths, ids, urls) into plausible-looking but fabricated values, causing
+  // the structured `content` to diverge from the free-text `final_answer`.
   msgs.push(
     { role: "assistant", content: finalAnswer },
     {
       role: "user",
       content:
-        "Great! Please rephrase your answer in the following JSON format: " +
+        "Reformat the answer above into the following JSON format. " +
+        "This is a formatting task ONLY — do not add, summarize, re-word, or invent anything.\n\n" +
+        "STRICT RULES:\n" +
+        "- Copy every value directly from the answer above. Do NOT generate new values.\n" +
+        "- File paths, URLs, IDs, names, and other literals MUST be copied character-for-character. " +
+        "Never normalize, guess, or substitute a 'typical-looking' value.\n" +
+        "- If a field's value is not explicitly present in the answer above, leave it empty/null rather than inventing one.\n\n" +
+        "JSON format:\n" +
         JSON.stringify(schema),
     }
   );

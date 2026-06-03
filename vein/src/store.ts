@@ -1,6 +1,13 @@
-import { mkdir, writeFile, appendFile, readdir, readFile } from "node:fs/promises";
+import { mkdir, writeFile, appendFile, readdir, readFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunEvent, RunSummary } from "./core.js";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A run is terminal once its log records a `run.end` or `run.error`. */
+function isTerminal(event: RunEvent): boolean {
+  return event.type === "run.end" || event.type === "run.error";
+}
 
 // ── Interface ──────────────────────────────────────────────────────────────
 
@@ -65,6 +72,72 @@ export class FileRunStore implements RunStore {
       return JSON.parse(raw) as RunSummary;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Tail a run's event log: yield every event from the start of the file
+   * (history), then follow appends (live) until a terminal event
+   * (`run.end` / `run.error`) is seen, at which point the generator returns.
+   *
+   * The append-only log is the ordered source of truth, so the history→live
+   * join is naturally race-free: we read from a byte offset to EOF, then
+   * keep re-reading from the new offset. Partial trailing lines (a write
+   * caught mid-flush) are buffered until their newline arrives. One code path
+   * serves completed *and* in-flight runs — a completed run drains the file
+   * and returns immediately; a live run polls (`intervalMs`) for appends.
+   *
+   * The only "polling" is the server noticing appends — invisible to clients.
+   * Pass an `AbortSignal` (e.g. on client disconnect) to stop early.
+   */
+  async *tailEvents(
+    workflow: string,
+    runId: string,
+    opts: { intervalMs?: number; signal?: AbortSignal } = {},
+  ): AsyncGenerator<RunEvent> {
+    const file = join(this.runDir(workflow, runId), "events.jsonl");
+    const intervalMs = opts.intervalMs ?? 250;
+    const signal = opts.signal;
+    let offset = 0;
+    let leftover = "";
+
+    while (true) {
+      if (signal?.aborted) return;
+
+      let chunk = "";
+      try {
+        const fh = await open(file, "r");
+        try {
+          const { size } = await fh.stat();
+          if (size > offset) {
+            const buf = Buffer.alloc(size - offset);
+            await fh.read(buf, 0, buf.length, offset);
+            chunk = buf.toString("utf-8");
+            offset = size;
+          }
+        } finally {
+          await fh.close();
+        }
+      } catch {
+        // File not created yet (run just launched) — poll until it appears.
+      }
+
+      if (chunk) {
+        leftover += chunk;
+        const nl = leftover.lastIndexOf("\n");
+        if (nl >= 0) {
+          const complete = leftover.slice(0, nl);
+          leftover = leftover.slice(nl + 1);
+          for (const line of complete.split("\n")) {
+            if (!line) continue;
+            const event = JSON.parse(line) as RunEvent;
+            yield event;
+            if (isTerminal(event)) return;
+          }
+        }
+      }
+
+      await sleep(intervalMs);
     }
   }
 

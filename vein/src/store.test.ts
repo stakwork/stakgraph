@@ -262,4 +262,84 @@ describe("FileRunStore", () => {
     assert.equal(events.length, 1);
     assert.deepEqual(events[0], evt);
   });
+
+  // ── tailEvents (background-job reattach, §8) ─────────────────────────────
+
+  const ev = (type: RunEvent["type"], runId: string): RunEvent => ({
+    ts: new Date().toISOString(),
+    runId,
+    path: WF,
+    type,
+  });
+
+  it("tailEvents drains a completed log then returns", async () => {
+    const store = new FileRunStore(tempDir);
+    await store.append(WF, "700", ev("run.start", "700"));
+    await store.append(WF, "700", ev("step.end", "700"));
+    await store.append(WF, "700", ev("run.end", "700"));
+
+    const seen: RunEvent[] = [];
+    for await (const e of store.tailEvents(WF, "700", { intervalMs: 10 })) {
+      seen.push(e);
+    }
+    assert.deepEqual(seen.map((e) => e.type), ["run.start", "step.end", "run.end"]);
+  });
+
+  it("tailEvents follows live appends until the terminal event", async () => {
+    const store = new FileRunStore(tempDir);
+    await store.append(WF, "800", ev("run.start", "800"));
+
+    const seen: RunEvent[] = [];
+    const consume = (async () => {
+      for await (const e of store.tailEvents(WF, "800", { intervalMs: 10 })) {
+        seen.push(e);
+      }
+    })();
+
+    // Append more events *after* the tail has started (live follow).
+    await new Promise((r) => setTimeout(r, 30));
+    await store.append(WF, "800", ev("step.start", "800"));
+    await new Promise((r) => setTimeout(r, 30));
+    await store.append(WF, "800", ev("run.end", "800"));
+
+    await consume; // resolves once the terminal event is reached
+    assert.deepEqual(seen.map((e) => e.type), ["run.start", "step.start", "run.end"]);
+  });
+
+  it("tailEvents waits for a not-yet-created log (race-free join)", async () => {
+    const store = new FileRunStore(tempDir);
+
+    const seen: RunEvent[] = [];
+    const consume = (async () => {
+      for await (const e of store.tailEvents(WF, "900", { intervalMs: 10 })) {
+        seen.push(e);
+      }
+    })();
+
+    // File doesn't exist yet when the tail starts; create it afterwards.
+    await new Promise((r) => setTimeout(r, 30));
+    await store.append(WF, "900", ev("run.start", "900"));
+    await store.append(WF, "900", ev("run.end", "900"));
+
+    await consume;
+    assert.deepEqual(seen.map((e) => e.type), ["run.start", "run.end"]);
+  });
+
+  it("tailEvents stops when its AbortSignal fires", async () => {
+    const store = new FileRunStore(tempDir);
+    await store.append(WF, "1000", ev("run.start", "1000")); // no terminal event
+
+    const ac = new AbortController();
+    const seen: RunEvent[] = [];
+    const consume = (async () => {
+      for await (const e of store.tailEvents(WF, "1000", { intervalMs: 10, signal: ac.signal })) {
+        seen.push(e);
+      }
+    })();
+
+    await new Promise((r) => setTimeout(r, 30));
+    ac.abort();
+    await consume; // must resolve despite no terminal event
+    assert.equal(seen[0]?.type, "run.start");
+  });
 });

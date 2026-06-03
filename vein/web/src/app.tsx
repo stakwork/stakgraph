@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "preact/hooks";
+import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
 import { SystemCanvas } from "system-canvas-react";
 import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
 import type { AddNodeButtonRenderProps } from "system-canvas-react";
@@ -16,6 +16,7 @@ import { StepEditFlyout } from "./components/StepEditFlyout";
 import { EventsPanel } from "./components/EventsPanel";
 import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
+import { ParamsFlyout } from "./components/ParamsFlyout";
 import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
 
 // A nested run-execution the user has drilled into. `pathPrefix` is the
@@ -57,6 +58,9 @@ export function App() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [events, setEvents] = useState<api.RunEvent[]>([]);
   const [running, setRunning] = useState(false);
+  // True while an in-tab launched run is streaming live into `events`. Disarmed
+  // when the user navigates into another run, so the stream can't clobber it.
+  const liveStreamRef = useRef(false);
   const [loadError, setLoadError] = useState(false);
   // Run-view drill-down stack: each frame is a nested child execution. Each
   // carries the original event-path prefix it lives under, the child workflow
@@ -67,17 +71,29 @@ export function App() {
   const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
   const [publishedSteps, setPublishedSteps] = useState<StepData[] | null>(null);
   const [localSteps, setLocalSteps] = useState<StepData[] | null>(null);
+  // The workflow `localSteps` were actually loaded for. Until this matches
+  // `selectedWf`, the steps belong to the previously-selected workflow (the
+  // load is async), so the root canvas must not render with them — otherwise
+  // switching workflows briefly mounts/fits the canvas on the OLD content.
+  const [loadedWf, setLoadedWf] = useState<string | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
-  // The selected workflow's `params` defaults (tunable knobs), if any.
+  // The selected workflow's `params` defaults (tunable knobs). `wfParams` is
+  // the published baseline; `localParams` is the editable working copy. Editing
+  // a param and publishing = a new workflow version (params live in the YAML).
   const [wfParams, setWfParams] = useState<Record<string, unknown> | null>(null);
+  const [localParams, setLocalParams] = useState<Record<string, unknown> | null>(null);
+  // Whether the Params flyout (editable) is open.
+  const [showParams, setShowParams] = useState(false);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
-    return !deepEqual(normalizeSteps(publishedSteps), normalizeSteps(localSteps));
-  }, [publishedSteps, localSteps]);
+    const stepsDirty = !deepEqual(normalizeSteps(publishedSteps), normalizeSteps(localSteps));
+    const paramsDirty = !deepEqual(wfParams ?? {}, localParams ?? {});
+    return stepsDirty || paramsDirty;
+  }, [publishedSteps, localSteps, wfParams, localParams]);
 
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
 
@@ -119,12 +135,15 @@ export function App() {
       };
     }
     if (!viewWorkflow || !viewSteps) return null;
+    // Root view: don't render until the steps belong to the selected workflow.
+    // (Drill frames carry their own already-loaded steps, so they're exempt.)
+    if (runDrill.length === 0 && loadedWf !== selectedWf) return null;
     const overlay = events.length > 0 || running;
     return flowToCanvas(
       { name: viewWorkflow, steps: viewSteps },
       overlay ? (viewEvents as RunEventData[]) : undefined,
     );
-  }, [loadError, selectedWf, viewWorkflow, viewSteps, viewEvents, events.length, running]);
+  }, [loadError, selectedWf, loadedWf, runDrill.length, viewWorkflow, viewSteps, viewEvents, events.length, running]);
 
   // Events for the flyout step (within the current view). Containers show
   // their own aggregate I/O here (subflow → child input/output; foreach →
@@ -170,10 +189,13 @@ export function App() {
   useEffect(() => {
     setRunDrill([]);
     setLoadError(false);
+    setShowParams(false);
     if (!selectedWf) {
       setPublishedSteps(null);
       setLocalSteps(null);
+      setLoadedWf(null);
       setWfParams(null);
+      setLocalParams(null);
       setRuns([]);
       setFlyoutStepId(null);
       setFlyoutStepIndex(null);
@@ -183,10 +205,13 @@ export function App() {
       const steps = flow.steps as StepData[];
       setPublishedSteps(steps);
       setLocalSteps(steps);
+      setLoadedWf(selectedWf);
       setWfParams(flow.params ?? null);
+      setLocalParams(flow.params ?? null);
     }).catch(() => {
       setPublishedSteps(null);
       setLocalSteps(null);
+      setLoadedWf(selectedWf);
       setLoadError(true);
     });
     refreshRuns(selectedWf);
@@ -278,21 +303,47 @@ export function App() {
     setRunning(true);
     // Empty events + running → pending status overlay on all nodes immediately.
     setEvents([] as api.RunEvent[]);
+    liveStreamRef.current = true;
 
     try {
-      const result = await api.runWorkflow(wf, input, (event) => {
+      // Detached launch (§8): we get the runId up front, so the run can surface
+      // in the sidebar as "running" while it's still executing. We don't select
+      // it yet — selecting fires an effect that refetches (and would clobber)
+      // the live events; we select on completion, as before.
+      const { runId } = await api.launchWorkflow(wf, input, params);
+      let listedRunning = false;
+      await api.streamRun(wf, runId, (event) => {
+        // If the user navigated into another run mid-stream (e.g. opened a
+        // generation's eval run), stop pushing this run's events over theirs.
+        if (!liveStreamRef.current) return;
         accumulated.push(event as RunEventData);
         setEvents([...accumulated] as api.RunEvent[]);
-      }, params);
+        // First event means the run's log exists on disk → `/runs` now returns
+        // it (status "running", no run.json yet). Refresh once to show it live.
+        if (!listedRunning) {
+          listedRunning = true;
+          refreshRuns(wf);
+        }
+      });
 
-      if (result?.runId) {
-        setSelectedRun(result.runId);
-      }
+      if (liveStreamRef.current) setSelectedRun(runId);
       await refreshRuns(wf);
     } finally {
+      liveStreamRef.current = false;
       setRunning(false);
     }
   }, [selectedWf, localSteps, refreshRuns]);
+
+  // Navigate into another workflow's run (from an Events-panel run-ref link).
+  // Disarm any in-tab live stream first so it doesn't clobber the target run's
+  // events (or yank us back when it finishes).
+  const openRun = useCallback((wf: string, runId: string) => {
+    liveStreamRef.current = false;
+    setRunning(false);
+    closeFlyout();
+    if (selectedWf !== wf) setSelectedWf(wf);
+    setSelectedRun(runId);
+  }, [selectedWf]);
 
   const handleRun = useCallback(async () => {
     if (!selectedWf || !localSteps || localSteps.length === 0) return;
@@ -300,7 +351,7 @@ export function App() {
     try {
       const { fields } = await api.getStepSchema(first.type);
       const bindings = deriveInputBindings(first, fields);
-      const hasParams = wfParams != null && Object.keys(wfParams).length > 0;
+      const hasParams = localParams != null && Object.keys(localParams).length > 0;
       if (bindings.length === 0 && !hasParams) {
         await submitRun({});
       } else {
@@ -310,7 +361,7 @@ export function App() {
       // If we can't load the schema, fall back to running with no input.
       await submitRun({});
     }
-  }, [selectedWf, localSteps, submitRun, wfParams]);
+  }, [selectedWf, localSteps, submitRun, localParams]);
 
   const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
     // Server auto-suffixes on collision; navigate to the resolved name.
@@ -324,8 +375,9 @@ export function App() {
     if (!selectedWf || !localSteps || !activeVersion) return;
     const num = parseInt(activeVersion.replace(/^v/, ""), 10);
     const nextVersion = `v${(isNaN(num) ? 1 : num) + 1}`;
+    const hasParams = localParams != null && Object.keys(localParams).length > 0;
     const yamlStr = yaml.dump(
-      { name: selectedWf, steps: localSteps },
+      { name: selectedWf, steps: localSteps, ...(hasParams ? { params: localParams } : {}) },
       { lineWidth: 120, noRefs: true },
     );
     await api.publishWorkflowYaml(selectedWf, nextVersion, yamlStr);
@@ -334,7 +386,9 @@ export function App() {
     const steps = flow.steps as StepData[];
     setPublishedSteps(steps);
     setLocalSteps(steps);
-  }, [selectedWf, localSteps, activeVersion, refreshWorkflows]);
+    setWfParams(flow.params ?? null);
+    setLocalParams(flow.params ?? null);
+  }, [selectedWf, localSteps, localParams, activeVersion, refreshWorkflows]);
 
   // Clicking a node (body) always opens its flyout — leaf I/O, or a
   // container's aggregate I/O. Drilling into children is the arrow's job.
@@ -342,6 +396,7 @@ export function App() {
     const stepId = node.customData?.stepId as string | undefined;
     const stepIndex = node.customData?.stepIndex as number | undefined;
     if (stepId == null) return;
+    setShowParams(false);
     setFlyoutStepId(stepId);
     setFlyoutStepIndex(stepIndex ?? null);
   }, []);
@@ -505,6 +560,12 @@ export function App() {
         </span>
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
+          {selectedWf && localParams && Object.keys(localParams).length > 0 && (
+            <button
+              class={`btn${showParams ? " is-active" : ""}`}
+              onClick={() => { setShowParams((s) => !s); setFlyoutStepId(null); }}
+            >Params</button>
+          )}
           {selectedWf && (
             <div class="run-anchor">
               <button class="btn btn-primary" onClick={handleRun}>Run</button>
@@ -512,7 +573,7 @@ export function App() {
                 <RunInputPopover
                   workflow={selectedWf}
                   bindings={runBindings}
-                  params={wfParams}
+                  params={localParams}
                   onSubmit={submitRun}
                   onClose={() => setRunBindings(null)}
                 />
@@ -552,6 +613,11 @@ export function App() {
         )}
         {canvas
           ? <SystemCanvas
+              // Remount when the viewed workflow changes so the canvas
+              // re-fits/re-centers on its content (the library's
+              // `autoFit="canvas-change"` only fires on sub-canvas
+              // navigation, not when we swap the root `canvas` prop).
+              key={viewWorkflow ?? "none"}
               panMode="trackpad"
               canvas={canvas}
               // A container node's ref arrow opens the referenced workflow
@@ -578,7 +644,7 @@ export function App() {
 
       {/* Events panel + resize handle */}
       {events.length > 0 && <EventsResizer />}
-      {events.length > 0 && <EventsPanel events={events} />}
+      {events.length > 0 && <EventsPanel events={events} onOpenRun={openRun} />}
 
       {/* Create dialog */}
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
@@ -600,6 +666,17 @@ export function App() {
             await refreshRuns(name);
             setSelectedRun(runId);
           }}
+        />
+      )}
+
+      {/* Params flyout — edit the workflow's tunable knobs; Publish persists
+          them as a new version (params live in the workflow YAML). */}
+      {showParams && selectedWf && localParams && (
+        <ParamsFlyout
+          workflow={selectedWf}
+          params={localParams}
+          onChange={setLocalParams}
+          onClose={() => setShowParams(false)}
         />
       )}
 

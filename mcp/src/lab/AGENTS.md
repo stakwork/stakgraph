@@ -49,6 +49,26 @@ Experimentation seams (edit without touching code):
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
 
+### `eval/` — generic, reusable eval primitives (NOT an experiment)
+
+Domain-agnostic eval substrate, shared by every experiment. See
+`vein/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
+
+- `eval/steps/score.ts` (`eval/score`) — match a produced set vs an expected
+  gold set by a `rubric`; recall-weighted F-beta score.
+- `eval/steps/reflect.ts` (`eval/reflect`) — propose a better prompt from the
+  AGGREGATED results across a dataset (multi-example → avoids overfitting).
+- `eval/steps/optimize.ts` (`eval/optimize`) — the `eval → keep best → reflect`
+  loop, run as a single detached "background job" (EVAL_SPEC §8). Runs
+  sub-workflows via an injected `services.optimizer` (closure over `vein.run`).
+
+**Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
+a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.
+The concepts experiment's live in `concepts/workflows/`: `concepts-eval`
+(harness), `concepts-eval-score` (rubric), `concepts-eval-reflect`
+(task+guidance), `concepts-optimize` (the wired loop). A new experiment `foo`
+adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
+
 ## Running / gotchas
 
 - Needs **Neo4j** + `GITHUB_TOKEN` + an LLM key (e.g. `ANTHROPIC_API_KEY`).
@@ -81,15 +101,19 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
 4. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
    then `curl localhost:3355/lab/workflows` to confirm the 3 workflows
    seeded.
-5. **Run** (SSE stream):
+5. **Run** (detached launch + reattach — see `vein/EVAL_SPEC.md` §8). The
+   `POST …/run` returns `{ runId }` immediately (the run executes server-side);
+   reattach to its SSE event tail to watch it:
    ```
-   curl -N -X POST localhost:3355/lab/workflows/bootstrap-then-process/run \
+   RUN=$(curl -s -X POST localhost:3355/lab/workflows/bootstrap-then-process/run \
      -H 'content-type: application/json' \
-     -d '{"input":{"owner":"OWNER","repo":"REPO","token":"<gh token>"}}'
+     -d '{"input":{"owner":"OWNER","repo":"REPO","token":"<gh token>"}}' \
+     | jq -r .runId)
+   curl -N localhost:3355/lab/workflows/bootstrap-then-process/runs/$RUN/stream
    ```
    Use a **tiny repo** first (LLM cost/time per PR+commit).
 6. **Verify**: query Neo4j directly — `MATCH (c:Concept) RETURN c.name,
-   c.description` — or watch the SSE `step.*` events. (There is no
+   c.description` — or watch the reattached SSE `step.*` events. (There is no
    concept-listing HTTP endpoint yet; vein only exposes `/workflows`.)
 
 **Prerequisite gap for file linking:** `concepts/link-files` connects

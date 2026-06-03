@@ -14,6 +14,24 @@ import type { StepData } from "../flow-to-canvas";
 /** Match `{{ input.<ident> }}` with optional whitespace, and nothing else. */
 const SINGLE_INPUT_RE = /^\s*\{\{\s*input\.([a-zA-Z_$][\w$]*)\s*\}\}\s*$/;
 
+/** Match every `input.<ident>` reference anywhere in a string (nested objects,
+ *  multi-segment templates, expressions). Used to surface input keys that a
+ *  flat single-template field check misses — e.g. a workflow that passes input
+ *  through a nested object like `eval/optimize`'s `evalInput: { owner, repo }`. */
+const ANY_INPUT_RE = /input\.([a-zA-Z_$][\w$]*)/g;
+
+/** Recursively collect distinct `input.X` keys referenced anywhere in a value. */
+function collectInputRefs(value: unknown, out: string[] = []): string[] {
+  if (typeof value === "string") {
+    for (const m of value.matchAll(ANY_INPUT_RE)) out.push(m[1]!);
+  } else if (Array.isArray(value)) {
+    for (const v of value) collectInputRefs(v, out);
+  } else if (value && typeof value === "object") {
+    for (const v of Object.values(value)) collectInputRefs(v, out);
+  }
+  return out;
+}
+
 interface InputBinding {
   /** Name of the input key the user supplies (e.g. "owner"). */
   inputKey: string;
@@ -32,6 +50,8 @@ export function deriveInputBindings(
   const bindings: InputBinding[] = [];
   const seen = new Set<string>();
 
+  // 1. Typed bindings: a config field whose value is exactly `{{ input.X }}`
+  //    borrows that field's schema descriptor (so number/enum widgets work).
   for (const field of fields) {
     const raw = step.config?.[field.name];
     if (typeof raw !== "string") continue;
@@ -44,6 +64,17 @@ export function deriveInputBindings(
       inputKey,
       field: { ...field, name: inputKey },
     });
+  }
+
+  // 2. Any other input refs anywhere in the config (nested objects, arrays,
+  //    multi-segment templates, expressions) — surfaced as plain string fields,
+  //    optional (we can't infer type/requiredness from a nested ref). Without
+  //    this, a workflow that passes input through a nested object never prompts
+  //    for those keys and runs with them undefined.
+  for (const inputKey of collectInputRefs(step.config)) {
+    if (seen.has(inputKey)) continue;
+    seen.add(inputKey);
+    bindings.push({ inputKey, field: { name: inputKey, kind: "string", required: false } });
   }
 
   return bindings;

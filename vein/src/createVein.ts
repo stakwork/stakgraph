@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
 import type { RunStore } from "./store.js";
-import { FileRunStore } from "./store.js";
+import { FileRunStore, generateRunId } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
 import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
 import type { StepSources } from "./steps/registry.js";
@@ -110,6 +110,9 @@ export interface VeinRunOptions<TServices = unknown> {
   /** Per-run overrides for the workflow's `params` knobs (shallow-merged
    *  over the flow's `params` defaults). */
   params?: Record<string, unknown>;
+  /** Per-run overrides keyed by workflow name, applied at every level of the
+   *  execution tree (entry + nested subflows). See `RunOptions.paramOverrides`. */
+  paramOverrides?: Record<string, Record<string, unknown>>;
 }
 
 // ── Zod → field descriptors (UI helper, used by /steps/:type/schema) ──────
@@ -323,6 +326,30 @@ export async function createVein<TServices = unknown>(
     return c.json(events);
   });
 
+  // Reattach to a run (live or completed) — SSE tail of its event log.
+  // Replays history from the start of the file, then follows appends until
+  // the terminal event, then sends a final `done` carrying the RunResult.
+  // One path serves in-flight and finished runs (see `FileRunStore.tailEvents`).
+  app.get("/workflows/:name/runs/:runId/stream", async (c) => {
+    const { name, runId } = c.req.param();
+    if (!(store instanceof FileRunStore)) {
+      return c.json({ error: "Run streaming requires a FileRunStore" }, 501);
+    }
+    return streamSSE(c, async (stream) => {
+      const ac = new AbortController();
+      stream.onAbort(() => ac.abort());
+      for await (const event of store.tailEvents(name, runId, { signal: ac.signal })) {
+        await stream.writeSSE({ data: JSON.stringify(event) });
+      }
+      if (ac.signal.aborted) return;
+      const summary = await store.getRunSummary(name, runId);
+      const result = summary
+        ? { runId, status: summary.status, output: summary.output, error: summary.error }
+        : { runId, status: "running" };
+      await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
+    });
+  });
+
   app.get("/workflows/:name/flow", async (c) => {
     const name = c.req.param("name");
     try {
@@ -521,60 +548,62 @@ export async function createVein<TServices = unknown>(
 
   // ── Run workflows ────────────────────────────────────────────────────────
 
+  interface RunBody {
+    input?: unknown;
+    params?: Record<string, unknown>;
+    paramOverrides?: Record<string, Record<string, unknown>>;
+    runId?: string;
+  }
+
+  /**
+   * Launch a run **detached** (§8): kick off `runWorkflow` without awaiting it
+   * in the request and return the `runId` immediately. The run's liveness is
+   * decoupled from the connection — it executes server-side and persists every
+   * event to the store's append-only log, which `GET …/runs/:runId/stream`
+   * tails for live or after-the-fact viewing. `runWorkflow` finalizes its own
+   * errors into the log; the `.catch` is only a safety net for unexpected
+   * throws (e.g. a store write failure) so they don't become unhandled
+   * rejections.
+   */
+  function launchDetached(flow: Flow, body: RunBody): string {
+    const runId = body.runId ?? generateRunId();
+    void runWorkflow(flow, body.input ?? {}, registry, {
+      runId,
+      store,
+      workspace,
+      services,
+      params: body.params,
+      paramOverrides: body.paramOverrides,
+    }).catch((err) => {
+      console.error(`[run ${runId}] launch failed:`, err);
+    });
+    return runId;
+  }
+
   app.post("/workflows/:name/run", async (c) => {
     const name = c.req.param("name");
-    const body = await c.req.json<{
-      input?: unknown;
-      params?: Record<string, unknown>;
-      runId?: string;
-    }>();
+    const body = await c.req.json<RunBody>();
     let flow;
     try {
       flow = await workspace.getWorkflow(name);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
     }
-    return streamSSE(c, async (stream) => {
-      const result = await runWorkflow(flow, body.input ?? {}, registry, {
-        runId: body.runId,
-        store,
-        workspace,
-        services,
-        params: body.params,
-        onEvent: async (event) => {
-          await stream.writeSSE({ data: JSON.stringify(event) });
-        },
-      });
-      await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
-    });
+    const runId = launchDetached(flow, body);
+    return c.json({ runId }, 202);
   });
 
   app.post("/workflows/:name/:version/run", async (c) => {
     const { name, version } = c.req.param();
-    const body = await c.req.json<{
-      input?: unknown;
-      params?: Record<string, unknown>;
-      runId?: string;
-    }>();
+    const body = await c.req.json<RunBody>();
     let flow;
     try {
       flow = await workspace.getWorkflowVersion(name, version);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
     }
-    return streamSSE(c, async (stream) => {
-      const result = await runWorkflow(flow, body.input ?? {}, registry, {
-        runId: body.runId,
-        store,
-        workspace,
-        services,
-        params: body.params,
-        onEvent: async (event) => {
-          await stream.writeSSE({ data: JSON.stringify(event) });
-        },
-      });
-      await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
-    });
+    const runId = launchDetached(flow, body);
+    return c.json({ runId }, 202);
   });
 
   // ── Chat (AI workflow builder) ───────────────────────────────────────────
@@ -689,6 +718,7 @@ export async function createVein<TServices = unknown>(
       workspace,
       services: runOpts?.services ?? services,
       params: runOpts?.params,
+      paramOverrides: runOpts?.paramOverrides,
       onEvent: runOpts?.onEvent,
     });
   }
