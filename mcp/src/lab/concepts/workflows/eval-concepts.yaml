@@ -47,14 +47,42 @@ params:
   expected: |-
     # Concepts: owner/repo
 
-    ## Authentication
+    ## AI-assisted code generation
 
-    Users can sign up, log in, and manage sessions.
+    Users can create feature plans and coding tasks, and chat with AI agents who help them implement the tasks.
 
-    ## Task Management
+    ## Github Integration
 
-    Users can create, assign, track, and complete tasks.
+    User can sign in with github, and also connect a Github App to their repos, to process and create PRs for them.
 
-    ## Real-time Chat
+    ## Knowledge Graph
 
-    Users can exchange messages in real time within a workspace.
+    A detailed knowledge graph of code and higher-level Concepts is created for each workspace, and users can chat with the graph to learn about the codebase and the concepts.
+
+    ## AI Chat & Codebase Assistant
+
+    An AI chat assistant is available, that can do deep research into codebases and knowledge graphs in order to answer complex questions.
+
+    ## Org Canvas
+
+    An interactive canvas whiteboard of the organzation, allowing users + LLMs to create a mind-map of the organization, with concepts and links between them.
+
+    ## Automatied code quality and test generation janitors
+
+    Automated code quality and test generation janitors can suggest and generate test cases and optimizationsfor code.
+
+    ## Feature Planning & Roadmap
+
+    Users can create feature plans and roadmap, with a conversational AI assistant who can research the codebase and wider context.
+
+    ## Call Recording & Voice
+
+    Calls are recorded and transcribed, and can be viewed after the fact. Also real-time voice integration with the AI assistant.
+
+    ## Collaborative Whiteboards
+
+    Collaborative whiteboards allow users to create and share diagrams, mind maps, and other visualizations with their team.
+
+    ## Workflow Automation
+
+    Workflow assistant can help you construct and edit workflows, to build sophisticated processes automating diverse tasks.

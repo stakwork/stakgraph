@@ -81,15 +81,19 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
 4. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
    then `curl localhost:3355/lab/workflows` to confirm the 3 workflows
    seeded.
-5. **Run** (SSE stream):
+5. **Run** (detached launch + reattach — see `vein/EVAL_SPEC.md` §8). The
+   `POST …/run` returns `{ runId }` immediately (the run executes server-side);
+   reattach to its SSE event tail to watch it:
    ```
-   curl -N -X POST localhost:3355/lab/workflows/bootstrap-then-process/run \
+   RUN=$(curl -s -X POST localhost:3355/lab/workflows/bootstrap-then-process/run \
      -H 'content-type: application/json' \
-     -d '{"input":{"owner":"OWNER","repo":"REPO","token":"<gh token>"}}'
+     -d '{"input":{"owner":"OWNER","repo":"REPO","token":"<gh token>"}}' \
+     | jq -r .runId)
+   curl -N localhost:3355/lab/workflows/bootstrap-then-process/runs/$RUN/stream
    ```
    Use a **tiny repo** first (LLM cost/time per PR+commit).
 6. **Verify**: query Neo4j directly — `MATCH (c:Concept) RETURN c.name,
-   c.description` — or watch the SSE `step.*` events. (There is no
+   c.description` — or watch the reattached SSE `step.*` events. (There is no
    concept-listing HTTP endpoint yet; vein only exposes `/workflows`.)
 
 **Prerequisite gap for file linking:** `concepts/link-files` connects

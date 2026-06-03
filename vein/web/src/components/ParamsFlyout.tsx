@@ -66,7 +66,7 @@ export function ParamsFlyout(props: {
           })
         )}
         <div class="flyout-section">
-          <span class="flyout-meta-value">Edits mark the workflow dirty — hit Publish to save as a new version.</span>
+          <span class="flyout-meta-value">Edits mark the workflow changed — hit Publish to save as a new version.</span>
         </div>
       </div>
     </div>

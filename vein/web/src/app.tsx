@@ -68,6 +68,11 @@ export function App() {
   const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
   const [publishedSteps, setPublishedSteps] = useState<StepData[] | null>(null);
   const [localSteps, setLocalSteps] = useState<StepData[] | null>(null);
+  // The workflow `localSteps` were actually loaded for. Until this matches
+  // `selectedWf`, the steps belong to the previously-selected workflow (the
+  // load is async), so the root canvas must not render with them — otherwise
+  // switching workflows briefly mounts/fits the canvas on the OLD content.
+  const [loadedWf, setLoadedWf] = useState<string | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
@@ -127,12 +132,15 @@ export function App() {
       };
     }
     if (!viewWorkflow || !viewSteps) return null;
+    // Root view: don't render until the steps belong to the selected workflow.
+    // (Drill frames carry their own already-loaded steps, so they're exempt.)
+    if (runDrill.length === 0 && loadedWf !== selectedWf) return null;
     const overlay = events.length > 0 || running;
     return flowToCanvas(
       { name: viewWorkflow, steps: viewSteps },
       overlay ? (viewEvents as RunEventData[]) : undefined,
     );
-  }, [loadError, selectedWf, viewWorkflow, viewSteps, viewEvents, events.length, running]);
+  }, [loadError, selectedWf, loadedWf, runDrill.length, viewWorkflow, viewSteps, viewEvents, events.length, running]);
 
   // Events for the flyout step (within the current view). Containers show
   // their own aggregate I/O here (subflow → child input/output; foreach →
@@ -182,6 +190,7 @@ export function App() {
     if (!selectedWf) {
       setPublishedSteps(null);
       setLocalSteps(null);
+      setLoadedWf(null);
       setWfParams(null);
       setLocalParams(null);
       setRuns([]);
@@ -193,11 +202,13 @@ export function App() {
       const steps = flow.steps as StepData[];
       setPublishedSteps(steps);
       setLocalSteps(steps);
+      setLoadedWf(selectedWf);
       setWfParams(flow.params ?? null);
       setLocalParams(flow.params ?? null);
     }).catch(() => {
       setPublishedSteps(null);
       setLocalSteps(null);
+      setLoadedWf(selectedWf);
       setLoadError(true);
     });
     refreshRuns(selectedWf);
@@ -573,6 +584,11 @@ export function App() {
         )}
         {canvas
           ? <SystemCanvas
+              // Remount when the viewed workflow changes so the canvas
+              // re-fits/re-centers on its content (the library's
+              // `autoFit="canvas-change"` only fires on sub-canvas
+              // navigation, not when we swap the root `canvas` prop).
+              key={viewWorkflow ?? "none"}
               panMode="trackpad"
               canvas={canvas}
               // A container node's ref arrow opens the referenced workflow

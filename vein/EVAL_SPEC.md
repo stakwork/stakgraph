@@ -27,9 +27,11 @@ Builds on `SPEC.md` (the engine). The guiding idea:
 | `concepts/collect-for-eval` — run output = scoreable concept set | **done** (final step of `bootstrap-then-process`) |
 | `eval/score` (recall-based) + `eval-score` workflow (§5) | **done** (`mcp/src/lab/eval`) |
 | `eval-concepts` — bootstrap-only eval loop (§6) | **done** (`mcp/src/lab/concepts`) |
-| Eval as a chat-agent capability (§7) | todo — the real "optimizer" |
-| Reproducible/isolated runs: snapshots + namespacing (§8) | todo |
-| Multi-repo dataset (`foreach` over `examples`) + thin param-sweep loop (§7) | todo |
+| First real run (recall 0.8) — surfaced the overfitting/insight problem | **done** |
+| Agent *builds* evals; background job *runs* them (§7) | todo |
+| Background-job model: detached runs + reattach (§8) | **done** (`launchDetached` + `FileRunStore.tailEvents` + `…/runs/:runId/stream`) |
+| Multi-repo dataset + train/val split + optimize loop (§4, §7) | todo |
+| Reproducible/isolated runs: snapshots + namespacing (§9) | todo |
 
 Manual eval works **today**: open `eval-concepts`, set the `expected` gold in
 the Params flyout, Run with a repo, read the score; edit the bootstrap prompt
@@ -149,37 +151,74 @@ expected gold is the `expected` param.
 
 ---
 
-## 7. The optimizer is the chat agent
+## 7. Who runs the loop: the agent *builds*, a background job *runs*
 
-vein already has a `ToolLoopAgent` (`src/ai/`) with `create_step`,
-`edit_step`, `create_workflow`, `run_workflow`. Because targets/scorers/
-datasets are all workflows + params, **the agent already has almost everything
-it needs** to be the optimizer:
+The chat agent should **build** evals, not **be** the loop. Two roles:
 
-- read the goal + expected,
-- author a candidate (edit a prompt param, or author a new step/workflow
-  version — e.g. a `concepts/fetch-pr-titles` step using `ctx.services.octokit`),
-- run `eval-concepts`, read `{ score, missing, insight }`,
-- iterate, keeping the best version.
+- **Agent = builder** (interactive, short-lived). Designs the experiment:
+  authors target-workflow variants, the dataset (`examples` param), the rubric,
+  the reflect prompt + its generalization rules, the train/val split. Uses tools
+  it largely already has (`create_workflow`, `create_step`, `edit_step`,
+  params). It can kick a run off and inspect results, but it is **not** the
+  thing sitting in the hot loop.
+- **Background optimize run = executor** (autonomous, runs for hours). Runs
+  `eval → reflect → select` over many candidates × many repos, persisting each
+  generation, decoupled from any chat session. `reflect` (the LLM proposing the
+  next param edit) runs **inside this job** — and per §4 it must see the
+  **multi-repo aggregate**, not one repo, or it overfits (the wrong-insight
+  problem).
 
-This is why we **don't** build a separate engine "GEPA orchestrator" as the
-primary path: a workflow can't restructure itself, but the agent can — and
-structural evolution (§4.2) is where the real gains are. The thin
-deterministic loop is only worth it as an optional add for **unattended param
-sweeps**, which the agent can even delegate.
+The orchestrator is thin, generic engine code that sequences workflow runs in a
+loop and tracks best-on-val; the *intelligence* lives in the artifacts the agent
+authored (rubric, reflect prompt, dataset). Every piece it runs is a workflow.
 
-What's missing is small (todo):
-- a `run_eval` tool returning the score cleanly (vs parsing run output),
-- a system-prompt section teaching the agent the eval loop,
-- (later) a `promote`/`optimize` convenience for batch sweeps.
+- **Param tuning** → fully autonomous in the background job ("go and go and go").
+- **Structural evolution** (authoring new steps/data sources) → stays
+  agent-interactive for now (a workflow can't write code); later, a headless
+  authoring-agent job.
 
-Target UX: *open the chat, say "here's the repo and the 10 concepts I expect —
-make the workflow find them," and the agent iterates*, getting progressively
-more sophisticated about the workflow it builds.
+Still todo: a `run_eval` tool (clean score for the agent) + a system-prompt
+section; and the background-job model (§8) the executor depends on.
 
 ---
 
-## 8. Reproducibility & isolation (todo)
+## 8. Background jobs: detached runs + reattach (engine prereq) — **done**
+
+A multi-hour optimize loop can't be a request-scoped run. Previously a run was
+launched by `POST /run` and streamed over that one request: it executes
+**server-side** and **persists every event to an append-only JSONL file**
+(durable, queryable after the fact) — but closing the connection, a server
+restart, or proxy timeouts made long runs fragile. The fix is an evolution of
+the existing run model, not a rewrite. **Shipped** as a clean cutover (the old
+streaming `POST /run` is gone):
+
+1. **Launch detached** — `POST /run` starts `runWorkflow` **without awaiting it
+   in the request** (`launchDetached` in `createVein.ts`) and returns
+   `{ runId }` (202) immediately. The run's liveness is decoupled from any
+   connection; there is no `onEvent` on the launch (all viewing is read back
+   from the persisted log).
+2. **Reattach (no client polling)** — `GET /workflows/:name/runs/:runId/stream`
+   (SSE) **tails the events file** via `FileRunStore.tailEvents`: replay offset
+   0 → EOF (history), then follow appends, stop + send final `done` on the
+   terminal event (`run.end`/`run.error`). The web UI's `api.runWorkflow`
+   chains the two (launch → `streamRun`) so callers keep the same interface.
+
+Why file-tail: the append-only log **is** the ordered source of truth, so the
+history→live join is naturally **race-free** (read to EOF, follow from EOF) — no
+sequence numbers, no dedupe. One code path serves completed *and* in-flight runs,
+it survives restarts, and it's process-agnostic. The only "polling" is the
+server noticing appends (`fs.watch` / a tiny interval) — invisible to the client.
+(An in-memory pub/sub is lower-latency but single-process and loses the live tail
+on restart; not worth it for vein's filesystem-first model.)
+
+**Restart-resume:** in-flight *execution* is in-memory, so a crash mid-run loses
+the remaining work; the persisted log up to the crash survives. True resume
+(re-pick an unfinished run) is a later add — for now a crashed optimize job is
+restarted from its last persisted generation.
+
+---
+
+## 9. Reproducibility & isolation (todo)
 
 For tight/automated loops the eval runs must be cheap and non-colliding:
 
@@ -194,7 +233,7 @@ For tight/automated loops the eval runs must be cheap and non-colliding:
 
 ---
 
-## 9. The open thesis
+## 10. The open thesis
 
 The point of all this: **code-only bootstrap probably can't recover a repo's
 ~10 core user-facing capabilities** — that needs historical context (PR
@@ -206,12 +245,15 @@ and then drives building the workflow that fixes it.
 
 ---
 
-## 10. What's next
+## 11. What's next
 
-1. **First real run** of `eval-concepts` on a small repo (needs Neo4j +
-   GitHub token + LLM key) — validate the wiring and see a real score.
-2. **Agent eval capability** (§7): `run_eval` tool + prompt → the chat-driven
-   loop, including structural evolution.
-3. **Reproducibility** (§8): snapshots + namespacing for cheap, parallel runs.
-4. **Multi-repo + sweeps**: `examples` array param + an optional thin loop for
-   unattended param sweeps.
+1. **First real run** of `eval-concepts` on a small repo — **done** (recall 0.8;
+   surfaced the overfitting/insight problem that motivates §4 + §7).
+2. **Multi-repo eval** — `examples` array param + a Level-2 batch eval, with a
+   train/val split (the structural fix for overfitting, §4/§7).
+3. **Background-job model (§8)** — detached launch + file-tail reattach.
+   **done.** The prerequisite for any long optimize run.
+4. **The optimize loop** — thin orchestrator: `eval across train → reflect
+   (generalizing) → keep best on val`, run as a background job; plus a `run_eval`
+   tool so the agent can build/inspect it.
+5. **Reproducibility (§9)** — snapshots + namespacing for cheap, parallel runs.

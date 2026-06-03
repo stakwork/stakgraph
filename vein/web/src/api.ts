@@ -117,8 +117,12 @@ export const getWorkflowYaml = async (name: string, version: string) => {
 };
 
 /**
- * Run a workflow via SSE. Calls `onEvent` for each event as it streams in.
- * Returns the final RunResult when the stream closes.
+ * Run a workflow. The launch is **detached** (§8): `POST …/run` starts the
+ * run server-side and returns `{ runId }` immediately, then we **reattach**
+ * to its event log via `GET …/runs/:runId/stream` (SSE tail). `onEvent` fires
+ * for each event (replayed history + live appends); the returned RunResult
+ * arrives on the terminal `done` event. The two-step launch+reattach is
+ * invisible to callers — same signature as a single streamed request.
  */
 export async function runWorkflow(
   name: string,
@@ -126,7 +130,7 @@ export async function runWorkflow(
   onEvent?: (event: RunEvent) => void,
   params?: Record<string, unknown>,
 ): Promise<any> {
-  const res = await fetch(`${BASE}/workflows/${name}/run`, {
+  const launch = await fetch(`${BASE}/workflows/${name}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -134,7 +138,21 @@ export async function runWorkflow(
       ...(params && Object.keys(params).length > 0 ? { params } : {}),
     }),
   });
+  const { runId } = (await launch.json()) as { runId: string };
+  return streamRun(name, runId, onEvent);
+}
 
+/**
+ * Reattach to a run (live or completed) and stream its events. Tails the
+ * server's append-only log from the start, so callers see full history even
+ * when they attach late. Resolves to the final RunResult on `done`.
+ */
+export async function streamRun(
+  name: string,
+  runId: string,
+  onEvent?: (event: RunEvent) => void,
+): Promise<any> {
+  const res = await fetch(`${BASE}/workflows/${name}/runs/${runId}/stream`);
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
 
