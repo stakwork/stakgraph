@@ -589,6 +589,20 @@ body.is-resizing-flyout * {
   color: var(--text-dim);
   flex-shrink: 0;
 }
+.event-run-link {
+  flex-shrink: 0;
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.event-run-link:hover {
+  border-color: var(--accent);
+}
 .event-detail {
   padding: var(--sp-2) 0 var(--sp-3) 0;
 }

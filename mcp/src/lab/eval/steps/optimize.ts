@@ -35,9 +35,18 @@ interface EvalOutput {
 }
 
 interface RunResultLike {
+  runId: string;
   status: string;
   output?: unknown;
   error?: { message?: string };
+}
+
+/** A pointer to a child run, surfaced on progress events so the UI can link
+ *  "open this generation's eval/reflect run" (and drill into its nested logs). */
+interface RunRef {
+  label: string;
+  workflow: string;
+  runId: string;
 }
 
 interface Optimizer {
@@ -87,6 +96,7 @@ export default defineStep({
       prompt: string;
       missing: string[];
       spurious: string[];
+      evalRunId: string;
     }> = [];
     let best = { gen: -1, prompt: candidate, score: -1 };
 
@@ -105,13 +115,18 @@ export default defineStep({
       });
 
     // Why the current candidate looks the way it does (the prior reflect's
-    // rationale). Surfaced in each generation's start so you can read the
-    // prompt's evolution try-by-try. Undefined for gen 0 (the seed prompt).
+    // rationale + a link to that reflect run). Surfaced in each generation's
+    // start so you can read the prompt's evolution try-by-try and open the run
+    // that proposed it. Undefined for gen 0 (the seed prompt).
     let rationale: string | undefined;
+    let fromReflect: RunRef | undefined;
 
     for (let gen = 0; gen < cfg.maxGenerations; gen++) {
       const genStart = Date.now();
-      await emitGen(gen, { type: "step.start", input: { gen, prompt: candidate, rationale } });
+      await emitGen(gen, {
+        type: "step.start",
+        input: { gen, prompt: candidate, rationale, ...(fromReflect ? { runs: [fromReflect] } : {}) },
+      });
 
       try {
         // ── eval the current candidate ────────────────────────────────────
@@ -125,14 +140,17 @@ export default defineStep({
         const score = out.score ?? 0;
         const missing = out.missing ?? [];
         const spurious = out.spurious ?? [];
-        generations.push({ gen, score, prompt: candidate, missing, spurious });
+        // `evalRunId` links this generation to its full eval run (which nests
+        // the bootstrap-then-process subflow — i.e. the bootstrap logs).
+        generations.push({ gen, score, prompt: candidate, missing, spurious, evalRunId: evalRun.runId });
 
         if (score > best.score) best = { gen, prompt: candidate, score };
 
+        const evalRef: RunRef = { label: "eval run", workflow: cfg.evalWorkflow, runId: evalRun.runId };
         await emitGen(gen, {
           type: "step.end",
           durationMs: Date.now() - genStart,
-          output: { gen, score, bestScore: best.score, bestGen: best.gen, missing, spurious },
+          output: { gen, score, bestScore: best.score, bestGen: best.gen, missing, spurious, runs: [evalRef] },
         });
 
         // "until it's satisfied": stop once good enough, or on the last generation.
@@ -152,6 +170,7 @@ export default defineStep({
         }
         candidate = proposal.prompt;
         rationale = proposal.rationale;
+        fromReflect = { label: "reflect run", workflow: cfg.reflectWorkflow, runId: reflectRun.runId };
       } catch (err) {
         // Log the failure on THIS generation's row before bubbling up, so a
         // failed try is visible in the panel (not just the outer step error).

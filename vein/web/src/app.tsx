@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "preact/hooks";
+import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
 import { SystemCanvas } from "system-canvas-react";
 import type { CanvasData, CanvasNode, CanvasEdge } from "system-canvas";
 import type { AddNodeButtonRenderProps } from "system-canvas-react";
@@ -58,6 +58,9 @@ export function App() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [events, setEvents] = useState<api.RunEvent[]>([]);
   const [running, setRunning] = useState(false);
+  // True while an in-tab launched run is streaming live into `events`. Disarmed
+  // when the user navigates into another run, so the stream can't clobber it.
+  const liveStreamRef = useRef(false);
   const [loadError, setLoadError] = useState(false);
   // Run-view drill-down stack: each frame is a nested child execution. Each
   // carries the original event-path prefix it lives under, the child workflow
@@ -300,6 +303,7 @@ export function App() {
     setRunning(true);
     // Empty events + running → pending status overlay on all nodes immediately.
     setEvents([] as api.RunEvent[]);
+    liveStreamRef.current = true;
 
     try {
       // Detached launch (§8): we get the runId up front, so the run can surface
@@ -309,6 +313,9 @@ export function App() {
       const { runId } = await api.launchWorkflow(wf, input, params);
       let listedRunning = false;
       await api.streamRun(wf, runId, (event) => {
+        // If the user navigated into another run mid-stream (e.g. opened a
+        // generation's eval run), stop pushing this run's events over theirs.
+        if (!liveStreamRef.current) return;
         accumulated.push(event as RunEventData);
         setEvents([...accumulated] as api.RunEvent[]);
         // First event means the run's log exists on disk → `/runs` now returns
@@ -319,12 +326,24 @@ export function App() {
         }
       });
 
-      setSelectedRun(runId);
+      if (liveStreamRef.current) setSelectedRun(runId);
       await refreshRuns(wf);
     } finally {
+      liveStreamRef.current = false;
       setRunning(false);
     }
   }, [selectedWf, localSteps, refreshRuns]);
+
+  // Navigate into another workflow's run (from an Events-panel run-ref link).
+  // Disarm any in-tab live stream first so it doesn't clobber the target run's
+  // events (or yank us back when it finishes).
+  const openRun = useCallback((wf: string, runId: string) => {
+    liveStreamRef.current = false;
+    setRunning(false);
+    closeFlyout();
+    if (selectedWf !== wf) setSelectedWf(wf);
+    setSelectedRun(runId);
+  }, [selectedWf]);
 
   const handleRun = useCallback(async () => {
     if (!selectedWf || !localSteps || localSteps.length === 0) return;
@@ -625,7 +644,7 @@ export function App() {
 
       {/* Events panel + resize handle */}
       {events.length > 0 && <EventsResizer />}
-      {events.length > 0 && <EventsPanel events={events} />}
+      {events.length > 0 && <EventsPanel events={events} onOpenRun={openRun} />}
 
       {/* Create dialog */}
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} />}

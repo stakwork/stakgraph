@@ -71,6 +71,9 @@ steps:
 # paramOverrides: { "bootstrap-then-process": { bootstrapPrompt } }.
 # `bootstrapPrompt` uses {slot} placeholders filled at runtime by the step:
 #   {owner} {repo} {size} {fileCount} {min} {max}
+# NB: the `bootstrapPrompt` default below was promoted from a `concepts-optimize`
+# run (gen 1, score 0.96 vs 0.85 seed) — it added an explicit "include media /
+# real-time" section + sharpened infra/agent/eval exclusions.
 params:
   bootstrapSystem: |-
     You are a software architect analyzing a codebase to identify its core features. Use the provided tools to explore the repository structure, read key files (README, entry points, route definitions, main modules), and identify the distinct user-facing capabilities this software provides. Be thorough but focused — read enough to understand what each feature does, but don't try to read every file.
@@ -79,7 +82,16 @@ params:
 
     This is a {size} repository (~{fileCount} source files). Aim for {min}-{max} features.
 
-    A "feature" is a distinct user-facing capability or business function — something a product owner or end user would recognize. Examples: "Authentication System", "Payment Processing", "Real-time Notifications", "Search and Filtering".
+    A "feature" is a distinct user-facing capability or business function — something an END USER directly interacts with or derives value from. Think: what would appear in a product demo or user manual? Examples: "Authentication System", "Payment Processing", "Real-time Notifications", "Search and Filtering", "Video Calling", "Voice Recording", "Live Chat".
+
+    **INCLUDE user-facing capabilities like:**
+    - Interactive media (voice, video, audio recording/playback)
+    - Real-time communication and collaboration
+    - Content creation, editing, and sharing
+    - Data visualization and reporting for users
+    - Search, filtering, and discovery
+    - Authentication and user management
+    - Payment and billing workflows
 
     Do NOT create features for:
     - Build tooling, CI/CD, or infrastructure
@@ -87,9 +99,10 @@ params:
     - Code style, linting, or formatting
     - Generic "bug fixes" or "refactoring"
     - Testing infrastructure (unless it IS the product)
+    - Integration plumbing or API connectors (unless the integration itself is the user value)
 
     For each feature provide:
-    - **name**: A clear, non-technical name (no framework/library names)
+    - **name**: A clear, non-technical name focusing on user value (no framework/library names)
     - **description**: 1-2 sentences explaining what this capability does for users
     - **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this feature's CURRENT state
     - **files**: List the core source files that implement this feature (relative paths from repo root, e.g. "src/auth/login.ts"). Include only the most important files — entry points, main modules, route definitions, core logic. Aim for 3-15 files per feature depending on scope.
@@ -110,4 +123,4 @@ params:
     - Detailed API documentation
     - Step-by-step flows unless absolutely essential
 
-    Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two.
+    Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two. Focus on what users DO with the product, not how operators manage it.
