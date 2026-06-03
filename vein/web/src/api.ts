@@ -130,7 +130,22 @@ export async function runWorkflow(
   onEvent?: (event: RunEvent) => void,
   params?: Record<string, unknown>,
 ): Promise<any> {
-  const launch = await fetch(`${BASE}/workflows/${name}/run`, {
+  const { runId } = await launchWorkflow(name, input, params);
+  return streamRun(name, runId, onEvent);
+}
+
+/**
+ * Launch a run **detached** (§8) and return its `runId` immediately — the run
+ * keeps executing server-side regardless of this connection. Callers that want
+ * to surface the run *before* it finishes (e.g. show it as "running" in a list)
+ * launch first, then `streamRun(name, runId)` to follow its events.
+ */
+export async function launchWorkflow(
+  name: string,
+  input: unknown,
+  params?: Record<string, unknown>,
+): Promise<{ runId: string }> {
+  const res = await fetch(`${BASE}/workflows/${name}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -138,8 +153,7 @@ export async function runWorkflow(
       ...(params && Object.keys(params).length > 0 ? { params } : {}),
     }),
   });
-  const { runId } = (await launch.json()) as { runId: string };
-  return streamRun(name, runId, onEvent);
+  return (await res.json()) as { runId: string };
 }
 
 /**

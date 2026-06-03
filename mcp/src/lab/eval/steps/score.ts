@@ -1,15 +1,16 @@
 import { z, defineStep } from "vein";
 
 /**
- * Recall-oriented LLM-as-judge for concept sets. The judge MATCHES each
- * expected (gold) capability to a produced concept semantically and reports
- * matched / missing / spurious; the step then computes a continuous score
- * (recall-weighted F-beta) deterministically from those counts — so the number
- * is consistent and the gradient is informative for optimization.
+ * GENERIC recall-oriented LLM-as-judge. Domain-agnostic: it matches a PRODUCED
+ * set of items against an EXPECTED (gold) set and computes a continuous,
+ * recall-weighted score (F-beta) deterministically from the match counts — so
+ * the number is consistent and the gradient is informative for optimization.
  *
- * Pure mechanism: the matching criteria (WHAT counts as a match, what's
- * "spurious", naming standards) live in the `rubric` param (the experiment
- * surface). The step enforces the structured output contract + the scoring math.
+ * Nothing here is concepts-specific. WHAT counts as a match / what's "spurious"
+ * / naming standards all come from the `rubric` input (the experiment surface);
+ * the step only enforces the structured-output contract + the scoring math. An
+ * experiment supplies its own rubric (e.g. the concepts experiment ships a
+ * concept-quality rubric in `concepts-eval-score`).
  *
  * Self-contained: reaches the model via dynamic `import("ai")` (no services),
  * using structured output (`generateObject`).
@@ -21,15 +22,19 @@ import { z, defineStep } from "vein";
 const VerdictSchema = z.object({
   matched: z
     .array(z.object({ expected: z.string(), produced: z.string() }))
-    .describe("Each expected capability that IS present in the produced set, paired with the produced concept that covers it."),
+    .describe("Each EXPECTED item that IS present in the produced set, paired with the produced item that covers it."),
   missing: z
     .array(z.string())
-    .describe("Expected capabilities with NO adequate match in the produced set."),
+    .describe("EXPECTED items with NO adequate match in the produced set."),
   spurious: z
     .array(z.string())
-    .describe("Produced concepts that are noise — not real user-facing capabilities, or over-granular/implementation-named, or not in the expected set."),
-  reason: z.string().describe("1-3 sentences on the biggest gaps."),
-  insight: z.string().describe("1 sentence: what should change to recover the missing capabilities?"),
+    .describe("PRODUCED items that are noise — not a real item per the rubric, over-granular/implementation-named, or not in the expected set."),
+  reason: z.string().describe("1-3 sentences on the biggest gaps in THIS result (specifics are fine here)."),
+  insight: z
+    .string()
+    .describe(
+      "1 sentence: a GENERAL, domain-agnostic lesson about the GENERATOR (the prompt/workflow being evaluated) that would help on ANY input. Do NOT name this input's specific items or domain — generalize the failure into a transferable principle (e.g. 'the generator over-weights low-level/implementation items and under-weights top-level user-facing ones').",
+    ),
 });
 
 interface Verdict {
@@ -51,7 +56,7 @@ function fBeta(recall: number, precision: number): number {
 export default defineStep({
   type: "eval/score",
   description:
-    "Recall-based LLM-judge for concept sets: matches expected (gold) capabilities to produced concepts, computes a continuous recall-weighted score. Required config: actual, expected, rubric (rubric is the calling workflow's param — the experiment surface). Optional: provider, model. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
+    "Generic recall-based LLM-judge: matches a produced set against an expected (gold) set and computes a continuous recall-weighted score. Domain-agnostic — all criteria live in the `rubric`. Required config: actual, expected, rubric. Optional: provider, model. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
   input: z.object({
     actual: z.string(),
     expected: z.string(),
@@ -83,18 +88,22 @@ export default defineStep({
 
     const prompt = `${cfg.rubric}
 
-# EXPECTED (gold capabilities)
+# EXPECTED (gold)
 ${cfg.expected}
 
-# PRODUCED (what the workflow generated)
+# PRODUCED (what the generator produced)
 ${cfg.actual}
 
-Match each EXPECTED capability to a PRODUCED concept SEMANTICALLY (not by exact
-wording — a capability can be named differently). Then report:
-- matched:  expected capabilities that ARE covered (paired with the produced concept)
-- missing:  expected capabilities with no adequate match
-- spurious: produced concepts that are noise / not real capabilities / not expected
-Every expected capability must appear in exactly one of matched or missing.`;
+Match each EXPECTED item to a PRODUCED item SEMANTICALLY (not by exact wording —
+an item can be named differently). Then report:
+- matched:  expected items that ARE covered (paired with the produced item)
+- missing:  expected items with no adequate match
+- spurious: produced items that are noise / not real items / not expected
+Every expected item must appear in exactly one of matched or missing.
+
+For "insight", step back from THIS input: give one transferable, domain-agnostic
+lesson about the generator (never name this input's specific items or domain). It
+must read as advice that applies to any input.`;
 
     const { object } = await generateObject({ model, prompt, schema: VerdictSchema as any });
     const v = object as Verdict;
@@ -108,7 +117,7 @@ Every expected capability must appear in exactly one of matched or missing.`;
     const pct = (n: number) => `${Math.round(n * 100)}%`;
     const markdown = [
       `**Score: ${score}**  (recall ${pct(recall)}, precision ${pct(precision)})`,
-      `Matched ${v.matched.length}/${expectedTotal} expected capabilities.`,
+      `Matched ${v.matched.length}/${expectedTotal} expected items.`,
       v.missing.length ? `\n**Missing:** ${v.missing.join(", ")}` : "",
       v.spurious.length ? `**Spurious:** ${v.spurious.join(", ")}` : "",
       `\n${v.reason}`,

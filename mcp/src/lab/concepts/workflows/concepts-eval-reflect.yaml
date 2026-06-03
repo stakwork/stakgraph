@@ -1,0 +1,31 @@
+name: concepts-eval-reflect
+# Concept-specific "propose" workflow: wraps the generic `eval/reflect` step with
+# the CONCEPT task framing + revision guidance, so the optimize loop can call it
+# to get an improved bootstrapPrompt from aggregated eval results.
+#
+# Input:  { prompt, results[ { score?, missing[], spurious[], insight? } ] }
+# Output: { prompt, rationale }
+steps:
+  - id: reflect
+    type: eval/reflect
+    config:
+      prompt: "{{ input.prompt }}"
+      results: "{{ input.results }}"
+      task: "{{ params.task }}"
+      guidance: "{{ params.guidance }}"
+
+# ── params: the concept-specific framing for the reflector ──────────────────
+params:
+  task: |-
+    The prompt drives an automated "core capability" extractor: it reads a
+    repository and lists its distinct, user-facing capabilities. We score each
+    run against a gold set for recall (did we recover the real capabilities?) and
+    precision (did we avoid noise?).
+  guidance: |-
+    - Treat real-time / media / voice / collaboration surfaces as first-class
+      user-facing capabilities, not infrastructure.
+    - Demote infra, dev-tooling, agent-internal, and integration-plumbing items
+      to NON-capabilities unless they are the product itself.
+    - Prefer broad capability names over implementation names.
+    - The prompt uses {owner} {repo} {size} {fileCount} {min} {max} placeholders —
+      keep them all intact.

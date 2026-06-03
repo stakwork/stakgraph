@@ -302,14 +302,24 @@ export function App() {
     setEvents([] as api.RunEvent[]);
 
     try {
-      const result = await api.runWorkflow(wf, input, (event) => {
+      // Detached launch (§8): we get the runId up front, so the run can surface
+      // in the sidebar as "running" while it's still executing. We don't select
+      // it yet — selecting fires an effect that refetches (and would clobber)
+      // the live events; we select on completion, as before.
+      const { runId } = await api.launchWorkflow(wf, input, params);
+      let listedRunning = false;
+      await api.streamRun(wf, runId, (event) => {
         accumulated.push(event as RunEventData);
         setEvents([...accumulated] as api.RunEvent[]);
-      }, params);
+        // First event means the run's log exists on disk → `/runs` now returns
+        // it (status "running", no run.json yet). Refresh once to show it live.
+        if (!listedRunning) {
+          listedRunning = true;
+          refreshRuns(wf);
+        }
+      });
 
-      if (result?.runId) {
-        setSelectedRun(result.runId);
-      }
+      setSelectedRun(runId);
       await refreshRuns(wf);
     } finally {
       setRunning(false);

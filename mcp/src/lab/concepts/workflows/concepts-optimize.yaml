@@ -1,0 +1,33 @@
+name: concepts-optimize
+# Self-improving loop (EVAL_SPEC §7/§11.4) for the concepts bootstrap prompt:
+# repeatedly eval the prompt (via concepts-eval) and reflect a better one (via
+# concepts-eval-reflect), keeping the best. Each generation injects the candidate
+# prompt into bootstrap-then-process via paramOverrides.
+#
+# Launch DETACHED (§8) — it's a multi-run background job:
+#   RUN=$(curl -s -X POST .../concepts-optimize/run -d '{"input":{"owner":"O","repo":"R"}}' | jq -r .runId)
+#   curl -N .../concepts-optimize/runs/$RUN/stream
+#
+# Input:  { owner, repo }
+# Output: { bestScore, bestGen, bestPrompt, firstScore, generations }
+# Promote a winner by writing bestPrompt into bootstrap-then-process's
+# bootstrapPrompt param default + publishing a new version.
+steps:
+  - id: optimize
+    type: eval/optimize
+    config:
+      evalWorkflow: concepts-eval
+      evalInput:
+        owner: "{{ input.owner }}"
+        repo: "{{ input.repo }}"
+      targetWorkflow: bootstrap-then-process
+      promptParam: bootstrapPrompt
+      reflectWorkflow: concepts-eval-reflect
+      label: "{{ input.owner }}/{{ input.repo }}"
+      maxGenerations: "{{ params.maxGenerations }}"
+      threshold: "{{ params.threshold }}"
+
+# ── params: the loop's stopping knobs (the experiment surface) ──────────────
+params:
+  maxGenerations: 5
+  threshold: 0.9

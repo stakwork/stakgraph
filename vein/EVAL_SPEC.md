@@ -25,15 +25,17 @@ Builds on `SPEC.md` (the engine). The guiding idea:
 | Params **visible + editable + persistable** in the UI (§3) | **done** (`ParamsFlyout`; Publish writes params into the new version) |
 | Bootstrap prompt paramified | **done** (`bootstrap-then-process` `params`) |
 | `concepts/collect-for-eval` — run output = scoreable concept set | **done** (final step of `bootstrap-then-process`) |
-| `eval/score` (recall-based) + `eval-score` workflow (§5) | **done** (`mcp/src/lab/eval`) |
-| `eval-concepts` — bootstrap-only eval loop (§6) | **done** (`mcp/src/lab/concepts`) |
+| `eval/score` (generic recall-based step) + `concepts-eval-score` workflow (§5) | **done** (step in `mcp/src/lab/eval`, workflow in `concepts`) |
+| `concepts-eval` — bootstrap-only eval loop (§6) | **done** (`mcp/src/lab/concepts`) |
 | First real run (recall 0.8) — surfaced the overfitting/insight problem | **done** |
-| Agent *builds* evals; background job *runs* them (§7) | todo |
 | Background-job model: detached runs + reattach (§8) | **done** (`launchDetached` + `FileRunStore.tailEvents` + `…/runs/:runId/stream`) |
-| Multi-repo dataset + train/val split + optimize loop (§4, §7) | todo |
+| `eval/reflect` — the "propose" step (param-changer, aggregate-aware) | **done** (`eval/reflect` + `concepts-eval-reflect` workflow) |
+| Optimize loop `eval→keep→reflect` as a detached job (§7, §11.4) | **done, single-repo** (`eval/optimize` + `concepts-optimize`; runs `concepts-eval` per generation via `paramOverrides`) |
+| Agent *builds* evals; background job *runs* them (§7) | partial (loop runs autonomously; agent-side `run_eval` tool + system prompt still todo) |
+| Multi-repo dataset + train/val split (§4, §11.2) — the real overfit fix | todo (reflect already takes a multi-repo `results[]`; needs the `examples[]` dataset + batch eval) |
 | Reproducible/isolated runs: snapshots + namespacing (§9) | todo |
 
-Manual eval works **today**: open `eval-concepts`, set the `expected` gold in
+Manual eval works **today**: open `concepts-eval`, set the `expected` gold in
 the Params flyout, Run with a repo, read the score; edit the bootstrap prompt
 (`bootstrap-then-process` params or a `paramOverrides`), re-run.
 
@@ -53,10 +55,10 @@ the Params flyout, Run with a repo, read the score; edit the bootstrap prompt
 - **Target** — the pipeline being improved (e.g. `bootstrap-then-process`).
 - **Collect** — a final step (`collect-for-eval`) turns graph state into the
   scoreable run output. Without it the run records the wrong thing.
-- **Score** — `eval-score`, an LLM judge that matches produced vs expected.
+- **Score** — `concepts-eval-score`, an LLM judge that matches produced vs expected.
 - **Candidate** — what changes between runs (see §4). Param tweak or a whole
   new workflow version.
-- **Harness** — `eval-concepts` chains the above into one run that returns a
+- **Harness** — `concepts-eval` chains the above into one run that returns a
   number (§6).
 
 Everything above is a workflow or a `param`. No new resource types.
@@ -72,9 +74,23 @@ the next version's YAML (`POST /workflows/:name` already accepts
 `{ steps, params }`). So "setting up an eval in the UI" needs no new storage,
 API, or resource — just the editable Params flyout (done).
 
-- **Rubric** → the `rubric` param of `eval-score`.
+- **Rubric** → the `rubric` param of `concepts-eval-score`.
 - **Expected gold** → an `expected` param (one repo) or an `examples` array
   param (many), authored in the same markdown shape `collect-for-eval` emits.
+
+**Naming convention (generic vs experiment).** The eval *mechanism* is
+domain-agnostic and reusable; the *config* is per-experiment. So:
+
+- **`eval/*` steps** — the generic primitives, no domain baked in:
+  `eval/score` (match produced↔expected by a `rubric`), `eval/reflect`
+  (propose a better prompt from the aggregate), `eval/optimize` (the loop).
+  Seeded once (`mcp/src/lab/eval`), reused by every experiment.
+- **`<experiment>-…` workflows** — wire those steps with the experiment's
+  rubric / task / dataset, and live with the experiment. The concepts
+  experiment ships `concepts-eval` (harness), `concepts-eval-score` (rubric),
+  `concepts-eval-reflect` (task+guidance), `concepts-optimize` (the wired loop)
+  in `mcp/src/lab/concepts/workflows`. A future experiment `foo` adds
+  `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
 
 ---
 
@@ -91,7 +107,7 @@ on a spectrum:
    `concepts/decide` two levels down). `params` (flat) only hits the entry
    flow; `paramOverrides[workflowName]` hits that flow at any depth.
    ```jsonc
-   POST /workflows/eval-concepts/run
+   POST /workflows/concepts-eval/run
    { "input": { "owner": "x", "repo": "y" },
      "paramOverrides": { "bootstrap-then-process": { "bootstrapPrompt": "…" } } }
    ```
@@ -134,14 +150,14 @@ must learn to recover.
 
 ---
 
-## 6. The harness: `eval-concepts`
+## 6. The harness: `concepts-eval`
 
 One workflow that runs the whole eval as a single scoreable run:
 
 ```
 reset    → clear the repo's concepts (so bootstrap re-runs fresh)
 produce  → bootstrap-then-process, lookbackDays: 0  (BOOTSTRAP ONLY, no PRs)
-score    → eval-score(actual = produce.markdown, expected = params.expected)
+score    → concepts-eval-score(actual = produce.markdown, expected = params.expected)
 ```
 
 `lookbackDays: 0` makes the checkpoint "now" so no PRs/commits are processed —
@@ -228,7 +244,7 @@ For tight/automated loops the eval runs must be cheap and non-colliding:
   checkpoint); a snapshot freezes the upper bound too.
 - **Namespacing + teardown** — concepts are keyed by `owner/repo` in Neo4j, so
   parallel candidates collide. A per-run `namespace` (suffix the repoId) +
-  teardown isolates them. `eval-concepts` uses a coarse `reset` today, which
+  teardown isolates them. `concepts-eval` uses a coarse `reset` today, which
   is enough for sequential single-repo tuning.
 
 ---
@@ -247,13 +263,18 @@ and then drives building the workflow that fixes it.
 
 ## 11. What's next
 
-1. **First real run** of `eval-concepts` on a small repo — **done** (recall 0.8;
+1. **First real run** of `concepts-eval` on a small repo — **done** (recall 0.8;
    surfaced the overfitting/insight problem that motivates §4 + §7).
 2. **Multi-repo eval** — `examples` array param + a Level-2 batch eval, with a
    train/val split (the structural fix for overfitting, §4/§7).
 3. **Background-job model (§8)** — detached launch + file-tail reattach.
    **done.** The prerequisite for any long optimize run.
-4. **The optimize loop** — thin orchestrator: `eval across train → reflect
-   (generalizing) → keep best on val`, run as a background job; plus a `run_eval`
-   tool so the agent can build/inspect it.
+4. **The optimize loop** — `eval → keep best → reflect (generalizing) → repeat`,
+   built as the `eval/optimize` step inside the detached `concepts-optimize`
+   workflow (a background job, §8). **done for a single repo**; `eval/reflect`
+   already takes a multi-repo `results[]`, so generalizing across a train set
+   is unlocked once the dataset (item 2) lands. Still todo: best-on-**val** (vs
+   train), auto-**promote** the winner (write the param default + publish a new
+   version), and a `run_eval` tool + system-prompt section so the agent can
+   build/inspect it.
 5. **Reproducibility (§9)** — snapshots + namespacing for cheap, parallel runs.

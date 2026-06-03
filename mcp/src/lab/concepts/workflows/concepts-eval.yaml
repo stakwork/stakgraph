@@ -1,11 +1,13 @@
-name: eval-concepts
-# Bootstrap-only eval: produce a repo's Concept set from JUST the bootstrap
-# agent (lookbackDays: 0 → no PR/commit processing), then score it against an
-# expected gold set. Iterate on the bootstrap prompt (in `bootstrap-then-process`
-# params, or via paramOverrides) until the score is high.
+name: concepts-eval
+# Bootstrap-only eval HARNESS for the concepts experiment: produce a repo's
+# Concept set from JUST the bootstrap agent (lookbackDays: 0 → no PR/commit
+# processing), then score it against an expected gold set. Iterate on the
+# bootstrap prompt (in `bootstrap-then-process` params, or via paramOverrides)
+# until the score is high.
 #
 # Input: { owner, repo, token? }
-# Output: { score, reason, insight, markdown } (from eval-score)
+# Output: { score, recall, precision, missing, spurious, reason, insight, markdown }
+#         (from concepts-eval-score)
 steps:
   # 1. Clear existing concepts so bootstrap re-runs fresh (the is-new-repo gate
   #    only bootstraps an empty repo).
@@ -34,7 +36,7 @@ steps:
   - id: score
     type: subflow
     config:
-      workflow: eval-score
+      workflow: concepts-eval-score
       input:
         actual: "{{ produce.markdown }}"
         expected: "{{ params.expected }}"

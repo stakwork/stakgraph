@@ -49,6 +49,26 @@ Experimentation seams (edit without touching code):
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
 
+### `eval/` — generic, reusable eval primitives (NOT an experiment)
+
+Domain-agnostic eval substrate, shared by every experiment. See
+`vein/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
+
+- `eval/steps/score.ts` (`eval/score`) — match a produced set vs an expected
+  gold set by a `rubric`; recall-weighted F-beta score.
+- `eval/steps/reflect.ts` (`eval/reflect`) — propose a better prompt from the
+  AGGREGATED results across a dataset (multi-example → avoids overfitting).
+- `eval/steps/optimize.ts` (`eval/optimize`) — the `eval → keep best → reflect`
+  loop, run as a single detached "background job" (EVAL_SPEC §8). Runs
+  sub-workflows via an injected `services.optimizer` (closure over `vein.run`).
+
+**Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
+a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.
+The concepts experiment's live in `concepts/workflows/`: `concepts-eval`
+(harness), `concepts-eval-score` (rubric), `concepts-eval-reflect`
+(task+guidance), `concepts-optimize` (the wired loop). A new experiment `foo`
+adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
+
 ## Running / gotchas
 
 - Needs **Neo4j** + `GITHUB_TOKEN` + an LLM key (e.g. `ANTHROPIC_API_KEY`).

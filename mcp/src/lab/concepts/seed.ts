@@ -21,7 +21,12 @@ const SEED_WORKFLOWS = [
   "process-change",
   "process-repo-chronological",
   "bootstrap-then-process",
-  "eval-concepts",
+  // Concept-specific eval workflows: wire the generic eval/* steps with the
+  // concept rubric / task / dataset. (The generic steps are seeded by eval/seed.)
+  "concepts-eval", // harness: bootstrap-only produce → score
+  "concepts-eval-score", // eval/score + concept rubric
+  "concepts-eval-reflect", // eval/reflect + concept task/guidance
+  "concepts-optimize", // eval/optimize loop, wired to the above
 ];
 
 /**

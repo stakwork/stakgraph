@@ -4,39 +4,26 @@ import { dirname, join } from "node:path";
 import type { WorkspaceManager } from "vein";
 
 /**
- * Generic eval machinery (scorer step + scoring workflow), seeded into the
- * vein workspace like the concepts experiment. Reconciled by content hash on
- * boot, so edits publish a new active version (see concepts/seed.ts for the
- * reconciliation contract).
+ * GENERIC, domain-agnostic eval primitives (STEPS only), seeded into the vein
+ * workspace. Reconciled by content hash on boot, so edits publish a new active
+ * version (see concepts/seed.ts for the reconciliation contract).
  *
- * Not concepts-specific: `eval/score` compares any `actual` vs `expected`
- * markdown using a `rubric`. The default `eval-score` workflow ships a
- * concept-quality rubric in its `params`, overridable per run.
+ * These steps are reusable across ALL experiments — they carry no domain
+ * config. An experiment supplies its own eval WORKFLOWS that wire these steps
+ * with its rubric / task / dataset (e.g. the concepts experiment ships
+ * `concepts-eval*` in concepts/workflows, seeded by concepts/seed.ts):
+ *   - `eval/score`    — match produced vs expected by a `rubric`, recall-weighted.
+ *   - `eval/reflect`  — propose a better prompt from AGGREGATED results.
+ *   - `eval/optimize` — eval → keep best → reflect loop (a detached job).
  */
-
-const SEED_WORKFLOWS = ["eval-score"];
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "score.ts", type: "eval/score" },
+  { file: "reflect.ts", type: "eval/reflect" },
+  { file: "optimize.ts", type: "eval/optimize" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-export async function seedEvalWorkflows(workspace: WorkspaceManager): Promise<void> {
-  const dir = join(HERE, "workflows");
-  for (const name of SEED_WORKFLOWS) {
-    try {
-      const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
-      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml);
-      if (changed) console.log(`[eval] seeded workflow: ${name} @ ${version}`);
-    } catch (err) {
-      console.warn(
-        `[eval] could not seed workflow "${name}":`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
-}
 
 export async function seedEvalSteps(workspace: WorkspaceManager): Promise<void> {
   const dir = join(HERE, "steps");
