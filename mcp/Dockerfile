@@ -48,8 +48,11 @@ RUN npx -y playwright install
 # `file:../vein` from /usr/src/app resolves to it. node_modules are dropped
 # after build so mcp's `yarn` provides vein's runtime deps via the shared tree.
 COPY ./.vein /usr/src/vein
-RUN cd /usr/src/vein && npm ci && npm run build && \
-    npm --prefix web ci && npm --prefix web run build && \
+# `npm install` (not `npm ci`): package-lock.json is gitignored repo-wide, so
+# it isn't present in the staged `.vein` source — `npm ci` would fail. Matches
+# the `npm install` used elsewhere in this Dockerfile (web, benchmark).
+RUN cd /usr/src/vein && npm install && npm run build && \
+    npm --prefix web install && npm --prefix web run build && \
     rm -rf node_modules web/node_modules
 
 # Copy package.json and package-lock.json (if available)
