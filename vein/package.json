@@ -22,14 +22,14 @@
     "build:web": "npm --prefix web run build",
     "dev": "npm run build:web && tsx --env-file=.env src/server.ts",
     "start": "node build/server.js",
-    "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/services.test.ts src/createVein.test.ts src/ai-integration.test.ts src/steps/registry.test.ts src/auth.test.ts"
+    "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/services.test.ts src/createVein.test.ts src/ai-integration.test.ts src/steps/registry.test.ts src/steps/core/agent.test.ts src/auth.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.80",
-    "@ai-sdk/openai": "^3.0.65",
+    "@ai-sdk/anthropic": "^3.0.81",
+    "@ai-sdk/openai": "^3.0.67",
     "@hono/node-server": "^2.0.4",
     "@octokit/rest": "^22.0.1",
-    "ai": "^6.0.191",
+    "ai": "^6.0.196",
     "hono": "^4.12.23",
     "js-yaml": "^4.1.1",
     "system-canvas": "^0.2.22",

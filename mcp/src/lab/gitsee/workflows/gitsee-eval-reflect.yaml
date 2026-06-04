@@ -25,8 +25,8 @@ params:
     avoid inventing unneeded services or blockers?).
   guidance: |-
     - The prompt controls EXPLORATION (what the agent looks for), not the output
-      format — the output contract (pod app service, "frontend" naming, local-only
-      policy) lives elsewhere and must NOT be encoded here.
+      format — the output contract ("frontend" naming, local-only policy) lives
+      elsewhere and must NOT be encoded here.
     - Recall first: the biggest lever is teaching the agent to reliably DISCOVER
       recurring 'missing' kinds — e.g. detecting required databases/caches/queues
       from env vars + dependencies, finding the real start/build/install commands

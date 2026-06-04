@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import yaml from "js-yaml";
+import { coreRegistry } from "vein";
 import cloneStep from "./steps/clone-workspace.js";
-import exploreStep from "./steps/explore-services.js";
 
 /**
- * Throwaway end-to-end smoke test for the gitsee experiment — runs the two
- * self-contained steps directly (real git clone + real Anthropic call), feeding
- * the exact `params` from gitsee-explore-services.yaml. No vein server / Neo4j /
- * seeding needed (these steps don't touch ctx.services).
+ * Throwaway end-to-end smoke test for the gitsee experiment — runs the gitsee
+ * clone step + the vein-core `agent` step directly (real git clone + real
+ * Anthropic call), feeding the exact `params` from gitsee-explore-services.yaml.
+ * No vein server / Neo4j / seeding needed.
  *
  * Clones a WORKSPACE (one or more repos as siblings). Pass repos as
  * "owner/repo" args (defaults to a single heroku/node-js-getting-started):
@@ -37,16 +37,16 @@ async function main() {
   const { workspacePath } = (await cloneStep.run(cloneCfg, ctx)) as { workspacePath: string };
   console.log("workspacePath:", workspacePath);
 
-  console.log(`\n=== explore (model ${p.model}) ===`);
-  const exploreCfg = (exploreStep.input as any).parse({
-    workspacePath,
+  console.log(`\n=== explore via core agent (model ${p.model}) ===`);
+  const agentStep = coreRegistry()["agent"];
+  const exploreCfg = (agentStep.input as any).parse({
+    cwd: workspacePath,
     prompt: p.prompt,
     system: p.system,
     finalAnswer: p.finalAnswer,
-    fileLines: p.fileLines,
     model: p.model,
   });
-  const out = (await exploreStep.run(exploreCfg, ctx)) as { result: string; steps: number };
+  const out = (await agentStep.run(exploreCfg, ctx)) as { result: string; steps: number };
 
   console.log(`\n=== RESULT (${out.steps} steps) ===\n`);
   console.log(out.result);

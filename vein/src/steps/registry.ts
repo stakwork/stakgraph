@@ -25,6 +25,7 @@ import foreach from "./core/foreach.js";
 import subflow from "./core/subflow.js";
 import log from "./core/log.js";
 import llm from "./core/llm.js";
+import agent from "./core/agent.js";
 import wait from "./core/wait.js";
 
 const CORE_STEPS: StepRegistry = {
@@ -35,6 +36,7 @@ const CORE_STEPS: StepRegistry = {
   subflow,
   log,
   llm,
+  agent,
   wait,
 };
 

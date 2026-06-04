@@ -49,14 +49,13 @@ Experimentation seams (edit without touching code):
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
 
-### `gitsee/` — self-contained setup profiler (port of `mcp/src/gitsee`)
+### `gitsee/` — setup profiler (port of `mcp/src/gitsee`)
 
 A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
-`pm2.config.js` + `docker-compose.yml` to set up a project). Deliberately the
-**opposite** of the `concepts` convention: **everything runs in the steps**
-with **no import from existing code** (`src/gitsee`), so that dir can
-eventually be deleted. Steps import only `vein`, the third-party AI SDK
-(`ai` + `@ai-sdk/anthropic`), and Node builtins.
+`pm2.config.js` + `docker-compose.yml` to set up a project). No import from
+existing code (`src/gitsee`), so that dir can eventually be deleted. The agent
+loop itself is **not** gitsee code anymore — it's the **vein-core `agent`
+step** (see `vein/AGENTS.md`); gitsee only supplies the clone + the prompts.
 
 **WORKSPACE-oriented** (not single-repo): a workspace is a set of repos cloned
 as **siblings** under `/workspaces/<repo>` — typically one runnable **frontend**
@@ -66,35 +65,67 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
 - `gitsee/steps/clone-workspace.ts` (`gitsee/clone-workspace`) — clones N repos
   as siblings under one workspace dir (idempotent, per-rev). Each repo may pin a
   `rev`; `token` falls back to `GITHUB_TOKEN` env (private repos). Output
-  `{ workspacePath, repos }`.
-- `gitsee/steps/explore-services.ts` (`gitsee/explore-services`) — the whole
-  agent loop inlined over the **workspace**: tools (`repo_overview` spans all
-  sibling repos, `file_summary`, `fulltext_search`, `bash` — ported from
-  `gitsee/agent/tools.ts` + `repo/bash.ts` as pure `child_process`/`fs`),
-  Anthropic's native `web_search` (provider-defined tool off the same SDK
-  provider — no aieo import), and `final_answer`, run via `generateText` (bash +
-  web_search always on). The cloned repo list is injected into the prompt so the
-  tunable `system`/`finalAnswer` stay repo-agnostic. LLM is provider-direct:
-  Anthropic via `ANTHROPIC_API_KEY`, model from config (drops aieo's
-  gateway/multi-provider/cost routing — the cost of full self-containment).
-- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → explore`; input
-  `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`finalAnswer`
-  prompts live in `params` (the experiment surface, frontend-focused).
+  `{ workspacePath, repos }`. **The only gitsee-specific producer step.**
+- Exploration is the **core `agent` step** (`vein/src/steps/core/agent.ts`),
+  pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
+  `fulltext_search`, `bash`, anthropic `web_search`, + `file_summary` — the
+  `stakgraph` AST CLI, only offered when `stakgraph` is on PATH) + the agent loop
+  live in vein core now — what was the old inlined `gitsee/explore-services` step
+  (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
+  structured-`schema` mode is intentionally unused here for now. (For the
+  `file_summary` tool, `stakgraph` must be on PATH; the agent falls back to
+  `bash`/`cat` otherwise.)
+- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → agent`; input
+  `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`prompt`/
+  `finalAnswer` prompts live in `params` (the experiment surface, frontend-
+  focused). The agent injects a neutral working-dir listing, so the prompts
+  stay repo-agnostic (workspace framing moved into `params.system`).
 
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
-steps). The gold is the **actual canonical pm2.config.js + docker-compose.yml
-pair** (same as the original gitsee eval — produced vs gold is apples-to-apples).
-`eval/score`'s rubric scores **functional equivalence**: it decomposes the gold
-into requirements (each pm2 app's script/env/cwd, each compose service's
-image/env/ports/volumes, host-binding flags) and matches the produced files
-against them, recall-weighted — cosmetic diffs (script form, port number, image
-tag, `version:` key) match; missing required services/commands/flags don't.
+steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the
+**actual canonical pm2.config.js + docker-compose.yml pair** (produced vs gold
+is apples-to-apples).
+
+Scoring is a **structured + hybrid** scorer (`gitsee/score-setup`), NOT the
+generic LLM `eval/score`. Both files are parseable, and the gold is the ANSWER
+KEY — so the dominant tier is **deterministic name set-diffs vs the gold**, which
+is why it stays repo-agnostic without understanding any dependency:
+- **env-key completeness** — `keys(produced pm2 env)` vs `keys(gold pm2 env)`,
+  recall-weighted. Robust + general because the key NAME is dictated by the
+  repo's code (`process.env.X`); a different name simply isn't read, so the
+  gold's names are canonical. (Build/run directives like `INSTALL_COMMAND` live
+  in this env block too, so "key commands" come for free.) This is the headline
+  fix: the old LLM judge collapsed hive's ~15 env vars into ~1 "env present"
+  item, so a missing boot-critical key barely moved the score.
+- **service set** — compose service IDENTITY (image base name, tag stripped, or
+  the service name for build-only services) produced vs gold. An extra image the
+  gold lacks (e.g. an invented `redis`) is a precision hit → catches
+  over-provisioning.
+- **LLM semantic residue** (optional, `useLLM`, capped multiplier so the
+  deterministic tier dominates) — only what needs interpretation and therefore
+  can't be a name set-diff: is each `script` the right start command, is a
+  host-binding flag present when the framework needs one, do the pm2 DB creds
+  line up with the compose service (naming-agnostic), is an added service
+  appropriate. (Cross-file cred consistency lives HERE, not in the deterministic
+  tier — matching a `DATABASE_URL` to `POSTGRES_*` across every datastore's env
+  conventions doesn't generalize deterministically; the LLM reads both files
+  regardless of naming.)
+- pm2 is eval'd in a locked-down `node:vm` (stub `require`/`process`, 1s timeout
+  → "unparseable / score 0" on throw); compose via `js-yaml`. Combine into one
+  recall-weighted F-beta (β=2) over env keys ∪ services, then apply the bounded
+  semantic multiplier.
+
+`gitsee/score-setup` PRESERVES the scorer contract `{ score, recall, precision,
+matched, missing, spurious, reason, insight, markdown }` that `eval/optimize` +
+`eval/reflect` depend on.
 
 - `gitsee-eval` — harness: produce (subflow → `gitsee-explore-services`) →
   score (subflow → `gitsee-eval-score`). No reset step (gitsee is stateless).
   Input `{ label, repos, token?, expected? }` — `label` is the workspace name
   (and the `eval: <label>` link); `expected` gold falls back to `params.expected`.
-- `gitsee-eval-score` — `eval/score` + the functional gold-files rubric.
+- `gitsee-eval-score` — `gitsee/score-setup` + the matching policy in `params`
+  (`useLLM`, `ignoreEnvKeys`, the semantic-residue `rubric`). Strict env policy:
+  every gold env key is required (exempt noise keys via `ignoreEnvKeys`).
 - `gitsee-eval-reflect` — `eval/reflect` + the setup task/guidance.
 - `gitsee-optimize` — `eval/optimize` loop. Tunes **`system`** (the explorer
   prompt), NOT `finalAnswer` (the hard pod contract). Cohort in `params.dataset`,

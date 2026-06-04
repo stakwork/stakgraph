@@ -1,15 +1,17 @@
 name: gitsee-explore-services
-# Self-contained port of gitsee "services" mode (the setup profiler), WORKSPACE-
-# oriented: clone a workspace (a set of repos cloned as siblings under
-# /workspaces/<repo>), then agentically explore it and emit a pm2.config.js +
-# docker-compose.yml pair that gets the workspace's FRONTEND up and running.
-# EVERYTHING runs in two self-contained custom steps (gitsee/clone-workspace +
-# gitsee/explore-services) — no import from the existing `src/gitsee` code.
+# WORKSPACE-oriented setup profiler: clone a workspace (a set of repos cloned as
+# siblings under /workspaces/<repo>), then agentically explore it with the CORE
+# `agent` step and emit a pm2.config.js + docker-compose.yml pair that gets the
+# workspace's FRONTEND up and running.
 #
-# A workspace usually has one runnable app (the frontend) plus local-dependency
-# repos it builds against (file: deps). The explore step injects the cloned repo
-# list into the prompt, so the `system`/`finalAnswer` params stay repo-agnostic
-# (the experiment surface, ready for gitsee-optimize to sweep).
+# The agent loop + its general tools (repo_overview, file_summary, fulltext_search,
+# bash, web_search) now live in vein core (`agent` step). Only the gitsee-specific
+# clone remains a custom step. The `system`/`prompt`/`finalAnswer` prompts live in
+# `params` (the experiment surface, ready for gitsee-optimize to sweep) — the agent
+# injects a neutral working-dir listing, so the prompts stay repo-agnostic.
+#
+# Output is the FILENAME text contract (the `final_answer` tool); the structured
+# `schema` mode of the `agent` step is intentionally NOT used here yet.
 #
 # Needs ANTHROPIC_API_KEY in env and `git` + `rg` on PATH.
 #
@@ -24,19 +26,17 @@ steps:
       token: "{{ input.token }}"
 
   - id: explore
-    type: gitsee/explore-services
+    type: agent
     depends: clone
     config:
-      workspacePath: "{{ clone.workspacePath }}"
+      cwd: "{{ clone.workspacePath }}"
       prompt: "{{ params.prompt }}"
       system: "{{ params.system }}"
       finalAnswer: "{{ params.finalAnswer }}"
-      fileLines: "{{ params.fileLines }}"
       model: "{{ params.model }}"
 
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
-  fileLines: 100
   model: claude-sonnet-4-6
   prompt: |-
     Explore this workspace and produce the pm2.config.js and docker-compose.yml
@@ -47,7 +47,7 @@ params:
   system: |-
     You are a setup assistant. Your job is to get the FRONTEND of a workspace up and running locally in our pod.
 
-    A workspace contains one or more repos cloned as siblings under /workspaces/<repo>. Typically ONE repo is the runnable app (the frontend); the others are LOCAL DEPENDENCIES it builds against (often linked as file: dependencies). Your job is to get that frontend booting — not to run every repo as its own service.
+    A workspace contains one or more repos cloned as siblings (each a subdirectory of the working directory listed in the task, and mounted at /workspaces/<repo> in the pod). Reference files by their path relative to the working directory (e.g. "<repo>/package.json"). Typically ONE repo is the runnable app (the frontend); the others are LOCAL DEPENDENCIES it builds against (often linked as file: dependencies). Your job is to get that frontend booting — not to run every repo as its own service.
 
     Explore the repos to determine:
     - which repo is the runnable frontend (look for the app with a dev/start script, a web framework, an entrypoint);
@@ -67,21 +67,7 @@ params:
 
     The setup runs inside our pod/code-server environment. Each repo is mounted at /workspaces/<repo> (the repo's dir name). The runnable pm2 service's cwd must be /workspaces/<the-frontend-repo>. If the frontend depends on sibling repos in this workspace (file: deps / workspace links), make sure they get installed and built — via the frontend's INSTALL_COMMAND/BUILD_COMMAND or a PRE_START_COMMAND that builds the sibling(s) first.
 
-    Unless a platform-specific structure is required, docker-compose.yml must include this exact "app" service (the long-running container where the repo code is mounted and pm2 runs). Do not replace it with a generic compose service:
-    ```
-      app:
-        build:
-          context: .
-          dockerfile: Dockerfile
-        volumes:
-          - ../..:/workspaces:cached
-        command: sleep infinity
-        networks:
-          - app_network
-        extra_hosts:
-          - "localhost:172.17.0.1"
-          - "host.docker.internal:host-gateway"
-    ```
+    Do NOT add an "app" / runtime container for the repo code itself — the pod platform provides the long-running container where the code is mounted and pm2 runs. docker-compose.yml is ONLY for the backing services the frontend needs (databases, caches, queues). If the frontend needs no backing services, emit a docker-compose.yml with just the network and no `services:` block.
 
     # Local-only dependency policy
 
@@ -108,7 +94,7 @@ params:
 
     # docker-compose.yml
 
-    The auxiliary services the frontend needs (databases, caches, queues, etc.), plus the mandatory "app" service above. Add a service ONLY when the frontend requires it to boot.
+    The auxiliary services the frontend needs (databases, caches, queues, etc.). Add a service ONLY when the frontend requires it to boot — do NOT add an "app" / runtime container for the repo itself (the pod provides it).
 
     # EXAMPLE OUTPUT
 
@@ -143,18 +129,6 @@ params:
       app_network:
         driver: bridge
     services:
-      app:
-        build:
-          context: .
-          dockerfile: Dockerfile
-        volumes:
-          - ../..:/workspaces:cached
-        command: sleep infinity
-        networks:
-          - app_network
-        extra_hosts:
-          - "localhost:172.17.0.1"
-          - "host.docker.internal:host-gateway"
       postgres:
         image: postgres:15
         environment:
