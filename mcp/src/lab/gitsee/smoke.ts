@@ -44,7 +44,6 @@ async function main() {
     prompt: p.prompt,
     system: p.system,
     finalAnswer: p.finalAnswer,
-    fileLines: p.fileLines,
     model: p.model,
   });
   const out = (await agentStep.run(exploreCfg, ctx)) as { result: string; steps: number };

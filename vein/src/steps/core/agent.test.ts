@@ -14,13 +14,12 @@ describe("core agent step", () => {
     assert.equal(reg["agent"]!.type, "agent");
   });
 
-  it("applies input defaults (fileLines, maxSteps, toolFilter)", () => {
+  it("applies input defaults (maxSteps, toolFilter)", () => {
     const cfg = (agent.input as any).parse({
       cwd: "/tmp/x",
       system: "you are a tester",
       prompt: "do the thing",
     });
-    assert.equal(cfg.fileLines, 100);
     assert.equal(cfg.maxSteps, 40);
     assert.deepEqual(cfg.toolFilter, []);
   });

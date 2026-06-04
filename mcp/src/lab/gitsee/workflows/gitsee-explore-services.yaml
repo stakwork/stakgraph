@@ -33,12 +33,10 @@ steps:
       prompt: "{{ params.prompt }}"
       system: "{{ params.system }}"
       finalAnswer: "{{ params.finalAnswer }}"
-      fileLines: "{{ params.fileLines }}"
       model: "{{ params.model }}"
 
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
-  fileLines: 100
   model: claude-sonnet-4-6
   prompt: |-
     Explore this workspace and produce the pm2.config.js and docker-compose.yml

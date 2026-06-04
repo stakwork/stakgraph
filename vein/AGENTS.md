@@ -344,9 +344,12 @@ later without breaking this contract — they'd be additive env vars
 - **`agent` core step** (`src/steps/core/agent.ts`). A general
   tool-using agent loop (AI SDK `ToolLoopAgent`) — distinct from the
   workflow-*builder* chat above. It explores a working dir (`cwd`)
-  with built-in general tools (`repo_overview`, `file_summary`,
-  `fulltext_search`, `bash`, + anthropic `web_search`), filterable via
-  `toolFilter`, and returns one of three shapes: a `final_answer` tool's
+  with built-in general tools (`repo_overview` — adaptive, token-capped
+  dir tree with build/dep/migration dirs collapsed; `fulltext_search`;
+  `bash`; + anthropic `web_search`; + `file_summary`, an AST structural
+  summary that's only registered when the `stakgraph` CLI is on PATH),
+  filterable via `toolFilter`, and returns one of three shapes: a
+  `final_answer` tool's
   text (set `finalAnswer` to its description), a STRUCTURED object (set
   `schema` to a JSON Schema → `Output.object`, read off `res.output`), or
   the final assistant text. Provider-direct (anthropic|openai), lazy-

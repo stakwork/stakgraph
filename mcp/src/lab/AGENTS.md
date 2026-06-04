@@ -68,10 +68,13 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
   `{ workspacePath, repos }`. **The only gitsee-specific producer step.**
 - Exploration is the **core `agent` step** (`vein/src/steps/core/agent.ts`),
   pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
-  `file_summary`, `fulltext_search`, `bash`, anthropic `web_search`) + the agent
-  loop live in vein core now — what was the old inlined `gitsee/explore-services`
-  step (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
-  structured-`schema` mode is intentionally unused here for now.
+  `fulltext_search`, `bash`, anthropic `web_search`, + `file_summary` — the
+  `stakgraph` AST CLI, only offered when `stakgraph` is on PATH) + the agent loop
+  live in vein core now — what was the old inlined `gitsee/explore-services` step
+  (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
+  structured-`schema` mode is intentionally unused here for now. (For the
+  `file_summary` tool, `stakgraph` must be on PATH; the agent falls back to
+  `bash`/`cat` otherwise.)
 - `gitsee/workflows/gitsee-explore-services.yaml` — `clone → agent`; input
   `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`prompt`/
   `finalAnswer` prompts live in `params` (the experiment surface, frontend-

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
 import { spawn } from "node:child_process";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -207,18 +207,27 @@ async function getRepoMap(cwd: string): Promise<string> {
   return out.length > REPO_MAP_MAX_CHARS ? out.slice(0, REPO_MAP_MAX_CHARS) + "\n\n[... output truncated ...]" : out;
 }
 
-/** First N lines of a file, each line capped at 200 chars (minified-file safe). */
-function getFileSummary(filePath: string, cwd: string, linesLimit: number): string {
-  const full = join(cwd, filePath);
-  if (!existsSync(full)) return "File not found";
+/** Max chars returned for a file summary before truncation. */
+const FILE_SUMMARY_MAX_CHARS = 12000;
+
+/** Is an executable named `bin` on PATH? Unix-style — the agent's tools already
+ *  assume a unix env (git/rg/bash). Used to skip a tool whose CLI isn't present
+ *  (e.g. `file_summary` when `stakgraph` isn't installed). */
+function isOnPath(bin: string): boolean {
+  const dirs = (process.env.PATH ?? "").split(":");
+  return dirs.some((d) => d && existsSync(join(d, bin)));
+}
+
+/** Structural summary of a file via the `stakgraph` AST CLI: `stakgraph "<file>"`
+ *  in `cwd`. For code it returns imports + every function/class signature with
+ *  line ranges + call edges; for config/data files it returns the content. Only
+ *  used when `stakgraph` is on PATH (see `isOnPath`). */
+async function stakgraphSummary(filePath: string, cwd: string): Promise<string> {
+  if (!existsSync(join(cwd, filePath))) return "File not found";
   try {
-    return readFileSync(full, "utf-8")
-      .split("\n")
-      .slice(0, linesLimit || 40)
-      .map((l) => (l.length > 200 ? l.slice(0, 200) + "..." : l))
-      .join("\n");
+    return await runShell(`stakgraph "${filePath}"`, cwd, 15000, FILE_SUMMARY_MAX_CHARS);
   } catch (e) {
-    return `Error reading file: ${(e as Error).message}`;
+    return `Error summarizing file: ${(e as Error).message}`;
   }
 }
 
@@ -260,7 +269,7 @@ function buildPreamble(cwd: string): string {
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores a working dir (cwd) with built-in tools (repo_overview, file_summary, fulltext_search, bash, + anthropic web_search) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), fileLines (40-…, default 100), maxSteps (default 40). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, messages }.",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, messages }.",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -279,7 +288,6 @@ export default defineStep({
       .describe("subset of built-in tool names to enable; empty = all. (final_answer is always available in finalAnswer mode.)"),
     model: z.string().optional(),
     provider: z.string().optional(),
-    fileLines: z.number().int().positive().default(100),
     maxSteps: z.number().int().positive().default(40),
   }),
   output: z.any(),
@@ -323,21 +331,6 @@ export default defineStep({
           }
         },
       }),
-      file_summary: tool({
-        description:
-          "Read the first N lines of a file (relative to the working dir) to learn its role. Call with a hypothesis about the file's purpose.",
-        inputSchema: z.object({
-          file_path: z.string().describe("Path to the file, relative to the working dir"),
-          hypothesis: z.string().describe("What you think this file contains, from its name/location"),
-        }) as any,
-        execute: async ({ file_path }: { file_path: string }) => {
-          try {
-            return getFileSummary(file_path, cfg.cwd, cfg.fileLines);
-          } catch {
-            return "Bad file path";
-          }
-        },
-      }),
       fulltext_search: tool({
         description:
           'Search the codebase for a term (e.g. "process.env."). Returns files with the term, occurrence counts, and line numbers. Use it to find env vars, integrations, and how central a symbol is.',
@@ -364,6 +357,24 @@ export default defineStep({
         },
       }),
     };
+    // file_summary is the stakgraph AST CLI — only offer it when stakgraph is on
+    // PATH; otherwise the agent reads files via `bash` (cat/head).
+    if (isOnPath("stakgraph")) {
+      allTools.file_summary = tool({
+        description:
+          "Get a STRUCTURAL summary of a file (relative to the working dir): for code, its imports + every function/class signature with line ranges + call edges; for config/data files, the content. Backed by the stakgraph AST parser — prefer it over cat for understanding code files.",
+        inputSchema: z.object({
+          file_path: z.string().describe("Path to the file, relative to the working dir"),
+        }) as any,
+        execute: async ({ file_path }: { file_path: string }) => {
+          try {
+            return await stakgraphSummary(file_path, cfg.cwd);
+          } catch {
+            return "Bad file path";
+          }
+        },
+      });
+    }
     if (webSearchTool) allTools.web_search = webSearchTool;
 
     // Apply toolFilter (empty = all). Unknown names are ignored.
