@@ -49,14 +49,13 @@ Experimentation seams (edit without touching code):
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
 
-### `gitsee/` — self-contained setup profiler (port of `mcp/src/gitsee`)
+### `gitsee/` — setup profiler (port of `mcp/src/gitsee`)
 
 A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
-`pm2.config.js` + `docker-compose.yml` to set up a project). Deliberately the
-**opposite** of the `concepts` convention: **everything runs in the steps**
-with **no import from existing code** (`src/gitsee`), so that dir can
-eventually be deleted. Steps import only `vein`, the third-party AI SDK
-(`ai` + `@ai-sdk/anthropic`), and Node builtins.
+`pm2.config.js` + `docker-compose.yml` to set up a project). No import from
+existing code (`src/gitsee`), so that dir can eventually be deleted. The agent
+loop itself is **not** gitsee code anymore — it's the **vein-core `agent`
+step** (see `vein/AGENTS.md`); gitsee only supplies the clone + the prompts.
 
 **WORKSPACE-oriented** (not single-repo): a workspace is a set of repos cloned
 as **siblings** under `/workspaces/<repo>` — typically one runnable **frontend**
@@ -66,20 +65,18 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
 - `gitsee/steps/clone-workspace.ts` (`gitsee/clone-workspace`) — clones N repos
   as siblings under one workspace dir (idempotent, per-rev). Each repo may pin a
   `rev`; `token` falls back to `GITHUB_TOKEN` env (private repos). Output
-  `{ workspacePath, repos }`.
-- `gitsee/steps/explore-services.ts` (`gitsee/explore-services`) — the whole
-  agent loop inlined over the **workspace**: tools (`repo_overview` spans all
-  sibling repos, `file_summary`, `fulltext_search`, `bash` — ported from
-  `gitsee/agent/tools.ts` + `repo/bash.ts` as pure `child_process`/`fs`),
-  Anthropic's native `web_search` (provider-defined tool off the same SDK
-  provider — no aieo import), and `final_answer`, run via `generateText` (bash +
-  web_search always on). The cloned repo list is injected into the prompt so the
-  tunable `system`/`finalAnswer` stay repo-agnostic. LLM is provider-direct:
-  Anthropic via `ANTHROPIC_API_KEY`, model from config (drops aieo's
-  gateway/multi-provider/cost routing — the cost of full self-containment).
-- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → explore`; input
-  `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`finalAnswer`
-  prompts live in `params` (the experiment surface, frontend-focused).
+  `{ workspacePath, repos }`. **The only gitsee-specific producer step.**
+- Exploration is the **core `agent` step** (`vein/src/steps/core/agent.ts`),
+  pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
+  `file_summary`, `fulltext_search`, `bash`, anthropic `web_search`) + the agent
+  loop live in vein core now — what was the old inlined `gitsee/explore-services`
+  step (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
+  structured-`schema` mode is intentionally unused here for now.
+- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → agent`; input
+  `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`prompt`/
+  `finalAnswer` prompts live in `params` (the experiment surface, frontend-
+  focused). The agent injects a neutral working-dir listing, so the prompts
+  stay repo-agnostic (workspace framing moved into `params.system`).
 
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
 steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the

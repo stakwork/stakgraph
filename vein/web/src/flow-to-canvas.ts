@@ -57,6 +57,7 @@ const STEP_COLORS: Record<string, { fill: string; stroke: string }> = {
   foreach:  { fill: "rgba(67, 20, 102, 0.4)", stroke: "#8b5cf6" },
   subflow:  { fill: "rgba(21, 94, 117, 0.4)", stroke: "#22d3ee" },
   llm:      { fill: "rgba(76, 29, 149, 0.4)", stroke: "#c084fc" },
+  agent:    { fill: "rgba(124, 45, 18, 0.4)", stroke: "#fb923c" },
   wait:     { fill: "rgba(71, 85, 105, 0.4)", stroke: "#94a3b8" },
   default:  { fill: "rgba(38, 38, 38, 0.6)",  stroke: "#737373" },
 };
