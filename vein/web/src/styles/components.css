@@ -691,6 +691,18 @@ body.is-resizing-flyout * {
   letter-spacing: 0;
   text-transform: none;
 }
+.param-type-tag.param-invalid {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+/* CodeMirror host: the editor chrome (border/radius/bg) is themed in
+   YamlEditor's cmTheme; this is just the block container. */
+.yaml-editor {
+  width: 100%;
+}
+.yaml-editor .cm-editor {
+  width: 100%;
+}
 .flyout-meta-row {
   display: flex;
   justify-content: space-between;
