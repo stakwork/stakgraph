@@ -26,9 +26,9 @@ import { z, defineStep, type RunEvent } from "vein";
  * candidate over a DATASET of inputs (`evalInputs`, e.g. 5 repos), AVERAGES the
  * per-example scores into the generation score, and passes the full per-example
  * array to reflect (which already aggregates — it optimizes for the common
- * failure modes, not one example's quirks). A single `evalInput` still works (a
- * 1-example dataset). Each example's own gold set rides on its dataset entry
- * (e.g. `{ owner, repo, expected }`) — the eval workflow reads it from `input`.
+ * failure modes, not one example's quirks). Each example's own gold set rides on
+ * its dataset entry (e.g. `{ owner, repo, expected }`) — the eval workflow reads
+ * it from `input`. (A single example is just a 1-entry dataset.)
  */
 
 interface EvalOutput {
@@ -64,28 +64,26 @@ interface Optimizer {
 
 /** Derive a human label for a dataset entry (for the reflect digest + run refs):
  *  explicit `label`, else `owner/repo`, else its position. */
-function labelFor(datum: unknown, fallback: string | undefined, i: number): string {
+function labelFor(datum: unknown, i: number): string {
   const d = (datum ?? {}) as Record<string, unknown>;
   if (typeof d["label"] === "string" && d["label"].trim()) return d["label"];
   if (typeof d["owner"] === "string" && typeof d["repo"] === "string") return `${d["owner"]}/${d["repo"]}`;
-  return fallback ?? `example ${i + 1}`;
+  return `example ${i + 1}`;
 }
 
 export default defineStep({
   type: "eval/optimize",
   description:
-    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset — or legacy single `evalInput`), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value), label? (legacy single-example label). Output: { bestScore, bestGen, bestPrompt, firstScore, generations }.",
+    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset; ≥1 entry), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value). Output: { bestScore, bestGen, bestPrompt, firstScore, generations }.",
   input: z.object({
     evalWorkflow: z.string().describe("workflow that scores a candidate; output must have { score, missing, spurious, insight }"),
-    evalInputs: z.array(z.any()).optional().describe("the dataset: inputs evaluated each generation and averaged (e.g. [{ owner, repo, expected }, ...]). Each entry's gold rides on the entry."),
-    evalInput: z.any().optional().describe("legacy single example (equivalent to a 1-entry evalInputs)"),
+    evalInputs: z.array(z.any()).min(1).describe("the dataset: inputs evaluated each generation and averaged (e.g. [{ owner, repo, expected }, ...]). Each entry's gold rides on the entry."),
     targetWorkflow: z.string().describe("workflow whose param is being tuned"),
     promptParam: z.string().describe("the param on targetWorkflow to tune (overridden per generation via paramOverrides)"),
     reflectWorkflow: z.string().describe("workflow that proposes the next prompt; output must have { prompt }"),
     maxGenerations: z.number().int().positive().default(5),
     threshold: z.number().min(0).max(1).default(0.9),
     prompt: z.string().optional().describe("starting candidate; defaults to targetWorkflow's current promptParam value"),
-    label: z.string().optional().describe("label for the legacy single example in the reflect digest"),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -104,18 +102,9 @@ export default defineStep({
       );
     }
 
-    // The dataset: prefer `evalInputs` (multi-example), fall back to the legacy
-    // single `evalInput`. A generation evals the candidate over EVERY entry and
+    // The dataset. A generation evals the candidate over EVERY entry and
     // averages — that mean is the generation's score (the overfitting fix).
-    const dataset: unknown[] =
-      cfg.evalInputs && cfg.evalInputs.length
-        ? cfg.evalInputs
-        : cfg.evalInput != null
-          ? [cfg.evalInput]
-          : [];
-    if (!dataset.length) {
-      throw new Error("eval/optimize needs a non-empty `evalInputs` (or legacy `evalInput`).");
-    }
+    const dataset: unknown[] = cfg.evalInputs;
 
     // One per-example score for a generation.
     interface ExampleResult {
@@ -172,11 +161,11 @@ export default defineStep({
           dataset.map((datum, i) =>
             opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides }).then((run) => {
               if (run.status !== "success") {
-                throw new Error(`eval run for "${labelFor(datum, cfg.label, i)}" failed: ${run.error?.message ?? "unknown"}`);
+                throw new Error(`eval run for "${labelFor(datum, i)}" failed: ${run.error?.message ?? "unknown"}`);
               }
               const out = (run.output ?? {}) as EvalOutput;
               const result: ExampleResult = {
-                label: labelFor(datum, cfg.label, i),
+                label: labelFor(datum, i),
                 score: out.score ?? 0,
                 missing: out.missing ?? [],
                 spurious: out.spurious ?? [],
