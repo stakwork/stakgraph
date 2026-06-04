@@ -1,0 +1,71 @@
+name: gitsee-eval-score
+# gitsee-specific scorer: wraps the generic `eval/score` step with the SETUP
+# rubric. Both `actual` and `expected` are a pm2.config.js + docker-compose.yml
+# pair (gold = the canonical known-good files). The rubric tells the judge to
+# decompose the GOLD into discrete requirements and check the produced files
+# against them; the step computes the numeric recall-weighted score.
+#
+# Input:  { actual, expected }   (each = the two-file "FILENAME: …" string)
+# Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }
+steps:
+  - id: judge
+    type: eval/score
+    config:
+      actual: "{{ input.actual }}"
+      expected: "{{ input.expected }}"
+      # The rubric (matching criteria) lives in this workflow's `params` block.
+      # Swap per run via POST /run { params: { rubric } }, or edit the default.
+      rubric: "{{ params.rubric }}"
+      # Optionally override the judge model:
+      # model: claude-opus-4-20250514
+
+# ── params: the rubric (gitsee setup-facts matching criteria) ───────────────
+# The step does the scoring math (recall-weighted F-beta); this tells the judge
+# HOW to decide what counts as a match / what's spurious for a repo setup.
+params:
+  rubric: |-
+    You are scoring a PRODUCED repo setup against a GOLD (canonical known-good)
+    setup. BOTH are a pm2.config.js + docker-compose.yml pair (in the "FILENAME:
+    <name>" + fenced-code format).
+
+    Score by FUNCTIONAL EQUIVALENCE, not textual fidelity. The gold defines WHAT a
+    working setup must contain; the produced files satisfy a requirement if they
+    achieve the SAME OUTCOME, even by different means. Do not reward mimicry.
+
+    Decompose the GOLD into its FUNCTIONAL requirements — treat each as one
+    expected item, and judge whether the produced files satisfy it:
+
+    FUNCTIONAL requirements (REQUIRED — count as MISSING if absent or broken):
+    - a pm2 app named exactly "frontend";
+    - an install command (INSTALL_COMMAND) for the repo's package manager;
+    - a run script that actually starts the repo's real server / entrypoint;
+    - a host-binding flag (e.g. "-- --hostname 0.0.0.0" / "-- --host 0.0.0.0")
+      WHEN the framework needs one (Next.js, Vite, etc.) — not for plain servers
+      that already bind 0.0.0.0;
+    - the mandatory base "app" service in docker-compose;
+    - one compose service for EACH external dependency the repo actually uses
+      (database/cache/queue), and ONLY those;
+    - DB/connection env vars in the pm2 app that are consistent with the
+      corresponding compose service (same db name / user / password / host:port);
+    - any build/migration step the repo genuinely needs (BUILD_COMMAND,
+      PRE_START_COMMAND), when present in the gold.
+
+    COSMETIC differences (ALWAYS a match — never list as missing or spurious):
+    - run-script FORM if it launches the same entrypoint ("npm start" ≈
+      "node index.js" ≈ "node server.js" when that's the start script);
+    - the specific PORT number, when both are plausible dev ports;
+    - image tag variants ("postgres:15" ≈ "postgres:15-alpine");
+    - presence/absence of the compose "version:" key; volume names; env-var
+      ordering; the literal values of dev secrets/placeholders; max_memory_restart
+      and other pm2 cosmetics.
+
+    SPURIOUS (count against precision): a produced item NOT in the gold that would
+    BLOAT or BREAK the setup — an invented compose service for a dependency the
+    repo doesn't use, or a real cloud placeholder (Stripe/Clerk/Supabase URL, etc.)
+    used as a hard blocker. Do NOT mark required boilerplate (the base "app"
+    service, "frontend" naming, sensible dev defaults) as spurious, and do NOT mark
+    cosmetic variations as spurious.
+
+    Prefer recall: a missing required service/command/host-flag is worse than a
+    cosmetically different file. Surface MISSING functional requirements clearly —
+    those are what the prompt must learn to produce.
