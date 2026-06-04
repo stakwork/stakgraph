@@ -90,42 +90,102 @@ function listRepos(cwd: string): string[] {
     .sort();
 }
 
-/** Render a flat path list as an indented tree, pruned to `maxDepth`. */
-function renderTree(files: string[], maxDepth: number): string {
-  type Node = { dirs: Map<string, Node>; files: Set<string> };
-  const root: Node = { dirs: new Map(), files: new Set() };
+/** Directories that are build output / dependencies / generated noise: shown in
+ *  the tree (so the agent knows they exist) but NEVER expanded — their contents
+ *  would be high-token, low-signal. */
+const NOISE_DIRS = new Set([
+  "node_modules", ".git", "dist", "build", "out", "target", "vendor",
+  "coverage", "__pycache__", ".venv", "venv", ".next", ".nuxt", ".svelte-kit",
+  ".turbo", ".cache", "migrations", ".gradle", "Pods", ".terraform", "__snapshots__",
+]);
+
+/** Default budgets for the adaptive repo map (see `repoTree`). */
+const REPO_MAP_MAX_LINES = 200; // deepen until a depth busts this, then step back
+const REPO_MAP_MAX_DEPTH = 8; // never go deeper than this regardless of budget
+const REPO_MAP_MAX_CHARS = 12000; // final hard backstop
+
+interface TreeNode {
+  dirs: Map<string, TreeNode>;
+  files: Set<string>;
+}
+
+/** Build a full directory tree from a flat path list. */
+function buildTree(files: string[]): TreeNode {
+  const root: TreeNode = { dirs: new Map(), files: new Set() };
   for (const f of files) {
-    const parts = f.split("/");
+    const parts = f.split("/").filter(Boolean);
+    if (!parts.length) continue;
     let node = root;
-    for (let i = 0; i < parts.length - 1 && i < maxDepth; i++) {
+    for (let i = 0; i < parts.length - 1; i++) {
       const seg = parts[i];
-      if (!node.dirs.has(seg)) node.dirs.set(seg, { dirs: new Map(), files: new Set() });
-      node = node.dirs.get(seg)!;
+      let next = node.dirs.get(seg);
+      if (!next) {
+        next = { dirs: new Map(), files: new Set() };
+        node.dirs.set(seg, next);
+      }
+      node = next;
     }
-    if (parts.length - 1 < maxDepth) node.files.add(parts[parts.length - 1]);
+    node.files.add(parts[parts.length - 1]);
   }
+  return root;
+}
+
+/** Render the tree to `maxDepth` levels (root entries = level 1). A `NOISE_DIRS`
+ *  directory is shown but never expanded; a directory beyond `maxDepth` is shown
+ *  collapsed (name only). */
+function renderTreeAtDepth(root: TreeNode, maxDepth: number): string {
   const lines: string[] = [];
-  const render = (node: Node, depth: number) => {
+  const walk = (node: TreeNode, level: number) => {
     for (const name of [...node.dirs.keys()].sort()) {
-      lines.push(`${"  ".repeat(depth)}${name}/`);
-      render(node.dirs.get(name)!, depth + 1);
+      lines.push(`${"  ".repeat(level - 1)}${name}/`);
+      if (NOISE_DIRS.has(name)) continue; // collapse noise dirs
+      if (level < maxDepth) walk(node.dirs.get(name)!, level + 1);
     }
-    for (const name of [...node.files].sort()) lines.push(`${"  ".repeat(depth)}${name}`);
+    for (const name of [...node.files].sort()) {
+      lines.push(`${"  ".repeat(level - 1)}${name}`);
+    }
   };
-  render(root, 0);
+  walk(root, 1);
   return lines.join("\n");
+}
+
+/**
+ * Adaptive directory tree: always show the root (depth 1, every top-level dir +
+ * file), then iteratively deepen — try depth 2, 3, … — keeping the deepest
+ * rendering that stays under `maxLines`, and stepping back one when a depth busts
+ * the budget. Noise dirs (build/deps/generated) are collapsed at every depth.
+ * Pure + git-free so it's unit-testable. Returns the chosen text + depth.
+ */
+export function repoTree(
+  files: string[],
+  opts: { maxLines?: number; maxDepth?: number } = {},
+): { text: string; depth: number } {
+  const maxLines = opts.maxLines ?? REPO_MAP_MAX_LINES;
+  const maxDepth = opts.maxDepth ?? REPO_MAP_MAX_DEPTH;
+  const root = buildTree(files);
+
+  let best = renderTreeAtDepth(root, 1); // root always shown, even if over budget
+  let depth = 1;
+  for (let d = 2; d <= maxDepth; d++) {
+    const rendered = renderTreeAtDepth(root, d);
+    if (rendered.split("\n").length > maxLines) break; // too many → keep previous depth
+    best = rendered;
+    depth = d;
+  }
+  return { text: best, depth };
 }
 
 /** A high-level map of the working dir: `git ls-files` across every git-repo
  *  subdir (prefixed), or — if `cwd` is itself a single repo / plain dir — its
- *  own tracked files. Built in JS so it needs no `tree` binary. */
-async function getRepoMap(cwd: string, maxDepth = 3): Promise<string> {
+ *  own tracked files. Rendered as an adaptive-depth tree (see `repoTree`), so
+ *  even a huge monorepo stays within a token budget. No `tree` binary needed. */
+async function getRepoMap(cwd: string): Promise<string> {
   const repos = listRepos(cwd);
   const files: string[] = [];
   if (repos.length) {
     for (const repo of repos) {
       try {
-        const listing = await runCmd("git", ["ls-files"], join(cwd, repo), 10000, 200000);
+        const listing = await runCmd("git", ["ls-files"], join(cwd, repo), 10000, 500000);
         for (const f of listing.split("\n").filter(Boolean)) files.push(`${repo}/${f}`);
       } catch {
         /* skip a repo that fails to list */
@@ -133,15 +193,18 @@ async function getRepoMap(cwd: string, maxDepth = 3): Promise<string> {
     }
   } else {
     try {
-      const listing = await runCmd("git", ["ls-files"], cwd, 10000, 200000);
+      const listing = await runCmd("git", ["ls-files"], cwd, 10000, 500000);
       for (const f of listing.split("\n").filter(Boolean)) files.push(f);
     } catch {
       /* not a git repo */
     }
   }
   if (!files.length) return "No tracked files found";
-  const out = renderTree(files, maxDepth);
-  return out.length > 10000 ? out.slice(0, 10000) + "\n\n[... output truncated ...]" : out;
+
+  const { text, depth } = repoTree(files);
+  const header = `(${files.length} tracked files; tree shown to depth ${depth}; build/dependency/migration dirs collapsed)\n`;
+  const out = header + text;
+  return out.length > REPO_MAP_MAX_CHARS ? out.slice(0, REPO_MAP_MAX_CHARS) + "\n\n[... output truncated ...]" : out;
 }
 
 /** First N lines of a file, each line capped at 200 chars (minified-file safe). */
