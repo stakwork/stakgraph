@@ -297,14 +297,21 @@ export default defineStep({
     const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
     const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
 
-    // Resolve the model + (anthropic-only) provider-defined web_search tool.
+    // Resolve the model + (anthropic-only) provider-defined web_search tool +
+    // provider options. For anthropic we enable EPHEMERAL PROMPT CACHING at the
+    // call level (the provider auto-inserts the cache breakpoints across the
+    // static prefix — system + tool schemas — that the loop resends every step).
+    // Big win for multi-step agents (and the future fork: the shared prefix is a
+    // cache hit across all forks). Same pattern as aieo's getProviderOptions.
     let model: any;
     let webSearchTool: any;
+    let providerOptions: any;
     switch (provider) {
       case "anthropic": {
         const { anthropic } = await import("@ai-sdk/anthropic");
         model = anthropic(modelName ?? "claude-sonnet-4-6");
         webSearchTool = anthropic.tools.webSearch_20250305({ maxUses: 3 });
+        providerOptions = { anthropic: { cacheControl: { type: "ephemeral" } } };
         break;
       }
       case "openai": {
@@ -406,6 +413,7 @@ export default defineStep({
       instructions: cfg.system,
       tools,
       stopWhen,
+      ...(providerOptions ? { providerOptions } : {}),
       ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
       onStepFinish: (sf: any) => {
         if (!Array.isArray(sf.content)) return;
