@@ -58,3 +58,13 @@ export function formatJson(v: unknown): string {
   if (typeof v === "string") return v;
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }
+
+/** Field/param key → space-separated words for display (the CSS uppercases it),
+ *  so `evalInputs` shows as "EVAL INPUTS" instead of "EVALINPUTS". */
+export function humanize(name: string): string {
+  return name
+    .replace(/[_-]+/g, " ")                  // snake_case / kebab-case → spaces
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")  // camelCase → spaced
+    .replace(/\s+/g, " ")
+    .trim();
+}

@@ -3,6 +3,7 @@ import yaml from "js-yaml";
 import { CloseIcon } from "../icons";
 import { FlyoutResizer } from "./FlyoutResizer";
 import { YamlEditor } from "./YamlEditor";
+import { humanize } from "../helpers";
 
 // ── Params Flyout (editable) ───────────────────────────────────────────────
 //
@@ -96,7 +97,7 @@ export function ParamsFlyout(props: {
           keys.map((k) => (
             <div class="flyout-section" key={k}>
               <div class="flyout-section-title">
-                {k}
+                {humanize(k)}
                 {kinds[k] === "yaml" && <span class="param-type-tag">yaml</span>}
                 {invalid[k] && <span class="param-type-tag param-invalid">invalid</span>}
               </div>

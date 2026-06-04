@@ -1,4 +1,5 @@
 import * as api from "../api";
+import { humanize } from "../helpers";
 // ── Config Field Renderer ──────────────────────────────────────────────────
 
 export function ConfigField(props: {
@@ -7,7 +8,7 @@ export function ConfigField(props: {
   onChange: (v: unknown) => void;
 }) {
   const { field, value, onChange } = props;
-  const label = `${field.name}${field.required ? "" : " (optional)"}`;
+  const label = `${humanize(field.name)}${field.required ? "" : " (optional)"}`;
 
   if (field.kind === "enum" && field.enumValues) {
     return (
