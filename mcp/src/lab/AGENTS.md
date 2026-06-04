@@ -171,6 +171,15 @@ adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
 
 ## Running / gotchas
 
+- **The `/lab` AI chat can now run experiments autonomously.** vein threads the
+  lab `services` bag into the chat agent's `run_workflow` tool, so the builder
+  can launch `gitsee-explore-services`, `gitsee-eval`, or the `gitsee-optimize`
+  loop (which needs `services.optimizer`) — not just service-free core/lab
+  workflows. And chat is a detached background job (see `vein/AGENTS.md`):
+  describe an eval, tell it to "try it and report back", close the browser, and
+  the turn keeps running server-side (persisted to `chats/<id>/`). Reopen to
+  reattach. (Long optimizes still run inline inside one `run_workflow` call —
+  detached *workflow*-run mode for the tool is a later add.)
 - Needs **Neo4j** + `GITHUB_TOKEN` + an LLM key (e.g. `ANTHROPIC_API_KEY`).
 - Workflow YAML templates are seeded into the workspace
   (`VEIN_LAB_WORKSPACE`, default `./lab-workspace`) on first boot, then

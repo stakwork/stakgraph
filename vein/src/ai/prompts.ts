@@ -13,6 +13,11 @@ export interface AiDeps {
   /** Whether custom-step publishing is allowed (false when the registry was
    *  injected at construction). Defaults to enabled when unset. */
   publishingEnabled?: boolean;
+  /** Capabilities bag threaded into `run_workflow` so the chat agent can test
+   *  workflows whose steps reach external systems via `ctx.services` (Neo4j,
+   *  LLM, the optimize loop's `optimizer`, …). Without it, the agent could
+   *  only run service-free core/lib workflows. */
+  services?: unknown;
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────

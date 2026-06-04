@@ -41,7 +41,23 @@ export {
   FileRunStore,
   MemoryRunStore,
   generateRunId,
+  tailJsonl,
 } from "./store.js";
+
+// Chat persistence (detached AI-builder background jobs)
+export {
+  type ChatStore,
+  type ChatMeta,
+  type ChatEvent,
+  type ChatEventType,
+  type ChatStatus,
+  type StoredMessage,
+  FileChatStore,
+  MemoryChatStore,
+  generateChatId,
+  truncateToolMessages,
+  isChatTerminal,
+} from "./chat-store.js";
 
 // Registry
 export {

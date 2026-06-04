@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { deepParseJsonStrings } from "../utils.js";
+import {
+  deepParseJsonStrings,
+  extractLeadingJsonObject,
+  matchesSchemaShape,
+  collectEnumConstraints,
+} from "../utils.js";
 
 test.describe("deepParseJsonStrings", () => {
   test("should parse stringified array into parsed array", () => {
@@ -129,5 +134,205 @@ test.describe("deepParseJsonStrings", () => {
       const result = deepParseJsonStrings(input);
       expect(result).toEqual(expected);
     });
+  });
+});
+
+test.describe("extractLeadingJsonObject", () => {
+  test("extracts a bare JSON object", () => {
+    const input = '{"type":"user_question","content":"/tmp/answer.json"}';
+    expect(extractLeadingJsonObject(input)).toEqual({
+      type: "user_question",
+      content: "/tmp/answer.json",
+    });
+  });
+
+  test("extracts the leading object followed by markdown", () => {
+    const input =
+      '{"type":"user_question","content":"/tmp/workspace_55741/answer_debug_146354633.json"}\n\n---\n\n## Debug Report — Run 146354633\n\nSome **markdown** here.';
+    expect(extractLeadingJsonObject(input)).toEqual({
+      type: "user_question",
+      content: "/tmp/workspace_55741/answer_debug_146354633.json",
+    });
+  });
+
+  test("handles leading whitespace before the object", () => {
+    const input = '   \n  {"a":1}\n\nrest';
+    expect(extractLeadingJsonObject(input)).toEqual({ a: 1 });
+  });
+
+  test("handles nested objects", () => {
+    const input =
+      '{"node_type":"Show","node_data":{"show_title":null,"meta":{"x":1}}} trailing';
+    expect(extractLeadingJsonObject(input)).toEqual({
+      node_type: "Show",
+      node_data: { show_title: null, meta: { x: 1 } },
+    });
+  });
+
+  test("does not get confused by braces inside strings", () => {
+    const input = '{"text":"a } b { c","ok":true} after';
+    expect(extractLeadingJsonObject(input)).toEqual({
+      text: "a } b { c",
+      ok: true,
+    });
+  });
+
+  test("handles escaped quotes inside strings", () => {
+    const input = '{"text":"she said \\"hi\\" } now"} tail';
+    expect(extractLeadingJsonObject(input)).toEqual({
+      text: 'she said "hi" } now',
+    });
+  });
+
+  test("returns null when there is no object", () => {
+    expect(extractLeadingJsonObject("just some text")).toBeNull();
+  });
+
+  test("returns null for an unbalanced/incomplete object", () => {
+    expect(extractLeadingJsonObject('{"a":1')).toBeNull();
+  });
+
+  test("returns null for invalid JSON inside braces", () => {
+    expect(extractLeadingJsonObject("{not valid json}")).toBeNull();
+  });
+
+  test("ignores text before the first object", () => {
+    const input = 'Here is the answer: {"type":"run_debug"} done';
+    expect(extractLeadingJsonObject(input)).toEqual({ type: "run_debug" });
+  });
+});
+
+test.describe("matchesSchemaShape", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      type: { type: "string", enum: ["user_question", "run_debug"] },
+      content: { type: "string" },
+    },
+    required: ["type", "content"],
+  };
+
+  test("matches an object with exactly the schema keys", () => {
+    expect(
+      matchesSchemaShape(
+        { type: "user_question", content: "/tmp/x.json" },
+        schema
+      )
+    ).toBe(true);
+  });
+
+  test("matches when optional props are omitted", () => {
+    const optionalSchema = {
+      type: "object",
+      properties: { type: { type: "string" }, content: { type: "string" } },
+      required: ["type"],
+    };
+    expect(matchesSchemaShape({ type: "run_debug" }, optionalSchema)).toBe(true);
+  });
+
+  test("rejects when a required key is missing", () => {
+    expect(matchesSchemaShape({ type: "user_question" }, schema)).toBe(false);
+  });
+
+  test("rejects when there is an unknown key", () => {
+    expect(
+      matchesSchemaShape(
+        { type: "user_question", content: "x", extra: 1 },
+        schema
+      )
+    ).toBe(false);
+  });
+
+  test("rejects arrays, null, and primitives", () => {
+    expect(matchesSchemaShape([], schema)).toBe(false);
+    expect(matchesSchemaShape(null, schema)).toBe(false);
+    expect(matchesSchemaShape("str", schema)).toBe(false);
+    expect(matchesSchemaShape(42, schema)).toBe(false);
+  });
+
+  test("rejects an empty object", () => {
+    expect(matchesSchemaShape({}, schema)).toBe(false);
+  });
+
+  test("rejects when schema is not an object schema", () => {
+    expect(matchesSchemaShape({ a: 1 }, { type: "string" })).toBe(false);
+    expect(matchesSchemaShape({ a: 1 }, {} as any)).toBe(false);
+  });
+
+  test("treats missing required as no required keys", () => {
+    const noRequired = {
+      type: "object",
+      properties: { a: { type: "string" } },
+    };
+    expect(matchesSchemaShape({ a: "x" }, noRequired)).toBe(true);
+  });
+});
+
+test.describe("collectEnumConstraints", () => {
+  test("collects a top-level enum field", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["user_question", "run_debug"] },
+        content: { type: "string" },
+      },
+    };
+    expect(collectEnumConstraints(schema)).toEqual([
+      { path: "type", values: ["user_question", "run_debug"] },
+    ]);
+  });
+
+  test("returns empty when there are no enums", () => {
+    const schema = {
+      type: "object",
+      properties: { content: { type: "string" } },
+    };
+    expect(collectEnumConstraints(schema)).toEqual([]);
+  });
+
+  test("collects nested and array-item enums with dotted paths", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["ok", "error"] },
+        meta: {
+          type: "object",
+          properties: {
+            level: { type: "string", enum: ["low", "high"] },
+          },
+        },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: ["a", "b"] },
+            },
+          },
+        },
+      },
+    };
+    expect(collectEnumConstraints(schema)).toEqual([
+      { path: "status", values: ["ok", "error"] },
+      { path: "meta.level", values: ["low", "high"] },
+      { path: "items[].kind", values: ["a", "b"] },
+    ]);
+  });
+
+  test("collects enums inside anyOf/oneOf combiners", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        choice: {
+          anyOf: [
+            { type: "string", enum: ["x", "y"] },
+            { type: "number" },
+          ],
+        },
+      },
+    };
+    expect(collectEnumConstraints(schema)).toEqual([
+      { path: "choice", values: ["x", "y"] },
+    ]);
   });
 });

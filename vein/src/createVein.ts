@@ -11,6 +11,13 @@ import { z } from "zod";
 import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
 import type { RunStore } from "./store.js";
 import { FileRunStore, generateRunId } from "./store.js";
+import type { ChatStore, ChatEvent } from "./chat-store.js";
+import {
+  FileChatStore,
+  MemoryChatStore,
+  generateChatId,
+  truncateToolMessages,
+} from "./chat-store.js";
 import { WorkspaceManager } from "./workspace.js";
 import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
 import type { StepSources } from "./steps/registry.js";
@@ -54,6 +61,20 @@ export interface VeinOptions<TServices = unknown> {
   /** Mount the `POST /chat` AI workflow-builder endpoint. Defaults to
    *  true; disable to avoid pulling in the `ai`/`@ai-sdk/anthropic` deps. */
   enableChat?: boolean;
+
+  /** Where to persist chat sessions (the detached AI-builder background jobs:
+   *  `messages.jsonl` + `events.jsonl` + `meta.json`). Defaults to a
+   *  `FileChatStore` rooted at the workspace path (or `MemoryChatStore` when
+   *  `store` is a `MemoryRunStore`). */
+  chatStore?: ChatStore;
+
+  /** Max agent steps (tool-call iterations) per chat turn. Raise for longer
+   *  autonomous "let it rip" loops. Defaults to `VEIN_CHAT_MAX_STEPS` or 30. */
+  chatMaxSteps?: number;
+
+  /** Anthropic model id for the chat agent. Defaults to `VEIN_CHAT_MODEL` or
+   *  `claude-sonnet-4-20250514`. */
+  chatModel?: string;
 
   /** Directory containing the built web UI (the `dist` folder). Defaults
    *  to vein's own bundled UI resolved relative to this module, so it
@@ -205,6 +226,15 @@ export async function createVein<TServices = unknown>(
   const services = (opts.services ?? ({} as TServices)) as TServices;
   const serveUi = opts.serveUi ?? true;
   const enableChat = opts.enableChat ?? true;
+  const chatStore: ChatStore =
+    opts.chatStore ??
+    (store instanceof FileRunStore
+      ? new FileChatStore(workspace.path)
+      : new MemoryChatStore());
+  const chatMaxSteps =
+    opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 30);
+  const chatModel =
+    opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-4-20250514";
   const webDist =
     opts.webDist ??
     resolve(dirname(fileURLToPath(import.meta.url)), "../web/dist");
@@ -607,60 +637,196 @@ export async function createVein<TServices = unknown>(
   });
 
   // ── Chat (AI workflow builder) ───────────────────────────────────────────
+  //
+  // A chat is a DETACHED background job (EVAL_SPEC §8), mirroring workflow
+  // runs: `POST /chat` launches a turn server-side and returns immediately;
+  // the turn keeps running (and persists to `messages.jsonl` + `events.jsonl`)
+  // regardless of the connection. Watch it — live or after the fact — by
+  // tailing `GET /chat/:id/stream`. Close the browser and the agent keeps
+  // working; reopen and reattach. See `chat-store.ts`.
 
   if (enableChat) {
-    app.post("/chat", async (c) => {
-      const body = await c.req.json<{ messages: any[] }>();
-      const messages = (body.messages ?? []).map((m: any) => ({
-        role: m.role,
-        content: m.content,
-      }));
+    /**
+     * Run one chat turn detached: build the agent, stream it server-side,
+     * persist each fine-grained part to `events.jsonl`, then append the new
+     * conversation messages to `messages.jsonl` and mark the turn terminal.
+     * Not awaited by the request (`launchChatTurn` returns void) — its
+     * liveness is decoupled from any connection, exactly like `launchDetached`.
+     */
+    function launchChatTurn(chatId: string, turn: number, modelMessages: any[]): void {
+      void (async () => {
+        const emit = (e: Partial<ChatEvent> & { type: ChatEvent["type"] }) =>
+          chatStore.appendEvent(chatId, {
+            ts: new Date().toISOString(),
+            chatId,
+            turn,
+            ...e,
+          });
 
-      const { ToolLoopAgent, stepCountIs } = await import("ai");
-      const { anthropic } = await import("@ai-sdk/anthropic");
-      const { buildTools, buildSystem } = await import("./ai/index.js");
+        try {
+          const { ToolLoopAgent, stepCountIs } = await import("ai");
+          const { anthropic } = await import("@ai-sdk/anthropic");
+          const { buildTools, buildSystem } = await import("./ai/index.js");
 
-      const deps = {
-        workspace,
-        registry,
-        store,
-        publishingEnabled: !registryWasInjected,
-        getRegistry: async () => {
-          if (registryWasInjected) return registry;
-          const bundle = await buildRegistry(workspace.path);
-          registry = bundle.registry;
-          stepSources = bundle.sources;
-          return bundle.registry;
-        },
-      };
-      const tools = buildTools(deps);
+          const deps = {
+            workspace,
+            registry,
+            store,
+            services,
+            publishingEnabled: !registryWasInjected,
+            getRegistry: async () => {
+              if (registryWasInjected) return registry;
+              const bundle = await buildRegistry(workspace.path);
+              registry = bundle.registry;
+              stepSources = bundle.sources;
+              return bundle.registry;
+            },
+          };
 
-      const agent = new ToolLoopAgent({
-        model: anthropic("claude-sonnet-4-20250514"),
-        instructions: await buildSystem(deps),
-        tools,
-        stopWhen: stepCountIs(10),
-        onFinish: () => { registry = deps.registry; },
-      });
+          const agent = new ToolLoopAgent({
+            model: anthropic(chatModel),
+            instructions: await buildSystem(deps),
+            tools: buildTools(deps),
+            stopWhen: stepCountIs(chatMaxSteps),
+            onFinish: () => {
+              registry = deps.registry;
+            },
+          });
 
-      const chatId = Date.now().toString(36);
-      console.log(`[chat ${chatId}] start (${messages.length} msgs)`);
+          console.log(`[chat ${chatId}] turn ${turn} start (${modelMessages.length} msgs)`);
 
-      const result = await agent.stream({
-        messages,
-        onStepFinish: (step) => {
-          const u = step.usage;
-          console.log(
-            `[chat ${chatId}] step ${step.stepNumber} finish=${step.finishReason} tokens=in:${u?.inputTokens ?? "?"}/out:${u?.outputTokens ?? "?"}`,
-          );
-          for (const tc of step.toolCalls) {
-            const input = JSON.stringify((tc as any).input ?? {});
-            const truncated = input.length > 200 ? input.slice(0, 200) + "…" : input;
-            console.log(`[chat ${chatId}]   → ${tc.toolName} ${truncated}`);
+          const result = await agent.stream({
+            messages: modelMessages,
+            onStepFinish: (step) => {
+              const u = step.usage;
+              console.log(
+                `[chat ${chatId}] turn ${turn} step ${step.stepNumber} finish=${step.finishReason} tokens=in:${u?.inputTokens ?? "?"}/out:${u?.outputTokens ?? "?"}`,
+              );
+            },
+          });
+
+          for await (const part of result.fullStream) {
+            switch (part.type) {
+              case "text-delta":
+                if (part.text) await emit({ type: "text-delta", delta: part.text });
+                break;
+              case "tool-call":
+                await emit({
+                  type: "tool-input",
+                  toolName: part.toolName,
+                  toolCallId: part.toolCallId,
+                  input: part.input,
+                });
+                break;
+              case "tool-result":
+                await emit({
+                  type: "tool-output",
+                  toolName: part.toolName,
+                  toolCallId: part.toolCallId,
+                  output: part.output,
+                });
+                break;
+              case "finish-step":
+                await emit({ type: "step.finish" });
+                break;
+              case "error":
+                throw part.error;
+            }
           }
-        },
+
+          const resp = await result.response;
+          await chatStore.appendMessages(chatId, resp.messages as any);
+          await emit({ type: "chat.end" });
+          await chatStore.setMeta(chatId, { status: "done" });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[chat ${chatId}] turn ${turn} failed:`, err);
+          await emit({ type: "chat.error", error: { message } });
+          await chatStore.setMeta(chatId, { status: "error" });
+        }
+      })();
+    }
+
+    // Send a message: append it, launch the turn detached, return ids (202).
+    app.post("/chat", async (c) => {
+      const body = await c.req.json<{ chatId?: string; message?: string; title?: string }>();
+      if (!body.message || typeof body.message !== "string") {
+        return c.json({ error: "message (string) is required" }, 400);
+      }
+
+      let chatId = body.chatId;
+      let meta = chatId ? await chatStore.getMeta(chatId) : null;
+      if (chatId && !meta) {
+        return c.json({ error: `Chat "${chatId}" not found` }, 404);
+      }
+      if (!chatId) {
+        chatId = generateChatId();
+        meta = await chatStore.createChat({
+          id: chatId,
+          title: body.title ?? body.message.slice(0, 80),
+          model: chatModel,
+        });
+      }
+
+      const prior = await chatStore.loadMessages(chatId);
+      const userMsg = { role: "user", content: body.message };
+      await chatStore.appendMessages(chatId, [userMsg]);
+
+      const turn = (meta!.currentTurn ?? -1) + 1;
+      await chatStore.setMeta(chatId, { status: "live", currentTurn: turn });
+
+      // Lossless on disk (transcript); truncated copy re-fed to the model.
+      const modelMessages = truncateToolMessages([...prior, userMsg]);
+      launchChatTurn(chatId, turn, modelMessages);
+
+      return c.json({ chatId, turn }, 202);
+    });
+
+    // List chat sessions (newest first).
+    app.get("/chats", async (c) => {
+      return c.json(await chatStore.listChats());
+    });
+
+    // Reattach to a chat turn's event stream (live or completed) — SSE tail.
+    // Defaults to the latest turn; pass ?turn=N to follow a specific one.
+    app.get("/chat/:chatId/stream", async (c) => {
+      const chatId = c.req.param("chatId");
+      const meta = await chatStore.getMeta(chatId);
+      if (!meta) return c.json({ error: `Chat "${chatId}" not found` }, 404);
+
+      const turnParam = c.req.query("turn");
+      const turn = turnParam != null ? Number(turnParam) : meta.currentTurn;
+
+      return streamSSE(c, async (stream) => {
+        // No such turn yet — nothing to tail; report current status.
+        if (!(turn >= 0) || turn > meta.currentTurn) {
+          await stream.writeSSE({
+            event: "done",
+            data: JSON.stringify({ chatId, turn, status: meta.status }),
+          });
+          return;
+        }
+        const ac = new AbortController();
+        stream.onAbort(() => ac.abort());
+        for await (const event of chatStore.tailEvents(chatId, turn, { signal: ac.signal })) {
+          await stream.writeSSE({ data: JSON.stringify(event) });
+        }
+        if (ac.signal.aborted) return;
+        const fresh = await chatStore.getMeta(chatId);
+        await stream.writeSSE({
+          event: "done",
+          data: JSON.stringify({ chatId, turn, status: fresh?.status ?? "done" }),
+        });
       });
-      return result.toUIMessageStreamResponse();
+    });
+
+    // Full chat transcript + meta (for reload / reattach).
+    app.get("/chat/:chatId", async (c) => {
+      const chatId = c.req.param("chatId");
+      const meta = await chatStore.getMeta(chatId);
+      if (!meta) return c.json({ error: `Chat "${chatId}" not found` }, 404);
+      const messages = await chatStore.loadMessages(chatId);
+      return c.json({ meta, messages });
     });
   }
 

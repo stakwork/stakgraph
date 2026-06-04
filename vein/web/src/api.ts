@@ -273,6 +273,12 @@ export const getRunEvents = (workflow: string, runId: string) =>
   fetchJSON<RunEvent[]>(`/workflows/${workflow}/runs/${runId}/events`);
 
 // ── Chat (AI workflow builder) ─────────────────────────────────────────────
+//
+// A chat is a DETACHED background job: `POST /chat` launches a turn
+// server-side and returns `{ chatId, turn }`; we reattach via
+// `GET /chat/:id/stream` (SSE tail). Close the tab and the agent keeps
+// running — reopen, load the transcript (`getChat`), and reattach to the
+// live turn. Mirrors the workflow-run launch+reattach model above.
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -295,29 +301,80 @@ export interface ChatCallbacks {
   onToolCall: (tc: ToolCallInfo) => void;
   onToolResult?: (tr: ToolResultInfo) => void;
   onStepFinish: () => void;
-  onFinish: () => void;
+  onFinish: (status: string) => void;
 }
 
-/**
- * Stream a chat message to the AI workflow builder.
- * Uses the same UI message stream protocol as Vercel AI SDK.
- */
-export async function chat(
-  messages: ChatMessage[],
-  callbacks: ChatCallbacks,
-): Promise<void> {
+export type ChatStatus = "live" | "done" | "error";
+
+export interface ChatMeta {
+  id: string;
+  title?: string;
+  status: ChatStatus;
+  model?: string;
+  createdAt: string;
+  updatedAt: string;
+  currentTurn: number;
+}
+
+/** A normalized fine-grained chat event (matches the server's `ChatEvent`). */
+export interface ChatEvent {
+  ts: string;
+  chatId: string;
+  turn: number;
+  type: "text-delta" | "tool-input" | "tool-output" | "step.finish" | "chat.end" | "chat.error";
+  delta?: string;
+  toolName?: string;
+  toolCallId?: string;
+  input?: any;
+  output?: any;
+  error?: { message: string };
+}
+
+export interface ChatTranscript {
+  meta: ChatMeta;
+  /** Stored AI SDK ModelMessage objects (opaque — rendered by the flyout). */
+  messages: { role: string; content: unknown }[];
+}
+
+/** Launch a chat turn (detached). Pass `chatId` to continue an existing
+ *  session, or omit it to start a new one. Returns the ids to reattach with. */
+export async function sendChat(
+  message: string,
+  chatId?: string,
+): Promise<{ chatId: string; turn: number }> {
   const res = await fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ message, ...(chatId ? { chatId } : {}) }),
   });
+  if (!res.ok) throw new Error(`chat: ${res.status} ${res.statusText}`);
+  return (await res.json()) as { chatId: string; turn: number };
+}
 
+/** Load a chat's full transcript + meta (for reload / reattach). */
+export const getChat = (chatId: string) =>
+  fetchJSON<ChatTranscript>(`/chat/${chatId}`);
+
+/** List chat sessions (newest first). */
+export const listChats = () => fetchJSON<ChatMeta[]>("/chats");
+
+/**
+ * Reattach to a chat turn (live or completed) and stream its events. Tails
+ * the server's append-only log from the start of the turn, so callers see
+ * full history even when they attach late. Resolves once the turn ends.
+ */
+export async function streamChat(
+  chatId: string,
+  turn: number,
+  callbacks: ChatCallbacks,
+): Promise<void> {
+  const res = await fetch(`${BASE}/chat/${chatId}/stream?turn=${turn}`);
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
 
   const decoder = new TextDecoder();
   let buf = "";
-  const toolCalls: Record<string, { name: string; inputBuf: string; input?: any }> = {};
+  let status = "done";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -326,58 +383,48 @@ export async function chat(
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
 
+    let eventType = "message";
     for (const line of lines) {
-      const raw = line.trim();
-      let data = "";
-      if (raw.startsWith("data:")) data = raw.slice(5).trim();
-      else if (raw.startsWith("{")) data = raw;
-      else continue;
-      if (data === "[DONE]") continue;
-
-      try {
-        const msg = JSON.parse(data);
-        switch (msg.type) {
-          case "text-delta":
-            if (msg.delta) callbacks.onTextDelta(msg.delta);
-            break;
-          case "tool-input-start":
-            toolCalls[msg.toolCallId] = { name: msg.toolName, inputBuf: "" };
-            break;
-          case "tool-input-delta":
-            if (toolCalls[msg.toolCallId]) {
-              toolCalls[msg.toolCallId].inputBuf += msg.inputTextDelta;
-            }
-            break;
-          case "tool-input-available": {
-            // Remember the call so we can correlate with output later.
-            toolCalls[msg.toolCallId] = {
-              name: msg.toolName,
-              inputBuf: "",
-              input: msg.input,
-            };
-            callbacks.onToolCall({ name: msg.toolName, input: msg.input });
-            break;
+      if (line.startsWith("event: ")) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        try {
+          const msg = JSON.parse(data);
+          if (eventType === "done") {
+            status = msg.status ?? status;
+          } else {
+            dispatchChatEvent(msg as ChatEvent, callbacks);
           }
-          case "tool-output-available": {
-            const call = toolCalls[msg.toolCallId];
-            if (call && callbacks.onToolResult) {
-              callbacks.onToolResult({
-                name: call.name,
-                input: call.input,
-                output: msg.output,
-              });
-            }
-            break;
-          }
-          case "finish-step":
-            callbacks.onStepFinish();
-            break;
+        } catch {
+          // skip unparseable lines
         }
-      } catch {
-        // skip unparseable lines
+        eventType = "message";
       }
     }
   }
 
-  callbacks.onFinish();
+  callbacks.onFinish(status);
+}
+
+function dispatchChatEvent(e: ChatEvent, cb: ChatCallbacks): void {
+  switch (e.type) {
+    case "text-delta":
+      if (e.delta) cb.onTextDelta(e.delta);
+      break;
+    case "tool-input":
+      cb.onToolCall({ name: e.toolName ?? "", input: e.input });
+      break;
+    case "tool-output":
+      cb.onToolResult?.({ name: e.toolName ?? "", input: e.input, output: e.output });
+      break;
+    case "step.finish":
+      cb.onStepFinish();
+      break;
+    case "chat.error":
+      cb.onTextDelta(`\n\n⚠️ ${e.error?.message ?? "chat error"}`);
+      break;
+    case "chat.end":
+      break;
+  }
 }

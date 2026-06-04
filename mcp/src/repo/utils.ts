@@ -526,3 +526,115 @@ export function deepParseJsonStrings(value: any): any {
   }
   return value;
 }
+
+/**
+ * Extract the first balanced top-level JSON object from a string.
+ * Agents often emit `{...}\n\n---\n\n## markdown` — this grabs the leading object.
+ * Returns the parsed object, or null if none is found / it isn't valid JSON.
+ */
+export function extractLeadingJsonObject(text: string): any | null {
+  const trimmed = text.trim();
+  const start = trimmed.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const candidate = trimmed.slice(start, i + 1);
+        try {
+          const parsed = JSON.parse(candidate);
+          return typeof parsed === "object" && parsed !== null ? parsed : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Returns true if `obj` already satisfies the top-level shape of `schema`:
+ * it is a plain object, contains every `required` key, and introduces no keys
+ * outside `properties`. Used to short-circuit the structuring LLM call when the
+ * agent already produced a schema-shaped object.
+ */
+export function matchesSchemaShape(
+  obj: any,
+  schema: { [key: string]: any }
+): boolean {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+    return false;
+  }
+  if (!schema || schema.type !== "object" || !schema.properties) {
+    return false;
+  }
+  const propKeys = Object.keys(schema.properties);
+  const objKeys = Object.keys(obj);
+  if (objKeys.length === 0) return false;
+  // No unknown keys.
+  for (const key of objKeys) {
+    if (!propKeys.includes(key)) return false;
+  }
+  // All required keys present.
+  const required: string[] = Array.isArray(schema.required)
+    ? schema.required
+    : [];
+  for (const key of required) {
+    if (!(key in obj)) return false;
+  }
+  return true;
+}
+
+/**
+ * Walk a JSON schema and collect every enum constraint as a `path -> values`
+ * pair. Used to remind the structuring model that enum/categorical fields must
+ * be copied verbatim from the answer, not re-classified.
+ */
+export function collectEnumConstraints(
+  schema: { [key: string]: any },
+  pathPrefix = ""
+): { path: string; values: any[] }[] {
+  const out: { path: string; values: any[] }[] = [];
+  if (!schema || typeof schema !== "object") return out;
+
+  if (Array.isArray(schema.enum)) {
+    out.push({ path: pathPrefix || "(root)", values: schema.enum });
+  }
+  if (schema.properties) {
+    for (const key of Object.keys(schema.properties)) {
+      const childPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+      out.push(...collectEnumConstraints(schema.properties[key], childPath));
+    }
+  }
+  if (schema.items) {
+    out.push(...collectEnumConstraints(schema.items, `${pathPrefix}[]`));
+  }
+  for (const combiner of ["anyOf", "allOf", "oneOf"] as const) {
+    if (Array.isArray(schema[combiner])) {
+      for (const sub of schema[combiner]) {
+        out.push(...collectEnumConstraints(sub, pathPrefix));
+      }
+    }
+  }
+  return out;
+}

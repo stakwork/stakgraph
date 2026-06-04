@@ -29,6 +29,9 @@ import {
   extractMessagesFromSteps,
   deepParseJsonStrings,
   truncateOldToolResults,
+  extractLeadingJsonObject,
+  matchesSchemaShape,
+  collectEnumConstraints,
 } from "./utils.js";
 import { LanguageModel } from "ai";
 import {
@@ -153,6 +156,20 @@ async function structureFinalAnswer(
   model: LanguageModel,
   provider: string
 ): Promise<any> {
+  // Fast path: the agent often already emits a schema-shaped JSON object
+  // (optionally followed by markdown, e.g. `{...}\n\n---\n\n## Report`).
+  // If so, parse it directly and skip the structuring LLM call entirely —
+  // a round-trip through the model risks "correcting" enum/literal values
+  // (e.g. flipping `type: "user_question"` to `type: "run_debug"`).
+  const direct =
+    typeof finalAnswer === "string"
+      ? extractLeadingJsonObject(finalAnswer)
+      : finalAnswer;
+  if (direct && matchesSchemaShape(direct, schema)) {
+    console.log("===> structureFinalAnswer: using agent's structured answer as-is");
+    return deepParseJsonStrings(direct);
+  }
+
   const msgs: ModelMessage[] = [];
 
   // Handle finalPrompt - if it's ModelMessage[], push all messages, otherwise create a user message
@@ -167,6 +184,20 @@ async function structureFinalAnswer(
   // Without strict instructions the model "rephrases" opaque literals (file
   // paths, ids, urls) into plausible-looking but fabricated values, causing
   // the structured `content` to diverge from the free-text `final_answer`.
+  // Build an explicit reminder for every enum field so the model copies the
+  // value already present in the answer instead of re-classifying it.
+  const enumConstraints = collectEnumConstraints(schema);
+  const enumRules =
+    enumConstraints.length > 0
+      ? "\n- ENUM FIELDS: For each field below, copy the EXACT value already present in the answer above. " +
+        "Do NOT re-classify, re-categorize, or 'correct' it based on the answer's content — even if another " +
+        "allowed value seems more fitting. The value in the answer is authoritative.\n" +
+        enumConstraints
+          .map((c) => `  - \`${c.path}\` must be one of: ${JSON.stringify(c.values)}`)
+          .join("\n") +
+        "\n"
+      : "";
+
   msgs.push(
     { role: "assistant", content: finalAnswer },
     {
@@ -178,8 +209,9 @@ async function structureFinalAnswer(
         "- Copy every value directly from the answer above. Do NOT generate new values.\n" +
         "- File paths, URLs, IDs, names, and other literals MUST be copied character-for-character. " +
         "Never normalize, guess, or substitute a 'typical-looking' value.\n" +
-        "- If a field's value is not explicitly present in the answer above, leave it empty/null rather than inventing one.\n\n" +
-        "JSON format:\n" +
+        "- If a field's value is not explicitly present in the answer above, leave it empty/null rather than inventing one." +
+        enumRules +
+        "\n\nJSON format:\n" +
         JSON.stringify(schema),
     }
   );

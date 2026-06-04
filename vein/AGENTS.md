@@ -29,9 +29,10 @@ vein/
 │   ├── core.ts            # flow(), step(), defineStep(), services bag, all types
 │   ├── expr.ts            # {{ }} template evaluator (~460 LOC recursive descent)
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
-│   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore
+│   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore + tailJsonl (shared append-only tail engine)
+│   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
 │   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
-│   ├── createVein.ts      # createVein() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + /chat + static serving; injectable registry/store/services
+│   ├── createVein.ts      # createVein() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + detached /chat (launch+reattach) + static serving; injectable registry/store/chatStore/services
 │   ├── server.ts          # thin wrapper over createVein() (getApp/startServer) — default filesystem-backed server
 │   ├── auth.ts            # requireApiKey middleware + warnIfUnconfigured (VEIN_API_KEY shared secret)
 │   ├── index.ts           # barrel export — createVein (primary entry), createRegistry, coreRegistry, all types
@@ -41,9 +42,10 @@ vein/
 │   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
 │   │   ├── index.ts       # barrel export
-│   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree)
+│   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree); AiDeps now carries `services`
 │   │   ├── tools.ts       # buildTools(deps): list_steps, search_steps, get_step,
-│   │   │                  #                   create_workflow, run_workflow
+│   │   │                  #                   create_step, edit_step, create_workflow,
+│   │   │                  #                   run_workflow (threads ctx.services)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
 │   └── *.test.ts          # 298 tests across 12 files
@@ -329,17 +331,46 @@ later without breaking this contract — they'd be additive env vars
   `running` flag drives the pending-status overlay during a live
   streamed run (events are still empty at run start).
 
-- **AI workflow builder** (`src/ai/` + `POST /chat`). The chat
-  flyout streams a `ToolLoopAgent` (Vercel AI SDK + Anthropic) that
-  can browse step types (`list_steps`, `search_steps`, `get_step`),
-  publish workflows (`create_workflow`), and test them
-  (`run_workflow`). The system prompt is built per-request by
-  `buildSystem(deps)` which pre-seeds the available steps tree so
-  the model can skip the initial `list_steps` calls. Tool inputs
-  and step finish events are logged server-side with a `[chat <id>]`
-  prefix. The browser parses the AI SDK UI-message stream protocol
-  in `web/src/api.ts:chat()` and dispatches text deltas, tool
-  calls, and tool results back to `ChatFlyout`.
+- **AI workflow builder** (`src/ai/` + `POST /chat`). A
+  `ToolLoopAgent` (Vercel AI SDK + Anthropic) that can browse step
+  types (`list_steps`, `search_steps`, `get_step`), author/revise
+  custom steps (`create_step`, `edit_step`), publish workflows
+  (`create_workflow`), and test them (`run_workflow`). `run_workflow`
+  threads `ctx.services` (via `AiDeps.services`), so the agent can
+  run workflows whose steps reach external systems (Neo4j, the lab's
+  `optimizer`, …) — not just service-free core/lib ones. The system
+  prompt is built per-request by `buildSystem(deps)` (pre-seeds the
+  steps tree).
+
+- **Chat is a detached background job** (`src/chat-store.ts`), NOT a
+  connection-bound stream — the same launch+reattach model as runs
+  (§8). `POST /chat { chatId?, message }` appends the user message,
+  launches the turn server-side **without awaiting it** (a
+  `launchChatTurn` mirroring `launchDetached`), and returns
+  `{ chatId, turn }` (202). The turn consumes the agent's `fullStream`
+  and persists each part; close the browser and it keeps running.
+  Watch/reattach via `GET /chat/:id/stream` (SSE tail), load the
+  transcript via `GET /chat/:id`, list sessions via `GET /chats`.
+  Each chat lives in `chats/<id>/` with the deliberate **two-file
+  split** (borrowed from `mcp/src/repo/session.ts`): `messages.jsonl`
+  is the lossless, **replayable** conversation (re-fed to the agent
+  next turn + rendered as transcript — whole `ModelMessage`s, never
+  deltas); `events.jsonl` is the fine-grained **observability** stream
+  the SSE tail follows (text deltas, tool calls/results, step/turn
+  boundaries — never re-sent to the model); `meta.json` tracks
+  `{ status, currentTurn, … }`. A chat is long-lived across turns, so
+  the launch+tail unit is a **turn**: each turn's events carry
+  `turn: N` and end with `chat.end`/`chat.error`, and `tailEvents`
+  replays a multi-turn log but stops at the requested turn's terminal
+  (race-free, like the run tail). The shared tail engine is
+  `tailJsonl` in `store.ts` (used by both `FileRunStore.tailEvents`
+  and `FileChatStore`). `messages.jsonl` stays lossless on disk;
+  `truncateToolMessages` trims long `role:"tool"` results only in the
+  copy re-fed to the model (token hygiene for long autonomous loops).
+  `chatMaxSteps` (env `VEIN_CHAT_MAX_STEPS`, default 30) bounds the
+  per-turn agent loop. The browser (`web/src/api.ts`: `sendChat` +
+  `streamChat` + `getChat`) persists the active `chatId` in
+  localStorage and reattaches to a still-live turn on reopen.
 
 - **`agent` core step** (`src/steps/core/agent.ts`). A general
   tool-using agent loop (AI SDK `ToolLoopAgent`) — distinct from the

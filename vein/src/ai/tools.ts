@@ -210,6 +210,7 @@ export function buildTools(deps: AiDeps) {
         const result = await runWorkflow(flow, input ?? {}, deps.registry, {
           store: deps.store,
           workspace: deps.workspace,
+          services: deps.services,
           params,
         });
 

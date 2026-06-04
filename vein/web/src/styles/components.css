@@ -448,6 +448,11 @@ body.is-resizing-flyout * {
 .flyout-close svg {
   display: block;
 }
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
 .flyout-close:hover {
   color: var(--text);
   border-color: var(--border-strong);

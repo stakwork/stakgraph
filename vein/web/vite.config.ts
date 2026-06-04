@@ -1,6 +1,16 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 
+// Pass SSE responses through unbuffered so events stream in real time.
+const sseConfigure = (proxy: any) => {
+  proxy.on("proxyRes", (proxyRes: any) => {
+    if (proxyRes.headers["content-type"]?.includes("text/event-stream")) {
+      proxyRes.headers["cache-control"] = "no-cache";
+      proxyRes.headers["x-accel-buffering"] = "no";
+    }
+  });
+};
+
 export default defineConfig({
   // Relative asset URLs so the built UI can be served from any mount path
   // (root or a sub-path like /lab) without a baked-in base. Pairs with the
@@ -11,20 +21,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/workflows": {
-        target: "http://localhost:3000",
-        // Disable buffering so SSE events stream through in real time
-        configure: (proxy) => {
-          proxy.on("proxyRes", (proxyRes) => {
-            if (proxyRes.headers["content-type"]?.includes("text/event-stream")) {
-              proxyRes.headers["cache-control"] = "no-cache";
-              proxyRes.headers["x-accel-buffering"] = "no";
-            }
-          });
-        },
-      },
+      // Disable buffering so SSE events (run streams + chat turn streams)
+      // come through in real time.
+      "/workflows": { target: "http://localhost:3000", configure: sseConfigure },
+      "/chat": { target: "http://localhost:3000", configure: sseConfigure },
       "/steps": "http://localhost:3000",
-      "/chat": "http://localhost:3000",
       "/health": "http://localhost:3000",
     },
   },

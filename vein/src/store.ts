@@ -9,6 +9,72 @@ function isTerminal(event: RunEvent): boolean {
   return event.type === "run.end" || event.type === "run.error";
 }
 
+/**
+ * Generic tail of an append-only JSONL file: yield every parsed line from the
+ * start of the file (history), then follow appends (live) until `isTerminal`
+ * returns true for a line, at which point the generator returns. This is the
+ * shared engine behind `FileRunStore.tailEvents` (runs) and `FileChatStore`
+ * (chat turns) — the background-job reattach model (EVAL_SPEC §8).
+ *
+ * The append-only log is the ordered source of truth, so the history→live
+ * join is race-free: read from a byte offset to EOF, then keep re-reading
+ * from the new offset. Partial trailing lines (a write caught mid-flush) are
+ * buffered until their newline arrives. One code path serves completed *and*
+ * in-flight producers — a completed file drains and returns immediately; a
+ * live one polls (`intervalMs`) for appends. Pass an `AbortSignal` (e.g. on
+ * client disconnect) to stop early. A file that doesn't exist yet is polled
+ * until it appears (race-free with a producer that hasn't written line 1).
+ */
+export async function* tailJsonl<T>(
+  file: string,
+  isTerminal: (event: T) => boolean,
+  opts: { intervalMs?: number; signal?: AbortSignal } = {},
+): AsyncGenerator<T> {
+  const intervalMs = opts.intervalMs ?? 250;
+  const signal = opts.signal;
+  let offset = 0;
+  let leftover = "";
+
+  while (true) {
+    if (signal?.aborted) return;
+
+    let chunk = "";
+    try {
+      const fh = await open(file, "r");
+      try {
+        const { size } = await fh.stat();
+        if (size > offset) {
+          const buf = Buffer.alloc(size - offset);
+          await fh.read(buf, 0, buf.length, offset);
+          chunk = buf.toString("utf-8");
+          offset = size;
+        }
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      // File not created yet — poll until it appears.
+    }
+
+    if (chunk) {
+      leftover += chunk;
+      const nl = leftover.lastIndexOf("\n");
+      if (nl >= 0) {
+        const complete = leftover.slice(0, nl);
+        leftover = leftover.slice(nl + 1);
+        for (const line of complete.split("\n")) {
+          if (!line) continue;
+          const event = JSON.parse(line) as T;
+          yield event;
+          if (isTerminal(event)) return;
+        }
+      }
+    }
+
+    await sleep(intervalMs);
+  }
+}
+
 // ── Interface ──────────────────────────────────────────────────────────────
 
 export interface RunStore {
@@ -96,49 +162,7 @@ export class FileRunStore implements RunStore {
     opts: { intervalMs?: number; signal?: AbortSignal } = {},
   ): AsyncGenerator<RunEvent> {
     const file = join(this.runDir(workflow, runId), "events.jsonl");
-    const intervalMs = opts.intervalMs ?? 250;
-    const signal = opts.signal;
-    let offset = 0;
-    let leftover = "";
-
-    while (true) {
-      if (signal?.aborted) return;
-
-      let chunk = "";
-      try {
-        const fh = await open(file, "r");
-        try {
-          const { size } = await fh.stat();
-          if (size > offset) {
-            const buf = Buffer.alloc(size - offset);
-            await fh.read(buf, 0, buf.length, offset);
-            chunk = buf.toString("utf-8");
-            offset = size;
-          }
-        } finally {
-          await fh.close();
-        }
-      } catch {
-        // File not created yet (run just launched) — poll until it appears.
-      }
-
-      if (chunk) {
-        leftover += chunk;
-        const nl = leftover.lastIndexOf("\n");
-        if (nl >= 0) {
-          const complete = leftover.slice(0, nl);
-          leftover = leftover.slice(nl + 1);
-          for (const line of complete.split("\n")) {
-            if (!line) continue;
-            const event = JSON.parse(line) as RunEvent;
-            yield event;
-            if (isTerminal(event)) return;
-          }
-        }
-      }
-
-      await sleep(intervalMs);
-    }
+    yield* tailJsonl<RunEvent>(file, isTerminal, opts);
   }
 
   /** Read events.jsonl for a specific run. */

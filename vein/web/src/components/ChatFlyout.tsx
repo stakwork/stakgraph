@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "preact/hooks";
 import * as api from "../api";
+import * as storage from "../storage";
 import { formatJson } from "../helpers";
 import { CloseIcon } from "../icons";
 
@@ -11,6 +12,10 @@ type ChatEntry =
   | { kind: "user"; content: string }
   | { kind: "text"; content: string }
   | { kind: "tool"; groups: ToolGroup[] };
+
+// Persist the active chat id so closing/reopening the flyout (or the whole
+// browser) reattaches to the same detached session.
+const CHAT_ID_KEY = "activeChatId";
 
 // Coalesce consecutive same-name tool calls into groups.
 function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
@@ -26,6 +31,45 @@ function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
   return groups;
 }
 
+/** Pull plain text out of an AI SDK message content (string or parts array). */
+function extractText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+      .map((p: any) => p.text)
+      .join("");
+  }
+  return "";
+}
+
+/** Render stored ModelMessages (the transcript) into display entries. Tool
+ *  RESULT messages (role "tool") aren't shown as bubbles — only the calls. */
+function transcriptToEntries(messages: { role: string; content: unknown }[]): ChatEntry[] {
+  const entries: ChatEntry[] = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      const text = extractText(m.content);
+      if (text) entries.push({ kind: "user", content: text });
+    } else if (m.role === "assistant") {
+      if (typeof m.content === "string") {
+        if (m.content) entries.push({ kind: "text", content: m.content });
+      } else if (Array.isArray(m.content)) {
+        const calls: api.ToolCallInfo[] = [];
+        for (const part of m.content as any[]) {
+          if (part?.type === "text" && part.text) {
+            entries.push({ kind: "text", content: part.text });
+          } else if (part?.type === "tool-call") {
+            calls.push({ name: part.toolName, input: part.input });
+          }
+        }
+        if (calls.length) entries.push({ kind: "tool", groups: groupCalls(calls) });
+      }
+    }
+  }
+  return entries;
+}
+
 export function ChatFlyout(props: {
   onClose: () => void;
   onWorkflowCreated: (name: string) => void;
@@ -35,6 +79,9 @@ export function ChatFlyout(props: {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [chatId, setChatId] = useState<string | null>(() =>
+    storage.load<string | null>(CHAT_ID_KEY, null),
+  );
 
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -50,6 +97,89 @@ export function ChatFlyout(props: {
     }
   }, [entries]);
 
+  // Build the incremental stream callbacks. Each `step.finish` starts a fresh
+  // bubble; tool calls/results also drive the canvas (workflow created/ran).
+  const streamCallbacks = useCallback((): api.ChatCallbacks => {
+    let textBuf = "";
+    let toolBuf: api.ToolCallInfo[] = [];
+    return {
+      onTextDelta: (delta) => {
+        textBuf += delta;
+        const content = textBuf;
+        setEntries((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.kind === "text") {
+            const next = [...prev];
+            next[next.length - 1] = { kind: "text", content };
+            return next;
+          }
+          return [...prev, { kind: "text", content }];
+        });
+      },
+      onToolCall: (tc) => {
+        toolBuf.push(tc);
+        if (tc.name === "create_workflow" && tc.input?.name) {
+          props.onWorkflowCreated(tc.input.name);
+        }
+        const groups = groupCalls(toolBuf);
+        setEntries((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.kind === "tool") {
+            const next = [...prev];
+            next[next.length - 1] = { kind: "tool", groups };
+            return next;
+          }
+          return [...prev, { kind: "tool", groups }];
+        });
+      },
+      onToolResult: (tr) => {
+        if (tr.name === "run_workflow" && tr.input?.name && tr.output?.runId) {
+          props.onWorkflowRan(tr.input.name, tr.output.runId);
+        }
+      },
+      onStepFinish: () => {
+        textBuf = "";
+        toolBuf = [];
+      },
+      onFinish: () => {
+        setLoading(false);
+      },
+    };
+  }, [props.onWorkflowCreated, props.onWorkflowRan]);
+
+  // On mount: if we have a persisted chat, load its transcript and — if a turn
+  // is still live server-side (we may have closed the tab) — reattach to it.
+  useEffect(() => {
+    if (!chatId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { meta, messages } = await api.getChat(chatId);
+        if (cancelled) return;
+        setEntries(transcriptToEntries(messages));
+        if (meta.status === "live" && meta.currentTurn >= 0) {
+          setLoading(true);
+          await api.streamChat(chatId, meta.currentTurn, streamCallbacks());
+        }
+      } catch {
+        // Stale id (e.g. workspace wiped) — drop it and start fresh.
+        if (!cancelled) {
+          storage.remove(CHAT_ID_KEY);
+          setChatId(null);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const newChat = useCallback(() => {
+    storage.remove(CHAT_ID_KEY);
+    setChatId(null);
+    setEntries([]);
+    setExpanded({});
+  }, []);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || loading) return;
@@ -58,70 +188,18 @@ export function ChatFlyout(props: {
     setInput("");
     setLoading(true);
 
-    // Build API messages: flatten entries into role/content pairs
-    const allEntries = [...entries, { kind: "user" as const, content: text }];
-    const apiMessages: api.ChatMessage[] = [];
-    for (const e of allEntries) {
-      if (e.kind === "user") {
-        apiMessages.push({ role: "user", content: e.content });
-      } else if (e.kind === "text" && e.content) {
-        apiMessages.push({ role: "assistant", content: e.content });
-      }
-    }
-
-    let textBuf = "";
-    let toolBuf: api.ToolCallInfo[] = [];
-
     try {
-      await api.chat(apiMessages, {
-        onTextDelta: (delta) => {
-          textBuf += delta;
-          const content = textBuf;
-          setEntries((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.kind === "text") {
-              const next = [...prev];
-              next[next.length - 1] = { kind: "text", content };
-              return next;
-            }
-            return [...prev, { kind: "text", content }];
-          });
-        },
-        onToolCall: (tc) => {
-          toolBuf.push(tc);
-          if (tc.name === "create_workflow" && tc.input?.name) {
-            props.onWorkflowCreated(tc.input.name);
-          }
-          const groups = groupCalls(toolBuf);
-          setEntries((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.kind === "tool") {
-              const next = [...prev];
-              next[next.length - 1] = { kind: "tool", groups };
-              return next;
-            }
-            return [...prev, { kind: "tool", groups }];
-          });
-        },
-        onToolResult: (tr) => {
-          if (tr.name === "run_workflow" && tr.input?.name && tr.output?.runId) {
-            props.onWorkflowRan(tr.input.name, tr.output.runId);
-          }
-        },
-        onStepFinish: () => {
-          // Reset buffers so next step starts a fresh bubble
-          textBuf = "";
-          toolBuf = [];
-        },
-        onFinish: () => {
-          setLoading(false);
-        },
-      });
+      const { chatId: id, turn } = await api.sendChat(text, chatId ?? undefined);
+      if (!chatId) {
+        setChatId(id);
+        storage.save(CHAT_ID_KEY, id);
+      }
+      await api.streamChat(id, turn, streamCallbacks());
     } catch {
       setEntries((prev) => [...prev, { kind: "text", content: "Error connecting to AI." }]);
       setLoading(false);
     }
-  }, [input, loading, entries, props.onWorkflowCreated]);
+  }, [input, loading, chatId, streamCallbacks]);
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -137,7 +215,12 @@ export function ChatFlyout(props: {
           <div class="flyout-eyebrow">AI Builder</div>
           <div class="flyout-title">Create Workflow</div>
         </div>
-        <button class="flyout-close" onClick={props.onClose} aria-label="Close"><CloseIcon /></button>
+        <div class="chat-header-actions">
+          {(chatId || entries.length > 0) && (
+            <button class="btn" onClick={newChat} disabled={loading}>New chat</button>
+          )}
+          <button class="flyout-close" onClick={props.onClose} aria-label="Close"><CloseIcon /></button>
+        </div>
       </div>
       <div class="chat-messages" ref={scrollRef}>
         {entries.length === 0 && (
