@@ -45,15 +45,21 @@ RUN npx -y playwright install
 # Build vein (engine + web UI). mcp consumes it as `file:../vein` and serves
 # its UI under /lab. `.vein` is vein's source staged into this context (see
 # the header note / publish-mcp.yml). Built at /usr/src/vein so that
-# `file:../vein` from /usr/src/app resolves to it. node_modules are dropped
-# after build so mcp's `yarn` provides vein's runtime deps via the shared tree.
+# `file:../vein` from /usr/src/app resolves to it.
+#
+# vein KEEPS its own runtime node_modules: Node resolves a package's imports
+# from the real path of the file, so /usr/src/vein/build/index.js looks for its
+# deps (zod, hono, ai, ...) under /usr/src/vein/node_modules — it never reaches
+# /usr/src/app/node_modules. Sharing mcp's tree would also be wrong: vein needs
+# zod@3 while mcp pins zod@4. We drop only devDependencies (npm prune) and the
+# web build's node_modules (web is built to web/dist and served as static).
 COPY ./.vein /usr/src/vein
 # `npm install` (not `npm ci`): package-lock.json is gitignored repo-wide, so
 # it isn't present in the staged `.vein` source — `npm ci` would fail. Matches
 # the `npm install` used elsewhere in this Dockerfile (web, benchmark).
 RUN cd /usr/src/vein && npm install && npm run build && \
     npm --prefix web install && npm --prefix web run build && \
-    rm -rf node_modules web/node_modules
+    rm -rf web/node_modules && npm prune --omit=dev
 
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json

@@ -11,6 +11,7 @@ import {
 } from "./concepts/services.js";
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
+import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 
 /**
  * Lets a step run other workflows (and read their params) from inside a run —
@@ -87,6 +88,9 @@ export async function createLabVein(
   await seedEvalSteps(workspace);
   await seedConceptWorkflows(workspace);
   await seedConceptSteps(workspace);
+  // gitsee experiment: self-contained steps (no services bag needed).
+  await seedGitseeWorkflows(workspace);
+  await seedGitseeSteps(workspace);
 
   const vein = await createVein<LabServices>({
     workspace,

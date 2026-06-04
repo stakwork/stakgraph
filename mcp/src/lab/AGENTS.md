@@ -49,6 +49,34 @@ Experimentation seams (edit without touching code):
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
 
+### `gitsee/` — self-contained setup profiler (port of `mcp/src/gitsee`)
+
+A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
+`pm2.config.js` + `docker-compose.yml` for a repo). Deliberately the
+**opposite** of the `concepts` convention: **everything runs in the steps**
+with **no import from existing code** (`src/gitsee`), so that dir can
+eventually be deleted. Steps import only `vein`, the third-party AI SDK
+(`ai` + `@ai-sdk/anthropic`), and Node builtins.
+
+- `gitsee/steps/clone-repo.ts` (`gitsee/clone-repo`) — shallow `git clone`
+  into a temp dir (idempotent). Output `{ repoPath }`.
+- `gitsee/steps/explore-services.ts` (`gitsee/explore-services`) — the whole
+  agent loop inlined: the 3 exploration tools (`repo_overview`,
+  `file_summary`, `fulltext_search`, ported from `gitsee/agent/tools.ts` as
+  pure `child_process`/`fs`) + the `final_answer` tool, run via
+  `generateText`. LLM is provider-direct: Anthropic via `ANTHROPIC_API_KEY`
+  from env, model from config (drops aieo's gateway/multi-provider/cost
+  routing — the cost of full self-containment).
+- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → explore`; the
+  prompts (`system`, `finalAnswer`) live in `params` (the experiment
+  surface, ready for a future `gitsee-optimize` loop). `finalAnswer`'s
+  `MY_REPO_NAME` is substituted with the repo dir name by the step.
+
+Needs `ANTHROPIC_API_KEY` + `git` + `rg` on PATH. Trigger:
+`POST /lab/workflows/gitsee-explore-services/run` with
+`{ input: { owner, repo, token? } }`. Eval/optimize stack (mirroring
+`concepts-*`) is a planned follow-up, not built yet.
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See
