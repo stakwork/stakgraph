@@ -82,19 +82,50 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
   prompts live in `params` (the experiment surface, frontend-focused).
 
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
-steps). The gold is the **actual canonical pm2.config.js + docker-compose.yml
-pair** (same as the original gitsee eval — produced vs gold is apples-to-apples).
-`eval/score`'s rubric scores **functional equivalence**: it decomposes the gold
-into requirements (each pm2 app's script/env/cwd, each compose service's
-image/env/ports/volumes, host-binding flags) and matches the produced files
-against them, recall-weighted — cosmetic diffs (script form, port number, image
-tag, `version:` key) match; missing required services/commands/flags don't.
+steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the
+**actual canonical pm2.config.js + docker-compose.yml pair** (produced vs gold
+is apples-to-apples).
+
+Scoring is a **structured + hybrid** scorer (`gitsee/score-setup`), NOT the
+generic LLM `eval/score`. Both files are parseable, and the gold is the ANSWER
+KEY — so the dominant tier is **deterministic name set-diffs vs the gold**, which
+is why it stays repo-agnostic without understanding any dependency:
+- **env-key completeness** — `keys(produced pm2 env)` vs `keys(gold pm2 env)`,
+  recall-weighted. Robust + general because the key NAME is dictated by the
+  repo's code (`process.env.X`); a different name simply isn't read, so the
+  gold's names are canonical. (Build/run directives like `INSTALL_COMMAND` live
+  in this env block too, so "key commands" come for free.) This is the headline
+  fix: the old LLM judge collapsed hive's ~15 env vars into ~1 "env present"
+  item, so a missing boot-critical key barely moved the score.
+- **service set** — compose service IDENTITY (image base name, tag stripped, or
+  the service name for build-only services) produced vs gold. An extra image the
+  gold lacks (e.g. an invented `redis`) is a precision hit → catches
+  over-provisioning.
+- **LLM semantic residue** (optional, `useLLM`, capped multiplier so the
+  deterministic tier dominates) — only what needs interpretation and therefore
+  can't be a name set-diff: is each `script` the right start command, is a
+  host-binding flag present when the framework needs one, do the pm2 DB creds
+  line up with the compose service (naming-agnostic), is an added service
+  appropriate. (Cross-file cred consistency lives HERE, not in the deterministic
+  tier — matching a `DATABASE_URL` to `POSTGRES_*` across every datastore's env
+  conventions doesn't generalize deterministically; the LLM reads both files
+  regardless of naming.)
+- pm2 is eval'd in a locked-down `node:vm` (stub `require`/`process`, 1s timeout
+  → "unparseable / score 0" on throw); compose via `js-yaml`. Combine into one
+  recall-weighted F-beta (β=2) over env keys ∪ services, then apply the bounded
+  semantic multiplier.
+
+`gitsee/score-setup` PRESERVES the scorer contract `{ score, recall, precision,
+matched, missing, spurious, reason, insight, markdown }` that `eval/optimize` +
+`eval/reflect` depend on.
 
 - `gitsee-eval` — harness: produce (subflow → `gitsee-explore-services`) →
   score (subflow → `gitsee-eval-score`). No reset step (gitsee is stateless).
   Input `{ label, repos, token?, expected? }` — `label` is the workspace name
   (and the `eval: <label>` link); `expected` gold falls back to `params.expected`.
-- `gitsee-eval-score` — `eval/score` + the functional gold-files rubric.
+- `gitsee-eval-score` — `gitsee/score-setup` + the matching policy in `params`
+  (`useLLM`, `ignoreEnvKeys`, the semantic-residue `rubric`). Strict env policy:
+  every gold env key is required (exempt noise keys via `ignoreEnvKeys`).
 - `gitsee-eval-reflect` — `eval/reflect` + the setup task/guidance.
 - `gitsee-optimize` — `eval/optimize` loop. Tunes **`system`** (the explorer
   prompt), NOT `finalAnswer` (the hard pod contract). Cohort in `params.dataset`,

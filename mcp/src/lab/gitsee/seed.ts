@@ -27,6 +27,9 @@ const SEED_WORKFLOWS = [
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "clone-workspace.ts", type: "gitsee/clone-workspace" },
   { file: "explore-services.ts", type: "gitsee/explore-services" },
+  // Structured scorer (replaces eval/score for gitsee-eval-score): parses the
+  // pm2 + compose pair and scores by name set-diffs vs the gold + an LLM residue.
+  { file: "score-setup.ts", type: "gitsee/score-setup" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

@@ -1,71 +1,76 @@
 name: gitsee-eval-score
-# gitsee-specific scorer: wraps the generic `eval/score` step with the SETUP
-# rubric. Both `actual` and `expected` are a pm2.config.js + docker-compose.yml
-# pair (gold = the canonical known-good files). The rubric tells the judge to
-# decompose the GOLD into discrete requirements and check the produced files
-# against them; the step computes the numeric recall-weighted score.
+# gitsee-specific STRUCTURED scorer: wraps the `gitsee/score-setup` step (NOT the
+# generic LLM `eval/score`). Both `actual` and `expected` are a pm2.config.js +
+# docker-compose.yml pair (gold = the canonical known-good files), so the gold is
+# the ANSWER KEY. The step parses both files and scores by NAME set-diffs vs the
+# gold — env-key completeness + compose service/image set, deterministically —
+# then folds in a small LLM judge for the semantic residue only.
+#
+# Why structured (see plans/gitsee-structured-scorer-and-subagents.md): the old
+# pure-LLM judge collapsed hive's ~15 env vars into ~1 "env present" item, so a
+# missing boot-critical key barely moved the score. Env-key completeness is
+# mechanical + boot-critical — a set diff is sharper and lower-variance than
+# hoping a paragraph rubric makes the judge enumerate 15 keys.
 #
 # Input:  { actual, expected }   (each = the two-file "FILENAME: …" string)
 # Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }
+#         (the eval/optimize + eval/reflect contract — preserved by score-setup)
 steps:
   - id: judge
-    type: eval/score
+    type: gitsee/score-setup
     config:
       actual: "{{ input.actual }}"
       expected: "{{ input.expected }}"
-      # The rubric (matching criteria) lives in this workflow's `params` block.
-      # Swap per run via POST /run { params: { rubric } }, or edit the default.
+      # Hybrid by default: deterministic env/service set-diffs dominate, a capped
+      # LLM tier judges the semantic residue. Set useLLM:false for a free, instant,
+      # zero-variance run (deterministic-only) during heavy optimize sweeps.
+      useLLM: "{{ params.useLLM }}"
+      # Env keys to ignore in the completeness set-diff (e.g. obvious gold noise).
+      # Strict by default ([] → every gold env key is required).
+      ignoreEnvKeys: "{{ params.ignoreEnvKeys }}"
+      # The semantic-judge rubric (the experiment surface for the LLM tier).
       rubric: "{{ params.rubric }}"
       # Optionally override the judge model:
       # model: claude-opus-4-20250514
 
-# ── params: the rubric (gitsee setup-facts matching criteria) ───────────────
-# The step does the scoring math (recall-weighted F-beta); this tells the judge
-# HOW to decide what counts as a match / what's spurious for a repo setup.
+# ── params: the matching policy (the gitsee setup scoring surface) ──────────────
+# The deterministic tier needs no rubric (it's pure set-diffs vs the gold). These
+# tune the OPTIONAL semantic LLM tier + the env-completeness policy.
 params:
+  # Hybrid on by default (deterministic-dominant). Flip to false for pure
+  # deterministic scoring (no LLM cost/variance) in the optimize hot loop.
+  useLLM: true
+  # Strict env completeness: treat EVERY gold env key as required. Add keys here
+  # to exempt known non-essential / noise keys from the recall set-diff.
+  ignoreEnvKeys: []
+  # Rubric for the SEMANTIC residue ONLY — the env-key set and the service set are
+  # already scored deterministically, so the judge must NOT re-penalize them.
   rubric: |-
-    You are scoring a PRODUCED repo setup against a GOLD (canonical known-good)
-    setup. BOTH are a pm2.config.js + docker-compose.yml pair (in the "FILENAME:
-    <name>" + fenced-code format).
+    Judge ONLY the SEMANTIC (non-mechanical) quality of the PRODUCED repo setup
+    against the GOLD (canonical known-good) pair. BOTH are a pm2.config.js +
+    docker-compose.yml pair. The env-var KEY SET and the compose SERVICE SET are
+    scored separately and deterministically — DO NOT re-penalize a missing/extra
+    env key or service here; assume those are handled.
 
-    Score by FUNCTIONAL EQUIVALENCE, not textual fidelity. The gold defines WHAT a
-    working setup must contain; the produced files satisfy a requirement if they
-    achieve the SAME OUTCOME, even by different means. Do not reward mimicry.
+    Score FUNCTIONAL EQUIVALENCE, not textual fidelity. Focus exclusively on:
 
-    Decompose the GOLD into its FUNCTIONAL requirements — treat each as one
-    expected item, and judge whether the produced files satisfy it:
+    - START COMMAND: does each pm2 app's `script` actually launch the repo's real
+      server / entrypoint? ("npm start" ≈ "node server.js" when that's the start
+      script — reward equivalence, not mimicry.)
+    - HOST-BINDING FLAG: present when the framework needs one to be reachable in
+      the pod (Next.js "-H 0.0.0.0", Vite "--host 0.0.0.0"), and NOT forced on a
+      plain server that already binds 0.0.0.0.
+    - CROSS-FILE CRED CONSISTENCY: the DB/connection credentials embedded in the
+      pm2 env (e.g. a DATABASE_URL) are consistent with the corresponding compose
+      service (same db name / user / password / host:port) — regardless of how
+      either side is named.
+    - SERVICE APPROPRIATENESS: any backing service the produced file adds is
+      genuinely needed by the app (not bloat / over-provisioning).
 
-    FUNCTIONAL requirements (REQUIRED — count as MISSING if absent or broken):
-    - a pm2 app named exactly "frontend";
-    - an install command (INSTALL_COMMAND) for the repo's package manager;
-    - a run script that actually starts the repo's real server / entrypoint;
-    - a host-binding flag (e.g. "-- --hostname 0.0.0.0" / "-- --host 0.0.0.0")
-      WHEN the framework needs one (Next.js, Vite, etc.) — not for plain servers
-      that already bind 0.0.0.0;
-    - the mandatory base "app" service in docker-compose;
-    - one compose service for EACH external dependency the repo actually uses
-      (database/cache/queue), and ONLY those;
-    - DB/connection env vars in the pm2 app that are consistent with the
-      corresponding compose service (same db name / user / password / host:port);
-    - any build/migration step the repo genuinely needs (BUILD_COMMAND,
-      PRE_START_COMMAND), when present in the gold.
+    COSMETIC differences are ALWAYS fine (never an issue): script FORM when it
+    launches the same entrypoint, the specific dev PORT number, image tag variants,
+    the compose `version:` key, volume names, literal dev-secret values,
+    max_memory_restart and other pm2 cosmetics.
 
-    COSMETIC differences (ALWAYS a match — never list as missing or spurious):
-    - run-script FORM if it launches the same entrypoint ("npm start" ≈
-      "node index.js" ≈ "node server.js" when that's the start script);
-    - the specific PORT number, when both are plausible dev ports;
-    - image tag variants ("postgres:15" ≈ "postgres:15-alpine");
-    - presence/absence of the compose "version:" key; volume names; env-var
-      ordering; the literal values of dev secrets/placeholders; max_memory_restart
-      and other pm2 cosmetics.
-
-    SPURIOUS (count against precision): a produced item NOT in the gold that would
-    BLOAT or BREAK the setup — an invented compose service for a dependency the
-    repo doesn't use, or a real cloud placeholder (Stripe/Clerk/Supabase URL, etc.)
-    used as a hard blocker. Do NOT mark required boilerplate (the base "app"
-    service, "frontend" naming, sensible dev defaults) as spurious, and do NOT mark
-    cosmetic variations as spurious.
-
-    Prefer recall: a missing required service/command/host-flag is worse than a
-    cosmetically different file. Surface MISSING functional requirements clearly —
-    those are what the prompt must learn to produce.
+    `semanticScore` = 1 when all of the above are satisfied; lower it only for real
+    semantic defects, and list each concrete defect in `issues`.
