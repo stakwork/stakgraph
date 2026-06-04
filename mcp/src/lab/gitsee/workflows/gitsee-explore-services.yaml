@@ -67,21 +67,7 @@ params:
 
     The setup runs inside our pod/code-server environment. Each repo is mounted at /workspaces/<repo> (the repo's dir name). The runnable pm2 service's cwd must be /workspaces/<the-frontend-repo>. If the frontend depends on sibling repos in this workspace (file: deps / workspace links), make sure they get installed and built — via the frontend's INSTALL_COMMAND/BUILD_COMMAND or a PRE_START_COMMAND that builds the sibling(s) first.
 
-    Unless a platform-specific structure is required, docker-compose.yml must include this exact "app" service (the long-running container where the repo code is mounted and pm2 runs). Do not replace it with a generic compose service:
-    ```
-      app:
-        build:
-          context: .
-          dockerfile: Dockerfile
-        volumes:
-          - ../..:/workspaces:cached
-        command: sleep infinity
-        networks:
-          - app_network
-        extra_hosts:
-          - "localhost:172.17.0.1"
-          - "host.docker.internal:host-gateway"
-    ```
+    Do NOT add an "app" / runtime container for the repo code itself — the pod platform provides the long-running container where the code is mounted and pm2 runs. docker-compose.yml is ONLY for the backing services the frontend needs (databases, caches, queues). If the frontend needs no backing services, emit a docker-compose.yml with just the network and no `services:` block.
 
     # Local-only dependency policy
 
@@ -108,7 +94,7 @@ params:
 
     # docker-compose.yml
 
-    The auxiliary services the frontend needs (databases, caches, queues, etc.), plus the mandatory "app" service above. Add a service ONLY when the frontend requires it to boot.
+    The auxiliary services the frontend needs (databases, caches, queues, etc.). Add a service ONLY when the frontend requires it to boot — do NOT add an "app" / runtime container for the repo itself (the pod provides it).
 
     # EXAMPLE OUTPUT
 
@@ -143,18 +129,6 @@ params:
       app_network:
         driver: bridge
     services:
-      app:
-        build:
-          context: .
-          dockerfile: Dockerfile
-        volumes:
-          - ../..:/workspaces:cached
-        command: sleep infinity
-        networks:
-          - app_network
-        extra_hosts:
-          - "localhost:172.17.0.1"
-          - "host.docker.internal:host-gateway"
       postgres:
         image: postgres:15
         environment:

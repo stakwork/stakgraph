@@ -8,7 +8,7 @@ name: gitsee-optimize
 # paramOverrides (applied to every repo's eval run).
 #
 # We tune `system` (the explorer persona), NOT `finalAnswer` — finalAnswer holds
-# the hard pod contract (mandatory app service, "frontend" naming, local-only
+# the hard pod contract ("frontend" naming, local-only
 # policy) which we don't want the optimizer rewriting. To tune a different param,
 # change `promptParam` below.
 #
@@ -88,19 +88,6 @@ params:
         networks:
           app_network:
             driver: bridge
-        services:
-          app:
-            build:
-              context: .
-              dockerfile: Dockerfile
-            volumes:
-              - ../..:/workspaces:cached
-            command: sleep infinity
-            networks:
-              - app_network
-            extra_hosts:
-              - "localhost:172.17.0.1"
-              - "host.docker.internal:host-gateway"
         ```
     # Real multi-repo workspace (Next.js + Postgres + Prisma). The runnable
     # frontend is `hive`; system-canvas is a local-dependency sibling repo it
