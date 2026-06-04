@@ -87,6 +87,9 @@ export function App() {
   const [localParams, setLocalParams] = useState<Record<string, unknown> | null>(null);
   // Whether the Params flyout (editable) is open.
   const [showParams, setShowParams] = useState(false);
+  // Whether every structured param currently parses (the flyout reports this);
+  // an invalid YAML param blocks Publish while the flyout is open.
+  const [paramsValid, setParamsValid] = useState(true);
 
   const isDirty = useMemo(() => {
     if (!publishedSteps || !localSteps) return false;
@@ -559,7 +562,7 @@ export function App() {
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
         <div class="topbar-actions">
-          {isDirty && <button class="btn btn-publish" onClick={handlePublish}>Publish</button>}
+          {isDirty && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
           {selectedWf && localParams && Object.keys(localParams).length > 0 && (
             <button
               class={`btn${showParams ? " is-active" : ""}`}
@@ -673,9 +676,11 @@ export function App() {
           them as a new version (params live in the workflow YAML). */}
       {showParams && selectedWf && localParams && (
         <ParamsFlyout
+          key={selectedWf}
           workflow={selectedWf}
           params={localParams}
           onChange={setLocalParams}
+          onValidChange={setParamsValid}
           onClose={() => setShowParams(false)}
         />
       )}

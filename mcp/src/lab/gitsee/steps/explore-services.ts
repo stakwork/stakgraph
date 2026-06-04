@@ -2,8 +2,8 @@ import { z, defineStep } from "vein";
 import { generateText, tool, hasToolCall, stepCountIs, type Tool } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { spawn } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
-import { join, basename } from "node:path";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * SELF-CONTAINED port of `mcp/src/gitsee` "services" mode (the setup-profiler
@@ -13,7 +13,8 @@ import { join, basename } from "node:path";
  * builtins. Every tool (repo map, file summary, fulltext search) and the whole
  * agent loop is inlined here.
  *
- * It runs an agentic tool loop over a LOCAL clone (`repoPath`) and emits a
+ * It runs an agentic tool loop over a LOCAL workspace (`workspacePath`, a dir of
+ * sibling repo clones) and emits a
  * pm2.config.js + docker-compose.yml pair via the `final_answer` tool. The
  * prompts (`system`, `finalAnswer`) are the experiment surface — supplied by
  * the calling workflow's `params` block, NOT baked in — so they can be swept
@@ -30,20 +31,19 @@ import { join, basename } from "node:path";
 
 // ── inline tool helpers (ported from gitsee/agent/tools.ts, no internal deps) ──
 
-/** Run a command, capturing stdout, with a timeout + output cap. Resolves with
- *  whatever was captured (exit 1 → "No matches found", like ripgrep). */
-function runCmd(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  timeoutMs = 10000,
-  maxBytes = 10000,
+/** Spawn a child, capture stdout with a timeout + output cap. Exit 1 with no
+ *  stderr → "No matches found" (grep/rg/find idiom). Shared by both forms below. */
+function capture(
+  child: ReturnType<typeof spawn>,
+  timeoutMs: number,
+  maxBytes: number,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let done = false;
+    const cap = (s: string) =>
+      s.length > maxBytes ? s.slice(0, maxBytes) + "\n\n[... output truncated ...]" : s;
     const finish = (fn: () => void) => {
       if (done) return;
       done = true;
@@ -54,42 +54,46 @@ function runCmd(
       child.kill("SIGKILL");
       finish(() => reject(new Error(`Command timed out after ${timeoutMs}ms`)));
     }, timeoutMs);
-    child.stdout.on("data", (d) => {
+    child.stdout?.on("data", (d) => {
       stdout += d.toString();
       if (stdout.length > maxBytes) {
         child.kill("SIGKILL");
-        finish(() =>
-          resolve(stdout.slice(0, maxBytes) + "\n\n[... output truncated ...]"),
-        );
+        finish(() => resolve(cap(stdout)));
       }
     });
-    child.stderr.on("data", (d) => (stderr += d.toString()));
-    child.on("close", (code) => {
+    child.stderr?.on("data", (d) => (stderr += d.toString()));
+    child.on("close", (code) =>
       finish(() => {
-        if (code === 0) resolve(stdout);
-        else if (code === 1) resolve("No matches found");
-        else reject(new Error(`Command failed (${code}): ${stderr}`));
-      });
-    });
+        if (code === 0) resolve(cap(stdout));
+        else if (code === 1 && !stderr) resolve(cap(stdout) || "No matches found");
+        else reject(new Error(`Command failed (${code}): ${stderr || stdout || "Unknown error"}`));
+      }),
+    );
     child.on("error", (err) => finish(() => reject(err)));
   });
 }
 
-/** A high-level repo map: list tracked files (`git ls-files`) and render an
- *  indented tree truncated to `maxDepth`. Built in JS so it needs no `tree`
- *  binary (more portable than the original shell pipeline). */
-async function getRepoMap(repoPath: string, maxDepth = 3): Promise<string> {
-  if (!repoPath || !existsSync(repoPath)) return "Repository not cloned yet";
-  let listing: string;
-  try {
-    listing = await runCmd("git", ["ls-files"], repoPath, 10000, 200000);
-  } catch (e) {
-    return `Error getting repo map: ${(e as Error).message}`;
-  }
-  const files = listing.split("\n").filter(Boolean);
-  if (!files.length) return "No tracked files found";
+/** Run a program with explicit args (NO shell) — safe for untrusted args like a
+ *  search query: no quoting/escaping/injection. Used by repo_overview + fulltext_search. */
+const runCmd = (cmd: string, args: string[], cwd: string, timeoutMs = 10000, maxBytes = 10000) =>
+  capture(spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] }), timeoutMs, maxBytes);
 
-  // Build a nested dir tree, pruning anything deeper than maxDepth.
+/** Run an arbitrary shell command string — the `bash` tool needs a full shell
+ *  (pipes, globs, redirects). Inlined from gitsee's executeBashCommand. */
+const runShell = (command: string, cwd: string, timeoutMs = 15000, maxBytes = 10000) =>
+  capture(spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] }), timeoutMs, maxBytes);
+
+/** Immediate subdirs of the workspace that are git repos (the cloned siblings). */
+function listRepos(workspacePath: string): string[] {
+  if (!existsSync(workspacePath)) return [];
+  return readdirSync(workspacePath, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(workspacePath, e.name, ".git")))
+    .map((e) => e.name)
+    .sort();
+}
+
+/** Render a flat path list as an indented tree, pruned to `maxDepth`. */
+function renderTree(files: string[], maxDepth: number): string {
   type Node = { dirs: Map<string, Node>; files: Set<string> };
   const root: Node = { dirs: new Map(), files: new Set() };
   for (const f of files) {
@@ -108,15 +112,30 @@ async function getRepoMap(repoPath: string, maxDepth = 3): Promise<string> {
       lines.push(`${"  ".repeat(depth)}${name}/`);
       render(node.dirs.get(name)!, depth + 1);
     }
-    for (const name of [...node.files].sort()) {
-      lines.push(`${"  ".repeat(depth)}${name}`);
-    }
+    for (const name of [...node.files].sort()) lines.push(`${"  ".repeat(depth)}${name}`);
   };
   render(root, 0);
-  const out = lines.join("\n");
-  return out.length > 10000
-    ? out.slice(0, 10000) + "\n\n[... output truncated ...]"
-    : out;
+  return lines.join("\n");
+}
+
+/** A high-level map of the WHOLE workspace: tracked files (`git ls-files`) across
+ *  every sibling repo, each prefixed with its repo dir, rendered as one tree
+ *  (depth-limited). Built in JS so it needs no `tree` binary. */
+async function getRepoMap(workspacePath: string, maxDepth = 3): Promise<string> {
+  const repos = listRepos(workspacePath);
+  if (!repos.length) return "Workspace has no cloned repos yet";
+  const files: string[] = [];
+  for (const repo of repos) {
+    try {
+      const listing = await runCmd("git", ["ls-files"], join(workspacePath, repo), 10000, 200000);
+      for (const f of listing.split("\n").filter(Boolean)) files.push(`${repo}/${f}`);
+    } catch {
+      /* skip a repo that fails to list */
+    }
+  }
+  if (!files.length) return "No tracked files found";
+  const out = renderTree(files, maxDepth);
+  return out.length > 10000 ? out.slice(0, 10000) + "\n\n[... output truncated ...]" : out;
 }
 
 /** First N lines of a file, each line capped at 200 chars (minified-file safe). */
@@ -165,14 +184,14 @@ async function fulltextSearch(query: string, repoPath: string): Promise<string> 
 export default defineStep({
   type: "gitsee/explore-services",
   description:
-    "Self-contained setup-profiler agent (ported from gitsee 'services' mode, no internal deps). Agentically explores a local repo clone (repo_overview, file_summary, fulltext_search) and emits a pm2.config.js + docker-compose.yml pair via final_answer. Config: repoPath, prompt (user task), system + finalAnswer (the prompt experiment surface, from params), fileLines (default 100), model (anthropic model id, default claude-sonnet-4-6), maxSteps (loop cap, default 40). Needs ANTHROPIC_API_KEY in env and `git`/`rg` on PATH. Output: { result, steps }.",
+    "Self-contained setup-profiler agent. Agentically explores a WORKSPACE (a dir of sibling repos cloned under it) via repo_overview, file_summary, fulltext_search, bash + Anthropic web_search (all always on), and emits a pm2.config.js + docker-compose.yml pair via final_answer to get the workspace's FRONTEND running. Config: workspacePath, prompt (user task), system + finalAnswer (the prompt experiment surface, from params), fileLines (default 100), model (anthropic model id, default claude-sonnet-4-6), maxSteps (loop cap, default 40). Needs ANTHROPIC_API_KEY in env and `git`/`rg` on PATH. Output: { result, steps }.",
   input: z.object({
-    repoPath: z.string().describe("local path to the cloned repo"),
+    workspacePath: z.string().describe("local path to the workspace dir (contains the cloned repos as subdirs)"),
     prompt: z.string().describe("the user task / question driving exploration"),
     system: z.string().describe("system prompt (the EXPLORER persona) — from params"),
     finalAnswer: z
       .string()
-      .describe("final_answer tool description / output spec — from params; MY_REPO_NAME is substituted with the repo dir name"),
+      .describe("final_answer tool description / output spec — from params"),
     fileLines: z.number().int().positive().default(100),
     model: z.string().default("claude-sonnet-4-6"),
     maxSteps: z.number().int().positive().default(40),
@@ -182,9 +201,19 @@ export default defineStep({
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("gitsee/explore-services requires ANTHROPIC_API_KEY in env.");
 
-    const repoName = basename(cfg.repoPath) || "my-repo";
-    const fad = cfg.finalAnswer.replaceAll("MY_REPO_NAME", repoName);
-    const model = createAnthropic({ apiKey })(cfg.model);
+    // The repos cloned as siblings in this workspace, each mounted at
+    // /workspaces/<repo> in the pod. Injected into the user prompt so the agent
+    // knows the layout (which repo is the app vs. a local dependency) without
+    // baking repo names into the tunable `system`/`finalAnswer` prompts.
+    const repos = listRepos(cfg.workspacePath);
+    const preamble =
+      `WORKSPACE LAYOUT — the repos below are cloned as siblings and mounted at /workspaces/<repo> in the pod` +
+      ` (some may be LOCAL DEPENDENCIES that another repo builds against, not separate apps to run):\n` +
+      repos.map((r) => `- /workspaces/${r}`).join("\n") +
+      `\n\nTool paths are relative to the workspace root (e.g. "${repos[0] ?? "repo"}/package.json").`;
+    const fad = cfg.finalAnswer;
+    const anthropic = createAnthropic({ apiKey });
+    const model = anthropic(cfg.model);
 
     // `inputSchema` is cast to `any` to stop `ai`'s `tool()` from deeply
     // inferring the zod type (TS2589 under mcp's tsconfig); `execute` params
@@ -196,7 +225,7 @@ export default defineStep({
         inputSchema: z.object({}) as any,
         execute: async () => {
           try {
-            return await getRepoMap(cfg.repoPath);
+            return await getRepoMap(cfg.workspacePath);
           } catch {
             return "Could not retrieve repository map";
           }
@@ -211,7 +240,7 @@ export default defineStep({
         }) as any,
         execute: async ({ file_path }: { file_path: string }) => {
           try {
-            return getFileSummary(file_path, cfg.repoPath, cfg.fileLines);
+            return getFileSummary(file_path, cfg.workspacePath, cfg.fileLines);
           } catch {
             return "Bad file path";
           }
@@ -225,7 +254,7 @@ export default defineStep({
         }) as any,
         execute: async ({ query }: { query: string }) => {
           try {
-            return await fulltextSearch(query, cfg.repoPath);
+            return await fulltextSearch(query, cfg.workspacePath);
           } catch (e) {
             return `Search failed: ${e}`;
           }
@@ -238,11 +267,33 @@ export default defineStep({
       }),
     };
 
+    // bash: arbitrary shell inside the clone (ls, cat, grep, find package files,
+    // inspect docker/compose, etc.). Scoped to repoPath; same risk profile as
+    // the existing repo agent's bash tool.
+    tools.bash = tool({
+      description:
+        "Execute a bash command inside the workspace (cwd = workspace root; repos are subdirs). Use for listing directories, reading files (cat/head), inspecting package manifests, docker/compose files, cross-repo file: dependency links, and anything the other tools don't cover.",
+      inputSchema: z.object({ command: z.string().describe("The bash command to execute") }) as any,
+      execute: async ({ command }: { command: string }) => {
+        try {
+          if (!existsSync(cfg.workspacePath)) return "Workspace not cloned yet";
+          return await runShell(command, cfg.workspacePath);
+        } catch (e) {
+          return `Command execution failed: ${e}`;
+        }
+      },
+    });
+
+    // web_search: Anthropic's native (server-executed) web search — provider-
+    // defined tool from the same SDK provider. Useful for looking up how to
+    // configure a service locally (default ports, env var names, compose images).
+    tools.web_search = anthropic.tools.webSearch_20250305({ maxUses: 3 }) as unknown as Tool;
+
     const startTime = Date.now();
     const { steps } = await generateText({
       model,
       tools,
-      prompt: cfg.prompt,
+      prompt: `${preamble}\n\n${cfg.prompt}`,
       system: cfg.system,
       stopWhen: [hasToolCall("final_answer"), stepCountIs(cfg.maxSteps)],
       onStepFinish: (sf) => {

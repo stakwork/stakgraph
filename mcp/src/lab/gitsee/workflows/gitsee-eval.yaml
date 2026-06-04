@@ -1,0 +1,97 @@
+name: gitsee-eval
+# Eval HARNESS for the gitsee setup-profiler: produce a repo's pm2.config.js +
+# docker-compose.yml (via gitsee-explore-services), then score the produced
+# setup against an expected gold "setup facts" set. Iterate on the exploration
+# prompt (gitsee-explore-services' `system` param, or via paramOverrides) until
+# the score is high.
+#
+# Input: { label, repos: [{ owner, repo, rev? }], token?, expected? }
+#   label    — the workspace name (clone dir + the eval-run link label). Named
+#              `label` so eval/optimize's labelFor surfaces it as "eval: <label>".
+#   repos    — the repos cloned as siblings (the frontend app + its local deps);
+#              each may pin a `rev` so the gold matches a fixed snapshot.
+#   expected — per-workspace gold output; falls back to params.expected when
+#              omitted. This is what lets the optimize loop carry a DIFFERENT
+#              gold per workspace on each dataset entry.
+# Output: { score, recall, precision, missing, spurious, reason, insight, markdown }
+#         (from gitsee-eval-score)
+#
+# gitsee is stateless per run (it re-clones/re-explores), so unlike concepts-eval
+# there's no reset step — each run produces fresh output for the current prompt.
+steps:
+  # 1. Produce the setup files. The exploration prompt is tuned via
+  #    gitsee-explore-services' `params.system`, or per run via
+  #    paramOverrides: { "gitsee-explore-services": { system } }.
+  - id: produce
+    type: subflow
+    config:
+      workflow: gitsee-explore-services
+      input:
+        workspace: "{{ input.label }}"
+        repos: "{{ input.repos }}"
+        token: "{{ input.token }}"
+    # subflow output = gitsee-explore-services' `explore` step = { result, steps }
+    # `result` is the raw two-file (pm2.config.js + docker-compose.yml) string.
+
+  # 2. Score the produced files against the expected gold setup facts.
+  - id: score
+    type: subflow
+    config:
+      workflow: gitsee-eval-score
+      input:
+        actual: "{{ produce.result }}"
+        # Per-example gold (from input) when provided; else the param default.
+        expected: "{{ input.expected ? input.expected : params.expected }}"
+
+# ── params: the gold OUTPUT (the canonical pm2.config.js + docker-compose.yml) ──
+# The gold is the ACTUAL known-good file pair for this repo — same shape the
+# agent produces (the "FILENAME: …" + fenced-block format) — so produced vs gold
+# is apples-to-apples. The scorer decomposes this gold into its concrete
+# requirements and matches the produced files against them (recall-weighted, so
+# functional equivalence is fine but deviations/omissions are penalized).
+# Default below is for heroku/node-js-getting-started (a simple Express app, no DB).
+params:
+  expected: |-
+    FILENAME: pm2.config.js
+
+    ```js
+    module.exports = {
+      apps: [
+        {
+          name: "frontend",
+          script: "npm start",
+          cwd: "/workspaces/node-js-getting-started",
+          instances: 1,
+          autorestart: true,
+          watch: false,
+          max_memory_restart: "1G",
+          env: {
+            PORT: "3000",
+            INSTALL_COMMAND: "npm install",
+            TEST_COMMAND: "npm test"
+          }
+        }
+      ]
+    };
+    ```
+
+    FILENAME: docker-compose.yml
+
+    ```yaml
+    networks:
+      app_network:
+        driver: bridge
+    services:
+      app:
+        build:
+          context: .
+          dockerfile: Dockerfile
+        volumes:
+          - ../..:/workspaces:cached
+        command: sleep infinity
+        networks:
+          - app_network
+        extra_hosts:
+          - "localhost:172.17.0.1"
+          - "host.docker.internal:host-gateway"
+    ```

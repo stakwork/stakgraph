@@ -1,95 +1,73 @@
 name: gitsee-explore-services
-# Self-contained port of gitsee "services" mode (the setup profiler): clone a
-# repo, then agentically explore it to emit a pm2.config.js + docker-compose.yml
-# pair. EVERYTHING runs in two self-contained custom steps (gitsee/clone-repo +
-# gitsee/explore-services) — no import from the existing `src/gitsee` code, which
-# is the whole point (so src/gitsee can eventually be deleted).
+# Self-contained port of gitsee "services" mode (the setup profiler), WORKSPACE-
+# oriented: clone a workspace (a set of repos cloned as siblings under
+# /workspaces/<repo>), then agentically explore it and emit a pm2.config.js +
+# docker-compose.yml pair that gets the workspace's FRONTEND up and running.
+# EVERYTHING runs in two self-contained custom steps (gitsee/clone-workspace +
+# gitsee/explore-services) — no import from the existing `src/gitsee` code.
 #
-# The prompts (`system`, `finalAnswer`) live in this workflow's `params` block —
-# the experiment surface, ready for a future `gitsee-optimize` loop to sweep
-# (mirroring concepts-optimize). `finalAnswer`'s MY_REPO_NAME placeholder is
-# substituted with the repo dir name by the step at runtime.
+# A workspace usually has one runnable app (the frontend) plus local-dependency
+# repos it builds against (file: deps). The explore step injects the cloned repo
+# list into the prompt, so the `system`/`finalAnswer` params stay repo-agnostic
+# (the experiment surface, ready for gitsee-optimize to sweep).
 #
 # Needs ANTHROPIC_API_KEY in env and `git` + `rg` on PATH.
 #
-# Input:  { owner, repo, token? }
+# Input:  { workspace, repos: [{ owner, repo, rev? }], token? }
 # Output: { result, steps } — `result` is the raw two-file string.
 steps:
   - id: clone
-    type: gitsee/clone-repo
+    type: gitsee/clone-workspace
     config:
-      owner: "{{ input.owner }}"
-      repo: "{{ input.repo }}"
+      workspace: "{{ input.workspace }}"
+      repos: "{{ input.repos }}"
       token: "{{ input.token }}"
 
   - id: explore
     type: gitsee/explore-services
     depends: clone
     config:
-      repoPath: "{{ clone.repoPath }}"
+      workspacePath: "{{ clone.workspacePath }}"
       prompt: "{{ params.prompt }}"
       system: "{{ params.system }}"
       finalAnswer: "{{ params.finalAnswer }}"
       fileLines: "{{ params.fileLines }}"
       model: "{{ params.model }}"
 
-# ── params: the prompt experiment surface (ported from gitsee services.ts) ──────
+# ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
   fileLines: 100
   model: claude-sonnet-4-6
   prompt: |-
-    Analyze this repository and produce the pm2.config.js and docker-compose.yml
-    files needed to set it up and run it locally in our pod environment. Explore
-    the codebase first to find the services, integrations, and environment
-    variables, then call final_answer with both files.
+    Explore this workspace and produce the pm2.config.js and docker-compose.yml
+    needed to get its FRONTEND running locally in our pod. Identify which repo is
+    the runnable frontend (the others may be local dependencies it builds
+    against), how to install/build/run it, the services it needs, and its
+    environment variables. Then call final_answer with both files.
   system: |-
-    You are a codebase exploration assistant. Your job is to identify the various services, integrations, and environment variables need to setup and run this codebase. Take your time exploring the codebase to find the most likely setup services, and env vars. You might need to use the fulltext_search tool to find instance of "process.env." or other similar patterns, based on the coding language(s) used in the project. If this is an Android project, also find Android-specific build/runtime details (AndroidManifest.xml, build.gradle/build.gradle.kts, gradlew, BuildConfig, ANDROID_ variables, adb usage). You will be asked to output actual configuration files at the end, so make sure you find everything you need to do that! Important: name one of the pm2 services "frontend" no matter what!!!
-  finalAnswer: |-
-    Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
+    You are a setup assistant. Your job is to get the FRONTEND of a workspace up and running locally in our pod.
 
-    Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in backticks. YOU MUST RETURN BOTH FILES!!!
+    A workspace contains one or more repos cloned as siblings under /workspaces/<repo>. Typically ONE repo is the runnable app (the frontend); the others are LOCAL DEPENDENCIES it builds against (often linked as file: dependencies). Your job is to get that frontend booting — not to run every repo as its own service.
+
+    Explore the repos to determine:
+    - which repo is the runnable frontend (look for the app with a dev/start script, a web framework, an entrypoint);
+    - its package manager and the real install / build / dev commands (read the package manifest / lockfiles);
+    - the host and port it binds (it MUST bind 0.0.0.0 in the pod);
+    - the environment variables it needs — search for process.env. / ENV usage, .env.example, config files;
+    - whether it depends on sibling repos in the workspace that must be installed/built first (file: deps, workspace links);
+    - the backing services it needs to boot (databases, caches, queues), found from env vars + dependencies.
+
+    Use the fulltext_search tool to find env var usage, and bash to read package manifests, lockfiles, docker files, and cross-repo dependency links. You will output actual config files at the end, so find everything you need. Name the runnable pm2 service "frontend" no matter what.
+  finalAnswer: |-
+    Provide the final answer. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
+
+    Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in a fenced code block. YOU MUST RETURN BOTH FILES.
 
     # Pod contract - mandatory
 
-    The generated setup must run inside our pod/code-server environment. The repo is mounted at /workspaces/MY_REPO_NAME, so every pm2 cwd must start with /workspaces/MY_REPO_NAME. Unless a selected setup hint provides a platform-specific compose structure, docker-compose.yml must include the exact app service shown below. Do not replace it with a generic compose service. The app service is the long-running container where the repo code is mounted and pm2 commands run.
+    The setup runs inside our pod/code-server environment. Each repo is mounted at /workspaces/<repo> (the repo's dir name). The runnable pm2 service's cwd must be /workspaces/<the-frontend-repo>. If the frontend depends on sibling repos in this workspace (file: deps / workspace links), make sure they get installed and built — via the frontend's INSTALL_COMMAND/BUILD_COMMAND or a PRE_START_COMMAND that builds the sibling(s) first.
 
-    # Local-only dependency policy
-
-    The setup must boot without external accounts or real cloud credentials. For every required external dependency, use a local docker service, local emulator, self-hosted dev stack, placeholder, or deterministic dummy value.
-
-    - Only add docker-compose services required for the app to boot or core local flows to work. For optional integrations, use repo-supported mocks, disabled flags, or deterministic placeholder env vars.
-    - Do not emit cloud placeholders like your-project.supabase.co, Cloudflare R2 URLs, Stripe keys, Resend keys, Clerk keys, Auth0 domains, or LLM API keys as blockers.
-
-    # pm2.config.js
-
-    The actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. Each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, PRE_START_COMMAND, and POST_START_COMMAND if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). Please name one of the services "frontend" no matter what!!!
-
-    The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the frontend is within an "app" sub-directory in the repo, the cwd should be "/workspaces/MY_REPO_NAME/app". If the project is only a backend api, its fine to use the api service as the "frontend"... the "frontend" service is really just used to help our system identify whether things are running smoothly. IMPORTANT: if no frontend is found in this repo at all, add a dummy frontend service with "npx -y hell0-w0rld"! That is a simple hello world server that will run on port 3000, and will help the system check to see things are up and running. IMPORTANT: include other environment variables needed to run the project in the "env" section of the service!
-
-    ### Other reminders for pm2.config.js:
-
-    1. **name MUST be "frontend"** — always use "frontend" as the app name, regardless of the repo name.
-
-    2. **Host binding** — the dev server MUST bind to 0.0.0.0:
-      - Next.js: use the supported host flag, usually "-- --hostname 0.0.0.0" (e.g. "npm run dev -- --hostname 0.0.0.0")
-      - Vite: append "-- --host 0.0.0.0" to the dev command (e.g. "npm run dev -- --host 0.0.0.0")
-      - This flag is MANDATORY. Never omit it.
-
-    3. **Package manager** — the script must match INSTALL_COMMAND. pnpm → "pnpm run dev -- ...". yarn → "yarn dev -- --host 0.0.0.0" (for Vite) or "yarn dev -- --hostname 0.0.0.0" (for Next.js). Never use "npm run ..." if INSTALL_COMMAND is not npm.
-
-    4. **Use "dev" not "start"** — always prefer the dev script. Vite projects always have a "dev" script; never use "start" for Vite. Only fall back to "start" if package.json has no "dev" script at all.
-
-    5. **Environment variables**:
-      - For empty/placeholder values, generate realistic dev defaults
-      - For secrets: "dev-secret-key-change-in-production-12345678901234567890"
-      - For hex encryption keys: "bb54aa41a75298418586c5443f264338013520b3bad612fce9ac2fc32ed19882"
-      - Database URLs must match the credentials in docker-compose.yml
-
-    # docker-compose.yml
-
-    The auxiliary services needed to run the project, such as databases, caches, queues, etc.
-
-    Unless a selected setup hint provides a platform-specific compose structure, include this exact "app" service in docker-compose.yml:
+    Unless a platform-specific structure is required, docker-compose.yml must include this exact "app" service (the long-running container where the repo code is mounted and pm2 runs). Do not replace it with a generic compose service:
     ```
       app:
         build:
@@ -105,7 +83,34 @@ params:
           - "host.docker.internal:host-gateway"
     ```
 
-    # HERE IS AN EXAMPLE OUTPUT:
+    # Local-only dependency policy
+
+    The setup must boot without external accounts or real cloud credentials. For every required external dependency, use a local docker service, local emulator, self-hosted dev stack, placeholder, or deterministic dummy value.
+
+    - Only add docker-compose services the frontend actually needs to boot or for core local flows. For optional integrations, use repo-supported mocks, disabled flags, or deterministic placeholder env vars.
+    - Do not emit cloud placeholders (your-project.supabase.co, R2 URLs, Stripe/Resend/Clerk/Auth0/LLM keys) as hard blockers.
+
+    # pm2.config.js
+
+    The dev service(s) for running this workspace's frontend. Usually ONE service named "frontend". Each service env should have an INSTALL_COMMAND so our sandbox knows how to install dependencies. You can also add BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, PRE_START_COMMAND, and POST_START_COMMAND when the repo supports them (e.g. a PRE_START_COMMAND for a db migration). Name one service "frontend" no matter what.
+
+    The cwd must start with /workspaces/<frontend-repo>. If the frontend lives in a subdirectory, append it (e.g. "/workspaces/myapp/web"). If the project is only a backend API, use it as the "frontend". IMPORTANT: if no runnable frontend is found at all, add a dummy frontend service with "npx -y hell0-w0rld" (a hello-world server on port 3000) so the system can verify things are up. Put all env vars needed to run the project in the service "env".
+
+    Reminders:
+    1. **name MUST be "frontend"** regardless of the repo name.
+    2. **Host binding** — the dev server MUST bind 0.0.0.0:
+       - Next.js: "-- --hostname 0.0.0.0" (e.g. "npm run dev -- --hostname 0.0.0.0"); some apps use "-- -H 0.0.0.0".
+       - Vite: "-- --host 0.0.0.0".
+       This flag is MANDATORY; never omit it.
+    3. **Package manager** — the script must match INSTALL_COMMAND (pnpm → "pnpm run dev …", yarn → "yarn dev …"). Never use "npm run …" if INSTALL_COMMAND isn't npm.
+    4. **Use "dev" not "start"** — prefer the dev script; only fall back to "start" if there's no "dev" script.
+    5. **Env vars**: realistic dev defaults for placeholders; secrets like "dev-secret-key-change-in-production-12345678901234567890"; hex keys like "bb54aa41a75298418586c5443f264338013520b3bad612fce9ac2fc32ed19882"; database URLs must match the docker-compose credentials.
+
+    # docker-compose.yml
+
+    The auxiliary services the frontend needs (databases, caches, queues, etc.), plus the mandatory "app" service above. Add a service ONLY when the frontend requires it to boot.
+
+    # EXAMPLE OUTPUT
 
     FILENAME: pm2.config.js
 
@@ -115,7 +120,7 @@ params:
         {
           name: "frontend",
           script: "npm run dev -- --hostname 0.0.0.0",
-          cwd: "/workspaces/MY_REPO_NAME",
+          cwd: "/workspaces/myapp",
           instances: 1,
           autorestart: true,
           watch: false,
@@ -124,7 +129,7 @@ params:
             PORT: "3000",
             INSTALL_COMMAND: "npm install",
             BUILD_COMMAND: "npm run build",
-            DATABASE_URL: "postgresql://postgres:password@localhost:5432/backend_db"
+            DATABASE_URL: "postgresql://postgres:password@localhost:5432/app_db"
           }
         }
       ],
@@ -134,7 +139,6 @@ params:
     FILENAME: docker-compose.yml
 
     ```yaml
-    version: '3.8'
     networks:
       app_network:
         driver: bridge
@@ -153,18 +157,12 @@ params:
           - "host.docker.internal:host-gateway"
       postgres:
         image: postgres:15
-        container_name: backend-postgres
         environment:
-          - POSTGRES_DB=backend_db
+          - POSTGRES_DB=app_db
           - POSTGRES_USER=postgres
           - POSTGRES_PASSWORD=password
         ports:
           - "5432:5432"
-        volumes:
-          - postgres_data:/var/lib/postgresql/data
         networks:
           - app_network
-        restart: unless-stopped
-    volumes:
-      postgres_data:
     ```

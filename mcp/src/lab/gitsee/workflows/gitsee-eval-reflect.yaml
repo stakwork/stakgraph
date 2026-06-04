@@ -1,0 +1,38 @@
+name: gitsee-eval-reflect
+# gitsee-specific "propose" workflow: wraps the generic `eval/reflect` step with
+# the SETUP task framing + revision guidance, so the optimize loop can get an
+# improved exploration prompt (`system`) from aggregated eval results.
+#
+# Input:  { prompt, results[ { score?, missing[], spurious[], insight? } ] }
+# Output: { prompt, rationale }
+steps:
+  - id: reflect
+    type: eval/reflect
+    config:
+      prompt: "{{ input.prompt }}"
+      results: "{{ input.results }}"
+      task: "{{ params.task }}"
+      guidance: "{{ params.guidance }}"
+
+# ── params: the gitsee-specific framing for the reflector ───────────────────
+params:
+  task: |-
+    The prompt is the SYSTEM prompt for an agent that explores a repository to
+    figure out how to set it up and run it locally — it then emits a pm2.config.js
+    + docker-compose.yml. We score each run against a gold set of "setup facts"
+    (required services, install/start commands, ports, env vars, docker services)
+    for recall (did it find/include every required fact?) and precision (did it
+    avoid inventing unneeded services or blockers?).
+  guidance: |-
+    - The prompt controls EXPLORATION (what the agent looks for), not the output
+      format — the output contract (pod app service, "frontend" naming, local-only
+      policy) lives elsewhere and must NOT be encoded here.
+    - Recall first: the biggest lever is teaching the agent to reliably DISCOVER
+      recurring 'missing' kinds — e.g. detecting required databases/caches/queues
+      from env vars + dependencies, finding the real start/build/install commands
+      in the package manifest, and reading process.env usage for needed env vars.
+    - Cut recurring 'spurious' kinds by sharpening when a dependency actually
+      requires a local docker service vs. just a placeholder env var.
+    - Generalize across repos and stacks (Node, Next.js, Vite, Rails, Android,
+      etc.); never encode one repo's specifics.
+    - This prompt has no {placeholder} tokens — keep it a plain system prompt.

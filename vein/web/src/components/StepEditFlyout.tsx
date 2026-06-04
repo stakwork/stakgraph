@@ -4,6 +4,7 @@ import { StepData } from "../flow-to-canvas";
 import { ConfigField } from "./ConfigField";
 import { FlyoutResizer } from "./FlyoutResizer";
 import { CloseIcon } from "../icons";
+import { humanize } from "../helpers";
 import yaml from "js-yaml";
 
 // ── Step Edit Flyout ───────────────────────────────────────────────────────
@@ -146,7 +147,7 @@ export function StepEditFlyout(props: {
             <div class="flyout-section-title">Config</div>
             {Object.entries(config).map(([key, val]) => (
               <div class="flyout-field" key={key}>
-                <label>{key}</label>
+                <label>{humanize(key)}</label>
                 <input
                   type="text"
                   value={typeof val === "string" ? val : JSON.stringify(val)}

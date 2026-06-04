@@ -52,30 +52,66 @@ Experimentation seams (edit without touching code):
 ### `gitsee/` — self-contained setup profiler (port of `mcp/src/gitsee`)
 
 A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
-`pm2.config.js` + `docker-compose.yml` for a repo). Deliberately the
+`pm2.config.js` + `docker-compose.yml` to set up a project). Deliberately the
 **opposite** of the `concepts` convention: **everything runs in the steps**
 with **no import from existing code** (`src/gitsee`), so that dir can
 eventually be deleted. Steps import only `vein`, the third-party AI SDK
 (`ai` + `@ai-sdk/anthropic`), and Node builtins.
 
-- `gitsee/steps/clone-repo.ts` (`gitsee/clone-repo`) — shallow `git clone`
-  into a temp dir (idempotent). Output `{ repoPath }`.
-- `gitsee/steps/explore-services.ts` (`gitsee/explore-services`) — the whole
-  agent loop inlined: the 3 exploration tools (`repo_overview`,
-  `file_summary`, `fulltext_search`, ported from `gitsee/agent/tools.ts` as
-  pure `child_process`/`fs`) + the `final_answer` tool, run via
-  `generateText`. LLM is provider-direct: Anthropic via `ANTHROPIC_API_KEY`
-  from env, model from config (drops aieo's gateway/multi-provider/cost
-  routing — the cost of full self-containment).
-- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → explore`; the
-  prompts (`system`, `finalAnswer`) live in `params` (the experiment
-  surface, ready for a future `gitsee-optimize` loop). `finalAnswer`'s
-  `MY_REPO_NAME` is substituted with the repo dir name by the step.
+**WORKSPACE-oriented** (not single-repo): a workspace is a set of repos cloned
+as **siblings** under `/workspaces/<repo>` — typically one runnable **frontend**
+plus local-dependency repos it builds against (file: deps). The goal is to *get
+the frontend running*, so the gold is the frontend's pm2 + the shared services.
 
-Needs `ANTHROPIC_API_KEY` + `git` + `rg` on PATH. Trigger:
+- `gitsee/steps/clone-workspace.ts` (`gitsee/clone-workspace`) — clones N repos
+  as siblings under one workspace dir (idempotent, per-rev). Each repo may pin a
+  `rev`; `token` falls back to `GITHUB_TOKEN` env (private repos). Output
+  `{ workspacePath, repos }`.
+- `gitsee/steps/explore-services.ts` (`gitsee/explore-services`) — the whole
+  agent loop inlined over the **workspace**: tools (`repo_overview` spans all
+  sibling repos, `file_summary`, `fulltext_search`, `bash` — ported from
+  `gitsee/agent/tools.ts` + `repo/bash.ts` as pure `child_process`/`fs`),
+  Anthropic's native `web_search` (provider-defined tool off the same SDK
+  provider — no aieo import), and `final_answer`, run via `generateText` (bash +
+  web_search always on). The cloned repo list is injected into the prompt so the
+  tunable `system`/`finalAnswer` stay repo-agnostic. LLM is provider-direct:
+  Anthropic via `ANTHROPIC_API_KEY`, model from config (drops aieo's
+  gateway/multi-provider/cost routing — the cost of full self-containment).
+- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → explore`; input
+  `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`finalAnswer`
+  prompts live in `params` (the experiment surface, frontend-focused).
+
+**Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
+steps). The gold is the **actual canonical pm2.config.js + docker-compose.yml
+pair** (same as the original gitsee eval — produced vs gold is apples-to-apples).
+`eval/score`'s rubric scores **functional equivalence**: it decomposes the gold
+into requirements (each pm2 app's script/env/cwd, each compose service's
+image/env/ports/volumes, host-binding flags) and matches the produced files
+against them, recall-weighted — cosmetic diffs (script form, port number, image
+tag, `version:` key) match; missing required services/commands/flags don't.
+
+- `gitsee-eval` — harness: produce (subflow → `gitsee-explore-services`) →
+  score (subflow → `gitsee-eval-score`). No reset step (gitsee is stateless).
+  Input `{ label, repos, token?, expected? }` — `label` is the workspace name
+  (and the `eval: <label>` link); `expected` gold falls back to `params.expected`.
+- `gitsee-eval-score` — `eval/score` + the functional gold-files rubric.
+- `gitsee-eval-reflect` — `eval/reflect` + the setup task/guidance.
+- `gitsee-optimize` — `eval/optimize` loop. Tunes **`system`** (the explorer
+  prompt), NOT `finalAnswer` (the hard pod contract). Cohort in `params.dataset`,
+  one entry per WORKSPACE: `{ label, repos: [{owner,repo,rev?}], expected }`.
+
+Dataset: `heroku-node` (1-repo Express, verified 0.95) + `hive` (Next.js +
+Postgres + Prisma; `hive` pinned, with sibling dep repos sphinx-voice /
+system-canvas / staklink). Add more workspaces for a stronger multi-example
+optimize (EVAL_SPEC §11.2).
+
+Needs `ANTHROPIC_API_KEY` + `git` + `rg` on PATH (Neo4j only for booting the
+lab, not for gitsee itself). Trigger:
 `POST /lab/workflows/gitsee-explore-services/run` with
-`{ input: { owner, repo, token? } }`. Eval/optimize stack (mirroring
-`concepts-*`) is a planned follow-up, not built yet.
+`{ input: { workspace, repos: [{owner,repo,rev?}], token? } }`, or launch
+`gitsee-optimize` detached with `{ input: {} }`. Dev smoke harnesses (not
+seeded/built): `src/lab/gitsee/smoke.ts` (steps direct, no server) and
+`smoke-eval.ts` (full `gitsee-eval` via a real lab vein).
 
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
@@ -93,7 +129,7 @@ Domain-agnostic eval substrate, shared by every experiment. See
   every entry per generation and AVERAGES the scores (the overfitting fix,
   §11.2) — the per-example results array is fed to reflect. Each entry carries
   its own gold (e.g. `{ owner, repo, expected }`), read by the eval workflow
-  from `input`. A single `evalInput` is still accepted (a 1-entry dataset).
+  from `input`. (A single example is just a 1-entry `evalInputs`.)
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

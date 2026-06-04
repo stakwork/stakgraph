@@ -14,10 +14,18 @@ import type { WorkspaceManager } from "vein";
  * SDK, and Node builtins. So there's no services bag to merge here.
  */
 
-const SEED_WORKFLOWS = ["gitsee-explore-services"];
+const SEED_WORKFLOWS = [
+  "gitsee-explore-services",
+  // Eval/optimize stack (wires the generic eval/* steps with the gitsee
+  // rubric / task / dataset), mirroring the concepts-* workflows.
+  "gitsee-eval", // harness: produce setup files → score
+  "gitsee-eval-score", // eval/score + setup-facts rubric
+  "gitsee-eval-reflect", // eval/reflect + setup task/guidance
+  "gitsee-optimize", // eval/optimize loop, wired to the above
+];
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
-  { file: "clone-repo.ts", type: "gitsee/clone-repo" },
+  { file: "clone-workspace.ts", type: "gitsee/clone-workspace" },
   { file: "explore-services.ts", type: "gitsee/explore-services" },
 ];
 

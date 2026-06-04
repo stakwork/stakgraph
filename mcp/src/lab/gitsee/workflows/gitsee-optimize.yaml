@@ -1,0 +1,196 @@
+name: gitsee-optimize
+# Self-improving loop (EVAL_SPEC §7/§11.4) for the gitsee EXPLORATION prompt,
+# MULTI-REPO: each generation evals the candidate `system` prompt over the whole
+# `dataset` (via gitsee-eval, once per repo), AVERAGES the scores, and reflects a
+# better prompt (via gitsee-eval-reflect) from the aggregated per-repo results —
+# keeping the best mean. Averaging across repos is the overfitting fix. Each
+# generation injects the candidate into gitsee-explore-services via
+# paramOverrides (applied to every repo's eval run).
+#
+# We tune `system` (the explorer persona), NOT `finalAnswer` — finalAnswer holds
+# the hard pod contract (mandatory app service, "frontend" naming, local-only
+# policy) which we don't want the optimizer rewriting. To tune a different param,
+# change `promptParam` below.
+#
+# Launch DETACHED (§8) — a multi-run background job. No per-repo input; the repos
+# live in `params.dataset`:
+#   RUN=$(curl -s -X POST .../gitsee-optimize/run -d '{"input":{}}' | jq -r .runId)
+#   curl -N .../gitsee-optimize/runs/$RUN/stream
+#
+# Input:  {} (the cohort is params.dataset)
+# Output: { bestScore (best MEAN across repos), bestGen, bestPrompt, firstScore, generations }
+# Promote a winner by writing bestPrompt into gitsee-explore-services' `system`
+# param default + publishing a new version.
+steps:
+  - id: optimize
+    type: eval/optimize
+    config:
+      evalWorkflow: gitsee-eval
+      # The dataset: one entry per repo, each carrying its OWN gold (`expected`),
+      # which gitsee-eval reads from input. Averaged into the generation score.
+      evalInputs: "{{ params.dataset }}"
+      targetWorkflow: gitsee-explore-services
+      promptParam: system
+      reflectWorkflow: gitsee-eval-reflect
+      maxGenerations: "{{ params.maxGenerations }}"
+      threshold: "{{ params.threshold }}"
+
+# ── params: the cohort (dataset of WORKSPACES) + the loop's stopping knobs ──
+# Each dataset entry is a WORKSPACE: { label, repos: [{ owner, repo, rev? }],
+# token?, expected }.
+#   label    — the workspace name (clone dir + the "eval: <label>" link).
+#   repos    — cloned as siblings under /workspaces/<repo>: the runnable frontend
+#              plus any local-dependency repos it builds against. `rev` pins a
+#              commit so the gold doesn't drift vs HEAD.
+#   expected — the GOLD OUTPUT: the canonical pm2.config.js + docker-compose.yml
+#              pair that gets the workspace's FRONTEND running (same "FILENAME: …"
+#              format the agent emits; the scorer decomposes it into requirements).
+#   token    — optional (clone falls back to the GITHUB_TOKEN env for private repos).
+#
+# ADD more workspaces (with their own gold pairs) for a stronger multi-example
+# optimize — single-example overfits (EVAL_SPEC §11.2).
+params:
+  maxGenerations: 4
+  threshold: 0.9
+  dataset:
+    # Single-repo workspace: a plain Express app, no DB.
+    - label: heroku-node
+      repos:
+        - { owner: heroku, repo: node-js-getting-started }
+      expected: |-
+        FILENAME: pm2.config.js
+
+        ```js
+        module.exports = {
+          apps: [
+            {
+              name: "frontend",
+              script: "npm start",
+              cwd: "/workspaces/node-js-getting-started",
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              max_memory_restart: "1G",
+              env: {
+                PORT: "3000",
+                INSTALL_COMMAND: "npm install",
+                TEST_COMMAND: "npm test"
+              }
+            }
+          ]
+        };
+        ```
+
+        FILENAME: docker-compose.yml
+
+        ```yaml
+        networks:
+          app_network:
+            driver: bridge
+        services:
+          app:
+            build:
+              context: .
+              dockerfile: Dockerfile
+            volumes:
+              - ../..:/workspaces:cached
+            command: sleep infinity
+            networks:
+              - app_network
+            extra_hosts:
+              - "localhost:172.17.0.1"
+              - "host.docker.internal:host-gateway"
+        ```
+    # Real multi-repo workspace (Next.js + Postgres + Prisma). The runnable
+    # frontend is `hive`; sphinx-voice / system-canvas / staklink are local-
+    # dependency sibling repos it builds against. Exercises the high-value skills:
+    # detecting the frontend among siblings, a required DB service, matching
+    # credentials across pm2/compose, the host-binding flag, and a prisma migrate
+    # PRE_START_COMMAND. Private repos → clone uses the GITHUB_TOKEN env. hive is
+    # pinned to the commit the gold was captured from (deps track HEAD).
+    - label: hive
+      repos:
+        - {
+            owner: stakwork,
+            repo: hive,
+            rev: cb464b00c41f573140fb11453b333edb2b70b301,
+          }
+        - { owner: stakwork, repo: sphinx-voice }
+        - { owner: stakwork, repo: system-canvas }
+        - { owner: stakwork, repo: staklink }
+      expected: |-
+        FILENAME: pm2.config.js
+
+        ```ts
+        module.exports = {
+          apps: [
+            {
+              name: "frontend",
+              script: "npm run dev -- -H 0.0.0.0",
+              cwd: "/workspaces/hive",
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              max_memory_restart: "1G",
+              env: {
+                DATABASE_URL:
+                  "postgresql://hive_user:hive_password@localhost:5432/hive_db",
+                NEXTAUTH_URL: "https://$POD_URL.workspaces.sphinx.chat",
+                NEXTAUTH_SECRET:
+                  "dev-secret-key-change-in-production-12345678901234567890",
+                JWT_SECRET:
+                  "dev-jwt-secret-change-in-production-1234567890abcdefghijklmnopqrstuvwxyz",
+                POD_URL: "$POD_URL",
+                TOKEN_ENCRYPTION_KEY:
+                  "cb54aa41a75298418586c5225f264338013520b3bad612fce9ac2fc32ed19882",
+                TOKEN_ENCRYPTION_KEY_ID: "k2",
+                API_TOKEN: "dev-api-token-change-in-production",
+                USE_MOCKS: "true",
+                GITHUB_CLIENT_ID: "mock-github-client-id",
+                GITHUB_CLIENT_SECRET: "mock-github-client-secret",
+                GITHUB_APP_SLUG: "mock-github-app",
+                STAKWORK_API_KEY: "mock-stakwork-api-key",
+                STAKWORK_BASE_URL: "https://mock-jobs.stakwork.com/api/v1",
+                STAKWORK_WORKFLOW_ID: "43198,43199,43200",
+                ANTHROPIC_API_KEY: "mock-anthropic-api-key",
+                NEXT_PUBLIC_SPHINX_TRIBES_URL: "https://community.sphinx.chat",
+                PORT: "3000",
+                INSTALL_COMMAND: "npm install",
+                TEST_COMMAND: "npm run test",
+                BUILD_COMMAND: "npm run build",
+                PRE_START_COMMAND: "npx prisma migrate dev",
+                RESET_COMMAND: "npx -y prisma migrate reset -f",
+              },
+            },
+          ],
+        };
+        ```
+
+        FILENAME: docker-compose.yml
+
+        ```yml
+        version: "3.8"
+        networks:
+          app_network:
+            driver: bridge
+        services:
+          postgres:
+            image: postgres:15-alpine
+            container_name: hive-postgres-dev
+            environment:
+              POSTGRES_DB: hive_db
+              POSTGRES_USER: hive_user
+              POSTGRES_PASSWORD: hive_password
+            volumes:
+              - postgres_data_dev:/var/lib/postgresql/data
+            ports:
+              - "5432:5432"
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -U hive_user -d hive_db"]
+              interval: 10s
+              timeout: 5s
+              retries: 5
+
+        volumes:
+          postgres_data_dev:
+        ```
