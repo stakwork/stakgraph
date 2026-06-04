@@ -56,7 +56,8 @@ params:
     # Single-repo workspace: a plain Express app, no DB.
     - label: heroku-node
       repos:
-        - { owner: heroku, repo: node-js-getting-started }
+        - owner: heroku
+          repo: node-js-getting-started
       expected: |-
         FILENAME: pm2.config.js
 
@@ -102,22 +103,19 @@ params:
               - "host.docker.internal:host-gateway"
         ```
     # Real multi-repo workspace (Next.js + Postgres + Prisma). The runnable
-    # frontend is `hive`; sphinx-voice / system-canvas / staklink are local-
-    # dependency sibling repos it builds against. Exercises the high-value skills:
-    # detecting the frontend among siblings, a required DB service, matching
-    # credentials across pm2/compose, the host-binding flag, and a prisma migrate
-    # PRE_START_COMMAND. Private repos → clone uses the GITHUB_TOKEN env. hive is
-    # pinned to the commit the gold was captured from (deps track HEAD).
+    # frontend is `hive`; system-canvas is a local-dependency sibling repo it
+    # builds against. Exercises the high-value skills: detecting the frontend
+    # among siblings, a required DB service, matching credentials across
+    # pm2/compose, the host-binding flag, and a prisma migrate PRE_START_COMMAND.
+    # Private repos → clone uses the GITHUB_TOKEN env. hive is pinned to the
+    # commit the gold was captured from (the dep tracks HEAD).
     - label: hive
       repos:
-        - {
-            owner: stakwork,
-            repo: hive,
-            rev: cb464b00c41f573140fb11453b333edb2b70b301,
-          }
-        - { owner: stakwork, repo: sphinx-voice }
-        - { owner: stakwork, repo: system-canvas }
-        - { owner: stakwork, repo: staklink }
+        - owner: stakwork
+          repo: hive
+          rev: cb464b00c41f573140fb11453b333edb2b70b301
+        - owner: stakwork
+          repo: system-canvas
       expected: |-
         FILENAME: pm2.config.js
 
