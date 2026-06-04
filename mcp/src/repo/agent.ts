@@ -160,7 +160,7 @@ async function structureFinalAnswer(
   // (optionally followed by markdown, e.g. `{...}\n\n---\n\n## Report`).
   // If so, parse it directly and skip the structuring LLM call entirely —
   // a round-trip through the model risks "correcting" enum/literal values
-  // (e.g. flipping `type: "user_question"` to `type: "run_debug"`).
+  // (e.g. flipping `type: "user_question"` to `type: "run_debug"`)
   const direct =
     typeof finalAnswer === "string"
       ? extractLeadingJsonObject(finalAnswer)

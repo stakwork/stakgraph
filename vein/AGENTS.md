@@ -16,7 +16,7 @@ on the codebase.
 | Web UI      | Preact + Vite + system-canvas-react. Vanilla CSS, no Tailwind              |
 | Tests       | Node native test runner (`node:test`) via tsx                              |
 | LLM step    | Vercel AI SDK (ai + @ai-sdk/anthropic + @ai-sdk/openai) — lazy-loaded      |
-| AI builder  | Vercel AI SDK `ToolLoopAgent` + Anthropic, streamed to UI via `/chat` SSE  |
+| AI builder  | Vercel AI SDK `ToolLoopAgent` + Anthropic; detached + persisted, reattach via `/chat/:id/stream` SSE |
 
 ## Layout
 
@@ -56,14 +56,14 @@ vein/
     └── src/
         ├── main.tsx       # entry: renders <App/>
         ├── app.tsx        # shell: sidebar, topbar, canvas, events panel, dialog/flyout orchestration
-        ├── api.ts         # typed fetch wrapper for all API endpoints (+ SSE/chat stream parser)
+        ├── api.ts         # typed fetch wrapper for all API endpoints (+ run SSE tail; chat: sendChat/streamChat/getChat reattach)
         ├── flow-to-canvas.ts  # Flow → CanvasData; STEP_COLORS → categories; childRefForStep/stepWorkflow (container nav)
         ├── helpers.ts     # normalizeSteps, formatJson, etc.
         ├── icons.tsx      # inline SVG icons
         ├── storage.ts     # crash-safe localStorage wrapper (UI prefs, session state)
         ├── components/
         │   ├── AddStepDialog.tsx     # searchable Add Step picker (core / lib / custom)
-        │   ├── ChatFlyout.tsx        # AI workflow-builder chat (streams from /chat)
+        │   ├── ChatFlyout.tsx        # AI workflow-builder chat (detached launch + reattach; chatId in localStorage)
         │   ├── ConfigField.tsx       # field renderer driven by Zod-derived FieldDesc
         │   ├── CreateDialog.tsx      # new-workflow dialog
         │   ├── EventsPanel.tsx       # bottom run-events panel
@@ -106,6 +106,8 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_API_KEY`      | (unset)        | Deployment-scoped shared secret. See "Auth" below. |
 | `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
+| `VEIN_CHAT_MODEL`   | `claude-sonnet-4-20250514` | Anthropic model for the AI-builder chat agent |
+| `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 
 ## Auth
 
@@ -135,11 +137,11 @@ later without breaking this contract — they'd be additive env vars
 - **`createVein()` is the primary entry point** (`src/createVein.ts`).
   It builds a configured instance — Hono `app`, `workspace`, `store`,
   `services`, plus `run()`/`listen()`/`rebuildRegistry()` helpers — and
-  mounts every route (`/workflows`, `/steps`, `/chat`, `/health`, static
-  UI). Everything is injectable via `VeinOptions`: pass your own
-  `registry` (disables filesystem step discovery + publishing), `store`
-  (e.g. `MemoryRunStore`), `services` bag, or toggle `serveUi`/
-  `enableChat`. `server.ts` is just a thin default wrapper
+  mounts every route (`/workflows`, `/steps`, `/chat` + `/chats`,
+  `/health`, static UI). Everything is injectable via `VeinOptions`:
+  pass your own `registry` (disables filesystem step discovery +
+  publishing), `store` (e.g. `MemoryRunStore`), `chatStore`, `services`
+  bag, or toggle `serveUi`/`enableChat`. `server.ts` is a thin wrapper
   (`getApp`/`startServer`) over `createVein()` with filesystem defaults.
 
 - **`services` bag** is a consumer-defined capabilities object exposed to
@@ -462,9 +464,11 @@ later without breaking this contract — they'd be additive env vars
 3. Wire it into `web/src/app.tsx`.
 4. The Vite dev proxy in `web/vite.config.ts` only proxies known
    prefixes (`/workflows`, `/steps`, `/chat`, `/health`). Runs are
-   under `/workflows/` so they're already proxied. SSE responses
-   get `cache-control: no-cache` + `x-accel-buffering: no` injected
-   by the proxy. Add new prefixes if needed.
+   under `/workflows/` and chat reattach under `/chat/` so they're
+   already proxied. SSE responses get `cache-control: no-cache` +
+   `x-accel-buffering: no` injected by the shared `sseConfigure` —
+   wired onto both `/workflows` and `/chat` (the two SSE prefixes).
+   Add new prefixes if needed.
 
 ## When modifying the web UI
 
