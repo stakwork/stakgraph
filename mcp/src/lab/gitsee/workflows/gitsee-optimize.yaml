@@ -18,7 +18,11 @@ name: gitsee-optimize
 #   curl -N .../gitsee-optimize/runs/$RUN/stream
 #
 # Input:  {} (the cohort is params.dataset)
-# Output: { bestScore (best MEAN across repos), bestGen, bestPrompt, firstScore, generations }
+# Output: { bestScore (best MEAN across repos), bestGen, bestPrompt, firstScore,
+#           totalCost, totalUsage, generations }
+#   totalCost/totalUsage — the WHOLE run's dollar cost + token counts: every
+#   per-repo eval (the explorer agent + the scorer's LLM judge) plus every
+#   reflection. Each `generations[]` entry also carries its own { cost, usage }.
 # Promote a winner by writing bestPrompt into gitsee-explore-services' `system`
 # param default + publishing a new version.
 steps:
@@ -49,6 +53,15 @@ steps:
 #
 # ADD more workspaces (with their own gold pairs) for a stronger multi-example
 # optimize — single-example overfits (EVAL_SPEC §11.2).
+#
+# The cohort (5 workspaces, increasing difficulty): heroku-node (1 repo, plain
+# Express, no DB) · hive (4 repos, Next.js+Postgres+Prisma+Stripe, USE_MOCKS) ·
+# sphinx-server (1 repo, a Go backend API + postgres) · mikeoss (1 repo,
+# frontend+backend + minio + local supabase, port-specific pod URLs) ·
+# sphinx-apps (3 mobile repos, no web frontend → dummy hell0-w0rld).
+# COST: each entry runs a full agent exploration PER generation, so 5 × maxGens
+# clones+explores can get expensive/slow — most repos are private (GITHUB_TOKEN)
+# and several are large. Lower maxGenerations or trim the cohort for a quick pass.
 params:
   maxGenerations: 4
   threshold: 0.9
@@ -90,19 +103,23 @@ params:
             driver: bridge
         ```
     # Real multi-repo workspace (Next.js + Postgres + Prisma). The runnable
-    # frontend is `hive`; system-canvas is a local-dependency sibling repo it
-    # builds against. Exercises the high-value skills: detecting the frontend
-    # among siblings, a required DB service, matching credentials across
-    # pm2/compose, the host-binding flag, and a prisma migrate PRE_START_COMMAND.
-    # Private repos → clone uses the GITHUB_TOKEN env. hive is pinned to the
-    # commit the gold was captured from (the dep tracks HEAD).
+    # frontend is `hive`; sphinx-voice / system-canvas / staklink are local-
+    # dependency siblings it builds against. Exercises the high-value skills:
+    # detecting the frontend among siblings, a required DB service, matching
+    # credentials across pm2/compose, the host-binding flag, USE_MOCKS, pod-based
+    # public URLs, and a prisma migrate PRE_START_COMMAND. Private repos → clone
+    # uses the GITHUB_TOKEN env. NOTE: unpinned (no `rev`), so the gold can drift
+    # vs HEAD — pin each repo to the commit the gold was captured from when known.
     - label: hive
       repos:
         - owner: stakwork
           repo: hive
-          rev: cb464b00c41f573140fb11453b333edb2b70b301
+        - owner: stakwork
+          repo: sphinx-voice
         - owner: stakwork
           repo: system-canvas
+        - owner: stakwork
+          repo: staklink
       expected: |-
         FILENAME: pm2.config.js
 
@@ -120,14 +137,14 @@ params:
               env: {
                 DATABASE_URL:
                   "postgresql://hive_user:hive_password@localhost:5432/hive_db",
-                NEXTAUTH_URL: "https://$POD_URL.workspaces.sphinx.chat",
+                NEXTAUTH_URL: "https://$POD_ID.workspaces.sphinx.chat",
                 NEXTAUTH_SECRET:
                   "dev-secret-key-change-in-production-12345678901234567890",
                 JWT_SECRET:
                   "dev-jwt-secret-change-in-production-1234567890abcdefghijklmnopqrstuvwxyz",
                 POD_URL: "$POD_URL",
                 TOKEN_ENCRYPTION_KEY:
-                  "cb54aa41a75298418586c5225f264338013520b3bad612fce9ac2fc32ed19882",
+                  "cb54aa41a75298418586c5443f264338013520b3bad612fce9ac2fc32ed19882",
                 TOKEN_ENCRYPTION_KEY_ID: "k2",
                 API_TOKEN: "dev-api-token-change-in-production",
                 USE_MOCKS: "true",
@@ -139,6 +156,11 @@ params:
                 STAKWORK_WORKFLOW_ID: "43198,43199,43200",
                 ANTHROPIC_API_KEY: "mock-anthropic-api-key",
                 NEXT_PUBLIC_SPHINX_TRIBES_URL: "https://community.sphinx.chat",
+                STRIPE_CANCEL_URL: "$POD_URL/onboarding?payment=cancelled",
+                STRIPE_SUCCESS_URL: "$POD_URL/onboarding?payment=success",
+                STRIPE_PRICE_ID: "price_mock-stripe-price-id",
+                STRIPE_SECRET_KEY: "sk_test_mock-stripe-secret-key",
+                STRIPE_WEBHOOK_SECRET: "whsec_mock-stripe-webhook-secret",
                 PORT: "3000",
                 INSTALL_COMMAND: "npm install",
                 TEST_COMMAND: "npm run test",
@@ -178,4 +200,206 @@ params:
 
         volumes:
           postgres_data_dev:
+        ```
+    # Single-repo Go service (sphinx-meme) — reduced from the ambiguous 4-repo
+    # workspace to ONE repo so there's exactly one runnable app (a Go backend API,
+    # named "frontend" per the contract — a backend API is a valid frontend) plus
+    # its postgres. Exercises a non-Node runtime (`go run .`) and a DATABASE_URL
+    # whose creds must match the compose service.
+    - label: sphinx-server
+      repos:
+        - owner: stakwork
+          repo: sphinx-meme
+      expected: |-
+        FILENAME: pm2.config.js
+
+        ```ts
+        module.exports = {
+          apps: [
+            {
+              name: "frontend",
+              script: "go run .",
+              cwd: "/workspaces/sphinx-meme",
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              max_memory_restart: "1G",
+              env: {
+                HOST: "localhost:5001",
+                JWT_KEY: "your_secret_jwt_key_change_this_in_production",
+                DATABASE_URL:
+                  "postgresql://postgres:password@localhost:5432/sphinx_meme?sslmode=disable",
+                STORAGE_MODE: "local",
+                LOCAL_DIR: "files",
+                LOCAL_ENCRYPTION_KEY:
+                  "88303a55f5829d9e35936364204bcb007fe330db649902fa1085a7bce3732347",
+                MAX_FREE_UPLOAD_SIZE_MB: "32",
+                RESTRICT_UPLOAD_SIZE: "false",
+                TEST: "test",
+                PORT: "5000",
+              },
+            },
+          ],
+        };
+        ```
+
+        FILENAME: docker-compose.yml
+
+        ```yml
+        version: "3.8"
+        networks:
+          app_network:
+            driver: bridge
+        volumes:
+          postgres_data:
+        services:
+          postgres:
+            image: postgres:15
+            container_name: sphinx-meme-postgres
+            environment:
+              - POSTGRES_DB=sphinx_meme
+              - POSTGRES_USER=postgres
+              - POSTGRES_PASSWORD=password
+            ports:
+              - "5432:5432"
+            volumes:
+              - postgres_data:/var/lib/postgresql/data
+              - ./sql/media.sql:/docker-entrypoint-initdb.d/01-media.sql
+            networks:
+              - app_network
+            restart: unless-stopped
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -U postgres"]
+              interval: 10s
+              timeout: 5s
+              retries: 5
+        ```
+    # Single-repo, frontend+backend in one repo (mikeoss). Exercises: two apps
+    # from ONE repo at sub-paths, a port-specific pod URL ($POD_ID-<port>), a
+    # minio (S3/R2) datastore service, and a heavy PRE_START_COMMAND that boots a
+    # local supabase stack. (The real-looking ANTHROPIC key from the source gold
+    # was scrubbed to a mock; supabase demo JWTs are public demo values.)
+    - label: mikeoss
+      repos:
+        - owner: stakwork
+          repo: mikeoss
+      expected: |-
+        FILENAME: pm2.config.js
+
+        ```ts
+        module.exports = {
+          apps: [
+            {
+              name: "frontend",
+              script: "npx next dev -H 0.0.0.0 -p 3000",
+              cwd: "/workspaces/mikeoss/frontend",
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              max_memory_restart: "1G",
+              env: {
+                HOSTNAME: "0.0.0.0",
+                R2_BUCKET_NAME: "mike",
+                R2_ENDPOINT_URL: "https://your-account-id.r2.cloudflarestorage.com",
+                R2_ACCESS_KEY_ID: "your-r2-access-key",
+                SUPABASE_SECRET_KEY:
+                  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+                R2_SECRET_ACCESS_KEY: "your-r2-secret-key",
+                NEXT_PUBLIC_API_BASE_URL: "https://$POD_ID-3001.workspaces.sphinx.chat",
+                NEXT_PUBLIC_SUPABASE_URL:
+                  "https://$POD_ID-54321.workspaces.sphinx.chat/",
+                NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY:
+                  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+                PORT: "3000",
+                INSTALL_COMMAND: "npm install --legacy-peer-deps",
+              },
+            },
+            {
+              name: "backend",
+              script: "npm run dev",
+              cwd: "/workspaces/mikeoss/backend",
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              max_memory_restart: "1G",
+              env: {
+                FRONTEND_URL: "https://$POD_ID-3000.workspaces.sphinx.chat",
+                SUPABASE_URL: "http://localhost:54321",
+                GEMINI_API_KEY: "your-gemini-api-key",
+                R2_BUCKET_NAME: "mike",
+                RESEND_API_KEY: "your-resend-api-key",
+                R2_ENDPOINT_URL: "http://127.0.0.1:9000",
+                R2_ACCESS_KEY_ID: "minioadmin",
+                ANTHROPIC_API_KEY: "mock-anthropic-api-key",
+                OPENROUTER_API_KEY: "your-openrouter-api-key",
+                SUPABASE_SECRET_KEY:
+                  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+                R2_SECRET_ACCESS_KEY: "minioadmin",
+                DOWNLOAD_SIGNING_SECRET: "your-download-signing-secret",
+                PORT: "3001",
+                INSTALL_COMMAND: "npm install",
+                PRE_START_COMMAND:
+                  "cd .. && npx -y supabase init --force && mkdir -p supabase/migrations && cp backend/migrations/000_one_shot_schema.sql supabase/migrations/20000101000000_schema.sql && npx -y supabase start && npx -y supabase db reset --local && docker exec minio mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && docker exec minio mc mb --ignore-existing local/mike",
+              },
+            },
+          ],
+        };
+        ```
+
+        FILENAME: docker-compose.yml
+
+        ```yml
+        version: "3.8"
+        networks:
+          app_network:
+            driver: bridge
+        services:
+          minio:
+            image: minio/minio:latest
+            container_name: minio
+            command: server /data --console-address ":9001"
+            environment:
+              - MINIO_ROOT_USER=minioadmin
+              - MINIO_ROOT_PASSWORD=minioadmin
+            ports:
+              - "9000:9000"
+              - "9001:9001"
+            volumes:
+              - minio_data:/data
+            networks:
+              - app_network
+            restart: unless-stopped
+        volumes:
+          minio_data:
+        ```
+    # Mobile-only workspace (sphinx-apps): a native iOS/Android/macOS repo with NO
+    # runnable web frontend. The correct answer is the DUMMY `hell0-w0rld` frontend
+    # (so the pod can still verify it's up) and NO compose services. Trimmed to a
+    # single repo to keep clone cost down. Exercises the "no real frontend → dummy"
+    # fallback + "add no services".
+    - label: sphinx-apps
+      repos:
+        - owner: stakwork
+          repo: sphinx-ios-v2
+      expected: |-
+        FILENAME: pm2.config.js
+
+        ```ts
+        module.exports = {
+          apps: [
+            {
+              name: "frontend",
+              script: "npx",
+              cwd: "/workspaces/sphinx-ios-v2",
+              instances: 1,
+              autorestart: true,
+              watch: false,
+              args: "-y hell0-w0rld",
+              max_memory_restart: "1G",
+              env: {
+                PORT: "3000",
+              },
+            },
+          ],
+        };
         ```

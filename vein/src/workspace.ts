@@ -4,6 +4,47 @@ import yaml from "js-yaml";
 import { z } from "zod";
 import type { Flow } from "./core.js";
 import { contentHash, nextVersionLabel } from "./version.js";
+import { evaluateExpr } from "./expr.js";
+
+// Match a `{{ params.<path> }}` reference (and ONLY a params reference) so we can
+// resolve param-to-param references at load time without touching `{{ input.* }}`
+// or step-output references (which don't exist until run time).
+const PARAM_SELF_REF = /\{\{\s*(params(?:\.[\w$]+|\[[^\]]+\])+)\s*\}\}/g;
+
+/**
+ * Resolve `{{ params.* }}` references that appear INSIDE other param values, so a
+ * workflow can factor a shared value into one param and reuse it (e.g. a base
+ * `podDomain` referenced by a big prompt param). Walks the params deeply; for
+ * each string it substitutes only `params.*` templates (evaluated against the
+ * params themselves), leaving every other template intact for run-time
+ * resolution. One pass over the ORIGINAL params — chained references aren't
+ * re-expanded, and the substitution uses the param DEFAULTS (a per-run override
+ * of a referenced param won't retro-edit a value that embedded it). Unknown/erroring
+ * refs are left verbatim rather than throwing.
+ */
+function resolveParamSelfReferences(params: Record<string, unknown>): Record<string, unknown> {
+  const resolveStr = (s: string): string =>
+    s.replace(PARAM_SELF_REF, (whole, expr: string) => {
+      try {
+        const val = evaluateExpr(expr, { params });
+        if (val === null || val === undefined) return "";
+        return typeof val === "object" ? JSON.stringify(val) : String(val);
+      } catch {
+        return whole; // leave unresolved on any error
+      }
+    });
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") return v.includes("{{") ? resolveStr(v) : v;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = walk(val);
+      return out;
+    }
+    return v;
+  };
+  return walk(params) as Record<string, unknown>;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -136,7 +177,9 @@ export class WorkspaceManager {
       name: data.name ?? name,
       input: z.any(),
       steps: data.steps,
-      ...(data.params != null ? { params: data.params } : {}),
+      // Resolve param-to-param references (`{{ params.* }}` nested inside another
+      // param) once at load, so a shared value can be factored into one knob.
+      ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
     };
   }
 

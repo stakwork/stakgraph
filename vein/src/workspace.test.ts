@@ -188,6 +188,24 @@ describe("WorkspaceManager", () => {
       const flow = await ws.getWorkflow("plain");
       assert.equal(flow.params, undefined);
     });
+
+    it("resolves param-to-param references at load (shared value factored into one param)", async () => {
+      await ws.publishWorkflow("podcfg", "v1", {
+        steps: SAMPLE_STEPS,
+        params: {
+          podDomain: "workspaces.sphinx.chat",
+          finalAnswer: "Public URLs use https://$POD_ID.{{ params.podDomain }} — and keep {{ input.keep }} alone.",
+          dataset: [{ expected: "host: {{ params.podDomain }}" }],
+        },
+      });
+      const flow = await ws.getWorkflow("podcfg");
+      const p = flow.params as Record<string, any>;
+      // params.* refs are substituted (deeply, incl. inside arrays)...
+      assert.equal(p.finalAnswer, "Public URLs use https://$POD_ID.workspaces.sphinx.chat — and keep {{ input.keep }} alone.");
+      assert.equal(p.dataset[0].expected, "host: workspaces.sphinx.chat");
+      // ...while non-params templates (input/step refs) are left for run time.
+      assert.match(p.finalAnswer, /\{\{ input\.keep \}\}/);
+    });
   });
 
   // ── getWorkflowSource ─────────────────────────────────────────────────

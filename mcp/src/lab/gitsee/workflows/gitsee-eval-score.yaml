@@ -12,15 +12,22 @@ name: gitsee-eval-score
 # mechanical + boot-critical — a set diff is sharper and lower-variance than
 # hoping a paragraph rubric makes the judge enumerate 15 keys.
 #
-# Input:  { actual, expected }   (each = the two-file "FILENAME: …" string)
-# Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }
-#         (the eval/optimize + eval/reflect contract — preserved by score-setup)
+# Input:  { actual, expected, usage?, cost? }   (each file = a "FILENAME: …" string;
+#          usage/cost = the upstream explorer agent's tokens+$, folded into the total)
+# Output: { score, recall, precision, matched, missing, spurious, reason, insight,
+#           markdown, usage, cost }
+#         (the eval/optimize + eval/reflect contract — preserved by score-setup —
+#          plus usage/cost = explorer + judge tokens+$)
 steps:
   - id: judge
     type: gitsee/score-setup
     config:
       actual: "{{ input.actual }}"
       expected: "{{ input.expected }}"
+      # Upstream (explorer agent) token usage + cost to fold the judge's own
+      # tokens+$ into, so the output carries the FULL per-eval cost.
+      priorUsage: "{{ input.usage }}"
+      priorCost: "{{ input.cost }}"
       # Hybrid by default: deterministic env/service set-diffs dominate, a capped
       # LLM tier judges the semantic residue. Set useLLM:false for a free, instant,
       # zero-variance run (deterministic-only) during heavy optimize sweeps.
@@ -55,22 +62,51 @@ params:
     Score FUNCTIONAL EQUIVALENCE, not textual fidelity. Focus exclusively on:
 
     - START COMMAND: does each pm2 app's `script` actually launch the repo's real
-      server / entrypoint? ("npm start" ≈ "node server.js" when that's the start
-      script — reward equivalence, not mimicry.)
+      server / entrypoint? Reward EQUIVALENCE, not mimicry. Treat these as the
+      SAME (never a defect): "npm start" ≈ "node server.js" ≈ "node index.js" when
+      that's what the start script runs; `npm run dev` ≈ `next dev` ≈ `npx next dev`;
+      and a pm2 `script: "npx" , args: "-y foo"` split is IDENTICAL to a combined
+      `script: "npx -y foo"`. Only flag a start command that launches the WRONG
+      thing (a different app, or a non-runnable target), not a different spelling.
     - HOST-BINDING FLAG: present when the framework needs one to be reachable in
-      the pod (Next.js "-H 0.0.0.0", Vite "--host 0.0.0.0"), and NOT forced on a
-      plain server that already binds 0.0.0.0.
+      the pod (Next.js, Vite), and NOT forced on a plain server that already binds
+      0.0.0.0. The flag SPELLINGS are interchangeable — never penalize one variant
+      vs another: for Next.js `-H 0.0.0.0` and `--hostname 0.0.0.0` are the SAME
+      flag (aliases); for Vite `--host 0.0.0.0` and `--host` are equivalent. Only
+      flag host-binding if it is genuinely ABSENT when required.
+    - FRONTEND / REPO CHOICE: which repo (or which app within a repo) is chosen as
+      the runnable "frontend" does NOT matter — judge the chosen app on its OWN
+      merits, never penalize it for differing from the gold's repo/app choice. For
+      a DUMMY placeholder frontend (e.g. `hell0-w0rld`, used when there's no real
+      web app), the `cwd` / which repo it points at is ARBITRARY — never flag it.
     - CROSS-FILE CRED CONSISTENCY: the DB/connection credentials embedded in the
       pm2 env (e.g. a DATABASE_URL) are consistent with the corresponding compose
       service (same db name / user / password / host:port) — regardless of how
       either side is named.
-    - SERVICE APPROPRIATENESS: any backing service the produced file adds is
-      genuinely needed by the app (not bloat / over-provisioning).
+    - SERVICE APPROPRIATENESS: a backing service gets a real container ONLY if it
+      is a primary datastore the app can't boot without (the database). Caches,
+      queues, pub/sub, realtime (redis, soketi/pusher, etc.) and any cloud/third-
+      party service must be MOCKED or DISABLED, not containerized — flag any such
+      extra service in the produced compose as a defect (over-provisioning).
+    - MOCK/OFFLINE MODE: when the repo supports a mock/offline mode (USE_MOCKS or
+      similar), the produced pm2 env should enable it and use placeholder mock-*
+      creds for external services rather than provisioning them.
+    - PUBLIC URL via $POD_URL / $POD_ID: public-facing / externally-reachable URL
+      env vars (auth callback/base URLs like NEXTAUTH_URL, NEXT_PUBLIC_*_URL,
+      FRONTEND_URL, OAuth/webhook/success-cancel URLs) are pod-based, NOT localhost:
+      `$POD_URL` (the full base URL https://$POD_ID.<domain>) for this app's
+      default port, or `https://$POD_ID-<port>.<domain>` for a specific port (a
+      sibling app/service). Internal connection strings (DATABASE_URL to the
+      compose db, in-pod localhost services) may stay localhost — don't flag those.
+      Reward functional equivalence ($POD_URL vs the equivalent https://$POD_ID.<domain>
+      are the same thing).
 
-    COSMETIC differences are ALWAYS fine (never an issue): script FORM when it
-    launches the same entrypoint, the specific dev PORT number, image tag variants,
-    the compose `version:` key, volume names, literal dev-secret values,
-    max_memory_restart and other pm2 cosmetics.
+    COSMETIC differences are ALWAYS fine (never an issue): script FORM / flag
+    spelling when it launches the same entrypoint (incl. -H vs --hostname,
+    script-vs-args splits, npx vs direct binary), the specific dev PORT number, the
+    chosen cwd/repo (esp. for a dummy frontend), image tag variants, the compose
+    `version:` key, volume names, literal dev-secret values, max_memory_restart and
+    other pm2 cosmetics.
 
     `semanticScore` = 1 when all of the above are satisfied; lower it only for real
     semantic defects, and list each concrete defect in `issues`.

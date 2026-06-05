@@ -13,8 +13,9 @@ name: gitsee-eval
 #   expected — per-workspace gold output; falls back to params.expected when
 #              omitted. This is what lets the optimize loop carry a DIFFERENT
 #              gold per workspace on each dataset entry.
-# Output: { score, recall, precision, missing, spurious, reason, insight, markdown }
-#         (from gitsee-eval-score)
+# Output: { score, recall, precision, missing, spurious, reason, insight, markdown,
+#           usage, cost }   (from gitsee-eval-score; `usage`/`cost` = the explorer
+#           agent's tokens+$ plus the scorer's own LLM-judge tokens+$)
 #
 # gitsee is stateless per run (it re-clones/re-explores), so unlike concepts-eval
 # there's no reset step — each run produces fresh output for the current prompt.
@@ -42,6 +43,10 @@ steps:
         actual: "{{ produce.result }}"
         # Per-example gold (from input) when provided; else the param default.
         expected: "{{ input.expected ? input.expected : params.expected }}"
+        # Carry the explorer agent's token usage + cost through so the scorer can
+        # fold in its own judge cost and surface a per-eval total (→ optimize).
+        usage: "{{ produce.usage }}"
+        cost: "{{ produce.cost }}"
 
 # ── params: the gold OUTPUT (the canonical pm2.config.js + docker-compose.yml) ──
 # The gold is the ACTUAL known-good file pair for this repo — same shape the

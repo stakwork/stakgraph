@@ -131,6 +131,17 @@ matched, missing, spurious, reason, insight, markdown }` that `eval/optimize` +
   prompt), NOT `finalAnswer` (the hard pod contract). Cohort in `params.dataset`,
   one entry per WORKSPACE: `{ label, repos: [{owner,repo,rev?}], expected }`.
 
+**Cost accounting.** Every LLM call in the loop reports its token usage + dollar
+cost, summed into the optimize output's `{ totalCost, totalUsage }` (and each
+`generations[]` entry's own `{ cost, usage }`). The chain: the core `agent` step
+returns `{ usage, cost }` (aggregated across its whole tool loop, priced via
+`vein/src/pricing.ts` — table copied from `aieo/src/provider.ts`); gitsee-eval
+threads that into `gitsee/score-setup`, which folds in its OWN semantic-judge
+tokens+$ so each eval's `cost` is explorer + judge; `eval/reflect` returns its
+reflection's cost; `eval/optimize` sums eval runs + reflections per generation
+and run-wide. So a detached optimize job records exactly what it burned. (Set
+`gitsee-eval-score`'s `useLLM:false` to drop the judge LLM cost entirely.)
+
 Dataset: `heroku-node` (1-repo Express, verified 0.95) + `hive` (Next.js +
 Postgres + Prisma; `hive` pinned, with sibling dep repos sphinx-voice /
 system-canvas / staklink). Add more workspaces for a stronger multi-example

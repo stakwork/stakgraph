@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
+import { usageFromResult, computeCost } from "../../pricing.js";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -25,7 +26,9 @@ import { join } from "node:path";
  *
  * Provider-direct via the AI SDK (anthropic | openai), lazy-loaded. Needs the
  * provider's key in env (ANTHROPIC_API_KEY / OPENAI_API_KEY) and `git` + `rg` on
- * PATH for the repo tools. Output: { result, object?, steps, messages }.
+ * PATH for the repo tools. Output: { result, object?, steps, messages, usage,
+ * cost } — `usage` is the aggregated token counts across the whole agent loop
+ * and `cost` is its dollar cost at the provider's rates (see ../../pricing.ts).
  */
 
 // ── tool helpers (pure: take cwd as an argument) ───────────────────────────────
@@ -434,10 +437,18 @@ export default defineStep({
     const steps = res.steps ?? [];
     const messages = res.response?.messages ?? [];
 
+    // Token usage + cost across the WHOLE agent loop (totalUsage aggregates every
+    // step; fall back to the final-step usage). `provider` drives the rate table.
+    const usage = usageFromResult(res.totalUsage ?? res.usage);
+    const cost = computeCost(provider, usage);
+    console.log(
+      `[agent] tokens in:${usage.inputTokens} cacheRead:${usage.cacheReadTokens} cacheWrite:${usage.cacheWriteTokens} out:${usage.outputTokens} → $${cost.toFixed(4)}`,
+    );
+
     // Structured mode: return the typed object.
     if (useSchema) {
       console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps, structured)`);
-      return { result: res.text, object: res.output, steps: steps.length, messages };
+      return { result: res.text, object: res.output, steps: steps.length, messages, usage, cost };
     }
 
     // finalAnswer / text mode: extract the final_answer tool output, else last text.
@@ -467,6 +478,6 @@ export default defineStep({
     }
 
     console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps)`);
-    return { result: final, steps: steps.length, messages };
+    return { result: final, steps: steps.length, messages, usage, cost };
   },
 });
