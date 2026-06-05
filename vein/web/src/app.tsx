@@ -178,10 +178,16 @@ export function App() {
   const refreshStepTypes = useCallback(async () => {
     try {
       const resp = await api.listSteps();
-      const entries: StepTypeEntry[] = [
-        ...resp.core.map((s) => ({ type: s.type, source: s.source as "core" | "lib" | "custom" })),
-        ...resp.workspace.map((s) => ({ type: s.type, source: "custom" as const, description: s.description })),
-      ];
+      // The registry (`resp.core`) already includes disk-discovered custom
+      // steps tagged with their real source, so `resp.workspace` overlaps it.
+      // Dedupe by type (keying off the registry), folding in workspace
+      // descriptions, so each step appears once in the Add Step picker.
+      const descByType = new Map(resp.workspace.map((s) => [s.type, s.description]));
+      const entries: StepTypeEntry[] = resp.core.map((s) => ({
+        type: s.type,
+        source: s.source as "core" | "lib" | "custom",
+        description: descByType.get(s.type),
+      }));
       setStepTypes(entries);
     } catch { /* ignore */ }
   }, []);

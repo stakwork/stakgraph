@@ -1,4 +1,4 @@
-import { z, defineStep, type RunEvent } from "vein";
+import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, coerceUsage } from "vein";
 
 /**
  * GENERIC self-improving LOOP (EVAL_SPEC §7/§11.4). Runs the optimize cycle as a
@@ -29,6 +29,12 @@ import { z, defineStep, type RunEvent } from "vein";
  * failure modes, not one example's quirks). Each example's own gold set rides on
  * its dataset entry (e.g. `{ owner, repo, expected }`) — the eval workflow reads
  * it from `input`. (A single example is just a 1-entry dataset.)
+ *
+ * COST ACCOUNTING: every eval run surfaces its token usage + dollar cost (the
+ * explorer agent + the scorer's LLM judge), and each reflection surfaces its own.
+ * The loop sums them into per-generation `{ usage, cost }` and a run-wide
+ * `{ totalUsage, totalCost }` in the output — so a detached optimize job records
+ * exactly how many tokens it burned and what it cost.
  */
 
 interface EvalOutput {
@@ -36,6 +42,8 @@ interface EvalOutput {
   missing?: string[];
   spurious?: string[];
   insight?: string;
+  usage?: unknown; // TokenUsage from the eval workflow (explorer agent + judge)
+  cost?: number; // dollar cost of this eval run
 }
 
 interface RunResultLike {
@@ -74,7 +82,7 @@ function labelFor(datum: unknown, i: number): string {
 export default defineStep({
   type: "eval/optimize",
   description:
-    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset; ≥1 entry), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value). Output: { bestScore, bestGen, bestPrompt, firstScore, generations }.",
+    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset; ≥1 entry), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value). Output: { bestScore, bestGen, bestPrompt, firstScore, totalCost, totalUsage, generations } — totalCost/totalUsage sum every eval (explorer agent + judge) + every reflection; each generation also carries its own cost/usage.",
   input: z.object({
     evalWorkflow: z.string().describe("workflow that scores a candidate; output must have { score, missing, spurious, insight }"),
     evalInputs: z.array(z.any()).min(1).describe("the dataset: inputs evaluated each generation and averaged (e.g. [{ owner, repo, expected }, ...]). Each entry's gold rides on the entry."),
@@ -114,6 +122,8 @@ export default defineStep({
       spurious: string[];
       insight?: string;
       evalRunId: string;
+      usage: TokenUsage; // this eval run's tokens (explorer agent + judge)
+      cost: number; // this eval run's dollar cost
     }
 
     const generations: Array<{
@@ -121,8 +131,16 @@ export default defineStep({
       score: number; // mean across the dataset
       prompt: string;
       results: ExampleResult[];
+      usage: TokenUsage; // gen total: every eval run + the reflection
+      cost: number;
     }> = [];
     let best = { gen: -1, prompt: candidate, score: -1 };
+
+    // Running totals across the WHOLE optimize run (all generations: every eval
+    // run + every reflection). Surfaced in the final output as { totalCost,
+    // totalUsage } — the answer to "how many tokens / how much did this cost".
+    let totalUsage = emptyUsage();
+    let totalCost = 0;
 
     // Per-generation progress is emitted under a synthetic `<path>#<gen>` path
     // (the loop runs inside one step, so generations aren't real runner events).
@@ -171,6 +189,8 @@ export default defineStep({
                 spurious: out.spurious ?? [],
                 insight: out.insight,
                 evalRunId: run.runId,
+                usage: coerceUsage(out.usage),
+                cost: typeof out.cost === "number" ? out.cost : 0,
               };
               return result;
             }),
@@ -179,9 +199,24 @@ export default defineStep({
 
         // The generation score = MEAN across the dataset (the overfitting fix).
         const score = evalRuns.reduce((s, r) => s + r.score, 0) / evalRuns.length;
+
+        // Sum this generation's eval cost (every example's explorer + judge), and
+        // fold it into the run-wide totals. The reflection cost (below) is added
+        // to the same entry once it runs.
+        let genUsage = emptyUsage();
+        let genCost = 0;
+        for (const r of evalRuns) {
+          genUsage = addUsage(genUsage, r.usage);
+          genCost += r.cost;
+        }
+        totalUsage = addUsage(totalUsage, genUsage);
+        totalCost += genCost;
+
         // `evalRunId` per example links to its full eval run (which nests the
-        // bootstrap-then-process subflow — i.e. the bootstrap logs).
-        generations.push({ gen, score, prompt: candidate, results: evalRuns });
+        // bootstrap-then-process subflow — i.e. the bootstrap logs). The entry is
+        // kept mutable so the reflection's tokens+$ can be added to it below.
+        const genEntry = { gen, score, prompt: candidate, results: evalRuns, usage: genUsage, cost: genCost };
+        generations.push(genEntry);
 
         if (score > best.score) best = { gen, prompt: candidate, score };
 
@@ -199,8 +234,11 @@ export default defineStep({
             score,
             bestScore: best.score,
             bestGen: best.gen,
-            results: evalRuns.map((r) => ({ label: r.label, score: r.score, missing: r.missing, spurious: r.spurious })),
+            results: evalRuns.map((r) => ({ label: r.label, score: r.score, missing: r.missing, spurious: r.spurious, cost: r.cost })),
             runs,
+            cost: genCost, // eval cost for this generation (reflection added separately)
+            usage: genUsage,
+            totalCost, // run-wide cumulative $ so far
           },
         });
 
@@ -223,10 +261,19 @@ export default defineStep({
         if (reflectRun.status !== "success") {
           throw new Error(`reflect run failed: ${reflectRun.error?.message ?? "unknown"}`);
         }
-        const proposal = reflectRun.output as { prompt?: string; rationale?: string } | undefined;
+        const proposal = reflectRun.output as
+          | { prompt?: string; rationale?: string; usage?: unknown; cost?: number }
+          | undefined;
         if (typeof proposal?.prompt !== "string" || !proposal.prompt.trim()) {
           throw new Error(`reflect returned no prompt`);
         }
+        // Charge the reflection's own tokens+$ to this generation + the run total.
+        const reflectUsage = coerceUsage(proposal.usage);
+        const reflectCost = typeof proposal.cost === "number" ? proposal.cost : 0;
+        genEntry.usage = addUsage(genEntry.usage, reflectUsage);
+        genEntry.cost += reflectCost;
+        totalUsage = addUsage(totalUsage, reflectUsage);
+        totalCost += reflectCost;
         candidate = proposal.prompt;
         rationale = proposal.rationale;
         fromReflect = { label: "reflect run", workflow: cfg.reflectWorkflow, runId: reflectRun.runId };
@@ -250,6 +297,10 @@ export default defineStep({
       firstScore: generations[0]?.score ?? null,
       target: cfg.targetWorkflow,
       promptParam: cfg.promptParam,
+      // Cost accounting across the WHOLE run: every eval (explorer agent + judge)
+      // plus every reflection. `generations[].cost`/`.usage` break it down per gen.
+      totalCost: Math.round(totalCost * 10000) / 10000,
+      totalUsage,
       generations,
     };
   },

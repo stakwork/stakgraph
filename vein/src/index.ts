@@ -85,6 +85,19 @@ export {
 // Content-hash versioning (internal dedup) + sequential version labels
 export { contentHash, nextVersionLabel } from "./version.js";
 
+// LLM token usage + cost (shared by the agent + lab eval/score steps)
+export {
+  TOKEN_PRICING,
+  type LLMProvider,
+  type TokenPricing,
+  type TokenUsage,
+  emptyUsage,
+  addUsage,
+  coerceUsage,
+  usageFromResult,
+  computeCost,
+} from "./pricing.js";
+
 // Vein factory — the primary entry point for library usage.
 export {
   createVein,

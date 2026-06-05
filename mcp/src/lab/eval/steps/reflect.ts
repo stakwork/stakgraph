@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep, usageFromResult, computeCost } from "vein";
 
 /**
  * GENERIC optimizer "propose" step: given the CURRENT candidate prompt and the
@@ -20,7 +20,8 @@ import { z, defineStep } from "vein";
  * them and never encode a single example's specifics.
  *
  * Self-contained: reaches the model via dynamic `import("ai")` (no services),
- * structured output (`generateObject`). Output: { prompt, rationale }.
+ * structured output (`generateObject`). Output: { prompt, rationale, usage, cost }
+ * — usage/cost are this reflection's own LLM tokens + dollar cost.
  */
 
 const ResultSchema = z.object({
@@ -60,7 +61,7 @@ interface Result {
 export default defineStep({
   type: "eval/reflect",
   description:
-    "Generic optimizer 'propose' step: from the current candidate prompt + AGGREGATED per-example scoring results (an array — must be multi-example to avoid overfitting), emit an improved prompt. Required config: prompt, results (array of { score?, missing[], spurious[], insight? }). Optional: task (what the prompt should do), rubric (the target / standards), guidance (meta-rules for revising), provider, model. Output: { prompt, rationale }.",
+    "Generic optimizer 'propose' step: from the current candidate prompt + AGGREGATED per-example scoring results (an array — must be multi-example to avoid overfitting), emit an improved prompt. Required config: prompt, results (array of { score?, missing[], spurious[], insight? }). Optional: task (what the prompt should do), rubric (the target / standards), guidance (meta-rules for revising), provider, model. Output: { prompt, rationale, usage, cost }.",
   input: z.object({
     prompt: z.string().describe("the current candidate prompt being tuned"),
     results: z.array(ResultSchema).describe("per-example scoring results across the dataset (>=1; more = less overfit)"),
@@ -132,8 +133,9 @@ these examples. Rules:
 - Preserve any {placeholder} tokens present in the current prompt verbatim.
 - Return the COMPLETE new prompt (not a diff).`;
 
-    const { object } = await generateObject({ model, prompt, schema: ProposalSchema as any });
+    const { object, usage: rawUsage } = await generateObject({ model, prompt, schema: ProposalSchema as any });
     const p = object as Proposal;
-    return { prompt: p.prompt, rationale: p.rationale };
+    const usage = usageFromResult(rawUsage);
+    return { prompt: p.prompt, rationale: p.rationale, usage, cost: computeCost(provider, usage) };
   },
 });

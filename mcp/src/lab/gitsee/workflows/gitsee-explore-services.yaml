@@ -38,6 +38,11 @@ steps:
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
   model: claude-sonnet-4-6
+  # The pod's base domain. Public URLs are https://<$POD_ID>[-<port>].<podDomain>.
+  # Factored out here (single source of truth) and referenced via
+  # {{ params.podDomain }} inside the finalAnswer contract below — vein resolves
+  # param-to-param refs at load. Change this one knob to retarget a cluster.
+  podDomain: workspaces.sphinx.chat
   prompt: |-
     Explore this workspace and produce the pm2.config.js and docker-compose.yml
     needed to get its FRONTEND running locally in our pod. Identify which repo is
@@ -55,7 +60,8 @@ params:
     - the host and port it binds (it MUST bind 0.0.0.0 in the pod);
     - the environment variables it needs — search for process.env. / ENV usage, .env.example, config files;
     - whether it depends on sibling repos in the workspace that must be installed/built first (file: deps, workspace links);
-    - the backing services it needs to boot (databases, caches, queues), found from env vars + dependencies.
+    - which backing services it TRULY needs to boot — usually just its database. Caches, queues, realtime, and cloud/third-party integrations should be mocked or disabled, not run as services;
+    - whether the repo has a mock / offline / dev mode (e.g. a USE_MOCKS or MOCK_* flag) that lets it boot without real external accounts — prefer enabling it over provisioning those services.
 
     Use the fulltext_search tool to find env var usage, and bash to read package manifests, lockfiles, docker files, and cross-repo dependency links. You will output actual config files at the end, so find everything you need. Name the runnable pm2 service "frontend" no matter what.
   finalAnswer: |-
@@ -69,12 +75,26 @@ params:
 
     Do NOT add an "app" / runtime container for the repo code itself — the pod platform provides the long-running container where the code is mounted and pm2 runs. docker-compose.yml is ONLY for the backing services the frontend needs (databases, caches, queues). If the frontend needs no backing services, emit a docker-compose.yml with just the network and no `services:` block.
 
-    # Local-only dependency policy
+    # Services & external dependencies — what gets a container vs. a mock
 
-    The setup must boot without external accounts or real cloud credentials. For every required external dependency, use a local docker service, local emulator, self-hosted dev stack, placeholder, or deterministic dummy value.
+    The setup must boot without external accounts or real cloud credentials. The rule for what becomes a docker-compose service is STRICT:
 
-    - Only add docker-compose services the frontend actually needs to boot or for core local flows. For optional integrations, use repo-supported mocks, disabled flags, or deterministic placeholder env vars.
-    - Do not emit cloud placeholders (your-project.supabase.co, R2 URLs, Stripe/Resend/Clerk/Auth0/LLM keys) as hard blockers.
+    - **Only a primary DATASTORE the app cannot start without gets a real docker-compose service** — the database it persists to (postgres/mysql/mongo/etc.). That is almost always the ONLY service.
+    - **Everything else is MOCKED or DISABLED, never containerized.** Caches, queues, pub/sub, realtime (redis, soketi/pusher, rabbitmq, kafka), search, and ALL cloud/third-party services (GitHub, Stripe, Resend, Clerk, Auth0, AWS/S3, LLM providers, analytics) must NOT get a container. Adding an unneeded service is a real defect (it spins up a container nothing uses) and is penalized.
+    - **Always prefer the repo's own mock / offline / dev mode.** Search for a flag like USE_MOCKS, MOCK_*, OFFLINE, DISABLE_*, *_ENABLED and turn mocking ON (e.g. `USE_MOCKS: "true"`). For every external-service credential, emit a deterministic placeholder (`mock-github-client-id`, `mock-stakwork-api-key`, `mock-anthropic-api-key`, …) rather than a real value or a hard-blocking cloud URL. The app must run offline with mocks; it should never require a real account to boot.
+    - A backing service the app DOES need to boot but that you mock/disable still needs its env vars present (with placeholder/mock values) so the code doesn't crash on a missing key.
+
+    # $POD_URL and $POD_ID — the pod's public address
+
+    The pod injects two variables you can reference verbatim in env values (write them literally — they're substituted at boot):
+    - `$POD_ID` → the pod's subdomain id only (e.g. `ab456fvd`).
+    - `$POD_URL` → the pod's full base URL: `https://$POD_ID.{{ params.podDomain }}` (no path, no trailing slash).
+
+    **Every public-facing / externally-reachable URL the app needs MUST use these, never `localhost`.** This covers auth callback/base URLs (NEXTAUTH_URL, NEXT_PUBLIC_*_URL, OAuth redirect URLs, webhook URLs, FRONTEND_URL, success/cancel URLs) — anything a browser or an external service hits. Two cases:
+    - The URL points at THIS app on its default port → use `$POD_URL` (optionally with a path, e.g. `$POD_URL/onboarding?payment=success`).
+    - The URL points at a SPECIFIC port (a sibling app/service on another port, e.g. a backend on 3001 or a local supabase on 54321) → build `https://$POD_ID-<port>.{{ params.podDomain }}`.
+
+    INTERNAL connection strings (a DATABASE_URL to the compose db, an in-pod service on localhost) still use `localhost` — do NOT pod-ify those.
 
     # pm2.config.js
 

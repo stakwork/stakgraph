@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep, usageFromResult, computeCost, addUsage, coerceUsage } from "vein";
 import vm from "node:vm";
 import yaml from "js-yaml";
 
@@ -13,17 +13,21 @@ import yaml from "js-yaml";
  *
  * Two tiers (see plans/gitsee-structured-scorer-and-subagents.md):
  *
- *  1. DETERMINISTIC (dominant) — pure name set-diffs vs the gold:
- *     - env-key completeness: keys(produced pm2 env) vs keys(gold pm2 env).
- *       Robust + repo-agnostic because the key NAME is dictated by the repo's
- *       code (`process.env.DATABASE_URL`) — a different name simply isn't read,
- *       so the gold's names are canonical and exact-name matching is correct.
- *       (Build/run directives like INSTALL_COMMAND live in this env block too, so
- *       "key commands" are covered by the same set.)
- *     - service set: compose service IDENTITY (image base name, tag stripped, or
- *       the service name for build-only services) produced vs gold. An extra
- *       image the gold lacks (e.g. an invented `redis`) is a precision hit — this
- *       catches over-provisioning.
+ *  1. DETERMINISTIC (dominant) — name set-diffs vs the gold:
+ *     - env-key completeness — RECALL-ONLY: keys(produced pm2 env) vs keys(gold
+ *       pm2 env), scored on recall (did we produce the gold's keys?) but NOT
+ *       precision. Extra keys are NOT penalized: the gold is a minimal curated
+ *       set, so the agent's complete real set (every `process.env.X` the code
+ *       reads) shows up as "extra" — but those are legitimate and an extra env
+ *       var never breaks a boot. Penalizing them just teaches the optimizer to
+ *       drop real keys. Recall stays exact-name + repo-agnostic because the key
+ *       NAME is dictated by the code. (Build/run directives like INSTALL_COMMAND
+ *       live in this env block too, so "key commands" are covered.)
+ *     - service set — recall AND precision: compose service IDENTITY (image base
+ *       name, tag stripped, or the service name for build-only services) produced
+ *       vs gold. Unlike env keys, an extra service IS real harm (an invented
+ *       `redis`/`soketi` spins up an unneeded container), so service
+ *       over-provisioning is a precision hit.
  *
  *  2. LLM SEMANTIC RESIDUE (optional, capped) — only what needs interpretation
  *     and therefore can't be a name set-diff: is each pm2 `script` the right
@@ -33,7 +37,9 @@ import yaml from "js-yaml";
  *     Folded in as a bounded MULTIPLIER so the deterministic tier dominates.
  *
  * Combine: one recall-weighted F-beta (β=2) over the UNIFIED expected item set
- * (env keys ∪ services), then `score = base * (SEM_FLOOR + (1-SEM_FLOOR)*semantic)`.
+ * (env keys ∪ services). Recall counts every gold item; precision counts only
+ * spurious SERVICES (extra env keys are ignored — see tier 1). Then
+ * `score = base * (SEM_FLOOR + (1-SEM_FLOOR)*semantic)`.
  *
  * HARD CONTRACT (eval/optimize + eval/reflect depend on this shape — don't break
  * it): output `{ score, recall, precision, matched, missing, spurious, reason,
@@ -182,9 +188,16 @@ interface Semantic {
   insight: string;
 }
 
+/** The judge's semantic verdict + what its own LLM call cost. */
+interface JudgeResult {
+  semantic: Semantic;
+  usage: ReturnType<typeof usageFromResult>;
+  cost: number;
+}
+
 async function judgeSemantics(
   cfg: { actual: string; expected: string; rubric?: string; provider?: string; model?: string },
-): Promise<Semantic> {
+): Promise<JudgeResult> {
   const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
   const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
   const { generateObject } = await import("ai");
@@ -229,8 +242,9 @@ ${cfg.expected}
 # PRODUCED
 ${cfg.actual}`;
 
-  const { object } = await generateObject({ model: model as any, prompt, schema: schema as any });
-  return object as Semantic;
+  const { object, usage: rawUsage } = await generateObject({ model: model as any, prompt, schema: schema as any });
+  const usage = usageFromResult(rawUsage);
+  return { semantic: object as Semantic, usage, cost: computeCost(provider, usage) };
 }
 
 // ── step ──────────────────────────────────────────────────────────────────────
@@ -238,7 +252,7 @@ ${cfg.actual}`;
 export default defineStep({
   type: "gitsee/score-setup",
   description:
-    "Structured + hybrid scorer for the gitsee setup-profiler. Deterministically parses a pm2.config.js (node:vm) + docker-compose.yml (js-yaml) pair out of both `actual` and `expected`, then scores by NAME set-diffs vs the gold: env-key completeness + compose service/image set (recall-weighted F-beta, β=2). An optional LLM tier judges only the semantic residue (start command, host-binding flag, cross-file cred consistency, service appropriateness) and is folded in as a bounded multiplier. Config: actual, expected, rubric? (semantic-judge rubric), useLLM? (default true), ignoreEnvKeys? (default []), provider?, model?. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
+    "Structured + hybrid scorer for the gitsee setup-profiler. Deterministically parses a pm2.config.js (node:vm) + docker-compose.yml (js-yaml) pair out of both `actual` and `expected`, then scores by NAME set-diffs vs the gold: env-key completeness (RECALL-ONLY — extra env keys are not penalized) + compose service/image set (recall AND precision — extra services are over-provisioning) combined as a recall-weighted F-beta, β=2. An optional LLM tier judges only the semantic residue (start command, host-binding flag, cross-file cred consistency, service appropriateness) and is folded in as a bounded multiplier. Config: actual, expected, rubric? (semantic-judge rubric), useLLM? (default true), ignoreEnvKeys? (default []), provider?, model?. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
   input: z.object({
     actual: z.string(),
     expected: z.string(),
@@ -247,6 +261,10 @@ export default defineStep({
     ignoreEnvKeys: z.array(z.string()).default([]),
     provider: z.string().optional(),
     model: z.string().optional(),
+    // Upstream (explorer agent) token usage + cost to fold the judge's own
+    // tokens+$ into, so the output `usage`/`cost` is the full per-eval total.
+    priorUsage: z.any().optional(),
+    priorCost: z.number().optional(),
   }),
   output: z.any(),
   async run(cfg) {
@@ -288,10 +306,13 @@ export default defineStep({
       ...envDiff.missing.map((k) => `env:${k}`),
       ...svcDiff.missing.map((s) => `service:${s}`),
     ];
-    const spurious = [
-      ...envDiff.spurious.map((k) => `env:${k}`),
-      ...svcDiff.spurious.map((s) => `service:${s}`),
-    ];
+    // ENV IS RECALL-ONLY: extra env keys are NOT penalized. They're almost always
+    // REAL keys the app reads (the gold is a minimal curated set, not the complete
+    // one), and an extra env var doesn't break a boot — so it must not drag the
+    // score or the reflect feedback. Only SERVICE over-provisioning is real harm
+    // (an unneeded redis/soketi container), so only spurious services count against
+    // precision. `envDiff.spurious` is kept for the markdown/detail (informational).
+    const spurious = [...svcDiff.spurious.map((s) => `service:${s}`)];
 
     const expectedTotal = matched.length + missingDet.length;
     const producedTotal = matched.length + spurious.length;
@@ -300,10 +321,17 @@ export default defineStep({
     const base = fBeta(recall, precision);
 
     // ── optional LLM semantic residue ─────────────────────────────────────────
+    // Token usage + cost: start from the upstream explorer agent's, then add the
+    // judge's own LLM call (when run) → the output carries the full per-eval cost.
+    let usage = coerceUsage(cfg.priorUsage);
+    let cost = typeof cfg.priorCost === "number" ? cfg.priorCost : 0;
     let sem: Semantic | undefined;
     if (cfg.useLLM) {
       try {
-        sem = await judgeSemantics(cfg);
+        const judged = await judgeSemantics(cfg);
+        sem = judged.semantic;
+        usage = addUsage(usage, judged.usage);
+        cost += judged.cost;
       } catch (e) {
         console.warn("[gitsee/score-setup] semantic judge failed, deterministic-only:", e instanceof Error ? e.message : e);
       }
@@ -350,7 +378,7 @@ export default defineStep({
       `- **services**: ${svcDiff.matched.length}/${svcExpected} matched (recall ${pct(svcRecall)})` +
         (svcDiff.missing.length ? ` — missing: ${svcDiff.missing.join(", ")}` : "") +
         (svcDiff.spurious.length ? ` — extra: ${svcDiff.spurious.join(", ")}` : ""),
-      envDiff.spurious.length ? `- **extra env keys**: ${envDiff.spurious.join(", ")}` : "",
+      envDiff.spurious.length ? `- **extra env keys** (not penalized — env is recall-only): ${envDiff.spurious.join(", ")}` : "",
       unparseable.length ? `- **parse errors**: ${unparseable.join("; ")}` : "",
       cfg.useLLM && semIssues.length ? `- **semantic issues**: ${semIssues.join("; ")}` : "",
       ``,
@@ -370,6 +398,9 @@ export default defineStep({
       reason,
       insight,
       markdown,
+      // explorer agent + judge token usage and dollar cost for this eval
+      usage,
+      cost,
       // extra structured detail (ignored by the contract consumers, handy for debugging)
       detail: {
         env: { ...envDiff, recall: envRecall },
