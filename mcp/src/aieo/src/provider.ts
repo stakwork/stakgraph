@@ -410,13 +410,36 @@ export function getModel(
         ...(extraHeaders && { headers: extraHeaders }),
       });
       return anthropic(modelId);
-    case "google":
+    case "google": {
+      // Bifrost's native GenAI endpoint (/genai/v1beta) currently fails to
+      // resolve provider keys ("no keys found that support model: ..."),
+      // while its OpenAI-compatible endpoint (/openai/v1) serves the very
+      // same Gemini keys correctly. So when routing Google through a gateway
+      // (baseURL is present and suffixed with /genai/v1beta here), call the
+      // OpenAI-compat endpoint with a `gemini/`-prefixed model id instead.
+      // Direct (non-gateway) Google calls keep the native GenAI client.
+      if (baseURL) {
+        // Strip whatever provider suffix is present (/genai/v1beta normally,
+        // but be resilient to /anthropic/v1, /openai/v1, etc.) to recover the
+        // gateway root, then target the OpenAI-compat path.
+        const root = baseURL.replace(/\/(anthropic|openai|genai)\/v\d+[a-z]*\/?$/i, "");
+        const openaiCompatBase = `${root}/openai/v1`;
+        console.log(
+          `[gateway] routing google via OpenAI-compat ${openaiCompatBase} (model gemini/${modelId})`
+        );
+        const googleCompat = createOpenAI({
+          apiKey,
+          baseURL: openaiCompatBase,
+          ...(extraHeaders && { headers: extraHeaders }),
+        });
+        return googleCompat.chat(`gemini/${modelId}`);
+      }
       const google = createGoogleGenerativeAI({
         apiKey,
-        ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
       });
       return google(modelId);
+    }
     case "openai":
       const openai = createOpenAI({
         apiKey,
