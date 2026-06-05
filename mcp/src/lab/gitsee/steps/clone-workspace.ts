@@ -39,7 +39,7 @@ function git(args: string[], cwd: string, timeoutMs = 120000): Promise<void> {
 export default defineStep({
   type: "gitsee/clone-workspace",
   description:
-    "Self-contained clone of a WORKSPACE (a set of repos cloned as siblings under one dir, like the pod's /workspaces/<repo>). No internal deps; needs `git`. Idempotent. Config: workspace (dir/label), repos ([{owner, repo, rev?}], rev pins a commit), token? (falls back to GITHUB_TOKEN env). Output: { workspacePath, repos }.",
+    "Self-contained clone of a WORKSPACE (a set of repos cloned as siblings under one dir, like the pod's /workspaces/<repo>). No internal deps; needs `git`. Idempotent. Config: workspace (dir/label), repos ([{owner, repo, rev?}], rev pins a commit), token? (falls back to GITHUB_TOKEN env), clean? (default true — `git reset --hard && git clean -fd` a reused clone so each run starts from a pristine working tree, discarding the prior agent's edits/new files; keeps gitignored node_modules). Output: { workspacePath, repos }.",
   input: z.object({
     workspace: z.string().describe("workspace name — the clone dir under the lab tmp root"),
     repos: z
@@ -53,6 +53,12 @@ export default defineStep({
       .min(1)
       .describe("the repos to clone as siblings; usually the frontend app + its local-dependency repos"),
     token: z.string().optional(),
+    clean: z
+      .boolean()
+      .default(true)
+      .describe(
+        "reset a REUSED clone to a pristine working tree (git reset --hard + git clean -fd) so each run/optimizer generation starts fresh — discards the prior explore agent's edits and any files it created. Keeps gitignored deps (node_modules) for speed; set false to preserve a dirty tree for debugging.",
+      ),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -70,6 +76,13 @@ export default defineStep({
 
       if (existsSync(join(dir, ".git"))) {
         console.log(`[gitsee] reusing existing clone at ${dir}`);
+        // Pristine slate: drop the prior explore agent's edits + untracked files
+        // (best-effort; keeps gitignored node_modules). Done before any rev
+        // checkout so a dirty tree can't block it.
+        if (cfg.clean) {
+          await git(["reset", "--hard"], dir).catch(() => {});
+          await git(["clean", "-fd"], dir).catch(() => {});
+        }
       } else {
         console.log(`[gitsee] cloning ${r.owner}/${r.repo}${rev ? " @ " + rev : ""} → ${dir}`);
         await git(["clone", "--depth", "1", url, dir], wsDir);
