@@ -28,8 +28,10 @@ import { join, resolve, dirname, isAbsolute, sep } from "node:path";
  *
  * Provider-direct via the AI SDK (anthropic | openai), lazy-loaded. Needs the
  * provider's key in env (ANTHROPIC_API_KEY / OPENAI_API_KEY) and `git` + `rg` on
- * PATH for the repo tools. Output: { result, object?, steps, messages, usage,
- * cost } — `usage` is the aggregated token counts across the whole agent loop
+ * PATH for the repo tools. Output: { result, object?, steps, usage, cost }
+ * (+ `messages`, the full session, only when `returnMessages` is set — it's huge
+ * and persisted per step, so it's off by default). `usage` is the aggregated
+ * token counts across the whole agent loop
  * and `cost` is its dollar cost at the provider's rates (see ../../pricing.ts).
  */
 
@@ -380,7 +382,7 @@ export function textEdit(input: TextEditInput, cwd: string): string {
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, messages }.",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -400,6 +402,12 @@ export default defineStep({
     model: z.string().optional(),
     provider: z.string().optional(),
     maxSteps: z.number().int().positive().default(40),
+    returnMessages: z
+      .boolean()
+      .default(false)
+      .describe(
+        "include the FULL tool-loop session (`messages`) in the output. Off by default — the session is huge and the runner persists every step's output, so returning it bloats events.jsonl/run.json and buries `result`. Turn on only for a fork/sub-agent that needs the transcript.",
+      ),
   }),
   output: z.any(),
   async run(cfg) {
@@ -574,7 +582,11 @@ export default defineStep({
     });
 
     const steps = res.steps ?? [];
+    // The full session is HUGE and the runner persists every step's output, so we
+    // only include it when explicitly asked (a future fork/sub-agent). Off by
+    // default keeps the explore step's persisted output to `{ result, steps, … }`.
     const messages = res.response?.messages ?? [];
+    const maybeMessages = cfg.returnMessages ? { messages } : {};
 
     // Token usage + cost across the WHOLE agent loop (totalUsage aggregates every
     // step; fall back to the final-step usage). `provider` drives the rate table.
@@ -587,7 +599,7 @@ export default defineStep({
     // Structured mode: return the typed object.
     if (useSchema) {
       console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps, structured)`);
-      return { result: res.text, object: res.output, steps: steps.length, messages, usage, cost };
+      return { result: res.text, object: res.output, steps: steps.length, ...maybeMessages, usage, cost };
     }
 
     // finalAnswer / text mode: extract the final_answer tool output, else last text.
@@ -617,6 +629,6 @@ export default defineStep({
     }
 
     console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps)`);
-    return { result: final, steps: steps.length, messages, usage, cost };
+    return { result: final, steps: steps.length, ...maybeMessages, usage, cost };
   },
 });

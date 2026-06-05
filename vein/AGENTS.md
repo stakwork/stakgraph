@@ -391,8 +391,11 @@ later without breaking this contract — they'd be additive env vars
   `schema` to a JSON Schema → `Output.object`, read off `res.output`), or
   the final assistant text. Provider-direct (anthropic|openai), lazy-
   loaded; needs the provider key in env + `git`/`rg` on PATH. Returns
-  `{ result, object?, steps, messages }` — `messages` is the full session
-  (the seam for a future fork/sub-agent capability). Anything domain-
+  `{ result, object?, steps, usage, cost }`. The full session
+  (`messages`) is the seam for a future fork/sub-agent capability, but
+  it's **opt-in** (`returnMessages`, default false): it's huge and the
+  runner persists every step's output, so returning it by default bloats
+  `events.jsonl`/`run.json` and buries `result`. Anything domain-
   specific lives in the CALLER's prompts, not the step (e.g. mcp's
   `/lab` `gitsee-explore-services` wires `clone → agent`).
 
