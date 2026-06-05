@@ -88,6 +88,14 @@ function sh(
   });
 }
 
+/** All docker container IDs (running + stopped). Used to snapshot the container
+ *  set before boot so teardown can remove anything the app spun up (a `supabase
+ *  start` CLI stack, a minio, etc.) that our `docker compose down` never sees. */
+async function dockerContainerIds(): Promise<Set<string>> {
+  const r = await sh("docker ps -aq", process.cwd(), {}, 15000);
+  return new Set(r.stdout.split("\n").map((s) => s.trim()).filter(Boolean));
+}
+
 /** Poll a TCP port until something is listening (the app booted) or we time out. */
 function waitForPort(port: number, host: string, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -449,6 +457,11 @@ export default defineStep({
     // skip compose entirely (docker compose up would error "no service selected").
     const composeServices = hasComposeServices(files.compose);
 
+    // Snapshot the container set BEFORE boot, so teardown can force-remove
+    // everything that appeared during this run — including app-spawned stacks our
+    // compose file knows nothing about (a `supabase start` CLI project, a minio…).
+    const preBootContainers = await dockerContainerIds();
+
     let booted = false;
     let reason = "";
     try {
@@ -542,10 +555,25 @@ export default defineStep({
     } finally {
       // 6. Teardown.
       if (!cfg.keepUp) {
-        log("teardown: pm2 delete all + docker compose down");
+        log("teardown: pm2 delete all + docker compose down + remove app-spawned containers");
         await sh("npx -y pm2 delete all", wp, {}, 60000).catch(() => {});
         if (cfg.useStaklink) await sh(`${cfg.bootCommand.split(" ").slice(0, -1).join(" ")} stop`, wp, {}, 30000).catch(() => {});
         if (composeServices) await sh("docker compose down -v", wp, {}, 120000).catch(() => {});
+        // Force-remove anything that appeared since the pre-boot snapshot — this is
+        // what catches a `supabase start` stack / minio / any container the app
+        // started outside our compose file. `-v` also drops their anonymous volumes.
+        try {
+          const now = await dockerContainerIds();
+          const spawned = [...now].filter((id) => !preBootContainers.has(id));
+          if (spawned.length) {
+            log(`removing ${spawned.length} app-spawned container(s)`);
+            await sh(`docker rm -fv ${spawned.join(" ")}`, wp, {}, 120000).catch(() => {});
+            // best-effort prune of the now-dangling networks/volumes they created
+            await sh("docker network prune -f", wp, {}, 30000).catch(() => {});
+          }
+        } catch {
+          /* ignore teardown errors */
+        }
       } else {
         log("keepUp:true — leaving services + apps running");
       }

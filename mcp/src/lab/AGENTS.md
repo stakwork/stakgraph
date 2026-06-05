@@ -123,6 +123,18 @@ for the render check, and (for `useStaklink`) network for `npx staklink`. **The
 agent can also EDIT the cloned repos** (via the core agent's
 `str_replace_based_edit_tool`) to make a repo local-first before this gate runs.
 
+**Teardown.** On a normal/errored finish the step's `finally` removes everything:
+`pm2 delete all`, `staklink stop`, `docker compose down -v`, AND — via a container
+SNAPSHOT taken just before boot — `docker rm -fv` of every container that appeared
+during the run. That snapshot-diff is what catches **app-spawned** stacks our
+compose file never declared: a `supabase start` CLI project (~12 `supabase_*`
+containers), a minio, etc. **But teardown only runs if the process finishes** —
+if you KILL the run (Ctrl-C / kill the optimize), the `finally` never fires and the
+booted stack is left up. Clean it with `npx tsx src/lab/gitsee/cleanup.ts`
+(removes the stale pm2 procs, supabase CLI stacks, and gitsee-lab compose
+projects; leaves Neo4j etc. alone). `keepUp:true` intentionally skips teardown for
+debugging.
+
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
 steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the
 **actual canonical pm2.config.js + docker-compose.yml pair** (produced vs gold
