@@ -57,9 +57,10 @@ steps:
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
   model: claude-sonnet-4-6
-  # Agent step budget. Bigger for multi-repo workspaces; a forced final-answer
-  # turn (in the agent step) guarantees output even if this is exhausted.
-  maxSteps: 60
+  # Agent step budget. Generous for hard multi-repo workspaces (mikeoss, hive)
+  # that need a lot of exploration before producing; a forced final-answer turn
+  # (in the agent step) still guarantees output if even this is exhausted.
+  maxSteps: 200
   # The pod's base domain. Public URLs are https://<$POD_ID>[-<port>].<podDomain>.
   # Factored out here (single source of truth) and referenced via
   # {{ params.podDomain }} inside the finalAnswer contract below — vein resolves
