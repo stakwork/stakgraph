@@ -31,6 +31,13 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   // Structured scorer (replaces eval/score for gitsee-eval-score): parses the
   // pm2 + compose pair and scores by name set-diffs vs the gold + an LLM residue.
   { file: "score-setup.ts", type: "gitsee/score-setup" },
+  // Boot gate: actually runs the produced setup (compose up + staklink) and
+  // checks the frontend renders in headless chromium — the dominant eval signal.
+  { file: "verify-setup.ts", type: "gitsee/verify-setup" },
+  // Captures the agent's repo edits as a replayable git diff (part of the
+  // deliverable): the last step of gitsee-explore-services, passes the agent
+  // output through and adds `diff`.
+  { file: "capture-edits.ts", type: "gitsee/capture-edits" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

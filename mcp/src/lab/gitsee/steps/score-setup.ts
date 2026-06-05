@@ -51,6 +51,15 @@ import yaml from "js-yaml";
 
 const BETA = 2; // weight recall this many times more than precision
 const SEM_FLOOR = 0.7; // the LLM tier can dock at most (1 - SEM_FLOOR) of the score
+// BOOT + RENDER (the screenshot) is the dominant signal — the real proof the
+// setup works. The file-shape set-diff is only a small residual hint: a setup
+// that booted AND rendered scores at least RENDER_FLOOR regardless of how its
+// files compare to the gold (so a non-boot-critical missing key or an extra
+// service barely moves it). Booted-but-broken-UI and non-boot are scaled down.
+const RENDER_FLOOR = 0.85; // a booted+rendered setup scores in [RENDER_FLOOR, 1]
+const RENDER_FAIL_MULT = 0.45; // booted but the page didn't render
+const RENDER_UNKNOWN_MULT = 0.6; // booted but render couldn't be judged (no browser)
+const NO_BOOT_MULT = 0.1; // did not boot at all
 
 function fBeta(recall: number, precision: number): number {
   const b2 = BETA * BETA;
@@ -252,7 +261,7 @@ ${cfg.actual}`;
 export default defineStep({
   type: "gitsee/score-setup",
   description:
-    "Structured + hybrid scorer for the gitsee setup-profiler. Deterministically parses a pm2.config.js (node:vm) + docker-compose.yml (js-yaml) pair out of both `actual` and `expected`, then scores by NAME set-diffs vs the gold: env-key completeness (RECALL-ONLY — extra env keys are not penalized) + compose service/image set (recall AND precision — extra services are over-provisioning) combined as a recall-weighted F-beta, β=2. An optional LLM tier judges only the semantic residue (start command, host-binding flag, cross-file cred consistency, service appropriateness) and is folded in as a bounded multiplier. Config: actual, expected, rubric? (semantic-judge rubric), useLLM? (default true), ignoreEnvKeys? (default []), provider?, model?. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
+    "Scorer for the gitsee setup-profiler where BOOT + RENDER dominate. The booted+rendered screenshot verdict (from gitsee/verify-setup, via `booted`/`rendered`) is the headline signal: a booted+rendered setup scores in [0.85,1]; booted-but-broken and non-boot are scaled down hard. The file-shape set-diff is only a small residual hint — it deterministically parses the pm2.config.js (node:vm) + docker-compose.yml (js-yaml) pair from `actual`/`expected` and scores by NAME set-diffs vs the gold, RECALL-ONLY for BOTH env keys and services (extra keys AND extra services are NOT penalized — the boot gate is the arbiter), recall-weighted F-beta β=2, times an optional bounded LLM semantic tier. Config: actual, expected, booted?, rendered?, bootReason?, rubric?, useLLM? (default true), ignoreEnvKeys? (default []), provider?, model?. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
   input: z.object({
     actual: z.string(),
     expected: z.string(),
@@ -265,6 +274,14 @@ export default defineStep({
     // tokens+$ into, so the output `usage`/`cost` is the full per-eval total.
     priorUsage: z.any().optional(),
     priorCost: z.number().optional(),
+    // DOMINANT BOOT GATE (from gitsee/verify-setup). A setup that doesn't boot is
+    // a failure regardless of file shape, so these clamp the score: !booted →
+    // heavy penalty, booted-but-not-rendered → medium. null/undefined (verify
+    // skipped) leaves the score untouched (back-compat). `rendered:null` means the
+    // browser couldn't run (no penalty) — boot alone gates.
+    booted: z.boolean().nullable().optional(),
+    rendered: z.boolean().nullable().optional(),
+    bootReason: z.string().optional(),
   }),
   output: z.any(),
   async run(cfg) {
@@ -306,13 +323,13 @@ export default defineStep({
       ...envDiff.missing.map((k) => `env:${k}`),
       ...svcDiff.missing.map((s) => `service:${s}`),
     ];
-    // ENV IS RECALL-ONLY: extra env keys are NOT penalized. They're almost always
-    // REAL keys the app reads (the gold is a minimal curated set, not the complete
-    // one), and an extra env var doesn't break a boot — so it must not drag the
-    // score or the reflect feedback. Only SERVICE over-provisioning is real harm
-    // (an unneeded redis/soketi container), so only spurious services count against
-    // precision. `envDiff.spurious` is kept for the markdown/detail (informational).
-    const spurious = [...svcDiff.spurious.map((s) => `service:${s}`)];
+    // BOTH ENV AND SERVICES ARE RECALL-ONLY: extra env keys AND extra services are
+    // NOT penalized. The gold is a minimal curated set, not the complete one, and
+    // the BOOT GATE is the real arbiter of correctness — if the produced setup
+    // boots and renders, an extra service (e.g. a redis the gold mocks) or extra
+    // env key did no harm. So precision is informational only; the spurious lists
+    // (env + service) are kept for the markdown/detail, not scored.
+    const spurious: string[] = [];
 
     const expectedTotal = matched.length + missingDet.length;
     const producedTotal = matched.length + spurious.length;
@@ -339,46 +356,93 @@ export default defineStep({
     const semanticScore = sem ? Math.max(0, Math.min(1, sem.semanticScore)) : 1;
     const semIssues = sem?.issues ?? [];
 
-    const score = Math.round(base * (SEM_FLOOR + (1 - SEM_FLOOR) * semanticScore) * 100) / 100;
+    // The file-shape score (recall-weighted F-beta × semantic) — now only a small
+    // RESIDUAL that nudges within the boot/render band.
+    const setupScore = base * (SEM_FLOOR + (1 - SEM_FLOOR) * semanticScore);
 
-    // missing (for reflect): deterministic gaps + unparseable + semantic issues
+    // ── BOOT + RENDER dominate ─────────────────────────────────────────────────
+    // The screenshot (did the real UI render?) is the headline signal. A
+    // booted+rendered setup scores in [RENDER_FLOOR, 1], with setupScore moving
+    // only the top (1 - RENDER_FLOOR). Booted-but-broken and non-boot are scaled
+    // down hard. `booted == null` (no verify in this run) → pure setupScore.
+    const renderedBand = RENDER_FLOOR + (1 - RENDER_FLOOR) * setupScore;
+    const bootGaps: string[] = [];
+    let raw: number;
+    if (cfg.booted == null) {
+      raw = setupScore; // no verify step — fall back to file-shape only
+    } else if (cfg.booted && cfg.rendered === true) {
+      raw = renderedBand; // ✅ the real thing
+    } else if (cfg.booted && (cfg.rendered === null || cfg.rendered === undefined)) {
+      raw = RENDER_UNKNOWN_MULT * renderedBand; // booted, render unjudged (no browser)
+    } else if (cfg.booted && cfg.rendered === false) {
+      raw = RENDER_FAIL_MULT * renderedBand;
+      bootGaps.push(`boot:booted but the page did not render${cfg.bootReason ? ` (${cfg.bootReason})` : ""}`);
+    } else {
+      raw = NO_BOOT_MULT * setupScore;
+      bootGaps.push(`boot:setup did not boot${cfg.bootReason ? ` (${cfg.bootReason})` : ""}`);
+    }
+
+    const score = Math.round(raw * 100) / 100;
+
+    // missing (for reflect): boot failures FIRST (dominant) + deterministic gaps +
+    // unparseable + semantic issues
     const missing = [
+      ...bootGaps,
       ...unparseable.map((u) => `parse:${u}`),
       ...missingDet,
       ...semIssues.map((i) => `semantic:${i}`),
     ];
 
     // ── insight + reason ──────────────────────────────────────────────────────
-    let insight = sem?.insight ?? "";
+    // Boot failure is the dominant signal, so it owns the insight when present.
+    let insight = "";
+    if (cfg.booted === false)
+      insight =
+        "the generated setup does not actually boot — prioritize a runnable config (correct install/start commands, real backing services, mock flags) over file completeness.";
+    else if (cfg.booted === true && cfg.rendered === false)
+      insight =
+        "the setup boots but the frontend does not render — check the start command, host-binding flag, and that required services/env are wired so the page actually loads.";
+    if (!insight) insight = sem?.insight ?? "";
     if (!insight) {
-      if (envDiff.missing.length)
-        insight = "the generator omits environment variables the app reads at runtime — enumerate every process.env key the code references before writing the config.";
-      else if (svcDiff.spurious.length)
-        insight = "the generator over-provisions services the app doesn't actually depend on — only declare backing services the code connects to.";
-      else if (svcDiff.missing.length)
-        insight = "the generator misses a required backing service — trace the app's data/connection dependencies to a compose service.";
-      else insight = "the generator produces a functionally complete setup; refine only the semantic details.";
+      if (svcDiff.missing.length)
+        insight = "the generator misses a required backing service the app needs to boot — trace the app's data/connection dependencies to a compose service.";
+      else if (envDiff.missing.length)
+        insight = "the generator omits an environment variable the gold sets — check whether the app reads it at boot (extra/missing non-critical keys don't matter if it boots+renders).";
+      else insight = "the generator produces a setup that boots and renders; refine only the semantic details.";
     }
 
     const reasonParts: string[] = [];
+    if (cfg.booted === false) reasonParts.push(`Did not boot${cfg.bootReason ? `: ${cfg.bootReason}` : ""}.`);
+    else if (cfg.booted === true && cfg.rendered === false)
+      reasonParts.push(`Booted but did not render${cfg.bootReason ? `: ${cfg.bootReason}` : ""}.`);
+    else if (cfg.booted === true && cfg.rendered === true) reasonParts.push("Booted and rendered. ✅");
     if (unparseable.length) reasonParts.push(`Unparseable: ${unparseable.join("; ")}.`);
-    if (envDiff.missing.length) reasonParts.push(`Missing env keys: ${envDiff.missing.join(", ")}.`);
     if (svcDiff.missing.length) reasonParts.push(`Missing services: ${svcDiff.missing.join(", ")}.`);
-    if (svcDiff.spurious.length) reasonParts.push(`Extra services: ${svcDiff.spurious.join(", ")}.`);
+    if (envDiff.missing.length) reasonParts.push(`Missing env keys (not boot-critical if it rendered): ${envDiff.missing.join(", ")}.`);
+    // Extra env keys + extra services are NOT defects (recall-only) — noted in the
+    // markdown only, never in the reason fed to reflect.
     if (semIssues.length) reasonParts.push(`Semantic: ${semIssues.join("; ")}.`);
     const reason = reasonParts.join(" ") || "Produced setup matches the gold's functional requirements.";
 
     // ── markdown breakdown ────────────────────────────────────────────────────
     const pct = (n: number) => `${Math.round(n * 100)}%`;
+    const bootBadge =
+      cfg.booted === false
+        ? ` — ⛔ DID NOT BOOT (×${NO_BOOT_MULT})`
+        : cfg.booted === true && cfg.rendered === false
+          ? ` — ⚠️ booted, no render (×${RENDER_FAIL_MULT})`
+          : cfg.booted === true && cfg.rendered === true
+            ? ` — ✅ booted & rendered`
+            : "";
     const markdown = [
-      `**Score: ${score}**  (recall ${pct(recall)}, precision ${pct(precision)}${cfg.useLLM ? `, semantic ${pct(semanticScore)}` : ""})`,
+      `**Score: ${score}**${bootBadge}  (file-shape residual ${Math.round(setupScore * 100) / 100}: recall ${pct(recall)}${cfg.useLLM ? `, semantic ${pct(semanticScore)}` : ""} — boot+render dominates)`,
       ``,
-      `- **env keys**: ${envDiff.matched.length}/${envExpected} matched (recall ${pct(envRecall)})` +
+      `- **env keys**: ${envDiff.matched.length}/${envExpected} matched (recall ${pct(envRecall)}, recall-only)` +
         (envDiff.missing.length ? ` — missing: ${envDiff.missing.join(", ")}` : ""),
-      `- **services**: ${svcDiff.matched.length}/${svcExpected} matched (recall ${pct(svcRecall)})` +
+      `- **services**: ${svcDiff.matched.length}/${svcExpected} matched (recall ${pct(svcRecall)}, recall-only)` +
         (svcDiff.missing.length ? ` — missing: ${svcDiff.missing.join(", ")}` : "") +
-        (svcDiff.spurious.length ? ` — extra: ${svcDiff.spurious.join(", ")}` : ""),
-      envDiff.spurious.length ? `- **extra env keys** (not penalized — env is recall-only): ${envDiff.spurious.join(", ")}` : "",
+        (svcDiff.spurious.length ? ` — extra (not penalized): ${svcDiff.spurious.join(", ")}` : ""),
+      envDiff.spurious.length ? `- **extra env keys** (not penalized — recall-only): ${envDiff.spurious.join(", ")}` : "",
       unparseable.length ? `- **parse errors**: ${unparseable.join("; ")}` : "",
       cfg.useLLM && semIssues.length ? `- **semantic issues**: ${semIssues.join("; ")}` : "",
       ``,

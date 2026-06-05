@@ -2,8 +2,8 @@ import { z } from "zod";
 import { defineStep } from "../../core.js";
 import { usageFromResult, computeCost } from "../../pricing.js";
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { join, resolve, dirname, isAbsolute, sep } from "node:path";
 
 /**
  * Core AGENT step: a general tool-using agent loop (Vercel AI SDK
@@ -20,9 +20,11 @@ import { join } from "node:path";
  * optionally restrict the toolset with `toolFilter`. Anything domain-specific
  * (e.g. how to frame a particular workspace) lives in the CALLER's prompts.
  *
- * Built-in tools: repo_overview, file_summary, fulltext_search, bash, and
- * (anthropic only) web_search. `final_answer` is added automatically in
- * finalAnswer mode and is always available regardless of `toolFilter`.
+ * Built-in tools: repo_overview, file_summary, fulltext_search, bash,
+ * str_replace_based_edit_tool (view/create/str_replace/insert files, sandboxed
+ * to cwd), and (anthropic only) web_search. `final_answer` is added
+ * automatically in finalAnswer mode and is always available regardless of
+ * `toolFilter`.
  *
  * Provider-direct via the AI SDK (anthropic | openai), lazy-loaded. Needs the
  * provider's key in env (ANTHROPIC_API_KEY / OPENAI_API_KEY) and `git` + `rg` on
@@ -269,10 +271,116 @@ function buildPreamble(cwd: string): string {
   return `Working directory (${cwd}) contains:\n` + entries.map((e) => `- ${e}`).join("\n");
 }
 
+// ── file editing tool (str_replace_based_edit_tool) ────────────────────────────
+
+/** Max chars returned by a `view` before truncation. */
+const FILE_VIEW_MAX_CHARS = 200_000;
+
+/** The Anthropic text-editor tool's input shape (also used by the generic
+ *  fallback for non-anthropic providers). All commands operate on a path that
+ *  MUST resolve inside `cwd`. */
+export interface TextEditInput {
+  command: "view" | "create" | "str_replace" | "insert";
+  path: string;
+  file_text?: string;
+  insert_line?: number;
+  new_str?: string;
+  insert_text?: string;
+  old_str?: string;
+  view_range?: number[];
+}
+
+/** Resolve a tool-supplied path against `cwd` and refuse anything that escapes
+ *  it (directory-traversal / absolute-path guard). */
+function resolveInCwd(p: string, cwd: string): string {
+  const target = resolve(isAbsolute(p) ? p : join(cwd, p));
+  const root = resolve(cwd);
+  if (target !== root && !target.startsWith(root + sep)) {
+    throw new Error(`path "${p}" escapes the working directory`);
+  }
+  return target;
+}
+
+/**
+ * Pure handler for the str_replace-based text editor tool: view / create /
+ * str_replace / insert, sandboxed to `cwd`. Mirrors Anthropic's tool contract
+ * (1-indexed line numbers, exactly-one-match str_replace, `insert_line` 0 =
+ * top-of-file) so it backs both the provider-defined anthropic tool and the
+ * generic fallback. Returns a human-readable string (errors as `Error: …`).
+ */
+export function textEdit(input: TextEditInput, cwd: string): string {
+  let target: string;
+  try {
+    target = resolveInCwd(input.path, cwd);
+  } catch (e) {
+    return `Error: ${(e as Error).message}`;
+  }
+
+  switch (input.command) {
+    case "view": {
+      if (!existsSync(target)) return "Error: File not found";
+      if (statSync(target).isDirectory()) {
+        const entries = readdirSync(target, { withFileTypes: true })
+          .filter((e) => !e.name.startsWith("."))
+          .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+          .sort();
+        return entries.length ? entries.join("\n") : "(empty directory)";
+      }
+      const lines = readFileSync(target, "utf-8").split("\n");
+      let start = 1;
+      let end = lines.length;
+      if (Array.isArray(input.view_range) && input.view_range.length === 2) {
+        start = Math.max(1, input.view_range[0]);
+        end = input.view_range[1] === -1 ? lines.length : input.view_range[1];
+      }
+      const out = lines
+        .slice(start - 1, end)
+        .map((l, i) => `${start + i}: ${l}`)
+        .join("\n");
+      return out.length > FILE_VIEW_MAX_CHARS
+        ? out.slice(0, FILE_VIEW_MAX_CHARS) + "\n\n[... output truncated ...]"
+        : out;
+    }
+
+    case "create": {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, input.file_text ?? "");
+      return `Successfully created ${input.path}`;
+    }
+
+    case "str_replace": {
+      if (!existsSync(target)) return "Error: File not found";
+      const content = readFileSync(target, "utf-8");
+      const old = input.old_str ?? "";
+      const count = old ? content.split(old).length - 1 : 0;
+      if (count === 0)
+        return "Error: No match found for replacement. Please check your text and try again.";
+      if (count > 1)
+        return `Error: Found ${count} matches for replacement text. Please provide more context to make a unique match.`;
+      writeFileSync(target, content.replace(old, input.new_str ?? ""));
+      return "Successfully replaced text at exactly one location.";
+    }
+
+    case "insert": {
+      if (!existsSync(target)) return "Error: File not found";
+      const lines = readFileSync(target, "utf-8").split("\n");
+      const at = input.insert_line ?? 0;
+      if (at < 0 || at > lines.length)
+        return `Error: insert_line ${at} is out of range (0-${lines.length})`;
+      lines.splice(at, 0, input.insert_text ?? "");
+      writeFileSync(target, lines.join("\n"));
+      return `Successfully inserted text after line ${at}`;
+    }
+
+    default:
+      return `Error: unknown command "${(input as { command?: string }).command}"`;
+  }
+}
+
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, messages }.",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, messages }.",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -308,12 +416,18 @@ export default defineStep({
     // cache hit across all forks). Same pattern as aieo's getProviderOptions.
     let model: any;
     let webSearchTool: any;
+    let textEditorTool: any;
     let providerOptions: any;
     switch (provider) {
       case "anthropic": {
         const { anthropic } = await import("@ai-sdk/anthropic");
         model = anthropic(modelName ?? "claude-sonnet-4-6");
-        webSearchTool = anthropic.tools.webSearch_20250305({ maxUses: 3 });
+        webSearchTool = anthropic.tools.webSearch_20260209({ maxUses: 3 });
+        // Provider-defined text editor (the model is specially trained on its
+        // schema); we supply the execute that performs the edit inside cfg.cwd.
+        textEditorTool = anthropic.tools.textEditor_20250728({
+          execute: async (input: TextEditInput) => textEdit(input, cfg.cwd),
+        });
         providerOptions = { anthropic: { cacheControl: { type: "ephemeral" } } };
         break;
       }
@@ -386,6 +500,31 @@ export default defineStep({
       });
     }
     if (webSearchTool) allTools.web_search = webSearchTool;
+
+    // File editing (str_replace_based_edit_tool): view/create/str_replace/insert,
+    // sandboxed to cfg.cwd. For anthropic use the provider-defined tool (the
+    // model is specially trained on it); other providers get an identical generic
+    // tool. The key MUST be `str_replace_based_edit_tool` for the anthropic case.
+    allTools.str_replace_based_edit_tool = textEditorTool
+      ? textEditorTool
+      : tool({
+          description:
+            "View and edit text files (sandboxed to the working dir). Commands: " +
+            '`view` (path, optional view_range [start,end]), `create` (path, file_text), ' +
+            "`str_replace` (path, old_str must match EXACTLY once, new_str), " +
+            "`insert` (path, insert_line — 0 = top of file, insert_text).",
+          inputSchema: z.object({
+            command: z.enum(["view", "create", "str_replace", "insert"]),
+            path: z.string(),
+            file_text: z.string().optional(),
+            insert_line: z.number().int().optional(),
+            new_str: z.string().optional(),
+            insert_text: z.string().optional(),
+            old_str: z.string().optional(),
+            view_range: z.array(z.number().int()).optional(),
+          }) as any,
+          execute: async (input: TextEditInput) => textEdit(input, cfg.cwd),
+        });
 
     // Apply toolFilter (empty = all). Unknown names are ignored.
     const filter = cfg.toolFilter ?? [];

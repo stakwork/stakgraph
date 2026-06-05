@@ -68,28 +68,75 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
   `{ workspacePath, repos }`. **The only gitsee-specific producer step.**
 - Exploration is the **core `agent` step** (`vein/src/steps/core/agent.ts`),
   pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
-  `fulltext_search`, `bash`, anthropic `web_search`, + `file_summary` — the
-  `stakgraph` AST CLI, only offered when `stakgraph` is on PATH) + the agent loop
+  `fulltext_search`, `bash`, `str_replace_based_edit_tool` — view/create/edit
+  files in the cloned workspace (lets the agent make a repo local-first, e.g.
+  flip a `USE_MOCKS` default or patch a hardcoded cloud URL), anthropic
+  `web_search`, + `file_summary` — the `stakgraph` AST CLI, only offered when
+  `stakgraph` is on PATH) + the agent loop
   live in vein core now — what was the old inlined `gitsee/explore-services` step
   (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
   structured-`schema` mode is intentionally unused here for now. (For the
   `file_summary` tool, `stakgraph` must be on PATH; the agent falls back to
   `bash`/`cat` otherwise.)
-- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → agent`; input
-  `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`prompt`/
+- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → agent → capture`;
+  input `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`prompt`/
   `finalAnswer` prompts live in `params` (the experiment surface, frontend-
   focused). The agent injects a neutral working-dir listing, so the prompts
-  stay repo-agnostic (workspace framing moved into `params.system`).
+  stay repo-agnostic (workspace framing moved into `params.system`). The agent
+  MAY edit the cloned repos (via the core `str_replace_based_edit_tool`) to make
+  them boot local-first (move a misplaced migration, flip a mock flag, patch a
+  cloud-only URL); those edits are captured by the final `gitsee/capture-edits`
+  step as a replayable `git diff` and SHIPPED as part of the deliverable (output
+  `diff` + `changedRepos`, alongside the passed-through `result`/`usage`/`cost`).
+  The split: FILE changes go in the repo (the diff re-applies on a fresh pod
+  clone), RUNTIME steps (db reset/migrate/seed) go in `PRE_START_COMMAND` — so a
+  Supabase-style "move the migration + reset the db" becomes a clean diff hunk +
+  a clean PRE_START, not a file-shuffling shell hack. The agent also narrates its
+  edits in a `## CHANGES` section of the final answer (human-readable companion to
+  the diff). (`capture-edits` is the LAST step because a workflow's output is its
+  last step's output; it passes the agent's fields through so `produce.result`
+  etc. still resolve.)
+
+**The boot gate (`gitsee/verify-setup`) — the dominant eval signal.** A setup
+that doesn't actually *run* is a failure no matter how well its files match the
+gold, so the eval now RUNS the produced pair the pod way and proves the frontend
+loads. `gitsee/verify-setup.ts` (`gitsee/verify-setup`): stages the produced
+`pm2.config.js` + `docker-compose.yml` into the cloned workspace exactly where
+**staklink** looks (`<root>/pm2.config.js` + `<root>/.pod-config/.user-dockerfile/
+pm2.config.js`), rewriting the pod-absolute `cwd: /workspaces/<repo>` to the local
+clone root; `docker compose up -d --wait` for the backing services; boots the apps
+via **staklink** (`npx staklink start` → REBUILD→INSTALL→PRE_START→`pm2 start`→
+POST_START — pod-faithful; it does NOT run BUILD_COMMAND, so dev-mode boot is the
+target) or a pm2-free inline fallback (`useStaklink:false`); polls the frontend
+`PORT`; then loads `http://localhost:<port><checkPath>` in headless chromium
+(`@playwright/test`), screenshots to `<root>/.verify/render.png`, and **judges that
+screenshot with a VISION model** (`useVision`, anthropic, default on) — the real
+"did it render" signal, since an HTTP 200 + non-empty DOM still passes for a white
+screen or a styled error page. It asks the model whether the intended app UI
+rendered vs a blank/error/404-500 page; an HTTP-status + error-overlay heuristic is
+the fallback when vision is off or unavailable. Output `{ booted, rendered, port,
+httpStatus, title, reason, logs, screenshotPath, cost, usage }` (cost = the
+vision-judge tokens, folded into the eval total via `produce.cost + verify.cost`).
+Missing browsers degrade to a boot-only gate (`rendered:null`); `enabled:false`
+makes it a no-op (skip the gate in cheap sweeps). Needs `docker` + `git` on PATH, `npx playwright install chromium`
+for the render check, and (for `useStaklink`) network for `npx staklink`. **The
+agent can also EDIT the cloned repos** (via the core agent's
+`str_replace_based_edit_tool`) to make a repo local-first before this gate runs.
 
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
 steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the
 **actual canonical pm2.config.js + docker-compose.yml pair** (produced vs gold
-is apples-to-apples).
+is apples-to-apples), but the **boot result dominates** (see below).
 
 Scoring is a **structured + hybrid** scorer (`gitsee/score-setup`), NOT the
-generic LLM `eval/score`. Both files are parseable, and the gold is the ANSWER
-KEY — so the dominant tier is **deterministic name set-diffs vs the gold**, which
-is why it stays repo-agnostic without understanding any dependency:
+generic LLM `eval/score`. The **dominant tier is now the boot gate**:
+`score-setup` takes `booted`/`rendered` from `gitsee/verify-setup` and clamps the
+file-shape score — `!booted` → ×0.15 (it didn't even run), booted-but-not-rendered
+→ ×0.5, booted+rendered → full. (Null/absent leaves the score untouched, so a
+verify-free run still works.) BELOW that gate, both files are parseable and the
+gold is the ANSWER KEY — so the file-shape score is **deterministic name set-diffs
+vs the gold**, which is why it stays repo-agnostic without understanding any
+dependency:
 - **env-key completeness** — `keys(produced pm2 env)` vs `keys(gold pm2 env)`,
   recall-weighted. Robust + general because the key NAME is dictated by the
   repo's code (`process.env.X`); a different name simply isn't read, so the
@@ -119,13 +166,18 @@ is why it stays repo-agnostic without understanding any dependency:
 matched, missing, spurious, reason, insight, markdown }` that `eval/optimize` +
 `eval/reflect` depend on.
 
-- `gitsee-eval` — harness: produce (subflow → `gitsee-explore-services`) →
-  score (subflow → `gitsee-eval-score`). No reset step (gitsee is stateless).
-  Input `{ label, repos, token?, expected? }` — `label` is the workspace name
-  (and the `eval: <label>` link); `expected` gold falls back to `params.expected`.
+- `gitsee-eval` — harness: clone (`gitsee/clone-workspace`) → produce (subflow →
+  `gitsee-explore-services`, re-clones the same idempotent path) → **verify**
+  (`gitsee/verify-setup` — the boot gate, using `clone.workspacePath`) → score
+  (subflow → `gitsee-eval-score`, threaded `booted`/`rendered`). No reset step
+  (gitsee is stateless). Input `{ label, repos, token?, expected? }` — `label` is
+  the workspace name (and the `eval: <label>` link); `expected` gold falls back to
+  `params.expected`. Boot-gate knobs in `params`: `verify` (default true — set
+  false for cheap docker-free sweeps), `checkPath`, `bootTimeoutMs`, `useStaklink`.
 - `gitsee-eval-score` — `gitsee/score-setup` + the matching policy in `params`
-  (`useLLM`, `ignoreEnvKeys`, the semantic-residue `rubric`). Strict env policy:
-  every gold env key is required (exempt noise keys via `ignoreEnvKeys`).
+  (`useLLM`, `ignoreEnvKeys`, the semantic-residue `rubric`); passes through the
+  `booted`/`rendered`/`bootReason` boot gate. Strict env policy: every gold env key
+  is required (exempt noise keys via `ignoreEnvKeys`).
 - `gitsee-eval-reflect` — `eval/reflect` + the setup task/guidance.
 - `gitsee-optimize` — `eval/optimize` loop. Tunes **`system`** (the explorer
   prompt), NOT `finalAnswer` (the hard pod contract). Cohort in `params.dataset`,
@@ -148,7 +200,10 @@ system-canvas / staklink). Add more workspaces for a stronger multi-example
 optimize (EVAL_SPEC §11.2).
 
 Needs `ANTHROPIC_API_KEY` + `git` + `rg` on PATH (Neo4j only for booting the
-lab, not for gitsee itself). Trigger:
+lab, not for gitsee itself). The **boot gate** additionally needs `docker` on
+PATH, `npx playwright install chromium` (browsers; otherwise the gate is
+boot-only), and network for `npx staklink` — set `params.verify=false` to skip it
+entirely. Trigger:
 `POST /lab/workflows/gitsee-explore-services/run` with
 `{ input: { workspace, repos: [{owner,repo,rev?}], token? } }`, or launch
 `gitsee-optimize` detached with `{ input: {} }`. Dev smoke harnesses (not

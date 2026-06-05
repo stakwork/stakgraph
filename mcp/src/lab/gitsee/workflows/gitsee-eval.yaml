@@ -20,11 +20,22 @@ name: gitsee-eval
 # gitsee is stateless per run (it re-clones/re-explores), so unlike concepts-eval
 # there's no reset step — each run produces fresh output for the current prompt.
 steps:
-  # 1. Produce the setup files. The exploration prompt is tuned via
+  # 1. Clone the workspace FIRST so its path is in scope for the boot gate. The
+  #    produce subflow re-clones the SAME idempotent path (a no-op reuse), so this
+  #    costs nothing but hands `verify` the dir the produced config must run in.
+  - id: clone
+    type: gitsee/clone-workspace
+    config:
+      workspace: "{{ input.label }}"
+      repos: "{{ input.repos }}"
+      token: "{{ input.token }}"
+
+  # 2. Produce the setup files. The exploration prompt is tuned via
   #    gitsee-explore-services' `params.system`, or per run via
   #    paramOverrides: { "gitsee-explore-services": { system } }.
   - id: produce
     type: subflow
+    depends: clone
     config:
       workflow: gitsee-explore-services
       input:
@@ -34,9 +45,24 @@ steps:
     # subflow output = gitsee-explore-services' `explore` step = { result, steps }
     # `result` is the raw two-file (pm2.config.js + docker-compose.yml) string.
 
-  # 2. Score the produced files against the expected gold setup facts.
+  # 3. THE BOOT GATE: actually run the produced setup in the cloned workspace and
+  #    prove the frontend renders. `booted`/`rendered` dominate the score. Set
+  #    params.verify=false to skip (cheap deterministic-only sweeps).
+  - id: verify
+    type: gitsee/verify-setup
+    depends: produce
+    config:
+      workspacePath: "{{ clone.workspacePath }}"
+      setup: "{{ produce.result }}"
+      enabled: "{{ params.verify }}"
+      checkPath: "{{ params.checkPath }}"
+      bootTimeoutMs: "{{ params.bootTimeoutMs }}"
+      useStaklink: "{{ params.useStaklink }}"
+
+  # 4. Score the produced files against the gold, GATED by the boot result.
   - id: score
     type: subflow
+    depends: verify
     config:
       workflow: gitsee-eval-score
       input:
@@ -45,8 +71,13 @@ steps:
         expected: "{{ input.expected ? input.expected : params.expected }}"
         # Carry the explorer agent's token usage + cost through so the scorer can
         # fold in its own judge cost and surface a per-eval total (→ optimize).
+        # verify.cost = the screenshot vision-judge's tokens; add it in.
         usage: "{{ produce.usage }}"
-        cost: "{{ produce.cost }}"
+        cost: "{{ produce.cost + verify.cost }}"
+        # DOMINANT GATE: did the produced setup actually boot + render?
+        booted: "{{ verify.booted }}"
+        rendered: "{{ verify.rendered }}"
+        bootReason: "{{ verify.reason }}"
 
 # ── params: the gold OUTPUT (the canonical pm2.config.js + docker-compose.yml) ──
 # The gold is the ACTUAL known-good file pair for this repo — same shape the
@@ -56,6 +87,14 @@ steps:
 # functional equivalence is fine but deviations/omissions are penalized).
 # Default below is for heroku/node-js-getting-started (a simple Express app, no DB).
 params:
+  # ── boot-gate knobs (gitsee/verify-setup) ──────────────────────────────────
+  # verify=true makes the eval ACTUALLY run the produced setup and check the
+  # frontend renders — the dominant signal. Turn OFF for cheap, docker-free,
+  # deterministic-only sweeps (then the score is pure file-shape set-diff).
+  verify: true
+  checkPath: "/" # path appended to http://localhost:<port> for the render check
+  bootTimeoutMs: 420000 # install+build can be slow; allow plenty of headroom
+  useStaklink: true # boot the prod way (npx staklink start); false = inline boot
   expected: |-
     FILENAME: pm2.config.js
 

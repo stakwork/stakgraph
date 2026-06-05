@@ -379,9 +379,13 @@ later without breaking this contract — they'd be additive env vars
   workflow-*builder* chat above. It explores a working dir (`cwd`)
   with built-in general tools (`repo_overview` — adaptive, token-capped
   dir tree with build/dep/migration dirs collapsed; `fulltext_search`;
-  `bash`; + anthropic `web_search`; + `file_summary`, an AST structural
-  summary that's only registered when the `stakgraph` CLI is on PATH),
-  filterable via `toolFilter`, and returns one of three shapes: a
+  `bash`; `str_replace_based_edit_tool` — view/create/str_replace/insert
+  files, sandboxed to `cwd` (the anthropic provider-defined text-editor
+  tool, with a generic-`tool()` fallback for other providers; pure handler
+  `textEdit()` is unit-tested offline); + anthropic `web_search`; +
+  `file_summary`, an AST structural summary that's only registered when the
+  `stakgraph` CLI is on PATH), filterable via `toolFilter`, and returns one
+  of three shapes: a
   `final_answer` tool's
   text (set `finalAnswer` to its description), a STRUCTURED object (set
   `schema` to a JSON Schema → `Output.object`, read off `res.output`), or

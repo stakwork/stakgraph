@@ -35,6 +35,21 @@ steps:
       finalAnswer: "{{ params.finalAnswer }}"
       model: "{{ params.model }}"
 
+  # Capture the agent's repo edits (it may have patched files to make the
+  # workspace boot local-first) as a replayable git diff — part of the
+  # deliverable. PASSES THROUGH the agent's result/usage/cost/steps (a workflow's
+  # output is its last step's output), so `explore`'s output is preserved AND
+  # `diff` is added. Captured before any install/boot pollutes the tree.
+  - id: capture
+    type: gitsee/capture-edits
+    depends: explore
+    config:
+      workspacePath: "{{ clone.workspacePath }}"
+      result: "{{ explore.result }}"
+      usage: "{{ explore.usage }}"
+      cost: "{{ explore.cost }}"
+      steps: "{{ explore.steps }}"
+
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
   model: claude-sonnet-4-6
@@ -64,10 +79,19 @@ params:
     - whether the repo has a mock / offline / dev mode (e.g. a USE_MOCKS or MOCK_* flag) that lets it boot without real external accounts — prefer enabling it over provisioning those services.
 
     Use the fulltext_search tool to find env var usage, and bash to read package manifests, lockfiles, docker files, and cross-repo dependency links. You will output actual config files at the end, so find everything you need. Name the runnable pm2 service "frontend" no matter what.
+
+    EDITING THE REPO (local-first). You have a str_replace_based_edit_tool (view/create/str_replace/insert). Use it to make the workspace BOOT LOCALLY when a config change alone can't — e.g. flip a hardcoded cloud-only setting to a local one, enable a mock/offline flag in a config file, or MOVE a misplaced file into the place the framework expects (a classic case: a SQL migration committed at the repo root or meant to be pasted into a hosted dashboard, when the framework auto-applies migrations from a specific dir — move it there). Your edits are captured as a git diff and shipped as part of the setup (re-applied on a fresh clone), so:
+    - Make MINIMAL, surgical edits — only what's needed to boot locally. Don't refactor.
+    - Put FILE changes in the repo (the diff captures them); put RUNTIME steps (reset the db, run migrations, seed) in PRE_START_COMMAND — do NOT do file-moving shell hacks inside PRE_START_COMMAND when an actual file move (a clean diff hunk) is clearer.
+    - Prefer the repo's own mock/offline mode over editing when one exists.
+
+    Name the runnable pm2 service "frontend" no matter what.
   finalAnswer: |-
     Provide the final answer. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
 
     Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in a fenced code block. YOU MUST RETURN BOTH FILES.
+
+    If you edited any repo files to make it boot local-first, add a short "## CHANGES" section AFTER the two files: a brief markdown list of what you changed and why (the exact git diff is captured automatically — this is the human-readable summary, not the patch). Omit the section if you made no repo edits.
 
     # Pod contract - mandatory
 

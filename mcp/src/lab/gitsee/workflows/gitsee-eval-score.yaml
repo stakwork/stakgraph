@@ -12,8 +12,10 @@ name: gitsee-eval-score
 # mechanical + boot-critical — a set diff is sharper and lower-variance than
 # hoping a paragraph rubric makes the judge enumerate 15 keys.
 #
-# Input:  { actual, expected, usage?, cost? }   (each file = a "FILENAME: …" string;
-#          usage/cost = the upstream explorer agent's tokens+$, folded into the total)
+# Input:  { actual, expected, usage?, cost?, booted?, rendered?, bootReason? }
+#          (each file = a "FILENAME: …" string; usage/cost = the upstream explorer
+#          agent's tokens+$, folded into the total; booted/rendered = the dominant
+#          boot gate from gitsee/verify-setup)
 # Output: { score, recall, precision, matched, missing, spurious, reason, insight,
 #           markdown, usage, cost }
 #         (the eval/optimize + eval/reflect contract — preserved by score-setup —
@@ -37,6 +39,12 @@ steps:
       ignoreEnvKeys: "{{ params.ignoreEnvKeys }}"
       # The semantic-judge rubric (the experiment surface for the LLM tier).
       rubric: "{{ params.rubric }}"
+      # DOMINANT BOOT GATE: did the produced setup actually run + render (from
+      # gitsee/verify-setup)? !booted → heavy penalty, booted-but-not-rendered →
+      # medium. Null/absent (no verify step) leaves the file-shape score untouched.
+      booted: "{{ input.booted }}"
+      rendered: "{{ input.rendered }}"
+      bootReason: "{{ input.bootReason }}"
       # Optionally override the judge model:
       # model: claude-opus-4-20250514
 
@@ -83,11 +91,10 @@ params:
       pm2 env (e.g. a DATABASE_URL) are consistent with the corresponding compose
       service (same db name / user / password / host:port) — regardless of how
       either side is named.
-    - SERVICE APPROPRIATENESS: a backing service gets a real container ONLY if it
-      is a primary datastore the app can't boot without (the database). Caches,
-      queues, pub/sub, realtime (redis, soketi/pusher, etc.) and any cloud/third-
-      party service must be MOCKED or DISABLED, not containerized — flag any such
-      extra service in the produced compose as a defect (over-provisioning).
+    - SERVICE APPROPRIATENESS: do NOT flag EXTRA services as a defect — if the app
+      boots and renders, an extra backing service (e.g. a redis the gold mocks) did
+      no harm and is acceptable. Only flag a MISSING service the app genuinely
+      needs to boot. (Over-provisioning is no longer penalized.)
     - MOCK/OFFLINE MODE: when the repo supports a mock/offline mode (USE_MOCKS or
       similar), the produced pm2 env should enable it and use placeholder mock-*
       creds for external services rather than provisioning them.
