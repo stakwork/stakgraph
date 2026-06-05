@@ -79,10 +79,35 @@ function labelFor(datum: unknown, i: number): string {
   return `example ${i + 1}`;
 }
 
+/** Map over `items` with a bounded number of in-flight calls, preserving order.
+ *  `limit <= 0` (or ≥ length) = unbounded (plain `Promise.all`, the default).
+ *  A limit of 1 serializes — needed when each eval has SIDE EFFECTS that don't
+ *  parallelize (e.g. gitsee's boot gate binds fixed host ports 3000/5432, a pm2
+ *  process named "frontend", and one staklink daemon — concurrent boots collide).
+ *  Rejection semantics match `Promise.all`: the first failure rejects. */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, i: number) => Promise<R>,
+): Promise<R[]> {
+  if (limit <= 0 || limit >= items.length) return Promise.all(items.map(fn));
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!, i);
+    }
+  };
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return results;
+}
+
 export default defineStep({
   type: "eval/optimize",
   description:
-    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset; ≥1 entry), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value). Output: { bestScore, bestGen, bestPrompt, firstScore, totalCost, totalUsage, generations } — totalCost/totalUsage sum every eval (explorer agent + judge) + every reflection; each generation also carries its own cost/usage.",
+    "Generic self-improving loop: eval the candidate prompt over a DATASET → average the score → keep best → reflect a better one → repeat until mean score ≥ threshold or generations exhausted. Requires a `services.optimizer` capability. Config: evalWorkflow, evalInputs (array, the dataset; ≥1 entry), targetWorkflow, promptParam, reflectWorkflow, maxGenerations, threshold, prompt? (starting candidate, defaults to target's current value), concurrency? (0=unbounded parallel default; 1=serialize when evals have non-parallelizable side effects like a boot gate). Output: { bestScore, bestGen, bestPrompt, firstScore, totalCost, totalUsage, generations } — totalCost/totalUsage sum every eval (explorer agent + judge) + every reflection; each generation also carries its own cost/usage.",
   input: z.object({
     evalWorkflow: z.string().describe("workflow that scores a candidate; output must have { score, missing, spurious, insight }"),
     evalInputs: z.array(z.any()).min(1).describe("the dataset: inputs evaluated each generation and averaged (e.g. [{ owner, repo, expected }, ...]). Each entry's gold rides on the entry."),
@@ -92,6 +117,14 @@ export default defineStep({
     maxGenerations: z.number().int().positive().default(5),
     threshold: z.number().min(0).max(1).default(0.9),
     prompt: z.string().optional().describe("starting candidate; defaults to targetWorkflow's current promptParam value"),
+    concurrency: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe(
+        "max dataset entries evaluated IN PARALLEL per generation. 0 = unbounded (default, back-compat). Set to 1 to SERIALIZE when each eval has non-parallelizable side effects (e.g. gitsee's boot gate binds fixed host ports / a shared pm2+staklink daemon — concurrent boots collide).",
+      ),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -175,27 +208,24 @@ export default defineStep({
         // Each example is its own run (so its own gold + logs); the candidate
         // prompt is injected into all of them via the same paramOverrides.
         const paramOverrides = { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } };
-        const evalRuns = await Promise.all(
-          dataset.map((datum, i) =>
-            opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides }).then((run) => {
-              if (run.status !== "success") {
-                throw new Error(`eval run for "${labelFor(datum, i)}" failed: ${run.error?.message ?? "unknown"}`);
-              }
-              const out = (run.output ?? {}) as EvalOutput;
-              const result: ExampleResult = {
-                label: labelFor(datum, i),
-                score: out.score ?? 0,
-                missing: out.missing ?? [],
-                spurious: out.spurious ?? [],
-                insight: out.insight,
-                evalRunId: run.runId,
-                usage: coerceUsage(out.usage),
-                cost: typeof out.cost === "number" ? out.cost : 0,
-              };
-              return result;
-            }),
-          ),
-        );
+        const evalRuns = await mapLimit(dataset, cfg.concurrency, async (datum, i) => {
+          const run = await opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides });
+          if (run.status !== "success") {
+            throw new Error(`eval run for "${labelFor(datum, i)}" failed: ${run.error?.message ?? "unknown"}`);
+          }
+          const out = (run.output ?? {}) as EvalOutput;
+          const result: ExampleResult = {
+            label: labelFor(datum, i),
+            score: out.score ?? 0,
+            missing: out.missing ?? [],
+            spurious: out.spurious ?? [],
+            insight: out.insight,
+            evalRunId: run.runId,
+            usage: coerceUsage(out.usage),
+            cost: typeof out.cost === "number" ? out.cost : 0,
+          };
+          return result;
+        });
 
         // The generation score = MEAN across the dataset (the overfitting fix).
         const score = evalRuns.reduce((s, r) => s + r.score, 0) / evalRuns.length;
