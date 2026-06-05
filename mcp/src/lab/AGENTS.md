@@ -64,8 +64,12 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
 
 - `gitsee/steps/clone-workspace.ts` (`gitsee/clone-workspace`) — clones N repos
   as siblings under one workspace dir (idempotent, per-rev). Each repo may pin a
-  `rev`; `token` falls back to `GITHUB_TOKEN` env (private repos). Output
-  `{ workspacePath, repos }`. **The only gitsee-specific producer step.**
+  `rev`; `token` falls back to `GITHUB_TOKEN` env (private repos). `clean`
+  (default true) resets a REUSED clone to a pristine working tree
+  (`git reset --hard && git clean -fd`) so each run / optimizer generation starts
+  fresh — discarding the prior explore agent's edits + created files (keeps
+  gitignored `node_modules` for speed). Output `{ workspacePath, repos }`. **The
+  only gitsee-specific producer step.**
 - Exploration is the **core `agent` step** (`vein/src/steps/core/agent.ts`),
   pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
   `fulltext_search`, `bash`, `str_replace_based_edit_tool` — view/create/edit
