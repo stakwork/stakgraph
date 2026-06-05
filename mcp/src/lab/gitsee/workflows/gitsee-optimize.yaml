@@ -38,6 +38,12 @@ steps:
       reflectWorkflow: gitsee-eval-reflect
       maxGenerations: "{{ params.maxGenerations }}"
       threshold: "{{ params.threshold }}"
+      # SERIALIZE the per-workspace evals: each one runs the BOOT GATE
+      # (gitsee/verify-setup), which binds fixed host ports (frontend :3000,
+      # postgres :5432), a pm2 process named "frontend", and the single staklink
+      # daemon — so concurrent boots would collide. 1 = one workspace booted at a
+      # time. (Raise only if you isolate ports/names per workspace.)
+      concurrency: "{{ params.concurrency }}"
 
 # ── params: the cohort (dataset of WORKSPACES) + the loop's stopping knobs ──
 # Each dataset entry is a WORKSPACE: { label, repos: [{ owner, repo, rev? }],
@@ -65,6 +71,10 @@ steps:
 params:
   maxGenerations: 4
   threshold: 0.9
+  # Serialize the boot gates (one workspace booted at a time) — concurrent boots
+  # collide on host ports 3000/5432, the pm2 "frontend" name, and the staklink
+  # daemon. A full run is 5 workspaces × maxGenerations boots, in series.
+  concurrency: 1
   dataset:
     # Single-repo workspace: a plain Express app, no DB.
     - label: heroku-node

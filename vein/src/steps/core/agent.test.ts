@@ -1,7 +1,10 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { coreRegistry } from "../registry.js";
-import agent, { repoTree } from "./agent.js";
+import agent, { repoTree, textEdit } from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
 // config-validation guards in run() that fire BEFORE any model call. The actual
@@ -84,5 +87,78 @@ describe("repo_overview adaptive tree (repoTree)", () => {
     const files = ["a/b/c/d/e/f/g/h/i/j/deep.ts"];
     const { depth } = repoTree(files, { maxLines: 10000, maxDepth: 3 });
     assert.equal(depth, 3, "never deeper than maxDepth even with budget to spare");
+  });
+});
+
+describe("textEdit (str_replace_based_edit_tool handler)", () => {
+  let cwd: string;
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "vein-textedit-"));
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("views a file with 1-indexed line numbers", () => {
+    writeFileSync(join(cwd, "a.txt"), "one\ntwo\nthree");
+    const out = textEdit({ command: "view", path: "a.txt" }, cwd);
+    assert.equal(out, "1: one\n2: two\n3: three");
+  });
+
+  it("views a line range", () => {
+    writeFileSync(join(cwd, "a.txt"), "one\ntwo\nthree\nfour");
+    assert.equal(textEdit({ command: "view", path: "a.txt", view_range: [2, 3] }, cwd), "2: two\n3: three");
+    assert.equal(textEdit({ command: "view", path: "a.txt", view_range: [3, -1] }, cwd), "3: three\n4: four");
+  });
+
+  it("lists a directory on view", () => {
+    writeFileSync(join(cwd, "z.txt"), "");
+    writeFileSync(join(cwd, "a.txt"), "");
+    const out = textEdit({ command: "view", path: "." }, cwd);
+    assert.equal(out, "a.txt\nz.txt");
+  });
+
+  it("creates a new file (including nested dirs)", () => {
+    const out = textEdit({ command: "create", path: "sub/dir/new.txt", file_text: "hi" }, cwd);
+    assert.match(out, /Successfully created/);
+    assert.equal(readFileSync(join(cwd, "sub/dir/new.txt"), "utf-8"), "hi");
+  });
+
+  it("str_replace replaces exactly one match", () => {
+    writeFileSync(join(cwd, "a.txt"), "foo bar baz");
+    const out = textEdit({ command: "str_replace", path: "a.txt", old_str: "bar", new_str: "QUX" }, cwd);
+    assert.match(out, /Successfully replaced/);
+    assert.equal(readFileSync(join(cwd, "a.txt"), "utf-8"), "foo QUX baz");
+  });
+
+  it("str_replace refuses zero matches", () => {
+    writeFileSync(join(cwd, "a.txt"), "foo");
+    const out = textEdit({ command: "str_replace", path: "a.txt", old_str: "nope", new_str: "x" }, cwd);
+    assert.match(out, /No match found/);
+    assert.equal(readFileSync(join(cwd, "a.txt"), "utf-8"), "foo");
+  });
+
+  it("str_replace refuses multiple matches", () => {
+    writeFileSync(join(cwd, "a.txt"), "x x x");
+    const out = textEdit({ command: "str_replace", path: "a.txt", old_str: "x", new_str: "y" }, cwd);
+    assert.match(out, /Found 3 matches/);
+    assert.equal(readFileSync(join(cwd, "a.txt"), "utf-8"), "x x x");
+  });
+
+  it("inserts text after a line (0 = top of file)", () => {
+    writeFileSync(join(cwd, "a.txt"), "one\ntwo");
+    textEdit({ command: "insert", path: "a.txt", insert_line: 0, insert_text: "ZERO" }, cwd);
+    assert.equal(readFileSync(join(cwd, "a.txt"), "utf-8"), "ZERO\none\ntwo");
+  });
+
+  it("refuses paths that escape the working dir", () => {
+    writeFileSync(join(cwd, "a.txt"), "secret");
+    const out = textEdit({ command: "view", path: "../../../etc/passwd" }, cwd);
+    assert.match(out, /escapes the working directory/);
+  });
+
+  it("returns File not found for missing files", () => {
+    assert.match(textEdit({ command: "view", path: "nope.txt" }, cwd), /File not found/);
+    assert.ok(!existsSync(join(cwd, "nope.txt")));
   });
 });
