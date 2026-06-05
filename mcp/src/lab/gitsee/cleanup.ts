@@ -1,4 +1,7 @@
 import { execSync } from "node:child_process";
+import { readdirSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 /**
  * Manual cleanup for a gitsee boot-gate run that was KILLED (no teardown ran).
@@ -48,6 +51,29 @@ if (ours.length) {
 sh("docker network prune -f");
 const vols = ids(sh(`docker volume ls -q --filter "name=supabase_"`));
 if (vols.length) sh(`docker volume rm ${vols.join(" ")}`);
+
+// 4. strip files verify-setup staged into each reused clone (pm2.config.js,
+//    docker-compose.yml, .pod-config) so a killed run doesn't leave a "prior
+//    attempt" that distracts the next explore agent.
+const labRoot = join(tmpdir(), "gitsee-lab");
+if (existsSync(labRoot)) {
+  for (const ws of readdirSync(labRoot)) {
+    const wsDir = join(labRoot, ws);
+    for (const f of ["pm2.config.js", "pm2.config.cjs", "docker-compose.yml"]) {
+      try {
+        rmSync(join(wsDir, f), { force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      rmSync(join(wsDir, ".pod-config"), { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+  console.log(`[gitsee-cleanup] stripped staged config files from ${labRoot}/*`);
+}
 
 console.log("[gitsee-cleanup] done. Remaining containers:");
 console.log(sh("docker ps --format '{{.Names}}\\t{{.Ports}}'") || "(none)");

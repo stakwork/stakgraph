@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
-import { usageFromResult, computeCost } from "../../pricing.js";
+import { usageFromResult, computeCost, addUsage } from "../../pricing.js";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, sep } from "node:path";
@@ -28,8 +28,10 @@ import { join, resolve, dirname, isAbsolute, sep } from "node:path";
  *
  * Provider-direct via the AI SDK (anthropic | openai), lazy-loaded. Needs the
  * provider's key in env (ANTHROPIC_API_KEY / OPENAI_API_KEY) and `git` + `rg` on
- * PATH for the repo tools. Output: { result, object?, steps, messages, usage,
- * cost } — `usage` is the aggregated token counts across the whole agent loop
+ * PATH for the repo tools. Output: { result, object?, steps, usage, cost }
+ * (+ `messages`, the full session, only when `returnMessages` is set — it's huge
+ * and persisted per step, so it's off by default). `usage` is the aggregated
+ * token counts across the whole agent loop
  * and `cost` is its dollar cost at the provider's rates (see ../../pricing.ts).
  */
 
@@ -380,7 +382,7 @@ export function textEdit(input: TextEditInput, cwd: string): string {
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, messages }.",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -400,10 +402,16 @@ export default defineStep({
     model: z.string().optional(),
     provider: z.string().optional(),
     maxSteps: z.number().int().positive().default(40),
+    returnMessages: z
+      .boolean()
+      .default(false)
+      .describe(
+        "include the FULL tool-loop session (`messages`) in the output. Off by default — the session is huge and the runner persists every step's output, so returning it bloats events.jsonl/run.json and buries `result`. Turn on only for a fork/sub-agent that needs the transcript.",
+      ),
   }),
   output: z.any(),
   async run(cfg) {
-    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema } = await import("ai");
+    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, generateText } = await import("ai");
 
     const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
     const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
@@ -574,12 +582,17 @@ export default defineStep({
     });
 
     const steps = res.steps ?? [];
+    // The full session is HUGE and the runner persists every step's output, so we
+    // only include it when explicitly asked (a future fork/sub-agent). Off by
+    // default keeps the explore step's persisted output to `{ result, steps, … }`.
     const messages = res.response?.messages ?? [];
+    const maybeMessages = cfg.returnMessages ? { messages } : {};
 
     // Token usage + cost across the WHOLE agent loop (totalUsage aggregates every
     // step; fall back to the final-step usage). `provider` drives the rate table.
-    const usage = usageFromResult(res.totalUsage ?? res.usage);
-    const cost = computeCost(provider, usage);
+    // Mutable so a forced final-answer turn (below) can be folded in.
+    let usage = usageFromResult(res.totalUsage ?? res.usage);
+    let cost = computeCost(provider, usage);
     console.log(
       `[agent] tokens in:${usage.inputTokens} cacheRead:${usage.cacheReadTokens} cacheWrite:${usage.cacheWriteTokens} out:${usage.outputTokens} → $${cost.toFixed(4)}`,
     );
@@ -587,7 +600,7 @@ export default defineStep({
     // Structured mode: return the typed object.
     if (useSchema) {
       console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps, structured)`);
-      return { result: res.text, object: res.output, steps: steps.length, messages, usage, cost };
+      return { result: res.text, object: res.output, steps: steps.length, ...maybeMessages, usage, cost };
     }
 
     // finalAnswer / text mode: extract the final_answer tool output, else last text.
@@ -608,15 +621,43 @@ export default defineStep({
           break;
         }
       }
-      if (!final && lastText) {
-        console.warn("[agent] No final_answer tool call; using last reasoning text.");
-        final = `${lastText}\n\n(Note: model did not invoke final_answer; using last reasoning text.)`;
+      // The loop ended (almost always: hit maxSteps) WITHOUT calling final_answer,
+      // so we'd otherwise return a stray reasoning sentence and lose the whole
+      // (expensive) exploration. Salvage it: force ONE no-tools turn that must emit
+      // the final answer now, continuing the full session.
+      if (!final) {
+        console.warn("[agent] No final_answer tool call; forcing a final-answer turn.");
+        try {
+          const forced = await generateText({
+            model,
+            ...(providerOptions ? { providerOptions } : {}),
+            messages: [
+              ...(messages as any[]),
+              {
+                role: "user",
+                content: `You have used your entire exploration budget — do NOT call any tools. Using everything you learned above, produce the final answer NOW.\n\n${cfg.finalAnswer}`,
+              },
+            ],
+          });
+          const ft = (forced.text ?? "").trim();
+          if (ft) {
+            final = ft;
+            const fu = usageFromResult(forced.totalUsage ?? forced.usage);
+            usage = addUsage(usage, fu);
+            cost += computeCost(provider, fu);
+          }
+        } catch (e) {
+          console.warn("[agent] forced final-answer turn failed:", (e as Error).message);
+        }
+        if (!final && lastText) {
+          final = `${lastText}\n\n(Note: model did not invoke final_answer; using last reasoning text.)`;
+        }
       }
     } else {
       final = res.text || lastText;
     }
 
     console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps)`);
-    return { result: final, steps: steps.length, messages, usage, cost };
+    return { result: final, steps: steps.length, ...maybeMessages, usage, cost };
   },
 });

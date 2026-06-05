@@ -34,6 +34,10 @@ steps:
       system: "{{ params.system }}"
       finalAnswer: "{{ params.finalAnswer }}"
       model: "{{ params.model }}"
+      # Multi-repo workspaces (mikeoss, hive) need a bigger budget to explore +
+      # produce. If the loop still runs out, the agent step forces a final-answer
+      # turn so we always get the two files (never an empty result).
+      maxSteps: "{{ params.maxSteps }}"
 
   # Capture the agent's repo edits (it may have patched files to make the
   # workspace boot local-first) as a replayable git diff — part of the
@@ -53,6 +57,10 @@ steps:
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
   model: claude-sonnet-4-6
+  # Agent step budget. Generous for hard multi-repo workspaces (mikeoss, hive)
+  # that need a lot of exploration before producing; a forced final-answer turn
+  # (in the agent step) still guarantees output if even this is exhausted.
+  maxSteps: 200
   # The pod's base domain. Public URLs are https://<$POD_ID>[-<port>].<podDomain>.
   # Factored out here (single source of truth) and referenced via
   # {{ params.podDomain }} inside the finalAnswer contract below — vein resolves
