@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineStep } from "../../core.js";
-import { usageFromResult, computeCost } from "../../pricing.js";
+import { usageFromResult, computeCost, addUsage } from "../../pricing.js";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, sep } from "node:path";
@@ -411,7 +411,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg) {
-    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema } = await import("ai");
+    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, generateText } = await import("ai");
 
     const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
     const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
@@ -590,8 +590,9 @@ export default defineStep({
 
     // Token usage + cost across the WHOLE agent loop (totalUsage aggregates every
     // step; fall back to the final-step usage). `provider` drives the rate table.
-    const usage = usageFromResult(res.totalUsage ?? res.usage);
-    const cost = computeCost(provider, usage);
+    // Mutable so a forced final-answer turn (below) can be folded in.
+    let usage = usageFromResult(res.totalUsage ?? res.usage);
+    let cost = computeCost(provider, usage);
     console.log(
       `[agent] tokens in:${usage.inputTokens} cacheRead:${usage.cacheReadTokens} cacheWrite:${usage.cacheWriteTokens} out:${usage.outputTokens} → $${cost.toFixed(4)}`,
     );
@@ -620,9 +621,37 @@ export default defineStep({
           break;
         }
       }
-      if (!final && lastText) {
-        console.warn("[agent] No final_answer tool call; using last reasoning text.");
-        final = `${lastText}\n\n(Note: model did not invoke final_answer; using last reasoning text.)`;
+      // The loop ended (almost always: hit maxSteps) WITHOUT calling final_answer,
+      // so we'd otherwise return a stray reasoning sentence and lose the whole
+      // (expensive) exploration. Salvage it: force ONE no-tools turn that must emit
+      // the final answer now, continuing the full session.
+      if (!final) {
+        console.warn("[agent] No final_answer tool call; forcing a final-answer turn.");
+        try {
+          const forced = await generateText({
+            model,
+            ...(providerOptions ? { providerOptions } : {}),
+            messages: [
+              ...(messages as any[]),
+              {
+                role: "user",
+                content: `You have used your entire exploration budget — do NOT call any tools. Using everything you learned above, produce the final answer NOW.\n\n${cfg.finalAnswer}`,
+              },
+            ],
+          });
+          const ft = (forced.text ?? "").trim();
+          if (ft) {
+            final = ft;
+            const fu = usageFromResult(forced.totalUsage ?? forced.usage);
+            usage = addUsage(usage, fu);
+            cost += computeCost(provider, fu);
+          }
+        } catch (e) {
+          console.warn("[agent] forced final-answer turn failed:", (e as Error).message);
+        }
+        if (!final && lastText) {
+          final = `${lastText}\n\n(Note: model did not invoke final_answer; using last reasoning text.)`;
+        }
       }
     } else {
       final = res.text || lastText;

@@ -1,6 +1,6 @@
 import { z, defineStep, usageFromResult, computeCost } from "vein";
 import { spawn } from "node:child_process";
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createConnection } from "node:net";
@@ -573,6 +573,21 @@ export default defineStep({
           }
         } catch {
           /* ignore teardown errors */
+        }
+        // Remove the files WE staged so a REUSED clone isn't polluted next run —
+        // otherwise the next explore agent browses the workspace root, finds a
+        // prior attempt's pm2.config.js/compose, and burns its budget analyzing it.
+        for (const f of ["pm2.config.js", "docker-compose.yml", "pm2.config.cjs"]) {
+          try {
+            rmSync(join(wp, f), { force: true });
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          rmSync(join(wp, ".pod-config"), { recursive: true, force: true });
+        } catch {
+          /* ignore */
         }
       } else {
         log("keepUp:true — leaving services + apps running");
