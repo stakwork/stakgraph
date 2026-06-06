@@ -477,12 +477,15 @@ export default defineStep({
       }),
       bash: tool({
         description:
-          "Execute a bash command inside the working dir. Use for listing dirs, reading files (cat/head), inspecting manifests/lockfiles/docker files, and anything the other tools don't cover.",
+          "Execute a bash command inside the working dir. Use for listing dirs, reading files (cat/head), inspecting manifests/lockfiles/docker files, running installs/builds, and anything the other tools don't cover. Long-running commands are allowed (up to a 10-minute timeout); a command that never exits (e.g. a dev server) will block until killed at the timeout.",
         inputSchema: z.object({ command: z.string().describe("The bash command to execute") }) as any,
         execute: async ({ command }: { command: string }) => {
           try {
             if (!existsSync(cfg.cwd)) return "Working directory does not exist";
-            return await runShell(command, cfg.cwd);
+            // 10-minute timeout so the agent can run real installs/builds (not just
+            // quick inspection). Note: a non-terminating process (a dev server)
+            // still blocks until killed at this timeout.
+            return await runShell(command, cfg.cwd, 600_000);
           } catch (e) {
             return `Command execution failed: ${e}`;
           }
