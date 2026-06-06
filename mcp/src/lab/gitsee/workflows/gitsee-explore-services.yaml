@@ -79,21 +79,21 @@ params:
 
     Explore the repos to determine:
     - which repo is the runnable frontend (look for the app with a dev/start script, a web framework, an entrypoint);
-    - its package manager and the real install / build / dev commands (read the package manifest / lockfiles);
-    - the host and port it binds (it MUST bind 0.0.0.0 in the pod);
-    - the environment variables it needs — search for process.env. / ENV usage, .env.example, config files;
+    - its package manager and the real install / build / dev commands — read the package manifest / lockfiles AND verify executability by checking if binaries exist and scripts are runnable. For Go apps, prefer 'go run .' over pre-built binaries that may not exist. For database operations, prefer development commands (e.g. 'migrate dev') over production commands (e.g. 'migrate deploy') in local setups;
+    - the host and port it binds — it MUST bind 0.0.0.0 in the pod for external access, not localhost or 127.0.0.1. Verify HOST/HOSTNAME env vars are set to proper local binding addresses, not external URLs;
+    - ALL environment variables it needs — comprehensively search process.env usage, import statements, config file reads, .env files, and ANY hardcoded references to external services/APIs/databases. Look for API keys, database URLs, service endpoints, feature flags, authentication secrets, test commands, reset commands, and any variables referenced in startup scripts or configuration. Search broadly across multiple files and use patterns like TEST_*, RESET_*, *_API_KEY, *_URL, *_ENDPOINT;
     - whether it depends on sibling repos in the workspace that must be installed/built first (file: deps, workspace links);
-    - which backing services it TRULY needs to boot — usually just its database. Caches, queues, realtime, and cloud/third-party integrations should be mocked or disabled, not run as services;
+    - which backing services it TRULY needs to boot and render the frontend successfully — identify required databases, storage services, caches, queues, and authentication providers by tracing env var usage and dependencies. Ensure service credentials match between your configuration and the actual service definitions. Mock or disable optional services like analytics, monitoring, and non-critical integrations;
     - whether the repo has a mock / offline / dev mode (e.g. a USE_MOCKS or MOCK_* flag) that lets it boot without real external accounts — prefer enabling it over provisioning those services.
 
-    Use the fulltext_search tool to find env var usage, and bash to read package manifests, lockfiles, docker files, and cross-repo dependency links. You will output actual config files at the end, so find everything you need. Name the runnable pm2 service "frontend" no matter what.
+    PRIORITIZE A WORKING, RENDERING FRONTEND. Your primary goal is a setup that boots successfully AND renders the intended application UI with functional user interface elements, not just binding a port or showing placeholder text. Ensure start commands are correct and executable, host binding allows external access, required services are properly configured with matching credentials, database schemas are initialized correctly, and all critical environment variables are set with working values. Verify that persistent backend processes are properly managed through pm2 configuration, not just started in PRE_START_COMMAND.
 
-    EDITING THE REPO (local-first). You have a str_replace_based_edit_tool (view/create/str_replace/insert). Use it to make the workspace BOOT LOCALLY when a config change alone can't — e.g. flip a hardcoded cloud-only setting to a local one, enable a mock/offline flag in a config file, or MOVE a misplaced file into the place the framework expects (a classic case: a SQL migration committed at the repo root or meant to be pasted into a hosted dashboard, when the framework auto-applies migrations from a specific dir — move it there). Your edits are captured as a git diff and shipped as part of the setup (re-applied on a fresh clone), so:
+    Use the fulltext_search tool to find env var usage, API calls, and service dependencies, and bash to read package manifests, lockfiles, docker files, and cross-repo dependency links. You will output actual config files at the end, so find everything you need.
+
+    EDITING THE REPO (local-first). You have a str_replace_based_edit_tool (view/create/str_replace/insert). Use it to make the workspace BOOT LOCALLY when a config change alone can't — e.g. flip a hardcoded cloud-only setting to a local one, enable a mock/offline flag in a config file, fix incorrect host binding (change localhost to 0.0.0.0), or MOVE a misplaced file into the place the framework expects (a classic case: a SQL migration committed at the repo root or meant to be pasted into a hosted dashboard, when the framework auto-applies migrations from a specific dir — move it there). Your edits are captured as a git diff and shipped as part of the setup (re-applied on a fresh clone), so:
     - Make MINIMAL, surgical edits — only what's needed to boot locally. Don't refactor.
     - Put FILE changes in the repo (the diff captures them); put RUNTIME steps (reset the db, run migrations, seed) in PRE_START_COMMAND — do NOT do file-moving shell hacks inside PRE_START_COMMAND when an actual file move (a clean diff hunk) is clearer.
     - Prefer the repo's own mock/offline mode over editing when one exists.
-
-    Name the runnable pm2 service "frontend" no matter what.
   finalAnswer: |-
     Provide the final answer. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
 

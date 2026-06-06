@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import * as api from "../api";
-import { formatJson, eventTone, statusTone } from "../helpers";
+import { eventTone, statusTone } from "../helpers";
+import { ValueFields } from "./ValueFields";
 import { StepData } from "../flow-to-canvas";
 import { CloseIcon } from "../icons";
 import yaml from "js-yaml";
@@ -79,19 +80,19 @@ export function EventsPanel(props: {
                 {evt.input != null && (
                   <>
                     <div class="event-detail-label">Input</div>
-                    <pre class="event-detail-block">{formatJson(evt.input)}</pre>
+                    <ValueFields value={evt.input} blockClass="event-detail-block" />
                   </>
                 )}
                 {evt.output != null && (
                   <>
                     <div class="event-detail-label">Output</div>
-                    <pre class="event-detail-block">{formatJson(evt.output)}</pre>
+                    <ValueFields value={evt.output} blockClass="event-detail-block" />
                   </>
                 )}
                 {evt.error != null && (
                   <>
                     <div class="event-detail-label">Error</div>
-                    <pre class="event-detail-block tone-error">{formatJson(evt.error)}</pre>
+                    <ValueFields value={evt.error} blockClass="event-detail-block tone-error" />
                   </>
                 )}
               </div>
