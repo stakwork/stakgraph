@@ -1010,6 +1010,56 @@ body.is-resizing-flyout * {
   padding: var(--sp-6) 0;
 }
 
+.chat-history-btn.is-active {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chat-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.chat-history-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.chat-history-item:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.chat-history-item.is-current {
+  border-color: var(--accent);
+}
+.chat-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.chat-history-time {
+  color: var(--text-dim);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
 .chat-msg {
   max-width: 92%;
   font-size: 13px;
@@ -1303,4 +1353,72 @@ body.is-resizing-flyout * {
 
 .md-view strong { font-weight: 600; color: var(--text); }
 .md-view em { font-style: italic; }
+
+/* ── Promote flyout ──────────────────────────────────────────────────────── */
+.promote-row { border-top: 1px solid var(--border); padding-top: var(--sp-3); }
+.promote-target {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-2);
+}
+.promote-target code {
+  color: var(--accent-strong);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+}
+.promote-arrow { color: var(--text-dim); }
+.promote-from { color: var(--text-dim); font-size: 11px; margin-left: var(--sp-2); }
+.promote-actions { margin-top: var(--sp-2); }
+.promote-nodiff {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+}
+.promote-unresolved { color: var(--warning); border-color: rgba(251, 191, 36, 0.3); }
+
+/* react-diff-view, themed onto the midnight palette (the lib ships light). */
+.promote-diff {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: auto;
+  max-height: 360px;
+  background: var(--bg);
+}
+.promote-diff .diff {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  border-collapse: collapse;
+  width: 100%;
+}
+.promote-diff .diff-gutter {
+  color: var(--text-dim);
+  background: var(--surface);
+  padding: 0 var(--sp-2);
+  text-align: right;
+  min-width: 32px;
+}
+.promote-diff .diff-code { padding: 0 var(--sp-3); white-space: pre-wrap; word-break: break-word; }
+.promote-diff .diff-code-insert,
+.promote-diff .diff-gutter-insert { background: rgba(34, 197, 94, 0.14); }
+.promote-diff .diff-code-delete,
+.promote-diff .diff-gutter-delete { background: rgba(248, 113, 113, 0.14); }
+.promote-diff .diff-code-insert { color: #b9f0c9; }
+.promote-diff .diff-code-delete { color: #f7c0c0; }
+.promote-diff .diff-hunk-header {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 11px;
+}
 

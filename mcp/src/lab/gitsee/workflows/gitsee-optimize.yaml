@@ -45,6 +45,17 @@ steps:
       # time. (Raise only if you isolate ports/names per workspace.)
       concurrency: "{{ params.concurrency }}"
 
+# ── promote: the winning prompt → the explorer's `system` param ─────────────
+# Declarative + INERT: this just tells the UI that after a run, `output.bestPrompt`
+# is a value worth promoting into gitsee-explore-services' `system` param default.
+# It writes NOTHING on its own — the UI shows a diff (current system prompt vs this
+# run's bestPrompt) and only writes + publishes a new gitsee-explore-services
+# version when you review it and click Apply.
+promotes:
+  - from: bestPrompt
+    to: gitsee-explore-services.system
+    label: Explorer system prompt
+
 # ── params: the cohort (dataset of WORKSPACES) + the loop's stopping knobs ──
 # Each dataset entry is a WORKSPACE: { label, repos: [{ owner, repo, rev? }],
 # token?, expected }.

@@ -180,6 +180,7 @@ export class WorkspaceManager {
       // Resolve param-to-param references (`{{ params.* }}` nested inside another
       // param) once at load, so a shared value can be factored into one knob.
       ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
+      ...(Array.isArray(data.promotes) ? { promotes: data.promotes } : {}),
     };
   }
 
@@ -223,7 +224,7 @@ export class WorkspaceManager {
   async publishWorkflow(
     name: string,
     version: string,
-    content: { steps: any[]; params?: Record<string, unknown> } | string,
+    content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
     description?: string,
   ): Promise<void> {
     const dir = join(this.root, "workflows", name);
@@ -238,6 +239,7 @@ export class WorkspaceManager {
               name,
               steps: content.steps,
               ...(content.params != null ? { params: content.params } : {}),
+              ...(content.promotes != null ? { promotes: content.promotes } : {}),
             },
             { lineWidth: 120, noRefs: true },
           );
@@ -282,6 +284,40 @@ export class WorkspaceManager {
       JSON.stringify(meta, null, 2),
       "utf-8",
     );
+  }
+
+  /**
+   * GENERIC promote primitive: set ONE `param` default on a workflow and
+   * publish it as the next sequential version (`vN+1`). Reads the active
+   * version's raw YAML and round-trips the WHOLE object (so `steps`, other
+   * `params`, and any `promotes` block survive), overwriting only
+   * `params[param]`. Returns the new version id plus the `before`/`after`
+   * values (the diff surface). This is what "promote a winner" calls once a
+   * human approves — nothing here is automatic.
+   */
+  async setParam(
+    name: string,
+    param: string,
+    value: unknown,
+  ): Promise<{ version: string; before: unknown; after: unknown }> {
+    const meta = await this.readWorkflowMetadata(name);
+    if (!meta) throw new Error(`Workflow "${name}" not found`);
+
+    const raw = await this.getWorkflowSource(name, meta.active);
+    const obj = (yaml.load(raw) as Record<string, unknown>) ?? {};
+    if (!obj["name"]) obj["name"] = name;
+    const params =
+      obj["params"] && typeof obj["params"] === "object"
+        ? (obj["params"] as Record<string, unknown>)
+        : {};
+    const before = params[param];
+    params[param] = value;
+    obj["params"] = params;
+
+    const yamlStr = yaml.dump(obj, { lineWidth: 120, noRefs: true });
+    const next = nextVersionLabel(Object.keys(meta.versions));
+    await this.publishWorkflow(name, next, yamlStr);
+    return { version: next, before, after: value };
   }
 
   /**

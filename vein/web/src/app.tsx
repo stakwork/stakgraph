@@ -17,6 +17,7 @@ import { EventsPanel } from "./components/EventsPanel";
 import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
 import { ParamsFlyout } from "./components/ParamsFlyout";
+import { PromoteFlyout } from "./components/PromoteFlyout";
 import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
 
 // A nested run-execution the user has drilled into. `pathPrefix` is the
@@ -87,6 +88,10 @@ export function App() {
   const [localParams, setLocalParams] = useState<Record<string, unknown> | null>(null);
   // Whether the Params flyout (editable) is open.
   const [showParams, setShowParams] = useState(false);
+  // Declared promotions resolved against the selected run's output (the
+  // "promote a winner" review surface) + whether its flyout is open.
+  const [promotions, setPromotions] = useState<api.Promotion[]>([]);
+  const [showPromote, setShowPromote] = useState(false);
   // Whether every structured param currently parses (the flyout reports this);
   // an invalid YAML param blocks Publish while the flyout is open.
   const [paramsValid, setParamsValid] = useState(true);
@@ -239,6 +244,18 @@ export function App() {
       setEvents(evts);
     }).catch(console.error);
   }, [selectedRun]);
+
+  // Resolve the selected run's declared promotions (a winning value → a target
+  // param). Drives the topbar Promote button + flyout. Empty unless the
+  // workflow declares `promotes` and the run output resolves them.
+  useEffect(() => {
+    setShowPromote(false);
+    setPromotions([]);
+    if (!selectedRun || !selectedWf) return;
+    api.getPromotions(selectedWf, selectedRun)
+      .then(setPromotions)
+      .catch(() => setPromotions([]));
+  }, [selectedWf, selectedRun]);
 
   // A container node's ref arrow means "open this workflow" — go-to-definition.
   // We switch the selected workflow rather than drilling into an inline
@@ -406,6 +423,7 @@ export function App() {
     const stepIndex = node.customData?.stepIndex as number | undefined;
     if (stepId == null) return;
     setShowParams(false);
+    setShowPromote(false);
     setFlyoutStepId(stepId);
     setFlyoutStepIndex(stepIndex ?? null);
   }, []);
@@ -569,10 +587,16 @@ export function App() {
         </span>
         <div class="topbar-actions">
           {isDirty && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
+          {isRunView && promotions.length > 0 && (
+            <button
+              class={`btn${showPromote ? " is-active" : ""}`}
+              onClick={() => { setShowPromote((s) => !s); setShowParams(false); closeFlyout(); }}
+            >Promote</button>
+          )}
           {selectedWf && localParams && Object.keys(localParams).length > 0 && (
             <button
               class={`btn${showParams ? " is-active" : ""}`}
-              onClick={() => { setShowParams((s) => !s); setFlyoutStepId(null); }}
+              onClick={() => { setShowParams((s) => !s); setShowPromote(false); setFlyoutStepId(null); }}
             >Params</button>
           )}
           {selectedWf && (
@@ -688,6 +712,18 @@ export function App() {
           onChange={setLocalParams}
           onValidChange={setParamsValid}
           onClose={() => setShowParams(false)}
+        />
+      )}
+
+      {/* Promote flyout — review + apply a run's declared promotions. */}
+      {showPromote && selectedWf && selectedRun && promotions.length > 0 && (
+        <PromoteFlyout
+          key={`${selectedWf}/${selectedRun}`}
+          workflow={selectedWf}
+          runId={selectedRun}
+          promotions={promotions}
+          onClose={() => setShowPromote(false)}
+          onPromoted={() => { refreshWorkflows(); }}
         />
       )}
 

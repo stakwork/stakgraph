@@ -153,6 +153,26 @@ function zodToFields(schema: z.ZodTypeAny): FieldDesc[] {
   return Object.entries(shape).map(([name, s]) => describeField(name, s as z.ZodTypeAny));
 }
 
+/** Resolve a dotted/bracketed path (`a.b`, `a[0].b`) into a nested value.
+ *  Used to pull a promote spec's `from` value out of a run's output. */
+function getByPath(obj: unknown, path: string): unknown {
+  if (!path) return obj;
+  const parts = path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+  let cur: unknown = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
+
+/** Split a promote spec's `to` ("<workflow>.<param>") on the FIRST dot. */
+function parsePromoteTarget(to: string): { workflow: string; param: string } | null {
+  const dot = to.indexOf(".");
+  if (dot <= 0 || dot >= to.length - 1) return null;
+  return { workflow: to.slice(0, dot), param: to.slice(dot + 1) };
+}
+
 function getObjectShape(s: z.ZodTypeAny): Record<string, z.ZodTypeAny> | null {
   const def = s._def;
   if (def.typeName === "ZodObject") return (def as any).shape();
@@ -387,6 +407,106 @@ export async function createVein<TServices = unknown>(
     });
   });
 
+  // Resolve this workflow's declared `promotes` against a run's OUTPUT — the
+  // review surface for "promote a winner". For each spec: the resolved value
+  // from the run output (`value`) and the target param's CURRENT default
+  // (`current`), so the UI can diff current → value. Pure read; nothing is
+  // written until the human POSTs to `/promote`.
+  app.get("/workflows/:name/runs/:runId/promotions", async (c) => {
+    const { name, runId } = c.req.param();
+    if (!(store instanceof FileRunStore)) {
+      return c.json({ error: "Promotions require a FileRunStore" }, 501);
+    }
+    let flow: Flow;
+    try {
+      flow = await workspace.getWorkflow(name);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+    const specs = flow.promotes ?? [];
+    if (specs.length === 0) return c.json([]);
+
+    const summary = await store.getRunSummary(name, runId);
+    if (!summary) {
+      return c.json({ error: `Run "${runId}" not found for workflow "${name}"` }, 404);
+    }
+    const output = summary.output;
+
+    const promotions = [];
+    for (const spec of specs) {
+      const target = parsePromoteTarget(spec.to);
+      if (!target) continue;
+      const value = getByPath(output, spec.from);
+      let current: unknown = undefined;
+      try {
+        current = (await workspace.getWorkflow(target.workflow)).params?.[target.param];
+      } catch {
+        current = undefined; // target workflow may not exist yet
+      }
+      promotions.push({
+        from: spec.from,
+        to: spec.to,
+        target,
+        label: spec.label ?? spec.to,
+        value,
+        current,
+        resolved: value !== undefined,
+      });
+    }
+    return c.json(promotions);
+  });
+
+  // Apply a single declared promotion (human-approved): resolve the run output
+  // value for the spec whose `to` === body.to, write it to the target's param
+  // default, publish a new version, and rebuild the registry. Returns the new
+  // version + before/after.
+  app.post("/workflows/:name/runs/:runId/promote", async (c) => {
+    const { name, runId } = c.req.param();
+    if (!(store instanceof FileRunStore)) {
+      return c.json({ error: "Promotions require a FileRunStore" }, 501);
+    }
+    const body = await c.req.json<{ to?: string }>();
+    if (!body.to) return c.json({ error: "to is required" }, 400);
+
+    let flow: Flow;
+    try {
+      flow = await workspace.getWorkflow(name);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+    const spec = (flow.promotes ?? []).find((s) => s.to === body.to);
+    if (!spec) {
+      return c.json({ error: `No promote spec with to="${body.to}" on workflow "${name}"` }, 404);
+    }
+    const target = parsePromoteTarget(spec.to);
+    if (!target) return c.json({ error: `Invalid promote target "${spec.to}"` }, 400);
+
+    const summary = await store.getRunSummary(name, runId);
+    if (!summary) {
+      return c.json({ error: `Run "${runId}" not found for workflow "${name}"` }, 404);
+    }
+    const value = getByPath(summary.output, spec.from);
+    if (value === undefined) {
+      return c.json({ error: `Promote value at "${spec.from}" is undefined in this run's output` }, 422);
+    }
+
+    let result;
+    try {
+      result = await workspace.setParam(target.workflow, target.param, value);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+    await rebuildRegistry();
+    return c.json({
+      ok: true,
+      workflow: target.workflow,
+      param: target.param,
+      version: result.version,
+      before: result.before,
+      after: result.after,
+    });
+  });
+
   app.get("/workflows/:name/flow", async (c) => {
     const name = c.req.param("name");
     try {
@@ -395,6 +515,7 @@ export async function createVein<TServices = unknown>(
         name: flow.name,
         steps: flow.steps,
         ...(flow.params != null ? { params: flow.params } : {}),
+        ...(flow.promotes != null ? { promotes: flow.promotes } : {}),
       });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);

@@ -461,4 +461,81 @@ describe("createVein", () => {
     const res = await vein.app.request("/workflows/mem-test/runs");
     assert.equal(res.status, 501);
   });
+
+  it("resolves + applies a declared promotion (run output → target param)", async () => {
+    const ws = new WorkspaceManager(tempDir);
+    // Target workflow whose `system` param we'll promote into.
+    await ws.publishWorkflow("target", "v1", {
+      steps: [{ id: "g", type: "log", config: { message: "{{ params.system }}" } }],
+      params: { system: "old" },
+    });
+    // Optimizer workflow: emits `{ bestPrompt }` and declares a promote to target.
+    await ws.publishWorkflow("opt", "v1", {
+      steps: [{ id: "best", type: "emit", config: {} }],
+      promotes: [{ from: "bestPrompt", to: "target.system", label: "Sys" }],
+    });
+
+    const emit = defineStep({
+      type: "emit",
+      input: z.object({}),
+      output: z.any(),
+      async run() {
+        return { bestPrompt: "new winner" };
+      },
+    });
+
+    const vein = await createVein({
+      workspace: ws,
+      registry: await createRegistry([emit]),
+      store: new FileRunStore(tempDir),
+      serveUi: false,
+      enableChat: false,
+    });
+
+    const result = await vein.run("opt", {});
+    assert.equal(result.status, "success");
+
+    // GET promotions resolves the run-output value + the target's current value.
+    const pRes = await vein.app.request(`/workflows/opt/runs/${result.runId}/promotions`);
+    assert.equal(pRes.status, 200);
+    const proms = (await pRes.json()) as any[];
+    assert.equal(proms.length, 1);
+    assert.equal(proms[0].value, "new winner");
+    assert.equal(proms[0].current, "old");
+    assert.equal(proms[0].target.workflow, "target");
+    assert.equal(proms[0].target.param, "system");
+    assert.equal(proms[0].resolved, true);
+
+    // POST promote writes it + publishes a new target version.
+    const applyRes = await vein.app.request(`/workflows/opt/runs/${result.runId}/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: "target.system" }),
+    });
+    assert.equal(applyRes.status, 200);
+    const applied = (await applyRes.json()) as any;
+    assert.equal(applied.version, "v2");
+    assert.equal(applied.before, "old");
+    assert.equal(applied.after, "new winner");
+
+    const flow = await ws.getWorkflow("target");
+    assert.equal(flow.params?.["system"], "new winner");
+  });
+
+  it("returns [] promotions when the workflow declares none", async () => {
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishWorkflow("plain", "v1", {
+      steps: [{ id: "g", type: "log", config: { message: "hi" } }],
+    });
+    const vein = await createVein({
+      workspace: ws,
+      store: new FileRunStore(tempDir),
+      serveUi: false,
+      enableChat: false,
+    });
+    const result = await vein.run("plain", {});
+    const pRes = await vein.app.request(`/workflows/plain/runs/${result.runId}/promotions`);
+    assert.equal(pRes.status, 200);
+    assert.deepEqual(await pRes.json(), []);
+  });
 });
