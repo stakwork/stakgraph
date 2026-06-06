@@ -48,7 +48,7 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 export function statusTone(s: string) {
   if (s === "success") return "ok";
   if (s === "error") return "danger";
-  if (s === "skipped") return "muted";
+  if (s === "skipped" || s === "stale") return "muted";
   return "warning";
 }
 

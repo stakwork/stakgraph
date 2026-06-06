@@ -223,6 +223,12 @@ export async function createVein<TServices = unknown>(
 ): Promise<Vein<TServices>> {
   const workspace = opts.workspace ?? new WorkspaceManager();
   const store = opts.store ?? new FileRunStore(workspace.path);
+  // Run IDs currently executing **in this process** (keyed `${workflow}/${runId}`).
+  // Detached execution is in-memory, so a run with no `run.json` summary is only
+  // genuinely "running" if it's in this set; otherwise it never finalized (server
+  // restart / crash / cancellation) and is reported as "stale" rather than a
+  // perpetual "running".
+  const activeRuns = new Set<string>();
   const services = (opts.services ?? ({} as TServices)) as TServices;
   const serveUi = opts.serveUi ?? true;
   const enableChat = opts.enableChat ?? true;
@@ -329,7 +335,8 @@ export async function createVein<TServices = unknown>(
       if (summary) {
         runs.push(summary);
       } else {
-        runs.push({ runId, workflow: name, status: "running" });
+        const status = activeRuns.has(`${name}/${runId}`) ? "running" : "stale";
+        runs.push({ runId, workflow: name, status });
       }
     }
     return c.json(runs);
@@ -375,7 +382,7 @@ export async function createVein<TServices = unknown>(
       const summary = await store.getRunSummary(name, runId);
       const result = summary
         ? { runId, status: summary.status, output: summary.output, error: summary.error }
-        : { runId, status: "running" };
+        : { runId, status: activeRuns.has(`${name}/${runId}`) ? "running" : "stale" };
       await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
     });
   });
@@ -597,6 +604,8 @@ export async function createVein<TServices = unknown>(
    */
   function launchDetached(flow: Flow, body: RunBody): string {
     const runId = body.runId ?? generateRunId();
+    const key = `${flow.name}/${runId}`;
+    activeRuns.add(key);
     void runWorkflow(flow, body.input ?? {}, registry, {
       runId,
       store,
@@ -604,9 +613,13 @@ export async function createVein<TServices = unknown>(
       services,
       params: body.params,
       paramOverrides: body.paramOverrides,
-    }).catch((err) => {
-      console.error(`[run ${runId}] launch failed:`, err);
-    });
+    })
+      .catch((err) => {
+        console.error(`[run ${runId}] launch failed:`, err);
+      })
+      .finally(() => {
+        activeRuns.delete(key);
+      });
     return runId;
   }
 

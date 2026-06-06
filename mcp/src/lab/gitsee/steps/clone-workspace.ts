@@ -1,7 +1,7 @@
 import { z, defineStep } from "vein";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -39,7 +39,7 @@ function git(args: string[], cwd: string, timeoutMs = 120000): Promise<void> {
 export default defineStep({
   type: "gitsee/clone-workspace",
   description:
-    "Self-contained clone of a WORKSPACE (a set of repos cloned as siblings under one dir, like the pod's /workspaces/<repo>). No internal deps; needs `git`. Idempotent. Config: workspace (dir/label), repos ([{owner, repo, rev?}], rev pins a commit), token? (falls back to GITHUB_TOKEN env), clean? (default true — `git reset --hard && git clean -fd` a reused clone so each run starts from a pristine working tree, discarding the prior agent's edits/new files; keeps gitignored node_modules). Output: { workspacePath, repos }.",
+    "Self-contained clone of a WORKSPACE (a set of repos cloned as siblings under one dir, like the pod's /workspaces/<repo>). No internal deps; needs `git`. Idempotent. Config: workspace (dir/label), repos ([{owner, repo, rev?}], rev pins a commit), token? (falls back to GITHUB_TOKEN env), clean? (default true — `git reset --hard && git clean -fd` a reused clone so each run starts from a pristine working tree, discarding the prior agent's edits/new files (keeps gitignored node_modules); ALSO prunes stale sibling dirs no longer in `repos`). Output: { workspacePath, repos }.",
   input: z.object({
     workspace: z.string().describe("workspace name — the clone dir under the lab tmp root"),
     repos: z
@@ -57,7 +57,7 @@ export default defineStep({
       .boolean()
       .default(true)
       .describe(
-        "reset a REUSED clone to a pristine working tree (git reset --hard + git clean -fd) so each run/optimizer generation starts fresh — discards the prior explore agent's edits and any files it created. Keeps gitignored deps (node_modules) for speed; set false to preserve a dirty tree for debugging.",
+        "reset a REUSED clone to a pristine working tree (git reset --hard + git clean -fd) so each run/optimizer generation starts fresh — discards the prior explore agent's edits and any files it created. Keeps gitignored deps (node_modules) for speed. Also PRUNES stale sibling dirs in the reused workspace that aren't in the current `repos` list (e.g. a repo dropped from the dataset) so the explore agent can't pick an orphaned repo as the frontend. Set false to preserve a dirty tree for debugging.",
       ),
   }),
   output: z.any(),
@@ -93,6 +93,22 @@ export default defineStep({
         await git(["checkout", "FETCH_HEAD"], dir);
       }
       repos.push(r.repo);
+    }
+
+    // Prune STALE entries: anything in the reused workspace that isn't a repo in
+    // the current list — orphaned repo dirs (a repo dropped from the dataset) AND
+    // stray root files (e.g. a prior verify-setup's staged pm2.config.js /
+    // docker-compose.yml). The workspace should contain only the listed repo
+    // subdirs; otherwise the explore agent lists the workspace, sees the cruft,
+    // and may pick an orphaned repo as the "frontend" — the cross-version
+    // contamination bug.
+    if (cfg.clean) {
+      const keep = new Set(repos);
+      for (const entry of await readdir(wsDir, { withFileTypes: true })) {
+        if (keep.has(entry.name)) continue;
+        console.log(`[gitsee] pruning stale workspace entry ${join(wsDir, entry.name)}`);
+        await rm(join(wsDir, entry.name), { recursive: true, force: true }).catch(() => {});
+      }
     }
 
     console.log(`[gitsee] workspace "${cfg.workspace}" ready at ${wsDir} (${repos.length} repo(s): ${repos.join(", ")})`);

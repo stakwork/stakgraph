@@ -1,9 +1,43 @@
 import { z } from "zod";
 import { tool } from "ai";
 import { runWorkflow } from "../runner.js";
+import type { RunEvent, RunSummary } from "../core.js";
 import { AiDeps } from "./prompts.js";
 import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
+
+// The run-history read methods live on `FileRunStore`, not the base `RunStore`
+// interface (which is write-only: append/finalize). `MemoryRunStore` lacks them.
+// Feature-detect so the run-history tools degrade gracefully on stores that
+// can't read back (they return an error rather than throwing).
+interface RunReadStore {
+  listRuns(workflow: string): Promise<string[]>;
+  getRunSummary(workflow: string, runId: string): Promise<RunSummary | null>;
+  getRunEvents(workflow: string, runId: string): Promise<RunEvent[]>;
+}
+
+function asReadStore(store: unknown): RunReadStore | null {
+  const s = store as Partial<RunReadStore> | undefined;
+  return s &&
+    typeof s.listRuns === "function" &&
+    typeof s.getRunSummary === "function" &&
+    typeof s.getRunEvents === "function"
+    ? (s as RunReadStore)
+    : null;
+}
+
+/** Drop bulky input/output payloads from an event so a run's event list stays
+ *  token-cheap; the agent can re-fetch a specific run's full events if needed. */
+function slimEvent(e: RunEvent) {
+  return {
+    type: e.type,
+    path: e.path,
+    ...(e.stepType ? { stepType: e.stepType } : {}),
+    ...(e.durationMs != null ? { durationMs: e.durationMs } : {}),
+    ...(e.iteration != null ? { iteration: e.iteration } : {}),
+    ...(e.error ? { error: e.error } : {}),
+  };
+}
 
 // ── Tools ──────────────────────────────────────────────────────────────────
 
@@ -145,10 +179,10 @@ export function buildTools(deps: AiDeps) {
 
     create_workflow: tool({
       description:
-        "Create and publish a new workflow from YAML. If the name already " +
+        "Create and publish a NEW workflow from YAML. If the name already " +
         "exists, a numeric suffix is appended (e.g. `send-email-2`). The " +
         "response includes the final name used. To publish a new version of " +
-        "an existing workflow, use `edit_workflow` (coming soon) instead.",
+        "an EXISTING workflow, use `edit_workflow` instead.",
       inputSchema: z.object({
         name: z.string().describe("Workflow name (kebab-case)"),
         yaml: z.string().describe("Full workflow YAML"),
@@ -168,6 +202,97 @@ export function buildTools(deps: AiDeps) {
           version,
           renamed: finalName !== name,
           requested: name,
+        };
+      },
+    }),
+
+    edit_workflow: tool({
+      description:
+        "Publish a NEW VERSION of an EXISTING workflow from YAML. Call " +
+        "get_workflow first to read the current source. Identical content is " +
+        "a no-op; a change increments the version (v1 → v2 → …) and activates " +
+        "it, retaining prior versions for rollback. Use this for STRUCTURAL " +
+        "changes (adding/removing steps, rewiring `depends`, or promoting a " +
+        "winning `params` default). To merely try a different prompt or " +
+        "threshold value, do NOT publish a version — pass `params` to " +
+        "run_workflow instead (those are runs, not versions).",
+      inputSchema: z.object({
+        name: z.string().describe("Existing workflow name to edit"),
+        yaml: z.string().describe("Full updated workflow YAML"),
+        description: z.string().optional(),
+      }),
+      execute: async ({ name, yaml, description }) => {
+        const exists = (await deps.workspace.listWorkflows()).some(
+          (w) => w.name === name,
+        );
+        if (!exists) {
+          return {
+            error: `Workflow "${name}" not found. Use create_workflow to author a new one.`,
+          };
+        }
+        let result;
+        try {
+          result = await deps.workspace.publishWorkflowByContent(
+            name,
+            yaml,
+            description,
+          );
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+        deps.registry = await deps.getRegistry();
+        return {
+          ok: true,
+          name,
+          version: result.version,
+          changed: result.changed,
+        };
+      },
+    }),
+
+    list_workflows: tool({
+      description:
+        "List all published workflows in the workspace, with each one's active version, all versions, and description. Use this to discover what workflows already exist before creating a new one or referencing one in a subflow.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const workflows = await deps.workspace.listWorkflows();
+        return { workflows };
+      },
+    }),
+
+    get_workflow: tool({
+      description:
+        "Get a published workflow's full YAML source plus its version metadata. Defaults to the active version; pass `version` for a specific one. Use this to read an existing workflow before editing, referencing it in a subflow, or running it.",
+      inputSchema: z.object({
+        name: z.string().describe("Workflow name"),
+        version: z
+          .string()
+          .optional()
+          .describe("Optional specific version. Defaults to the active version."),
+      }),
+      execute: async ({ name, version }) => {
+        const entry = (await deps.workspace.listWorkflows()).find(
+          (w) => w.name === name,
+        );
+        if (!entry) {
+          return { error: `Workflow "${name}" not found` };
+        }
+        const resolved = version ?? entry.activeVersion;
+        let yaml;
+        try {
+          yaml = await deps.workspace.getWorkflowSource(name, resolved);
+        } catch (err) {
+          return {
+            error: `Version "${resolved}" not found for "${name}". Available: ${entry.versions.join(", ")}`,
+          };
+        }
+        return {
+          name,
+          version: resolved,
+          activeVersion: entry.activeVersion,
+          versions: entry.versions,
+          description: entry.description,
+          yaml,
         };
       },
     }),
@@ -215,6 +340,78 @@ export function buildTools(deps: AiDeps) {
         });
 
         return result;
+      },
+    }),
+
+    list_runs: tool({
+      description:
+        "List past runs of a workflow (newest first), each with its status, duration, and timestamps. Use this to inspect a workflow's run history — e.g. to compare experiment runs or find a failing run. Then call get_run for a specific run's full input/output/events.",
+      inputSchema: z.object({
+        name: z.string().describe("Workflow name whose runs to list"),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .default(20)
+          .describe("Max number of recent runs to return (default 20)."),
+      }),
+      execute: async ({ name, limit }) => {
+        const store = asReadStore(deps.store);
+        if (!store) {
+          return {
+            error:
+              "Run history is unavailable (the run store does not support reading back runs).",
+          };
+        }
+        const ids = (await store.listRuns(name)).slice(0, limit);
+        const runs = await Promise.all(
+          ids.map(async (runId) => {
+            const s = await store.getRunSummary(name, runId);
+            return {
+              runId,
+              status: s?.status,
+              startedAt: s?.startedAt,
+              durationMs: s?.durationMs,
+              ...(s?.error ? { error: s.error } : {}),
+            };
+          }),
+        );
+        return { workflow: name, runs };
+      },
+    }),
+
+    get_run: tool({
+      description:
+        "Get a single run's details: its summary (input, output, status, error, duration) and its event log. By default the event log is slimmed (type/path/duration/error per step, no payloads) to stay token-cheap; set fullEvents:true to include each step's input/output. Use this to debug why a run failed or to read what each step produced.",
+      inputSchema: z.object({
+        name: z.string().describe("Workflow name"),
+        runId: z.string().describe("Run id (a millisecond timestamp, from list_runs)"),
+        fullEvents: z
+          .boolean()
+          .default(false)
+          .describe("Include full per-step input/output payloads in events (default false: slimmed)."),
+      }),
+      execute: async ({ name, runId, fullEvents }) => {
+        const store = asReadStore(deps.store);
+        if (!store) {
+          return {
+            error:
+              "Run history is unavailable (the run store does not support reading back runs).",
+          };
+        }
+        const [summary, rawEvents] = await Promise.all([
+          store.getRunSummary(name, runId),
+          store.getRunEvents(name, runId),
+        ]);
+        if (!summary && rawEvents.length === 0) {
+          return { error: `Run "${runId}" not found for workflow "${name}".` };
+        }
+        return {
+          workflow: name,
+          runId,
+          summary,
+          events: fullEvents ? rawEvents : rawEvents.map(slimEvent),
+        };
       },
     }),
   };
