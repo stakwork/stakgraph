@@ -653,6 +653,75 @@ describe("WorkspaceManager", () => {
 
   // ── path property ──────────────────────────────────────────────────────
 
+  describe("promotes + setParam", () => {
+    const PROMOTE_YAML = `name: opt
+steps:
+  - id: run
+    type: log
+    config:
+      message: "{{ params.prompt }}"
+promotes:
+  - from: bestPrompt
+    to: target.system
+    label: System prompt
+params:
+  prompt: hello
+`;
+
+    it("loads the promotes block on the flow", async () => {
+      await ws.publishWorkflow("opt", "v1", PROMOTE_YAML);
+      const flow = await ws.getWorkflow("opt");
+      assert.deepEqual(flow.promotes, [
+        { from: "bestPrompt", to: "target.system", label: "System prompt" },
+      ]);
+    });
+
+    it("round-trips promotes through a steps/params publish", async () => {
+      await ws.publishWorkflow("opt", "v1", {
+        steps: [{ id: "run", type: "log", config: { message: "x" } }],
+        params: { prompt: "hello" },
+        promotes: [{ from: "bestPrompt", to: "target.system" }],
+      });
+      const flow = await ws.getWorkflow("opt");
+      assert.deepEqual(flow.promotes, [{ from: "bestPrompt", to: "target.system" }]);
+    });
+
+    it("setParam overwrites one param + publishes the next version", async () => {
+      await ws.publishWorkflow("target", "v1", {
+        steps: [{ id: "run", type: "log", config: { message: "{{ params.system }}" } }],
+        params: { system: "old prompt", other: "keep" },
+      });
+      const res = await ws.setParam("target", "system", "new prompt");
+      assert.equal(res.version, "v2");
+      assert.equal(res.before, "old prompt");
+      assert.equal(res.after, "new prompt");
+
+      const flow = await ws.getWorkflow("target");
+      assert.equal(flow.params?.["system"], "new prompt");
+      // Other params survive.
+      assert.equal(flow.params?.["other"], "keep");
+      // New version is active.
+      const meta = JSON.parse(
+        await readFile(join(tempDir, "workflows", "target", "_metadata.json"), "utf-8"),
+      );
+      assert.equal(meta.active, "v2");
+    });
+
+    it("setParam preserves the promotes block across versions", async () => {
+      await ws.publishWorkflow("target", "v1", PROMOTE_YAML.replace("name: opt", "name: target"));
+      await ws.setParam("target", "prompt", "world");
+      const flow = await ws.getWorkflow("target");
+      assert.equal(flow.params?.["prompt"], "world");
+      assert.deepEqual(flow.promotes, [
+        { from: "bestPrompt", to: "target.system", label: "System prompt" },
+      ]);
+    });
+
+    it("setParam throws on an unknown workflow", async () => {
+      await assert.rejects(() => ws.setParam("nope", "x", 1), /not found/);
+    });
+  });
+
   describe("path property", () => {
     it("returns the workspace root path", () => {
       assert.equal(ws.path, tempDir);

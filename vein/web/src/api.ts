@@ -56,11 +56,19 @@ export const getWorkflowCode = async (name: string, version: string) => {
   return res.text();
 };
 
+export interface PromoteSpec {
+  from: string;
+  to: string;
+  label?: string;
+}
+
 export interface FlowDef {
   name: string;
   steps: { id: string; type: string; config: Record<string, any>; options?: any }[];
   /** Tunable default knobs (prompts, thresholds, …), overridable per run. */
   params?: Record<string, unknown>;
+  /** Declared "promote a run output → a target param default" mappings. */
+  promotes?: PromoteSpec[];
 }
 
 export const getWorkflowFlow = (name: string) =>
@@ -271,6 +279,41 @@ export const getRun = (workflow: string, runId: string) =>
 
 export const getRunEvents = (workflow: string, runId: string) =>
   fetchJSON<RunEvent[]>(`/workflows/${workflow}/runs/${runId}/events`);
+
+// ── Promotions (promote a run output → a target workflow's param) ───────────
+
+/** A declared promotion resolved against a specific run's output. `value` is
+ *  what would be written; `current` is the target param's existing default. */
+export interface Promotion {
+  from: string;
+  to: string;
+  target: { workflow: string; param: string };
+  label: string;
+  value: unknown;
+  current: unknown;
+  resolved: boolean;
+}
+
+export interface PromoteResult {
+  ok: true;
+  workflow: string;
+  param: string;
+  version: string;
+  before: unknown;
+  after: unknown;
+}
+
+/** Resolve a run's declared promotions (pure read — nothing is written). */
+export const getPromotions = (workflow: string, runId: string) =>
+  fetchJSON<Promotion[]>(`/workflows/${workflow}/runs/${runId}/promotions`);
+
+/** Apply one promotion (human-approved): writes the target param + publishes
+ *  a new version. `to` identifies which declared spec to apply. */
+export const promote = (workflow: string, runId: string, to: string) =>
+  fetchJSON<PromoteResult>(`/workflows/${workflow}/runs/${runId}/promote`, {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  });
 
 // ── Chat (AI workflow builder) ─────────────────────────────────────────────
 //

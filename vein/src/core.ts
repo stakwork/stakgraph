@@ -65,6 +65,30 @@ export interface Step {
   options?: StepOptions;
 }
 
+/**
+ * A declared mapping from a value in THIS workflow's run output to a `param`
+ * default on a (possibly different) target workflow — the "promote a winner"
+ * surface (Tier 2). After a run, the UI resolves each spec against the run's
+ * output and offers a one-click "promote": write the resolved value into the
+ * target's `params[param]` default and publish a new version. Fully generic —
+ * nothing keys off a specific output name; the optimize loop just declares
+ * `from: bestPrompt`, `to: <targetWorkflow>.<promptParam>`.
+ *
+ * Inert by itself: declaring a promote NEVER writes anything. Promotion is a
+ * human-reviewed action (see the diff, click Apply); only then is the target's
+ * param overwritten + a new version published.
+ */
+export interface PromoteSpec {
+  /** Dotted path into this workflow's run output (e.g. `bestPrompt`,
+   *  `best.prompt`, `results[0].prompt`). */
+  from: string;
+  /** Destination as `"<workflow>.<param>"` — the param default to overwrite.
+   *  Split on the FIRST dot (workflow names contain no dots). */
+  to: string;
+  /** Optional human label for the UI (defaults to the `to` string). */
+  label?: string;
+}
+
 /** A workflow (flow) definition. */
 export interface Flow {
   name: string;
@@ -77,6 +101,10 @@ export interface Flow {
    *  `RunOptions.params`). Override precedence: run override > these
    *  defaults. Omit for workflows with no knobs. */
   params?: Record<string, unknown>;
+  /** Declared "promote a run output → a target param default" mappings.
+   *  Resolved against a run's output by the UI to offer one-click promotion
+   *  of a winning value (e.g. an optimize loop's `bestPrompt`). */
+  promotes?: PromoteSpec[];
 }
 
 /** Run event types for the JSONL log. */

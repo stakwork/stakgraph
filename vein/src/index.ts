@@ -11,6 +11,7 @@ export {
   step,
   defineStep,
   type Flow,
+  type PromoteSpec,
   type Step,
   type StepDef,
   type AnyStepDef,

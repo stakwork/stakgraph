@@ -18,6 +18,15 @@ export default defineConfig({
   // the SPA at a trailing-slash path so relative assets resolve correctly.
   base: "./",
   plugins: [preact()],
+  // react-diff-view is a React lib — alias React onto preact/compat so it
+  // runs under Preact (the rest of the app stays vanilla Preact).
+  resolve: {
+    alias: {
+      react: "preact/compat",
+      "react-dom": "preact/compat",
+      "react/jsx-runtime": "preact/jsx-runtime",
+    },
+  },
   server: {
     port: 5173,
     proxy: {
