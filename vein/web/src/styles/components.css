@@ -670,6 +670,44 @@ body.is-resizing-flyout * {
   border-color: rgba(248, 113, 113, 0.3);
   color: var(--danger);
 }
+.flyout-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.flyout-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  min-height: 18px;
+}
+.flyout-field-key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.copy-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
 .param-edit {
   width: 100%;
   box-sizing: border-box;

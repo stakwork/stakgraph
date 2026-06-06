@@ -3,6 +3,7 @@ import { StepData } from "../flow-to-canvas";
 import { formatJson, statusTone } from "../helpers";
 import { CloseIcon } from "../icons";
 import { Markdown, hasMarkdownField } from "./Markdown";
+import { ValueFields } from "./ValueFields";
 import { FlyoutResizer } from "./FlyoutResizer";
 import yaml from "js-yaml";
 
@@ -82,14 +83,14 @@ export function StepRunFlyout(props: {
                   <div class="flyout-markdown-wrap">
                     <Markdown source={markdown} class="md-compact" />
                   </div>
-                  {hasRest && <pre class="flyout-json flyout-json-after-md">{formatJson(rest)}</pre>}
+                  {hasRest && <div class="flyout-json-after-md"><ValueFields value={rest} /></div>}
                 </div>
               );
             }
             return (
               <div class="flyout-section">
                 <div class="flyout-section-title">Output</div>
-                <pre class="flyout-json">{formatJson(output)}</pre>
+                <ValueFields value={output} />
               </div>
             );
           })()}
