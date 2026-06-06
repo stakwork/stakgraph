@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "preact/hooks";
 import * as api from "../api";
 import * as storage from "../storage";
 import { formatJson } from "../helpers";
-import { CloseIcon } from "../icons";
+import { CloseIcon, HistoryIcon } from "../icons";
 
 // ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
 
@@ -29,6 +29,21 @@ function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
     }
   }
   return groups;
+}
+
+/** Compact relative timestamp (e.g. "3m", "2h", "5d") with absolute fallback. */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const secs = Math.round((Date.now() - then) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 /** Pull plain text out of an AI SDK message content (string or parts array). */
@@ -82,6 +97,8 @@ export function ChatFlyout(props: {
   const [chatId, setChatId] = useState<string | null>(() =>
     storage.load<string | null>(CHAT_ID_KEY, null),
   );
+  const [showHistory, setShowHistory] = useState(false);
+  const [chats, setChats] = useState<api.ChatMeta[]>([]);
 
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -147,29 +164,32 @@ export function ChatFlyout(props: {
     };
   }, [props.onWorkflowCreated, props.onWorkflowRan]);
 
-  // On mount: if we have a persisted chat, load its transcript and — if a turn
-  // is still live server-side (we may have closed the tab) — reattach to it.
-  useEffect(() => {
-    if (!chatId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const { meta, messages } = await api.getChat(chatId);
-        if (cancelled) return;
-        setEntries(transcriptToEntries(messages));
-        if (meta.status === "live" && meta.currentTurn >= 0) {
-          setLoading(true);
-          await api.streamChat(chatId, meta.currentTurn, streamCallbacks());
-        }
-      } catch {
-        // Stale id (e.g. workspace wiped) — drop it and start fresh.
-        if (!cancelled) {
-          storage.remove(CHAT_ID_KEY);
-          setChatId(null);
-        }
+  // Load a chat's transcript and — if a turn is still live server-side (we may
+  // have closed the tab) — reattach to its stream. Shared by mount-restore and
+  // clicking an entry in the history list.
+  const loadChat = useCallback(async (id: string) => {
+    setShowHistory(false);
+    setExpanded({});
+    setChatId(id);
+    storage.save(CHAT_ID_KEY, id);
+    try {
+      const { meta, messages } = await api.getChat(id);
+      setEntries(transcriptToEntries(messages));
+      if (meta.status === "live" && meta.currentTurn >= 0) {
+        setLoading(true);
+        await api.streamChat(id, meta.currentTurn, streamCallbacks());
       }
-    })();
-    return () => { cancelled = true; };
+    } catch {
+      // Stale id (e.g. workspace wiped) — drop it and start fresh.
+      storage.remove(CHAT_ID_KEY);
+      setChatId(null);
+      setEntries([]);
+    }
+  }, [streamCallbacks]);
+
+  // On mount: restore the persisted chat (if any).
+  useEffect(() => {
+    if (chatId) loadChat(chatId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -178,7 +198,22 @@ export function ChatFlyout(props: {
     setChatId(null);
     setEntries([]);
     setExpanded({});
+    setShowHistory(false);
   }, []);
+
+  // Toggle the history list, fetching the latest sessions when opening.
+  const toggleHistory = useCallback(async () => {
+    if (showHistory) {
+      setShowHistory(false);
+      return;
+    }
+    setShowHistory(true);
+    try {
+      setChats(await api.listChats());
+    } catch {
+      setChats([]);
+    }
+  }, [showHistory]);
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -216,12 +251,37 @@ export function ChatFlyout(props: {
           <div class="flyout-title">Create Workflow</div>
         </div>
         <div class="chat-header-actions">
-          {(chatId || entries.length > 0) && (
-            <button class="btn" onClick={newChat} disabled={loading}>New chat</button>
-          )}
+          <button
+            class={`flyout-close chat-history-btn${showHistory ? " is-active" : ""}`}
+            onClick={toggleHistory}
+            aria-label="Chat history"
+            aria-expanded={showHistory}
+          >
+            <HistoryIcon />
+          </button>
+          <button class="btn" onClick={newChat} disabled={loading}>New chat</button>
           <button class="flyout-close" onClick={props.onClose} aria-label="Close"><CloseIcon /></button>
         </div>
       </div>
+      {showHistory ? (
+        <div class="chat-history">
+          {chats.length === 0 ? (
+            <div class="chat-empty">No chat sessions yet.</div>
+          ) : (
+            chats.map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                class={`chat-history-item${ch.id === chatId ? " is-current" : ""}`}
+                onClick={() => loadChat(ch.id)}
+              >
+                <span class="chat-history-title">{ch.title || "Untitled chat"}</span>
+                <span class="chat-history-time">{relativeTime(ch.updatedAt)}</span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : (
       <div class="chat-messages" ref={scrollRef}>
         {entries.length === 0 && (
           <div class="chat-empty">Describe the workflow you want to build.</div>
@@ -278,6 +338,7 @@ export function ChatFlyout(props: {
           </div>
         )}
       </div>
+      )}
       <div class="chat-input-row">
         <input
           ref={inputRef}
