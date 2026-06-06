@@ -9,7 +9,7 @@ import { z } from "zod";
 import { defineStep } from "./core.js";
 import { createRegistry } from "./steps/registry.js";
 import { WorkspaceManager } from "./workspace.js";
-import { MemoryRunStore } from "./store.js";
+import { MemoryRunStore, FileRunStore } from "./store.js";
 import { lsSteps, searchSteps, readStepSource } from "./ai/stepHelpers.js";
 import { buildSystem } from "./ai/prompts.js";
 import { buildTools } from "./ai/tools.js";
@@ -273,5 +273,162 @@ describe("AI create_step / edit_step tools", () => {
     assert.ok(c.error && /disabled/.test(c.error));
     const e = await tools.edit_step.execute({ type: "my/step", code: code(1) });
     assert.ok(e.error && /disabled/.test(e.error));
+  });
+});
+
+describe("AI list_workflows / get_workflow tools", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-ai-wf-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  function makeDeps() {
+    const ws = new WorkspaceManager(tempDir);
+    return {
+      ws,
+      deps: {
+        workspace: ws,
+        registry: {} as any,
+        store: new MemoryRunStore(),
+        getRegistry: async () => ({} as any),
+      },
+    };
+  }
+
+  const wfYaml = (name: string) =>
+    `name: ${name}\nsteps:\n  - id: hello\n    type: log\n    config:\n      message: hi\n`;
+
+  it("list_workflows returns published workflows with versions", async () => {
+    const { ws, deps } = makeDeps();
+    await ws.createWorkflow("alpha", wfYaml("alpha"), "first one");
+    await ws.createWorkflow("beta", wfYaml("beta"));
+    const tools = buildTools(deps) as any;
+
+    const { workflows } = await tools.list_workflows.execute({});
+    const names = workflows.map((w: any) => w.name).sort();
+    assert.deepEqual(names, ["alpha", "beta"]);
+    const alpha = workflows.find((w: any) => w.name === "alpha");
+    assert.equal(alpha.activeVersion, "v1");
+    assert.deepEqual(alpha.versions, ["v1"]);
+    assert.equal(alpha.description, "first one");
+  });
+
+  it("get_workflow returns the active version's YAML + metadata", async () => {
+    const { ws, deps } = makeDeps();
+    await ws.createWorkflow("alpha", wfYaml("alpha"), "first one");
+    const tools = buildTools(deps) as any;
+
+    const res = await tools.get_workflow.execute({ name: "alpha" });
+    assert.equal(res.name, "alpha");
+    assert.equal(res.version, "v1");
+    assert.equal(res.activeVersion, "v1");
+    assert.ok(res.yaml.includes("type: log"));
+  });
+
+  it("get_workflow errors on unknown workflow and unknown version", async () => {
+    const { ws, deps } = makeDeps();
+    await ws.createWorkflow("alpha", wfYaml("alpha"));
+    const tools = buildTools(deps) as any;
+
+    const missing = await tools.get_workflow.execute({ name: "nope" });
+    assert.ok(missing.error && /not found/.test(missing.error));
+
+    const badVer = await tools.get_workflow.execute({ name: "alpha", version: "v9" });
+    assert.ok(badVer.error && /v9/.test(badVer.error));
+  });
+});
+
+describe("AI list_runs / get_run tools", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-ai-runs-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("list_runs + get_run surface run history and events from a FileRunStore", async () => {
+    const echo = defineStep({
+      type: "echo",
+      input: z.object({ msg: z.string() }),
+      output: z.any(),
+      async run(cfg: any) {
+        return { echoed: cfg.msg };
+      },
+    });
+    const registry = await createRegistry([echo]);
+    const ws = new WorkspaceManager(tempDir);
+    const store = new FileRunStore(tempDir);
+    const deps = {
+      workspace: ws,
+      registry,
+      store,
+      getRegistry: async () => registry,
+    };
+
+    await ws.createWorkflow(
+      "greeter",
+      `name: greeter\nsteps:\n  - id: say\n    type: echo\n    config:\n      msg: hello\n`,
+    );
+    const tools = buildTools(deps) as any;
+
+    const run = await tools.run_workflow.execute({ name: "greeter", input: {} });
+    assert.equal(run.status, "success");
+
+    const { runs } = await tools.list_runs.execute({ name: "greeter" });
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].runId, run.runId);
+    assert.equal(runs[0].status, "success");
+
+    // Slimmed events by default (no payloads).
+    const slim = await tools.get_run.execute({ name: "greeter", runId: run.runId });
+    assert.equal(slim.summary.status, "success");
+    assert.ok(slim.events.length > 0);
+    assert.ok(slim.events.every((e: any) => !("input" in e) && !("output" in e)));
+
+    // Full events include payloads.
+    const full = await tools.get_run.execute({
+      name: "greeter",
+      runId: run.runId,
+      fullEvents: true,
+    });
+    assert.ok(full.events.some((e: any) => e.output !== undefined));
+  });
+
+  it("get_run errors for an unknown run id", async () => {
+    const registry = await createRegistry([]);
+    const deps = {
+      workspace: new WorkspaceManager(tempDir),
+      registry,
+      store: new FileRunStore(tempDir),
+      getRegistry: async () => registry,
+    };
+    const tools = buildTools(deps) as any;
+    const res = await tools.get_run.execute({ name: "ghost", runId: "123" });
+    assert.ok(res.error && /not found/.test(res.error));
+  });
+
+  it("run-history tools degrade gracefully on a non-readable store", async () => {
+    const registry = await createRegistry([]);
+    const deps = {
+      workspace: new WorkspaceManager(tempDir),
+      registry,
+      store: new MemoryRunStore(),
+      getRegistry: async () => registry,
+    };
+    const tools = buildTools(deps) as any;
+    const list = await tools.list_runs.execute({ name: "x" });
+    assert.ok(list.error && /unavailable/.test(list.error));
+    const get = await tools.get_run.execute({ name: "x", runId: "1" });
+    assert.ok(get.error && /unavailable/.test(get.error));
   });
 });

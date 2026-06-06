@@ -161,12 +161,13 @@ body.is-resizing-events * {
 .sidebar-section {
   padding: var(--sp-2) 0;
   border-bottom: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .sidebar-section:last-child {
   border-bottom: none;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
 }
 
 .section-title {
@@ -181,6 +182,7 @@ body.is-resizing-events * {
 .sidebar-scroll {
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 /* ─── list items ─────────────────────────────────────────────── */

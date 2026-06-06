@@ -111,13 +111,19 @@ Tools:
 - search_steps("keywords"): keyword search across all step types.
 - get_step("<type>"): full schema + (for lib/custom) source code. Always call before using a type.
 - create_step / edit_step: author or revise a custom step (see above).
+- list_workflows(): list existing workflows (name, active version, versions, description). Check this before creating a new workflow or referencing one in a subflow.
+- get_workflow("<name>", version?): read an existing workflow's full YAML + version metadata. Call before editing, referencing, or reusing a workflow you didn't just write.
+- create_workflow / edit_workflow: publish a NEW workflow, or a new VERSION of an existing one. edit_workflow is for STRUCTURAL changes (add/remove steps, rewire depends, promote a winning params default). To merely try a different prompt/threshold value, do NOT publish a version — pass params to run_workflow (those are runs, not versions).
+- list_runs("<name>", limit?): a workflow's past runs (newest first) with status/duration — for inspecting history or comparing experiment runs.
+- get_run("<name>", "<runId>", fullEvents?): one run's summary (input/output/error) + event log (slimmed by default; fullEvents:true for per-step payloads) — for debugging a failed run.
 
 Workflow:
 1. Available step types are listed at the end of this prompt. Use search_steps only if you need to find something by keyword; use list_steps only to re-list after creating new custom steps.
 2. Call get_step for EVERY step type you will use. Each has a description with the exact YAML config format — you MUST read it before writing. Do not guess config fields.
 3. If a needed step doesn't exist, author it with create_step (or edit_step to revise one), then it's available by its type.
-4. Call create_workflow with the final YAML.
+4. Call create_workflow with the final YAML (or edit_workflow to publish a new version of an existing workflow — get_workflow to read it first).
 5. Call run_workflow with a sample input to test it. Report the result (success/error, output, or which step failed) to the user.
+6. To debug a failure or inspect prior behavior, use list_runs + get_run. To build on or reference existing workflows, use list_workflows + get_workflow first.
 
 Be concise. Don't over-explain.`;
 
