@@ -3,7 +3,8 @@ name: gitsee-eval-reflect
 # the SETUP task framing + revision guidance, so the optimize loop can get an
 # improved exploration prompt (`system`) from aggregated eval results.
 #
-# Input:  { prompt, results[ { score?, missing[], spurious[], insight? } ] }
+# Input:  { prompt, results[ { score?, missing[], spurious[], insight? } ],
+#           history?[ { gen?, score?, rationale?, prompt? } ] }
 # Output: { prompt, rationale }
 steps:
   - id: reflect
@@ -11,6 +12,10 @@ steps:
     config:
       prompt: "{{ input.prompt }}"
       results: "{{ input.results }}"
+      # Trajectory of prior generations (the optimize loop supplies it) so the
+      # reflector has memory across tries — follows the score trend, avoids
+      # re-proposing changes that already regressed.
+      history: "{{ input.history }}"
       task: "{{ params.task }}"
       guidance: "{{ params.guidance }}"
 

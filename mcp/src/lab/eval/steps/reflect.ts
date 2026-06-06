@@ -19,6 +19,14 @@ import { z, defineStep, usageFromResult, computeCost } from "vein";
  * an ARRAY; the prompt is told to only make changes that help across ALL of
  * them and never encode a single example's specifics.
  *
+ * MEMORY across generations (optional `history`): without it, each reflection is
+ * memoryless — it only sees the CURRENT prompt + its results, so it can re-propose
+ * a change an earlier generation already tried and that LOWERED the score. When
+ * the optimize loop passes `history` (every prior generation's prompt excerpt +
+ * mean score + the rationale for that change), the reflector can follow the score
+ * trend and avoid re-treading rejected changes. Defaults to [] (back-compat: a
+ * memoryless single reflection still works).
+ *
  * Self-contained: reaches the model via dynamic `import("ai")` (no services),
  * structured output (`generateObject`). Output: { prompt, rationale, usage, cost }
  * — usage/cost are this reflection's own LLM tokens + dollar cost.
@@ -46,6 +54,27 @@ interface Proposal {
   prompt: string;
 }
 
+/** One prior generation in this optimize run — what was tried and how it scored. */
+const HistorySchema = z.object({
+  gen: z.number().optional().describe("the generation index (0-based)"),
+  score: z.number().optional().describe("that generation's mean score across the dataset"),
+  rationale: z.string().optional().describe("why that generation's prompt was changed (the prior reflection's rationale)"),
+  prompt: z.string().optional().describe("that generation's prompt (excerpted)"),
+});
+
+interface History {
+  gen?: number;
+  score?: number;
+  rationale?: string;
+  prompt?: string;
+}
+
+/** Cap a prompt excerpt so the history digest stays token-cheap. */
+function excerpt(s: string, max = 400): string {
+  const t = s.trim();
+  return t.length > max ? t.slice(0, max) + " […]" : t;
+}
+
 /** Explicit shape of a `results[]` entry — annotated so the aggregation
  *  callbacks below don't depend on zod inference flowing through
  *  `defineStep` (which widens to `any` when vein is consumed as built
@@ -65,6 +94,10 @@ export default defineStep({
   input: z.object({
     prompt: z.string().describe("the current candidate prompt being tuned"),
     results: z.array(ResultSchema).describe("per-example scoring results across the dataset (>=1; more = less overfit)"),
+    history: z
+      .array(HistorySchema)
+      .default([])
+      .describe("prior generations this optimize run (oldest→newest): each prompt's mean score + the rationale for its change, so reflection follows the score trend and avoids re-proposing changes that already regressed. Empty = memoryless (default)."),
     task: z.string().optional().describe("one line: what this prompt is supposed to accomplish (the domain framing)"),
     rubric: z.string().optional().describe("what a good output looks like (matching criteria / standards)"),
     guidance: z.string().optional().describe("meta-rules for how to revise (e.g. 'prefer broad names', 'never name a specific item')"),
@@ -113,13 +146,29 @@ export default defineStep({
         ? results.reduce((s: number, r: Result) => s + (r.score ?? 0), 0) / results.length
         : undefined;
 
+    // Trajectory of prior attempts (oldest→newest): what was changed + how it
+    // scored, so the model builds on improvements and avoids rejected changes.
+    const history = (cfg.history ?? []) as History[];
+    const historyDigest = history
+      .map((h: History, i: number) => {
+        const tag = h.gen != null ? `gen ${h.gen}` : `attempt ${i + 1}`;
+        const score = h.score != null ? ` — mean score ${Math.round(h.score * 100) / 100}` : "";
+        const why = h.rationale ? `\n  changed: ${h.rationale}` : "";
+        const ex = h.prompt ? `\n  prompt: ${excerpt(h.prompt)}` : "";
+        return `- ${tag}${score}${why}${ex}`;
+      })
+      .join("\n");
+    const historySection = history.length
+      ? `\n# PREVIOUS ATTEMPTS THIS RUN (oldest → newest)\nThe CURRENT PROMPT above is the BEST-scoring attempt so far — you are improving FROM it. Learn from this trajectory: build on changes that RAISED the mean score, and do NOT re-introduce a change that LOWERED it.\n${historyDigest}\n`
+      : "";
+
     const prompt = `You are optimizing a PROMPT. ${cfg.task ?? "The prompt produces a set of items that we score against a gold set for recall (did we recover the real items?) and precision (did we avoid noise?)."}
 
 # CURRENT PROMPT (what produced the results below)
 """
 ${cfg.prompt}
 """
-${cfg.rubric ? `\n# WHAT "GOOD" LOOKS LIKE (rubric)\n${cfg.rubric}\n` : ""}${cfg.guidance ? `\n# HOW TO REVISE (guidance)\n${cfg.guidance}\n` : ""}
+${cfg.rubric ? `\n# WHAT "GOOD" LOOKS LIKE (rubric)\n${cfg.rubric}\n` : ""}${cfg.guidance ? `\n# HOW TO REVISE (guidance)\n${cfg.guidance}\n` : ""}${historySection}
 # RESULTS ACROSS ${cfg.results.length} EXAMPLE(S)${meanScore != null ? ` — mean score ${Math.round(meanScore * 100) / 100}` : ""}
 ${digest}
 
@@ -129,7 +178,7 @@ these examples. Rules:
   examples. Never encode a single example's specific domain or missing item —
   encode the underlying PRINCIPLE instead.
 - Recall first: the biggest lever is recovering recurring 'missing' kinds.
-- Cut recurring 'spurious' kinds by sharpening the inclusion/exclusion criteria.
+- Cut recurring 'spurious' kinds by sharpening the inclusion/exclusion criteria.${historySection ? "\n- Use PREVIOUS ATTEMPTS: build on changes that raised the mean score; do NOT re-propose a change that already lowered it. Aim to beat the best score so far." : ""}
 - Preserve any {placeholder} tokens present in the current prompt verbatim.
 - Return the COMPLETE new prompt (not a diff).`;
 

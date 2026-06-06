@@ -3,7 +3,8 @@ name: concepts-eval-reflect
 # the CONCEPT task framing + revision guidance, so the optimize loop can call it
 # to get an improved bootstrapPrompt from aggregated eval results.
 #
-# Input:  { prompt, results[ { score?, missing[], spurious[], insight? } ] }
+# Input:  { prompt, results[ { score?, missing[], spurious[], insight? } ],
+#           history?[ { gen?, score?, rationale?, prompt? } ] }
 # Output: { prompt, rationale }
 steps:
   - id: reflect
@@ -11,6 +12,9 @@ steps:
     config:
       prompt: "{{ input.prompt }}"
       results: "{{ input.results }}"
+      # Prior-generation trajectory (supplied by the optimize loop) → reflection
+      # gains memory across tries (follows the score trend, avoids regressions).
+      history: "{{ input.history }}"
       task: "{{ params.task }}"
       guidance: "{{ params.guidance }}"
 

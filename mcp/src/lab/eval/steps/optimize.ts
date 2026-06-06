@@ -5,9 +5,15 @@ import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, co
  * single step so the whole thing is one detached run (a "background job", §8):
  *
  *   eval  → score the current candidate prompt on the dataset
- *   keep  → track the best-scoring candidate so far
+ *   keep  → track the best-scoring candidate (prompt + its results) so far
  *   stop? → score ≥ threshold, or out of generations
- *   reflect → propose the next candidate (generalizing) and repeat
+ *   reflect → propose the next candidate, ANCHORED to the best (see below), and repeat
+ *
+ * ANCHOR + MEMORY: reflection builds the next candidate FROM the best-scoring
+ * prompt so far (not the latest, which may have regressed) — a hard guarantee we
+ * never keep editing a known-worse prompt — and is handed the FULL trajectory of
+ * prior generations (`history`: each prompt's mean score + the change rationale)
+ * so it follows the trend and won't re-propose a change that already regressed.
  *
  * Domain-agnostic: it tunes some `promptParam` on a `targetWorkflow` by running
  * an `evalWorkflow` (whose output has { score, missing, spurious, insight }) and
@@ -163,11 +169,20 @@ export default defineStep({
       gen: number;
       score: number; // mean across the dataset
       prompt: string;
+      rationale?: string; // why THIS gen's prompt was changed (prior reflection's rationale; undefined for gen 0)
       results: ExampleResult[];
       usage: TokenUsage; // gen total: every eval run + the reflection
       cost: number;
     }> = [];
-    let best = { gen: -1, prompt: candidate, score: -1 };
+    // The best-scoring candidate so far. We carry its OWN `results` so reflection
+    // can be ANCHORED to it (show best.prompt with the results best.prompt actually
+    // produced — coherent), instead of chaining off the latest (maybe-worse) gen.
+    let best: { gen: number; prompt: string; score: number; results: ExampleResult[] } = {
+      gen: -1,
+      prompt: candidate,
+      score: -1,
+      results: [],
+    };
 
     // Running totals across the WHOLE optimize run (all generations: every eval
     // run + every reflection). Surfaced in the final output as { totalCost,
@@ -245,10 +260,10 @@ export default defineStep({
         // `evalRunId` per example links to its full eval run (which nests the
         // bootstrap-then-process subflow — i.e. the bootstrap logs). The entry is
         // kept mutable so the reflection's tokens+$ can be added to it below.
-        const genEntry = { gen, score, prompt: candidate, results: evalRuns, usage: genUsage, cost: genCost };
+        const genEntry = { gen, score, prompt: candidate, rationale, results: evalRuns, usage: genUsage, cost: genCost };
         generations.push(genEntry);
 
-        if (score > best.score) best = { gen, prompt: candidate, score };
+        if (score > best.score) best = { gen, prompt: candidate, score, results: evalRuns };
 
         // One run ref per example so the UI can open each generation's evals.
         const runs: RunRef[] = evalRuns.map((r) => ({
@@ -275,18 +290,33 @@ export default defineStep({
         // "until it's satisfied": stop once good enough, or on the last generation.
         if (score >= cfg.threshold || gen === cfg.maxGenerations - 1) break;
 
-        // ── reflect → next candidate (generalizing ACROSS the dataset) ─────
-        // Pass the full per-example array so reflect optimizes for the COMMON
-        // failure modes, not one example's quirks.
+        // ── reflect → next candidate ───────────────────────────────────────
+        // ANCHOR TO BEST: build the next candidate FROM the best-scoring prompt so
+        // far — NOT the latest gen, which may have regressed. This is a hard
+        // structural guarantee that we never keep editing a known-worse prompt (and
+        // it sidesteps the fact that the `history` prompts are truncated, so the
+        // model couldn't faithfully reconstruct the best from them on its own). We
+        // pass best's OWN per-example results (coherent with best.prompt for "what
+        // produced the results below"), plus the FULL trajectory of every
+        // generation — including the just-eval'd one — as `history`, so reflection
+        // follows the score trend and won't re-propose a change that already
+        // regressed.
+        const history = generations.map((g) => ({
+          gen: g.gen,
+          score: g.score,
+          rationale: g.rationale,
+          prompt: g.prompt,
+        }));
         const reflectRun = await opt.run(cfg.reflectWorkflow, {
-          prompt: candidate,
-          results: evalRuns.map((r) => ({
+          prompt: best.prompt,
+          results: best.results.map((r) => ({
             label: r.label,
             score: r.score,
             missing: r.missing,
             spurious: r.spurious,
             insight: r.insight,
           })),
+          history,
         });
         if (reflectRun.status !== "success") {
           throw new Error(`reflect run failed: ${reflectRun.error?.message ?? "unknown"}`);
