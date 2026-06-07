@@ -5,6 +5,7 @@ import type { RunEvent, RunSummary } from "../core.js";
 import { AiDeps } from "./prompts.js";
 import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
+import { runSingleStep, cassettePath } from "../run-step.js";
 
 // The run-history read methods live on `FileRunStore`, not the base `RunStore`
 // interface (which is write-only: append/finalize). `MemoryRunStore` lacks them.
@@ -90,7 +91,7 @@ export function buildTools(deps: AiDeps) {
 
     create_step: tool({
       description:
-        "Author a NEW custom step type from TypeScript source. The code MUST be a self-contained vein step: the ONLY runtime import is `import { z, defineStep } from \"vein\"`, it `export default defineStep({ type, input, output, async run(cfg, ctx) {...} })`, and it reaches every external capability (db, http clients, llm, git, …) through `ctx.services` — never by importing other files. Use this only for step types that don't exist yet; use edit_step to change an existing one. Publishing as a new step creates version v1.",
+        "Author a NEW custom step type from TypeScript source. The code is a self-contained vein step: `import { z, defineStep } from \"vein\"` and `export default defineStep({ type, input, output, async run(cfg, ctx) {...} })`. Reach external capabilities through `ctx.services` — for network calls use `ctx.services.http(url, opts)` and for credentials `ctx.services.secrets.get(name)` (NOT the global fetch / process.env), so the step is recordable/replayable by run_step's cassette and secrets are scrubbed from fixtures. Call get_step(\"http\") to read the canonical ctx.services.http example. Prefer raw REST over vendor SDKs; only import a package other than \"vein\" if the deployment has pre-installed it. Use this only for step types that don't exist yet; use edit_step to change an existing one. Publishing as a new step creates version v1.",
       inputSchema: z.object({
         name: z
           .string()
@@ -340,6 +341,49 @@ export function buildTools(deps: AiDeps) {
         });
 
         return result;
+      },
+    }),
+
+    run_step: tool({
+      description:
+        "Run a SINGLE step in isolation with a given config + input, and return its output + events — WITHOUT wiring it into a workflow. This is the inner loop for authoring an adapter: create_step → run_step → edit_step → run_step until the output is right. " +
+        "Set cassette:'record' to run live AND capture the step's external service calls (http, etc.) to a reusable fixture (secrets are scrubbed); then cassette:'replay' to iterate OFFLINE against that fixture — deterministic, no rate limits, no cost, no side effects (so you don't, e.g., create a real charge on every test). " +
+        "Returns { status, output?, error?, events, recorded? }.",
+      inputSchema: z.object({
+        type: z.string().describe("Step type to run, e.g. 'stripe/list-charges' or 'http'."),
+        config: z
+          .record(z.any())
+          .optional()
+          .describe("The step's config (same shape as in a workflow). Templates like {{ input.* }} / {{ params.* }} are resolved."),
+        input: z
+          .any()
+          .optional()
+          .describe("Workflow input object, referenced in config via {{ input.* }}."),
+        params: z
+          .record(z.any())
+          .optional()
+          .describe("Params knobs, referenced via {{ params.* }}."),
+        cassette: z
+          .enum(["record", "replay"])
+          .optional()
+          .describe("record: run live + capture external calls to a fixture. replay: serve them from the fixture (offline). Omit for a plain live run."),
+        cassetteName: z
+          .string()
+          .optional()
+          .describe("Fixture name (defaults to the step type). Use distinct names to keep multiple scenarios per step."),
+      }),
+      execute: async ({ type, config, input, params, cassette, cassetteName }) => {
+        const registry = deps.registry;
+        if (!registry[type]) return { error: `Step type "${type}" not found` };
+        return runSingleStep(type, registry, deps.services, {
+          config,
+          input,
+          params,
+          workspace: deps.workspace,
+          ...(cassette
+            ? { cassette: { mode: cassette, path: cassettePath(deps.workspace.path, cassetteName ?? type) } }
+            : {}),
+        });
       },
     }),
 

@@ -23,6 +23,9 @@ import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
 import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import { requireApiKey, warnIfUnconfigured } from "./auth.js";
+import { standardServices } from "./capabilities.js";
+import { runSingleStep, cassettePath } from "./run-step.js";
+import type { CassetteMode } from "./cassette.js";
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -249,7 +252,14 @@ export async function createVein<TServices = unknown>(
   // restart / crash / cancellation) and is reported as "stale" rather than a
   // perpetual "running".
   const activeRuns = new Set<string>();
-  const services = (opts.services ?? ({} as TServices)) as TServices;
+  // Auto-provide the standard capabilities (http + secrets) every adapter step
+  // builds on, with the consumer's bag spread on top so they can override or
+  // extend any capability. This is what lets an LLM-authored adapter rely on
+  // `ctx.services.http` / `ctx.services.secrets` existing out of the box.
+  const services = {
+    ...(standardServices() as unknown as Record<string, unknown>),
+    ...((opts.services ?? {}) as Record<string, unknown>),
+  } as TServices;
   const serveUi = opts.serveUi ?? true;
   const enableChat = opts.enableChat ?? true;
   const chatStore: ChatStore =
@@ -680,6 +690,42 @@ export async function createVein<TServices = unknown>(
     }
     if (result.changed) await rebuildRegistry();
     return c.json({ ok: true, type: body.name, version: result.version, changed: result.changed }, 201);
+  });
+
+  // Run a SINGLE step in isolation (synchronous) — the adapter author's inner
+  // loop. Body: { config?, input?, params?, cassette?: "record"|"replay",
+  // cassetteName? }. With `cassette`, external `ctx.services` calls are recorded
+  // to / replayed from `steps/_cassettes/<name>.json` (secrets scrubbed), so the
+  // step can be iterated offline. Returns { status, output?, error?, events,
+  // recorded? }. Unlike workflow runs, this awaits and returns the result.
+  app.post("/steps/:type{.+}/run", async (c) => {
+    const type = c.req.param("type");
+    if (!registry[type]) return c.json({ error: `Step type "${type}" not found` }, 404);
+    const body = await c.req
+      .json<{
+        config?: Record<string, unknown>;
+        input?: unknown;
+        params?: Record<string, unknown>;
+        cassette?: CassetteMode;
+        cassetteName?: string;
+      }>()
+      .catch(() => ({}) as Record<string, never>);
+
+    const mode = body.cassette;
+    if (mode && mode !== "record" && mode !== "replay") {
+      return c.json({ error: `cassette must be "record" or "replay"` }, 400);
+    }
+
+    const result = await runSingleStep(type, registry, services, {
+      config: body.config,
+      input: body.input,
+      params: body.params,
+      workspace,
+      ...(mode
+        ? { cassette: { mode, path: cassettePath(workspace.path, body.cassetteName ?? type) } }
+        : {}),
+    });
+    return c.json(result);
   });
 
   app.delete("/steps", requireApiKey, async (c) => {

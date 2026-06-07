@@ -99,6 +99,39 @@ export {
   computeCost,
 } from "./pricing.js";
 
+// Standard capabilities — the http + secrets services adapter steps build on.
+export {
+  standardServices,
+  httpCapability,
+  secretsCapability,
+  type VeinCapabilities,
+  type HttpCapability,
+  type HttpRequestOptions,
+  type HttpResponse,
+  type SecretsCapability,
+  type FetchLike,
+} from "./capabilities.js";
+
+// Record/replay for the services bag (the adapter "safe inner loop").
+export {
+  withCassette,
+  emptyCassette,
+  loadCassette,
+  saveCassette,
+  type Cassette,
+  type CassetteEntry,
+  type CassetteMode,
+  type WithCassetteOptions,
+} from "./cassette.js";
+
+// Single-step runner (test one step in isolation, with optional cassette).
+export {
+  runSingleStep,
+  cassettePath,
+  type RunStepOptions,
+  type RunStepResult,
+} from "./run-step.js";
+
 // Vein factory — the primary entry point for library usage.
 export {
   createVein,
