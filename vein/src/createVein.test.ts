@@ -109,7 +109,10 @@ describe("createVein", () => {
 
     assert.ok(vein.app, "app should be a Hono instance");
     assert.equal(vein.workspace.path, tempDir);
-    assert.deepEqual(vein.services, {}); // default services
+    // Default services provide the standard adapter capabilities out of the box.
+    const svc = vein.services as { http?: unknown; secrets?: unknown };
+    assert.equal(typeof svc.http, "function");
+    assert.equal(typeof svc.secrets, "object");
     const reg = vein.getRegistry();
     assert.ok("http" in reg);
   });
@@ -239,6 +242,30 @@ describe("createVein", () => {
     const body = (await res.json()) as { ok: boolean; stepCount: number };
     assert.equal(body.ok, true);
     assert.ok(body.stepCount > 0);
+  });
+
+  it("runs a single step via POST /steps/:type/run", async () => {
+    const vein = await createVein({
+      workspace: new WorkspaceManager(tempDir),
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+    });
+    const res = await vein.app.request("/steps/log/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: { message: "hello {{ input.name }}" },
+        input: { name: "world" },
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { status: string; output: unknown };
+    assert.equal(body.status, "success");
+    assert.equal(body.output, "hello world");
+
+    const missing = await vein.app.request("/steps/nope/run", { method: "POST" });
+    assert.equal(missing.status, 404);
   });
 
   it("exposes /steps with registered types", async () => {

@@ -103,7 +103,12 @@ Authoring custom steps (create_step / edit_step):
         return { /* output */ };
       },
     });
-- Do NOT import anything except "vein". All external capabilities (db, http/git clients, llm, …) come from ctx.services — a deployment-provided bag. If you're unsure what's on ctx.services, call get_step on an existing custom step to see how it uses ctx.services, and mirror that.
+- External capabilities come from ctx.services — a deployment-provided bag. Two standard capabilities are ALWAYS available:
+    - ctx.services.http(url, { method?, headers?, body?, query? }) — a fetch-like transport. Returns a PLAIN object { status, ok, headers, body } (body is parsed JSON when JSON). Use this for ALL network/API calls — NOT the global fetch. (It returns a serializable object so the call can be recorded/replayed by run_step's cassette, and it keeps secrets out of your code path.)
+    - ctx.services.secrets.get("ENV_NAME") — read an API key / token. Use this for ALL credentials — NOT process.env. (Secrets read this way are automatically scrubbed from recorded cassettes.)
+  So a typical REST adapter is: const key = await ctx.services.secrets.get("STRIPE_KEY"); const res = await ctx.services.http("https://api.stripe.com/v1/charges", { query: { customer: cfg.customer }, headers: { authorization: \`Bearer \${key}\` } }); return { charges: res.body.data };
+  The built-in "http" step is the canonical example — call get_step("http") to read its source and mirror how it uses ctx.services.http.
+- Prefer raw REST via ctx.services.http — you rarely need a vendor SDK (it's just a wrapper over REST, and an SDK does its own networking so it can't be recorded/replayed). Only import a package other than "vein" if the deployment has pre-installed it (a vendor SDK with gnarly auth); otherwise the step will fail to load. If you're unsure what else is on ctx.services, call get_step on an existing custom step and mirror how it uses ctx.services.
 - Keep the step's algorithm inline (that's the editable part). To change a prompt or heuristic in an existing step, call get_step to read it, then edit_step with the full updated source.
 
 Tools:
@@ -111,6 +116,7 @@ Tools:
 - search_steps("keywords"): keyword search across all step types.
 - get_step("<type>"): full schema + (for lib/custom) source code. Always call before using a type.
 - create_step / edit_step: author or revise a custom step (see above).
+- run_step("<type>", config?, input?, params?, cassette?, cassetteName?): run ONE step in isolation and get its output — the inner loop for authoring an adapter, no workflow needed. After create_step, call run_step to test it. Use cassette:"record" for the first live run (captures external calls to a fixture, secrets scrubbed), then cassette:"replay" to iterate offline (deterministic, no rate limits, no side effects) while you edit_step.
 - list_workflows(): list existing workflows (name, active version, versions, description). Check this before creating a new workflow or referencing one in a subflow.
 - get_workflow("<name>", version?): read an existing workflow's full YAML + version metadata. Call before editing, referencing, or reusing a workflow you didn't just write.
 - create_workflow / edit_workflow: publish a NEW workflow, or a new VERSION of an existing one. edit_workflow is for STRUCTURAL changes (add/remove steps, rewire depends, promote a winning params default). To merely try a different prompt/threshold value, do NOT publish a version — pass params to run_workflow (those are runs, not versions).
@@ -120,7 +126,7 @@ Tools:
 Workflow:
 1. Available step types are listed at the end of this prompt. Use search_steps only if you need to find something by keyword; use list_steps only to re-list after creating new custom steps.
 2. Call get_step for EVERY step type you will use. Each has a description with the exact YAML config format — you MUST read it before writing. Do not guess config fields.
-3. If a needed step doesn't exist, author it with create_step (or edit_step to revise one), then it's available by its type.
+3. If a needed step doesn't exist, author it with create_step (or edit_step to revise one), then it's available by its type. For a step that hits an external API, test it in isolation with run_step BEFORE wiring it into a workflow: run_step(type, config, cassette:"record") once to capture a fixture, then run_step(..., cassette:"replay") + edit_step to iterate offline until the output is right.
 4. Call create_workflow with the final YAML (or edit_workflow to publish a new version of an existing workflow — get_workflow to read it first).
 5. Call run_workflow with a sample input to test it. Report the result (success/error, output, or which step failed) to the user.
 6. To debug a failure or inspect prior behavior, use list_runs + get_run. To build on or reference existing workflows, use list_workflows + get_workflow first.
