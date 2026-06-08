@@ -17,6 +17,8 @@ use std::any::type_name;
 use std::{collections::{HashMap, HashSet}, path::PathBuf, time::Instant};
 use tokio::fs;
 use tracing::{debug, info, trace};
+#[cfg(feature = "neo4j")]
+use tracing::warn;
 
 use super::memory;
 
@@ -57,7 +59,9 @@ impl Repo {
         let mut streaming_ctx: Option<StreamingUploadContext> =
             if enable_batch_upload && type_name::<G>().contains("BTreeMapGraph") {
                 let g = Neo4jGraph::default();
-                let _ = g.connect().await;
+                if let Err(e) = g.connect().await {
+                    warn!("Neo4j connection failed, streaming upload will be skipped: {}", e);
+                }
                 Some(StreamingUploadContext::new(g))
             } else {
                 None

@@ -124,7 +124,9 @@ impl Repos {
         let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
             if enable_batch_upload && std::any::type_name::<G>().contains("BTreeMapGraph") {
                 let neo = Neo4jGraph::default();
-                let _ = neo.connect().await;
+                if let Err(e) = neo.connect().await {
+                    warn!("Neo4j connection failed, streaming upload will be skipped: {}", e);
+                }
                 Some((neo, GraphStreamingUploader::new()))
             } else {
                 None
@@ -140,9 +142,12 @@ impl Repos {
             if let Some((neo, uploader)) = &mut streaming_ctx {
                 let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 if !bolt_nodes.is_empty() {
-                    let _ = uploader
+                    if let Err(e) = uploader
                         .flush_stage(neo, "repo_complete", &bolt_nodes)
-                        .await;
+                        .await
+                    {
+                        warn!("Neo4j flush failed at stage 'repo_complete': {}", e);
+                    }
                 }
             }
         }
@@ -174,14 +179,20 @@ impl Repos {
         if let Some((neo, uploader)) = &mut streaming_ctx {
             let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
             if !bolt_nodes.is_empty() {
-                let _ = uploader
+                if let Err(e) = uploader
                     .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
-                    .await;
+                    .await
+                {
+                    warn!("Neo4j flush failed at stage 'cross_repo_linking': {}", e);
+                }
             }
             let edges = graph.get_edge_keys();
-            let _ = uploader
+            if let Err(e) = uploader
                 .flush_edges_stage(neo, "cross_repo_linking", &edges)
-                .await;
+                .await
+            {
+                warn!("Neo4j edge flush failed at stage 'cross_repo_linking': {}", e);
+            }
         }
 
         let (nodes_size, edges_size) = graph.get_graph_size();
