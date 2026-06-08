@@ -569,15 +569,30 @@ export function getProviderOptions(
       let thinking: AnthropicProviderOptions["thinking"];
       if (fast) {
         thinking = { type: "disabled" };
-      } else if (explicitThinking) {
-        thinking = { type: "enabled", budgetTokens: 24000 };
-      } else if (anthropicSupportsAdaptiveThinking(modelName)) {
-        // Default for capable models: let the model decide, with summarized thinking output.
-        thinking = { type: "adaptive", display: "summarized" };
-      } else {
-        // Models that don't support adaptive thinking (e.g. Haiku): disable it.
-        thinking = { type: "disabled" };
+        return {
+          anthropic: {
+            thinking,
+            cacheControl: { type: "ephemeral" },
+          } satisfies AnthropicProviderOptions,
+        };
       }
+
+      if (anthropicSupportsAdaptiveThinking(modelName)) {
+        // Modern models (Sonnet 4.6+, Opus 4.6+, 4.7, 4.8) require adaptive.
+        // type: "enabled" is deprecated and rejected by these models.
+        return {
+          anthropic: {
+            thinking: { type: "adaptive", display: "summarized" },
+            ...(explicitThinking && { effort: "high" }),
+            cacheControl: { type: "ephemeral" },
+          } as AnthropicProviderOptions,
+        };
+      }
+
+      // Older models (Haiku, Claude 3.x): use enabled if explicitly requested.
+      thinking = explicitThinking
+        ? { type: "enabled", budgetTokens: 24000 }
+        : { type: "disabled" };
       return {
         anthropic: {
           thinking,
