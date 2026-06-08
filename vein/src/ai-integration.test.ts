@@ -10,6 +10,7 @@ import { defineStep } from "./core.js";
 import { createRegistry } from "./steps/registry.js";
 import { WorkspaceManager } from "./workspace.js";
 import { MemoryRunStore, FileRunStore } from "./store.js";
+import { MemorySecretStore } from "./secret-store.js";
 import { lsSteps, searchSteps, readStepSource } from "./ai/stepHelpers.js";
 import { buildSystem } from "./ai/prompts.js";
 import { buildTools } from "./ai/tools.js";
@@ -430,5 +431,95 @@ describe("AI list_runs / get_run tools", () => {
     assert.ok(list.error && /unavailable/.test(list.error));
     const get = await tools.get_run.execute({ name: "x", runId: "1" });
     assert.ok(get.error && /unavailable/.test(get.error));
+  });
+});
+
+// ── run_workflow coerces a stringified input ────────────────────────────────
+
+describe("AI run_workflow tool: stringified input coercion", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-ai-runwf-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("parses an input passed as a JSON string so {{ input.* }} resolves", async () => {
+    const echo = defineStep({
+      type: "echo",
+      input: z.any(),
+      output: z.any(),
+      async run(cfg) {
+        return cfg;
+      },
+    });
+    const registry = await createRegistry([echo]);
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishWorkflow("echo-wf", "v1", {
+      steps: [
+        { id: "a", type: "echo", config: { owner: "{{ input.owner }}", pull_number: "{{ input.pull_number }}" } },
+      ],
+    });
+
+    const deps = {
+      workspace: ws,
+      registry,
+      store: new MemoryRunStore(),
+      getRegistry: async () => registry,
+    };
+    const tools = buildTools(deps) as any;
+
+    // The model passes input as a JSON STRING (the exact bug from the logs).
+    const res = await tools.run_workflow.execute({
+      name: "echo-wf",
+      input: '{ "owner": "vercel", "pull_number": 1234 }',
+    });
+
+    assert.equal(res.status, "success");
+    assert.equal(res.output.owner, "vercel");
+    assert.equal(res.output.pull_number, 1234);
+    assert.equal(typeof res.output.pull_number, "number");
+  });
+});
+
+// ── list_secrets tool ────────────────────────────────────────────────────────
+
+describe("AI list_secrets tool", () => {
+  function makeDeps(secrets?: MemorySecretStore) {
+    const registry = {} as any;
+    return {
+      workspace: {} as any,
+      registry,
+      store: new MemoryRunStore(),
+      getRegistry: async () => registry,
+      secrets,
+    };
+  }
+
+  it("returns secret NAMES + updatedAt, never values", async () => {
+    const store = new MemorySecretStore();
+    await store.set("GITHUB_TOKEN", "ghp_superSecret");
+    await store.set("GOOGLE_SERVICE_ACCOUNT_JSON", '{"private_key":"xyz"}');
+
+    const tools = buildTools(makeDeps(store)) as any;
+    const res = await tools.list_secrets.execute({});
+
+    assert.deepEqual(
+      res.secrets.map((s: { name: string }) => s.name).sort(),
+      ["GITHUB_TOKEN", "GOOGLE_SERVICE_ACCOUNT_JSON"],
+    );
+    // The agent must never see values.
+    const blob = JSON.stringify(res);
+    assert.ok(!blob.includes("ghp_superSecret"));
+    assert.ok(!blob.includes("private_key"));
+    assert.ok(res.secrets.every((s: { updatedAt?: string }) => typeof s.updatedAt === "string"));
+  });
+
+  it("degrades gracefully when no secret store is wired", async () => {
+    const tools = buildTools(makeDeps(undefined)) as any;
+    const res = await tools.list_secrets.execute({});
+    assert.ok(res.error && /not available/.test(res.error));
   });
 });

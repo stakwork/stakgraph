@@ -24,6 +24,12 @@ import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import { requireApiKey, warnIfUnconfigured } from "./auth.js";
 import { standardServices } from "./capabilities.js";
+import type { SecretStore } from "./secret-store.js";
+import {
+  FileSecretStore,
+  MemorySecretStore,
+  isValidSecretName,
+} from "./secret-store.js";
 import { runSingleStep, cassettePath } from "./run-step.js";
 import type { CassetteMode } from "./cassette.js";
 
@@ -71,6 +77,14 @@ export interface VeinOptions<TServices = unknown> {
    *  `store` is a `MemoryRunStore`). */
   chatStore?: ChatStore;
 
+  /** Deployment-scoped secret store backing `ctx.services.secrets` and the
+   *  `/secrets` admin endpoints. Defaults to an encrypted `FileSecretStore`
+   *  rooted at the workspace path (or `MemorySecretStore` when `store` is a
+   *  `MemoryRunStore`). The default `secrets` capability reads this store with
+   *  `process.env` as fallback. Pass your own `services.secrets` to bypass
+   *  entirely (then the `/secrets` endpoints return 501). */
+  secretStore?: SecretStore;
+
   /** Max agent steps (tool-call iterations) per chat turn. Raise for longer
    *  autonomous "let it rip" loops. Defaults to `VEIN_CHAT_MAX_STEPS` or 30. */
   chatMaxSteps?: number;
@@ -99,6 +113,9 @@ export interface Vein<TServices = unknown> {
   app: Hono;
   workspace: WorkspaceManager;
   store: RunStore;
+  /** Deployment-scoped secret store backing `ctx.services.secrets` + the
+   *  `/secrets` endpoints. */
+  secretStore: SecretStore;
   services: TServices;
 
   /** Current registry. Reads through the closure so callers always see
@@ -252,12 +269,27 @@ export async function createVein<TServices = unknown>(
   // restart / crash / cancellation) and is reported as "stale" rather than a
   // perpetual "running".
   const activeRuns = new Set<string>();
+  // Deployment-scoped secret store backing the `secrets` capability + the
+  // `/secrets` admin endpoints. Mirrors the run/chat store defaults: encrypted
+  // file store for the standard server, in-memory when runs are in-memory.
+  const secretStore: SecretStore =
+    opts.secretStore ??
+    (store instanceof FileRunStore
+      ? new FileSecretStore(workspace.path)
+      : new MemorySecretStore());
+  // Did the consumer inject their own `secrets` capability? If so we leave it
+  // alone and the `/secrets` endpoints (which manage *our* store) report 501.
+  const secretsInjected =
+    opts.services != null &&
+    typeof (opts.services as Record<string, unknown>)["secrets"] === "object";
   // Auto-provide the standard capabilities (http + secrets) every adapter step
   // builds on, with the consumer's bag spread on top so they can override or
-  // extend any capability. This is what lets an LLM-authored adapter rely on
-  // `ctx.services.http` / `ctx.services.secrets` existing out of the box.
+  // extend any capability. The default `secrets` capability reads the secret
+  // store (UI-managed) with `process.env` as fallback. This is what lets an
+  // LLM-authored adapter rely on `ctx.services.http` / `ctx.services.secrets`
+  // existing out of the box.
   const services = {
-    ...(standardServices() as unknown as Record<string, unknown>),
+    ...(standardServices({ secretStore }) as unknown as Record<string, unknown>),
     ...((opts.services ?? {}) as Record<string, unknown>),
   } as TServices;
   const serveUi = opts.serveUi ?? true;
@@ -587,6 +619,50 @@ export async function createVein<TServices = unknown>(
     }
   });
 
+  // ── Secrets ──────────────────────────────────────────────────────────────
+  // Deployment-scoped credential store behind `ctx.services.secrets`. Values
+  // are write-only over the API: GET returns NAMES + metadata only, never the
+  // value. All routes are gated by `VEIN_API_KEY` (permissive in dev mode).
+  // 501 when the consumer injected their own `secrets` capability (we don't
+  // own that store).
+
+  app.get("/secrets", requireApiKey, async (c) => {
+    if (secretsInjected) {
+      return c.json({ error: "secrets are managed by an injected capability" }, 501);
+    }
+    return c.json({ secrets: await secretStore.list() });
+  });
+
+  app.put("/secrets/:name", requireApiKey, async (c) => {
+    if (secretsInjected) {
+      return c.json({ error: "secrets are managed by an injected capability" }, 501);
+    }
+    const name = c.req.param("name");
+    if (!name || !isValidSecretName(name)) {
+      return c.json(
+        { error: `invalid secret name "${name}" — use letters, digits, underscore (not starting with a digit)` },
+        400,
+      );
+    }
+    const body = await c.req.json<{ value?: unknown }>().catch(() => ({ value: undefined }));
+    if (typeof body.value !== "string" || body.value.length === 0) {
+      return c.json({ error: "value (non-empty string) is required" }, 400);
+    }
+    await secretStore.set(name, body.value);
+    return c.json({ ok: true, name });
+  });
+
+  app.delete("/secrets/:name", requireApiKey, async (c) => {
+    if (secretsInjected) {
+      return c.json({ error: "secrets are managed by an injected capability" }, 501);
+    }
+    const name = c.req.param("name");
+    if (!name) return c.json({ error: "secret name is required" }, 400);
+    const existed = await secretStore.delete(name);
+    if (!existed) return c.json({ error: `secret "${name}" not found` }, 404);
+    return c.json({ ok: true, name });
+  });
+
   // ── Steps ────────────────────────────────────────────────────────────────
 
   app.get("/steps", async (c) => {
@@ -853,6 +929,7 @@ export async function createVein<TServices = unknown>(
             registry,
             store,
             services,
+            secrets: secretsInjected ? undefined : secretStore,
             publishingEnabled: !registryWasInjected,
             getRegistry: async () => {
               if (registryWasInjected) return registry;
@@ -1085,6 +1162,7 @@ export async function createVein<TServices = unknown>(
     app,
     workspace,
     store,
+    secretStore,
     services,
     getRegistry: () => registry,
     rebuildRegistry,

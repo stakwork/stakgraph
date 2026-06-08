@@ -42,6 +42,22 @@ function slimEvent(e: RunEvent) {
 
 // ── Tools ──────────────────────────────────────────────────────────────────
 
+/** LLMs sometimes pass an object-valued tool arg as a JSON *string* (e.g.
+ *  run_workflow's `input`). The template engine then sees a string, so
+ *  `{{ input.owner }}` resolves to undefined and every field fails validation.
+ *  Defensively parse a JSON string back into the object/array it represents;
+ *  leave anything else untouched. */
+function coerceJsonArg(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const t = v.trim();
+  if (!(t.startsWith("{") || t.startsWith("["))) return v;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return v;
+  }
+}
+
 export function buildTools(deps: AiDeps) {
   return {
     list_steps: tool({
@@ -86,6 +102,19 @@ export function buildTools(deps: AiDeps) {
         const source = await readStepSource(type, deps);
 
         return { type, description: def.description, fields, source };
+      },
+    }),
+
+    list_secrets: tool({
+      description:
+        "List the NAMES of credentials available in the deployment's secret store (e.g. GITHUB_TOKEN, GOOGLE_SERVICE_ACCOUNT_JSON). Returns names + metadata ONLY — never the secret values. Use this before authoring a step that needs auth: reference an existing name in ctx.services.secrets.get(\"NAME\"), and if the credential you need isn't listed, tell the user to add it via the Secrets dialog (the value is never visible to you).",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!deps.secrets) {
+          return { error: "Secret store is not available in this deployment." };
+        }
+        const secrets = await deps.secrets.list();
+        return { secrets: secrets.map((s) => ({ name: s.name, updatedAt: s.updatedAt })) };
       },
     }),
 
@@ -307,7 +336,7 @@ export function buildTools(deps: AiDeps) {
           .any()
           .optional()
           .describe(
-            "Input object passed to the workflow (the run subject — e.g. PR number, repo). Shape depends on the workflow's input schema; use {} if none.",
+            "Input passed to the workflow as a JSON OBJECT (not a string), referenced in step configs via {{ input.* }} — the run subject, e.g. { owner, repo, pull_number }. Use {} if none.",
           ),
         params: z
           .record(z.any())
@@ -333,11 +362,11 @@ export function buildTools(deps: AiDeps) {
           };
         }
 
-        const result = await runWorkflow(flow, input ?? {}, deps.registry, {
+        const result = await runWorkflow(flow, coerceJsonArg(input) ?? {}, deps.registry, {
           store: deps.store,
           workspace: deps.workspace,
           services: deps.services,
-          params,
+          params: coerceJsonArg(params) as Record<string, unknown> | undefined,
         });
 
         return result;
@@ -376,9 +405,9 @@ export function buildTools(deps: AiDeps) {
         const registry = deps.registry;
         if (!registry[type]) return { error: `Step type "${type}" not found` };
         return runSingleStep(type, registry, deps.services, {
-          config,
-          input,
-          params,
+          config: coerceJsonArg(config) as Record<string, unknown> | undefined,
+          input: coerceJsonArg(input),
+          params: coerceJsonArg(params) as Record<string, unknown> | undefined,
           workspace: deps.workspace,
           ...(cassette
             ? { cassette: { mode: cassette, path: cassettePath(deps.workspace.path, cassetteName ?? type) } }

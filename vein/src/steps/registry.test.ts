@@ -43,10 +43,11 @@ describe("buildRegistry", () => {
   it("tags lib steps (shipped under src/steps/lib) with source: lib", async () => {
     const { registry, sources } = await buildRegistry(tempDir);
 
-    // github/fetch-pr is currently the only shipped lib step. If lib steps
-    // change, this test should adapt — but at minimum we expect anything
-    // not in CORE_STEP_TYPES to be either "lib" or "custom", and there
-    // should be at least one "lib" entry to validate the tagging works.
+    // Shipped lib steps live under src/steps/lib (e.g. github/fetch-pr,
+    // gdrive/export-file). If lib steps change, this test should adapt —
+    // but at minimum we expect anything not in CORE_STEP_TYPES to be either
+    // "lib" or "custom", and there should be at least one "lib" entry to
+    // validate the tagging works.
     const libEntries = Object.entries(sources).filter(([, s]) => s === "lib");
     assert.ok(
       libEntries.length > 0,

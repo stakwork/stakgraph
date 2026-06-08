@@ -35,17 +35,18 @@ vein/
 │   ├── createVein.ts      # createVein() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + detached /chat (launch+reattach) + static serving; injectable registry/store/chatStore/services
 │   ├── server.ts          # thin wrapper over createVein() (getApp/startServer) — default filesystem-backed server
 │   ├── auth.ts            # requireApiKey middleware + warnIfUnconfigured (VEIN_API_KEY shared secret)
+│   ├── secret-store.ts    # SecretStore iface + FileSecretStore (AES-256-GCM, VEIN_SECRET_KEY) + MemorySecretStore — backs ctx.services.secrets + /secrets endpoints
 │   ├── index.ts           # barrel export — createVein (primary entry), createRegistry, coreRegistry, all types
 │   ├── steps/
 │   │   ├── core/          # 9 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait (static import)
-│   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — dynamic import
+│   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — file dynamic-imported at build; heavy SDKs lazy-imported in run() (see "Lib step dependency convention")
 │   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
 │   │   ├── index.ts       # barrel export
-│   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree); AiDeps now carries `services`
+│   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree); AiDeps carries `services` + `secrets` (read-only names)
 │   │   ├── tools.ts       # buildTools(deps): list_steps, search_steps, get_step,
-│   │   │                  #                   create_step, edit_step, create_workflow,
-│   │   │                  #                   run_workflow (threads ctx.services)
+│   │   │                  #                   list_secrets (NAMES only), create_step, edit_step,
+│   │   │                  #                   create_workflow, run_workflow (threads ctx.services)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
 │   └── *.test.ts          # 298 tests across 12 files
@@ -70,6 +71,7 @@ vein/
         │   ├── EventsResizer.tsx     # drag handle for events panel height
         │   ├── Markdown.tsx          # tiny markdown renderer for chat output
         │   ├── RunInputPopover.tsx   # input-payload editor when triggering a run
+        │   ├── SecretsDialog.tsx     # manage deployment secrets (write-only values; names+meta listed)
         │   ├── StepEditFlyout.tsx    # edit step (id / type / config / depends / options)
         │   ├── StepRunFlyout.tsx     # view a step's run I/O (leaf: input/output; container: aggregate summary)
         │   └── FlyoutResizer.tsx     # drag handle for flyout width
@@ -104,6 +106,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_WORKSPACE`    | `./workspace`  | Persistent volume for workflows/runs |
 | `VEIN_PORT`         | `3000`         | HTTP server port                     |
 | `VEIN_API_KEY`      | (unset)        | Deployment-scoped shared secret. See "Auth" below. |
+| `VEIN_SECRET_KEY`   | (unset)        | Encryption key for the secret store (AES-256-GCM). Unset → a default dev key + one-time warning (obfuscated, not secure). See "Secrets". |
 | `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
 | `VEIN_CHAT_MODEL`   | `claude-sonnet-4-20250514` | Anthropic model for the AI-builder chat agent |
@@ -132,17 +135,84 @@ This is sufficient when both services live in the same trust domain
 later without breaking this contract — they'd be additive env vars
 (`VEIN_API_KEY_<NAMESPACE>`) checked in addition to the shared key.
 
+## Secrets
+
+Steps reach credentials through one boundary — `ctx.services.secrets.get("NAME")`
+— never `process.env` directly. That boundary is backed by a **deployment-scoped
+secret store** (`src/secret-store.ts`) so credentials can be managed from the UI
+instead of baked into env at deploy time.
+
+- **Store:** `SecretStore` interface (parallel to `RunStore`/`ChatStore`).
+  Default `FileSecretStore` persists `<workspace>/secrets.json`, **encrypted at
+  rest** (AES-256-GCM, key derived from `VEIN_SECRET_KEY`). `MemorySecretStore`
+  for tests / in-memory deployments. The default `secrets` capability reads the
+  store first, then falls back to `process.env` (so existing env-provided keys
+  keep working). Injectable via `createVein({ secretStore })`.
+
+- **Scope is deployment-global**, NOT per-user — matching the `VEIN_API_KEY`
+  single-trust-domain model. (Per-user secrets would need an identity model vein
+  doesn't have.)
+
+- **Endpoints** (gated by `VEIN_API_KEY`, permissive in dev): `GET /secrets`
+  returns **names + metadata only — never values** (write-only credentials);
+  `PUT /secrets/:name { value }` creates/overwrites; `DELETE /secrets/:name`.
+  If the consumer injects their own `services.secrets`, these return **501**
+  (vein doesn't own that store).
+
+- **UI:** the topbar **Secrets** button opens `SecretsDialog` — list (names +
+  "updated" date), add (name + value, value can be multi-line e.g. a
+  service-account JSON), delete. The stored value is never sent back to the
+  browser. The UI assumes dev / same-trust-domain (no `Authorization` header),
+  exactly like the existing `/steps` mutations.
+
+- **`VEIN_SECRET_KEY`:** set it in production. Unset → values are encrypted with
+  a fixed dev key and a one-time warning logs (obfuscation, not real security).
+
+- **AI builder access:** the chat agent has a read-only `list_secrets` tool
+  (names + metadata only — never values) so it can reference existing
+  credentials when authoring steps and prompt the user to add missing ones. It
+  has no write access; adding/removing secrets stays a human action.
+
+- **No OAuth.** This is a paste-a-key / service-account store by design. For
+  Google Drive, paste a **service-account JSON** as `GOOGLE_SERVICE_ACCOUNT_JSON`
+  (no expiry, no refresh) — far simpler than an OAuth flow for a server-side
+  engine. If interactive per-end-user OAuth is ever needed, the **host app**
+  (mcp) should own the OAuth dance and deposit/refresh tokens *into* this store;
+  vein's `secrets` capability stays generic and provider-agnostic.
+
+## Lib step credentials
+
+Lib steps read credentials through the secrets capability, with explicit step
+config taking precedence:
+
+```ts
+const token = cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
+```
+
+- **`cfg.<field>` wins** (a workflow can pass a token via `{{ input.x }}`),
+  otherwise fall through to the managed secret store / env.
+- Type `ctx` as `StepContext<VeinCapabilities>` (import both from the relative
+  `core.js` / `capabilities.js`) so `ctx.services.secrets` is typed. Use
+  optional chaining — a bare `runWorkflow` without a services bag has no
+  `secrets`.
+- This also gets the step **cassette scrubbing for free**: every value read
+  through `secrets.get()` is scrubbed from recorded fixtures.
+- `github/fetch-pr` (`GITHUB_TOKEN`) and `gdrive/export-file`
+  (`GOOGLE_ACCESS_TOKEN` or `GOOGLE_SERVICE_ACCOUNT_JSON`) are the reference
+  examples.
+
 ## Key concepts
 
 - **`createVein()` is the primary entry point** (`src/createVein.ts`).
   It builds a configured instance — Hono `app`, `workspace`, `store`,
   `services`, plus `run()`/`listen()`/`rebuildRegistry()` helpers — and
-  mounts every route (`/workflows`, `/steps`, `/chat` + `/chats`,
-  `/health`, static UI). Everything is injectable via `VeinOptions`:
-  pass your own `registry` (disables filesystem step discovery +
-  publishing), `store` (e.g. `MemoryRunStore`), `chatStore`, `services`
-  bag, or toggle `serveUi`/`enableChat`. `server.ts` is a thin wrapper
-  (`getApp`/`startServer`) over `createVein()` with filesystem defaults.
+  mounts every route (`/workflows`, `/steps`, `/secrets`, `/chat` +
+  `/chats`, `/health`, static UI). Everything is injectable via
+  `VeinOptions`: pass your own `registry` (disables filesystem step
+  discovery + publishing), `store` (e.g. `MemoryRunStore`), `chatStore`,
+  `secretStore`, `services` bag, or toggle `serveUi`/`enableChat`.
+  `server.ts` is a thin wrapper (`getApp`/`startServer`) over
+  `createVein()` with filesystem defaults.
 
 - **`services` bag** is a consumer-defined capabilities object exposed to
   every step via `ctx.services` (typed by `defineStep`, untyped at
@@ -155,6 +225,9 @@ later without breaking this contract — they'd be additive env vars
   layered on core + lib (no filesystem custom/ discovery) — the
   library-usage counterpart to `buildRegistry(workspacePath)`. User
   steps may shadow core/lib steps (with a warning); duplicates throw.
+  Like `buildRegistry`, it imports every lib step *file* at build time
+  (cheap: schema + metadata only) — heavy SDK deps load lazily in `run()`
+  per the "Lib step dependency convention".
 
 - **Workflows are YAML**. One format everywhere — no `.ts` workflows,
   no JSON workflows. The API accepts either a `steps` array (server
@@ -204,6 +277,25 @@ later without breaking this contract — they'd be additive env vars
   `/g` regex. `resolveTemplate` uses a non-regex check
   (`indexOf("{{")`) for the single-expression fast path to avoid
   the greedy backtracking bug with multi-segment templates.
+
+- **Templates must be quoted in YAML.** A value starting with `{{`
+  is parsed by YAML as a flow-mapping, so `pull_number: {{ input.x }}`
+  silently becomes an object (`{ "[object Object]": null }`) → the step
+  fails with a baffling "expected number, received object". Always write
+  `pull_number: "{{ input.x }}"`. A sole `"{{ expr }}"` still preserves
+  the value's real type (number stays number). `publishWorkflow`
+  **lints for this** (`workspace.ts:assertValidWorkflowYaml`, detects the
+  parsed `[object Object]` corruption signature — so it doesn't
+  false-positive on `{{ }}` inside block-scalar message bodies) and throws
+  an actionable error instead of writing a broken workflow. The AI builder's
+  system prompt also carries the quoting rule.
+
+- **AI tool args may arrive as JSON strings.** LLMs sometimes pass an
+  object-valued tool arg (e.g. `run_workflow`'s `input`) as a JSON
+  *string*; the template engine then sees a string and `{{ input.* }}`
+  resolves to `undefined`. `buildTools` (`ai/tools.ts:coerceJsonArg`)
+  defensively `JSON.parse`s string args that look like objects/arrays for
+  `run_workflow` + `run_step` (`input`/`params`/`config`).
 
 - **`_metadata.json`** in each workflow dir tracks versions and the
   active version. In `steps/custom/_metadata.json` it tracks
@@ -344,6 +436,17 @@ later without breaking this contract — they'd be additive env vars
   prompt is built per-request by `buildSystem(deps)` (pre-seeds the
   steps tree).
 
+- **`list_secrets` tool** (`AiDeps.secrets`). The agent can list the
+  **names** of available credentials (never values — it's the same
+  names-only view as `GET /secrets`) so when it authors a step it
+  references an existing secret name in `ctx.services.secrets.get("NAME")`
+  rather than guessing, and tells the user which secret to add when one
+  is missing. Deliberately **read-only**: the agent has no
+  set/delete — writing a value through the model would defeat the
+  write-only design, and adding a secret is a human action. Wired only
+  when vein owns the secret store (absent when the consumer injected
+  their own `services.secrets`; the tool then returns an error).
+
 - **Chat is a detached background job** (`src/chat-store.ts`), NOT a
   connection-bound stream — the same launch+reattach model as runs
   (§8). `POST /chat { chatId?, message }` appends the user message,
@@ -461,6 +564,68 @@ later without breaking this contract — they'd be additive env vars
 5. Write tests in the appropriate test file.
 6. Run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
 
+## When adding a lib step (domain integration)
+
+Lib steps (`src/steps/lib/<namespace>/<name>.ts`) are engine-shipped
+domain integrations (github, slack, google-docs, dropbox, …). They're
+auto-discovered by `buildRegistry()`/`createRegistry()` — no manual
+registration — but they follow a strict **dependency convention** so
+adding a hundred adapters doesn't bloat every consumer's startup.
+
+### Lib step dependency convention
+
+**Rule: schema + metadata at module top level; heavy SDKs `await import()`-ed
+INSIDE `run()`.**
+
+```ts
+import { z } from "zod";                       // ✅ light, already a core dep
+import { defineStep } from "../../../core.js"; // ✅ engine
+// ❌ NEVER: import { Octokit } from "@octokit/rest";  (top-level heavy SDK)
+
+export default defineStep({
+  type: "github/fetch-pr",
+  description: "...",
+  input: z.object({ /* ... */ }),   // top level — needed by /steps + UI
+  output: z.object({ /* ... */ }),
+  async run(cfg) {
+    const { Octokit } = await import("@octokit/rest"); // ✅ lazy, first-use only
+    const octokit = new Octokit(/* ... */);
+    // ...
+  },
+});
+```
+
+**Why.** `loadStepsFrom(LIB_DIR)` does `await import()` on *every* lib
+file at registry-build time (which `createVein()` does eagerly at
+construction). A **top-level** `import` of an SDK therefore loads that
+SDK at startup for **every** consumer — even ones that never use the
+step. Moving the SDK import into `run()` keeps registry-build cheap (only
+schema + metadata execute), so the SDK only loads the first time its step
+actually runs. This is the "monolith, lazy-loaded" model (same shape as
+n8n's node catalog): all adapter code ships in vein, but unused SDKs are
+never *loaded* — though they are still *installed* in `node_modules`
+(an in-tree integration's deps are unavoidably listed in
+`vein/package.json`). If install footprint ever becomes the problem,
+split heavy adapters into companion packages registered via
+`createRegistry([...])`; the lazy-in-`run()` pattern is forward-compatible
+with that move.
+
+**Checklist for a new lib step:**
+1. Create `src/steps/lib/<namespace>/<name>.ts` with a `defineStep()`
+   default export. Use a `<namespace>/<name>` type (e.g. `slack/post-message`).
+2. Keep ALL `import`s at the top light (zod, core, sibling `_helpers`).
+   `await import()` every third-party SDK inside `run()`.
+3. Add the SDK to `vein/package.json` dependencies.
+4. Read credentials via `cfg.<field> ?? await ctx?.services?.secrets?.get("NAME")`
+   (type `ctx` as `StepContext<VeinCapabilities>`) — never `process.env`
+   directly. See "Lib step credentials".
+5. Shared helpers go in a leading-underscore file (`lib/<ns>/_shared.ts`) —
+   imported by siblings, skipped by registry discovery.
+6. Add a `STEP_COLORS` entry in `web/src/flow-to-canvas.ts` if you want a
+   distinct node color (optional; the Add Step dialog discovers the type
+   regardless via `/steps`).
+7. Write tests; run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
+
 ## When adding an API endpoint
 
 1. Add the route in `src/createVein.ts` (inside the `createVein()`
@@ -470,7 +635,7 @@ later without breaking this contract — they'd be additive env vars
 2. Add the typed function in `web/src/api.ts`.
 3. Wire it into `web/src/app.tsx`.
 4. The Vite dev proxy in `web/vite.config.ts` only proxies known
-   prefixes (`/workflows`, `/steps`, `/chat`, `/health`). Runs are
+   prefixes (`/workflows`, `/steps`, `/secrets`, `/chat`, `/health`). Runs are
    under `/workflows/` and chat reattach under `/chat/` so they're
    already proxied. SSE responses get `cache-control: no-cache` +
    `x-accel-buffering: no` injected by the shared `sseConfigure` —

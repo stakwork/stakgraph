@@ -109,8 +109,19 @@ export {
   type HttpRequestOptions,
   type HttpResponse,
   type SecretsCapability,
+  type SecretReadable,
   type FetchLike,
 } from "./capabilities.js";
+
+// Secret store — deployment-scoped, encrypted credential persistence behind
+// the `secrets` capability + the `/secrets` admin endpoints.
+export {
+  type SecretStore,
+  type SecretInfo,
+  FileSecretStore,
+  MemorySecretStore,
+  isValidSecretName,
+} from "./secret-store.js";
 
 // Record/replay for the services bag (the adapter "safe inner loop").
 export {

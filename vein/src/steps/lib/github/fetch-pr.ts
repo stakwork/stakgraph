@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { Octokit } from "@octokit/rest";
-import { defineStep } from "../../../core.js";
+import { defineStep, type StepContext } from "../../../core.js";
+import type { VeinCapabilities } from "../../../capabilities.js";
 
 const EXAMPLE = `- id: pr
   type: github/fetch-pr
@@ -46,8 +46,16 @@ export default defineStep({
       changedFiles: z.number(),
     }),
   }),
-  async run(cfg) {
-    const auth = cfg.token ?? process.env["GITHUB_TOKEN"];
+  async run(cfg, ctx: StepContext<VeinCapabilities>) {
+    // Lazy-load the SDK inside run() so the heavy dep is only pulled into
+    // memory when this step actually executes — not at registry-build time.
+    // See AGENTS.md "Lib step dependency convention".
+    const { Octokit } = await import("@octokit/rest");
+    // Credentials flow through the secrets capability (UI-managed store → env
+    // fallback) so they're cassette-scrubbed; explicit config always wins.
+    // See AGENTS.md "Lib step credentials".
+    const auth =
+      cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
     const octokit = new Octokit(auth ? { auth } : {});
 
     const prInfo = {
