@@ -2,3 +2,6 @@
 
 members = ["ast", "lsp", "shared", "skill", "standalone"]
 resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1.44", features = ["full"] }

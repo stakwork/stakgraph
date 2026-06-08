@@ -9,7 +9,7 @@ aws-sdk-s3 = { version = "1.38.0", features = ["http-1x"] }
 anyhow = "1"
 serde = "1.0.210"
 serde_json = "1.0.129"
-tokio = { version = "1", features = ["macros"] }
+tokio = { workspace = true }
 ast = { path = "../ast" }
 lsp = { path = "../lsp" }
 tracing = { version = "0.1.37" }

@@ -13,7 +13,7 @@ path = "src/main.rs"
 ast = { path = "../ast", default-features = false }
 lsp = { path = "../lsp" }
 shared = { path = "../shared" }
-tokio = { version = "1.27.0", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 clap = { version = "4.5.31", features = ["derive"] }
 clap_complete = "4.6.0"
 console = "0.16.3"
