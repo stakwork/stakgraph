@@ -117,6 +117,7 @@ Authoring custom steps (create_step / edit_step):
   The built-in "http" step is the canonical example — call get_step("http") to read its source and mirror how it uses ctx.services.http.
 - Prefer raw REST via ctx.services.http — you rarely need a vendor SDK (it's just a wrapper over REST, and an SDK does its own networking so it can't be recorded/replayed). Only import a package other than "vein" if the deployment has pre-installed it (a vendor SDK with gnarly auth); otherwise the step will fail to load. If you're unsure what else is on ctx.services, call get_step on an existing custom step and mirror how it uses ctx.services.
 - Keep the step's algorithm inline (that's the editable part). To change a prompt or heuristic in an existing step, call get_step to read it, then edit_step with the full updated source.
+- Fail with ACTIONABLE errors. API calls return opaque statuses (a GitHub/Drive 404 means "wrong id, private, OR it's actually a different resource type" — not just "not found"). Catch the common failures and throw an Error whose message names the resource and the likely fix (bad/expired token, missing scope, wrong id, resource is private). Let unexpected errors propagate as-is. The lib steps github/fetch-pr and gdrive/export-file are the reference examples — call get_step to mirror their handling.
 
 Tools:
 - list_steps("<path>"): browse step types as a filesystem (steps, steps/core, steps/lib/<ns>, steps/custom).

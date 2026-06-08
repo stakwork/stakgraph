@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineStep, type StepContext } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
+import { buildDriveClient, statusOf, describeDriveError } from "./_shared.js";
 
 const EXAMPLE = `- id: doc
   type: gdrive/export-file
@@ -20,7 +21,6 @@ const EXPORT_MIME: Record<string, string> = {
 
 const GOOGLE_NATIVE_PREFIX = "application/vnd.google-apps";
 const DEFAULT_NATIVE_EXPORT = "text/plain";
-const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
 export default defineStep({
   type: "gdrive/export-file",
@@ -47,42 +47,18 @@ export default defineStep({
     }),
   }),
   async run(cfg, ctx: StepContext<VeinCapabilities>) {
-    // Lazy-load the SDK inside run() so the heavy dep is only pulled into
-    // memory when this step actually executes — not at registry-build time.
-    // See AGENTS.md "Lib step dependency convention".
-    const { drive, auth } = await import("@googleapis/drive");
+    const { client, haveAuth } = await buildDriveClient(cfg.accessToken, ctx);
+    const resource = `file "${cfg.fileId}"`;
 
-    // Credentials flow through the secrets capability (UI-managed store → env
-    // fallback) so they're cassette-scrubbed; explicit config always wins.
-    // See AGENTS.md "Lib step credentials".
-    const secrets = ctx?.services?.secrets;
-    const token =
-      cfg.accessToken ?? (await secrets?.get("GOOGLE_ACCESS_TOKEN"));
-    const saJson = await secrets?.get("GOOGLE_SERVICE_ACCOUNT_JSON");
-
-    let authClient;
-    if (token) {
-      const oauth = new auth.OAuth2();
-      oauth.setCredentials({ access_token: token });
-      authClient = oauth;
-    } else if (saJson) {
-      // A pasted service-account JSON key (no expiry — the recommended setup).
-      authClient = new auth.GoogleAuth({
-        credentials: JSON.parse(saJson),
-        scopes: [DRIVE_READONLY_SCOPE],
+    const { data: meta } = await client.files
+      .get({
+        fileId: cfg.fileId,
+        fields: "id,name,mimeType,modifiedTime,size,webViewLink",
+        supportsAllDrives: true,
+      })
+      .catch((err: unknown) => {
+        throw describeDriveError(err, resource, haveAuth);
       });
-    } else {
-      // Application Default Credentials (e.g. GOOGLE_APPLICATION_CREDENTIALS).
-      authClient = new auth.GoogleAuth({ scopes: [DRIVE_READONLY_SCOPE] });
-    }
-
-    const client = drive({ version: "v3", auth: authClient });
-
-    const { data: meta } = await client.files.get({
-      fileId: cfg.fileId,
-      fields: "id,name,mimeType,modifiedTime,size,webViewLink",
-      supportsAllDrives: true,
-    });
 
     const mimeType = meta.mimeType ?? "application/octet-stream";
     const isNative = mimeType.startsWith(GOOGLE_NATIVE_PREFIX);
@@ -91,16 +67,22 @@ export default defineStep({
     if (isNative) {
       const exportMime =
         cfg.exportMimeType ?? EXPORT_MIME[mimeType] ?? DEFAULT_NATIVE_EXPORT;
-      ({ data: raw } = await client.files.export({
-        fileId: cfg.fileId,
-        mimeType: exportMime,
-      }));
+      ({ data: raw } = await client.files
+        .export({ fileId: cfg.fileId, mimeType: exportMime })
+        .catch((err: unknown) => {
+          if (statusOf(err) === 400) {
+            throw new Error(
+              `Google Drive cannot export "${meta.name ?? cfg.fileId}" (${mimeType}) as "${exportMime}". Set a supported \`exportMimeType\` for this file type.`,
+            );
+          }
+          throw describeDriveError(err, resource, haveAuth);
+        }));
     } else {
-      ({ data: raw } = await client.files.get({
-        fileId: cfg.fileId,
-        alt: "media",
-        supportsAllDrives: true,
-      }));
+      ({ data: raw } = await client.files
+        .get({ fileId: cfg.fileId, alt: "media", supportsAllDrives: true })
+        .catch((err: unknown) => {
+          throw describeDriveError(err, resource, haveAuth);
+        }));
     }
 
     const full = coerceText(raw);

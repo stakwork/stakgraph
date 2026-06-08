@@ -22,7 +22,7 @@
     "build:web": "npm --prefix web run build",
     "dev": "npm run build:web && tsx --env-file=.env src/server.ts",
     "start": "node build/server.js",
-    "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/services.test.ts src/cassette.test.ts src/run-step.test.ts src/createVein.test.ts src/ai-integration.test.ts src/chat-store.test.ts src/chat-endpoints.test.ts src/steps/registry.test.ts src/steps/core/agent.test.ts src/auth.test.ts src/secret-store.test.ts"
+    "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/services.test.ts src/cassette.test.ts src/run-step.test.ts src/createVein.test.ts src/ai-integration.test.ts src/chat-store.test.ts src/chat-endpoints.test.ts src/steps/registry.test.ts src/steps/core/agent.test.ts src/auth.test.ts src/secret-store.test.ts src/slack.test.ts src/gdrive.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
