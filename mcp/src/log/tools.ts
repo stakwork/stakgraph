@@ -1,5 +1,6 @@
 import { tool, Tool } from "ai";
 import { z } from "zod";
+import { redactSecrets } from "./redact.js";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -22,6 +23,7 @@ export function get_log_tools(
   opts: LogToolsOptions
 ): Record<string, Tool<any, any>> {
   const { logsDir } = opts;
+  const redactOpts = { literals: [opts.stakworkApiKey].filter(Boolean) as string[] };
   const tools: Record<string, Tool<any, any>> = {
     fetch_cloudwatch: tool({
       description:
@@ -185,7 +187,8 @@ export function get_log_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, logsDir, 15000);
+          const output = await executeBashCommand(command, logsDir, 15000);
+          return redactSecrets(output, redactOpts);
         } catch (e: any) {
           return `Command failed: ${e.message}`;
         }

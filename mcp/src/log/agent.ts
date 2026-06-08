@@ -2,6 +2,7 @@ import { ToolLoopAgent, ModelMessage } from "ai";
 import { addUsage, ModelName, getModelDetails, getProviderOptions, normalizeUsage } from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
+import { redactSecrets, redactSecretsDeep } from "./redact.js";
 import {
   extractFinalAnswer,
   extractMessagesFromSteps,
@@ -62,6 +63,7 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
+  const redactOpts = { literals: [opts.stakworkApiKey, opts.apiKey].filter(Boolean) as string[] };
   const { model, provider, modelId } = getModelDetails(opts.modelName, opts.apiKey, opts.baseUrl, opts.headers);
   console.log("===> log_agent model", model);
 
@@ -90,7 +92,7 @@ export async function log_agent_context(
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
-      logStepMaybe(sf.content, opts.printAgentProgress);
+      logStepMaybe(redactSecretsDeep(sf.content, redactOpts), opts.printAgentProgress);
       const usage = normalizeUsage(sf.usage);
       cumInput += usage.inputTokens ?? 0;
       cumOutput += usage.outputTokens ?? 0;
@@ -158,8 +160,8 @@ export async function log_agent_context(
       steps,
       opts.sessionConfig
     );
-    appendMessages(sessionId, newMessages);
-    appendStepMeta(sessionId, stepMetas);
+    appendMessages(sessionId, redactSecretsDeep(newMessages, redactOpts) as ModelMessage[]);
+    appendStepMeta(sessionId, redactSecretsDeep(stepMetas, redactOpts) as StepMeta[]);
     const { modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
     appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
@@ -178,12 +180,13 @@ export async function log_agent_context(
     `log_agent completed in ${duration}ms (${(duration / 1000).toFixed(2)}s)`
   );
 
+  const redactedAnswer = redactSecrets(final.answer, redactOpts);
   return {
-    final: final.answer,
+    final: redactedAnswer,
     tool_use: final.tool_use,
-    content: final.answer,
+    content: redactedAnswer,
     usage,
-    logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
+    logs: opts.logs ? JSON.stringify(redactSecretsDeep(steps, redactOpts), null, 2) : undefined,
     sessionId,
   };
 }
