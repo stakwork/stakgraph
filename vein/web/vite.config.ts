@@ -35,6 +35,7 @@ export default defineConfig({
       "/workflows": { target: "http://localhost:3000", configure: sseConfigure },
       "/chat": { target: "http://localhost:3000", configure: sseConfigure },
       "/steps": "http://localhost:3000",
+      "/secrets": "http://localhost:3000",
       "/health": "http://localhost:3000",
     },
   },

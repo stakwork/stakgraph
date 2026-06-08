@@ -471,3 +471,27 @@ function dispatchChatEvent(e: ChatEvent, cb: ChatCallbacks): void {
       break;
   }
 }
+
+// ── Secrets ────────────────────────────────────────────────────────────────
+// Deployment-scoped credentials. Values are write-only over the API — the
+// list endpoint returns NAMES + metadata only, never the secret value.
+
+export interface SecretInfo {
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const listSecrets = () =>
+  fetchJSON<{ secrets: SecretInfo[] }>("/secrets").then((r) => r.secrets);
+
+export const setSecret = (name: string, value: string) =>
+  fetchJSON<{ ok: true; name: string }>(`/secrets/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+
+export const deleteSecret = (name: string) =>
+  fetchJSON<{ ok: true; name: string }>(`/secrets/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });

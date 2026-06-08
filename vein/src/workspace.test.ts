@@ -69,6 +69,42 @@ describe("WorkspaceManager", () => {
       assert.equal(content, SAMPLE_YAML);
     });
 
+    it("rejects an unquoted template value with a clear error", async () => {
+      const badYaml = `name: bad
+steps:
+  - id: fetch
+    type: github/fetch-pr
+    config:
+      pull_number: {{ input.pull_number }}
+`;
+      await assert.rejects(
+        () => ws.publishWorkflow("bad", "v1", badYaml),
+        /unquoted template|wrap/i,
+      );
+    });
+
+    it("accepts a quoted template value (and {{ }} inside block scalars)", async () => {
+      const goodYaml = `name: good
+steps:
+  - id: fetch
+    type: github/fetch-pr
+    config:
+      pull_number: "{{ input.pull_number }}"
+  - id: result
+    type: log
+    config:
+      message: |
+        PR #{{ fetch.pr.number }}: {{ fetch.pr.title }}
+`;
+      // Must NOT throw — the block-scalar {{ }} is content, not a YAML value.
+      await ws.publishWorkflow("good", "v1", goodYaml);
+      const content = await readFile(
+        join(tempDir, "workflows", "good", "v1.yaml"),
+        "utf-8",
+      );
+      assert.ok(content.includes('"{{ input.pull_number }}"'));
+    });
+
     it("adds a second version and sets it active", async () => {
       await ws.publishWorkflow("deploy", "v1", { steps: SAMPLE_STEPS }, "first");
       await ws.publishWorkflow("deploy", "v2", { steps: SAMPLE_STEPS }, "second");

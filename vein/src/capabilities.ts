@@ -20,20 +20,46 @@
 // ── secrets ────────────────────────────────────────────────────────────────
 
 /** Credential access. The single boundary through which adapters read secrets
- *  (API keys, tokens). Backed by `process.env` by default; swap the `source`
- *  for a real secret store later without touching any adapter. */
+ *  (API keys, tokens). Backed by `process.env` by default; back it with a
+ *  persisted {@link SecretReadable} (e.g. a `SecretStore`) for UI-managed
+ *  secrets — without touching any adapter. */
 export interface SecretsCapability {
   get(name: string): Promise<string | undefined>;
 }
 
-/** Build a secrets capability over a flat key→value source (defaults to
- *  `process.env`). */
+/** The narrow read surface a secrets capability needs from a backing store —
+ *  satisfied by `SecretStore` (secret-store.ts) without importing it here. */
+export interface SecretReadable {
+  get(name: string): Promise<string | undefined>;
+}
+
+/**
+ * Build a secrets capability. Pass either:
+ *   - a flat key→value source (defaults to `process.env`), or
+ *   - a `SecretReadable` store (e.g. a `SecretStore`), optionally with an
+ *     `envFallback` so unset secrets still resolve from `process.env`.
+ *
+ * The store path is async-aware: a managed secret wins, then the env fallback.
+ */
 export function secretsCapability(
-  source: Record<string, string | undefined> = process.env,
+  source: Record<string, string | undefined> | SecretReadable = process.env,
+  opts: { envFallback?: Record<string, string | undefined> } = {},
 ): SecretsCapability {
+  if (typeof (source as SecretReadable).get === "function") {
+    const store = source as SecretReadable;
+    const fallback = opts.envFallback;
+    return {
+      async get(name: string) {
+        const v = await store.get(name);
+        if (v !== undefined) return v;
+        return fallback?.[name];
+      },
+    };
+  }
+  const flat = source as Record<string, string | undefined>;
   return {
     async get(name: string) {
-      return source[name];
+      return flat[name];
     },
   };
 }
@@ -167,13 +193,22 @@ export interface VeinCapabilities {
   secrets: SecretsCapability;
 }
 
-/** The default standard services bag: env-backed secrets + global-fetch http.
- *  Injected by the standard server; override per environment as needed. */
+/** The default standard services bag: global-fetch http + secrets. Secrets are
+ *  env-backed by default; pass `secretStore` for a persisted (UI-managed) store
+ *  with `process.env` as fallback. Injected by the standard server; override
+ *  per environment as needed. */
 export function standardServices(
-  opts: { fetchImpl?: FetchLike; secretsSource?: Record<string, string | undefined> } = {},
+  opts: {
+    fetchImpl?: FetchLike;
+    secretsSource?: Record<string, string | undefined>;
+    secretStore?: SecretReadable;
+  } = {},
 ): VeinCapabilities {
+  const secrets = opts.secretStore
+    ? secretsCapability(opts.secretStore, { envFallback: process.env })
+    : secretsCapability(opts.secretsSource);
   return {
     http: httpCapability(opts.fetchImpl),
-    secrets: secretsCapability(opts.secretsSource),
+    secrets,
   };
 }

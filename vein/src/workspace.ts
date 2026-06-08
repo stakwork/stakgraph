@@ -12,6 +12,42 @@ import { evaluateExpr } from "./expr.js";
 const PARAM_SELF_REF = /\{\{\s*(params(?:\.[\w$]+|\[[^\]]+\])+)\s*\}\}/g;
 
 /**
+ * Validate a workflow's YAML before it's published. Catches the single most
+ * common authoring footgun: an **unquoted** template value, e.g.
+ *
+ *   pull_number: {{ input.pull_number }}     # WRONG
+ *
+ * A leading `{{` is parsed by YAML as a flow-mapping, so the value silently
+ * becomes an object (which stringifies to `[object Object]`) instead of the
+ * template string. Downstream this surfaces as a baffling "expected number,
+ * received object". We detect it on the PARSED structure (so we don't false-
+ * positive on `{{ }}` inside block-scalar message bodies) and throw a clear,
+ * actionable error pointing at the fix: quote the template.
+ */
+function assertValidWorkflowYaml(yamlStr: string): void {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(yamlStr);
+  } catch (err) {
+    throw new Error(
+      `Invalid workflow YAML: ${err instanceof Error ? err.message : String(err)}. ` +
+        `A common cause is an unquoted template — always wrap templates in quotes, ` +
+        `e.g. pull_number: "{{ input.pull_number }}".`,
+    );
+  }
+  // An unquoted `{{ ... }}` value parses to an object used as a map key, which
+  // serializes as the literal "[object Object]". No legitimate config contains
+  // that string, so it's a reliable corruption signature.
+  if (JSON.stringify(parsed ?? null).includes("[object Object]")) {
+    throw new Error(
+      `Workflow YAML has an unquoted template value: a "{{ ... }}" was parsed as a ` +
+        `YAML object instead of a string. Wrap every template in quotes, ` +
+        `e.g. pull_number: "{{ input.pull_number }}".`,
+    );
+  }
+}
+
+/**
  * Resolve `{{ params.* }}` references that appear INSIDE other param values, so a
  * workflow can factor a shared value into one param and reuse it (e.g. a base
  * `podDomain` referenced by a big prompt param). Walks the params deeply; for
@@ -243,6 +279,8 @@ export class WorkspaceManager {
             },
             { lineWidth: 120, noRefs: true },
           );
+
+    assertValidWorkflowYaml(yamlStr);
 
     await writeFile(join(dir, `${version}.yaml`), yamlStr, "utf-8");
 

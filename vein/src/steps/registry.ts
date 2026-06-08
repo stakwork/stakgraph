@@ -178,8 +178,10 @@ async function loadStepFile(filePath: string): Promise<AnyStepDef | null> {
  * Resolution order: core/ → lib/ → custom/. Higher tiers cannot shadow
  * lower ones — a name collision is skipped with a warning.
  *
- * Lib and custom steps are loaded with dynamic `import()` so their
- * dependencies are only resolved when actually used.
+ * Lib and custom step *files* are loaded with dynamic `import()` at
+ * build time (cheap: just schema + metadata). Their heavy SDK deps must
+ * be `await import()`-ed inside `run()` so they only load when a step
+ * actually executes — see AGENTS.md "Lib step dependency convention".
  *
  * Returns both the registry and a parallel `sources` map so callers can
  * report which tier each step came from without guessing from the name.
@@ -250,8 +252,10 @@ export function coreRegistry(): StepRegistry {
  *   - **core/** — 8 built-in steps (http, log, if, loop, foreach,
  *     subflow, llm, wait)
  *   - **lib/** — engine-shipped domain integrations (e.g.
- *     `github/fetch-pr`). These are dynamically imported, so their
- *     deps are only resolved at registry-build time.
+ *     `github/fetch-pr`). Their step *files* are imported here (cheap:
+ *     just schema + metadata); their heavy SDK deps are `await import()`-ed
+ *     inside `run()`, so they only load when a step actually executes.
+ *     See AGENTS.md "Lib step dependency convention".
  *   - whatever you pass in `steps`
  *
  * Workspace **custom/** steps live on disk and are loaded via

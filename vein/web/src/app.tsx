@@ -11,6 +11,7 @@ import "./styles/components.css";
 import { deepEqual, normalizeSteps, statusTone } from "./helpers";
 import { ChatFlyout } from "./components/ChatFlyout";
 import { CreateDialog } from "./components/CreateDialog";
+import { SecretsDialog } from "./components/SecretsDialog";
 import { AddStepDialog, StepTypeEntry } from "./components/AddStepDialog";
 import { StepEditFlyout } from "./components/StepEditFlyout";
 import { EventsPanel } from "./components/EventsPanel";
@@ -68,6 +69,7 @@ export function App() {
   // name, and that workflow's steps. Empty = viewing the root.
   const [runDrill, setRunDrill] = useState<DrillFrame[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [showSecrets, setShowSecrets] = useState(false);
   const [showAddStep, setShowAddStep] = useState(false);
   const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
   const [publishedSteps, setPublishedSteps] = useState<StepData[] | null>(null);
@@ -613,6 +615,7 @@ export function App() {
               )}
             </div>
           )}
+          <button class="btn" onClick={() => setShowSecrets(true)}>Secrets</button>
           <button class="btn" onClick={() => setShowChat(!showChat)}>AI</button>
         </div>
       </div>
@@ -681,6 +684,7 @@ export function App() {
 
       {/* Create dialog */}
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
+      {showSecrets && <SecretsDialog onClose={() => setShowSecrets(false)} />}
 
       {/* Add step dialog */}
       {showAddStep && <AddStepDialog stepTypes={stepTypes} onSelect={handleAddStepSelect} onClose={() => setShowAddStep(false)} />}

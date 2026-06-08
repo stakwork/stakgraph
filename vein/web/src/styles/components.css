@@ -364,6 +364,49 @@ body.is-resizing-events * {
   margin-top: var(--sp-1);
 }
 
+/* ─── secrets dialog ──────────────────────────────────────────── */
+
+.secret-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: var(--sp-3);
+}
+.secret-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: var(--sp-2) 0;
+}
+.secret-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+}
+.secret-name {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.secret-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.secret-del {
+  padding: 0 6px;
+  line-height: 1.6;
+}
+
 /* ─── flyout (step editor) ────────────────────────────────────── */
 
 .flyout {
