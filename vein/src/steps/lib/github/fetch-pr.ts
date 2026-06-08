@@ -83,7 +83,19 @@ export default defineStep({
       }),
       octokit.pulls.listReviews({ ...prInfo, per_page: 100 }),
       octokit.pulls.listCommits({ ...prInfo, per_page: 100 }),
-    ]);
+    ]).catch((err: unknown) => {
+      // GitHub returns 404 both when a PR genuinely doesn't exist AND when
+      // the number is an *issue* (issues + PRs share one number sequence) or
+      // the repo is private and the token can't see it. Rethrow with an
+      // actionable message instead of the bare "Not Found".
+      if ((err as { status?: number })?.status === 404) {
+        const ref = `${cfg.owner}/${cfg.repo}#${cfg.pull_number}`;
+        throw new Error(
+          `Pull request ${ref} not found. It may be an issue rather than a pull request (issues and PRs share one number sequence), the number may not exist, or the repo may be private and the token lacks access.`,
+        );
+      }
+      throw err;
+    });
 
     const markdown = formatPRContent(
       prData as Record<string, unknown>,
