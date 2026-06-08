@@ -13,7 +13,7 @@ openssl = ["dep:git2", "dep:fastembed"]
 [dependencies]
 lsp = { path = "../lsp" }
 shared = { path = "../shared" }
-tokio = { version = "1.27.0", features = ["full"] }
+tokio = { workspace = true }
 git2 = { version = "0.20.1", optional = true}
 
 tree-sitter = "0.25.6"
@@ -33,7 +33,7 @@ tree-sitter-typescript = "0.23.0"
 tree-sitter-bash = "0.23.0"
 tree-sitter-toml-ng = { git = "https://github.com/tree-sitter-grammars/tree-sitter-toml", rev = "64b56832c2cffe41758f28e05c756a3a98d16f41" }
 tree-sitter-embedded-template = "0.23.0"
-tree-sitter-haml = { git = "https://github.com/Evanfeenstra/tree-sitter-haml" }
+tree-sitter-haml = { git = "https://github.com/Evanfeenstra/tree-sitter-haml", rev = "ca002c14a373534affb32079dad6ca4a493451b2" }
 # tree-sitter = "0.24.3"
 serde_json = "1.0.132"
 serde = { version = "1", features = ["derive"] }
