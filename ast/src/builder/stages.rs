@@ -10,7 +10,7 @@ use shared::error::Result;
 use std::time::Instant;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 impl Repo {
     pub fn process_libraries<G: Graph + Sync>(
@@ -511,7 +511,9 @@ impl Repo {
         }
 
         if !all_endpoint_groups.is_empty() {
-            let _ = graph.process_endpoint_groups(&all_endpoint_groups, lang);
+            if let Err(e) = graph.process_endpoint_groups(&all_endpoint_groups, lang) {
+                warn!("process_endpoint_groups failed: {}", e);
+            }
         }
 
         if self.lang.lang().use_data_model_within_finder() {

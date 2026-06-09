@@ -10,7 +10,7 @@ async fn setup_react_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps>
 
     GRAPH_INIT
         .get_or_init(|| async {
-            std::env::set_var("USE_LSP", "false");
+            unsafe { std::env::set_var("USE_LSP", "false") };
 
             let use_lsp = false;
             let repo = Repo::new(
