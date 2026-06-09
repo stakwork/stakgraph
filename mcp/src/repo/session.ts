@@ -97,7 +97,7 @@ export async function appendSessionEnd(
     error_message?: string;
   },
 ): Promise<void> {
-  console.log("===> totalUsage", JSON.stringify(opts.token_usage, null, 2));
+  console.log(`[session] end session_id=${sessionId} model=${opts.model ?? ""} status=${opts.status ?? "success"} tokens=${opts.token_usage?.total ?? 0} duration_ms=${opts.duration_ms ?? 0}`);
 
   const stored = sessionMeta.get(sessionId) ?? {
     source: "unknown",
