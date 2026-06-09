@@ -7,6 +7,8 @@ import {
   readdirSync,
   statSync,
   unlinkSync,
+  writeFileSync,
+  rmSync,
 } from "fs";
 import { randomUUID } from "crypto";
 import path from "path";
@@ -194,6 +196,7 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(annPath)) {
     unlinkSync(annPath);
   }
+  deleteAttachments(sessionId);
 }
 
 /**
@@ -328,6 +331,77 @@ export function loadAnnotations(sessionId: string): Annotation[] {
   }
 }
 
+// ── Attachments cache ────────────────────────────────────────────────
+// Image attachments (e.g. uploaded screenshots) are downloaded once and
+// cached on disk, keyed by session. The conversation JSONL stores only a
+// tiny `attachment://<id>` placeholder; the bytes live in a sidecar dir and
+// are rehydrated on each turn. Both are torn down with the session.
+
+export interface AttachmentMeta {
+  id: string;
+  mediaType: string;
+  bytes: number;
+  originalUrl?: string;
+  createdAt: string;
+}
+
+function attachmentsDirFor(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  return path.join(sessionDir, `${sessionId}.attachments`);
+}
+
+function attachmentsMetaFile(sessionId: string): string {
+  return `${attachmentsDirFor(sessionId)}.jsonl`;
+}
+
+/** Persist attachment bytes to the session-scoped cache dir. */
+export function writeAttachment(
+  sessionId: string,
+  id: string,
+  bytes: Uint8Array,
+): void {
+  const dir = attachmentsDirFor(sessionId);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(path.join(dir, id), bytes);
+}
+
+/** Read cached attachment bytes, or null if missing. */
+export function readAttachment(sessionId: string, id: string): Uint8Array | null {
+  const filePath = path.join(attachmentsDirFor(sessionId), id);
+  if (!existsSync(filePath)) return null;
+  try {
+    return readFileSync(filePath);
+  } catch {
+    return null;
+  }
+}
+
+/** Append audit metadata for cached attachments (one JSON line each). */
+export function appendAttachmentMeta(
+  sessionId: string,
+  entries: AttachmentMeta[],
+): void {
+  if (entries.length === 0) return;
+  const content = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  appendFileSync(attachmentsMetaFile(sessionId), content);
+}
+
+/** Remove the attachment cache dir + meta sidecar for a session. */
+function deleteAttachments(sessionId: string): void {
+  const dir = attachmentsDirFor(sessionId);
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const metaPath = attachmentsMetaFile(sessionId);
+  if (existsSync(metaPath)) {
+    unlinkSync(metaPath);
+  }
+}
+
 const SESSION_MAX_AGE_MS = parseInt(
   process.env.SESSION_MAX_AGE_MS || String(30 * 24 * 60 * 60 * 1000),
   10
@@ -346,16 +420,28 @@ export function pruneExpiredSessions(): number {
   const now = Date.now();
   let pruned = 0;
   for (const file of readdirSync(sessionDir)) {
-    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl") || file.endsWith(".provenance.jsonl")) continue;
+    // Only consider primary conversation files; skip every sidecar variant.
+    if (
+      !file.endsWith(".jsonl") ||
+      file.endsWith(".meta.jsonl") ||
+      file.endsWith(".provenance.jsonl") ||
+      file.endsWith(".annotations.jsonl") ||
+      file.endsWith(".attachments.jsonl")
+    )
+      continue;
     const filePath = path.join(sessionDir, file);
     try {
       const { mtimeMs } = statSync(filePath);
       if (now - mtimeMs > SESSION_MAX_AGE_MS) {
+        const sessionId = file.replace(/\.jsonl$/, "");
         unlinkSync(filePath);
         const metaPath = filePath.replace(/\.jsonl$/, ".meta.jsonl");
         if (existsSync(metaPath)) unlinkSync(metaPath);
         const provPath = filePath.replace(/\.jsonl$/, ".provenance.jsonl");
         if (existsSync(provPath)) unlinkSync(provPath);
+        const annPath = filePath.replace(/\.jsonl$/, ".annotations.jsonl");
+        if (existsSync(annPath)) unlinkSync(annPath);
+        deleteAttachments(sessionId);
         pruned++;
       }
     } catch {

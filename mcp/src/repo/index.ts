@@ -139,6 +139,11 @@ function parseAgentBody(req: Request) {
   const maxTurns = typeof req.body.maxTurns === "number" ? req.body.maxTurns : undefined;
   const headers = normalizeHeaders(req.body.headers);
   const ignoreRepoInfo = req.body.ignoreRepoInfo as boolean | undefined;
+  const attachments = Array.isArray(req.body.attachments)
+    ? (req.body.attachments as unknown[]).filter(
+        (a): a is string => typeof a === "string" && a.trim().length > 0,
+      )
+    : undefined;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -149,7 +154,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo,
+    ignoreRepoInfo, attachments,
   };
 }
 
@@ -254,6 +259,7 @@ export async function repo_agent(req: Request, res: Response) {
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
           headers: body.headers,
+          attachments: body.attachments,
         },
       );
 
@@ -370,6 +376,7 @@ export async function repo_agent(req: Request, res: Response) {
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
           headers: body.headers,
+          attachments: body.attachments,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
