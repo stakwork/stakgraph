@@ -12,12 +12,24 @@ import * as path from "path";
 function getClient(): CloudWatchLogsClient {
   const opts: ConstructorParameters<typeof CloudWatchLogsClient>[0] = {
     region: process.env.AWS_REGION || "us-east-1",
+    // Bound every request so a stalled socket can't hang the agent forever.
+    maxAttempts: 3,
+    requestHandler: {
+      connectionTimeout: 5_000,
+      requestTimeout: 30_000,
+    },
   };
   if (process.env.AWS_PROFILE) {
     opts.credentials = fromIni({ profile: process.env.AWS_PROFILE });
   }
   return new CloudWatchLogsClient(opts);
 }
+
+// Hard caps so FilterLogEvents can't paginate forever when a filter pattern
+// matches sparsely across a high-volume log group (each page returns 0 events
+// but a nextToken, so an `allEvents.length < limit` check never terminates).
+const MAX_FETCH_PAGES = 200;
+const MAX_FETCH_WALL_MS = 60_000;
 
 /** Sanitize a log group name into a safe filename */
 function safeFilename(logGroup: string): string {
@@ -31,6 +43,7 @@ export interface FetchCloudwatchParams {
   minutes?: number;
   limit?: number;
   logsDir: string;
+  abortSignal?: AbortSignal;
 }
 
 export interface FetchCloudwatchResult {
@@ -38,6 +51,7 @@ export interface FetchCloudwatchResult {
   lineCount: number;
   logGroup: string;
   timeRange: { startTime: string; endTime: string };
+  truncated: boolean;
 }
 
 /**
@@ -47,7 +61,7 @@ export interface FetchCloudwatchResult {
 export async function fetchCloudwatchLogs(
   params: FetchCloudwatchParams
 ): Promise<FetchCloudwatchResult> {
-  const { logGroupName, logStreamNames, filterPattern, minutes = 30, limit = 10000, logsDir } = params;
+  const { logGroupName, logStreamNames, filterPattern, minutes = 30, limit = 10000, logsDir, abortSignal } = params;
   const client = getClient();
 
   const endTime = Date.now();
@@ -55,8 +69,29 @@ export async function fetchCloudwatchLogs(
 
   const allEvents: FilteredLogEvent[] = [];
   let nextToken: string | undefined;
+  let pages = 0;
+  const deadline = Date.now() + MAX_FETCH_WALL_MS;
+  let truncated = false;
 
   do {
+    if (abortSignal?.aborted) {
+      throw new Error("CloudWatch fetch aborted");
+    }
+    if (Date.now() > deadline) {
+      truncated = true;
+      console.warn(
+        `[cloudwatch] fetch for ${logGroupName} hit ${MAX_FETCH_WALL_MS}ms wall-clock cap after ${pages} pages (${allEvents.length} events)`
+      );
+      break;
+    }
+    if (pages >= MAX_FETCH_PAGES) {
+      truncated = true;
+      console.warn(
+        `[cloudwatch] fetch for ${logGroupName} hit ${MAX_FETCH_PAGES}-page cap (${allEvents.length} events)`
+      );
+      break;
+    }
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       logStreamNames: logStreamNames?.length ? logStreamNames : undefined,
@@ -67,11 +102,14 @@ export async function fetchCloudwatchLogs(
       nextToken,
     });
 
-    const response = await client.send(command);
+    const response = await client.send(command, {
+      abortSignal: abortSignal as any,
+    });
     if (response.events) {
       allEvents.push(...response.events);
     }
     nextToken = response.nextToken;
+    pages++;
   } while (nextToken && allEvents.length < limit);
 
   // Write to file
@@ -98,6 +136,7 @@ export async function fetchCloudwatchLogs(
       startTime: new Date(startTime).toISOString(),
       endTime: new Date(endTime).toISOString(),
     },
+    truncated,
   };
 }
 

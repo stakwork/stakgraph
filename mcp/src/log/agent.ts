@@ -35,6 +35,13 @@ Tips:
 - Look for patterns: recurring errors, timestamps clustering, correlated events.
 - When debugging an issue, search for both the error itself and surrounding context.
 
+TIME BUDGET (very important): You have roughly 8 minutes of wall-clock time total. Work efficiently:
+- Plan a focused approach up front; don't fetch more than you need. Prefer narrow filter patterns, specific log streams, and shorter time windows over broad fetches.
+- Avoid rabbit holes and redundant tool calls. Each fetch/search should have a clear purpose.
+- Every tool result ends with a "[time budget: ...]" line showing how much time has elapsed and how much is left. Watch it. Once only a couple of minutes remain (or you have enough to answer), STOP investigating and write up what you've found.
+- It is far better to return a partial-but-useful answer than to run out of time with nothing. If you couldn't fully confirm something, say so and report your best findings, leads, and next steps.
+- You MUST always finish by producing a final answer with the [END_OF_ANSWER] marker — never end without one.
+
 CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line.
 
 Example format:
@@ -56,6 +63,8 @@ export interface LogAgentOptions {
   source?: string;
   /** Custom HTTP headers attached to every LLM endpoint request (provider-level). */
   headers?: Record<string, string>;
+  /** Abort signal to cancel the in-flight run (and forward into tools). */
+  abortSignal?: AbortSignal;
 }
 
 export async function log_agent_context(
@@ -71,6 +80,8 @@ export async function log_agent_context(
     logsDir: opts.logsDir,
     stakworkApiKey: opts.stakworkApiKey,
     stakworkRuns: opts.stakworkRuns,
+    abortSignal: opts.abortSignal,
+    startTime,
   });
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
@@ -124,14 +135,19 @@ export async function log_agent_context(
 
   const userMessage: ModelMessage = { role: "user", content: prompt };
 
+  const abortSignal = opts.abortSignal;
   let result;
   try {
     if (previousMessages.length > 0) {
       result = await agent.generate({
         messages: [...previousMessages, userMessage],
+        ...(abortSignal ? { abortSignal } : {}),
       });
     } else {
-      result = await agent.generate({ prompt });
+      result = await agent.generate({
+        prompt,
+        ...(abortSignal ? { abortSignal } : {}),
+      });
     }
   } catch (err) {
     if (sessionId) {
