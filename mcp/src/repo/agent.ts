@@ -47,6 +47,16 @@ import {
   StepMeta,
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
+import {
+  resolveCurrentTurnAttachments,
+  cacheAttachments,
+  buildImageParts,
+  buildPlaceholderParts,
+  rehydrateMessages,
+  lastUserText,
+  CachedAttachment,
+} from "./attachments.js";
+import type { TextPart } from "ai";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
@@ -260,6 +270,8 @@ export interface GetContextOptions {
   abortSignal?: AbortSignal;
   // Maximum number of agent steps (tool-call turns) before stopping
   maxTurns?: number;
+  // Image attachment URLs (e.g. uploaded screenshots) for the current turn
+  attachments?: string[];
   // Custom HTTP headers attached to every LLM endpoint request (provider-level)
   headers?: Record<string, string>;
 }
@@ -272,6 +284,7 @@ interface PreparedAgent {
   finalPrompt: string | ModelMessage[];
   previousMessages: ModelMessage[];
   userMessage: ModelMessage;
+  storageUserMessage: ModelMessage;
   sessionId: string | undefined;
   sessionConfig: SessionConfig | undefined;
   startTime: number;
@@ -433,6 +446,14 @@ Apply the guidance from each skill throughout your response.`;
     );
   }
 
+  // Resolve image attachments for THIS turn (body field preferred, else the
+  // <attachments> tag on the last user message) and strip the tag from text.
+  const { urls: attachmentUrls, cleanedPrompt } = resolveCurrentTurnAttachments(
+    finalPrompt,
+    opts.attachments,
+  );
+  finalPrompt = cleanedPrompt;
+
   if (typeof opts.maxTurns === "number" && opts.maxTurns > 0) {
     stopConditions.push(stepCountIs(opts.maxTurns));
   }
@@ -459,6 +480,18 @@ Apply the guidance from each skill throughout your response.`;
       sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
       hasSystemTurn = true;
     }
+  }
+
+  // Rehydrate cached image attachments from prior turns (placeholder -> bytes)
+  // so the model can keep seeing earlier screenshots on follow-up turns.
+  if (sessionId && previousMessages.length > 0) {
+    previousMessages = rehydrateMessages(previousMessages, sessionId);
+  }
+
+  // Download + cache this turn's attachments once.
+  let cachedAttachments: CachedAttachment[] = [];
+  if (attachmentUrls.length > 0) {
+    cachedAttachments = await cacheAttachments(attachmentUrls, sessionId, opts.abortSignal);
   }
 
   for (const tool of Object.keys(tools)) {
@@ -506,14 +539,35 @@ Apply the guidance from each skill throughout your response.`;
     },
   });
 
-  const userMessageContent =
-    typeof finalPrompt === "string"
-      ? finalPrompt
-      : finalPrompt.find((m) => m.role === "user")?.content || prompt;
-  const userMessage: ModelMessage = {
-    role: "user",
-    content: userMessageContent as string,
-  };
+  // The message SENT to the model carries real image bytes; the message
+  // PERSISTED to the session carries only `attachment://` placeholders.
+  let userMessage: ModelMessage; // sent to the model
+  let storageUserMessage: ModelMessage; // persisted to the session
+
+  if (cachedAttachments.length > 0) {
+    const turnText =
+      typeof finalPrompt === "string"
+        ? finalPrompt
+        : lastUserText(finalPrompt) ?? (prompt as string);
+    const textPart: TextPart = { type: "text", text: turnText };
+    userMessage = {
+      role: "user",
+      content: [textPart, ...buildImageParts(cachedAttachments)],
+    };
+    storageUserMessage = {
+      role: "user",
+      content: [textPart, ...buildPlaceholderParts(cachedAttachments)],
+    };
+    // Send as a single multimodal user turn (buildCallParams handles arrays).
+    finalPrompt = [userMessage];
+  } else {
+    const userMessageContent =
+      typeof finalPrompt === "string"
+        ? finalPrompt
+        : finalPrompt.find((m) => m.role === "user")?.content || prompt;
+    userMessage = { role: "user", content: userMessageContent as string };
+    storageUserMessage = userMessage;
+  }
 
   return {
     agent,
@@ -523,6 +577,7 @@ Apply the guidance from each skill throughout your response.`;
     finalPrompt,
     previousMessages,
     userMessage,
+    storageUserMessage,
     sessionId,
     sessionConfig,
     startTime,
@@ -565,7 +620,7 @@ export async function get_context(
     finalPrompt,
     sessionId,
     sessionConfig,
-    userMessage,
+    storageUserMessage,
     startTime,
     stepMetas,
     provenanceCollector,
@@ -601,7 +656,7 @@ export async function get_context(
   // Save to session if enabled
   if (sessionId) {
     const newMessages = extractMessagesFromSteps(
-      userMessage,
+      storageUserMessage,
       steps,
       sessionConfig
     );
@@ -668,7 +723,7 @@ export async function stream_context(
   const {
     sessionId,
     sessionConfig,
-    userMessage,
+    storageUserMessage,
     modelId,
     provider,
     startTime,
@@ -687,7 +742,7 @@ export async function stream_context(
         const endTime = Date.now();
         const duration = endTime - startTime;
         const newMessages = extractMessagesFromSteps(
-          userMessage,
+          storageUserMessage,
           steps ?? [],
           sessionConfig,
         );
@@ -812,5 +867,23 @@ curl "http://localhost:3355/progress?request_id=5b0e0339-e616-48fc-bd98-8676a556
 curl -X POST \
   -H "Content-Type: application/json" \
   -d @mcp/test-results/test.json \
+  "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "123sef8sehf8shefs",
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "what do you see? <attachments>https://png.pngtree.com/background/20240824/original/pngtree-blue-and-purple-neon-star-3d-art-background-with-a-cool-picture-image_10210904.jpg</attachments>"
+  }' \
+  "http://localhost:3355/repo/agent"
+  
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "123sef8sehf8shefs",
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "can you still see the image in the chat history?"
+  }' \
   "http://localhost:3355/repo/agent"
 */
