@@ -18,6 +18,10 @@ export interface LogToolsOptions {
   stakworkApiKey?: string;
   stakworkRuns?: StakworkRunSummary[];
   abortSignal?: AbortSignal;
+  /** Wall-clock start time (ms) used to report elapsed time back to the agent. */
+  startTime?: number;
+  /** Total time budget (ms) the agent should stay within. Default 8 min. */
+  budgetMs?: number;
 }
 
 export function get_log_tools(
@@ -25,6 +29,16 @@ export function get_log_tools(
 ): Record<string, Tool<any, any>> {
   const { logsDir, abortSignal } = opts;
   const redactOpts = { literals: [opts.stakworkApiKey].filter(Boolean) as string[] };
+  const startTime = opts.startTime ?? Date.now();
+  const budgetMs = opts.budgetMs ?? 8 * 60 * 1000;
+  // Appended to every tool result so the agent can actually see how much of
+  // its time budget it has used (it has no clock of its own between steps).
+  const elapsedNote = (): string => {
+    const elapsedMin = (Date.now() - startTime) / 60_000;
+    const budgetMin = budgetMs / 60_000;
+    const remainingMin = Math.max(0, budgetMin - elapsedMin);
+    return `\n\n[time budget: ${elapsedMin.toFixed(1)} min elapsed of ${budgetMin.toFixed(0)} min; ~${remainingMin.toFixed(1)} min left${remainingMin <= 2 ? " — wrap up and write your final answer now" : ""}]`;
+  };
   const tools: Record<string, Tool<any, any>> = {
     fetch_cloudwatch: tool({
       description:
@@ -306,6 +320,19 @@ export function get_log_tools(
         }
       },
     });
+  }
+
+  // Wrap every tool so its (string) result carries the current time-budget
+  // status. This is the only way the agent gets a sense of elapsed wall-clock
+  // time, since it has no clock between steps.
+  for (const key of Object.keys(tools)) {
+    const t = tools[key];
+    const orig = t.execute;
+    if (!orig) continue;
+    t.execute = (async (args: any, options: any) => {
+      const out = await orig(args, options);
+      return typeof out === "string" ? out + elapsedNote() : out;
+    }) as typeof t.execute;
   }
 
   return tools;
