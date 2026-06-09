@@ -53,7 +53,17 @@ function parseGraphAgentBody(req: Request) {
 
   const headers = normalizeHeaders(req.body.headers);
 
-  return { prompt, modelName, apiKey, baseUrl, sessionId, sessionConfig, stream, maxTurns, authToken, headers };
+  const context = req.body.context as
+    | { selectedRefId: string; nodeType: string; title?: string }
+    | undefined;
+
+  if (context) {
+    console.log(
+      `[graph_agent] context_present selectedRefId=${context.selectedRefId} nodeType=${context.nodeType}`,
+    );
+  }
+
+  return { prompt, modelName, apiKey, baseUrl, sessionId, sessionConfig, stream, maxTurns, authToken, headers, context };
 }
 
 // ── POST /graph_agent ────────────────────────────────────────────────────
@@ -107,6 +117,7 @@ export async function graph_agent(req: Request, res: Response) {
         authToken: body.authToken,
         abortSignal: abortController.signal,
         headers: body.headers,
+        context: body.context,
       });
 
       const streamResponse = streamResult.toUIMessageStreamResponse();
@@ -206,6 +217,7 @@ export async function graph_agent(req: Request, res: Response) {
       authToken: body.authToken,
       abortSignal: abortController.signal,
       headers: body.headers,
+      context: body.context,
       onStepEvent: (content) => {
         const events = filterStepContent(content);
         for (const ev of events) bus.emit(ev);

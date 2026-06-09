@@ -8,6 +8,25 @@
  * begin using the field without a breaking change when v2 arrives.
  */
 
+export interface ContextualPromptCtx {
+  selectedRefId: string;
+  nodeType: string;
+  title?: string;
+}
+
+export function buildContextualSystemPrompt(ctx: ContextualPromptCtx): string {
+  const label = ctx.title ?? ctx.selectedRefId;
+  const preamble = `You are answering a question specifically about: ${ctx.nodeType} "${label}" (ref_id: "${ctx.selectedRefId}").
+
+REQUIRED first steps before answering:
+1. Call graph_node("${ctx.selectedRefId}") to retrieve this node's full transcript and properties.
+2. Call graph_map("${ctx.selectedRefId}") to discover related people, organizations, products, claims, and clips.
+3. Ground your answer primarily in this content and its direct connections. Only search further afield if the user explicitly asks a broader question.
+
+`;
+  return preamble + GRAPH_AGENT_SYSTEM_PROMPT;
+}
+
 export const GRAPH_AGENT_SYSTEM_PROMPT = `You are a knowledge graph research assistant. You have access to a swarm's knowledge graph — a structured database of podcasts, episodes, clips, topics, and related content.
 
 Your job is to answer the user's question by iteratively searching and exploring the knowledge graph using the tools available to you.

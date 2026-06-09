@@ -33,7 +33,7 @@ import {
 import { get_graph_tools, GraphToolsConfig } from "./tools.js";
 
 type GraphTools = ReturnType<typeof get_graph_tools>;
-import { GRAPH_AGENT_SYSTEM_PROMPT } from "./prompts/graph.js";
+import { GRAPH_AGENT_SYSTEM_PROMPT, buildContextualSystemPrompt } from "./prompts/graph.js";
 import { randomUUID } from "crypto";
 
 export interface GraphAgentOptions {
@@ -50,6 +50,8 @@ export interface GraphAgentOptions {
   authToken?: string;
   /** Custom HTTP headers attached to every LLM endpoint request (provider-level). */
   headers?: Record<string, string>;
+  /** Optional context to scope the agent to a specific node and its neighbourhood. */
+  context?: { selectedRefId: string; nodeType: string; title?: string };
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -105,6 +107,7 @@ async function prepareGraphAgent(
     maxTurns,
     authToken,
     headers,
+    context,
   } = opts;
 
   const startTime = Date.now();
@@ -117,6 +120,10 @@ async function prepareGraphAgent(
     headers,
   );
   console.log(`[graph_agent] model=${modelId} provider=${provider} contextLimit=${contextLimit}`);
+
+  const systemPrompt = context
+    ? buildContextualSystemPrompt(context)
+    : GRAPH_AGENT_SYSTEM_PROMPT;
 
   const toolConfig: GraphToolsConfig = { authToken };
   const tools = get_graph_tools(toolConfig);
@@ -141,9 +148,15 @@ async function prepareGraphAgent(
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
       previousMessages = loadSessionMessages(sessionId);
     } else {
-      sessionId = createSession(inputSessionId, GRAPH_AGENT_SYSTEM_PROMPT, "graph_agent");
+      sessionId = createSession(inputSessionId, systemPrompt, "graph_agent");
       hasSystemTurn = true;
     }
+  }
+
+  if (context) {
+    console.log(
+      `[graph_agent] contextual_run ref_id=${context.selectedRefId} nodeType=${context.nodeType} sessionId=${sessionId ?? "none"}`,
+    );
   }
 
   const stepMetas: StepMeta[] = [];
@@ -156,7 +169,7 @@ async function prepareGraphAgent(
 
   const agent = new ToolLoopAgent({
     model,
-    instructions: GRAPH_AGENT_SYSTEM_PROMPT,
+    instructions: systemPrompt,
     tools,
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
