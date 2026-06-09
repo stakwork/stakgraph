@@ -2,6 +2,10 @@ import { Request, Response } from "express";
 import { log_agent_context } from "./agent.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
+import {
+  registerAbortController,
+  unregisterAbortController,
+} from "../repo/events.js";
 import { ModelName } from "../aieo/src/index.js";
 import { randomUUID } from "crypto";
 import { SessionConfig } from "../repo/session.js";
@@ -122,10 +126,16 @@ export async function logs_agent(req: Request, res: Response) {
   // otherwise generate a random one (cleaned up after the agent finishes).
   const logsDir = createRunLogsDir(sessionId);
 
-  const opId = startTracking("logs_agent");
+  // Register abort controller keyed by request_id (and mirrored under sessionId)
+  // so the 30-min safety timeout in busy.ts can actually cancel the run.
+  const abortController = registerAbortController(request_id);
+  if (sessionId && sessionId !== request_id) {
+    registerAbortController(sessionId, abortController);
+  }
+  const opId = startTracking("logs_agent", abortController);
 
   try {
-    log_agent_context(finalPrompt, { modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers })
+    log_agent_context(finalPrompt, { modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers, abortSignal: abortController.signal })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
@@ -138,10 +148,19 @@ export async function logs_agent(req: Request, res: Response) {
         });
       })
       .catch((error) => {
-        console.error("[logs_agent] Background work failed:", error);
-        asyncReqs.failReq(request_id, error.message || error.toString());
+        if (abortController.signal.aborted) {
+          console.log(`[logs_agent] Run aborted: ${request_id}`);
+          asyncReqs.failReq(request_id, "aborted");
+        } else {
+          console.error("[logs_agent] Background work failed:", error);
+          asyncReqs.failReq(request_id, error.message || error.toString());
+        }
       })
       .finally(() => {
+        unregisterAbortController(request_id);
+        if (sessionId && sessionId !== request_id) {
+          unregisterAbortController(sessionId);
+        }
         endTracking(opId);
         // Clean up logs directory for non-session runs
         if (!sessionId) {
@@ -153,6 +172,10 @@ export async function logs_agent(req: Request, res: Response) {
   } catch (error: any) {
     console.error("Error in logs_agent", error);
     asyncReqs.failReq(request_id, error);
+    unregisterAbortController(request_id);
+    if (sessionId && sessionId !== request_id) {
+      unregisterAbortController(sessionId);
+    }
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);
   }

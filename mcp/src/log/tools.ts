@@ -17,12 +17,13 @@ export interface LogToolsOptions {
   logsDir: string;
   stakworkApiKey?: string;
   stakworkRuns?: StakworkRunSummary[];
+  abortSignal?: AbortSignal;
 }
 
 export function get_log_tools(
   opts: LogToolsOptions
 ): Record<string, Tool<any, any>> {
-  const { logsDir } = opts;
+  const { logsDir, abortSignal } = opts;
   const redactOpts = { literals: [opts.stakworkApiKey].filter(Boolean) as string[] };
   const tools: Record<string, Tool<any, any>> = {
     fetch_cloudwatch: tool({
@@ -76,8 +77,12 @@ export function get_log_tools(
             minutes,
             limit,
             logsDir,
+            abortSignal,
           });
-          return `Fetched ${result.lineCount} log lines from ${result.logGroup} (${result.timeRange.startTime} to ${result.timeRange.endTime}). Saved to file: ${result.file}. Use bash to search through it (e.g. rg, grep, head, tail, awk).`;
+          const truncNote = result.truncated
+            ? " NOTE: the fetch was capped before scanning the full time range (results may be incomplete) — narrow the filter_pattern, log_stream_names, or minutes to get complete results."
+            : "";
+          return `Fetched ${result.lineCount} log lines from ${result.logGroup} (${result.timeRange.startTime} to ${result.timeRange.endTime}). Saved to file: ${result.file}. Use bash to search through it (e.g. rg, grep, head, tail, awk).${truncNote}`;
         } catch (e: any) {
           return `Failed to fetch CloudWatch logs: ${e.message}`;
         }

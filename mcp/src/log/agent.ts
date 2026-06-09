@@ -56,6 +56,8 @@ export interface LogAgentOptions {
   source?: string;
   /** Custom HTTP headers attached to every LLM endpoint request (provider-level). */
   headers?: Record<string, string>;
+  /** Abort signal to cancel the in-flight run (and forward into tools). */
+  abortSignal?: AbortSignal;
 }
 
 export async function log_agent_context(
@@ -71,6 +73,7 @@ export async function log_agent_context(
     logsDir: opts.logsDir,
     stakworkApiKey: opts.stakworkApiKey,
     stakworkRuns: opts.stakworkRuns,
+    abortSignal: opts.abortSignal,
   });
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
@@ -124,14 +127,19 @@ export async function log_agent_context(
 
   const userMessage: ModelMessage = { role: "user", content: prompt };
 
+  const abortSignal = opts.abortSignal;
   let result;
   try {
     if (previousMessages.length > 0) {
       result = await agent.generate({
         messages: [...previousMessages, userMessage],
+        ...(abortSignal ? { abortSignal } : {}),
       });
     } else {
-      result = await agent.generate({ prompt });
+      result = await agent.generate({
+        prompt,
+        ...(abortSignal ? { abortSignal } : {}),
+      });
     }
   } catch (err) {
     if (sessionId) {
