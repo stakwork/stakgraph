@@ -35,6 +35,13 @@ Tips:
 - Look for patterns: recurring errors, timestamps clustering, correlated events.
 - When debugging an issue, search for both the error itself and surrounding context.
 
+TIME BUDGET (very important): You have roughly 8 minutes of wall-clock time total. Work efficiently:
+- Plan a focused approach up front; don't fetch more than you need. Prefer narrow filter patterns, specific log streams, and shorter time windows over broad fetches.
+- Avoid rabbit holes and redundant tool calls. Each fetch/search should have a clear purpose.
+- Continuously track roughly how much time you've spent. Once you're about 6-7 minutes in (or you have enough to answer), STOP investigating and write up what you've found.
+- It is far better to return a partial-but-useful answer than to run out of time with nothing. If you couldn't fully confirm something, say so and report your best findings, leads, and next steps.
+- You MUST always finish by producing a final answer with the [END_OF_ANSWER] marker — never end without one.
+
 CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line.
 
 Example format:
