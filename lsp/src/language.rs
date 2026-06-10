@@ -168,7 +168,7 @@ impl Language {
     pub fn default_do_lsp(&self) -> bool {
         if let Ok(use_lsp) = std::env::var("USE_LSP") {
             if use_lsp == "true" || use_lsp == "1" {
-                matches!(self, Self::Rust | Self::Go | Self::Typescript | Self::Java);
+                return matches!(self, Self::Rust | Self::Go | Self::Typescript | Self::Java);
             }
         }
         false
@@ -432,4 +432,42 @@ pub fn junk_directories() -> Vec<&'static str> {
         "venv",
         "node_modules",
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_do_lsp_with_use_lsp_true() {
+        std::env::set_var("USE_LSP", "true");
+        assert!(Language::Rust.default_do_lsp());
+        assert!(Language::Go.default_do_lsp());
+        assert!(Language::Typescript.default_do_lsp());
+        assert!(Language::Java.default_do_lsp());
+        assert!(!Language::Python.default_do_lsp());
+        assert!(!Language::Ruby.default_do_lsp());
+        std::env::remove_var("USE_LSP");
+    }
+
+    #[test]
+    fn test_default_do_lsp_with_use_lsp_one() {
+        std::env::set_var("USE_LSP", "1");
+        assert!(Language::Rust.default_do_lsp());
+        assert!(Language::Go.default_do_lsp());
+        assert!(Language::Typescript.default_do_lsp());
+        assert!(Language::Java.default_do_lsp());
+        assert!(!Language::Python.default_do_lsp());
+        std::env::remove_var("USE_LSP");
+    }
+
+    #[test]
+    fn test_default_do_lsp_without_use_lsp() {
+        std::env::remove_var("USE_LSP");
+        assert!(!Language::Rust.default_do_lsp());
+        assert!(!Language::Go.default_do_lsp());
+        assert!(!Language::Typescript.default_do_lsp());
+        assert!(!Language::Java.default_do_lsp());
+        assert!(!Language::Python.default_do_lsp());
+    }
 }
