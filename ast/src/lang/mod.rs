@@ -795,6 +795,7 @@ impl Lang {
                             file,
                             node,
                             &caller_name,
+                            caller_start,
                             graph,
                             lsp_tx,
                         )?;

@@ -1311,6 +1311,7 @@ impl Lang {
         file: &str,
         q: &Query,
         caller_name: &str,
+        caller_start: usize,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<Option<Edge>> {
@@ -1386,7 +1387,7 @@ impl Lang {
         let Some(endpoint) = endpoint else {
             return Ok(None);
         };
-        let source = NodeKeys::new(caller_name, file, 0);
+        let source = NodeKeys::new(caller_name, file, caller_start);
         let edge = Edge::new(
             EdgeType::Calls,
             NodeRef::from(source, NodeType::IntegrationTest),

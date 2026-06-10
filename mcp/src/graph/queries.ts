@@ -224,8 +224,8 @@ RETURN n.ref_id as ref_id
 `;
 
 export const ADD_EDGE_QUERY = (edgeType: string) => `
-MATCH (source {ref_id: $source_ref_id})
-MATCH (target {ref_id: $target_ref_id})
+MATCH (source:${Data_Bank} {ref_id: $source_ref_id})
+MATCH (target:${Data_Bank} {ref_id: $target_ref_id})
 MERGE (source)-[r:${edgeType}]->(target)
 ON CREATE SET r.ref_id = randomUUID()
 RETURN r
@@ -238,7 +238,7 @@ RETURN h
 
 export const GET_NODE_WITH_RELATED_QUERY = `
 // First, collect all related nodes
-MATCH (h {ref_id: $ref_id})
+MATCH (h:${Data_Bank} {ref_id: $ref_id})
 OPTIONAL MATCH (h)-[e]-(m)
 WITH h, collect(DISTINCT m) AS relatedNodes
 
@@ -390,10 +390,10 @@ LIMIT 5
 `;
 
 export const CREATE_HINT_EDGES_BY_REF_IDS_QUERY = `
-MATCH (h)
+MATCH (h:${Data_Bank})
 WHERE h.ref_id = $hint_ref_id AND (h:Hint OR h:Prompt)
 UNWIND $weighted_ref_ids AS weighted_ref
-MATCH (t {ref_id: weighted_ref.ref_id})
+MATCH (t:${Data_Bank} {ref_id: weighted_ref.ref_id})
 MERGE (h)-[r:USES]->(t)
 ON CREATE SET r.ref_id = randomUUID()
 SET r.relevancy = weighted_ref.relevancy
@@ -446,7 +446,7 @@ LIMIT toInteger($limit)
 `;
 
 export const EDGES_BETWEEN_NODE_KEYS_QUERY = `
-MATCH (a)-[r]->(b)
+MATCH (a:${Data_Bank})-[r]->(b:${Data_Bank})
 WHERE a.node_key IN $keys AND b.node_key IN $keys
 RETURN r, a, b;
 `;
@@ -587,7 +587,7 @@ WITH $node_label AS nodeLabel,
 CALL {
   WITH refId
   WITH refId WHERE refId IS NOT NULL AND refId <> ''
-  MATCH (node {ref_id: refId})
+  MATCH (node:${Data_Bank} {ref_id: refId})
   RETURN node
   UNION
   WITH nodeName, nodeLabel
@@ -625,7 +625,7 @@ WITH $node_label AS nodeLabel,
 CALL {
   WITH refId
   WITH refId WHERE refId IS NOT NULL AND refId <> ''
-  MATCH (node {ref_id: refId})
+  MATCH (node:${Data_Bank} {ref_id: refId})
   RETURN node
   UNION
   // Find by name + label
@@ -816,8 +816,8 @@ RETURN startNode,
 `;
 
 export const SHORTEST_PATH_QUERY = `
-MATCH (start {node_key: $start_node_key}),
-      (end {node_key: $end_node_key})
+MATCH (start:${Data_Bank} {node_key: $start_node_key}),
+      (end:${Data_Bank} {node_key: $end_node_key})
 MATCH path = shortestPath((start)-[*]-(end))
 WHERE ALL(node IN nodes(path) WHERE
     node:Page OR
@@ -835,7 +835,7 @@ RETURN path
 // `;
 
 export const SHORTEST_PATH_QUERY_REF_ID = `
-MATCH (start {ref_id: $start_ref_id}), (end {ref_id: $end_ref_id})
+MATCH (start:${Data_Bank} {ref_id: $start_ref_id}), (end:${Data_Bank} {ref_id: $end_ref_id})
 MATCH path = shortestPath((start)-[*]-(end))
 WHERE ALL(node IN nodes(path) WHERE
     node:Page OR

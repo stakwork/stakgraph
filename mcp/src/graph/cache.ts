@@ -30,15 +30,19 @@ export function cacheMiddleware() {
 
     // Override send to cache the response
     res.send = function (data: any) {
-      cache.set(cacheKey, data, ttlSeconds);
-      console.log(`Cached response for ${cacheKey}`);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        cache.set(cacheKey, data, ttlSeconds);
+        console.log(`Cached response for ${cacheKey}`);
+      }
       return originalSend.call(this, data);
     };
 
     // Override json to cache the response
     res.json = function (data: any) {
-      cache.set(cacheKey, data, ttlSeconds);
-      console.log(`Cached JSON response for ${cacheKey}`);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        cache.set(cacheKey, data, ttlSeconds);
+        console.log(`Cached JSON response for ${cacheKey}`);
+      }
       return originalJson.call(this, data);
     };
 

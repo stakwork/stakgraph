@@ -382,8 +382,8 @@ pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
     // Create edges between matching paths and verbs
     let mut i = 0;
     for (req, req_path) in frontend_requests {
-        for (endpoint, _) in &backend_endpoints {
-            if paths_match(&req_path, &endpoint.name) && verbs_match(&req, endpoint) {
+        for (endpoint, normalized) in &backend_endpoints {
+            if paths_match(&req_path, normalized) && verbs_match(&req, endpoint) {
                 let edge = Edge::calls(NodeType::Request, &req, NodeType::Endpoint, endpoint);
                 graph.add_edge(&edge);
                 i += 1;
@@ -556,6 +556,9 @@ mod tests {
         assert!(!paths_match("/api/user/:param", "/api/posts/:id"));
         assert!(!paths_match("/user/:param", "/api/user/:id"));
         assert!(!paths_match("/api/user/:param/extra", "/api/user/:id"));
+        let normalized = normalize_backend_path("/api/users/{id}").unwrap();
+        assert!(paths_match("/api/users/123", &normalized));
+        assert!(!paths_match("/api/users/123", "/api/users/{id}"));
     }
 
     #[test]

@@ -207,7 +207,7 @@ impl Stack for Rust {
 
                     if let Some((parent_node, source_type)) = found_node {
                         let operand = Operand {
-                            source: NodeKeys::new(&parent_node.name, file, parent_node.start),
+                            source: NodeKeys::new(&parent_node.name, &parent_node.file, parent_node.start),
                             target: NodeKeys::new(func_name, file, node.start_position().row),
                             source_type,
                         };

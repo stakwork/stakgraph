@@ -10,7 +10,7 @@ pub async fn validate_git_credentials(
 ) -> Result<()> {
     let repo_url = match (username.as_ref(), pat.as_ref()) {
         (Some(username), Some(pat)) => {
-            let repo_end = &repo.to_string()[8..];
+            let repo_end = repo.strip_prefix("https://").unwrap_or(repo);
             format!("https://{}:{}@{}", username, pat, repo_end)
         }
         _ => repo.to_string(),
@@ -84,7 +84,7 @@ pub async fn git_clone(
 ) -> Result<()> {
     let repo_url = match (username.as_ref(), pat.as_ref()) {
         (Some(username), Some(pat)) => {
-            let repo_end = &repo.to_string()[8..];
+            let repo_end = repo.strip_prefix("https://").unwrap_or(repo);
             format!("https://{}:{}@{}", username, pat, repo_end)
         }
         _ => repo.to_string(),

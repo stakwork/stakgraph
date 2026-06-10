@@ -810,11 +810,20 @@ class Db {
 
       const now = Date.now();
 
-      const result = await session.run(Q.ADD_NODE_QUERY(node_type), {
+      const { ref_id, ...properties } = node_data;
+
+      await session.run(Q.ADD_NODE_QUERY(node_type), {
         node_key,
-        properties: { ...node_data, node_key },
+        properties: { ...properties, node_key },
         now,
       });
+
+      const result = await session.run(
+        `MATCH (n:${node_type} {node_key: $node_key})
+         SET n.ref_id = coalesce(n.ref_id, $ref_id)
+         RETURN n.ref_id as ref_id`,
+        { node_key, ref_id: ref_id || uuidv4() },
+      );
 
       return result.records[0].get("ref_id");
     } finally {
@@ -1531,12 +1540,12 @@ class Db {
       const fileRes = await session.run(
         `
         MATCH (n:Data_Bank)
-        WHERE n.file STARTS WITH $prefix
+        WHERE n.file = $prefix OR n.file STARTS WITH $prefixSlash
         WITH collect(n) as nodes, count(n) as deleted_count
         FOREACH (x IN nodes | DETACH DELETE x)
         RETURN deleted_count
         `,
-        { prefix },
+        { prefix, prefixSlash: `${prefix}/` },
       );
       const file_nodes =
         fileRes.records[0]?.get("deleted_count")?.toNumber?.() ?? 0;
@@ -1748,13 +1757,15 @@ function construct_merge_node_query(node: Node): MergeQuery {
       MERGE (node:${node_type}:${Data_Bank} {node_key: $node_key})
       ON CREATE SET node += $properties
       ON MATCH SET node += $properties
+      SET node.ref_id = coalesce(node.ref_id, $ref_id)
       RETURN node
     `;
   return {
     query,
     parameters: {
       node_key,
-      properties: { ...node_data, node_key, ref_id: uuidv4() },
+      ref_id: uuidv4(),
+      properties: { ...node_data, node_key },
     },
   };
 }
@@ -1762,19 +1773,19 @@ function construct_merge_node_query(node: Node): MergeQuery {
 // Function to construct edge merge query
 function construct_merge_edge_query(edge_data: Edge): MergeQuery {
   const { edge, source, target } = edge_data;
+  const source_key = create_node_key(source);
+  const target_key = create_node_key(target);
   const query = `
-      MATCH (source:${source.node_type} {name: $source_name, file: $source_file})
-      MATCH (target:${target.node_type} {name: $target_name, file: $target_file})
+      MATCH (source:${source.node_type} {node_key: $source_key})
+      MATCH (target:${target.node_type} {node_key: $target_key})
       MERGE (source)-[r:${edge.edge_type}]->(target)
       RETURN r
     `;
   return {
     query,
     parameters: {
-      source_name: source.node_data.name,
-      source_file: source.node_data.file,
-      target_name: target.node_data.name,
-      target_file: target.node_data.file,
+      source_key,
+      target_key,
     },
   };
 }

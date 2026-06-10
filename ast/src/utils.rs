@@ -68,6 +68,17 @@ pub fn logger() {
         .init();
 }
 
+fn truncate_at_char_boundary(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut idx = max;
+    while !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    &s[..idx]
+}
+
 pub fn create_node_key(node: &Node) -> String {
     let node_type = node.node_type.to_string();
     let node_data = &node.node_data;
@@ -94,7 +105,7 @@ pub fn create_node_key(node: &Node) -> String {
 
     if result.len() > 5000 {
         if sanitized_name.len() > 2000 {
-            let truncated_name = &sanitized_name[..2000];
+            let truncated_name = truncate_at_char_boundary(&sanitized_name, 2000);
             let mut truncated_result = String::new();
             truncated_result.push_str(&sanitize_string(&node_type));
             truncated_result.push('-');
@@ -110,11 +121,13 @@ pub fn create_node_key(node: &Node) -> String {
             }
 
             if truncated_result.len() > 5000 {
-                truncated_result.truncate(5000);
+                let new_len = truncate_at_char_boundary(&truncated_result, 5000).len();
+                truncated_result.truncate(new_len);
             }
             truncated_result
         } else {
-            result.truncate(5000);
+            let new_len = truncate_at_char_boundary(&result, 5000).len();
+            result.truncate(new_len);
             result
         }
     } else {
@@ -179,7 +192,7 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
 
     if result.len() > 5000 {
         if sanitized_name.len() > 2000 {
-            let truncated_name = &sanitized_name[..2000];
+            let truncated_name = truncate_at_char_boundary(&sanitized_name, 2000);
             let mut truncated_result = String::new();
             truncated_result.push_str(&sanitize_string(&node_type));
             truncated_result.push('-');
@@ -195,11 +208,13 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
             }
 
             if truncated_result.len() > 5000 {
-                truncated_result.truncate(5000);
+                let new_len = truncate_at_char_boundary(&truncated_result, 5000).len();
+                truncated_result.truncate(new_len);
             }
             truncated_result
         } else {
-            result.truncate(5000);
+            let new_len = truncate_at_char_boundary(&result, 5000).len();
+            result.truncate(new_len);
             result
         }
     } else {

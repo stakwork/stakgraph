@@ -25,6 +25,18 @@ export const ShortestPathTool: Tool = {
 
 export async function shortestPath(args: z.infer<typeof ShortestPathSchema>) {
   console.log("=> Running shortest_path tool with args:", args);
+  const hasNodeKeys = args.start_node_key && args.end_node_key;
+  const hasRefIds = args.start_ref_id && args.end_ref_id;
+  if (!hasNodeKeys && !hasRefIds) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Error: provide both start_node_key and end_node_key, or both start_ref_id and end_ref_id",
+        },
+      ],
+    };
+  }
   const result = await G.get_shortest_path(
     args.start_node_key || "",
     args.end_node_key || "",
