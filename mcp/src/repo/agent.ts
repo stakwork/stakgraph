@@ -881,9 +881,8 @@ curl -X POST \
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
-    "sessionId": "123sef8sehf8shefs",
     "repo_url": "https://github.com/stakwork/hive",
-    "prompt": "can you still see the image in the chat history?"
+    "prompt": "tell me a joke"
   }' \
   "http://localhost:3355/repo/agent"
 */

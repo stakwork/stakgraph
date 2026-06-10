@@ -337,7 +337,13 @@ export function getModelDetails(
       modelId = modelName;
     }
   } else if (modelName) {
-    modelId = MODELS[provider][modelName as ModelName] || DEFAULT_MODELS[provider];
+    // Mirror getModel(): shortcuts (sonnet/opus/...) map through MODELS, but a
+    // full model id (e.g. "claude-opus-4-8") must be used as-is. Looking it up
+    // in MODELS returns undefined and would wrongly fall back to the default
+    // model, corrupting context-limit and thinking-mode (adaptive vs enabled)
+    // decisions downstream.
+    const shortcut = MODELS[provider][modelName as ModelName];
+    modelId = shortcut || modelName;
   } else {
     modelId = DEFAULT_MODELS[provider];
   }
@@ -579,7 +585,9 @@ export function getProviderOptions(
 
       if (anthropicSupportsAdaptiveThinking(modelName)) {
         // Modern models (Sonnet 4.6+, Opus 4.6+, 4.7, 4.8) require adaptive.
-        // type: "enabled" is deprecated and rejected by these models.
+        // type: "enabled" is deprecated and rejected by these models with a 400.
+        // `effort` is optional (omitting it == "high"); only set it when thinking
+        // is explicitly requested.
         return {
           anthropic: {
             thinking: { type: "adaptive", display: "summarized" },

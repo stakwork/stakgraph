@@ -21,9 +21,9 @@
 # Bifrost releases per-component tags (e.g. transports/v1.5.2, core/v1.5.8).
 # We pin the transports tag because that's what produces bifrost-http; the
 # core version comes along via go.work / replace directives in the tree.
-ARG GO_VERSION=1.26.2
+ARG GO_VERSION=1.26.4
 ARG NODE_VERSION=25
-ARG BIFROST_VERSION=transports/v1.5.2
+ARG BIFROST_VERSION=transports/v1.5.11
 
 # ---------------------------------------------------------------------------
 # Stage 0: clone bifrost source once and share via subsequent stages.
