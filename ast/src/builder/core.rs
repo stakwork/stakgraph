@@ -314,8 +314,10 @@ impl Repo {
             let filename = strip_tmp(filepath);
             let file_name = filename.display().to_string();
             let meta = fs::metadata(&filepath).await?;
+            let mut skip_reason: Option<&str> = None;
             let code = if meta.len() > MAX_FILE_SIZE {
                 debug!("Skipping large file: {:?}", filename);
+                skip_reason = Some("too_large");
                 "".to_string()
             } else {
                 match std::fs::read_to_string(filepath) {
@@ -328,6 +330,7 @@ impl Repo {
                             "Could not read file as string (likely binary): {:?}",
                             filename
                         );
+                        skip_reason = Some("unreadable");
                         "".to_string()
                     }
                 }
@@ -340,6 +343,12 @@ impl Repo {
             }
 
             let mut file_data = self.prepare_file_data(&path, &code);
+
+            if let Some(reason) = skip_reason {
+                file_data
+                    .meta
+                    .insert("skipped".to_string(), reason.to_string());
+            }
 
             if self.lang.kind.is_package_file(&path) {
                 file_data

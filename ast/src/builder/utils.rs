@@ -18,6 +18,7 @@ pub struct StageRunner<'a> {
     step: u32,
     pub start: Instant,
     use_parallel: bool,
+    failures: std::cell::RefCell<Vec<String>>,
 }
 
 impl<'a> StageRunner<'a> {
@@ -30,6 +31,7 @@ impl<'a> StageRunner<'a> {
             step,
             start: Instant::now(),
             use_parallel,
+            failures: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -44,7 +46,10 @@ impl<'a> StageRunner<'a> {
         P: Fn(&(String, String)) -> bool + Sync,
         T: Send,
     {
-        process_files(filez, self.use_parallel, self.name, filter_fn, process_fn)
+        let (oks, failed) =
+            process_files(filez, self.use_parallel, self.name, filter_fn, process_fn);
+        self.failures.borrow_mut().extend(failed);
+        Ok(oks)
     }
 
     pub fn progress(&self, i: usize, total: usize, cadence: usize) {
@@ -53,7 +58,11 @@ impl<'a> StageRunner<'a> {
         }
     }
 
-    pub fn finish(self, stats: HashMap<String, usize>) {
+    pub fn finish(self, mut stats: HashMap<String, usize>) {
+        let failed = self.failures.borrow().len();
+        if failed > 0 {
+            stats.insert("failed_files".to_string(), failed);
+        }
         let summary = stats
             .iter()
             .map(|(k, v)| format!("{}={}", k, v))
@@ -71,13 +80,13 @@ pub fn process_files<T, F, P>(
     stage_name: &str,
     filter_fn: P,
     process_fn: F,
-) -> Result<Vec<T>>
+) -> (Vec<T>, Vec<String>)
 where
     F: Fn(&(String, String)) -> Result<T> + Sync,
     P: Fn(&(String, String)) -> bool + Sync,
     T: Send,
 {
-    if use_parallel {
+    let results: Vec<(&str, Result<T>)> = if use_parallel {
         tracing::debug!(
             "[parallel] {}: pool={} items={}",
             stage_name,
@@ -87,15 +96,27 @@ where
         filez
             .par_iter()
             .filter(|f| filter_fn(f))
-            .map(|f| process_fn(f))
+            .map(|f| (f.0.as_str(), process_fn(f)))
             .collect()
     } else {
         filez
             .iter()
             .filter(|f| filter_fn(f))
-            .map(|f| process_fn(f))
+            .map(|f| (f.0.as_str(), process_fn(f)))
             .collect()
+    };
+    let mut oks = Vec::with_capacity(results.len());
+    let mut failed = Vec::new();
+    for (filename, res) in results {
+        match res {
+            Ok(t) => oks.push(t),
+            Err(e) => {
+                tracing::warn!("[{}] failed to process {}: {}", stage_name, filename, e);
+                failed.push(filename.to_string());
+            }
+        }
     }
+    (oks, failed)
 }
 
 #[cfg(feature = "openssl")]
