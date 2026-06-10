@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-const JARVIS_URL = process.env.JARVIS_URL || "http://localhost:5000";
+const JARVIS_URL = process.env.JARVIS_URL || "http://localhost:6000";
 
 /** Build Authorization header from the forwarded L402 token (if present). */
 function authHeaders(authToken?: string): HeadersInit {
