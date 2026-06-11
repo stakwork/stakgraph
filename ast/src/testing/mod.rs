@@ -9,6 +9,9 @@ pub mod bash_toml;
 use annotations::run_fixture_test;
 
 #[cfg(test)]
+pub mod builder;
+
+#[cfg(test)]
 pub mod coverage;
 
 pub mod graphs;
