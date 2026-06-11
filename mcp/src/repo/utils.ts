@@ -102,15 +102,14 @@ export function ensureAdditionalPropertiesFalse(schema: {
   return result;
 }
 
-export function logStep(contents: any) {
-  console.log("===> logStep", JSON.stringify(contents, null, 2));
-  return;
+export function logStep(contents: any): void {
   if (!Array.isArray(contents)) return;
-  for (const content of contents) {
-    if (content.type === "tool-call" && content.toolName !== "final_answer") {
-      console.log("TOOL CALL:", content.toolName, ":", content.input);
+  for (const item of contents) {
+    if (item.type === "tool-call") {
+      console.log(`[repo_agent] tool_call: ${item.toolName}`);
+    } else if (item.type === "text" && item.text) {
+      console.log(`[repo_agent] text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
     }
-    console.log("CONTENT:", JSON.stringify(content, null, 2));
   }
 }
 
