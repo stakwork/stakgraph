@@ -15,6 +15,18 @@ use crate::webhook::{send_with_retries, validate_callback_url_async};
 
 use crate::service::graph_service::{ingest, sync};
 
+async fn validate_webhook_config(body: &ProcessBody) -> Result<(), String> {
+    if let Some(url) = body.callback_url.as_deref() {
+        validate_callback_url_async(url)
+            .await
+            .map_err(|e| format!("{}", e))?;
+        if std::env::var("WEBHOOK_SECRET").is_err() {
+            return Err("callback_url provided but WEBHOOK_SECRET is not configured".to_string());
+        }
+    }
+    Ok(())
+}
+
 #[axum::debug_handler]
 pub async fn sync_async(
     State(state): State<Arc<AppState>>,
@@ -45,6 +57,14 @@ pub async fn sync_async(
             "error": format!("{}", e)
         }))
         .into_response();
+    }
+
+    if let Err(e) = validate_webhook_config(&body).await {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response();
     }
 
     // Try to acquire the busy lock before creating request_id
@@ -320,6 +340,14 @@ pub async fn ingest_async(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": err_msg })),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = validate_webhook_config(&body).await {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
         )
             .into_response();
     }
