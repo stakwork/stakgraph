@@ -828,7 +828,7 @@ export async function embeddings_status(_req: Request, res: Response) {
 
 export async function get_rules_files(req: Request, res: Response) {
   try {
-    const snippets = await G.get_rules_files();
+    const { snippets } = await G.get_rules_files();
     res.json(snippets);
   } catch (error) {
     console.error("Error fetching rules files:", error);
