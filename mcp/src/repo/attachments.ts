@@ -153,10 +153,40 @@ export async function cacheAttachments(
   return out;
 }
 
+function assertSafeUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`invalid URL: ${url}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`disallowed URL scheme: ${parsed.protocol}`);
+  }
+  const h = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (
+    h === "localhost" ||
+    h.endsWith(".local") ||
+    h.endsWith(".localhost") ||
+    h === "::1" ||
+    h === "::" ||
+    /^127\./.test(h) ||
+    /^10\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+    /^169\.254\./.test(h) ||
+    /^fd[0-9a-f]{2}:/i.test(h) ||
+    /^fe80:/i.test(h)
+  ) {
+    throw new Error(`disallowed host: ${h}`);
+  }
+}
+
 async function downloadImage(
   url: string,
   signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; mediaType: string }> {
+  assertSafeUrl(url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   const onParentAbort = () => controller.abort();

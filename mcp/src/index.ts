@@ -18,10 +18,8 @@ console.trace = (...a: unknown[]) => _trace(_ts(), ...a);
 import express, { Request, Response } from "express";
 import { graph_mcp_routes } from "./tools/server.js";
 import { graph_sse_routes } from "./tools/sse.js";
-import fileUpload from "express-fileupload";
 import * as r from "./graph/routes.js";
 import * as l from "./graph/learnings.js";
-import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
 import { mountLab } from "./lab/mount.js";
 import path from "path";
@@ -121,7 +119,6 @@ graph_mcp_routes(app);
 mcp_routes(app);
 
 app.use(express.urlencoded({ extended: true }));
-app.use(fileUpload());
 
 try {
   new SageApp(app);
@@ -222,9 +219,6 @@ app.get("/map", r.get_map);
 app.get("/repo_map", cacheMiddleware(), r.get_repo_map);
 app.get("/code", r.get_code);
 app.get("/shortest_path", r.get_shortest_path);
-app.post("/upload", uploads.upload_files);
-app.get("/status/:requestId", uploads.check_status);
-app.get("/update_token_counts", uploads.update_token_counts);
 app.get("/rules_files", r.get_rules_files);
 app.get("/services", r.get_services);
 app.get("/explore", busyMiddleware, r.explore);
@@ -252,7 +246,6 @@ app.post("/repo/agent/abort", rr.abort_agent);
 app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/repo/agent/session", rr.get_agent_session);
 app.get("/repo/agent/validate_session", rr.validate_agent_session);
-app.get("/repo/agent/file", rr.get_agent_file);
 app.post("/repo/describe", rr.describe_nodes_agent);
 app.post("/repo/embed", rr.embed_nodes_agent);
 app.delete("/repo", rr.delete_repo);

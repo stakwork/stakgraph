@@ -564,20 +564,3 @@ export async function delete_repo(req: Request, res: Response) {
     res.status(500).json({ error: e?.message || "Internal server error" });
   }
 }
-
-export async function get_agent_file(req: Request, res: Response) {
-  const filePath = req.query.path as string;
-  console.log("===> GET /repo/agent/file", { filePath });
-
-  if (!filePath) {
-    res.status(400).json({ error: "Missing path" });
-    return;
-  }
-
-  if (!existsSync(filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
-
-  res.sendFile(path.resolve(filePath));
-}
