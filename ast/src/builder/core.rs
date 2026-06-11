@@ -59,10 +59,13 @@ impl Repo {
         let mut streaming_ctx: Option<StreamingUploadContext> =
             if enable_batch_upload && type_name::<G>().contains("BTreeMapGraph") {
                 let g = Neo4jGraph::default();
-                if let Err(e) = g.connect().await {
-                    warn!("Neo4j connection failed, streaming upload will be skipped: {}", e);
+                match g.connect().await {
+                    Ok(_) => Some(StreamingUploadContext::new(g)),
+                    Err(e) => {
+                        warn!("Neo4j connection failed, streaming upload will be skipped: {}", e);
+                        None
+                    }
                 }
-                Some(StreamingUploadContext::new(g))
             } else {
                 None
             };
@@ -210,8 +213,6 @@ impl Repo {
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            ctx.flushed_node_count = ctx.flushed_node_count.min(graph.iter_all_nodes().count());
-            ctx.flushed_edge_count = ctx.flushed_edge_count.min(graph.get_edge_keys().len());
             flush_stage_nodes_and_edges(ctx, &graph, "finalize").await?;
             ctx.neo.prune_orphan_functions_async(&self.lang).await?;
         }
