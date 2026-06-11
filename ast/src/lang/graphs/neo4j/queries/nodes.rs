@@ -346,16 +346,16 @@ pub fn find_nodes_by_name_contains_query(
 }
 pub fn find_nodes_in_range_query(node_type: &NodeType, file: &str, row: u32) -> (String, BoltMap) {
     let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
     boltmap_insert_str(&mut params, "file", file);
     boltmap_insert_int(&mut params, "row", row as i64);
 
     let query = format!(
-        "MATCH (n:$node_type)
-         WHERE n.file = $file AND 
-               toInteger(n.start) <= toInteger($row) AND 
+        "MATCH (n:{})
+         WHERE n.file = $file AND
+               toInteger(n.start) <= toInteger($row) AND
                toInteger(n.end) >= toInteger($row)
-         RETURN n"
+         RETURN n",
+        node_type.to_string()
     );
 
     (query, params)
@@ -536,6 +536,10 @@ pub fn restore_muted_status_query(identifiers: &[MutedNodeIdentifier]) -> (Strin
     (query, params)
 }
 
+fn escape_cypher_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
 pub fn query_nodes_with_count(
     node_types: &[NodeType],
     offset: usize,
@@ -592,7 +596,7 @@ pub fn query_nodes_with_count(
                 let regex_conditions: Vec<String> = filters
                     .unit_regexes
                     .iter()
-                    .map(|r| format!("ut.file =~ '{}'", r))
+                    .map(|r| format!("ut.file =~ '{}'", escape_cypher_str(r)))
                     .collect();
                 clauses.push(format!(
                     "OPTIONAL MATCH (ut:UnitTest)-[:CALLS]->(n) WHERE {}",
@@ -605,7 +609,7 @@ pub fn query_nodes_with_count(
                 let regex_conditions: Vec<String> = filters
                     .integration_regexes
                     .iter()
-                    .map(|r| format!("it.file =~ '{}'", r))
+                    .map(|r| format!("it.file =~ '{}'", escape_cypher_str(r)))
                     .collect();
                 clauses.push(format!(
                     "OPTIONAL MATCH (it:IntegrationTest)-[:CALLS]->(n) WHERE {}",
@@ -618,7 +622,7 @@ pub fn query_nodes_with_count(
                 let regex_conditions: Vec<String> = filters
                     .e2e_regexes
                     .iter()
-                    .map(|r| format!("et.file =~ '{}'", r))
+                    .map(|r| format!("et.file =~ '{}'", escape_cypher_str(r)))
                     .collect();
                 clauses.push(format!(
                     "OPTIONAL MATCH (et:E2etest)-[:CALLS]->(n) WHERE {}",
@@ -660,11 +664,11 @@ pub fn query_nodes_with_count(
             let repos: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
             let conditions: Vec<String> = repos
                 .iter()
-                .map(|repo_path| format!("n.file STARTS WITH '{}'", repo_path))
+                .map(|repo_path| format!("n.file STARTS WITH '{}'", escape_cypher_str(repo_path)))
                 .collect();
             format!("AND ({})", conditions.join(" OR "))
         } else {
-            format!("AND n.file STARTS WITH '{}'", r)
+            format!("AND n.file STARTS WITH '{}'", escape_cypher_str(r))
         }
     } else {
         String::new()
@@ -676,7 +680,7 @@ pub fn query_nodes_with_count(
             .map(|dir| {
                 format!(
                     "(NOT n.file CONTAINS '/{dir}/' AND NOT n.file =~ '.*/{dir}$')",
-                    dir = dir
+                    dir = escape_cypher_str(dir)
                 )
             })
             .collect();
@@ -688,7 +692,7 @@ pub fn query_nodes_with_count(
     let regex_filter = test_filters
         .as_ref()
         .and_then(|f| f.target_regex.as_deref())
-        .map(|pattern| format!("AND n.file =~ '{}'", pattern))
+        .map(|pattern| format!("AND n.file =~ '{}'", escape_cypher_str(pattern)))
         .unwrap_or_default();
 
     let search_filter = search

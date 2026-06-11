@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "./neo4j.js";
 import type { Request, Response } from "express";
@@ -20,6 +21,10 @@ export async function upload_files(req: Request, res: Response) {
     res.status(400).send("No files were uploaded.");
     return;
   }
+  if (!req.files.nodes || !req.files.edges) {
+    res.status(400).send("Both 'nodes' and 'edges' files are required.");
+    return;
+  }
   const requestId = uuidv4();
   const file1 = req.files.nodes;
   const file2 = req.files.edges;
@@ -33,10 +38,10 @@ export async function upload_files(req: Request, res: Response) {
       fs.mkdirSync(UPLOAD_PATH, { recursive: true });
     }
 
-    const node_file = UPLOAD_PATH + nodesFiles[0].name;
+    const node_file = path.join(UPLOAD_PATH, path.basename(nodesFiles[0].name));
     await nodesFiles[0].mv(node_file);
 
-    const edge_file = UPLOAD_PATH + edgesFiles[0].name;
+    const edge_file = path.join(UPLOAD_PATH, path.basename(edgesFiles[0].name));
     await edgesFiles[0].mv(edge_file);
 
     jobStatus.set(requestId, { status: "pending" });

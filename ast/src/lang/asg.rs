@@ -293,6 +293,7 @@ impl FromStr for NodeType {
             "UnitTest" => Ok(NodeType::UnitTest),
             "IntegrationTest" => Ok(NodeType::IntegrationTest),
             "E2etest" => Ok(NodeType::E2eTest),
+            "Mock" => Ok(NodeType::Mock),
             _ => Err(Error::validation(format!("Invalid NodeType string: {}", s))),
         }
     }

@@ -5,15 +5,15 @@ export const DIMENSIONS = 384;
 export const MODEL = EmbeddingModel.BGESmallENV15;
 
 // Initialize the embedding model once and reuse it
-let flagEmbeddingInstance: Awaited<ReturnType<typeof FlagEmbedding.init>> | null = null;
+let flagEmbeddingPromise: ReturnType<typeof FlagEmbedding.init> | null = null;
 async function getFlagEmbedding() {
-  if (!flagEmbeddingInstance) {
-    flagEmbeddingInstance = await FlagEmbedding.init({
+  if (!flagEmbeddingPromise) {
+    flagEmbeddingPromise = FlagEmbedding.init({
       model: MODEL,
       maxLength: 512,
     });
   }
-  return flagEmbeddingInstance;
+  return flagEmbeddingPromise;
 }
 
 export async function vectorizeQuery(query: string): Promise<number[]> {

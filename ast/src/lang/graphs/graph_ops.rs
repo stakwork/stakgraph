@@ -270,6 +270,7 @@ impl GraphOps {
 
         let streaming = streaming.unwrap_or(false);
         let temp_graph = if streaming {
+            self.graph.clear().await?;
             repos.build_graphs_with_batch_upload().await?
         } else {
             repos.build_graphs_local().await?
@@ -277,8 +278,8 @@ impl GraphOps {
 
         temp_graph.analysis();
 
-        self.graph.clear().await?;
         if !streaming {
+            self.graph.clear().await?;
             self.upload_btreemap_to_neo4j(&temp_graph, None).await?;
         }
         self.graph.create_indexes().await?;

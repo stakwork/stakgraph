@@ -108,8 +108,8 @@ impl Graph for BTreeMapGraph {
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
+            .find(|(_, node)| node.node_data.name == name && node.node_data.file == file)
             .map(|(_, node)| node.node_data.clone())
-            .next()
     }
 
     fn add_node_with_parent(
@@ -267,8 +267,8 @@ impl Graph for BTreeMapGraph {
             {
                 if let Some(file_node_data) = self
                     .find_nodes_by_name(NodeType::File, &file_name)
-                    .first()
-                    .cloned()
+                    .into_iter()
+                    .find(|node| node.file == func_clone.file)
                 {
                     let contains_edge = Edge::contains(
                         NodeType::File,
@@ -341,7 +341,11 @@ impl Graph for BTreeMapGraph {
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
-            .find(|(_, node)| node.node_data.meta.get("verb") == Some(&verb.to_string()))
+            .find(|(_, node)| {
+                node.node_data.name == name
+                    && node.node_data.file == file
+                    && node.node_data.meta.get("verb") == Some(&verb.to_string())
+            })
             .map(|(_, node)| node.node_data.clone())
     }
 

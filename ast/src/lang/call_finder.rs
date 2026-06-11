@@ -176,8 +176,11 @@ pub fn parse_imports_for_file<G: Graph>(
             }
 
             let exts = lang.kind.exts();
-            if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
-                resolved_path = resolved_path.trim_end_matches(ext).to_string();
+            if let Some(ext) = exts
+                .iter()
+                .find(|&&e| resolved_path.ends_with(&format!(".{}", e)))
+            {
+                resolved_path.truncate(resolved_path.len() - ext.len() - 1);
             }
 
             results.push((resolved_path, import_names));

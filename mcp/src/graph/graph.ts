@@ -548,11 +548,17 @@ export async function get_shortest_path(
 ) {
   if (start_ref_id && end_ref_id) {
     const result = await db.get_shortest_path_ref_id(start_ref_id, end_ref_id);
+    if (result.records.length === 0) {
+      return "No path found between the given nodes";
+    }
     const record = result.records[0];
     const path: ShortestPath = record.get("path");
     return pathToSnippets(path);
   } else {
     const result = await db.get_shortest_path(start_node_key, end_node_key);
+    if (result.records.length === 0) {
+      return "No path found between the given nodes";
+    }
     const record = result.records[0];
     const path: ShortestPath = record.get("path");
     return pathToSnippets(path);
