@@ -136,8 +136,6 @@ pub fn create_node_key(node: &Node) -> String {
 }
 
 pub fn get_use_lsp() -> bool {
-    unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
-
     if let Err(err) = delete_react_testing_node_modules() {
         warn!("failed to clean test node_modules: {err}");
     }

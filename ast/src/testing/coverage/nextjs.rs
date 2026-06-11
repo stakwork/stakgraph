@@ -13,7 +13,7 @@ async fn setup_nextjs_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps
     GRAPH_INIT
         .get_or_init(|| async {
             // Explicitly disable LSP for these tests
-            std::env::set_var("USE_LSP", "false");
+            unsafe { std::env::set_var("USE_LSP", "false") };
 
             let use_lsp = false;
             let repo = Repo::new(
