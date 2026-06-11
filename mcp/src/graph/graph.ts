@@ -99,91 +99,21 @@ export async function search(
   include_patterns?: string[],
   exclude_patterns?: string[],
 ) {
-  const effective_node_types =
-    node_types.length > 0 ? node_types : code_node_types();
-
-  if (method === "vector") {
-    let result = await db.vectorSearch(
-      query,
-      limit,
-      effective_node_types,
-      skip_node_types,
-      maxTokens,
-      language,
-      include_patterns,
-      exclude_patterns,
-    );
-    if (sortBy === "pagerank") {
-      result = sortByPagerank(result);
-    }
-    return toNodes(result, concise, output);
-  } else if (method === "hybrid") {
-    const [fulltextResults, vectorResults] = await Promise.all([
-      db.search(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
-      db.vectorSearch(query, limit * 3, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
-    ]);
-
-    const merged = new Map<string, { node: Neo4jNode; score: number }>();
-    const ftMaxScore = fulltextResults.length > 0 ? Math.max(...fulltextResults.map(n => n.score || 1)) : 1;
-    const vecMaxScore = vectorResults.length > 0 ? Math.max(...vectorResults.map(n => n.score || 1)) : 1;
-
-    fulltextResults.forEach((node, i) => {
-      const key = node.properties.ref_id || node.properties.node_key;
-      const norm = (node.score || 0) / ftMaxScore;
-      merged.set(key, { node, score: (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm) });
-    });
-
-    vectorResults.forEach((node, i) => {
-      const key = node.properties.ref_id || node.properties.node_key;
-      const norm = (node.score || 0) / vecMaxScore;
-      const rrfScore = (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm);
-      const existing = merged.get(key);
-      if (existing) {
-        existing.score += rrfScore * 1.5;
-      } else {
-        merged.set(key, { node, score: rrfScore });
-      }
-    });
-
-    let sorted = (
-      sortBy === "pagerank"
-        ? sortByPagerank(Array.from(merged.values()).map((entry) => entry.node))
-        : Array.from(merged.values())
-            .sort((a, b) => b.score - a.score)
-            .map((entry) => entry.node)
-    ).slice(0, limit);
-
-    if (maxTokens) {
-      let totalTokens = 0;
-      sorted = sorted.filter((node) => {
-        const tokenCount = node.properties.token_count
-          ? parseInt(node.properties.token_count.toString(), 10)
-          : 0;
-        if (totalTokens + tokenCount <= maxTokens) {
-          totalTokens += tokenCount;
-          return true;
-        }
-        return false;
-      });
-    }
-
-    return toNodes(sorted, concise, output);
-  } else {
-    let result = await db.search(
-      query,
-      limit,
-      effective_node_types,
-      skip_node_types,
-      maxTokens,
-      language,
-      include_patterns,
-      exclude_patterns,
-    );
-    if (sortBy === "pagerank") {
-      result = sortByPagerank(result);
-    }
-    return toNodes(result, concise, output);
-  }
+  const { results } = await searchWithProvenance(
+    query,
+    limit,
+    node_types,
+    concise,
+    maxTokens,
+    method,
+    output,
+    skip_node_types,
+    language,
+    sortBy,
+    include_patterns,
+    exclude_patterns,
+  );
+  return results;
 }
 
 export async function searchWithProvenance(
