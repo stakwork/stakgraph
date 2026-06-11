@@ -8,11 +8,10 @@ const USE_STAGEHAND: boolean =
   process.env.USE_STAGEHAND === "true" || process.env.USE_STAGEHAND === "1";
 
 export function getMcpTools(): Tool[] {
-  const coreTools = stakgraph.ALL_TOOLS;
   if (USE_STAGEHAND) {
-    coreTools.push(...stagehand.TOOLS);
+    return [...stakgraph.ALL_TOOLS, ...stagehand.TOOLS];
   }
-  return coreTools;
+  return [...stakgraph.ALL_TOOLS];
 }
 
 export function use_stagehand(): boolean {
