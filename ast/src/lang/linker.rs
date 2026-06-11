@@ -400,7 +400,14 @@ pub fn normalize_frontend_path(path: &str) -> Option<String> {
         return None;
     }
 
-    let path_stripped = path.replace("http://localhost:3000", "");
+    let path_stripped = if let Some(pos) = path.find("://") {
+        match path[pos + 3..].find('/') {
+            Some(start) => path[pos + 3 + start..].to_string(),
+            None => String::new(),
+        }
+    } else {
+        path.to_string()
+    };
 
     let path_part = if path_stripped.starts_with("${") {
         if let Some(close_brace) = path_stripped.find('}') {
@@ -514,6 +521,18 @@ mod tests {
             Some("/user/:param".to_string())
         );
         assert_eq!(normalize_frontend_path("${ENDPOINTS.something}"), None);
+        assert_eq!(
+            normalize_frontend_path("http://localhost:3000/api/user/${id}"),
+            Some("/api/user/:param".to_string())
+        );
+        assert_eq!(
+            normalize_frontend_path("http://localhost:8080/api/items"),
+            Some("/api/items".to_string())
+        );
+        assert_eq!(
+            normalize_frontend_path("https://api.example.com/users/${id}"),
+            Some("/users/:param".to_string())
+        );
     }
 
     #[test]

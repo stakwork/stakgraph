@@ -105,8 +105,9 @@ fn impact_python_json_summary() {
     let v: Value = serde_json::from_str(&out.stdout).expect("invalid JSON");
     assert_eq!(v["ok"], true);
     assert_eq!(v["command"], "impact");
-    assert_eq!(v["data"]["summary"]["total"], 3);
+    assert_eq!(v["data"]["summary"]["total"], 4);
     assert_eq!(v["data"]["summary"]["by_type"]["Endpoint"], 2);
+    assert_eq!(v["data"]["summary"]["by_type"]["Request"], 1);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

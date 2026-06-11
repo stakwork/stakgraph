@@ -371,6 +371,20 @@ impl Stack for Python {
         ]
     }
 
+    fn request_finder(&self) -> Option<String> {
+        Some(format!(
+            r#"(call
+                function: (attribute
+                    object: (identifier) @lib (#match? @lib "^(requests|httpx)$")
+                    attribute: (identifier) @{REQUEST_CALL} (#match? @{REQUEST_CALL} "^(get|post|put|delete|patch)$")
+                )
+                arguments: (argument_list
+                    . (string) @{ENDPOINT}
+                )
+            ) @{ROUTE}"#
+        ))
+    }
+
     fn add_endpoint_verb(&self, nd: &mut NodeData, call: &Option<String>) -> Option<String> {
         if nd.meta.contains_key("verb") {
             return None;

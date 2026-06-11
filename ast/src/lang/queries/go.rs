@@ -323,6 +323,61 @@ impl Stack for Go {
             ) @{ROUTE}"#
         ))
     }
+    fn request_finder(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (call_expression
+                function: (selector_expression
+                    operand: (identifier) @lib (#eq? @lib "http")
+                    field: (field_identifier) @{REQUEST_CALL} (#match? @{REQUEST_CALL} "^(Get|Post|Head|PostForm)$")
+                )
+                arguments: (argument_list
+                    . (interpreted_string_literal) @{ENDPOINT}
+                )
+            ) @{ROUTE}
+
+            (call_expression
+                function: (selector_expression
+                    operand: (identifier) @lib (#eq? @lib "http")
+                    field: (field_identifier) @{REQUEST_CALL} (#eq? @{REQUEST_CALL} "NewRequest")
+                )
+                arguments: (argument_list
+                    . (interpreted_string_literal)
+                    . (interpreted_string_literal) @{ENDPOINT}
+                )
+            ) @{ROUTE}
+            "#
+        ))
+    }
+    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
+        if !inst.meta.contains_key("verb") {
+            if let Some(call) = call {
+                match call.as_str() {
+                    "Get" => inst.add_verb("GET"),
+                    "Post" | "PostForm" => inst.add_verb("POST"),
+                    "Head" => inst.add_verb("HEAD"),
+                    "NewRequest" => {
+                        if inst.body.contains("\"GET\"") {
+                            inst.add_verb("GET");
+                        } else if inst.body.contains("\"POST\"") {
+                            inst.add_verb("POST");
+                        } else if inst.body.contains("\"PUT\"") {
+                            inst.add_verb("PUT");
+                        } else if inst.body.contains("\"DELETE\"") {
+                            inst.add_verb("DELETE");
+                        } else if inst.body.contains("\"PATCH\"") {
+                            inst.add_verb("PATCH");
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+        if !inst.meta.contains_key("verb") {
+            inst.add_verb("GET");
+        }
+        inst.meta.get("verb").cloned()
+    }
     fn find_function_parent(
         &self,
         node: TreeNode,
