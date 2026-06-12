@@ -20,7 +20,6 @@ import { SKILLS } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
-  appendTextToPrompt,
   logStep,
   extractFinalAnswer,
   createHasEndMarkerCondition,
@@ -439,11 +438,6 @@ Apply the guidance from each skill throughout your response.`;
 
   if (toolsConfig?.ask_clarifying_questions) {
     stopConditions.push(hasAskQuestions);
-
-    finalPrompt = appendTextToPrompt(
-      prompt,
-      " After exploring a bit, ask clarifying questions if needed."
-    );
   }
 
   // Resolve image attachments for THIS turn (body field preferred, else the
