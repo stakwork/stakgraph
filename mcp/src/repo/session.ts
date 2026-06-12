@@ -31,6 +31,19 @@ export interface SessionConfig {
   maxToolResultChars?: number; // Default: 2000
 }
 
+export interface SessionInitConfig {
+  model?: string;
+  provider?: string;
+  toolsConfig?: { [key: string]: any };
+  schema?: { [key: string]: any };
+  sessionConfig?: SessionConfig;
+  maxTurns?: number;
+  isolatedContext?: boolean;
+  source?: string;
+  repos?: string[];
+  temperature: number;
+}
+
 export interface StepMeta {
   step: number;
   turn: number;
@@ -196,7 +209,45 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(annPath)) {
     unlinkSync(annPath);
   }
+  const configPath = getConfigFile(sessionId);
+  if (existsSync(configPath)) {
+    unlinkSync(configPath);
+  }
   deleteAttachments(sessionId);
+}
+
+/**
+ * Get the file path for a session's init config sidecar.
+ */
+function getConfigFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.config.json`);
+}
+
+/**
+ * Persist session init config to a sidecar file.
+ */
+export function saveSessionConfig(sessionId: string, config: SessionInitConfig): void {
+  writeFileSync(getConfigFile(sessionId), JSON.stringify(config, null, 2));
+}
+
+/**
+ * Load session init config from the sidecar file.
+ * Returns null if no sidecar exists (pre-change sessions) or if parsing fails.
+ */
+export function loadSessionConfig(sessionId: string): SessionInitConfig | null {
+  const filePath = getConfigFile(sessionId);
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8")) as SessionInitConfig;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -441,6 +492,8 @@ export function pruneExpiredSessions(): number {
         if (existsSync(provPath)) unlinkSync(provPath);
         const annPath = filePath.replace(/\.jsonl$/, ".annotations.jsonl");
         if (existsSync(annPath)) unlinkSync(annPath);
+        const configPath = filePath.replace(/\.jsonl$/, ".config.json");
+        if (existsSync(configPath)) unlinkSync(configPath);
         deleteAttachments(sessionId);
         pruned++;
       }

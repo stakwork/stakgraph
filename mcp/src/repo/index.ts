@@ -10,7 +10,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
-import { SessionConfig, loadSession, sessionExists } from "./session.js";
+import { SessionConfig, loadSession, loadSessionConfig, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
@@ -496,7 +496,8 @@ export async function get_agent_session(req: Request, res: Response) {
 
   try {
     const messages = loadSession(sessionId);
-    res.json({ sessionId, messages });
+    const config = loadSessionConfig(sessionId);
+    res.json({ sessionId, messages, config });
   } catch (e) {
     console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });
