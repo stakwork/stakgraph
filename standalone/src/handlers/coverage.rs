@@ -216,7 +216,7 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
         "endpoint" => NodeType::Endpoint,
         _ => return Err(WebError(Error::validation("invalid node_type"))),
     };
-    println!(
+    tracing::info!(
         "[/tests/has] node_type={:?} name={:?} file={:?} start={:?} root={:?} tests={:?}",
         node_type, params.name, params.file, params.start, params.root, params.tests
     );

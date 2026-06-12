@@ -55,7 +55,7 @@ pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoRes
                     return Some((Ok::<Event, Infallible>(event), rx));
                 }
                 Err(RecvError::Lagged(skipped)) => {
-                    println!("SSE receiver lagged, skipped {} messages", skipped);
+                    tracing::warn!("SSE receiver lagged, skipped {} messages", skipped);
                     continue;
                 }
                 Err(RecvError::Closed) => {

@@ -141,7 +141,7 @@ pub async fn ingest(
         status: "Complete".to_string(),
         message: "Graph building completed successfully".to_string(),
         step: 16,
-        total_steps: 16,
+        total_steps: ast::repo::TOTAL_STEPS,
         progress: 100,
         stats: Some(std::collections::HashMap::from([
             ("total_nodes".to_string(), nodes as usize),
@@ -179,7 +179,10 @@ pub async fn ingest(
 
     if let Ok(diry) = std::env::var("PRINT_ROOT") {
         // add timestamp to the filename
-        let timestamp = Instant::now().elapsed().as_millis();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
         let filename = format!("{}/standalone-{}", diry, timestamp);
         info!("Printing nodes and edges to files... {}", filename);
         if let Err(e) = ast::utils::print_json(&btree_graph, &filename) {
@@ -340,8 +343,8 @@ pub async fn sync(
         }
     }
 
-    let delta_nodes = nodes - prev_nodes;
-    let delta_edges = edges - prev_edges;
+    let delta_nodes = nodes.saturating_sub(prev_nodes);
+    let delta_edges = edges.saturating_sub(prev_edges);
 
     Ok(Json(ProcessResponse {
         nodes: delta_nodes,

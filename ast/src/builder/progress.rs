@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
+pub const TOTAL_STEPS: u32 = 16;
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct StatusUpdate {
     pub status: String,
@@ -52,7 +54,7 @@ impl Repo {
             status: "".to_string(),
             message: formatted_msg,
             step,
-            total_steps: 16,
+            total_steps: TOTAL_STEPS,
             progress: 0,
             stats: None,
             step_description: Some(step_description.to_string()),
@@ -106,7 +108,7 @@ impl Repo {
             }
 
             let su = StatusUpdate {
-                total_steps: 16,
+                total_steps: TOTAL_STEPS,
                 progress: current_progress,
                 step,
                 ..Default::default()
@@ -122,7 +124,7 @@ impl Repo {
 
     pub fn send_status_with_stats(&self, stats: HashMap<String, usize>) {
         let su = StatusUpdate {
-            total_steps: 16,
+            total_steps: TOTAL_STEPS,
             stats: Some(stats),
             ..Default::default()
         };

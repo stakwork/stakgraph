@@ -1,5 +1,5 @@
 use crate::builder::memory;
-pub use crate::builder::progress::StatusUpdate;
+pub use crate::builder::progress::{StatusUpdate, TOTAL_STEPS};
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
 #[cfg(feature = "neo4j")]

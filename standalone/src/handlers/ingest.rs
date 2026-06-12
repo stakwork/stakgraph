@@ -76,7 +76,7 @@ fn failed_update(message: String) -> ast::repo::StatusUpdate {
         status: "Failed".to_string(),
         message,
         step: 0,
-        total_steps: 16,
+        total_steps: ast::repo::TOTAL_STEPS,
         progress: 0,
         stats: None,
         step_description: Some("Failed".to_string()),
@@ -145,7 +145,7 @@ async fn start_async_job(
                     status: "Starting".to_string(),
                     message: "Cloning repository and installing dependencies".to_string(),
                     step: 0,
-                    total_steps: 16,
+                    total_steps: ast::repo::TOTAL_STEPS,
                     progress: 0,
                     stats: None,
                     step_description: Some("Initializing".to_string()),
@@ -255,8 +255,8 @@ async fn start_async_job(
                     update: Some(ast::repo::StatusUpdate {
                         status: "Complete".to_string(),
                         message: kind.success_message().to_string(),
-                        step: 16,
-                        total_steps: 16,
+                        step: ast::repo::TOTAL_STEPS,
+                        total_steps: ast::repo::TOTAL_STEPS,
                         progress: 100,
                         stats: Some(HashMap::from([
                             ("total_nodes".to_string(), resp.nodes as usize),

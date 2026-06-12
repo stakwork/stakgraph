@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
 
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {
-        eprintln!("Failed to connect to graph db: {:?}", e);
+        tracing::error!("Failed to connect to graph db: {:?}", e);
         return Err(standalone::types::WebError(shared::Error::internal(format!(
             "Failed to connect to graph database: {:?}",
             e
@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "7799".to_string());
     let bind = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&bind).await.map_err(|e| {
-        eprintln!("Failed to bind to {}: {}", bind, e);
+        tracing::error!("Failed to bind to {}: {}", bind, e);
         standalone::types::WebError(shared::Error::internal(format!(
             "Failed to bind to {}: {}",
             bind, e
