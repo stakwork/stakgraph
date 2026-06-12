@@ -29,6 +29,7 @@ export interface SessionConfig {
   truncateToolResults?: boolean; // Enable truncation (default: false)
   maxToolResultLines?: number; // Default: 50
   maxToolResultChars?: number; // Default: 2000
+  contextManagement?: boolean; // Proactive stubbing + compaction (default: CONTEXT_MANAGEMENT env)
 }
 
 export interface StepMeta {
@@ -53,6 +54,19 @@ function getSessionFile(sessionId: string): string {
     mkdirSync(sessionDir, { recursive: true });
   }
   return path.join(sessionDir, `${sessionId}.jsonl`);
+}
+
+/**
+ * Get the path for a session sidecar file (e.g. ".compact.json").
+ */
+export function getSessionSidecarFile(sessionId: string, suffix: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}${suffix}`);
 }
 
 /**
@@ -195,6 +209,10 @@ export function deleteSession(sessionId: string): void {
   const annPath = getAnnotationsFile(sessionId);
   if (existsSync(annPath)) {
     unlinkSync(annPath);
+  }
+  const compactPath = getSessionSidecarFile(sessionId, ".compact.json");
+  if (existsSync(compactPath)) {
+    unlinkSync(compactPath);
   }
   deleteAttachments(sessionId);
 }
@@ -441,6 +459,8 @@ export function pruneExpiredSessions(): number {
         if (existsSync(provPath)) unlinkSync(provPath);
         const annPath = filePath.replace(/\.jsonl$/, ".annotations.jsonl");
         if (existsSync(annPath)) unlinkSync(annPath);
+        const compactPath = filePath.replace(/\.jsonl$/, ".compact.json");
+        if (existsSync(compactPath)) unlinkSync(compactPath);
         deleteAttachments(sessionId);
         pruned++;
       }

@@ -48,6 +48,11 @@ import {
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
 import {
+  isContextManagementEnabled,
+  loadContextManagedMessages,
+  maybeCompactSession,
+} from "./context.js";
+import {
   resolveCurrentTurnAttachments,
   cacheAttachments,
   buildImageParts,
@@ -292,6 +297,8 @@ interface PreparedAgent {
   turnIndex: number;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
+  contextManagement: boolean;
+  contextLimit: number;
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -470,12 +477,17 @@ Apply the guidance from each skill throughout your response.`;
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
   let hasSystemTurn = false;
+  const contextManagement = isContextManagementEnabled(sessionConfig?.contextManagement);
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
-      previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
+      previousMessages = opts.isolatedContext
+        ? []
+        : contextManagement
+          ? await loadContextManagedMessages(sessionId, contextLimit)
+          : loadSessionMessages(sessionId);
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
       hasSystemTurn = true;
@@ -502,8 +514,11 @@ Apply the guidance from each skill throughout your response.`;
   let cumInput = 0;
   let cumOutput = 0;
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length +
-    (hasSystemTurn ? 2 : 1);
+    previousMessages.filter(
+      (m) =>
+        m.role === "user" &&
+        !(typeof m.content === "string" && m.content.startsWith("[Session memory"))
+    ).length + (hasSystemTurn ? 2 : 1);
 
   const agent = new ToolLoopAgent({
     model,
@@ -585,7 +600,18 @@ Apply the guidance from each skill throughout your response.`;
     turnIndex,
     provenanceCollector,
     abortSignal: opts.abortSignal,
+    contextManagement,
+    contextLimit,
   };
+}
+
+/** Fire-and-forget post-turn compaction (never blocks the response path). */
+function scheduleCompaction(prepared: PreparedAgent): void {
+  const { sessionId, contextManagement, model, provider, modelId, contextLimit } = prepared;
+  if (!contextManagement || !sessionId) return;
+  maybeCompactSession(sessionId, model, provider, modelId, contextLimit).catch((e) =>
+    console.error("[context] post-turn compaction failed:", e)
+  );
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
@@ -674,6 +700,8 @@ export async function get_context(
       status: "success",
       token_usage: usage,
     });
+
+    scheduleCompaction(prepared);
   }
 
   const final = extractFinalAnswer(steps);
@@ -762,6 +790,7 @@ export async function stream_context(
           status: "success",
           token_usage: stepUsage,
         });
+        scheduleCompaction(prepared);
       } catch (e) {
         const aborted = isAbortError(e);
         if (aborted) {

@@ -354,14 +354,74 @@ function getToolResultSize(part: any): number {
   return 0;
 }
 
+export const CLEARED_PREFIX = "[CLEARED";
+
 /**
- * Check if a tool result part is already truncated.
+ * Map toolCallId -> tool input, harvested from assistant tool-call parts.
+ * Used to build restorable stubs for cleared tool results.
+ */
+export function buildToolInputMap(
+  messages: ModelMessage[]
+): Map<string, unknown> {
+  const map = new Map<string, unknown>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    for (const part of msg.content as any[]) {
+      if (part?.type === "tool-call" && part.toolCallId) {
+        map.set(part.toolCallId, part.input);
+      }
+    }
+  }
+  return map;
+}
+
+function stubHint(toolName: string, input: unknown): string {
+  const inp = (input ?? {}) as Record<string, unknown>;
+  switch (toolName) {
+    case "stakgraph_code":
+      if (inp.ref_id) return `ref_id=${inp.ref_id}`;
+      if (inp.name) return `name=${inp.name}`;
+      break;
+    case "bash":
+      if (typeof inp.command === "string") {
+        return `cmd=${JSON.stringify(inp.command.slice(0, 120))}`;
+      }
+      break;
+    case "stakgraph_search":
+    case "fulltext_search":
+    case "vector_search":
+      if (typeof inp.query === "string") {
+        return `query=${JSON.stringify(inp.query.slice(0, 120))}`;
+      }
+      break;
+    case "file_summary":
+      if (inp.file_path) return `file_path=${inp.file_path}`;
+      break;
+  }
+  try {
+    const s = JSON.stringify(inp);
+    return `input=${s.length > 160 ? s.slice(0, 160) + "…" : s}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Build a restorable stub for a cleared tool result. The stub tells the
+ * model exactly how to re-fetch the data if it turns out to be needed.
+ */
+export function buildRestorableStub(toolName: string, input: unknown): string {
+  const hint = stubHint(toolName, input);
+  return `${CLEARED_PREFIX} ${toolName}${hint ? " " + hint : ""} — re-call ${toolName} with the same input to restore this output]`;
+}
+
+/**
+ * Check if a tool result part is already truncated or stubbed.
  */
 function isAlreadyTruncated(part: any): boolean {
-  if (part?.output?.type === "text" && part.output.value === TRUNCATED) {
-    return true;
-  }
-  return false;
+  if (part?.output?.type !== "text") return false;
+  const v = part.output.value;
+  return v === TRUNCATED || (typeof v === "string" && v.startsWith(CLEARED_PREFIX));
 }
 
 /**
@@ -419,8 +479,8 @@ export async function truncateOldToolResults(
   // Add 10% safety margin to account for estimation inaccuracy
   let tokensToFree = Math.ceil(excess * 1.1);
 
-  console.log(
-    `[truncate] OVER LIMIT. worstCase=${worstCase} excess=${excess} tokensToFree=${tokensToFree}`
+  console.warn(
+    `[context] EMERGENCY mid-flight truncation. worstCase=${worstCase} excess=${excess} tokensToFree=${tokensToFree} — proactive thresholds may need tuning`
   );
 
   // Collect all truncatable tool-result locations (earliest first).
@@ -455,6 +515,7 @@ export async function truncateOldToolResults(
   const result = [...messages];
   let freedTokens = 0;
   let truncatedCount = 0;
+  const inputMap = buildToolInputMap(messages);
 
   // Truncate from the beginning (oldest tool results first)
   for (const { msgIdx, partIdx, tokens } of candidates) {
@@ -470,10 +531,14 @@ export async function truncateOldToolResults(
     }
     const msgContent = (result[msgIdx] as any).content;
     const part = msgContent[partIdx];
-    // Replace with truncated marker
+    // Replace with a restorable stub so the model knows how to re-fetch
+    const stub = buildRestorableStub(
+      part.toolName ?? "unknown",
+      inputMap.get(part.toolCallId)
+    );
     msgContent[partIdx] = {
       ...part,
-      output: { type: "text" as const, value: TRUNCATED },
+      output: { type: "text" as const, value: stub },
     };
 
     freedTokens += tokens;
