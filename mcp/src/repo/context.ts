@@ -22,8 +22,13 @@ import {
 // < STUB: do nothing. >= STUB: stub old tool results at load (free).
 // >= COMPACT (post-turn): compact old turns into the sidecar (one cheap call).
 // The 90% mid-flight truncation in utils.ts remains as the emergency brake.
-const STUB_THRESHOLD_PCT = 0.35;
-const COMPACT_THRESHOLD_PCT = 0.5;
+// Env overrides (CONTEXT_STUB_PCT / CONTEXT_COMPACT_PCT) exist for benchmarking.
+function pctEnv(name: string, fallback: number): number {
+  const v = parseFloat(process.env[name] || "");
+  return Number.isFinite(v) && v > 0 && v < 1 ? v : fallback;
+}
+const STUB_THRESHOLD_PCT = pctEnv("CONTEXT_STUB_PCT", 0.35);
+const COMPACT_THRESHOLD_PCT = pctEnv("CONTEXT_COMPACT_PCT", 0.5);
 const KEEP_RECENT_TURNS = 2;
 const MAX_STATE_ITEMS = 15;
 const MAX_PART_CHARS = 4_000;
