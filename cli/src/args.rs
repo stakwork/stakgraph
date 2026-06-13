@@ -85,6 +85,8 @@ pub enum Commands {
     Overview(OverviewArgs),
     /// Search for nodes by name, content, or type
     Search(SearchArgs),
+    /// List all valid node types and edge types
+    Types,
 }
 
 #[derive(Debug, Args)]
