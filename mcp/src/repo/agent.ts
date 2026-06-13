@@ -42,6 +42,7 @@ import {
   appendStepMeta,
   appendSearchProvenance,
   sessionExists,
+  saveSessionConfig,
   SessionConfig,
   StepMeta,
 } from "./session.js";
@@ -472,6 +473,18 @@ Apply the guidance from each skill throughout your response.`;
       previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
+      saveSessionConfig(sessionId, {
+        model: modelId,
+        provider,
+        toolsConfig: opts.toolsConfig,
+        schema: opts.schema,
+        sessionConfig: opts.sessionConfig,
+        maxTurns: opts.maxTurns,
+        isolatedContext: opts.isolatedContext,
+        source: opts.source,
+        repos: opts.repos,
+        temperature: 0,
+      });
       hasSystemTurn = true;
     }
   }
