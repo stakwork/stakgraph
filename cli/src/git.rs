@@ -36,7 +36,7 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
 }
 
 pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Result<Vec<String>> {
-    let out = run_git(repo_path, &["diff", "--name-only", old_rev, new_rev])?;
+    let out = run_git(repo_path, &["diff", "--name-only", old_rev, new_rev, "--"])?;
     Ok(out
         .lines()
         .filter(|l| !l.is_empty())
@@ -45,8 +45,8 @@ pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Resul
 }
 
 pub fn get_working_tree_changes(repo_path: &str) -> Result<Vec<String>> {
-    let modified = run_git(repo_path, &["diff", "--name-only", "HEAD"])?;
-    let untracked = run_git(repo_path, &["ls-files", "--others", "--exclude-standard"])?;
+    let modified = run_git(repo_path, &["diff", "--name-only", "HEAD", "--"])?;
+    let untracked = run_git(repo_path, &["ls-files", "--others", "--exclude-standard", "--"])?;
     let mut files: Vec<String> = modified
         .lines()
         .chain(untracked.lines())
@@ -59,7 +59,7 @@ pub fn get_working_tree_changes(repo_path: &str) -> Result<Vec<String>> {
 }
 
 pub fn get_staged_changes(repo_path: &str) -> Result<Vec<String>> {
-    let out = run_git(repo_path, &["diff", "--name-only", "--cached"])?;
+    let out = run_git(repo_path, &["diff", "--name-only", "--cached", "--"])?;
     Ok(out
         .lines()
         .filter(|l| !l.is_empty())
@@ -102,7 +102,7 @@ pub fn list_commits_for_paths(
 pub fn read_file_at_rev(repo_path: &str, rev: &str, file_path: &str) -> Result<Option<Vec<u8>>> {
     let spec = format!("{}:{}", rev, file_path);
     let output = std::process::Command::new("git")
-        .args(["show", &spec])
+        .args(["show", "--", &spec])
         .current_dir(repo_path)
         .output()
         .map_err(|e| Error::internal(format!("Failed to run git show: {}", e)))?;

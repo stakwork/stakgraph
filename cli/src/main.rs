@@ -16,6 +16,7 @@ mod progress;
 mod render;
 mod search;
 mod summarize;
+mod types;
 mod utils;
 
 use args::{CliArgs, Commands};
@@ -60,6 +61,7 @@ fn command_name(cli: &CliArgs) -> &'static str {
         Some(Commands::Impact(_)) => "impact",
         Some(Commands::Overview(_)) => "overview",
         Some(Commands::Search(_)) => "search",
+        Some(Commands::Types) => "types",
         None => "parse",
     }
 }
@@ -121,6 +123,7 @@ async fn run(cli: CliArgs) -> Result<()> {
         Some(Commands::Search(args)) => {
             search::run(args, &mut Output::new(), cli.verbose || cli.perf, output_mode).await
         }
+        Some(Commands::Types) => types::run(&mut Output::new(), output_mode),
         None => parse::run(&cli, &mut Output::new(), output_mode).await,
     }
 }

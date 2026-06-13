@@ -13,10 +13,6 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn manifest_path() -> PathBuf {
-    manifest_dir().join("Cargo.toml")
-}
-
 pub fn workspace_path(relative: &str) -> String {
     let p = manifest_dir().join("..").join(relative);
     std::fs::canonicalize(&p)
@@ -34,17 +30,8 @@ pub fn fixture_path(relative: &str) -> String {
 }
 
 pub fn run_stakgraph(args: &[&str]) -> CliOutput {
-    let output = Command::new("cargo")
+    let output = Command::new(env!("CARGO_BIN_EXE_stakgraph"))
         .current_dir(manifest_dir())
-        .args([
-            "run",
-            "--quiet",
-            "--manifest-path",
-            manifest_path().to_string_lossy().as_ref(),
-            "--bin",
-            "stakgraph",
-            "--",
-        ])
         .args(args)
         .output()
         .expect("failed to run stakgraph");
@@ -57,17 +44,8 @@ pub fn run_stakgraph(args: &[&str]) -> CliOutput {
 }
 
 pub fn run_stakgraph_in_cwd(cwd: &str, args: &[&str]) -> CliOutput {
-    let output = Command::new("cargo")
+    let output = Command::new(env!("CARGO_BIN_EXE_stakgraph"))
         .current_dir(cwd)
-        .args([
-            "run",
-            "--quiet",
-            "--manifest-path",
-            manifest_path().to_string_lossy().as_ref(),
-            "--bin",
-            "stakgraph",
-            "--",
-        ])
         .args(args)
         .output()
         .expect("failed to run stakgraph");
