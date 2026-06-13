@@ -366,7 +366,11 @@ export function toNodes(
   if (output === "snippet") {
     let r = "";
     for (const node of result) {
-      r += formatNode(node);
+      r += formatNode(
+        concise
+          ? { ...node, properties: { ...node.properties, body: "" } }
+          : node
+      );
     }
     return r;
   }

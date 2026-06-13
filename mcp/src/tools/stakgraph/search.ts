@@ -71,13 +71,13 @@ export async function search(args: z.infer<typeof SearchSchema>) {
   const filtered_node_types = (args.node_types ?? []).filter(t => valid.has(t as NodeType)) as NodeType[];
   const result = await G.search(
     args.query,
-    args.limit ?? 25,
+    args.limit,
     filtered_node_types,
-    args.concise ?? false,
-    args.max_tokens ?? 100000,
-    args.method ?? "hybrid",
+    args.concise,
+    args.max_tokens,
+    args.method,
     "snippet",
-    (args.skip_node_types as NodeType[]) ?? [],
+    args.skip_node_types as NodeType[],
     args.language,
     "relevance",
     args.include_patterns,
@@ -87,7 +87,7 @@ export async function search(args: z.infer<typeof SearchSchema>) {
     content: [
       {
         type: "text",
-        text: JSON.stringify(result),
+        text: result as string,
       },
     ],
   };

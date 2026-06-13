@@ -29,6 +29,7 @@ export async function shortestPath(args: z.infer<typeof ShortestPathSchema>) {
   const hasRefIds = args.start_ref_id && args.end_ref_id;
   if (!hasNodeKeys && !hasRefIds) {
     return {
+      isError: true,
       content: [
         {
           type: "text",
