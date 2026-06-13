@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::git::{
     filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
-    get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
+    get_working_tree_changes, list_commits_for_paths, read_file_at_rev, validate_rev,
 };
 use ast::lang::graphs::{ArrayGraph, Edge, EdgeType, Node, NodeType};
 use console::style;
@@ -247,20 +247,45 @@ async fn run_diff(
         let files = get_changed_files(repo_path, &old_rev, "HEAD")?;
         (files, old_rev, None)
     } else if let Some(ref since_ref) = args.since {
+        validate_rev(repo_path, since_ref).map_err(|e| {
+            if let Some(sp) = &spinner {
+                sp.finish_and_clear();
+            }
+            e
+        })?;
         let files = get_changed_files(repo_path, since_ref, "HEAD")?;
         (files, since_ref.clone(), None)
     } else if let Some(ref range) = args.range {
-        let parts: Vec<&str> = range.split("..").collect();
-        if parts.len() != 2 {
+        let (old_ref, new_ref) = if let Some((a, b)) = range.split_once("...") {
+            (a, b)
+        } else if let Some((a, b)) = range.split_once("..") {
+            (a, b)
+        } else {
             if let Some(sp) = &spinner {
                 sp.finish_and_clear();
             }
             return Err(Error::validation(
-                "range must be in format <a>..<b> (e.g. HEAD~3..HEAD)",
+                "range must be in format <a>..<b> or <a>...<b> (e.g. HEAD~3..HEAD)",
+            ));
+        };
+        if old_ref.is_empty() || new_ref.is_empty() {
+            if let Some(sp) = &spinner {
+                sp.finish_and_clear();
+            }
+            return Err(Error::validation(
+                "range must be in format <a>..<b> or <a>...<b> (e.g. HEAD~3..HEAD)",
             ));
         }
-        let files = get_changed_files(repo_path, parts[0], parts[1])?;
-        (files, parts[0].to_string(), Some(parts[1].to_string()))
+        for rev in &[old_ref, new_ref] {
+            validate_rev(repo_path, rev).map_err(|e| {
+                if let Some(sp) = &spinner {
+                    sp.finish_and_clear();
+                }
+                e
+            })?;
+        }
+        let files = get_changed_files(repo_path, old_ref, new_ref)?;
+        (files, old_ref.to_string(), Some(new_ref.to_string()))
     } else {
         (
             get_working_tree_changes(repo_path)?,

@@ -35,6 +35,21 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+pub fn validate_rev(repo_path: &str, rev: &str) -> Result<()> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "--end-of-options", rev])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| Error::internal(format!("Failed to run git: {}", e)))?;
+    if !output.status.success() {
+        return Err(Error::validation(format!(
+            "unknown git revision: '{}'",
+            rev
+        )));
+    }
+    Ok(())
+}
+
 pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Result<Vec<String>> {
     let out = run_git(repo_path, &["diff", "--name-only", old_rev, new_rev])?;
     Ok(out

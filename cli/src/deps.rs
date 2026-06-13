@@ -147,9 +147,8 @@ pub async fn run(
 
         let seed_key = (&seed.node_data.name, &seed.node_data.file);
 
-        // BFS over Calls edges
-        // Queue: (source_name, source_file, depth, prefix_str, is_last)
-        struct QueueItem {
+        // DFS over Calls edges — stack so tree connectors (├──/│) match the print order.
+        struct StackItem {
             name: String,
             file: String,
             depth: usize,
@@ -157,24 +156,29 @@ pub async fn run(
             is_last: bool,
         }
 
-        let mut queue: VecDeque<QueueItem> = VecDeque::new();
+        let mut stack: Vec<StackItem> = Vec::new();
         let mut visited: HashSet<(String, String)> = HashSet::new();
         visited.insert((seed_key.0.clone(), seed_key.1.clone()));
 
-        // Seed callees
+        // Push seed callees in reverse so the first callee is popped first.
         let callees = direct_callees(&graph, &args.name, file, args.allow);
         for (i, (callee_name, callee_file)) in callees.iter().enumerate() {
             let is_last = i == callees.len() - 1;
-            queue.push_back(QueueItem {
-                name: callee_name.clone(),
-                file: callee_file.clone(),
-                depth: 1,
-                prefix: String::new(),
-                is_last,
-            });
+            // Insert into visited at enqueue time to prevent duplicates.
+            let key = (callee_name.clone(), callee_file.clone());
+            if visited.insert(key) {
+                stack.push(StackItem {
+                    name: callee_name.clone(),
+                    file: callee_file.clone(),
+                    depth: 1,
+                    prefix: String::new(),
+                    is_last,
+                });
+            }
         }
+        stack.reverse();
 
-        while let Some(item) = queue.pop_front() {
+        while let Some(item) = stack.pop() {
             let connector = if item.is_last {
                 "└── "
             } else {
@@ -201,31 +205,36 @@ pub async fn run(
             };
             out.writeln(node_line)?;
 
-            let key = (item.name.clone(), item.file.clone());
             let max_depth = args.depth;
-            if (max_depth == 0 || item.depth < max_depth) && !visited.contains(&key) {
-                visited.insert(key);
-                if item.file == "unverified" {
-                    continue;
-                }
+            if (max_depth == 0 || item.depth < max_depth) && item.file != "unverified" {
                 let child_callees = direct_callees(&graph, &item.name, &item.file, args.allow);
                 let child_prefix = format!(
                     "{}{}",
                     item.prefix,
                     if item.is_last { "    " } else { "│   " }
                 );
-                for (i, (cn, cf)) in child_callees.iter().enumerate() {
-                    let is_last = i == child_callees.len() - 1;
-                    queue.push_back(QueueItem {
-                        name: cn.clone(),
-                        file: cf.clone(),
-                        depth: item.depth + 1,
-                        prefix: child_prefix.clone(),
-                        is_last,
-                    });
-                }
-            } else if !visited.contains(&key) {
-                visited.insert(key);
+                // Push children in reverse so first child is popped first.
+                let mut to_push: Vec<StackItem> = child_callees
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, (cn, cf))| {
+                        let is_last = i == child_callees.len() - 1;
+                        let key = (cn.clone(), cf.clone());
+                        if visited.insert(key) {
+                            Some(StackItem {
+                                name: cn.clone(),
+                                file: cf.clone(),
+                                depth: item.depth + 1,
+                                prefix: child_prefix.clone(),
+                                is_last,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                to_push.reverse();
+                stack.extend(to_push);
             }
         }
 
@@ -252,24 +261,21 @@ fn collect_dependency_edges(
     for (callee_name, callee_file) in
         direct_callees(graph, &seed_name, &seed_file, allow_unverified)
     {
-        result_edges.push(DependencyEdge {
-            source_name: seed_name.clone(),
-            source_file: seed_file.clone(),
-            target_name: callee_name.clone(),
-            target_file: callee_file.clone(),
-            depth: 1,
-            verified: callee_file != "unverified",
-        });
-        queue.push_back((callee_name, callee_file, 1));
+        let key = (callee_name.clone(), callee_file.clone());
+        if visited.insert(key) {
+            result_edges.push(DependencyEdge {
+                source_name: seed_name.clone(),
+                source_file: seed_file.clone(),
+                target_name: callee_name.clone(),
+                target_file: callee_file.clone(),
+                depth: 1,
+                verified: callee_file != "unverified",
+            });
+            queue.push_back((callee_name, callee_file, 1));
+        }
     }
 
     while let Some((name, file, depth)) = queue.pop_front() {
-        let key = (name.clone(), file.clone());
-        if visited.contains(&key) {
-            continue;
-        }
-        visited.insert(key);
-
         if max_depth != 0 && depth >= max_depth {
             continue;
         }
@@ -278,15 +284,18 @@ fn collect_dependency_edges(
         }
 
         for (callee_name, callee_file) in direct_callees(graph, &name, &file, allow_unverified) {
-            result_edges.push(DependencyEdge {
-                source_name: name.clone(),
-                source_file: file.clone(),
-                target_name: callee_name.clone(),
-                target_file: callee_file.clone(),
-                depth: depth + 1,
-                verified: callee_file != "unverified",
-            });
-            queue.push_back((callee_name, callee_file, depth + 1));
+            let key = (callee_name.clone(), callee_file.clone());
+            if visited.insert(key) {
+                result_edges.push(DependencyEdge {
+                    source_name: name.clone(),
+                    source_file: file.clone(),
+                    target_name: callee_name.clone(),
+                    target_file: callee_file.clone(),
+                    depth: depth + 1,
+                    verified: callee_file != "unverified",
+                });
+                queue.push_back((callee_name, callee_file, depth + 1));
+            }
         }
     }
 }

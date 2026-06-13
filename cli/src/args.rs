@@ -323,31 +323,9 @@ impl CliArgs {
         }
 
         if args.files.is_empty() {
-            eprintln!("Error: no file path provided. Run with --help for usage.");
-            std::process::exit(1);
-        }
-
-        if let Some(Commands::Completions(_)) = &args.command {
-            return Ok(args);
-        }
-
-        if let Some(Commands::Changes(_)) = &args.command {
-            return Ok(args);
-        }
-
-        if let Some(Commands::Deps(_)) = &args.command {
-            return Ok(args);
-        }
-
-        if let Some(Commands::Impact(_)) = &args.command {
-            return Ok(args);
-        }
-        if let Some(Commands::Overview(_)) = &args.command {
-            return Ok(args);
-        }
-
-        if let Some(Commands::Search(_)) = &args.command {
-            return Ok(args);
+            return Err(shared::Error::validation(
+                "no file path provided. Run with --help for usage.",
+            ));
         }
 
         Ok(args)
