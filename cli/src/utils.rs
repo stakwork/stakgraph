@@ -277,6 +277,15 @@ pub async fn build_graph_for_files_with_options(
     repos.build_graphs_array().await
 }
 
+/// Returns true when `full` equals `suffix` or `full` ends with `/<suffix>`.
+/// Avoids false positives like "src/lib.rs" matching "othersrc/lib.rs".
+pub fn path_suffix_matches(full: &str, suffix: &str) -> bool {
+    full == suffix
+        || full
+            .strip_suffix(suffix)
+            .is_some_and(|rest| rest.ends_with('/'))
+}
+
 pub fn rel_path_from_cwd(path: &str) -> String {
     let base = std::env::current_dir().unwrap_or_default();
     Path::new(path)

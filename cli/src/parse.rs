@@ -18,7 +18,7 @@ use super::render::{
     print_single_file_nodes, print_single_file_nodes_filtered, resolve_call_ref, CallRef,
 };
 use super::summarize::run_summarize;
-use super::utils::{apply_glob_filters, common_ancestor, parse_node_types, read_text_preview};
+use super::utils::{apply_glob_filters, common_ancestor, parse_node_types, path_suffix_matches, read_text_preview};
 
 #[derive(Serialize)]
 struct UnsupportedFileSummary {
@@ -118,7 +118,7 @@ fn collect_nodes_for_file(
                 return true;
             }
         }
-        canonical.ends_with(&node.node_data.file)
+        path_suffix_matches(&canonical, &node.node_data.file)
     };
 
     let endpoint_lines: std::collections::HashSet<usize> = graph
@@ -196,6 +196,10 @@ fn collect_nodes_for_file(
 }
 
 pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Result<()> {
+    if cli.max_tokens.is_some() && output_mode.is_json() {
+        return Err(Error::validation("--max-tokens is not supported with --json"));
+    }
+
     let first = cli.files.first().map(|s| s.as_str()).unwrap_or(".");
     let is_dir_input = Path::new(first).is_dir();
     let has_filters = !cli.r#type.is_empty()

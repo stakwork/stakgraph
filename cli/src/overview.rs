@@ -516,7 +516,7 @@ const MANIFEST_FILES: &[(&str, &str)] = &[
 ];
 
 fn detect_fingerprint(root: &Path) -> Option<String> {
-    let mut langs = Vec::new();
+    let mut langs: Vec<String> = Vec::new();
     let mut dep_names: Vec<String> = Vec::new();
 
     for (manifest, lang) in MANIFEST_FILES {
@@ -524,13 +524,13 @@ fn detect_fingerprint(root: &Path) -> Option<String> {
         if !manifest_path.exists() {
             continue;
         }
-        langs.push(*lang);
+        langs.push(lang.to_string());
         let content = std::fs::read_to_string(&manifest_path).unwrap_or_default();
 
         match *manifest {
             "Cargo.toml" => {
                 if content.contains("[workspace]") {
-                    if let Some(idx) = langs.iter().position(|l| *l == "Rust") {
+                    if let Some(idx) = langs.iter().position(|l| l == "Rust") {
                         let members = content
                             .lines()
                             .skip_while(|l| !l.starts_with("members"))
@@ -546,9 +546,7 @@ fn detect_fingerprint(root: &Path) -> Option<String> {
                             })
                             .count();
                         if members > 0 {
-                            langs[idx] = "Rust";
-                            let label = format!("Rust workspace ({} crates)", members);
-                            langs[idx] = Box::leak(label.into_boxed_str());
+                            langs[idx] = format!("Rust workspace ({} crates)", members);
                         }
                     }
                 }

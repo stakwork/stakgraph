@@ -2478,7 +2478,7 @@ dependencies = [
 [[package]]
 name = "tree-sitter-haml"
 version = "0.0.1"
-source = "git+https://github.com/Evanfeenstra/tree-sitter-haml#ca002c14a373534affb32079dad6ca4a493451b2"
+source = "git+https://github.com/Evanfeenstra/tree-sitter-haml?rev=ca002c14a373534affb32079dad6ca4a493451b2#ca002c14a373534affb32079dad6ca4a493451b2"
 dependencies = [
  "cc",
  "tree-sitter-language",

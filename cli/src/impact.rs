@@ -8,12 +8,12 @@ use serde::Serialize;
 use shared::{Error, Result};
 
 use super::args::ImpactArgs;
-use super::git::{get_changed_files, get_repo_root, get_staged_changes, get_working_tree_changes};
+use super::git::{get_changed_files, get_repo_root, get_staged_changes, get_working_tree_changes, validate_rev};
 use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::utils::{
     apply_glob_filters, build_graph_for_files_with_options, expand_dirs_for_parse_with_globs,
-    parse_node_types,
+    parse_node_types, path_suffix_matches,
     rel_path_from_cwd,
 };
 
@@ -108,6 +108,7 @@ pub async fn run(
                 format!("last {} commit{}", n, if n == 1 { "" } else { "s" }),
             )
         } else if let Some(ref since_ref) = args.since {
+            validate_rev(&repo_root, since_ref)?;
             (
                 get_changed_files(&repo_root, since_ref, "HEAD")?,
                 format!("since {}", since_ref),
@@ -236,9 +237,9 @@ pub async fn run(
             let file_ok = args
                 .file
                 .as_ref()
-                .map_or(true, |f| n.node_data.file.ends_with(f.as_str()));
+                .map_or(true, |f| path_suffix_matches(&n.node_data.file, f.as_str()));
             let git_ok = git_changed_files.as_ref().map_or(true, |changed| {
-                changed.iter().any(|cf| n.node_data.file.ends_with(cf))
+                changed.iter().any(|cf| path_suffix_matches(&n.node_data.file, cf))
             });
             name_ok && file_ok && git_ok
         })
