@@ -851,14 +851,30 @@ MATCH (f:File)
 WHERE
   f.name ENDS WITH '.windsurfrules' OR
   f.name ENDS WITH '.cursorrules' OR
+  f.name ENDS WITH '.aiderules' OR
+  f.name ENDS WITH '.aider.conf.md' OR
+  f.name ENDS WITH '.clinerules' OR
+  f.name ENDS WITH '.continuerules' OR
   f.name ENDS WITH 'CLAUDE.md' OR
-  f.file CONTAINS '/.cursor/rules/' OR
   f.name ENDS WITH 'AGENTS.md' OR
+  f.name ENDS WITH 'AI_INSTRUCTIONS.md' OR
+  f.name ENDS WITH 'INSTRUCTIONS.md' OR
+  f.name ENDS WITH 'copilot-instructions.md' OR
   f.name ENDS WITH '.goosehints' OR
+  f.file CONTAINS '/.cursor/rules/' OR
+  f.file CONTAINS '/.ai/' OR
+  f.file STARTS WITH '.ai/' OR
   f.file ENDS WITH '.windsurfrules' OR
   f.file ENDS WITH '.cursorrules' OR
+  f.file ENDS WITH '.aiderules' OR
+  f.file ENDS WITH '.aider.conf.md' OR
+  f.file ENDS WITH '.clinerules' OR
+  f.file ENDS WITH '.continuerules' OR
   f.file ENDS WITH 'CLAUDE.md' OR
   f.file ENDS WITH 'AGENTS.md' OR
+  f.file ENDS WITH 'AI_INSTRUCTIONS.md' OR
+  f.file ENDS WITH 'INSTRUCTIONS.md' OR
+  f.file ENDS WITH 'copilot-instructions.md' OR
   f.file ENDS WITH '.goosehints' OR
   toLower(f.file) ENDS WITH 'readme.md'
 RETURN f

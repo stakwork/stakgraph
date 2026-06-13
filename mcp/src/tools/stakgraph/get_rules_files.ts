@@ -6,21 +6,21 @@ import * as G from "../../graph/graph.js";
 export const GetRulesFilesSchema = z.object({});
 
 export const RULES_PATTERNS = [
-  "/.windsurfrules",
-  "/.cursorrules",
-  "/.aiderules",
-  "/.aider.conf.md",
-  "/.clinerules",
-  "/.continuerules",
-  "/CLAUDE.md",
-  "/.cursor/rules/",
-  "/.github/copilot-instructions.md",
-  "/AGENTS.md",
-  "/AI_INSTRUCTIONS.md",
-  "/INSTRUCTIONS.md",
-  "**/.goosehints",
-  "./ai",
-  "**/.ai/**",
+  ".windsurfrules",
+  ".cursorrules",
+  ".aiderules",
+  ".aider.conf.md",
+  ".clinerules",
+  ".continuerules",
+  "CLAUDE.md",
+  ".cursor/rules/",
+  ".github/copilot-instructions.md",
+  "AGENTS.md",
+  "AI_INSTRUCTIONS.md",
+  "INSTRUCTIONS.md",
+  ".goosehints",
+  ".ai/",
+  "README.md",
 ];
 
 export const GetRulesFilesTool: Tool = {
@@ -31,10 +31,17 @@ export const GetRulesFilesTool: Tool = {
 };
 
 export async function getRulesFiles() {
-  const snippets = await G.get_rules_files();
+  const { files_found, snippets } = await G.get_rules_files();
   return {
-    patterns_searched: RULES_PATTERNS,
-    files_found: snippets.length,
-    snippets,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          patterns_searched: RULES_PATTERNS,
+          files_found,
+          snippets,
+        }),
+      },
+    ],
   };
 }

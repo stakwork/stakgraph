@@ -319,15 +319,16 @@ export async function searchWithProvenance(
 }
 export async function get_rules_files() {
   const files = await db.get_rules_files();
-  return files
-    .filter(
-      (file) => file.properties.body && file.properties.body.trim() !== ""
-    )
+  const nonEmpty = files.filter(
+    (file) => file.properties.body && file.properties.body.trim() !== ""
+  );
+  const snippets = nonEmpty
     .map(
       (file) =>
         `File: ${file.properties.name}\n Content: \n ${file.properties.body}\n`
     )
     .join("\n");
+  return { files_found: nonEmpty.length, snippets };
 }
 
 export async function get_services() {
