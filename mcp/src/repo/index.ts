@@ -27,6 +27,10 @@ import { db } from "../graph/neo4j.js";
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
 
+export function parseCommitList(commit?: string): string[] {
+  return (commit || "").split(",").map(c => c.trim()).filter(c => c.length > 0);
+}
+
 function normalizeRepoRef(input?: string): string {
   if (!input) return "";
   const trimmed = input.trim().replace(/\.git$/, "");
@@ -119,7 +123,7 @@ function parseAgentBody(req: Request) {
   const repoUrl = req.body.repo_url as string | undefined;
   const username = req.body.username as string | undefined;
   const pat = req.body.pat as string | undefined;
-  const commit = req.body.commit as string | undefined;
+  const commitList = parseCommitList(req.body.commit as string | undefined);
   const prompt = req.body.prompt as any;
   const toolsConfig = normalizeToolsConfig(req.body.toolsConfig);
   const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
@@ -151,7 +155,7 @@ function parseAgentBody(req: Request) {
     .filter((url: string) => url.length > 0);
 
   return {
-    repoUrl, username, pat, commit, prompt, toolsConfig, schema,
+    repoUrl, username, pat, commitList, prompt, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
     ignoreRepoInfo, attachments,
@@ -230,7 +234,7 @@ export async function repo_agent(req: Request, res: Response) {
     const abortController = registerAbortController(body.sessionId);
     const opId = startTracking("repo_agent_stream", abortController);
     const repoDirPromise = body.repoUrl
-      ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit, abortController.signal)
+      ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commitList, abortController.signal)
       : Promise.resolve(resolveRepoDir(effectiveRepos));
     try {
       const repoDir = await repoDirPromise;
@@ -341,7 +345,7 @@ export async function repo_agent(req: Request, res: Response) {
   const opId = startTracking("repo_agent", abortController);
 
   const repoDirPromise = body.repoUrl
-    ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit, abortController.signal)
+    ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commitList, abortController.signal)
     : Promise.resolve(resolveRepoDir(effectiveRepos));
 
   // Generate a short-lived JWT scoped to this request_id (only if API_TOKEN is set)
@@ -523,7 +527,7 @@ export async function get_leaks(req: Request, res: Response) {
   const commit = req.query.commit as string | undefined;
   const ignore = req.query.ignore as string | undefined;
 
-  const repoDir = await cloneOrUpdateRepo(repoUrl, username, pat, commit);
+  const repoDir = await cloneOrUpdateRepo(repoUrl, username, pat, commit ? [commit] : undefined);
 
   console.log(`===> GET /leaks ${repoDir}`);
   try {

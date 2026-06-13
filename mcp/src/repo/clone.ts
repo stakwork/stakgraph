@@ -42,7 +42,7 @@ export async function cloneOrUpdateRepo(
   repoUrls: string,
   username?: string,
   pat?: string,
-  commit?: string,
+  commits?: string[],
   abortSignal?: AbortSignal
 ): Promise<string> {
   // Split by comma and trim whitespace
@@ -50,11 +50,11 @@ export async function cloneOrUpdateRepo(
 
   if (urls.length === 1) {
     // Single repo - use original behavior for backward compatibility
-    return cloneSingleRepo(urls[0], username, pat, commit, abortSignal);
+    return cloneSingleRepo(urls[0], username, pat, commits?.[0], abortSignal);
   }
 
   // Multiple repos - clone all in parallel, return /tmp
-  return cloneMultipleRepos(urls, username, pat, commit, abortSignal);
+  return cloneMultipleRepos(urls, username, pat, commits, abortSignal);
 }
 
 /**
@@ -110,16 +110,17 @@ async function cloneMultipleRepos(
   repoUrls: string[],
   username?: string,
   pat?: string,
-  commit?: string,
+  commits?: string[],
   abortSignal?: AbortSignal
 ): Promise<string> {
   console.log(`===> cloning ${repoUrls.length} repos into /tmp`);
 
   // Clone all repos in parallel; use allSettled so one failure doesn't abort the rest
   const results = await Promise.allSettled(
-    repoUrls.map((repoUrl) =>
-      cloneSingleRepo(repoUrl, username, pat, commit, abortSignal)
-    )
+    repoUrls.map((repoUrl, idx) => {
+      const commit = commits?.[idx] ?? commits?.[0];
+      return cloneSingleRepo(repoUrl, username, pat, commit, abortSignal);
+    })
   );
 
   const succeeded: string[] = [];
