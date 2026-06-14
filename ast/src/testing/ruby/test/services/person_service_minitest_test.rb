@@ -1,12 +1,12 @@
 # @ast node: UnitTest "test_process_returns_hash"
 # @ast edge: Calls -> Class "PersonService" "person_service.rb"
-# @ast edge: Calls -> Function "process" "countries_controller.rb"
+# @ast edge_no_lsp: Calls -> Function "process" "countries_controller.rb"
 # @ast node: UnitTest "test_process_includes_person_name"
 # @ast edge: Calls -> Class "PersonService" "person_service.rb"
-# @ast edge: Calls -> Function "process" "countries_controller.rb"
+# @ast edge_no_lsp: Calls -> Function "process" "countries_controller.rb"
 # @ast node: UnitTest "test_process_raises_on_nil"
 # @ast edge: Calls -> Class "PersonService" "person_service.rb"
-# @ast edge: Calls -> Function "process" "countries_controller.rb"
+# @ast edge_no_lsp: Calls -> Function "process" "countries_controller.rb"
 require 'test_helper'
 
 class PersonServiceMinitestTest < Minitest::Test

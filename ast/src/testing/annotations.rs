@@ -139,10 +139,20 @@ fn parse_absent_annotations(source: &str, prefix: &str) -> Vec<AbsentAnnotation>
 fn parse_file_annotations(
     source: &str,
     prefix: &str,
-) -> Vec<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)> {
+    use_lsp: bool,
+) -> Vec<(
+    NodeType,
+    String,
+    BTreeMap<String, String>,
+    Vec<EdgeAnnotation>,
+)> {
     let mut result = Vec::new();
-    let mut current: Option<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)> =
-        None;
+    let mut current: Option<(
+        NodeType,
+        String,
+        BTreeMap<String, String>,
+        Vec<EdgeAnnotation>,
+    )> = None;
 
     for line in source.lines() {
         let trimmed = line.trim();
@@ -158,7 +168,23 @@ fn parse_file_annotations(
                         current = Some((nt, toks[1].clone(), subject_meta, Vec::new()));
                     }
                 }
-            } else if let Some(edge_rest) = rest.strip_prefix("edge: ") {
+            } else if let Some(edge_rest) = rest
+                .strip_prefix("edge: ")
+                .or_else(|| {
+                    if use_lsp {
+                        rest.strip_prefix("edge_lsp: ")
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    if use_lsp {
+                        None
+                    } else {
+                        rest.strip_prefix("edge_no_lsp: ")
+                    }
+                })
+            {
                 if let Some((_, _, _, ref mut edges)) = current {
                     let toks = parse_quoted_tokens(edge_rest);
                     if toks.len() >= 5 {
@@ -199,8 +225,14 @@ fn annotation_prefix_for_ext(ext: &str, default: &'static str) -> &'static str {
     }
 }
 
-pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: &str) -> (Vec<String>, BTreeMap<NodeType, usize>) {
-    let groups = parse_file_annotations(source, prefix);
+pub fn verify_file(
+    source: &str,
+    file_suffix: &str,
+    graph: &impl Graph,
+    prefix: &str,
+    use_lsp: bool,
+) -> (Vec<String>, BTreeMap<NodeType, usize>) {
+    let groups = parse_file_annotations(source, prefix, use_lsp);
     let absent = parse_absent_annotations(source, prefix);
     let mut failures: Vec<String> = Vec::new();
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
@@ -296,12 +328,28 @@ pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: 
     (failures, counts)
 }
 
-pub fn walk_and_verify(fixture_dir: &Path, root: &Path, graph: &impl Graph, lang: &Language) -> Vec<String> {
+pub fn walk_and_verify(
+    fixture_dir: &Path,
+    root: &Path,
+    graph: &impl Graph,
+    lang: &Language,
+    use_lsp: bool,
+) -> Vec<String> {
     let mut failures = Vec::new();
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
     let exts: Vec<&str> = lang.exts();
     let skip_dirs: Vec<&str> = lang.skip_dirs();
-    walk_impl(fixture_dir, root, graph, &mut failures, &mut counts, &exts, &skip_dirs, lang);
+    walk_impl(
+        fixture_dir,
+        root,
+        graph,
+        &mut failures,
+        &mut counts,
+        &exts,
+        &skip_dirs,
+        lang,
+        use_lsp,
+    );
     for (node_type, expected) in &counts {
         let actual = graph
             .find_nodes_by_type(node_type.clone())
@@ -327,6 +375,7 @@ fn walk_impl(
     exts: &[&str],
     skip_dirs: &[&str],
     lang: &Language,
+    use_lsp: bool,
 ) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
@@ -341,7 +390,9 @@ fn walk_impl(
             if skip_dirs.contains(&dir_name) {
                 continue;
             }
-            walk_impl(&path, root, graph, failures, counts, exts, skip_dirs, lang);
+            walk_impl(
+                &path, root, graph, failures, counts, exts, skip_dirs, lang, use_lsp,
+            );
         } else {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !exts.contains(&ext) {
@@ -358,7 +409,8 @@ fn walk_impl(
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| path.to_string_lossy().to_string());
             let file_prefix = annotation_prefix_for_ext(ext, lang.annotation_prefix());
-            let (file_failures, file_counts) = verify_file(&src, &suffix, graph, file_prefix);
+            let (file_failures, file_counts) =
+                verify_file(&src, &suffix, graph, file_prefix, use_lsp);
             failures.extend(file_failures);
             for (nt, n) in file_counts {
                 *counts.entry(nt).or_insert(0) += n;
@@ -394,7 +446,7 @@ pub async fn run_fixture_test_with_lsp<G: Graph + Sync>(
     graph.analysis();
     let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(subdir);
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let failures = walk_and_verify(&fixture_dir, root, &graph, &annotation_lang);
+    let failures = walk_and_verify(&fixture_dir, root, &graph, &annotation_lang, use_lsp);
     if !failures.is_empty() {
         for f in &failures {
             eprintln!("{}", f);
@@ -402,4 +454,26 @@ pub async fn run_fixture_test_with_lsp<G: Graph + Sync>(
         panic!("{} annotation verification failure(s)", failures.len());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_mode_specific_edge_annotations() {
+        let source = r#"
+# @ast node: UnitTest "test_process_returns_hash"
+# @ast edge_no_lsp: Calls -> Function "process" "countries_controller.rb"
+# @ast edge_lsp: Calls -> Function "process" "person_service.rb"
+"#;
+
+        let without_lsp = parse_file_annotations(source, "# @ast ", false);
+        let with_lsp = parse_file_annotations(source, "# @ast ", true);
+
+        assert_eq!(without_lsp[0].3.len(), 1);
+        assert_eq!(without_lsp[0].3[0].other_file, "countries_controller.rb");
+        assert_eq!(with_lsp[0].3.len(), 1);
+        assert_eq!(with_lsp[0].3[0].other_file, "person_service.rb");
+    }
 }
