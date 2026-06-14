@@ -42,6 +42,8 @@ export interface SessionInitConfig {
   source?: string;
   repos?: string[];
   temperature: number;
+  tools?: Record<string, string>;          // name → description for every resolved tool
+  providerConfig?: { [key: string]: any }; // resolved getProviderOptions output
 }
 
 export interface StepMeta {
