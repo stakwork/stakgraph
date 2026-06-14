@@ -567,7 +567,7 @@ impl Repo {
         Ok(())
     }
     fn start_lsp(root: &str, lang: &Lang, lsp: bool) -> Result<Option<CmdSender>> {
-        Ok(if lsp {
+        Ok(if lsp && lang.kind.has_lsp_support() {
             let (tx, rx) = tokio::sync::mpsc::channel(10000);
             spawn_analyzer(&root.into(), &lang.kind, rx)?;
             Some(tx)

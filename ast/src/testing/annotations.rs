@@ -108,6 +108,22 @@ fn parse_meta_filter(s: &str) -> BTreeMap<String, String> {
     map
 }
 
+fn strip_mode_annotation<'a>(
+    trimmed: &'a str,
+    prefix: &str,
+    keyword: &str,
+    use_lsp: bool,
+) -> Option<&'a str> {
+    let common_prefix = format!("{}{}: ", prefix, keyword);
+    if let Some(rest) = trimmed.strip_prefix(common_prefix.as_str()) {
+        return Some(rest);
+    }
+
+    let mode = if use_lsp { "lsp" } else { "no_lsp" };
+    let mode_prefix = format!("{}{}_{}: ", prefix, keyword, mode);
+    trimmed.strip_prefix(mode_prefix.as_str())
+}
+
 #[derive(Debug, Clone)]
 struct AbsentAnnotation {
     node_type: NodeType,
@@ -115,12 +131,11 @@ struct AbsentAnnotation {
     file_suffix: String,
 }
 
-fn parse_absent_annotations(source: &str, prefix: &str) -> Vec<AbsentAnnotation> {
-    let absent_prefix = format!("{}absent: ", prefix);
+fn parse_absent_annotations(source: &str, prefix: &str, use_lsp: bool) -> Vec<AbsentAnnotation> {
     let mut result = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix(absent_prefix.as_str()) {
+        if let Some(rest) = strip_mode_annotation(trimmed, prefix, "absent", use_lsp) {
             let toks = parse_quoted_tokens(rest);
             if toks.len() >= 3 {
                 if let Some(nt) = parse_node_type(&toks[0]) {
@@ -139,6 +154,7 @@ fn parse_absent_annotations(source: &str, prefix: &str) -> Vec<AbsentAnnotation>
 fn parse_file_annotations(
     source: &str,
     prefix: &str,
+    use_lsp: bool,
 ) -> Vec<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)> {
     let mut result = Vec::new();
     let mut current: Option<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)> =
@@ -146,8 +162,8 @@ fn parse_file_annotations(
 
     for line in source.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix(prefix) {
-            if let Some(node_rest) = rest.strip_prefix("node: ") {
+        if trimmed.strip_prefix(prefix).is_some() {
+            if let Some(node_rest) = strip_mode_annotation(trimmed, prefix, "node", use_lsp) {
                 if let Some(prev) = current.take() {
                     result.push(prev);
                 }
@@ -158,7 +174,7 @@ fn parse_file_annotations(
                         current = Some((nt, toks[1].clone(), subject_meta, Vec::new()));
                     }
                 }
-            } else if let Some(edge_rest) = rest.strip_prefix("edge: ") {
+            } else if let Some(edge_rest) = strip_mode_annotation(trimmed, prefix, "edge", use_lsp) {
                 if let Some((_, _, _, ref mut edges)) = current {
                     let toks = parse_quoted_tokens(edge_rest);
                     if toks.len() >= 5 {
@@ -199,9 +215,9 @@ fn annotation_prefix_for_ext(ext: &str, default: &'static str) -> &'static str {
     }
 }
 
-pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: &str) -> (Vec<String>, BTreeMap<NodeType, usize>) {
-    let groups = parse_file_annotations(source, prefix);
-    let absent = parse_absent_annotations(source, prefix);
+pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: &str, use_lsp: bool) -> (Vec<String>, BTreeMap<NodeType, usize>) {
+    let groups = parse_file_annotations(source, prefix, use_lsp);
+    let absent = parse_absent_annotations(source, prefix, use_lsp);
     let mut failures: Vec<String> = Vec::new();
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
 
@@ -296,17 +312,31 @@ pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: 
     (failures, counts)
 }
 
-pub fn walk_and_verify(fixture_dir: &Path, root: &Path, graph: &impl Graph, lang: &Language) -> Vec<String> {
+fn node_file_is_in_fixture(file: &str, fixture_prefix: &str) -> bool {
+    let file = file.replace('\\', "/");
+    file == fixture_prefix
+        || file.starts_with(&format!("{}/", fixture_prefix))
+        || file.ends_with(&format!("/{}", fixture_prefix))
+        || file.contains(&format!("/{}/", fixture_prefix))
+}
+
+pub fn walk_and_verify(fixture_dir: &Path, root: &Path, graph: &impl Graph, lang: &Language, use_lsp: bool) -> Vec<String> {
     let mut failures = Vec::new();
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
     let exts: Vec<&str> = lang.exts();
     let skip_dirs: Vec<&str> = lang.skip_dirs();
-    walk_impl(fixture_dir, root, graph, &mut failures, &mut counts, &exts, &skip_dirs, lang);
+    let fixture_prefix = fixture_dir
+        .strip_prefix(root)
+        .unwrap_or(fixture_dir)
+        .to_string_lossy()
+        .replace('\\', "/");
+    walk_impl(fixture_dir, root, graph, &mut failures, &mut counts, &exts, &skip_dirs, lang, use_lsp);
     for (node_type, expected) in &counts {
         let actual = graph
             .find_nodes_by_type(node_type.clone())
             .iter()
             .filter(|n| !n.name.contains('\n'))
+            .filter(|n| node_file_is_in_fixture(&n.file, &fixture_prefix))
             .count();
         if actual != *expected {
             failures.push(format!(
@@ -327,6 +357,7 @@ fn walk_impl(
     exts: &[&str],
     skip_dirs: &[&str],
     lang: &Language,
+    use_lsp: bool,
 ) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
@@ -341,7 +372,7 @@ fn walk_impl(
             if skip_dirs.contains(&dir_name) {
                 continue;
             }
-            walk_impl(&path, root, graph, failures, counts, exts, skip_dirs, lang);
+            walk_impl(&path, root, graph, failures, counts, exts, skip_dirs, lang, use_lsp);
         } else {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !exts.contains(&ext) {
@@ -358,7 +389,7 @@ fn walk_impl(
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| path.to_string_lossy().to_string());
             let file_prefix = annotation_prefix_for_ext(ext, lang.annotation_prefix());
-            let (file_failures, file_counts) = verify_file(&src, &suffix, graph, file_prefix);
+            let (file_failures, file_counts) = verify_file(&src, &suffix, graph, file_prefix, use_lsp);
             failures.extend(file_failures);
             for (nt, n) in file_counts {
                 *counts.entry(nt).or_insert(0) += n;
@@ -372,10 +403,19 @@ pub async fn run_fixture_test<G: Graph + Sync>(
     lang: &str,
     annotation_lang: Language,
 ) -> Result<()> {
+    run_fixture_test_with_lsp::<G>(subdir, lang, annotation_lang, false).await
+}
+
+pub async fn run_fixture_test_with_lsp<G: Graph + Sync>(
+    subdir: &str,
+    lang: &str,
+    annotation_lang: Language,
+    use_lsp: bool,
+) -> Result<()> {
     let repo = Repo::new(
         subdir,
         Lang::from_str(lang).unwrap(),
-        false,
+        use_lsp,
         Vec::new(),
         Vec::new(),
     )
@@ -385,7 +425,7 @@ pub async fn run_fixture_test<G: Graph + Sync>(
     graph.analysis();
     let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(subdir);
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let failures = walk_and_verify(&fixture_dir, root, &graph, &annotation_lang);
+    let failures = walk_and_verify(&fixture_dir, root, &graph, &annotation_lang, use_lsp);
     if !failures.is_empty() {
         for f in &failures {
             eprintln!("{}", f);
