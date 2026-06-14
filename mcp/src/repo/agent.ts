@@ -329,7 +329,7 @@ async function prepareAgent(
   } = opts;
   const startTime = Date.now();
   const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers);
-  console.log("===> model", model, "contextLimit", contextLimit);
+  console.log("===> model", modelId, "provider", provider, "contextLimit", contextLimit);
 
   const messagesRef: MessagesRef = { current: [] };
   const provenanceCollector: ProvenanceCollector = { entries: [] };
