@@ -501,7 +501,7 @@ export async function get_agent_session(req: Request, res: Response) {
   try {
     const messages = loadSession(sessionId);
     const config = loadSessionConfig(sessionId);
-    res.json({ sessionId, messages, config });
+    res.json({ sessionId, messages, config, tools: config?.tools, providerConfig: config?.providerConfig });
   } catch (e) {
     console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });

@@ -484,6 +484,10 @@ Apply the guidance from each skill throughout your response.`;
         source: opts.source,
         repos: opts.repos,
         temperature: 0,
+        tools: Object.fromEntries(
+          Object.entries(tools).map(([name, t]) => [name, (t as any).description ?? ""])
+        ),
+        providerConfig: getProviderOptions(provider as any, undefined, modelId),
       });
       hasSystemTurn = true;
     }
