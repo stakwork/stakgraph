@@ -372,10 +372,19 @@ pub async fn run_fixture_test<G: Graph + Sync>(
     lang: &str,
     annotation_lang: Language,
 ) -> Result<()> {
+    run_fixture_test_with_lsp::<G>(subdir, lang, annotation_lang, false).await
+}
+
+pub async fn run_fixture_test_with_lsp<G: Graph + Sync>(
+    subdir: &str,
+    lang: &str,
+    annotation_lang: Language,
+    use_lsp: bool,
+) -> Result<()> {
     let repo = Repo::new(
         subdir,
         Lang::from_str(lang).unwrap(),
-        false,
+        use_lsp,
         Vec::new(),
         Vec::new(),
     )

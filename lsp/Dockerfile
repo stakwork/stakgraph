@@ -79,7 +79,7 @@ ENV PATH=$PATH:$GOROOT/bin:$GOPATH/bin
 RUN mkdir -p $GOPATH/bin \
     && CGO_ENABLED=0 go install -v golang.org/x/tools/gopls@v0.16.2
 
-# Install asdf + Ruby 3.2.2 + Ruby LSPs
+# Install asdf + Ruby 3.4.2 + Ruby LSPs
 SHELL ["/bin/bash", "-lc"]
 RUN set -eux; \
     export ASDF_DIR=/root/.asdf; \
@@ -87,9 +87,9 @@ RUN set -eux; \
     echo '. $ASDF_DIR/asdf.sh' >> /etc/profile.d/asdf.sh; \
     . "$ASDF_DIR/asdf.sh"; \
     asdf plugin-add ruby https://github.com/asdf-vm/asdf-ruby.git || true; \
-    asdf install ruby 3.2.2; \
-    asdf global ruby 3.2.2; \
-    gem install --no-document bundler ruby-lsp solargraph
+    asdf install ruby 3.4.2; \
+    asdf global ruby 3.4.2; \
+    gem install --no-document bundler -v 2.6.2 ruby-lsp solargraph
 
 # Add asdf shims to PATH globally
 ENV PATH="/root/.asdf/shims:/root/.asdf/bin:$PATH"
