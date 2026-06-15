@@ -344,6 +344,7 @@ async function prepareAgent(
     ggnn,
     messagesRef,
     provenanceCollector,
+    modelName,
   );
 
   // Load and merge MCP server tools if configured
