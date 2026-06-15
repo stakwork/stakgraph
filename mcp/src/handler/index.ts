@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Express } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { MCPHttpServer } from './server.js';
+import { MCPHttpServer } from '../tools/http.js';
 import { listConcepts, learnConcept, searchLogsHandler } from './tools.js';
 
 function createServer(): McpServer {
@@ -49,7 +49,7 @@ Example queries:
         end_timestamp: z.number().optional().describe("End timestamp filter (Unix epoch in seconds)"),
       },
     },
-    async ({ query, max_hits, start_timestamp, end_timestamp }) => 
+    async ({ query, max_hits, start_timestamp, end_timestamp }) =>
       searchLogsHandler({ query, max_hits, start_timestamp, end_timestamp })
   );
 
