@@ -58,6 +58,7 @@ export async function logs_agent(req: Request, res: Response) {
   const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
   const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
   const workspaceSlug = req.body.workspaceSlug as string | undefined;
+  const logGroups = req.body.logGroups as string[] | undefined;
   const headers = normalizeHeaders(req.body.headers);
 
   if (!prompt) {
@@ -120,6 +121,27 @@ export async function logs_agent(req: Request, res: Response) {
       console.warn("Failed to list log streams for /stakwork/production:", e);
     }
     finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
+  }
+
+  if (logGroups && logGroups.length > 0) {
+    for (const logGroup of logGroups) {
+      const context: string[] = [];
+      context.push(`The CloudWatch log group "${logGroup}" is available. Use this log group when fetching logs.`);
+      try {
+        const streams = await listCloudwatchLogStreams(logGroup);
+        if (streams.length > 0) {
+          context.push(`\nAvailable log streams (services) in this log group:`);
+          for (const s of streams) {
+            const serviceName = s.name.replace(/\.sphinx$/, "");
+            context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
+          }
+          context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
+        }
+      } catch (e) {
+        console.warn(`Failed to list log streams for ${logGroup}:`, e);
+      }
+      finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
+    }
   }
 
   // Per-run logs directory: use sessionId if present (persists across turns),
