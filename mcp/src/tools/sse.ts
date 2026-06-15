@@ -2,7 +2,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { bearerToken, mcpSession } from "./utils.js";
 import { Express } from "express";
 import { Tool, Json } from "./types.js";
-import { server } from "./server.js";
+import { graphServer } from "./server.js";
 import { getMcpTools } from "./utils.js";
 
 export function graph_sse_routes(app: Express) {
@@ -11,7 +11,7 @@ export function graph_sse_routes(app: Express) {
   app.get("/sse", bearerToken, mcpSession, async (req, res) => {
     try {
       currentTransport = new SSEServerTransport("/messages", res);
-      await server.get_server().connect(currentTransport);
+      await graphServer.connect(currentTransport);
       res.on("close", () => {
         currentTransport = null;
       });
