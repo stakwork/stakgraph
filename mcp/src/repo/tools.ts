@@ -1,5 +1,6 @@
 import { tool, Tool, ModelMessage } from "ai";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import {
   getRepoMap,
   getFileSummary,
@@ -7,7 +8,9 @@ import {
   fulltextSearch,
   executeBashCommand,
 } from "./bash.js";
-import { getProviderTool, Provider } from "../aieo/src/index.js";
+import { getProviderTool, Provider, ModelName } from "../aieo/src/index.js";
+import { log_agent_context } from "../log/agent.js";
+import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
@@ -67,7 +70,8 @@ type ToolName =
   | "stakgraph_search"
   | "stakgraph_map"
   | "stakgraph_code"
-  | "jarvis";
+  | "jarvis"
+  | "logs_agent";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -176,6 +180,8 @@ Rules:
   stakgraph_code:
     "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
   jarvis: '', // virtual toggle: gates registration of get_ontology + graph_search tools.
+  logs_agent:
+    "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
 };
 
 export async function get_tools(
@@ -189,6 +195,7 @@ export async function get_tools(
   ggnn?: GgnnConfig,
   messagesRef?: MessagesRef,
   provenanceCollector?: ProvenanceCollector,
+  modelName?: ModelName,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -803,6 +810,33 @@ export async function get_tools(
         }),
         execute: async ({ questions }: { questions: any[] }) => {
           return questions;
+        },
+      });
+    }
+    if (toolsConfig.logs_agent) {
+      allTools.logs_agent = tool({
+        description:
+          typeof toolsConfig.logs_agent === "string"
+            ? toolsConfig.logs_agent
+            : DEFAULT_DESCRIPTIONS.logs_agent,
+        inputSchema: z.object({
+          prompt: z.string().describe("A focused question about runtime logs"),
+        }),
+        execute: async ({ prompt }: { prompt: string }) => {
+          const logsDir = createRunLogsDir(randomUUID());
+          try {
+            const result = await log_agent_context(prompt, {
+              modelName,
+              apiKey,
+              logsDir,
+              source: "repo_agent",
+            });
+            return result.final || "No result returned from logs agent.";
+          } catch (e) {
+            return `Logs agent error: ${e instanceof Error ? e.message : String(e)}`;
+          } finally {
+            cleanupRunLogsDir(logsDir);
+          }
         },
       });
     }
