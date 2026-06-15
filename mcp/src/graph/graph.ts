@@ -11,7 +11,7 @@ import {
   GraphResponse,
   code_node_types,
 } from "./types.js";
-import { nameFileOnly, toReturnNode, formatNode, clean_node } from "./utils.js";
+import { nameFileOnly, toReturnNode, formatNode, clean_node, deser_multi } from "./utils.js";
 import { getTokenizer } from "../repo/utils.js";
 import { generate_services_config } from "./service.js";
 
@@ -518,6 +518,181 @@ function pathToSnippets(path: ShortestPath) {
   const snip = formatNode(clean_node(path.end));
   r += snip;
   return r;
+}
+
+const IMPACT_SEED_TYPES: NodeType[] = [
+  "Function",
+  "Endpoint",
+  "Class",
+  "Trait",
+  "Datamodel",
+  "Page",
+  "Var",
+  "UnitTest",
+  "IntegrationTest",
+  "E2etest",
+];
+
+export interface ImpactParams {
+  files: string[];
+  name: string;
+  node_type: string;
+  ref_id: string;
+  depth: number;
+  tests: boolean;
+}
+
+interface ImpactSeed {
+  node_type: string;
+  name: string;
+  file: string;
+  ref_id: string;
+}
+
+interface AffectedNode {
+  node_type: string;
+  name: string;
+  file: string;
+  ref_id: string;
+  start: number;
+}
+
+export async function get_impact(p: ImpactParams): Promise<string> {
+  let seeds: ImpactSeed[] = [];
+
+  if (p.ref_id) {
+    const node = await db.find_node("" as NodeType, "", "", p.ref_id);
+    if (node) {
+      const nodeType = node.labels.find((l) => l !== "Data_Bank") || "";
+      seeds.push({
+        node_type: nodeType,
+        name: node.properties.name,
+        file: node.properties.file,
+        ref_id: node.ref_id || node.properties.ref_id || "",
+      });
+    }
+  } else if (p.name) {
+    const nodeType = (p.node_type || "Function") as NodeType;
+    const node = await db.find_node(nodeType, p.name, "", "");
+    if (node) {
+      const nt = node.labels.find((l) => l !== "Data_Bank") || nodeType;
+      seeds.push({
+        node_type: nt,
+        name: node.properties.name,
+        file: node.properties.file,
+        ref_id: node.ref_id || node.properties.ref_id || "",
+      });
+    }
+  } else if (p.files.length > 0) {
+    const seedTypes = p.node_type
+      ? [p.node_type as NodeType]
+      : IMPACT_SEED_TYPES;
+    const nodes = await db.find_nodes_by_files(p.files, seedTypes);
+    for (const node of nodes) {
+      const nt = node.labels.find((l) => l !== "Data_Bank") || "";
+      seeds.push({
+        node_type: nt,
+        name: node.properties.name,
+        file: node.properties.file,
+        ref_id: node.ref_id || node.properties.ref_id || "",
+      });
+    }
+  }
+
+  if (seeds.length === 0) {
+    return "No seed nodes found for the given input.";
+  }
+
+  const seen = new Set<string>();
+  const affected: AffectedNode[] = [];
+
+  for (const seed of seeds) {
+    seen.add(seed.ref_id || `${seed.name}::${seed.file}`);
+  }
+
+  for (const seed of seeds) {
+    const record = await get_subtree({
+      node_type: seed.node_type,
+      name: seed.name,
+      file: "",
+      ref_id: seed.ref_id,
+      tests: p.tests,
+      depth: p.depth,
+      direction: "up",
+      trim: [],
+    });
+    if (!record) continue;
+
+    const allNodes: Neo4jNode[] = deser_multi(record, "allNodes");
+    for (const node of allNodes) {
+      const key = node.ref_id || node.properties.ref_id || `${node.properties.name}::${node.properties.file}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const nt = node.labels.find((l) => l !== "Data_Bank") || "Unknown";
+      affected.push({
+        node_type: nt,
+        name: node.properties.name,
+        file: node.properties.file,
+        ref_id: node.ref_id || node.properties.ref_id || "",
+        start: node.properties.start || 0,
+      });
+    }
+  }
+
+  affected.sort((a, b) => a.node_type.localeCompare(b.node_type) || a.name.localeCompare(b.name));
+
+  const byType: Record<string, AffectedNode[]> = {};
+  for (const node of affected) {
+    if (!byType[node.node_type]) byType[node.node_type] = [];
+    byType[node.node_type].push(node);
+  }
+
+  let out = "";
+
+  out += `Seeds (${seeds.length} node${seeds.length === 1 ? "" : "s"}):\n`;
+  for (const s of seeds) {
+    out += `  ${s.node_type}: ${s.name} [${s.file}]\n`;
+  }
+  out += "\n";
+
+  if (affected.length === 0) {
+    out += "No upstream dependents found.\n";
+    return out;
+  }
+
+  const summaryParts = Object.entries(byType)
+    .map(([type, nodes]) => `${nodes.length} ${type}${nodes.length === 1 ? "" : "s"}`)
+    .join(", ");
+  out += `Impact: ${affected.length} affected nodes (${summaryParts})\n\n`;
+
+  const displayOrder = [
+    "Endpoint", "UnitTest", "IntegrationTest", "E2etest",
+    "Function", "Class", "Page", "Trait", "Datamodel",
+  ];
+  const printed = new Set<string>();
+  for (const type of displayOrder) {
+    if (byType[type]) {
+      out += formatImpactGroup(type, byType[type]);
+      printed.add(type);
+    }
+  }
+  for (const [type, nodes] of Object.entries(byType)) {
+    if (!printed.has(type)) {
+      out += formatImpactGroup(type, nodes);
+    }
+  }
+
+  return out;
+}
+
+function formatImpactGroup(type: string, nodes: AffectedNode[]): string {
+  let out = `${type}:\n`;
+  for (const n of nodes) {
+    out += `  ${n.name} — ${n.file}:${n.start}\n`;
+  }
+  out += "\n";
+  return out;
 }
 
 export async function get_graph(

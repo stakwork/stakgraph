@@ -266,6 +266,25 @@ class Db {
     }
   }
 
+  async find_nodes_by_files(
+    files: string[],
+    node_types: NodeType[],
+    limit: number = 500,
+  ): Promise<Neo4jNode[]> {
+    if (files.length === 0 || node_types.length === 0) return [];
+    const session = this.resilientSession();
+    try {
+      const r = await session.run(Q.FIND_NODES_BY_FILES_QUERY, {
+        files,
+        node_types,
+        limit,
+      });
+      return r.records.map((record) => deser_node(record, "n"));
+    } finally {
+      await session.close();
+    }
+  }
+
   async get_repositories(): Promise<Neo4jNode[]> {
     const session = this.resilientSession();
     try {

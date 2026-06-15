@@ -756,6 +756,14 @@ RETURN startNode,
        COLLECT(DISTINCT file) AS files
 `;
 
+export const FIND_NODES_BY_FILES_QUERY = `
+MATCH (n:${Data_Bank})
+WHERE any(f IN $files WHERE n.file CONTAINS f)
+  AND any(label IN labels(n) WHERE label IN $node_types)
+RETURN n
+LIMIT toInteger($limit)
+`;
+
 export const REPO_SUBGRAPH_QUERY = `
 WITH $node_label AS nodeLabel,
      $node_name as nodeName,
