@@ -6,14 +6,35 @@ import {
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
 
+interface SessionEntry {
+  transport: StreamableHTTPServerTransport;
+  lastActivity: Date;
+}
+
 // streamable http MCP server
 // mcp-session-id can be reused, even after reconnect later
 export class MCPServer {
   server: Server;
-  transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+  sessions: { [sessionId: string]: SessionEntry } = {};
+  private cleanupInterval: ReturnType<typeof setInterval>;
 
   constructor(server: Server) {
     this.server = server;
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleSessions();
+    }, 60 * 1000);
+  }
+
+  private cleanupStaleSessions() {
+    const now = Date.now();
+    const staleThreshold = 5 * 60 * 1000;
+    for (const sessionId of Object.keys(this.sessions)) {
+      const age = now - this.sessions[sessionId].lastActivity.getTime();
+      if (age > staleThreshold) {
+        console.log(`Cleaning up stale session ${sessionId} (idle: ${age}ms)`);
+        this.cleanupSession(sessionId);
+      }
+    }
   }
 
   get_server(): Server {
@@ -34,8 +55,8 @@ export class MCPServer {
       return;
     }
 
-    const transport = this.transports[mcpSessionId];
-    if (!transport) {
+    const session = this.sessions[mcpSessionId];
+    if (!session) {
       res
         .status(400)
         .json(
@@ -44,7 +65,8 @@ export class MCPServer {
       return;
     }
 
-    await transport.handleRequest(req, res);
+    session.lastActivity = new Date();
+    await session.transport.handleRequest(req, res);
   }
 
   async handlePostRequest(req: Request, res: Response) {
@@ -55,7 +77,7 @@ export class MCPServer {
         // If this is an initialize request and we already have this session, clean it up first
         if (
           this.isInitializeRequest(req.body) &&
-          this.transports[mcpSessionId]
+          this.sessions[mcpSessionId]
         ) {
           console.log(
             `Cleaning up existing session ${mcpSessionId} for reconnection`
@@ -63,10 +85,11 @@ export class MCPServer {
           this.cleanupSession(mcpSessionId);
         }
 
-        // Reuse existing transport (only if not cleaned up above)
-        if (this.transports[mcpSessionId]) {
-          const transport = this.transports[mcpSessionId];
-          await transport.handleRequest(req, res, req.body);
+        // Reuse existing session (only if not cleaned up above)
+        if (this.sessions[mcpSessionId]) {
+          const session = this.sessions[mcpSessionId];
+          session.lastActivity = new Date();
+          await session.transport.handleRequest(req, res, req.body);
           return;
         }
 
@@ -88,7 +111,7 @@ export class MCPServer {
         });
 
         await this.server.connect(transport);
-        this.transports[mcpSessionId] = transport;
+        this.sessions[mcpSessionId] = { transport, lastActivity: new Date() };
         await transport.handleRequest(req, res, req.body);
         return;
       }
@@ -103,7 +126,7 @@ export class MCPServer {
         await this.server.connect(transport);
         await transport.handleRequest(req, res, req.body);
 
-        this.transports[newSessionId] = transport;
+        this.sessions[newSessionId] = { transport, lastActivity: new Date() };
         return;
       }
 
@@ -126,10 +149,14 @@ export class MCPServer {
   }
 
   cleanupSession(mcpSessionId: string) {
-    if (this.transports[mcpSessionId]) {
-      const transport = this.transports[mcpSessionId];
-      transport.close();
-      delete this.transports[mcpSessionId];
+    const session = this.sessions[mcpSessionId];
+    if (session) {
+      try {
+        session.transport.close();
+      } catch (_) {
+        // Ignore close errors
+      }
+      delete this.sessions[mcpSessionId];
     }
   }
 
