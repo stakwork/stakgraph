@@ -64,6 +64,10 @@ server
       case stakgraph.GetRulesFilesTool.name: {
         return await stakgraph.getRulesFiles();
       }
+      case stakgraph.ImpactTool.name: {
+        const fa = stakgraph.ImpactSchema.parse(args);
+        return await stakgraph.impact(fa);
+      }
       default:
         if (name.startsWith("stagehand_")) {
           return await stagehand.call(name, args || {}, extra.sessionId);

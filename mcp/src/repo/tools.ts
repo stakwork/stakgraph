@@ -67,6 +67,7 @@ type ToolName =
   | "stakgraph_search"
   | "stakgraph_map"
   | "stakgraph_code"
+  | "stakgraph_impact"
   | "jarvis";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
@@ -77,6 +78,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
+  "stakgraph_impact",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -175,6 +177,8 @@ Rules:
   stakgraph_map: "Trace relationships from a node in the code graph. Use direction 'up' for callers and 'down' for callees.",
   stakgraph_code:
     "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
+  stakgraph_impact:
+    "Find all code affected by changes to specific files or functions. Shows affected endpoints, tests, and callers — the blast radius of a change.",
   jarvis: '', // virtual toggle: gates registration of get_ontology + graph_search tools.
 };
 
@@ -579,8 +583,16 @@ export async function get_tools(
         return result.content?.[0]?.text ?? "";
       },
     });
+    allTools.stakgraph_impact = tool({
+      description: stak.ImpactTool.description || defaultDescriptions.stakgraph_impact,
+      inputSchema: stak.ImpactSchema,
+      execute: async (args: z.infer<typeof stak.ImpactSchema>) => {
+        const result = await stak.impact(args);
+        return result.content?.[0]?.text ?? "";
+      },
+    });
     console.log(
-      "===> registered stakgraph graph tools: stakgraph_search, stakgraph_map, stakgraph_code",
+      "===> registered stakgraph graph tools: stakgraph_search, stakgraph_map, stakgraph_code, stakgraph_impact",
     );
   }
 
