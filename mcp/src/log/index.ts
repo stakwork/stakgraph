@@ -59,6 +59,7 @@ export async function logs_agent(req: Request, res: Response) {
   const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
   const workspaceSlug = req.body.workspaceSlug as string | undefined;
   const logGroups = req.body.logGroups as string[] | undefined;
+  const poolName = req.body.poolName as string | undefined;
   const headers = normalizeHeaders(req.body.headers);
 
   if (!prompt) {
@@ -144,6 +145,32 @@ export async function logs_agent(req: Request, res: Response) {
     }
   }
 
+  if (poolName) {
+    const poolLogGroup = `/workspaces/workspace-cluster/pools/${poolName}/workspaces`;
+    const context: string[] = [];
+    context.push(
+      `If the user asks about "pod", "pool", or "sandbox" logs, they mean the workspace pod logs in the CloudWatch log group "${poolLogGroup}". Use the fetch_cloudwatch tool with this log group, then use bash to search the saved file.`
+    );
+    context.push(
+      `\nEach workspace pod has its own set of log streams named "{workspace-id}/{container}". The main workspace container is "code-server" — for most questions about a running workspace/sandbox, fetch the code-server stream first. Other containers: port-detector (port detection sidecar), build-base-image / build-wrapper-image (init image builders), init-workspace (init: workspace setup), docker-auth (init: registry auth).`
+    );
+    try {
+      const streams = await listCloudwatchLogStreams(poolLogGroup);
+      if (streams.length > 0) {
+        context.push(`\nAvailable log streams in this log group:`);
+        for (const s of streams) {
+          context.push(`  - "${s.name}"${s.lastEventTime ? " (last event: " + s.lastEventTime + ")" : ""}`);
+        }
+        context.push(
+          `\nUse the log_stream_names parameter to filter to a specific workspace/container (e.g. the "{workspace-id}/code-server" stream).`
+        );
+      }
+    } catch (e) {
+      console.warn(`Failed to list log streams for ${poolLogGroup}:`, e);
+    }
+    finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
+  }
+
   // Per-run logs directory: use sessionId if present (persists across turns),
   // otherwise generate a random one (cleaned up after the agent finishes).
   const logsDir = createRunLogsDir(sessionId);
@@ -207,6 +234,13 @@ export async function logs_agent(req: Request, res: Response) {
 curl -X POST -H "Content-Type: application/json" -d '{
   "prompt": "How long did latest stakgraph ingest take? Only read stakgraph logs.",
   "swarmName": "swarm38",
+  "model": "haiku",
+  "printAgentProgress": true
+}' "http://localhost:3355/logs/agent"
+
+curl -X POST -H "Content-Type: application/json" -d '{
+  "prompt": "Why did my sandbox fail to start? Check the pod logs.",
+  "poolName": "cmdx1snwz0001l204jdb1ah1n",
   "model": "haiku",
   "printAgentProgress": true
 }' "http://localhost:3355/logs/agent"
