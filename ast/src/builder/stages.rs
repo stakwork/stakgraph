@@ -550,6 +550,10 @@ impl Repo {
         info!("=> got {} import edges", import_edges_count);
         log_stage_timing("finalize_import_edges", sub_start, Some(&format!("import_edges={}", import_edges_count)));
 
+        let sub_start = Instant::now();
+        let _registry = crate::lang::registry::build(&self.lang, &*graph);
+        log_stage_timing("type_registry_build", sub_start, Some(&format!("built={}", _registry.is_some())));
+
         self.send_status_update("process_integration_tests", 12);
 
         let mut _i = 0;

@@ -6,6 +6,7 @@ pub mod graphs;
 pub mod linker;
 pub mod parse;
 pub mod queries;
+pub mod registry;
 
 use crate::builder::utils::log_stage_timing;
 use crate::lang::parse::utils::trim_quotes;

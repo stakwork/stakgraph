@@ -10,6 +10,8 @@ use annotations::run_fixture_test;
 
 #[cfg(test)]
 pub mod builder;
+#[cfg(test)]
+pub mod registry;
 
 #[cfg(test)]
 pub mod coverage;
