@@ -103,8 +103,8 @@ impl Repo {
 
         let stage_start = Instant::now();
         self.setup_lsp(&filez)?;
-        log_stage_timing("lsp_setup", stage_start, None);
-        memory::log_memory("lsp_setup");
+        log_stage_timing("did_open", stage_start, None);
+        memory::log_memory("did_open");
 
         let allowed_files = filez
             .iter()

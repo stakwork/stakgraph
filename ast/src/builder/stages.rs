@@ -551,8 +551,8 @@ impl Repo {
         log_stage_timing("finalize_import_edges", sub_start, Some(&format!("import_edges={}", import_edges_count)));
 
         let sub_start = Instant::now();
-        let _registry = crate::lang::registry::build(&self.lang, &*graph);
-        log_stage_timing("type_registry_build", sub_start, Some(&format!("built={}", _registry.is_some())));
+        let registry = crate::lang::registry::build(&self.lang, &*graph);
+        log_stage_timing("type_registry_build", sub_start, Some(&format!("built={}", registry.is_some())));
 
         self.send_status_update("process_integration_tests", 12);
 
@@ -606,7 +606,7 @@ impl Repo {
                 let file_start = Instant::now();
                 let all_calls = self
                     .lang
-                    .get_function_calls(code, filename, graph, &self.lsp_tx)
+                    .get_function_calls(code, filename, graph, &self.lsp_tx, registry.as_deref())
                     .await?;
                 log_stage_timing("finalize_file", file_start, Some(&format!("file={} calls={}", filename, all_calls.0.len())));
                 function_call_count += all_calls.0.len();

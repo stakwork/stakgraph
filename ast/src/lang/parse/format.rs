@@ -225,7 +225,7 @@ impl Lang {
                 }
             }
            let import_names = get_imports_for_file(file, self, graph);
-            if let Some(node) = node_data_finder(
+            if let Some((node, _, _)) = node_data_finder(
                 &comp_name,
                 &None,
                 graph,
@@ -234,6 +234,7 @@ impl Lang {
                 NodeType::Page,
                 import_names,
                 self,
+                None,
             ) {
                 page_renders.push(Edge::renders(&pag, &node));
             }
@@ -562,7 +563,9 @@ impl Lang {
                                     NodeType::Endpoint,
                                     import_names.clone(),
                                     self,
+                                    None,
                                 )
+                                .map(|(nd, _, _)| nd)
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                             params,
@@ -1022,6 +1025,7 @@ impl Lang {
         graph: &G,
         lsp_tx: &Option<CmdSender>,
         allow_unverified: bool,
+        registry: Option<&dyn crate::lang::registry::Registry>,
     ) -> Result<Option<FunctionCall>> {
         let mut fc = Calls::default();
         let mut external_func = None;
@@ -1103,7 +1107,7 @@ impl Lang {
                     }
                 } else {
                     let import_names = get_imports_for_file(file, self, graph);
-                    if let Some(one_func) = node_data_finder(
+                    if let Some((one_func, conf, strat)) = node_data_finder(
                         &called,
                         &fc.operand,
                         graph,
@@ -1112,11 +1116,14 @@ impl Lang {
                         NodeType::Function,
                         import_names,
                         self,
+                        None,
                     ) {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
                             called, &one_func.file
                         ));
+                        fc.confidence = conf;
+                        fc.strategy = strat;
                         fc.target = one_func.into();
                     } else {
                         log_cmd(format!(
@@ -1169,7 +1176,7 @@ impl Lang {
         } else {
             // FALLBACK to find?
             let import_names = get_imports_for_file(file, self, graph);
-            if let Some(tf) = node_data_finder(
+            if let Some((tf, conf, strat)) = node_data_finder(
                 &called,
                 &fc.operand,
                 graph,
@@ -1178,15 +1185,18 @@ impl Lang {
                 NodeType::Function,
                 import_names,
                 self,
+                registry,
             ) {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
                     called, &tf.file
                 ));
+                fc.confidence = conf;
+                fc.strategy = strat;
                 fc.target = tf.into();
-            } else if let Some(ref operand) = fc.operand {
+            } else if let Some(ref operand) = fc.operand.clone() {
                 let import_names_for_operand = get_imports_for_file(file, self, graph);
-                if let Some(base_func) = node_data_finder(
+                if let Some((base_func, _, _)) = node_data_finder(
                     operand,
                     &None,
                     graph,
@@ -1195,11 +1205,14 @@ impl Lang {
                     NodeType::Function,
                     import_names_for_operand,
                     self,
+                    None,
                 ) {
                     log_cmd(format!(
                         "==> ? (member expr) resolved base object {:?} in {}",
                         operand, &base_func.file
                     ));
+                    fc.confidence = 0.35;
+                    fc.strategy = "member_expr".to_string();
                     fc.target = base_func.into();
                 }
             }

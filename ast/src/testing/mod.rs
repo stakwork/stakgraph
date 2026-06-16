@@ -28,6 +28,9 @@ pub mod vanila;
 #[cfg(test)]
 fn pre_test() {
     unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -96,6 +99,7 @@ async fn test_typescript() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_nextjs() {
+    pre_test();
     #[cfg(not(feature = "neo4j"))]
     {
         run_fixture_test::<ArrayGraph>("src/testing/nextjs", "tsx", Language::Typescript).await.unwrap();
