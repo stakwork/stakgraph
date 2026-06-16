@@ -7,6 +7,7 @@ use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::QueryMatch;
+use serde_json;
 
 use super::super::queries::consts::*;
 use super::utils::{clean_class_name, find_def, is_capitalized, log_cmd, trim_quotes};
@@ -933,6 +934,23 @@ impl Lang {
             }
         }
 
+        if matches!(self.kind, Language::Typescript) {
+            if let Some(ret) = &raw_return {
+                let clean = ret.trim_start_matches(':').trim().to_string();
+                if !clean.is_empty() {
+                    func.meta.insert("return_type".to_string(), clean);
+                }
+            }
+            if let Some(args) = &raw_args {
+                let pts = parse_param_types(args);
+                if !pts.is_empty() {
+                    if let Ok(json) = serde_json::to_string(&pts) {
+                        func.meta.insert("param_types".to_string(), json);
+                    }
+                }
+            }
+        }
+
         let mut return_types = Vec::new();
         for t in return_type_data_models {
             return_types.push(Edge::contains(
@@ -1463,4 +1481,75 @@ impl Lang {
 
         lines.join("\n")
     }
+}
+
+fn parse_param_types(raw: &str) -> Vec<std::collections::HashMap<String, String>> {
+    let inner = raw
+        .trim()
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(raw);
+    split_top_level_params(inner)
+        .into_iter()
+        .filter_map(|p| {
+            let p = p.trim().strip_prefix("...").unwrap_or(p.trim());
+            if p.is_empty() {
+                return None;
+            }
+            let colon = find_top_level_colon(p)?;
+            let name = p[..colon].trim().trim_end_matches('?').to_string();
+            let type_str = p[colon + 1..].trim().to_string();
+            if name.is_empty() || type_str.is_empty() {
+                return None;
+            }
+            let mut m = std::collections::HashMap::new();
+            m.insert("name".to_string(), name);
+            m.insert("type".to_string(), type_str);
+            Some(m)
+        })
+        .collect()
+}
+
+fn split_top_level_params(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut current = String::new();
+    for ch in s.chars() {
+        match ch {
+            '<' | '(' | '[' | '{' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '>' | ')' | ']' | '}' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    parts.push(trimmed);
+                }
+                current = String::new();
+            }
+            _ => current.push(ch),
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        parts.push(trimmed);
+    }
+    parts
+}
+
+fn find_top_level_colon(s: &str) -> Option<usize> {
+    let mut depth: i32 = 0;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '<' | '(' | '[' | '{' => depth += 1,
+            '>' | ')' | ']' | '}' => depth -= 1,
+            ':' if depth == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
