@@ -1,7 +1,7 @@
 use crate::lang::graphs::{
     queries::add_node_query, Calls, Edge, EdgeType, Graph, Node, NodeData, NodeRef, NodeType,
 };
-use crate::lang::helpers::{boltmap_insert_list_of_maps, boltmap_insert_str};
+use crate::lang::helpers::{boltmap_insert_float, boltmap_insert_list_of_maps, boltmap_insert_str};
 use crate::utils::create_node_key_from_ref;
 use neo4rs::BoltMap;
 
@@ -75,6 +75,32 @@ pub fn add_edge_query(edge: &Edge) -> (String, BoltMap) {
 
 pub fn add_edge_query_stream(edge: &Edge) -> (String, BoltMap) {
     EdgeQueryBuilder::new(edge).build_stream()
+}
+
+pub fn add_calls_edge_query(edge: &Edge, confidence: f32, strategy: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+
+    let rel_type = edge.edge.to_string();
+    let source_type = edge.source.node_type.to_string();
+    let source_key = create_node_key_from_ref(&edge.source);
+    boltmap_insert_str(&mut params, "source_key", &source_key);
+
+    let target_type = edge.target.node_type.to_string();
+    let target_key = create_node_key_from_ref(&edge.target);
+    boltmap_insert_str(&mut params, "target_key", &target_key);
+    boltmap_insert_str(&mut params, "ref_id", &edge.ref_id);
+    boltmap_insert_float(&mut params, "confidence", confidence as f64);
+    boltmap_insert_str(&mut params, "strategy", strategy);
+
+    let query = format!(
+        "MATCH (source:{} {{node_key: $source_key}}),
+             (target:{} {{node_key: $target_key}})
+        MERGE (source)-[r:{}]->(target)
+        SET r.ref_id = $ref_id, r.confidence = $confidence, r.strategy = $strategy
+        RETURN r",
+        source_type, target_type, rel_type
+    );
+    (query, params)
 }
 
 pub fn add_calls_query(

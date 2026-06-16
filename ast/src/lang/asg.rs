@@ -239,6 +239,10 @@ pub struct Calls {
     pub source: NodeKeys,
     pub target: NodeKeys,
     pub operand: Option<String>,
+    #[serde(default)]
+    pub confidence: f32,
+    #[serde(default)]
+    pub strategy: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
