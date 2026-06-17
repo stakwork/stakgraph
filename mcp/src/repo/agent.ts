@@ -31,6 +31,7 @@ import {
   extractLeadingJsonObject,
   matchesSchemaShape,
   collectEnumConstraints,
+  getCurrentDateSnippet,
 } from "./utils.js";
 import { LanguageModel } from "ai";
 import {
@@ -91,7 +92,9 @@ function DEFAULT_SYSTEM(toolsConfig?: ToolsConfig) {
 
   const qs = toolsConfig?.ask_clarifying_questions ? true : false;
 
-  return `You are a code exploration assistant with access to a **code knowledge graph**. Use graph tools whenever possible — they are faster, more precise, and understand code relationships.
+  return `${getCurrentDateSnippet()}
+
+You are a code exploration assistant with access to a **code knowledge graph**. Use graph tools whenever possible — they are faster, more precise, and understand code relationships.
 
 Try to match the tone of the user. If the user is asking a technical question, research deeper, and respond with technical details. If the user's question is high-level (non-specific), then do not answer with too much detail!
 
