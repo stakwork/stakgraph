@@ -113,6 +113,17 @@ impl TypeScriptRegistry {
             }
         }
 
+        // Build fn_returns: func_name → (return_type, defining_file)
+        // Skip generic return types to avoid false matches with parameterized types.
+        let fn_returns: HashMap<String, (String, String)> = reg
+            .return_types
+            .iter()
+            .filter(|(_, ret)| !ret.contains('<'))
+            .map(|((file, func_name), ret)| {
+                (func_name.clone(), (ret.clone(), file.clone()))
+            })
+            .collect();
+
         // Pass 2: pre-resolve call sites per file
         let all_resolved: Vec<((String, usize, usize), NodeKeys)> = filez
             .iter()
@@ -122,6 +133,7 @@ impl TypeScriptRegistry {
                     source,
                     file,
                     &reg.class_fields,
+                    &fn_returns,
                     &reg.import_sources,
                     &reg.var_types,
                     graph,
