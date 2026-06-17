@@ -8,7 +8,6 @@ pub struct TypeScriptRegistry {
     pub(super) var_types: HashMap<(String, String), String>,
     type_defs: HashMap<String, String>,
     methods: HashMap<(String, String), String>,
-    return_types: HashMap<(String, String), String>,
     pub(super) import_sources: HashMap<(String, String), String>,
     pub(super) class_fields: HashMap<String, HashMap<String, String>>,
     resolved: HashMap<(String, usize, usize), NodeKeys>,
@@ -20,7 +19,6 @@ impl TypeScriptRegistry {
             var_types: HashMap::new(),
             type_defs: HashMap::new(),
             methods: HashMap::new(),
-            return_types: HashMap::new(),
             import_sources: HashMap::new(),
             class_fields: HashMap::new(),
             resolved: HashMap::new(),
@@ -39,10 +37,6 @@ impl TypeScriptRegistry {
                             (operand.clone(), node_data.name.clone()),
                             file.clone(),
                         );
-                    }
-                    if let Some(ret) = node_data.meta.get("return_type") {
-                        reg.return_types
-                            .insert((file.clone(), node_data.name.clone()), ret.clone());
                     }
                     if let Some(pt_json) = node_data.meta.get("param_types") {
                         if let Ok(params) =
@@ -114,13 +108,15 @@ impl TypeScriptRegistry {
         }
 
         // Build fn_returns: func_name → (return_type, defining_file)
-        // Skip generic return types to avoid false matches with parameterized types.
-        let fn_returns: HashMap<String, (String, String)> = reg
-            .return_types
+        // Scan source files directly so this works for all graph backends (including Neo4j
+        // which cannot support the synchronous iter_all_nodes interface).
+        let fn_returns: HashMap<String, (String, String)> = filez
             .iter()
-            .filter(|(_, ret)| !ret.contains('<'))
-            .map(|((file, func_name), ret)| {
-                (func_name.clone(), (ret.clone(), file.clone()))
+            .filter(|(f, _)| f.ends_with(".ts") || f.ends_with(".tsx"))
+            .flat_map(|(file, source)| {
+                ts_resolver::extract_fn_returns(source)
+                    .into_iter()
+                    .map(|(func_name, ret_type)| (func_name, (ret_type, file.clone())))
             })
             .collect();
 

@@ -325,7 +325,7 @@ fn lookup_with_extensions(
 
 /// Normalize a relative import path like "../../lib/api/client" relative to
 /// the directory of `current_file`, returning the canonical relative path.
-fn resolve_import_relative(current_file: &str, import_path: &str) -> String {
+pub(crate) fn resolve_import_relative(current_file: &str, import_path: &str) -> String {
     use std::path::{Component, Path, PathBuf};
     if !import_path.starts_with('.') {
         return import_path.to_string();
@@ -401,6 +401,60 @@ pub fn extract_top_level_vars(source: &str) -> HashMap<String, String> {
     out
 }
 
+/// Extract named function return types from a TS/TSX source file.
+/// Returns { func_name → return_type } for top-level and exported function declarations
+/// and arrow-function variable declarators that have an explicit return type annotation.
+/// Only emits non-generic return types (no `<`).
+pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Some(mut parser) = make_parser() else {
+        return out;
+    };
+    let Some(tree) = parser.parse(source, None) else {
+        return out;
+    };
+    let src = source.as_bytes();
+    let root = tree.root_node();
+    for i in 0..root.named_child_count() {
+        let Some(stmt) = root.named_child(i) else { continue };
+        let inner = if stmt.kind() == "export_statement" {
+            stmt.named_child(0).unwrap_or(stmt)
+        } else {
+            stmt
+        };
+        match inner.kind() {
+            "function_declaration" => {
+                let Some(name_node) = inner.child_by_field_name("name") else { continue };
+                let Some(ret_node) = inner.child_by_field_name("return_type") else { continue };
+                if let (Ok(name), Ok(ret)) = (name_node.utf8_text(src), ret_node.utf8_text(src)) {
+                    let clean = ret.trim_start_matches(':').trim().to_string();
+                    if !clean.is_empty() && !clean.contains('<') {
+                        out.insert(name.to_string(), clean);
+                    }
+                }
+            }
+            "lexical_declaration" | "variable_declaration" => {
+                for j in 0..inner.named_child_count() {
+                    let Some(decl) = inner.named_child(j) else { continue };
+                    if decl.kind() != "variable_declarator" { continue }
+                    let Some(name_node) = decl.child_by_field_name("name") else { continue };
+                    let Some(val) = decl.child_by_field_name("value") else { continue };
+                    if !matches!(val.kind(), "arrow_function" | "function_expression") { continue }
+                    let Some(ret_node) = val.child_by_field_name("return_type") else { continue };
+                    if let (Ok(name), Ok(ret)) = (name_node.utf8_text(src), ret_node.utf8_text(src)) {
+                        let clean = ret.trim_start_matches(':').trim().to_string();
+                        if !clean.is_empty() && !clean.contains('<') {
+                            out.insert(name.to_string(), clean);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Extract class field types from a TypeScript/TSX source file.
 /// Returns class_name → { field_name → constructor_type }.
 pub fn extract_class_fields(source: &str) -> HashMap<String, HashMap<String, String>> {
@@ -466,45 +520,3 @@ fn walk_classes(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_resolve_import_relative() {
-        assert_eq!(
-            resolve_import_relative(
-                "src/testing/nextjs/app/api-demo/page.tsx",
-                "../../lib/api/apiClient"
-            ),
-            "src/testing/nextjs/lib/api/apiClient"
-        );
-        assert_eq!(
-            resolve_import_relative("src/app/page.tsx", "../utils"),
-            "src/utils"
-        );
-        // non-relative paths pass through unchanged
-        assert_eq!(
-            resolve_import_relative("src/app/page.tsx", "react"),
-            "react"
-        );
-    }
-
-    #[test]
-    fn test_extract_top_level_vars_finds_api() {
-        let source = r#"
-class APIClient {
-  users = new UsersAPI();
-  posts = new PostsAPI();
-}
-export const api = new APIClient();
-"#;
-        let vars = extract_top_level_vars(source);
-        println!("top_level_vars: {:?}", vars);
-        let fields = extract_class_fields(source);
-        println!("class_fields: {:?}", fields);
-        assert_eq!(vars.get("api").map(|s| s.as_str()), Some("APIClient"), "api not found in top_level_vars");
-        assert!(fields.contains_key("APIClient"), "APIClient not found in class_fields");
-        assert_eq!(fields.get("APIClient").and_then(|m| m.get("users")).map(|s| s.as_str()), Some("UsersAPI"));
-    }
-}
