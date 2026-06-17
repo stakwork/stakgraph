@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import { SessionConfig } from "../repo/session.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "./utils.js";
+import { getCurrentDateSnippet } from "../repo/utils.js";
 import { StakworkRunSummary } from "./types.js";
 
 export type { AgentLogSummary, StakworkRunSummary } from "./types.js";
@@ -68,6 +69,7 @@ export async function logs_agent(req: Request, res: Response) {
   }
 
   let finalPrompt = prompt;
+  finalPrompt = `${getCurrentDateSnippet()}\n\n${finalPrompt}`;
   if (swarmName) {
     const logGroup = swarmNameToLogGroup(swarmName);
     if (logGroup) {

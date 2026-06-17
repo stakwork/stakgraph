@@ -637,3 +637,11 @@ export function collectEnumConstraints(
   }
   return out;
 }
+
+export function getCurrentDateSnippet(): string {
+  return `Today's date is ${new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })}.`;
+}
