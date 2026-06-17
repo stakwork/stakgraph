@@ -551,7 +551,7 @@ impl Repo {
         log_stage_timing("finalize_import_edges", sub_start, Some(&format!("import_edges={}", import_edges_count)));
 
         let sub_start = Instant::now();
-        let registry = crate::lang::registry::build(&self.lang, &*graph);
+        let registry = crate::lang::registry::build(&self.lang, &*graph, filez);
         log_stage_timing("type_registry_build", sub_start, Some(&format!("built={}", registry.is_some())));
 
         self.send_status_update("process_integration_tests", 12);

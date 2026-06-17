@@ -75,17 +75,20 @@ pub fn func_target_file_finder<G: Graph>(
         operand,
         lang,
     ) {
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=global_unique", func_name, current_file)));
         return Some((tf, 0.90, "global_unique".to_string()));
     }
 
     // Attempt 2: find in the same file
     if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=same_file", func_name, current_file)));
         return Some((tf, 0.85, "same_file".to_string()));
     }
 
     // Attempt 3: find by import
     if let Some(import_names) = import_names {
         if let Some(tf) = find_function_by_import(func_name, import_names, graph) {
+            log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=import", func_name, current_file)));
             return Some((tf, 0.80, "import".to_string()));
         }
     }
@@ -93,6 +96,7 @@ pub fn func_target_file_finder<G: Graph>(
     // Attempt 4: find in the same directory
     if let Some(tf) = find_function_in_same_directory(func_name, current_file, graph, source_start)
     {
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=same_dir", func_name, current_file)));
         return Some((tf, 0.45, "same_dir".to_string()));
     }
 
@@ -104,6 +108,7 @@ pub fn func_target_file_finder<G: Graph>(
                 func_name,
                 &target_file,
             ) {
+                log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=operand", func_name, current_file)));
                 return Some((tf, 0.70, "operand".to_string()));
             }
         }
@@ -118,7 +123,7 @@ pub fn func_target_file_finder<G: Graph>(
         }
     }
 
-    log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=false", func_name, current_file)));
+    log_stage_timing("call_resolution", _start, Some(&format!("func={} operand={} file={} hit=false", func_name, operand.as_deref().unwrap_or("none"), current_file)));
     None
 }
 

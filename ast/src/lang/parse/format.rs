@@ -1072,14 +1072,26 @@ impl Lang {
             return Ok(None);
         };
 
-        // REMOVED: is_variable_call gate that was blocking lowercase operand calls
-        // Now we'll try to resolve them via operand-based resolution
-
-        if self.lang.should_skip_function_call(&called, &fc.operand) {
+        if called.is_empty() {
             return Ok(None);
         }
 
-        if called.is_empty() {
+        // AST-level type resolver: fires before skip list so type-resolved calls (e.g. api.users.create)
+        // are not suppressed by heuristic skip rules for common method names.
+        if let Some(registry) = registry {
+            if !fc.source.is_empty() {
+                if let Some(target) =
+                    registry.resolve_call_at(file, call_point.row, call_point.column)
+                {
+                    fc.target = target;
+                    fc.confidence = 1.0;
+                    fc.strategy = "type_resolved".to_string();
+                    return Ok(Some((fc, None, None)));
+                }
+            }
+        }
+
+        if self.lang.should_skip_function_call(&called, &fc.operand) {
             return Ok(None);
         }
 

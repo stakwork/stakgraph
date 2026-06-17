@@ -20,7 +20,7 @@ fn ts_class(file: &str, name: &str) -> NodeData {
 fn test_resolve_type_from_var() {
     let mut graph = BTreeMapGraph::new("".to_string(), Language::Typescript);
     graph.add_node(&NodeType::Var, &ts_var("/repo/src/a.ts", "userService", "UserService"));
-    let reg = TypeScriptRegistry::new(&graph);
+    let reg = TypeScriptRegistry::new(&graph, &[]);
     assert_eq!(
         reg.resolve_type("/repo/src/a.ts", "userService"),
         Some("UserService")
@@ -31,7 +31,7 @@ fn test_resolve_type_from_var() {
 fn test_resolve_method_via_type_def() {
     let mut graph = BTreeMapGraph::new("".to_string(), Language::Typescript);
     graph.add_node(&NodeType::Class, &ts_class("/repo/src/user.ts", "UserService"));
-    let reg = TypeScriptRegistry::new(&graph);
+    let reg = TypeScriptRegistry::new(&graph, &[]);
     assert_eq!(
         reg.resolve_method("UserService", "getUser"),
         Some("/repo/src/user.ts")
@@ -41,7 +41,7 @@ fn test_resolve_method_via_type_def() {
 #[test]
 fn test_resolve_unknown_returns_none() {
     let graph = BTreeMapGraph::new("".to_string(), Language::Typescript);
-    let reg = TypeScriptRegistry::new(&graph);
+    let reg = TypeScriptRegistry::new(&graph, &[]);
     assert_eq!(reg.resolve_type("/repo/src/a.ts", "mystery"), None);
     assert_eq!(reg.resolve_method("Mystery", "doThing"), None);
 }
