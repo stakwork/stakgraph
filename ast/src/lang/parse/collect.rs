@@ -262,6 +262,7 @@ impl Lang {
         graph: &G,
         lsp_tx: &Option<CmdSender>,
         allow_unverified: bool,
+        registry: Option<&dyn crate::lang::registry::Registry>,
     ) -> Result<Vec<FunctionCall>> {
         trace!("collect_calls_in_function");
         let _collect_start = Instant::now();
@@ -279,6 +280,7 @@ impl Lang {
                 graph,
                 lsp_tx,
                 allow_unverified,
+                registry,
             )? {
                 res.push(fc);
             }

@@ -120,6 +120,14 @@ impl Graph for ArrayGraph {
         (node_keys, edge_keys)
     }
 
+    fn iter_all_nodes(&self) -> Box<dyn Iterator<Item = (&NodeType, &NodeData)> + '_> {
+        Box::new(
+            self.nodes
+                .iter()
+                .map(|node| (&node.node_type, &node.node_data)),
+        )
+    }
+
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         self.nodes
             .iter()

@@ -7,6 +7,7 @@ use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::QueryMatch;
+use serde_json;
 
 use super::super::queries::consts::*;
 use super::utils::{clean_class_name, find_def, is_capitalized, log_cmd, trim_quotes};
@@ -224,7 +225,7 @@ impl Lang {
                 }
             }
            let import_names = get_imports_for_file(file, self, graph);
-            if let Some(node) = node_data_finder(
+            if let Some((node, _, _)) = node_data_finder(
                 &comp_name,
                 &None,
                 graph,
@@ -233,6 +234,7 @@ impl Lang {
                 NodeType::Page,
                 import_names,
                 self,
+                None,
             ) {
                 page_renders.push(Edge::renders(&pag, &node));
             }
@@ -561,7 +563,9 @@ impl Lang {
                                     NodeType::Endpoint,
                                     import_names.clone(),
                                     self,
+                                    None,
                                 )
+                                .map(|(nd, _, _)| nd)
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                             params,
@@ -933,6 +937,23 @@ impl Lang {
             }
         }
 
+        if matches!(self.kind, Language::Typescript) {
+            if let Some(ret) = &raw_return {
+                let clean = ret.trim_start_matches(':').trim().to_string();
+                if !clean.is_empty() {
+                    func.meta.insert("return_type".to_string(), clean);
+                }
+            }
+            if let Some(args) = &raw_args {
+                let pts = parse_param_types(args);
+                if !pts.is_empty() {
+                    if let Ok(json) = serde_json::to_string(&pts) {
+                        func.meta.insert("param_types".to_string(), json);
+                    }
+                }
+            }
+        }
+
         let mut return_types = Vec::new();
         for t in return_type_data_models {
             return_types.push(Edge::contains(
@@ -1004,6 +1025,7 @@ impl Lang {
         graph: &G,
         lsp_tx: &Option<CmdSender>,
         allow_unverified: bool,
+        registry: Option<&dyn crate::lang::registry::Registry>,
     ) -> Result<Option<FunctionCall>> {
         let mut fc = Calls::default();
         let mut external_func = None;
@@ -1050,14 +1072,26 @@ impl Lang {
             return Ok(None);
         };
 
-        // REMOVED: is_variable_call gate that was blocking lowercase operand calls
-        // Now we'll try to resolve them via operand-based resolution
-
-        if self.lang.should_skip_function_call(&called, &fc.operand) {
+        if called.is_empty() {
             return Ok(None);
         }
 
-        if called.is_empty() {
+        // AST-level type resolver: fires before skip list so type-resolved calls (e.g. api.users.create)
+        // are not suppressed by heuristic skip rules for common method names.
+        if let Some(registry) = registry {
+            if !fc.source.is_empty() {
+                if let Some(target) =
+                    registry.resolve_call_at(file, call_point.row, call_point.column)
+                {
+                    fc.target = target;
+                    fc.confidence = 1.0;
+                    fc.strategy = "type_resolved".to_string();
+                    return Ok(Some((fc, None, None)));
+                }
+            }
+        }
+
+        if self.lang.should_skip_function_call(&called, &fc.operand) {
             return Ok(None);
         }
 
@@ -1085,7 +1119,7 @@ impl Lang {
                     }
                 } else {
                     let import_names = get_imports_for_file(file, self, graph);
-                    if let Some(one_func) = node_data_finder(
+                    if let Some((one_func, conf, strat)) = node_data_finder(
                         &called,
                         &fc.operand,
                         graph,
@@ -1094,11 +1128,14 @@ impl Lang {
                         NodeType::Function,
                         import_names,
                         self,
+                        None,
                     ) {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
                             called, &one_func.file
                         ));
+                        fc.confidence = conf;
+                        fc.strategy = strat;
                         fc.target = one_func.into();
                     } else {
                         log_cmd(format!(
@@ -1151,7 +1188,7 @@ impl Lang {
         } else {
             // FALLBACK to find?
             let import_names = get_imports_for_file(file, self, graph);
-            if let Some(tf) = node_data_finder(
+            if let Some((tf, conf, strat)) = node_data_finder(
                 &called,
                 &fc.operand,
                 graph,
@@ -1160,15 +1197,18 @@ impl Lang {
                 NodeType::Function,
                 import_names,
                 self,
+                registry,
             ) {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
                     called, &tf.file
                 ));
+                fc.confidence = conf;
+                fc.strategy = strat;
                 fc.target = tf.into();
-            } else if let Some(ref operand) = fc.operand {
+            } else if let Some(ref operand) = fc.operand.clone() {
                 let import_names_for_operand = get_imports_for_file(file, self, graph);
-                if let Some(base_func) = node_data_finder(
+                if let Some((base_func, _, _)) = node_data_finder(
                     operand,
                     &None,
                     graph,
@@ -1177,11 +1217,14 @@ impl Lang {
                     NodeType::Function,
                     import_names_for_operand,
                     self,
+                    None,
                 ) {
                     log_cmd(format!(
                         "==> ? (member expr) resolved base object {:?} in {}",
                         operand, &base_func.file
                     ));
+                    fc.confidence = 0.35;
+                    fc.strategy = "member_expr".to_string();
                     fc.target = base_func.into();
                 }
             }
@@ -1463,4 +1506,75 @@ impl Lang {
 
         lines.join("\n")
     }
+}
+
+fn parse_param_types(raw: &str) -> Vec<std::collections::HashMap<String, String>> {
+    let inner = raw
+        .trim()
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(raw);
+    split_top_level_params(inner)
+        .into_iter()
+        .filter_map(|p| {
+            let p = p.trim().strip_prefix("...").unwrap_or(p.trim());
+            if p.is_empty() {
+                return None;
+            }
+            let colon = find_top_level_colon(p)?;
+            let name = p[..colon].trim().trim_end_matches('?').to_string();
+            let type_str = p[colon + 1..].trim().to_string();
+            if name.is_empty() || type_str.is_empty() {
+                return None;
+            }
+            let mut m = std::collections::HashMap::new();
+            m.insert("name".to_string(), name);
+            m.insert("type".to_string(), type_str);
+            Some(m)
+        })
+        .collect()
+}
+
+fn split_top_level_params(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut current = String::new();
+    for ch in s.chars() {
+        match ch {
+            '<' | '(' | '[' | '{' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '>' | ')' | ']' | '}' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    parts.push(trimmed);
+                }
+                current = String::new();
+            }
+            _ => current.push(ch),
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        parts.push(trimmed);
+    }
+    parts
+}
+
+fn find_top_level_colon(s: &str) -> Option<usize> {
+    let mut depth: i32 = 0;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '<' | '(' | '[' | '{' => depth += 1,
+            '>' | ')' | ']' | '}' => depth -= 1,
+            ':' if depth == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }

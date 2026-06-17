@@ -23,7 +23,8 @@ pub fn node_data_finder<G: Graph>(
     source_node_type: NodeType,
     import_names: Option<Vec<(String, Vec<String>)>>,
     lang: &Lang,
-) -> Option<NodeData> {
+    registry: Option<&dyn crate::lang::registry::Registry>,
+) -> Option<(NodeData, f32, String)> {
     func_target_file_finder(
         func_name,
         operand,
@@ -33,6 +34,7 @@ pub fn node_data_finder<G: Graph>(
         source_node_type,
         import_names,
         lang,
+        registry,
     )
 }
 
@@ -45,8 +47,24 @@ pub fn func_target_file_finder<G: Graph>(
     source_node_type: NodeType,
     import_names: Option<Vec<(String, Vec<String>)>>,
     lang: &Lang,
-) -> Option<NodeData> {
+    registry: Option<&dyn crate::lang::registry::Registry>,
+) -> Option<(NodeData, f32, String)> {
     let _start = Instant::now();
+
+    // Attempt 0: type registry lookup (TypeScript only, when operand is present)
+    if let (Some(registry), Some(operand_name)) = (registry, operand.as_deref()) {
+        if let Some(type_name) = registry.resolve_type(current_file, operand_name) {
+            if let Some(defining_file) = registry.resolve_method(type_name, func_name) {
+                if let Some(tf) = graph
+                    .find_node_by_name_in_file(NodeType::Function, func_name, defining_file)
+                {
+                    log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=type_resolved", func_name, current_file)));
+                    return Some((tf, 1.0, "type_resolved".to_string()));
+                }
+            }
+        }
+    }
+
     // Attempt 1: find only one function file
     if let Some(tf) = find_only_one_function_file(
         func_name,
@@ -57,25 +75,29 @@ pub fn func_target_file_finder<G: Graph>(
         operand,
         lang,
     ) {
-        return Some(tf);
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=global_unique", func_name, current_file)));
+        return Some((tf, 0.90, "global_unique".to_string()));
     }
 
     // Attempt 2: find in the same file
     if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
-        return Some(tf);
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=same_file", func_name, current_file)));
+        return Some((tf, 0.85, "same_file".to_string()));
     }
 
     // Attempt 3: find by import
     if let Some(import_names) = import_names {
         if let Some(tf) = find_function_by_import(func_name, import_names, graph) {
-            return Some(tf);
+            log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=import", func_name, current_file)));
+            return Some((tf, 0.80, "import".to_string()));
         }
     }
 
     // Attempt 4: find in the same directory
     if let Some(tf) = find_function_in_same_directory(func_name, current_file, graph, source_start)
     {
-        return Some(tf);
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=same_dir", func_name, current_file)));
+        return Some((tf, 0.45, "same_dir".to_string()));
     }
 
     // Attempt 5: operand-based resolution
@@ -86,7 +108,8 @@ pub fn func_target_file_finder<G: Graph>(
                 func_name,
                 &target_file,
             ) {
-                return Some(tf);
+                log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=operand", func_name, current_file)));
+                return Some((tf, 0.70, "operand".to_string()));
             }
         }
     }
@@ -95,12 +118,12 @@ pub fn func_target_file_finder<G: Graph>(
     if let Some(ref operand) = operand {
         if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file)
         {
-            log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true", func_name, current_file)));
-            return Some(tf);
+            log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true strategy=nested_var", func_name, current_file)));
+            return Some((tf, 0.60, "nested_var".to_string()));
         }
     }
 
-    log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=false", func_name, current_file)));
+    log_stage_timing("call_resolution", _start, Some(&format!("func={} operand={} file={} hit=false", func_name, operand.as_deref().unwrap_or("none"), current_file)));
     None
 }
 

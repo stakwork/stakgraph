@@ -6,6 +6,7 @@ pub mod graphs;
 pub mod linker;
 pub mod parse;
 pub mod queries;
+pub mod registry;
 
 use crate::builder::utils::log_stage_timing;
 use crate::lang::parse::utils::trim_quotes;
@@ -747,6 +748,7 @@ impl Lang {
         file: &str,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
+        registry: Option<&dyn crate::lang::registry::Registry>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
         trace!("get_function_calls");
         let parse_start = std::time::Instant::now();
@@ -782,6 +784,7 @@ impl Lang {
                         graph,
                         lsp_tx,
                         graph.get_allow_unverified_calls(),
+                        registry,
                     )?;
                     let full_body = if !attributes.is_empty() {
                         format!("{} {}", attributes.join(" "), body)
@@ -849,6 +852,7 @@ impl Lang {
                                 graph,
                                 lsp_tx,
                                 graph.get_allow_unverified_calls(),
+                                registry,
                             )?;
                             let full_body = if !attributes.is_empty() {
                                 format!("{} {}", attributes.join(" "), body)

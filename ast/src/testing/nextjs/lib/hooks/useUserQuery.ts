@@ -77,6 +77,8 @@ export function useUserQuery(userId: string): QueryResult {
 }
 // @ast node: Function "fetchUser"
 // @ast node: Function "refetch"
+// @ast node: Function "invalidate"
+// @ast node: Function "reset"
 // @ast node: DataModel "User"
 // @ast node: DataModel "QueryResult"
 // @ast node: Request "/api/users/${userId}"

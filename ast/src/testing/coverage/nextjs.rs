@@ -213,8 +213,8 @@ async fn test_nextjs_graph_upload() -> Result<()> {
     let graph_ops = setup_nextjs_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 545);
-    assert_eq!(edges, 899);
+    assert_eq!(nodes, 564);
+    assert_eq!(edges, 1052);
 
     Ok(())
 }

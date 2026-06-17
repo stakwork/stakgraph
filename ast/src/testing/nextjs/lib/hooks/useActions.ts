@@ -54,6 +54,8 @@ export function useActions(): ActionsResult {
   };
 }
 // @ast node: Function "addForce"
+// @ast node: Function "removeForce"
 // @ast node: Function "clearAll"
+// @ast node: Function "getCount"
 // @ast node: DataModel "Action"
 // @ast node: DataModel "ActionsResult"

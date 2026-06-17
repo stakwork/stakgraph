@@ -12,10 +12,14 @@ export default function Home() {
     analytics.track("view_home", { source: "direct" });
   }, []);
 
+  // @ast node: Function "handleDeployClick"
+  // @ast edge: Calls -> Function "track" "lib/services/analytics.ts"
   const handleDeployClick = () => {
     analytics.track("click_deploy_button", { target: "vercel" });
   };
 
+  // @ast node: Function "handleDocsClick"
+  // @ast edge: Calls -> Function "track" "lib/services/analytics.ts"
   const handleDocsClick = () => {
     analytics.track("click_docs_button", { target: "nextjs_docs" });
   };

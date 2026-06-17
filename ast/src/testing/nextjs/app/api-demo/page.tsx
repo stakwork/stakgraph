@@ -36,6 +36,8 @@ function APIDemo() {
     setPosts(postsList);
   };
 
+  // @ast node: Function "handleGetUser"
+  // @ast edge: Calls -> Function "get" "lib/api/apiClient.ts"
   const handleGetUser = async () => {
     if (selectedUserId) {
       const user = await api.users.get(selectedUserId);
@@ -43,6 +45,8 @@ function APIDemo() {
     }
   };
 
+  // @ast node: Function "handleCreateUser"
+  // @ast edge: Calls -> Function "create" "lib/api/apiClient.ts"
   const handleCreateUser = async () => {
     const newUser = await api.users.create({
       name: newUserName,
@@ -65,6 +69,7 @@ function APIDemo() {
     setUsers(users.filter((u) => u.id !== id));
   };
 
+  // @ast node: Function "handleGetPost"
   const handleGetPost = async () => {
     if (selectedPostId) {
       const post = await api.posts.get(selectedPostId);
@@ -72,6 +77,7 @@ function APIDemo() {
     }
   };
 
+  // @ast node: Function "handleCreatePost"
   const handleCreatePost = async () => {
     const newPost = await api.posts.create({
       title: "New Post",
@@ -86,6 +92,7 @@ function APIDemo() {
     setPosts(posts.filter((p) => p.id !== id));
   };
 
+  // @ast node: Function "handleGetComments"
   const handleGetComments = async () => {
     if (selectedPostId) {
       const comments = await api.comments.list(selectedPostId);
@@ -93,6 +100,7 @@ function APIDemo() {
     }
   };
 
+  // @ast node: Function "handleCreateComment"
   const handleCreateComment = async () => {
     if (selectedPostId) {
       await api.comments.create({
@@ -102,6 +110,7 @@ function APIDemo() {
     }
   };
 
+  // @ast node: Function "handleDeleteComment"
   const handleDeleteComment = async (id: string) => {
     await api.comments.delete(id);
   };

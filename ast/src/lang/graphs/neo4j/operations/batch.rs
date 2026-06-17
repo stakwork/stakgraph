@@ -156,7 +156,8 @@ impl Neo4jGraph {
                 txn_manager.add_edge(&edge);
             } else {
                 let edge: Edge = calls.clone().into();
-                txn_manager.add_edge(&edge);
+                txn_manager
+                    .add_query(add_calls_edge_query(&edge, calls.confidence, &calls.strategy));
             }
         }
         for (test_call, ext_func, class_call) in tests {
@@ -178,7 +179,8 @@ impl Neo4jGraph {
                 continue;
             } else if !target_empty {
                 let edge = Edge::from_test_call(test_call, lang, self);
-                txn_manager.add_edge(&edge);
+                txn_manager
+                    .add_query(add_calls_edge_query(&edge, test_call.confidence, &test_call.strategy));
             }
         }
         for edge in int_tests {

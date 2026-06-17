@@ -17,6 +17,8 @@ function ActionsDemo() {
   const actionsObj = useActions();
   const { addForce, removeForce, clearAll, getCount } = useActions();
 
+  // @ast node: Function "handleAddViaObject"
+  // @ast edge: Calls -> Function "addForce" "lib/hooks/useActions.ts"
   const handleAddViaObject = () => {
     actionsObj.addForce("cluster");
   };
@@ -25,10 +27,14 @@ function ActionsDemo() {
     actionsObj.removeForce(id);
   };
 
+  // @ast node: Function "handleClearViaObject"
+  // @ast edge: Calls -> Function "clearAll" "lib/hooks/useActions.ts"
   const handleClearViaObject = () => {
     actionsObj.clearAll();
   };
 
+  // @ast node: Function "handleCountViaObject"
+  // @ast edge: Calls -> Function "getCount" "lib/hooks/useActions.ts"
   const handleCountViaObject = () => {
     const count = actionsObj.getCount();
     console.log("Count via object:", count);
@@ -158,6 +164,7 @@ function ActionsDemo() {
 
 export { ActionsDemo as default };
 // @ast node: Function "handleRemoveViaObject"
+// @ast edge: Calls -> Function "removeForce" "lib/hooks/useActions.ts"
 // @ast node: Function "handleAddViaDestructured"
 // @ast node: Function "handleClearViaDestructured"
 // @ast node: Page "actions"

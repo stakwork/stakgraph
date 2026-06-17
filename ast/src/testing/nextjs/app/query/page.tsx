@@ -21,14 +21,20 @@ function QueryDemo() {
   const [inputValue, setInputValue] = useState("user-123");
   const query = useUserQuery(userId);
 
+  // @ast node: Function "handleRefetch"
+  // @ast edge: Calls -> Function "refetch" "lib/hooks/useUserQuery.ts"
   const handleRefetch = async () => {
     await query.refetch();
   };
 
+  // @ast node: Function "handleInvalidate"
+  // @ast edge: Calls -> Function "invalidate" "lib/hooks/useUserQuery.ts"
   const handleInvalidate = () => {
     query.invalidate();
   };
 
+  // @ast node: Function "handleReset"
+  // @ast edge: Calls -> Function "reset" "lib/hooks/useUserQuery.ts"
   const handleReset = () => {
     query.reset();
   };
