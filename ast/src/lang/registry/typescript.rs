@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub struct TypeScriptRegistry {
     pub(super) var_types: HashMap<(String, String), String>,
     type_defs: HashMap<String, String>,
+    methods: HashMap<(String, String), String>,
     return_types: HashMap<(String, String), String>,
     pub(super) import_sources: HashMap<(String, String), String>,
     pub(super) class_fields: HashMap<String, HashMap<String, String>>,
@@ -18,6 +19,7 @@ impl TypeScriptRegistry {
         let mut reg = TypeScriptRegistry {
             var_types: HashMap::new(),
             type_defs: HashMap::new(),
+            methods: HashMap::new(),
             return_types: HashMap::new(),
             import_sources: HashMap::new(),
             class_fields: HashMap::new(),
@@ -32,6 +34,12 @@ impl TypeScriptRegistry {
             }
             match node_type {
                 NodeType::Function => {
+                    if let Some(operand) = node_data.meta.get("operand") {
+                        reg.methods.insert(
+                            (operand.clone(), node_data.name.clone()),
+                            file.clone(),
+                        );
+                    }
                     if let Some(ret) = node_data.meta.get("return_type") {
                         reg.return_types
                             .insert((file.clone(), node_data.name.clone()), ret.clone());
@@ -66,18 +74,19 @@ impl TypeScriptRegistry {
             }
         }
 
-        for entry in IMPORT_CACHE.iter() {
-            let caller_file = entry.key().clone();
-            if !caller_file.ends_with(".ts") && !caller_file.ends_with(".tsx") {
+        for (file, _) in filez {
+            if !file.ends_with(".ts") && !file.ends_with(".tsx") {
                 continue;
             }
-            if let Some(imports) = entry.value() {
-                for (source_file, names) in imports {
-                    for name in names {
-                        reg.import_sources.insert(
-                            (caller_file.clone(), name.clone()),
-                            source_file.clone(),
-                        );
+            if let Some(entry) = IMPORT_CACHE.get(file) {
+                if let Some(imports) = entry.value() {
+                    for (source_file, names) in imports {
+                        for name in names {
+                            reg.import_sources.insert(
+                                (file.clone(), name.clone()),
+                                source_file.clone(),
+                            );
+                        }
                     }
                 }
             }
@@ -150,8 +159,10 @@ impl Registry for TypeScriptRegistry {
         None
     }
 
-    fn resolve_method(&self, type_name: &str, _method_name: &str) -> Option<&str> {
-        self.type_defs.get(type_name).map(|s| s.as_str())
+    fn resolve_method(&self, type_name: &str, method_name: &str) -> Option<&str> {
+        self.methods
+            .get(&(type_name.to_string(), method_name.to_string()))
+            .map(|s| s.as_str())
     }
 
     fn resolve_field(&self, type_name: &str, field_name: &str) -> Option<&str> {
