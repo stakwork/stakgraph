@@ -16,6 +16,12 @@ WORKDIR /usr/src/app
 RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 && \
     ln -s /usr/bin/python3 /usr/bin/python
 
+# Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
+RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    apt update && apt install -y gh
+
 # install Gitleaks (supports x64 and arm64)
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
