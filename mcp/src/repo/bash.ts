@@ -83,13 +83,15 @@ function execRipgrepCommandDirect(
 function execShellCommand(
   command: string,
   cwd: string,
-  timeoutMs: number = 10000
+  timeoutMs: number = 10000,
+  env?: NodeJS.ProcessEnv
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const process = spawn(command, {
       cwd,
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
+      env: env ? { ...globalThis.process.env, ...env } : globalThis.process.env,
     });
 
     let stdout = "";
@@ -339,7 +341,8 @@ export async function fulltextSearch(
 export async function executeBashCommand(
   command: string,
   repoPath: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  env?: NodeJS.ProcessEnv
 ): Promise<string> {
   if (!repoPath) {
     return "No repository path provided";
@@ -350,7 +353,7 @@ export async function executeBashCommand(
   }
 
   try {
-    const result = await execShellCommand(command, repoPath, timeoutMs);
+    const result = await execShellCommand(command, repoPath, timeoutMs, env);
     return result;
   } catch (error: any) {
     return `Error executing command: ${error.message}`;

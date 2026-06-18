@@ -381,6 +381,12 @@ export async function get_tools(
     // Provider tools need to be added differently
   }
 
+  // Per-request GitHub auth for the `gh` CLI (and any tool reading GH_TOKEN).
+  // Scoped to this request's PAT so `gh` acts as the requesting user.
+  const ghEnv: NodeJS.ProcessEnv | undefined = pat
+    ? { GH_TOKEN: pat, GITHUB_TOKEN: pat }
+    : undefined;
+
   // Always register bash tool — Anthropic uses native provider tool, others use executeBashCommand
   if (bash_tool) {
     // Anthropic: use native provider tool (existing behaviour)
@@ -391,7 +397,7 @@ export async function get_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, repoPath);
+          return await executeBashCommand(command, repoPath, undefined, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
         }
@@ -406,7 +412,7 @@ export async function get_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, repoPath);
+          return await executeBashCommand(command, repoPath, undefined, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
         }
