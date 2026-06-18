@@ -1,6 +1,6 @@
 use crate::lang::asg::NodeData;
 use crate::lang::graphs::{BTreeMapGraph, Graph, NodeType};
-use crate::lang::registry::{ts_resolver, typescript::TypeScriptRegistry, Registry};
+use crate::lang::registry::{py_resolver, ts_resolver, typescript::TypeScriptRegistry, Registry};
 use lsp::Language;
 
 fn ts_var(file: &str, name: &str, data_type: &str) -> NodeData {
@@ -108,4 +108,71 @@ export function useGeneric<T>(): Promise<T> { return Promise.resolve({} as T); }
     assert_eq!(returns.get("useActions").map(|s| s.as_str()), Some("ActionsResult"));
     // generic return types are excluded
     assert_eq!(returns.get("useGeneric"), None);
+}
+
+// ── Python resolver unit tests ────────────────────────────────────────────────
+
+#[test]
+fn test_py_extract_class_fields_constructor() {
+    let source = r#"
+class UserService:
+    def __init__(self):
+        self.repo = UserRepository()
+        self.cache = CacheService()
+"#;
+    let fields = py_resolver::extract_class_fields(source);
+    assert!(fields.contains_key("UserService"));
+    let svc = fields.get("UserService").unwrap();
+    assert_eq!(svc.get("repo").map(|s| s.as_str()), Some("UserRepository"));
+    assert_eq!(svc.get("cache").map(|s| s.as_str()), Some("CacheService"));
+}
+
+#[test]
+fn test_py_extract_class_fields_param_annotation() {
+    let source = r#"
+class UserController:
+    def __init__(self, service: UserService):
+        self.service = service
+"#;
+    let fields = py_resolver::extract_class_fields(source);
+    let ctrl = fields.get("UserController").unwrap();
+    assert_eq!(ctrl.get("service").map(|s| s.as_str()), Some("UserService"));
+}
+
+#[test]
+fn test_py_extract_class_fields_explicit_annotation() {
+    let source = r#"
+class App:
+    def __init__(self):
+        self.db: Database = Database()
+"#;
+    let fields = py_resolver::extract_class_fields(source);
+    let app = fields.get("App").unwrap();
+    // explicit annotation wins over constructor inference
+    assert_eq!(app.get("db").map(|s| s.as_str()), Some("Database"));
+}
+
+#[test]
+fn test_py_extract_top_level_vars() {
+    let source = r#"
+service = UserService()
+typed_svc: UserService = UserService()
+"#;
+    let vars = py_resolver::extract_top_level_vars(source);
+    assert_eq!(vars.get("service").map(|s| s.as_str()), Some("UserService"));
+    assert_eq!(vars.get("typed_svc").map(|s| s.as_str()), Some("UserService"));
+}
+
+#[test]
+fn test_py_extract_fn_returns() {
+    let source = r#"
+def get_service() -> UserService:
+    return UserService()
+
+def generic_fn():
+    pass
+"#;
+    let returns = py_resolver::extract_fn_returns(source);
+    assert_eq!(returns.get("get_service").map(|s| s.as_str()), Some("UserService"));
+    assert_eq!(returns.get("generic_fn"), None);
 }

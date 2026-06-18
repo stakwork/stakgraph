@@ -1083,6 +1083,7 @@ impl Lang {
                 if let Some(target) =
                     registry.resolve_call_at(file, call_point.row, call_point.column)
                 {
+                    tracing::info!(target: "stakgraph.timing", stage = "call_resolution", func = %called, file = %file, extra = "hit=true strategy=type_resolved");
                     fc.target = target;
                     fc.confidence = 1.0;
                     fc.strategy = "type_resolved".to_string();

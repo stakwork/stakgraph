@@ -260,9 +260,21 @@ impl Stack for Python {
             "(call
                 function: [
                     (identifier) @{FUNCTION_NAME}
-                    (attribute object: (identifier) @{OPERAND}
-                        attribute: (identifier) @{FUNCTION_NAME}
-                    )
+                    (attribute
+                        object: (identifier) @{OPERAND}
+                        attribute: (identifier) @{FUNCTION_NAME})
+                    (attribute
+                        object: (attribute
+                            object: (identifier) @{OPERAND}
+                            attribute: (identifier))
+                        attribute: (identifier) @{FUNCTION_NAME})
+                    (attribute
+                        object: (attribute
+                            object: (attribute
+                                object: (identifier) @{OPERAND}
+                                attribute: (identifier))
+                            attribute: (identifier))
+                        attribute: (identifier) @{FUNCTION_NAME})
                 ]
             ) @{FUNCTION_CALL}"
         )

@@ -81,7 +81,25 @@ fn resolve_callee<G: Graph>(
     graph: &G,
     node: Node,
     source: &[u8],
+    file: &str,
+    import_sources: &HashMap<(String, String), String>,
 ) -> Option<NodeKeys> {
+    if node.kind() == "identifier" {
+        let fname = node.utf8_text(source).ok()?;
+        if let Some(n) = graph.find_node_by_name_in_file(NodeType::Function, fname, file) {
+            return Some(NodeKeys::from(&n));
+        }
+        if let Some(src_file) = import_sources.get(&(file.to_string(), fname.to_string())) {
+            let resolved = resolve_import_relative(file, src_file);
+            for ext in &["", ".ts", ".tsx"] {
+                let full = format!("{}{}", resolved, ext);
+                if let Some(n) = graph.find_node_by_name_in_file(NodeType::Function, fname, &full) {
+                    return Some(NodeKeys::from(&n));
+                }
+            }
+        }
+        return None;
+    }
     if node.kind() != "member_expression" {
         return None;
     }
@@ -204,11 +222,13 @@ fn walk_node<G: Graph>(
     fn_returns: &HashMap<String, (String, String)>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
+    file: &str,
+    import_sources: &HashMap<(String, String), String>,
 ) {
     match node.kind() {
         "call_expression" => {
             if let Some(func_node) = node.child_by_field_name("function") {
-                if let Some(target) = resolve_callee(scope, class_fields, fn_returns, graph, func_node, source)
+                if let Some(target) = resolve_callee(scope, class_fields, fn_returns, graph, func_node, source, file, import_sources)
                 {
                     let pos = func_node
                         .child_by_field_name("property")
@@ -217,7 +237,7 @@ fn walk_node<G: Graph>(
                     out.insert((pos.row, pos.column), target);
                 }
                 if let Some(args) = node.child_by_field_name("arguments") {
-                    walk_node(args, source, scope, class_fields, fn_returns, graph, out);
+                    walk_node(args, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
                 }
             }
         }
@@ -225,7 +245,7 @@ fn walk_node<G: Graph>(
             try_bind_declaration(node, source, scope, class_fields, fn_returns);
             for i in 0..node.named_child_count() {
                 if let Some(child) = node.named_child(i) {
-                    walk_node(child, source, scope, class_fields, fn_returns, graph, out);
+                    walk_node(child, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
                 }
             }
         }
@@ -240,7 +260,7 @@ fn walk_node<G: Graph>(
                 bind_params(params, source, scope);
             }
             if let Some(body) = node.child_by_field_name("body") {
-                walk_node(body, source, scope, class_fields, fn_returns, graph, out);
+                walk_node(body, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
             }
             scope_pop(scope);
         }
@@ -248,15 +268,47 @@ fn walk_node<G: Graph>(
             if let Some(body) = node.child_by_field_name("body") {
                 for i in 0..body.named_child_count() {
                     if let Some(child) = body.named_child(i) {
-                        walk_node(child, source, scope, class_fields, fn_returns, graph, out);
+                        walk_node(child, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
                     }
+                }
+            }
+        }
+        "jsx_element" => {
+            if let Some(open_tag) = node.child_by_field_name("open_tag") {
+                if let Some(name_node) = open_tag.child_by_field_name("name") {
+                    if name_node.kind() == "identifier" {
+                        if let Some(target) = resolve_callee(scope, class_fields, fn_returns, graph, name_node, source, file, import_sources) {
+                            let pos = name_node.start_position();
+                            out.insert((pos.row, pos.column), target);
+                        }
+                    }
+                }
+            }
+            for i in 0..node.named_child_count() {
+                if let Some(child) = node.named_child(i) {
+                    walk_node(child, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
+                }
+            }
+        }
+        "jsx_self_closing_element" => {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                if name_node.kind() == "identifier" {
+                    if let Some(target) = resolve_callee(scope, class_fields, fn_returns, graph, name_node, source, file, import_sources) {
+                        let pos = name_node.start_position();
+                        out.insert((pos.row, pos.column), target);
+                    }
+                }
+            }
+            for i in 0..node.named_child_count() {
+                if let Some(child) = node.named_child(i) {
+                    walk_node(child, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
                 }
             }
         }
         _ => {
             for i in 0..node.named_child_count() {
                 if let Some(child) = node.named_child(i) {
-                    walk_node(child, source, scope, class_fields, fn_returns, graph, out);
+                    walk_node(child, source, scope, class_fields, fn_returns, graph, out, file, import_sources);
                 }
             }
         }
@@ -305,7 +357,7 @@ pub fn resolve_file_calls<G: Graph>(
         }
     }
 
-    walk_node(tree.root_node(), src, &mut scope, class_fields, fn_returns, graph, &mut out);
+    walk_node(tree.root_node(), src, &mut scope, class_fields, fn_returns, graph, &mut out, file, import_sources);
     out
 }
 
