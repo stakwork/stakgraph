@@ -156,7 +156,16 @@ vision verdict), `read_logs`, `bash`, `str_replace_based_edit_tool` (edit
 pm2.config.js env / docker-compose.yml / repo source, sandboxed to the
 workspace), and `final_answer` (a `## SUMMARY` / `## WORKING` / `## MISSING`
 markdown report). The agent works in LOCAL path terms; the final `setup` output
-is rewritten back to pod-portable `/workspaces/<repo>`. Because it is allowed to
+is rewritten back to pod-portable `/workspaces/<repo>`. A working-dir **preamble**
+(the real local workspace path + sibling repos) is prepended to the prompt so the
+agent doesn't burn steps guessing pod paths. **Pod URLs (`$POD_ID`/`$POD_URL`)**
+are kept in the deliverable (the pod contract) but **localized only in the
+staged-for-boot copy** (`podSubstituteLocal`: `https://$POD_ID-<port>.<domain>` →
+`http://localhost:<port>`, `$POD_URL` → `http://localhost:<frontendPort>`) — on
+the real sandbox the platform expands them + proxies `<podid>-<port>.<domain>` to
+`localhost:<port>`; locally there's no proxy, so we emulate it (NOT a staklink
+concern). The agent is told these are auto-substituted and to KEEP them rather
+than rewrite to localhost. (verify-setup could adopt the same helper.) Because it is allowed to
 **WRITE/FIX**, it must **NOT** be wired into the scored `gitsee-optimize` loop —
 fixing in place would erase the gradient that teaches the explorer. Its home is
 the standalone **`gitsee-setup-and-run`** workflow (`clone → produce

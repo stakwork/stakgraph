@@ -53,7 +53,7 @@ steps:
 
 params:
   checkPath: "/"
-  maxSteps: 60
+  maxSteps: 240
   bootTimeoutMs: 420000
   useStaklink: true
   model: claude-sonnet-4-6

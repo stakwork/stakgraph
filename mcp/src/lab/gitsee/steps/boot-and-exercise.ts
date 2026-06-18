@@ -96,6 +96,25 @@ function sh(
   });
 }
 
+/** A neutral listing of the workspace's immediate entries, prepended to the
+ *  prompt so the agent knows the layout (and the REAL local path) without burning
+ *  steps guessing pod paths like /workspaces/<repo>. Mirrors the core agent's
+ *  buildPreamble. */
+function buildPreamble(wp: string): string {
+  if (!existsSync(wp)) return "";
+  const entries = readdirSync(wp, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith("."))
+    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+    .sort();
+  if (!entries.length) return "";
+  return (
+    `Working directory (the workspace root, where the repos are cloned as siblings) is:\n  ${wp}\n` +
+    `It contains:\n` +
+    entries.map((e) => `- ${e}`).join("\n") +
+    `\n\nUse these REAL local paths — the repos are NOT at /workspaces/<repo> here (that's the pod path; the cwd in pm2.config.js is rewritten to the local clone for you). bash runs with this directory as its cwd, so relative paths work.`
+  );
+}
+
 /** Immediate subdirs of `wp` that are git repos. */
 function listRepos(wp: string): string[] {
   if (!existsSync(wp)) return [];
@@ -261,6 +280,31 @@ function parsePm2(code: string | undefined): Pm2App[] | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * LOCAL emulation of the pod's `$POD_ID` / `$POD_URL` substitution.
+ *
+ * On the real sandbox the platform expands these placeholders AND its reverse
+ * proxy maps `https://<podid>-<port>.<domain>` → `localhost:<port>` inside the
+ * pod. Locally there's no proxy/DNS, so plain env expansion can't reproduce it —
+ * we rewrite the pod-URL PATTERNS to their `localhost:<port>` equivalents, but
+ * ONLY in the staged-for-boot copy. The agent-facing pm2.config.js and the final
+ * `setup` keep the `$POD_*` placeholders (the pod contract is the deliverable);
+ * only the booted copy is localized, so the app runs correctly here without the
+ * agent "fixing" the placeholders away. (This is a local-emulation concern, not a
+ * staklink one — staklink does the REAL pod expansion in prod.)
+ */
+function podSubstituteLocal(pm2Code: string, frontendPort: number): string {
+  return pm2Code
+    // a sibling service on another port: https://$POD_ID-3001.<domain> → http://localhost:3001
+    .replace(/https?:\/\/\$\{?POD_ID\}?-(\d+)\.[A-Za-z0-9.\-]+/g, "http://localhost:$1")
+    // this app's base, already-expanded form: https://$POD_ID.<domain> → http://localhost:<frontendPort>
+    .replace(/https?:\/\/\$\{?POD_ID\}?\.[A-Za-z0-9.\-]+/g, `http://localhost:${frontendPort}`)
+    // $POD_URL (optionally followed by a path/query) → http://localhost:<frontendPort>
+    .replace(/\$\{?POD_URL\}?/g, `http://localhost:${frontendPort}`)
+    // any leftover bare $POD_ID (rare standalone use)
+    .replace(/\$\{?POD_ID\}?/g, "local");
 }
 
 /** The frontend app (named "frontend", else the first app) + its port. */
@@ -619,12 +663,12 @@ ${logs ? logs.slice(-6000) : "(none)"}`,
 export default defineStep({
   type: "gitsee/boot-and-exercise",
   description:
-    "Autonomous 'set up a repo until it runs' agent. Stages the produced pm2.config.js + docker-compose.yml into the cloned workspace, then runs a tool-using loop that BOOTS the app (docker compose + staklink/pm2), DRIVES it in a real headless browser (open/snapshot/click/fill), OBSERVES failures (console + network 4xx/5xx + server logs), JUDGES the screen with a vision model, FIXES the config/repo (str_replace_based_edit_tool), REBOOTS, and repeats until the frontend is functional. Unlike verify-setup it is allowed to WRITE — so it is NOT a scored eval signal. Captures the agent's repo edits as a replayable per-repo `git diff` (part of the deliverable). Config: workspacePath, setup, checkPath? (default /), maxSteps? (default 60), bootTimeoutMs? (default 420000), useStaklink? (default true), bootCommand?, model?, provider?, keepUp? (default false), enabled? (default true). Output: { booted, working, port, setup, report, diff, changedRepos, changed, screenshotPath, iterations, logsTail, usage, cost }.",
+    "Autonomous 'set up a repo until it runs' agent. Stages the produced pm2.config.js + docker-compose.yml into the cloned workspace, then runs a tool-using loop that BOOTS the app (docker compose + staklink/pm2), DRIVES it in a real headless browser (open/snapshot/click/fill), OBSERVES failures (console + network 4xx/5xx + server logs), JUDGES the screen with a vision model, FIXES the config/repo (str_replace_based_edit_tool), REBOOTS, and repeats until the frontend is functional. Unlike verify-setup it is allowed to WRITE — so it is NOT a scored eval signal. Captures the agent's repo edits as a replayable per-repo `git diff` (part of the deliverable). Config: workspacePath, setup, checkPath? (default /), maxSteps? (default 120), bootTimeoutMs? (default 420000), useStaklink? (default true), bootCommand?, model?, provider?, keepUp? (default false), enabled? (default true). Output: { booted, working, port, setup, report, diff, changedRepos, changed, screenshotPath, iterations, logsTail, usage, cost }.",
   input: z.object({
     workspacePath: z.string().describe("dir containing the cloned repos as siblings (from gitsee/clone-workspace)"),
     setup: z.string().describe("the initial pm2.config.js + docker-compose.yml two-file string to boot and improve"),
     checkPath: z.string().default("/").describe("path appended to http://localhost:<port> for the first page load"),
-    maxSteps: z.number().int().positive().default(60).describe("max agent tool-call iterations"),
+    maxSteps: z.number().int().positive().default(120).describe("max agent tool-call iterations (a complex multi-service app + reboots burns a lot)"),
     bootTimeoutMs: z.number().int().positive().default(420000).describe("max wait for the frontend port to bind"),
     useStaklink: z.boolean().default(true).describe("boot via `npx staklink start` (prod-faithful); false = inline pm2-free boot"),
     bootCommand: z.string().default("npx -y staklink@latest start").describe("the staklink boot command (when useStaklink)"),
@@ -701,8 +745,11 @@ export default defineStep({
       if (!curFe) return "no app in pm2.config.js";
       port = curFe.port;
       browser.setBaseUrl(`http://localhost:${port}`);
+      // Localize the pod-URL placeholders ($POD_ID/$POD_URL) for the booted copy
+      // ONLY — the agent-facing pm2.config.js keeps them (the pod contract).
+      const pm2Staged = podSubstituteLocal(pm2Code, port);
       mkdirSync(join(wp, ".pod-config", ".user-dockerfile"), { recursive: true });
-      writeFileSync(join(wp, ".pod-config", ".user-dockerfile", "pm2.config.js"), pm2Code);
+      writeFileSync(join(wp, ".pod-config", ".user-dockerfile", "pm2.config.js"), pm2Staged);
 
       const composeText = existsSync(join(wp, "docker-compose.yml"))
         ? readFileSync(join(wp, "docker-compose.yml"), "utf-8")
@@ -724,7 +771,9 @@ export default defineStep({
         const boot = await sh(cfg.bootCommand, wp, {}, 180000);
         if (boot.code !== 0) log(`staklink start returned ${boot.code}: ${boot.stderr.slice(0, 400)}`);
       } else {
-        const app = curFe.app;
+        // Inline boot: use the localized (staged) env so $POD_* placeholders are
+        // expanded to localhost, matching what staklink would read.
+        const app = frontendApp(parsePm2(pm2Staged) ?? curApps)?.app ?? curFe.app;
         const appCwd = (app.cwd ?? "").replace(/\/workspaces\//g, `${wp}/`) || wp;
         const appEnv: Record<string, string> = {};
         for (const [k, v] of Object.entries(app.env ?? {})) appEnv[k] = String(v);
@@ -903,12 +952,15 @@ Keep going until: the port binds, the intended UI renders, primary navigation wo
 
 Rules:
 - Make MINIMAL, surgical edits. Don't refactor.
+- ENV VARS GO IN pm2.config.js. Whenever you set or fix an environment variable, put it in the relevant app's \`env\` block in pm2.config.js — even if you also write it into a repo .env file to make the running app pick it up. Repo .env files (.env.local, .env, …) are usually GITIGNORED, so they are NOT captured in the deliverable diff and would be LOST on a fresh clone; the pm2.config.js env block is the source of truth that ships. Do not rely on a gitignored .env file alone for any var the app needs to boot/run.
+- POD URLS ARE AUTOMATIC — KEEP THEM. Env values may use the pod placeholders \`$POD_URL\` (this app's own public base URL) and \`https://$POD_ID-<port>.<domain>\` (a sibling service on another port, e.g. a backend on 3001 or supabase on 54321). This is how the REAL sandbox works, and these are AUTOMATICALLY substituted to the correct \`http://localhost:<port>\` for you when the app is booted locally — so the live app you're testing already has working URLs. KEEP the \`$POD_URL\` / \`$POD_ID-<port>\` placeholders as-is in pm2.config.js; do NOT rewrite them to localhost yourself (that would break the deliverable on the real pod). If a URL is wired wrong, fix WHICH placeholder/port it points at (or a genuinely missing var), not the placeholder syntax.
 - Keep the frontend pm2 service named "frontend"; the dev server MUST bind 0.0.0.0.
 - Only a primary datastore gets a docker-compose service; mock everything else (no containers for caches/queues/cloud APIs).
 - Reboots are expensive — batch related fixes before rebooting.
 - Don't loop forever: if you've truly exhausted what you can fix, call final_answer and honestly report what's still missing.`;
 
-    const prompt = `The workspace is staged and ready. Begin by calling boot, then drive the app and iterate until the frontend is functional. The initial setup you're improving is:\n\n${cfg.setup}`;
+    const preamble = buildPreamble(wp);
+    const prompt = `${preamble ? preamble + "\n\n" : ""}The workspace is staged and ready. Begin by calling boot, then drive the app and iterate until the frontend is functional. The initial setup you're improving is:\n\n${cfg.setup}`;
 
     const agent = new ToolLoopAgent({
       model,
