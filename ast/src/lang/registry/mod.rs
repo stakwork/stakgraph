@@ -1,3 +1,5 @@
+pub mod py_resolver;
+pub mod python;
 pub mod ts_resolver;
 pub mod typescript;
 
@@ -24,6 +26,7 @@ pub fn build(
 ) -> Option<Box<dyn Registry>> {
     match lang.kind {
         Language::Typescript => Some(Box::new(typescript::TypeScriptRegistry::new(graph, filez))),
+        Language::Python => Some(Box::new(python::PythonRegistry::new(graph, filez))),
         _ => None,
     }
 }
