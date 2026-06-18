@@ -367,7 +367,25 @@ fn resolve_callee<G: Graph>(
     graph: &G,
     node: Node,
     source: &[u8],
+    file: &str,
+    import_sources: &HashMap<(String, String), String>,
 ) -> Option<NodeKeys> {
+    if node.kind() == "identifier" {
+        let fname = node.utf8_text(source).ok()?;
+        if let Some(n) = graph.find_node_by_name_in_file(NodeType::Function, fname, file) {
+            return Some(NodeKeys::from(&n));
+        }
+        if let Some(src_file) = import_sources.get(&(file.to_string(), fname.to_string())) {
+            let resolved = resolve_python_import(file, src_file);
+            for ext in &["", ".py"] {
+                let full = format!("{}{}", resolved, ext);
+                if let Some(n) = graph.find_node_by_name_in_file(NodeType::Function, fname, &full) {
+                    return Some(NodeKeys::from(&n));
+                }
+            }
+        }
+        return None;
+    }
     if node.kind() != "attribute" {
         return None;
     }
@@ -499,6 +517,8 @@ fn walk_node<G: Graph>(
     fn_returns: &HashMap<String, (String, String)>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
+    file: &str,
+    import_sources: &HashMap<(String, String), String>,
 ) {
     match node.kind() {
         "class_definition" => {
@@ -518,6 +538,8 @@ fn walk_node<G: Graph>(
                             fn_returns,
                             graph,
                             out,
+                            file,
+                            import_sources,
                         );
                     }
                 }
@@ -534,6 +556,8 @@ fn walk_node<G: Graph>(
                 fn_returns,
                 graph,
                 out,
+                file,
+                import_sources,
             );
         }
         "function_definition" => {
@@ -565,6 +589,8 @@ fn walk_node<G: Graph>(
                     fn_returns,
                     graph,
                     out,
+                    file,
+                    import_sources,
                 );
             }
             scope_pop(scope);
@@ -572,7 +598,7 @@ fn walk_node<G: Graph>(
         "call" => {
             if let Some(func_node) = node.child_by_field_name("function") {
                 if let Some(target) =
-                    resolve_callee(scope, class_fields, fn_returns, graph, func_node, source)
+                    resolve_callee(scope, class_fields, fn_returns, graph, func_node, source, file, import_sources)
                 {
                     // Key by the attribute identifier position (the method name)
                     let pos = func_node
@@ -592,6 +618,8 @@ fn walk_node<G: Graph>(
                         fn_returns,
                         graph,
                         out,
+                        file,
+                        import_sources,
                     );
                 }
             }
@@ -611,6 +639,8 @@ fn walk_node<G: Graph>(
                     fn_returns,
                     graph,
                     out,
+                    file,
+                    import_sources,
                 );
             }
         }
@@ -626,6 +656,8 @@ fn walk_node<G: Graph>(
                         fn_returns,
                         graph,
                         out,
+                        file,
+                        import_sources,
                     );
                 }
             }
@@ -634,6 +666,23 @@ fn walk_node<G: Graph>(
 }
 
 // ── public entry point ────────────────────────────────────────────────────────
+
+fn resolve_python_import(current_file: &str, import_path: &str) -> String {
+    if !import_path.starts_with('.') {
+        return import_path.to_string();
+    }
+    let dots = import_path.chars().take_while(|&c| c == '.').count();
+    let module = &import_path[dots..];
+    let mut base = std::path::PathBuf::from(current_file);
+    base.pop();
+    for _ in 1..dots {
+        base.pop();
+    }
+    if !module.is_empty() {
+        base.push(module.replace('.', "/"));
+    }
+    base.to_string_lossy().to_string()
+}
 
 /// Walk a Python source file and return a map from
 /// (row, col) of each resolved method-call's attribute identifier to the target NodeKeys.
@@ -672,6 +721,8 @@ pub fn resolve_file_calls<G: Graph>(
         fn_returns,
         graph,
         &mut out,
+        file,
+        import_sources,
     );
     out
 }
