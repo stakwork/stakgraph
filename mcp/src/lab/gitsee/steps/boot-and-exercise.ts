@@ -905,12 +905,15 @@ export default defineStep({
       }),
       bash: tool({
         description:
-          "Run a bash command in the workspace (cwd = the repos' parent). Use to inspect manifests/lockfiles/.env files, grep (rg) for env-var/service usage, check migrations, run one-off db commands, etc. 10-min timeout.",
+          "Run a bash command in the workspace (cwd = the repos' parent). Use to inspect manifests/lockfiles/.env files, grep (rg) for env-var/service usage, check migrations, run one-off db commands, etc. 10-min timeout. Output is capped — keep commands targeted (pipe to head/grep) rather than dumping whole files/logs, so the context stays small.",
         inputSchema: z.object({ command: z.string() }) as any,
         execute: async ({ command }: { command: string }) => {
           const r = await sh(command, wp, {}, 600000);
           const out = `${r.stdout}${r.stderr ? `\n[stderr]\n${r.stderr}` : ""}`.trim();
-          return (out || `(exit ${r.code}, no output)`).slice(0, 12000);
+          // Cap tighter than the explore agent (6k) — this loop runs MANY bash
+          // calls and the accumulated output is the main context-bloat driver
+          // (slow, expensive turns). Keep the TAIL (errors usually land last).
+          return out.length > 6000 ? "[... output truncated, showing tail ...]\n" + out.slice(-6000) : out || `(exit ${r.code}, no output)`;
         },
       }),
       str_replace_based_edit_tool:
@@ -954,8 +957,11 @@ Rules:
 - Make MINIMAL, surgical edits. Don't refactor.
 - ENV VARS GO IN pm2.config.js. Whenever you set or fix an environment variable, put it in the relevant app's \`env\` block in pm2.config.js — even if you also write it into a repo .env file to make the running app pick it up. Repo .env files (.env.local, .env, …) are usually GITIGNORED, so they are NOT captured in the deliverable diff and would be LOST on a fresh clone; the pm2.config.js env block is the source of truth that ships. Do not rely on a gitignored .env file alone for any var the app needs to boot/run.
 - POD URLS ARE AUTOMATIC — KEEP THEM. Env values may use the pod placeholders \`$POD_URL\` (this app's own public base URL) and \`https://$POD_ID-<port>.<domain>\` (a sibling service on another port, e.g. a backend on 3001 or supabase on 54321). This is how the REAL sandbox works, and these are AUTOMATICALLY substituted to the correct \`http://localhost:<port>\` for you when the app is booted locally — so the live app you're testing already has working URLs. KEEP the \`$POD_URL\` / \`$POD_ID-<port>\` placeholders as-is in pm2.config.js; do NOT rewrite them to localhost yourself (that would break the deliverable on the real pod). If a URL is wired wrong, fix WHICH placeholder/port it points at (or a genuinely missing var), not the placeholder syntax.
+  - This matters MOST for BROWSER-FACING vars — \`NEXT_PUBLIC_*\`, Vite \`VITE_*\`, OAuth callback/redirect URLs, anything the CLIENT/browser fetches. Those MUST keep the \`https://$POD_ID-<port>.<domain>\` form and MUST NOT be hardcoded to \`localhost\`: on the real pod the browser is REMOTE, so \`localhost\` would hit the user's own laptop, not the pod. Local substitution still rewrites them to \`localhost:<port>\` for YOUR headless-browser test, so the same placeholder works in both places — trust it. Only purely INTERNAL server-to-server values (a backend's own DB connection string, a service it reaches on localhost inside the pod) stay literal localhost.
+- PREFER THE PROJECT'S OWN LOCAL-DEV TOOLING over hand-rolling infrastructure. If the project ships a first-party way to bring up its backing stack — \`supabase start\` (the Supabase CLI spins up its OWN Postgres + Auth + Storage + REST containers and applies the repo's migrations), a devcontainer script, a Makefile/compose target — USE IT via PRE_START_COMMAND; do NOT hand-wire the individual services (Postgres + GoTrue + PostgREST + storage…) yourself in docker-compose.yml. Hand-rolling a multi-container stack is brittle and will burn your whole budget. If you've INHERITED such a hand-rolled setup and it's fighting you, REPLACE it with the first-party command (drop the self-hosted services from docker-compose.yml and put \`supabase start\` in PRE_START_COMMAND).
 - Keep the frontend pm2 service named "frontend"; the dev server MUST bind 0.0.0.0.
-- Only a primary datastore gets a docker-compose service; mock everything else (no containers for caches/queues/cloud APIs).
+- Only a primary datastore gets a docker-compose service; mock everything else (no containers for caches/queues/cloud APIs). A CLI-managed stack like \`supabase start\` is NOT a compose service — it goes in PRE_START_COMMAND (see above).
+- DRIVE THE UI — don't drown in the shell. The browser tools (browser_open / browser_snapshot / browser_click / browser_observe / assess_ui) are how you VERIFY success and they're your success criterion; bash/curl is only for QUICK diagnosis of a specific error. After a couple of diagnostic shell calls, GO BACK to the browser. If you notice you've run several bash commands in a row without touching the browser, stop and call assess_ui to re-orient.
 - Reboots are expensive — batch related fixes before rebooting.
 - Don't loop forever: if you've truly exhausted what you can fix, call final_answer and honestly report what's still missing.`;
 
