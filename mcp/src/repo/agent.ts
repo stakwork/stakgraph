@@ -124,6 +124,7 @@ ${learn_concepts ? "Use list_concepts and learn_concept tools first, to learn ab
 - Limit results: \`rg -n -m3 "pattern" path/to/dir\`
 - Find files by name: \`find path/to/dir -name "*.py" -type f\`
 - Directory overview: \`tree -L 2 path/to/dir\`
+- GitHub CLI: \`gh\` is installed and authenticated as the requesting user (when a token is provided). Use it for GitHub data not in the graph — e.g. \`gh pr view <n>\`, \`gh pr diff <n>\`, \`gh issue view <n>\`, \`gh api <endpoint>\`.
 
 ## Rules
 The prompt prepended to your instructions tells you which repos are graph-backed and which are bash-only. Apply these rules per repo accordingly.
