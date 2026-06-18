@@ -16,6 +16,9 @@ import type { WorkspaceManager } from "vein";
 
 const SEED_WORKFLOWS = [
   "gitsee-explore-services",
+  // Product loop: clone → produce → boot-and-exercise (iterate a live app until
+  // it runs). NOT an eval — the boot-and-exercise step writes/fixes.
+  "gitsee-setup-and-run",
   // Eval/optimize stack (wires the generic eval/* steps with the gitsee
   // rubric / task / dataset), mirroring the concepts-* workflows.
   "gitsee-eval", // harness: produce setup files → score
@@ -34,6 +37,9 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   // Boot gate: actually runs the produced setup (compose up + staklink) and
   // checks the frontend renders in headless chromium — the dominant eval signal.
   { file: "verify-setup.ts", type: "gitsee/verify-setup" },
+  // Product loop (NOT eval): boots the produced setup, DRIVES the live app in a
+  // browser, observes failures, fixes the config/repo, reboots — until it runs.
+  { file: "boot-and-exercise.ts", type: "gitsee/boot-and-exercise" },
   // Captures the agent's repo edits as a replayable git diff (part of the
   // deliverable): the last step of gitsee-explore-services, passes the agent
   // output through and adds `diff`.

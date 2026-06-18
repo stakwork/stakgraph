@@ -139,6 +139,39 @@ booted stack is left up. Clean it with `npx tsx src/lab/gitsee/cleanup.ts`
 projects; leaves Neo4j etc. alone). `keepUp:true` intentionally skips teardown for
 debugging.
 
+**The product loop (`gitsee/boot-and-exercise`) — NOT an eval signal.** Where
+`verify-setup` is a READ-ONLY boot GATE (boot once → one screenshot → one vision
+verdict → score), `boot-and-exercise.ts` (`gitsee/boot-and-exercise`) is the
+autonomous "set up a repo until it actually runs" loop. It stages the produced
+setup, then runs a **tool-using agent** that BOOTS the app, DRIVES the live
+frontend in a real headless browser, OBSERVES failures like a QA engineer, FIXES
+the cause, REBOOTS, and repeats until the app is functional. Tools: `boot`
+(re-stage + compose up + staklink/pm2 + wait for port; call after every edit),
+`browser_open` / `browser_snapshot` (visible interactive elements with `@eN`
+refs) / `browser_click` / `browser_fill` / `browser_press`, **`browser_observe`**
+(drains console errors + failed requests + **4xx/5xx API responses** since the
+last call — the key "renders but is broken" signal a screenshot can't show),
+`assess_ui` (the "eyes": fresh screenshot + errors + server logs → an anthropic
+vision verdict), `read_logs`, `bash`, `str_replace_based_edit_tool` (edit
+pm2.config.js env / docker-compose.yml / repo source, sandboxed to the
+workspace), and `final_answer` (a `## SUMMARY` / `## WORKING` / `## MISSING`
+markdown report). The agent works in LOCAL path terms; the final `setup` output
+is rewritten back to pod-portable `/workspaces/<repo>`. Because it is allowed to
+**WRITE/FIX**, it must **NOT** be wired into the scored `gitsee-optimize` loop —
+fixing in place would erase the gradient that teaches the explorer. Its home is
+the standalone **`gitsee-setup-and-run`** workflow (`clone → produce
+(gitsee-explore-services) → boot-and-exercise`); the deliverable is a known-good
+`setup` + the `diff` + the `report`, not a grade. Like the explore path it also
+captures the agent's repo edits as a replayable per-repo `git diff` (inlined here
+rather than reusing `gitsee/capture-edits` — a workflow's output is its last
+step's, and capture-edits would drop the richer setup/report/booted/working
+fields). Same boot/teardown machinery + caveats as verify-setup (snapshot-diff
+container teardown; `keepUp:true` to inspect; needs `docker` + `git` + `npx
+playwright install chromium`). Output `{ booted, working, port, setup, report,
+diff, changedRepos, changed, screenshotPath, iterations, logsTail, usage, cost }`.
+Dev smoke (not seeded): `src/lab/gitsee/smoke-boot.ts` (`clone → core agent →
+boot-and-exercise`, real calls; `KEEP_UP=1` leaves the stack up).
+
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
 steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the
 **actual canonical pm2.config.js + docker-compose.yml pair** (produced vs gold

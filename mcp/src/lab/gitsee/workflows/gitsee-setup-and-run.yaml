@@ -1,0 +1,62 @@
+name: gitsee-setup-and-run
+# PRODUCT loop (not an eval): clone a workspace, PRODUCE an initial
+# pm2.config.js + docker-compose.yml with the core `agent`, then hand it to
+# `gitsee/boot-and-exercise` which BOOTS the app, DRIVES it in a real headless
+# browser, OBSERVES failures (console + network 4xx/5xx + server logs), FIXES the
+# config/repo, REBOOTS, and repeats until the frontend is genuinely functional.
+#
+# Unlike gitsee-eval there is NO scoring/gold here — the deliverable is a
+# known-good `setup` + a human-readable `report` of what was changed and what (if
+# anything) is still missing. The boot-and-exercise step is allowed to WRITE, so
+# this must NOT be wired into the scored optimize loop.
+#
+# Input:  { workspace, repos: [{ owner, repo, rev? }], token? }
+# Output: { booted, working, port, setup, report, diff, changedRepos, changed,
+#           screenshotPath, iterations, usage, cost }   (from boot-and-exercise).
+#           `setup` + `diff` are the deliverable: the known-good config pair plus
+#           the replayable per-repo source edits (re-applied on a fresh pod clone).
+#
+# Needs ANTHROPIC_API_KEY + git + docker on PATH and `npx playwright install
+# chromium`; (for useStaklink) network for `npx staklink`.
+steps:
+  - id: clone
+    type: gitsee/clone-workspace
+    config:
+      workspace: "{{ input.workspace }}"
+      repos: "{{ input.repos }}"
+      token: "{{ input.token }}"
+
+  # Produce the initial setup files (reuses the explorer prompts in params).
+  - id: produce
+    type: subflow
+    depends: clone
+    config:
+      workflow: gitsee-explore-services
+      input:
+        workspace: "{{ input.workspace }}"
+        repos: "{{ input.repos }}"
+        token: "{{ input.token }}"
+
+  # Boot it for real and iterate until it works.
+  - id: run
+    type: gitsee/boot-and-exercise
+    depends: produce
+    config:
+      workspacePath: "{{ clone.workspacePath }}"
+      setup: "{{ produce.result }}"
+      checkPath: "{{ params.checkPath }}"
+      maxSteps: "{{ params.maxSteps }}"
+      bootTimeoutMs: "{{ params.bootTimeoutMs }}"
+      useStaklink: "{{ params.useStaklink }}"
+      model: "{{ params.model }}"
+      keepUp: "{{ params.keepUp }}"
+
+params:
+  checkPath: "/"
+  maxSteps: 60
+  bootTimeoutMs: 420000
+  useStaklink: true
+  model: claude-sonnet-4-6
+  # Leave the booted stack up after the run (for manual inspection). Default
+  # false so the step tears everything down (pm2 + compose + spawned containers).
+  keepUp: false
