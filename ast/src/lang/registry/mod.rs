@@ -1,3 +1,5 @@
+pub mod go_resolver;
+pub mod golang;
 pub mod py_resolver;
 pub mod python;
 pub mod ts_resolver;
@@ -27,6 +29,7 @@ pub fn build(
     match lang.kind {
         Language::Typescript => Some(Box::new(typescript::TypeScriptRegistry::new(graph, filez))),
         Language::Python => Some(Box::new(python::PythonRegistry::new(graph, filez))),
+        Language::Go => Some(Box::new(golang::GoRegistry::new(graph, filez))),
         _ => None,
     }
 }
