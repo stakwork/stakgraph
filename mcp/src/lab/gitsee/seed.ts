@@ -9,9 +9,12 @@ import type { WorkspaceManager } from "vein";
  * — see concepts/seed.ts for the reconciliation contract (unchanged → no-op,
  * edited → new active version, prior versions archived).
  *
- * Unlike concepts (whose steps reach runtime objects via `ctx.services`), these
- * steps are FULLY self-contained: they import only `vein`, the third-party AI
- * SDK, and Node builtins. So there's no services bag to merge here.
+ * Steps are self-contained source (they import only `vein`, the third-party AI
+ * SDK, Node builtins, and TYPE-ONLY imports that erase at runtime). The explore +
+ * eval steps need no services. The QA tool-steps (gitsee/boot, browser-*, etc.)
+ * DO reach a runtime `gitsee` services bag via `ctx.services.gitsee.*` — that bag
+ * (`gitsee/services/`) is built + merged into `LabServices` in `createLabVein`,
+ * not seeded here.
  */
 
 const SEED_WORKFLOWS = [

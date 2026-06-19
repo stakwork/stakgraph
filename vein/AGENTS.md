@@ -220,6 +220,19 @@ const token = cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
   real vs fake LLM) without touching workflows or the registry. Threaded
   through `createVein({ services })` / `vein.run(wf, input, { services })`
   / `runWorkflow(flow, input, registry, { services })`.
+  - **`services.onRunEnd(runId)`** — an OPTIONAL generic per-run teardown
+    hook the runner calls in a `finally` around `executeFlow` in
+    `runWorkflow` (so it fires on success AND error, for every run path,
+    once per top-level run; a throw in it can't mask the run result). Lets a
+    services bag dispose per-run resources keyed by `runId` (e.g. mcp `/lab`'s
+    gitsee browser + booted docker stack). A hard `SIGKILL` still skips it
+    (in-process `finally`), so that case stays out-of-band.
+
+- **`ctx.registry`** — the step registry, populated by the runner in
+  `dispatchStep`. Lets a step that orchestrates OTHER steps look them up by
+  type without being promoted to a runner-handled container step — the seam
+  the `agent` step uses for `agentTools` ("tools are steps"). Optional (absent
+  outside the runner, e.g. unit tests); read-only by convention.
 
 - **`createRegistry(steps)`** builds a registry from in-code step defs
   layered on core + lib (no filesystem custom/ discovery) — the
@@ -501,6 +514,25 @@ const token = cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
   `events.jsonl`/`run.json` and buries `result`. Anything domain-
   specific lives in the CALLER's prompts, not the step (e.g. mcp's
   `/lab` `gitsee-explore-services` wires `clone → agent`).
+  - **`agentTools` — "tools are steps"** (`buildRegistryTools`). Beyond the
+    built-ins, a caller can expose any REGISTRY step-types as extra LLM tools
+    via `agentTools: ["gitsee/boot", "gitsee/read-logs", …]`: each step's
+    `input` schema becomes the tool schema and its `run` is the executor,
+    invoked with the agent's `ctx` (so tool-steps reach `ctx.services`).
+    Resolved through the runner-populated **`ctx.registry`** (see Key
+    concepts) — keeps the AI-SDK loop in the step rather than promoting `agent`
+    to a container step. Merged ON TOP of the built-ins (not subject to
+    `toolFilter`); unknown types are skipped. This is what lets mcp's `/lab`
+    `gitsee-setup-and-run` drive a QA harness (boot/browser/observe/assess) as
+    the core `agent` instead of a forked loop.
+  - **Every tool call emits a nested run event** (`wrapToolsWithEmit`, applied
+    to built-ins AND `agentTools` with one shared counter): a
+    `step.start`/`step.end` (or `step.error`) at `<agentPath>/NNN-<tool>` with
+    `stepType: "tool:<name>"`, I/O truncated for the log. So the otherwise
+    opaque agent loop is **visible in the events panel / run drill-down** —
+    each iteration's tool calls show in order. No-op without a runner `ctx`
+    (in-code/test); skips `final_answer` + provider-executed tools (no
+    `execute`). `agent.run` now consumes `ctx` (registry + emit).
 
 ## Conventions
 
