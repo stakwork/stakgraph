@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import { coreRegistry } from "../registry.js";
-import agent, { repoTree, textEdit } from "./agent.js";
+import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
+import agent, { repoTree, textEdit, buildRegistryTools } from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
 // config-validation guards in run() that fire BEFORE any model call. The actual
@@ -46,6 +48,72 @@ describe("core agent step", () => {
       provider: "not-a-provider",
     });
     await assert.rejects(() => (agent.run as any)(cfg, {}), /Unknown LLM provider/);
+  });
+});
+
+describe("agentTools (buildRegistryTools — tools are steps)", () => {
+  // A fake `tool()` factory: identity, so we can inspect the produced tool def
+  // (description/inputSchema/execute) without importing the AI SDK.
+  const fakeTool = (def: any) => def;
+
+  const echoStep = defineStep({
+    type: "demo/echo",
+    description: "Echo the message back.",
+    input: z.object({ msg: z.string() }),
+    output: z.string(),
+    async run(cfg) {
+      return `got:${cfg.msg}`;
+    },
+  });
+  const registry = { "demo/echo": echoStep } as StepRegistry;
+
+  it("builds a tool per registry step, sanitizing the slash in the tool name", () => {
+    const tools = buildRegistryTools(["demo/echo"], registry, undefined, fakeTool);
+    assert.ok(tools["demo_echo"], "slash sanitized to underscore");
+    assert.equal((tools["demo_echo"] as any).description, "Echo the message back.");
+    assert.equal((tools["demo_echo"] as any).inputSchema, echoStep.input);
+  });
+
+  it("skips unknown step types (no throw)", () => {
+    const tools = buildRegistryTools(["nope/missing", "demo/echo"], registry, undefined, fakeTool);
+    assert.deepEqual(Object.keys(tools), ["demo_echo"]);
+  });
+
+  it("returns {} with no names or no registry", () => {
+    assert.deepEqual(buildRegistryTools([], registry, undefined, fakeTool), {});
+    assert.deepEqual(buildRegistryTools(["demo/echo"], undefined, undefined, fakeTool), {});
+  });
+
+  it("executes the step and emits nested step.start/step.end events", async () => {
+    const events: any[] = [];
+    const ctx = {
+      runId: "r1",
+      path: "wf/diagnose",
+      scope: {},
+      input: undefined,
+      emit: async (e: any) => { events.push(e); },
+      services: undefined,
+      registry,
+    } as unknown as StepContext;
+
+    const tools = buildRegistryTools(["demo/echo"], registry, ctx, fakeTool);
+    const out = await (tools["demo_echo"] as any).execute({ msg: "hi" });
+
+    assert.equal(out, "got:hi");
+    assert.equal(events.length, 2);
+    assert.equal(events[0].type, "step.start");
+    assert.equal(events[0].path, "wf/diagnose/001-demo_echo");
+    assert.equal(events[0].stepType, "demo/echo");
+    assert.deepEqual(events[0].input, { msg: "hi" });
+    assert.equal(events[1].type, "step.end");
+    assert.equal(events[1].path, "wf/diagnose/001-demo_echo");
+    assert.equal(events[1].output, "got:hi");
+  });
+
+  it("returns an Error string (not throw) on invalid tool input", async () => {
+    const tools = buildRegistryTools(["demo/echo"], registry, undefined, fakeTool);
+    const out = await (tools["demo_echo"] as any).execute({ wrong: 1 });
+    assert.match(String(out), /Error: invalid input for "demo\/echo"/);
   });
 });
 

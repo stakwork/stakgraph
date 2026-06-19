@@ -19,9 +19,29 @@ For eval we want to tune **#5 alone** while holding 1–4 fixed — and we want 
 
 The plan: make **tools** and the **loop** first-class vein constructs so the
 monolith dissolves into small, versioned, individually-evaluable pieces, and the
-run becomes visible on the canvas.
+run becomes visible on the canvas. Every design question below has a **firm
+decision** — there are no open wrinkles. Two small, generic vein-core changes are
+required (see "Core changes" at the end); everything else is additive.
 
-**Status: nothing below is built.** This is the design + sequencing doc.
+## Implementation status
+
+- **DONE — vein-core foundation** (420 tests green, tsc clean): `StepContext.registry`
+  (populated in `dispatchStep`), the generic `services.onRunEnd(runId)` `finally`
+  hook in `runWorkflow`, and the `agent` step's `agentTools` (registry step-types
+  as LLM tools via the exported, unit-tested `buildRegistryTools`, with nested
+  `step.start`/`step.end` emit). `agent.run` now consumes `ctx`.
+- **DONE — visualization MVP (layer 1)**: `boot-and-exercise.ts` now wraps every
+  tool's `execute` to emit a nested run event (`<stepPath>/NNN-<tool>`), so each
+  iteration's tool calls show in the UI events panel / drill-down. Uses only
+  pre-existing `ctx.emit`/`ctx.path` → runs against the current copied vein dep,
+  **no `refresh-vein` required**. This satisfies the headline ask ("see each
+  iteration in the UI") without touching the loop's behavior.
+- **TODO — layer 2**: §2 services (browser/stack/vision as per-run factories +
+  `LabServices.onRunEnd`), §1b tool-steps, §3 the C2 loop workflow. Build after
+  the layer-1 MVP is confirmed in the UI (it validates the event-path approach
+  end-to-end before the bigger decomposition rests on it).
+
+The rest of this doc is the design + sequencing for layer 2.
 
 ---
 
@@ -39,105 +59,109 @@ from `events.jsonl`**, where each event carries a hierarchical `path`:
 **No path events → nothing to render.** The agent run is invisible because the
 entire `ToolLoopAgent` loop runs *inside one step's `run()`*: the only events
 emitted are the single `step.start`/`step.end` for that node. Tool calls are
-anonymous closures that are only `console.log`ged (`agent.ts:571-578`,
+anonymous closures only `console.log`ged (`agent.ts:571-578`,
 `boot-and-exercise.ts:977-984`), never `ctx.emit`ed.
 
-There are **two routes to visibility**, which compose:
+**DECISION — two complementary routes, both adopted:**
 
 - **C2 (loop as real steps):** express boot → drive → observe → assess as real
-  `loop`/`subflow`/`foreach` steps. The runner *already* emits all the nested
-  events and the existing drill-down renders them — **zero new emit code, zero
-  UI change.** Cost: the outer loop is deterministic (less agent autonomy).
-- **A2 (tools as steps + per-tool emit):** keep an agentic node but have it
-  `emit` a `step.start`/`step.end` per tool call at
-  `${ctx.path}/iter${n}/${toolType}`. `ctx.emit`/`ctx.path` already reach every
-  leaf step (`runner.ts:478-485`). Cost: a vein-core change (below) + a UI tweak
-  for the dynamic sub-canvas.
+  `loop`/`subflow` steps. The runner *already* emits the nested events and the
+  existing drill-down renders them — **zero new emit code, zero UI change.** This
+  is the committed surface for per-iteration visibility (it directly satisfies
+  "see each iteration in the UI").
+- **A2 (tools as steps + per-tool emit):** the inner diagnose-and-fix agent emits
+  a `step.start`/`step.end` per tool call at `${ctx.path}/i${n}/${toolType}`, so
+  even that node's tool calls appear in the **events panel**. `ctx.emit`/`ctx.path`
+  already reach every leaf step (`runner.ts:478-485`).
 
-Recommended: **C2 for the outer skeleton (free, immediate), A2 for the tool
-calls inside the inner diagnose-and-fix agent** (so even that node isn't black).
+**DECISION — the bespoke "agent node → dynamic sub-canvas" is OUT OF SCOPE.** C2
+delivers loop-level drill-down for free via the existing subflow/foreach
+machinery, and A2's tool calls render in the events panel keyed by nested path.
+That fully satisfies the requirement; building a canvas from dynamic (non-static-
+workflow) events is unnecessary and is explicitly cut, not deferred.
 
 ---
 
 ## 1. Tools as a first-class entity (the unlock)
 
-### 1a. Inject tools into the core `agent` step (minimal)
+### 1a. Inject tools into the core `agent` step (minimal, ships first)
 `agent` accepts an extra `tools` list it merges with its built-ins. boot-and-
 exercise stops forking the loop — it *configures* the core agent. Kills ~600
-lines of duplication immediately. This is the cheap first step and is **fully
-self-contained in `agent.ts`** (no core change).
+lines of duplication. **Fully self-contained in `agent.ts`** (no core change).
 
 ### 1b. Tools ARE steps (the "vein" version)
 A tool call and a step call are the same shape: named unit, Zod input, output.
-Let `agent` take `agentTools: ["browser/click", "gitsee/boot", ...]` — registry
+`agent` takes `agentTools: ["browser/click", "gitsee/boot", ...]` — registry
 step-types whose `input` schema becomes the LLM tool schema and whose `run` is
-the executor. Payoffs:
+the executor. Payoffs: each tool is independently **versioned / inspectable /
+editable / testable** via the existing `/steps` API + UI; tool calls become
+**nested run events**; eval can target a **single tool**.
 
-- each tool is independently **versioned / inspectable / editable / testable**
-  via the existing vein UI + `/steps` API
-- the agent's tool calls become **nested run events** → visible in the run
-  drill-down (the visualization win)
-- eval can target a **single tool** (is `assess-ui` a good judge? is `boot`
-  reliable?)
+**DECISION — give `agent` registry access via `StepContext.registry`, keep the
+loop in `agent.ts`.** Add an optional `registry: StepRegistry` to `StepContext`
+(`core.ts:44-51`), populated by the runner in `dispatchStep` (`runner.ts:478`).
+The `agent` step (now consuming `ctx` — today `run(cfg)` ignores it,
+`agent.ts:413`) looks up each `agentTools` type, builds the LLM tool from
+`def.input` + `def.description`, and on a tool call executes
+`def.run(input, childCtx)` where `childCtx = { ...ctx, path:
+\`${ctx.path}/i${n}/${type}\` }`, emitting `step.start`/`step.end` around it.
 
-**WRINKLE (must own): a leaf step's `ctx` has no registry.** `StepContext`
-(`core.ts:44-51`) is `{ runId, path, scope, input, emit, services }` — no way to
-look up another step def by type. `subflow`/`foreach`/`loop` only reach other
-steps because the runner handles them specially (`SELF_RESOLVING_STEPS`,
-`runner.ts:301`). Two ways to give `agent` registry access:
+*Rejected:* promoting `agent` to a runner-handled container step (à la
+`subflow`). It would fracture the AI-SDK `ToolLoopAgent` loop into `runner.ts`.
+Keeping the loop in the step file with read-only `registry` access is simpler and
+keeps the runner generic. *Rejected:* a `ctx.runStep` closure over the internal
+`executeStep` — tools don't need retry/onError, so the extra contract isn't worth
+it. (Re-derive `executeStep` reuse later only if a tool ever needs retry.)
 
-- **(b, preferred) promote `agent` to a runner-aware container step**: add it to
-  `SELF_RESOLVING_STEPS`, handle it in `dispatchStep`, and pass it the registry +
-  a child-exec helper (the same machinery `executeSubflow` uses). Mirrors the
-  existing pattern; keeps `StepContext` clean.
-- (a) add `registry` to `StepContext`. Simpler diff, but widens the contract for
-  every step.
-
-Either way **`agent.run` must start consuming `ctx`** (today `async run(cfg)`
-ignores it — `agent.ts:413`).
-
-### 1c. Toolkits (ergonomics, later)
-Mount `browser/*` as a bundle instead of listing 9 names. Only after 1b.
+### 1c. Toolkits (ergonomics)
+Mount `browser/*` as a bundle instead of listing names. **DECISION:** deferred to
+after 1b lands and proves the per-name list is annoying — pure sugar, no new
+capability.
 
 ---
 
 ## 2. Stateful resources become services
 
 `BrowserSession` (`boot-and-exercise.ts:418-595`) and the pm2/staklink/compose
-lifecycle (`736-809`) are infrastructure, not agent logic. Move them into
-`LabServices` so the tool-steps in §1b are thin wrappers (`ctx.services.browser.
-click(ref)`), and so they're swappable for eval (real Playwright ↔ cassette;
-staklink ↔ inline boot; swap the vision model).
+lifecycle (`736-809`) are infrastructure, not agent logic. They move into
+`LabServices` so the §1b tool-steps are thin wrappers, and so they're swappable
+for eval (real Playwright ↔ cassette; staklink ↔ inline boot; swap the vision
+model).
 
-- **`browser` service** — per-page session.
-- **`stack`/`runner` service** — boot + teardown of the app + backing services.
-- **`vision`/`judge` service** — `assessScreenshot` (`615-659`); swappable model;
-  evaluable against a labeled (screenshot+logs → verdict) dataset.
+**DECISION — three services, with per-run sessioning:**
 
-**WRINKLE (must own): services are singletons, this state is per-run.**
-`createLabVein` builds the services bag **once**, shared across all runs
-(`createLabVein.ts:70`). A live browser page / booted stack is per-run mutable
-state — concurrent runs would collide on one shared page. So `browser`/`stack`
-must be **session factories keyed by runId** (`services.browser.session(runId)`),
-not a singleton holding one page. Each session owns its own lifecycle.
+- **`browser`** — `services.browser.session(runId)` returns/creates a per-run
+  page session (the current `BrowserSession`, lifted verbatim).
+- **`stack`** — `services.stack.session(runId, workspacePath)` owns boot
+  (compose up + staklink/pm2 + wait-for-port) and teardown (the snapshot-diff
+  container cleanup).
+- **`vision`** — stateless `assessScreenshot(...)` (`615-659`); a swappable
+  judge, evaluable against a labeled (screenshot+logs → verdict) dataset.
 
-**WRINKLE (must own): teardown guarantee is lost on decomposition.** Today one
-`try/finally` (`boot-and-exercise.ts:1032-1049`) guarantees pm2 + compose +
-snapshot-diff container cleanup even on error — critical, because a leaked
-`supabase start` stack is ~12 containers. vein has **no workflow-level
-"finally"** (only `when`/`onError` per step). Decomposing into steps risks
-leaking docker stacks on kill/error. Options to evaluate:
+**DECISION — sessions are factories keyed by `runId`, NOT singletons.**
+`createLabVein` builds the services bag once, shared across all runs
+(`createLabVein.ts:70`); a live page / booted stack is per-run mutable state, and
+the optimize loop runs many evals concurrently. Each service holds a
+`Map<runId, session>`; tool-steps get `runId` from `ctx.runId`. This makes
+concurrent runs collision-free by construction.
 
-- a dedicated teardown step that runs on both success and error (needs a
-  guaranteed-run / `finally`-style semantic vein doesn't have yet — possible
-  small core add), **or**
-- the `stack` service registers its sessions and `createVein` tears down live
-  sessions on `run.end`/`run.error` (service-owned lifecycle, no workflow
-  change), **or**
-- keep boot+teardown inside ONE step (a `stack`-lifecycle step that brings up,
-  yields, and tears down) and only decompose the drive/observe/fix loop.
+**DECISION — teardown is guaranteed by a generic `services.onRunEnd(runId)`
+lifecycle hook.** The runner calls `await (services as any)?.onRunEnd?.(runId)` in
+a `finally` wrapping `executeFlow` in `runWorkflow` (`runner.ts:110-155`), so it
+fires on **both** success and error, for **every** run path (detached,
+`optimizer.run`, tests) — `runWorkflow` is the single choke point, and subflows
+reuse the parent runId so it fires once per top-level run. `LabServices.onRunEnd`
+disposes that run's browser + stack sessions. This **exactly preserves today's
+`try/finally` guarantee** (`boot-and-exercise.ts:1032-1049`) while staying generic
+(the runner never names "stack"/"browser").
 
-The `cleanup.ts` script (the manual rescue for killed runs) stays regardless.
+*Rejected:* a new vein-level guaranteed-`finally` *step*. It's a bigger, more
+general core change than needed; `onRunEnd` is ~3 lines and sufficient. (A
+finally-step can be proposed independently later if other workflows want it.)
+
+**Hard-kill caveat (unchanged from today):** `onRunEnd` runs in-process, so a
+`SIGKILL` of the host still skips it — identical to today's `finally`.
+`mcp/src/lab/gitsee/cleanup.ts` remains the rescue for that case.
 
 ---
 
@@ -146,75 +170,92 @@ The `cleanup.ts` script (the manual rescue for killed runs) stays regardless.
 Re-express `gitsee-setup-and-run.yaml`'s opaque `run` node as a real loop:
 
 ```
-loop (until $current.working || maxIters):
+loop  until: "{{ $current.working }}"   maxIterations: {{ params.maxIters }}
   body: subflow "gitsee-qa-iteration"
-    boot            (stack service tool-step)
-    drive+snapshot  (browser tool-steps)
-    observe+assess  (browser + vision tool-steps → STRUCTURED outputs)
-    diagnose-and-fix (agent step, narrow tools: fs + bash + read_logs)
+    boot             (stack tool-step)
+    drive+snapshot   (browser tool-steps)
+    observe+assess   (browser + vision tool-steps → STRUCTURED outputs)
+    diagnose-and-fix (agent step; tools: fs + bash + read_logs + re-snapshot)
     -> returns { working, ... }
 ```
 
-Every phase becomes a canvas node, separately inspectable and **evaluable**.
+Every phase is a canvas node, separately inspectable and **evaluable**.
 
-**WRINKLE (must own): `loop` body is a single `Step`** (`loop.ts:23`). The
-multi-step iteration must be wrapped in a `subflow` body; `until` references
-`$current` (the subflow's output, e.g. `$current.working`). This is supported
-today — just a structural requirement, not a code change.
+**DECISION — the iteration is a `subflow` used as the `loop` body.** vein's `loop`
+body is a single `Step` (`loop.ts:23`), so the multi-step iteration is its own
+workflow (`gitsee-qa-iteration`), and `until` reads `$current.working` (the
+subflow's output). This uses only existing vein features — no code change, just
+the committed structure.
 
-**Tension to weigh honestly:** C2 trades agent autonomy for structure. The magic
-today may partly BE the agent fluidly interleaving bash + browser in an order we
-didn't anticipate. Mitigation: keep the inner `diagnose-and-fix` agent's tool
-budget generous (fs + bash + read_logs + re-snapshot) so it still investigates
-freely within each iteration; only the *outer* rhythm is fixed.
+**DECISION — keep the inner agent autonomous within each iteration.** C2 fixes
+only the *outer* rhythm; `diagnose-and-fix` keeps a generous tool budget (fs +
+bash + read_logs + re-snapshot) so it still investigates freely. An **A/B vs the
+free-form monolith is a required validation gate** (see Validation) before
+retiring `boot-and-exercise.ts`.
 
 ---
 
 ## 4. Observations/verdicts as first-class artifacts
 
-`browser_observe`, `assess_ui`, `read_logs` emit *signals*. As tool-steps with
-**structured** outputs they become independently scorable, replayable, and
-cacheable — and you can build an eval dataset for the vision judge itself.
-This is what makes "continuous self-improvement" measurable instead of vibes.
+**DECISION:** `observe`, `assess-ui`, `read_logs` are tool-steps returning
+**structured** outputs (not strings). That makes each signal independently
+scorable, replayable, and cacheable, and lets us build an eval dataset for the
+vision judge itself — turning "self-improvement" into something measured, not
+vibed.
 
 ---
 
 ## 5. Harness vs policy split (the eval payoff)
 
-Draw a hard line so an optimize loop can sweep policy while the harness stays
-constant:
+**DECISION — a hard line, enforced by where things live:**
 
-- **Harness (fixed):** services (browser/stack/vision) + tool-steps + teardown.
-- **Policy (tunable, lives in `params`):** system prompt, which tools are
-  mounted, model, loop strategy, maxIters.
+- **Harness (fixed):** the `browser`/`stack`/`vision` services + the tool-steps +
+  `onRunEnd` teardown.
+- **Policy (tunable, in `params`):** the agent `system` prompt, which
+  `agentTools` are mounted, `model`, and `maxIters`.
 
-This mirrors how `gitsee-optimize` already tunes the explorer `system` prompt —
-impossible for boot-and-exercise today because policy is welded into the TS file.
+A `gitsee-setup-optimize` loop then sweeps policy with the harness held constant
+— mirroring how `gitsee-optimize` already tunes the explorer `system` prompt
+(impossible for boot-and-exercise today because policy is welded into the TS file).
 
 ---
 
-## Suggested sequencing
+## Core changes (the complete list — both small + generic)
 
-1. **§1a** — inject tools into `core/agent` (self-contained; ends the fork;
-   ~600 LOC of duplication deleted). Lowest risk, highest immediate payoff.
-2. **§2 browser + stack services** as per-run factories; decide the teardown
-   strategy (the riskiest open question — pick before decomposing).
-3. **§3 (C2)** — re-express the loop as `loop`+`subflow`; visualization via the
-   runner's existing events, **zero UI change**. This delivers "see each
-   iteration in the UI."
-4. **§1b** — promote `agent` to a registry-aware container step; tools = steps;
-   per-tool emit for the inner agent node.
-5. **§4 / §5** — structured signals + harness/policy split → a
-   `gitsee-setup-optimize` loop.
-6. **Tier-2 UI**: dynamic agent sub-canvas built from events (only if the events
-   panel proves insufficient).
+1. **`StepContext.registry?: StepRegistry`** (`core.ts`), populated by the runner
+   in `dispatchStep` (`runner.ts:478`). Optional, ignored by steps that don't use
+   it (exactly like `services`). Enables §1b.
+2. **`services.onRunEnd?(runId)` hook** invoked in a `finally` around
+   `executeFlow` in `runWorkflow` (`runner.ts:110-155`). Optional + generic.
+   Enables §2 teardown.
 
-## Open questions / risks
+Everything else is additive: new lab services, new tool-steps, two new lab
+workflows (`gitsee-qa-iteration`, the rewritten `gitsee-setup-and-run`), and the
+deletion of `boot-and-exercise.ts` once §3's A/B passes.
 
-- **Teardown semantics** (§2) — the one genuinely unsolved design choice. A
-  vein-level guaranteed-`finally` step would be broadly useful but is a core add.
-- **Does C2 regress quality** vs the free-form loop? Needs an A/B once §3 lands.
-- **A2 sub-canvas** — building a canvas from dynamic events (no static child
-  flow) is new UI territory; defer until Tier-1 (events panel) is proven thin.
-- **Concurrency** — per-run service sessions assume runs may overlap (the
-  optimize loop runs many evals); verify the factory keying before relying on it.
+---
+
+## Sequencing
+
+1. **§1a** — inject tools into `core/agent` (self-contained; ends the fork; ~600
+   LOC deleted). Lowest risk, immediate payoff.
+2. **Core change #1** (`StepContext.registry`) + **§1b** — tools = steps; per-tool
+   emit.
+3. **§2** — `browser`/`stack`/`vision` services as per-run factories +
+   **core change #2** (`onRunEnd`) for guaranteed teardown.
+4. **§3 (C2)** — `gitsee-qa-iteration` + rewritten `gitsee-setup-and-run`;
+   visualization lands here via the runner's existing events (no UI work).
+5. **§4 / §5** — structured signals + harness/policy split → `gitsee-setup-optimize`.
+
+## Validation (the gates, not open risks)
+
+- **C2 quality A/B** (§3): run the decomposed loop vs the current monolith on the
+  `hive` + `heroku-node` workspaces; require parity (working-rate + iterations)
+  before deleting `boot-and-exercise.ts`. If the fixed outer rhythm regresses,
+  widen the inner agent's per-iteration budget rather than reverting.
+- **Concurrency** (§2): a 2-run overlap test asserting browser/stack sessions
+  don't collide and `onRunEnd` disposes the correct run's sessions.
+- **Teardown** (§2): kill-path test — force a mid-run error and assert compose +
+  spawned containers are gone (parity with today's `finally`).
+- **Live agent** (§1b): one real chat/optimize turn confirming the agent drives
+  the registry tool-steps and the events panel shows per-iteration tool calls.

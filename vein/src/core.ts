@@ -48,6 +48,12 @@ export interface StepContext<TServices = unknown> {
   input: unknown;
   emit: (event: RunEvent) => Promise<void>;
   services: TServices;
+  /** The step registry, populated by the runner. Lets a step that orchestrates
+   *  OTHER steps (e.g. the `agent` step exposing registry step-types as LLM
+   *  tools) look up their defs by type — without promoting itself to a
+   *  runner-handled container step. Optional: absent when a step is invoked
+   *  outside the runner (e.g. unit tests). Read-only by convention. */
+  registry?: StepRegistry;
 }
 
 /** Error handling options for a step. */
