@@ -3,6 +3,7 @@
 // @ast node: Function "chargePerson"
 // @ast edge: Calls -> Function "getEmail" "Person.java"
 // @ast edge: Calls -> Function "findCustomer" "BillingService.java"
+// @ast edge: Calls -> Function "charge" "StripePaymentGateway.java"
 // @ast node: Function "findCustomer"
 // @ast edge: Calls -> Function "getEmail" "Person.java"
 // @ast node: Var "customers"
