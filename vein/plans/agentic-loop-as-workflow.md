@@ -49,9 +49,16 @@ required (see "Core changes" at the end); everything else is additive.
   lifecycle smoke (`services/smoke-services.ts`) verifies per-run keying +
   idempotent disposal. (Not yet consumed — the tool-steps in Step C will reach it
   via `ctx.services.gitsee.*`; the monolith baseline is untouched.)
-- **TODO — Steps C/D**: §1b tool-steps (reach `ctx.services.gitsee.*`), §3 the C2
-  `gitsee-qa-iteration` + rewritten `gitsee-setup-and-run` loop, then the A/B gate
-  and deleting the monolith.
+- **DONE — Step C (tool-steps)**: 11 thin, self-contained seeded steps reaching
+  the harness via `ctx.services.gitsee.*` (keyed by `ctx.runId`): `gitsee/stage-setup`,
+  `gitsee/boot`, `gitsee/browser-{open,snapshot,click,fill,press}`,
+  `gitsee/browser-observe`, `gitsee/assess-ui`, `gitsee/read-logs`,
+  `gitsee/finalize-setup`. Each works BOTH as a workflow step (Step D's loop) AND
+  as an `agentTools` tool (the diagnose-fix agent). Registered in `seed.ts`; mcp
+  tsc clean; all 11 load + schema-parse cleanly.
+- **TODO — Step D**: the C2 `gitsee-qa-iteration` subflow + rewritten
+  `gitsee-setup-and-run` loop wiring these steps; then the A/B gate vs the
+  monolith and deleting `boot-and-exercise.ts`.
 
 The rest of this doc is the design + sequencing for layer 2.
 

@@ -182,6 +182,12 @@ export class BrowserSession {
     return snap;
   }
 
+  /** Drain + format the observations as a readable summary (so a seeded
+   *  tool-step doesn't need to import `summarizeObs`). */
+  drainSummary(): string {
+    return summarizeObs(this.drain());
+  }
+
   setBaseUrl(url: string) {
     this.baseUrl = url;
   }
@@ -227,6 +233,11 @@ export class BrowserManager {
 
   has(runId: string): boolean {
     return this.sessions.has(runId);
+  }
+
+  /** The existing session for a run, or undefined (no auto-create). */
+  get(runId: string): BrowserSession | undefined {
+    return this.sessions.get(runId);
   }
 
   /** Dispose a run's session (called from onRunEnd). Idempotent. */

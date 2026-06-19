@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
 import {
   sh,
   splitFiles,
@@ -189,6 +190,33 @@ export class StackSession {
     return captureAppLogs(this.workspacePath, this.appName);
   }
 
+  /** Per-repo `git diff` (intent-to-add so NEW files show as additions) — the
+   *  replayable record of the agent's source edits. Teardown only touches
+   *  pm2/docker/.pod-config (no repo tree), so edits are intact at finalize. */
+  async captureRepoDiff(maxBytes = 60000): Promise<{ diff: string; changedRepos: string[] }> {
+    const wp = this.workspacePath;
+    const repos = existsSync(wp)
+      ? readdirSync(wp, { withFileTypes: true })
+          .filter((e) => e.isDirectory() && existsSync(join(wp, e.name, ".git")))
+          .map((e) => e.name)
+          .sort()
+      : [];
+    const parts: string[] = [];
+    const changedRepos: string[] = [];
+    for (const repo of repos) {
+      const dir = join(wp, repo);
+      await sh("git add -A -N", dir, {}, 30000).catch(() => {});
+      const d = await sh("git diff", dir, {}, 30000);
+      if (d.stdout.trim()) {
+        changedRepos.push(repo);
+        parts.push(`=== ${repo} ===\n${d.stdout}`);
+      }
+    }
+    let diff = parts.join("\n\n");
+    if (diff.length > maxBytes) diff = diff.slice(0, maxBytes) + "\n\n[... diff truncated ...]";
+    return { diff, changedRepos };
+  }
+
   /** Re-read the final (edited) files and re-emit in pod-portable form. The
    *  deliverable keeps the `$POD_*` placeholders + pod-absolute `cwd`. */
   finalSetup(): string {
@@ -256,6 +284,11 @@ export class StackManager {
 
   has(runId: string): boolean {
     return this.sessions.has(runId);
+  }
+
+  /** The existing stack session for a run, or undefined (no auto-create). */
+  get(runId: string): StackSession | undefined {
+    return this.sessions.get(runId);
   }
 
   /** Dispose a run's stack (called from onRunEnd). Tears down (honoring the

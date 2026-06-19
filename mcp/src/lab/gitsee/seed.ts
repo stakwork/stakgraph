@@ -40,6 +40,21 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   // Product loop (NOT eval): boots the produced setup, DRIVES the live app in a
   // browser, observes failures, fixes the config/repo, reboots — until it runs.
   { file: "boot-and-exercise.ts", type: "gitsee/boot-and-exercise" },
+  // QA tool-steps (the decomposed boot-and-exercise): thin, self-contained steps
+  // that reach the per-run browser/stack/vision HARNESS via ctx.services.gitsee.*
+  // (see ../services). Usable BOTH as workflow steps (the C2 gitsee-qa-iteration
+  // loop) AND as agent tools (agentTools on the core `agent` step).
+  { file: "stage-setup.ts", type: "gitsee/stage-setup" },
+  { file: "boot.ts", type: "gitsee/boot" },
+  { file: "browser-open.ts", type: "gitsee/browser-open" },
+  { file: "browser-snapshot.ts", type: "gitsee/browser-snapshot" },
+  { file: "browser-click.ts", type: "gitsee/browser-click" },
+  { file: "browser-fill.ts", type: "gitsee/browser-fill" },
+  { file: "browser-press.ts", type: "gitsee/browser-press" },
+  { file: "browser-observe.ts", type: "gitsee/browser-observe" },
+  { file: "assess-ui.ts", type: "gitsee/assess-ui" },
+  { file: "read-logs.ts", type: "gitsee/read-logs" },
+  { file: "finalize-setup.ts", type: "gitsee/finalize-setup" },
   // Captures the agent's repo edits as a replayable git diff (part of the
   // deliverable): the last step of gitsee-explore-services, passes the agent
   // output through and adds `diff`.
