@@ -38,6 +38,9 @@ export function EventsPanel(props: {
 }) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Whether the user is pinned to the bottom (updated on every scroll). New
+  // events only auto-scroll when this is true — scroll up and we leave you be.
+  const stickToBottom = useRef(true);
 
   // Auto-expand run.end when it arrives
   useEffect(() => {
@@ -45,14 +48,19 @@ export function EventsPanel(props: {
     if (idx >= 0) setExpanded(idx);
   }, [props.events]);
 
-  // Auto-scroll to the bottom whenever events change
+  // Auto-scroll to the bottom on new events, but only if already at the bottom.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [props.events.length, expanded]);
 
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
+
   return (
-    <div class="shell-events" ref={scrollRef}>
+    <div class="shell-events" ref={scrollRef} onScroll={onScroll}>
       <div class="events-header">Events ({props.events.length})</div>
       {props.events.map((evt, i) => {
         const hasData = evt.input != null || evt.output != null || evt.error != null;
