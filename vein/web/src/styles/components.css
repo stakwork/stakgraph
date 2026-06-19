@@ -1232,6 +1232,9 @@ body.is-resizing-flyout * {
   border-radius: var(--r-lg);
   padding: var(--sp-4);
   width: min(320px, 90vw);
+  /* Cap the height so a workflow with many params never pushes the Run button
+     below the viewport — the field area scrolls instead (see .run-popover-body). */
+  max-height: min(70vh, 640px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
@@ -1244,12 +1247,23 @@ body.is-resizing-flyout * {
   letter-spacing: 0.06em;
   color: var(--text-muted);
   margin-bottom: var(--sp-2);
+  flex-shrink: 0;
+}
+/* The scrollable middle: inputs + params. Title and actions stay pinned above
+   and below it. `min-height: 0` lets this flex child actually shrink + scroll. */
+.run-popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  overflow-y: auto;
+  min-height: 0;
 }
 .run-popover-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2);
   margin-top: var(--sp-3);
+  flex-shrink: 0;
 }
 .run-popover-params {
   display: flex;

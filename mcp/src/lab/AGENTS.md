@@ -55,7 +55,10 @@ A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
 `pm2.config.js` + `docker-compose.yml` to set up a project). No import from
 existing code (`src/gitsee`), so that dir can eventually be deleted. The agent
 loop itself is **not** gitsee code anymore — it's the **vein-core `agent`
-step** (see `vein/AGENTS.md`); gitsee only supplies the clone + the prompts.
+step** (see `vein/AGENTS.md`); gitsee supplies the clone + the prompts, and (for
+the product loop) a `gitsee` **`services` bag** (`gitsee/services/`: per-run
+browser + stack managers + a vision judge) that its thin tool-steps reach via
+`ctx.services.gitsee.*` — see "The product loop" below.
 
 **WORKSPACE-oriented** (not single-repo): a workspace is a set of repos cloned
 as **siblings** under `/workspaces/<repo>` — typically one runnable **frontend**
@@ -139,47 +142,73 @@ booted stack is left up. Clean it with `npx tsx src/lab/gitsee/cleanup.ts`
 projects; leaves Neo4j etc. alone). `keepUp:true` intentionally skips teardown for
 debugging.
 
-**The product loop (`gitsee/boot-and-exercise`) — NOT an eval signal.** Where
+**The product loop (`gitsee-setup-and-run`) — NOT an eval signal.** Where
 `verify-setup` is a READ-ONLY boot GATE (boot once → one screenshot → one vision
-verdict → score), `boot-and-exercise.ts` (`gitsee/boot-and-exercise`) is the
-autonomous "set up a repo until it actually runs" loop. It stages the produced
-setup, then runs a **tool-using agent** that BOOTS the app, DRIVES the live
-frontend in a real headless browser, OBSERVES failures like a QA engineer, FIXES
-the cause, REBOOTS, and repeats until the app is functional. Tools: `boot`
-(re-stage + compose up + staklink/pm2 + wait for port; call after every edit),
-`browser_open` / `browser_snapshot` (visible interactive elements with `@eN`
-refs) / `browser_click` / `browser_fill` / `browser_press`, **`browser_observe`**
-(drains console errors + failed requests + **4xx/5xx API responses** since the
-last call — the key "renders but is broken" signal a screenshot can't show),
-`assess_ui` (the "eyes": fresh screenshot + errors + server logs → an anthropic
-vision verdict), `read_logs`, `bash`, `str_replace_based_edit_tool` (edit
-pm2.config.js env / docker-compose.yml / repo source, sandboxed to the
-workspace), and `final_answer` (a `## SUMMARY` / `## WORKING` / `## MISSING`
-markdown report). The agent works in LOCAL path terms; the final `setup` output
-is rewritten back to pod-portable `/workspaces/<repo>`. A working-dir **preamble**
-(the real local workspace path + sibling repos) is prepended to the prompt so the
-agent doesn't burn steps guessing pod paths. **Pod URLs (`$POD_ID`/`$POD_URL`)**
-are kept in the deliverable (the pod contract) but **localized only in the
-staged-for-boot copy** (`podSubstituteLocal`: `https://$POD_ID-<port>.<domain>` →
-`http://localhost:<port>`, `$POD_URL` → `http://localhost:<frontendPort>`) — on
-the real sandbox the platform expands them + proxies `<podid>-<port>.<domain>` to
-`localhost:<port>`; locally there's no proxy, so we emulate it (NOT a staklink
-concern). The agent is told these are auto-substituted and to KEEP them rather
-than rewrite to localhost. (verify-setup could adopt the same helper.) Because it is allowed to
-**WRITE/FIX**, it must **NOT** be wired into the scored `gitsee-optimize` loop —
-fixing in place would erase the gradient that teaches the explorer. Its home is
-the standalone **`gitsee-setup-and-run`** workflow (`clone → produce
-(gitsee-explore-services) → boot-and-exercise`); the deliverable is a known-good
-`setup` + the `diff` + the `report`, not a grade. Like the explore path it also
-captures the agent's repo edits as a replayable per-repo `git diff` (inlined here
-rather than reusing `gitsee/capture-edits` — a workflow's output is its last
-step's, and capture-edits would drop the richer setup/report/booted/working
-fields). Same boot/teardown machinery + caveats as verify-setup (snapshot-diff
-container teardown; `keepUp:true` to inspect; needs `docker` + `git` + `npx
-playwright install chromium`). Output `{ booted, working, port, setup, report,
-diff, changedRepos, changed, screenshotPath, iterations, logsTail, usage, cost }`.
-Dev smoke (not seeded): `src/lab/gitsee/smoke-boot.ts` (`clone → core agent →
-boot-and-exercise`, real calls; `KEEP_UP=1` leaves the stack up).
+verdict → score), `gitsee-setup-and-run` is the autonomous "set up a repo until it
+actually runs" loop: an agent that BOOTS the app, DRIVES the live frontend in a
+real headless browser, OBSERVES failures like a QA engineer, FIXES the cause,
+REBOOTS, and repeats until functional. Because it WRITES/FIXES, it must **NOT** be
+wired into the scored `gitsee-optimize` loop (fixing in place erases the gradient
+that teaches the explorer); the deliverable is a known-good `setup` + `diff` +
+`report`, not a grade.
+
+**Architecture: this is now DECOMPOSED onto the vein-core `agent` step** (it used
+to be one ~1050-line `gitsee/boot-and-exercise` step that forked the whole agent
+loop). See `vein/plans/agentic-loop-as-workflow.md` for the full design. The
+pieces:
+
+- **The QA harness = a gitsee `services` bag** (`gitsee/services/`, in-code,
+  merged into `LabServices` by `createLabVein`; NOT seeded): `BrowserManager` +
+  `StackManager` (per-run sessions keyed by `runId`) + a stateless `vision` judge.
+  `_infra.ts` holds the shell/pm2/compose/pod-url/port/log helpers; the
+  per-run state (browser page, booted stack, last vision verdict) lives on the
+  session. **Teardown is automatic**: `LabServices.onRunEnd(runId)` (the generic
+  vein hook the runner calls in a `finally`, success OR error) disposes the run's
+  browser + booted stack — no teardown code in any step. (`cleanup.ts` is still
+  the rescue for a hard `SIGKILL`, which skips the in-process `finally`.)
+- **The capabilities = thin seeded tool-steps** (`gitsee/steps/`) reaching the
+  harness via `ctx.services.gitsee.*`, keyed by `ctx.runId`: `gitsee/stage-setup`
+  (stage the produced files + create the per-run stack session), `gitsee/boot`
+  (re-stage + compose up + staklink/pm2 + wait for port), `gitsee/browser-open` /
+  `-snapshot` / `-click` / `-fill` / `-press`, **`gitsee/browser-observe`** (drains
+  console errors + failed requests + **4xx/5xx API responses** — the "renders but
+  is broken" signal a screenshot can't show), `gitsee/assess-ui` (the "eyes":
+  screenshot + errors + logs → vision verdict, recorded on the stack session),
+  `gitsee/read-logs`, and `gitsee/finalize-setup` (the deliverable: pod-portable
+  `setup` + per-repo `git diff` + the booted/working verdict). Each works BOTH as
+  a workflow step AND as an `agentTools` tool.
+- **The loop = the core `agent` step** with those steps as `agentTools` (+
+  built-in `bash`/`str_replace_based_edit_tool` for edits). `gitsee-setup-and-run`
+  is `clone → produce (gitsee-explore-services) → stage → qa(agent) → finalize`.
+  Every tool call emits a nested run event (the agent step's `wrapToolsWithEmit`),
+  so **each iteration is visible in the UI events panel / run drill-down**. The QA
+  `system` prompt + `agentTools` list + `model` + `maxSteps` live in the
+  workflow's `params` (the harness/policy split — a future `gitsee-setup-optimize`
+  can sweep the prompt with the harness fixed).
+
+  *Why agent-orchestrated, not a deterministic `loop` step:* vein's `loop` THROWS
+  on `maxIterations`-without-convergence (`runner.ts`), which would error the run
+  and yield NO deliverable when an app can't be fixed; and QA control flow is
+  inherently dynamic. The agent's own tool loop still gives per-iteration
+  visibility, preserves autonomy, and always finalizes.
+
+**Pod URLs (`$POD_ID`/`$POD_URL`)** are kept in the deliverable (the pod contract)
+but **localized only in the staged-for-boot copy** (`podSubstituteLocal` in
+`services/_infra.ts`: `https://$POD_ID-<port>.<domain>` → `http://localhost:<port>`,
+`$POD_URL` → `http://localhost:<frontendPort>`) — on the real sandbox the platform
+expands them + proxies `<podid>-<port>.<domain>` to `localhost:<port>`; locally
+there's no proxy, so we emulate it. The QA system prompt tells the agent these are
+auto-substituted and to KEEP them.
+
+Output `{ booted, working, reason, port, setup, report, diff, changedRepos,
+changed, screenshotPath }`. Needs `docker` + `git` + `npx playwright install
+chromium`.
+
+**`gitsee/boot-and-exercise` (the old monolith) is still seeded but UNUSED by the
+workflow** — kept as the A/B reference to validate the decomposed loop reaches
+parity before deletion (plan Step E). Its dev smoke `src/lab/gitsee/smoke-boot.ts`
+still drives that step directly; `src/lab/gitsee/services/smoke-services.ts` is a
+no-docker lifecycle smoke for the new harness (per-run keying + `onRunEnd`).
 
 **Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
 steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the

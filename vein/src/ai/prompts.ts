@@ -82,6 +82,12 @@ Loops:
 - Inside the body's config and the "until" expression, {{ $current }} is the previous iteration's output (undefined on the first iteration).
 - Call get_step("loop") for the exact config shape.
 
+Agent (tool-using sub-agent):
+- The "agent" step runs an autonomous LLM tool-loop over a working dir (cwd) — use it for open-ended tasks (explore/diagnose/edit a codebase, drive + fix an app) that a fixed DAG can't express. It returns a free-form report (set "finalAnswer"), a STRUCTURED object (set "schema"), or text.
+- "TOOLS ARE STEPS": expose any registry step-types as the agent's tools via agentTools: ["my/tool-a", "my/tool-b"] — each step's input schema becomes the tool, its run() the executor (reaching ctx.services like any step). Build a stateful tool by pairing a tool-step with a per-run service in ctx.services. Every tool call shows as a nested run event, so the loop is visible/inspectable.
+- Prefer this agentic pattern over the "loop" step when control flow is dynamic (the model decides the next action) or when a hard stop must still produce a deliverable (loop throws if it never converges; an agent always returns its report).
+- Call get_step("agent") for the exact config (cwd, system, prompt, finalAnswer/schema, agentTools, toolFilter, model, maxSteps).
+
 Error handling:
 - Any step can have options.onError: <Step> as a fallback that runs if the step fails (after retries, if any).
 - Inside the onError step's config, {{ $error }} is available — it has { message, stack }.

@@ -379,7 +379,7 @@ export function textEdit(input: TextEditInput, cwd: string): string {
   }
 }
 
-// ── registry-backed tools (agentTools) ────────────────────────────────────────
+// ── tool plumbing (agentTools + per-call run-event emit) ───────────────────────
 
 /** Tool-call name from a registry step type: tool names can't contain slashes
  *  (`browser/click` → `browser_click`), so we sanitize for the LLM and map back. */
@@ -387,19 +387,23 @@ function toolNameFor(stepType: string): string {
   return stepType.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
+/** Truncate a tool's I/O for the run-event log (the full thing lives in the
+ *  model transcript; the event log only needs a readable preview). */
+function summarizeForEvent(v: unknown): string {
+  const s = typeof v === "string" ? v : JSON.stringify(v ?? "");
+  return s.length > 1500 ? s.slice(0, 1500) + "\n[… truncated for event log …]" : s;
+}
+
 /**
- * Turn a list of registry step-types into AI-SDK tools the agent can call —
- * the "tools ARE steps" model. Each step's `input` Zod schema becomes the tool's
- * input schema and its `run` is the executor, invoked with a CHILD context whose
- * `path` is nested under the agent's (`<agentPath>/NNN-<tool>`). We emit a
- * `step.start`/`step.end` (or `step.error`) around every call so each tool
- * invocation shows up as a nested run event — that's what makes the otherwise
- * opaque agent loop visible in the events panel / run drill-down.
+ * Turn a list of registry step-types into AI-SDK tools the agent can call — the
+ * "tools ARE steps" model. Each step's `input` Zod schema becomes the tool's
+ * input schema and its `run` is the executor (validated against that schema).
  *
- * Pure + offline-testable: the `tool` factory and (optional) `ctx`/`registry`
- * are injected, so it can be unit-tested with a fake registry + a capturing
- * `emit` and no model/network. Unknown step-types are skipped (the agent simply
- * doesn't get that tool). Returns a record keyed by the sanitized tool name.
+ * Does NOT emit run events itself — `wrapToolsWithEmit` does that uniformly for
+ * built-ins AND registry tools, so there's a single shared call counter and one
+ * code path. Pure + offline-testable (inject the `tool` factory + a fake
+ * registry; no model/network). Unknown step-types are skipped. Returns a record
+ * keyed by the sanitized tool name.
  */
 export function buildRegistryTools(
   names: string[] | undefined,
@@ -411,7 +415,6 @@ export function buildRegistryTools(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!names?.length || !registry) return out;
-  let calls = 0;
   for (const stepType of names) {
     const def = registry[stepType];
     if (!def) {
@@ -422,37 +425,66 @@ export function buildRegistryTools(
       description: def.description ?? `Run the "${stepType}" step.`,
       inputSchema: def.input,
       execute: async (input: unknown) => {
-        const n = ++calls;
-        const path = ctx?.path ? `${ctx.path}/${String(n).padStart(3, "0")}-${toolNameFor(stepType)}` : undefined;
-        const startTime = Date.now();
-        // Validate against the step's own input schema (so the tool sees what a
-        // real step run would). Cast emit to bypass the full-RunEvent type — the
-        // runner's emit fills ts/runId.
-        const emit = ctx?.emit as undefined | ((e: Record<string, unknown>) => Promise<void>);
         let parsed: unknown;
         try {
           parsed = def.input.parse(input ?? {});
         } catch (e) {
           return `Error: invalid input for "${stepType}": ${(e as Error).message}`;
         }
-        if (emit && path) await emit({ type: "step.start", path, stepType, input: parsed });
-        try {
-          const childCtx: StepContext = ctx
-            ? { ...ctx, path: path ?? ctx.path }
-            : ({ runId: "", path: path ?? "", scope: {}, input: undefined, emit: (async () => {}) as any, services: undefined });
-          const output = await def.run(parsed, childCtx);
-          if (emit && path)
-            await emit({ type: "step.end", path, stepType, output, durationMs: Date.now() - startTime });
-          return output;
-        } catch (e) {
-          if (emit && path)
-            await emit({ type: "step.error", path, stepType, error: { message: (e as Error).message } });
-          throw e;
-        }
+        // Run the step with the agent's ctx (leaf tool-steps reach
+        // ctx.services etc.). The nesting/emit is added by wrapToolsWithEmit.
+        const childCtx: StepContext = ctx ??
+          ({ runId: "", path: "", scope: {}, input: undefined, emit: (async () => {}) as any, services: undefined });
+        return def.run(parsed, childCtx);
       },
     });
   }
   return out;
+}
+
+/**
+ * Wrap EVERY tool's `execute` (built-ins + agentTools) so each call emits a
+ * nested `step.start`/`step.end` (or `step.error`) run event at
+ * `<agentPath>/NNN-<tool>` with `stepType: "tool:<name>"`. A single shared
+ * counter (`NNN`) gives the calls a globally-ordered, sortable path — that's
+ * what makes the otherwise-opaque agent loop visible in the events panel / run
+ * drill-down. Mutates `tools` in place.
+ *
+ * No-op when there's no runner ctx (in-code/test) or no path. Skips
+ * `final_answer` (terminal, noisy) and any tool with no function `execute`
+ * (provider-executed tools like anthropic `web_search`). Output is truncated in
+ * the event only (the model still sees the full result).
+ */
+export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext | undefined): void {
+  if (!ctx?.emit || !ctx.path) return;
+  const basePath = ctx.path;
+  const emit = ctx.emit as unknown as (e: Record<string, unknown>) => Promise<void>;
+  let calls = 0;
+  for (const [name, t] of Object.entries(tools)) {
+    if (name === "final_answer") continue;
+    const orig = t?.execute;
+    if (typeof orig !== "function") continue;
+    t.execute = async (input: unknown, opts: unknown) => {
+      const n = ++calls;
+      const path = `${basePath}/${String(n).padStart(3, "0")}-${name}`;
+      const startedAt = Date.now();
+      await emit({ type: "step.start", path, stepType: `tool:${name}`, input });
+      try {
+        const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, opts);
+        await emit({
+          type: "step.end",
+          path,
+          stepType: `tool:${name}`,
+          output: summarizeForEvent(out),
+          durationMs: Date.now() - startedAt,
+        });
+        return out;
+      } catch (e) {
+        await emit({ type: "step.error", path, stepType: `tool:${name}`, error: { message: (e as Error).message } });
+        throw e;
+      }
+    };
+  }
 }
 
 export default defineStep({
@@ -643,6 +675,12 @@ export default defineStep({
         execute: async ({ answer }: { answer: string }) => answer,
       });
     }
+
+    // Emit a nested run event per tool call (built-ins + agentTools) so every
+    // iteration is visible in the UI events panel / run drill-down. No-op when
+    // run outside the runner (no ctx). Must come AFTER final_answer is added so
+    // it's uniformly considered (and skipped).
+    wrapToolsWithEmit(tools, ctx);
 
     const stopWhen = !useSchema && cfg.finalAnswer
       ? [hasToolCall("final_answer"), stepCountIs(cfg.maxSteps)]

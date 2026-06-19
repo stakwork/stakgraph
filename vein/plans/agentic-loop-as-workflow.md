@@ -36,10 +36,49 @@ required (see "Core changes" at the end); everything else is additive.
   pre-existing `ctx.emit`/`ctx.path` → runs against the current copied vein dep,
   **no `refresh-vein` required**. This satisfies the headline ask ("see each
   iteration in the UI") without touching the loop's behavior.
-- **TODO — layer 2**: §2 services (browser/stack/vision as per-run factories +
-  `LabServices.onRunEnd`), §1b tool-steps, §3 the C2 loop workflow. Build after
-  the layer-1 MVP is confirmed in the UI (it validates the event-path approach
-  end-to-end before the bigger decomposition rests on it).
+- **DONE — Step A (core agent tool visibility)**: the core `agent` step now emits
+  a nested run event for EVERY tool call (built-ins + `agentTools`) via the
+  unified `wrapToolsWithEmit` (single shared counter, skips `final_answer` +
+  provider-executed tools). So `produce/explore` and any agent step is observable,
+  not just `boot-and-exercise`. 424 vein tests green; tsc clean.
+- **DONE — Step B (services as per-run factories + teardown)**: `mcp/src/lab/
+  gitsee/services/` — `BrowserManager`/`StackManager` (per-run sessions keyed by
+  runId) + a stateless vision judge, lifted from the monolith. `LabServices.gitsee`
+  + a generic `LabServices.onRunEnd(runId)` (wired into vein's runner `finally`)
+  dispose a run's browser + booted stack on success AND error. mcp tsc clean;
+  lifecycle smoke (`services/smoke-services.ts`) verifies per-run keying +
+  idempotent disposal. (Not yet consumed — the tool-steps in Step C will reach it
+  via `ctx.services.gitsee.*`; the monolith baseline is untouched.)
+- **DONE — Step C (tool-steps)**: 11 thin, self-contained seeded steps reaching
+  the harness via `ctx.services.gitsee.*` (keyed by `ctx.runId`): `gitsee/stage-setup`,
+  `gitsee/boot`, `gitsee/browser-{open,snapshot,click,fill,press}`,
+  `gitsee/browser-observe`, `gitsee/assess-ui`, `gitsee/read-logs`,
+  `gitsee/finalize-setup`. Each works BOTH as a workflow step (Step D's loop) AND
+  as an `agentTools` tool (the diagnose-fix agent). Registered in `seed.ts`; mcp
+  tsc clean; all 11 load + schema-parse cleanly.
+- **DONE — Step D (the QA loop as a workflow)**: `gitsee-setup-and-run.yaml`
+  rewritten to `clone → produce → stage → qa(agent) → finalize`. The `qa` node is
+  the core `agent` step with the 9 gitsee tool-steps as `agentTools` (+ built-in
+  bash/str_replace for edits); the QA system prompt + tool list + model + maxSteps
+  live in `params` (the harness/policy split, §5). Teardown is automatic via
+  `onRunEnd`. Seeds + lints cleanly. **The monolith `boot-and-exercise.ts` is now
+  unused by the workflow but still seeded — the A/B reference for Step E.**
+  - **DESIGN CHANGE from §3 (agent-orchestrated, NOT a deterministic `loop`).**
+    vein's `loop` step THROWS when it exhausts `maxIterations` without `until`
+    becoming true (`runner.ts:580`) — so an app that can't be fixed would error
+    the run and yield NO deliverable (the monolith always returns report+diff even
+    when not working). Plus the QA control flow is inherently dynamic (the model
+    interleaves bash/browser in an order we can't predict). So the loop is the
+    `agent`'s own tool loop, with the tool-steps as `agentTools` — which (a) still
+    makes every iteration visible (Step A's per-tool-call events), (b) preserves
+    agent autonomy, (c) always produces a deliverable via `finalize`, and (d)
+    directly answers the original "why isn't it using the core `agent` step?".
+    The deterministic `loop`+subflow remains a future option if we ever want a
+    fixed rhythm, but it needs a non-throwing `loop` (or a guaranteed-`finally`
+    finalize) first.
+- **TODO — Step E**: the A/B gate (new agent workflow vs the seeded monolith
+  step) on `hive`/`heroku-node`; then delete `boot-and-exercise.ts`. Step F:
+  `gitsee-setup-optimize` (sweep the QA `system` prompt with the harness fixed).
 
 The rest of this doc is the design + sequencing for layer 2.
 

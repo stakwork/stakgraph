@@ -1,20 +1,26 @@
 name: gitsee-setup-and-run
-# PRODUCT loop (not an eval): clone a workspace, PRODUCE an initial
-# pm2.config.js + docker-compose.yml with the core `agent`, then hand it to
-# `gitsee/boot-and-exercise` which BOOTS the app, DRIVES it in a real headless
-# browser, OBSERVES failures (console + network 4xx/5xx + server logs), FIXES the
-# config/repo, REBOOTS, and repeats until the frontend is genuinely functional.
+# PRODUCT loop (not an eval): clone → PRODUCE an initial setup → STAGE it → an
+# autonomous QA AGENT that boots the app, drives it in a real headless browser,
+# observes failures (console + network 4xx/5xx + server logs), fixes the
+# config/repo, reboots, and repeats until the frontend is genuinely functional.
 #
-# Unlike gitsee-eval there is NO scoring/gold here — the deliverable is a
-# known-good `setup` + a human-readable `report` of what was changed and what (if
-# anything) is still missing. The boot-and-exercise step is allowed to WRITE, so
-# this must NOT be wired into the scored optimize loop.
+# This is the DECOMPOSED boot-and-exercise. The agent loop is the vein-core
+# `agent` step; the QA capabilities (boot / browser / observe / assess / logs)
+# are gitsee TOOL-STEPS exposed as `agentTools`, each reaching the per-run
+# browser + stack + vision HARNESS via `ctx.services.gitsee.*` (keyed by runId).
+# Two wins over the old monolith step:
+#   - EVERY tool call emits a nested run event → each iteration is visible in the
+#     UI events panel / run drill-down (the agent step's wrapToolsWithEmit).
+#   - the booted stack is torn down automatically by the lab's `onRunEnd`
+#     (success OR error) — no teardown code in the step.
+#
+# Unlike gitsee-eval there is NO scoring/gold — the deliverable is a known-good
+# `setup` + a human-readable `report` + the replayable repo `diff`. The agent
+# WRITES/FIXES, so this must NOT be wired into the scored optimize loop.
 #
 # Input:  { workspace, repos: [{ owner, repo, rev? }], token? }
-# Output: { booted, working, port, setup, report, diff, changedRepos, changed,
-#           screenshotPath, iterations, usage, cost }   (from boot-and-exercise).
-#           `setup` + `diff` are the deliverable: the known-good config pair plus
-#           the replayable per-repo source edits (re-applied on a fresh pod clone).
+# Output: { booted, working, reason, port, setup, report, diff, changedRepos,
+#           changed, screenshotPath }   (from gitsee/finalize-setup).
 #
 # Needs ANTHROPIC_API_KEY + git + docker on PATH and `npx playwright install
 # chromium`; (for useStaklink) network for `npx staklink`.
@@ -26,7 +32,7 @@ steps:
       repos: "{{ input.repos }}"
       token: "{{ input.token }}"
 
-  # Produce the initial setup files (reuses the explorer prompts in params).
+  # Produce the initial setup files (reuses the explorer prompts in its params).
   - id: produce
     type: subflow
     depends: clone
@@ -37,26 +43,105 @@ steps:
         repos: "{{ input.repos }}"
         token: "{{ input.token }}"
 
-  # Boot it for real and iterate until it works.
-  - id: run
-    type: gitsee/boot-and-exercise
+  # Stage the produced pm2.config.js + docker-compose.yml into the clone AND
+  # create the per-run stack session shared by the agent's boot/browser/read-logs
+  # tools + finalize (keyed by ctx.runId). Snapshots running containers so
+  # teardown removes everything this run spins up.
+  - id: stage
+    type: gitsee/stage-setup
     depends: produce
     config:
       workspacePath: "{{ clone.workspacePath }}"
       setup: "{{ produce.result }}"
-      checkPath: "{{ params.checkPath }}"
-      maxSteps: "{{ params.maxSteps }}"
-      bootTimeoutMs: "{{ params.bootTimeoutMs }}"
       useStaklink: "{{ params.useStaklink }}"
-      model: "{{ params.model }}"
+      bootCommand: "{{ params.bootCommand }}"
+      bootTimeoutMs: "{{ params.bootTimeoutMs }}"
       keepUp: "{{ params.keepUp }}"
 
+  # The autonomous QA agent. The gitsee tool-steps are its agentTools (every call
+  # → a nested run event); the built-in bash + str_replace_based_edit_tool let it
+  # edit the config/repo. cwd is the cloned workspace (the agent prepends a
+  # working-dir listing automatically).
+  - id: qa
+    type: agent
+    depends: stage
+    config:
+      cwd: "{{ clone.workspacePath }}"
+      system: "{{ params.system }}"
+      prompt: |-
+        {{ params.prompt }}
+
+        The initial setup you're improving has been staged into the workspace
+        (pm2.config.js + docker-compose.yml). Begin by calling gitsee_boot, then
+        drive the app and iterate until the frontend is functional. For reference,
+        the produced setup is:
+
+        {{ produce.result }}
+      finalAnswer: "{{ params.finalAnswer }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      agentTools:
+        - gitsee/boot
+        - gitsee/browser-open
+        - gitsee/browser-snapshot
+        - gitsee/browser-click
+        - gitsee/browser-fill
+        - gitsee/browser-press
+        - gitsee/browser-observe
+        - gitsee/assess-ui
+        - gitsee/read-logs
+
+  # Deliverable: pod-portable setup + per-repo diff + the booted/working verdict
+  # (read from the last gitsee/assess-ui via the stack session).
+  - id: finalize
+    type: gitsee/finalize-setup
+    depends: qa
+    config:
+      report: "{{ qa.result }}"
+
 params:
-  checkPath: "/"
-  maxSteps: 240
-  bootTimeoutMs: 420000
-  useStaklink: true
   model: claude-sonnet-4-6
-  # Leave the booted stack up after the run (for manual inspection). Default
-  # false so the step tears everything down (pm2 + compose + spawned containers).
+  # A complex multi-service app + reboots burns a lot of tool calls.
+  maxSteps: 240
+  useStaklink: true
+  bootCommand: npx -y staklink@latest start
+  bootTimeoutMs: 420000
+  # Leave the booted stack up after the run (manual inspection). Default false →
+  # onRunEnd tears everything down (pm2 + compose + spawned containers).
   keepUp: false
+
+  prompt: |-
+    Get this workspace's FRONTEND genuinely functional — not just rendering, but
+    with working navigation and core user flows — by ITERATING until it works:
+    boot it, drive it in the browser, observe the failures, diagnose the root
+    cause, fix the config or the repo, reboot, and repeat.
+
+  system: |-
+    You are an autonomous setup-and-QA engineer. A web app's source is cloned under the working directory, and an initial pm2.config.js + docker-compose.yml have been staged there. Your mission: get the app's FRONTEND genuinely FUNCTIONAL — not just rendering, but with working navigation and core user flows — by ITERATING until it works.
+
+    The loop:
+    1. gitsee_boot — (re)boot the app. It tells you whether the frontend port bound + the server log tail.
+    2. gitsee_browser_open then gitsee_browser_snapshot — load the app and see what's on the page. Click/fill (gitsee_browser_click / gitsee_browser_fill / gitsee_browser_press) to exercise REAL flows: follow nav links, try to sign in, submit the primary form, open the main views.
+    3. gitsee_browser_observe (console + failed requests + 4xx/5xx API responses) and gitsee_read_logs (server side). gitsee_assess_ui for a vision verdict on the current screen. A page that LOOKS fine but whose API calls all 500 is BROKEN — always check gitsee_browser_observe.
+    4. Diagnose each failure → root cause: a missing/incorrect env var, an unmigrated or empty database (needs a PRE_START_COMMAND migrate/seed), a missing backing service, a cloud dependency that should be MOCKED (USE_MOCKS / placeholder creds), a wrong host binding (must be 0.0.0.0) or start command.
+    5. Fix with str_replace_based_edit_tool: edit the pm2.config.js env block, the docker-compose.yml, or the repo source. Prefer the repo's own mock/offline mode. Put FILE changes in the repo; put RUNTIME steps (migrate/seed/reset) in PRE_START_COMMAND.
+    6. gitsee_boot again and re-verify.
+
+    Keep going until: the port binds, the intended UI renders, primary navigation works, and there are no fatal console/network/server errors — confirmed via gitsee_assess_ui + gitsee_browser_observe.
+
+    Rules:
+    - Make MINIMAL, surgical edits. Don't refactor.
+    - ENV VARS GO IN pm2.config.js. Whenever you set or fix an environment variable, put it in the relevant app's `env` block in pm2.config.js — even if you also write it into a repo .env file to make the running app pick it up. Repo .env files are usually GITIGNORED, so they are NOT captured in the deliverable diff and would be LOST on a fresh clone; the pm2.config.js env block is the source of truth that ships.
+    - POD URLS ARE AUTOMATIC — KEEP THEM. Env values may use the pod placeholders `$POD_URL` (this app's own public base URL) and `https://$POD_ID-<port>.<domain>` (a sibling service on another port). These are AUTOMATICALLY substituted to the correct `http://localhost:<port>` for you when the app is booted locally — so the live app you're testing already has working URLs. KEEP the `$POD_URL` / `$POD_ID-<port>` placeholders as-is in pm2.config.js; do NOT rewrite them to localhost yourself (that would break the deliverable on the real pod). This matters MOST for BROWSER-FACING vars (`NEXT_PUBLIC_*`, Vite `VITE_*`, OAuth callback/redirect URLs): they MUST keep the `https://$POD_ID-<port>.<domain>` form, never hardcoded localhost. Only purely INTERNAL server-to-server values (a backend's own DB connection string) stay literal localhost.
+    - PREFER THE PROJECT'S OWN LOCAL-DEV TOOLING over hand-rolling infrastructure. If the project ships a first-party way to bring up its backing stack — `supabase start` (the Supabase CLI spins up its OWN Postgres + Auth + Storage + REST and applies the repo's migrations), a devcontainer script, a Makefile/compose target — USE IT via PRE_START_COMMAND; do NOT hand-wire the individual services yourself in docker-compose.yml. If you've INHERITED such a hand-rolled setup and it's fighting you, REPLACE it with the first-party command (drop the self-hosted services from docker-compose.yml and put `supabase start` in PRE_START_COMMAND).
+    - Keep the frontend pm2 service named "frontend"; the dev server MUST bind 0.0.0.0.
+    - Only a primary datastore gets a docker-compose service; mock everything else (no containers for caches/queues/cloud APIs). A CLI-managed stack like `supabase start` is NOT a compose service — it goes in PRE_START_COMMAND.
+    - DRIVE THE UI — don't drown in the shell. The browser tools are how you VERIFY success and they're your success criterion; bash/curl is only for QUICK diagnosis of a specific error. After a couple of diagnostic shell calls, GO BACK to the browser. If you've run several bash commands in a row without touching the browser, stop and call gitsee_assess_ui to re-orient.
+    - Reboots are expensive (install/build/migrate) — batch related edits before calling gitsee_boot.
+    - Don't loop forever: if you've truly exhausted what you can fix, call final_answer and honestly report what's still missing.
+
+  finalAnswer: |-
+    Call when the app is functional, or when you've hit a wall you genuinely cannot fix. Provide a markdown report with:
+    ## SUMMARY (what you changed + the final state)
+    ## WORKING (features you verified in the browser)
+    ## MISSING (anything still broken/absent to make it great — each with the evidence and the fix it needs)
