@@ -56,9 +56,29 @@ required (see "Core changes" at the end); everything else is additive.
   `gitsee/finalize-setup`. Each works BOTH as a workflow step (Step D's loop) AND
   as an `agentTools` tool (the diagnose-fix agent). Registered in `seed.ts`; mcp
   tsc clean; all 11 load + schema-parse cleanly.
-- **TODO — Step D**: the C2 `gitsee-qa-iteration` subflow + rewritten
-  `gitsee-setup-and-run` loop wiring these steps; then the A/B gate vs the
-  monolith and deleting `boot-and-exercise.ts`.
+- **DONE — Step D (the QA loop as a workflow)**: `gitsee-setup-and-run.yaml`
+  rewritten to `clone → produce → stage → qa(agent) → finalize`. The `qa` node is
+  the core `agent` step with the 9 gitsee tool-steps as `agentTools` (+ built-in
+  bash/str_replace for edits); the QA system prompt + tool list + model + maxSteps
+  live in `params` (the harness/policy split, §5). Teardown is automatic via
+  `onRunEnd`. Seeds + lints cleanly. **The monolith `boot-and-exercise.ts` is now
+  unused by the workflow but still seeded — the A/B reference for Step E.**
+  - **DESIGN CHANGE from §3 (agent-orchestrated, NOT a deterministic `loop`).**
+    vein's `loop` step THROWS when it exhausts `maxIterations` without `until`
+    becoming true (`runner.ts:580`) — so an app that can't be fixed would error
+    the run and yield NO deliverable (the monolith always returns report+diff even
+    when not working). Plus the QA control flow is inherently dynamic (the model
+    interleaves bash/browser in an order we can't predict). So the loop is the
+    `agent`'s own tool loop, with the tool-steps as `agentTools` — which (a) still
+    makes every iteration visible (Step A's per-tool-call events), (b) preserves
+    agent autonomy, (c) always produces a deliverable via `finalize`, and (d)
+    directly answers the original "why isn't it using the core `agent` step?".
+    The deterministic `loop`+subflow remains a future option if we ever want a
+    fixed rhythm, but it needs a non-throwing `loop` (or a guaranteed-`finally`
+    finalize) first.
+- **TODO — Step E**: the A/B gate (new agent workflow vs the seeded monolith
+  step) on `hive`/`heroku-node`; then delete `boot-and-exercise.ts`. Step F:
+  `gitsee-setup-optimize` (sweep the QA `system` prompt with the harness fixed).
 
 The rest of this doc is the design + sequencing for layer 2.
 

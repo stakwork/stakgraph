@@ -65,6 +65,12 @@ export class StackSession {
   /** The original produced two-file string (local form), for finalSetup. */
   private initialSetup = "";
   lastBooted: boolean | null = null;
+  /** The most recent vision verdict (recorded by gitsee/assess-ui), read by
+   *  gitsee/finalize-setup so the deliverable carries it no matter how the
+   *  agent loop ends. */
+  lastWorking: boolean | null = null;
+  lastReason = "";
+  lastScreenshot: string | undefined;
 
   constructor(workspacePath: string, opts: StackOptions = {}) {
     this.workspacePath = workspacePath;
@@ -188,6 +194,13 @@ export class StackSession {
 
   async readLogs(): Promise<string> {
     return captureAppLogs(this.workspacePath, this.appName);
+  }
+
+  /** Record the latest vision verdict (called by gitsee/assess-ui). */
+  recordVerdict(working: boolean | null, reason: string, screenshotPath?: string) {
+    this.lastWorking = working;
+    this.lastReason = reason;
+    if (screenshotPath) this.lastScreenshot = screenshotPath;
   }
 
   /** Per-repo `git diff` (intent-to-add so NEW files show as additions) — the

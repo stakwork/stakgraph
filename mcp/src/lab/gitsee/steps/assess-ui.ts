@@ -30,9 +30,12 @@ export default defineStep({
     const port = stack?.port ?? 3000;
     try {
       const v = await gitsee.vision.assess(shot, `http://localhost:${port}${cfg.checkPath}`, browser.obs, logs, cfg.model);
+      stack?.recordVerdict(v.working, v.reason, shot); // so finalize has the last verdict
       return { working: v.working, reason: v.reason, screenshotPath: shot, cost: v.cost, usage: v.usage };
     } catch (e) {
-      return { working: null, reason: `vision assessment failed: ${(e as Error).message}`, screenshotPath: shot };
+      const reason = `vision assessment failed: ${(e as Error).message}`;
+      stack?.recordVerdict(null, reason, shot);
+      return { working: null, reason, screenshotPath: shot };
     }
   },
 });
