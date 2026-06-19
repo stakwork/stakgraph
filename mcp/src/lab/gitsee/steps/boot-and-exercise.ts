@@ -678,7 +678,7 @@ export default defineStep({
     keepUp: z.boolean().default(false).describe("skip teardown (leave compose + apps running for debugging)"),
   }),
   output: z.any(),
-  async run(cfg) {
+  async run(cfg, ctx) {
     const wp = cfg.workspacePath;
     const logBuf: string[] = [];
     const log = (s: string) => {
@@ -940,6 +940,52 @@ export default defineStep({
         execute: async ({ report }: { report: string }) => report,
       }),
     };
+
+    // Emit a nested run EVENT per tool call so each iteration is visible in the
+    // UI's events panel + run drill-down — otherwise the whole loop is one opaque
+    // `agent`-style node. The path nests under this step's path
+    // (`<stepPath>/NNN-<tool>`), mirroring the core agent's buildRegistryTools
+    // convention, so the events re-key cleanly. ctx is absent when run outside the
+    // runner (smokes) → no-op. final_answer is skipped (terminal, noisy).
+    if (ctx?.emit && ctx.path) {
+      const basePath = ctx.path;
+      const emitEvent = ctx.emit as unknown as (e: Record<string, unknown>) => Promise<void>;
+      let toolCalls = 0;
+      const summarize = (v: unknown): string => {
+        const s = typeof v === "string" ? v : JSON.stringify(v ?? "");
+        return s.length > 1500 ? s.slice(0, 1500) + "\n[… truncated for event log …]" : s;
+      };
+      for (const [name, t] of Object.entries(tools)) {
+        if (name === "final_answer") continue;
+        const orig = (t as { execute?: unknown }).execute;
+        if (typeof orig !== "function") continue; // provider-executed tools (none here) have no execute
+        (t as { execute: unknown }).execute = async (input: unknown, opts: unknown) => {
+          const n = ++toolCalls;
+          const path = `${basePath}/${String(n).padStart(3, "0")}-${name}`;
+          const startedAt = Date.now();
+          await emitEvent({ type: "step.start", path, stepType: `tool:${name}`, input });
+          try {
+            const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, opts);
+            await emitEvent({
+              type: "step.end",
+              path,
+              stepType: `tool:${name}`,
+              output: summarize(out),
+              durationMs: Date.now() - startedAt,
+            });
+            return out;
+          } catch (e) {
+            await emitEvent({
+              type: "step.error",
+              path,
+              stepType: `tool:${name}`,
+              error: { message: (e as Error).message },
+            });
+            throw e;
+          }
+        };
+      }
+    }
 
     const system = `You are an autonomous setup-and-QA engineer. A web app's source is cloned under the working directory, and an initial pm2.config.js + docker-compose.yml have been staged there. Your mission: get the app's FRONTEND genuinely FUNCTIONAL — not just rendering, but with working navigation and core user flows — by ITERATING until it works.
 

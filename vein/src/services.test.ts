@@ -196,6 +196,63 @@ describe("services injection", () => {
     assert.deepEqual(graph.calls, ["Q1", "Q2"]);
   });
 
+  it("calls services.onRunEnd(runId) in a finally — on success AND on error", async () => {
+    const ended: string[] = [];
+    const ok = defineStep({
+      type: "ok",
+      input: z.object({}),
+      output: z.string(),
+      async run() { return "done"; },
+    });
+    const boom = defineStep({
+      type: "kaboom",
+      input: z.object({}),
+      output: z.any(),
+      async run() { throw new Error("nope"); },
+    });
+    const services = { onRunEnd: async (id: string) => { ended.push(id); } };
+
+    const okWf = flow("ok-wf", { input: z.object({}), steps: [step("a", "ok", {})] });
+    const okRes = await runWorkflow(okWf, {}, { ok } as StepRegistry, { services });
+    assert.equal(okRes.status, "success");
+    assert.deepEqual(ended, [okRes.runId], "onRunEnd fired for the successful run");
+
+    const failWf = flow("fail-wf", { input: z.object({}), steps: [step("a", "kaboom", {})] });
+    const failRes = await runWorkflow(failWf, {}, { kaboom: boom } as StepRegistry, { services });
+    assert.equal(failRes.status, "error");
+    assert.deepEqual(ended, [okRes.runId, failRes.runId], "onRunEnd ALSO fired for the errored run");
+  });
+
+  it("a teardown failure in onRunEnd does not mask the run result", async () => {
+    const ok = defineStep({
+      type: "ok2",
+      input: z.object({}),
+      output: z.string(),
+      async run() { return "done"; },
+    });
+    const services = { onRunEnd: async () => { throw new Error("teardown blew up"); } };
+    const wf = flow("ok2-wf", { input: z.object({}), steps: [step("a", "ok2", {})] });
+    const res = await runWorkflow(wf, {}, { ok2: ok } as StepRegistry, { services });
+    assert.equal(res.status, "success");
+    assert.equal(res.output, "done");
+  });
+
+  it("exposes the step registry on ctx.registry", async () => {
+    const introspect = defineStep({
+      type: "introspect",
+      input: z.object({}),
+      output: z.any(),
+      async run(_cfg, ctx) {
+        return Object.keys(ctx.registry ?? {}).sort();
+      },
+    });
+    const reg = { introspect } as StepRegistry;
+    const wf = flow("introspect-wf", { input: z.object({}), steps: [step("i", "introspect", {})] });
+    const res = await runWorkflow(wf, {}, reg);
+    assert.equal(res.status, "success");
+    assert.deepEqual(res.output, ["introspect"]);
+  });
+
   it("propagates the same services into onError fallback steps", async () => {
     const seen: string[] = [];
     const failing = defineStep({

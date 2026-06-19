@@ -152,6 +152,22 @@ export async function runWorkflow<TServices = unknown>(
       error,
     });
     return { runId, status: "error", error };
+  } finally {
+    // Generic per-run teardown hook. A consumer's services bag may implement
+    // `onRunEnd(runId)` to dispose any per-run resources it allocated during the
+    // run (e.g. the lab's headless browser + booted docker stack, keyed by
+    // runId). Runs in a `finally` so it fires on BOTH success and error, for
+    // EVERY run path (detached launch, in-process `optimizer.run`, tests) —
+    // `runWorkflow` is the single choke point, and nested subflows reuse the
+    // parent runId so it fires once per top-level run. The runner stays generic:
+    // it never names what gets disposed. Guarded so a teardown failure can't mask
+    // the run's real result. (Hard kills (SIGKILL) still skip this — identical to
+    // any in-process `finally`; that case is handled out-of-band.)
+    try {
+      await (services as { onRunEnd?: (id: string) => unknown })?.onRunEnd?.(runId);
+    } catch (teardownErr) {
+      console.error(`[runner] onRunEnd hook failed for run ${runId}:`, teardownErr);
+    }
   }
 }
 
@@ -482,6 +498,7 @@ async function dispatchStep(
         input: scope["input"],
         emit,
         services,
+        registry,
       };
 
       return def.run(validConfig, ctx);

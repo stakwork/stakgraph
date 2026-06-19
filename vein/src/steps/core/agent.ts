@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep } from "../../core.js";
+import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
 import { usageFromResult, computeCost, addUsage } from "../../pricing.js";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
@@ -379,10 +379,86 @@ export function textEdit(input: TextEditInput, cwd: string): string {
   }
 }
 
+// ── registry-backed tools (agentTools) ────────────────────────────────────────
+
+/** Tool-call name from a registry step type: tool names can't contain slashes
+ *  (`browser/click` → `browser_click`), so we sanitize for the LLM and map back. */
+function toolNameFor(stepType: string): string {
+  return stepType.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+/**
+ * Turn a list of registry step-types into AI-SDK tools the agent can call —
+ * the "tools ARE steps" model. Each step's `input` Zod schema becomes the tool's
+ * input schema and its `run` is the executor, invoked with a CHILD context whose
+ * `path` is nested under the agent's (`<agentPath>/NNN-<tool>`). We emit a
+ * `step.start`/`step.end` (or `step.error`) around every call so each tool
+ * invocation shows up as a nested run event — that's what makes the otherwise
+ * opaque agent loop visible in the events panel / run drill-down.
+ *
+ * Pure + offline-testable: the `tool` factory and (optional) `ctx`/`registry`
+ * are injected, so it can be unit-tested with a fake registry + a capturing
+ * `emit` and no model/network. Unknown step-types are skipped (the agent simply
+ * doesn't get that tool). Returns a record keyed by the sanitized tool name.
+ */
+export function buildRegistryTools(
+  names: string[] | undefined,
+  registry: StepRegistry | undefined,
+  ctx: StepContext | undefined,
+  // The AI SDK `tool()` factory. Typed loosely (like the built-in tools, which
+  // cast `inputSchema` to any) — the SDK's Tool generics over-constrain here.
+  toolFactory: (def: any) => unknown,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!names?.length || !registry) return out;
+  let calls = 0;
+  for (const stepType of names) {
+    const def = registry[stepType];
+    if (!def) {
+      console.warn(`[agent] agentTools: unknown step type "${stepType}" — skipping`);
+      continue;
+    }
+    out[toolNameFor(stepType)] = toolFactory({
+      description: def.description ?? `Run the "${stepType}" step.`,
+      inputSchema: def.input,
+      execute: async (input: unknown) => {
+        const n = ++calls;
+        const path = ctx?.path ? `${ctx.path}/${String(n).padStart(3, "0")}-${toolNameFor(stepType)}` : undefined;
+        const startTime = Date.now();
+        // Validate against the step's own input schema (so the tool sees what a
+        // real step run would). Cast emit to bypass the full-RunEvent type — the
+        // runner's emit fills ts/runId.
+        const emit = ctx?.emit as undefined | ((e: Record<string, unknown>) => Promise<void>);
+        let parsed: unknown;
+        try {
+          parsed = def.input.parse(input ?? {});
+        } catch (e) {
+          return `Error: invalid input for "${stepType}": ${(e as Error).message}`;
+        }
+        if (emit && path) await emit({ type: "step.start", path, stepType, input: parsed });
+        try {
+          const childCtx: StepContext = ctx
+            ? { ...ctx, path: path ?? ctx.path }
+            : ({ runId: "", path: path ?? "", scope: {}, input: undefined, emit: (async () => {}) as any, services: undefined });
+          const output = await def.run(parsed, childCtx);
+          if (emit && path)
+            await emit({ type: "step.end", path, stepType, output, durationMs: Date.now() - startTime });
+          return output;
+        } catch (e) {
+          if (emit && path)
+            await emit({ type: "step.error", path, stepType, error: { message: (e as Error).message } });
+          throw e;
+        }
+      },
+    });
+  }
+  return out;
+}
+
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of tool names; empty = all), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of built-in tool names; empty = all), agentTools? (registry step TYPES exposed as extra tools — the 'tools are steps' model; each tool call emits a nested run event), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -399,6 +475,12 @@ export default defineStep({
       .array(z.string())
       .default([])
       .describe("subset of built-in tool names to enable; empty = all. (final_answer is always available in finalAnswer mode.)"),
+    agentTools: z
+      .array(z.string())
+      .default([])
+      .describe(
+        "registry step TYPES to expose as additional LLM tools (the 'tools are steps' model, e.g. ['gitsee/read-logs']). Each step's input schema becomes the tool schema and its run() is the executor, called with a nested ctx so every tool call emits a step.start/step.end run event (visible in the events panel). Merged ON TOP of the built-ins (not subject to toolFilter). Unknown types are skipped. Requires the runner-populated ctx.registry.",
+      ),
     model: z.string().optional(),
     provider: z.string().optional(),
     maxSteps: z.number().int().positive().default(40),
@@ -410,7 +492,7 @@ export default defineStep({
       ),
   }),
   output: z.any(),
-  async run(cfg) {
+  async run(cfg, ctx) {
     const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, generateText } = await import("ai");
 
     const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
@@ -543,6 +625,11 @@ export default defineStep({
     for (const [name, t] of Object.entries(allTools)) {
       if (!filter.length || filter.includes(name)) tools[name] = t;
     }
+
+    // Registry-backed tools (the "tools are steps" model). Merged ON TOP of the
+    // (filtered) built-ins — explicitly requested, so not subject to toolFilter.
+    // Needs the runner-populated ctx.registry; absent (in-code/test) → no-op.
+    Object.assign(tools, buildRegistryTools(cfg.agentTools, ctx?.registry, ctx, tool));
 
     // Output mode: schema (structured) vs finalAnswer (terminal tool) vs text.
     const useSchema = cfg.schema != null;
