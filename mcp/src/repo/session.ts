@@ -215,6 +215,10 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(configPath)) {
     unlinkSync(configPath);
   }
+  const metadataPath = getMetadataFile(sessionId);
+  if (existsSync(metadataPath)) {
+    unlinkSync(metadataPath);
+  }
   deleteAttachments(sessionId);
 }
 
@@ -247,6 +251,40 @@ export function loadSessionConfig(sessionId: string): SessionInitConfig | null {
   if (!existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, "utf-8")) as SessionInitConfig;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the file path for a session's arbitrary metadata sidecar.
+ */
+function getMetadataFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.metadata.json`);
+}
+
+/**
+ * Persist arbitrary caller-provided metadata for a session to a sidecar file.
+ */
+export function saveSessionMetadata(sessionId: string, metadata: unknown): void {
+  writeFileSync(getMetadataFile(sessionId), JSON.stringify(metadata, null, 2));
+}
+
+/**
+ * Load arbitrary session metadata from the sidecar file.
+ * Returns null if no sidecar exists or if parsing fails.
+ */
+export function loadSessionMetadata(sessionId: string): unknown | null {
+  const filePath = getMetadataFile(sessionId);
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8"));
   } catch {
     return null;
   }

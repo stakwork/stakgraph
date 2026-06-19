@@ -10,7 +10,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
-import { SessionConfig, loadSession, loadSessionConfig, sessionExists } from "./session.js";
+import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
@@ -148,6 +148,7 @@ function parseAgentBody(req: Request) {
         (a): a is string => typeof a === "string" && a.trim().length > 0,
       )
     : undefined;
+  const _metadata = req.body._metadata as unknown;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -158,7 +159,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commitList, prompt, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments,
+    ignoreRepoInfo, attachments, _metadata,
   };
 }
 
@@ -264,6 +265,7 @@ export async function repo_agent(req: Request, res: Response) {
           maxTurns: body.maxTurns,
           headers: body.headers,
           attachments: body.attachments,
+          _metadata: body._metadata,
         },
       );
 
@@ -381,6 +383,7 @@ export async function repo_agent(req: Request, res: Response) {
           maxTurns: body.maxTurns,
           headers: body.headers,
           attachments: body.attachments,
+          _metadata: body._metadata,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
@@ -501,7 +504,8 @@ export async function get_agent_session(req: Request, res: Response) {
   try {
     const messages = loadSession(sessionId);
     const config = loadSessionConfig(sessionId);
-    res.json({ sessionId, messages, config });
+    const _metadata = loadSessionMetadata(sessionId);
+    res.json({ sessionId, messages, config, _metadata });
   } catch (e) {
     console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });
