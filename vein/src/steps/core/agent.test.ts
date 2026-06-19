@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { coreRegistry } from "../registry.js";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
-import agent, { repoTree, textEdit, buildRegistryTools } from "./agent.js";
+import agent, { repoTree, textEdit, buildRegistryTools, wrapToolsWithEmit } from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
 // config-validation guards in run() that fire BEFORE any model call. The actual
@@ -84,36 +84,80 @@ describe("agentTools (buildRegistryTools — tools are steps)", () => {
     assert.deepEqual(buildRegistryTools(["demo/echo"], undefined, undefined, fakeTool), {});
   });
 
-  it("executes the step and emits nested step.start/step.end events", async () => {
-    const events: any[] = [];
+  it("executes the step and returns its output (no emit here)", async () => {
     const ctx = {
-      runId: "r1",
-      path: "wf/diagnose",
-      scope: {},
-      input: undefined,
-      emit: async (e: any) => { events.push(e); },
-      services: undefined,
-      registry,
+      runId: "r1", path: "wf/diagnose", scope: {}, input: undefined,
+      emit: async () => {}, services: undefined, registry,
     } as unknown as StepContext;
-
     const tools = buildRegistryTools(["demo/echo"], registry, ctx, fakeTool);
     const out = await (tools["demo_echo"] as any).execute({ msg: "hi" });
-
     assert.equal(out, "got:hi");
-    assert.equal(events.length, 2);
-    assert.equal(events[0].type, "step.start");
-    assert.equal(events[0].path, "wf/diagnose/001-demo_echo");
-    assert.equal(events[0].stepType, "demo/echo");
-    assert.deepEqual(events[0].input, { msg: "hi" });
-    assert.equal(events[1].type, "step.end");
-    assert.equal(events[1].path, "wf/diagnose/001-demo_echo");
-    assert.equal(events[1].output, "got:hi");
   });
 
   it("returns an Error string (not throw) on invalid tool input", async () => {
     const tools = buildRegistryTools(["demo/echo"], registry, undefined, fakeTool);
     const out = await (tools["demo_echo"] as any).execute({ wrong: 1 });
     assert.match(String(out), /Error: invalid input for "demo\/echo"/);
+  });
+});
+
+describe("wrapToolsWithEmit (per-call nested run events)", () => {
+  function makeCtx(events: any[]): StepContext {
+    return {
+      runId: "r1", path: "wf/agent", scope: {}, input: undefined,
+      emit: async (e: any) => { events.push(e); }, services: undefined,
+    } as unknown as StepContext;
+  }
+
+  it("emits step.start/step.end around every tool, with a shared ordered counter", async () => {
+    const events: any[] = [];
+    const tools: Record<string, any> = {
+      bash: { execute: async (i: any) => `ran:${i.command}` },
+      assess: { execute: async () => ({ working: true }) },
+    };
+    wrapToolsWithEmit(tools, makeCtx(events));
+
+    const a = await tools.bash.execute({ command: "ls" });
+    const b = await tools.assess.execute({});
+    assert.equal(a, "ran:ls");
+    assert.deepEqual(b, { working: true }); // model still gets the REAL output
+
+    assert.deepEqual(events.map((e) => [e.type, e.path, e.stepType]), [
+      ["step.start", "wf/agent/001-bash", "tool:bash"],
+      ["step.end", "wf/agent/001-bash", "tool:bash"],
+      ["step.start", "wf/agent/002-assess", "tool:assess"],
+      ["step.end", "wf/agent/002-assess", "tool:assess"],
+    ]);
+    assert.deepEqual(events[0].input, { command: "ls" });
+    assert.equal(events[1].output, "ran:ls"); // event output is the summarized string
+  });
+
+  it("skips final_answer and provider-executed tools (no execute)", async () => {
+    const events: any[] = [];
+    const tools: Record<string, any> = {
+      final_answer: { execute: async (i: any) => i.answer },
+      web_search: { type: "provider-defined" }, // no execute
+    };
+    wrapToolsWithEmit(tools, makeCtx(events));
+    await tools.final_answer.execute({ answer: "done" });
+    assert.equal(events.length, 0);
+  });
+
+  it("emits step.error and rethrows when a tool throws", async () => {
+    const events: any[] = [];
+    const tools: Record<string, any> = { boom: { execute: async () => { throw new Error("nope"); } } };
+    wrapToolsWithEmit(tools, makeCtx(events));
+    await assert.rejects(() => tools.boom.execute({}), /nope/);
+    assert.equal(events[0].type, "step.start");
+    assert.equal(events[1].type, "step.error");
+    assert.equal(events[1].error.message, "nope");
+  });
+
+  it("is a no-op without a runner ctx (in-code/test)", async () => {
+    const tools: Record<string, any> = { bash: { execute: async () => "ok" } };
+    const orig = tools.bash.execute;
+    wrapToolsWithEmit(tools, undefined);
+    assert.equal(tools.bash.execute, orig, "execute is left untouched");
   });
 });
 

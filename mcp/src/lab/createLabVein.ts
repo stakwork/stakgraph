@@ -12,6 +12,7 @@ import {
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
+import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 
 /**
  * Lets a step run other workflows (and read their params) from inside a run —
@@ -37,6 +38,12 @@ export interface OptimizerCapability {
 export interface LabServices extends ConceptServices {
   /** Run-sub-workflows capability for the optimize loop. Injected post-build. */
   optimizer?: OptimizerCapability;
+  /** Gitsee QA harness: per-run browser + stack session managers + vision judge,
+   *  reached by the gitsee tool-steps via `ctx.services.gitsee.*`. */
+  gitsee?: GitseeServices;
+  /** Generic per-run teardown hook called by the vein runner in a `finally`
+   *  (success AND error). Disposes a run's gitsee browser + booted stack. */
+  onRunEnd?(runId: string): Promise<void>;
 }
 
 export interface CreateLabVeinOptions extends BuildServicesOptions {
@@ -65,10 +72,24 @@ export interface CreateLabVeinOptions extends BuildServicesOptions {
 export async function createLabVein(
   opts: CreateLabVeinOptions = {},
 ): Promise<Vein<LabServices>> {
-  // Merged services bag. Today just concepts; spread additional
-  // experiments' bags here as they're added.
+  // Merged services bag. Today concepts + the gitsee QA harness; spread
+  // additional experiments' bags here as they're added.
   const services: LabServices =
     opts.services ?? (await buildConceptServices(opts));
+
+  // Gitsee harness: per-run browser + stack managers + vision judge, plus the
+  // generic per-run teardown hook. Wired even when `opts.services` was supplied
+  // (so a custom bag still gets the gitsee harness + teardown) — only added when
+  // absent, to respect a caller that intentionally provided its own gitsee bag.
+  if (!services.gitsee) {
+    const { gitsee, disposeRun } = buildGitseeServices();
+    services.gitsee = gitsee;
+    const priorOnRunEnd = services.onRunEnd?.bind(services);
+    services.onRunEnd = async (runId: string) => {
+      if (priorOnRunEnd) await priorOnRunEnd(runId);
+      await disposeRun(runId);
+    };
+  }
 
   const workspacePath =
     opts.workspacePath ??

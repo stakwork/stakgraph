@@ -159,46 +159,48 @@ export function RunInputPopover(props: {
   return (
     <div class="run-popover" ref={ref}>
       <div class="run-popover-title">Run input</div>
-      {props.bindings.map((b) => (
-        <ConfigField
-          key={b.inputKey}
-          field={b.field}
-          value={values[b.inputKey]}
-          onChange={(v) => setValues((prev) => ({ ...prev, [b.inputKey]: v }))}
-        />
-      ))}
-      {paramKeys.length > 0 && (
-        <div class="run-popover-params">
-          <div class="run-popover-subtitle">Params</div>
-          {paramKeys.map((k) => {
-            const isMultiline =
-              typeof paramDefaults[k] === "string" &&
-              ((paramValues[k] ?? "").length > 40 || (paramValues[k] ?? "").includes("\n"));
-            return (
-              <label class="run-popover-param" key={k}>
-                <span class="run-popover-param-name">{k}</span>
-                {isMultiline ? (
-                  <textarea
-                    rows={4}
-                    value={paramValues[k]}
-                    onInput={(e) =>
-                      setParamValues((prev) => ({ ...prev, [k]: (e.target as HTMLTextAreaElement).value }))
-                    }
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    value={paramValues[k]}
-                    onInput={(e) =>
-                      setParamValues((prev) => ({ ...prev, [k]: (e.target as HTMLInputElement).value }))
-                    }
-                  />
-                )}
-              </label>
-            );
-          })}
-        </div>
-      )}
+      <div class="run-popover-body">
+        {props.bindings.map((b) => (
+          <ConfigField
+            key={b.inputKey}
+            field={b.field}
+            value={values[b.inputKey]}
+            onChange={(v) => setValues((prev) => ({ ...prev, [b.inputKey]: v }))}
+          />
+        ))}
+        {paramKeys.length > 0 && (
+          <div class="run-popover-params">
+            <div class="run-popover-subtitle">Params</div>
+            {paramKeys.map((k) => {
+              const isMultiline =
+                typeof paramDefaults[k] === "string" &&
+                ((paramValues[k] ?? "").length > 40 || (paramValues[k] ?? "").includes("\n"));
+              return (
+                <label class="run-popover-param" key={k}>
+                  <span class="run-popover-param-name">{k}</span>
+                  {isMultiline ? (
+                    <textarea
+                      rows={4}
+                      value={paramValues[k]}
+                      onInput={(e) =>
+                        setParamValues((prev) => ({ ...prev, [k]: (e.target as HTMLTextAreaElement).value }))
+                      }
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={paramValues[k]}
+                      onInput={(e) =>
+                        setParamValues((prev) => ({ ...prev, [k]: (e.target as HTMLInputElement).value }))
+                      }
+                    />
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <div class="run-popover-actions">
         <button class="btn" onClick={props.onClose}>Cancel</button>
         <button class="btn btn-primary" onClick={handleSubmit}>Run</button>

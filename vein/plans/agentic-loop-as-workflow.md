@@ -36,10 +36,22 @@ required (see "Core changes" at the end); everything else is additive.
   pre-existing `ctx.emit`/`ctx.path` → runs against the current copied vein dep,
   **no `refresh-vein` required**. This satisfies the headline ask ("see each
   iteration in the UI") without touching the loop's behavior.
-- **TODO — layer 2**: §2 services (browser/stack/vision as per-run factories +
-  `LabServices.onRunEnd`), §1b tool-steps, §3 the C2 loop workflow. Build after
-  the layer-1 MVP is confirmed in the UI (it validates the event-path approach
-  end-to-end before the bigger decomposition rests on it).
+- **DONE — Step A (core agent tool visibility)**: the core `agent` step now emits
+  a nested run event for EVERY tool call (built-ins + `agentTools`) via the
+  unified `wrapToolsWithEmit` (single shared counter, skips `final_answer` +
+  provider-executed tools). So `produce/explore` and any agent step is observable,
+  not just `boot-and-exercise`. 424 vein tests green; tsc clean.
+- **DONE — Step B (services as per-run factories + teardown)**: `mcp/src/lab/
+  gitsee/services/` — `BrowserManager`/`StackManager` (per-run sessions keyed by
+  runId) + a stateless vision judge, lifted from the monolith. `LabServices.gitsee`
+  + a generic `LabServices.onRunEnd(runId)` (wired into vein's runner `finally`)
+  dispose a run's browser + booted stack on success AND error. mcp tsc clean;
+  lifecycle smoke (`services/smoke-services.ts`) verifies per-run keying +
+  idempotent disposal. (Not yet consumed — the tool-steps in Step C will reach it
+  via `ctx.services.gitsee.*`; the monolith baseline is untouched.)
+- **TODO — Steps C/D**: §1b tool-steps (reach `ctx.services.gitsee.*`), §3 the C2
+  `gitsee-qa-iteration` + rewritten `gitsee-setup-and-run` loop, then the A/B gate
+  and deleting the monolith.
 
 The rest of this doc is the design + sequencing for layer 2.
 
