@@ -3,6 +3,7 @@ import { get_context, stream_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
+import { ModelMessage } from "ai";
 import { randomUUID } from "crypto";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
@@ -125,6 +126,12 @@ function parseAgentBody(req: Request) {
   const pat = req.body.pat as string | undefined;
   const commitList = parseCommitList(req.body.commit as string | undefined);
   const prompt = req.body.prompt as any;
+  // Transparent replay: a full ai-sdk transcript (including the system turn) to
+  // run verbatim. When present, the agent skips all prompt/instruction
+  // enrichment, session history, attachments, and persistence.
+  const messages = Array.isArray(req.body.messages)
+    ? (req.body.messages as ModelMessage[])
+    : undefined;
   const toolsConfig = normalizeToolsConfig(req.body.toolsConfig);
   const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
   const modelName = req.body.model as ModelName | undefined;
@@ -156,7 +163,7 @@ function parseAgentBody(req: Request) {
     .filter((url: string) => url.length > 0);
 
   return {
-    repoUrl, username, pat, commitList, prompt, toolsConfig, schema,
+    repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
     ignoreRepoInfo, attachments, _metadata,
@@ -217,18 +224,25 @@ export async function repo_agent(req: Request, res: Response) {
 
   const body = parseAgentBody(req);
 
-  if (!body.prompt) {
+  // Transparent replay: `messages` is a full transcript run verbatim. It takes
+  // the place of `prompt` and disables all enrichment/history/persistence.
+  const transparent = Boolean(body.messages && body.messages.length > 0);
+
+  if (!body.prompt && !transparent) {
     res.status(400).json({ error: "Missing prompt" });
     return;
   }
 
   const graphRepos = await getGraphRepoList();
   const effectiveRepos = body.repoList.length > 0 ? body.repoList : graphRepos;
-  // Only prepend repo info on the first message of a session (or when there's no session)
+  // Only prepend repo info on the first message of a session (or when there's no session).
+  // In transparent mode the replayed messages are sent verbatim — no repo info.
   const isExistingSession = body.sessionId && sessionExists(body.sessionId);
-  const promptWithRepoInfo = (isExistingSession || body.ignoreRepoInfo)
-    ? body.prompt
-    : prependRepoInfo(body.prompt, body.repoList, graphRepos);
+  const promptInput: string | ModelMessage[] = transparent
+    ? body.messages!
+    : (isExistingSession || body.ignoreRepoInfo)
+      ? body.prompt
+      : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   // ── Streaming path: direct SSE response ──────────────────────────────
   if (body.stream) {
     // Register abort controller keyed by sessionId so a separate request can cancel it
@@ -242,9 +256,10 @@ export async function repo_agent(req: Request, res: Response) {
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
       const { streamResult, finalizeSession } = await stream_context(
-        promptWithRepoInfo,
+        promptInput,
         repoDir,
         {
+          transparent,
           pat: body.pat,
           toolsConfig: body.toolsConfig,
           schema: body.schema,
@@ -364,7 +379,8 @@ export async function repo_agent(req: Request, res: Response) {
     repoDirPromise
       .then((repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(promptWithRepoInfo, repoDir, {
+        return get_context(promptInput, repoDir, {
+          transparent,
           pat: body.pat,
           toolsConfig: body.toolsConfig,
           schema: body.schema,

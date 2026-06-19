@@ -285,6 +285,11 @@ export interface GetContextOptions {
   commitList?: string[];
   // Skip prepending repo info to the first prompt (handler-level; recorded in config)
   ignoreRepoInfo?: boolean;
+  // Replay mode: `prompt` is a full ModelMessage[] (including the system turn)
+  // that is run verbatim. No system prompt is generated, no enrichment blocks
+  // are appended, no session history is loaded, no attachments are resolved,
+  // and nothing is persisted. Used by evals to faithfully replay a transcript.
+  transparent?: boolean;
 }
 
 interface PreparedAgent {
@@ -339,6 +344,10 @@ async function prepareAgent(
     onStepEvent,
   } = opts;
   const startTime = Date.now();
+  // Transparent replay: run `prompt` (a ModelMessage[]) verbatim with no
+  // code-generated system prompt, enrichment, session history, attachments,
+  // or persistence. The system turn must live inside the messages array.
+  const transparent = opts.transparent === true;
   const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers);
   console.log("===> model", modelId, "provider", provider, "contextLimit", contextLimit);
 
@@ -371,7 +380,7 @@ async function prepareAgent(
   let instructions = systemOverride || DEFAULT_SYSTEM(toolsConfig);
 
   // If an org_agent tool is available from MCP, inject a strong hint to use it for unclear/high-level questions.
-  if (orgAgentToolNames.length > 0) {
+  if (!transparent && orgAgentToolNames.length > 0) {
     const toolList = orgAgentToolNames.map(n => `\`${n}\``).join(", ");
     const single = orgAgentToolNames.length === 1;
     const primary = orgAgentToolNames[0];
@@ -399,7 +408,7 @@ After getting high-level context back, use graph/bash tools on the actual codeba
   // console.log("INSTRUCTIONS", instructions);
 
   // Append sub-agent instructions if any sub-agents are registered
-  if (subAgents && subAgents.length > 0) {
+  if (!transparent && subAgents && subAgents.length > 0) {
     const validSubAgents = subAgents.filter(sa => sa.name && sa.url && sa.apiToken);
     if (validSubAgents.length > 0) {
       const agentList = validSubAgents
@@ -423,7 +432,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     .filter(([, enabled]) => enabled)
     .map(([name]) => name);
 
-  if (activeSkills.length > 0) {
+  if (!transparent && activeSkills.length > 0) {
     const inlineSkills = activeSkills.filter(name => !name.includes("/") && SKILLS[name]);
     const pathSkills = activeSkills.filter(name => name.includes("/") || !SKILLS[name]);
 
@@ -455,11 +464,13 @@ Apply the guidance from each skill throughout your response.`;
 
   // Resolve image attachments for THIS turn (body field preferred, else the
   // <attachments> tag on the last user message) and strip the tag from text.
-  const { urls: attachmentUrls, cleanedPrompt } = resolveCurrentTurnAttachments(
-    finalPrompt,
-    opts.attachments,
-  );
-  finalPrompt = cleanedPrompt;
+  // Skipped in transparent mode — the prompt is replayed verbatim.
+  let attachmentUrls: string[] = [];
+  if (!transparent) {
+    const resolved = resolveCurrentTurnAttachments(finalPrompt, opts.attachments);
+    attachmentUrls = resolved.urls;
+    finalPrompt = resolved.cleanedPrompt;
+  }
 
   if (typeof opts.maxTurns === "number" && opts.maxTurns > 0) {
     stopConditions.push(stepCountIs(opts.maxTurns));
@@ -478,7 +489,7 @@ Apply the guidance from each skill throughout your response.`;
   let previousMessages: ModelMessage[] = [];
   let hasSystemTurn = false;
 
-  if (inputSessionId) {
+  if (!transparent && inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
@@ -546,7 +557,9 @@ Apply the guidance from each skill throughout your response.`;
 
   const agent = new ToolLoopAgent({
     model,
-    instructions,
+    // Transparent replay: no code-generated system prompt — the system turn
+    // (if any) must be present inside the replayed messages array.
+    instructions: transparent ? undefined : instructions,
     tools,
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
