@@ -34,6 +34,7 @@ export interface SessionConfig {
 export interface SessionInitConfig {
   model?: string;
   provider?: string;
+  systemOverride?: string;
   toolsConfig?: { [key: string]: any };
   schema?: { [key: string]: any };
   sessionConfig?: SessionConfig;
@@ -44,6 +45,13 @@ export interface SessionInitConfig {
   temperature: number;
   tools?: Record<string, string>;          // name → description for every resolved tool
   providerConfig?: { [key: string]: any }; // resolved getProviderOptions output
+  baseUrl?: string;
+  mcpServers?: { [key: string]: any }[];    // secrets (token/headers) redacted
+  subAgents?: { [key: string]: any }[];     // secrets (apiToken) redacted
+  ggnn?: { [key: string]: any };
+  skills?: { [key: string]: any };
+  commitList?: string[];
+  ignoreRepoInfo?: boolean;
 }
 
 export interface StepMeta {

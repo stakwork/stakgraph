@@ -281,6 +281,10 @@ export interface GetContextOptions {
   headers?: Record<string, string>;
   // Arbitrary caller-provided JSON persisted to the session and returned by GET /session
   _metadata?: unknown;
+  // Specific commits to check out when cloning the repo (handler-level; recorded in config)
+  commitList?: string[];
+  // Skip prepending repo info to the first prompt (handler-level; recorded in config)
+  ignoreRepoInfo?: boolean;
 }
 
 interface PreparedAgent {
@@ -484,6 +488,7 @@ Apply the guidance from each skill throughout your response.`;
       saveSessionConfig(sessionId, {
         model: modelId,
         provider,
+        systemOverride: opts.systemOverride,
         toolsConfig: opts.toolsConfig,
         schema: opts.schema,
         sessionConfig: opts.sessionConfig,
@@ -496,6 +501,14 @@ Apply the guidance from each skill throughout your response.`;
           Object.entries(tools).map(([name, t]) => [name, (t as any).description ?? ""])
         ),
         providerConfig: getProviderOptions(provider as any, undefined, modelId),
+        baseUrl: opts.baseUrl,
+        // Redact secrets before persisting
+        mcpServers: opts.mcpServers?.map(({ token, headers, ...rest }) => rest),
+        subAgents: opts.subAgents?.map(({ apiToken, ...rest }) => rest),
+        ggnn: opts.ggnn,
+        skills: opts.skills,
+        commitList: opts.commitList,
+        ignoreRepoInfo: opts.ignoreRepoInfo,
       });
       hasSystemTurn = true;
     }

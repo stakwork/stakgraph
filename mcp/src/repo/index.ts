@@ -266,6 +266,8 @@ export async function repo_agent(req: Request, res: Response) {
           headers: body.headers,
           attachments: body.attachments,
           _metadata: body._metadata,
+          commitList: body.commitList,
+          ignoreRepoInfo: body.ignoreRepoInfo,
         },
       );
 
@@ -384,6 +386,8 @@ export async function repo_agent(req: Request, res: Response) {
           headers: body.headers,
           attachments: body.attachments,
           _metadata: body._metadata,
+          commitList: body.commitList,
+          ignoreRepoInfo: body.ignoreRepoInfo,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
