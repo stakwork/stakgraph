@@ -44,6 +44,7 @@ import {
   appendSearchProvenance,
   sessionExists,
   saveSessionConfig,
+  saveSessionMetadata,
   SessionConfig,
   StepMeta,
 } from "./session.js";
@@ -278,6 +279,8 @@ export interface GetContextOptions {
   attachments?: string[];
   // Custom HTTP headers attached to every LLM endpoint request (provider-level)
   headers?: Record<string, string>;
+  // Arbitrary caller-provided JSON persisted to the session and returned by GET /session
+  _metadata?: unknown;
 }
 
 interface PreparedAgent {
@@ -496,6 +499,13 @@ Apply the guidance from each skill throughout your response.`;
       });
       hasSystemTurn = true;
     }
+  }
+
+  // Persist arbitrary caller-provided metadata if supplied. Unlike the init
+  // config (written once at session creation), this is saved/updated whenever
+  // `_metadata` is provided so callers can attach or refresh it on any turn.
+  if (sessionId && opts._metadata !== undefined) {
+    saveSessionMetadata(sessionId, opts._metadata);
   }
 
   // Rehydrate cached image attachments from prior turns (placeholder -> bytes)
