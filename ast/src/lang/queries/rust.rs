@@ -517,9 +517,8 @@ impl Stack for Rust {
                             path: (identifier) @{PARENT_NAME}
                             name: (identifier) @{FUNCTION_NAME}
                         )
-                        ;; chained call
+                        ;; chained call (any receiver type; type resolved via hybrid LSP registry)
                         (field_expression
-                            value: (identifier)? @{OPERAND}
                             field: (field_identifier) @{FUNCTION_NAME}
                         )
                     ]

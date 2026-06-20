@@ -1,7 +1,11 @@
 pub mod go_resolver;
 pub mod golang;
+pub mod java_registry;
+pub mod java_resolver;
 pub mod py_resolver;
 pub mod python;
+pub mod rust_registry;
+pub mod rust_resolver;
 pub mod ts_resolver;
 pub mod typescript;
 
@@ -30,6 +34,8 @@ pub fn build(
         Language::Typescript => Some(Box::new(typescript::TypeScriptRegistry::new(graph, filez))),
         Language::Python => Some(Box::new(python::PythonRegistry::new(graph, filez))),
         Language::Go => Some(Box::new(golang::GoRegistry::new(graph, filez))),
+        Language::Rust => Some(Box::new(rust_registry::RustRegistry::new(graph, filez))),
+        Language::Java => Some(Box::new(java_registry::JavaRegistry::new(graph, filez))),
         _ => None,
     }
 }
