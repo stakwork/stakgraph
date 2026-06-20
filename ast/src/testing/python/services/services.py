@@ -47,3 +47,19 @@ class UserController:
     # @ast edge: Calls -> Function "create_user" "services.py"
     def handle_create(self, data: dict):
         return self.service.create_user(data)
+
+
+# @ast node: Function "get_optional_service"
+def get_optional_service() -> Optional[UserService]:
+    return UserService()
+
+
+# @ast node: Class "OptionalController"
+# @ast edge: Operand -> Function "handle" "services.py"
+class OptionalController:
+    # @ast node: Function "handle"
+    # @ast edge: Calls -> Function "get_optional_service" "services.py"
+    # @ast edge: Calls -> Function "get_user" "services.py"
+    def handle(self, user_id: str):
+        service = get_optional_service()
+        return service.get_user(user_id)
