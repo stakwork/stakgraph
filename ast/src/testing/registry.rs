@@ -1,6 +1,6 @@
 use crate::lang::asg::NodeData;
 use crate::lang::graphs::{BTreeMapGraph, Graph, NodeType};
-use crate::lang::registry::{py_resolver, ts_resolver, typescript::TypeScriptRegistry, Registry};
+use crate::lang::registry::{go_resolver, py_resolver, ts_resolver, typescript::TypeScriptRegistry, Registry};
 use lsp::Language;
 
 fn ts_var(file: &str, name: &str, data_type: &str) -> NodeData {
@@ -126,7 +126,68 @@ function syncFn(): UserService { return new UserService(); }
     assert_eq!(returns.get("syncFn").map(|s| s.as_str()), Some("UserService"));
 }
 
+#[test]
+fn test_extract_class_fields_includes_method_returns() {
+    let source = r#"
+class UserService {
+  users = new UsersAPI();
+  async getUser(id: string): Promise<User> { return {} as User; }
+  async listUsers(): Promise<User[]> { return []; }
+  async complex(): Promise<Map<string, User>> { return new Map(); }
+}
+"#;
+    let fields = ts_resolver::extract_class_fields(source);
+    let svc = fields.get("UserService").unwrap();
+    // Regular new-expression field still captured
+    assert_eq!(svc.get("users").map(|s| s.as_str()), Some("UsersAPI"));
+    // Method return types stored with () suffix, Promise<T> unwrapped
+    assert_eq!(svc.get("getUser()").map(|s| s.as_str()), Some("User"));
+    assert_eq!(svc.get("listUsers()").map(|s| s.as_str()), Some("User[]"));
+    // Promise<Map<…>> inner still has < → filtered
+    assert_eq!(svc.get("complex()"), None);
+}
+
+// ── Go resolver unit tests ─────────────────────────────────────────────────────
+
+#[test]
+fn test_go_extract_fn_returns() {
+    let source = r#"
+package main
+
+func newItemStore() *ItemStore { return &ItemStore{} }
+func getCount() (int, error) { return 0, nil }
+func justError() error { return nil }
+"#;
+    let returns = go_resolver::extract_fn_returns(source);
+    assert_eq!(returns.get("newItemStore").map(|s| s.as_str()), Some("ItemStore"));
+    // Multi-return (int, error): first non-error type is int (primitive, kept)
+    assert_eq!(returns.get("getCount").map(|s| s.as_str()), Some("int"));
+    // error-only return: skipped
+    assert_eq!(returns.get("justError"), None);
+}
+
 // ── Python resolver unit tests ────────────────────────────────────────────────
+
+#[test]
+fn test_py_extract_fn_returns_optional_unwrapping() {
+    let source = r#"
+def get_user(user_id: str) -> Optional[User]:
+    return None
+
+def list_users() -> List[User]:
+    return []
+
+def sync_fn() -> UserService:
+    return UserService()
+"#;
+    let returns = py_resolver::extract_fn_returns(source);
+    // Optional[User] → unwrapped to User
+    assert_eq!(returns.get("get_user").map(|s| s.as_str()), Some("User"));
+    // List[User] — outer is not Optional → skipped
+    assert_eq!(returns.get("list_users"), None);
+    // Plain return type unchanged
+    assert_eq!(returns.get("sync_fn").map(|s| s.as_str()), Some("UserService"));
+}
 
 #[test]
 fn test_py_extract_class_fields_constructor() {

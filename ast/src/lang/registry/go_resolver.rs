@@ -181,7 +181,9 @@ fn extract_fn_return_from_node(node: Node, source: &[u8], out: &mut HashMap<Stri
     };
 
     let base_type: Option<String> = match result_node.kind() {
-        "type_identifier" | "pointer_type" | "generic_type" => strip_go_type(result_node, source),
+        "type_identifier" | "pointer_type" | "generic_type" => {
+            strip_go_type(result_node, source).filter(|t| t != "error")
+        }
         "parameter_list" => {
             // Multi-return: (Store, error) — take first non-error type.
             // Unnamed returns have type nodes directly; named returns have parameter_declaration.

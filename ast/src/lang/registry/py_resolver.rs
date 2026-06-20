@@ -222,11 +222,30 @@ fn extract_type_annotation(type_node: Node, source: &[u8]) -> Option<String> {
     } else {
         type_node
     };
-    // Skip generic / Optional / Union annotations — just take plain identifiers
-    if inner.kind() == "identifier" {
-        inner.utf8_text(source).ok().map(|s| s.to_string())
-    } else {
-        None
+    match inner.kind() {
+        "identifier" => inner.utf8_text(source).ok().map(|s| s.to_string()),
+        "generic_type" => {
+            // Optional[T] in type annotation context (tree-sitter-python 0.23+).
+            // Structure: generic_type(identifier "Optional", type_parameter(type(identifier "T")))
+            // No field names — all positional children.
+            let outer = inner.named_child(0)?;
+            if outer.utf8_text(source).ok()? != "Optional" {
+                return None;
+            }
+            let type_params = inner.named_child(1)?; // type_parameter node
+            let first = type_params.named_child(0)?; // type wrapper node
+            let arg = if first.kind() == "type" {
+                first.named_child(0)?
+            } else {
+                first
+            };
+            if arg.kind() == "identifier" {
+                arg.utf8_text(source).ok().map(|s| s.to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
