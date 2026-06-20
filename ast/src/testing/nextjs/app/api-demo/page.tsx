@@ -28,6 +28,8 @@ function APIDemo() {
     loadData();
   }, []);
 
+  // @ast node: Function "loadData"
+  // @ast edge: Calls -> Function "list" "lib/api/apiClient.ts"
   const loadData = async () => {
     const usersList = await api.users.list();
     setUsers(usersList);
@@ -57,6 +59,9 @@ function APIDemo() {
     setNewUserEmail("");
   };
 
+  // @ast node: Function "handleUpdateUser"
+  // @ast edge: Calls -> Function "update" "lib/api/apiClient.ts"
+  // @ast edge: Calls -> Function "loadData" "page.tsx"
   const handleUpdateUser = async () => {
     if (selectedUserId) {
       await api.users.update(selectedUserId, { name: "Updated Name" });
@@ -64,12 +69,15 @@ function APIDemo() {
     }
   };
 
+  // @ast node: Function "handleDeleteUser"
+  // @ast edge: Calls -> Function "delete" "lib/api/apiClient.ts"
   const handleDeleteUser = async (id: string) => {
     await api.users.delete(id);
     setUsers(users.filter((u) => u.id !== id));
   };
 
   // @ast node: Function "handleGetPost"
+  // @ast edge: Calls -> Function "get" "lib/api/apiClient.ts"
   const handleGetPost = async () => {
     if (selectedPostId) {
       const post = await api.posts.get(selectedPostId);
@@ -78,6 +86,7 @@ function APIDemo() {
   };
 
   // @ast node: Function "handleCreatePost"
+  // @ast edge: Calls -> Function "create" "lib/api/apiClient.ts"
   const handleCreatePost = async () => {
     const newPost = await api.posts.create({
       title: "New Post",
@@ -87,12 +96,15 @@ function APIDemo() {
     setPosts([...posts, newPost]);
   };
 
+  // @ast node: Function "handleDeletePost"
+  // @ast edge: Calls -> Function "delete" "lib/api/apiClient.ts"
   const handleDeletePost = async (id: string) => {
     await api.posts.delete(id);
     setPosts(posts.filter((p) => p.id !== id));
   };
 
   // @ast node: Function "handleGetComments"
+  // @ast edge: Calls -> Function "list" "lib/api/apiClient.ts"
   const handleGetComments = async () => {
     if (selectedPostId) {
       const comments = await api.comments.list(selectedPostId);
@@ -101,6 +113,7 @@ function APIDemo() {
   };
 
   // @ast node: Function "handleCreateComment"
+  // @ast edge: Calls -> Function "create" "lib/api/apiClient.ts"
   const handleCreateComment = async () => {
     if (selectedPostId) {
       await api.comments.create({
@@ -111,6 +124,7 @@ function APIDemo() {
   };
 
   // @ast node: Function "handleDeleteComment"
+  // @ast edge: Calls -> Function "delete" "lib/api/apiClient.ts"
   const handleDeleteComment = async (id: string) => {
     await api.comments.delete(id);
   };
@@ -240,8 +254,4 @@ function APIDemo() {
 }
 
 export { APIDemo as default };
-// @ast node: Function "loadData"
-// @ast node: Function "handleUpdateUser"
-// @ast node: Function "handleDeleteUser"
-// @ast node: Function "handleDeletePost"
 // @ast node: Page "api-demo"

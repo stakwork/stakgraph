@@ -480,8 +480,15 @@ pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
                 let Some(ret_node) = inner.child_by_field_name("return_type") else { continue };
                 if let (Ok(name), Ok(ret)) = (name_node.utf8_text(src), ret_node.utf8_text(src)) {
                     let clean = ret.trim_start_matches(':').trim().to_string();
-                    if !clean.is_empty() && !clean.contains('<') {
-                        out.insert(name.to_string(), clean);
+                    let unwrapped = if clean.starts_with("Promise<") && clean.ends_with('>') {
+                        let inner = &clean[8..clean.len() - 1];
+                        // Skip single-char type parameters like Promise<T>
+                        if inner.len() > 1 { inner.to_string() } else { clean }
+                    } else {
+                        clean
+                    };
+                    if !unwrapped.is_empty() && !unwrapped.contains('<') {
+                        out.insert(name.to_string(), unwrapped);
                     }
                 }
             }

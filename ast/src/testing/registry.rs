@@ -110,6 +110,22 @@ export function useGeneric<T>(): Promise<T> { return Promise.resolve({} as T); }
     assert_eq!(returns.get("useGeneric"), None);
 }
 
+#[test]
+fn test_extract_fn_returns_promise_unwrapping() {
+    let source = r#"
+async function fetchUser(id: string): Promise<User> { return {} as User; }
+async function listUsers(): Promise<User[]> { return []; }
+async function complexFn(): Promise<Map<string, User>> { return new Map(); }
+function syncFn(): UserService { return new UserService(); }
+"#;
+    let returns = ts_resolver::extract_fn_returns(source);
+    assert_eq!(returns.get("fetchUser").map(|s| s.as_str()), Some("User"));
+    assert_eq!(returns.get("listUsers").map(|s| s.as_str()), Some("User[]"));
+    // Promise<Map<…>> inner still contains < → filtered
+    assert_eq!(returns.get("complexFn"), None);
+    assert_eq!(returns.get("syncFn").map(|s| s.as_str()), Some("UserService"));
+}
+
 // ── Python resolver unit tests ────────────────────────────────────────────────
 
 #[test]

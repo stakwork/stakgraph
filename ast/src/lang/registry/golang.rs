@@ -15,6 +15,7 @@ pub struct GoRegistry {
     var_types: HashMap<(String, String), String>,
     methods: HashMap<(String, String), String>,
     struct_fields: HashMap<String, HashMap<String, String>>,
+    fn_returns: HashMap<String, String>,
     pkg_fns: HashMap<String, HashMap<String, NodeKeys>>,
     resolved: HashMap<(String, usize, usize), NodeKeys>,
 }
@@ -25,6 +26,7 @@ impl GoRegistry {
             var_types: HashMap::new(),
             methods: HashMap::new(),
             struct_fields: HashMap::new(),
+            fn_returns: HashMap::new(),
             pkg_fns: HashMap::new(),
             resolved: HashMap::new(),
         };
@@ -76,6 +78,14 @@ impl GoRegistry {
             }
         }
 
+        // Build fn_returns: func_name → base_return_type for factory-call typing
+        let fn_returns: HashMap<String, String> = filez
+            .iter()
+            .filter(|(f, _)| f.ends_with(".go"))
+            .flat_map(|(_, source)| go_resolver::extract_fn_returns(source))
+            .collect();
+        reg.fn_returns = fn_returns;
+
         // Pass 2: pre-resolve call sites per file
         let all_resolved: Vec<((String, usize, usize), NodeKeys)> = filez
             .iter()
@@ -85,6 +95,7 @@ impl GoRegistry {
                     source,
                     file,
                     &reg.struct_fields,
+                    &reg.fn_returns,
                     &reg.pkg_fns,
                     &reg.var_types,
                     graph,
