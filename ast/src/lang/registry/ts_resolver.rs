@@ -56,6 +56,23 @@ fn eval_expr_type(
                 fn_returns.get(func_name).map(|(ret_type, def_file)| {
                     format!("{}@{}", ret_type, def_file)
                 })
+            } else if func_node.kind() == "member_expression" {
+                // obj.method() — look up return type from class_fields["ClassName"]["method()"]
+                let obj_type = eval_expr_type(
+                    scope,
+                    class_fields,
+                    fn_returns,
+                    func_node.child_by_field_name("object")?,
+                    source,
+                )?;
+                let method_name = func_node
+                    .child_by_field_name("property")?
+                    .utf8_text(source)
+                    .ok()?;
+                class_fields
+                    .get(base_type(&obj_type))?
+                    .get(&format!("{}()", method_name))
+                    .cloned()
             } else {
                 None
             }
@@ -480,8 +497,15 @@ pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
                 let Some(ret_node) = inner.child_by_field_name("return_type") else { continue };
                 if let (Ok(name), Ok(ret)) = (name_node.utf8_text(src), ret_node.utf8_text(src)) {
                     let clean = ret.trim_start_matches(':').trim().to_string();
-                    if !clean.is_empty() && !clean.contains('<') {
-                        out.insert(name.to_string(), clean);
+                    let unwrapped = if clean.starts_with("Promise<") && clean.ends_with('>') {
+                        let inner = &clean[8..clean.len() - 1];
+                        // Skip single-char type parameters like Promise<T>
+                        if inner.len() > 1 { inner.to_string() } else { clean }
+                    } else {
+                        clean
+                    };
+                    if !unwrapped.is_empty() && !unwrapped.contains('<') {
+                        out.insert(name.to_string(), unwrapped);
                     }
                 }
             }
@@ -537,26 +561,54 @@ fn walk_classes(
                     let Some(member) = body_node.named_child(i) else {
                         continue;
                     };
-                    if member.kind() != "public_field_definition" {
-                        continue;
-                    }
-                    let Some(fname_node) = member.child_by_field_name("name") else {
-                        continue;
-                    };
-                    let Some(value_node) = member.child_by_field_name("value") else {
-                        continue;
-                    };
-                    if value_node.kind() != "new_expression" {
-                        continue;
-                    }
-                    let Some(ctor_node) = value_node.child_by_field_name("constructor") else {
-                        continue;
-                    };
-                    if let (Ok(field_name), Ok(type_name)) = (
-                        fname_node.utf8_text(source),
-                        ctor_node.utf8_text(source),
-                    ) {
-                        fields.insert(field_name.to_string(), type_name.to_string());
+                    if member.kind() == "public_field_definition" {
+                        // Field initialised with a constructor: `users = new UsersAPI()`
+                        let Some(fname_node) = member.child_by_field_name("name") else {
+                            continue;
+                        };
+                        let Some(value_node) = member.child_by_field_name("value") else {
+                            continue;
+                        };
+                        if value_node.kind() != "new_expression" {
+                            continue;
+                        }
+                        let Some(ctor_node) = value_node.child_by_field_name("constructor") else {
+                            continue;
+                        };
+                        if let (Ok(field_name), Ok(type_name)) = (
+                            fname_node.utf8_text(source),
+                            ctor_node.utf8_text(source),
+                        ) {
+                            fields.insert(field_name.to_string(), type_name.to_string());
+                        }
+                    } else if member.kind() == "method_definition" {
+                        // Method with explicit return type: stored as "name()" → return_type
+                        // so call_expression eval can look them up without a new parameter.
+                        let Some(mname_node) = member.child_by_field_name("name") else {
+                            continue;
+                        };
+                        let Some(ret_node) = member.child_by_field_name("return_type") else {
+                            continue;
+                        };
+                        if let (Ok(method_name), Ok(ret)) =
+                            (mname_node.utf8_text(source), ret_node.utf8_text(source))
+                        {
+                            let clean = ret.trim_start_matches(':').trim().to_string();
+                            let unwrapped =
+                                if clean.starts_with("Promise<") && clean.ends_with('>') {
+                                    let inner = &clean[8..clean.len() - 1];
+                                    if inner.len() > 1 {
+                                        inner.to_string()
+                                    } else {
+                                        clean
+                                    }
+                                } else {
+                                    clean
+                                };
+                            if !unwrapped.is_empty() && !unwrapped.contains('<') {
+                                fields.insert(format!("{}()", method_name), unwrapped);
+                            }
+                        }
                     }
                 }
                 if !fields.is_empty() {

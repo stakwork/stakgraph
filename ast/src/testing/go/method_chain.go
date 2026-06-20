@@ -11,6 +11,10 @@ package main
 // @ast edge: Calls -> Function "fetchItems" "method_chain.go"
 // @ast node: Function "runPipeline"
 // @ast edge: Calls -> Function "processItems" "method_chain.go"
+// @ast node: Function "newItemStore"
+// @ast node: Function "runFactory"
+// @ast edge: Calls -> Function "newItemStore" "method_chain.go"
+// @ast edge: Calls -> Function "fetchItems" "method_chain.go"
 
 type ServiceHandler struct {
 	store *ItemStore
@@ -31,4 +35,16 @@ func (h *ServiceHandler) processItems() []string {
 func runPipeline() []string {
 	h := &ServiceHandler{store: &ItemStore{}}
 	return h.processItems()
+}
+
+// newItemStore is a factory function; its return type seeds fn_returns.
+func newItemStore() *ItemStore {
+	return &ItemStore{}
+}
+
+// runFactory exercises the fn_returns path: store := newItemStore() binds
+// store → ItemStore, then store.fetchItems() resolves via struct method lookup.
+func runFactory() []string {
+	store := newItemStore()
+	return store.fetchItems()
 }
