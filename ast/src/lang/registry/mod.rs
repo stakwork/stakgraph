@@ -1,3 +1,5 @@
+pub mod cs_resolver;
+pub mod csharp_registry;
 pub mod go_resolver;
 pub mod golang;
 pub mod java_registry;
@@ -36,6 +38,7 @@ pub fn build(
         Language::Go => Some(Box::new(golang::GoRegistry::new(graph, filez))),
         Language::Rust => Some(Box::new(rust_registry::RustRegistry::new(graph, filez))),
         Language::Java => Some(Box::new(java_registry::JavaRegistry::new(graph, filez))),
+        Language::CSharp => Some(Box::new(csharp_registry::CSharpRegistry::new(graph, filez))),
         _ => None,
     }
 }

@@ -67,7 +67,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 22);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 65);
+    assert_eq!(functions.len(), 68);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 8);
@@ -79,7 +79,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(e2e_tests.len(), 3);
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
-    assert_eq!(classes.len(), 9);
+    assert_eq!(classes.len(), 11);
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     assert_eq!(data_models.len(), 27);
@@ -106,10 +106,10 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges, 15);
+    assert_eq!(calls_edges, 18);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 220);
+    assert_eq!(contains_edges, 228);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 22);
@@ -126,8 +126,8 @@ async fn test_typescript_graph_upload() -> Result<()> {
     let graph_ops = setup_typescript_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 221);
-    assert!((303..=304).contains(&edges), "Expected 303-304 edges, got {}", edges);
+    assert_eq!(nodes, 228);
+    assert_eq!(edges, 317, "Expected 317 edges, got {}", edges);
 
     Ok(())
 }
@@ -303,8 +303,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 21);
-    assert_eq!(results.len(), 21);
+    assert_eq!(count, 22);
+    assert_eq!(results.len(), 22);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -334,8 +334,8 @@ async fn test_nodes_class_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 9);
-    assert_eq!(results.len(), 9);
+    assert_eq!(count, 11);
+    assert_eq!(results.len(), 11);
 
     Ok(())
 }
@@ -496,7 +496,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 43);
+    assert_eq!(count, 44);
 
     let has_function = results
         .iter()
@@ -932,7 +932,7 @@ async fn test_nodes_with_repo_filter() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 21);
+    assert_eq!(count, 22);
 
     let (empty_count, _) = graph_ops
         .query_nodes_with_count(
