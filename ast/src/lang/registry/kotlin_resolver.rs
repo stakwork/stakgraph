@@ -398,6 +398,8 @@ fn eval_expr_type(
             scope_lookup(scope, node.utf8_text(source).ok()?).map(str::to_string)
         }
 
+        "this_expression" => scope_lookup(scope, "this").map(str::to_string),
+
         // obj.field  →  resolve obj type, look up field
         "navigation_expression" => {
             let recv = node.named_child(0)?;

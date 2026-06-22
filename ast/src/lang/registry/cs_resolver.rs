@@ -292,6 +292,9 @@ fn eval_expr_type(
         // Bare identifier: local var, parameter, or field seeded from class scope
         "identifier" => scope_lookup(scope, node.utf8_text(source).ok()?).map(str::to_string),
 
+        // `this` keyword → current class type from scope
+        "this" => scope_lookup(scope, "this").map(str::to_string),
+
         // obj.Field or obj.Property
         "member_access_expression" => {
             let obj_type = eval_expr_type(

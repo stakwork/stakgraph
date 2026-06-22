@@ -13,7 +13,7 @@ fn smoke_api_swift_exact_counts() {
     assert_eq!(count_prefix(&out.stdout, "Class:"), 2);
     assert_eq!(count_prefix(&out.stdout, "Function:"), 3);
     assert_eq!(count_prefix(&out.stdout, "Request:"), 2);
-    assert_eq!(count_prefix(&out.stdout, "  → "), 2);
+    assert_eq!(count_prefix(&out.stdout, "  → "), 4);
 }
 
 #[test]
@@ -22,13 +22,13 @@ fn api_swift_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Class: API (24-139)"), true);
+    assert_eq!(out.stdout.contains("Class: API (26-141)"), true);
     assert_eq!(
-        out.stdout.contains("Function: API.getPeopleList (75-98)"),
+        out.stdout.contains("Function: API.getPeopleList (77-100)"),
         true
     );
-    assert_eq!(out.stdout.contains("Request: GET /people (81-85)"), true);
-    assert_eq!(out.stdout.contains("Request: POST /person (116-120)"), true);
+    assert_eq!(out.stdout.contains("Request: GET /people (83-87)"), true);
+    assert_eq!(out.stdout.contains("Request: POST /person (118-122)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────

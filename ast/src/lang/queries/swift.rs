@@ -19,7 +19,7 @@ impl Swift {
 
 impl Stack for Swift {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
-        super::skips::java::should_skip(called, operand)
+        super::skips::swift::should_skip(called, operand)
     }
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
         match Query::new(&self.0, q) {
@@ -98,7 +98,15 @@ impl Stack for Swift {
         format!(
             r#"
             (call_expression
-                 (simple_identifier) @{ARGUMENTS}
+                 (simple_identifier) @{FUNCTION_NAME}
+            ) @{FUNCTION_CALL}
+
+            (call_expression
+                (navigation_expression
+                    suffix: (navigation_suffix
+                        suffix: (simple_identifier) @{FUNCTION_NAME}
+                    )
+                )
             ) @{FUNCTION_CALL}
             "#
         )
