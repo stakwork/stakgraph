@@ -339,6 +339,22 @@ async fn test_csharp() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_kotlin() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        run_fixture_test::<ArrayGraph>("src/testing/kotlin", "kotlin", Language::Kotlin).await.unwrap();
+        run_fixture_test::<BTreeMapGraph>("src/testing/kotlin", "kotlin", Language::Kotlin).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::{lang::graphs::Neo4jGraph, testing::annotations::run_fixture_test};
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        run_fixture_test::<Neo4jGraph>("src/testing/kotlin", "kotlin", Language::Kotlin).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_swift() {
     #[cfg(not(feature = "neo4j"))]
     {

@@ -22,19 +22,19 @@ fn person_controller_cs_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Class: PersonController (37-137)"), true);
+    assert_eq!(out.stdout.contains("Class: PersonController (47-147)"), true);
     assert_eq!(
         out.stdout
-            .contains("Function: ApiController.GetById (63-72)"),
+            .contains("Function: ApiController.GetById (73-82)"),
         true
     );
     assert_eq!(
-        out.stdout.contains("Endpoint: HTTPGET {id:int} (63-72)"),
+        out.stdout.contains("Endpoint: HTTPGET {id:int} (73-82)"),
         true
     );
     assert_eq!(
         out.stdout
-            .contains("Endpoint: HTTPPOST {id:int}/avatar (131-136)"),
+            .contains("Endpoint: HTTPPOST {id:int}/avatar (141-146)"),
         true
     );
 }

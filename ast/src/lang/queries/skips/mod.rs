@@ -11,3 +11,4 @@ pub mod ruby;
 pub mod rust;
 pub mod summary;
 pub mod svelte;
+pub mod swift;
