@@ -1,11 +1,17 @@
+pub mod cs_resolver;
+pub mod csharp_registry;
 pub mod go_resolver;
 pub mod golang;
 pub mod java_registry;
 pub mod java_resolver;
+pub mod kotlin_registry;
+pub mod kotlin_resolver;
 pub mod py_resolver;
 pub mod python;
 pub mod rust_registry;
 pub mod rust_resolver;
+pub mod swift_registry;
+pub mod swift_resolver;
 pub mod ts_resolver;
 pub mod typescript;
 
@@ -36,6 +42,9 @@ pub fn build(
         Language::Go => Some(Box::new(golang::GoRegistry::new(graph, filez))),
         Language::Rust => Some(Box::new(rust_registry::RustRegistry::new(graph, filez))),
         Language::Java => Some(Box::new(java_registry::JavaRegistry::new(graph, filez))),
+        Language::CSharp => Some(Box::new(csharp_registry::CSharpRegistry::new(graph, filez))),
+        Language::Kotlin => Some(Box::new(kotlin_registry::KotlinRegistry::new(graph, filez))),
+        Language::Swift => Some(Box::new(swift_registry::SwiftRegistry::new(graph, filez))),
         _ => None,
     }
 }

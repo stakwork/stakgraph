@@ -16,6 +16,9 @@ import SwiftyJSON
 // @ast edge: Operand -> Function "updateTableView" "ViewController.swift"
 // @ast edge: Operand -> Function "updateProfile" "ViewController.swift"
 // @ast node: Function "viewDidLoad"
+// @ast edge: Calls -> Function "deleteObject" "ViewController.swift"
+// @ast edge: Calls -> Function "configureTableView" "ViewController.swift"
+// @ast edge: Calls -> Function "getPeopleAndSave" "ViewController.swift"
 // @ast node: Function "configureTableView"
 // @ast node: Function "getPeopleAndSave"
 // @ast node: Function "deleteObject"
@@ -24,6 +27,7 @@ import SwiftyJSON
 // @ast node: Function "tableView"
 // @ast node: Function "tableView"
 // @ast node: Function "tableView"
+// @ast edge: Calls -> Function "updateProfile" "ViewController.swift"
 // @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappviewcontrollerswift-7"
 
 class ViewController: UIViewController {
