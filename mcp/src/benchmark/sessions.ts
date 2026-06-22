@@ -7,6 +7,7 @@ import {
   loadSearchProvenance,
   loadAnnotations,
   appendAnnotation,
+  loadSessionConfig,
   type Annotation,
   type AnnotationMarker,
 } from "../repo/session.js";
@@ -293,6 +294,7 @@ export async function get_session(req: Request, res: Response) {
   const step_meta = loadStepMeta(id);
   const search_provenance = loadSearchProvenance(id);
   const annotations = loadAnnotations(id);
+  const sessionCfg = loadSessionConfig(id);
 
   if (db) {
     try {
@@ -327,6 +329,7 @@ export async function get_session(req: Request, res: Response) {
           step_meta,
           search_provenance,
           annotations,
+          request_url: sessionCfg?.requestUrl ?? null,
           trace,
         });
         return;
@@ -362,6 +365,7 @@ export async function get_session(req: Request, res: Response) {
     step_meta,
     search_provenance,
     annotations,
+    request_url: sessionCfg?.requestUrl ?? null,
     trace,
   });
 }

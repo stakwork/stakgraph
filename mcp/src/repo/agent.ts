@@ -13,6 +13,7 @@ import {
   ModelName,
   getModelDetails,
   getProviderOptions,
+  resolveRequestUrl,
   normalizeUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
@@ -513,6 +514,7 @@ Apply the guidance from each skill throughout your response.`;
         ),
         providerConfig: getProviderOptions(provider as any, undefined, modelId),
         baseUrl: opts.baseUrl,
+        requestUrl: resolveRequestUrl(provider as any, opts.baseUrl),
         // Redact secrets before persisting
         mcpServers: opts.mcpServers?.map(({ token, headers, ...rest }) => rest),
         subAgents: opts.subAgents?.map(({ apiToken, ...rest }) => rest),
