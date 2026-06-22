@@ -4,6 +4,8 @@ pub mod go_resolver;
 pub mod golang;
 pub mod java_registry;
 pub mod java_resolver;
+pub mod kotlin_registry;
+pub mod kotlin_resolver;
 pub mod py_resolver;
 pub mod python;
 pub mod rust_registry;
@@ -39,6 +41,7 @@ pub fn build(
         Language::Rust => Some(Box::new(rust_registry::RustRegistry::new(graph, filez))),
         Language::Java => Some(Box::new(java_registry::JavaRegistry::new(graph, filez))),
         Language::CSharp => Some(Box::new(csharp_registry::CSharpRegistry::new(graph, filez))),
+        Language::Kotlin => Some(Box::new(kotlin_registry::KotlinRegistry::new(graph, filez))),
         _ => None,
     }
 }
