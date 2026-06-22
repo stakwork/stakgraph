@@ -98,7 +98,15 @@ impl Stack for Swift {
         format!(
             r#"
             (call_expression
-                 (simple_identifier) @{ARGUMENTS}
+                 (simple_identifier) @{FUNCTION_NAME}
+            ) @{FUNCTION_CALL}
+
+            (call_expression
+                (navigation_expression
+                    suffix: (navigation_suffix
+                        suffix: (simple_identifier) @{FUNCTION_NAME}
+                    )
+                )
             ) @{FUNCTION_CALL}
             "#
         )

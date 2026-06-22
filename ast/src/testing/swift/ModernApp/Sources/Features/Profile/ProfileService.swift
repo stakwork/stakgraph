@@ -3,6 +3,7 @@ import Foundation
 // @ast edge: Operand -> Function "fetchProfile" "ProfileService.swift"
 // @ast edge: Operand -> Function "updateStatus" "ProfileService.swift"
 // @ast node: Function "fetchProfile"
+// @ast edge: Calls -> Function "fetch" "APIClient.swift"
 // @ast node: Function "updateStatus"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofileserviceswift-0"
 

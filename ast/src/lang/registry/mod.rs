@@ -10,6 +10,8 @@ pub mod py_resolver;
 pub mod python;
 pub mod rust_registry;
 pub mod rust_resolver;
+pub mod swift_registry;
+pub mod swift_resolver;
 pub mod ts_resolver;
 pub mod typescript;
 
@@ -42,6 +44,7 @@ pub fn build(
         Language::Java => Some(Box::new(java_registry::JavaRegistry::new(graph, filez))),
         Language::CSharp => Some(Box::new(csharp_registry::CSharpRegistry::new(graph, filez))),
         Language::Kotlin => Some(Box::new(kotlin_registry::KotlinRegistry::new(graph, filez))),
+        Language::Swift => Some(Box::new(swift_registry::SwiftRegistry::new(graph, filez))),
         _ => None,
     }
 }
