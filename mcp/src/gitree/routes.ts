@@ -450,6 +450,7 @@ export async function gitree_get_pr(req: Request, res: Response) {
 
     res.json({
       pr: {
+        ref_id: pr.ref_id,
         number: pr.number,
         repo: pr.repo,
         title: pr.title,

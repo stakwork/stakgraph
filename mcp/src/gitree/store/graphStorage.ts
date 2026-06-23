@@ -1584,6 +1584,7 @@ export class GraphStorage extends Storage {
     const props = node.properties;
     
     return {
+      ref_id: props.ref_id || undefined,
       number: props.number.toNumber ? props.number.toNumber() : props.number,
       repo: props.repo || undefined,
       title: props.title,

@@ -36,6 +36,7 @@ export interface Concept {
 }
 
 export interface PRRecord {
+  ref_id?: string;
   number: number;
   repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
   title: string;
