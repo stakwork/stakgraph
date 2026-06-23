@@ -16,8 +16,8 @@ export function registerJarvisTools(
   const jarvisUrl = process.env.JARVIS_URL;
   if (!jarvisUrl || !jarvisEnabled) {
     if (!jarvisUrl) {
-      console.log(
-        "===> no JARVIS_URL set, skipping graph_search + get_ontology tools",
+      console.error(
+        "[repo agent] JARVIS_URL is not set — skipping graph_search + get_ontology tools",
       );
     } else {
       console.log(

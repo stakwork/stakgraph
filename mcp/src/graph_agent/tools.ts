@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-const JARVIS_URL = process.env.JARVIS_URL || "http://localhost:6000";
+const JARVIS_URL = process.env.JARVIS_URL ?? "";
 
 /** Build Authorization header from the forwarded L402 token (if present). */
 function authHeaders(authToken?: string): HeadersInit {
@@ -22,6 +22,11 @@ export type GraphToolsConfig = {
  * Create the three graph agent tools with the caller's auth token baked in.
  */
 export function get_graph_tools(config: GraphToolsConfig = {}) {
+  if (!JARVIS_URL) {
+    console.error(
+      "[graph_agent] JARVIS_URL is not set — graph_search / graph_node / graph_map will fail"
+    );
+  }
   const { authToken } = config;
 
   // ── graph_search ────────────────────────────────────────────────────────
