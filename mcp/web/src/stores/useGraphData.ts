@@ -30,7 +30,7 @@ const COLORS: Record<string, string> = {
   Import: "#78909C",
   Library: "#8C6E63",
   Var: "#FFC064",
-  Feature: "#FF7F50",
+  Concept: "#FF7F50",
   Directory: "#465A65",
   UnitTest: "#33691E",
   IntegrationTest: "#0098A6",
@@ -79,8 +79,8 @@ interface GraphDataState {
   selectedNode: NodeExtended | null;
   hoveredNode: NodeExtended | null;
 
-  // Feature highlight (from sidebar hover)
-  highlightedFeatureId: string | null;
+  // Concept highlight (from sidebar hover)
+  highlightedConceptId: string | null;
   highlightedNodeIds: Set<string>;
 
   // Importance filter
@@ -94,7 +94,7 @@ interface GraphDataState {
   addNodes: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setSelectedNode: (node: NodeExtended | null) => void;
   setHoveredNode: (node: NodeExtended | null) => void;
-  setHighlightedFeature: (featureRefId: string | null) => void;
+  setHighlightedConcept: (conceptRefId: string | null) => void;
   setImportanceFilter: (tag: string | null, nodeType?: string | null) => void;
   hydrateNodeNeighborhood: (refId: string) => void;
   fetchNodeBody: (refId: string) => void;
@@ -112,7 +112,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   selectedNode: null,
   hoveredNode: null,
-  highlightedFeatureId: null,
+  highlightedConceptId: null,
   highlightedNodeIds: new Set(),
   importanceFilter: { tag: null, nodeType: null },
   tracedPath: null,
@@ -384,22 +384,22 @@ export const useGraphData = create<GraphDataState>((set) => ({
     }
   },
 
-  setHighlightedFeature: (featureRefId: string | null) => {
-    if (!featureRefId) {
-      set({ highlightedFeatureId: null, highlightedNodeIds: new Set() });
+  setHighlightedConcept: (conceptRefId: string | null) => {
+    if (!conceptRefId) {
+      set({ highlightedConceptId: null, highlightedNodeIds: new Set() });
       return;
     }
 
     const { nodesNormalized, data } = useGraphData.getState();
-    const node = nodesNormalized.get(featureRefId);
+    const node = nodesNormalized.get(conceptRefId);
     if (!node || !data) {
-      set({ highlightedFeatureId: null, highlightedNodeIds: new Set() });
+      set({ highlightedConceptId: null, highlightedNodeIds: new Set() });
       return;
     }
 
-    // Collect the feature + all directly connected nodes + their children
+    // Collect the concept + all directly connected nodes + their children
     const connected = new Set<string>();
-    connected.add(featureRefId);
+    connected.add(conceptRefId);
 
     // First level: direct connections
     const directIds: string[] = [];
@@ -420,7 +420,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       for (const cid of child.targets || []) connected.add(cid);
     }
 
-    set({ highlightedFeatureId: featureRefId, highlightedNodeIds: connected });
+    set({ highlightedConceptId: conceptRefId, highlightedNodeIds: connected });
   },
 
   setImportanceFilter: (tag: string | null, nodeType: string | null = null) => {
@@ -485,7 +485,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       loading: false,
       selectedNode: null,
       hoveredNode: null,
-      highlightedFeatureId: null,
+      highlightedConceptId: null,
       highlightedNodeIds: new Set(),
       importanceFilter: { tag: null, nodeType: null },
       tracedPath: null,

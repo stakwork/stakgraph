@@ -2,27 +2,27 @@ import { Storage } from "./store/index.js";
 import { LinkResult } from "./types.js";
 
 /**
- * Links Features to File nodes in the graph based on PR file changes
+ * Links Concepts to File nodes in the graph based on PR file changes
  */
 export class FileLinker {
   constructor(private storage: Storage) {}
 
   /**
-   * Link files for a single feature
-   * @param featureId - Feature ID (can be repo-prefixed or not)
-   * @param repo - Optional repo to help locate the feature
+   * Link files for a single concept
+   * @param conceptId - Concept ID (can be repo-prefixed or not)
+   * @param repo - Optional repo to help locate the concept
    */
-  async linkFeature(featureId: string, repo?: string): Promise<LinkResult> {
-    const feature = await this.storage.getFeature(featureId, repo);
-    if (!feature) {
-      throw new Error(`Feature ${featureId} not found`);
+  async linkConcept(conceptId: string, repo?: string): Promise<LinkResult> {
+    const concept = await this.storage.getConcept(conceptId, repo);
+    if (!concept) {
+      throw new Error(`Concept ${conceptId} not found`);
     }
 
-    console.log(`\n🔗 Linking files for feature: ${feature.name}`);
+    console.log(`\n🔗 Linking files for concept: ${concept.name}`);
 
-    const result = await this.storage.linkFeaturesToFiles(featureId, feature.repo);
+    const result = await this.storage.linkConceptsToFiles(conceptId, concept.repo);
 
-    const link = result.featureFileLinks[0];
+    const link = result.conceptFileLinks[0];
     if (link) {
       console.log(`   ✅ Linked ${link.filesLinked} files`);
       console.log(
@@ -37,18 +37,18 @@ export class FileLinker {
   }
 
   /**
-   * Link files for all features
-   * @param repo - Optional repo to filter features
+   * Link files for all concepts
+   * @param repo - Optional repo to filter concepts
    */
-  async linkAllFeatures(repo?: string): Promise<LinkResult> {
-    const features = await this.storage.getAllFeatures(repo);
+  async linkAllConcepts(repo?: string): Promise<LinkResult> {
+    const concepts = await this.storage.getAllConcepts(repo);
 
-    console.log(`\n🔗 Linking files for ${features.length} features${repo ? ` in ${repo}` : ''}...\n`);
+    console.log(`\n🔗 Linking files for ${concepts.length} concepts${repo ? ` in ${repo}` : ''}...\n`);
 
-    const result = await this.storage.linkFeaturesToFiles(undefined, repo);
+    const result = await this.storage.linkConceptsToFiles(undefined, repo);
 
     console.log(`\n✅ Done linking files!`);
-    console.log(`   Features processed: ${result.featuresProcessed}`);
+    console.log(`   Concepts processed: ${result.conceptsProcessed}`);
     console.log(`   Total files linked: ${result.filesLinked}`);
     console.log(
       `   📚 ${result.filesInDocs} in documentation (importance 0.5-1.0)`
@@ -57,14 +57,14 @@ export class FileLinker {
       `   📄 ${result.filesNotInDocs} not in documentation (importance 0.0-0.49)`
     );
 
-    // Show details for each feature
-    if (result.featureFileLinks.length > 0) {
+    // Show details for each concept
+    if (result.conceptFileLinks.length > 0) {
       console.log(`\n   Details:`);
-      for (const link of result.featureFileLinks) {
-        const feature = await this.storage.getFeature(link.featureId);
-        if (feature) {
+      for (const link of result.conceptFileLinks) {
+        const concept = await this.storage.getConcept(link.conceptId);
+        if (concept) {
           console.log(
-            `   - ${feature.name} (${link.featureId}): ${link.filesLinked} files (${link.filesInDocs} in docs, ${link.filesNotInDocs} not in docs)`
+            `   - ${concept.name} (${link.conceptId}): ${link.filesLinked} files (${link.filesInDocs} in docs, ${link.filesNotInDocs} not in docs)`
           );
         }
       }

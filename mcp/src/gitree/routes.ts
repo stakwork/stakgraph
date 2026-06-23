@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import * as asyncReqs from "../graph/reqs.js";
 import { GraphStorage } from "./store/index.js";
 import { createGitreeSessionTracker, LLMClient } from "./llm.js";
-import { StreamingFeatureBuilder } from "./builder.js";
+import { StreamingConceptBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { ClueAnalyzer } from "./clueAnalyzer.js";
@@ -15,8 +15,8 @@ import {
   Provider,
 } from "../aieo/src/provider.js";
 import { generateObject, jsonSchema } from "ai";
-import { formatFeatureWithDetails } from "./utils.js";
-import { listFeatures } from "./service.js";
+import { formatConceptWithDetails } from "./utils.js";
+import { listConcepts } from "./service.js";
 import {
   toReturnNode,
   toReturnNodeNoBody,
@@ -29,11 +29,11 @@ import {
 import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
-import { Feature, Usage } from "./types.js";
+import { Concept, Usage } from "./types.js";
 import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
-import { bootstrapFeatures } from "./bootstrap.js";
+import { bootstrapConcepts } from "./bootstrap.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd, loadStepMeta } from "../repo/session.js";
 
@@ -111,7 +111,7 @@ function parseRepoParam(req: Request): string | undefined {
 }
 
 /**
- * Process a Git repository to extract features (PRs and commits)
+ * Process a Git repository to extract concepts (PRs and commits)
  * POST /gitree/process?owner=stakwork&repo=sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://github.com/stakwork/sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://gitlab.com/owner/repo&token=...
@@ -174,10 +174,10 @@ export async function gitree_process(req: Request, res: Response) {
         const storage = new GraphStorage();
         await storage.initialize();
 
-        // Check if this is a brand-new repo (no features yet)
+        // Check if this is a brand-new repo (no concepts yet)
         const repoId = `${owner}/${repo}`;
-        const existingFeatures = await storage.getAllFeatures(repoId);
-        const isNewRepo = existingFeatures.length === 0;
+        const existingConcepts = await storage.getAllConcepts(repoId);
+        const isNewRepo = existingConcepts.length === 0;
 
         // Clone repo if needed for bootstrap or clue analysis
         let repoPath: string | undefined;
@@ -189,10 +189,10 @@ export async function gitree_process(req: Request, res: Response) {
           );
         }
 
-        // Bootstrap: seed initial features by exploring the codebase
+        // Bootstrap: seed initial concepts by exploring the codebase
         let bootstrapUsage: Usage = normalizeUsage();
         if (isNewRepo && repoPath) {
-          const bootstrapResult = await bootstrapFeatures(owner, repo, repoPath, storage, sessionId);
+          const bootstrapResult = await bootstrapConcepts(owner, repo, repoPath, storage, sessionId);
           bootstrapUsage = bootstrapResult.usage;
         }
 
@@ -200,7 +200,7 @@ export async function gitree_process(req: Request, res: Response) {
 
         const octokit = new Octokit({ auth: githubToken });
         const llm = new LLMClient("anthropic", anthropicKey, sessionTracker);
-        const builder = new StreamingFeatureBuilder(
+        const builder = new StreamingConceptBuilder(
           storage,
           llm,
           octokit,
@@ -209,28 +209,28 @@ export async function gitree_process(req: Request, res: Response) {
           sessionTracker,
         );
 
-        const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo, sessionId);
+        const { usage: processUsage, modifiedConceptIds } = await builder.processRepo(owner, repo, sessionId);
 
         let summarizeUsage = null;
         let linkResult = null;
 
-        // If summarize flag is set, run summarization after processing (only for modified features)
-        if (shouldSummarize && modifiedFeatureIds.size > 0) {
-          console.log(`===> Starting feature summarization for ${modifiedFeatureIds.size} modified feature(s)...`);
+        // If summarize flag is set, run summarization after processing (only for modified concepts)
+        if (shouldSummarize && modifiedConceptIds.size > 0) {
+          console.log(`===> Starting concept summarization for ${modifiedConceptIds.size} modified concept(s)...`);
           const summarizer = new Summarizer(
             storage,
             "anthropic",
             anthropicKey,
             sessionTracker,
           );
-          summarizeUsage = await summarizer.summarizeModifiedFeatures(Array.from(modifiedFeatureIds), sessionId);
+          summarizeUsage = await summarizer.summarizeModifiedConcepts(Array.from(modifiedConceptIds), sessionId);
         }
 
-        // If link flag is set, link files to features
+        // If link flag is set, link files to concepts
         if (shouldLink) {
-          console.log("===> Starting feature-file linking...");
+          console.log("===> Starting concept-file linking...");
           const linker = new FileLinker(storage);
-          linkResult = await linker.linkAllFeatures();
+          linkResult = await linker.linkAllConcepts();
         }
 
         // Note: Clue analysis is now done during PR/commit processing
@@ -298,13 +298,13 @@ export async function gitree_process(req: Request, res: Response) {
 }
 
 /**
- * List all features
- * GET /gitree/features?repo=owner/repo (optional)
+ * List all concepts
+ * GET /gitree/concepts?repo=owner/repo (optional)
  */
-export async function gitree_list_features(req: Request, res: Response) {
+export async function gitree_list_concepts(req: Request, res: Response) {
   try {
     const repo = parseRepoParam(req);
-    const result = await listFeatures(repo);
+    const result = await listConcepts(repo);
 
     // Get checkpoint and usage - aggregated if no repo specified
     const storage = new GraphStorage();
@@ -324,53 +324,53 @@ export async function gitree_list_features(req: Request, res: Response) {
       processing: isProcessing,
     });
   } catch (error: any) {
-    console.error("Error listing features:", error);
-    res.status(500).json({ error: error.message || "Failed to list features" });
+    console.error("Error listing concepts:", error);
+    res.status(500).json({ error: error.message || "Failed to list concepts" });
   }
 }
 
 /**
- * Get a specific feature
- * GET /gitree/features/:id?include=files&repo=owner/repo (repo optional)
+ * Get a specific concept
+ * GET /gitree/concepts/:id?include=files&repo=owner/repo (repo optional)
  */
-export async function gitree_get_feature(req: Request, res: Response) {
+export async function gitree_get_concept(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
+    const conceptId = req.params.id as string;
     const include = req.query.include as string | undefined;
     const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const feature = await storage.getFeature(featureId, repo);
+    const concept = await storage.getConcept(conceptId, repo);
 
-    if (!feature) {
-      res.status(404).json({ error: "Feature not found" });
+    if (!concept) {
+      res.status(404).json({ error: "Concept not found" });
       return;
     }
 
-    const response: any = await formatFeatureWithDetails(feature, storage);
+    const response: any = await formatConceptWithDetails(concept, storage);
 
     // Include files if requested
     if (include === "files") {
-      const files = await storage.getFilesForFeature(featureId);
+      const files = await storage.getFilesForConcept(conceptId);
       response.files = files;
     }
 
     res.json(response);
   } catch (error: any) {
-    console.error("Error getting feature:", error);
-    res.status(500).json({ error: error.message || "Failed to get feature" });
+    console.error("Error getting concept:", error);
+    res.status(500).json({ error: error.message || "Failed to get concept" });
   }
 }
 
 /**
- * Update documentation for a specific feature
- * PUT /gitree/features/:id/documentation
+ * Update documentation for a specific concept
+ * PUT /gitree/concepts/:id/documentation
  * Body: { documentation: string }
  */
-export async function gitree_update_feature_documentation(req: Request, res: Response) {
+export async function gitree_update_concept_documentation(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
+    const conceptId = req.params.id as string;
     const { documentation } = req.body;
 
     if (typeof documentation !== "string") {
@@ -381,50 +381,50 @@ export async function gitree_update_feature_documentation(req: Request, res: Res
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const feature = await storage.getFeature(featureId);
-    if (!feature) {
-      res.status(404).json({ error: "Feature not found" });
+    const concept = await storage.getConcept(conceptId);
+    if (!concept) {
+      res.status(404).json({ error: "Concept not found" });
       return;
     }
 
-    await storage.saveDocumentation(featureId, documentation);
+    await storage.saveDocumentation(conceptId, documentation);
 
-    res.json({ success: true, featureId, documentation });
+    res.json({ success: true, conceptId, documentation });
   } catch (error: any) {
-    console.error("Error updating feature documentation:", error);
-    res.status(500).json({ error: error.message || "Failed to update feature documentation" });
+    console.error("Error updating concept documentation:", error);
+    res.status(500).json({ error: error.message || "Failed to update concept documentation" });
   }
 }
 
 /**
- * Delete a specific feature
- * DELETE /gitree/features/:id?repo=owner/repo (repo optional)
+ * Delete a specific concept
+ * DELETE /gitree/concepts/:id?repo=owner/repo (repo optional)
  */
-export async function gitree_delete_feature(req: Request, res: Response) {
+export async function gitree_delete_concept(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
+    const conceptId = req.params.id as string;
     const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const feature = await storage.getFeature(featureId, repo);
+    const concept = await storage.getConcept(conceptId, repo);
 
-    if (!feature) {
-      res.status(404).json({ error: "Feature not found" });
+    if (!concept) {
+      res.status(404).json({ error: "Concept not found" });
       return;
     }
 
-    await storage.deleteFeature(featureId, repo);
+    await storage.deleteConcept(conceptId, repo);
 
     res.json({
       status: "success",
-      message: `Feature ${featureId} deleted`,
+      message: `Concept ${conceptId} deleted`,
     });
   } catch (error: any) {
-    console.error("Error deleting feature:", error);
+    console.error("Error deleting concept:", error);
     res
       .status(500)
-      .json({ error: error.message || "Failed to delete feature" });
+      .json({ error: error.message || "Failed to delete concept" });
   }
 }
 
@@ -446,7 +446,7 @@ export async function gitree_get_pr(req: Request, res: Response) {
       return;
     }
 
-    const features = await storage.getFeaturesForPR(prNumber, pr.repo);
+    const concepts = await storage.getConceptsForPR(prNumber, pr.repo);
 
     res.json({
       pr: {
@@ -459,7 +459,7 @@ export async function gitree_get_pr(req: Request, res: Response) {
         files: pr.files,
         newDeclarations: pr.newDeclarations,
       },
-      features: features.map((f) => ({
+      concepts: concepts.map((f) => ({
         id: f.id,
         name: f.name,
         ref_id: f.ref_id,
@@ -490,7 +490,7 @@ export async function gitree_get_commit(req: Request, res: Response) {
       return;
     }
 
-    const features = await storage.getFeaturesForCommit(sha, commit.repo);
+    const concepts = await storage.getConceptsForCommit(sha, commit.repo);
 
     res.json({
       commit: {
@@ -504,7 +504,7 @@ export async function gitree_get_commit(req: Request, res: Response) {
         files: commit.files,
         newDeclarations: commit.newDeclarations,
       },
-      features: features.map((f) => ({
+      concepts: concepts.map((f) => ({
         id: f.id,
         name: f.name,
         ref_id: f.ref_id,
@@ -518,12 +518,12 @@ export async function gitree_get_commit(req: Request, res: Response) {
 }
 
 /**
- * Get files for a specific feature
- * GET /gitree/features/:id/files?expand=contains,calls&output=text
+ * Get files for a specific concept
+ * GET /gitree/concepts/:id/files?expand=contains,calls&output=text
  */
-export async function gitree_get_feature_files(req: Request, res: Response) {
+export async function gitree_get_concept_files(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
+    const conceptId = req.params.id as string;
     const expandParam = req.query.expand as string | undefined;
     const outputFormat = req.query.output as string | undefined;
     const storage = new GraphStorage();
@@ -532,7 +532,7 @@ export async function gitree_get_feature_files(req: Request, res: Response) {
     // Parse expand parameter (comma-separated for future expansion)
     const expand = expandParam ? expandParam.split(",") : [];
 
-    const files = await storage.getFilesForFeature(featureId, expand);
+    const files = await storage.getFilesForConcept(conceptId, expand);
 
     // Return text format if requested
     if (outputFormat === "text") {
@@ -545,10 +545,10 @@ export async function gitree_get_feature_files(req: Request, res: Response) {
     // Default JSON output
     res.json({ files });
   } catch (error: any) {
-    console.error("Error getting feature files:", error);
+    console.error("Error getting concept files:", error);
     res
       .status(500)
-      .json({ error: error.message || "Failed to get feature files" });
+      .json({ error: error.message || "Failed to get concept files" });
   }
 }
 
@@ -595,31 +595,31 @@ export async function gitree_stats(req: Request, res: Response) {
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const features = await storage.getAllFeatures(repo);
+    const concepts = await storage.getAllConcepts(repo);
     const prs = await storage.getAllPRs(repo);
     // Only get lastProcessed if repo is specified
     const lastProcessed = repo ? await storage.getLastProcessedPR(repo) : 0;
 
-    const avgPRsPerFeature =
-      features.length > 0
-        ? features.reduce((sum, f) => sum + f.prNumbers.length, 0) /
-          features.length
+    const avgPRsPerConcept =
+      concepts.length > 0
+        ? concepts.reduce((sum, f) => sum + f.prNumbers.length, 0) /
+          concepts.length
         : 0;
 
     const mostActive =
-      features.length > 0
-        ? features.reduce((max, f) =>
+      concepts.length > 0
+        ? concepts.reduce((max, f) =>
             f.prNumbers.length > max.prNumbers.length ? f : max
           )
         : null;
 
     res.json({
       repo: repo || "all",
-      totalFeatures: features.length,
+      totalConcepts: concepts.length,
       totalPRs: prs.length,
       lastProcessedPR: lastProcessed,
-      avgPRsPerFeature: parseFloat(avgPRsPerFeature.toFixed(1)),
-      mostActiveFeature: mostActive
+      avgPRsPerConcept: parseFloat(avgPRsPerConcept.toFixed(1)),
+      mostActiveConcept: mostActive
         ? {
             id: mostActive.id,
             name: mostActive.name,
@@ -635,15 +635,15 @@ export async function gitree_stats(req: Request, res: Response) {
 }
 
 /**
- * Summarize a specific feature
+ * Summarize a specific concept
  * POST /gitree/summarize/:id
  * GET /progress?request_id=xxx
  */
-export async function gitree_summarize_feature(req: Request, res: Response) {
-  console.log("===> gitree_summarize_feature", req.path, req.method);
+export async function gitree_summarize_concept(req: Request, res: Response) {
+  console.log("===> gitree_summarize_concept", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const featureId = req.params.id as string;
+    const conceptId = req.params.id as string;
 
     // Summarize in background
     (async () => {
@@ -653,11 +653,11 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
         await storage.initialize();
 
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-        const usage = await summarizer.summarizeFeature(featureId);
+        const usage = await summarizer.summarizeConcept(conceptId);
 
         asyncReqs.finishReq(request_id, {
           status: "success",
-          message: `Summarized feature ${featureId}`,
+          message: `Summarized concept ${conceptId}`,
           usage,
         });
       } catch (error) {
@@ -669,12 +669,12 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
   } catch (error) {
     console.log("===> error");
     asyncReqs.failReq(request_id, error);
-    res.status(500).json({ error: "Failed to summarize feature" });
+    res.status(500).json({ error: "Failed to summarize concept" });
   }
 }
 
 /**
- * Summarize all features
+ * Summarize all concepts
  * POST /gitree/summarize-all
  * GET /progress?request_id=xxx
  */
@@ -690,11 +690,11 @@ export async function gitree_summarize_all(req: Request, res: Response) {
         await storage.initialize();
 
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-        const usage = await summarizer.summarizeAllFeatures();
+        const usage = await summarizer.summarizeAllConcepts();
 
         asyncReqs.finishReq(request_id, {
           status: "success",
-          message: "Summarized all features",
+          message: "Summarized all concepts",
           usage,
         });
       } catch (error) {
@@ -706,20 +706,20 @@ export async function gitree_summarize_all(req: Request, res: Response) {
   } catch (error) {
     console.log("===> error");
     asyncReqs.failReq(request_id, error);
-    res.status(500).json({ error: "Failed to summarize all features" });
+    res.status(500).json({ error: "Failed to summarize all concepts" });
   }
 }
 
 /**
- * Link features to file nodes in the graph
- * POST /gitree/link-files?feature_id=xxx (optional feature_id)
+ * Link concepts to file nodes in the graph
+ * POST /gitree/link-files?concept_id=xxx (optional concept_id)
  * GET /progress?request_id=xxx
  */
 export async function gitree_link_files(req: Request, res: Response) {
   console.log("===> gitree_link_files", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const featureId = req.query.feature_id as string | undefined;
+    const conceptId = req.query.concept_id as string | undefined;
 
     // Link in background
     (async () => {
@@ -730,17 +730,17 @@ export async function gitree_link_files(req: Request, res: Response) {
         const linker = new FileLinker(storage);
 
         let result;
-        if (featureId) {
-          result = await linker.linkFeature(featureId);
+        if (conceptId) {
+          result = await linker.linkConcept(conceptId);
         } else {
-          result = await linker.linkAllFeatures();
+          result = await linker.linkAllConcepts();
         }
 
         asyncReqs.finishReq(request_id, {
           status: "success",
-          message: featureId
-            ? `Linked files for feature ${featureId}`
-            : "Linked files for all features",
+          message: conceptId
+            ? `Linked files for concept ${conceptId}`
+            : "Linked files for all concepts",
           result,
         });
       } catch (error) {
@@ -776,17 +776,17 @@ function toConciseNode(node: Neo4jNode): {
 }
 
 /**
- * Get all features with files and contained nodes as a flat graph structure
- * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true&depth=2&per_type_limits=Function:50,Class:25&repo=owner/repo
+ * Get all concepts with files and contained nodes as a flat graph structure
+ * GET /gitree/all-concepts-graph?limit=100&node_types=Function,Class&concise=true&depth=2&per_type_limits=Function:50,Class:25&repo=owner/repo
  */
-export async function gitree_all_features_graph(req: Request, res: Response) {
+export async function gitree_all_concepts_graph(req: Request, res: Response) {
   try {
     const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
     // Get all data from GraphStorage (optionally filtered by repo)
-    const data = await storage.getAllFeaturesWithFilesAndContains(repo);
+    const data = await storage.getAllConceptsWithFilesAndContains(repo);
 
     // Parse query parameters
     const limit = parseLimit(req.query);
@@ -812,14 +812,14 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     }
 
     // Combine all nodes
-    let allNodes = [...data.features, ...data.files, ...data.containedNodes];
+    let allNodes = [...data.concepts, ...data.files, ...data.containedNodes];
 
     // Filter by node types if specified
     if (requestedNodeTypes.length > 0) {
       allNodes = allNodes.filter((node) => {
         const nodeType = node.labels.find((l: string) => l !== "Data_Bank");
         return (
-          nodeType === "Feature" ||
+          nodeType === "Concept" ||
           nodeType === "File" ||
           requestedNodeTypes.includes(nodeType)
         );
@@ -852,17 +852,17 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
       }
     }
 
-    // Depth filtering: 1=features only, 2=+files+MODIFIES, 3(default)=+containedNodes+CONTAINS
+    // Depth filtering: 1=concepts only, 2=+files+MODIFIES, 3(default)=+containedNodes+CONTAINS
     if (depth === 1) {
       data.files = [];
       data.containedNodes = [];
       data.modifiesEdges = [];
       data.containsEdges = [];
-      allNodes = [...data.features];
+      allNodes = [...data.concepts];
     } else if (depth === 2) {
       data.containedNodes = [];
       data.containsEdges = [];
-      allNodes = [...data.features, ...data.files];
+      allNodes = [...data.concepts, ...data.files];
     }
 
     // Apply global limit if specified (after per-type limits)
@@ -907,24 +907,24 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
       meta,
     });
   } catch (error: any) {
-    console.error("Error getting all features graph:", error);
+    console.error("Error getting all concepts graph:", error);
     res.status(500).json({
-      error: error.message || "Failed to get all features graph",
+      error: error.message || "Failed to get all concepts graph",
     });
   }
 }
 
 /**
- * Get relevant features for a given prompt using AI
- * POST /gitree/relevant-features
+ * Get relevant concepts for a given prompt using AI
+ * POST /gitree/relevant-concepts
  * Body: { prompt: "user's question or description" }
- curl -X POST http://localhost:3355/gitree/relevant-features \
+ curl -X POST http://localhost:3355/gitree/relevant-concepts \
     -H "Content-Type: application/json" \
     -d '{
       "prompt": "How does authentication work in this repo?"
     }'
  */
-export async function gitree_relevant_features(req: Request, res: Response) {
+export async function gitree_relevant_concepts(req: Request, res: Response) {
   try {
     const { prompt } = req.body;
     const repo = parseRepoParam(req);
@@ -937,9 +937,9 @@ export async function gitree_relevant_features(req: Request, res: Response) {
     const storage = new GraphStorage();
     await storage.initialize();
 
-    // Get all features without documentation for the initial AI call
-    const allFeatures = await storage.getAllFeatures(repo);
-    const featuresWithoutDocs = allFeatures.map((f) => ({
+    // Get all concepts without documentation for the initial AI call
+    const allConcepts = await storage.getAllConcepts(repo);
+    const conceptsWithoutDocs = allConcepts.map((f) => ({
       id: f.id,
       name: f.name,
       description: f.description,
@@ -947,33 +947,33 @@ export async function gitree_relevant_features(req: Request, res: Response) {
       commitCount: (f.commitShas || []).length,
     }));
 
-    if (featuresWithoutDocs.length === 0) {
-      res.status(400).json({ error: "No features found" });
+    if (conceptsWithoutDocs.length === 0) {
+      res.status(400).json({ error: "No concepts found" });
       return;
     }
 
-    // Use AI to determine relevant features
+    // Use AI to determine relevant concepts
     const provider = process.env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
     const typedProvider = provider as Provider;
     const model = await getModel(typedProvider, apiKey as string);
 
     const aiPrompt = `<prompt>${prompt}</prompt>
-<features>${JSON.stringify(featuresWithoutDocs, null, 2)}</features>
+<concepts>${JSON.stringify(conceptsWithoutDocs, null, 2)}</concepts>
 
-Please analyze the user's prompt and the list of available features. Return an array of feature IDs that are relevant to the user's prompt. Only include features that are directly related to what the user is asking about. Usually 1 feature id is enough, but you can include up to 3.`;
+Please analyze the user's prompt and the list of available concepts. Return an array of concept IDs that are relevant to the user's prompt. Only include concepts that are directly related to what the user is asking about. Usually 1 concept id is enough, but you can include up to 3.`;
 
     const schema = {
       type: "object" as const,
       properties: {
-        relevantFeatureIds: {
+        relevantConceptIds: {
           type: "array" as const,
           items: { type: "string" as const },
           description:
-            "Array of feature IDs that are relevant to the user's prompt",
+            "Array of concept IDs that are relevant to the user's prompt",
         },
       },
-      required: ["relevantFeatureIds"],
+      required: ["relevantConceptIds"],
       additionalProperties: false,
     };
     const result = await generateObject({
@@ -983,50 +983,49 @@ Please analyze the user's prompt and the list of available features. Return an a
       providerOptions: getProviderOptions(typedProvider, "fast") as any,
     });
 
-    const relevantFeatureIds =
-      (result.object as any).relevantFeatureIds?.slice(0, 3) || [];
+    const relevantConceptIds =
+      (result.object as any).relevantConceptIds?.slice(0, 3) || [];
 
-    // Fetch full features WITH documentation
-    const relevantFeatures = await Promise.all(
-      relevantFeatureIds.map(async (featureId: string) => {
-        const feature = await storage.getFeature(featureId, repo);
-        if (!feature) return null;
-        return formatFeatureWithDetails(feature, storage);
+    // Fetch full concepts WITH documentation
+    const relevantConcepts = await Promise.all(
+      relevantConceptIds.map(async (conceptId: string) => {
+        const concept = await storage.getConcept(conceptId, repo);
+        if (!concept) return null;
+        return formatConceptWithDetails(concept, storage);
       })
     );
 
-    // Filter out any null values (features that weren't found)
-    const validFeatures = relevantFeatures.filter((f) => f !== null);
+    // Filter out any null values (concepts that weren't found)
+    const validConcepts = relevantConcepts.filter((f) => f !== null);
 
     // Concatenate all documentation fields
-    const concatenatedDocumentation = validFeatures
-      .map((f) => f.feature.documentation)
+    const concatenatedDocumentation = validConcepts
+      .map((f) => f.concept.documentation)
       .filter((doc) => doc) // Filter out undefined/empty docs
       .join("\n\n---\n\n");
 
     res.json({
-      features: validFeatures,
-      total: validFeatures.length,
+      concepts: validConcepts,
+      total: validConcepts.length,
       prompt,
       documentation: concatenatedDocumentation,
-      featureIds: relevantFeatureIds,
-      conceptIds: relevantFeatureIds,
-      refIds: relevantFeatures.map((f) => f.feature.ref_id),
+      conceptIds: relevantConceptIds,
+      refIds: relevantConcepts.map((f) => f.concept.ref_id),
     });
   } catch (error: any) {
-    console.error("Error getting relevant features:", error);
+    console.error("Error getting relevant concepts:", error);
     res.status(500).json({
-      error: error.message || "Failed to get relevant features",
+      error: error.message || "Failed to get relevant concepts",
     });
   }
 }
 
 /**
- * Create a new feature with documentation from get_context
- * POST /gitree/create-feature
+ * Create a new concept with documentation from get_context
+ * POST /gitree/create-concept
  * Body: { prompt: string, name: string, owner: string, repo: string, pat?: string }
  * GET /progress?request_id=xxx
- curl -X POST http://localhost:3355/gitree/create-feature \
+ curl -X POST http://localhost:3355/gitree/create-concept \
     -H "Content-Type: application/json" \
     -d '{
       "prompt": "How does authentication work in this repo?",
@@ -1035,8 +1034,8 @@ Please analyze the user's prompt and the list of available features. Return an a
       "repo": "hive"
     }'
  */
-export async function gitree_create_feature(req: Request, res: Response) {
-  console.log("===> gitree_create_feature", req.path, req.method);
+export async function gitree_create_concept(req: Request, res: Response) {
+  console.log("===> gitree_create_concept", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
     const { prompt, name, owner, repo, pat } = req.body;
@@ -1068,18 +1067,18 @@ export async function gitree_create_feature(req: Request, res: Response) {
         const contextResult = await get_context(prompt, repoDir, {
           pat,
           sessionId,
-          source: "gitree_create_feature",
+          source: "gitree_create_concept",
         });
         const documentation = contextResult.content;
 
-        // Generate feature ID from name with repo prefix
+        // Generate concept ID from name with repo prefix
         const slug = generateSlug(name);
         const repoId = `${owner}/${repo}`;
-        const featureId = makeRepoId(repoId, slug);
+        const conceptId = makeRepoId(repoId, slug);
 
-        // Create the feature object
-        const feature: Feature = {
-          id: featureId,
+        // Create the concept object
+        const concept: Concept = {
+          id: conceptId,
           repo: repoId,
           name: name,
           description: prompt,
@@ -1093,19 +1092,19 @@ export async function gitree_create_feature(req: Request, res: Response) {
         // Save to storage
         const storage = new GraphStorage();
         await storage.initialize();
-        await storage.saveFeature(feature);
-        await storage.saveDocumentation(featureId, documentation);
+        await storage.saveConcept(concept);
+        await storage.saveDocumentation(conceptId, documentation);
 
-        console.log(`✅ Feature created: ${featureId}`);
+        console.log(`✅ Concept created: ${conceptId}`);
 
         asyncReqs.finishReq(request_id, {
           status: "success",
-          message: `Created feature ${featureId}`,
-          feature: {
-            id: feature.id,
-            name: feature.name,
-            description: feature.description,
-            documentation: feature.documentation,
+          message: `Created concept ${conceptId}`,
+          concept: {
+            id: concept.id,
+            name: concept.name,
+            description: concept.description,
+            documentation: concept.documentation,
           },
           usage: contextResult.usage,
         });
@@ -1118,13 +1117,13 @@ export async function gitree_create_feature(req: Request, res: Response) {
   } catch (error) {
     console.log("===> error");
     asyncReqs.failReq(request_id, error);
-    res.status(500).json({ error: "Failed to create feature" });
+    res.status(500).json({ error: "Failed to create concept" });
   }
 }
 
 /**
  * POST /gitree/analyze-clues
- * Analyze a specific feature or all features for clues
+ * Analyze a specific concept or all concepts for clues
  */
 export async function gitree_analyze_clues(req: Request, res: Response) {
   const request_id = asyncReqs.startReq();
@@ -1132,7 +1131,7 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
   try {
     const owner = req.query.owner as string;
     const repo = req.query.repo as string;
-    const featureId = req.query.feature_id as string | undefined;
+    const conceptId = req.query.concept_id as string | undefined;
     const force = req.query.force === "true";
     const autoLink = req.query.auto_link !== "false"; // Default true
     const pat = req.query.token as string | undefined;
@@ -1157,12 +1156,12 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
         const analyzer = new ClueAnalyzer(storage, repoPath);
 
         let result;
-        if (featureId) {
-          result = await analyzer.analyzeFeature(featureId);
+        if (conceptId) {
+          result = await analyzer.analyzeConcept(conceptId);
 
-          // Auto-link after single feature analysis
+          // Auto-link after single concept analysis
           if (autoLink && result.clues.length > 0) {
-            console.log(`\n🔗 Auto-linking new clues to relevant features...\n`);
+            console.log(`\n🔗 Auto-linking new clues to relevant concepts...\n`);
             try {
               const { ClueLinker } = await import("./clueLinker.js");
               const linker = new ClueLinker(storage);
@@ -1175,8 +1174,8 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
             }
           }
         } else {
-          const usage = await analyzer.analyzeAllFeatures(force, autoLink);
-          result = { usage, message: "Analyzed all features" + (autoLink ? " and linked clues" : "") };
+          const usage = await analyzer.analyzeAllConcepts(force, autoLink);
+          result = { usage, message: "Analyzed all concepts" + (autoLink ? " and linked clues" : "") };
         }
 
         asyncReqs.finishReq(request_id, { ...result });
@@ -1188,9 +1187,9 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
     res.json({
       request_id,
       status: "pending",
-      message: featureId
-        ? `Analyzing feature ${featureId} for clues...`
-        : "Analyzing all features for clues...",
+      message: conceptId
+        ? `Analyzing concept ${conceptId} for clues...`
+        : "Analyzing all concepts for clues...",
     });
   } catch (error) {
     console.error("Error in gitree_analyze_clues:", error);
@@ -1423,19 +1422,19 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 }
 
 /**
- * GET /gitree/clues?feature_id=xxx&repo=owner/repo (both optional)
- * List all clues or clues for a specific feature
+ * GET /gitree/clues?concept_id=xxx&repo=owner/repo (both optional)
+ * List all clues or clues for a specific concept
  */
 export async function gitree_list_clues(req: Request, res: Response) {
   try {
-    const featureId = req.query.feature_id as string | undefined;
+    const conceptId = req.query.concept_id as string | undefined;
     const repo = parseRepoParam(req);
 
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const clues = featureId
-      ? await storage.getCluesForFeature(featureId, undefined, repo)
+    const clues = conceptId
+      ? await storage.getCluesForConcept(conceptId, undefined, repo)
       : await storage.getAllClues(repo);
 
     res.json({
@@ -1503,7 +1502,7 @@ export async function gitree_delete_clue(req: Request, res: Response) {
 
 /**
  * POST /gitree/link-clues
- * Link clues to relevant features (Step 2 of clue analysis)
+ * Link clues to relevant concepts (Step 2 of clue analysis)
  */
 export async function gitree_link_clues(req: Request, res: Response) {
   try {
@@ -1536,7 +1535,7 @@ export async function gitree_link_clues(req: Request, res: Response) {
     res.json({
       request_id,
       status: "pending",
-      message: "Linking clues to relevant features...",
+      message: "Linking clues to relevant concepts...",
     });
   } catch (error) {
     console.error("Error in gitree_link_clues:", error);
@@ -1549,14 +1548,14 @@ export async function gitree_link_clues(req: Request, res: Response) {
 /**
  * POST /gitree/search-clues
  * Search clues by relevance using embeddings, keywords, and centrality
- * Body: { query: string, featureId?: string, limit?: number, similarityThreshold?: number, repo?: string }
+ * Body: { query: string, conceptId?: string, limit?: number, similarityThreshold?: number, repo?: string }
  curl -X POST http://localhost:3355/gitree/search-clues \
     -H "Content-Type: application/json" \
     -d '{"query": "workspace access"}'
  */
 export async function gitree_search_clues(req: Request, res: Response) {
   try {
-    const { query, featureId, limit = 10, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
+    const { query, conceptId, limit = 10, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
     // Support repo from both query param and body
     const repo = parseRepoParam(req) || bodyRepo;
 
@@ -1575,7 +1574,7 @@ export async function gitree_search_clues(req: Request, res: Response) {
     const results = await storage.searchClues(
       query,
       embeddings,
-      featureId,
+      conceptId,
       limit,
       similarityThreshold,
       repo
@@ -1583,14 +1582,14 @@ export async function gitree_search_clues(req: Request, res: Response) {
 
     res.json({
       query,
-      featureId: featureId || "all",
+      conceptId: conceptId || "all",
       repo: repo || "all",
       count: results.length,
       results: results.map((r) => ({
         clue: {
           id: r.id,
           repo: r.repo,
-          featureId: r.featureId,
+          conceptId: r.conceptId,
           type: r.type,
           title: r.title,
           content: r.content,
@@ -1614,10 +1613,10 @@ export async function gitree_search_clues(req: Request, res: Response) {
 /**
  * Get provenance data for concepts
  * POST /gitree/provenance
- * Body: { conceptIds: string[] } (array of feature IDs)
+ * Body: { conceptIds: string[] } (array of concept IDs)
  *
  * Returns hierarchical structure: Concepts → Files → Code Entities
- * Code entities are filtered by text matching against feature documentation
+ * Code entities are filtered by text matching against concept documentation
  *
  * Example:
  * curl -X POST http://localhost:3355/gitree/provenance \

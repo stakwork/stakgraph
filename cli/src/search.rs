@@ -29,7 +29,7 @@ const SEARCHABLE_TYPES: &[NodeType] = &[
     NodeType::IntegrationTest,
     NodeType::E2eTest,
     NodeType::Page,
-    NodeType::Feature,
+    NodeType::Concept,
 ];
 
 const TEST_TYPES: &[NodeType] = &[

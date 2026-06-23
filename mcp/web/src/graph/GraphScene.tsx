@@ -107,30 +107,30 @@ export const GraphScene = memo(() => {
             ? `&since=${latestTimestampRef.current}`
             : "";
 
-        const [codeRes, featuresRes] = await Promise.all([
+        const [codeRes, conceptsRes] = await Promise.all([
           apiFetch(
             `${API_BASE}/graph?edges=true&no_body=true&limit=500&limit_mode=per_type&node_types=${nodeTypesParam}${sinceParam}`,
           ),
           apiFetch(
-            `${API_BASE}/gitree/all-features-graph?no_body=true&node_types=${nodeTypesParam}`,
+            `${API_BASE}/gitree/all-concepts-graph?no_body=true&node_types=${nodeTypesParam}`,
           ),
         ]);
 
         const codeData: GraphApiResponse = codeRes.ok
           ? await codeRes.json()
           : { nodes: [], edges: [], status: "error" };
-        const featureData: GraphApiResponse = featuresRes.ok
-          ? await featuresRes.json()
+        const conceptData: GraphApiResponse = conceptsRes.ok
+          ? await conceptsRes.json()
           : { nodes: [], edges: [], status: "error" };
 
         // Merge, dedup nodes by ref_id
         const nodeMap = new Map<string, (typeof codeData.nodes)[0]>();
-        for (const n of [...codeData.nodes, ...featureData.nodes]) {
+        for (const n of [...codeData.nodes, ...conceptData.nodes]) {
           if (!nodeMap.has(n.ref_id)) nodeMap.set(n.ref_id, n);
         }
 
         const allNodes = Array.from(nodeMap.values());
-        const allEdges = [...codeData.edges, ...featureData.edges];
+        const allEdges = [...codeData.edges, ...conceptData.edges];
 
         // Track latest timestamp for delta fetching
         for (const n of allNodes) {

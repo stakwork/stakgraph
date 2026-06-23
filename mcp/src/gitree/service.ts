@@ -1,6 +1,6 @@
 import { GraphStorage } from "./store/index.js";
 
-export interface FeatureSummary {
+export interface ConceptSummary {
   id: string;
   repo?: string;
   ref_id?: string;
@@ -12,24 +12,24 @@ export interface FeatureSummary {
   hasDocumentation: boolean;
 }
 
-export interface FeatureDocumentation {
+export interface ConceptDocumentation {
   id: string;
   name: string;
   description: string;
   documentation?: string;
 }
 
-export async function listFeatures(repo?: string): Promise<{
-  features: FeatureSummary[];
+export async function listConcepts(repo?: string): Promise<{
+  concepts: ConceptSummary[];
   total: number;
 }> {
   const storage = new GraphStorage();
   await storage.initialize();
 
-  const features = await storage.getAllFeatures(repo);
+  const concepts = await storage.getAllConcepts(repo);
 
   return {
-    features: features.map((f) => ({
+    concepts: concepts.map((f) => ({
       id: f.id,
       repo: f.repo,
       ref_id: f.ref_id,
@@ -40,27 +40,27 @@ export async function listFeatures(repo?: string): Promise<{
       lastUpdated: f.lastUpdated.toISOString(),
       hasDocumentation: !!f.documentation,
     })),
-    total: features.length,
+    total: concepts.length,
   };
 }
 
-export async function getFeatureDocumentation(
-  featureId: string,
+export async function getConceptDocumentation(
+  conceptId: string,
   repo?: string
-): Promise<FeatureDocumentation | null> {
+): Promise<ConceptDocumentation | null> {
   const storage = new GraphStorage();
   await storage.initialize();
 
-  const feature = await storage.getFeature(featureId, repo);
+  const concept = await storage.getConcept(conceptId, repo);
 
-  if (!feature) {
+  if (!concept) {
     return null;
   }
 
   return {
-    id: feature.id,
-    name: feature.name,
-    description: feature.description,
-    documentation: feature.documentation,
+    id: concept.id,
+    name: concept.name,
+    description: concept.description,
+    documentation: concept.documentation,
   };
 }

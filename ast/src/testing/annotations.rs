@@ -40,7 +40,7 @@ fn parse_node_type(s: &str) -> Option<NodeType> {
         "Endpoint" => Some(NodeType::Endpoint),
         "Request" => Some(NodeType::Request),
         "DataModel" => Some(NodeType::DataModel),
-        "Feature" => Some(NodeType::Feature),
+        "Concept" => Some(NodeType::Concept),
         "Page" => Some(NodeType::Page),
         "Var" => Some(NodeType::Var),
         "UnitTest" => Some(NodeType::UnitTest),

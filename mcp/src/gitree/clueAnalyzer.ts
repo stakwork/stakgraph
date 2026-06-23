@@ -5,7 +5,7 @@ import { get_context } from "../repo/agent.js";
 import { vectorizeQuery } from "../vector/index.js";
 
 /**
- * Analyzes feature codebases to extract architectural clues
+ * Analyzes concept codebases to extract architectural clues
  */
 export class ClueAnalyzer {
   private repo?: string; // Repository identifier "owner/repo"
@@ -27,23 +27,23 @@ export class ClueAnalyzer {
   }
 
   /**
-   * Analyze a single feature for clues (iterative)
+   * Analyze a single concept for clues (iterative)
    */
-  async analyzeFeature(featureId: string): Promise<ClueAnalysisResult> {
-    const feature = await this.storage.getFeature(featureId);
-    if (!feature) {
-      throw new Error(`Feature ${featureId} not found`);
+  async analyzeConcept(conceptId: string): Promise<ClueAnalysisResult> {
+    const concept = await this.storage.getConcept(conceptId);
+    if (!concept) {
+      throw new Error(`Concept ${conceptId} not found`);
     }
 
-    console.log(`\n💡 Analyzing feature for clues: ${feature.name}`);
+    console.log(`\n💡 Analyzing concept for clues: ${concept.name}`);
 
     // Get existing clues
-    const existingClues = await this.storage.getCluesForFeature(featureId);
+    const existingClues = await this.storage.getCluesForConcept(conceptId);
     console.log(`   Found ${existingClues.length} existing clues`);
 
     // Check if we've hit the limit
     if (existingClues.length >= 40) {
-      console.log(`   ⚠️  Feature already has 40 clues (limit reached)`);
+      console.log(`   ⚠️  Concept already has 40 clues (limit reached)`);
       return {
         clues: [],
         complete: true,
@@ -52,19 +52,19 @@ export class ClueAnalyzer {
       };
     }
 
-    // Get files associated with this feature
-    const prs = await this.storage.getPRsForFeature(featureId);
-    const commits = await this.storage.getCommitsForFeature(featureId);
+    // Get files associated with this concept
+    const prs = await this.storage.getPRsForConcept(conceptId);
+    const commits = await this.storage.getCommitsForConcept(conceptId);
     const allFiles = new Set<string>();
     prs.forEach((pr) => pr.files.forEach((f) => allFiles.add(f)));
     commits.forEach((c) => c.files.forEach((f) => allFiles.add(f)));
 
     if (allFiles.size === 0) {
-      console.log(`   ⚠️  No files found for this feature`);
+      console.log(`   ⚠️  No files found for this concept`);
       return {
         clues: [],
         complete: true,
-        reasoning: "No files associated with this feature",
+        reasoning: "No files associated with this concept",
         usage: normalizeUsage(),
       };
     }
@@ -73,7 +73,7 @@ export class ClueAnalyzer {
 
     // Build prompt for get_context
     const prompt = this.buildAnalysisPrompt(
-      feature,
+      concept,
       existingClues,
       Array.from(allFiles)
     );
@@ -150,13 +150,13 @@ export class ClueAnalyzer {
       // Generate embedding from title + content
       const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
 
-      // Get repo from feature if not set
-      const clueRepo = this.repo || feature.repo;
+      // Get repo from concept if not set
+      const clueRepo = this.repo || concept.repo;
       
       const clue: Clue = {
         id: this.generateClueId(clueData.title, clueRepo),
         repo: clueRepo,
-        featureId,
+        conceptId,
         type: clueData.type,
         title: clueData.title,
         content: clueData.content,
@@ -165,7 +165,7 @@ export class ClueAnalyzer {
         keywords: clueData.keywords || [],
         centrality: clueData.centrality,
         usageFrequency: clueData.usageFrequency,
-        relatedFeatures: [featureId], // Initially link to discovering feature only
+        relatedConcepts: [conceptId], // Initially link to discovering concept only
         relatedClues: clueData.relatedClues || [],
         dependsOn: clueData.dependsOn || [],
         embedding,
@@ -178,13 +178,13 @@ export class ClueAnalyzer {
       console.log(`   ✨ Created clue: ${clue.title} [${clue.type}]`);
     }
 
-    // Update feature metadata
-    feature.cluesCount = existingClues.length + savedClues.length;
-    feature.cluesLastAnalyzedAt = now;
-    await this.storage.saveFeature(feature);
+    // Update concept metadata
+    concept.cluesCount = existingClues.length + savedClues.length;
+    concept.cluesLastAnalyzedAt = now;
+    await this.storage.saveConcept(concept);
 
     console.log(
-      `   📊 Created ${savedClues.length} new clues (total: ${feature.cluesCount})`
+      `   📊 Created ${savedClues.length} new clues (total: ${concept.cluesCount})`
     );
     console.log(
       `   ${
@@ -203,41 +203,41 @@ export class ClueAnalyzer {
   }
 
   /**
-   * Analyze all features that need clue analysis
+   * Analyze all concepts that need clue analysis
    * @param force - Force re-analysis even if already analyzed
-   * @param autoLink - Automatically link clues to features
-   * @param repo - Optional repo to filter features
+   * @param autoLink - Automatically link clues to concepts
+   * @param repo - Optional repo to filter concepts
    */
-  async analyzeAllFeatures(
+  async analyzeAllConcepts(
     force: boolean = false,
     autoLink: boolean = true,
     repo?: string
   ): Promise<Usage> {
-    const features = await this.storage.getAllFeatures(repo || this.repo);
-    console.log(`\n📚 Analyzing clues for ${features.length} features...\n`);
+    const concepts = await this.storage.getAllConcepts(repo || this.repo);
+    console.log(`\n📚 Analyzing clues for ${concepts.length} concepts...\n`);
 
     let totalUsage: Usage = normalizeUsage();
 
-    for (let i = 0; i < features.length; i++) {
-      const feature = features[i];
-      const progress = `[${i + 1}/${features.length}]`;
+    for (let i = 0; i < concepts.length; i++) {
+      const concept = concepts[i];
+      const progress = `[${i + 1}/${concepts.length}]`;
 
       // Skip if already analyzed (unless force)
       if (
         !force &&
-        feature.cluesLastAnalyzedAt &&
-        (feature.cluesCount || 0) >= 5
+        concept.cluesLastAnalyzedAt &&
+        (concept.cluesCount || 0) >= 5
       ) {
         console.log(
-          `${progress} Skipping ${feature.name} (already has ${feature.cluesCount} clues)`
+          `${progress} Skipping ${concept.name} (already has ${concept.cluesCount} clues)`
         );
         continue;
       }
 
-      console.log(`${progress} Processing: ${feature.name} (${feature.id})`);
+      console.log(`${progress} Processing: ${concept.name} (${concept.id})`);
 
       try {
-        const result = await this.analyzeFeature(feature.id);
+        const result = await this.analyzeConcept(concept.id);
         totalUsage = normalizeUsage(addUsage(totalUsage, result.usage));
       } catch (error) {
         console.error(
@@ -248,14 +248,14 @@ export class ClueAnalyzer {
       }
     }
 
-    console.log(`\n✅ Done analyzing all features!`);
+    console.log(`\n✅ Done analyzing all concepts!`);
     console.log(
       `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
     );
 
-    // Automatically link clues to features after discovery
+    // Automatically link clues to concepts after discovery
     if (autoLink) {
-      console.log(`\n🔗 Automatically linking clues to relevant features...\n`);
+      console.log(`\n🔗 Automatically linking clues to relevant concepts...\n`);
       try {
         const { ClueLinker } = await import("./clueLinker.js");
         const linker = new ClueLinker(this.storage);
@@ -281,7 +281,7 @@ export class ClueAnalyzer {
   /**
    * Analyze a PR or commit for architectural clues
    * @param changeContext - Context about what changed (includes full formatted content if available)
-   * @param featureIds - Optional list of feature IDs to scope clues to (optimization)
+   * @param conceptIds - Optional list of concept IDs to scope clues to (optimization)
    * @returns Analysis result with discovered clues
    */
   async analyzeChange(changeContext: {
@@ -291,39 +291,39 @@ export class ClueAnalyzer {
     summary: string;
     files: string[];
     fullContent?: string; // Full formatted PR/commit content (optional for retroactive analysis)
-  }, featureIds?: string[]): Promise<ClueAnalysisResult> {
+  }, conceptIds?: string[]): Promise<ClueAnalysisResult> {
     console.log(
       `\n💡 Analyzing ${changeContext.type} for clues: ${changeContext.identifier}`
     );
     console.log(`   ${changeContext.title}`);
 
     // Get existing clues to avoid duplicates
-    // If featureIds provided, only fetch clues for those features (optimization)
+    // If conceptIds provided, only fetch clues for those concepts (optimization)
     let existingClues: Clue[];
-    if (featureIds && featureIds.length > 0) {
-      console.log(`   Fetching recent clues (max 100 per feature) for ${featureIds.length} linked feature(s)...`);
-      const cluesByFeature = await Promise.all(
-        featureIds.map((fid) => this.storage.getCluesForFeature(fid, 100))
+    if (conceptIds && conceptIds.length > 0) {
+      console.log(`   Fetching recent clues (max 100 per concept) for ${conceptIds.length} linked concept(s)...`);
+      const cluesByConcept = await Promise.all(
+        conceptIds.map((fid) => this.storage.getCluesForConcept(fid, 100))
       );
-      // Deduplicate clues (a clue can be linked to multiple features)
+      // Deduplicate clues (a clue can be linked to multiple concepts)
       const clueMap = new Map<string, Clue>();
-      for (const clues of cluesByFeature) {
+      for (const clues of cluesByConcept) {
         for (const clue of clues) {
           clueMap.set(clue.id, clue);
         }
       }
       existingClues = Array.from(clueMap.values());
-      console.log(`   Found ${existingClues.length} existing clues for linked features`);
+      console.log(`   Found ${existingClues.length} existing clues for linked concepts`);
     } else {
-      // Fallback: fetch all clues (less efficient but works if no features linked)
+      // Fallback: fetch all clues (less efficient but works if no concepts linked)
       existingClues = await this.storage.getAllClues();
-      console.log(`   Found ${existingClues.length} existing clues in system (all features)`);
+      console.log(`   Found ${existingClues.length} existing clues in system (all concepts)`);
     }
 
     // Build prompt with change context
     const prompt = this.buildChangeAnalysisPrompt(changeContext, existingClues);
 
-    // Use same schema as analyzeFeature
+    // Use same schema as analyzeConcept
     const schema = {
       type: "object",
       properties: {
@@ -398,7 +398,7 @@ export class ClueAnalyzer {
       const clue: Clue = {
         id: this.generateClueId(clueData.title, this.repo),
         repo: this.repo,
-        featureId: "unassigned", // Temporary, will be replaced by linking
+        conceptId: "unassigned", // Temporary, will be replaced by linking
         type: clueData.type,
         title: clueData.title,
         content: clueData.content,
@@ -407,7 +407,7 @@ export class ClueAnalyzer {
         keywords: clueData.keywords || [],
         centrality: clueData.centrality,
         usageFrequency: clueData.usageFrequency,
-        relatedFeatures: [], // Empty initially - linking happens afterward
+        relatedConcepts: [], // Empty initially - linking happens afterward
         relatedClues: clueData.relatedClues || [],
         dependsOn: clueData.dependsOn || [],
         embedding,
@@ -434,7 +434,7 @@ export class ClueAnalyzer {
    * Build the analysis prompt for get_context
    */
   private buildAnalysisPrompt(
-    feature: any,
+    concept: any,
     existingClues: Clue[],
     files: string[]
   ): string {
@@ -446,11 +446,11 @@ export class ClueAnalyzer {
     const filesNote =
       files.length > 50 ? `\n  ... and ${files.length - 50} more files` : "";
 
-    return `Analyze the codebase for the feature "${feature.name}" and identify architectural utilities, key abstractions, and patterns.
+    return `Analyze the codebase for the concept "${concept.name}" and identify architectural utilities, key abstractions, and patterns.
 
-**Feature**: ${feature.name}
-**Description**: ${feature.description}
-${feature.documentation ? `\n**Documentation**:\n${feature.documentation}\n` : ""}
+**Concept**: ${concept.name}
+**Description**: ${concept.description}
+${concept.documentation ? `\n**Documentation**:\n${concept.documentation}\n` : ""}
 **Existing Clues** (${existingClues.length}/40):
 ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 
@@ -458,24 +458,24 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
   ${filesList}${filesNote}
 
 **Your Task**:
-1. Read and analyze the codebase files for this feature
+1. Read and analyze the codebase files for this concept
 2. Identify NEW clues that don't overlap with existing ones
 3. Focus on the most important patterns and utilities (5-10 clues)
 4. For each clue, extract:
-   - Title (concise, descriptive, GENERIC - no feature name)
+   - Title (concise, descriptive, GENERIC - no concept name)
    - Type (utility, abstraction, integration, convention, gotcha, data-flow, state-pattern)
-   - Content (GENERIC explanation - WHY, WHEN, HOW - written for ANY feature that uses this pattern)
+   - Content (GENERIC explanation - WHY, WHEN, HOW - written for ANY concept that uses this pattern)
    - Entities (actual function/class/type/endpoint names from the code)
    - Files (list of files where these entities are defined or this pattern is used)
    - Keywords (for searchability)
 
-5. Set "complete: true" if you believe this feature is comprehensively covered (or if creating fewer than 2 new clues)
+5. Set "complete: true" if you believe this concept is comprehensively covered (or if creating fewer than 2 new clues)
 
 **CRITICAL - Content Writing Guidelines**:
 - include exact function names, type names, class names, etc. But not big code snippets.
-- Write GENERIC, reusable explanations that work for ANY feature using this pattern
-- Focus on the utility/abstraction ITSELF, not how this particular feature uses it
-- Think: "How would I explain this to someone working on ANY feature?"
+- Write GENERIC, reusable explanations that work for ANY concept using this pattern
+- Focus on the utility/abstraction ITSELF, not how this particular concept uses it
+- Think: "How would I explain this to someone working on ANY concept?"
 
 **IMPORTANT**:
 - DO NOT create code snippets - only reference entity names
@@ -501,16 +501,16 @@ Your goal is to identify "Clues" - knowledge nuggets that help developers unders
 - Data flow patterns
 - State management approaches
 
-**CRITICAL: Write GENERIC content that works for ANY feature using the pattern!**
-- Think of clues as reusable documentation that will be linked to MULTIPLE features
-- DO NOT mention specific feature names in the content
+**CRITICAL: Write GENERIC content that works for ANY concept using the pattern!**
+- Think of clues as reusable documentation that will be linked to MULTIPLE concepts
+- DO NOT mention specific concept names in the content
 - Focus on the utility/abstraction itself, not one specific usage
 - Example: "This utility ensures workspace isolation by..." NOT "Quick Ask uses this to..."
 
 **Clue Types:**
-- **utility**: Reusable functions/classes used across multiple features
+- **utility**: Reusable functions/classes used across multiple concepts
 - **abstraction**: Interface/type/base class meant to be extended
-- **integration**: How to integrate with external systems/features
+- **integration**: How to integrate with external systems/concepts
 - **convention**: Coding style or naming convention
 - **gotcha**: Common mistake or edge case to avoid
 - **data-flow**: How data transforms through the system
@@ -606,7 +606,7 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 For each clue, extract:
 - Title (concise, descriptive, GENERIC)
 - Type (utility, abstraction, integration, convention, gotcha, data-flow, state-pattern)
-- Content (GENERIC explanation - WHY, WHEN, HOW - works for ANY feature)
+- Content (GENERIC explanation - WHY, WHEN, HOW - works for ANY concept)
 - Entities (actual function/class/type/endpoint names from the code)
 - Files (list of files where entities are defined)
 - Keywords (for searchability)
@@ -619,8 +619,8 @@ For each clue, extract:
 - Avoid generic/abstract patterns unless clearly demonstrated
 
 **CRITICAL - Content Writing Guidelines**:
-- Write GENERIC, reusable explanations that work for ANY codebase/feature
-- DO NOT mention specific feature names or this specific change
+- Write GENERIC, reusable explanations that work for ANY codebase/concept
+- DO NOT mention specific concept names or this specific change
 - Focus on the utility/abstraction ITSELF as a general concept
 - Use generic examples: "This pattern..." instead of "This PR..."
 - Think: "How would I explain this pattern to someone in a different codebase?"
@@ -652,8 +652,8 @@ Your goal is to identify "Clues" based on what changed in a specific PR or commi
 - Quality over quantity - 2-5 excellent, focused clues better than many generic ones
 
 **CRITICAL: Write GENERIC content!**
-- Clues are standalone knowledge not tied to specific features
-- DO NOT mention feature names, PR numbers, or commit SHAs
+- Clues are standalone knowledge not tied to specific concepts
+- DO NOT mention concept names, PR numbers, or commit SHAs
 - Focus on the utility/abstraction itself as a general concept
 - Example: "This pattern ensures workspace isolation by..." NOT "This PR adds..."
 

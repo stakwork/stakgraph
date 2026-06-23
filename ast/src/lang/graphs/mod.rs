@@ -44,7 +44,8 @@ pub enum NodeType {
     Request,
     #[serde(rename = "Datamodel")]
     DataModel,
-    Feature,
+    #[serde(alias = "Feature")]
+    Concept,
     Page,
     Var,
     UnitTest,
@@ -88,7 +89,7 @@ pub enum EdgeType {
     Imports,  // File -> Module
     Of,       // Instance -> Class
     Handler,  // Endpoint -> Function
-    Includes, // Feature -> Function/Class/Module/Endpoint/Request/DataModel/Test
+    Includes, // Concept -> Function/Class/Module/Endpoint/Request/DataModel/Test
     Renders,  // Page -> Component
     #[serde(rename = "PARENT_OF")]
     ParentOf, // Class -> Class

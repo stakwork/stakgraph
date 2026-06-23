@@ -1,19 +1,19 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
+import { Concept, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
 
-function normalizeFeature(feature: any): Feature {
+function normalizeConcept(concept: any): Concept {
   return {
-    ...feature,
-    createdAt: new Date(feature.createdAt),
-    lastUpdated: new Date(feature.lastUpdated),
-    cluesLastAnalyzedAt: feature.cluesLastAnalyzedAt
-      ? new Date(feature.cluesLastAnalyzedAt)
+    ...concept,
+    createdAt: new Date(concept.createdAt),
+    lastUpdated: new Date(concept.lastUpdated),
+    cluesLastAnalyzedAt: concept.cluesLastAnalyzedAt
+      ? new Date(concept.cluesLastAnalyzedAt)
       : undefined,
-    usage: feature.usage ? normalizeUsage(feature.usage) : undefined,
+    usage: concept.usage ? normalizeUsage(concept.usage) : undefined,
   };
 }
 
@@ -23,7 +23,7 @@ function normalizeFeature(feature: any): Feature {
  * Directory structure:
  * ./knowledge-base/
  *   ├── metadata.json
- *   ├── features/
+ *   ├── concepts/
  *   │   ├── auth-system.json
  *   │   └── ...
  *   ├── prs/
@@ -37,7 +37,7 @@ function normalizeFeature(feature: any): Feature {
  *       └── ...
  */
 export class FileSystemStore extends Storage {
-  private featuresDir: string;
+  private conceptsDir: string;
   private prsDir: string;
   private commitsDir: string;
   private cluesDir: string;
@@ -46,7 +46,7 @@ export class FileSystemStore extends Storage {
 
   constructor(baseDir: string = "./knowledge-base") {
     super();
-    this.featuresDir = path.join(baseDir, "features");
+    this.conceptsDir = path.join(baseDir, "concepts");
     this.prsDir = path.join(baseDir, "prs");
     this.commitsDir = path.join(baseDir, "commits");
     this.cluesDir = path.join(baseDir, "clues");
@@ -58,7 +58,7 @@ export class FileSystemStore extends Storage {
    * Initialize directory structure
    */
   async initialize(): Promise<void> {
-    await fs.mkdir(this.featuresDir, { recursive: true });
+    await fs.mkdir(this.conceptsDir, { recursive: true });
     await fs.mkdir(this.prsDir, { recursive: true });
     await fs.mkdir(this.commitsDir, { recursive: true });
     await fs.mkdir(this.cluesDir, { recursive: true });
@@ -79,64 +79,64 @@ export class FileSystemStore extends Storage {
     }
   }
 
-  // Features
-  async saveFeature(feature: Feature): Promise<void> {
+  // Concepts
+  async saveConcept(concept: Concept): Promise<void> {
     // Use sanitized ID for filename (replace / with __)
-    const safeId = feature.id.replace(/\//g, "__");
-    const filePath = path.join(this.featuresDir, `${safeId}.json`);
+    const safeId = concept.id.replace(/\//g, "__");
+    const filePath = path.join(this.conceptsDir, `${safeId}.json`);
     const serialized = {
-      ...feature,
-      createdAt: feature.createdAt.toISOString(),
-      lastUpdated: feature.lastUpdated.toISOString(),
-      cluesLastAnalyzedAt: feature.cluesLastAnalyzedAt?.toISOString(),
-      usage: feature.usage ? normalizeUsage(feature.usage) : undefined,
+      ...concept,
+      createdAt: concept.createdAt.toISOString(),
+      lastUpdated: concept.lastUpdated.toISOString(),
+      cluesLastAnalyzedAt: concept.cluesLastAnalyzedAt?.toISOString(),
+      usage: concept.usage ? normalizeUsage(concept.usage) : undefined,
     };
     await fs.writeFile(filePath, JSON.stringify(serialized, null, 2));
   }
 
-  async getFeature(id: string, _repo?: string): Promise<Feature | null> {
+  async getConcept(id: string, _repo?: string): Promise<Concept | null> {
     // Use sanitized ID for filename (replace / with __)
     const safeId = id.replace(/\//g, "__");
-    const filePath = path.join(this.featuresDir, `${safeId}.json`);
+    const filePath = path.join(this.conceptsDir, `${safeId}.json`);
     try {
       const content = await fs.readFile(filePath, "utf-8");
       const parsed = JSON.parse(content);
-      return normalizeFeature(parsed);
+      return normalizeConcept(parsed);
     } catch {
       return null;
     }
   }
 
-  async getAllFeatures(_repo?: string): Promise<Feature[]> {
+  async getAllConcepts(_repo?: string): Promise<Concept[]> {
     try {
-      const files = await fs.readdir(this.featuresDir);
-      const features: Feature[] = [];
+      const files = await fs.readdir(this.conceptsDir);
+      const concepts: Concept[] = [];
 
       for (const file of files) {
         if (file.endsWith(".json")) {
           const content = await fs.readFile(
-            path.join(this.featuresDir, file),
+            path.join(this.conceptsDir, file),
             "utf-8"
           );
           const parsed = JSON.parse(content);
-          features.push(normalizeFeature(parsed));
+          concepts.push(normalizeConcept(parsed));
         }
       }
 
       // Filter by repo if provided (though FileSystemStorage doesn't fully support multi-repo)
       if (_repo) {
-        return features.filter(f => f.repo === _repo);
+        return concepts.filter(f => f.repo === _repo);
       }
 
-      return features;
+      return concepts;
     } catch {
       return [];
     }
   }
 
-  async deleteFeature(id: string, _repo?: string): Promise<void> {
+  async deleteConcept(id: string, _repo?: string): Promise<void> {
     const safeId = id.replace(/\//g, "__");
-    const filePath = path.join(this.featuresDir, `${safeId}.json`);
+    const filePath = path.join(this.conceptsDir, `${safeId}.json`);
     await fs.unlink(filePath);
   }
 
@@ -268,13 +268,13 @@ export class FileSystemStore extends Storage {
   async searchClues(
     query: string,
     embeddings: number[],
-    featureId?: string,
+    conceptId?: string,
     limit: number = 10,
     similarityThreshold: number = 0.5,
     _repo?: string
   ): Promise<Array<Clue & { score: number; relevanceBreakdown?: any }>> {
-    const allClues = featureId
-      ? await this.getCluesForFeature(featureId)
+    const allClues = conceptId
+      ? await this.getCluesForConcept(conceptId)
       : await this.getAllClues(_repo);
 
     const queryLower = query.toLowerCase();
@@ -565,30 +565,30 @@ export class FileSystemStore extends Storage {
 
   // Documentation
   async saveDocumentation(
-    featureId: string,
+    conceptId: string,
     documentation: string
   ): Promise<void> {
-    const filePath = path.join(this.docsDir, `${featureId}.md`);
+    const filePath = path.join(this.docsDir, `${conceptId}.md`);
     await fs.writeFile(filePath, documentation);
   }
 
-  // Feature-File Linking (not supported in FileSystemStorage)
-  async linkFeaturesToFiles(_featureId?: string, _repo?: string): Promise<LinkResult> {
+  // Concept-File Linking (not supported in FileSystemStorage)
+  async linkConceptsToFiles(_conceptId?: string, _repo?: string): Promise<LinkResult> {
     throw new Error(
-      "Feature-File linking is only supported with GraphStorage. Use --graph flag."
+      "Concept-File linking is only supported with GraphStorage. Use --graph flag."
     );
   }
 
-  async linkFeatureToFilesByPaths(_featureId: string, _filePaths: string[]): Promise<number> {
+  async linkConceptToFilesByPaths(_conceptId: string, _filePaths: string[]): Promise<number> {
     throw new Error(
-      "Feature-File linking is only supported with GraphStorage. Use --graph flag."
+      "Concept-File linking is only supported with GraphStorage. Use --graph flag."
     );
   }
 
-  // Get Files for Feature (not supported in FileSystemStorage)
-  async getFilesForFeature(_featureId: string, _expand?: string[]): Promise<any[]> {
+  // Get Files for Concept (not supported in FileSystemStorage)
+  async getFilesForConcept(_conceptId: string, _expand?: string[]): Promise<any[]> {
     throw new Error(
-      "Getting files for features is only supported with GraphStorage. Use --graph flag."
+      "Getting files for concepts is only supported with GraphStorage. Use --graph flag."
     );
   }
 }

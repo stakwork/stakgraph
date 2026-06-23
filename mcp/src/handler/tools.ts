@@ -1,5 +1,5 @@
 import { GraphStorage } from '../gitree/store/index.js';
-import { formatFeatureWithDetails } from '../gitree/utils.js';
+import { formatConceptWithDetails } from '../gitree/utils.js';
 import { searchLogs } from './logs.js';
 
 type ToolResult = {
@@ -11,9 +11,9 @@ export async function listConcepts(params: { repo?: string }): Promise<ToolResul
   const storage = new GraphStorage();
   await storage.initialize();
 
-  const features = await storage.getAllFeatures(params.repo);
+  const concepts = await storage.getAllConcepts(params.repo);
 
-  const conceptList = features.map((f) => ({
+  const conceptList = concepts.map((f) => ({
     id: f.id,
     repo: f.repo,
     name: f.name,
@@ -36,29 +36,29 @@ export async function learnConcept(params: { id: string; repo?: string }): Promi
   const storage = new GraphStorage();
   await storage.initialize();
 
-  const feature = await storage.getFeature(params.id, params.repo);
+  const concept = await storage.getConcept(params.id, params.repo);
 
-  if (!feature) {
+  if (!concept) {
     return {
       content: [{ type: "text" as const, text: `Concept not found: ${params.id}` }],
       isError: true,
     };
   }
 
-  const response = await formatFeatureWithDetails(feature, storage);
+  const response = await formatConceptWithDetails(concept, storage);
 
-  const documentation = feature.documentation || "No documentation available for this concept.";
+  const documentation = concept.documentation || "No documentation available for this concept.";
 
   return {
     content: [{
       type: "text" as const,
-      text: `# ${feature.name}\n\n${feature.description || ""}\n\n## Documentation\n\n${documentation}\n\n## Metadata\n\n${JSON.stringify({
-        id: response.feature.id,
-        ref_id: feature.ref_id,
-        prCount: feature.prNumbers.length,
-        commitCount: feature.commitShas?.length ?? 0,
-        createdAt: feature.createdAt,
-        lastUpdated: feature.lastUpdated,
+      text: `# ${concept.name}\n\n${concept.description || ""}\n\n## Documentation\n\n${documentation}\n\n## Metadata\n\n${JSON.stringify({
+        id: response.concept.id,
+        ref_id: concept.ref_id,
+        prCount: concept.prNumbers.length,
+        commitCount: concept.commitShas?.length ?? 0,
+        createdAt: concept.createdAt,
+        lastUpdated: concept.lastUpdated,
       }, null, 2)}`
     }],
   };

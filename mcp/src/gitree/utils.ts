@@ -1,16 +1,16 @@
-import { Feature } from "./types.js";
+import { Concept } from "./types.js";
 import { Storage } from "./store/index.js";
 
 /**
- * Format a feature with its PRs and commits for API response
+ * Format a concept with its PRs and commits for API response
  * Limits PRs and commits to first + last 20 if there are more than 21
  */
-export async function formatFeatureWithDetails(
-  feature: Feature,
+export async function formatConceptWithDetails(
+  concept: Concept,
   storage: Storage
 ) {
-  const prs = await storage.getPRsForFeature(feature.id);
-  const commits = await storage.getCommitsForFeature(feature.id);
+  const prs = await storage.getPRsForConcept(concept.id);
+  const commits = await storage.getCommitsForConcept(concept.id);
 
   // Limit PRs: if > 21, include first PR and last 20 PRs
   let limitedPrs = prs;
@@ -29,11 +29,11 @@ export async function formatFeatureWithDetails(
   }
 
   return {
-    feature: {
-      id: feature.id,
-      name: feature.name,
-      description: feature.description,
-      documentation: feature.documentation,
+    concept: {
+      id: concept.id,
+      name: concept.name,
+      description: concept.description,
+      documentation: concept.documentation,
     },
     prs: limitedPrs.map((pr) => ({
       number: pr.number,
