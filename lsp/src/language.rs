@@ -168,7 +168,7 @@ impl Language {
     pub fn default_do_lsp(&self) -> bool {
         if let Ok(use_lsp) = std::env::var("USE_LSP") {
             if use_lsp == "true" || use_lsp == "1" {
-                return matches!(self, Self::Rust | Self::Go | Self::Typescript | Self::Java);
+                return matches!(self, Self::Rust | Self::Go | Self::Typescript | Self::Java | Self::Kotlin);
             }
         }
         false
@@ -445,6 +445,7 @@ mod tests {
         assert!(Language::Go.default_do_lsp());
         assert!(Language::Typescript.default_do_lsp());
         assert!(Language::Java.default_do_lsp());
+        assert!(Language::Kotlin.default_do_lsp());
         assert!(!Language::Python.default_do_lsp());
         assert!(!Language::Ruby.default_do_lsp());
         std::env::remove_var("USE_LSP");
@@ -457,6 +458,7 @@ mod tests {
         assert!(Language::Go.default_do_lsp());
         assert!(Language::Typescript.default_do_lsp());
         assert!(Language::Java.default_do_lsp());
+        assert!(Language::Kotlin.default_do_lsp());
         assert!(!Language::Python.default_do_lsp());
         std::env::remove_var("USE_LSP");
     }
@@ -468,6 +470,7 @@ mod tests {
         assert!(!Language::Go.default_do_lsp());
         assert!(!Language::Typescript.default_do_lsp());
         assert!(!Language::Java.default_do_lsp());
+        assert!(!Language::Kotlin.default_do_lsp());
         assert!(!Language::Python.default_do_lsp());
     }
 }

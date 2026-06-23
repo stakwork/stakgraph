@@ -4,6 +4,7 @@ package com.kotlintestapp.ui.viewmodels
 // @ast edge: Operand -> Function "onUserClicked" "HomeViewModel.kt"
 // @ast node: DataModel "HomeViewModel"
 // @ast node: Function "fetchUsers"
+// @ast edge_lsp: Calls -> Function "getUsers" "UserRepository.kt"
 // @ast node: Function "onUserClicked"
 // @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappuiviewmodelshomeviewmodelkt-0"
 

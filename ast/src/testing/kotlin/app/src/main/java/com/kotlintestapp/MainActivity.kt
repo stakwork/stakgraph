@@ -6,6 +6,7 @@ package com.kotlintestapp
 // @ast node: Function "PersonItem"
 // @ast node: Function "PersonList"
 // @ast edge: Calls -> Function "PersonItem" "MainActivity.kt"
+// @ast edge_lsp: Calls -> Function "updatePerson" "PersonViewModel.kt"
 // @ast node: Function "UpdateProfileDialog"
 // @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappmainactivitykt-0"
 
@@ -150,4 +151,3 @@ fun UpdateProfileDialog(
         }
     )
 }
-

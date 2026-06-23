@@ -6,7 +6,7 @@ use std::str::FromStr;
 pub mod annotations;
 pub mod bash_toml;
 
-use annotations::run_fixture_test;
+use annotations::{run_fixture_test, run_fixture_test_with_lsp};
 
 #[cfg(test)]
 pub mod builder;
@@ -255,6 +255,39 @@ async fn test_ruby() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         run_fixture_test::<Neo4jGraph>("src/testing/ruby", "ruby", Language::Ruby).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_kotlin() {
+    let use_lsp = Language::Kotlin.default_do_lsp();
+
+    #[cfg(not(feature = "neo4j"))]
+    {
+        run_fixture_test_with_lsp::<ArrayGraph>(
+            "src/testing/kotlin",
+            "kotlin",
+            Language::Kotlin,
+            use_lsp,
+        ).await.unwrap();
+        run_fixture_test_with_lsp::<BTreeMapGraph>(
+            "src/testing/kotlin",
+            "kotlin",
+            Language::Kotlin,
+            use_lsp,
+        ).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::{lang::graphs::Neo4jGraph, testing::annotations::run_fixture_test_with_lsp};
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        run_fixture_test_with_lsp::<Neo4jGraph>(
+            "src/testing/kotlin",
+            "kotlin",
+            Language::Kotlin,
+            use_lsp,
+        ).await.unwrap();
     }
 }
 
