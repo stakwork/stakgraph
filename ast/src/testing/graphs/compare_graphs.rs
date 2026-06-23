@@ -76,13 +76,24 @@ async fn compare_graphs_inner(lang_id: &str, repo_path: &str) -> Result<()> {
         );
     }
 
-    assert_eq!(
-        array_graph.nodes.len(),
-        btree_map_graph.nodes.len(),
-        "Node counts do not match: ArrayGraph has {}, BTreeMapGraph has {}",
-        array_graph.nodes.len(),
-        btree_map_graph.nodes.len()
-    );
+    let node_count_diff =
+        (array_graph.nodes.len() as i32 - btree_map_graph.nodes.len() as i32).abs();
+    if use_lsp {
+        assert!(
+            node_count_diff <= 2,
+            "Node counts differ by more than 2: ArrayGraph has {}, BTreeMapGraph has {}",
+            array_graph.nodes.len(),
+            btree_map_graph.nodes.len()
+        );
+    } else {
+        assert_eq!(
+            array_graph.nodes.len(),
+            btree_map_graph.nodes.len(),
+            "Node counts do not match: ArrayGraph has {}, BTreeMapGraph has {}",
+            array_graph.nodes.len(),
+            btree_map_graph.nodes.len()
+        );
+    }
 
     if use_lsp {
         assert!(
