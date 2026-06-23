@@ -1,7 +1,7 @@
 // @ast node: Class "IPersonService"
+// @ast edge: ParentOf -> Class "PersonService" "PersonService.cs"
 // @ast node: Class "PersonService"
 // @ast node: Trait "IPersonService"
-// @ast edge: ParentOf -> Class "PersonService" "PersonService.cs"
 // @ast node: Function "CreateAsync"
 // @ast node: Function "CreateAsync"
 // @ast node: Function "DeleteAsync"
