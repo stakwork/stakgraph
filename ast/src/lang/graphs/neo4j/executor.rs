@@ -260,28 +260,7 @@ impl<'a> TransactionManager<'a> {
             async move {
                 let mut txn = conn.start_txn().await?;
                 for (query_str, bolt_map) in queries {
-                    let mut query_obj = query(&query_str);
-                    if query_str.contains("$properties") {
-                        if let Some(BoltType::String(node_key)) = bolt_map.value.get("node_key") {
-                            query_obj = query_obj.param("node_key", node_key.value.as_str());
-                        }
-                        let properties = boltmap_to_bolttype_map(bolt_map);
-                        query_obj = query_obj.param("properties", properties);
-                        if query_str.contains("$now") {
-                            use std::time::{SystemTime, UNIX_EPOCH};
-                            if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                                let ts = dur.as_secs_f64();
-                                query_obj = query_obj.param(
-                                    "now",
-                                    neo4rs::BoltType::String(format!("{:.7}", ts).into()),
-                                );
-                            }
-                        }
-                    } else {
-                        for (key, value) in bolt_map.value.iter() {
-                            query_obj = query_obj.param(key.value.as_str(), value.clone());
-                        }
-                    }
+                    let query_obj = bind_parameters(&query_str, bolt_map);
                     txn.run(query_obj).await?;
                 }
                 txn.commit().await?;

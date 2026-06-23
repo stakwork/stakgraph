@@ -500,12 +500,21 @@ pub fn get_muted_nodes_for_files_query(files: &[String]) -> (String, BoltMap) {
         .collect::<Vec<_>>();
     boltmap_insert_list(&mut params, "files", files_list);
 
-    let query = "MATCH (n:Data_Bank) 
+    let labels_list = NodeType::all_labels()
+        .iter()
+        .map(|t| format!("'{}'", t))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let query = format!(
+        "MATCH (n:Data_Bank) 
                  WHERE n.file IN $files
                  AND (n.is_muted = true OR n.is_muted = 'true')
-                 WITH n, [label IN labels(n) WHERE label IN ['Function', 'Class', 'DataModel', 'Endpoint', 'Request', 'File', 'Directory', 'Repository', 'Language', 'Library', 'Import', 'Instance', 'Page', 'Var', 'UnitTest', 'IntegrationTest', 'E2eTest', 'Trait']][0] as node_type
+                 WITH n, [label IN labels(n) WHERE label IN [{}]][0] as node_type
                  WHERE node_type IS NOT NULL
-                 RETURN node_type, n.name as name, n.file as file".to_string();
+                 RETURN node_type, n.name as name, n.file as file",
+        labels_list
+    );
 
     (query, params)
 }
