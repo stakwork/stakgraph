@@ -2,10 +2,12 @@ package com.kotlintestapp
 // @ast node: Class "MainActivity"
 // @ast edge: Operand -> Function "onCreate" "MainActivity.kt"
 // @ast node: Function "onCreate"
+// @ast edge: Calls -> Function "KotlinTestAppTheme" "Theme.kt"
 // @ast edge: Calls -> Function "PersonList" "MainActivity.kt"
 // @ast node: Function "PersonItem"
 // @ast node: Function "PersonList"
 // @ast edge: Calls -> Function "PersonItem" "MainActivity.kt"
+// @ast edge: Calls -> Function "updatePerson" "PersonViewModel.kt"
 // @ast node: Function "UpdateProfileDialog"
 // @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappmainactivitykt-0"
 

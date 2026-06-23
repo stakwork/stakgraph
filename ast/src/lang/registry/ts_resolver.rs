@@ -3,25 +3,7 @@ use crate::lang::graphs::{Graph, NodeType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
-type Scope = Vec<HashMap<String, String>>;
-
-fn scope_push(s: &mut Scope) {
-    s.push(HashMap::new());
-}
-
-fn scope_pop(s: &mut Scope) {
-    s.pop();
-}
-
-fn scope_bind(s: &mut Scope, name: &str, type_name: &str) {
-    if let Some(frame) = s.last_mut() {
-        frame.insert(name.to_string(), type_name.to_string());
-    }
-}
-
-fn scope_lookup<'a>(s: &'a Scope, name: &str) -> Option<&'a str> {
-    s.iter().rev().find_map(|f| f.get(name).map(|s| s.as_str()))
-}
+use super::scope::{scope_bind, scope_lookup, scope_pop, scope_push, Scope};
 
 /// Strip the `@file` hint from a type string produced by `eval_expr_type`.
 fn base_type(type_str: &str) -> &str {
