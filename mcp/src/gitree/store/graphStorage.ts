@@ -3,7 +3,7 @@ import { createNeo4jDriver, ResilientSession } from "../../utils/neo4jRetry.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
-  Feature,
+  Concept,
   PRRecord,
   CommitRecord,
   Clue,
@@ -63,7 +63,7 @@ function usageFromProps(props: any): Usage | undefined {
 }
 
 /**
- * Neo4j graph-based storage implementation for features and PRs
+ * Neo4j graph-based storage implementation for concepts and PRs
  */
 export class GraphStorage extends Storage {
   private driver: Driver;
@@ -84,11 +84,15 @@ export class GraphStorage extends Storage {
    * Initialize indexes for better query performance
    */
   async initialize(): Promise<void> {
+    // Rename legacy :Feature labels/properties to :Concept BEFORE anything else,
+    // so index creation and the multi-repo migration operate on the new schema.
+    await this.migrateFeatureToConcept();
+
     const session = this.resilientSession();
     try {
         // Create indexes on id/number/sha for fast lookups
         await session.run(
-          "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
+          "CREATE INDEX concept_id_index IF NOT EXISTS FOR (f:Concept) ON (f.id)"
         );
         await session.run(
           "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
@@ -100,7 +104,7 @@ export class GraphStorage extends Storage {
           "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
         );
         await session.run(
-          "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
+          "CREATE INDEX clue_concept_index IF NOT EXISTS FOR (c:Clue) ON (c.conceptId)"
         );
         // Indexes for code nodes (for REFERENCES edges)
         await session.run(
@@ -121,7 +125,7 @@ export class GraphStorage extends Storage {
 
         // Multi-repo indexes
         await session.run(
-          "CREATE INDEX feature_repo_index IF NOT EXISTS FOR (f:Feature) ON (f.repo)"
+          "CREATE INDEX concept_repo_index IF NOT EXISTS FOR (f:Concept) ON (f.repo)"
         );
         await session.run(
           "CREATE INDEX pr_repo_index IF NOT EXISTS FOR (p:PullRequest) ON (p.repo)"
@@ -148,6 +152,99 @@ export class GraphStorage extends Storage {
     }
   }
   
+  /**
+   * Migrate legacy `Feature` graph schema to `Concept`.
+   *
+   * Historically gitree stored its PR/commit-derived knowledge nodes under the
+   * `:Feature` label (with a `:FeaturesMetadata` companion and `featureId` /
+   * `relatedFeatures` properties on `:Clue` nodes). Those are now `:Concept`,
+   * `:ConceptsMetadata`, `conceptId` and `relatedConcepts` respectively.
+   *
+   * This runs on every `initialize()` but short-circuits cheaply (via label/
+   * property counts) once a database has already been migrated, so it is safe
+   * to leave enabled permanently across the many existing Neo4j instances.
+   */
+  private async migrateFeatureToConcept(): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      // Cheap guard: count legacy labels/properties. Label counts use the
+      // Neo4j count store (O(1)); the clue property scan only matters on the
+      // single run where legacy data still exists.
+      const check = await session.run(`
+        CALL { MATCH (f:Feature) RETURN count(f) AS featureCount }
+        CALL { MATCH (m:FeaturesMetadata) RETURN count(m) AS metaCount }
+        CALL { MATCH (c:Clue) WHERE c.featureId IS NOT NULL RETURN count(c) AS clueCount }
+        RETURN featureCount, metaCount, clueCount
+      `);
+
+      const rec = check.records[0];
+      const featureCount = rec?.get("featureCount")?.toNumber() ?? 0;
+      const metaCount = rec?.get("metaCount")?.toNumber() ?? 0;
+      const clueCount = rec?.get("clueCount")?.toNumber() ?? 0;
+
+      if (featureCount === 0 && metaCount === 0 && clueCount === 0) {
+        // Already migrated (or empty DB) — nothing to do.
+        return;
+      }
+
+      console.log(
+        `===> Feature→Concept migration: ${featureCount} Feature node(s), ` +
+          `${metaCount} FeaturesMetadata node(s), ${clueCount} Clue(s) with featureId. Migrating...`
+      );
+
+      // 1. Relabel Feature -> Concept (preserves :Data_Bank and all properties).
+      if (featureCount > 0) {
+        console.log("   Relabeling :Feature -> :Concept ...");
+        await session.run(`
+          MATCH (n:Feature)
+          CALL { WITH n SET n:Concept REMOVE n:Feature } IN TRANSACTIONS OF 10000 ROWS
+        `);
+      }
+
+      // 2. Relabel FeaturesMetadata -> ConceptsMetadata.
+      if (metaCount > 0) {
+        console.log("   Relabeling :FeaturesMetadata -> :ConceptsMetadata ...");
+        await session.run(`
+          MATCH (n:FeaturesMetadata)
+          CALL { WITH n SET n:ConceptsMetadata REMOVE n:FeaturesMetadata } IN TRANSACTIONS OF 10000 ROWS
+        `);
+      }
+
+      // 3. Rename Clue.featureId -> Clue.conceptId.
+      if (clueCount > 0) {
+        console.log("   Renaming Clue.featureId -> Clue.conceptId ...");
+        await session.run(`
+          MATCH (c:Clue) WHERE c.featureId IS NOT NULL
+          CALL { WITH c SET c.conceptId = c.featureId REMOVE c.featureId } IN TRANSACTIONS OF 10000 ROWS
+        `);
+      }
+
+      // 4. Rename Clue.relatedFeatures -> Clue.relatedConcepts.
+      console.log("   Renaming Clue.relatedFeatures -> Clue.relatedConcepts ...");
+      await session.run(`
+        MATCH (c:Clue) WHERE c.relatedFeatures IS NOT NULL
+        CALL { WITH c SET c.relatedConcepts = c.relatedFeatures REMOVE c.relatedFeatures } IN TRANSACTIONS OF 10000 ROWS
+      `);
+
+      // 5. Drop now-stale indexes that referenced the old label/property.
+      //    The :Concept / conceptId equivalents are (re)created in initialize().
+      for (const idx of ["feature_id_index", "feature_repo_index", "clue_feature_index"]) {
+        try {
+          await session.run(`DROP INDEX ${idx} IF EXISTS`);
+        } catch (e) {
+          console.warn(`   Could not drop index ${idx}:`, e);
+        }
+      }
+
+      console.log("===> Feature→Concept migration: Complete!");
+    } catch (error) {
+      console.error("===> Feature→Concept migration: Error during migration:", error);
+      // Don't throw - allow app to continue even if migration fails.
+    } finally {
+      await session.close();
+    }
+  }
+
   /**
    * Migrate existing data to multi-repo format
    * Only runs if migration is needed (checks first)
@@ -199,10 +296,10 @@ export class GraphStorage extends Storage {
             c.id = parts[0] + '/' + parts[1] + '/commit-' + substring(c.sha, 0, 7)
       `);
       
-      // Step 3: Migrate Features (infer repo from linked PRs)
-      console.log("   Migrating Feature nodes...");
+      // Step 3: Migrate Concepts (infer repo from linked PRs)
+      console.log("   Migrating Concept nodes...");
       await session.run(`
-        MATCH (f:Feature)
+        MATCH (f:Concept)
         WHERE f.repo IS NULL
         OPTIONAL MATCH (p:PullRequest)-[:TOUCHES]->(f)
         WHERE p.repo IS NOT NULL
@@ -213,25 +310,25 @@ export class GraphStorage extends Storage {
             f.id = inferredRepo + '/' + f.id
       `);
       
-      // Step 4: Migrate Clues (infer repo from linked features via RELEVANT_TO)
+      // Step 4: Migrate Clues (infer repo from linked concepts via RELEVANT_TO)
       console.log("   Migrating Clue nodes...");
       await session.run(`
         MATCH (c:Clue)
         WHERE c.repo IS NULL
-        OPTIONAL MATCH (c)-[:RELEVANT_TO]->(f:Feature)
+        OPTIONAL MATCH (c)-[:RELEVANT_TO]->(f:Concept)
         WHERE f.repo IS NOT NULL
-        WITH c, collect(DISTINCT f.repo)[0] as inferredRepo, collect(f.id)[0] as newFeatureId
+        WITH c, collect(DISTINCT f.repo)[0] as inferredRepo, collect(f.id)[0] as newConceptId
         WHERE inferredRepo IS NOT NULL
         SET c.repo = inferredRepo,
             c.legacyId = c.id,
             c.id = inferredRepo + '/' + c.id,
-            c.featureId = COALESCE(newFeatureId, c.featureId)
+            c.conceptId = COALESCE(newConceptId, c.conceptId)
       `);
       
-      // Step 5: Migrate FeaturesMetadata to per-repo
-      console.log("   Migrating FeaturesMetadata nodes...");
+      // Step 5: Migrate ConceptsMetadata to per-repo
+      console.log("   Migrating ConceptsMetadata nodes...");
       await session.run(`
-        MATCH (m:FeaturesMetadata)
+        MATCH (m:ConceptsMetadata)
         WHERE m.repo IS NULL
         OPTIONAL MATCH (p:PullRequest)
         WHERE p.repo IS NOT NULL
@@ -257,20 +354,20 @@ export class GraphStorage extends Storage {
     await this.driver.close();
   }
 
-  // Features
+  // Concepts
 
-  async saveFeature(feature: Feature): Promise<void> {
+  async saveConcept(concept: Concept): Promise<void> {
     const session = this.resilientSession();
     try {
       const now = Math.floor(Date.now() / 1000);
-      const dateTimestamp = Math.floor(feature.lastUpdated.getTime() / 1000);
-      const cluesLastAnalyzedAtTimestamp = feature.cluesLastAnalyzedAt
-        ? Math.floor(feature.cluesLastAnalyzedAt.getTime() / 1000)
+      const dateTimestamp = Math.floor(concept.lastUpdated.getTime() / 1000);
+      const cluesLastAnalyzedAtTimestamp = concept.cluesLastAnalyzedAt
+        ? Math.floor(concept.cluesLastAnalyzedAt.getTime() / 1000)
         : null;
 
       await session.run(
         `
-        MERGE (f:${Data_Bank}:Feature {id: $id})
+        MERGE (f:${Data_Bank}:Concept {id: $id})
         SET f.name = $name,
             f.repo = $repo,
             f.description = $description,
@@ -293,85 +390,85 @@ export class GraphStorage extends Storage {
         RETURN f
         `,
         {
-          id: feature.id, // Should be repo-prefixed: "owner/repo/slug"
-          repo: feature.repo || null,
-          name: feature.name,
-          description: feature.description,
-          prNumbers: feature.prNumbers,
-          commitShas: feature.commitShas,
+          id: concept.id, // Should be repo-prefixed: "owner/repo/slug"
+          repo: concept.repo || null,
+          name: concept.name,
+          description: concept.description,
+          prNumbers: concept.prNumbers,
+          commitShas: concept.commitShas,
           date: dateTimestamp,
-          docs: feature.documentation || "",
-          cluesCount: feature.cluesCount || null,
+          docs: concept.documentation || "",
+          cluesCount: concept.cluesCount || null,
           cluesLastAnalyzedAt: cluesLastAnalyzedAtTimestamp,
-          ...usageParams(feature.usage),
+          ...usageParams(concept.usage),
           namespace: "default",
-          dataBankName: feature.id,
+          dataBankName: concept.id,
           refId: uuidv4(),
           dateAddedToGraph: now,
         }
       );
 
-      // Create TOUCHES relationships from PRs to this Feature
+      // Create TOUCHES relationships from PRs to this Concept
       // Match PRs by repo-prefixed id or by number+repo combo
-      if (feature.prNumbers.length > 0 && feature.repo) {
+      if (concept.prNumbers.length > 0 && concept.repo) {
         await session.run(
           `
-          MATCH (f:Feature {id: $featureId})
+          MATCH (f:Concept {id: $conceptId})
           UNWIND $prNumbers as prNumber
           MATCH (p:PullRequest)
           WHERE (p.repo = $repo AND p.number = prNumber) OR p.id = $repo + '/pr-' + toString(prNumber)
           MERGE (p)-[:TOUCHES]->(f)
           `,
           {
-            featureId: feature.id,
-            prNumbers: feature.prNumbers,
-            repo: feature.repo,
+            conceptId: concept.id,
+            prNumbers: concept.prNumbers,
+            repo: concept.repo,
           }
         );
-      } else if (feature.prNumbers.length > 0) {
+      } else if (concept.prNumbers.length > 0) {
         // Legacy: no repo, match by number only
         await session.run(
           `
-          MATCH (f:Feature {id: $featureId})
+          MATCH (f:Concept {id: $conceptId})
           UNWIND $prNumbers as prNumber
           MATCH (p:PullRequest {number: prNumber})
           MERGE (p)-[:TOUCHES]->(f)
           `,
           {
-            featureId: feature.id,
-            prNumbers: feature.prNumbers,
+            conceptId: concept.id,
+            prNumbers: concept.prNumbers,
           }
         );
       }
 
-      // Create TOUCHES relationships from Commits to this Feature
-      const commitShas = feature.commitShas || [];
-      if (commitShas.length > 0 && feature.repo) {
+      // Create TOUCHES relationships from Commits to this Concept
+      const commitShas = concept.commitShas || [];
+      if (commitShas.length > 0 && concept.repo) {
         await session.run(
           `
-          MATCH (f:Feature {id: $featureId})
+          MATCH (f:Concept {id: $conceptId})
           UNWIND $commitShas as commitSha
           MATCH (c:Commit)
           WHERE (c.repo = $repo AND c.sha = commitSha) OR c.sha = commitSha
           MERGE (c)-[:TOUCHES]->(f)
           `,
           {
-            featureId: feature.id,
+            conceptId: concept.id,
             commitShas: commitShas,
-            repo: feature.repo,
+            repo: concept.repo,
           }
         );
       } else if (commitShas.length > 0) {
         // Legacy: no repo, match by sha only
         await session.run(
           `
-          MATCH (f:Feature {id: $featureId})
+          MATCH (f:Concept {id: $conceptId})
           UNWIND $commitShas as commitSha
           MATCH (c:Commit {sha: commitSha})
           MERGE (c)-[:TOUCHES]->(f)
           `,
           {
-            featureId: feature.id,
+            conceptId: concept.id,
             commitShas: commitShas,
           }
         );
@@ -381,7 +478,7 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getFeature(id: string, repo?: string): Promise<Feature | null> {
+  async getConcept(id: string, repo?: string): Promise<Concept | null> {
     const session = this.resilientSession();
     try {
       // If repo provided and id doesn't have prefix, construct full id
@@ -389,7 +486,7 @@ export class GraphStorage extends Storage {
       
       const result = await session.run(
         `
-        MATCH (f:Feature {id: $id})
+        MATCH (f:Concept {id: $id})
         RETURN f
         `,
         { id: fullId }
@@ -400,18 +497,18 @@ export class GraphStorage extends Storage {
       }
 
       const node = result.records[0].get("f");
-      return this.nodeToFeature(node);
+      return this.nodeToConcept(node);
     } finally {
       await session.close();
     }
   }
 
-  async getAllFeatures(repo?: string): Promise<Feature[]> {
+  async getAllConcepts(repo?: string): Promise<Concept[]> {
     const session = this.resilientSession();
     try {
       const result = await session.run(
         `
-        MATCH (f:Feature)
+        MATCH (f:Concept)
         WHERE $repo IS NULL OR f.repo = $repo
         RETURN f
         ORDER BY f.date DESC
@@ -420,14 +517,14 @@ export class GraphStorage extends Storage {
       );
 
       return result.records.map((record) =>
-        this.nodeToFeature(record.get("f"))
+        this.nodeToConcept(record.get("f"))
       );
     } finally {
       await session.close();
     }
   }
 
-  async deleteFeature(id: string, repo?: string): Promise<void> {
+  async deleteConcept(id: string, repo?: string): Promise<void> {
     const session = this.resilientSession();
     try {
       // If repo provided and id doesn't have prefix, construct full id
@@ -435,7 +532,7 @@ export class GraphStorage extends Storage {
       
       await session.run(
         `
-        MATCH (f:Feature {id: $id})
+        MATCH (f:Concept {id: $id})
         DETACH DELETE f
         `,
         { id: fullId }
@@ -504,8 +601,8 @@ export class GraphStorage extends Storage {
         }
       );
 
-      // Note: TOUCHES relationships are created in saveFeature()
-      // when features are updated with PR numbers
+      // Note: TOUCHES relationships are created in saveConcept()
+      // when concepts are updated with PR numbers
     } finally {
       await session.close();
     }
@@ -623,8 +720,8 @@ export class GraphStorage extends Storage {
         }
       );
 
-      // Note: TOUCHES relationships are created in saveFeature()
-      // when features are updated with commit SHAs
+      // Note: TOUCHES relationships are created in saveConcept()
+      // when concepts are updated with commit SHAs
     } finally {
       await session.close();
     }
@@ -691,7 +788,7 @@ export class GraphStorage extends Storage {
         `
         MERGE (c:${Data_Bank}:Clue {id: $id})
         SET c.repo = $repo,
-            c.featureId = $featureId,
+            c.conceptId = $conceptId,
             c.type = $type,
             c.title = $title,
             c.content = $content,
@@ -700,7 +797,7 @@ export class GraphStorage extends Storage {
             c.keywords = $keywords,
             c.centrality = $centrality,
             c.usageFrequency = $usageFrequency,
-            c.relatedFeatures = $relatedFeatures,
+            c.relatedConcepts = $relatedConcepts,
             c.relatedClues = $relatedClues,
             c.dependsOn = $dependsOn,
             c.embeddings = $embeddings,
@@ -717,15 +814,15 @@ export class GraphStorage extends Storage {
         DELETE r
 
         WITH c
-        // Create RELEVANT_TO edges for all related features
-        UNWIND $relatedFeatures AS featureId
-        MATCH (f:Feature {id: featureId})
+        // Create RELEVANT_TO edges for all related concepts
+        UNWIND $relatedConcepts AS conceptId
+        MATCH (f:Concept {id: conceptId})
         MERGE (c)-[:RELEVANT_TO]->(f)
         `,
         {
           id: clue.id, // Should be repo-prefixed: "owner/repo/clue-slug"
           repo: clue.repo || null,
-          featureId: clue.featureId,
+          conceptId: clue.conceptId,
           type: clue.type,
           title: clue.title,
           content: clue.content,
@@ -734,7 +831,7 @@ export class GraphStorage extends Storage {
           keywords: clue.keywords,
           centrality: clue.centrality || null,
           usageFrequency: clue.usageFrequency || null,
-          relatedFeatures: clue.relatedFeatures || [],
+          relatedConcepts: clue.relatedConcepts || [],
           relatedClues: clue.relatedClues,
           dependsOn: clue.dependsOn,
           embeddings: clue.embedding || null,
@@ -842,22 +939,22 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Get clues relevant to a specific feature (via RELEVANT_TO edges)
+   * Get clues relevant to a specific concept (via RELEVANT_TO edges)
    */
-  async getCluesForFeature(featureId: string, limit?: number, repo?: string): Promise<Clue[]> {
+  async getCluesForConcept(conceptId: string, limit?: number, repo?: string): Promise<Clue[]> {
     const session = this.resilientSession();
     try {
-      // If repo provided and featureId doesn't have prefix, construct full id
-      const fullFeatureId = repo && !featureId.includes('/') ? `${repo}/${featureId}` : featureId;
+      // If repo provided and conceptId doesn't have prefix, construct full id
+      const fullConceptId = repo && !conceptId.includes('/') ? `${repo}/${conceptId}` : conceptId;
       
       const result = await session.run(
         `
-        MATCH (c:Clue)-[:RELEVANT_TO]->(f:Feature {id: $featureId})
+        MATCH (c:Clue)-[:RELEVANT_TO]->(f:Concept {id: $conceptId})
         RETURN c
         ORDER BY c.createdAt DESC
         ${limit ? 'LIMIT $limit' : ''}
         `,
-        { featureId: fullFeatureId, limit: limit ? neo4j.int(limit) : undefined }
+        { conceptId: fullConceptId, limit: limit ? neo4j.int(limit) : undefined }
       );
 
       return result.records.map((record) => this.nodeToClue(record.get("c")));
@@ -890,17 +987,17 @@ export class GraphStorage extends Storage {
   async searchClues(
     query: string,
     embeddings: number[],
-    featureId?: string,
+    conceptId?: string,
     limit: number = 10,
     similarityThreshold: number = 0.5,
     repo?: string
   ): Promise<Array<Clue & { score: number; relevanceBreakdown: any }>> {
     const session = this.resilientSession();
     try {
-      // If repo provided and featureId doesn't have prefix, construct full id
-      const fullFeatureId = repo && featureId && !featureId.includes('/') 
-        ? `${repo}/${featureId}` 
-        : featureId;
+      // If repo provided and conceptId doesn't have prefix, construct full id
+      const fullConceptId = repo && conceptId && !conceptId.includes('/') 
+        ? `${repo}/${conceptId}` 
+        : conceptId;
       
       // Search query that combines:
       // 1. Vector similarity (embedding)
@@ -911,7 +1008,7 @@ export class GraphStorage extends Storage {
         MATCH (c:Clue)
         WHERE
           CASE
-            WHEN $featureId IS NOT NULL THEN c.featureId = $featureId
+            WHEN $conceptId IS NOT NULL THEN c.conceptId = $conceptId
             ELSE true
           END
           AND ($repo IS NULL OR c.repo = $repo)
@@ -949,7 +1046,7 @@ export class GraphStorage extends Storage {
         {
           query,
           embeddings,
-          featureId: fullFeatureId || null,
+          conceptId: fullConceptId || null,
           repo: repo || null,
           limit,
           similarityThreshold,
@@ -989,7 +1086,7 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         RETURN m.lastProcessedPR as lastProcessedPR
         `,
         { namespace: "default", repo }
@@ -1024,7 +1121,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.lastProcessedPR = $number,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -1048,7 +1145,7 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         RETURN m.lastProcessedCommit as lastProcessedCommit
         `,
         { namespace: "default", repo }
@@ -1079,7 +1176,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.lastProcessedCommit = $sha,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -1103,7 +1200,7 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         RETURN m.chronologicalCheckpoint as checkpoint
         `,
         { namespace: "default", repo }
@@ -1137,7 +1234,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.chronologicalCheckpoint = $checkpoint,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -1161,7 +1258,7 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         RETURN m.clueAnalysisCheckpoint as checkpoint
         `,
         { namespace: "default", repo }
@@ -1195,7 +1292,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.clueAnalysisCheckpoint = $checkpoint,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -1224,7 +1321,7 @@ export class GraphStorage extends Storage {
       // Get current themes
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         RETURN m.recentThemes as recentThemes
         `,
         { namespace: "default", repo }
@@ -1249,7 +1346,7 @@ export class GraphStorage extends Storage {
       // Update metadata node
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.recentThemes = $recentThemes,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -1273,7 +1370,7 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         RETURN m.recentThemes as recentThemes
         `,
         { namespace: "default", repo }
@@ -1299,7 +1396,7 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
          RETURN m.totalInputNoCacheTokens as input,
            m.totalCacheReadTokens as cacheRead,
            m.totalCacheWriteTokens as cacheWrite,
@@ -1345,7 +1442,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.totalInputNoCacheTokens = COALESCE(m.totalInputNoCacheTokens, COALESCE(m.totalInputTokens, 0)) + $input,
           m.totalCacheReadTokens = COALESCE(m.totalCacheReadTokens, 0) + $cacheRead,
           m.totalCacheWriteTokens = COALESCE(m.totalCacheWriteTokens, 0) + $cacheWrite,
@@ -1381,7 +1478,7 @@ export class GraphStorage extends Storage {
     const session = this.resilientSession();
     try {
       const result = await session.run(
-        `MATCH (m:${Data_Bank}:FeaturesMetadata)
+        `MATCH (m:${Data_Bank}:ConceptsMetadata)
          RETURN m.chronologicalCheckpoint as checkpoint,
               m.totalInputNoCacheTokens as input,
               m.totalCacheReadTokens as cacheRead,
@@ -1438,19 +1535,19 @@ export class GraphStorage extends Storage {
   // Documentation
 
   async saveDocumentation(
-    featureId: string,
+    conceptId: string,
     documentation: string
   ): Promise<void> {
     const session = this.resilientSession();
     try {
       await session.run(
         `
-        MATCH (f:Feature {id: $id})
+        MATCH (f:Concept {id: $id})
         SET f.docs = $docs
         RETURN f
         `,
         {
-          id: featureId,
+          id: conceptId,
           docs: documentation,
         }
       );
@@ -1461,7 +1558,7 @@ export class GraphStorage extends Storage {
 
   // Helper methods
 
-  private nodeToFeature(node: any): Feature {
+  private nodeToConcept(node: any): Concept {
     const props = node.properties;
     
     return {
@@ -1525,7 +1622,7 @@ export class GraphStorage extends Storage {
     return {
       id: props.id,
       repo: props.repo || undefined,
-      featureId: props.featureId,
+      conceptId: props.conceptId,
       type: props.type,
       title: props.title,
       content: props.content,
@@ -1535,7 +1632,7 @@ export class GraphStorage extends Storage {
       centrality: props.centrality || undefined,
       usageFrequency: props.usageFrequency || undefined,
       embedding: props.embeddings || undefined,
-      relatedFeatures: props.relatedFeatures || [],
+      relatedConcepts: props.relatedConcepts || [],
       relatedClues: props.relatedClues || [],
       dependsOn: props.dependsOn || [],
       createdAt: new Date(props.createdAt * 1000),
@@ -1543,7 +1640,7 @@ export class GraphStorage extends Storage {
     };
   }
 
-  // Feature-File Linking
+  // Concept-File Linking
 
   /**
    * Smart path matching to detect if a file path appears in documentation
@@ -1576,42 +1673,42 @@ export class GraphStorage extends Storage {
     return pathsToCheck.some((path) => docLower.includes(path.toLowerCase()));
   }
 
-  async linkFeaturesToFiles(featureId?: string, repo?: string): Promise<LinkResult> {
+  async linkConceptsToFiles(conceptId?: string, repo?: string): Promise<LinkResult> {
     const session = this.resilientSession();
     try {
-      // Get features to process
-      const features = featureId
-        ? [await this.getFeature(featureId, repo)].filter(
-            (f): f is Feature => f !== null
+      // Get concepts to process
+      const concepts = conceptId
+        ? [await this.getConcept(conceptId, repo)].filter(
+            (f): f is Concept => f !== null
           )
-        : await this.getAllFeatures(repo);
+        : await this.getAllConcepts(repo);
 
-      if (features.length === 0) {
+      if (concepts.length === 0) {
         return {
-          featuresProcessed: 0,
+          conceptsProcessed: 0,
           filesLinked: 0,
           filesInDocs: 0,
           filesNotInDocs: 0,
-          featureFileLinks: [],
+          conceptFileLinks: [],
         };
       }
 
       const result: LinkResult = {
-        featuresProcessed: features.length,
+        conceptsProcessed: concepts.length,
         filesLinked: 0,
         filesInDocs: 0,
         filesNotInDocs: 0,
-        featureFileLinks: [],
+        conceptFileLinks: [],
       };
 
-      // Process each feature
-      for (const feature of features) {
-        const documentation = feature.documentation || "";
+      // Process each concept
+      for (const concept of concepts) {
+        const documentation = concept.documentation || "";
 
         // Get all file paths from PRs with their frequency count
         const filePathsResult = await session.run(
           `
-          MATCH (f:Feature {id: $featureId})
+          MATCH (f:Concept {id: $conceptId})
 
           // Collect files from PRs
           OPTIONAL MATCH (pr:PullRequest)-[:TOUCHES]->(f)
@@ -1632,16 +1729,16 @@ export class GraphStorage extends Storage {
           WITH file, COUNT(*) as changeCount
           RETURN file, changeCount
           `,
-          { featureId: feature.id }
+          { conceptId: concept.id }
         );
 
-        // Get total PR + commit count for this feature
+        // Get total PR + commit count for this concept
         const totalChanges =
-          feature.prNumbers.length + (feature.commitShas || []).length;
+          concept.prNumbers.length + (concept.commitShas || []).length;
 
         if (filePathsResult.records.length === 0) {
-          result.featureFileLinks.push({
-            featureId: feature.id,
+          result.conceptFileLinks.push({
+            conceptId: concept.id,
             filesLinked: 0,
             filesInDocs: 0,
             filesNotInDocs: 0,
@@ -1650,9 +1747,9 @@ export class GraphStorage extends Storage {
         }
 
         // Process each file path with its PR count
-        let linksCreatedForFeature = 0;
-        let filesInDocsForFeature = 0;
-        let filesNotInDocsForFeature = 0;
+        let linksCreatedForConcept = 0;
+        let filesInDocsForConcept = 0;
+        let filesNotInDocsForConcept = 0;
 
         for (const record of filePathsResult.records) {
           const filePath = record.get("file");
@@ -1673,23 +1770,23 @@ export class GraphStorage extends Storage {
 
           // Track statistics
           if (inDocs) {
-            filesInDocsForFeature++;
+            filesInDocsForConcept++;
           } else {
-            filesNotInDocsForFeature++;
+            filesNotInDocsForConcept++;
           }
 
           // Match File nodes where the file property ends with the PR file path
           // This handles cases like "owner/repo/src/me.ts" matching "src/me.ts"
           const linkResult = await session.run(
             `
-            MATCH (f:Feature {id: $featureId})
+            MATCH (f:Concept {id: $conceptId})
             MATCH (file:File)
             WHERE file.file ENDS WITH $filePath
             MERGE (f)-[:MODIFIES {importance: $importance}]->(file)
             RETURN COUNT(file) as linkedCount
             `,
             {
-              featureId: feature.id,
+              conceptId: concept.id,
               filePath: filePath,
               importance: importance,
             }
@@ -1699,18 +1796,18 @@ export class GraphStorage extends Storage {
           const count = linkedCount?.toNumber
             ? linkedCount.toNumber()
             : linkedCount || 0;
-          linksCreatedForFeature += count;
+          linksCreatedForConcept += count;
         }
 
-        result.featureFileLinks.push({
-          featureId: feature.id,
-          filesLinked: linksCreatedForFeature,
-          filesInDocs: filesInDocsForFeature,
-          filesNotInDocs: filesNotInDocsForFeature,
+        result.conceptFileLinks.push({
+          conceptId: concept.id,
+          filesLinked: linksCreatedForConcept,
+          filesInDocs: filesInDocsForConcept,
+          filesNotInDocs: filesNotInDocsForConcept,
         });
-        result.filesLinked += linksCreatedForFeature;
-        result.filesInDocs += filesInDocsForFeature;
-        result.filesNotInDocs += filesNotInDocsForFeature;
+        result.filesLinked += linksCreatedForConcept;
+        result.filesInDocs += filesInDocsForConcept;
+        result.filesNotInDocs += filesNotInDocsForConcept;
       }
 
       return result;
@@ -1720,12 +1817,12 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Link a feature to File nodes by explicit file paths.
+   * Link a concept to File nodes by explicit file paths.
    * Used by bootstrap to create MODIFIES edges from LLM-identified core files.
    * All files get importance 1.0 since they are directly identified as core files.
    * Returns the number of File nodes linked.
    */
-  async linkFeatureToFilesByPaths(featureId: string, filePaths: string[]): Promise<number> {
+  async linkConceptToFilesByPaths(conceptId: string, filePaths: string[]): Promise<number> {
     if (filePaths.length === 0) return 0;
 
     const session = this.resilientSession();
@@ -1735,13 +1832,13 @@ export class GraphStorage extends Storage {
       for (const filePath of filePaths) {
         const result = await session.run(
           `
-          MATCH (f:Feature {id: $featureId})
+          MATCH (f:Concept {id: $conceptId})
           MATCH (file:File)
           WHERE file.file ENDS WITH $filePath
           MERGE (f)-[:MODIFIES {importance: 1.0}]->(file)
           RETURN COUNT(file) as linkedCount
           `,
-          { featureId, filePath }
+          { conceptId, filePath }
         );
 
         const linkedCount = result.records[0]?.get("linkedCount");
@@ -1754,12 +1851,12 @@ export class GraphStorage extends Storage {
     }
   }
 
-  // Get Files for Feature
+  // Get Files for Concept
   // Supports expand options: CONTAINS, CALLS
   // Can be combined: expand=['CONTAINS', 'CALLS']
 
-  async getFilesForFeature(
-    featureId: string,
+  async getFilesForConcept(
+    conceptId: string,
     expand?: string[]
   ): Promise<any[]> {
     const session = this.resilientSession();
@@ -1768,7 +1865,7 @@ export class GraphStorage extends Storage {
       const shouldExpandCalls = expand?.includes("CALLS") || false;
 
       let query = `
-        MATCH (f:Feature {id: $featureId})-[r:MODIFIES]->(file:File)
+        MATCH (f:Concept {id: $conceptId})-[r:MODIFIES]->(file:File)
       `;
 
       if (shouldExpandContains || shouldExpandCalls) {
@@ -1842,7 +1939,7 @@ export class GraphStorage extends Storage {
         `;
       }
 
-      const result = await session.run(query, { featureId });
+      const result = await session.run(query, { conceptId });
 
       return result.records.map((record) => {
         const fileData: any = {
@@ -1868,11 +1965,11 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Get all features with their files and contained nodes
+   * Get all concepts with their files and contained nodes
    * Returns structured data for building a flat graph
    */
-  async getAllFeaturesWithFilesAndContains(repo?: string): Promise<{
-    features: any[];
+  async getAllConceptsWithFilesAndContains(repo?: string): Promise<{
+    concepts: any[];
     files: any[];
     containedNodes: any[];
     modifiesEdges: any[];
@@ -1880,18 +1977,18 @@ export class GraphStorage extends Storage {
   }> {
     const session = this.resilientSession();
     try {
-      // Get all features (optionally filtered by repo)
-      const featuresResult = await session.run(
-        `MATCH (f:Feature) WHERE $repo IS NULL OR f.repo = $repo RETURN f ORDER BY f.date DESC`,
+      // Get all concepts (optionally filtered by repo)
+      const conceptsResult = await session.run(
+        `MATCH (f:Concept) WHERE $repo IS NULL OR f.repo = $repo RETURN f ORDER BY f.date DESC`,
         { repo: repo || null }
       );
-      const features = featuresResult.records.map((r) => r.get("f"));
+      const concepts = conceptsResult.records.map((r) => r.get("f"));
 
       // Get all MODIFIES relationships and files
       const modifiesResult = await session.run(
         `
-        MATCH (feature:Feature)-[m:MODIFIES]->(file:File)
-        RETURN feature, m, file
+        MATCH (concept:Concept)-[m:MODIFIES]->(file:File)
+        RETURN concept, m, file
         `
       );
 
@@ -1899,7 +1996,7 @@ export class GraphStorage extends Storage {
       const modifiesEdges: any[] = [];
 
       for (const record of modifiesResult.records) {
-        const featureNode = record.get("feature");
+        const conceptNode = record.get("concept");
         const modifiesRel = record.get("m");
         const fileNode = record.get("file");
 
@@ -1912,11 +2009,11 @@ export class GraphStorage extends Storage {
         }
 
         // Add MODIFIES edge
-        if (featureNode && modifiesRel && fileNode) {
+        if (conceptNode && modifiesRel && fileNode) {
           modifiesEdges.push({
             edge_type: "MODIFIES",
             ref_id: modifiesRel.properties?.ref_id || "",
-            source: featureNode.properties?.ref_id || "",
+            source: conceptNode.properties?.ref_id || "",
             target: fileNode.properties?.ref_id || "",
             properties: {
               importance: modifiesRel.properties?.importance,
@@ -1995,7 +2092,7 @@ export class GraphStorage extends Storage {
       }
 
       return {
-        features,
+        concepts,
         files: Array.from(filesMap.values()),
         containedNodes: Array.from(containedNodesMap.values()),
         modifiesEdges,
@@ -2007,9 +2104,9 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Get provenance data for multiple features by their IDs
+   * Get provenance data for multiple concepts by their IDs
    * Returns concepts with their files and filtered code entities
-   * @param conceptIds - Array of feature IDs (can be repo-prefixed or not)
+   * @param conceptIds - Array of concept IDs (can be repo-prefixed or not)
    * @param repo - Optional repo to filter/prefix IDs
    */
   async getProvenanceForConcepts(
@@ -2045,8 +2142,8 @@ export class GraphStorage extends Storage {
       
       const result = await session.run(
         `
-        // Match features by id
-        MATCH (concept:Feature)
+        // Match concepts by id
+        MATCH (concept:Concept)
         WHERE concept.id IN $conceptIds
 
         // Get files connected via MODIFIES (with importance for sorting)

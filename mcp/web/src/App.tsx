@@ -76,13 +76,13 @@ function App() {
 
     try {
       const res = await apiFetch(
-        `${API_BASE}/gitree/features/${encodeURIComponent(id)}`,
+        `${API_BASE}/gitree/concepts/${encodeURIComponent(id)}`,
       );
       if (res.ok) {
         const data = await res.json();
         const documentation =
-          data?.feature?.documentation ||
-          data?.feature?.description ||
+          data?.concept?.documentation ||
+          data?.concept?.description ||
           _description;
         setActiveItem({ type: "concept", id, name, content: documentation });
       }

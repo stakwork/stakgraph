@@ -1,8 +1,8 @@
 /**
- * GitHub Feature Knowledge Base
+ * GitHub Concept Knowledge Base
  *
  * A tool that processes GitHub PRs chronologically, using an LLM to organize
- * them into conceptual features.
+ * them into conceptual concepts.
  */
 
 export * from "./types.js";

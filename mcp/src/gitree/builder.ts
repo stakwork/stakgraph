@@ -7,7 +7,7 @@ import {
   DECISION_GUIDELINES,
 } from "./llm.js";
 import {
-  Feature,
+  Concept,
   PRRecord,
   CommitRecord,
   LLMDecision,
@@ -18,13 +18,13 @@ import {
 import { fetchPullRequestContent } from "./pr.js";
 import { fetchCommitContent } from "./commit.js";
 import {ClueAnalyzer} from "./clueAnalyzer.js";
-import { exploreNewFeature } from "./bootstrap.js";
+import { exploreNewConcept } from "./bootstrap.js";
 import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 
 /**
- * Main class for building the feature knowledge base from PRs and commits
+ * Main class for building the concept knowledge base from PRs and commits
  */
-export class StreamingFeatureBuilder {
+export class StreamingConceptBuilder {
   private clueAnalyzer?: ClueAnalyzer; // ClueAnalyzer instance (lazily initialized)
   private repo: string = ""; // Repository identifier "owner/repo"
   private sessionId?: string;
@@ -45,15 +45,15 @@ export class StreamingFeatureBuilder {
     owner: string,
     repo: string,
     sessionId?: string,
-  ): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
+  ): Promise<{ usage: Usage; modifiedConceptIds: Set<string> }> {
     // Set repo identifier for use throughout processing
     this.repo = `${owner}/${repo}`;
     this.sessionId = sessionId;
 
     let totalUsage: Usage = normalizeUsage();
 
-    // Track which features were modified during processing
-    const modifiedFeatureIds = new Set<string>();
+    // Track which concepts were modified during processing
+    const modifiedConceptIds = new Set<string>();
 
     // Get chronological checkpoint for THIS repo (or migrate from old checkpoints)
     let checkpoint = await this.storage.getChronologicalCheckpoint(this.repo);
@@ -68,10 +68,10 @@ export class StreamingFeatureBuilder {
 
     if (changes.length === 0) {
       console.log(`   No new changes to process.`);
-      const features = await this.storage.getAllFeatures();
+      const concepts = await this.storage.getAllConcepts();
       console.log(`\n🎉 Repository processing complete!`);
-      console.log(`   Total features: ${features.length}`);
-      return { usage: totalUsage, modifiedFeatureIds };
+      console.log(`   Total concepts: ${concepts.length}`);
+      return { usage: totalUsage, modifiedConceptIds };
     }
 
     console.log(`   Processing ${changes.length} changes chronologically...\n`);
@@ -90,7 +90,7 @@ export class StreamingFeatureBuilder {
             owner,
             repo,
             pr,
-            modifiedFeatureIds,
+            modifiedConceptIds,
           );
           totalUsage = normalizeUsage(addUsage(totalUsage, usage));
           console.log(
@@ -135,7 +135,7 @@ export class StreamingFeatureBuilder {
             owner,
             repo,
             commit,
-            modifiedFeatureIds,
+            modifiedConceptIds,
           );
           totalUsage = normalizeUsage(addUsage(totalUsage, usage));
           console.log(
@@ -169,15 +169,15 @@ export class StreamingFeatureBuilder {
     }
 
     // Show final summary
-    const features = await this.storage.getAllFeatures(this.repo);
+    const concepts = await this.storage.getAllConcepts(this.repo);
     console.log(`\n🎉 Repository processing complete!`);
-    console.log(`   Total features: ${features.length}`);
-    console.log(`   Modified features: ${modifiedFeatureIds.size}`);
+    console.log(`   Total concepts: ${concepts.length}`);
+    console.log(`   Modified concepts: ${modifiedConceptIds.size}`);
     console.log(
       `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`,
     );
 
-    return { usage: totalUsage, modifiedFeatureIds };
+    return { usage: totalUsage, modifiedConceptIds };
   }
 
   /**
@@ -362,7 +362,7 @@ export class StreamingFeatureBuilder {
     owner: string,
     repo: string,
     pr: GitHubPR,
-    modifiedFeatureIds: Set<string>,
+    modifiedConceptIds: Set<string>,
   ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkip(pr)) {
@@ -381,8 +381,8 @@ export class StreamingFeatureBuilder {
       return normalizeUsage();
     }
 
-    // Get current features for context
-    const features = await this.storage.getAllFeatures(this.repo);
+    // Get current concepts for context
+    const concepts = await this.storage.getAllConcepts(this.repo);
 
     // Fetch detailed PR info (additions/deletions/files) - done lazily per PR
     console.log(`   📥 Fetching PR details...`);
@@ -408,7 +408,7 @@ export class StreamingFeatureBuilder {
     );
 
     // Build decision prompt
-    const prompt = await this.buildDecisionPrompt(prContent, features);
+    const prompt = await this.buildDecisionPrompt(prContent, concepts);
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
@@ -425,19 +425,19 @@ export class StreamingFeatureBuilder {
       repo,
       pr,
       decision,
-      modifiedFeatureIds,
+      modifiedConceptIds,
       usage,
     );
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
       try {
-        // Get features linked to this PR (after decision has been applied)
-        const linkedFeatures = await this.storage.getFeaturesForPR(
+        // Get concepts linked to this PR (after decision has been applied)
+        const linkedConcepts = await this.storage.getConceptsForPR(
           pr.number,
           this.repo,
         );
-        const featureIds = linkedFeatures.map((f) => f.id);
+        const conceptIds = linkedConcepts.map((f) => f.id);
 
         // Fetch file list for context
         const { data: files } = await this.octokit.pulls.listFiles({
@@ -460,7 +460,7 @@ export class StreamingFeatureBuilder {
             date: pr.mergedAt,
             id: pr.number.toString(),
           },
-          featureIds,
+          conceptIds,
         );
         return normalizeUsage(addUsage(usage, clueUsage));
       } catch (error) {
@@ -493,13 +493,13 @@ export class StreamingFeatureBuilder {
    */
   private async buildDecisionPrompt(
     prContent: string,
-    features: Feature[],
+    concepts: Concept[],
   ): Promise<string> {
     const themesContext = await this.formatThemeContext();
 
     return `${SYSTEM_PROMPT}
 
-${this.formatFeatureContext(features)}
+${this.formatConceptContext(concepts)}
 
 ${themesContext}
 
@@ -509,14 +509,14 @@ ${DECISION_GUIDELINES}`;
   }
 
   /**
-   * Format feature list for context
+   * Format concept list for context
    */
-  private formatFeatureContext(features: Feature[]): string {
-    if (features.length === 0) {
-      return "## Current Features\n\nNo features yet.";
+  private formatConceptContext(concepts: Concept[]): string {
+    if (concepts.length === 0) {
+      return "## Current Concepts\n\nNo concepts yet.";
     }
 
-    const featureList = features
+    const conceptList = concepts
       .sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime())
       .map((f) => {
         const prCount = f.prNumbers.length;
@@ -529,7 +529,7 @@ ${DECISION_GUIDELINES}`;
       })
       .join("\n");
 
-    return `## Current Features\n\n${featureList}`;
+    return `## Current Concepts\n\n${conceptList}`;
   }
 
   /**
@@ -556,7 +556,7 @@ ${DECISION_GUIDELINES}`;
     repo: string,
     pr: GitHubPR,
     decision: LLMDecision,
-    modifiedFeatureIds: Set<string>,
+    modifiedConceptIds: Set<string>,
     usage?: Usage,
   ): Promise<void> {
     // Fetch file list for this PR
@@ -582,24 +582,24 @@ ${DECISION_GUIDELINES}`;
     await this.storage.savePR(prRecord);
 
     // Apply the decision using shared logic
-    await this.applyDecisionToFeatures(
+    await this.applyDecisionToConcepts(
       decision,
       {
         changeDate: pr.mergedAt,
-        addToFeature: async (feature) => {
-          if (!feature.prNumbers.includes(pr.number)) {
-            feature.prNumbers.push(pr.number);
+        addToConcept: async (concept) => {
+          if (!concept.prNumbers.includes(pr.number)) {
+            concept.prNumbers.push(pr.number);
             return true;
           }
           return false;
         },
-        createFeatureWith: (baseFeature) => ({
-          ...baseFeature,
+        createConceptWith: (baseConcept) => ({
+          ...baseConcept,
           prNumbers: [pr.number],
           commitShas: [],
         }),
       },
-      modifiedFeatureIds,
+      modifiedConceptIds,
     );
   }
 
@@ -616,7 +616,7 @@ ${DECISION_GUIDELINES}`;
       committedAt: Date;
       url: string;
     },
-    modifiedFeatureIds: Set<string>,
+    modifiedConceptIds: Set<string>,
   ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkipCommit(commit)) {
@@ -636,8 +636,8 @@ ${DECISION_GUIDELINES}`;
       return normalizeUsage();
     }
 
-    // Get current features for context
-    const features = await this.storage.getAllFeatures(this.repo);
+    // Get current concepts for context
+    const concepts = await this.storage.getAllConcepts(this.repo);
 
     // Fetch full commit content
     console.log(`   📥 Fetching commit details...`);
@@ -654,7 +654,7 @@ ${DECISION_GUIDELINES}`;
     );
 
     // Build decision prompt
-    const prompt = await this.buildDecisionPrompt(commitContent, features);
+    const prompt = await this.buildDecisionPrompt(commitContent, concepts);
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
@@ -671,19 +671,19 @@ ${DECISION_GUIDELINES}`;
       repo,
       commit,
       decision,
-      modifiedFeatureIds,
+      modifiedConceptIds,
       usage,
     );
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
       try {
-        // Get features linked to this commit (after decision has been applied)
-        const linkedFeatures = await this.storage.getFeaturesForCommit(
+        // Get concepts linked to this commit (after decision has been applied)
+        const linkedConcepts = await this.storage.getConceptsForCommit(
           commit.sha,
           this.repo,
         );
-        const featureIds = linkedFeatures.map((f) => f.id);
+        const conceptIds = linkedConcepts.map((f) => f.id);
 
         // Fetch file list for context
         const { data: commitData } = await this.octokit.repos.getCommit({
@@ -706,7 +706,7 @@ ${DECISION_GUIDELINES}`;
             date: commit.committedAt,
             id: commit.sha,
           },
-          featureIds,
+          conceptIds,
         );
         return normalizeUsage(addUsage(usage, clueUsage));
       } catch (error) {
@@ -748,7 +748,7 @@ ${DECISION_GUIDELINES}`;
       url: string;
     },
     decision: LLMDecision,
-    modifiedFeatureIds: Set<string>,
+    modifiedConceptIds: Set<string>,
     usage?: Usage,
   ): Promise<void> {
     // Fetch file list for this commit
@@ -776,44 +776,44 @@ ${DECISION_GUIDELINES}`;
     await this.storage.saveCommit(commitRecord);
 
     // Apply the decision using shared logic
-    await this.applyDecisionToFeatures(
+    await this.applyDecisionToConcepts(
       decision,
       {
         changeDate: commit.committedAt,
-        addToFeature: async (feature) => {
-          // Initialize commitShas if it doesn't exist (legacy features)
-          if (!feature.commitShas) {
-            feature.commitShas = [];
+        addToConcept: async (concept) => {
+          // Initialize commitShas if it doesn't exist (legacy concepts)
+          if (!concept.commitShas) {
+            concept.commitShas = [];
           }
-          if (!feature.commitShas.includes(commit.sha)) {
-            feature.commitShas.push(commit.sha);
+          if (!concept.commitShas.includes(commit.sha)) {
+            concept.commitShas.push(commit.sha);
             return true;
           }
           return false;
         },
-        createFeatureWith: (baseFeature) => ({
-          ...baseFeature,
+        createConceptWith: (baseConcept) => ({
+          ...baseConcept,
           prNumbers: [],
           commitShas: [commit.sha],
         }),
       },
-      modifiedFeatureIds,
+      modifiedConceptIds,
     );
   }
 
   /**
-   * Shared logic for applying LLM decision to features
+   * Shared logic for applying LLM decision to concepts
    */
-  private async applyDecisionToFeatures(
+  private async applyDecisionToConcepts(
     decision: LLMDecision,
     config: {
       changeDate: Date;
-      addToFeature: (feature: Feature) => Promise<boolean>;
-      createFeatureWith: (
-        base: Omit<Feature, "prNumbers" | "commitShas">,
-      ) => Feature;
+      addToConcept: (concept: Concept) => Promise<boolean>;
+      createConceptWith: (
+        base: Omit<Concept, "prNumbers" | "commitShas">,
+      ) => Concept;
     },
-    modifiedFeatureIds: Set<string>,
+    modifiedConceptIds: Set<string>,
   ): Promise<void> {
     console.log(`   📝 Summary: ${decision.summary}`);
     console.log(`   💭 Reasoning: ${decision.reasoning}`);
@@ -826,24 +826,24 @@ ${DECISION_GUIDELINES}`;
       }
 
       if (action === "add_to_existing") {
-        // Add to existing feature(s)
+        // Add to existing concept(s)
         if (
-          decision.existingFeatureIds &&
-          decision.existingFeatureIds.length > 0
+          decision.existingConceptIds &&
+          decision.existingConceptIds.length > 0
         ) {
-          for (const featureId of decision.existingFeatureIds) {
-            const feature = await this.storage.getFeature(featureId, this.repo);
-            if (feature) {
-              const wasAdded = await config.addToFeature(feature);
+          for (const conceptId of decision.existingConceptIds) {
+            const concept = await this.storage.getConcept(conceptId, this.repo);
+            if (concept) {
+              const wasAdded = await config.addToConcept(concept);
               if (wasAdded) {
-                feature.lastUpdated = config.changeDate;
-                await this.storage.saveFeature(feature);
-                modifiedFeatureIds.add(feature.id);
-                console.log(`   → Added to feature: ${feature.name}`);
+                concept.lastUpdated = config.changeDate;
+                await this.storage.saveConcept(concept);
+                modifiedConceptIds.add(concept.id);
+                console.log(`   → Added to concept: ${concept.name}`);
               }
             } else {
               console.log(
-                `   ⚠️  Warning: Feature ${featureId} not found, skipping`,
+                `   ⚠️  Warning: Concept ${conceptId} not found, skipping`,
               );
             }
           }
@@ -851,26 +851,26 @@ ${DECISION_GUIDELINES}`;
       }
 
       if (action === "create_new") {
-        // Create new feature(s)
-        if (decision.newFeatures && decision.newFeatures.length > 0) {
-          for (const newFeatureData of decision.newFeatures) {
-            const baseFeature = {
-              id: this.generateFeatureId(newFeatureData.name),
+        // Create new concept(s)
+        if (decision.newConcepts && decision.newConcepts.length > 0) {
+          for (const newConceptData of decision.newConcepts) {
+            const baseConcept = {
+              id: this.generateConceptId(newConceptData.name),
               repo: this.repo,
-              name: newFeatureData.name,
-              description: newFeatureData.description,
+              name: newConceptData.name,
+              description: newConceptData.description,
               createdAt: config.changeDate,
               lastUpdated: config.changeDate,
             };
-            const newFeature = config.createFeatureWith(baseFeature);
-            await this.storage.saveFeature(newFeature);
-            modifiedFeatureIds.add(newFeature.id);
-            console.log(`   ✨ Created new feature: ${newFeature.name}`);
+            const newConcept = config.createConceptWith(baseConcept);
+            await this.storage.saveConcept(newConcept);
+            modifiedConceptIds.add(newConcept.id);
+            console.log(`   ✨ Created new concept: ${newConcept.name}`);
 
             // Explore codebase to generate initial docs (only if we have a local clone)
             if (this.repoPath) {
-              await exploreNewFeature(
-                newFeature,
+              await exploreNewConcept(
+                newConcept,
                 this.repoPath,
                 this.storage,
                 this.sessionId,
@@ -881,24 +881,24 @@ ${DECISION_GUIDELINES}`;
       }
     }
 
-    // Update feature descriptions (and attach the PR/commit that caused the update)
-    if (decision.updateFeatures && decision.updateFeatures.length > 0) {
-      for (const update of decision.updateFeatures) {
-        const feature = await this.storage.getFeature(
-          update.featureId,
+    // Update concept descriptions (and attach the PR/commit that caused the update)
+    if (decision.updateConcepts && decision.updateConcepts.length > 0) {
+      for (const update of decision.updateConcepts) {
+        const concept = await this.storage.getConcept(
+          update.conceptId,
           this.repo,
         );
-        if (feature) {
-          feature.description = update.newDescription;
-          feature.lastUpdated = config.changeDate;
-          await config.addToFeature(feature);
-          await this.storage.saveFeature(feature);
-          modifiedFeatureIds.add(feature.id);
-          console.log(`   🔄 Updated feature description: ${feature.name}`);
+        if (concept) {
+          concept.description = update.newDescription;
+          concept.lastUpdated = config.changeDate;
+          await config.addToConcept(concept);
+          await this.storage.saveConcept(concept);
+          modifiedConceptIds.add(concept.id);
+          console.log(`   🔄 Updated concept description: ${concept.name}`);
           console.log(`      ${update.reasoning}`);
         } else {
           console.log(
-            `   ⚠️  Warning: Cannot update feature ${update.featureId} - not found`,
+            `   ⚠️  Warning: Cannot update concept ${update.conceptId} - not found`,
           );
         }
       }
@@ -912,10 +912,10 @@ ${DECISION_GUIDELINES}`;
   }
 
   /**
-   * Generate repo-prefixed slug-style feature ID from name
-   * e.g., "owner/repo/feature-slug"
+   * Generate repo-prefixed slug-style concept ID from name
+   * e.g., "owner/repo/concept-slug"
    */
-  private generateFeatureId(name: string): string {
+  private generateConceptId(name: string): string {
     const slug = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
@@ -1022,7 +1022,7 @@ ${DECISION_GUIDELINES}`;
       fullContent?: string;
     },
     checkpoint: { date: Date; id: string },
-    featureIds?: string[],
+    conceptIds?: string[],
   ): Promise<Usage> {
     let clueUsage: Usage = normalizeUsage();
     console.log(`   💡 Analyzing for clues...`);
@@ -1042,10 +1042,10 @@ ${DECISION_GUIDELINES}`;
       );
     }
 
-    // Analyze change (pass featureIds to scope clues)
+    // Analyze change (pass conceptIds to scope clues)
     const result = await this.clueAnalyzer.analyzeChange(
       changeContext,
-      featureIds,
+      conceptIds,
     );
     clueUsage = normalizeUsage(addUsage(clueUsage, result.usage));
 
@@ -1054,7 +1054,7 @@ ${DECISION_GUIDELINES}`;
     } else {
       console.log(`   ✨ Found ${result.clues.length} clue(s)`);
 
-      // Auto-link clues to relevant features
+      // Auto-link clues to relevant concepts
       const { ClueLinker } = await import("./clueLinker.js");
       const linker = new ClueLinker(
         this.storage,
@@ -1064,7 +1064,7 @@ ${DECISION_GUIDELINES}`;
       const clueIds = result.clues.map((c: any) => c.id);
 
       console.log(
-        `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`,
+        `   🔗 Linking ${clueIds.length} clue(s) to relevant concepts...`,
       );
       const linkUsage = await linker.linkClues(clueIds);
       clueUsage = normalizeUsage(addUsage(clueUsage, linkUsage));

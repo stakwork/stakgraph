@@ -18,7 +18,7 @@ const NODE_TYPES: &[&str] = &[
     "Endpoint",
     "Request",
     "DataModel",
-    "Feature",
+    "Concept",
     "Page",
     "Var",
     "UnitTest",

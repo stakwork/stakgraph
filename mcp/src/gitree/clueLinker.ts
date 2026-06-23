@@ -7,7 +7,7 @@ import { appendMessages } from "../repo/session.js";
 import { appendGitreeLlmExchange, GitreeSessionTracker } from "./llm.js";
 
 /**
- * Links clues to relevant features based on semantic similarity and context
+ * Links clues to relevant concepts based on semantic similarity and context
  */
 export class ClueLinker {
   constructor(
@@ -17,26 +17,26 @@ export class ClueLinker {
   ) {}
 
   /**
-   * Link specific clues to relevant features
+   * Link specific clues to relevant concepts
    * @param clueIds - Array of clue IDs to link
-   * @param repo - Optional repo to filter features
+   * @param repo - Optional repo to filter concepts
    */
   async linkClues(clueIds: string[], repo?: string): Promise<Usage> {
     if (clueIds.length === 0) {
       return normalizeUsage();
     }
 
-    const features = await this.storage.getAllFeatures(repo);
+    const concepts = await this.storage.getAllConcepts(repo);
     const allClues = await this.storage.getAllClues(repo);
     const cluesToLink = allClues.filter((c) => clueIds.includes(c.id));
 
     console.log(
-      `\n🔗 Linking ${cluesToLink.length} new clue(s) to ${features.length} features...\n`,
+      `\n🔗 Linking ${cluesToLink.length} new clue(s) to ${concepts.length} concepts...\n`,
     );
 
     const result = await this.linkClueBatch(
       cluesToLink,
-      features,
+      concepts,
       false,
       this.sessionId,
     );
@@ -50,16 +50,16 @@ export class ClueLinker {
   }
 
   /**
-   * Link all clues to relevant features
+   * Link all clues to relevant concepts
    * @param force - Force re-linking even if already linked
    * @param repo - Optional repo to filter
    */
   async linkAllClues(force: boolean = false, repo?: string): Promise<Usage> {
-    const features = await this.storage.getAllFeatures(repo);
+    const concepts = await this.storage.getAllConcepts(repo);
     const allClues = await this.storage.getAllClues(repo);
 
     console.log(
-      `\n🔗 Linking ${allClues.length} clues to ${features.length} features...\n`,
+      `\n🔗 Linking ${allClues.length} clues to ${concepts.length} concepts...\n`,
     );
 
     let totalUsage: Usage = normalizeUsage();
@@ -75,7 +75,7 @@ export class ClueLinker {
       try {
         const result = await this.linkClueBatch(
           batch,
-          features,
+          concepts,
           force,
           this.sessionId,
         );
@@ -98,18 +98,18 @@ export class ClueLinker {
   }
 
   /**
-   * Link a batch of clues to relevant features
+   * Link a batch of clues to relevant concepts
    */
   private async linkClueBatch(
     clues: Clue[],
-    features: any[],
+    concepts: any[],
     force: boolean,
     sessionId?: string,
   ): Promise<{ usage: Usage }> {
     // Skip clues that already have multiple links (unless force)
     const cluesToLink = force
       ? clues
-      : clues.filter((c) => c.relatedFeatures.length <= 1);
+      : clues.filter((c) => c.relatedConcepts.length <= 1);
 
     if (cluesToLink.length === 0) {
       console.log(`   ⏭️  All clues already linked, skipping...`);
@@ -118,8 +118,8 @@ export class ClueLinker {
       };
     }
 
-    const prompt = this.buildLinkingPrompt(cluesToLink, features);
-    const schema = this.buildLinkingSchema(cluesToLink, features);
+    const prompt = this.buildLinkingPrompt(cluesToLink, concepts);
+    const schema = this.buildLinkingSchema(cluesToLink, concepts);
 
     console.log(`   🤖 Analyzing ${cluesToLink.length} clues for relevance...`);
 
@@ -162,19 +162,19 @@ export class ClueLinker {
       const clue = clues.find((c) => c.id === link.clueId);
       if (!clue) continue;
 
-      // Merge with existing relatedFeatures (keep discovering feature)
-      const newFeatures = new Set([
-        clue.featureId, // Always keep discovering feature
-        ...link.featureIds,
+      // Merge with existing relatedConcepts (keep discovering concept)
+      const newConcepts = new Set([
+        clue.conceptId, // Always keep discovering concept
+        ...link.conceptIds,
       ]);
 
-      clue.relatedFeatures = Array.from(newFeatures);
+      clue.relatedConcepts = Array.from(newConcepts);
       clue.updatedAt = new Date();
 
       await this.storage.saveClue(clue);
 
       console.log(
-        `   🔗 Linked "${clue.title}" to ${clue.relatedFeatures.length} feature(s)`,
+        `   🔗 Linked "${clue.title}" to ${clue.relatedConcepts.length} concept(s)`,
       );
     }
 
@@ -186,12 +186,12 @@ export class ClueLinker {
   /**
    * Build the linking prompt
    */
-  private buildLinkingPrompt(clues: Clue[], features: any[]): string {
+  private buildLinkingPrompt(clues: Clue[], concepts: any[]): string {
     const cluesList = clues
       .map(
         (c) =>
           `  - ${c.id}: "${c.title}" [${c.type}]\n` +
-          `    Discovered in: ${c.featureId}\n` +
+          `    Discovered in: ${c.conceptId}\n` +
           `    Content: ${c.content.substring(0, 150)}...\n` +
           `    Keywords: ${c.keywords.slice(0, 5).join(", ")}\n` +
           `    Entities: ${Object.entries(c.entities)
@@ -205,7 +205,7 @@ export class ClueLinker {
       )
       .join("\n\n");
 
-    const featuresList = features
+    const conceptsList = concepts
       .map(
         (f) =>
           `  - ${f.id}: "${f.name}"\n` +
@@ -216,27 +216,27 @@ export class ClueLinker {
       )
       .join("\n");
 
-    return `Analyze which features each clue is relevant to, based on semantic similarity and usage context.
+    return `Analyze which concepts each clue is relevant to, based on semantic similarity and usage context.
 
 **Clues** (${clues.length}):
 ${cluesList}
 
-**Features** (${features.length}):
-${featuresList}
+**Concepts** (${concepts.length}):
+${conceptsList}
 
 **Your Task**:
-For each clue, determine which features it's relevant to. A clue is relevant if:
-1. The pattern/utility/abstraction is used by that feature
-2. The clue's entities (functions, classes, types) appear in the feature's files
-3. The clue's keywords match the feature's domain
-4. The architectural concept applies to the feature
+For each clue, determine which concepts it's relevant to. A clue is relevant if:
+1. The pattern/utility/abstraction is used by that concept
+2. The clue's entities (functions, classes, types) appear in the concept's files
+3. The clue's keywords match the concept's domain
+4. The architectural concept applies to the concept
 
 **Guidelines**:
-- Cross-cutting concerns (auth, logging, error handling) are relevant to many features
-- Feature-specific implementations are relevant to 1-2 features
-- General utilities/patterns may be relevant to 3-5 features
-- Don't over-link - only include truly relevant features
-- Always include the discovering feature (featureId) in the list
+- Cross-cutting concerns (auth, logging, error handling) are relevant to many concepts
+- Concept-specific implementations are relevant to 1-2 concepts
+- General utilities/patterns may be relevant to 3-5 concepts
+- Don't over-link - only include truly relevant concepts
+- Always include the discovering concept (conceptId) in the list
 
 Return your analysis.`;
   }
@@ -244,9 +244,9 @@ Return your analysis.`;
   /**
    * Build the linking schema
    */
-  private buildLinkingSchema(clues: Clue[], features: any[]): any {
+  private buildLinkingSchema(clues: Clue[], concepts: any[]): any {
     const clueIds = clues.map((c) => c.id);
-    const featureIds = features.map((f) => f.id);
+    const conceptIds = concepts.map((f) => f.id);
 
     return {
       type: "object" as const,
@@ -260,18 +260,18 @@ Return your analysis.`;
                 type: "string" as const,
                 enum: clueIds,
               },
-              featureIds: {
+              conceptIds: {
                 type: "array" as const,
                 items: {
                   type: "string" as const,
-                  enum: featureIds,
+                  enum: conceptIds,
                 },
               },
               reasoning: {
                 type: "string" as const,
               },
             },
-            required: ["clueId", "featureIds", "reasoning"],
+            required: ["clueId", "conceptIds", "reasoning"],
             additionalProperties: false,
           },
         },
@@ -285,25 +285,25 @@ Return your analysis.`;
    * Build the system prompt
    */
   private buildSystemPrompt(): string {
-    return `You are a codebase architecture analyzer that links architectural patterns and utilities to the features they're relevant to.
+    return `You are a codebase architecture analyzer that links architectural patterns and utilities to the concepts they're relevant to.
 
-Your goal is to create RELEVANT_TO relationships between Clues and Features based on:
-1. Entity usage - which features use the clue's functions/classes/types
+Your goal is to create RELEVANT_TO relationships between Clues and Concepts based on:
+1. Entity usage - which concepts use the clue's functions/classes/types
 2. Semantic similarity - keywords and concepts match
-3. Architectural applicability - the pattern applies to the feature's domain
-4. File overlap - clue files intersect with feature files
+3. Architectural applicability - the pattern applies to the concept's domain
+4. File overlap - clue files intersect with concept files
 
 **Linking Principles:**
-- Cross-cutting concerns (authentication, logging, error handling, testing) → many features
-- Domain-specific utilities (payment processing, email templates) → 1-3 related features
-- Generic patterns (state management, data flow) → 3-5 features where pattern is used
-- Feature-specific implementations → 1-2 features only
+- Cross-cutting concerns (authentication, logging, error handling, testing) → many concepts
+- Domain-specific utilities (payment processing, email templates) → 1-3 related concepts
+- Generic patterns (state management, data flow) → 3-5 concepts where pattern is used
+- Concept-specific implementations → 1-2 concepts only
 
 **Quality over quantity:**
-- Only link clues that are genuinely useful for understanding/working with that feature
+- Only link clues that are genuinely useful for understanding/working with that concept
 - Don't over-link - specificity is valuable
-- Always include the discovering feature in the links
+- Always include the discovering concept in the links
 
-Analyze the clues and features, then return the relevance links.`;
+Analyze the clues and concepts, then return the relevance links.`;
   }
 }

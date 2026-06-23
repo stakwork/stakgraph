@@ -3,7 +3,7 @@ export interface Doc {
   documentation: string;
 }
 
-export interface FeatureSummary {
+export interface ConceptSummary {
   id: string;
   repo?: string;
   ref_id?: string;
@@ -15,8 +15,8 @@ export interface FeatureSummary {
   hasDocumentation: boolean;
 }
 
-export interface FeaturesResponse {
-  features: FeatureSummary[];
+export interface ConceptsResponse {
+  concepts: ConceptSummary[];
   total: number;
   repo: string;
   lastProcessedTimestamp: string | null;

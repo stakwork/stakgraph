@@ -11,7 +11,7 @@ import {
 } from "../repo/session.js";
 
 /**
- * Shared documentation guidelines used by bootstrap, summarizer, and exploreNewFeature
+ * Shared documentation guidelines used by bootstrap, summarizer, and exploreNewConcept
  */
 export const DOC_GUIDELINES = {
   include: `**What to include**:
@@ -89,8 +89,8 @@ export function appendGitreeLlmExchange(
  */
 const LLMDecisionSchema = z.object({
   actions: z.array(z.enum(["add_to_existing", "create_new", "ignore"])),
-  existingFeatureIds: z.array(z.string()).optional(),
-  newFeatures: z
+  existingConceptIds: z.array(z.string()).optional(),
+  newConcepts: z
     .array(
       z.object({
         name: z.string(),
@@ -98,10 +98,10 @@ const LLMDecisionSchema = z.object({
       })
     )
     .optional(),
-  updateFeatures: z
+  updateConcepts: z
     .array(
       z.object({
-        featureId: z.string(),
+        conceptId: z.string(),
         newDescription: z.string(),
         reasoning: z.string(),
       })
@@ -192,11 +192,11 @@ export class LLMClient {
  */
 export const SYSTEM_PROMPT = `You are a software historian analyzing a codebase chronologically.
 
-Your job: Read each PR and decide which **user-facing capability or business feature** it belongs to.
+Your job: Read each PR and decide which **user-facing capability or business concept** it belongs to.
 
 **Critical: Focus on WHAT users can DO, not HOW it's built**
 
-Features should represent substantial capabilities (but avoid implementation details in naming):
+Concepts should represent substantial capabilities (but avoid implementation details in naming):
 
 ✅ **Major user-facing capabilities** - What can users accomplish?
    - Good: "Real-time Chat", "Task Management", "File Upload", "Search"
@@ -214,66 +214,66 @@ Features should represent substantial capabilities (but avoid implementation det
    - Good: "Unit Tests", "Integration Tests", "E2E Tests"
    - Bad: "Workspace Service Tests", "API Tests" (too specific - use themes)
 
-**Features should NEVER:**
+**Concepts should NEVER:**
 ❌ Mention implementation technologies in the name ("Pusher", "Redis", "WebSocket")
 ❌ Be too narrow/specific ("Navigation UI", "Button Component", "Error Handler")
 ❌ Use "-infrastructure" or "-service" in the name unless it's a major external integration
 
-**When to use THEMES instead of FEATURES:**
+**When to use THEMES instead of CONCEPTS:**
 - Implementation details → THEME (e.g., "pusher", "websockets", "redis")
 - UI components without clear capability → THEME (e.g., "navigation-ui", "sidebar")
 - Specific test files → THEME (e.g., "workspace-tests", "api-tests")
 - Internal infrastructure → THEME (e.g., "error-handling", "logging", "database-migrations")
 
-**When to CREATE a FEATURE:**
+**When to CREATE a CONCEPT:**
 - Substantial user-facing work (3+ PRs or major PR completing a capability)
 - Major external integration (Stripe, GitHub, AWS, etc.)
 - Clear business functionality completed
 - System-wide test setup (not just one test file)
 
-**Balance: Create features liberally for substantial work, but use descriptive names focused on capabilities, not implementation.**
+**Balance: Create concepts liberally for substantial work, but use descriptive names focused on capabilities, not implementation.**
 
 **Key points:**
-- Create features liberally for substantial work - we want a comprehensive feature map
-- A PR can belong to MULTIPLE features (e.g., a Google OAuth PR touches both "Authentication" and "GitHub Integration")
-- A PR can have BOTH themes AND features (tag technical details as themes, assign to user-facing features)
-- When naming features: Focus on WHAT it does, not HOW (avoid technology names)
+- Create concepts liberally for substantial work - we want a comprehensive concept map
+- A PR can belong to MULTIPLE concepts (e.g., a Google OAuth PR touches both "Authentication" and "GitHub Integration")
+- A PR can have BOTH themes AND concepts (tag technical details as themes, assign to user-facing concepts)
+- When naming concepts: Focus on WHAT it does, not HOW (avoid technology names)
 - If a PR is purely technical infrastructure with no user/business value, tag it with themes OR ignore it
 
-**Updating Feature Descriptions:**
-- Features evolve over time - descriptions should reflect current state, not historical implementation
-- If a PR fundamentally changes HOW a feature works (Bitcoin auth → GitHub OAuth, REST → GraphQL, etc.), update the feature description
-- Keep descriptions focused on WHAT the feature does for users, not implementation details
+**Updating Concept Descriptions:**
+- Concepts evolve over time - descriptions should reflect current state, not historical implementation
+- If a PR fundamentally changes HOW a concept works (Bitcoin auth → GitHub OAuth, REST → GraphQL, etc.), update the concept description
+- Keep descriptions focused on WHAT the concept does for users, not implementation details
 - Examples of when to update:
   * Authentication changes from one provider to another
-  * Major refactor that changes the nature of the feature
-  * Feature gains significant new capabilities that weren't in original description
+  * Major refactor that changes the nature of the concept
+  * Concept gains significant new capabilities that weren't in original description
   * DO NOT INCLUDE INCLUDE VERY SPECIFIC IMPLEMENTATION DETAILS IN THE DESCRIPTION
 
 **Your actions (can combine multiple):**
-1. Add to one or more existing features
-2. Create new features for:
+1. Add to one or more existing concepts
+2. Create new concepts for:
    - Major user-facing capabilities (Real-time Chat, Task Management, File Upload)
    - Major external integrations (Stripe, GitHub OAuth, AWS S3, Slack)
    - High-level test infrastructure (Unit Tests, Integration Tests, E2E Tests)
-3. Update feature descriptions (when implementations fundamentally change)
+3. Update concept descriptions (when implementations fundamentally change)
 4. Ignore (ONLY for pure refactoring/infrastructure with zero functional impact)
 
-Think: "What capability does this add? Is it a major integration? If yes to either, create a feature with a good name (no tech details in the name)."
+Think: "What capability does this add? Is it a major integration? If yes to either, create a concept with a good name (no tech details in the name)."
 
 **Using Theme Tags:**
 - You'll see a list of recent technical themes (last 100 low-level tags)
 - These are lightweight hints showing recent technical work
 - Examples: "jwt", "oauth", "redis", "websockets", "navigation-ui", "workspace-tests"
-- Use themes to TAG implementation details while creating features for capabilities
+- Use themes to TAG implementation details while creating concepts for capabilities
 - You can add 1-3 theme tags to each PR (optional) - can be NEW or EXISTING themes. 
 - Most PRs should only have one theme, only big PRs should have multiple themes.
 - Keep theme tags short and technical
 
-**When to use both themes AND features:**
-- Create feature for the capability ("Real-time Messaging")
+**When to use both themes AND concepts:**
+- Create concept for the capability ("Real-time Messaging")
 - Add themes for implementation ("pusher", "websockets")
-- This gives both high-level (features) and low-level (themes) tracking`;
+- This gives both high-level (concepts) and low-level (themes) tracking`;
 
 /**
  * Decision guidelines for the LLM
@@ -282,9 +282,9 @@ export const DECISION_GUIDELINES = `## Decision Guidelines
 
 You need to decide:
 1. **actions**: Array of actions - can include multiple: "add_to_existing", "create_new", "ignore"
-2. **existingFeatureIds**: (if adding to existing) Array of feature IDs to add this PR to
-3. **newFeatures**: (if creating new) Array of {name, description} for new features to create
-4. **updateFeatures**: (if updating) Array of {featureId, newDescription, reasoning} for features whose descriptions need updating
+2. **existingConceptIds**: (if adding to existing) Array of concept IDs to add this PR to
+3. **newConcepts**: (if creating new) Array of {name, description} for new concepts to create
+4. **updateConcepts**: (if updating) Array of {conceptId, newDescription, reasoning} for concepts whose descriptions need updating
 5. **summary**: Brief description of what this PR does
    - For simple PRs: One clear sentence
    - For large/complex PRs (many files, multiple concerns): Start with a sentence, then add 2-4 bullet points of key changes
@@ -299,29 +299,29 @@ You need to decide:
 
 Examples:
 
-**Adding to existing feature - simple PR (good):**
+**Adding to existing concept - simple PR (good):**
 - actions: ["add_to_existing"]
-- existingFeatureIds: ["payment-processing"]
+- existingConceptIds: ["payment-processing"]
 - summary: "Adds Stripe webhook handlers for payment events"
 - reasoning: "Extends the payment processing capability with webhook support"
 - newDeclarations: [{file: "src/api/webhooks.ts", declarations: ["POST /webhooks/stripe", "handleStripeWebhook"]}]
 
-**Adding to existing feature - complex PR (good):**
+**Adding to existing concept - complex PR (good):**
 - actions: ["add_to_existing"]
-- existingFeatureIds: ["authentication", "google-integration"]
+- existingConceptIds: ["authentication", "google-integration"]
 - summary: "Implements Google OAuth login with full integration:\n- Adds OAuth flow with GitHub provider\n- Implements token refresh logic\n- Updates user model to store OAuth tokens\n- Adds OAuth callback routes"
 - reasoning: "Touches both authentication capability and Google integration, significant changes across multiple areas"
 
-**Create feature for major capability (good):**
+**Create concept for major capability (good):**
 - actions: ["create_new"]
-- newFeatures: [{name: "Task Management", description: "Users can create, assign, track, and complete tasks with deadlines and dependencies"}]
+- newConcepts: [{name: "Task Management", description: "Users can create, assign, track, and complete tasks with deadlines and dependencies"}]
 - themes: ["tasks", "assignments"]
 - summary: "Complete task management system"
 - reasoning: "Substantial user-facing capability - task management"
 
-**Create feature for major integration (good):**
+**Create concept for major integration (good):**
 - actions: ["create_new"]
-- newFeatures: [{name: "Stripe Integration", description: "Integrate Stripe for payment processing, subscriptions, and billing"}]
+- newConcepts: [{name: "Stripe Integration", description: "Integrate Stripe for payment processing, subscriptions, and billing"}]
 - themes: ["stripe", "payments", "webhooks"]
 - summary: "Adds Stripe payment integration"
 - reasoning: "Major external integration - Stripe"
@@ -330,7 +330,7 @@ Examples:
 - actions: ["ignore"]
 - themes: ["pusher", "websockets"]
 - summary: "Adds Pusher WebSocket connection handling"
-- reasoning: "Infrastructure work - will assign to feature when messaging capability is built"
+- reasoning: "Infrastructure work - will assign to concept when messaging capability is built"
 
 **Ignore - technical infrastructure (good):**
 - actions: ["ignore"]
@@ -340,28 +340,28 @@ Examples:
 **Ignore - UI components without capability (good):**
 - actions: ["ignore"]
 - summary: "Adds reusable modal component"
-- reasoning: "Generic UI component with no specific feature - will be used across features but isn't itself a feature"
+- reasoning: "Generic UI component with no specific concept - will be used across concepts but isn't itself a concept"
 
-**Update feature description (good):**
+**Update concept description (good):**
 - actions: ["add_to_existing"]
-- existingFeatureIds: ["authentication"]
-- updateFeatures: [{featureId: "authentication", newDescription: "GitHub OAuth-based authentication system with JWT tokens and session management", reasoning: "This PR removes Bitcoin-based auth and replaces it entirely with GitHub OAuth - the feature description needs to reflect current implementation"}]
+- existingConceptIds: ["authentication"]
+- updateConcepts: [{conceptId: "authentication", newDescription: "GitHub OAuth-based authentication system with JWT tokens and session management", reasoning: "This PR removes Bitcoin-based auth and replaces it entirely with GitHub OAuth - the concept description needs to reflect current implementation"}]
 - summary: "Replaces Bitcoin authentication with GitHub OAuth"
 - reasoning: "Fundamental change to how authentication works"
 
-**BAD - Don't create features for UI components:**
+**BAD - Don't create concepts for UI components:**
 ❌ actions: ["create_new"]
-❌ newFeatures: [{name: "Sidebar Navigation", description: "..."}]
-Instead: Add to an existing feature that uses it, or ignore if it's generic
+❌ newConcepts: [{name: "Sidebar Navigation", description: "..."}]
+Instead: Add to an existing concept that uses it, or ignore if it's generic
 
-**BAD - Don't create features for infrastructure:**
+**BAD - Don't create concepts for infrastructure:**
 ❌ actions: ["create_new"]
-❌ newFeatures: [{name: "Error Handling System", description: "..."}]
-Instead: Ignore or add to relevant business feature if it improves error handling there
+❌ newConcepts: [{name: "Error Handling System", description: "..."}]
+Instead: Ignore or add to relevant business concept if it improves error handling there
 
-**BAD - Don't create features for code organization:**
+**BAD - Don't create concepts for code organization:**
 ❌ actions: ["create_new"]
-❌ newFeatures: [{name: "TypeScript Migration", description: "..."}]
+❌ newConcepts: [{name: "TypeScript Migration", description: "..."}]
 Instead: Ignore - this is pure technical work
 
 **Theme Tags (IMPORTANT - use these frequently!):**
@@ -370,7 +370,7 @@ Instead: Ignore - this is pure technical work
 - Can be NEW tags or EXISTING tags from recent themes
 - Examples: "jwt", "pusher", "redis", "navigation-ui", "workspace-tests"
 - Keep them short and technical
-- Check recent themes - if you see related themes accumulating, consider creating a feature
+- Check recent themes - if you see related themes accumulating, consider creating a concept
 
 **Example: Low-level work → Theme only**
 {
@@ -380,10 +380,10 @@ Instead: Ignore - this is pure technical work
   "reasoning": "Infrastructure work - tracking with themes"
 }
 
-**Example: Theme + Feature**
+**Example: Theme + Concept**
 {
   "actions": ["add_to_existing"],
-  "existingFeatureIds": ["real-time-chat"],
+  "existingConceptIds": ["real-time-chat"],
   "themes": ["pusher", "message-delivery"],
   "summary": "Improves real-time message delivery using Pusher",
   "reasoning": "Extends real-time chat capability; tracking implementation with themes"
@@ -392,7 +392,7 @@ Instead: Ignore - this is pure technical work
 **Example: Recognizing pattern from accumulated themes**
 {
   "actions": ["create_new"],
-  "newFeatures": [{
+  "newConcepts": [{
     "name": "Real-time Messaging",
     "description": "Users can send and receive messages in real-time across devices"
   }],
@@ -401,31 +401,31 @@ Instead: Ignore - this is pure technical work
   "reasoning": "Recent themes show: pusher, websockets, message-delivery, presence - clear user capability now exists"
 }
 
-**BAD - Feature name has implementation details:**
+**BAD - Concept name has implementation details:**
 ❌ {
   "actions": ["create_new"],
-  "newFeatures": [{name: "Pusher WebSocket Infrastructure", description: "Pusher-based real-time infrastructure..."}]
+  "newConcepts": [{name: "Pusher WebSocket Infrastructure", description: "Pusher-based real-time infrastructure..."}]
 }
 ✅ Instead: {
   "actions": ["create_new"],
-  "newFeatures": [{name: "Real-time Messaging", description: "Users can send and receive messages instantly"}],
+  "newConcepts": [{name: "Real-time Messaging", description: "Users can send and receive messages instantly"}],
   "themes": ["pusher", "websockets"]
 }
 
-**BAD - Feature too narrow/specific:**
+**BAD - Concept too narrow/specific:**
 ❌ {
   "actions": ["create_new"],
-  "newFeatures": [{name: "Navigation UI", description: "Collapsible sidebar navigation..."}]
+  "newConcepts": [{name: "Navigation UI", description: "Collapsible sidebar navigation..."}]
 }
-✅ Instead: Add to broader feature or use themes: themes ["navigation-ui", "sidebar"]
+✅ Instead: Add to broader concept or use themes: themes ["navigation-ui", "sidebar"]
 
-**BAD - Test feature too specific:**
+**BAD - Test concept too specific:**
 ❌ {
   "actions": ["create_new"],
-  "newFeatures": [{name: "Workspace Service Tests", description: "Tests for workspace service..."}]
+  "newConcepts": [{name: "Workspace Service Tests", description: "Tests for workspace service..."}]
 }
 ✅ Instead: {
   "actions": ["add_to_existing"],
-  "existingFeatureIds": ["unit-tests"],
+  "existingConceptIds": ["unit-tests"],
   "themes": ["workspace-tests"]
 }`;

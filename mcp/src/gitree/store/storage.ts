@@ -1,7 +1,7 @@
-import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
+import { Concept, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
 
 /**
- * Abstract storage interface for features, PRs, and commits
+ * Abstract storage interface for concepts, PRs, and commits
  * 
  * Multi-repo support:
  * - All query methods accept an optional `repo` parameter to filter by repository
@@ -12,11 +12,11 @@ export abstract class Storage {
   // Initialization
   abstract initialize(): Promise<void>;
 
-  // Features
-  abstract saveFeature(feature: Feature): Promise<void>;
-  abstract getFeature(id: string, repo?: string): Promise<Feature | null>;
-  abstract getAllFeatures(repo?: string): Promise<Feature[]>;
-  abstract deleteFeature(id: string, repo?: string): Promise<void>;
+  // Concepts
+  abstract saveConcept(concept: Concept): Promise<void>;
+  abstract getConcept(id: string, repo?: string): Promise<Concept | null>;
+  abstract getAllConcepts(repo?: string): Promise<Concept[]>;
+  abstract deleteConcept(id: string, repo?: string): Promise<void>;
 
   // PRs
   abstract savePR(pr: PRRecord): Promise<void>;
@@ -36,7 +36,7 @@ export abstract class Storage {
   abstract searchClues(
     query: string,
     embeddings: number[],
-    featureId?: string,
+    conceptId?: string,
     limit?: number,
     similarityThreshold?: number,
     repo?: string
@@ -71,59 +71,59 @@ export abstract class Storage {
   }>;
 
   // Documentation
-  abstract saveDocumentation(featureId: string, documentation: string): Promise<void>;
+  abstract saveDocumentation(conceptId: string, documentation: string): Promise<void>;
 
-  // Feature-File Linking
-  abstract linkFeaturesToFiles(featureId?: string, repo?: string): Promise<LinkResult>;
+  // Concept-File Linking
+  abstract linkConceptsToFiles(conceptId?: string, repo?: string): Promise<LinkResult>;
 
-  // Link a feature to files by explicit file paths (used by bootstrap)
-  abstract linkFeatureToFilesByPaths(featureId: string, filePaths: string[]): Promise<number>;
+  // Link a concept to files by explicit file paths (used by bootstrap)
+  abstract linkConceptToFilesByPaths(conceptId: string, filePaths: string[]): Promise<number>;
 
-  // Get Files for Feature
-  abstract getFilesForFeature(featureId: string, expand?: string[]): Promise<any[]>;
+  // Get Files for Concept
+  abstract getFilesForConcept(conceptId: string, expand?: string[]): Promise<any[]>;
 
   // Query helpers (derived from the graph)
-  async getPRsForFeature(featureId: string, repo?: string): Promise<PRRecord[]> {
-    const feature = await this.getFeature(featureId, repo);
-    if (!feature) return [];
+  async getPRsForConcept(conceptId: string, repo?: string): Promise<PRRecord[]> {
+    const concept = await this.getConcept(conceptId, repo);
+    if (!concept) return [];
 
     const prs: PRRecord[] = [];
-    for (const prNumber of feature.prNumbers) {
-      const pr = await this.getPR(prNumber, feature.repo);
+    for (const prNumber of concept.prNumbers) {
+      const pr = await this.getPR(prNumber, concept.repo);
       if (pr) prs.push(pr);
     }
     return prs;
   }
 
-  async getFeaturesForPR(prNumber: number, repo?: string): Promise<Feature[]> {
-    const allFeatures = await this.getAllFeatures(repo);
-    return allFeatures.filter((f) => f.prNumbers.includes(prNumber));
+  async getConceptsForPR(prNumber: number, repo?: string): Promise<Concept[]> {
+    const allConcepts = await this.getAllConcepts(repo);
+    return allConcepts.filter((f) => f.prNumbers.includes(prNumber));
   }
 
-  async getCommitsForFeature(featureId: string, repo?: string): Promise<CommitRecord[]> {
-    const feature = await this.getFeature(featureId, repo);
-    if (!feature) return [];
+  async getCommitsForConcept(conceptId: string, repo?: string): Promise<CommitRecord[]> {
+    const concept = await this.getConcept(conceptId, repo);
+    if (!concept) return [];
 
     const commits: CommitRecord[] = [];
-    // Handle legacy features without commitShas
-    const commitShas = feature.commitShas || [];
+    // Handle legacy concepts without commitShas
+    const commitShas = concept.commitShas || [];
     for (const sha of commitShas) {
-      const commit = await this.getCommit(sha, feature.repo);
+      const commit = await this.getCommit(sha, concept.repo);
       if (commit) commits.push(commit);
     }
     return commits;
   }
 
-  async getFeaturesForCommit(sha: string, repo?: string): Promise<Feature[]> {
-    const allFeatures = await this.getAllFeatures(repo);
-    // Handle legacy features without commitShas
-    return allFeatures.filter((f) => (f.commitShas || []).includes(sha));
+  async getConceptsForCommit(sha: string, repo?: string): Promise<Concept[]> {
+    const allConcepts = await this.getAllConcepts(repo);
+    // Handle legacy concepts without commitShas
+    return allConcepts.filter((f) => (f.commitShas || []).includes(sha));
   }
 
-  async getCluesForFeature(featureId: string, limit?: number, repo?: string): Promise<Clue[]> {
+  async getCluesForConcept(conceptId: string, limit?: number, repo?: string): Promise<Clue[]> {
     const allClues = await this.getAllClues(repo);
-    // Get clues that are RELEVANT to this feature (not just discovered in it)
-    const filtered = allClues.filter((c) => c.relatedFeatures.includes(featureId));
+    // Get clues that are RELEVANT to this concept (not just discovered in it)
+    const filtered = allClues.filter((c) => c.relatedConcepts.includes(conceptId));
     // Apply limit if specified (most recent first, already ordered by createdAt DESC)
     return limit ? filtered.slice(0, limit) : filtered;
   }
