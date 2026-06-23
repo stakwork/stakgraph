@@ -16,7 +16,7 @@ import { useIngestion } from "@/stores/useIngestion";
 import { useSettings } from "@/stores/useSettings";
 import { ImportanceLens } from "@/components/ImportanceLens";
 import { apiFetch } from "@/lib/api";
-import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
+import type { Doc, ConceptsResponse, ConceptSummary } from "@/types";
 
 // GET /docs returns: [ { "repo-name": { documentation: "..." } }, ... ]
 type DocsResponse = Array<Record<string, { documentation: string }>>;
@@ -33,7 +33,7 @@ function parseDocs(raw: DocsResponse | null): Doc[] {
   });
 }
 
-function getRepoFromFeatureId(id: string): string {
+function getRepoFromConceptId(id: string): string {
   const parts = id.split("/");
   return parts.slice(0, 2).join("/");
 }
@@ -49,7 +49,7 @@ export function Sidebar({
   onDocClick,
   onConceptClick,
 }: SidebarProps) {
-  const setHighlightedFeature = useGraphData((s) => s.setHighlightedFeature);
+  const setHighlightedConcept = useGraphData((s) => s.setHighlightedConcept);
   const ingestedRepoUrl = useIngestion((s) => s.repoUrl);
   const githubToken = useSettings((s) => s.githubToken);
   const { model: settingsModel, apiKey: settingsApiKey } = useSettings();
@@ -62,15 +62,15 @@ export function Sidebar({
         clearTimer.current = null;
       }
       if (refId) {
-        setHighlightedFeature(refId);
+        setHighlightedConcept(refId);
       } else {
         // Debounce the clear so moving between items doesn't flicker
         clearTimer.current = setTimeout(() => {
-          setHighlightedFeature(null);
+          setHighlightedConcept(null);
         }, 100);
       }
     },
-    [setHighlightedFeature]
+    [setHighlightedConcept]
   );
 
   const {
@@ -79,10 +79,10 @@ export function Sidebar({
     refetch: refetchDocs,
   } = useApi<DocsResponse>("/docs");
   const {
-    data: featuresData,
+    data: conceptsData,
     loading: isConceptsLoading,
     refetch: refetchConcepts,
-  } = useApi<FeaturesResponse>("/gitree/features");
+  } = useApi<ConceptsResponse>("/gitree/concepts");
   const { data: reposData } = useApi<{ name: string; url: string }[]>("/repos");
 
   const API_BASE = import.meta.env.VITE_API_BASE || "";
@@ -170,7 +170,7 @@ export function Sidebar({
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCount = useRef(0);
 
-  const serverProcessing = featuresData?.processing ?? false;
+  const serverProcessing = conceptsData?.processing ?? false;
   const isGeneratingConcepts = conceptsTriggered || serverProcessing;
 
   // Start polling as soon as triggered or server says processing
@@ -281,7 +281,7 @@ export function Sidebar({
   );
 
   const docs = useMemo(() => parseDocs(rawDocs), [rawDocs]);
-  const features = featuresData?.features ?? [];
+  const concepts = conceptsData?.concepts ?? [];
 
   const [isDocsExpanded, setIsDocsExpanded] = useState(true);
   const [isConceptsExpanded, setIsConceptsExpanded] = useState(true);
@@ -292,8 +292,8 @@ export function Sidebar({
 
   // Seed new repo groups (default to expanded), preserve existing toggle state
   useEffect(() => {
-    const newKeys = features.reduce<Record<string, boolean>>((acc, f) => {
-      const repo = f.repo || getRepoFromFeatureId(f.id);
+    const newKeys = concepts.reduce<Record<string, boolean>>((acc, f) => {
+      const repo = f.repo || getRepoFromConceptId(f.id);
       if (!(repo in expandedRepoGroups) && !(repo in acc)) {
         acc[repo] = true;
       }
@@ -303,7 +303,7 @@ export function Sidebar({
       setExpandedRepoGroups((prev) => ({ ...newKeys, ...prev }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [features]);
+  }, [concepts]);
 
   const toggleRepoGroup = (repo: string) => {
     setExpandedRepoGroups((prev) => ({ ...prev, [repo]: !prev[repo] }));
@@ -311,9 +311,9 @@ export function Sidebar({
 
   const groupedConcepts = useMemo(() => {
     const order: string[] = [];
-    const map: Record<string, FeatureSummary[]> = {};
-    for (const f of features) {
-      const repo = f.repo || getRepoFromFeatureId(f.id);
+    const map: Record<string, ConceptSummary[]> = {};
+    for (const f of concepts) {
+      const repo = f.repo || getRepoFromConceptId(f.id);
       if (!map[repo]) {
         order.push(repo);
         map[repo] = [];
@@ -321,7 +321,7 @@ export function Sidebar({
       map[repo].push(f);
     }
     return order.map((repo) => ({ repo, concepts: map[repo] }));
-  }, [features]);
+  }, [concepts]);
 
   return (
     <div className="fixed right-0 top-12 bottom-0 w-80 border-l bg-background flex flex-col">
@@ -488,13 +488,13 @@ export function Sidebar({
                     <span className="font-medium cursor-default">Concepts</span>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="max-w-56">
-                    High-level features derived from your repo's GitHub PR and
+                    High-level concepts derived from your repo's GitHub PR and
                     commit history. Generate to process new PRs and build your
                     concept map.
                   </TooltipContent>
                 </Tooltip>
                 <Badge variant="secondary" className="ml-1">
-                  {features.length}
+                  {concepts.length}
                 </Badge>
               </div>
               <ChevronDown
@@ -551,12 +551,12 @@ export function Sidebar({
                         />
                       ))}
                     </div>
-                  ) : isGeneratingConcepts && features.length === 0 ? (
+                  ) : isGeneratingConcepts && concepts.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground text-center flex items-center justify-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Generating concepts...
                     </div>
-                  ) : features.length === 0 ? (
+                  ) : concepts.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground text-center">
                       No concepts discovered yet
                     </div>

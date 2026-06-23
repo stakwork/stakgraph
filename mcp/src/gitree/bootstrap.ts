@@ -1,5 +1,5 @@
 import { Storage } from "./store/index.js";
-import { Feature, Usage } from "./types.js";
+import { Concept, Usage } from "./types.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { get_context } from "../repo/agent.js";
 import { normalizeUsage } from "../aieo/src/usage.js";
@@ -13,12 +13,12 @@ const BOOTSTRAP_LOOKBACK_DAYS = 10;
  * Bootstrap result returned to the caller
  */
 export interface BootstrapResult {
-  features: Feature[];
+  concepts: Concept[];
   usage: Usage;
 }
 
 /**
- * Repo size category for calibrating feature count
+ * Repo size category for calibrating concept count
  */
 type RepoSize = "small" | "medium" | "large";
 
@@ -88,7 +88,7 @@ function countSourceFiles(repoPath: string): number {
 }
 
 /**
- * Classify repo size and determine target feature count range
+ * Classify repo size and determine target concept count range
  */
 function classifyRepo(fileCount: number): {
   size: RepoSize;
@@ -113,31 +113,31 @@ function buildBootstrapPrompt(
   fileCount: number,
   sizing: { size: RepoSize; min: number; max: number }
 ): string {
-  return `Explore the repository "${owner}/${repo}" and identify its core features.
+  return `Explore the repository "${owner}/${repo}" and identify its core concepts.
 
-This is a ${sizing.size} repository (~${fileCount} source files). Aim for ${sizing.min}-${sizing.max} features.
+This is a ${sizing.size} repository (~${fileCount} source files). Aim for ${sizing.min}-${sizing.max} concepts.
 
-A "feature" is a distinct user-facing capability or business function — something a product owner or end user would recognize. Examples: "Authentication System", "Payment Processing", "Real-time Notifications", "Search and Filtering".
+A "concept" is a distinct user-facing capability or business function — something a product owner or end user would recognize. Examples: "Authentication System", "Payment Processing", "Real-time Notifications", "Search and Filtering".
 
-Do NOT create features for:
+Do NOT create concepts for:
 - Build tooling, CI/CD, or infrastructure
 - Individual utility functions or helpers
 - Code style, linting, or formatting
 - Generic "bug fixes" or "refactoring"
 - Testing infrastructure (unless it IS the product)
 
-For each feature provide:
+For each concept provide:
 - **name**: A clear, non-technical name (no framework/library names)
 - **description**: 1-2 sentences explaining what this capability does for users
-- **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this feature's CURRENT state
-- **files**: List the core source files that implement this feature (relative paths from repo root, e.g. "src/auth/login.ts"). Include only the most important files — entry points, main modules, route definitions, core logic. Aim for 3-15 files per feature depending on scope.
+- **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this concept's CURRENT state
+- **files**: List the core source files that implement this concept (relative paths from repo root, e.g. "src/auth/login.ts"). Include only the most important files — entry points, main modules, route definitions, core logic. Aim for 3-15 files per concept depending on scope.
 
-**Summary requirements** — focus on what developers need to know to work on this feature:
+**Summary requirements** — focus on what developers need to know to work on this concept:
 ${DOC_GUIDELINES.include}
 
 ${DOC_GUIDELINES.avoid}
 
-Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two.`;
+Prefer fewer, broader concepts over many granular ones. Two closely related capabilities should be one concept, not two.`;
 }
 
 /**
@@ -146,14 +146,14 @@ Prefer fewer, broader features over many granular ones. Two closely related capa
 const BOOTSTRAP_SCHEMA = {
   type: "object",
   properties: {
-    features: {
+    concepts: {
       type: "array",
       items: {
         type: "object",
         properties: {
           name: {
             type: "string",
-            description: "Human-readable feature name",
+            description: "Human-readable concept name",
           },
           description: {
             type: "string",
@@ -163,7 +163,7 @@ const BOOTSTRAP_SCHEMA = {
           summary: {
             type: "string",
             description:
-              "10-20 line high-level explanation of how the feature works",
+              "10-20 line high-level explanation of how the concept works",
           },
           files: {
             type: "array",
@@ -176,17 +176,17 @@ const BOOTSTRAP_SCHEMA = {
       },
     },
   },
-  required: ["features"],
+  required: ["concepts"],
 };
 
 /**
  * Bootstrap a brand-new repo by exploring the codebase and creating
- * an initial set of features. Uses get_context (agentic exploration)
- * with a structured schema to produce features in a single pass.
+ * an initial set of concepts. Uses get_context (agentic exploration)
+ * with a structured schema to produce concepts in a single pass.
  *
- * Returns the created features and token usage.
+ * Returns the created concepts and token usage.
  */
-export async function bootstrapFeatures(
+export async function bootstrapConcepts(
   owner: string,
   repo: string,
   repoPath: string,
@@ -195,13 +195,13 @@ export async function bootstrapFeatures(
 ): Promise<BootstrapResult> {
   const repoId = `${owner}/${repo}`;
 
-  console.log(`\n🚀 Bootstrap mode: exploring ${repoId} to seed initial features...`);
+  console.log(`\n🚀 Bootstrap mode: exploring ${repoId} to seed initial concepts...`);
 
   // 1. Count source files for sizing hint
   const fileCount = countSourceFiles(repoPath);
   const sizing = classifyRepo(fileCount);
   console.log(
-    `   📊 Found ${fileCount} source files (${sizing.size} repo, targeting ${sizing.min}-${sizing.max} features)`
+    `   📊 Found ${fileCount} source files (${sizing.size} repo, targeting ${sizing.min}-${sizing.max} concepts)`
   );
 
   // 2. Build prompt and call get_context with structured schema
@@ -209,13 +209,13 @@ export async function bootstrapFeatures(
 
   const result = await get_context(prompt, repoPath, {
     schema: BOOTSTRAP_SCHEMA,
-    systemOverride: `You are a software architect analyzing a codebase to identify its core features. Use the provided tools to explore the repository structure, read key files (README, entry points, route definitions, main modules), and identify the distinct user-facing capabilities this software provides. Be thorough but focused — read enough to understand what each feature does, but don't try to read every file.`,
+    systemOverride: `You are a software architect analyzing a codebase to identify its core concepts. Use the provided tools to explore the repository structure, read key files (README, entry points, route definitions, main modules), and identify the distinct user-facing capabilities this software provides. Be thorough but focused — read enough to understand what each concept does, but don't try to read every file.`,
     sessionId,
     isolatedContext: true,
   });
 
   const decision = result.content as {
-    features: Array<{
+    concepts: Array<{
       name: string;
       description: string;
       summary: string;
@@ -223,16 +223,16 @@ export async function bootstrapFeatures(
     }>;
   };
 
-  // 3. Create and save features
+  // 3. Create and save concepts
   const now = new Date();
-  const features: Feature[] = [];
+  const concepts: Concept[] = [];
 
-  for (const f of decision.features || []) {
+  for (const f of decision.concepts || []) {
     const slug = generateSlug(f.name);
-    const featureId = makeRepoId(repoId, slug);
+    const conceptId = makeRepoId(repoId, slug);
 
-    const feature: Feature = {
-      id: featureId,
+    const concept: Concept = {
+      id: conceptId,
       repo: repoId,
       name: f.name,
       description: f.description,
@@ -243,17 +243,17 @@ export async function bootstrapFeatures(
       documentation: f.summary,
     };
 
-    await storage.saveFeature(feature);
-    await storage.saveDocumentation(featureId, f.summary);
-    features.push(feature);
+    await storage.saveConcept(concept);
+    await storage.saveDocumentation(conceptId, f.summary);
+    concepts.push(concept);
 
     // Link core files identified by the LLM
     const files = f.files || [];
     if (files.length > 0) {
-      const linked = await storage.linkFeatureToFilesByPaths(featureId, files);
-      console.log(`   ✅ Created feature: ${f.name} (${featureId}) — linked ${linked} files`);
+      const linked = await storage.linkConceptToFilesByPaths(conceptId, files);
+      console.log(`   ✅ Created concept: ${f.name} (${conceptId}) — linked ${linked} files`);
     } else {
-      console.log(`   ✅ Created feature: ${f.name} (${featureId})`);
+      console.log(`   ✅ Created concept: ${f.name} (${conceptId})`);
     }
   }
 
@@ -267,36 +267,36 @@ export async function bootstrapFeatures(
   console.log(`   📌 Checkpoint set to ${BOOTSTRAP_LOOKBACK_DAYS} days ago — processRepo will pick up recent changes`);
 
   console.log(
-    `\n🎯 Bootstrap complete: created ${features.length} features for ${repoId}`
+    `\n🎯 Bootstrap complete: created ${concepts.length} concepts for ${repoId}`
   );
 
   return {
-    features,
+    concepts,
     usage: result.usage,
   };
 }
 
 /**
- * Explore a newly created feature to generate initial documentation.
- * Called when the incremental flow discovers a feature not in the bootstrap set.
- * Only runs if the feature has no existing documentation.
+ * Explore a newly created concept to generate initial documentation.
+ * Called when the incremental flow discovers a concept not in the bootstrap set.
+ * Only runs if the concept has no existing documentation.
  */
-export async function exploreNewFeature(
-  feature: Feature,
+export async function exploreNewConcept(
+  concept: Concept,
   repoPath: string,
   storage: Storage,
   sessionId?: string
 ): Promise<Usage> {
-  if (feature.documentation && feature.documentation.trim().length > 0) {
+  if (concept.documentation && concept.documentation.trim().length > 0) {
     return normalizeUsage();
   }
 
-  console.log(`   🔍 Exploring codebase for new feature: ${feature.name}...`);
+  console.log(`   🔍 Exploring codebase for new concept: ${concept.name}...`);
 
   const result = await get_context(
-    `Generate SUCCINCT documentation for the "${feature.name}" feature in this codebase.
+    `Generate SUCCINCT documentation for the "${concept.name}" concept in this codebase.
 
-Description: ${feature.description}
+Description: ${concept.description}
 
 ${DOC_GUIDELINES.include}
 
@@ -305,7 +305,7 @@ ${DOC_GUIDELINES.avoid}
 Target length: 30-80 lines of markdown.`,
     repoPath,
     {
-      systemOverride: `You are a software architect generating concise feature documentation. Use the provided tools to explore the repository and find the key files, components, and patterns related to this feature. Be thorough but focused.`,
+      systemOverride: `You are a software architect generating concise concept documentation. Use the provided tools to explore the repository and find the key files, components, and patterns related to this concept. Be thorough but focused.`,
       sessionId,
       isolatedContext: true,
     }
@@ -315,11 +315,11 @@ Target length: 30-80 lines of markdown.`,
     ? result.content
     : result.final;
 
-  feature.documentation = documentation;
-  await storage.saveFeature(feature);
-  await storage.saveDocumentation(feature.id, documentation);
+  concept.documentation = documentation;
+  await storage.saveConcept(concept);
+  await storage.saveDocumentation(concept.id, documentation);
 
-  console.log(`   ✅ Documentation generated for: ${feature.name}`);
+  console.log(`   ✅ Documentation generated for: ${concept.name}`);
 
   return result.usage;
 }

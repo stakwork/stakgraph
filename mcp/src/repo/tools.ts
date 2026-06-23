@@ -12,7 +12,7 @@ import { getProviderTool, Provider, ModelName } from "../aieo/src/index.js";
 import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";
-import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
+import { listConcepts, getConceptDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
 import { registerJarvisTools } from "./toolsJarvis.js";
@@ -858,9 +858,9 @@ export async function get_tools(
         execute: async () => {
           try {
             const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
-            const result = await listFeatures(repo);
+            const result = await listConcepts(repo);
             return {
-              concepts: result.features.map((f) => ({
+              concepts: result.concepts.map((f) => ({
                 id: f.id,
                 name: f.name,
                 description: f.description,
@@ -884,7 +884,7 @@ export async function get_tools(
         execute: async ({ concept_id }: { concept_id: string }) => {
           try {
             const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
-            const doc = await getFeatureDocumentation(concept_id, repo);
+            const doc = await getConceptDocumentation(concept_id, repo);
             if (!doc) {
               return { error: "Concept not found" };
             }

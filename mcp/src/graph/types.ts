@@ -67,7 +67,7 @@ export type NodeType =
   | "Issues"
   | "Episode"
   | "Topic"
-  | "Feature"
+  | "Concept"
   | "Mock"
   | "Learning"
   | "Scope"
@@ -184,7 +184,7 @@ export function relevant_node_types(): NodeType[] {
     "PullRequest",
     "Episode",
     "Topic",
-    "Feature",
+    "Concept",
     "UserObjective",
   ];
 }
@@ -224,7 +224,7 @@ export function all_node_types(): NodeType[] {
     "Issues",
     "Episode",
     "Topic",
-    "Feature",
+    "Concept",
     "Mock",
     "Learning",
     "Scope",
@@ -313,8 +313,8 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "The total issue count metric for a repository, representing reported problems and feature requests.",
     Episode: "A call recording or meeting between stakeholders.",
     Topic: "A subject or theme discussed in calls and messages.",
-    Feature:
-      "A specific capability or functionality within the application or codebase.",
+    Concept:
+      "A specific capability or functionality within the application or codebase, derived from git history (PRs and commits).",
     Mock: "A 3rd party integration mock representing external HTTP services or SDK methods that need to be mocked for testing or development.",
     Learning: "A rule or guideline capturing knowledge about the codebase, linked to scopes that define where it applies.",
     Scope: "A scope label that groups related learnings, such as a technology, pattern, or area of the codebase.",
@@ -325,6 +325,7 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
 export function normalizeNodeType(label: string): NodeType | undefined {
   if (label === "Test") return "UnitTest";
   if (label === "E2eTest") return "E2etest";
+  if (label === "Feature") return "Concept"; // legacy label (pre Feature->Concept migration)
   return all_node_types().find((t) => t === label) as NodeType | undefined;
 }
 

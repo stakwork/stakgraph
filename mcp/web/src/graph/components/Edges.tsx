@@ -233,13 +233,13 @@ const EdgesInner = memo(() => {
 
   // Update highlight edges reactively
   useFrame(() => {
-    const { highlightedFeatureId, highlightedNodeIds } =
+    const { highlightedConceptId, highlightedNodeIds } =
       useGraphData.getState();
 
     const { tracedPath } = useGraphData.getState();
     const hasTrace = tracedPath && tracedPath.edgeKeys.size > 0;
 
-    if (!highlightedFeatureId || !data?.links) {
+    if (!highlightedConceptId || !data?.links) {
       // Clear highlight geometry
       if (highlightGeometry.attributes.position) {
         highlightGeometry.setAttribute(

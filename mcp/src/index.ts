@@ -268,23 +268,23 @@ app.post("/graph_agent/abort", ga.abort_graph_agent);
 
 // Gitree routes
 app.post("/gitree/process", gitree.gitree_process);
-app.get("/gitree/features", gitree.gitree_list_features);
-app.get("/gitree/features/:id", gitree.gitree_get_feature);
+app.get("/gitree/concepts", gitree.gitree_list_concepts);
+app.get("/gitree/concepts/:id", gitree.gitree_get_concept);
 app.put(
-  "/gitree/features/:id/documentation",
-  gitree.gitree_update_feature_documentation,
+  "/gitree/concepts/:id/documentation",
+  gitree.gitree_update_concept_documentation,
 );
-app.delete("/gitree/features/:id", gitree.gitree_delete_feature);
-app.get("/gitree/features/:id/files", gitree.gitree_get_feature_files);
+app.delete("/gitree/concepts/:id", gitree.gitree_delete_concept);
+app.get("/gitree/concepts/:id/files", gitree.gitree_get_concept_files);
 app.get("/gitree/prs/:number", gitree.gitree_get_pr);
 app.get("/gitree/commits/:sha", gitree.gitree_get_commit);
 app.get("/gitree/stats", gitree.gitree_stats);
-app.get("/gitree/all-features-graph", gitree.gitree_all_features_graph);
-app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);
+app.get("/gitree/all-concepts-graph", gitree.gitree_all_concepts_graph);
+app.post("/gitree/summarize/:id", gitree.gitree_summarize_concept);
 app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);
-app.post("/gitree/relevant-features", gitree.gitree_relevant_features);
-app.post("/gitree/create-feature", gitree.gitree_create_feature);
+app.post("/gitree/relevant-concepts", gitree.gitree_relevant_concepts);
+app.post("/gitree/create-concept", gitree.gitree_create_concept);
 app.post("/gitree/analyze-clues", gitree.gitree_analyze_clues);
 app.post("/gitree/analyze-changes", gitree.gitree_analyze_changes);
 app.post("/gitree/link-clues", gitree.gitree_link_clues);
@@ -293,6 +293,21 @@ app.get("/gitree/clues/:id", gitree.gitree_get_clue);
 app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
 app.post("/gitree/provenance", gitree.gitree_provenance);
+
+// Legacy `/gitree/features*` aliases (deprecated) — kept so existing API
+// consumers keep working after the Feature->Concept rename. Remove once all
+// clients have migrated to the `/gitree/concepts*` paths.
+app.get("/gitree/features", gitree.gitree_list_concepts);
+app.get("/gitree/features/:id", gitree.gitree_get_concept);
+app.put(
+  "/gitree/features/:id/documentation",
+  gitree.gitree_update_concept_documentation,
+);
+app.delete("/gitree/features/:id", gitree.gitree_delete_concept);
+app.get("/gitree/features/:id/files", gitree.gitree_get_concept_files);
+app.get("/gitree/all-features-graph", gitree.gitree_all_concepts_graph);
+app.post("/gitree/relevant-features", gitree.gitree_relevant_concepts);
+app.post("/gitree/create-feature", gitree.gitree_create_concept);
 
 app.post("/importance/score", importance.score_importance);
 app.get("/importance/top", importance.get_top_importance);

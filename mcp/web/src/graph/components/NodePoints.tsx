@@ -37,7 +37,7 @@ function getTraceGlowColor(mode: TraceMode): string {
 const NodePointsComponent = () => {
   const data = useGraphData((s) => s.data);
   const nodeTypes = useGraphData((s) => s.nodeTypes);
-  const highlightedFeatureId = useGraphData((s) => s.highlightedFeatureId);
+  const highlightedConceptId = useGraphData((s) => s.highlightedConceptId);
   const highlightedNodeIds = useGraphData((s) => s.highlightedNodeIds);
   const importanceFilter = useGraphData((s) => s.importanceFilter);
   const tracedPath = useGraphData((s) => s.tracedPath);
@@ -85,9 +85,9 @@ const NodePointsComponent = () => {
           (importanceFilter.nodeType === null ||
             node.node_type === importanceFilter.nodeType);
 
-        // Feature highlight dimming
-        const isFeatureDimmed =
-          highlightedFeatureId !== null && !highlightedNodeIds.has(node.ref_id);
+        // Concept highlight dimming
+        const isConceptDimmed =
+          highlightedConceptId !== null && !highlightedNodeIds.has(node.ref_id);
         // Importance filter dimming
         const isImportanceDimmed = importanceActive && !matchesImportance;
         // Trace path dimming
@@ -95,7 +95,7 @@ const NodePointsComponent = () => {
           tracedPath !== null && !tracedPath.nodeIds.has(node.ref_id);
 
         const color =
-          isFeatureDimmed || isImportanceDimmed || isTraceDimmed
+          isConceptDimmed || isImportanceDimmed || isTraceDimmed
             ? DIMMED_COLOR
             : baseColor;
 
@@ -120,7 +120,7 @@ const NodePointsComponent = () => {
   }, [
     data?.nodes,
     nodeTypes,
-    highlightedFeatureId,
+    highlightedConceptId,
     highlightedNodeIds,
     importanceFilter,
     tracedPath,

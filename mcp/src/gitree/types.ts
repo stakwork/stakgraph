@@ -3,12 +3,12 @@ import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
 export type Usage = AiUsageWithLegacy;
 
 export interface LinkResult {
-  featuresProcessed: number;
+  conceptsProcessed: number;
   filesLinked: number;
   filesInDocs: number;
   filesNotInDocs: number;
-  featureFileLinks: Array<{
-    featureId: string;
+  conceptFileLinks: Array<{
+    conceptId: string;
     filesLinked: number;
     filesInDocs: number;
     filesNotInDocs: number;
@@ -16,23 +16,23 @@ export interface LinkResult {
 }
 
 /**
- * Core types for the GitHub Feature Knowledge Base
+ * Core types for the GitHub Concept Knowledge Base
  */
 
-export interface Feature {
+export interface Concept {
   id: string; // Slug from name, repo-prefixed for uniqueness (e.g., "owner/repo/auth-system")
   repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
   ref_id?: string; // Reference ID from the repository (e.g., "1234567890")
   name: string; // Human-readable (e.g., "Authentication System")
-  description: string; // What this feature is about
-  prNumbers: number[]; // All PRs that touched this feature
-  commitShas?: string[]; // All commits (not in PRs) that touched this feature (optional for legacy features)
+  description: string; // What this concept is about
+  prNumbers: number[]; // All PRs that touched this concept
+  commitShas?: string[]; // All commits (not in PRs) that touched this concept (optional for legacy concepts)
   createdAt: Date;
   lastUpdated: Date;
   documentation?: string; // LLM-generated comprehensive documentation of current state
-  cluesCount?: number; // Number of clues for this feature
+  cluesCount?: number; // Number of clues for this concept
   cluesLastAnalyzedAt?: Date; // Last time clues were generated
-  usage?: Usage; // Token usage for summarizing this feature
+  usage?: Usage; // Token usage for summarizing this concept
 }
 
 export interface PRRecord {
@@ -68,15 +68,15 @@ export interface CommitRecord {
 
 export interface LLMDecision {
   actions: ("add_to_existing" | "create_new" | "ignore")[]; // Can have multiple actions
-  existingFeatureIds?: string[]; // Which features to add to
-  newFeatures?: Array<{
-    // Which features to create
+  existingConceptIds?: string[]; // Which concepts to add to
+  newConcepts?: Array<{
+    // Which concepts to create
     name: string;
     description: string;
   }>;
-  updateFeatures?: Array<{
-    // Features whose descriptions need updating
-    featureId: string;
+  updateConcepts?: Array<{
+    // Concepts whose descriptions need updating
+    conceptId: string;
     newDescription: string;
     reasoning: string;
   }>;
@@ -169,7 +169,7 @@ export interface ClueEntities {
 export interface Clue {
   id: string; // Slug from title, repo-prefixed for uniqueness (e.g., "owner/repo/auth-jwt-utils")
   repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
-  featureId: string; // Feature where this clue was discovered (provenance)
+  conceptId: string; // Concept where this clue was discovered (provenance)
   type: ClueType;
   title: string; // e.g., "JWT Token Management Utilities"
   content: string; // Markdown explanation (WHY, WHEN, CONTEXT)
@@ -187,7 +187,7 @@ export interface Clue {
   embedding?: number[]; // Vector embedding of title for semantic search
 
   // Relationships
-  relatedFeatures: string[]; // Feature IDs this clue is relevant to (for RELEVANT_TO edges)
+  relatedConcepts: string[]; // Concept IDs this clue is relevant to (for RELEVANT_TO edges)
   relatedClues: string[]; // Other clue IDs
   dependsOn: string[]; // Clues to understand first
 
@@ -200,7 +200,7 @@ export interface Clue {
  */
 export interface ClueAnalysisResult {
   clues: Clue[];
-  complete: boolean; // Agent thinks feature is comprehensive
+  complete: boolean; // Agent thinks concept is comprehensive
   reasoning: string;
   usage: Usage;
 }
@@ -209,7 +209,7 @@ export interface ClueAnalysisResult {
  * Request body for /gitree/provenance endpoint
  */
 export interface ProvenanceRequest {
-  conceptIds: string[]; // Array of feature IDs (slugs)
+  conceptIds: string[]; // Array of concept IDs (slugs)
 }
 
 /**
@@ -245,7 +245,7 @@ export interface ProvenanceFile {
  * Concept with files in provenance response
  */
 export interface ProvenanceConcept {
-  id: string; // Feature ID (slug, e.g., "auth-system")
+  id: string; // Concept ID (slug, e.g., "auth-system")
   name: string;
   description?: string;
   files: ProvenanceFile[];

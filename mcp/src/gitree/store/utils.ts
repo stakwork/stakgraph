@@ -1,4 +1,4 @@
-import { Feature, PRRecord, CommitRecord } from "../types.js";
+import { Concept, PRRecord, CommitRecord } from "../types.js";
 import { Storage } from "./index.js";
 
 // ============================================================================
@@ -49,7 +49,7 @@ export function makeRepoId(repo: string, slug: string): string {
 
 /**
  * Extract slug from repo-prefixed ID
- * e.g., "owner/repo/feature-slug" -> "feature-slug"
+ * e.g., "owner/repo/concept-slug" -> "concept-slug"
  */
 export function getSlugFromRepoId(repoId: string): string {
   const parts = repoId.split("/");
@@ -58,7 +58,7 @@ export function getSlugFromRepoId(repoId: string): string {
 
 /**
  * Extract repo from repo-prefixed ID
- * e.g., "owner/repo/feature-slug" -> "owner/repo"
+ * e.g., "owner/repo/concept-slug" -> "owner/repo"
  */
 export function getRepoFromRepoId(repoId: string): string | null {
   const parts = repoId.split("/");
@@ -82,11 +82,11 @@ export async function formatPRMarkdown(
   pr: PRRecord,
   storage: Storage
 ): Promise<string> {
-  // Get features this PR belongs to
-  const features = await storage.getFeaturesForPR(pr.number);
-  const featureLinks =
-    features.length > 0
-      ? `\n---\n\n_Part of features: ${features
+  // Get concepts this PR belongs to
+  const concepts = await storage.getConceptsForPR(pr.number);
+  const conceptLinks =
+    concepts.length > 0
+      ? `\n---\n\n_Part of concepts: ${concepts
           .map((f) => `\`${f.id}\``)
           .join(", ")}_`
       : "";
@@ -103,7 +103,7 @@ export async function formatPRMarkdown(
 
 ## Summary
 
-${pr.summary}${filesList}${featureLinks}
+${pr.summary}${filesList}${conceptLinks}
 `.trim();
 }
 
@@ -295,11 +295,11 @@ export async function formatCommitMarkdown(
   commit: CommitRecord,
   storage: Storage
 ): Promise<string> {
-  // Get features this commit belongs to
-  const features = await storage.getFeaturesForCommit(commit.sha);
-  const featureLinks =
-    features.length > 0
-      ? `\n---\n\n_Part of features: ${features
+  // Get concepts this commit belongs to
+  const concepts = await storage.getConceptsForCommit(commit.sha);
+  const conceptLinks =
+    concepts.length > 0
+      ? `\n---\n\n_Part of concepts: ${concepts
           .map((f) => `\`${f.id}\``)
           .join(", ")}_`
       : "";
@@ -317,7 +317,7 @@ export async function formatCommitMarkdown(
 
 ## Summary
 
-${commit.summary}${filesList}${featureLinks}
+${commit.summary}${filesList}${conceptLinks}
 `.trim();
 }
 

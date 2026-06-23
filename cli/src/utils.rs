@@ -163,7 +163,8 @@ pub fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
             "endpoint" => "Endpoint",
             "request" => "Request",
             "datamodel" => "Datamodel",
-            "feature" => "Feature",
+            "concept" => "Concept",
+            "feature" => "Concept", // legacy alias
             "page" => "Page",
             "var" => "Var",
             "unittest" => "UnitTest",

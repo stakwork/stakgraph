@@ -4,7 +4,7 @@ import { Command } from "commander";
 import { Octokit } from "@octokit/rest";
 import { Storage, FileSystemStore, GraphStorage } from "./store/index.js";
 import { LLMClient } from "./llm.js";
-import { StreamingFeatureBuilder } from "./builder.js";
+import { StreamingConceptBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { ClueAnalyzer } from "./clueAnalyzer.js";
@@ -16,7 +16,7 @@ const program = new Command();
 
 program
   .name("gitree")
-  .description("GitHub Feature Knowledge Base - Extract features from PR history")
+  .description("GitHub Concept Knowledge Base - Extract concepts from PR history")
   .version("1.0.0");
 
 /**
@@ -42,7 +42,7 @@ async function createStorage(options: any): Promise<Storage> {
  */
 program
   .command("process")
-  .description("Process a GitHub repository to extract features")
+  .description("Process a GitHub repository to extract concepts")
   .argument("<owner>", "Repository owner")
   .argument("<repo>", "Repository name")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
@@ -64,14 +64,14 @@ program
       const anthropicKey = getApiKeyForProvider("anthropic");
 
       // Initialize components
-      console.log(`\n🚀 Initializing GitHub Feature Knowledge Base...`);
+      console.log(`\n🚀 Initializing GitHub Concept Knowledge Base...`);
       console.log(`   Repository: ${owner}/${repo}`);
 
       const storage = await createStorage(options);
 
       const octokit = new Octokit({ auth: githubToken });
       const llm = new LLMClient("anthropic", anthropicKey);
-      const builder = new StreamingFeatureBuilder(storage, llm, octokit);
+      const builder = new StreamingConceptBuilder(storage, llm, octokit);
 
       // Process repo (both PRs and commits)
       await builder.processRepo(owner, repo);
@@ -84,40 +84,40 @@ program
   });
 
 /**
- * List all features
+ * List all concepts
  */
 program
-  .command("list-features")
-  .description("List all features in the knowledge base")
+  .command("list-concepts")
+  .description("List all concepts in the knowledge base")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (options) => {
     try {
       const storage = await createStorage(options);
 
-      const features = await storage.getAllFeatures();
+      const concepts = await storage.getAllConcepts();
 
-      if (features.length === 0) {
-        console.log("No features found.");
+      if (concepts.length === 0) {
+        console.log("No concepts found.");
         return;
       }
 
-      console.log(`\n📚 Features (${features.length} total):\n`);
+      console.log(`\n📚 Concepts (${concepts.length} total):\n`);
 
-      const sorted = features.sort(
+      const sorted = concepts.sort(
         (a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime()
       );
 
-      for (const feature of sorted) {
-        console.log(`🔹 ${feature.name} (${feature.id})`);
-        console.log(`   ${feature.description}`);
-        const commitCount = (feature.commitShas || []).length;
+      for (const concept of sorted) {
+        console.log(`🔹 ${concept.name} (${concept.id})`);
+        console.log(`   ${concept.description}`);
+        const commitCount = (concept.commitShas || []).length;
         const changesSummary =
           commitCount > 0
-            ? `PRs: ${feature.prNumbers.length} | Commits: ${commitCount}`
-            : `PRs: ${feature.prNumbers.length}`;
+            ? `PRs: ${concept.prNumbers.length} | Commits: ${commitCount}`
+            : `PRs: ${concept.prNumbers.length}`;
         console.log(
-          `   ${changesSummary} | Last updated: ${feature.lastUpdated.toISOString().split("T")[0]}`
+          `   ${changesSummary} | Last updated: ${concept.lastUpdated.toISOString().split("T")[0]}`
         );
         console.log();
       }
@@ -128,33 +128,33 @@ program
   });
 
 /**
- * Show details of a specific feature
+ * Show details of a specific concept
  */
 program
-  .command("show-feature")
-  .description("Show details of a specific feature")
-  .argument("<featureId>", "Feature ID")
+  .command("show-concept")
+  .description("Show details of a specific concept")
+  .argument("<conceptId>", "Concept ID")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
-  .action(async (featureId: string, options) => {
+  .action(async (conceptId: string, options) => {
     try {
       const storage = await createStorage(options);
 
-      const feature = await storage.getFeature(featureId);
+      const concept = await storage.getConcept(conceptId);
 
-      if (!feature) {
-        console.log(`❌ Feature not found: ${featureId}`);
+      if (!concept) {
+        console.log(`❌ Concept not found: ${conceptId}`);
         return;
       }
 
-      console.log(`\n📖 Feature: ${feature.name}\n`);
-      console.log(`ID: ${feature.id}`);
-      console.log(`Description: ${feature.description}`);
-      console.log(`Created: ${feature.createdAt.toISOString().split("T")[0]}`);
-      console.log(`Last Updated: ${feature.lastUpdated.toISOString().split("T")[0]}`);
-      console.log(`\nPull Requests (${feature.prNumbers.length}):\n`);
+      console.log(`\n📖 Concept: ${concept.name}\n`);
+      console.log(`ID: ${concept.id}`);
+      console.log(`Description: ${concept.description}`);
+      console.log(`Created: ${concept.createdAt.toISOString().split("T")[0]}`);
+      console.log(`Last Updated: ${concept.lastUpdated.toISOString().split("T")[0]}`);
+      console.log(`\nPull Requests (${concept.prNumbers.length}):\n`);
 
-      const prs = await storage.getPRsForFeature(featureId);
+      const prs = await storage.getPRsForConcept(conceptId);
       for (const pr of prs) {
         console.log(`  #${pr.number}: ${pr.title}`);
         console.log(`     ${pr.summary}`);
@@ -162,11 +162,11 @@ program
         console.log();
       }
 
-      const commitCount = (feature.commitShas || []).length;
+      const commitCount = (concept.commitShas || []).length;
       if (commitCount > 0) {
         console.log(`\nCommits (${commitCount}):\n`);
 
-        const commits = await storage.getCommitsForFeature(featureId);
+        const commits = await storage.getCommitsForConcept(conceptId);
         for (const commit of commits) {
           console.log(`  ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}`);
           console.log(`     ${commit.summary}`);
@@ -201,20 +201,20 @@ program
         return;
       }
 
-      const features = await storage.getFeaturesForPR(prNumber);
+      const concepts = await storage.getConceptsForPR(prNumber);
 
       console.log(`\n📄 PR #${pr.number}: ${pr.title}\n`);
       console.log(`Summary: ${pr.summary}`);
       console.log(`Merged: ${pr.mergedAt.toISOString().split("T")[0]}`);
       console.log(`URL: ${pr.url}`);
 
-      if (features.length > 0) {
-        console.log(`\nPart of ${features.length} feature(s):\n`);
-        for (const feature of features) {
-          console.log(`  🔹 ${feature.name} (${feature.id})`);
+      if (concepts.length > 0) {
+        console.log(`\nPart of ${concepts.length} concept(s):\n`);
+        for (const concept of concepts) {
+          console.log(`  🔹 ${concept.name} (${concept.id})`);
         }
       } else {
-        console.log(`\nNot associated with any features.`);
+        console.log(`\nNot associated with any concepts.`);
       }
       console.log();
     } catch (error) {
@@ -243,7 +243,7 @@ program
         return;
       }
 
-      const features = await storage.getFeaturesForCommit(sha);
+      const concepts = await storage.getConceptsForCommit(sha);
 
       console.log(`\n📝 Commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}\n`);
       console.log(`Summary: ${commit.summary}`);
@@ -251,13 +251,13 @@ program
       console.log(`Committed: ${commit.committedAt.toISOString().split("T")[0]}`);
       console.log(`URL: ${commit.url}`);
 
-      if (features.length > 0) {
-        console.log(`\nPart of ${features.length} feature(s):\n`);
-        for (const feature of features) {
-          console.log(`  🔹 ${feature.name} (${feature.id})`);
+      if (concepts.length > 0) {
+        console.log(`\nPart of ${concepts.length} concept(s):\n`);
+        for (const concept of concepts) {
+          console.log(`  🔹 ${concept.name} (${concept.id})`);
         }
       } else {
-        console.log(`\nNot associated with any features.`);
+        console.log(`\nNot associated with any concepts.`);
       }
       console.log();
     } catch (error) {
@@ -280,34 +280,34 @@ program
       const storage = await createStorage(options);
       const repo = options.repo as string | undefined;
 
-      const features = await storage.getAllFeatures(repo);
+      const concepts = await storage.getAllConcepts(repo);
       const prs = await storage.getAllPRs(repo);
 
       console.log(`\n📊 Knowledge Base Statistics\n`);
       if (repo) {
         console.log(`Repository: ${repo}`);
       }
-      console.log(`Total Features: ${features.length}`);
+      console.log(`Total Concepts: ${concepts.length}`);
       console.log(`Total PRs: ${prs.length}`);
       if (repo) {
         const lastProcessed = await storage.getLastProcessedPR(repo);
         console.log(`Last Processed PR: #${lastProcessed}`);
       }
 
-      if (features.length > 0) {
-        const avgPRsPerFeature =
-          features.reduce((sum, f) => sum + f.prNumbers.length, 0) /
-          features.length;
+      if (concepts.length > 0) {
+        const avgPRsPerConcept =
+          concepts.reduce((sum, f) => sum + f.prNumbers.length, 0) /
+          concepts.length;
         console.log(
-          `Average PRs per Feature: ${avgPRsPerFeature.toFixed(1)}`
+          `Average PRs per Concept: ${avgPRsPerConcept.toFixed(1)}`
         );
 
-        // Find most active feature
-        const mostActive = features.reduce((max, f) =>
+        // Find most active concept
+        const mostActive = concepts.reduce((max, f) =>
           f.prNumbers.length > max.prNumbers.length ? f : max
         );
         console.log(
-          `\nMost Active Feature: ${mostActive.name} (${mostActive.prNumbers.length} PRs)`
+          `\nMost Active Concept: ${mostActive.name} (${mostActive.prNumbers.length} PRs)`
         );
       }
 
@@ -319,15 +319,15 @@ program
   });
 
 /**
- * Summarize a single feature
+ * Summarize a single concept
  */
 program
   .command("summarize")
-  .description("Generate comprehensive documentation for a feature")
-  .argument("<featureId>", "Feature ID to summarize")
+  .description("Generate comprehensive documentation for a concept")
+  .argument("<conceptId>", "Concept ID to summarize")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
-  .action(async (featureId: string, options) => {
+  .action(async (conceptId: string, options) => {
     try {
       // Get Anthropic API key
       const anthropicKey = getApiKeyForProvider("anthropic");
@@ -337,8 +337,8 @@ program
 
       const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
 
-      // Summarize the feature
-      await summarizer.summarizeFeature(featureId);
+      // Summarize the concept
+      await summarizer.summarizeConcept(conceptId);
 
       console.log("\n✅ Done!\n");
     } catch (error) {
@@ -348,11 +348,11 @@ program
   });
 
 /**
- * Summarize all features
+ * Summarize all concepts
  */
 program
   .command("summarize-all")
-  .description("Generate comprehensive documentation for all features")
+  .description("Generate comprehensive documentation for all concepts")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (options) => {
@@ -361,14 +361,14 @@ program
       const anthropicKey = getApiKeyForProvider("anthropic");
 
       // Initialize components
-      console.log(`\n🚀 Generating documentation for all features...`);
+      console.log(`\n🚀 Generating documentation for all concepts...`);
 
       const storage = await createStorage(options);
 
       const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
 
-      // Summarize all features
-      await summarizer.summarizeAllFeatures();
+      // Summarize all concepts
+      await summarizer.summarizeAllConcepts();
 
       console.log("\n✅ Done!\n");
     } catch (error) {
@@ -378,26 +378,26 @@ program
   });
 
 /**
- * Link features to files
+ * Link concepts to files
  */
 program
   .command("link-files")
-  .description("Link features to file nodes in the graph based on PR changes")
-  .argument("[featureId]", "Feature ID to link (optional, links all if omitted)")
+  .description("Link concepts to file nodes in the graph based on PR changes")
+  .argument("[conceptId]", "Concept ID to link (optional, links all if omitted)")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
-  .action(async (featureId: string | undefined, options) => {
+  .action(async (conceptId: string | undefined, options) => {
     try {
-      console.log(`\n🚀 Linking features to files...`);
+      console.log(`\n🚀 Linking concepts to files...`);
 
       const storage = await createStorage(options);
       const linker = new FileLinker(storage);
 
-      // Link single feature or all
-      if (featureId) {
-        await linker.linkFeature(featureId);
+      // Link single concept or all
+      if (conceptId) {
+        await linker.linkConcept(conceptId);
       } else {
-        await linker.linkAllFeatures();
+        await linker.linkAllConcepts();
       }
 
       console.log("\n✅ Done!\n");
@@ -408,39 +408,39 @@ program
   });
 
 /**
- * Analyze feature(s) for architectural clues
+ * Analyze concept(s) for architectural clues
  */
 program
   .command("analyze-clues")
-  .description("Analyze feature(s) for architectural clues (auto-links by default)")
-  .argument("[featureId]", "Feature ID to analyze (optional, analyzes all if omitted)")
+  .description("Analyze concept(s) for architectural clues (auto-links by default)")
+  .argument("[conceptId]", "Concept ID to analyze (optional, analyzes all if omitted)")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
-  .option("-f, --force", "Force re-analysis even if feature already has clues")
+  .option("-f, --force", "Force re-analysis even if concept already has clues")
   .option("-r, --repo-path <path>", "Path to repository", process.cwd())
   .option("--no-link", "Skip automatic linking after analysis")
-  .action(async (featureId: string | undefined, options) => {
+  .action(async (conceptId: string | undefined, options) => {
     try {
       const storage = await createStorage(options);
       const analyzer = new ClueAnalyzer(storage, options.repoPath);
 
       const autoLink = options.link !== false; // Commander sets to false with --no-link
 
-      if (featureId) {
-        // Analyze single feature
-        const result = await analyzer.analyzeFeature(featureId);
+      if (conceptId) {
+        // Analyze single concept
+        const result = await analyzer.analyzeConcept(conceptId);
 
-        // Auto-link after single feature analysis
+        // Auto-link after single concept analysis
         if (autoLink && result.clues.length > 0) {
-          console.log(`\n🔗 Auto-linking new clues to relevant features...\n`);
+          console.log(`\n🔗 Auto-linking new clues to relevant concepts...\n`);
           const { ClueLinker } = await import("./clueLinker.js");
           const linker = new ClueLinker(storage);
           const newClueIds = result.clues.map((c) => c.id);
           await linker.linkClues(newClueIds);
         }
       } else {
-        // Analyze all features (with auto-linking by default)
-        await analyzer.analyzeAllFeatures(options.force, autoLink);
+        // Analyze all concepts (with auto-linking by default)
+        await analyzer.analyzeAllConcepts(options.force, autoLink);
       }
 
       console.log("\n✅ Done!\n");
@@ -648,20 +648,20 @@ program
   });
 
 /**
- * List all clues or clues for a specific feature
+ * List all clues or clues for a specific concept
  */
 program
   .command("list-clues")
-  .description("List all clues or clues for a specific feature")
-  .argument("[featureId]", "Feature ID to list clues for (optional)")
+  .description("List all clues or clues for a specific concept")
+  .argument("[conceptId]", "Concept ID to list clues for (optional)")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage")
-  .action(async (featureId: string | undefined, options) => {
+  .action(async (conceptId: string | undefined, options) => {
     try {
       const storage = await createStorage(options);
 
-      const clues = featureId
-        ? await storage.getCluesForFeature(featureId)
+      const clues = conceptId
+        ? await storage.getCluesForConcept(conceptId)
         : await storage.getAllClues();
 
       if (clues.length === 0) {
@@ -671,19 +671,19 @@ program
 
       console.log(`\n💡 Clues (${clues.length} total):\n`);
 
-      // Group by feature if listing all
-      if (!featureId) {
-        const byFeature = new Map<string, typeof clues>();
+      // Group by concept if listing all
+      if (!conceptId) {
+        const byConcept = new Map<string, typeof clues>();
         for (const clue of clues) {
-          if (!byFeature.has(clue.featureId)) {
-            byFeature.set(clue.featureId, []);
+          if (!byConcept.has(clue.conceptId)) {
+            byConcept.set(clue.conceptId, []);
           }
-          byFeature.get(clue.featureId)!.push(clue);
+          byConcept.get(clue.conceptId)!.push(clue);
         }
 
-        for (const [fid, fclues] of byFeature.entries()) {
-          const feature = await storage.getFeature(fid);
-          console.log(`\n🔹 ${feature?.name || fid} (${fclues.length} clues)`);
+        for (const [fid, fclues] of byConcept.entries()) {
+          const concept = await storage.getConcept(fid);
+          console.log(`\n🔹 ${concept?.name || fid} (${fclues.length} clues)`);
           for (const clue of fclues) {
             console.log(`   - ${clue.title} [${clue.type}]`);
           }
@@ -728,7 +728,7 @@ program
       console.log(`${"=".repeat(clue.title.length + 3)}\n`);
       console.log(`ID: ${clue.id}`);
       console.log(`Type: ${clue.type}`);
-      console.log(`Feature: ${clue.featureId}\n`);
+      console.log(`Concept: ${clue.conceptId}\n`);
       console.log(`Content:\n${clue.content}\n`);
 
       if (Object.keys(clue.entities).length > 0) {
@@ -765,7 +765,7 @@ program
 
 program
   .command("link-clues")
-  .description("Link clues to relevant features (Step 2 after analyze-clues)")
+  .description("Link clues to relevant concepts (Step 2 after analyze-clues)")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-f, --force", "Force re-linking even if clues already have links")
@@ -790,7 +790,7 @@ program
   .argument("<query>", "Search query")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage")
-  .option("-f, --feature <id>", "Filter by feature ID")
+  .option("-f, --concept <id>", "Filter by concept ID")
   .option("-l, --limit <number>", "Maximum number of results", "10")
   .option("-t, --threshold <number>", "Similarity threshold (0-1)", "0.5")
   .action(async (query: string, options) => {
@@ -807,7 +807,7 @@ program
       const results = await storage.searchClues(
         query,
         embeddings,
-        options.feature,
+        options.concept,
         parseInt(options.limit),
         parseFloat(options.threshold)
       );

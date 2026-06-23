@@ -291,7 +291,8 @@ impl FromStr for NodeType {
             "Endpoint" => Ok(NodeType::Endpoint),
             "Request" => Ok(NodeType::Request),
             "Datamodel" => Ok(NodeType::DataModel),
-            "Feature" => Ok(NodeType::Feature),
+            "Concept" => Ok(NodeType::Concept),
+            "Feature" => Ok(NodeType::Concept), // legacy alias (pre-migration label)
             "Page" => Ok(NodeType::Page),
             "Var" => Ok(NodeType::Var),
             "UnitTest" => Ok(NodeType::UnitTest),
@@ -319,7 +320,7 @@ impl std::fmt::Display for NodeType {
             NodeType::Endpoint => "Endpoint",
             NodeType::Request => "Request",
             NodeType::DataModel => "Datamodel",
-            NodeType::Feature => "Feature",
+            NodeType::Concept => "Concept",
             NodeType::Page => "Page",
             NodeType::Var => "Var",
             NodeType::UnitTest => "UnitTest",

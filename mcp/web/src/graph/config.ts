@@ -3,7 +3,7 @@ export const LAYER_ORDER = [
   "Repository",
   "Package",
   "Language",
-  "Feature",
+  "Concept",
   "Directory",
   "Library",
   "File",
