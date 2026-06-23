@@ -375,6 +375,22 @@ async fn test_swift() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_php() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        run_fixture_test::<ArrayGraph>("src/testing/php", "php", Language::Php).await.unwrap();
+        run_fixture_test::<BTreeMapGraph>("src/testing/php", "php", Language::Php).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::{lang::graphs::Neo4jGraph, testing::annotations::run_fixture_test};
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        run_fixture_test::<Neo4jGraph>("src/testing/php", "php", Language::Php).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_angular() {
     #[cfg(not(feature = "neo4j"))]
     {

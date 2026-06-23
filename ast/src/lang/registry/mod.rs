@@ -6,6 +6,8 @@ pub mod java_registry;
 pub mod java_resolver;
 pub mod kotlin_registry;
 pub mod kotlin_resolver;
+pub mod php_registry;
+pub mod php_resolver;
 pub mod py_resolver;
 pub mod python;
 pub mod rust_registry;
@@ -45,6 +47,7 @@ pub fn build(
         Language::CSharp => Some(Box::new(csharp_registry::CSharpRegistry::new(graph, filez))),
         Language::Kotlin => Some(Box::new(kotlin_registry::KotlinRegistry::new(graph, filez))),
         Language::Swift => Some(Box::new(swift_registry::SwiftRegistry::new(graph, filez))),
+        Language::Php => Some(Box::new(php_registry::PhpRegistry::new(graph, filez))),
         _ => None,
     }
 }
