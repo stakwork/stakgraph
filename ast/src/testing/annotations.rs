@@ -51,6 +51,25 @@ fn parse_node_type(s: &str) -> Option<NodeType> {
     }
 }
 
+fn parse_edge_type(s: &str) -> Option<EdgeType> {
+    match s {
+        "Calls" => Some(EdgeType::Calls),
+        "Uses" => Some(EdgeType::Uses),
+        "Operand" => Some(EdgeType::Operand),
+        "ArgOf" => Some(EdgeType::ArgOf),
+        "Contains" => Some(EdgeType::Contains),
+        "Imports" => Some(EdgeType::Imports),
+        "Of" => Some(EdgeType::Of),
+        "Handler" => Some(EdgeType::Handler),
+        "Includes" => Some(EdgeType::Includes),
+        "Renders" => Some(EdgeType::Renders),
+        "ParentOf" => Some(EdgeType::ParentOf),
+        "Implements" => Some(EdgeType::Implements),
+        "NestedIn" => Some(EdgeType::NestedIn),
+        _ => None,
+    }
+}
+
 fn parse_quoted_tokens(s: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut chars = s.chars().peekable();
@@ -115,32 +134,46 @@ struct AbsentAnnotation {
     file_suffix: String,
 }
 
-fn parse_absent_annotations(source: &str, prefix: &str) -> Vec<AbsentAnnotation> {
+fn parse_absent_annotations(source: &str, prefix: &str) -> (Vec<AbsentAnnotation>, Vec<String>) {
     let absent_prefix = format!("{}absent: ", prefix);
     let mut result = Vec::new();
+    let mut errors = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix(absent_prefix.as_str()) {
             let toks = parse_quoted_tokens(rest);
-            if toks.len() >= 3 {
-                if let Some(nt) = parse_node_type(&toks[0]) {
-                    result.push(AbsentAnnotation {
-                        node_type: nt,
-                        name: toks[1].clone(),
-                        file_suffix: toks[2].clone(),
-                    });
-                }
+            if toks.len() < 3 {
+                errors.push(format!(
+                    "malformed @ast absent (expected NodeType \"name\" \"file\"): {}",
+                    rest.trim()
+                ));
+                continue;
+            }
+            match parse_node_type(&toks[0]) {
+                Some(nt) => result.push(AbsentAnnotation {
+                    node_type: nt,
+                    name: toks[1].clone(),
+                    file_suffix: toks[2].clone(),
+                }),
+                None => errors.push(format!(
+                    "unknown node type in @ast absent: \"{}\"",
+                    toks[0]
+                )),
             }
         }
     }
-    result
+    (result, errors)
 }
 
 fn parse_file_annotations(
     source: &str,
     prefix: &str,
-) -> Vec<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)> {
+) -> (
+    Vec<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)>,
+    Vec<String>,
+) {
     let mut result = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
     let mut current: Option<(NodeType, String, BTreeMap<String, String>, Vec<EdgeAnnotation>)> =
         None;
 
@@ -152,35 +185,80 @@ fn parse_file_annotations(
                     result.push(prev);
                 }
                 let toks = parse_quoted_tokens(node_rest);
-                if toks.len() >= 2 {
-                    if let Some(nt) = parse_node_type(&toks[0]) {
-                        let subject_meta = parse_meta_filter(node_rest);
-                        current = Some((nt, toks[1].clone(), subject_meta, Vec::new()));
-                    }
+                if toks.len() < 2 {
+                    errors.push(format!(
+                        "malformed @ast node (expected NodeType \"name\"): {}",
+                        node_rest.trim()
+                    ));
+                } else if let Some(nt) = parse_node_type(&toks[0]) {
+                    let subject_meta = parse_meta_filter(node_rest);
+                    current = Some((nt, toks[1].clone(), subject_meta, Vec::new()));
+                } else {
+                    errors.push(format!(
+                        "unknown node type in @ast node: \"{}\"",
+                        toks[0]
+                    ));
                 }
             } else if let Some(edge_rest) = rest.strip_prefix("edge: ") {
+                if current.is_none() {
+                    errors.push(format!(
+                        "orphaned @ast edge (no preceding @ast node): {}",
+                        edge_rest.trim()
+                    ));
+                    continue;
+                }
                 if let Some((_, _, _, ref mut edges)) = current {
                     let toks = parse_quoted_tokens(edge_rest);
-                    if toks.len() >= 5 {
-                        let dir = match toks[1].as_str() {
-                            "<-" => Direction::Incoming,
-                            "->" => Direction::Outgoing,
-                            _ => continue,
-                        };
-                        if let (Ok(et), Some(nt)) =
-                            (EdgeType::from_str(&toks[0]), parse_node_type(&toks[2]))
-                        {
-                            let other_meta = parse_meta_filter(edge_rest);
-                            edges.push(EdgeAnnotation {
-                                edge_type: et,
-                                direction: dir,
-                                other_type: nt,
-                                other_name: toks[3].clone(),
-                                other_file: toks[4].clone(),
-                                other_meta,
-                            });
-                        }
+                    if toks.len() < 5 {
+                        errors.push(format!(
+                            "malformed @ast edge (expected EdgeType dir NodeType \"name\" \"file\"): {}",
+                            edge_rest.trim()
+                        ));
+                        continue;
                     }
+                    let dir = match toks[1].as_str() {
+                        "<-" => Direction::Incoming,
+                        "->" => Direction::Outgoing,
+                        other => {
+                            errors.push(format!(
+                                "unknown edge direction \"{}\" in @ast edge: {}",
+                                other,
+                                edge_rest.trim()
+                            ));
+                            continue;
+                        }
+                    };
+                    let et = match parse_edge_type(&toks[0]) {
+                        Some(et) => et,
+                        None => {
+                            errors.push(format!(
+                                "unknown edge type \"{}\" in @ast edge: {}",
+                                toks[0],
+                                edge_rest.trim()
+                            ));
+                            continue;
+                        }
+                    };
+                    let nt = match parse_node_type(&toks[2]) {
+                        Some(nt) => nt,
+                        None => {
+                            errors.push(format!(
+                                "unknown node type \"{}\" in @ast edge: {}",
+                                toks[2],
+                                edge_rest.trim()
+                            ));
+                            continue;
+                        }
+                    };
+                    let other_meta = parse_meta_filter(edge_rest);
+                    edges.push(EdgeAnnotation {
+                        edge_type: et,
+                        direction: dir,
+                        other_type: nt,
+                        other_name: toks[3].clone(),
+                        other_file: toks[4].clone(),
+                        other_meta,
+                    });
                 }
             }
         }
@@ -188,7 +266,7 @@ fn parse_file_annotations(
     if let Some(g) = current {
         result.push(g);
     }
-    result
+    (result, errors)
 }
 
 fn annotation_prefix_for_ext(ext: &str, default: &'static str) -> &'static str {
@@ -200,10 +278,17 @@ fn annotation_prefix_for_ext(ext: &str, default: &'static str) -> &'static str {
 }
 
 pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: &str) -> (Vec<String>, BTreeMap<NodeType, usize>) {
-    let groups = parse_file_annotations(source, prefix);
-    let absent = parse_absent_annotations(source, prefix);
+    let (groups, parse_errors) = parse_file_annotations(source, prefix);
+    let (absent, absent_errors) = parse_absent_annotations(source, prefix);
     let mut failures: Vec<String> = Vec::new();
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
+
+    for e in parse_errors {
+        failures.push(format!("FAIL parse error in {}: {}", file_suffix, e));
+    }
+    for e in absent_errors {
+        failures.push(format!("FAIL parse error in {}: {}", file_suffix, e));
+    }
 
     for (node_type, _, _, _) in &groups {
         *counts.entry(node_type.clone()).or_insert(0) += 1;
