@@ -98,8 +98,17 @@ impl Registry for RustRegistry {
         None
     }
 
-    fn resolve_method(&self, _type_name: &str, _method_name: &str) -> Option<&str> {
-        None
+    fn resolve_method(&self, type_name: &str, method_name: &str) -> Option<&str> {
+        self.methods_idx
+            .get(&(type_name.to_string(), method_name.to_string()))
+            .map(|s| s.as_str())
+    }
+
+    fn resolve_field(&self, type_name: &str, field_name: &str) -> Option<&str> {
+        self.struct_fields
+            .get(type_name)?
+            .get(field_name)
+            .map(|s| s.as_str())
     }
 
     fn resolve_call_at(&self, file: &str, row: usize, col: usize) -> Option<NodeKeys> {

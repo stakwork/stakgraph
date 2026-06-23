@@ -1,5 +1,6 @@
 pub mod cs_resolver;
 pub mod csharp_registry;
+pub mod scope;
 pub mod go_resolver;
 pub mod golang;
 pub mod java_registry;

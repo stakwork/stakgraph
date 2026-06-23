@@ -5,6 +5,7 @@ package com.kotlintestapp.data.repository
 // @ast node: Function "addUser"
 // @ast edge: Calls -> Function "createUser" "ApiService.kt"
 // @ast node: Function "getUsers"
+// @ast edge: Calls -> Function "getUsers" "ApiService.kt"
 // @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappdatarepositoryuserrepositorykt-0"
 
 import com.kotlintestapp.data.api.ApiService
