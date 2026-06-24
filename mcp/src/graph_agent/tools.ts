@@ -1,7 +1,19 @@
 import { tool } from "ai";
 import { z } from "zod";
+import axios from "axios";
 
 const JARVIS_URL = process.env.JARVIS_URL ?? "";
+
+async function jarvisFetch(url: string, headers: Record<string, string>) {
+  const resp = await axios.get(url, { headers, validateStatus: () => true, responseType: "text" });
+  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+  return {
+    ok: resp.status >= 200 && resp.status < 300,
+    status: resp.status,
+    text: async () => text,
+    json: async () => JSON.parse(text) as unknown,
+  };
+}
 
 /** Build Authorization header from the forwarded L402 token (if present). */
 function authHeaders(authToken?: string): HeadersInit {
@@ -59,7 +71,7 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
       const url = `${JARVIS_URL}/v2/nodes?${params.toString()}`;
       console.log(`[graph_search] q=${q} method=${search_method} type=${type ?? "*"} limit=${limit} url=${url}`);
       try {
-        const resp = await fetch(url, { headers: authHeaders(authToken) });
+        const resp = await jarvisFetch(url, authHeaders(authToken) as Record<string, string>);
         if (!resp.ok) {
           const text = await resp.text();
           console.error(`[graph_search] HTTP ${resp.status}: ${text}`);
@@ -92,7 +104,7 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
       const url = `${JARVIS_URL}/v2/nodes/${encodeURIComponent(ref_id)}`;
       console.log(`[graph_node] ref_id=${ref_id} url=${url}`);
       try {
-        const resp = await fetch(url, { headers: authHeaders(authToken) });
+        const resp = await jarvisFetch(url, authHeaders(authToken) as Record<string, string>);
         if (!resp.ok) {
           const text = await resp.text();
           console.error(`[graph_node] HTTP ${resp.status}: ${text}`);
@@ -124,13 +136,13 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
       const url = `${JARVIS_URL}/v2/nodes/${encodeURIComponent(ref_id)}/neighborhood`;
       console.log(`[graph_map] ref_id=${ref_id} url=${url}`);
       try {
-        let resp = await fetch(url, { headers: authHeaders(authToken) });
+        let resp = await jarvisFetch(url, authHeaders(authToken) as Record<string, string>);
 
         // Fallback: if the /neighborhood route doesn't exist, try ?expand=edges
         if (resp.status === 404) {
           const fallbackUrl = `${JARVIS_URL}/v2/nodes/${encodeURIComponent(ref_id)}?expand=edges`;
           console.log(`[graph_map] 404 on neighborhood — falling back to ${fallbackUrl}`);
-          resp = await fetch(fallbackUrl, { headers: authHeaders(authToken) });
+          resp = await jarvisFetch(fallbackUrl, authHeaders(authToken) as Record<string, string>);
         }
 
         if (!resp.ok) {
