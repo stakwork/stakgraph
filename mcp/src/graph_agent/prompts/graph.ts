@@ -20,7 +20,7 @@ export function buildContextualSystemPrompt(ctx: ContextualPromptCtx): string {
 
 REQUIRED first steps before answering:
 1. Call graph_node("${ctx.selectedRefId}") to retrieve this node's full transcript and properties.
-2. Call graph_map("${ctx.selectedRefId}") to discover related people, organizations, products, claims, and clips.
+2. Call graph_neighbors("${ctx.selectedRefId}") to discover related people, organizations, products, claims, and clips.
 3. Ground your answer primarily in this content and its direct connections. Only search further afield if the user explicitly asks a broader question.
 
 `;
@@ -47,7 +47,7 @@ Fetch the complete data for a node by its \`ref_id\`.
 - Always call this after \`graph_search\` to get full node properties.
 - The nodes you fetch here are your primary evidence — cite their \`ref_id\`s in your final answer.
 
-### graph_map
+### graph_neighbors
 Explore the 1-hop neighborhood of a node — its related nodes and edges.
 - Use this to discover connected topics, episodes, or related content.
 - Helpful when you need to find what a node is connected to.
@@ -56,7 +56,7 @@ Explore the 1-hop neighborhood of a node — its related nodes and edges.
 
 1. Start with \`graph_search\` using a relevant query for the user's question.
 2. Call \`graph_node\` on the most relevant results to gather full details.
-3. If you need broader context, call \`graph_map\` on key nodes to discover connections.
+3. If you need broader context, call \`graph_neighbors\` on key nodes to discover connections.
 4. Repeat as needed (up to your step budget) until you have enough information.
 5. Synthesize your findings into a clear, grounded answer.
 
