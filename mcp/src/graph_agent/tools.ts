@@ -72,7 +72,7 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
         return { nodes, count: nodes.length };
       } catch (err: any) {
         const ms = Date.now() - start;
-        console.error(`[graph_search] Error after ${ms}ms:`, err?.message);
+        console.error(`[graph_search] Error after ${ms}ms:`, err?.message, err?.cause);
         return { error: err?.message ?? String(err), nodes: [] };
       }
     },
@@ -104,7 +104,7 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
         return { node };
       } catch (err: any) {
         const ms = Date.now() - start;
-        console.error(`[graph_node] Error after ${ms}ms:`, err?.message);
+        console.error(`[graph_node] Error after ${ms}ms:`, err?.message, err?.cause);
         return { error: err?.message ?? String(err), node: null };
       }
     },
@@ -148,7 +148,7 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
         return { neighbors, count: neighbors.length };
       } catch (err: any) {
         const ms = Date.now() - start;
-        console.error(`[graph_map] Error after ${ms}ms:`, err?.message);
+        console.error(`[graph_map] Error after ${ms}ms:`, err?.message, err?.cause);
         return { error: err?.message ?? String(err), neighbors: [] };
       }
     },
