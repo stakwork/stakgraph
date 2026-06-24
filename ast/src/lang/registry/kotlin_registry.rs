@@ -14,6 +14,7 @@ fn parent_dir(file: &str) -> String {
 pub struct KotlinRegistry {
     class_fields: HashMap<String, HashMap<String, String>>,
     method_returns: HashMap<(String, String), String>,
+    fn_returns: HashMap<String, String>,
     dir_fns: HashMap<String, HashMap<String, NodeKeys>>,
     resolved: HashMap<(String, usize, usize), NodeKeys>,
 }
@@ -23,6 +24,7 @@ impl KotlinRegistry {
         let mut reg = KotlinRegistry {
             class_fields: HashMap::new(),
             method_returns: HashMap::new(),
+            fn_returns: HashMap::new(),
             dir_fns: HashMap::new(),
             resolved: HashMap::new(),
         };
@@ -59,6 +61,10 @@ impl KotlinRegistry {
             for (key, ret) in returns {
                 reg.method_returns.entry(key).or_insert(ret);
             }
+            let fns = kotlin_resolver::extract_fn_returns(source);
+            for (fname, ret) in fns {
+                reg.fn_returns.entry(fname).or_insert(ret);
+            }
         }
 
         // Pass 2: pre-resolve all call sites per file.
@@ -71,6 +77,7 @@ impl KotlinRegistry {
                     file,
                     &reg.class_fields,
                     &reg.method_returns,
+                    &reg.fn_returns,
                     &reg.dir_fns,
                     graph,
                 )

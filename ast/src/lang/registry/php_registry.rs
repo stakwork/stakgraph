@@ -14,6 +14,7 @@ fn parent_dir(file: &str) -> String {
 pub struct PhpRegistry {
     class_fields: HashMap<String, HashMap<String, String>>,
     method_returns: HashMap<(String, String), String>,
+    fn_returns: HashMap<String, String>,
     dir_fns: HashMap<String, HashMap<String, NodeKeys>>,
     resolved: HashMap<(String, usize, usize), NodeKeys>,
 }
@@ -23,6 +24,7 @@ impl PhpRegistry {
         let mut reg = PhpRegistry {
             class_fields: HashMap::new(),
             method_returns: HashMap::new(),
+            fn_returns: HashMap::new(),
             dir_fns: HashMap::new(),
             resolved: HashMap::new(),
         };
@@ -59,6 +61,10 @@ impl PhpRegistry {
             for (key, ret) in returns {
                 reg.method_returns.entry(key).or_insert(ret);
             }
+            let fn_rets = php_resolver::extract_fn_returns(source);
+            for (key, ret) in fn_rets {
+                reg.fn_returns.entry(key).or_insert(ret);
+            }
         }
 
         // Pass 2: pre-resolve all call sites per file.
@@ -71,6 +77,7 @@ impl PhpRegistry {
                     file,
                     &reg.class_fields,
                     &reg.method_returns,
+                    &reg.fn_returns,
                     &reg.dir_fns,
                     graph,
                 )

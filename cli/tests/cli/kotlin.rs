@@ -43,8 +43,8 @@ fn parse_stats_kotlin_dir() {
     let out = run_stakgraph(&["--stats", &dir]);
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("Class                16"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             27"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                17"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             30"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Request              5"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             3"), "stdout: {}", out.stdout);
 }

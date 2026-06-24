@@ -115,6 +115,44 @@ fn walk_field_declaration_list(
     }
 }
 
+/// Extract `func_name → base_return_type` for top-level free functions.
+/// Skips impl-block methods, generic/primitive return types, and functions
+/// returning Self/Result/Option (too polymorphic to dispatch on).
+pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Some(mut parser) = make_parser() else {
+        return out;
+    };
+    let Some(tree) = parser.parse(source, None) else {
+        return out;
+    };
+    let src = source.as_bytes();
+    let root = tree.root_node();
+    for i in 0..root.named_child_count() {
+        let Some(node) = root.named_child(i) else {
+            continue;
+        };
+        if node.kind() != "function_item" {
+            continue;
+        }
+        let Some(name_node) = node.child_by_field_name("name") else {
+            continue;
+        };
+        let Ok(fname) = name_node.utf8_text(src) else {
+            continue;
+        };
+        let Some(ret_node) = node.child_by_field_name("return_type") else {
+            continue;
+        };
+        if let Some(ret_type) = strip_rust_type(ret_node, src) {
+            if !matches!(ret_type.as_str(), "Self" | "Result" | "Option") {
+                out.entry(fname.to_string()).or_insert(ret_type);
+            }
+        }
+    }
+    out
+}
+
 /// Extract `struct_name → { field_name → base_type }` from a Rust source file.
 /// Enum variants and tuple struct fields are skipped.
 pub fn extract_struct_fields(source: &str) -> HashMap<String, HashMap<String, String>> {
@@ -162,6 +200,7 @@ pub fn extract_struct_fields(source: &str) -> HashMap<String, HashMap<String, St
 fn eval_expr_type(
     scope: &Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
+    fn_returns: &HashMap<String, String>,
     node: Node,
     source: &[u8],
 ) -> Option<String> {
@@ -176,6 +215,7 @@ fn eval_expr_type(
             let obj_type = eval_expr_type(
                 scope,
                 struct_fields,
+                fn_returns,
                 node.child_by_field_name("value")?,
                 source,
             )?;
@@ -187,32 +227,39 @@ fn eval_expr_type(
         }
 
         // Type::new() → "Type" (constructor heuristic)
+        // free_fn() → look up in fn_returns
         "call_expression" => {
             let func = node.child_by_field_name("function")?;
-            if func.kind() == "scoped_identifier" {
-                let path = func.child_by_field_name("path")?;
-                let name = func.child_by_field_name("name")?;
-                let name_text = name.utf8_text(source).ok()?;
-                if name_text == "new" || name_text.starts_with("new_") {
-                    // path could be identifier or scoped_identifier; take rightmost name
-                    let path_name = match path.kind() {
-                        "identifier" => path.utf8_text(source).ok()?.to_string(),
-                        "scoped_identifier" => path
-                            .child_by_field_name("name")
-                            .and_then(|n| n.utf8_text(source).ok())
-                            .map(str::to_string)?,
-                        _ => return None,
-                    };
-                    return Some(path_name);
+            match func.kind() {
+                "scoped_identifier" => {
+                    let path = func.child_by_field_name("path")?;
+                    let name = func.child_by_field_name("name")?;
+                    let name_text = name.utf8_text(source).ok()?;
+                    if name_text == "new" || name_text.starts_with("new_") {
+                        let path_name = match path.kind() {
+                            "identifier" => path.utf8_text(source).ok()?.to_string(),
+                            "scoped_identifier" => path
+                                .child_by_field_name("name")
+                                .and_then(|n| n.utf8_text(source).ok())
+                                .map(str::to_string)?,
+                            _ => return None,
+                        };
+                        return Some(path_name);
+                    }
+                    None
                 }
+                "identifier" => {
+                    let func_name = func.utf8_text(source).ok()?;
+                    fn_returns.get(func_name).cloned()
+                }
+                _ => None,
             }
-            None
         }
 
         // &expr or *expr — strip the operator
         "reference_expression" | "unary_expression" => node
             .named_child(0)
-            .and_then(|inner| eval_expr_type(scope, struct_fields, inner, source)),
+            .and_then(|inner| eval_expr_type(scope, struct_fields, fn_returns, inner, source)),
 
         // Foo { ... } struct literal → type name
         "struct_expression" => {
@@ -223,7 +270,7 @@ fn eval_expr_type(
         // (expr) — transparent
         "parenthesized_expression" => node
             .named_child(0)
-            .and_then(|inner| eval_expr_type(scope, struct_fields, inner, source)),
+            .and_then(|inner| eval_expr_type(scope, struct_fields, fn_returns, inner, source)),
 
         // expr as Type — use the cast type
         "type_cast_expression" => node
@@ -233,7 +280,7 @@ fn eval_expr_type(
         // expr.await — recurse; Future<Output=T> → we don't track T, but try the inner expr
         "await_expression" => node
             .child_by_field_name("value")
-            .and_then(|inner| eval_expr_type(scope, struct_fields, inner, source)),
+            .and_then(|inner| eval_expr_type(scope, struct_fields, fn_returns, inner, source)),
 
         _ => None,
     }
@@ -273,6 +320,7 @@ fn position_of_callee(func_node: Node) -> (usize, usize) {
 fn resolve_callee<G: Graph>(
     scope: &Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
+    fn_returns: &HashMap<String, String>,
     pkg_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     node: Node,
@@ -289,6 +337,7 @@ fn resolve_callee<G: Graph>(
             let obj_type = eval_expr_type(
                 scope,
                 struct_fields,
+                fn_returns,
                 node.child_by_field_name("value")?,
                 source,
             )?;
@@ -391,6 +440,7 @@ fn walk_node<G: Graph>(
     source: &[u8],
     scope: &mut Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
+    fn_returns: &HashMap<String, String>,
     pkg_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
@@ -412,6 +462,7 @@ fn walk_node<G: Graph>(
                             source,
                             scope,
                             struct_fields,
+                            fn_returns,
                             pkg_fns,
                             graph,
                             out,
@@ -430,7 +481,7 @@ fn walk_node<G: Graph>(
                 bind_params(params, source, scope, impl_type);
             }
             if let Some(body) = node.child_by_field_name("body") {
-                walk_node(body, source, scope, struct_fields, pkg_fns, graph, out, file, None);
+                walk_node(body, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file, None);
             }
             scope_pop(scope);
         }
@@ -439,7 +490,6 @@ fn walk_node<G: Graph>(
         "closure_expression" => {
             scope_push(scope);
             if let Some(params) = node.child_by_field_name("parameters") {
-                // Closure params use "closure_parameter" kind, which may or may not have a type.
                 for i in 0..params.named_child_count() {
                     if let Some(p) = params.named_child(i) {
                         if p.kind() == "closure_parameter" {
@@ -460,22 +510,20 @@ fn walk_node<G: Graph>(
                 }
             }
             if let Some(body) = node.child_by_field_name("body") {
-                walk_node(body, source, scope, struct_fields, pkg_fns, graph, out, file, None);
+                walk_node(body, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file, None);
             }
             scope_pop(scope);
         }
 
-        // let x: Type = value  OR  let x = Type::new()
+        // let x: Type = value  OR  let x = free_fn() / Type::new()
         "let_declaration" => {
-            // Determine the type: explicit annotation wins, then constructor inference.
             let type_name = if let Some(type_node) = node.child_by_field_name("type") {
                 strip_rust_type(type_node, source)
             } else {
                 node.child_by_field_name("value")
-                    .and_then(|v| eval_expr_type(scope, struct_fields, v, source))
+                    .and_then(|v| eval_expr_type(scope, struct_fields, fn_returns, v, source))
             };
 
-            // Bind the pattern identifier (simple ident only; skip tuple/struct patterns).
             if let Some(pat) = node.child_by_field_name("pattern") {
                 if pat.kind() == "identifier" {
                     if let (Ok(name), Some(t)) = (pat.utf8_text(source), &type_name) {
@@ -486,9 +534,8 @@ fn walk_node<G: Graph>(
                 }
             }
 
-            // Recurse into the value expression to capture nested call edges.
             if let Some(val) = node.child_by_field_name("value") {
-                walk_node(val, source, scope, struct_fields, pkg_fns, graph, out, file, impl_type);
+                walk_node(val, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file, impl_type);
             }
         }
 
@@ -496,19 +543,17 @@ fn walk_node<G: Graph>(
         "call_expression" => {
             if let Some(func_node) = node.child_by_field_name("function") {
                 if let Some(target) =
-                    resolve_callee(scope, struct_fields, pkg_fns, graph, func_node, source, file)
+                    resolve_callee(scope, struct_fields, fn_returns, pkg_fns, graph, func_node, source, file)
                 {
                     let pos = position_of_callee(func_node);
                     out.entry(pos).or_insert(target);
                 }
-                // Recurse into the function node (handles chained receivers).
                 walk_node(
-                    func_node, source, scope, struct_fields, pkg_fns, graph, out, file, impl_type,
+                    func_node, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file, impl_type,
                 );
             }
-            // Recurse into arguments for nested calls.
             if let Some(args) = node.child_by_field_name("arguments") {
-                walk_node(args, source, scope, struct_fields, pkg_fns, graph, out, file, impl_type);
+                walk_node(args, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file, impl_type);
             }
         }
 
@@ -516,7 +561,7 @@ fn walk_node<G: Graph>(
             for i in 0..node.named_child_count() {
                 if let Some(child) = node.named_child(i) {
                     walk_node(
-                        child, source, scope, struct_fields, pkg_fns, graph, out, file, impl_type,
+                        child, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file, impl_type,
                     );
                 }
             }
@@ -532,6 +577,7 @@ pub fn resolve_file_calls<G: Graph>(
     source: &str,
     file: &str,
     struct_fields: &HashMap<String, HashMap<String, String>>,
+    fn_returns: &HashMap<String, String>,
     pkg_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
 ) -> HashMap<(usize, usize), NodeKeys> {
@@ -544,7 +590,6 @@ pub fn resolve_file_calls<G: Graph>(
     };
     let src = source.as_bytes();
 
-    // Root scope starts empty — Rust doesn't have cross-file package-level var scope.
     let mut scope: Scope = vec![HashMap::new()];
 
     walk_node(
@@ -552,6 +597,7 @@ pub fn resolve_file_calls<G: Graph>(
         src,
         &mut scope,
         struct_fields,
+        fn_returns,
         pkg_fns,
         graph,
         &mut out,

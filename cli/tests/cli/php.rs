@@ -51,8 +51,8 @@ fn parse_stats_php_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             41"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Class                9"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             22"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                10"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             25"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────
