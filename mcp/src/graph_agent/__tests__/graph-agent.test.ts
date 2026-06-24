@@ -69,12 +69,12 @@ test.describe("buildContextualSystemPrompt", () => {
     expect(result).toContain('graph_node("clip-xyz")');
   });
 
-  test("instructs graph_map call with the selectedRefId", () => {
+  test("instructs graph_neighbors call with the selectedRefId", () => {
     const result = buildContextualSystemPrompt({
       selectedRefId: "clip-xyz",
       nodeType: "Clip",
     });
-    expect(result).toContain('graph_map("clip-xyz")');
+    expect(result).toContain('graph_neighbors("clip-xyz")');
   });
 });
 

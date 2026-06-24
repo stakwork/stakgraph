@@ -36,7 +36,7 @@ export type GraphToolsConfig = {
 export function get_graph_tools(config: GraphToolsConfig = {}) {
   if (!JARVIS_URL) {
     console.error(
-      "[graph_agent] JARVIS_URL is not set — graph_search / graph_node / graph_map will fail"
+      "[graph_agent] JARVIS_URL is not set — graph_search / graph_node / graph_neighbors will fail"
     );
   }
   const { authToken } = config;
@@ -122,8 +122,8 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
     },
   });
 
-  // ── graph_map ────────────────────────────────────────────────────────────
-  const graph_map = tool({
+  // ── graph_neighbors ──────────────────────────────────────────────────────
+  const graph_neighbors = tool({
     description:
       "Explore the 1-hop neighborhood (related nodes) of a graph node. " +
       "Use this to discover connected topics, episodes, clips, or other related content. " +
@@ -133,21 +133,14 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
     }),
     execute: async ({ ref_id }: { ref_id: string }) => {
       const start = Date.now();
-      const url = `${JARVIS_URL}/v2/nodes/${encodeURIComponent(ref_id)}/neighborhood`;
-      console.log(`[graph_map] ref_id=${ref_id} url=${url}`);
+      const url = `${JARVIS_URL}/v2/nodes/${encodeURIComponent(ref_id)}?expand=edges`;
+      console.log(`[graph_neighbors] ref_id=${ref_id} url=${url}`);
       try {
-        let resp = await jarvisFetch(url, authHeaders(authToken) as Record<string, string>);
-
-        // Fallback: if the /neighborhood route doesn't exist, try ?expand=edges
-        if (resp.status === 404) {
-          const fallbackUrl = `${JARVIS_URL}/v2/nodes/${encodeURIComponent(ref_id)}?expand=edges`;
-          console.log(`[graph_map] 404 on neighborhood — falling back to ${fallbackUrl}`);
-          resp = await jarvisFetch(fallbackUrl, authHeaders(authToken) as Record<string, string>);
-        }
+        const resp = await jarvisFetch(url, authHeaders(authToken) as Record<string, string>);
 
         if (!resp.ok) {
           const text = await resp.text();
-          console.error(`[graph_map] HTTP ${resp.status}: ${text}`);
+          console.error(`[graph_neighbors] HTTP ${resp.status}: ${text}`);
           return { error: `HTTP ${resp.status}: ${text}`, neighbors: [] };
         }
 
@@ -156,15 +149,15 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
           ? data
           : (data.neighbors ?? data.nodes ?? data.edges ?? []);
         const ms = Date.now() - start;
-        console.log(`[graph_map] ref_id=${ref_id} returned ${neighbors.length} neighbors in ${ms}ms`);
+        console.log(`[graph_neighbors] ref_id=${ref_id} returned ${neighbors.length} neighbors in ${ms}ms`);
         return { neighbors, count: neighbors.length };
       } catch (err: any) {
         const ms = Date.now() - start;
-        console.error(`[graph_map] Error after ${ms}ms:`, err?.message, err?.cause);
+        console.error(`[graph_neighbors] Error after ${ms}ms:`, err?.message, err?.cause);
         return { error: err?.message ?? String(err), neighbors: [] };
       }
     },
   });
 
-  return { graph_search, graph_node, graph_map };
+  return { graph_search, graph_node, graph_neighbors };
 }
