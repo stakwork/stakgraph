@@ -1,5 +1,17 @@
 import { tool, Tool } from "ai";
 import { z } from "zod";
+import axios from "axios";
+
+async function jarvisFetch(url: string, headers: Record<string, string>) {
+  const resp = await axios.get(url, { headers, validateStatus: () => true, responseType: "text" });
+  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+  return {
+    ok: resp.status >= 200 && resp.status < 300,
+    status: resp.status,
+    text: async () => text,
+    json: async () => JSON.parse(text) as unknown,
+  };
+}
 
 /**
  * Registers Jarvis ontology tools (`get_ontology` and `graph_search`) into the
@@ -41,7 +53,7 @@ export function registerJarvisTools(
       const url = `${jarvisUrl}/v2/schema?concise=true`;
       console.log(`[get_ontology] fetching ${url}`);
       try {
-        const resp = await fetch(url, { headers: jarvisHeaders });
+        const resp = await jarvisFetch(url, jarvisHeaders);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -107,7 +119,7 @@ export function registerJarvisTools(
         `[graph_search] q=${q} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit}`,
       );
       try {
-        const resp = await fetch(url, { headers: jarvisHeaders });
+        const resp = await jarvisFetch(url, jarvisHeaders);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
