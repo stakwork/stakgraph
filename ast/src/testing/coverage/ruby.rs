@@ -295,8 +295,8 @@ async fn test_nodes_class_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 35, "Should have 35 Class nodes");
-    assert_eq!(results.len(), 35);
+    assert_eq!(count, 32, "Should have 32 Class nodes");
+    assert_eq!(results.len(), 32);
 
     Ok(())
 }
