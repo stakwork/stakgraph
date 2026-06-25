@@ -1,6 +1,7 @@
 import { tool, Tool, ModelMessage } from "ai";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { writeFileSync, unlinkSync } from "node:fs";
 import {
   getRepoMap,
   getFileSummary,
@@ -8,7 +9,8 @@ import {
   fulltextSearch,
   executeBashCommand,
 } from "./bash.js";
-import { getProviderTool, Provider, ModelName } from "../aieo/src/index.js";
+import { textEdit, TextEditInput } from "./textEdit.js";
+import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "../aieo/src/index.js";
 import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";
@@ -71,7 +73,9 @@ type ToolName =
   | "stakgraph_map"
   | "stakgraph_code"
   | "jarvis"
-  | "logs_agent";
+  | "logs_agent"
+  | "str_replace_based_edit_tool"
+  | "apply_patch";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -81,6 +85,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
+  "str_replace_based_edit_tool", "apply_patch",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -182,6 +187,14 @@ Rules:
   jarvis: '', // virtual toggle: gates registration of get_ontology + graph_search tools.
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
+  str_replace_based_edit_tool:
+    "View and edit files inside the cloned repo (sandboxed to working dir). " +
+    "Commands: view (path, optional view_range [start,end]), create (path, file_text), " +
+    "str_replace (path, old_str — must match exactly once, new_str), " +
+    "insert (path, insert_line — 0 = top, insert_text).",
+  apply_patch:
+    "Apply a unified-diff patch string to the cloned repo via `git apply`. " +
+    "Patch must be valid unified-diff format. Returns success message or error details.",
 };
 
 export async function get_tools(
@@ -842,6 +855,67 @@ export async function get_tools(
             return `Logs agent error: ${e instanceof Error ? e.message : String(e)}`;
           } finally {
             cleanupRunLogsDir(logsDir);
+          }
+        },
+      });
+    }
+    // str_replace_based_edit_tool
+    if (toolsConfig.str_replace_based_edit_tool) {
+      if (provider === "anthropic") {
+        // Native provider tool — model is specially trained on this schema
+        const { createAnthropic } = await import("@ai-sdk/anthropic");
+        const baseURL = getGatewayBaseURL("anthropic");
+        const ant = createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
+        allTools.str_replace_based_edit_tool = ant.tools.textEditor_20250728({
+          execute: async (input) => textEdit(input as TextEditInput, repoPath),
+        }) as any as Tool<any, any>;
+      } else {
+        // Generic fallback for OpenAI / other providers
+        allTools.str_replace_based_edit_tool = tool({
+          description:
+            typeof toolsConfig.str_replace_based_edit_tool === "string"
+              ? toolsConfig.str_replace_based_edit_tool
+              : defaultDescriptions.str_replace_based_edit_tool,
+          inputSchema: z.object({
+            command: z.enum(["view", "create", "str_replace", "insert"]),
+            path: z.string(),
+            file_text: z.string().optional(),
+            old_str: z.string().optional(),
+            new_str: z.string().optional(),
+            insert_line: z.number().int().optional(),
+            insert_text: z.string().optional(),
+            view_range: z.array(z.number().int()).length(2).optional(),
+          }),
+          execute: async (input) => textEdit(input as TextEditInput, repoPath),
+        });
+      }
+    }
+    // apply_patch — shells out to `git apply`; cloned repos are real git repos
+    if (toolsConfig.apply_patch) {
+      allTools.apply_patch = tool({
+        description:
+          typeof toolsConfig.apply_patch === "string"
+            ? toolsConfig.apply_patch
+            : defaultDescriptions.apply_patch,
+        inputSchema: z.object({
+          patch: z.string().describe("Unified-diff patch string to apply"),
+        }),
+        execute: async ({ patch }: { patch: string }) => {
+          const tmp = `/tmp/patch_${randomUUID()}.diff`;
+          writeFileSync(tmp, patch);
+          try {
+            return await executeBashCommand(
+              `git apply "${tmp}"`,
+              repoPath,
+              undefined,
+              ghEnv,
+            );
+          } catch (e) {
+            return `apply_patch failed: ${e}`;
+          } finally {
+            try {
+              unlinkSync(tmp);
+            } catch {}
           }
         },
       });
