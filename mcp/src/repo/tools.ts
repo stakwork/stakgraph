@@ -850,7 +850,7 @@ export async function get_tools(
               apiKey,
               logsDir,
               sessionId,
-              source: "repo_agent",
+              source: "logs_agent",
             });
             return result.final || "No result returned from logs agent.";
           } catch (e) {

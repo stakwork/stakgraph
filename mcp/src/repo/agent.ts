@@ -936,7 +936,10 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "repo_url": "https://github.com/stakwork/hive",
-    "prompt": "tell me a joke"
+    "prompt": "as logs_agent to tell me a joke",
+    "toolsConfig": {
+      "logs_agent": true
+    }
   }' \
   "http://localhost:3355/repo/agent"
 */
