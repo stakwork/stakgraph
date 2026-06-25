@@ -1,3 +1,4 @@
+mod python;
 mod ruby;
 mod rust;
 mod typescript;
@@ -13,6 +14,7 @@ use std::collections::HashSet;
 #[derive(Debug, Clone)]
 pub enum CoverageLanguage {
     Typescript,
+    Python,
     Ruby,
     Rust,
 }
@@ -117,6 +119,8 @@ impl CoverageLanguage {
                 return CoverageLanguage::Ruby;
             } else if lang_name == "rust" {
                 return CoverageLanguage::Rust;
+            } else if lang_name == "python" {
+                return CoverageLanguage::Python;
             }
         }
 
@@ -126,6 +130,7 @@ impl CoverageLanguage {
     pub fn language_name(&self) -> String {
         match self {
             CoverageLanguage::Typescript => "typescript".to_string(),
+            CoverageLanguage::Python => "python".to_string(),
             CoverageLanguage::Ruby => "ruby".to_string(),
             CoverageLanguage::Rust => "rust".to_string(),
         }
@@ -138,6 +143,7 @@ impl CoverageLanguage {
     ) -> Result<GraphCoverage> {
         match self {
             CoverageLanguage::Typescript => typescript::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Python => python::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Ruby => ruby::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Rust => rust::get_coverage(self, graph, in_scope).await,
         }
