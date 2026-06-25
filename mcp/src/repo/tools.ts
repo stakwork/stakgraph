@@ -842,12 +842,14 @@ export async function get_tools(
           prompt: z.string().describe("A focused question about runtime logs"),
         }),
         execute: async ({ prompt }: { prompt: string }) => {
+          const sessionId = randomUUID();
           const logsDir = createRunLogsDir(randomUUID());
           try {
             const result = await log_agent_context(prompt, {
               modelName,
               apiKey,
               logsDir,
+              sessionId,
               source: "repo_agent",
             });
             return result.final || "No result returned from logs agent.";
