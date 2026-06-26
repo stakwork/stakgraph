@@ -4,7 +4,7 @@ import { redactSecrets } from "./redact.js";
 import * as fs from "fs";
 import * as path from "path";
 import {
-  fetchCloudwatchLogs,
+  fetchCloudwatchLogsInsights,
   listCloudwatchLogGroups,
 } from "./cloudwatch.js";
 import { fetchWorkflowRunLogs } from "./stakwork.js";
@@ -42,7 +42,7 @@ export function get_log_tools(
   const tools: Record<string, Tool<any, any>> = {
     fetch_cloudwatch: tool({
       description:
-        "Fetch logs from AWS CloudWatch and save them to a local file for searching. Call this first to pull logs, then use bash to search through them (e.g. rg, grep, awk). Supports CloudWatch filter patterns.",
+        'Fetch logs from AWS CloudWatch using Logs Insights and save them to a local file for searching. Results are returned **newest-first**. Plain string filter patterns are supported (e.g. "ERROR"); JSON-style patterns (e.g. "{ $.statusCode = 500 }") are **not** supported — use a plain string instead.',
       inputSchema: z.object({
         log_group: z
           .string()
@@ -59,7 +59,7 @@ export function get_log_tools(
           .string()
           .optional()
           .describe(
-            'CloudWatch filter pattern (e.g. "ERROR" or "{ $.statusCode = 500 }")'
+            'Plain string filter pattern (e.g. "ERROR", "147426952"). JSON-style patterns (e.g. "{ $.statusCode = 500 }") are not supported.'
           ),
         minutes: z
           .number()
@@ -84,7 +84,7 @@ export function get_log_tools(
         limit?: number;
       }) => {
         try {
-          const result = await fetchCloudwatchLogs({
+          const result = await fetchCloudwatchLogsInsights({
             logGroupName: log_group,
             logStreamNames: log_stream_names,
             filterPattern: filter_pattern,
