@@ -2,6 +2,7 @@ mod csharp;
 mod go;
 mod java;
 mod kotlin;
+mod php;
 mod python;
 mod ruby;
 mod rust;
@@ -23,6 +24,7 @@ pub enum CoverageLanguage {
     Go,
     Java,
     Kotlin,
+    Php,
     Python,
     Ruby,
     Rust,
@@ -137,6 +139,8 @@ impl CoverageLanguage {
                 return CoverageLanguage::Java;
             } else if lang_name == "kotlin" {
                 return CoverageLanguage::Kotlin;
+            } else if lang_name == "php" {
+                return CoverageLanguage::Php;
             } else if lang_name == "swift" {
                 return CoverageLanguage::Swift;
             } else if lang_name == "csharp" {
@@ -154,6 +158,7 @@ impl CoverageLanguage {
             CoverageLanguage::Go => "go".to_string(),
             CoverageLanguage::Java => "java".to_string(),
             CoverageLanguage::Kotlin => "kotlin".to_string(),
+            CoverageLanguage::Php => "php".to_string(),
             CoverageLanguage::Python => "python".to_string(),
             CoverageLanguage::Ruby => "ruby".to_string(),
             CoverageLanguage::Rust => "rust".to_string(),
@@ -172,6 +177,7 @@ impl CoverageLanguage {
             CoverageLanguage::Go => go::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Java => java::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Kotlin => kotlin::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Php => php::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Python => python::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Ruby => ruby::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Rust => rust::get_coverage(self, graph, in_scope).await,

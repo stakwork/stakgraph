@@ -14,6 +14,9 @@ pub mod kotlin;
 pub mod nextjs;
 
 #[cfg(test)]
+pub mod php;
+
+#[cfg(test)]
 pub mod python;
 
 #[cfg(test)]
