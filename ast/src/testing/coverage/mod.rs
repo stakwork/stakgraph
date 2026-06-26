@@ -1,4 +1,7 @@
 #[cfg(test)]
+pub mod csharp;
+
+#[cfg(test)]
 pub mod go;
 
 #[cfg(test)]

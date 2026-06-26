@@ -1,3 +1,4 @@
+mod csharp;
 mod go;
 mod java;
 mod python;
@@ -16,6 +17,7 @@ use std::collections::HashSet;
 #[derive(Debug, Clone)]
 pub enum CoverageLanguage {
     Typescript,
+    CSharp,
     Go,
     Java,
     Python,
@@ -129,6 +131,8 @@ impl CoverageLanguage {
                 return CoverageLanguage::Go;
             } else if lang_name == "java" {
                 return CoverageLanguage::Java;
+            } else if lang_name == "csharp" {
+                return CoverageLanguage::CSharp;
             }
         }
 
@@ -138,6 +142,7 @@ impl CoverageLanguage {
     pub fn language_name(&self) -> String {
         match self {
             CoverageLanguage::Typescript => "typescript".to_string(),
+            CoverageLanguage::CSharp => "csharp".to_string(),
             CoverageLanguage::Go => "go".to_string(),
             CoverageLanguage::Java => "java".to_string(),
             CoverageLanguage::Python => "python".to_string(),
@@ -153,6 +158,7 @@ impl CoverageLanguage {
     ) -> Result<GraphCoverage> {
         match self {
             CoverageLanguage::Typescript => typescript::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::CSharp => csharp::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Go => go::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Java => java::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Python => python::get_coverage(self, graph, in_scope).await,
