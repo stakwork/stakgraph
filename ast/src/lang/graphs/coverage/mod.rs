@@ -5,6 +5,7 @@ mod kotlin;
 mod python;
 mod ruby;
 mod rust;
+mod swift;
 mod typescript;
 
 use super::{NodeData, NodeType};
@@ -25,6 +26,7 @@ pub enum CoverageLanguage {
     Python,
     Ruby,
     Rust,
+    Swift,
 }
 
 pub(crate) struct CoverageTier {
@@ -135,6 +137,8 @@ impl CoverageLanguage {
                 return CoverageLanguage::Java;
             } else if lang_name == "kotlin" {
                 return CoverageLanguage::Kotlin;
+            } else if lang_name == "swift" {
+                return CoverageLanguage::Swift;
             } else if lang_name == "csharp" {
                 return CoverageLanguage::CSharp;
             }
@@ -153,6 +157,7 @@ impl CoverageLanguage {
             CoverageLanguage::Python => "python".to_string(),
             CoverageLanguage::Ruby => "ruby".to_string(),
             CoverageLanguage::Rust => "rust".to_string(),
+            CoverageLanguage::Swift => "swift".to_string(),
         }
     }
 
@@ -170,6 +175,7 @@ impl CoverageLanguage {
             CoverageLanguage::Python => python::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Ruby => ruby::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Rust => rust::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Swift => swift::get_coverage(self, graph, in_scope).await,
         }
     }
 }

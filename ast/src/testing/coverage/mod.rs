@@ -26,4 +26,7 @@ pub mod ruby;
 pub mod rust;
 
 #[cfg(test)]
+pub mod swift;
+
+#[cfg(test)]
 pub mod typescript;
