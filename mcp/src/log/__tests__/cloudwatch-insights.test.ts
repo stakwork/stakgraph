@@ -192,3 +192,72 @@ test("fetchCloudwatchLogsInsights: passes startTime/endTime in epoch seconds", a
   expect(delta).toBeGreaterThanOrEqual(1798);
   expect(delta).toBeLessThanOrEqual(1802);
 });
+
+// ---------------------------------------------------------------------------
+// Timeout with partial rows
+// ---------------------------------------------------------------------------
+test("fetchCloudwatchLogsInsights: Timeout status returns partial results immediately", async () => {
+  const logsDir = makeTmpDir();
+  let getQueryCallCount = 0;
+
+  const mockClient = makeMockClient({
+    StartQueryCommand: () => ({ queryId: "qid-timeout-partial" }),
+    GetQueryResultsCommand: () => {
+      getQueryCallCount++;
+      return {
+        status: "Timeout",
+        results: [
+          [
+            { field: "@timestamp", value: "2024-01-01T00:00:00.000Z" },
+            { field: "@logStream", value: "stream1" },
+            { field: "@message", value: "partial log line" },
+          ],
+        ],
+      };
+    },
+  });
+
+  const result = await fetchCloudwatchLogsInsights(
+    { logGroupName: "/test/group", minutes: 30, logsDir },
+    mockClient
+  );
+
+  expect(result.truncated).toBe(true);
+  expect(result.lineCount).toBe(1);
+  expect(getQueryCallCount).toBe(1);
+});
+
+// ---------------------------------------------------------------------------
+// Timeout with empty / undefined results
+// ---------------------------------------------------------------------------
+test("fetchCloudwatchLogsInsights: Timeout status with no results returns lineCount 0 without throwing", async () => {
+  const logsDir = makeTmpDir();
+
+  // Case A: results key missing entirely
+  const mockClientUndefined = makeMockClient({
+    StartQueryCommand: () => ({ queryId: "qid-timeout-empty-a" }),
+    GetQueryResultsCommand: () => ({ status: "Timeout" }),
+  });
+
+  const resultA = await fetchCloudwatchLogsInsights(
+    { logGroupName: "/test/group", minutes: 30, logsDir },
+    mockClientUndefined
+  );
+
+  expect(resultA.truncated).toBe(true);
+  expect(resultA.lineCount).toBe(0);
+
+  // Case B: results is an empty array
+  const mockClientEmpty = makeMockClient({
+    StartQueryCommand: () => ({ queryId: "qid-timeout-empty-b" }),
+    GetQueryResultsCommand: () => ({ status: "Timeout", results: [] }),
+  });
+
+  const resultB = await fetchCloudwatchLogsInsights(
+    { logGroupName: "/test/group", minutes: 30, logsDir },
+    mockClientEmpty
+  );
+
+  expect(resultB.truncated).toBe(true);
+  expect(resultB.lineCount).toBe(0);
+});

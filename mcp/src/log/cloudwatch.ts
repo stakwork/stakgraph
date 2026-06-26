@@ -266,6 +266,13 @@ export async function fetchCloudwatchLogsInsights(
     if (status === "Complete") {
       results = pollResp.results ?? [];
       break;
+    } else if (status === "Timeout") {
+      results = pollResp.results ?? [];
+      truncated = true;
+      console.warn(
+        `[cloudwatch] Insights query for ${logGroupName} returned terminal Timeout — returning ${results.length} partial result(s)`
+      );
+      break;
     } else if (status === "Failed" || status === "Cancelled") {
       throw new Error(`CloudWatch Logs Insights query ${status.toLowerCase()}`);
     }
