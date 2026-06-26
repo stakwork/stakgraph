@@ -4,7 +4,10 @@ import XCTest
 // @ast edge: Operand -> Function "setUp" "ProfileTests.swift"
 // @ast node: Function "setUp"
 // @ast node: UnitTest "testFetchProfile"
+// @ast edge: Calls -> Function "fetchProfile" "ProfileService.swift"
 // @ast node: UnitTest "testStatusUpdate"
+// @ast edge: Calls -> Function "updateStatus" "ProfileService.swift"
+// @ast node: UnitTest "testEmailValidation"
 // @ast node: Import "import-imports-srctestingswiftmodernapptestsmodernapptestsprofiletestsswift-0"
 
 final class ProfileTests: XCTestCase {
@@ -24,5 +27,12 @@ final class ProfileTests: XCTestCase {
     func testStatusUpdate() async {
         await service.updateStatus(status: .online)
         // Assert state change
+    }
+
+    func testEmailValidation() {
+        let valid = "test@example.com".isValidEmail
+        XCTAssertTrue(valid)
+        let invalid = "not-an-email".isValidEmail
+        XCTAssertFalse(invalid)
     }
 }

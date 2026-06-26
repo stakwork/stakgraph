@@ -1,12 +1,21 @@
-use crate::lang::graphs::graph_ops::GraphOps;
-use crate::lang::graphs::{BTreeMapGraph, EdgeType, Graph, NodeType, TestFilters};
+use crate::lang::graphs::{BTreeMapGraph, EdgeType, Graph, NodeType};
 use crate::lang::Lang;
-use crate::repo::{Repo, Repos};
-use crate::utils::get_use_lsp;
+use crate::repo::Repo;
 use shared::error::Result;
 use std::str::FromStr;
+
+#[cfg(feature = "neo4j")]
+use crate::lang::graphs::graph_ops::GraphOps;
+#[cfg(feature = "neo4j")]
+use crate::lang::graphs::TestFilters;
+#[cfg(feature = "neo4j")]
+use crate::repo::Repos;
+#[cfg(feature = "neo4j")]
+use crate::utils::get_use_lsp;
+#[cfg(feature = "neo4j")]
 use tokio::sync::OnceCell;
 
+#[cfg(feature = "neo4j")]
 async fn setup_rust_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> {
     static GRAPH_INIT: OnceCell<()> = OnceCell::const_new();
 

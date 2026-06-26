@@ -1,7 +1,14 @@
+mod c;
+mod cpp;
+mod csharp;
 mod go;
+mod java;
+mod kotlin;
+mod php;
 mod python;
 mod ruby;
 mod rust;
+mod swift;
 mod typescript;
 
 use super::{NodeData, NodeType};
@@ -15,10 +22,17 @@ use std::collections::HashSet;
 #[derive(Debug, Clone)]
 pub enum CoverageLanguage {
     Typescript,
+    C,
+    Cpp,
+    CSharp,
     Go,
+    Java,
+    Kotlin,
+    Php,
     Python,
     Ruby,
     Rust,
+    Swift,
 }
 
 pub(crate) struct CoverageTier {
@@ -117,7 +131,11 @@ impl CoverageLanguage {
 
         for lang_node in language_nodes {
             let lang_name = lang_node.name.to_lowercase();
-            if lang_name == "ruby" {
+            if lang_name == "c" {
+                return CoverageLanguage::C;
+            } else if lang_name == "cpp" {
+                return CoverageLanguage::Cpp;
+            } else if lang_name == "ruby" {
                 return CoverageLanguage::Ruby;
             } else if lang_name == "rust" {
                 return CoverageLanguage::Rust;
@@ -125,6 +143,16 @@ impl CoverageLanguage {
                 return CoverageLanguage::Python;
             } else if lang_name == "go" {
                 return CoverageLanguage::Go;
+            } else if lang_name == "java" {
+                return CoverageLanguage::Java;
+            } else if lang_name == "kotlin" {
+                return CoverageLanguage::Kotlin;
+            } else if lang_name == "php" {
+                return CoverageLanguage::Php;
+            } else if lang_name == "swift" {
+                return CoverageLanguage::Swift;
+            } else if lang_name == "csharp" {
+                return CoverageLanguage::CSharp;
             }
         }
 
@@ -134,10 +162,17 @@ impl CoverageLanguage {
     pub fn language_name(&self) -> String {
         match self {
             CoverageLanguage::Typescript => "typescript".to_string(),
+            CoverageLanguage::C => "c".to_string(),
+            CoverageLanguage::Cpp => "cpp".to_string(),
+            CoverageLanguage::CSharp => "csharp".to_string(),
             CoverageLanguage::Go => "go".to_string(),
+            CoverageLanguage::Java => "java".to_string(),
+            CoverageLanguage::Kotlin => "kotlin".to_string(),
+            CoverageLanguage::Php => "php".to_string(),
             CoverageLanguage::Python => "python".to_string(),
             CoverageLanguage::Ruby => "ruby".to_string(),
             CoverageLanguage::Rust => "rust".to_string(),
+            CoverageLanguage::Swift => "swift".to_string(),
         }
     }
 
@@ -148,10 +183,17 @@ impl CoverageLanguage {
     ) -> Result<GraphCoverage> {
         match self {
             CoverageLanguage::Typescript => typescript::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::C => c::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Cpp => cpp::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::CSharp => csharp::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Go => go::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Java => java::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Kotlin => kotlin::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Php => php::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Python => python::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Ruby => ruby::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Rust => rust::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Swift => swift::get_coverage(self, graph, in_scope).await,
         }
     }
 }
