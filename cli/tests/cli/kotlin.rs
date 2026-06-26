@@ -46,7 +46,7 @@ fn parse_stats_kotlin_dir() {
     assert!(out.stdout.contains("Class                16"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Function             27"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Request              5"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("UnitTest             1"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("UnitTest             3"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

@@ -77,7 +77,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(unit_tests.len(), 5);
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
-    assert_eq!(integration_tests.len(), 0);
+    assert_eq!(integration_tests.len(), 3);
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     assert_eq!(e2e_tests.len(), 0);
@@ -108,10 +108,10 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges, 21);
+    assert_eq!(calls_edges, 24);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 164);
+    assert_eq!(contains_edges, 168);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 0);
@@ -128,7 +128,7 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
         NodeType::Function,
         EdgeType::Calls,
     );
-    assert_eq!(integration_test_to_function_edges.len(), 0);
+    assert_eq!(integration_test_to_function_edges.len(), 3);
 
     Ok(())
 }
@@ -144,6 +144,10 @@ async fn test_coverage_default_params() -> Result<()> {
 
     if let Some(unit) = &coverage.unit_tests {
         assert_eq!(unit.total_tests, 5);
+    }
+
+    if let Some(integration) = &coverage.integration_tests {
+        assert_eq!(integration.total_tests, 3);
     }
 
     Ok(())
