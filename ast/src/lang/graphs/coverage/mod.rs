@@ -1,3 +1,5 @@
+mod c;
+mod cpp;
 mod csharp;
 mod go;
 mod java;
@@ -20,6 +22,8 @@ use std::collections::HashSet;
 #[derive(Debug, Clone)]
 pub enum CoverageLanguage {
     Typescript,
+    C,
+    Cpp,
     CSharp,
     Go,
     Java,
@@ -127,7 +131,11 @@ impl CoverageLanguage {
 
         for lang_node in language_nodes {
             let lang_name = lang_node.name.to_lowercase();
-            if lang_name == "ruby" {
+            if lang_name == "c" {
+                return CoverageLanguage::C;
+            } else if lang_name == "cpp" {
+                return CoverageLanguage::Cpp;
+            } else if lang_name == "ruby" {
                 return CoverageLanguage::Ruby;
             } else if lang_name == "rust" {
                 return CoverageLanguage::Rust;
@@ -154,6 +162,8 @@ impl CoverageLanguage {
     pub fn language_name(&self) -> String {
         match self {
             CoverageLanguage::Typescript => "typescript".to_string(),
+            CoverageLanguage::C => "c".to_string(),
+            CoverageLanguage::Cpp => "cpp".to_string(),
             CoverageLanguage::CSharp => "csharp".to_string(),
             CoverageLanguage::Go => "go".to_string(),
             CoverageLanguage::Java => "java".to_string(),
@@ -173,6 +183,8 @@ impl CoverageLanguage {
     ) -> Result<GraphCoverage> {
         match self {
             CoverageLanguage::Typescript => typescript::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::C => c::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Cpp => cpp::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::CSharp => csharp::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Go => go::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Java => java::get_coverage(self, graph, in_scope).await,
