@@ -1,12 +1,17 @@
-use crate::lang::graphs::{EdgeType, Graph, NodeType, TestFilters};
+use crate::lang::graphs::{EdgeType, Graph, NodeType};
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::Lang;
 use crate::repo::{Repo, Repos};
 use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
+
+#[cfg(feature = "neo4j")]
+use crate::lang::graphs::TestFilters;
+#[cfg(feature = "neo4j")]
 use tokio::sync::OnceCell;
 
+#[cfg(feature = "neo4j")]
 async fn setup_nextjs_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> {
     static GRAPH_INIT: OnceCell<()> = OnceCell::const_new();
 
