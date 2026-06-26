@@ -8,6 +8,9 @@ pub mod go;
 pub mod java;
 
 #[cfg(test)]
+pub mod kotlin;
+
+#[cfg(test)]
 pub mod nextjs;
 
 #[cfg(test)]
