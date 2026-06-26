@@ -2,6 +2,9 @@
 pub mod go;
 
 #[cfg(test)]
+pub mod java;
+
+#[cfg(test)]
 pub mod nextjs;
 
 #[cfg(test)]

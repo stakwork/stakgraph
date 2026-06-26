@@ -1,4 +1,5 @@
 mod go;
+mod java;
 mod python;
 mod ruby;
 mod rust;
@@ -16,6 +17,7 @@ use std::collections::HashSet;
 pub enum CoverageLanguage {
     Typescript,
     Go,
+    Java,
     Python,
     Ruby,
     Rust,
@@ -125,6 +127,8 @@ impl CoverageLanguage {
                 return CoverageLanguage::Python;
             } else if lang_name == "go" {
                 return CoverageLanguage::Go;
+            } else if lang_name == "java" {
+                return CoverageLanguage::Java;
             }
         }
 
@@ -135,6 +139,7 @@ impl CoverageLanguage {
         match self {
             CoverageLanguage::Typescript => "typescript".to_string(),
             CoverageLanguage::Go => "go".to_string(),
+            CoverageLanguage::Java => "java".to_string(),
             CoverageLanguage::Python => "python".to_string(),
             CoverageLanguage::Ruby => "ruby".to_string(),
             CoverageLanguage::Rust => "rust".to_string(),
@@ -149,6 +154,7 @@ impl CoverageLanguage {
         match self {
             CoverageLanguage::Typescript => typescript::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Go => go::get_coverage(self, graph, in_scope).await,
+            CoverageLanguage::Java => java::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Python => python::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Ruby => ruby::get_coverage(self, graph, in_scope).await,
             CoverageLanguage::Rust => rust::get_coverage(self, graph, in_scope).await,
