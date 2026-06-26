@@ -1,12 +1,19 @@
-use crate::lang::graphs::{Graph, NodeType, TestFilters};
+use crate::lang::graphs::{BTreeMapGraph, EdgeType, Graph, NodeType};
 use crate::lang::Lang;
-use crate::repo::{Repo, Repos};
-use crate::utils::get_use_lsp;
+use crate::repo::Repo;
 use shared::error::Result;
 use std::str::FromStr;
+
+#[cfg(feature = "neo4j")]
+use crate::lang::graphs::TestFilters;
+#[cfg(feature = "neo4j")]
+use crate::repo::Repos;
+#[cfg(feature = "neo4j")]
+use crate::utils::get_use_lsp;
+#[cfg(feature = "neo4j")]
 use tokio::sync::OnceCell;
 
-/// Helper to build the Ruby test graph and upload to Neo4j
+#[cfg(feature = "neo4j")]
 async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> {
     static GRAPH_INIT: OnceCell<()> = OnceCell::const_new();
 
@@ -46,6 +53,82 @@ async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
     let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::new();
     graph_ops.connect().await?;
     Ok(graph_ops)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_btreemap_graph_structure() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/ruby",
+        Lang::from_str("ruby").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
+
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    assert_eq!(endpoints.len(), 23);
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    assert_eq!(functions.len(), 64);
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    assert_eq!(unit_tests.len(), 21);
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    assert_eq!(integration_tests.len(), 23);
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    assert_eq!(e2e_tests.len(), 10);
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    assert_eq!(classes.len(), 35);
+
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    assert_eq!(data_models.len(), 2);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_btreemap_test_to_class_edges() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/ruby",
+        Lang::from_str("ruby").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
+
+    let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
+    assert_eq!(calls_edges, 98);
+
+    let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
+    assert_eq!(contains_edges, 333);
+
+    let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
+    assert_eq!(handler_edges, 23);
+
+    let implements_edges = graph.count_edges_of_type(EdgeType::Implements);
+    assert_eq!(implements_edges, 0);
+
+    let unit_test_to_class_edges =
+        graph.find_nodes_with_edge_type(NodeType::UnitTest, NodeType::Class, EdgeType::Calls);
+    assert_eq!(unit_test_to_class_edges.len(), 21);
+
+    let integration_test_to_class_edges = graph.find_nodes_with_edge_type(
+        NodeType::IntegrationTest,
+        NodeType::Class,
+        EdgeType::Calls,
+    );
+    assert_eq!(integration_test_to_class_edges.len(), 26);
+
+    Ok(())
 }
 
 #[cfg(feature = "neo4j")]
