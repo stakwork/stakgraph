@@ -12,3 +12,9 @@ pub mod typescript;
 
 #[cfg(all(test, feature = "neo4j"))]
 pub mod react;
+
+#[cfg(test)]
+pub mod python;
+
+#[cfg(test)]
+pub mod go;
