@@ -94,7 +94,7 @@ export function get_log_tools(
             abortSignal,
           });
           const truncNote = result.truncated
-            ? " NOTE: the fetch was capped before scanning the full time range (results may be incomplete) — narrow the filter_pattern, log_stream_names, or minutes to get complete results."
+            ? " NOTE: results may be incomplete (fetch hit the wall-clock cap or the query timed out on AWS) — narrow the filter_pattern, log_stream_names, or minutes to get complete results."
             : "";
           return `Fetched ${result.lineCount} log lines from ${result.logGroup} (${result.timeRange.startTime} to ${result.timeRange.endTime}). Saved to file: ${result.file}. Use bash to search through it (e.g. rg, grep, head, tail, awk).${truncNote}`;
         } catch (e: any) {
