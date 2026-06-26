@@ -12,6 +12,8 @@ fn parent_dir(file: &str) -> String {
 }
 
 pub struct PhpRegistry {
+    var_types: HashMap<(String, String), String>,
+    methods: HashMap<(String, String), String>,
     class_fields: HashMap<String, HashMap<String, String>>,
     method_returns: HashMap<(String, String), String>,
     fn_returns: HashMap<String, String>,
@@ -22,6 +24,8 @@ pub struct PhpRegistry {
 impl PhpRegistry {
     pub fn new(graph: &impl Graph, filez: &[(String, String)]) -> Self {
         let mut reg = PhpRegistry {
+            var_types: HashMap::new(),
+            methods: HashMap::new(),
             class_fields: HashMap::new(),
             method_returns: HashMap::new(),
             fn_returns: HashMap::new(),
@@ -29,20 +33,34 @@ impl PhpRegistry {
             resolved: HashMap::new(),
         };
 
-        // Pass 1: index Function nodes by directory for bare-name fallback.
+        // Pass 1: index graph nodes — functions, methods, and typed variables.
         for (node_type, node_data) in graph.iter_all_nodes() {
             if !node_data.file.ends_with(".php") {
                 continue;
             }
-            if *node_type != NodeType::Function {
-                continue;
+            match node_type {
+                NodeType::Function => {
+                    let dir = parent_dir(&node_data.file);
+                    reg.dir_fns
+                        .entry(dir)
+                        .or_default()
+                        .entry(node_data.name.clone())
+                        .or_insert_with(|| NodeKeys::from(node_data));
+                    if let Some(operand) = node_data.meta.get("operand") {
+                        reg.methods.insert(
+                            (operand.clone(), node_data.name.clone()),
+                            node_data.file.clone(),
+                        );
+                    }
+                }
+                NodeType::Var | NodeType::Instance => {
+                    if let Some(dt) = &node_data.data_type {
+                        reg.var_types
+                            .insert((node_data.file.clone(), node_data.name.clone()), dt.clone());
+                    }
+                }
+                _ => {}
             }
-            let dir = parent_dir(&node_data.file);
-            reg.dir_fns
-                .entry(dir)
-                .or_default()
-                .entry(node_data.name.clone())
-                .or_insert_with(|| NodeKeys::from(node_data));
         }
 
         // Pass 1.5: extract class field types and method return types.
@@ -92,12 +110,23 @@ impl PhpRegistry {
 }
 
 impl Registry for PhpRegistry {
-    fn resolve_type(&self, _file: &str, _var_name: &str) -> Option<&str> {
-        None
+    fn resolve_type(&self, file: &str, var_name: &str) -> Option<&str> {
+        self.var_types
+            .get(&(file.to_string(), var_name.to_string()))
+            .map(|s| s.as_str())
     }
 
-    fn resolve_method(&self, _type_name: &str, _method_name: &str) -> Option<&str> {
-        None
+    fn resolve_method(&self, type_name: &str, method_name: &str) -> Option<&str> {
+        self.methods
+            .get(&(type_name.to_string(), method_name.to_string()))
+            .map(|s| s.as_str())
+    }
+
+    fn resolve_field(&self, type_name: &str, field_name: &str) -> Option<&str> {
+        self.class_fields
+            .get(type_name)?
+            .get(field_name)
+            .map(|s| s.as_str())
     }
 
     fn resolve_call_at(&self, file: &str, row: usize, col: usize) -> Option<NodeKeys> {
