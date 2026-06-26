@@ -4,6 +4,8 @@ import {
   FilteredLogEvent,
   DescribeLogGroupsCommand,
   DescribeLogStreamsCommand,
+  StartQueryCommand,
+  GetQueryResultsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { fromIni } from "@aws-sdk/credential-providers";
 import * as fs from "fs";
@@ -135,6 +137,170 @@ export async function fetchCloudwatchLogs(
     timeRange: {
       startTime: new Date(startTime).toISOString(),
       endTime: new Date(endTime).toISOString(),
+    },
+    truncated,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Logs Insights helpers (exported for unit testing)
+// ---------------------------------------------------------------------------
+
+export interface InsightsQueryParams {
+  filterPattern?: string;
+  logStreamNames?: string[];
+  limit?: number;
+}
+
+/**
+ * Build the CloudWatch Logs Insights query string.
+ * Exported so tests can verify the query without touching AWS.
+ * Throws if `filterPattern` is a JSON-style metric filter pattern.
+ */
+export function buildInsightsQuery(params: InsightsQueryParams): string {
+  const { filterPattern, logStreamNames, limit } = params;
+
+  if (filterPattern && filterPattern.trimStart().startsWith("{")) {
+    throw new Error(
+      "JSON-style filter patterns are not supported by Logs Insights — use a plain string pattern instead."
+    );
+  }
+
+  const insightsLimit = Math.min(limit ?? 10000, 10000);
+  const parts: string[] = ["fields @timestamp, @message, @logStream"];
+
+  if (filterPattern) {
+    const escaped = filterPattern.replace(/\//g, "\\/");
+    parts.push(`| filter @message like /${escaped}/`);
+  }
+
+  if (logStreamNames && logStreamNames.length > 0) {
+    const list = logStreamNames.map((s) => `"${s}"`).join(", ");
+    parts.push(`| filter @logStream in [${list}]`);
+  }
+
+  parts.push("| sort @timestamp desc");
+  parts.push(`| limit ${insightsLimit}`);
+
+  return parts.join("\n");
+}
+
+/**
+ * Fetch CloudWatch logs using Logs Insights (newest-first via `sort @timestamp desc`).
+ * Replaces FilterLogEvents for high-volume log groups where oldest-first pagination
+ * would exhaust page/time caps before reaching recent logs.
+ *
+ * @param params   Standard fetch params (same interface as fetchCloudwatchLogs).
+ * @param _client  Optional CloudWatchLogsClient for dependency injection in tests.
+ */
+export async function fetchCloudwatchLogsInsights(
+  params: FetchCloudwatchParams,
+  _client?: CloudWatchLogsClient
+): Promise<FetchCloudwatchResult> {
+  const {
+    logGroupName,
+    logStreamNames,
+    filterPattern,
+    minutes = 30,
+    limit = 10000,
+    logsDir,
+    abortSignal,
+  } = params;
+
+  const queryString = buildInsightsQuery({ filterPattern, logStreamNames, limit });
+  const client = _client ?? getClient();
+
+  const endTimeMs = Date.now();
+  const startTimeMs = endTimeMs - minutes * 60 * 1000;
+
+  // StartQueryCommand uses epoch seconds (not ms like FilterLogEvents)
+  const startQueryResp = await client.send(
+    new StartQueryCommand({
+      logGroupName,
+      startTime: Math.floor(startTimeMs / 1000),
+      endTime: Math.floor(endTimeMs / 1000),
+      queryString,
+    }),
+    { abortSignal: abortSignal as any }
+  );
+
+  const queryId = startQueryResp.queryId;
+  if (!queryId) {
+    throw new Error("CloudWatch Logs Insights did not return a queryId");
+  }
+
+  // Poll until Complete / Failed / Cancelled or the wall-clock deadline
+  const deadline = Date.now() + MAX_FETCH_WALL_MS;
+  let truncated = false;
+  let results: import("@aws-sdk/client-cloudwatch-logs").ResultField[][] = [];
+
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      if (abortSignal) {
+        abortSignal.addEventListener("abort", () => {
+          clearTimeout(t);
+          reject(new Error("CloudWatch fetch aborted"));
+        });
+      }
+    });
+
+  while (true) {
+    if (abortSignal?.aborted) {
+      throw new Error("CloudWatch fetch aborted");
+    }
+    if (Date.now() > deadline) {
+      truncated = true;
+      console.warn(
+        `[cloudwatch] Insights query for ${logGroupName} hit ${MAX_FETCH_WALL_MS}ms wall-clock cap`
+      );
+      break;
+    }
+
+    const pollResp = await client.send(
+      new GetQueryResultsCommand({ queryId }),
+      { abortSignal: abortSignal as any }
+    );
+
+    const status = pollResp.status;
+    if (status === "Complete") {
+      results = pollResp.results ?? [];
+      break;
+    } else if (status === "Failed" || status === "Cancelled") {
+      throw new Error(`CloudWatch Logs Insights query ${status.toLowerCase()}`);
+    }
+
+    // Still Running / Scheduled — wait 1 s before the next poll
+    await sleep(1000);
+  }
+
+  // Map result rows → `[ISO_TIMESTAMP] [logStream] message`
+  const lines = results.map((row) => {
+    let timestamp = "";
+    let logStream = "";
+    let message = "";
+    for (const field of row) {
+      if (field.field === "@timestamp") timestamp = field.value ?? "";
+      else if (field.field === "@logStream") logStream = field.value ?? "";
+      else if (field.field === "@message") message = (field.value ?? "").trimEnd();
+    }
+    const isoTime = timestamp ? new Date(timestamp).toISOString() : "unknown";
+    return `[${isoTime}] [${logStream}] ${message}`;
+  });
+
+  // Write to file — same naming convention as fetchCloudwatchLogs
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `cw-${safeFilename(logGroupName)}-${ts}.log`;
+  const filepath = path.join(logsDir, filename);
+  fs.writeFileSync(filepath, lines.join("\n"), "utf-8");
+
+  return {
+    file: filename,
+    lineCount: lines.length,
+    logGroup: logGroupName,
+    timeRange: {
+      startTime: new Date(startTimeMs).toISOString(),
+      endTime: new Date(endTimeMs).toISOString(),
     },
     truncated,
   };
