@@ -134,6 +134,104 @@ function parseSessionMessages(filePath: string): {
   };
 }
 
+interface SearchMatch {
+  first_match_at_call: number;
+  total_tool_calls: number;
+  match_context: string;
+}
+
+function searchSessionContent(filePath: string, query: string): SearchMatch | null {
+  const q = query.toLowerCase();
+  let toolCallCount = 0;
+  let firstMatch: { at_call: number; context: string } | null = null;
+
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const lines = content.split("\n").filter((l) => l.trim());
+    for (const line of lines) {
+      try {
+        const msg = JSON.parse(line) as {
+          role?: string;
+          content?: unknown;
+        };
+        const role = msg.role ?? "";
+        const msgContent = msg.content;
+
+        const searchTexts: string[] = [];
+
+        if (role === "user" || role === "system") {
+          searchTexts.push(getText(msgContent));
+        }
+
+        if (role === "assistant") {
+          searchTexts.push(getText(msgContent));
+          if (Array.isArray(msgContent)) {
+            for (const item of msgContent) {
+              if (!item || typeof item !== "object") continue;
+              const e = item as Record<string, unknown>;
+              if (e.type === "tool-call") {
+                toolCallCount++;
+                searchTexts.push(String(e.toolName ?? ""));
+                try {
+                  searchTexts.push(JSON.stringify(e.input ?? ""));
+                } catch { /* skip */ }
+              }
+              if (e.type === "tool-result") {
+                searchTexts.push(String(e.toolName ?? ""));
+                try {
+                  searchTexts.push(JSON.stringify(e.output ?? e.result ?? e.content ?? ""));
+                } catch { /* skip */ }
+              }
+            }
+          }
+        }
+
+        if (role === "tool") {
+          searchTexts.push(getText(msgContent));
+          if (Array.isArray(msgContent)) {
+            for (const item of msgContent) {
+              if (!item || typeof item !== "object") continue;
+              const e = item as Record<string, unknown>;
+              if (e.type === "tool-result") {
+                try {
+                  searchTexts.push(JSON.stringify(e.output ?? e.result ?? e.value ?? e.content ?? ""));
+                } catch { /* skip */ }
+              }
+            }
+          }
+        }
+
+        if (!firstMatch) {
+          for (const text of searchTexts) {
+            const lower = text.toLowerCase();
+            const idx = lower.indexOf(q);
+            if (idx !== -1) {
+              const start = Math.max(0, idx - 40);
+              const end = Math.min(text.length, idx + query.length + 80);
+              firstMatch = {
+                at_call: toolCallCount,
+                context: (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : ""),
+              };
+              break;
+            }
+          }
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  if (!firstMatch) return null;
+  return {
+    first_match_at_call: firstMatch.at_call,
+    total_tool_calls: toolCallCount,
+    match_context: firstMatch.context,
+  };
+}
+
 function toNum(v: any): number {
   if (v == null) return 0;
   if (typeof v === "object" && typeof v.toNumber === "function")
@@ -541,4 +639,103 @@ export async function session_stats(req: Request, res: Response) {
     console.error("[sessions] stats query failed:", e);
     res.status(500).json({ error: "Failed to fetch stats" });
   }
+}
+
+export async function search_sessions(req: Request, res: Response) {
+  const q = (req.query.q as string || "").trim();
+  if (!q || q.length < 2) {
+    res.status(400).json({ error: "Query parameter 'q' is required (min 2 characters)" });
+    return;
+  }
+  if (q.length > 200) {
+    res.status(400).json({ error: "Query too long (max 200 characters)" });
+    return;
+  }
+
+  const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
+  const dir = sessionsDir();
+
+  if (!existsSync(dir)) {
+    res.json([]);
+    return;
+  }
+
+  const files = readdirSync(dir).filter(
+    (f) =>
+      f.endsWith(".jsonl") &&
+      !f.endsWith(".meta.jsonl") &&
+      !f.endsWith(".provenance.jsonl") &&
+      !f.endsWith(".annotations.jsonl"),
+  );
+
+  // Pre-load Neo4j metadata if available
+  let neo4jMap = new Map<string, Record<string, unknown>>();
+  if (db) {
+    try {
+      const sessions = await db.list_agent_sessions();
+      for (const s of sessions) {
+        const id = String(s.node_key ?? s.name ?? "");
+        if (id) neo4jMap.set(id, s);
+      }
+    } catch {
+      // fall back to orphan metadata
+    }
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+
+  for (const file of files) {
+    if (results.length >= limit) break;
+    const fullPath = path.join(dir, file);
+    const match = searchSessionContent(fullPath, q);
+    if (!match) continue;
+
+    const id = file.replace(/\.jsonl$/, "");
+    const s = neo4jMap.get(id);
+
+    let run: Record<string, unknown>;
+    if (s) {
+      const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+        existsSync(fullPath)
+          ? parseSessionMessages(fullPath)
+          : { userPromptPreview: "", answerPreview: "", toolSequence: [] as string[], toolCallCount: 0 };
+      const input = toNum(s.input_tokens);
+      const cache_read = toNum(s.cache_read_tokens);
+      const cache_write = toNum(s.cache_write_tokens);
+      const output = toNum(s.output_tokens);
+      const total = toNum(s.total_tokens);
+      const prov = String(s.provider ?? "");
+      const mod = String(s.model ?? "");
+      const startTimeMs = toNum(s.start_time);
+      run = {
+        id,
+        source: String(s.source ?? "unknown"),
+        repo: String(s.repo ?? ""),
+        provider: prov,
+        model: mod,
+        timestamp: startTimeMs ? new Date(startTimeMs).toISOString() : new Date().toISOString(),
+        duration_ms: toNum(s.duration_ms),
+        token_usage: { input, cache_read, cache_write, output, total },
+        cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+        status: String(s.status ?? "success"),
+        error_message: String(s.error_message ?? ""),
+        tool_sequence: toolSequence,
+        tool_call_count: toolCallCount,
+        user_prompt_preview: userPromptPreview,
+        answer_preview: answerPreview,
+      };
+    } else {
+      run = buildOrphanRun(dir, file);
+    }
+
+    results.push({ ...run, search_match: match });
+  }
+
+  results.sort((a, b) => {
+    const ma = (a.search_match as SearchMatch).first_match_at_call;
+    const mb = (b.search_match as SearchMatch).first_match_at_call;
+    return ma - mb;
+  });
+
+  res.json(results);
 }

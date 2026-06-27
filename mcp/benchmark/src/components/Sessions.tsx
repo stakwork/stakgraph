@@ -26,6 +26,8 @@ export function Sessions() {
         setRangeFilter={state.setRangeFilter}
         setDayFilter={state.setDayFilter}
         clearFilters={state.clearFilters}
+        searching={state.searching}
+        searchMatchMap={state.searchMatchMap}
       />
       <SessionDetail
         selected={state.selected}

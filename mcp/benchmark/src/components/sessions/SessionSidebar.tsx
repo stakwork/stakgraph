@@ -3,7 +3,7 @@ import { shortId } from "../ui";
 import { SourceBadge } from "./SessionBadges";
 import { card, muted } from "./styles";
 import { formatNumber, formatSourceLabel } from "../../utils";
-import type { ProductionRun } from "../../types";
+import type { ProductionRun, SearchMatchInfo } from "../../types";
 
 interface SessionSidebarProps {
   loading: boolean;
@@ -25,6 +25,8 @@ interface SessionSidebarProps {
   setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
   setDayFilter: (v: string) => void;
   clearFilters: () => void;
+  searching: boolean;
+  searchMatchMap: Map<string, SearchMatchInfo>;
 }
 
 export function SessionSidebar({
@@ -47,6 +49,8 @@ export function SessionSidebar({
   setRangeFilter,
   setDayFilter,
   clearFilters,
+  searching,
+  searchMatchMap,
 }: SessionSidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -155,11 +159,16 @@ export function SessionSidebar({
             }}
           >
             <input
-              placeholder={"Search id, repo, model, prompt\u2026"}
+              placeholder={"Search traces, repos, models\u2026"}
               value={quickSearch}
               onChange={(e) => setQuickSearch(e.target.value)}
               style={inputStyle}
             />
+            {searching && (
+              <p style={{ ...muted, fontSize: "10px", margin: 0, textAlign: "center" }}>
+                Searching traces\u2026
+              </p>
+            )}
             <input
               placeholder={"Filter by repo\u2026"}
               value={repoSearch}
@@ -329,6 +338,25 @@ export function SessionSidebar({
                       {run.user_prompt_preview}
                     </p>
                   )}
+                  {searchMatchMap.has(run.id) && (() => {
+                    const m = searchMatchMap.get(run.id)!;
+                    return (
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          color: "#22d3ee",
+                          margin: "3px 0 0 0",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.first_match_at_call === 0
+                          ? "match in prompt"
+                          : `match at call #${m.first_match_at_call}/${m.total_tool_calls}`}
+                      </p>
+                    );
+                  })()}
                 </button>
               ))
             )}

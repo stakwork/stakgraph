@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
@@ -10,7 +10,7 @@ import {
 import { parseTrace } from "../trace/parse";
 import { analyzeTrace } from "../trace/analyze";
 import type { ParsedTrace, TraceAnalysis, IssueKind } from "../trace/types";
-import type { ProductionRun, TokenUsage } from "../types";
+import type { ProductionRun, TokenUsage, SearchResult, SearchMatchInfo } from "../types";
 import type { Annotation, AnnotationMarker } from "../components/Annotations";
 
 export interface SessionsState {
@@ -43,6 +43,8 @@ export interface SessionsState {
     toolCallId?: string,
   ) => void;
   handleTurnToggle: (turnId: string) => void;
+  searching: boolean;
+  searchMatchMap: Map<string, SearchMatchInfo>;
   setQuickSearch: (v: string) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
@@ -69,6 +71,9 @@ export function useSessionsState(): SessionsState {
   const [showSessionAnnotationForm, setShowSessionAnnotationForm] =
     useState(false);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [quickSearch, setQuickSearch] = useState(
     searchParams.get("q") || "",
   );
@@ -191,6 +196,30 @@ export function useSessionsState(): SessionsState {
   }, [dayFilter, quickSearch, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
 
   useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!quickSearch || quickSearch.trim().length < 2) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await api.sessions.search(quickSearch.trim());
+        setSearchResults(results);
+      } catch (e: any) {
+        toast.error(e.message);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [quickSearch]);
+
+  useEffect(() => {
     if (parsed.turns.length === 0) {
       setOpenTurnId(null);
       return;
@@ -202,7 +231,7 @@ export function useSessionsState(): SessionsState {
 
   const filteredRuns = useMemo(
     () =>
-      runs.filter((r) => {
+      (searchResults ?? runs).filter((r) => {
         if (sourceFilter !== "all" && (r.source || "unknown") !== sourceFilter)
           return false;
         if (
@@ -218,20 +247,15 @@ export function useSessionsState(): SessionsState {
         const rangeStart = getRangeStart(rangeFilter);
         if (rangeStart && new Date(r.timestamp).getTime() < rangeStart)
           return false;
-        if (quickSearch) {
-          const q = quickSearch.toLowerCase();
-          const matches =
-            r.id.toLowerCase().includes(q) ||
-            r.repo.toLowerCase().includes(q) ||
-            (r.source || "").toLowerCase().includes(q) ||
-            (r.model || "").toLowerCase().includes(q) ||
-            (r.user_prompt_preview || "").toLowerCase().includes(q);
-          if (!matches) return false;
-        }
         return true;
       }),
-    [runs, dayFilter, quickSearch, repoSearch, rangeFilter, sourceFilter],
+    [runs, searchResults, dayFilter, repoSearch, rangeFilter, sourceFilter],
   );
+
+  const searchMatchMap = useMemo(() => {
+    if (!searchResults) return new Map<string, SearchMatchInfo>();
+    return new Map(searchResults.map((r) => [r.id, r.search_match]));
+  }, [searchResults]);
 
   const clearFilters = () => {
     setQuickSearch("");
@@ -262,6 +286,8 @@ export function useSessionsState(): SessionsState {
     selectedUsage,
     prompt,
     answer,
+    searching,
+    searchMatchMap,
     showSessionAnnotationForm,
     load,
     loadDetail,
