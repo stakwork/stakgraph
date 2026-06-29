@@ -98,30 +98,30 @@ below). ~100 lines, no third-party deps.
 
 ## Data model
 
-All labels are **PascalCase with a `Registry` prefix** so they never
+All labels are **PascalCase with a `Hive` prefix** so they never
 collide with the generic `Agent`/`Prompt`/`Tool`/`Skill` nodes other
-systems may push into the shared graph. Registry nodes deliberately do
+systems may push into the shared graph. Hive nodes deliberately do
 **not** carry the `Data_Bank` label (that label drives mcp's code
 full-text + vector indexes; the catalog must not pollute code search).
 
 ```
-(:RegistryAgent  { name, display_name, description, updated_at })
-   -[:HAS_PROMPT]-> (:RegistryPrompt { node_key, name, role, body, source, version, updated_at })
-   -[:HAS_TOOL]->   (:RegistryTool   { node_key, name, description, schema, source, version, updated_at })
-   -[:HAS_SKILL]->  (:RegistrySkill  { node_key, name, description, source, version, updated_at })
+(:HiveAgent  { name, display_name, description, updated_at })
+   -[:HAS_PROMPT]-> (:HivePrompt { node_key, name, role, body, source, version, updated_at })
+   -[:HAS_TOOL]->   (:HiveTool   { node_key, name, description, schema, source, version, updated_at })
+   -[:HAS_SKILL]->  (:HiveSkill  { node_key, name, description, source, version, updated_at })
 
-(:RegistryAgent)-[:DEFINED_BY]->(:RegistrySource { name, kind, updated_at })
+(:HiveAgent)-[:DEFINED_BY]->(:HiveSource { name, kind, updated_at })
 ```
 
 Label/edge names live in one place — `graphclient/schema.go`:
 
 ```go
 const (
-    LabelAgent   = "RegistryAgent"
-    LabelPrompt  = "RegistryPrompt"
-    LabelTool    = "RegistryTool"
-    LabelSkill   = "RegistrySkill"
-    LabelSource  = "RegistrySource"
+    LabelAgent   = "HiveAgent"
+    LabelPrompt  = "HivePrompt"
+    LabelTool    = "HiveTool"
+    LabelSkill   = "HiveSkill"
+    LabelSource  = "HiveSource"
 
     RelHasPrompt = "HAS_PROMPT"
     RelHasTool   = "HAS_TOOL"
@@ -132,7 +132,7 @@ const (
 
 ### Keys & properties
 
-- **`RegistryAgent.name`** is the merge key and the join to cost/budget
+- **`HiveAgent.name`** is the merge key and the join to cost/budget
   data. Stable, URL-safe, lowercase-with-hyphens — same string as the
   `x-bf-dim-agent-name` header.
 - **`node_key`** on prompt/tool/skill nodes is a deterministic hash of
@@ -150,11 +150,11 @@ const (
 ### Indexes (created on first write)
 
 ```cypher
-CREATE CONSTRAINT registry_agent_name IF NOT EXISTS
-  FOR (a:RegistryAgent) REQUIRE a.name IS UNIQUE;
-CREATE INDEX registry_prompt_key IF NOT EXISTS FOR (p:RegistryPrompt) ON (p.node_key);
-CREATE INDEX registry_tool_key   IF NOT EXISTS FOR (t:RegistryTool)   ON (t.node_key);
-CREATE INDEX registry_skill_key  IF NOT EXISTS FOR (s:RegistrySkill)  ON (s.node_key);
+CREATE CONSTRAINT hive_agent_name IF NOT EXISTS
+  FOR (a:HiveAgent) REQUIRE a.name IS UNIQUE;
+CREATE INDEX hive_prompt_key IF NOT EXISTS FOR (p:HivePrompt) ON (p.node_key);
+CREATE INDEX hive_tool_key   IF NOT EXISTS FOR (t:HiveTool)   ON (t.node_key);
+CREATE INDEX hive_skill_key  IF NOT EXISTS FOR (s:HiveSkill)  ON (s.node_key);
 ```
 
 ## Write path — `POST /_plugin/agents`
@@ -201,8 +201,8 @@ same agent are untouched.
 
 ```
 For each agent in body.agents:
-  MERGE (:RegistryAgent {name})            -- create-or-update scalar props
-  MERGE (:RegistrySource {name: body.source})
+  MERGE (:HiveAgent {name})            -- create-or-update scalar props
+  MERGE (:HiveSource {name: body.source})
   MERGE (agent)-[:DEFINED_BY]->(source)
   DETACH DELETE this source's existing HAS_PROMPT/TOOL/SKILL children for this agent
   CREATE the prompt/tool/skill children from the payload, wiring node_key + source + version
