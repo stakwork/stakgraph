@@ -347,6 +347,26 @@ export interface CatalogSkill {
   updated_at: string;
 }
 
+// One row of the catalog list (GET /_plugin/agents/catalog) — identity
+// + child counts, enough to merge the registry into the spend-derived
+// /agents table without pulling every prompt/tool/skill body.
+export interface CatalogAgentSummary {
+  name: string;
+  display_name?: string;
+  description?: string;
+  default_model?: string;
+  sources: string[];
+  prompts: number;
+  tools: number;
+  skills: number;
+  updated_at: string;
+}
+
+// The whole registry — every catalog agent, traffic or not.
+export interface CatalogListResponse {
+  agents: CatalogAgentSummary[];
+}
+
 // Merged catalog view across all contributing sources for one agent.
 export interface AgentCatalogResponse {
   name: string;
