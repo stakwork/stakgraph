@@ -23,7 +23,7 @@
 # core version comes along via go.work / replace directives in the tree.
 ARG GO_VERSION=1.26.4
 ARG NODE_VERSION=25
-ARG BIFROST_VERSION=transports/v1.5.11
+ARG BIFROST_VERSION=transports/v1.6.1
 
 # ---------------------------------------------------------------------------
 # Stage 0: clone bifrost source once and share via subsequent stages.
