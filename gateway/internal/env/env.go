@@ -98,6 +98,28 @@ const (
 	// is served from the same Hive origin and proxies to whichever
 	// per-swarm gateway plugin it needs.
 	HiveOrigin = "HIVE_ORIGIN"
+
+	// Neo4jHTTPURL is the base URL of neo4j's native transactional
+	// Cypher HTTP API used by the agent catalog (graphclient). Note
+	// the 7474 HTTP port, NOT 7687 (bolt) — the gateway speaks the
+	// REST `/db/<db>/tx/commit` endpoint, not bolt, so it needs no
+	// driver. See gateway/plans/agent-catalog.md.
+	Neo4jHTTPURL = "NEO4J_HTTP_URL"
+
+	// Neo4jUser is the Basic-auth user for the neo4j HTTP API.
+	Neo4jUser = "NEO4J_USER"
+
+	// Neo4jPassword is the Basic-auth password for the neo4j HTTP
+	// API. Empty / unset ⇒ the agent-catalog endpoints return 503
+	// and the UI hides the prompts/tools/skills tabs (the same
+	// graceful-degradation posture Redis uses for observability
+	// mode). This is the neo4j password, distinct from mcp's
+	// API_TOKEN and the gateway's BIFROST_PROVISIONING_TOKEN.
+	Neo4jPassword = "NEO4J_PASSWORD"
+
+	// Neo4jDatabase is the database name segment in
+	// `/db/<db>/tx/commit`. Defaults to "neo4j".
+	Neo4jDatabase = "NEO4J_DATABASE"
 )
 
 // Defaults that apply when an env var is unset.
@@ -112,6 +134,14 @@ const (
 	// DefaultHiveOrigin is production Hive. Override via HIVE_ORIGIN
 	// for staging / dev (e.g. `http://localhost:8080`).
 	DefaultHiveOrigin = "https://hive.sphinx.chat"
+
+	// Neo4j HTTP defaults. The base URL points at the swarm's neo4j
+	// over its HTTP port; user/database match mcp/standalone's
+	// conventions. Only NEO4J_PASSWORD has no default — its absence
+	// is the "catalog not configured" signal.
+	DefaultNeo4jHTTPURL  = "http://neo4j.sphinx:7474"
+	DefaultNeo4jUser     = "neo4j"
+	DefaultNeo4jDatabase = "neo4j"
 )
 
 // Get reads `name` and returns its value or "" if unset.
@@ -186,6 +216,34 @@ func IsProduction() bool {
 // CSP `frame-ancestors` directive and (in future) as an allowlist
 // for cookie-authed mutation `Origin` checks.
 func HiveOriginValue() string { return GetOr(HiveOrigin, DefaultHiveOrigin) }
+
+// Neo4jConfig is the resolved connection info for neo4j's HTTP Cypher
+// API, consumed by internal/graphclient.
+type Neo4jConfig struct {
+	BaseURL  string
+	User     string
+	Password string
+	Database string
+}
+
+// Neo4jHTTPConfigValue returns (cfg, ok). `ok` is false when
+// NEO4J_PASSWORD is unset — callers should treat that as "agent
+// catalog not configured" and return 503 from the catalog endpoints,
+// exactly the way RedisURLValue gates observability mode. The base
+// URL, user and database all fall back to swarm-sensible defaults so
+// only the password is mandatory.
+func Neo4jHTTPConfigValue() (Neo4jConfig, bool) {
+	pass := os.Getenv(Neo4jPassword)
+	if pass == "" {
+		return Neo4jConfig{}, false
+	}
+	return Neo4jConfig{
+		BaseURL:  GetOr(Neo4jHTTPURL, DefaultNeo4jHTTPURL),
+		User:     GetOr(Neo4jUser, DefaultNeo4jUser),
+		Password: pass,
+		Database: GetOr(Neo4jDatabase, DefaultNeo4jDatabase),
+	}, true
+}
 
 // TrustSeed returns the env-supplied registry seed and where it came
 // from. Exactly one of the two env vars is honoured per

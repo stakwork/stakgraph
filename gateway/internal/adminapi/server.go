@@ -20,10 +20,12 @@ package adminapi
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/stakwork/stakgraph/gateway/internal/env"
+	"github.com/stakwork/stakgraph/gateway/internal/graphclient"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 	"github.com/stakwork/stakgraph/gateway/internal/sessions"
 	"github.com/stakwork/stakgraph/gateway/internal/trust"
@@ -103,6 +105,14 @@ func start() {
 		pluginlog.Warnf("adminapi: session store disabled (redis not configured); /_plugin/login will 503")
 	}
 
+	// Agent-catalog graph client. nil when neo4j isn't configured
+	// (NEO4J_PASSWORD unset) — the catalog endpoints then return 503,
+	// the same graceful degradation Redis uses for observability mode.
+	graph := graphclient.New()
+	if graph == nil {
+		pluginlog.Warnf("adminapi: agent catalog disabled (neo4j not configured); catalog endpoints will 503")
+	}
+
 	mux := http.NewServeMux()
 	registerRoutes(mux, routeDeps{
 		adminUser:         adminUser,
@@ -111,6 +121,7 @@ func start() {
 		trust:             registry,
 		sessions:          store,
 		logstore:          newLogstoreClient(adminUser, adminPass),
+		graph:             graph,
 	})
 
 	addr := env.PluginAddr()
@@ -138,9 +149,10 @@ type routeDeps struct {
 	adminUser         string
 	adminPass         string
 	provisioningToken string
-	trust             *trust.Registry  // nil ⇒ skip /_plugin/trust/* registration
-	sessions          *sessions.Store  // nil ⇒ /_plugin/login returns 503
-	logstore          *logstoreClient  // nil ⇒ skip phase-7 observability routes
+	trust             *trust.Registry     // nil ⇒ skip /_plugin/trust/* registration
+	sessions          *sessions.Store     // nil ⇒ /_plugin/login returns 503
+	logstore          *logstoreClient     // nil ⇒ skip phase-7 observability routes
+	graph             *graphclient.Client // nil ⇒ agent-catalog endpoints return 503
 }
 
 // methodMuxedAuth picks one of two middleware chains based on the
@@ -260,7 +272,33 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// shape and 404s on anything else (phase-9 `:name/state` and
 	// `:name/kill` live under the same prefix later).
 	bgt := newBudgetHandlers(deps.logstore)
-	mux.HandleFunc("/_plugin/agents/", cookieOrBearer(bgt.budget))
+	cat := newCatalogHandlers(deps.graph)
+
+	// The `/_plugin/agents/` subtree is shared: ServeMux allows only
+	// one handler per pattern, so a small dispatcher fans the trailing
+	// `<name>/<view>` segment out to the budget (phase-8.5) or catalog
+	// (agent-catalog) read. Both are cookie-or-bearer reads. Anything
+	// else under the prefix 404s, preserving the budget handler's
+	// existing contract.
+	agentsSubtree := func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/_plugin/agents/")
+		parts := strings.Split(rest, "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "catalog" {
+			cat.read(w, r)
+			return
+		}
+		// Default: the budget handler owns `<name>/budget` and 404s
+		// the rest.
+		bgt.budget(w, r)
+	}
+	mux.HandleFunc("/_plugin/agents/", cookieOrBearer(agentsSubtree))
+
+	// Catalog write front door: POST /_plugin/agents (exact, no
+	// trailing slash). Bearer-only (server-to-server), same posture as
+	// the trust-registry mutations. Registered even when neo4j is
+	// unconfigured so the handler can answer 503 rather than ServeMux
+	// 301-redirecting to the subtree.
+	mux.HandleFunc("/_plugin/agents", bearer(cat.push))
 
 	// SPA — served WITHOUT middleware auth. The SPA itself probes
 	// /_plugin/me at boot and redirects to /login on 401; gating

@@ -245,8 +245,9 @@ Returns the merged view across all sources for one agent.
 ```
 
 Go response structs live in `internal/adminapi/` and are mirrored into
-`ui/src/api/types.ts` (eventually tygo-generated), per the UI's
-"add a new page" checklist in `ui/AGENTS.md`.
+`internal/adminapi/ui/src/api/types.ts` (eventually tygo-generated),
+per the UI's "add a new page" checklist in
+`internal/adminapi/ui/AGENTS.md`.
 
 ## UI changes
 
@@ -260,8 +261,8 @@ existing budget card:
   schema.
 - **Skills** — table: name, description, source.
 
-Wiring per `ui/AGENTS.md`: one `useAgentCatalog(name)` hook in
-`api/queries.ts` (slow cadence — catalog changes on deploy, not per
+Wiring per `internal/adminapi/ui/AGENTS.md`: one `useAgentCatalog(name)`
+hook in `api/queries.ts` (slow cadence — catalog changes on deploy, not per
 second), types in `api/types.ts`, no new route (same page). The
 `/agents` list can later show small count badges (📄 prompts, 🔧 tools,
 ✦ skills) sourced from a lightweight `GET /_plugin/agents/catalog/summary`,
@@ -283,6 +284,44 @@ this swarm") instead of erroring.
 None of these require schema changes in the source systems for v1 — hive
 already has the data in `agent_logs.config`; the others enumerate what
 they load at startup.
+
+## Addendum: the catalog as authoritative registry (implemented)
+
+The original framing above treats the catalog as *descriptive*. In
+practice it has become the **registry of record** for which agents
+exist on a swarm and what model each defaults to. Two concrete
+deltas landed:
+
+### `default_model` on the agent node
+
+Each `HiveAgent` now carries a `default_model` scalar — the default
+LLM used for that agent (a model id or shortcut string, e.g.
+`claude-sonnet-4-6`). It flows through `POST /_plugin/agents`
+(`agents[].default_model`), is stored on the node, and is returned by
+`GET /:name/catalog` (`default_model`) and surfaced as a chip on the
+agent page. Like `display_name`/`description`, it is set only when the
+push supplies a non-empty value (a blank push never clobbers it).
+
+### Hive seeds the default agent set
+
+Hive's `BIFROST_AGENT_NAMES` stays the compile-time source of truth for
+*which* agents exist (every LLM call site is typed against it). On the
+first LLM call per swarm, Hive's orchestrator pushes those names — with
+display name, description, and `default_model` — to the swarm's gateway
+via `POST /_plugin/agents` (`source="hive"`). The two join by name; the
+catalog owns the *capabilities* (prompts/tools/skills), authored later.
+
+The push is **content-addressed**: Hive hashes the default-agent
+manifest and stamps it on `Swarm.bifrostAgentsSeedHash`. A cache hit is
+a single DB read with no HTTP; the manifest re-seeds only when the set
+or a default model changes. It rides the same lazy, best-effort,
+per-workspace-locked path as the trust reconciler
+(`ensureBifrostAgentCatalog`, mirroring `ensureBifrostTrust`); a `503`
+(neo4j unset on the swarm) is a benign skip, and any failure is logged
+and swallowed so a stale catalog never blocks an LLM call.
+
+User-authored agents and SPA-side editing remain future work — for now
+Hive is the only writer and the default set is the whole catalog.
 
 ## Reconciliation & staleness
 
