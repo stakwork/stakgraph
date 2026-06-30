@@ -9,6 +9,7 @@ import { apiFetch, ApiCallError } from "./client";
 import type {
   AgentBudgetResponse,
   AgentCatalogResponse,
+  CatalogListResponse,
   CallDetailResponse,
   HistogramCostResponse,
   MeResponse,
@@ -177,6 +178,32 @@ export function useAgentBudgets(names: string[]) {
     out[n] = queries[i]?.data;
   });
   return out;
+}
+
+// ─── /agents/catalog (list) ─────────────────────────────────────────
+//
+// The whole registry — every catalog agent, traffic or not. The Agents
+// list page unions this with spend-by-agent so seeded agents that have
+// never been invoked still appear. Slow cadence (changes on deploy).
+// 503 (neo4j not wired) ⇒ null; the page falls back to spend-only.
+
+export function useAgentCatalogList() {
+  return useQuery({
+    queryKey: ["agents", "catalog-list"],
+    queryFn: async (): Promise<CatalogListResponse | null> => {
+      try {
+        return await apiFetch<CatalogListResponse>("/agents/catalog");
+      } catch (e) {
+        if (e instanceof ApiCallError && e.status === 503) {
+          return null; // catalog not configured on this swarm
+        }
+        throw e;
+      }
+    },
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: false,
+  });
 }
 
 // ─── /agents/:name/catalog ──────────────────────────────────────────

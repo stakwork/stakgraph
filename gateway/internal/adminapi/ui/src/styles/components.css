@@ -1064,6 +1064,20 @@ table.table {
   font-size: 12px;
 }
 
+/* Agents list: name cell with capability badges / "traffic only" tag. */
+.agent-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.agent-cell .cap-badges {
+  font-size: 11px;
+}
+.agent-cell .pill {
+  font-size: 10px;
+  padding: 1px 6px;
+}
+
 .catalog-list {
   display: flex;
   flex-direction: column;

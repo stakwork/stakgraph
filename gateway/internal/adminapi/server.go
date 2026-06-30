@@ -283,6 +283,13 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	agentsSubtree := func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/_plugin/agents/")
 		parts := strings.Split(rest, "/")
+		// `/_plugin/agents/catalog` (single segment) is the catalog
+		// list — every registry agent, traffic or not. Distinct from
+		// `<name>/catalog` (two segments) which is one agent's detail.
+		if len(parts) == 1 && parts[0] == "catalog" {
+			cat.list(w, r)
+			return
+		}
 		if len(parts) == 2 && parts[0] != "" && parts[1] == "catalog" {
 			cat.read(w, r)
 			return
