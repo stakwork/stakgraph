@@ -8,6 +8,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { apiFetch, ApiCallError } from "./client";
 import type {
   AgentBudgetResponse,
+  AgentCatalogResponse,
   CallDetailResponse,
   HistogramCostResponse,
   MeResponse,
@@ -176,6 +177,42 @@ export function useAgentBudgets(names: string[]) {
     out[n] = queries[i]?.data;
   });
   return out;
+}
+
+// ─── /agents/:name/catalog ──────────────────────────────────────────
+//
+// What the agent is _made of_ (prompts/tools/skills), pushed into the
+// neo4j catalog by hive / prompt-manager / goose pods. Slow cadence:
+// the catalog changes on deploy, not per second, so a long stale time
+// and no aggressive poll. Two non-error "empty" states are folded into
+// the data:
+//
+//   - 404 (agent has no catalog node yet) ⇒ resolves to `null`; the
+//     page renders empty tabs rather than an error.
+//   - 503 (neo4j not wired on this swarm) ⇒ propagates as an
+//     ApiCallError with code "catalog_unavailable"; the page renders a
+//     "catalog not wired" notice. Distinguished so the copy can differ.
+
+export function useAgentCatalog(name: string | undefined) {
+  return useQuery({
+    queryKey: ["agents", name, "catalog"],
+    queryFn: async (): Promise<AgentCatalogResponse | null> => {
+      try {
+        return await apiFetch<AgentCatalogResponse>(
+          `/agents/${encodeURIComponent(name!)}/catalog`
+        );
+      } catch (e) {
+        if (e instanceof ApiCallError && e.status === 404) {
+          return null; // no catalog for this agent (yet)
+        }
+        throw e; // 503 "catalog_unavailable" and real failures bubble up
+      }
+    },
+    enabled: !!name,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: false,
+  });
 }
 
 // ─── /users/:id ─────────────────────────────────────────────────────
