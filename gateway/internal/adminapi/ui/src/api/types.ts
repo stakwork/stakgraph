@@ -313,6 +313,53 @@ export interface AgentBudgetResponse {
   ratio: number | null;
 }
 
+// ─── agent catalog ──────────────────────────────────────────────────
+// Mirrors gateway/internal/adminapi/catalog.go. The catalog answers
+// "what is this agent _made of_?" (prompts/tools/skills), as opposed to
+// the budget view's "what is it _allowed to spend_?". Sourced from the
+// neo4j Hive* catalog subgraph via GET /_plugin/agents/:name/catalog.
+
+export interface CatalogPrompt {
+  name: string;
+  role: string;
+  body: string;
+  source: string;
+  version?: string;
+  updated_at: string;
+}
+
+export interface CatalogTool {
+  name: string;
+  description: string;
+  /** JSON parameter schema, passed through opaque — the UI renders it
+   *  as pretty-printed JSON. Absent when the source didn't supply one. */
+  schema?: unknown;
+  source: string;
+  version?: string;
+  updated_at: string;
+}
+
+export interface CatalogSkill {
+  name: string;
+  description: string;
+  source: string;
+  version?: string;
+  updated_at: string;
+}
+
+// Merged catalog view across all contributing sources for one agent.
+export interface AgentCatalogResponse {
+  name: string;
+  display_name?: string;
+  description?: string;
+  /** Default LLM used for this agent (model shortcut or full id). */
+  default_model?: string;
+  sources: string[];
+  prompts: CatalogPrompt[];
+  tools: CatalogTool[];
+  skills: CatalogSkill[];
+}
+
 // Phase-7 error envelope (returned on 4xx/5xx).
 export interface ApiError {
   error: {

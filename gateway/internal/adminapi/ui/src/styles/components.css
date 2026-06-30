@@ -1005,3 +1005,134 @@ table.table {
   gap: var(--sp-4);
   font-size: 12px;
 }
+
+/* ─── agent catalog: tabs + prompt/tool/skill cards ──────────── */
+
+.tabs {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-5);
+}
+.tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+.tab.is-active .tab-count {
+  background: rgba(110, 168, 255, 0.12);
+  border-color: rgba(110, 168, 255, 0.35);
+  color: var(--accent);
+}
+
+.model-chip {
+  margin-left: var(--sp-3);
+  vertical-align: middle;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.catalog-card {
+  padding: var(--sp-4);
+}
+.catalog-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  cursor: pointer;
+  list-style: none;
+}
+.catalog-summary::-webkit-details-marker {
+  display: none;
+}
+.catalog-summary::before {
+  content: "▸";
+  color: var(--text-dim);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+details[open] > .catalog-summary::before {
+  content: "▾";
+}
+.catalog-summary-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  min-width: 0;
+  flex: 1;
+}
+.catalog-summary-main .text-dim {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catalog-body {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-3);
+  background: var(--bg, #0d1219);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 460px;
+  overflow: auto;
+}
+
+/* Role badges on prompt cards reuse the badge pill shape. */
+.badge.role-system {
+  background: rgba(110, 168, 255, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(110, 168, 255, 0.3);
+}
+.badge.role-user {
+  background: rgba(105, 214, 164, 0.15);
+  color: var(--ok);
+  border: 1px solid rgba(105, 214, 164, 0.3);
+}
+.badge.role-assistant {
+  background: rgba(245, 184, 108, 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(245, 184, 108, 0.3);
+}
