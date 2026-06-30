@@ -264,9 +264,9 @@ existing budget card:
 Wiring per `internal/adminapi/ui/AGENTS.md`: one `useAgentCatalog(name)`
 hook in `api/queries.ts` (slow cadence — catalog changes on deploy, not per
 second), types in `api/types.ts`, no new route (same page). The
-`/agents` list can later show small count badges (📄 prompts, 🔧 tools,
-✦ skills) sourced from a lightweight `GET /_plugin/agents/catalog/summary`,
-but that's optional follow-up.
+`/agents` list unions the registry with spend (see below) and shows
+per-agent capability counts + default-model, sourced from
+`GET /_plugin/agents/catalog` (the list endpoint).
 
 When `Neo4jHTTPConfig()` reports not-configured, the read endpoint
 returns `503` and the tabs render an empty-state ("catalog not wired on
@@ -322,6 +322,22 @@ and swallowed so a stale catalog never blocks an LLM call.
 
 User-authored agents and SPA-side editing remain future work — for now
 Hive is the only writer and the default set is the whole catalog.
+
+### List endpoint + `/agents` union
+
+`GET /_plugin/agents/catalog` (cookie-or-bearer) returns every
+`HiveAgent` with child counts (`CatalogAgentSummary`: name, display,
+description, default_model, sources, prompt/tool/skill counts). One
+Cypher query using `COUNT {}` subqueries per kind — one row per agent,
+no cartesian fan-out.
+
+The dashboard's `/agents` page **unions** this with spend-by-agent,
+keyed by name: registry agents always render (at `$0` / `—` when they
+have no traffic in the window), spend-only agents that lack a catalog
+entry still render tagged "traffic only". Without this union a
+seeded-but-never-invoked agent would be invisible — the list was
+previously derived purely from log traffic. When neo4j is unconfigured
+the list endpoint `503`s and the page falls back to spend-only.
 
 ## Reconciliation & staleness
 

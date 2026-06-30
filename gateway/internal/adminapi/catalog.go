@@ -84,6 +84,29 @@ type AgentCatalogResponse struct {
 	Skills       []CatalogSkill  `json:"skills"`
 }
 
+// CatalogAgentSummary is one row of the catalog list — enough to merge
+// the registry into the spend-derived /agents table without pulling
+// every agent's full prompt/tool/skill bodies. Counts let the list
+// render "📄 2 · 🔧 5 · ✦ 1" badges cheaply.
+type CatalogAgentSummary struct {
+	Name         string   `json:"name"`
+	DisplayName  string   `json:"display_name,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	DefaultModel string   `json:"default_model,omitempty"`
+	Sources      []string `json:"sources"`
+	Prompts      int      `json:"prompts"`
+	Tools        int      `json:"tools"`
+	Skills       int      `json:"skills"`
+	UpdatedAt    string   `json:"updated_at"`
+}
+
+// CatalogListResponse is the whole registry — every HiveAgent node,
+// traffic or not. The UI unions this with spend-by-agent so seeded
+// agents that have never been invoked still appear.
+type CatalogListResponse struct {
+	Agents []CatalogAgentSummary `json:"agents"`
+}
+
 type CatalogPrompt struct {
 	Name      string `json:"name"`
 	Role      string `json:"role"`
@@ -220,6 +243,31 @@ func (h *catalogHandlers) read(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		writeError(w, http.StatusNotFound, "not_found", "no catalog for agent")
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// list handles GET /_plugin/agents/catalog — cookie-or-bearer. Returns
+// every agent in the registry with child counts, so the /agents list
+// can union the catalog with spend-derived agents (seeded agents that
+// have never produced traffic still show up). Empty registry returns
+// an empty array, not 404 — "no agents seeded yet" is a normal state.
+func (h *catalogHandlers) list(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	if h.graph == nil {
+		writeError(w, http.StatusServiceUnavailable, "catalog_unavailable",
+			"agent catalog not configured (neo4j unset on this swarm)")
+		return
+	}
+
+	out, err := h.fetchCatalogList(r.Context())
+	if err != nil {
+		pluginlog.Errf("adminapi: catalog list: %v", err)
+		writeError(w, http.StatusBadGateway, "catalog_read_failed", "neo4j read failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -389,6 +437,47 @@ func unwindCreate(rel, label, agentName, now string, rows []map[string]any, prop
 
 // ─── read builder ────────────────────────────────────────────────────
 
+// fetchCatalogList returns every agent with child counts in one query.
+// Counts are done with COUNT{} subqueries per kind so the row count
+// stays one-per-agent (no cartesian fan-out), and source names are
+// collected the same way.
+func (h *catalogHandlers) fetchCatalogList(ctx context.Context) (*CatalogListResponse, error) {
+	cypher := fmt.Sprintf(
+		"MATCH (a:%[1]s) "+
+			"RETURN a.name, a.display_name, a.description, a.default_model, "+
+			"COUNT { (a)-[:%[2]s]->(:%[3]s) } AS prompts, "+
+			"COUNT { (a)-[:%[4]s]->(:%[5]s) } AS tools, "+
+			"COUNT { (a)-[:%[6]s]->(:%[7]s) } AS skills, "+
+			"[ (a)-[:%[8]s]->(s:%[9]s) | s.name ] AS sources, "+
+			"a.updated_at "+
+			"ORDER BY coalesce(a.display_name, a.name)",
+		graphclient.LabelAgent,
+		graphclient.RelHasPrompt, graphclient.LabelPrompt,
+		graphclient.RelHasTool, graphclient.LabelTool,
+		graphclient.RelHasSkill, graphclient.LabelSkill,
+		graphclient.RelDefinedBy, graphclient.LabelSource,
+	)
+	res, err := h.graph.Query(ctx, cypher, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := &CatalogListResponse{Agents: []CatalogAgentSummary{}}
+	for _, row := range res.Data {
+		out.Agents = append(out.Agents, CatalogAgentSummary{
+			Name:         rowString(at(row.Row, 0)),
+			DisplayName:  rowString(at(row.Row, 1)),
+			Description:  rowString(at(row.Row, 2)),
+			DefaultModel: rowString(at(row.Row, 3)),
+			Prompts:      rowInt(at(row.Row, 4)),
+			Tools:        rowInt(at(row.Row, 5)),
+			Skills:       rowInt(at(row.Row, 6)),
+			Sources:      rowStrings(at(row.Row, 7)),
+			UpdatedAt:    rowString(at(row.Row, 8)),
+		})
+	}
+	return out, nil
+}
+
 // fetchCatalog runs one tx/commit batch of five statements (existence
 // + scalars, sources, prompts, tools, skills) and assembles the merged
 // view. Separate statements rather than one big OPTIONAL MATCH avoid
@@ -520,6 +609,33 @@ func rowString(raw json.RawMessage) string {
 		return ""
 	}
 	return s
+}
+
+// rowInt decodes a single returned cell into an int. neo4j integers
+// arrive as JSON numbers; null / garbage ⇒ 0.
+func rowInt(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0
+	}
+	return n
+}
+
+// rowStrings decodes a returned cell that is a JSON array of strings
+// (e.g. a Cypher list comprehension of source names). null / garbage
+// ⇒ empty slice.
+func rowStrings(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	var ss []string
+	if err := json.Unmarshal(raw, &ss); err != nil {
+		return []string{}
+	}
+	return ss
 }
 
 // at returns the i-th cell of a row, or empty when the RETURN clause

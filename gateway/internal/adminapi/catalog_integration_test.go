@@ -123,6 +123,37 @@ func TestCatalogIntegration(t *testing.T) {
 
 	// ── 404 for unknown agent ──
 	doRead(t, cat, "no-such-agent-xyz", http.StatusNotFound)
+
+	// ── list includes our agent with correct counts ──
+	req := httptest.NewRequest(http.MethodGet, "/_plugin/agents/catalog", nil)
+	rec := httptest.NewRecorder()
+	cat.list(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var list CatalogListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("list decode: %v", err)
+	}
+	var row *CatalogAgentSummary
+	for i := range list.Agents {
+		if list.Agents[i].Name == agent {
+			row = &list.Agents[i]
+		}
+	}
+	if row == nil {
+		t.Fatalf("list missing %q (got %d agents)", agent, len(list.Agents))
+	}
+	if row.DefaultModel != "sonnet" {
+		t.Errorf("list default_model = %q", row.DefaultModel)
+	}
+	if row.Prompts != 2 || row.Tools != 2 || row.Skills != 1 {
+		t.Errorf("list counts = p%d t%d s%d, want p2 t2 s1",
+			row.Prompts, row.Tools, row.Skills)
+	}
+	if len(row.Sources) != 2 {
+		t.Errorf("list sources = %v, want hive + prompt-manager", row.Sources)
+	}
 }
 
 func doPush(t *testing.T, cat *catalogHandlers, body any) catalogWriteResponse {
