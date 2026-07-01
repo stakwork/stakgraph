@@ -274,9 +274,18 @@ fn eval_expr_type(
         // `this` is its own keyword node in tree-sitter-java (not an identifier)
         "this" => scope_lookup(scope, "this").map(str::to_string),
 
-        // Bare name: local var, parameter, or class field (seeded into scope on class entry)
+        // Bare name: local var, parameter, class field, or static class reference.
+        // If scope lookup fails and the name starts with an uppercase letter, treat it
+        // as a class name used as a static-call receiver (e.g. PersonFactory.create()).
         "identifier" => {
-            scope_lookup(scope, node.utf8_text(source).ok()?).map(str::to_string)
+            let name = node.utf8_text(source).ok()?;
+            scope_lookup(scope, name).map(str::to_string).or_else(|| {
+                if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                    Some(name.to_string())
+                } else {
+                    None
+                }
+            })
         }
 
         // this.gateway  or  obj.field

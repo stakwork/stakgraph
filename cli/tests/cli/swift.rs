@@ -39,8 +39,8 @@ fn parse_stats_swift_dir() {
     let out = run_stakgraph(&["--stats", &dir]);
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("Class                26"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             36"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                27"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             39"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             5"), "stdout: {}", out.stdout);
 }
 

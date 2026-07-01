@@ -16,6 +16,7 @@ pub struct GoRegistry {
     methods: HashMap<(String, String), String>,
     struct_fields: HashMap<String, HashMap<String, String>>,
     fn_returns: HashMap<String, String>,
+    method_returns: HashMap<(String, String), String>,
     pkg_fns: HashMap<String, HashMap<String, NodeKeys>>,
     resolved: HashMap<(String, usize, usize), NodeKeys>,
 }
@@ -27,6 +28,7 @@ impl GoRegistry {
             methods: HashMap::new(),
             struct_fields: HashMap::new(),
             fn_returns: HashMap::new(),
+            method_returns: HashMap::new(),
             pkg_fns: HashMap::new(),
             resolved: HashMap::new(),
         };
@@ -64,7 +66,7 @@ impl GoRegistry {
             }
         }
 
-        // Pass 1.5: extract struct field types from source files
+        // Pass 1.5: extract struct field types and method return types from source files
         for (file, source) in filez {
             if !file.ends_with(".go") {
                 continue;
@@ -75,6 +77,10 @@ impl GoRegistry {
                     .entry(struct_name)
                     .or_default()
                     .extend(field_map);
+            }
+            let method_rets = go_resolver::extract_method_return_types(source);
+            for (key, ret) in method_rets {
+                reg.method_returns.entry(key).or_insert(ret);
             }
         }
 
@@ -96,6 +102,7 @@ impl GoRegistry {
                     file,
                     &reg.struct_fields,
                     &reg.fn_returns,
+                    &reg.method_returns,
                     &reg.pkg_fns,
                     &reg.var_types,
                     graph,

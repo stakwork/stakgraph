@@ -30,6 +30,10 @@ use std::sync::Arc;
 // @ast node: Function "pipeline"
 // @ast edge: Calls -> Function "new" "method_chain.rs" [operand=Repo]
 // @ast edge: Calls -> Function "total" "method_chain.rs"
+// @ast node: Function "make_data_store"
+// @ast node: Function "factory_pipeline"
+// @ast edge: Calls -> Function "make_data_store" "method_chain.rs"
+// @ast edge: Calls -> Function "count" "method_chain.rs" [operand=DataStore]
 
 /// Leaf type — Pool::count is the first "count" defined in this file.
 pub struct Pool;
@@ -100,4 +104,17 @@ impl ArcRepo {
 pub fn pipeline() -> usize {
     let repo = Repo::new();
     repo.total()
+}
+
+/// Factory function: return type seeds fn_returns so that callers can type-bind
+/// the result variable without an explicit type annotation.
+pub fn make_data_store() -> DataStore {
+    DataStore::new()
+}
+
+/// Tests the fn_returns path: let store = make_data_store() binds store → DataStore,
+/// then store.count() resolves to DataStore::count via struct_fields dispatch.
+pub fn factory_pipeline() -> usize {
+    let store = make_data_store();
+    store.count()
 }

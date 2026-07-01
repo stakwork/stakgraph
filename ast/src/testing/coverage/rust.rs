@@ -78,8 +78,8 @@ async fn test_rust_coverage() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     assert_eq!(
         functions.len(),
-        102,
-        "Expected 102 functions after test improvements"
+        104,
+        "Expected 104 functions after test improvements"
     );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
@@ -92,7 +92,7 @@ async fn test_rust_coverage() -> Result<()> {
     assert_eq!(e2e_tests.len(), 8, "Expected 8 e2e tests");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges, 122, "Expected 122 Calls edges");
+    assert_eq!(calls_edges, 125, "Expected 125 Calls edges");
 
     let unit_test_to_function_edges =
         graph.find_nodes_with_edge_type(NodeType::UnitTest, NodeType::Function, EdgeType::Calls);
@@ -139,8 +139,8 @@ async fn test_rust_graph_upload() -> Result<()> {
     let graph_ops = setup_rust_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 321, "Graph should have 321 nodes after upload");
-    assert_eq!(edges, 524, "Graph should have 524 edges after upload");
+    assert_eq!(nodes, 323, "Graph should have 323 nodes after upload");
+    assert_eq!(edges, 530, "Graph should have 530 edges after upload");
 
     Ok(())
 }
@@ -159,15 +159,15 @@ async fn test_coverage_default_params() -> Result<()> {
     );
 
     let unit = coverage.unit_tests.expect("Should have unit_tests");
-    assert_eq!(unit.total, 49, "Should have 49 unit test targets");
+    assert_eq!(unit.total, 51, "Should have 51 unit test targets");
     assert_eq!(unit.total_tests, 43, "Should have 43 unit tests");
 
     let integration = coverage
         .integration_tests
         .expect("Should have integration_tests");
     assert_eq!(
-        integration.total, 49,
-        "Should have 49 integration test targets"
+        integration.total, 51,
+        "Should have 51 integration test targets"
     );
     assert_eq!(
         integration.total_tests, 17,
@@ -215,8 +215,8 @@ async fn test_coverage_with_ignore_dirs() -> Result<()> {
 
     let unit = filtered.unit_tests.expect("Should have unit_tests");
     assert_eq!(
-        unit.total, 43,
-        "Should have 43 targets after ignoring routes"
+        unit.total, 45,
+        "Should have 45 targets after ignoring routes"
     );
 
     Ok(())
@@ -297,7 +297,7 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49, "Should have 49 unique Function nodes");
+    assert_eq!(count, 51, "Should have 51 unique Function nodes");
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(
@@ -525,7 +525,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 70, "Should have 49 Functions + 21 Endpoints = 70");
+    assert_eq!(count, 72, "Should have 51 Functions + 21 Endpoints = 72");
 
     let has_function = results
         .iter()
@@ -591,7 +591,7 @@ async fn test_nodes_pagination_default() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49, "Total count should be 49");
+    assert_eq!(count, 51, "Total count should be 51");
     assert_eq!(results.len(), 10, "Should return 10 items per page");
 
     Ok(())
@@ -678,7 +678,7 @@ async fn test_nodes_pagination_large_offset() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49, "Total count should still be accurate");
+    assert_eq!(count, 51, "Total count should still be accurate");
     assert!(
         results.is_empty(),
         "Should return empty for offset beyond data"
@@ -708,8 +708,8 @@ async fn test_nodes_pagination_max_limit() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49, "Total count should be 49");
-    assert_eq!(results.len(), 49, "Should return all 49 functions");
+    assert_eq!(count, 51, "Total count should be 51");
+    assert_eq!(results.len(), 51, "Should return all 51 functions");
 
     Ok(())
 }
@@ -949,7 +949,7 @@ async fn test_nodes_repo_filter() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49, "Should find 49 functions in Rust repo");
+    assert_eq!(count, 51, "Should find 51 functions in Rust repo");
 
     for (_, node_data, _, _, _, _, _, _, _) in &results {
         assert!(
@@ -1121,8 +1121,8 @@ async fn test_nodes_is_muted() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(unmuted_count, 49, "Unmuted count should be 49");
-    assert_eq!(all_count, 49, "All count should be 49");
+    assert_eq!(unmuted_count, 51, "Unmuted count should be 51");
+    assert_eq!(all_count, 51, "All count should be 51");
     assert_eq!(
         unmuted_count, all_count,
         "Unmuted should equal all when no nodes muted"
