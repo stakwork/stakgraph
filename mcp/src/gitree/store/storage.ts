@@ -79,6 +79,12 @@ export abstract class Storage {
   // Link a concept to files by explicit file paths (used by bootstrap)
   abstract linkConceptToFilesByPaths(conceptId: string, filePaths: string[]): Promise<number>;
 
+  // Direct PR->File Linking (deterministic, based on each PR's `files` array).
+  // Scopes matching to each PR's own repo, so a repo-less (null) `repo` arg is
+  // still safe to run across a multi-repo swarm. Used both incrementally after
+  // ingestion and as a backfill for existing PRs.
+  abstract linkPRsToFiles(repo?: string): Promise<{ prsProcessed: number; edgesLinked: number }>;
+
   // Get Files for Concept
   abstract getFilesForConcept(conceptId: string, expand?: string[]): Promise<any[]>;
 

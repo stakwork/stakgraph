@@ -585,6 +585,12 @@ export class FileSystemStore extends Storage {
     );
   }
 
+  async linkPRsToFiles(_repo?: string): Promise<{ prsProcessed: number; edgesLinked: number }> {
+    throw new Error(
+      "PR-File linking is only supported with GraphStorage. Use --graph flag."
+    );
+  }
+
   // Get Files for Concept (not supported in FileSystemStorage)
   async getFilesForConcept(_conceptId: string, _expand?: string[]): Promise<any[]> {
     throw new Error(
