@@ -3,7 +3,9 @@ import { SessionConfig, truncateToolResult } from "./session.js";
 import { createByModelName, TikTokenizer } from "@microsoft/tiktokenizer";
 
 const TRUNCATED = "<TRUNCATED>";
+const SLIMMED_PREFIX = "[SLIMMED";
 const CONTEXT_THRESHOLD = 0.9;
+const RECENT_TOOL_RESULTS = 6;
 
 // Singleton tokenizer instance (lazy-initialized)
 let _tokenizer: TikTokenizer | null = null;
@@ -355,13 +357,72 @@ function getToolResultSize(part: any): number {
 }
 
 /**
- * Check if a tool result part is already truncated.
+ * Check if a tool result part is already truncated or slimmed.
  */
 function isAlreadyTruncated(part: any): boolean {
-  if (part?.output?.type === "text" && part.output.value === TRUNCATED) {
-    return true;
+  if (part?.output?.type !== "text") return false;
+  const v = part.output.value;
+  return v === TRUNCATED || (typeof v === "string" && v.startsWith(SLIMMED_PREFIX));
+}
+
+function slimSearchResult(text: string): string {
+  try {
+    const items = JSON.parse(text);
+    if (!Array.isArray(items)) return text;
+    const slimmed = items.map((item: any) => ({
+      name: item.name,
+      node_type: item.node_type,
+      file: item.file,
+      ref_id: item.ref_id,
+    }));
+    return `${SLIMMED_PREFIX} ${items.length} search results — descriptions stripped, re-call stakgraph_code with ref_id to read source]\n${JSON.stringify(slimmed)}`;
+  } catch {
+    return text;
   }
-  return false;
+}
+
+function slimCodeResult(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= 5) return text;
+  const sig = lines.slice(0, 3).join("\n");
+  return `${SLIMMED_PREFIX} source code ${lines.length} lines — showing signature only, re-call stakgraph_code to read full source]\n${sig}\n[... ${lines.length - 3} more lines]`;
+}
+
+function slimBashResult(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= 8) return text;
+  const head = lines.slice(0, 3).join("\n");
+  const tail = lines.slice(-3).join("\n");
+  return `${SLIMMED_PREFIX} bash output ${lines.length} lines — showing first/last 3 lines]\n${head}\n[... ${lines.length - 6} lines omitted ...]\n${tail}`;
+}
+
+function slimFulltextResult(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= 6) return text;
+  const kept = lines.slice(0, 5).join("\n");
+  return `${SLIMMED_PREFIX} fulltext_search ${lines.length} matches — showing top 5]\n${kept}\n[... ${lines.length - 5} more matches]`;
+}
+
+function slimRepoOverview(text: string): string {
+  return `${SLIMMED_PREFIX} repo_overview was here — call repo_overview to refresh]`;
+}
+
+export function slimToolResult(toolName: string, output: string): string {
+  switch (toolName) {
+    case "stakgraph_search":
+    case "vector_search":
+      return slimSearchResult(output);
+    case "stakgraph_code":
+      return slimCodeResult(output);
+    case "bash":
+      return slimBashResult(output);
+    case "fulltext_search":
+      return slimFulltextResult(output);
+    case "repo_overview":
+      return slimRepoOverview(output);
+    default:
+      return output;
+  }
 }
 
 /**
@@ -378,100 +439,154 @@ export function estimateMessagesTokens(messages: ModelMessage[]): number {
 }
 
 /**
- * Truncate old tool results from the beginning of a messages array
- * to bring token usage under the context limit threshold (90%).
+ * Collect all tool-result locations in the messages array.
+ * Returns them in order (earliest first).
+ */
+function collectToolResults(
+  messages: ModelMessage[]
+): { msgIdx: number; partIdx: number; toolName: string; tokens: number }[] {
+  const results: { msgIdx: number; partIdx: number; toolName: string; tokens: number }[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i] as any;
+    if (msg.role !== "tool" || !Array.isArray(msg.content)) continue;
+    for (let j = 0; j < msg.content.length; j++) {
+      const part = msg.content[j];
+      if (part.type === "tool-result" && !isAlreadyTruncated(part)) {
+        results.push({
+          msgIdx: i,
+          partIdx: j,
+          toolName: part.toolName ?? "unknown",
+          tokens: getToolResultSize(part),
+        });
+      }
+    }
+  }
+  return results;
+}
+
+function getToolResultText(part: any): string | undefined {
+  if (part?.output?.type === "text" && typeof part.output.value === "string") {
+    return part.output.value;
+  }
+  if (part?.output?.type === "json") {
+    try { return JSON.stringify(part.output.value); } catch { return undefined; }
+  }
+  return undefined;
+}
+
+function isErrorOutput(part: any): boolean {
+  const text = getToolResultText(part);
+  if (!text) return false;
+  return /^error[:\s]/i.test(text) || /failed|exception|traceback/i.test(text.slice(0, 200));
+}
+
+/**
+ * Proactively slim old tool results to reduce context size while preserving
+ * message structure (no cache busting). The most recent RECENT_TOOL_RESULTS
+ * tool results and any error outputs are left untouched. Everything older
+ * gets per-tool-type compression: search results lose descriptions, code
+ * keeps only signatures, bash keeps head/tail, repo_overview is replaced
+ * with a refresh hint.
  *
- * @param messages - The full messages array about to be sent to the model.
- * @param inputTokens - Actual input tokens from the provider (from the last step),
- *                       or 0 if unavailable (in which case we estimate from messages).
- * @param contextLimit - The model's context window size.
- *
- * Returns a new messages array (or the original if no truncation needed).
- * Tool results are replaced with "<TRUNCATED>" starting from the earliest
- * messages, skipping the most recent tool results.
+ * Runs on every step via prepareStep. Always safe — slimming preserves
+ * the message count, roles, and tool-call IDs.
+ */
+export function slimOldToolResults(messages: ModelMessage[]): ModelMessage[] {
+  const allResults = collectToolResults(messages);
+  if (allResults.length <= RECENT_TOOL_RESULTS) return messages;
+
+  const slimmable = allResults.slice(0, allResults.length - RECENT_TOOL_RESULTS);
+  const result = [...messages];
+  let slimmedCount = 0;
+
+  for (const { msgIdx, partIdx, toolName } of slimmable) {
+    const part = (messages[msgIdx] as any).content[partIdx];
+    if (isErrorOutput(part)) continue;
+
+    const text = getToolResultText(part);
+    if (!text) continue;
+
+    const slimmed = slimToolResult(toolName, text);
+    if (slimmed === text) continue;
+
+    if (result[msgIdx] === messages[msgIdx]) {
+      const msg = messages[msgIdx] as any;
+      result[msgIdx] = { ...msg, content: [...msg.content] } as ModelMessage;
+    }
+    (result[msgIdx] as any).content[partIdx] = {
+      ...part,
+      output: { type: "text" as const, value: slimmed },
+    };
+    slimmedCount++;
+  }
+
+  if (slimmedCount > 0) {
+    console.log(
+      `[context] slimmed ${slimmedCount} old tool result(s), protected last ${RECENT_TOOL_RESULTS}`
+    );
+  }
+  return slimmedCount > 0 ? result : messages;
+}
+
+/**
+ * Emergency truncation: nuke old tool results with <TRUNCATED> when
+ * context usage exceeds 90% of the window. This is the last resort
+ * after slimming has already run.
  */
 export async function truncateOldToolResults(
   messages: ModelMessage[],
   inputTokens: number,
   contextLimit: number
 ): Promise<ModelMessage[]> {
-  // Eagerly initialize the tokenizer so countTokens() is accurate
   await getTokenizer().catch(() => {});
 
-  // Use provider-reported tokens if available, otherwise estimate
   const estimated = estimateMessagesTokens(messages);
-  const lastInputTokens = inputTokens > 0
-    ? inputTokens
-    : estimated;
+  const lastInputTokens = inputTokens > 0 ? inputTokens : estimated;
   const threshold = contextLimit * CONTEXT_THRESHOLD;
 
   console.log(
     `[truncate] providerTokens=${inputTokens} estimated=${estimated} threshold=${Math.round(threshold)} contextLimit=${contextLimit} messages=${messages.length} tokenizer=${_tokenizer ? 'real' : 'fallback'}`
   );
 
-  // Check both provider-reported and our own estimate
-  if (lastInputTokens < threshold && estimated < threshold) {
-    return messages;
+  // First pass: proactive slimming (always runs, preserves structure)
+  let current = slimOldToolResults(messages);
+
+  // Re-estimate after slimming
+  const estimatedAfterSlim = estimateMessagesTokens(current);
+  if (lastInputTokens < threshold && estimatedAfterSlim < threshold) {
+    return current;
   }
 
-  const worstCase = Math.max(lastInputTokens, estimated);
+  // Second pass: emergency nuke (only if still over 90% after slimming)
+  const worstCase = Math.max(lastInputTokens, estimatedAfterSlim);
   const excess = worstCase - threshold;
-  // Add 10% safety margin to account for estimation inaccuracy
   let tokensToFree = Math.ceil(excess * 1.1);
 
-  console.log(
-    `[truncate] OVER LIMIT. worstCase=${worstCase} excess=${excess} tokensToFree=${tokensToFree}`
+  console.warn(
+    `[context] EMERGENCY truncation after slimming. worstCase=${worstCase} excess=${excess} tokensToFree=${tokensToFree}`
   );
 
-  // Collect all truncatable tool-result locations (earliest first).
-  // Each entry: { msgIdx, partIdx, tokens }
-  const candidates: { msgIdx: number; partIdx: number; tokens: number }[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i] as any;
-    if (msg.role !== "tool") continue;
-    if (!Array.isArray(msg.content)) continue;
-    for (let j = 0; j < msg.content.length; j++) {
-      const part = msg.content[j];
-      if (part.type === "tool-result" && !isAlreadyTruncated(part)) {
-        const tokens = getToolResultSize(part);
-        if (tokens > 0) {
-          candidates.push({ msgIdx: i, partIdx: j, tokens });
-        }
-      }
-    }
-  }
-
-  const totalFreeable = candidates.reduce((sum, c) => sum + c.tokens, 0);
-  console.log(
-    `[truncate] Found ${candidates.length} truncatable tool results, totalFreeable=${totalFreeable}`
-  );
+  const candidates = collectToolResults(current)
+    .filter((c) => c.tokens > 0);
 
   if (candidates.length === 0) {
     console.log(`[truncate] WARNING: over limit but no tool results to truncate!`);
-    return messages;
+    return current;
   }
 
-  // Deep copy only the messages we need to modify
-  const result = [...messages];
+  const result = [...current];
   let freedTokens = 0;
   let truncatedCount = 0;
 
-  // Truncate from the beginning (oldest tool results first)
   for (const { msgIdx, partIdx, tokens } of candidates) {
     if (freedTokens >= tokensToFree) break;
 
-    // Lazy deep-copy the message on first mutation
-    if (result[msgIdx] === messages[msgIdx]) {
-      const msg = messages[msgIdx] as any;
-      result[msgIdx] = {
-        ...msg,
-        content: [...msg.content],
-      } as ModelMessage;
+    if (result[msgIdx] === current[msgIdx]) {
+      const msg = current[msgIdx] as any;
+      result[msgIdx] = { ...msg, content: [...msg.content] } as ModelMessage;
     }
-    const msgContent = (result[msgIdx] as any).content;
-    const part = msgContent[partIdx];
-    // Replace with truncated marker
-    msgContent[partIdx] = {
+    const part = (result[msgIdx] as any).content[partIdx];
+    (result[msgIdx] as any).content[partIdx] = {
       ...part,
       output: { type: "text" as const, value: TRUNCATED },
     };
