@@ -64,6 +64,7 @@ var PlaywrightGenerator = (() => {
       actions.push({
         type: "click",
         timestamp: cd.timestamp,
+        seq: cd.seq,
         locator: {
           primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
           fallbacks: cd.selectors.fallbacks || [],
@@ -81,6 +82,8 @@ var PlaywrightGenerator = (() => {
           type: "waitForURL",
           timestamp: nav.timestamp - 1,
           // ensure ordering between click and nav
+          // Order right after the click that caused it: the nav's own seq is > the click's.
+          seq: nav.seq,
           expectedUrl: nav.url,
           normalizedUrl: normalize(nav.url),
           navRefTimestamp: nav.timestamp
@@ -89,7 +92,7 @@ var PlaywrightGenerator = (() => {
     }
     for (const nav of navigations) {
       if (!navTimestampsFromClicks.has(nav.timestamp)) {
-        actions.push({ type: "goto", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
+        actions.push({ type: "goto", timestamp: nav.timestamp, seq: nav.seq, url: nav.url, normalizedUrl: normalize(nav.url) });
       }
     }
     if (results.inputChanges) {
@@ -98,6 +101,7 @@ var PlaywrightGenerator = (() => {
           actions.push({
             type: "input",
             timestamp: input.timestamp,
+            seq: input.seq,
             locator: { primary: input.elementSelector, fallbacks: [] },
             value: input.value
           });
@@ -109,6 +113,7 @@ var PlaywrightGenerator = (() => {
         actions.push({
           type: "form",
           timestamp: fe.timestamp,
+          seq: fe.seq,
           locator: { primary: fe.elementSelector, fallbacks: [] },
           formType: fe.type,
           value: fe.value,
@@ -121,12 +126,17 @@ var PlaywrightGenerator = (() => {
         actions.push({
           type: "assertion",
           timestamp: asrt.timestamp,
+          seq: asrt.seq,
           locator: { primary: asrt.selector, fallbacks: [] },
           value: asrt.value
         });
       }
     }
-    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type));
+    actions.sort((a, b) => {
+      if (a.seq != null && b.seq != null)
+        return a.seq - b.seq || weightOrder(a.type) - weightOrder(b.type);
+      return a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type);
+    });
     refineLocators(actions);
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
@@ -265,7 +275,8 @@ var PlaywrightGenerator = (() => {
           this.trackingData.pageNavigation.push({
             type: "navigation",
             url: eventData.url,
-            timestamp: eventData.timestamp
+            timestamp: eventData.timestamp,
+            seq: eventData.seq
           });
           break;
         case "input":
@@ -273,7 +284,8 @@ var PlaywrightGenerator = (() => {
             elementSelector: eventData.selector || "",
             value: eventData.value,
             timestamp: eventData.timestamp,
-            action: "complete"
+            action: "complete",
+            seq: eventData.seq
           });
           break;
         case "form":
@@ -283,7 +295,8 @@ var PlaywrightGenerator = (() => {
             checked: eventData.checked,
             value: eventData.value || "",
             text: eventData.text,
-            timestamp: eventData.timestamp
+            timestamp: eventData.timestamp,
+            seq: eventData.seq
           });
           break;
         case "assertion":
@@ -292,7 +305,8 @@ var PlaywrightGenerator = (() => {
             type: eventData.type || "hasText",
             selector: eventData.selector,
             value: eventData.value || "",
-            timestamp: eventData.timestamp
+            timestamp: eventData.timestamp,
+            seq: eventData.seq
           });
           break;
         default:
@@ -448,10 +462,34 @@ var PlaywrightGenerator = (() => {
       this.clear();
     }
   };
-  function escapeTextForAssertion(text) {
-    if (!text)
-      return "";
-    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  function q(s) {
+    return String(s != null ? s : "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, "").replace(/\n/g, "\\n");
+  }
+  function extractTestId(locator) {
+    if (!locator)
+      return null;
+    for (const cand of [locator.primary, ...locator.fallbacks || []]) {
+      const m = cand && cand.match(/\[data-testid=["']([^"']+)["']\]/);
+      if (m)
+        return m[1];
+    }
+    return null;
+  }
+  function clickExpr(locator) {
+    const testId = extractTestId(locator);
+    if (testId)
+      return `page.getByTestId('${q(testId)}')`;
+    const sel = (locator == null ? void 0 : locator.stableSelector) || (locator == null ? void 0 : locator.primary) || "";
+    const roleM = sel.match(/^role:([a-zA-Z]+)(?:\[name(?:-regex)?="([\s\S]*)"\])?$/);
+    if (roleM) {
+      const [, role, name] = roleM;
+      return name ? `page.getByRole('${q(role)}', { name: '${q(name)}' })` : `page.getByRole('${q(role)}')`;
+    }
+    return cssLocator(locator);
+  }
+  function cssLocator(locator) {
+    const sel = (locator == null ? void 0 : locator.stableSelector) || (locator == null ? void 0 : locator.primary) || "";
+    return `page.locator('${q(sel)}')`;
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
     const { baseUrl = "" } = options;
@@ -469,39 +507,30 @@ var PlaywrightGenerator = (() => {
           }
           return "";
         case "click": {
-          const selector = ((_a = action.locator) == null ? void 0 : _a.stableSelector) || ((_b = action.locator) == null ? void 0 : _b.primary);
-          if (!selector)
+          if (!((_a = action.locator) == null ? void 0 : _a.primary) && !((_b = action.locator) == null ? void 0 : _b.stableSelector))
             return "";
-          return `  await page.click('${selector}');`;
+          return `  await ${clickExpr(action.locator)}.click();`;
         }
         case "input": {
-          const selector = (_c = action.locator) == null ? void 0 : _c.primary;
-          if (!selector || action.value === void 0)
+          if (!((_c = action.locator) == null ? void 0 : _c.primary) || action.value === void 0)
             return "";
-          const value = action.value.replace(/'/g, "\\'");
-          return `  await page.fill('${selector}', '${value}');`;
+          return `  await ${cssLocator(action.locator)}.fill('${q(action.value)}');`;
         }
         case "form": {
-          const selector = (_d = action.locator) == null ? void 0 : _d.primary;
-          if (!selector)
+          if (!((_d = action.locator) == null ? void 0 : _d.primary))
             return "";
+          const target = cssLocator(action.locator);
           if (action.formType === "checkbox" || action.formType === "radio") {
-            if (action.checked) {
-              return `  await page.check('${selector}');`;
-            } else {
-              return `  await page.uncheck('${selector}');`;
-            }
-          } else if (action.formType === "select" && action.value) {
-            return `  await page.selectOption('${selector}', '${action.value}');`;
+            return action.checked ? `  await ${target}.check();` : `  await ${target}.uncheck();`;
+          } else if (action.formType === "select" && action.value !== void 0) {
+            return `  await ${target}.selectOption('${q(action.value)}');`;
           }
           return "";
         }
         case "assertion": {
-          const selector = (_e = action.locator) == null ? void 0 : _e.primary;
-          if (!selector || action.value === void 0)
+          if (!((_e = action.locator) == null ? void 0 : _e.primary) || action.value === void 0)
             return "";
-          const escapedValue = escapeTextForAssertion(action.value);
-          return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
+          return `  await expect(${cssLocator(action.locator)}).toContainText('${q(action.value)}');`;
         }
         default:
           return "";

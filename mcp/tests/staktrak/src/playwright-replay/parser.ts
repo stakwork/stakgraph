@@ -89,8 +89,11 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
         }
       }
 
+      // Match the quoted selector arg by its quotes (not by "up to first ) "), so
+      // selectors containing parentheses like :nth-of-type(2) parse correctly instead
+      // of being silently dropped.
       const pageLocatorActionMatch = trimmed.match(
-        /^(?:await\s+)?page\.locator\(([^)]+)\)\.(\w+)\((.*?)\);?$/
+        /^(?:await\s+)?page\.locator\(('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")\)\.(\w+)\((.*?)\);?$/
       );
       if (pageLocatorActionMatch) {
         const [, selectorArg, method, args] = pageLocatorActionMatch;

@@ -579,6 +579,9 @@ var userBehaviour = (() => {
       return `[data-testid="${meta.testId}"]`;
     if (meta.id && /^[a-zA-Z][\w-]*$/.test(meta.id))
       return `#${meta.id}`;
+    if (meta.role && meta.accessibleName && meta.accessibleName.length < 60) {
+      return `role:${meta.role}[name="${meta.accessibleName.replace(/"/g, '\\"')}"]`;
+    }
     if (typeof document !== "undefined") {
       const structural = [current, ...fallbacks].filter((s) => s && !s.startsWith("text=") && !s.startsWith("[") && !s.startsWith("#"));
       for (const s of structural) {
@@ -589,9 +592,6 @@ var userBehaviour = (() => {
         } catch (e) {
         }
       }
-    }
-    if (meta.role && meta.accessibleName && meta.accessibleName.length < 60) {
-      return `role:${meta.role}[name="${meta.accessibleName.replace(/"/g, '\\"')}"]`;
     }
     if (meta.accessibleName && meta.accessibleName.length < 40) {
       return `text=${meta.accessibleName.replace(/"/g, '\\"')}:exact`;
@@ -1058,7 +1058,7 @@ var userBehaviour = (() => {
           }
         }
         const pageLocatorActionMatch = trimmed.match(
-          /^(?:await\s+)?page\.locator\(([^)]+)\)\.(\w+)\((.*?)\);?$/
+          /^(?:await\s+)?page\.locator\(('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")\)\.(\w+)\((.*?)\);?$/
         );
         if (pageLocatorActionMatch) {
           const [, selectorArg, method, args] = pageLocatorActionMatch;
@@ -1715,8 +1715,6 @@ var userBehaviour = (() => {
   // src/playwright-replay/executor.ts
   var __stakReplayMatch = window.__stakTrakReplayMatch || { last: null };
   window.__stakTrakReplayMatch = __stakReplayMatch;
-  var __stakReplayState = window.__stakTrakReplayState || { lastStructural: null, lastEl: null };
-  window.__stakTrakReplayState = __stakReplayState;
   window.__stakTrakSelectorMap = window.__stakTrakSelectorMap || {};
   var __stakWarned = window.__stakTrakWarned || {};
   window.__stakTrakWarned = __stakWarned;
@@ -1785,6 +1783,17 @@ var userBehaviour = (() => {
     try {
       switch (action.type) {
         case "goto" /* GOTO */:
+          if (action.value && typeof action.value === "string") {
+            try {
+              const dest = new URL(action.value, window.location.href);
+              if (dest.origin === window.location.origin && dest.href !== window.location.href) {
+                history.pushState({}, "", dest.href);
+                window.dispatchEvent(new PopStateEvent("popstate"));
+                await new Promise((r) => setTimeout(r, 150));
+              }
+            } catch (e) {
+            }
+          }
           break;
         case "setViewportSize" /* SET_VIEWPORT_SIZE */:
           if (action.options) {
@@ -2116,21 +2125,7 @@ var userBehaviour = (() => {
       try {
         const matches = document.querySelectorAll(selector);
         if (matches.length === 1) {
-          __stakReplayState.lastStructural = selector;
-          __stakReplayState.lastEl = matches[0];
           return matches[0];
-        }
-      } catch (e) {
-      }
-    }
-    if ((selector.startsWith("role:") || selector.startsWith("text=")) && __stakReplayState.lastStructural && __stakReplayState.lastEl) {
-      try {
-        if (document.contains(__stakReplayState.lastEl)) {
-          const acc = getAccessibleName(__stakReplayState.lastEl);
-          const nameMatch = selector.includes('name="') ? selector.includes(`name="${acc}`) : selector.includes(acc || "");
-          if (acc && nameMatch) {
-            return __stakReplayState.lastEl;
-          }
         }
       } catch (e) {
       }
@@ -4526,6 +4521,7 @@ var userBehaviour = (() => {
       actions.push({
         type: "click",
         timestamp: cd.timestamp,
+        seq: cd.seq,
         locator: {
           primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
           fallbacks: cd.selectors.fallbacks || [],
@@ -4543,6 +4539,8 @@ var userBehaviour = (() => {
           type: "waitForURL",
           timestamp: nav.timestamp - 1,
           // ensure ordering between click and nav
+          // Order right after the click that caused it: the nav's own seq is > the click's.
+          seq: nav.seq,
           expectedUrl: nav.url,
           normalizedUrl: normalize(nav.url),
           navRefTimestamp: nav.timestamp
@@ -4551,7 +4549,7 @@ var userBehaviour = (() => {
     }
     for (const nav of navigations) {
       if (!navTimestampsFromClicks.has(nav.timestamp)) {
-        actions.push({ type: "goto", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
+        actions.push({ type: "goto", timestamp: nav.timestamp, seq: nav.seq, url: nav.url, normalizedUrl: normalize(nav.url) });
       }
     }
     if (results.inputChanges) {
@@ -4560,6 +4558,7 @@ var userBehaviour = (() => {
           actions.push({
             type: "input",
             timestamp: input.timestamp,
+            seq: input.seq,
             locator: { primary: input.elementSelector, fallbacks: [] },
             value: input.value
           });
@@ -4571,6 +4570,7 @@ var userBehaviour = (() => {
         actions.push({
           type: "form",
           timestamp: fe.timestamp,
+          seq: fe.seq,
           locator: { primary: fe.elementSelector, fallbacks: [] },
           formType: fe.type,
           value: fe.value,
@@ -4583,12 +4583,17 @@ var userBehaviour = (() => {
         actions.push({
           type: "assertion",
           timestamp: asrt.timestamp,
+          seq: asrt.seq,
           locator: { primary: asrt.selector, fallbacks: [] },
           value: asrt.value
         });
       }
     }
-    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type));
+    actions.sort((a, b) => {
+      if (a.seq != null && b.seq != null)
+        return a.seq - b.seq || weightOrder(a.type) - weightOrder(b.type);
+      return a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type);
+    });
     refineLocators(actions);
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
@@ -4716,7 +4721,8 @@ var userBehaviour = (() => {
           this.trackingData.pageNavigation.push({
             type: "navigation",
             url: eventData.url,
-            timestamp: eventData.timestamp
+            timestamp: eventData.timestamp,
+            seq: eventData.seq
           });
           break;
         case "input":
@@ -4724,7 +4730,8 @@ var userBehaviour = (() => {
             elementSelector: eventData.selector || "",
             value: eventData.value,
             timestamp: eventData.timestamp,
-            action: "complete"
+            action: "complete",
+            seq: eventData.seq
           });
           break;
         case "form":
@@ -4734,7 +4741,8 @@ var userBehaviour = (() => {
             checked: eventData.checked,
             value: eventData.value || "",
             text: eventData.text,
-            timestamp: eventData.timestamp
+            timestamp: eventData.timestamp,
+            seq: eventData.seq
           });
           break;
         case "assertion":
@@ -4743,7 +4751,8 @@ var userBehaviour = (() => {
             type: eventData.type || "hasText",
             selector: eventData.selector,
             value: eventData.value || "",
-            timestamp: eventData.timestamp
+            timestamp: eventData.timestamp,
+            seq: eventData.seq
           });
           break;
         default:
@@ -4899,10 +4908,34 @@ var userBehaviour = (() => {
       this.clear();
     }
   };
-  function escapeTextForAssertion(text) {
-    if (!text)
-      return "";
-    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  function q(s) {
+    return String(s != null ? s : "").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, "").replace(/\n/g, "\\n");
+  }
+  function extractTestId(locator) {
+    if (!locator)
+      return null;
+    for (const cand of [locator.primary, ...locator.fallbacks || []]) {
+      const m = cand && cand.match(/\[data-testid=["']([^"']+)["']\]/);
+      if (m)
+        return m[1];
+    }
+    return null;
+  }
+  function clickExpr(locator) {
+    const testId = extractTestId(locator);
+    if (testId)
+      return `page.getByTestId('${q(testId)}')`;
+    const sel = (locator == null ? void 0 : locator.stableSelector) || (locator == null ? void 0 : locator.primary) || "";
+    const roleM = sel.match(/^role:([a-zA-Z]+)(?:\[name(?:-regex)?="([\s\S]*)"\])?$/);
+    if (roleM) {
+      const [, role, name] = roleM;
+      return name ? `page.getByRole('${q(role)}', { name: '${q(name)}' })` : `page.getByRole('${q(role)}')`;
+    }
+    return cssLocator(locator);
+  }
+  function cssLocator(locator) {
+    const sel = (locator == null ? void 0 : locator.stableSelector) || (locator == null ? void 0 : locator.primary) || "";
+    return `page.locator('${q(sel)}')`;
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
     const { baseUrl = "" } = options;
@@ -4920,39 +4953,30 @@ var userBehaviour = (() => {
           }
           return "";
         case "click": {
-          const selector = ((_a2 = action.locator) == null ? void 0 : _a2.stableSelector) || ((_b = action.locator) == null ? void 0 : _b.primary);
-          if (!selector)
+          if (!((_a2 = action.locator) == null ? void 0 : _a2.primary) && !((_b = action.locator) == null ? void 0 : _b.stableSelector))
             return "";
-          return `  await page.click('${selector}');`;
+          return `  await ${clickExpr(action.locator)}.click();`;
         }
         case "input": {
-          const selector = (_c = action.locator) == null ? void 0 : _c.primary;
-          if (!selector || action.value === void 0)
+          if (!((_c = action.locator) == null ? void 0 : _c.primary) || action.value === void 0)
             return "";
-          const value = action.value.replace(/'/g, "\\'");
-          return `  await page.fill('${selector}', '${value}');`;
+          return `  await ${cssLocator(action.locator)}.fill('${q(action.value)}');`;
         }
         case "form": {
-          const selector = (_d = action.locator) == null ? void 0 : _d.primary;
-          if (!selector)
+          if (!((_d = action.locator) == null ? void 0 : _d.primary))
             return "";
+          const target = cssLocator(action.locator);
           if (action.formType === "checkbox" || action.formType === "radio") {
-            if (action.checked) {
-              return `  await page.check('${selector}');`;
-            } else {
-              return `  await page.uncheck('${selector}');`;
-            }
-          } else if (action.formType === "select" && action.value) {
-            return `  await page.selectOption('${selector}', '${action.value}');`;
+            return action.checked ? `  await ${target}.check();` : `  await ${target}.uncheck();`;
+          } else if (action.formType === "select" && action.value !== void 0) {
+            return `  await ${target}.selectOption('${q(action.value)}');`;
           }
           return "";
         }
         case "assertion": {
-          const selector = (_e = action.locator) == null ? void 0 : _e.primary;
-          if (!selector || action.value === void 0)
+          if (!((_e = action.locator) == null ? void 0 : _e.primary) || action.value === void 0)
             return "";
-          const escapedValue = escapeTextForAssertion(action.value);
-          return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
+          return `  await expect(${cssLocator(action.locator)}).toContainText('${q(action.value)}');`;
         }
         default:
           return "";
@@ -5021,6 +5045,13 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
         healthCheckInterval: null
       };
       this.isRunning = false;
+      // Monotonic capture-order counter. Assigned at the TRUE moment an action occurs
+      // (not at debounce/blur fire time), so downstream ordering never depends on
+      // wall-clock timestamps. See notes-staktrak-architecture.md P1.
+      this.eventSeq = 0;
+    }
+    nextSeq() {
+      return ++this.eventSeq;
     }
     /**
      * Send event data to parent for recording
@@ -5091,6 +5122,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
     resetResults() {
       this.memory.assertions = [];
       this.results = this.createEmptyResults();
+      this.eventSeq = 0;
       if (this.config.userInfo) {
         this.results.userInfo = {
           url: document.URL,
@@ -5157,6 +5189,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
           if (!isFormElement) {
             this.results.clicks.clickCount++;
             const clickDetail = createClickDetail(e);
+            clickDetail.seq = this.nextSeq();
             this.results.clicks.clickDetails.push(clickDetail);
             this.sendEventToParent("click", clickDetail);
             window.parent.postMessage(
@@ -5265,7 +5298,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                   type: "select",
                   value: selectEl.value,
                   text: (selectedOption == null ? void 0 : selectedOption.text) || "",
-                  timestamp: getTimeStamp()
+                  timestamp: getTimeStamp(),
+                  seq: this.nextSeq()
                 };
                 this.results.formElementChanges.push(formChange);
                 this.sendEventToParent("form", {
@@ -5273,7 +5307,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                   formType: "select",
                   value: selectEl.value,
                   text: (selectedOption == null ? void 0 : selectedOption.text) || "",
-                  timestamp: formChange.timestamp
+                  timestamp: formChange.timestamp,
+                  seq: formChange.seq
                 });
                 window.parent.postMessage(
                   {
@@ -5294,7 +5329,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                   type: inputEl.type,
                   checked: inputEl.checked,
                   value: inputEl.value,
-                  timestamp: getTimeStamp()
+                  timestamp: getTimeStamp(),
+                  seq: this.nextSeq()
                 };
                 this.results.formElementChanges.push(formChange);
                 this.sendEventToParent("form", {
@@ -5302,7 +5338,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                   formType: inputEl.type,
                   checked: inputEl.checked,
                   value: inputEl.value,
-                  timestamp: formChange.timestamp
+                  timestamp: formChange.timestamp,
+                  seq: formChange.seq
                 });
                 window.parent.postMessage(
                   {
@@ -5326,6 +5363,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
             const inputHandler = () => {
               const selector = getElementSelector(htmlEl);
               const elementId = inputEl.id || selector;
+              const eventSeq = this.nextSeq();
+              const eventTs = getTimeStamp();
               if (this.memory.inputDebounceTimers[elementId]) {
                 clearTimeout(this.memory.inputDebounceTimers[elementId]);
               }
@@ -5333,14 +5372,16 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                 const inputAction2 = {
                   elementSelector: selector,
                   value: inputEl.value,
-                  timestamp: getTimeStamp(),
-                  action: "complete"
+                  timestamp: eventTs,
+                  action: "complete",
+                  seq: eventSeq
                 };
                 this.results.inputChanges.push(inputAction2);
                 this.sendEventToParent("input", {
                   selector,
                   value: inputEl.value,
-                  timestamp: inputAction2.timestamp
+                  timestamp: inputAction2.timestamp,
+                  seq: inputAction2.seq
                 });
                 window.parent.postMessage(
                   {
@@ -5361,8 +5402,9 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
               const inputAction = {
                 elementSelector: selector,
                 value: inputEl.value,
-                timestamp: getTimeStamp(),
-                action: "intermediate"
+                timestamp: eventTs,
+                action: "intermediate",
+                seq: eventSeq
               };
               this.results.inputChanges.push(inputAction);
               window.parent.postMessage(
@@ -5395,13 +5437,15 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                     elementSelector: selector,
                     value: inputEl.value,
                     timestamp: getTimeStamp(),
-                    action: "complete"
+                    action: "complete",
+                    seq: this.nextSeq()
                   };
                   this.results.inputChanges.push(inputAction);
                   this.sendEventToParent("input", {
                     selector,
                     value: inputEl.value,
-                    timestamp: inputAction.timestamp
+                    timestamp: inputAction.timestamp,
+                    seq: inputAction.seq
                   });
                   window.parent.postMessage(
                     {
@@ -5453,7 +5497,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
         const navAction = {
           type,
           url: document.URL,
-          timestamp: getTimeStamp()
+          timestamp: getTimeStamp(),
+          seq: this.nextSeq()
         };
         if (this.isRunning) {
           this.results.pageNavigation.push(navAction);
@@ -5503,7 +5548,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
         try {
           const dest = new URL(href, window.location.href);
           if (dest.origin === window.location.origin) {
-            const navAction = { type: "anchorClick", url: getRelativeUrl(dest.href), timestamp: getTimeStamp() };
+            const navAction = { type: "anchorClick", url: getRelativeUrl(dest.href), timestamp: getTimeStamp(), seq: this.nextSeq() };
             if (this.isRunning) {
               this.results.pageNavigation.push(navAction);
               window.parent.postMessage(
@@ -5703,7 +5748,8 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
                 type: "hasText",
                 selector,
                 value: text,
-                timestamp: getTimeStamp()
+                timestamp: getTimeStamp(),
+                seq: this.nextSeq()
               };
               this.memory.assertions.push(assertion);
               this.sendEventToParent("assertion", assertion);

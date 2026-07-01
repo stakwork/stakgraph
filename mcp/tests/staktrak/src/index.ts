@@ -57,6 +57,14 @@ class UserBehaviorTracker {
   };
   private isRunning = false;
 
+  // Monotonic capture-order counter. Assigned at the TRUE moment an action occurs
+  // (not at debounce/blur fire time), so downstream ordering never depends on
+  // wall-clock timestamps. See notes-staktrak-architecture.md P1.
+  private eventSeq = 0;
+  private nextSeq(): number {
+    return ++this.eventSeq;
+  }
+
   /**
    * Send event data to parent for recording
    */
@@ -138,6 +146,7 @@ class UserBehaviorTracker {
   private resetResults() {
     this.memory.assertions = [];
     this.results = this.createEmptyResults();
+    this.eventSeq = 0;
 
     if (this.config.userInfo) {
       this.results.userInfo = {
@@ -242,6 +251,7 @@ class UserBehaviorTracker {
         if (!isFormElement) {
           this.results.clicks.clickCount++;
           const clickDetail = createClickDetail(e);
+          clickDetail.seq = this.nextSeq();
           this.results.clicks.clickDetails.push(clickDetail);
 
           // Send complete click data to parent for recording
@@ -378,6 +388,7 @@ class UserBehaviorTracker {
                 value: selectEl.value,
                 text: selectedOption?.text || "",
                 timestamp: getTimeStamp(),
+                seq: this.nextSeq(),
               };
               this.results.formElementChanges.push(formChange);
               // Send complete form data to parent
@@ -387,6 +398,7 @@ class UserBehaviorTracker {
                 value: selectEl.value,
                 text: selectedOption?.text || "",
                 timestamp: formChange.timestamp,
+                seq: formChange.seq,
               });
 
               // Broadcast form action in real-time
@@ -410,6 +422,7 @@ class UserBehaviorTracker {
                 checked: inputEl.checked,
                 value: inputEl.value,
                 timestamp: getTimeStamp(),
+                seq: this.nextSeq(),
               };
               this.results.formElementChanges.push(formChange);
               // Send complete form data to parent
@@ -419,6 +432,7 @@ class UserBehaviorTracker {
                 checked: inputEl.checked,
                 value: inputEl.value,
                 timestamp: formChange.timestamp,
+                seq: formChange.seq,
               });
 
               // Broadcast form action in real-time
@@ -446,6 +460,13 @@ class UserBehaviorTracker {
             const selector = getElementSelector(htmlEl);
             const elementId = inputEl.id || selector;
 
+            // Capture ordering metadata at the TRUE input-event time. The debounce
+            // below fires ~2s later; using its fire time would stamp the completed
+            // input with a FUTURE order, sorting it after clicks the user made while
+            // typing. Freeze seq/timestamp here so order reflects when typing happened.
+            const eventSeq = this.nextSeq();
+            const eventTs = getTimeStamp();
+
             if (this.memory.inputDebounceTimers[elementId]) {
               clearTimeout(this.memory.inputDebounceTimers[elementId]);
             }
@@ -454,8 +475,9 @@ class UserBehaviorTracker {
               const inputAction = {
                 elementSelector: selector,
                 value: inputEl.value,
-                timestamp: getTimeStamp(),
+                timestamp: eventTs,
                 action: "complete",
+                seq: eventSeq,
               };
               this.results.inputChanges.push(inputAction);
               // Send complete input data to parent
@@ -463,6 +485,7 @@ class UserBehaviorTracker {
                 selector: selector,
                 value: inputEl.value,
                 timestamp: inputAction.timestamp,
+                seq: inputAction.seq,
               });
 
               // Broadcast input action in real-time
@@ -488,8 +511,9 @@ class UserBehaviorTracker {
             const inputAction = {
               elementSelector: selector,
               value: inputEl.value,
-              timestamp: getTimeStamp(),
+              timestamp: eventTs,
               action: "intermediate",
+              seq: eventSeq,
             };
             this.results.inputChanges.push(inputAction);
 
@@ -530,6 +554,7 @@ class UserBehaviorTracker {
                   value: inputEl.value,
                   timestamp: getTimeStamp(),
                   action: "complete",
+                  seq: this.nextSeq(),
                 };
                 this.results.inputChanges.push(inputAction);
 
@@ -538,6 +563,7 @@ class UserBehaviorTracker {
                   selector: selector,
                   value: inputEl.value,
                   timestamp: inputAction.timestamp,
+                  seq: inputAction.seq,
                 });
 
                 // Broadcast final input action in real-time
@@ -600,6 +626,7 @@ class UserBehaviorTracker {
         type,
         url: document.URL,
         timestamp: getTimeStamp(),
+        seq: this.nextSeq(),
       };
 
       // Only record navigation when actively recording
@@ -658,7 +685,7 @@ class UserBehaviorTracker {
       try {
         const dest = new URL(href, window.location.href);
         if (dest.origin === window.location.origin) {
-          const navAction = { type: "anchorClick", url: getRelativeUrl(dest.href), timestamp: getTimeStamp() };
+          const navAction = { type: "anchorClick", url: getRelativeUrl(dest.href), timestamp: getTimeStamp(), seq: this.nextSeq() };
 
           // Only record navigation when actively recording
           if (this.isRunning) {
@@ -883,6 +910,7 @@ class UserBehaviorTracker {
               selector,
               value: text,
               timestamp: getTimeStamp(),
+              seq: this.nextSeq(),
             };
             this.memory.assertions.push(assertion);
             // Send complete assertion data to parent
