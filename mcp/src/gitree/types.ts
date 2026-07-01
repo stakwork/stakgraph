@@ -13,6 +13,9 @@ export interface LinkResult {
     filesInDocs: number;
     filesNotInDocs: number;
   }>;
+  // Direct PullRequest -> File linking (populated by bulk linking)
+  prsProcessed?: number;
+  prFileEdges?: number;
 }
 
 /**

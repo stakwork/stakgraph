@@ -47,9 +47,19 @@ export class FileLinker {
 
     const result = await this.storage.linkConceptsToFiles(undefined, repo);
 
+    // Also create direct PullRequest -> File edges (deterministic, repo-scoped).
+    // This runs in the same bulk pass so both normal ingestion and manual
+    // re-linking (backfill) keep PR->File edges in sync with no extra wiring.
+    const prLink = await this.storage.linkPRsToFiles(repo);
+    result.prsProcessed = prLink.prsProcessed;
+    result.prFileEdges = prLink.edgesLinked;
+
     console.log(`\n✅ Done linking files!`);
     console.log(`   Concepts processed: ${result.conceptsProcessed}`);
     console.log(`   Total files linked: ${result.filesLinked}`);
+    console.log(
+      `   Direct PR→File edges: ${prLink.edgesLinked} across ${prLink.prsProcessed} PRs`
+    );
     console.log(
       `   📚 ${result.filesInDocs} in documentation (importance 0.5-1.0)`
     );
