@@ -25,6 +25,9 @@ export interface Assertion {
   selector: string;
   value: string;
   timestamp: number;
+  // Monotonic capture-order sequence (assigned at true event time, not debounce/blur time).
+  // Ordering must use this, never wall-clock timestamps. See notes-staktrak-architecture.md P1.
+  seq?: number;
 }
 
 export interface ComponentInfo {
@@ -38,6 +41,7 @@ export interface ClickDetail {
   x: number;
   y: number;
   timestamp: number;
+  seq?: number; // monotonic capture-order sequence
   selectors: {
     primary: string; // Main CSS selector
     fallbacks: string[]; // Alternative selectors
@@ -75,7 +79,7 @@ export interface Results {
     completedAt: number;
     totalSeconds: number;
   };
-  pageNavigation: Array<{ type: string; url: string; timestamp: number }>;
+  pageNavigation: Array<{ type: string; url: string; timestamp: number; seq?: number }>;
   clicks: {
     clickCount: number;
     clickDetails: ClickDetail[];
@@ -88,6 +92,7 @@ export interface Results {
     value: string;
     timestamp: number;
     action: string;
+    seq?: number;
   }>;
   focusChanges: Array<{
     elementSelector: string;
@@ -103,6 +108,7 @@ export interface Results {
     value: string;
     text?: string;
     timestamp: number;
+    seq?: number;
   }>;
   touchEvents: Array<{
     type: string;

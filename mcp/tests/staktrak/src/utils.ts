@@ -716,7 +716,15 @@ const chooseStablePrimary = (
   if (meta.testId) return `[data-testid="${meta.testId}"]`;
   // Then ID
   if (meta.id && /^[a-zA-Z][\w-]*$/.test(meta.id)) return `#${meta.id}`;
-  // Before using text, see if any fallback structural selector is unique.
+  // Prefer role + accessible name BEFORE structural fallbacks. A structural selector
+  // (e.g. button:nth-of-type(2)) can be unique at capture time but resolve to a
+  // DIFFERENT element on replay once the DOM/view changes; role+name survives DOM
+  // reordering. Only fall through to structural when there's no usable name.
+  if (meta.role && meta.accessibleName && meta.accessibleName.length < 60) {
+    // Use role marker instead of raw text= for traceability; executor already understands role:
+    return `role:${meta.role}[name="${meta.accessibleName.replace(/"/g,'\\"')}"]`;
+  }
+  // No accessible name: see if any fallback structural selector is unique.
   if (typeof document !== 'undefined') {
     const structural = [current, ...fallbacks].filter(s => s && !s.startsWith('text=') && !s.startsWith('[') && !s.startsWith('#'));
     for (const s of structural) {
@@ -726,11 +734,6 @@ const chooseStablePrimary = (
         }
       } catch {}
     }
-  }
-  // Role + accessibleName -> prefer explicit getByRole semantics (we encode as role: for replay, but for primary keep structural if possible)
-  if (meta.role && meta.accessibleName && meta.accessibleName.length < 60) {
-    // Use role marker instead of raw text= for traceability; executor already understands role:
-    return `role:${meta.role}[name="${meta.accessibleName.replace(/"/g,'\\"')}"]`;
   }
   // Fallback: if accessibleName short, still allow text= but mark exact to narrow matches
   if (meta.accessibleName && meta.accessibleName.length < 40) {
