@@ -1,5 +1,5 @@
 import { Action, ActionLocator, resultsToActions } from "./actionModel";
-import { Results as TrackingResults } from "./types";
+import { Results as TrackingResults, PlaywrightAction } from "./types";
 import { getRelativeUrl } from "./utils";
 
 export interface GenerateOptions {
@@ -213,6 +213,15 @@ export class RecordingManager {
   }
 
   /**
+   * Structured replay steps for the CURRENT recording — the executor consumes these
+   * directly (no generated text, no re-parse). Single source of truth = trackingData.
+   */
+  getReplaySteps(url: string): PlaywrightAction[] {
+    const actions = resultsToActions(this.trackingData);
+    return actionsToReplaySteps(actions, { baseUrl: url });
+  }
+
+  /**
    * Get current actions for UI display
    */
   getActions(): Action[] {
@@ -369,6 +378,78 @@ ${initialGoto}${body
 });`;
 }
 
+// ---------------------------------------------------------------------------
+// Structured replay (P3): convert the recorded Action[] straight into the
+// executor's PlaywrightAction[] — no Playwright text, no regex re-parse. The
+// selector strings use the executor's DSL (getByTestId:/role:/text=/CSS), which
+// findElementWithFallbacks understands directly. This is the source of truth the
+// preview replay should consume instead of round-tripping through generated text.
+// ---------------------------------------------------------------------------
+
+// Selector string in the format the in-iframe executor resolves.
+function executorSelector(locator?: ActionLocator): string {
+  if (!locator) return "";
+  const sel = locator.stableSelector || locator.primary || "";
+  // DSL forms the executor resolves natively (survive DOM reordering).
+  if (sel.startsWith("role:") || sel.startsWith("text=")) return sel;
+  const testId = extractTestId(locator);
+  if (testId) return `getByTestId:${testId}`;
+  return sel; // CSS / attribute / id / class
+}
+
+export function actionsToReplaySteps(
+  actions: Action[],
+  options: { baseUrl?: string } = {}
+): PlaywrightAction[] {
+  const { baseUrl } = options;
+  const steps: PlaywrightAction[] = [];
+
+  // Leading goto so replay resets to the recorded start (executor turns this into
+  // an SPA route reset). Mirrors generatePlaywrightTestFromActions.
+  if (baseUrl && (actions.length === 0 || actions[0].type !== "goto")) {
+    steps.push({ type: "goto", value: baseUrl });
+  }
+
+  for (const a of actions) {
+    switch (a.type) {
+      case "goto":
+        steps.push({ type: "goto", value: getRelativeUrl(a.url || baseUrl || "") });
+        break;
+      case "waitForURL":
+        if (a.normalizedUrl) steps.push({ type: "waitForURL", value: a.normalizedUrl });
+        break;
+      case "click": {
+        const selector = executorSelector(a.locator);
+        if (selector) steps.push({ type: "click", selector });
+        break;
+      }
+      case "input": {
+        const selector = executorSelector(a.locator);
+        if (selector && a.value !== undefined) steps.push({ type: "fill", selector, value: a.value });
+        break;
+      }
+      case "form": {
+        const selector = executorSelector(a.locator);
+        if (!selector) break;
+        if (a.formType === "checkbox" || a.formType === "radio") {
+          steps.push({ type: a.checked ? "check" : "uncheck", selector });
+        } else if (a.formType === "select" && a.value !== undefined) {
+          steps.push({ type: "selectOption", selector, value: a.value });
+        }
+        break;
+      }
+      case "assertion": {
+        const selector = executorSelector(a.locator);
+        if (selector && a.value !== undefined) {
+          steps.push({ type: "expect", selector, expectation: "toContainText", value: a.value });
+        }
+        break;
+      }
+    }
+  }
+  return steps;
+}
+
 export function generatePlaywrightTest(url: string, trackingData: TrackingResults): string {
   try {
     const actions = resultsToActions(trackingData);
@@ -385,5 +466,6 @@ if (typeof window !== "undefined") {
   existing.RecordingManager = RecordingManager;
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
   existing.generatePlaywrightTest = generatePlaywrightTest;
+  existing.actionsToReplaySteps = actionsToReplaySteps;
   (window as any).PlaywrightGenerator = existing;
 }

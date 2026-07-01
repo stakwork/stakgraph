@@ -3,7 +3,6 @@ import {
   PlaywrightAction,
   PlaywrightReplayState,
 } from "../types";
-import { parsePlaywrightTest } from "./parser";
 import { executePlaywrightAction, getActionDescription } from "./executor";
 import { domToDataUrl } from 'modern-screenshot';
 
@@ -86,60 +85,38 @@ async function captureScreenshot(actionIndex: number, url: string): Promise<void
   }
 }
 
-/**
- * Preview Playwright test by parsing actions without starting replay
- * Used to populate the actions list before replay begins
- */
-export function previewPlaywrightTest(testCode: string): void {
-  try {
-    const actions = parsePlaywrightTest(testCode);
-
-    window.parent.postMessage(
-      {
-        type: "staktrak-playwright-replay-preview-ready",
-        totalActions: actions.length,
-        actions,
-      },
-      getParentOrigin()
-    );
-  } catch (error) {
-    window.parent.postMessage(
-      {
-        type: "staktrak-playwright-replay-preview-error",
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      getParentOrigin()
-    );
+// Shared replay kickoff: run an already-structured PlaywrightAction[] directly.
+function beginReplay(actions: PlaywrightAction[], testCode: string): void {
+  if (actions.length === 0) {
+    throw new Error("No valid actions found");
   }
+
+  playwrightReplayRef.current = {
+    actions,
+    status: ReplayStatus.PLAYING,
+    currentActionIndex: 0,
+    testCode,
+    errors: [],
+    timeouts: [],
+  };
+
+  window.parent.postMessage(
+    {
+      type: "staktrak-playwright-replay-started",
+      totalActions: actions.length,
+      actions: actions,
+    },
+    getParentOrigin()
+  );
+
+  executeNextPlaywrightAction();
 }
 
-export async function startPlaywrightReplay(testCode: string): Promise<void> {
+// Structured replay: the host sends recorded steps directly (P3). This is the only
+// replay path — the old generate-text → re-parse round-trip has been removed.
+export async function startStructuredReplay(actions: PlaywrightAction[]): Promise<void> {
   try {
-    const actions = parsePlaywrightTest(testCode);
-
-    if (actions.length === 0) {
-      throw new Error("No valid actions found in test code");
-    }
-
-    playwrightReplayRef.current = {
-      actions,
-      status: ReplayStatus.PLAYING,
-      currentActionIndex: 0,
-      testCode,
-      errors: [],
-      timeouts: [],
-    };
-
-    window.parent.postMessage(
-      {
-        type: "staktrak-playwright-replay-started",
-        totalActions: actions.length,
-        actions: actions,
-      },
-      getParentOrigin()
-    );
-
-    executeNextPlaywrightAction();
+    beginReplay(Array.isArray(actions) ? actions : [], "");
   } catch (error) {
     window.parent.postMessage(
       {
@@ -193,9 +170,10 @@ async function executeNextPlaywrightAction(): Promise<void> {
 
     state.currentActionIndex++;
 
+    // Pause between replayed actions so the sequence is easy to follow visually.
     setTimeout(() => {
       executeNextPlaywrightAction();
-    }, 300);
+    }, 500);
   } catch (error) {
     state.errors.push(
       `Action ${state.currentActionIndex + 1}: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -316,15 +294,9 @@ export function initPlaywrightReplay(): void {
     }
 
     switch (data.type) {
-      case "staktrak-playwright-replay-preview":
-        if (data.testCode) {
-          previewPlaywrightTest(data.testCode);
-        }
-        break;
-
-      case "staktrak-playwright-replay-start":
-        if (data.testCode) {
-          startPlaywrightReplay(data.testCode);
+      case "staktrak-playwright-replay-structured":
+        if (Array.isArray(data.actions)) {
+          startStructuredReplay(data.actions);
         }
         break;
 
