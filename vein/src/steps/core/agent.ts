@@ -543,7 +543,7 @@ export default defineStep({
     switch (provider) {
       case "anthropic": {
         const { anthropic } = await import("@ai-sdk/anthropic");
-        model = anthropic(modelName ?? "claude-sonnet-4-6");
+        model = anthropic(modelName ?? "claude-sonnet-5");
         webSearchTool = anthropic.tools.webSearch_20260209({ maxUses: 3 });
         // Provider-defined text editor (the model is specially trained on its
         // schema); we supply the execute that performs the edit inside cfg.cwd.

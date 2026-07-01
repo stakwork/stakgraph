@@ -535,7 +535,7 @@ async function assessScreenshot(
 ): Promise<{ working: boolean; reason: string; usage: ReturnType<typeof usageFromResult>; cost: number }> {
   const { generateObject } = await import("ai");
   const { anthropic } = await import("@ai-sdk/anthropic");
-  const m = anthropic(model ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-4-6");
+  const m = anthropic(model ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-5");
   const schema = z.object({
     working: z
       .boolean()
@@ -731,7 +731,7 @@ export default defineStep({
     let providerOptions: any;
     if (provider === "anthropic") {
       const { anthropic } = await import("@ai-sdk/anthropic");
-      model = anthropic(modelName ?? "claude-sonnet-4-6");
+      model = anthropic(modelName ?? "claude-sonnet-5");
       textEditorTool = anthropic.tools.textEditor_20250728({
         execute: async (input: TextEditInput) => textEdit(input, wp),
       });
