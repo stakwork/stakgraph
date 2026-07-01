@@ -89,6 +89,42 @@ export function gatewayUrlFor(provider: Provider, baseUrl: string): string {
 }
 
 /**
+ * Returns the fully-qualified HTTP endpoint the SDK will hit for `provider`,
+ * given an optional caller-supplied `baseUrl`. Returns `undefined` when no
+ * gateway is configured and the SDK would call the provider directly.
+ *
+ * Endpoint path per SDK:
+ *   anthropic            → <gatewayBase>/messages
+ *   openai / openrouter  → <gatewayBase>/chat/completions
+ *   google via gateway   → <gatewayRoot>/openai/v1/chat/completions  (compat path)
+ *   google direct        → undefined (no fixed base URL)
+ */
+export function resolveRequestUrl(
+  provider: Provider,
+  baseUrl?: string,
+): string | undefined {
+  const gatewayBase = baseUrl
+    ? gatewayUrlFor(provider, baseUrl)
+    : getGatewayBaseURL(provider);
+  if (!gatewayBase) return undefined;
+
+  if (provider === "anthropic") {
+    return `${gatewayBase}/messages`;
+  }
+  if (provider === "google") {
+    // Mirror getModel(): strip any provider suffix to recover the gateway
+    // root, then target the OpenAI-compat endpoint.
+    const root = gatewayBase.replace(
+      /\/(anthropic|openai|genai)\/v\d+[a-z]*\/?$/i,
+      "",
+    );
+    return `${root}/openai/v1/chat/completions`;
+  }
+  // openai, openrouter
+  return `${gatewayBase}/chat/completions`;
+}
+
+/**
  * Like {@link gatewayUrlFor} but takes a model name (shortcut like
  * `"sonnet"`, namespaced like `"anthropic/claude-sonnet-5"`, or a full
  * model id like `"claude-sonnet-5"`) and resolves the provider for you.

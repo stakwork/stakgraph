@@ -46,6 +46,7 @@ export interface SessionInitConfig {
   tools?: Record<string, string>;          // name → description for every resolved tool
   providerConfig?: { [key: string]: any }; // resolved getProviderOptions output
   baseUrl?: string;
+  requestUrl?: string;
   mcpServers?: { [key: string]: any }[];    // secrets (token/headers) redacted
   subAgents?: { [key: string]: any }[];     // secrets (apiToken) redacted
   ggnn?: { [key: string]: any };
