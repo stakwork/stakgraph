@@ -6,7 +6,7 @@ go 1.26.4
 // point at the local bifrost checkout — this guarantees the plugin and
 // bifrost-http compile against byte-identical core sources, which Go's
 // plugin loader requires.
-require github.com/maximhq/bifrost/core v1.6.1
+require github.com/maximhq/bifrost/core v1.6.2
 
 require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1

@@ -43,7 +43,7 @@ const tests: TestCase[] = [
     label: 'thinkingSpeed:undefined + adaptive model → type:"adaptive", no effort',
     provider: "anthropic",
     thinkingSpeed: undefined,
-    modelName: "claude-sonnet-4-6",
+    modelName: "claude-sonnet-5",
     assert(result) {
       const opts = (result as any).anthropic;
       if (opts.thinking.type !== "adaptive")

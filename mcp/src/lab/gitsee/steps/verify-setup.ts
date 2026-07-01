@@ -269,7 +269,7 @@ async function judgeRender(
 ): Promise<{ working: boolean; reason: string; usage: ReturnType<typeof usageFromResult>; cost: number }> {
   const { generateObject } = await import("ai");
   const { anthropic } = await import("@ai-sdk/anthropic");
-  const model = anthropic(visionModel ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-4-6");
+  const model = anthropic(visionModel ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-5");
   const schema = z.object({
     working: z
       .boolean()
@@ -402,7 +402,7 @@ export default defineStep({
     bootTimeoutMs: z.number().int().positive().default(420000).describe("max wait for the frontend port to bind (install+build can be slow)"),
     renderTimeoutMs: z.number().int().positive().default(30000),
     useVision: z.boolean().default(true).describe("judge the screenshot with a vision model (the real 'did it render' signal); false = HTTP-status + error-overlay heuristics only"),
-    visionModel: z.string().optional().describe("anthropic vision model for the screenshot judge (default claude-sonnet-4-6)"),
+    visionModel: z.string().optional().describe("anthropic vision model for the screenshot judge (default claude-sonnet-5)"),
     useStaklink: z.boolean().default(true).describe("boot via `npx staklink start` (prod-faithful); false = inline pm2-free boot"),
     bootCommand: z.string().default("npx -y staklink@latest start").describe("the staklink boot command (when useStaklink)"),
     enabled: z.boolean().default(true).describe("false = no-op (returns booted:null) so the gate is skipped in cheap sweeps"),
