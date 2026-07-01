@@ -32,7 +32,7 @@ export function buildVisionService(): VisionService {
     async assess(pngPath, url, obs, logs, model) {
       const { generateObject } = await import("ai");
       const { anthropic } = await import("@ai-sdk/anthropic");
-      const m = anthropic(model ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-4-6");
+      const m = anthropic(model ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-5");
       const schema = z.object({
         working: z
           .boolean()

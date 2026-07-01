@@ -90,8 +90,8 @@ export function gatewayUrlFor(provider: Provider, baseUrl: string): string {
 
 /**
  * Like {@link gatewayUrlFor} but takes a model name (shortcut like
- * `"sonnet"`, namespaced like `"anthropic/claude-sonnet-4-6"`, or a full
- * model id like `"claude-sonnet-4-6"`) and resolves the provider for you.
+ * `"sonnet"`, namespaced like `"anthropic/claude-sonnet-5"`, or a full
+ * model id like `"claude-sonnet-5"`) and resolves the provider for you.
  *
  * Convenient for spawners that have a model name in hand but not a
  * provider — e.g. Hive picking up a user's chosen model and needing to
@@ -147,7 +147,7 @@ type ModelId = string;
 
 const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   anthropic: {
-    sonnet: "claude-sonnet-4-6",
+    sonnet: "claude-sonnet-5",
     opus: "claude-opus-4-6",
     haiku: "claude-haiku-4-5",
   },
@@ -227,7 +227,7 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
     case "gpt":
       return "openai";
     // Full model IDs
-    case "claude-sonnet-4-6":
+    case "claude-sonnet-5":
     case "claude-opus-4-6":
     case "claude-haiku-4-5":
       return "anthropic";
@@ -490,7 +490,7 @@ export function getModel(
 // For models not listed here, falls back to provider default.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // Anthropic
-  "claude-sonnet-4-6": 1_000_000,
+  "claude-sonnet-5": 1_000_000,
   "claude-opus-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   // Google
