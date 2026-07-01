@@ -512,19 +512,17 @@ export function usePlaywrightReplay(iframeRef) {
   const [currentAction, setCurrentAction] = useState(null);
   const [replayErrors, setReplayErrors] = useState([]);
 
-  const startPlaywrightReplay = (testCode) => {
+
+  // Structured replay (P3): send the recorded steps straight to the iframe — no
+  // generated text, no re-parse. `steps` is a PlaywrightAction[] from
+  // recorder.getReplaySteps(url).
+  const startStructuredReplay = (steps) => {
     if (!iframeRef?.current?.contentWindow) {
-      showPopup("Iframe not available for Playwright replay", "error");
+      showPopup("Iframe not available for replay", "error");
       return false;
     }
-
-    if (!testCode || typeof testCode !== "string") {
-      showPopup("No test code provided for replay", "warning");
-      return false;
-    }
-
-    if (!testCode.includes("page.") || !testCode.includes("test(")) {
-      showPopup("Invalid Playwright test format", "error");
+    if (!Array.isArray(steps) || steps.length === 0) {
+      showPopup("No recorded steps to replay", "warning");
       return false;
     }
 
@@ -534,34 +532,43 @@ export function usePlaywrightReplay(iframeRef) {
     setReplayErrors([]);
     setCurrentAction(null);
 
+    const iframe = iframeRef.current;
+    const container = document.querySelector(".iframe-container");
+    if (container) container.classList.add("playwright-replaying");
+
+    const send = () => {
+      try {
+        iframe.contentWindow.postMessage(
+          { type: "staktrak-playwright-replay-structured", actions: steps },
+          "*"
+        );
+        showPopup("Structured replay started", "info");
+      } catch (error) {
+        console.error("Error starting structured replay:", error);
+        showPopup(`Error starting structured replay: ${error.message}`, "error");
+        setIsPlaywrightReplaying(false);
+        if (container) container.classList.remove("playwright-replaying");
+      }
+    };
+
+    // Reset the app to its initial state before replaying, so accumulating state
+    // (counters, toggles, appended rows) reproduces cleanly instead of stacking on
+    // top of the recording's end state. Reload the iframe, then send the steps once
+    // the fresh document has loaded and staktrak's replay listener is ready.
+    const onLoad = () => {
+      iframe.removeEventListener("load", onLoad);
+      setTimeout(send, 200); // let initial render + listeners settle
+    };
+    iframe.addEventListener("load", onLoad);
+
     try {
-      const container = document.querySelector(".iframe-container");
-      if (container) {
-        container.classList.add("playwright-replaying");
-      }
-
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: "staktrak-playwright-replay-start",
-          testCode,
-        },
-        "*"
-      );
-
-      showPopup("Playwright replay started", "info");
-      return true;
-    } catch (error) {
-      console.error("Error starting Playwright replay:", error);
-      showPopup(`Error starting Playwright replay: ${error.message}`, "error");
-      setIsPlaywrightReplaying(false);
-
-      const container = document.querySelector(".iframe-container");
-      if (container) {
-        container.classList.remove("playwright-replaying");
-      }
-
-      return false;
+      iframe.contentWindow.location.reload();
+    } catch (e) {
+      try {
+        iframe.src = iframe.src; // fallback reload
+      } catch (_) {}
     }
+    return true;
   };
 
   const pausePlaywrightReplay = () => {
@@ -719,7 +726,7 @@ export function usePlaywrightReplay(iframeRef) {
     playwrightProgress,
     currentAction,
     replayErrors,
-    startPlaywrightReplay,
+    startStructuredReplay,
     pausePlaywrightReplay,
     resumePlaywrightReplay,
     stopPlaywrightReplay,
