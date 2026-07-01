@@ -150,6 +150,67 @@ export class GraphStorage extends Storage {
     } finally {
       await session.close();
     }
+
+    // Backfill direct PR->File edges if none exist yet (runs once per DB).
+    await this.backfillPRFileEdges();
+  }
+
+  /**
+   * One-time backfill of direct `PullRequest -[:MODIFIES]-> File` edges.
+   *
+   * Runs on every `initialize()` but short-circuits cheaply: if any such edge
+   * already exists we assume the backfill has happened and do nothing. This
+   * lets every graph server pick up the direct PR->File edges automatically on
+   * boot without an operator having to run the link command manually.
+   *
+   * `linkPRsToFiles()` scopes matching per-PR by repo, so this is safe across
+   * multi-repo swarms.
+   */
+  private async backfillPRFileEdges(): Promise<void> {
+    const session = this.resilientSession();
+    let shouldRun = false;
+    try {
+      // Cheap existence guard (short-circuits, no full scan).
+      const check = await session.run(`
+        RETURN EXISTS { MATCH (:PullRequest)-[:MODIFIES]->(:File) } AS hasEdge
+      `);
+      const hasEdge = check.records[0]?.get("hasEdge") ?? false;
+      if (hasEdge) {
+        return; // Already backfilled.
+      }
+
+      // Only bother if there are PRs with files to link.
+      const prCheck = await session.run(`
+        MATCH (p:PullRequest) WHERE p.files IS NOT NULL AND size(p.files) > 0
+        RETURN count(p) AS prCount
+      `);
+      const prCount = prCheck.records[0]?.get("prCount")?.toNumber?.() ?? 0;
+      if (prCount === 0) {
+        return; // Nothing to link yet.
+      }
+
+      console.log(
+        `===> PR→File backfill: no direct PR→File edges found, linking ${prCount} PR(s) with files...`
+      );
+      shouldRun = true;
+    } catch (error) {
+      console.error("===> PR→File backfill: guard check failed:", error);
+      return;
+    } finally {
+      await session.close();
+    }
+
+    if (!shouldRun) return;
+
+    try {
+      const result = await this.linkPRsToFiles();
+      console.log(
+        `===> PR→File backfill: Complete! Created ${result.edgesLinked} edge(s) across ${result.prsProcessed} PR(s).`
+      );
+    } catch (error) {
+      // Don't throw - allow app to continue even if backfill fails.
+      console.error("===> PR→File backfill: Error during backfill:", error);
+    }
   }
   
   /**
@@ -1847,6 +1908,51 @@ export class GraphStorage extends Storage {
       }
 
       return totalLinked;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Create direct PullRequest -[:MODIFIES]-> File edges from each PR's stored
+   * `files` array.
+   *
+   * This is fully deterministic (no LLM): it re-projects the file paths already
+   * persisted on every PR node onto the corresponding File nodes. It is safe to
+   * run incrementally after ingestion and as a one-shot backfill for existing
+   * PRs (MERGE makes it idempotent).
+   *
+   * Repo scoping is intrinsic to each PR node: File matching is constrained to
+   * `file.file STARTS WITH p.repo + '/'`, so even a global run (repo = undefined)
+   * will not cross-link Files from a different repo in a multi-repo swarm.
+   * Legacy PRs without a `repo` fall back to the unscoped suffix match.
+   */
+  async linkPRsToFiles(repo?: string): Promise<{ prsProcessed: number; edgesLinked: number }> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:PullRequest)
+        WHERE p.files IS NOT NULL
+          AND size(p.files) > 0
+          AND ($repo IS NULL OR p.repo = $repo)
+        UNWIND p.files AS filePath
+        MATCH (file:File)
+        WHERE file.file ENDS WITH filePath
+          AND (p.repo IS NULL OR file.file STARTS WITH p.repo + '/')
+        MERGE (p)-[:MODIFIES]->(file)
+        RETURN count(DISTINCT p) AS prsProcessed, count(*) AS edgesLinked
+        `,
+        { repo: repo || null }
+      );
+
+      const rec = result.records[0];
+      const prsProcessed = rec?.get("prsProcessed");
+      const edgesLinked = rec?.get("edgesLinked");
+      return {
+        prsProcessed: prsProcessed?.toNumber ? prsProcessed.toNumber() : prsProcessed || 0,
+        edgesLinked: edgesLinked?.toNumber ? edgesLinked.toNumber() : edgesLinked || 0,
+      };
     } finally {
       await session.close();
     }
