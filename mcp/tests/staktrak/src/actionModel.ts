@@ -15,6 +15,9 @@ export interface ActionLocator {
 export interface Action {
   type: ActionType
   timestamp: number
+  // Monotonic capture-order sequence. Primary ordering key — timestamps are unreliable
+  // because debounced inputs were historically stamped at fire time. See P1 in the design doc.
+  seq?: number
   locator?: ActionLocator
   value?: string
   checked?: boolean
@@ -43,6 +46,7 @@ export function resultsToActions(results: Results): Action[] {
     actions.push({
       type: 'click',
       timestamp: cd.timestamp,
+      seq: cd.seq,
       locator: {
         primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
         fallbacks: cd.selectors.fallbacks || [],
@@ -60,6 +64,8 @@ export function resultsToActions(results: Results): Action[] {
       actions.push({
         type: 'waitForURL',
         timestamp: nav.timestamp - 1, // ensure ordering between click and nav
+        // Order right after the click that caused it: the nav's own seq is > the click's.
+        seq: nav.seq,
         expectedUrl: nav.url,
         normalizedUrl: normalize(nav.url),
         navRefTimestamp: nav.timestamp
@@ -70,7 +76,7 @@ export function resultsToActions(results: Results): Action[] {
   // Add goto actions only for navigations NOT triggered by clicks (e.g., initial page load, manual navigation)
   for (const nav of navigations) {
     if (!navTimestampsFromClicks.has(nav.timestamp)) {
-      actions.push({ type: 'goto', timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) })
+      actions.push({ type: 'goto', timestamp: nav.timestamp, seq: nav.seq, url: nav.url, normalizedUrl: normalize(nav.url) })
     }
   }
 
@@ -80,6 +86,7 @@ export function resultsToActions(results: Results): Action[] {
         actions.push({
           type: 'input',
           timestamp: input.timestamp,
+          seq: input.seq,
           locator: { primary: input.elementSelector, fallbacks: [] },
           value: input.value
         })
@@ -92,6 +99,7 @@ export function resultsToActions(results: Results): Action[] {
       actions.push({
         type: 'form',
         timestamp: fe.timestamp,
+        seq: fe.seq,
         locator: { primary: fe.elementSelector, fallbacks: [] },
         formType: fe.type,
         value: fe.value,
@@ -105,13 +113,19 @@ export function resultsToActions(results: Results): Action[] {
       actions.push({
         type: 'assertion',
         timestamp: asrt.timestamp,
+        seq: asrt.seq,
         locator: { primary: asrt.selector, fallbacks: [] },
         value: asrt.value
       })
     }
   }
 
-  actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type)-weightOrder(b.type))
+  // Order by capture sequence first (reliable), falling back to wall-clock only when
+  // seq is absent on both (legacy data). weightOrder breaks exact ties deterministically.
+  actions.sort((a, b) => {
+    if (a.seq != null && b.seq != null) return a.seq - b.seq || weightOrder(a.type) - weightOrder(b.type)
+    return a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type)
+  })
   refineLocators(actions)
 
   // Deduplicate consecutive waitForURL calls for the same URL

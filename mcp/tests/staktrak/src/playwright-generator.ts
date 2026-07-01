@@ -1,4 +1,4 @@
-import { Action, resultsToActions } from "./actionModel";
+import { Action, ActionLocator, resultsToActions } from "./actionModel";
 import { Results as TrackingResults } from "./types";
 import { getRelativeUrl } from "./utils";
 
@@ -47,6 +47,7 @@ export class RecordingManager {
           type: "navigation",
           url: eventData.url,
           timestamp: eventData.timestamp,
+          seq: eventData.seq,
         });
         break;
       case "input":
@@ -55,6 +56,7 @@ export class RecordingManager {
           value: eventData.value,
           timestamp: eventData.timestamp,
           action: "complete",
+          seq: eventData.seq,
         });
         break;
       case "form":
@@ -65,6 +67,7 @@ export class RecordingManager {
           value: eventData.value || "",
           text: eventData.text,
           timestamp: eventData.timestamp,
+          seq: eventData.seq,
         });
         break;
       case "assertion":
@@ -74,6 +77,7 @@ export class RecordingManager {
           selector: eventData.selector,
           value: eventData.value || "",
           timestamp: eventData.timestamp,
+          seq: eventData.seq,
         });
         break;
       default:
@@ -253,9 +257,54 @@ export class RecordingManager {
   }
 }
 
-function escapeTextForAssertion(text: string): string {
-  if (!text) return "";
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Safely embed an arbitrary string inside a single-quoted JS string literal.
+// Order matters: escape backslashes first, then quotes/newlines. Fixes the round-trip
+// corruption where fill values like O'Brien became O\'Brien (design doc bug #4).
+function q(s: string | undefined): string {
+  return String(s ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "")
+    .replace(/\n/g, "\\n");
+}
+
+// Pull a data-testid out of a selector like [data-testid="save"] if present.
+function extractTestId(locator?: ActionLocator): string | null {
+  if (!locator) return null;
+  for (const cand of [locator.primary, ...(locator.fallbacks || [])]) {
+    const m = cand && cand.match(/\[data-testid=["']([^"']+)["']\]/);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// Locator expression for CLICK targets. Prefer getByTestId (stable across DOM
+// changes) over raw CSS, which is prone to resolving to the wrong element at replay
+// time (design doc bugs #1/#2). Used only for clicks — the in-app parser treats a
+// bare getByTestId(...) as a click, so value-bearing actions must use cssLocator.
+function clickExpr(locator?: ActionLocator): string {
+  const testId = extractTestId(locator);
+  if (testId) return `page.getByTestId('${q(testId)}')`;
+  const sel = locator?.stableSelector || locator?.primary || "";
+  // Capture emits a `role:button[name="Save"]` DSL for elements identified by role +
+  // accessible name. Convert to a real getByRole() — valid Playwright and parseable —
+  // rather than wrapping the DSL in page.locator(), which is invalid Playwright.
+  const roleM = sel.match(/^role:([a-zA-Z]+)(?:\[name(?:-regex)?="([\s\S]*)"\])?$/);
+  if (roleM) {
+    const [, role, name] = roleM;
+    return name
+      ? `page.getByRole('${q(role)}', { name: '${q(name)}' })`
+      : `page.getByRole('${q(role)}')`;
+  }
+  return cssLocator(locator);
+}
+
+// Plain CSS locator for value-bearing actions (fill / check / selectOption / assert).
+// The parser's generic `page.locator(sel).method(args)` branch handles these with the
+// correct method, whereas a bare getByTestId would be misread as a click.
+function cssLocator(locator?: ActionLocator): string {
+  const sel = locator?.stableSelector || locator?.primary || "";
+  return `page.locator('${q(sel)}')`;
 }
 
 export function generatePlaywrightTestFromActions(
@@ -279,35 +328,26 @@ export function generatePlaywrightTestFromActions(
           }
           return "";
         case "click": {
-          const selector = action.locator?.stableSelector || action.locator?.primary;
-          if (!selector) return "";
-          return `  await page.click('${selector}');`;
+          if (!action.locator?.primary && !action.locator?.stableSelector) return "";
+          return `  await ${clickExpr(action.locator)}.click();`;
         }
         case "input": {
-          const selector = action.locator?.primary;
-          if (!selector || action.value === undefined) return "";
-          const value = action.value.replace(/'/g, "\\'");
-          return `  await page.fill('${selector}', '${value}');`;
+          if (!action.locator?.primary || action.value === undefined) return "";
+          return `  await ${cssLocator(action.locator)}.fill('${q(action.value)}');`;
         }
         case "form": {
-          const selector = action.locator?.primary;
-          if (!selector) return "";
+          if (!action.locator?.primary) return "";
+          const target = cssLocator(action.locator);
           if (action.formType === "checkbox" || action.formType === "radio") {
-            if (action.checked) {
-              return `  await page.check('${selector}');`;
-            } else {
-              return `  await page.uncheck('${selector}');`;
-            }
-          } else if (action.formType === "select" && action.value) {
-            return `  await page.selectOption('${selector}', '${action.value}');`;
+            return action.checked ? `  await ${target}.check();` : `  await ${target}.uncheck();`;
+          } else if (action.formType === "select" && action.value !== undefined) {
+            return `  await ${target}.selectOption('${q(action.value)}');`;
           }
           return "";
         }
         case "assertion": {
-          const selector = action.locator?.primary;
-          if (!selector || action.value === undefined) return "";
-          const escapedValue = escapeTextForAssertion(action.value);
-          return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
+          if (!action.locator?.primary || action.value === undefined) return "";
+          return `  await expect(${cssLocator(action.locator)}).toContainText('${q(action.value)}');`;
         }
         default:
           return "";

@@ -5,8 +5,6 @@ const __stakReplayMatch = (window as any).__stakTrakReplayMatch || { last: null 
 (window as any).__stakTrakReplayMatch = __stakReplayMatch;
 
 // Maintain last structurally-unique selector to stabilize transitions
-const __stakReplayState = (window as any).__stakTrakReplayState || { lastStructural: null as string | null, lastEl: null as Element | null };
-(window as any).__stakTrakReplayState = __stakReplayState;
 
 // Map for primary selector -> metadata (visualSelector) populated externally before replay
 (window as any).__stakTrakSelectorMap = (window as any).__stakTrakSelectorMap || {};
@@ -109,7 +107,21 @@ export async function executePlaywrightAction(
   try {
     switch (action.type) {
       case PlaywrightActionType.GOTO:
-        // Skip goto during replay - already on the page
+        // Restore the recorded starting location so subsequent view-specific
+        // selectors resolve. A full reload would tear down this replay script, so
+        // for same-origin targets we update the URL and notify the SPA router via
+        // popstate (no reload). This fixes "Element not found" on every early action
+        // when the iframe was left on a different view than where recording began.
+        if (action.value && typeof action.value === "string") {
+          try {
+            const dest = new URL(action.value, window.location.href);
+            if (dest.origin === window.location.origin && dest.href !== window.location.href) {
+              history.pushState({}, "", dest.href);
+              window.dispatchEvent(new PopStateEvent("popstate"));
+              await new Promise((r) => setTimeout(r, 150));
+            }
+          } catch {}
+        }
         break;
 
       case PlaywrightActionType.SET_VIEWPORT_SIZE:
@@ -453,26 +465,15 @@ function findElementWithFallbacks(selector: string): Element | null {
     try {
       const matches = document.querySelectorAll(selector);
       if (matches.length === 1) {
-        __stakReplayState.lastStructural = selector;
-        __stakReplayState.lastEl = matches[0];
         return matches[0];
       }
     } catch {}
   }
 
-  // If selector is role/text and we have a previous unique structural pointing to same accessible name, reuse it to avoid container highlight flicker
-  if ((selector.startsWith('role:') || selector.startsWith('text=')) && __stakReplayState.lastStructural && __stakReplayState.lastEl) {
-    // verify element still present
-    try {
-      if (document.contains(__stakReplayState.lastEl)) {
-        const acc = getAccessibleName(__stakReplayState.lastEl as HTMLElement);
-        const nameMatch = selector.includes('name="') ? selector.includes(`name="${acc}`) : selector.includes(acc || '');
-        if (acc && nameMatch) {
-          return __stakReplayState.lastEl;
-        }
-      }
-    } catch {}
-  }
+  // NOTE: a stale-element cache used to live here — for role:/text= selectors it
+  // returned the PREVIOUS action's element on a loose accessible-name match, which
+  // made replay "click the previous thing" (design doc bug #2). Removed: every
+  // selector now resolves fresh against the current DOM.
 
   const noteMatch = (el: Element | null, matched: string, text?: string) => {
     if (el) {
