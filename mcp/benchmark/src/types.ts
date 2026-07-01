@@ -79,3 +79,13 @@ export interface ProductionRun {
   annotations?: Annotation[];
   trace?: unknown;
 }
+
+export interface SearchMatchInfo {
+  first_match_at_call: number;
+  total_tool_calls: number;
+  match_context: string;
+}
+
+export interface SearchResult extends ProductionRun {
+  search_match: SearchMatchInfo;
+}

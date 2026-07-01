@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
@@ -10,7 +10,7 @@ import {
 import { parseTrace } from "../trace/parse";
 import { analyzeTrace } from "../trace/analyze";
 import type { ParsedTrace, TraceAnalysis, IssueKind } from "../trace/types";
-import type { ProductionRun, TokenUsage } from "../types";
+import type { ProductionRun, TokenUsage, SearchResult, SearchMatchInfo } from "../types";
 import type { Annotation, AnnotationMarker } from "../components/Annotations";
 
 export interface SessionsState {
@@ -19,6 +19,7 @@ export interface SessionsState {
   filteredRuns: ProductionRun[];
   selected: ProductionRun | null;
   annotations: Annotation[];
+  quickSearch: string;
   repoSearch: string;
   sourceFilter: string;
   rangeFilter: "24h" | "7d" | "30d" | "all";
@@ -42,6 +43,9 @@ export interface SessionsState {
     toolCallId?: string,
   ) => void;
   handleTurnToggle: (turnId: string) => void;
+  searching: boolean;
+  searchMatchMap: Map<string, SearchMatchInfo>;
+  setQuickSearch: (v: string) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
   setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
@@ -67,6 +71,12 @@ export function useSessionsState(): SessionsState {
   const [showSessionAnnotationForm, setShowSessionAnnotationForm] =
     useState(false);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [quickSearch, setQuickSearch] = useState(
+    searchParams.get("q") || "",
+  );
   const [repoSearch, setRepoSearch] = useState(
     searchParams.get("repo") || "",
   );
@@ -166,6 +176,7 @@ export function useSessionsState(): SessionsState {
   );
 
   useEffect(() => {
+    setQuickSearch(searchParams.get("q") || "");
     setRepoSearch(searchParams.get("repo") || "");
     setSourceFilter(searchParams.get("source") || "all");
     setRangeFilter(
@@ -176,12 +187,37 @@ export function useSessionsState(): SessionsState {
 
   useEffect(() => {
     const nextParams = new URLSearchParams();
+    if (quickSearch) nextParams.set("q", quickSearch);
     if (repoSearch) nextParams.set("repo", repoSearch);
     if (sourceFilter !== "all") nextParams.set("source", sourceFilter);
     if (rangeFilter !== "all") nextParams.set("range", rangeFilter);
     if (dayFilter) nextParams.set("day", dayFilter);
     setSearchParams(nextParams, { replace: true });
-  }, [dayFilter, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
+  }, [dayFilter, quickSearch, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
+
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!quickSearch || quickSearch.trim().length < 2) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await api.sessions.search(quickSearch.trim());
+        setSearchResults(results);
+      } catch (e: any) {
+        toast.error(e.message);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [quickSearch]);
 
   useEffect(() => {
     if (parsed.turns.length === 0) {
@@ -195,7 +231,7 @@ export function useSessionsState(): SessionsState {
 
   const filteredRuns = useMemo(
     () =>
-      runs.filter((r) => {
+      (searchResults ?? runs).filter((r) => {
         if (sourceFilter !== "all" && (r.source || "unknown") !== sourceFilter)
           return false;
         if (
@@ -213,10 +249,16 @@ export function useSessionsState(): SessionsState {
           return false;
         return true;
       }),
-    [runs, dayFilter, repoSearch, rangeFilter, sourceFilter],
+    [runs, searchResults, dayFilter, repoSearch, rangeFilter, sourceFilter],
   );
 
+  const searchMatchMap = useMemo(() => {
+    if (!searchResults) return new Map<string, SearchMatchInfo>();
+    return new Map(searchResults.map((r) => [r.id, r.search_match]));
+  }, [searchResults]);
+
   const clearFilters = () => {
+    setQuickSearch("");
     setRepoSearch("");
     setSourceFilter("all");
     setRangeFilter("all");
@@ -229,6 +271,7 @@ export function useSessionsState(): SessionsState {
     filteredRuns,
     selected,
     annotations,
+    quickSearch,
     repoSearch,
     sourceFilter,
     rangeFilter,
@@ -243,11 +286,14 @@ export function useSessionsState(): SessionsState {
     selectedUsage,
     prompt,
     answer,
+    searching,
+    searchMatchMap,
     showSessionAnnotationForm,
     load,
     loadDetail,
     handleAnnotate,
     handleTurnToggle,
+    setQuickSearch,
     setRepoSearch,
     setSourceFilter,
     setRangeFilter,

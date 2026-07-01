@@ -1,4 +1,4 @@
-import type { ProductionRun, Annotation, AnnotationMarker } from "./types";
+import type { ProductionRun, SearchResult, Annotation, AnnotationMarker } from "./types";
 
 const BASE = "/api";
 
@@ -18,6 +18,7 @@ export const api = {
   sessions: {
     list: () => req<ProductionRun[]>("/sessions"),
     get: (id: string) => req<ProductionRun>(`/sessions/${id}`),
+    search: (q: string) => req<SearchResult[]>(`/sessions/search?q=${encodeURIComponent(q)}`),
     annotate: (
       id: string,
       body: { target: "session" | "tool_call"; target_id?: string; marker: AnnotationMarker; note?: string; author?: string },
