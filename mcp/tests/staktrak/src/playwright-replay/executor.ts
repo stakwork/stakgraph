@@ -16,12 +16,23 @@ const __stakWarned: Record<string, boolean> = (window as any).__stakTrakWarned |
 function highlight(element: Element, actionType: string = "action"): void {
   try { ensureStylesInDocument(document); } catch {}
   const htmlElement = element as HTMLElement;
+  const anyEl = htmlElement as any;
 
-  const original = {
-    border: htmlElement.style.border,
-    boxShadow: htmlElement.style.boxShadow,
-    backgroundColor: htmlElement.style.backgroundColor,
-  };
+  // Capture the ORIGINAL (clean) styles only once per element. When the same element
+  // is highlighted again before its revert fires (e.g. a counter clicked repeatedly),
+  // re-capturing would grab the already-orange styles as "original" and the final
+  // revert would restore orange — leaving the button stuck glowing. Instead we keep
+  // the first-captured styles and just reset the revert timer.
+  if (anyEl.__stakRevertTimer) {
+    clearTimeout(anyEl.__stakRevertTimer);
+  } else {
+    anyEl.__stakOriginalStyle = {
+      border: htmlElement.style.border,
+      boxShadow: htmlElement.style.boxShadow,
+      backgroundColor: htmlElement.style.backgroundColor,
+      transition: htmlElement.style.transition,
+    };
+  }
 
   htmlElement.style.border = "3px solid #ff6b6b";
   htmlElement.style.boxShadow = "0 0 20px rgba(255, 107, 107, 0.8)";
@@ -36,12 +47,14 @@ function highlight(element: Element, actionType: string = "action"): void {
     if (last.text) htmlElement.setAttribute('data-staktrak-matched-text', last.text);
   }
 
-
-  setTimeout(() => {
-    htmlElement.style.border = original.border;
-    htmlElement.style.boxShadow = original.boxShadow;
-    htmlElement.style.backgroundColor = original.backgroundColor;
-    htmlElement.style.transition = "";
+  anyEl.__stakRevertTimer = setTimeout(() => {
+    const o = anyEl.__stakOriginalStyle || {};
+    htmlElement.style.border = o.border || "";
+    htmlElement.style.boxShadow = o.boxShadow || "";
+    htmlElement.style.backgroundColor = o.backgroundColor || "";
+    htmlElement.style.transition = o.transition || "";
+    delete anyEl.__stakRevertTimer;
+    delete anyEl.__stakOriginalStyle;
   }, 1500);
 }
 
@@ -222,14 +235,12 @@ export async function executePlaywrightAction(
 
               await new Promise((resolve) => setTimeout(resolve, 10));
 
+              // Fire the click exactly ONCE. Previously this called htmlElement.click()
+              // AND dispatched a separate MouseEvent("click"), so every replayed click
+              // triggered the handler twice (a counter recorded 0->3 replayed to +6).
+              // htmlElement.click() alone dispatches a proper click event that React/
+              // Preact onClick handlers receive.
               htmlElement.click();
-              element.dispatchEvent(
-                new MouseEvent("click", {
-                  bubbles: true,
-                  cancelable: true,
-                  view: window,
-                })
-              );
             } catch (clickError) { throw clickError; }
 
             await new Promise((resolve) => setTimeout(resolve, 50));

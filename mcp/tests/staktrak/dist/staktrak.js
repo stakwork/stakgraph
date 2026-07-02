@@ -982,736 +982,6 @@ var userBehaviour = (() => {
     }
   }
 
-  // src/playwright-replay/parser.ts
-  function parsePlaywrightTest(testCode) {
-    var _a2, _b;
-    const actions = [];
-    const lines = testCode.split("\n");
-    let lineNumber = 0;
-    const variables = /* @__PURE__ */ new Map();
-    for (const line of lines) {
-      lineNumber++;
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("import") || trimmed.startsWith("test(") || trimmed.includes("async ({ page })") || trimmed === "}); " || trimmed === "});") {
-        continue;
-      }
-      const commentMatch = line.match(/^\s*\/\/\s*(.+)/);
-      const comment = commentMatch ? commentMatch[1] : void 0;
-      try {
-        const variableMatch = trimmed.match(/^const\s+(\w+)\s*=\s*page\.(.+);$/);
-        if (variableMatch) {
-          const [, varName, locatorCall] = variableMatch;
-          const selector = parseLocatorCall(locatorCall);
-          variables.set(varName, selector);
-          continue;
-        }
-        const chainedVariableMatch = trimmed.match(
-          /^const\s+(\w+)\s*=\s*(\w+)\.(.+);$/
-        );
-        if (chainedVariableMatch) {
-          const [, newVarName, baseVarName, chainCall] = chainedVariableMatch;
-          if (variables.has(baseVarName)) {
-            const baseSelector = variables.get(baseVarName);
-            const chainedSelector = parseChainedCall(baseSelector, chainCall);
-            variables.set(newVarName, chainedSelector);
-            continue;
-          }
-        }
-        const awaitVariableCallMatch = trimmed.match(
-          /^await\s+(\w+)\.(\w+)\((.*?)\);?$/
-        );
-        if (awaitVariableCallMatch) {
-          const [, varName, method, args] = awaitVariableCallMatch;
-          if (variables.has(varName)) {
-            const selector = variables.get(varName);
-            const action = parseVariableMethodCall(
-              varName,
-              method,
-              args,
-              comment,
-              lineNumber,
-              selector
-            );
-            if (action) {
-              actions.push(action);
-            }
-            continue;
-          }
-        }
-        const variableCallMatch = trimmed.match(/^(\w+)\.(\w+)\((.*?)\);?$/);
-        if (variableCallMatch) {
-          const [, varName, method, args] = variableCallMatch;
-          if (variables.has(varName)) {
-            const selector = variables.get(varName);
-            const action = parseVariableMethodCall(
-              varName,
-              method,
-              args,
-              comment,
-              lineNumber,
-              selector
-            );
-            if (action) {
-              actions.push(action);
-            }
-            continue;
-          }
-        }
-        const pageLocatorActionMatch = trimmed.match(
-          /^(?:await\s+)?page\.locator\(('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")\)\.(\w+)\((.*?)\);?$/
-        );
-        if (pageLocatorActionMatch) {
-          const [, selectorArg, method, args] = pageLocatorActionMatch;
-          const selector = extractSelectorFromArg(selectorArg);
-          const action = parseDirectAction(
-            method,
-            args,
-            comment,
-            lineNumber,
-            selector
-          );
-          if (action) {
-            actions.push(action);
-          }
-          continue;
-        }
-        const expectVariableMatch = trimmed.match(
-          /^(?:await\s+)?expect\((\w+)\)\.(.+)$/
-        );
-        if (expectVariableMatch) {
-          const [, varName, expectation] = expectVariableMatch;
-          if (variables.has(varName)) {
-            const selector = variables.get(varName);
-            const action = parseExpectStatement(
-              expectation,
-              comment,
-              lineNumber,
-              selector
-            );
-            if (action) {
-              actions.push(action);
-            }
-            continue;
-          }
-        }
-        const expectLocatorMatch = trimmed.match(
-          /^(?:await\s+)?expect\(page\.locator\(([^)]+)\)\)\.(.+)$/
-        );
-        if (expectLocatorMatch) {
-          const [, selectorArg, expectation] = expectLocatorMatch;
-          const selector = extractSelectorFromArg(selectorArg);
-          const action = parseExpectStatement(
-            expectation,
-            comment,
-            lineNumber,
-            selector
-          );
-          if (action) {
-            actions.push(action);
-          }
-          continue;
-        }
-        const waitForSelectorMatch = trimmed.match(
-          /^(?:await\s+)?page\.waitForSelector\(['"](.*?)['"]\);?$/
-        );
-        if (waitForSelectorMatch) {
-          actions.push({
-            type: "waitForSelector",
-            selector: waitForSelectorMatch[1],
-            comment,
-            lineNumber
-          });
-          continue;
-        }
-        if (trimmed.includes("page.goto(")) {
-          const urlMatch = trimmed.match(/page\.goto\(['"](.*?)['"]\)/);
-          if (urlMatch) {
-            actions.push({
-              type: "goto",
-              value: urlMatch[1],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.setViewportSize(")) {
-          const sizeMatch = trimmed.match(
-            /page\.setViewportSize\(\s*{\s*width:\s*(\d+),\s*height:\s*(\d+)\s*}\s*\)/
-          );
-          if (sizeMatch) {
-            actions.push({
-              type: "setViewportSize",
-              options: {
-                width: parseInt(sizeMatch[1]),
-                height: parseInt(sizeMatch[2])
-              },
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.waitForLoadState(")) {
-          const stateMatch = trimmed.match(
-            /page\.waitForLoadState\(['"](.*?)['"]\)/
-          );
-          actions.push({
-            type: "waitForLoadState",
-            value: stateMatch ? stateMatch[1] : "networkidle",
-            comment,
-            lineNumber
-          });
-        } else if (trimmed.includes("page.click(")) {
-          const selectorMatch = trimmed.match(/page\.click\(['"](.*?)['"]\)/);
-          if (selectorMatch) {
-            actions.push({
-              type: "click",
-              selector: selectorMatch[1],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.fill(")) {
-          const fillMatch = trimmed.match(
-            /page\.fill\(['"](.*?)['"],\s*['"](.*?)['"]\)/
-          );
-          if (fillMatch) {
-            actions.push({
-              type: "fill",
-              selector: fillMatch[1],
-              value: fillMatch[2],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.check(")) {
-          const selectorMatch = trimmed.match(/page\.check\(['"](.*?)['"]\)/);
-          if (selectorMatch) {
-            actions.push({
-              type: "check",
-              selector: selectorMatch[1],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.uncheck(")) {
-          const selectorMatch = trimmed.match(/page\.uncheck\(['"](.*?)['"]\)/);
-          if (selectorMatch) {
-            actions.push({
-              type: "uncheck",
-              selector: selectorMatch[1],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.selectOption(")) {
-          const selectMatch = trimmed.match(
-            /page\.selectOption\(['"](.*?)['"],\s*['"](.*?)['"]\)/
-          );
-          if (selectMatch) {
-            actions.push({
-              type: "selectOption",
-              selector: selectMatch[1],
-              value: selectMatch[2],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.waitForTimeout(")) {
-          const timeoutMatch = trimmed.match(/page\.waitForTimeout\((\d+)\)/);
-          if (timeoutMatch) {
-            actions.push({
-              type: "waitForTimeout",
-              value: parseInt(timeoutMatch[1]),
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.waitForSelector(")) {
-          const selectorMatch = trimmed.match(
-            /page\.waitForSelector\(['"](.*?)['"]\)/
-          );
-          if (selectorMatch) {
-            actions.push({
-              type: "waitForSelector",
-              selector: selectorMatch[1],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.waitForURL(")) {
-          const urlMatch = trimmed.match(/page\.waitForURL\(['\"](.*?)['\"]\)/);
-          if (urlMatch) {
-            actions.push({
-              type: "waitForURL",
-              value: urlMatch[1],
-              comment,
-              lineNumber
-            });
-          }
-        } else if (/page\.[a-zA-Z]+\([^)]*\)\.click\([^)]*\)\s*;?$/.test(trimmed)) {
-          const locatorCallMatch = trimmed.match(/page\.([a-zA-Z]+\([^)]*\))\.click\([^)]*\)/);
-          if (locatorCallMatch) {
-            const selector = parseLocatorCall(locatorCallMatch[1]);
-            actions.push({
-              type: "click",
-              selector,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.startsWith("await Promise.all([") && trimmed.includes("waitForURL")) {
-          const blockLines = [trimmed];
-          let j = lineNumber;
-          for (let k = 1; k <= 6 && lineNumber + k - 1 < lines.length; k++) {
-            const peek = lines[lineNumber + k - 1].trim();
-            blockLines.push(peek);
-            if (peek.endsWith("]);"))
-              break;
-          }
-          const block = blockLines.join(" ");
-          const url = (_a2 = block.match(/page\.waitForURL\(['\"](.*?)['\"]\)/)) == null ? void 0 : _a2[1];
-          const clickSelector = (_b = block.match(/page\.(getBy[^.]+\([^)]*\)|locator\([^)]*\))\.click\(\)/)) == null ? void 0 : _b[1];
-          if (url) {
-            actions.push({ type: "waitForURL", value: url, comment: (comment ? comment + " " : "") + "(compound)", lineNumber });
-          }
-          if (clickSelector) {
-            const selector = parseLocatorCall(clickSelector);
-            actions.push({ type: "click", selector, comment, lineNumber });
-          }
-        } else if (trimmed.includes("page.getByRole(")) {
-          const roleMatch = trimmed.match(
-            /page\.getByRole\(['"](.*?)['"](?:,\s*\{\s*name:\s*['"](.*?)['"]\s*\})?\)/
-          );
-          if (roleMatch) {
-            const [, role, name] = roleMatch;
-            const selector = name ? `role:${role}[name="${name}"]` : `role:${role}`;
-            actions.push({
-              type: "click",
-              selector,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.getByLabel(")) {
-          const labelMatch = trimmed.match(/page\.getByLabel\(['"](.*?)['"]\)/);
-          if (labelMatch) {
-            actions.push({
-              type: "click",
-              selector: `getByLabel:${labelMatch[1]}`,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.getByPlaceholder(")) {
-          const placeholderMatch = trimmed.match(
-            /page\.getByPlaceholder\(['"](.*?)['"]\)/
-          );
-          if (placeholderMatch) {
-            actions.push({
-              type: "click",
-              selector: `getByPlaceholder:${placeholderMatch[1]}`,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.getByTestId(")) {
-          const testIdMatch = trimmed.match(/page\.getByTestId\(['"](.*?)['"]\)/);
-          if (testIdMatch) {
-            actions.push({
-              type: "click",
-              selector: `getByTestId:${testIdMatch[1]}`,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.getByTitle(")) {
-          const titleMatch = trimmed.match(/page\.getByTitle\(['"](.*?)['"]\)/);
-          if (titleMatch) {
-            actions.push({
-              type: "click",
-              selector: `getByTitle:${titleMatch[1]}`,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("page.getByAltText(")) {
-          const altMatch = trimmed.match(/page\.getByAltText\(['"](.*?)['"]\)/);
-          if (altMatch) {
-            actions.push({
-              type: "click",
-              selector: `getByAltText:${altMatch[1]}`,
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("expect(") && trimmed.includes("toBeVisible()")) {
-          const getByTextMatch = trimmed.match(
-            /expect\(page\.getByText\(['"](.*?)['"](?:,\s*\{\s*exact:\s*(true|false)\s*\})?\)\)\.toBeVisible\(\)/
-          );
-          if (getByTextMatch) {
-            const text = getByTextMatch[1];
-            const exact = getByTextMatch[2] === "true";
-            actions.push({
-              type: "expect",
-              selector: `getByText:${text}`,
-              expectation: "toBeVisible",
-              options: { exact },
-              comment,
-              lineNumber
-            });
-          } else {
-            const locatorFilterMatch = trimmed.match(
-              /expect\(page\.locator\(['"](.*?)['"]\)\.filter\(\{\s*hasText:\s*['"](.*?)['"]\s*\}\)\)\.toBeVisible\(\)/
-            );
-            if (locatorFilterMatch) {
-              const selector = locatorFilterMatch[1];
-              const filterText = locatorFilterMatch[2];
-              actions.push({
-                type: "expect",
-                selector: `${selector}:has-text("${filterText}")`,
-                expectation: "toBeVisible",
-                comment,
-                lineNumber
-              });
-            } else {
-              const expectMatch = trimmed.match(
-                /expect\(page\.locator\(['"](.*?)['"]\)\)\.toBeVisible\(\)/
-              );
-              if (expectMatch) {
-                actions.push({
-                  type: "expect",
-                  selector: expectMatch[1],
-                  expectation: "toBeVisible",
-                  comment,
-                  lineNumber
-                });
-              }
-            }
-          }
-        } else if (trimmed.includes("expect(") && trimmed.includes("toContainText(")) {
-          const expectMatch = trimmed.match(
-            /expect\(page\.locator\(['"](.*?)['"]\)\)\.toContainText\(['"](.*?)['"]\)/
-          );
-          if (expectMatch) {
-            actions.push({
-              type: "expect",
-              selector: expectMatch[1],
-              value: expectMatch[2],
-              expectation: "toContainText",
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("expect(") && trimmed.includes("toBeChecked()")) {
-          const expectMatch = trimmed.match(
-            /expect\(page\.locator\(['"](.*?)['"]\)\)\.toBeChecked\(\)/
-          );
-          if (expectMatch) {
-            actions.push({
-              type: "expect",
-              selector: expectMatch[1],
-              expectation: "toBeChecked",
-              comment,
-              lineNumber
-            });
-          }
-        } else if (trimmed.includes("expect(") && trimmed.includes("not.toBeChecked()")) {
-          const expectMatch = trimmed.match(
-            /expect\(page\.locator\(['"](.*?)['"]\)\)\.not\.toBeChecked\(\)/
-          );
-          if (expectMatch) {
-            actions.push({
-              type: "expect",
-              selector: expectMatch[1],
-              expectation: "not.toBeChecked",
-              comment,
-              lineNumber
-            });
-          }
-        }
-      } catch (error) {
-        console.warn(`Failed to parse line ${lineNumber}: ${trimmed}`, error);
-      }
-    }
-    return actions;
-  }
-  function parseVariableMethodCall(varName, method, args, comment, lineNumber, selector) {
-    var _a2, _b;
-    const actualSelector = selector || `variable:${varName}`;
-    switch (method) {
-      case "click":
-        return { type: "click", selector: actualSelector, comment, lineNumber };
-      case "fill":
-        const fillValue = ((_a2 = args.match(/['"](.*?)['"]/)) == null ? void 0 : _a2[1]) || "";
-        return {
-          type: "fill",
-          selector: actualSelector,
-          value: fillValue,
-          comment,
-          lineNumber
-        };
-      case "check":
-        return { type: "check", selector: actualSelector, comment, lineNumber };
-      case "uncheck":
-        return { type: "uncheck", selector: actualSelector, comment, lineNumber };
-      case "selectOption":
-        const optionValue = ((_b = args.match(/['"](.*?)['"]/)) == null ? void 0 : _b[1]) || "";
-        return {
-          type: "selectOption",
-          selector: actualSelector,
-          value: optionValue,
-          comment,
-          lineNumber
-        };
-      case "waitFor":
-        const stateMatch = args.match(/{\s*state:\s*['"](.*?)['"]\s*}/);
-        return {
-          type: "waitFor",
-          selector: actualSelector,
-          options: stateMatch ? { state: stateMatch[1] } : {},
-          comment,
-          lineNumber
-        };
-      case "hover":
-        return { type: "hover", selector: actualSelector, comment, lineNumber };
-      case "focus":
-        return { type: "focus", selector: actualSelector, comment, lineNumber };
-      case "blur":
-        return { type: "blur", selector: actualSelector, comment, lineNumber };
-      case "scrollIntoViewIfNeeded":
-        return {
-          type: "scrollIntoView",
-          selector: actualSelector,
-          comment,
-          lineNumber
-        };
-      default:
-        return null;
-    }
-  }
-  function parseLocatorCall(locatorCall) {
-    const roleMatch = locatorCall.match(
-      /getByRole\(['"](.*?)['"](?:,\s*\{\s*name:\s*([^}]+)\s*\})?\)/
-    );
-    if (roleMatch) {
-      const [, role, nameArg] = roleMatch;
-      if (nameArg) {
-        const regexMatch = nameArg.match(/\/(.*?)\/([gimuy]*)/);
-        if (regexMatch) {
-          return `role:${role}[name-regex="/${regexMatch[1]}/${regexMatch[2]}"]`;
-        }
-        const stringMatch = nameArg.match(/['"](.*?)['"]/);
-        if (stringMatch) {
-          return `role:${role}[name="${stringMatch[1]}"]`;
-        }
-      }
-      return `role:${role}`;
-    }
-    const textMatch = locatorCall.match(/getByText\(([^)]+)\)/);
-    if (textMatch) {
-      const args = textMatch[1];
-      const regexMatch = args.match(/\/(.*?)\/([gimuy]*)/);
-      if (regexMatch) {
-        return `getByText-regex:/${regexMatch[1]}/${regexMatch[2]}`;
-      }
-      const stringMatch = args.match(
-        /['"](.*?)['"](?:,\s*\{\s*exact:\s*(true|false)\s*\})?/
-      );
-      if (stringMatch) {
-        const [, text, exact] = stringMatch;
-        return `getByText:${text}${exact === "true" ? ":exact" : ""}`;
-      }
-    }
-    const labelMatch = locatorCall.match(/getByLabel\(['"](.*?)['"]\)/);
-    if (labelMatch)
-      return `getByLabel:${labelMatch[1]}`;
-    const placeholderMatch = locatorCall.match(
-      /getByPlaceholder\(['"](.*?)['"]\)/
-    );
-    if (placeholderMatch)
-      return `getByPlaceholder:${placeholderMatch[1]}`;
-    const testIdMatch = locatorCall.match(/getByTestId\(['"](.*?)['"]\)/);
-    if (testIdMatch)
-      return `getByTestId:${testIdMatch[1]}`;
-    const titleMatch = locatorCall.match(/getByTitle\(['"](.*?)['"]\)/);
-    if (titleMatch)
-      return `getByTitle:${titleMatch[1]}`;
-    const altMatch = locatorCall.match(/getByAltText\(['"](.*?)['"]\)/);
-    if (altMatch)
-      return `getByAltText:${altMatch[1]}`;
-    const locatorMatch = locatorCall.match(/locator\(['"](.*?)['"]\)/);
-    if (locatorMatch)
-      return locatorMatch[1];
-    const locatorWithOptionsMatch = locatorCall.match(
-      /locator\(['"](.*?)['"],\s*\{\s*hasText:\s*['"](.*?)['"]\s*\}/
-    );
-    if (locatorWithOptionsMatch) {
-      const [, selector, text] = locatorWithOptionsMatch;
-      return `${selector}:has-text("${text}")`;
-    }
-    return locatorCall;
-  }
-  function parseChainedCall(baseSelector, chainCall) {
-    const filterTextMatch = chainCall.match(
-      /filter\(\{\s*hasText:\s*['"](.*?)['"]\s*\}/
-    );
-    if (filterTextMatch)
-      return `${baseSelector}:filter-text("${filterTextMatch[1]}")`;
-    const filterRegexMatch = chainCall.match(
-      /filter\(\{\s*hasText:\s*\/(.*?)\/([gimuy]*)\s*\}/
-    );
-    if (filterRegexMatch)
-      return `${baseSelector}:filter-regex("/${filterRegexMatch[1]}/${filterRegexMatch[2]}")`;
-    const filterHasMatch = chainCall.match(
-      /filter\(\{\s*has:\s*page\.(.+?)\s*\}/
-    );
-    if (filterHasMatch) {
-      const innerSelector = parseLocatorCall(filterHasMatch[1]);
-      return `${baseSelector}:filter-has("${innerSelector}")`;
-    }
-    const filterHasNotMatch = chainCall.match(
-      /filter\(\{\s*hasNot:\s*page\.(.+?)\s*\}/
-    );
-    if (filterHasNotMatch) {
-      const innerSelector = parseLocatorCall(filterHasNotMatch[1]);
-      return `${baseSelector}:filter-has-not("${innerSelector}")`;
-    }
-    if (chainCall.includes("first()"))
-      return `${baseSelector}:first`;
-    if (chainCall.includes("last()"))
-      return `${baseSelector}:last`;
-    const nthMatch = chainCall.match(/nth\((\d+)\)/);
-    if (nthMatch)
-      return `${baseSelector}:nth(${nthMatch[1]})`;
-    const andMatch = chainCall.match(/and\(page\.(.+?)\)/);
-    if (andMatch) {
-      const otherSelector = parseLocatorCall(andMatch[1]);
-      return `${baseSelector}:and("${otherSelector}")`;
-    }
-    const orMatch = chainCall.match(/or\(page\.(.+?)\)/);
-    if (orMatch) {
-      const otherSelector = parseLocatorCall(orMatch[1]);
-      return `${baseSelector}:or("${otherSelector}")`;
-    }
-    const getByMatch = chainCall.match(/^(getBy\w+\([^)]+\))/);
-    if (getByMatch) {
-      const innerSelector = parseLocatorCall(getByMatch[1]);
-      return `${baseSelector} >> ${innerSelector}`;
-    }
-    const locatorChainMatch = chainCall.match(/^locator\(['"](.*?)['"]\)/);
-    if (locatorChainMatch)
-      return `${baseSelector} >> ${locatorChainMatch[1]}`;
-    return `${baseSelector}:${chainCall}`;
-  }
-  function extractSelectorFromArg(selectorArg) {
-    return selectorArg.trim().replace(/^['"]|['"]$/g, "");
-  }
-  function parseDirectAction(method, args, comment, lineNumber, selector) {
-    var _a2, _b;
-    switch (method) {
-      case "click":
-        return { type: "click", selector, comment, lineNumber };
-      case "fill":
-        const fillValue = ((_a2 = args.match(/['"](.*?)['"]/)) == null ? void 0 : _a2[1]) || "";
-        return { type: "fill", selector, value: fillValue, comment, lineNumber };
-      case "check":
-        return { type: "check", selector, comment, lineNumber };
-      case "uncheck":
-        return { type: "uncheck", selector, comment, lineNumber };
-      case "selectOption":
-        const optionValue = ((_b = args.match(/['"](.*?)['"]/)) == null ? void 0 : _b[1]) || "";
-        return {
-          type: "selectOption",
-          selector,
-          value: optionValue,
-          comment,
-          lineNumber
-        };
-      case "waitFor":
-        const stateMatch = args.match(/{\s*state:\s*['"](.*?)['"]\s*}/);
-        return {
-          type: "waitFor",
-          selector,
-          options: stateMatch ? { state: stateMatch[1] } : {},
-          comment,
-          lineNumber
-        };
-      case "hover":
-        return { type: "hover", selector, comment, lineNumber };
-      case "focus":
-        return { type: "focus", selector, comment, lineNumber };
-      case "blur":
-        return { type: "blur", selector, comment, lineNumber };
-      case "scrollIntoViewIfNeeded":
-        return { type: "scrollIntoView", selector, comment, lineNumber };
-      default:
-        return null;
-    }
-  }
-  function parseExpectStatement(expectation, comment, lineNumber, selector) {
-    if (expectation.includes("toBeVisible()")) {
-      return {
-        type: "expect",
-        selector,
-        expectation: "toBeVisible",
-        comment,
-        lineNumber
-      };
-    }
-    const toContainTextMatch = expectation.match(
-      /toContainText\(['"](.*?)['"]\)/
-    );
-    if (toContainTextMatch) {
-      return {
-        type: "expect",
-        selector,
-        expectation: "toContainText",
-        value: toContainTextMatch[1],
-        comment,
-        lineNumber
-      };
-    }
-    const toHaveTextMatch = expectation.match(/toHaveText\(['"](.*?)['"]\)/);
-    if (toHaveTextMatch) {
-      return {
-        type: "expect",
-        selector,
-        expectation: "toHaveText",
-        value: toHaveTextMatch[1],
-        comment,
-        lineNumber
-      };
-    }
-    if (expectation.includes("toBeChecked()")) {
-      return {
-        type: "expect",
-        selector,
-        expectation: "toBeChecked",
-        comment,
-        lineNumber
-      };
-    }
-    if (expectation.includes("not.toBeChecked()")) {
-      return {
-        type: "expect",
-        selector,
-        expectation: "not.toBeChecked",
-        comment,
-        lineNumber
-      };
-    }
-    const toHaveCountMatch = expectation.match(/toHaveCount\((\d+)\)/);
-    if (toHaveCountMatch) {
-      return {
-        type: "expect",
-        selector,
-        expectation: "toHaveCount",
-        value: parseInt(toHaveCountMatch[1]),
-        comment,
-        lineNumber
-      };
-    }
-    return null;
-  }
-
   // src/playwright-replay/executor.ts
   var __stakReplayMatch = window.__stakTrakReplayMatch || { last: null };
   window.__stakTrakReplayMatch = __stakReplayMatch;
@@ -1724,11 +994,17 @@ var userBehaviour = (() => {
     } catch (e) {
     }
     const htmlElement = element;
-    const original = {
-      border: htmlElement.style.border,
-      boxShadow: htmlElement.style.boxShadow,
-      backgroundColor: htmlElement.style.backgroundColor
-    };
+    const anyEl = htmlElement;
+    if (anyEl.__stakRevertTimer) {
+      clearTimeout(anyEl.__stakRevertTimer);
+    } else {
+      anyEl.__stakOriginalStyle = {
+        border: htmlElement.style.border,
+        boxShadow: htmlElement.style.boxShadow,
+        backgroundColor: htmlElement.style.backgroundColor,
+        transition: htmlElement.style.transition
+      };
+    }
     htmlElement.style.border = "3px solid #ff6b6b";
     htmlElement.style.boxShadow = "0 0 20px rgba(255, 107, 107, 0.8)";
     htmlElement.style.backgroundColor = "rgba(255, 107, 107, 0.2)";
@@ -1740,11 +1016,14 @@ var userBehaviour = (() => {
       if (last.text)
         htmlElement.setAttribute("data-staktrak-matched-text", last.text);
     }
-    setTimeout(() => {
-      htmlElement.style.border = original.border;
-      htmlElement.style.boxShadow = original.boxShadow;
-      htmlElement.style.backgroundColor = original.backgroundColor;
-      htmlElement.style.transition = "";
+    anyEl.__stakRevertTimer = setTimeout(() => {
+      const o = anyEl.__stakOriginalStyle || {};
+      htmlElement.style.border = o.border || "";
+      htmlElement.style.boxShadow = o.boxShadow || "";
+      htmlElement.style.backgroundColor = o.backgroundColor || "";
+      htmlElement.style.transition = o.transition || "";
+      delete anyEl.__stakRevertTimer;
+      delete anyEl.__stakOriginalStyle;
     }, 1500);
   }
   function normalizeUrl(u) {
@@ -1909,13 +1188,6 @@ var userBehaviour = (() => {
                 );
                 await new Promise((resolve) => setTimeout(resolve, 10));
                 htmlElement.click();
-                element.dispatchEvent(
-                  new MouseEvent("click", {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                  })
-                );
               } catch (clickError) {
                 throw clickError;
               }
@@ -4271,50 +3543,31 @@ var userBehaviour = (() => {
       console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
     }
   }
-  function previewPlaywrightTest(testCode) {
-    try {
-      const actions = parsePlaywrightTest(testCode);
-      window.parent.postMessage(
-        {
-          type: "staktrak-playwright-replay-preview-ready",
-          totalActions: actions.length,
-          actions
-        },
-        getParentOrigin()
-      );
-    } catch (error) {
-      window.parent.postMessage(
-        {
-          type: "staktrak-playwright-replay-preview-error",
-          error: error instanceof Error ? error.message : "Unknown error"
-        },
-        getParentOrigin()
-      );
+  function beginReplay(actions, testCode) {
+    if (actions.length === 0) {
+      throw new Error("No valid actions found");
     }
+    playwrightReplayRef.current = {
+      actions,
+      status: "playing" /* PLAYING */,
+      currentActionIndex: 0,
+      testCode,
+      errors: [],
+      timeouts: []
+    };
+    window.parent.postMessage(
+      {
+        type: "staktrak-playwright-replay-started",
+        totalActions: actions.length,
+        actions
+      },
+      getParentOrigin()
+    );
+    executeNextPlaywrightAction();
   }
-  async function startPlaywrightReplay(testCode) {
+  async function startStructuredReplay(actions) {
     try {
-      const actions = parsePlaywrightTest(testCode);
-      if (actions.length === 0) {
-        throw new Error("No valid actions found in test code");
-      }
-      playwrightReplayRef.current = {
-        actions,
-        status: "playing" /* PLAYING */,
-        currentActionIndex: 0,
-        testCode,
-        errors: [],
-        timeouts: []
-      };
-      window.parent.postMessage(
-        {
-          type: "staktrak-playwright-replay-started",
-          totalActions: actions.length,
-          actions
-        },
-        getParentOrigin()
-      );
-      executeNextPlaywrightAction();
+      beginReplay(Array.isArray(actions) ? actions : [], "");
     } catch (error) {
       window.parent.postMessage(
         {
@@ -4360,7 +3613,7 @@ var userBehaviour = (() => {
       state.currentActionIndex++;
       setTimeout(() => {
         executeNextPlaywrightAction();
-      }, 300);
+      }, 500);
     } catch (error) {
       state.errors.push(
         `Action ${state.currentActionIndex + 1}: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -4462,14 +3715,9 @@ var userBehaviour = (() => {
         parentOrigin = event.origin;
       }
       switch (data.type) {
-        case "staktrak-playwright-replay-preview":
-          if (data.testCode) {
-            previewPlaywrightTest(data.testCode);
-          }
-          break;
-        case "staktrak-playwright-replay-start":
-          if (data.testCode) {
-            startPlaywrightReplay(data.testCode);
+        case "staktrak-playwright-replay-structured":
+          if (Array.isArray(data.actions)) {
+            startStructuredReplay(data.actions);
           }
           break;
         case "staktrak-playwright-replay-pause":
@@ -4868,6 +4116,14 @@ var userBehaviour = (() => {
       }, options));
     }
     /**
+     * Structured replay steps for the CURRENT recording — the executor consumes these
+     * directly (no generated text, no re-parse). Single source of truth = trackingData.
+     */
+    getReplaySteps(url) {
+      const actions = resultsToActions(this.trackingData);
+      return actionsToReplaySteps(actions, { baseUrl: url });
+    }
+    /**
      * Get current actions for UI display
      */
     getActions() {
@@ -4990,6 +4246,66 @@ test('Recorded test', async ({ page }) => {
 ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
 });`;
   }
+  function executorSelector(locator) {
+    if (!locator)
+      return "";
+    const sel = locator.stableSelector || locator.primary || "";
+    if (sel.startsWith("role:") || sel.startsWith("text="))
+      return sel;
+    const testId = extractTestId(locator);
+    if (testId)
+      return `getByTestId:${testId}`;
+    return sel;
+  }
+  function actionsToReplaySteps(actions, options = {}) {
+    const { baseUrl } = options;
+    const steps = [];
+    if (baseUrl && (actions.length === 0 || actions[0].type !== "goto")) {
+      steps.push({ type: "goto", value: baseUrl });
+    }
+    for (const a of actions) {
+      switch (a.type) {
+        case "goto":
+          steps.push({ type: "goto", value: getRelativeUrl(a.url || baseUrl || "") });
+          break;
+        case "waitForURL":
+          if (a.normalizedUrl)
+            steps.push({ type: "waitForURL", value: a.normalizedUrl });
+          break;
+        case "click": {
+          const selector = executorSelector(a.locator);
+          if (selector)
+            steps.push({ type: "click", selector });
+          break;
+        }
+        case "input": {
+          const selector = executorSelector(a.locator);
+          if (selector && a.value !== void 0)
+            steps.push({ type: "fill", selector, value: a.value });
+          break;
+        }
+        case "form": {
+          const selector = executorSelector(a.locator);
+          if (!selector)
+            break;
+          if (a.formType === "checkbox" || a.formType === "radio") {
+            steps.push({ type: a.checked ? "check" : "uncheck", selector });
+          } else if (a.formType === "select" && a.value !== void 0) {
+            steps.push({ type: "selectOption", selector, value: a.value });
+          }
+          break;
+        }
+        case "assertion": {
+          const selector = executorSelector(a.locator);
+          if (selector && a.value !== void 0) {
+            steps.push({ type: "expect", selector, expectation: "toContainText", value: a.value });
+          }
+          break;
+        }
+      }
+    }
+    return steps;
+  }
   function generatePlaywrightTest(url, trackingData) {
     try {
       const actions = resultsToActions(trackingData);
@@ -5004,6 +4320,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
     existing.RecordingManager = RecordingManager;
     existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
     existing.generatePlaywrightTest = generatePlaywrightTest;
+    existing.actionsToReplaySteps = actionsToReplaySteps;
     window.PlaywrightGenerator = existing;
   }
 
