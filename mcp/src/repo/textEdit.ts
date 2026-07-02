@@ -25,12 +25,13 @@ export interface TextEditInput {
   view_range?: number[];
 }
 
-/** Resolve a tool-supplied path against `cwd` and refuse anything that escapes
- *  it (directory-traversal / absolute-path guard). */
-export function resolveInCwd(p: string, cwd: string): string {
-  const target = resolve(isAbsolute(p) ? p : join(cwd, p));
-  const root = resolve(cwd);
-  if (target !== root && !target.startsWith(root + sep)) {
+/** Resolve a tool-supplied path against one or more allowed roots and refuse
+ *  anything that escapes all of them (directory-traversal / absolute-path guard).
+ *  Relative paths are resolved against the primary root (`roots[0]`). */
+export function resolveInCwd(p: string, roots: string | string[]): string {
+  const rootList = (Array.isArray(roots) ? roots : [roots]).map((r) => resolve(r));
+  const target = resolve(isAbsolute(p) ? p : join(rootList[0], p));
+  if (!rootList.some((root) => target === root || target.startsWith(root + sep))) {
     throw new Error(`path "${p}" escapes the working directory`);
   }
   return target;
@@ -43,10 +44,10 @@ export function resolveInCwd(p: string, cwd: string): string {
  * top-of-file) so it backs both the provider-defined anthropic tool and the
  * generic fallback. Returns a human-readable string (errors as `Error: …`).
  */
-export function textEdit(input: TextEditInput, cwd: string): string {
+export function textEdit(input: TextEditInput, roots: string | string[]): string {
   let target: string;
   try {
-    target = resolveInCwd(input.path, cwd);
+    target = resolveInCwd(input.path, roots);
   } catch (e) {
     return `Error: ${(e as Error).message}`;
   }
