@@ -2,6 +2,7 @@ import { tool, Tool, ModelMessage } from "ai";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
+import os from "node:os";
 import {
   getRepoMap,
   getFileSummary,
@@ -869,7 +870,7 @@ export async function get_tools(
         const baseURL = getGatewayBaseURL("anthropic");
         const ant = createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
         allTools.str_replace_based_edit_tool = ant.tools.textEditor_20250728({
-          execute: async (input) => textEdit(input as TextEditInput, repoPath),
+          execute: async (input) => textEdit(input as TextEditInput, [repoPath, os.tmpdir()]),
         }) as any as Tool<any, any>;
       } else {
         // Generic fallback for OpenAI / other providers
@@ -888,7 +889,7 @@ export async function get_tools(
             insert_text: z.string().optional(),
             view_range: z.array(z.number().int()).length(2).optional(),
           }),
-          execute: async (input) => textEdit(input as TextEditInput, repoPath),
+          execute: async (input) => textEdit(input as TextEditInput, [repoPath, os.tmpdir()]),
         });
       }
     }

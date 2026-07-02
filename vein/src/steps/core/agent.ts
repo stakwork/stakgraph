@@ -4,6 +4,7 @@ import { usageFromResult, computeCost, addUsage } from "../../pricing.js";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, sep } from "node:path";
+import os from "node:os";
 
 /**
  * Core AGENT step: a general tool-using agent loop (Vercel AI SDK
@@ -292,12 +293,13 @@ export interface TextEditInput {
   view_range?: number[];
 }
 
-/** Resolve a tool-supplied path against `cwd` and refuse anything that escapes
- *  it (directory-traversal / absolute-path guard). */
-function resolveInCwd(p: string, cwd: string): string {
-  const target = resolve(isAbsolute(p) ? p : join(cwd, p));
-  const root = resolve(cwd);
-  if (target !== root && !target.startsWith(root + sep)) {
+/** Resolve a tool-supplied path against one or more allowed roots and refuse
+ *  anything that escapes all of them (directory-traversal / absolute-path guard).
+ *  Relative paths are resolved against the primary root (`roots[0]`). */
+function resolveInCwd(p: string, roots: string | string[]): string {
+  const rootList = (Array.isArray(roots) ? roots : [roots]).map((r) => resolve(r));
+  const target = resolve(isAbsolute(p) ? p : join(rootList[0], p));
+  if (!rootList.some((root) => target === root || target.startsWith(root + sep))) {
     throw new Error(`path "${p}" escapes the working directory`);
   }
   return target;
@@ -310,10 +312,10 @@ function resolveInCwd(p: string, cwd: string): string {
  * top-of-file) so it backs both the provider-defined anthropic tool and the
  * generic fallback. Returns a human-readable string (errors as `Error: …`).
  */
-export function textEdit(input: TextEditInput, cwd: string): string {
+export function textEdit(input: TextEditInput, roots: string | string[]): string {
   let target: string;
   try {
-    target = resolveInCwd(input.path, cwd);
+    target = resolveInCwd(input.path, roots);
   } catch (e) {
     return `Error: ${(e as Error).message}`;
   }
@@ -548,7 +550,7 @@ export default defineStep({
         // Provider-defined text editor (the model is specially trained on its
         // schema); we supply the execute that performs the edit inside cfg.cwd.
         textEditorTool = anthropic.tools.textEditor_20250728({
-          execute: async (input: TextEditInput) => textEdit(input, cfg.cwd),
+          execute: async (input: TextEditInput) => textEdit(input, [cfg.cwd, os.tmpdir()]),
         });
         providerOptions = { anthropic: { cacheControl: { type: "ephemeral" } } };
         break;
@@ -648,7 +650,7 @@ export default defineStep({
             old_str: z.string().optional(),
             view_range: z.array(z.number().int()).optional(),
           }) as any,
-          execute: async (input: TextEditInput) => textEdit(input, cfg.cwd),
+          execute: async (input: TextEditInput) => textEdit(input, [cfg.cwd, os.tmpdir()]),
         });
 
     // Apply toolFilter (empty = all). Unknown names are ignored.

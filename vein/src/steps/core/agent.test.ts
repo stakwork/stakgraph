@@ -273,4 +273,43 @@ describe("textEdit (str_replace_based_edit_tool handler)", () => {
     assert.match(textEdit({ command: "view", path: "nope.txt" }, cwd), /File not found/);
     assert.ok(!existsSync(join(cwd, "nope.txt")));
   });
+
+  it("accepts relative path under repo root (unchanged behaviour)", () => {
+    writeFileSync(join(cwd, "rel.txt"), "hello");
+    const out = textEdit({ command: "view", path: "rel.txt" }, [cwd, tmpdir()]);
+    assert.equal(out, "1: hello");
+  });
+
+  it("accepts absolute path under the repo root", () => {
+    const abs = join(cwd, "abs.txt");
+    writeFileSync(abs, "world");
+    const out = textEdit({ command: "view", path: abs }, [cwd, tmpdir()]);
+    assert.equal(out, "1: world");
+  });
+
+  it("accepts absolute path under os.tmpdir() — create then str_replace round-trip", () => {
+    const scratchPath = join(tmpdir(), `vein-scratch-${Date.now()}.py`);
+    try {
+      // Create the scratch file
+      const createOut = textEdit(
+        { command: "create", path: scratchPath, file_text: "x = 1\n" },
+        [cwd, tmpdir()]
+      );
+      assert.match(createOut, /Successfully created/);
+      // Edit it (the original bug: this used to fail with "escapes the working directory")
+      const replaceOut = textEdit(
+        { command: "str_replace", path: scratchPath, old_str: "x = 1", new_str: "x = 42" },
+        [cwd, tmpdir()]
+      );
+      assert.match(replaceOut, /Successfully replaced/);
+      assert.equal(readFileSync(scratchPath, "utf-8"), "x = 42\n");
+    } finally {
+      rmSync(scratchPath, { force: true });
+    }
+  });
+
+  it("refuses absolute path outside all roots (e.g. /etc/passwd)", () => {
+    const out = textEdit({ command: "view", path: "/etc/passwd" }, [cwd, tmpdir()]);
+    assert.match(out, /escapes the working directory/);
+  });
 });
