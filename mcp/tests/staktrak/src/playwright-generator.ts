@@ -289,8 +289,8 @@ function extractTestId(locator?: ActionLocator): string | null {
 
 // Locator expression for CLICK targets. Prefer getByTestId (stable across DOM
 // changes) over raw CSS, which is prone to resolving to the wrong element at replay
-// time (design doc bugs #1/#2). Used only for clicks — the in-app parser treats a
-// bare getByTestId(...) as a click, so value-bearing actions must use cssLocator.
+// time (design doc bugs #1/#2). Only clicks get native selectors today — extending
+// this to value-bearing actions (fill/check/selectOption/assert) is tracked separately.
 function clickExpr(locator?: ActionLocator): string {
   const testId = extractTestId(locator);
   if (testId) return `page.getByTestId('${q(testId)}')`;
@@ -309,8 +309,7 @@ function clickExpr(locator?: ActionLocator): string {
 }
 
 // Plain CSS locator for value-bearing actions (fill / check / selectOption / assert).
-// The parser's generic `page.locator(sel).method(args)` branch handles these with the
-// correct method, whereas a bare getByTestId would be misread as a click.
+// These don't yet get native getByTestId/getByRole treatment — see clickExpr above.
 function cssLocator(locator?: ActionLocator): string {
   const sel = locator?.stableSelector || locator?.primary || "";
   return `page.locator('${q(sel)}')`;
