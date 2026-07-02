@@ -39,6 +39,7 @@ var PlaywrightGenerator = (() => {
   var playwright_generator_exports = {};
   __export(playwright_generator_exports, {
     RecordingManager: () => RecordingManager,
+    actionsToReplaySteps: () => actionsToReplaySteps,
     generatePlaywrightTest: () => generatePlaywrightTest,
     generatePlaywrightTestFromActions: () => generatePlaywrightTestFromActions
   });
@@ -422,6 +423,14 @@ var PlaywrightGenerator = (() => {
       }, options));
     }
     /**
+     * Structured replay steps for the CURRENT recording — the executor consumes these
+     * directly (no generated text, no re-parse). Single source of truth = trackingData.
+     */
+    getReplaySteps(url) {
+      const actions = resultsToActions(this.trackingData);
+      return actionsToReplaySteps(actions, { baseUrl: url });
+    }
+    /**
      * Get current actions for UI display
      */
     getActions() {
@@ -544,6 +553,66 @@ test('Recorded test', async ({ page }) => {
 ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
 });`;
   }
+  function executorSelector(locator) {
+    if (!locator)
+      return "";
+    const sel = locator.stableSelector || locator.primary || "";
+    if (sel.startsWith("role:") || sel.startsWith("text="))
+      return sel;
+    const testId = extractTestId(locator);
+    if (testId)
+      return `getByTestId:${testId}`;
+    return sel;
+  }
+  function actionsToReplaySteps(actions, options = {}) {
+    const { baseUrl } = options;
+    const steps = [];
+    if (baseUrl && (actions.length === 0 || actions[0].type !== "goto")) {
+      steps.push({ type: "goto", value: baseUrl });
+    }
+    for (const a of actions) {
+      switch (a.type) {
+        case "goto":
+          steps.push({ type: "goto", value: getRelativeUrl(a.url || baseUrl || "") });
+          break;
+        case "waitForURL":
+          if (a.normalizedUrl)
+            steps.push({ type: "waitForURL", value: a.normalizedUrl });
+          break;
+        case "click": {
+          const selector = executorSelector(a.locator);
+          if (selector)
+            steps.push({ type: "click", selector });
+          break;
+        }
+        case "input": {
+          const selector = executorSelector(a.locator);
+          if (selector && a.value !== void 0)
+            steps.push({ type: "fill", selector, value: a.value });
+          break;
+        }
+        case "form": {
+          const selector = executorSelector(a.locator);
+          if (!selector)
+            break;
+          if (a.formType === "checkbox" || a.formType === "radio") {
+            steps.push({ type: a.checked ? "check" : "uncheck", selector });
+          } else if (a.formType === "select" && a.value !== void 0) {
+            steps.push({ type: "selectOption", selector, value: a.value });
+          }
+          break;
+        }
+        case "assertion": {
+          const selector = executorSelector(a.locator);
+          if (selector && a.value !== void 0) {
+            steps.push({ type: "expect", selector, expectation: "toContainText", value: a.value });
+          }
+          break;
+        }
+      }
+    }
+    return steps;
+  }
   function generatePlaywrightTest(url, trackingData) {
     try {
       const actions = resultsToActions(trackingData);
@@ -558,6 +627,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
     existing.RecordingManager = RecordingManager;
     existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
     existing.generatePlaywrightTest = generatePlaywrightTest;
+    existing.actionsToReplaySteps = actionsToReplaySteps;
     window.PlaywrightGenerator = existing;
   }
   return __toCommonJS(playwright_generator_exports);
