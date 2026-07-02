@@ -11,6 +11,7 @@ import {
   executeBashCommand,
 } from "./bash.js";
 import { textEdit, TextEditInput } from "./textEdit.js";
+import { AGENT_ARTIFACTS_DIR } from "./artifacts.js";
 import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "../aieo/src/index.js";
 import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
@@ -23,6 +24,17 @@ import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
 import { relevant_node_types } from "../graph/types.js";
+
+/**
+ * Allowed write roots for the text-editor tool. The tool sandbox refuses any
+ * path outside these (see resolveInCwd in textEdit.ts): the cloned repo, the
+ * OS temp dir (scratch), and — when configured — the durable artifacts dir.
+ */
+function editorRoots(repoPath: string): string[] {
+  const roots = [repoPath, os.tmpdir()];
+  if (AGENT_ARTIFACTS_DIR) roots.push(AGENT_ARTIFACTS_DIR);
+  return roots;
+}
 
 export interface ProvenanceEntry {
   tool_call_id?: string;
@@ -870,7 +882,7 @@ export async function get_tools(
         const baseURL = getGatewayBaseURL("anthropic");
         const ant = createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
         allTools.str_replace_based_edit_tool = ant.tools.textEditor_20250728({
-          execute: async (input) => textEdit(input as TextEditInput, [repoPath, os.tmpdir()]),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath)),
         }) as any as Tool<any, any>;
       } else {
         // Generic fallback for OpenAI / other providers
@@ -889,7 +901,7 @@ export async function get_tools(
             insert_text: z.string().optional(),
             view_range: z.array(z.number().int()).length(2).optional(),
           }),
-          execute: async (input) => textEdit(input as TextEditInput, [repoPath, os.tmpdir()]),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath)),
         });
       }
     }
