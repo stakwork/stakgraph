@@ -41,6 +41,7 @@ import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import * as ga from "./graph_agent/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
+import { pruneExpiredArtifacts } from "./repo/artifacts.js";
 import {
   getBus,
   verifyEventsToken,
@@ -330,6 +331,10 @@ app.listen(port, host, () => {
   // Prune expired sessions on startup, then every 6 hours
   pruneExpiredSessions();
   setInterval(pruneExpiredSessions, 6 * 60 * 60 * 1000);
+
+  // Prune expired agent artifacts (>7 days) on startup, then every 6 hours
+  pruneExpiredArtifacts();
+  setInterval(pruneExpiredArtifacts, 6 * 60 * 60 * 1000);
 });
 
 //
