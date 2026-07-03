@@ -14,7 +14,7 @@
     ]
   },
   "resolutions": {
-    "@ai-sdk/anthropic": "3.0.75",
+    "@ai-sdk/anthropic": "3.0.92",
     "@ai-sdk/google": "3.0.67",
     "@ai-sdk/openai": "3.0.61",
     "@ai-sdk/gateway": "3.0.110",
@@ -46,7 +46,7 @@
     "sphinx-git": "./build/sphinx-git/bin.js"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "3.0.75",
+    "@ai-sdk/anthropic": "3.0.92",
     "@ai-sdk/mcp": "1.0.18",
     "@anthropic-ai/sdk": "0.37.0",
     "@aws-sdk/client-cloudwatch-logs": "3.994.0",
