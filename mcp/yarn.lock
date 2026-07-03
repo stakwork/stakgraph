@@ -2,13 +2,13 @@
 # yarn lockfile v1
 
 
-"@ai-sdk/anthropic@2.0.59", "@ai-sdk/anthropic@3.0.0-beta.66", "@ai-sdk/anthropic@3.0.37", "@ai-sdk/anthropic@3.0.75", "@ai-sdk/anthropic@^2.0.34", "@ai-sdk/anthropic@^3.0.81":
-  version "3.0.75"
-  resolved "https://registry.npmjs.org/@ai-sdk/anthropic/-/anthropic-3.0.75.tgz"
-  integrity sha512-5AV3CKwaOJFdGXhihVgvRLNrjwRn2Xmy71YygT8DYOA+5zTx93Seg2QSIS8b3tJxzZ7X4H84pEtrE8VZKBCZGA==
+"@ai-sdk/anthropic@2.0.59", "@ai-sdk/anthropic@3.0.0-beta.66", "@ai-sdk/anthropic@3.0.92", "@ai-sdk/anthropic@^2.0.34":
+  version "3.0.92"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-3.0.92.tgz#2f9385a4b43b1ccbf5b0f2f0c731ee87ca2d6bca"
+  integrity sha512-dFrf4xhx2yM686KHFm76Nn7nBekjkjiw1btqOyR26/kXz58QMguhNsjyvMqPktD8AW/wwTAq0fDRVyDvF2gH1w==
   dependencies:
-    "@ai-sdk/provider" "3.0.10"
-    "@ai-sdk/provider-utils" "4.0.26"
+    "@ai-sdk/provider" "3.0.13"
+    "@ai-sdk/provider-utils" "4.0.35"
 
 "@ai-sdk/azure@^2.0.54":
   version "2.0.91"
@@ -148,6 +148,15 @@
     "@standard-schema/spec" "^1.1.0"
     eventsource-parser "^3.0.8"
 
+"@ai-sdk/provider-utils@4.0.35":
+  version "4.0.35"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-4.0.35.tgz#bd32efdd5e4ac4f5c2ac42924d960a1d8bf0b4e2"
+  integrity sha512-bjYld/2KGPLt78kpqbya+fD4LYS7BqVQJyUjE3qAHrYB0FR2Q90BaWEVIBZaguTWXf/A8L6uG1zO1v9TxVlGWg==
+  dependencies:
+    "@ai-sdk/provider" "3.0.13"
+    "@standard-schema/spec" "^1.1.0"
+    eventsource-parser "^3.0.8"
+
 "@ai-sdk/provider-utils@^3.0.17":
   version "3.0.22"
   resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-3.0.22.tgz"
@@ -168,6 +177,13 @@
   version "3.0.10"
   resolved "https://registry.npmjs.org/@ai-sdk/provider/-/provider-3.0.10.tgz"
   integrity sha512-Q3BZ27qfpYqnCYGvE3vt+Qi6LGOF9R5Nmzn+9JoM1lCRsD9mYaIhfJLkSunN48nfGXJ6n+XNV0J/XVpqGQl7Dw==
+  dependencies:
+    json-schema "^0.4.0"
+
+"@ai-sdk/provider@3.0.13":
+  version "3.0.13"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider/-/provider-3.0.13.tgz#8d2d64bcf5bd077133c82cc1eeefad3bee0b192d"
+  integrity sha512-ZPtVYt5QIJzOta1kdUiDuCx4HhFkvNPv/rvmZ2b1iXwybYjJsCnNYR4PAw4kW7rgVfDARvHXcU64efWuqNp6bw==
   dependencies:
     json-schema "^0.4.0"
 
@@ -6279,7 +6295,7 @@ vary@^1, vary@^1.1.2, vary@~1.1.2:
 "vein@file:../vein":
   version "0.1.0"
   dependencies:
-    "@ai-sdk/anthropic" "^3.0.81"
+    "@ai-sdk/anthropic" "3.0.92"
     "@ai-sdk/openai" "^3.0.67"
     "@googleapis/drive" "^20.2.0"
     "@hono/node-server" "^2.0.4"
