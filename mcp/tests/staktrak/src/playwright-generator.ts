@@ -1,6 +1,16 @@
 import { Action, ActionLocator, resultsToActions } from "./actionModel";
-import { Results as TrackingResults, PlaywrightAction } from "./types";
-import { getRelativeUrl } from "./utils";
+import { Results as TrackingResults, PlaywrightAction, Config } from "./types";
+import { getRelativeUrl, filterClickDetails } from "./utils";
+
+// RecordingManager runs host-side (hive) and never receives the in-iframe recorder's
+// Config instance, so it can't read the user's actual filterAssertionClicks/
+// multiClickInterval settings. filterClickDetails only reads these two fields —
+// mirror index.ts's defaultConfig values rather than threading the whole Config
+// object across the postMessage boundary for two booleans/numbers.
+const CLICK_FILTER_CONFIG: Pick<Config, "filterAssertionClicks" | "multiClickInterval"> = {
+  filterAssertionClicks: true,
+  multiClickInterval: 300,
+};
 
 export interface GenerateOptions {
   baseUrl?: string;
@@ -202,10 +212,34 @@ export class RecordingManager {
   }
 
   /**
+   * trackingData with the same assertion-adjacent click filtering the in-iframe
+   * processResults() pipeline applies (filterClickDetails in utils.ts) — e.g. the
+   * click a text-selection drag can spuriously register right before an assertion.
+   * generateTest()/getReplaySteps() are the ONLY paths ever used for output (the
+   * host only calls recorder.generateTest()/getReplaySteps(); the filtered
+   * staktrak-results payload from processResults() is not read for generation — see
+   * hive useStaktrak.ts and mcp/tests/hooks.js), so without this, that filter never
+   * actually ran and generated tests could carry an extra bogus click.
+   */
+  private filteredTrackingData(): TrackingResults {
+    return {
+      ...this.trackingData,
+      clicks: {
+        ...this.trackingData.clicks,
+        clickDetails: filterClickDetails(
+          this.trackingData.clicks.clickDetails,
+          this.trackingData.assertions,
+          CLICK_FILTER_CONFIG as Config
+        ),
+      },
+    };
+  }
+
+  /**
    * Generate Playwright test from current data
    */
   generateTest(url: string, options?: any): string {
-    const actions = resultsToActions(this.trackingData);
+    const actions = resultsToActions(this.filteredTrackingData());
     return generatePlaywrightTestFromActions(actions, {
       baseUrl: url,
       ...options,
@@ -217,7 +251,7 @@ export class RecordingManager {
    * directly (no generated text, no re-parse). Single source of truth = trackingData.
    */
   getReplaySteps(url: string): PlaywrightAction[] {
-    const actions = resultsToActions(this.trackingData);
+    const actions = resultsToActions(this.filteredTrackingData());
     return actionsToReplaySteps(actions, { baseUrl: url });
   }
 
@@ -287,11 +321,18 @@ function extractTestId(locator?: ActionLocator): string | null {
   return null;
 }
 
-// Locator expression for CLICK targets. Prefer getByTestId (stable across DOM
-// changes) over raw CSS, which is prone to resolving to the wrong element at replay
-// time (design doc bugs #1/#2). Only clicks get native selectors today — extending
-// this to value-bearing actions (fill/check/selectOption/assert) is tracked separately.
-function clickExpr(locator?: ActionLocator): string {
+// Locator expression for ALL action types (click, fill, check, selectOption, assert).
+// Prefer getByTestId/getByRole (stable across DOM changes) over raw CSS, which is
+// prone to resolving to the wrong element at replay time (design doc bugs #1/#2).
+//
+// Clicks and value-bearing actions used to be treated differently here: a bare
+// getByTestId(...) in the generated text was ambiguous to the old regex parser
+// (could be misread as a click), so fill/check/selectOption/assert were forced onto
+// raw CSS. PR #1431 deletes that parser entirely — the generated text is now only
+// ever fed to real Playwright (staklink), where getByTestId/getByRole work correctly
+// regardless of which method follows — so there is no reason left to withhold native
+// selectors from value-bearing actions (closes out P2 in notes-staktrak-architecture.md).
+function locatorExpr(locator?: ActionLocator): string {
   const testId = extractTestId(locator);
   if (testId) return `page.getByTestId('${q(testId)}')`;
   const sel = locator?.stableSelector || locator?.primary || "";
@@ -305,13 +346,6 @@ function clickExpr(locator?: ActionLocator): string {
       ? `page.getByRole('${q(role)}', { name: '${q(name)}' })`
       : `page.getByRole('${q(role)}')`;
   }
-  return cssLocator(locator);
-}
-
-// Plain CSS locator for value-bearing actions (fill / check / selectOption / assert).
-// These don't yet get native getByTestId/getByRole treatment — see clickExpr above.
-function cssLocator(locator?: ActionLocator): string {
-  const sel = locator?.stableSelector || locator?.primary || "";
   return `page.locator('${q(sel)}')`;
 }
 
@@ -337,15 +371,15 @@ export function generatePlaywrightTestFromActions(
           return "";
         case "click": {
           if (!action.locator?.primary && !action.locator?.stableSelector) return "";
-          return `  await ${clickExpr(action.locator)}.click();`;
+          return `  await ${locatorExpr(action.locator)}.click();`;
         }
         case "input": {
           if (!action.locator?.primary || action.value === undefined) return "";
-          return `  await ${cssLocator(action.locator)}.fill('${q(action.value)}');`;
+          return `  await ${locatorExpr(action.locator)}.fill('${q(action.value)}');`;
         }
         case "form": {
           if (!action.locator?.primary) return "";
-          const target = cssLocator(action.locator);
+          const target = locatorExpr(action.locator);
           if (action.formType === "checkbox" || action.formType === "radio") {
             return action.checked ? `  await ${target}.check();` : `  await ${target}.uncheck();`;
           } else if (action.formType === "select" && action.value !== undefined) {
@@ -355,7 +389,7 @@ export function generatePlaywrightTestFromActions(
         }
         case "assertion": {
           if (!action.locator?.primary || action.value === undefined) return "";
-          return `  await expect(${cssLocator(action.locator)}).toContainText('${q(action.value)}');`;
+          return `  await expect(${locatorExpr(action.locator)}).toContainText('${q(action.value)}');`;
         }
         default:
           return "";

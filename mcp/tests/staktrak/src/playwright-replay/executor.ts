@@ -494,6 +494,20 @@ function findElementWithFallbacks(selector: string): Element | null {
     return el;
   };
 
+  // Accept a match only if it's unique. Several fallback strategies below used to take
+  // the FIRST hit unconditionally — on a page with several elements sharing the same
+  // aria-label/placeholder/title/role (e.g. a repeated list of cards), that silently
+  // resolved to the wrong element (design doc bug #1: wrong-element resolution).
+  // Ambiguous matches now fall through instead of guessing, with a one-shot warning.
+  const uniqueOrNull = (matches: ArrayLike<Element>): Element | null => {
+    if (matches.length === 1) return matches[0] as Element;
+    if (matches.length > 1 && !__stakWarned[selector]) {
+      console.warn(`[staktrak] ambiguous selector, ${matches.length} matches — refusing to guess`, selector);
+      __stakWarned[selector] = true;
+    }
+    return null;
+  };
+
   if (selector.startsWith('role:')) {
     const roleMatch = selector.match(/^role:([^\[]+)(?:\[name(?:-regex)?="(.+?)"\])?/);
     if (roleMatch) {
@@ -502,7 +516,7 @@ function findElementWithFallbacks(selector: string): Element | null {
       const nameRegex = selector.includes('[name-regex=');
       const candidates = Array.from(queryByRole(role.trim()));
       if (!nameRaw) {
-        return noteMatch((candidates[0] as Element) || null, selector);
+        return noteMatch(uniqueOrNull(candidates), selector);
       }
       let matcher: (s: string) => boolean;
       if (nameRegex) {
@@ -572,7 +586,8 @@ function findElementWithFallbacks(selector: string): Element | null {
   }
   if (selector.startsWith('getByLabel:')) {
     const label = selector.substring('getByLabel:'.length).trim();
-    // label[for]
+    // label[for] / nested control — a <label> is 1:1 with its control by construction,
+    // so no uniqueness check needed here even if multiple labels share text.
     const labels = Array.from(document.querySelectorAll('label')).filter(l => l.textContent?.trim() === label);
     for (const lab of labels) {
       const forId = lab.getAttribute('for');
@@ -584,20 +599,20 @@ function findElementWithFallbacks(selector: string): Element | null {
       const nested = lab.querySelector('input,select,textarea,button');
       if (nested) return noteMatch(nested, selector);
     }
-    // aria-label fallback
-    return noteMatch(document.querySelector(`[aria-label="${cssEscape(label)}"]`), selector);
+    // aria-label fallback — several elements can share an aria-label, so verify unique.
+    return noteMatch(uniqueOrNull(document.querySelectorAll(`[aria-label="${cssEscape(label)}"]`)), selector);
   }
   if (selector.startsWith('getByPlaceholder:')) {
     const ph = selector.substring('getByPlaceholder:'.length);
-    return noteMatch(document.querySelector(`[placeholder="${cssEscape(ph)}"]`), selector);
+    return noteMatch(uniqueOrNull(document.querySelectorAll(`[placeholder="${cssEscape(ph)}"]`)), selector);
   }
   if (selector.startsWith('getByTitle:')) {
     const t = selector.substring('getByTitle:'.length);
-    return noteMatch(document.querySelector(`[title="${cssEscape(t)}"]`), selector);
+    return noteMatch(uniqueOrNull(document.querySelectorAll(`[title="${cssEscape(t)}"]`)), selector);
   }
   if (selector.startsWith('getByAltText:')) {
     const alt = selector.substring('getByAltText:'.length);
-    return noteMatch(document.querySelector(`[alt="${cssEscape(alt)}"]`), selector);
+    return noteMatch(uniqueOrNull(document.querySelectorAll(`[alt="${cssEscape(alt)}"]`)), selector);
   }
 
   const browserSelector = convertToBrowserSelector(selector);
@@ -745,13 +760,25 @@ function findById(selector: string): Element | null {
 function findByAriaLabel(selector: string): Element | null {
   const ariaMatch = selector.match(/\[aria-label="([^"]+)"\]/);
   if (!ariaMatch) return null;
-  return document.querySelector(`[aria-label="${ariaMatch[1]}"]`);
+  const matches = document.querySelectorAll(`[aria-label="${ariaMatch[1]}"]`);
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1 && !__stakWarned[selector]) {
+    console.warn(`[staktrak] ambiguous aria-label, ${matches.length} matches — refusing to guess`, selector);
+    __stakWarned[selector] = true;
+  }
+  return null;
 }
 
 function findByRole(selector: string): Element | null {
   const roleMatch = selector.match(/\[role="([^"]+)"\]/);
   if (!roleMatch) return null;
-  return document.querySelector(`[role="${roleMatch[1]}"]`);
+  const matches = document.querySelectorAll(`[role="${roleMatch[1]}"]`);
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1 && !__stakWarned[selector]) {
+    console.warn(`[staktrak] ambiguous role, ${matches.length} matches — refusing to guess`, selector);
+    __stakWarned[selector] = true;
+  }
+  return null;
 }
 
 function findByTextContentTight(selector: string): Element | null {
