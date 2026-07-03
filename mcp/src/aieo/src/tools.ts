@@ -7,7 +7,7 @@ export function getProviderTool(
   provider: Provider,
   apiKey: string,
   toolName: ProviderTool
-) {
+): any {
   switch (provider) {
     case "anthropic":
       return getAnthropicTool(apiKey, toolName);
@@ -16,7 +16,7 @@ export function getProviderTool(
   }
 }
 
-function getAnthropicTool(apiKey: string, toolName: ProviderTool) {
+function getAnthropicTool(apiKey: string, toolName: ProviderTool): any {
   const baseURL = getGatewayBaseURL("anthropic");
   const anthropic = createAnthropic({
     apiKey,
