@@ -10,6 +10,12 @@ export interface McpServer {
   toolFilter?: string[]; // Only include these tools (if empty/undefined, include all)
 }
 
+function maskCredential(cred?: string): string {
+  if (!cred) return "(no credential)";
+  if (cred.length <= 4) return "*".repeat(cred.length);
+  return `${"*".repeat(cred.length - 4)}${cred.slice(-4)}`;
+}
+
 // Safe wrapper for toModelOutput that handles undefined output
 // This fixes a bug in @ai-sdk/mcp where mcpToModelOutput crashes on undefined
 function createSafeToModelOutput(
@@ -75,6 +81,14 @@ export async function getMcpTools(
       if (server.token) {
         headers.Authorization = `Bearer ${server.token}`;
       }
+
+      const credential =
+        server.token ||
+        (headers.Authorization || headers["authorization"] || "").replace(/^Bearer\s+/i, "") ||
+        undefined;
+      console.log(
+        `[MCP] Connecting to ${server.name} at ${server.url} (credential: ${maskCredential(credential)})`
+      );
 
       const mcpClient = await createMCPClient({
         transport: {
