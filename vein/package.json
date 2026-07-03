@@ -25,7 +25,7 @@
     "test": "tsx --test src/expr.test.ts src/core.test.ts src/runner.test.ts src/control-flow.test.ts src/store.test.ts src/workspace.test.ts src/integration.test.ts src/services.test.ts src/cassette.test.ts src/run-step.test.ts src/createVein.test.ts src/ai-integration.test.ts src/chat-store.test.ts src/chat-endpoints.test.ts src/steps/registry.test.ts src/steps/core/agent.test.ts src/auth.test.ts src/secret-store.test.ts src/slack.test.ts src/gdrive.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.81",
+    "@ai-sdk/anthropic": "3.0.92",
     "@ai-sdk/openai": "^3.0.67",
     "@googleapis/drive": "^20.2.0",
     "@hono/node-server": "^2.0.4",
