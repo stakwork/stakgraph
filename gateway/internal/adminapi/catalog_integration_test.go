@@ -33,18 +33,43 @@ func TestCatalogIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	const agent = "test-catalog-agent"
+	// The catalog links to *existing* `:Prompt` nodes (authored by the
+	// prompt workflow) — it never creates them. Seed a couple here so
+	// the push has something to link, plus assert a missing name is
+	// skipped silently.
+	const promptA = "TEST_CATALOG_PROMPT_A"
+	const promptB = "TEST_CATALOG_PROMPT_B"
+	promptNames := []any{promptA, promptB}
 	cleanup := func() {
-		_, err := graph.Query(ctx,
-			fmt.Sprintf("MATCH (a:%s {name:$n}) OPTIONAL MATCH (a)-->(c) DETACH DELETE a, c", graphclient.LabelAgent),
-			map[string]any{"n": agent})
-		if err != nil {
-			t.Fatalf("cleanup: %v", err)
+		// Delete the agent + its *owned* tool/skill children (DETACH on
+		// the agent drops its HAS_PROMPT rels but leaves Prompt nodes).
+		if _, err := graph.Query(ctx,
+			fmt.Sprintf("MATCH (a:%s {name:$n}) OPTIONAL MATCH (a)-[:%s|%s]->(c) DETACH DELETE a, c",
+				graphclient.LabelAgent, graphclient.RelHasTool, graphclient.RelHasSkill),
+			map[string]any{"n": agent}); err != nil {
+			t.Fatalf("cleanup agent: %v", err)
+		}
+		// Remove the seeded shared Prompt nodes.
+		if _, err := graph.Query(ctx,
+			fmt.Sprintf("MATCH (p:%s) WHERE p.name IN $names DETACH DELETE p", graphclient.LabelPrompt),
+			map[string]any{"names": promptNames}); err != nil {
+			t.Fatalf("cleanup prompts: %v", err)
 		}
 	}
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// ── push from "hive": tools (+ one prompt, one skill) ──
+	// Seed the shared `:Prompt` nodes the catalog will link to.
+	if _, err := graph.Query(ctx,
+		fmt.Sprintf("UNWIND $rows AS row CREATE (:%s {name: row.name, body: row.body})", graphclient.LabelPrompt),
+		map[string]any{"rows": []map[string]any{
+			{"name": promptA, "body": "You are prompt A."},
+			{"name": promptB, "body": "Be careful (prompt B)."},
+		}}); err != nil {
+		t.Fatalf("seed prompts: %v", err)
+	}
+
+	// ── push from "hive": links promptA (+ a missing name), tools, skill ──
 	hivePush := map[string]any{
 		"source": "hive",
 		"agents": []map[string]any{{
@@ -54,7 +79,8 @@ func TestCatalogIntegration(t *testing.T) {
 			"default_model": "sonnet",
 			"version":       "git:abc123",
 			"prompts": []map[string]any{
-				{"name": "system", "role": "system", "body": "You are a test."},
+				{"name": promptA},
+				{"name": "TEST_CATALOG_PROMPT_MISSING"}, // no such node → skipped
 			},
 			"tools": []map[string]any{
 				{"name": "read_file", "description": "Read a file",
@@ -66,8 +92,10 @@ func TestCatalogIntegration(t *testing.T) {
 			},
 		}},
 	}
+	// Written.Prompts is the *requested* link count (2); the missing one
+	// is skipped, so only 1 link is live — asserted via the read below.
 	wrote := doPush(t, cat, hivePush)
-	if wrote.Written.Agents != 1 || wrote.Written.Prompts != 1 || wrote.Written.Tools != 2 || wrote.Written.Skills != 1 {
+	if wrote.Written.Agents != 1 || wrote.Written.Prompts != 2 || wrote.Written.Tools != 2 || wrote.Written.Skills != 1 {
 		t.Fatalf("unexpected write counts: %+v", wrote.Written)
 	}
 
@@ -77,6 +105,14 @@ func TestCatalogIntegration(t *testing.T) {
 	}
 	if got.DefaultModel != "sonnet" {
 		t.Errorf("default_model = %q, want sonnet", got.DefaultModel)
+	}
+	// Only promptA linked (the missing name was skipped), and its body
+	// comes from the shared `:Prompt` node.
+	if len(got.Prompts) != 1 {
+		t.Fatalf("prompts = %d, want 1 (missing name skipped silently)", len(got.Prompts))
+	}
+	if got.Prompts[0].Name != promptA || got.Prompts[0].Body != "You are prompt A." {
+		t.Errorf("prompt = %+v, want name=%s body from node", got.Prompts[0], promptA)
 	}
 	if len(got.Tools) != 2 {
 		t.Fatalf("tools = %d, want 2", len(got.Tools))
@@ -100,21 +136,21 @@ func TestCatalogIntegration(t *testing.T) {
 			len(got.Tools), len(got.Prompts), len(got.Skills))
 	}
 
-	// ── second source (prompt-manager) contributes a prompt ──
+	// ── second source (prompt-manager) links another prompt ──
 	doPush(t, cat, map[string]any{
 		"source": "prompt-manager",
 		"agents": []map[string]any{{
 			"name":    agent,
 			"version": "rev-42",
-			"prompts": []map[string]any{{"name": "guardrails", "role": "system", "body": "Be careful."}},
+			"prompts": []map[string]any{{"name": promptB}},
 		}},
 	})
 	got = doRead(t, cat, agent, http.StatusOK)
 	if len(got.Sources) != 2 {
 		t.Errorf("sources = %v, want hive + prompt-manager", got.Sources)
 	}
-	if len(got.Prompts) != 2 { // hive's system + prompt-manager's guardrails
-		t.Errorf("prompts = %d, want 2 (hive's preserved across other source's push)", len(got.Prompts))
+	if len(got.Prompts) != 2 { // hive's promptA link + prompt-manager's promptB link
+		t.Errorf("prompts = %d, want 2 (hive's link preserved across other source's push)", len(got.Prompts))
 	}
 	// hive's tools must survive prompt-manager's push (replace-by-source).
 	if len(got.Tools) != 2 {
