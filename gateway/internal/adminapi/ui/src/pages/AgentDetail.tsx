@@ -401,10 +401,9 @@ function PromptsView({ prompts }: { prompts: CatalogPrompt[] }) {
         <details key={p.source + "/" + p.name} class="card catalog-card">
           <summary class="catalog-summary">
             <span class="catalog-summary-main">
-              <span class={"badge role-" + (p.role || "system")}>{p.role || "—"}</span>
               <span class="mono">{p.name}</span>
             </span>
-            <SourceChip source={p.source} version={p.version} />
+            <SourceChip source={p.source} />
           </summary>
           <pre class="catalog-body mono">{p.body}</pre>
         </details>

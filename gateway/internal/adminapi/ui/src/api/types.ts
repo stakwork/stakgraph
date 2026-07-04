@@ -319,12 +319,13 @@ export interface AgentBudgetResponse {
 // the budget view's "what is it _allowed to spend_?". Sourced from the
 // neo4j Hive* catalog subgraph via GET /_plugin/agents/:name/catalog.
 
+// A prompt linked to an agent. name/body come from the shared `:Prompt`
+// node the agent links to (authored by the Stakwork prompt workflow);
+// source/updated_at come from the HAS_PROMPT relationship.
 export interface CatalogPrompt {
   name: string;
-  role: string;
   body: string;
   source: string;
-  version?: string;
   updated_at: string;
 }
 

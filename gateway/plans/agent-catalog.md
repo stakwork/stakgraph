@@ -98,15 +98,24 @@ below). ~100 lines, no third-party deps.
 
 ## Data model
 
-All labels are **PascalCase with a `Hive` prefix** so they never
-collide with the generic `Agent`/`Prompt`/`Tool`/`Skill` nodes other
+The Hive-owned labels are **PascalCase with a `Hive` prefix** so they
+never collide with the generic `Agent`/`Tool`/`Skill` nodes other
 systems may push into the shared graph. Hive nodes deliberately do
 **not** carry the `Data_Bank` label (that label drives mcp's code
 full-text + vector indexes; the catalog must not pollute code search).
 
+**Prompts are the exception.** A `HiveAgent` links to the **existing**
+generic `:Prompt` nodes — the ones the Stakwork prompt workflow already
+writes into the graph, keyed by `name` and carrying the prompt `body`.
+There is **no `HivePrompt` label**: the gateway never creates or
+deletes `:Prompt` nodes, it only wires/unwires the `HAS_PROMPT`
+relationship. A pushed prompt name with no matching `:Prompt` node is
+**skipped silently**. The relationship carries `source` + `updated_at`
+so replace-by-source and provenance work the same as for tools/skills.
+
 ```
-(:HiveAgent  { name, display_name, description, updated_at })
-   -[:HAS_PROMPT]-> (:HivePrompt { node_key, name, role, body, source, version, updated_at })
+(:HiveAgent  { name, display_name, description, default_model, updated_at })
+   -[:HAS_PROMPT { source, updated_at }]-> (:Prompt { name, body, … })   ← existing, shared node
    -[:HAS_TOOL]->   (:HiveTool   { node_key, name, description, schema, source, version, updated_at })
    -[:HAS_SKILL]->  (:HiveSkill  { node_key, name, description, source, version, updated_at })
 
@@ -118,7 +127,7 @@ Label/edge names live in one place — `graphclient/schema.go`:
 ```go
 const (
     LabelAgent   = "HiveAgent"
-    LabelPrompt  = "HivePrompt"
+    LabelPrompt  = "Prompt"     // shared node authored elsewhere; linked, not owned
     LabelTool    = "HiveTool"
     LabelSkill   = "HiveSkill"
     LabelSource  = "HiveSource"
@@ -135,9 +144,10 @@ const (
 - **`HiveAgent.name`** is the merge key and the join to cost/budget
   data. Stable, URL-safe, lowercase-with-hyphens — same string as the
   `x-bf-dim-agent-name` header.
-- **`node_key`** on prompt/tool/skill nodes is a deterministic hash of
+- **`node_key`** on tool/skill nodes is a deterministic hash of
   `(agent_name, source, kind, name)` so re-pushing is idempotent and a
-  child belongs to exactly one (agent, source) pairing.
+  child belongs to exactly one (agent, source) pairing. Prompts have no
+  `node_key` — they are pre-existing shared nodes matched by `name`.
 - **`source`** records which system contributed the node (`hive`,
   `prompt-manager`, `ai-sdk`, `goose`). Multiple sources can describe
   the same agent without clobbering each other — see reconciliation.
@@ -152,10 +162,13 @@ const (
 ```cypher
 CREATE CONSTRAINT hive_agent_name IF NOT EXISTS
   FOR (a:HiveAgent) REQUIRE a.name IS UNIQUE;
-CREATE INDEX hive_prompt_key IF NOT EXISTS FOR (p:HivePrompt) ON (p.node_key);
 CREATE INDEX hive_tool_key   IF NOT EXISTS FOR (t:HiveTool)   ON (t.node_key);
 CREATE INDEX hive_skill_key  IF NOT EXISTS FOR (s:HiveSkill)  ON (s.node_key);
 ```
+
+No index on `:Prompt` is created here — those nodes (and their
+indexes) are owned by the prompt-workflow writers; the catalog only
+`MATCH`es them by `name`.
 
 ## Write path — `POST /_plugin/agents`
 
@@ -176,7 +189,7 @@ read-only UI; writes are server-to-server).
       "description": "Writes and modifies code.",
       "version": "git:9f3a1c2",      // optional; source's own stamp
       "prompts": [
-        { "name": "system", "role": "system", "body": "You are..." }
+        { "name": "CODER_SYSTEM_PROMPT" }   // links an existing :Prompt node by name
       ],
       "tools": [
         { "name": "read_file", "description": "Read a file",
@@ -199,13 +212,20 @@ the gateway deletes that source's existing children for the agent and
 re-creates them in one transaction. Other sources' contributions to the
 same agent are untouched.
 
+For **tools/skills** the child *nodes* are Hive-owned, so cleanup
+`DETACH DELETE`s them. For **prompts** the linked `:Prompt` node is
+shared and must survive — so cleanup deletes only the `HAS_PROMPT`
+*relationships* for this source, then re-links by matching `:Prompt`
+nodes by name (a missing name is skipped).
+
 ```
 For each agent in body.agents:
   MERGE (:HiveAgent {name})            -- create-or-update scalar props
   MERGE (:HiveSource {name: body.source})
   MERGE (agent)-[:DEFINED_BY]->(source)
-  DETACH DELETE this source's existing HAS_PROMPT/TOOL/SKILL children for this agent
-  CREATE the prompt/tool/skill children from the payload, wiring node_key + source + version
+  DETACH DELETE this source's existing HAS_TOOL/HAS_SKILL child nodes
+  DELETE this source's existing HAS_PROMPT relationships (leave :Prompt nodes)
+  CREATE tool/skill children (node_key + source + version); MATCH+link :Prompt by name
 ```
 
 All statements for one request go in a single `tx/commit` batch.
@@ -234,9 +254,8 @@ Returns the merged view across all sources for one agent.
   "display_name": "Coder",
   "description": "Writes and modifies code.",
   "sources": ["hive", "prompt-manager"],
-  "prompts": [ { "name": "system", "role": "system", "body": "...",
-                 "source": "prompt-manager", "version": "rev-42",
-                 "updated_at": "..." } ],
+  "prompts": [ { "name": "CODER_SYSTEM_PROMPT", "body": "...",
+                 "source": "hive", "updated_at": "..." } ],
   "tools":   [ { "name": "read_file", "description": "...", "schema": {...},
                  "source": "hive", "version": "git:9f3a1c2", "updated_at": "..." } ],
   "skills":  [ { "name": "security-review", "description": "...",
@@ -307,14 +326,19 @@ push supplies a non-empty value (a blank push never clobbers it).
 Hive's `BIFROST_AGENT_NAMES` stays the compile-time source of truth for
 *which* agents exist (every LLM call site is typed against it). On the
 first LLM call per swarm, Hive's orchestrator pushes those names — with
-display name, description, and `default_model` — to the swarm's gateway
-via `POST /_plugin/agents` (`source="hive"`). The two join by name; the
-catalog owns the *capabilities* (prompts/tools/skills), authored later.
+display name, description, `default_model`, **and the prompt names each
+agent uses** — to the swarm's gateway via `POST /_plugin/agents`
+(`source="hive"`). The two join by name; the prompt names come from
+Hive's `Prompt.agentNames` column and link `HiveAgent-[:HAS_PROMPT]->
+Prompt` against the graph's existing `:Prompt` nodes (a name with no
+node yet is skipped). Tools/skills are authored later.
 
 The push is **content-addressed**: Hive hashes the default-agent
 manifest and stamps it on `Swarm.bifrostAgentsSeedHash`. A cache hit is
-a single DB read with no HTTP; the manifest re-seeds only when the set
-or a default model changes. It rides the same lazy, best-effort,
+a couple of DB reads (the `Prompt.agentNames` links + the `Swarm` row)
+with no HTTP; the manifest re-seeds only when the set, a default model,
+or an agent's prompt-name set changes. It rides the same lazy,
+best-effort,
 per-workspace-locked path as the trust reconciler
 (`ensureBifrostAgentCatalog`, mirroring `ensureBifrostTrust`); a `503`
 (neo4j unset on the swarm) is a benign skip, and any failure is logged

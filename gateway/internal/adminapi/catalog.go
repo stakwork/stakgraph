@@ -38,10 +38,13 @@ type catalogPushAgent struct {
 	Skills       []catalogPushSkill  `json:"skills"`
 }
 
+// catalogPushPrompt references an existing `:Prompt` node by name. The
+// gateway does NOT store a prompt body — the body lives on the shared
+// `:Prompt` node (authored by the Stakwork prompt workflow). A push
+// carries only the name so the gateway can wire HiveAgent-[:HAS_PROMPT]
+// ->Prompt; a name with no matching node is skipped silently.
 type catalogPushPrompt struct {
 	Name   string `json:"name"`
-	Role   string `json:"role"`
-	Body   string `json:"body"`
 	Source string `json:"source"` // optional per-item source override
 }
 
@@ -107,12 +110,13 @@ type CatalogListResponse struct {
 	Agents []CatalogAgentSummary `json:"agents"`
 }
 
+// CatalogPrompt is one prompt linked to an agent. name/body come from
+// the shared `:Prompt` node the agent links to; source/updated_at come
+// from the HAS_PROMPT relationship (which system wired it, and when).
 type CatalogPrompt struct {
 	Name      string `json:"name"`
-	Role      string `json:"role"`
 	Body      string `json:"body"`
 	Source    string `json:"source"`
-	Version   string `json:"version,omitempty"`
 	UpdatedAt string `json:"updated_at"`
 }
 
@@ -331,17 +335,15 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 		// is cleared). Children owned by *other* sources survive.
 		sourceSet := map[string]struct{}{req.Source: {}}
 
+		// Prompts are links to existing `:Prompt` nodes, not owned
+		// children — we carry only the name + the wiring source.
 		prompts := make([]map[string]any, 0, len(ag.Prompts))
 		for _, p := range ag.Prompts {
 			src := srcOr(p.Source)
 			sourceSet[src] = struct{}{}
 			prompts = append(prompts, map[string]any{
-				"node_key": nodeKey(ag.Name, src, "prompt", p.Name),
-				"name":     p.Name,
-				"role":     p.Role,
-				"body":     p.Body,
-				"source":   src,
-				"version":  ag.Version,
+				"name":   p.Name,
+				"source": src,
 			})
 		}
 		tools := make([]map[string]any, 0, len(ag.Tools))
@@ -376,11 +378,19 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 		}
 
 		counts.Agents++
+		// Prompt count is the number of links *requested*; a name with
+		// no matching `:Prompt` node is skipped, so the live link count
+		// may be lower. Reads report the true linked set.
 		counts.Prompts += len(prompts)
 		counts.Tools += len(tools)
 		counts.Skills += len(skills)
 
 		stmts = append(stmts,
+			// 1. Upsert the agent + source + DEFINED_BY, then clear this
+			//    push's sources' owned tool/skill child nodes.
+			//    Prompt links are handled separately (statement 2) because
+			//    the linked `:Prompt` nodes are shared and must survive —
+			//    only the HAS_PROMPT relationship is replaced.
 			graphclient.Statement{
 				Statement: fmt.Sprintf(
 					"MERGE (a:%[1]s {name: $name}) "+
@@ -391,10 +401,10 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 						"MERGE (s:%[2]s {name: $source}) SET s.updated_at = $now "+
 						"MERGE (a)-[:%[3]s]->(s) "+
 						"WITH a "+
-						"OPTIONAL MATCH (a)-[:%[4]s|%[5]s|%[6]s]->(c) WHERE c.source IN $sources "+
+						"OPTIONAL MATCH (a)-[:%[4]s|%[5]s]->(c) WHERE c.source IN $sources "+
 						"DETACH DELETE c",
 					graphclient.LabelAgent, graphclient.LabelSource, graphclient.RelDefinedBy,
-					graphclient.RelHasPrompt, graphclient.RelHasTool, graphclient.RelHasSkill),
+					graphclient.RelHasTool, graphclient.RelHasSkill),
 				Parameters: map[string]any{
 					"name":          ag.Name,
 					"display_name":  ag.DisplayName,
@@ -405,8 +415,38 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 					"now":           now,
 				},
 			},
-			unwindCreate(graphclient.RelHasPrompt, graphclient.LabelPrompt, ag.Name, now, prompts,
-				"node_key: row.node_key, name: row.name, role: row.role, body: row.body, source: row.source, version: row.version"),
+			// 2. Replace this push's sources' prompt links: drop the old
+			//    HAS_PROMPT relationships (never the Prompt nodes), then
+			//    re-link. A prompt name with no matching `:Prompt` node is
+			//    skipped silently (the inner MATCH yields no row).
+			graphclient.Statement{
+				Statement: fmt.Sprintf(
+					"MATCH (a:%[1]s {name: $name})-[r:%[2]s]->(:%[3]s) "+
+						"WHERE r.source IN $sources DELETE r",
+					graphclient.LabelAgent, graphclient.RelHasPrompt, graphclient.LabelPrompt),
+				Parameters: map[string]any{
+					"name":    ag.Name,
+					"sources": sources,
+				},
+			},
+			graphclient.Statement{
+				// MERGE keys on `source` too, so a prompt linked by two
+				// sources gets one relationship each (mirroring how
+				// tool/skill child nodes are per-source) rather than one
+				// source clobbering the other's link.
+				Statement: fmt.Sprintf(
+					"MATCH (a:%[1]s {name: $name}) "+
+						"UNWIND $rows AS row "+
+						"MATCH (p:%[3]s {name: row.name}) "+
+						"MERGE (a)-[r:%[2]s {source: row.source}]->(p) "+
+						"SET r.updated_at = $now",
+					graphclient.LabelAgent, graphclient.RelHasPrompt, graphclient.LabelPrompt),
+				Parameters: map[string]any{
+					"name": ag.Name,
+					"rows": prompts,
+					"now":  now,
+				},
+			},
 			unwindCreate(graphclient.RelHasTool, graphclient.LabelTool, ag.Name, now, tools,
 				"node_key: row.node_key, name: row.name, description: row.description, schema: row.schema, source: row.source, version: row.version"),
 			unwindCreate(graphclient.RelHasSkill, graphclient.LabelSkill, ag.Name, now, skills,
@@ -495,8 +535,8 @@ func (h *catalogHandlers) fetchCatalog(ctx context.Context, name string) (*Agent
 			Parameters: p,
 		},
 		graphclient.Statement{
-			Statement: fmt.Sprintf("MATCH (a:%s {name: $name})-[:%s]->(p:%s) "+
-				"RETURN p.name, p.role, p.body, p.source, p.version, p.updated_at ORDER BY p.source, p.name",
+			Statement: fmt.Sprintf("MATCH (a:%s {name: $name})-[r:%s]->(p:%s) "+
+				"RETURN p.name, p.body, r.source, r.updated_at ORDER BY r.source, p.name",
 				graphclient.LabelAgent, graphclient.RelHasPrompt, graphclient.LabelPrompt),
 			Parameters: p,
 		},
@@ -538,11 +578,9 @@ func (h *catalogHandlers) fetchCatalog(ctx context.Context, name string) (*Agent
 	for _, row := range results[2].Data {
 		out.Prompts = append(out.Prompts, CatalogPrompt{
 			Name:      rowString(at(row.Row, 0)),
-			Role:      rowString(at(row.Row, 1)),
-			Body:      rowString(at(row.Row, 2)),
-			Source:    rowString(at(row.Row, 3)),
-			Version:   rowString(at(row.Row, 4)),
-			UpdatedAt: rowString(at(row.Row, 5)),
+			Body:      rowString(at(row.Row, 1)),
+			Source:    rowString(at(row.Row, 2)),
+			UpdatedAt: rowString(at(row.Row, 3)),
 		})
 	}
 	for _, row := range results[3].Data {

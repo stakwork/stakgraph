@@ -2,18 +2,25 @@ package graphclient
 
 // Label and relationship-type names for the agent catalog subgraph.
 //
-// All labels are PascalCase with a `Hive` prefix so they never collide
-// with the generic Agent/Prompt/Tool/Skill nodes other systems may
-// push into the shared graph. Hive catalog nodes deliberately do NOT
-// carry the `Data_Bank` label (that label drives mcp's code full-text
-// + vector indexes; the catalog must not pollute code search).
+// The Hive-owned nodes (HiveAgent/HiveTool/HiveSkill/HiveSource) are
+// PascalCase with a `Hive` prefix so they never collide with the
+// generic Agent/Tool/Skill nodes other systems may push into the
+// shared graph. They deliberately do NOT carry the `Data_Bank` label
+// (that label drives mcp's code full-text + vector indexes; the
+// catalog must not pollute code search).
+//
+// Prompts are the exception: a HiveAgent links to the *existing*
+// generic `:Prompt` nodes (written by the Stakwork prompt workflow,
+// keyed by `name`) via HAS_PROMPT. The gateway never creates or
+// deletes Prompt nodes — it only wires/unwires the relationship — so
+// there is no `HivePrompt` label.
 //
 // This is the one place label/edge names are defined — every Cypher
 // string in this package interpolates these constants so a rename is a
 // single-edit affair. See gateway/plans/agent-catalog.md "Data model".
 const (
 	LabelAgent  = "HiveAgent"
-	LabelPrompt = "HivePrompt"
+	LabelPrompt = "Prompt" // shared node authored elsewhere; linked, not owned
 	LabelTool   = "HiveTool"
 	LabelSkill  = "HiveSkill"
 	LabelSource = "HiveSource"
@@ -34,8 +41,9 @@ func SchemaStatements() []Statement {
 	return []Statement{
 		{Statement: "CREATE CONSTRAINT hive_agent_name IF NOT EXISTS " +
 			"FOR (a:" + LabelAgent + ") REQUIRE a.name IS UNIQUE"},
-		{Statement: "CREATE INDEX hive_prompt_key IF NOT EXISTS " +
-			"FOR (p:" + LabelPrompt + ") ON (p.node_key)"},
+		// No index on :Prompt here — those nodes (and their indexes) are
+		// owned by the mcp/prompt-workflow writers; the catalog only
+		// MATCHes them by `name` to link.
 		{Statement: "CREATE INDEX hive_tool_key IF NOT EXISTS " +
 			"FOR (t:" + LabelTool + ") ON (t.node_key)"},
 		{Statement: "CREATE INDEX hive_skill_key IF NOT EXISTS " +
