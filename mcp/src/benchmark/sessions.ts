@@ -217,6 +217,11 @@ export async function list_sessions(_req: Request, res: Response) {
         };
       });
       const neo4jIds = new Set(runs.map((r) => r.id));
+      const isGhost = (r: (typeof runs)[number]) =>
+        r.source === "unknown" &&
+        r.token_usage.total === 0 &&
+        r.duration_ms === 0;
+      const liveRuns = runs.filter((r) => !isGhost(r));
       if (existsSync(dir)) {
         for (const file of readdirSync(dir)) {
           if (
@@ -228,11 +233,11 @@ export async function list_sessions(_req: Request, res: Response) {
             continue;
           const id = file.replace(/\.jsonl$/, "");
           if (neo4jIds.has(id)) continue;
-          runs.push(buildOrphanRun(dir, file));
+          liveRuns.push(buildOrphanRun(dir, file));
         }
       }
-      runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-      res.json(runs);
+      liveRuns.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      res.json(liveRuns);
       return;
     } catch (e) {
       console.error("[sessions] Neo4j query failed, falling back to JSONL:", e);
