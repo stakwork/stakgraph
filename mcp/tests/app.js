@@ -90,7 +90,7 @@ const Staktrak = () => {
       return;
     }
 
-    const testCode = await generateTest(url, trackingData, recorder);
+    const testCode = await generateTest(url, recorder);
 
     if (testCode) {
       showPopup("Playwright test generated successfully", "success");
