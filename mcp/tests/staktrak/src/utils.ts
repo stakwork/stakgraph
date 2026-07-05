@@ -466,6 +466,52 @@ export const generateXPath = (element: Element): string => {
 };
 
 /**
+ * Compute the best available selector for an element: promote data-testid/id/
+ * role+accessible-name over raw structural CSS, then verify uniqueness in the
+ * live DOM (escalating to an ancestor nth-of-type path if still ambiguous).
+ *
+ * Originally inline in createClickDetail (clicks only). Extracted so
+ * value-bearing capture (input/select/checkbox/radio/assertion in index.ts)
+ * gets the same wrong-element-resolution protection — see P2 in
+ * notes-staktrak-architecture.md, which previously only covered clicks.
+ */
+export const getStabilizedSelector = (element: Element): string => {
+  const html = element as HTMLElement;
+  const selectors = generateSelectorStrategies(element);
+  const testId = (html.dataset && html.dataset['testid']) || undefined;
+  const id = html.id || undefined;
+  const accessibleName = getEnhancedElementText(html) || undefined;
+  let nth: number | undefined;
+  if (html.parentElement) {
+    const same = Array.from(html.parentElement.children).filter(c => c.tagName === html.tagName);
+    if (same.length > 1) nth = same.indexOf(html) + 1;
+  }
+
+  const stabilized = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
+    testId,
+    id,
+    accessibleName,
+    role: getElementRole(html) || undefined,
+    nth,
+  });
+  let uniqueStabilized = ensureStabilizedUnique(html, stabilized);
+  // Immediate capture validation loop: if still not unique in DOM (and not text=) try ancestor builder directly
+  try {
+    if (typeof document !== 'undefined' && !uniqueStabilized.startsWith('text=')) {
+      const matches = document.querySelectorAll(uniqueStabilized);
+      if (matches.length !== 1) {
+        const ancestorOnly = buildAncestorNthSelector(html);
+        if (ancestorOnly && ancestorOnly !== uniqueStabilized) {
+          const mm = document.querySelectorAll(ancestorOnly);
+          if (mm.length === 1) uniqueStabilized = ancestorOnly;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return uniqueStabilized;
+};
+
+/**
  * Create enhanced click detail
  */
 export const createClickDetail = (e: MouseEvent): ClickDetail => {
@@ -500,28 +546,7 @@ export const createClickDetail = (e: MouseEvent): ClickDetail => {
     if (nth) selAny.nth = nth;
     if (ancestors.length) selAny.ancestors = ancestors;
 
-    // Uniqueness stabilization: if primary is generic (tag or simple class) and we have id/testId/text role data, promote a better one
-    const stabilized = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
-      testId,
-      id,
-      accessibleName,
-      role: getElementRole(html) || undefined,
-      nth,
-    });
-    let uniqueStabilized = ensureStabilizedUnique(html, stabilized);
-    // Immediate capture validation loop (simple): if still not unique in DOM (and not text=) try ancestor builder directly
-    try {
-      if (typeof document !== 'undefined' && !uniqueStabilized.startsWith('text=')) {
-        const matches = document.querySelectorAll(uniqueStabilized);
-        if (matches.length !== 1) {
-          const ancestorOnly = buildAncestorNthSelector(html);
-          if (ancestorOnly && ancestorOnly !== uniqueStabilized) {
-            const mm = document.querySelectorAll(ancestorOnly);
-            if (mm.length === 1) uniqueStabilized = ancestorOnly;
-          }
-        }
-      }
-    } catch { /* ignore */ }
+    const uniqueStabilized = getStabilizedSelector(target);
   (selectors as any).stabilizedPrimary = uniqueStabilized;
   selectors.primary = uniqueStabilized;
   // Provide a guaranteed CSS visualSelector for highlighter (avoid text=/role: only)

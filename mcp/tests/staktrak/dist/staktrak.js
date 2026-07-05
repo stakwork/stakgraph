@@ -386,6 +386,42 @@ var userBehaviour = (() => {
     }
     return "/" + parts.join("/");
   };
+  var getStabilizedSelector = (element) => {
+    const html = element;
+    const selectors = generateSelectorStrategies(element);
+    const testId = html.dataset && html.dataset["testid"] || void 0;
+    const id = html.id || void 0;
+    const accessibleName = getEnhancedElementText(html) || void 0;
+    let nth;
+    if (html.parentElement) {
+      const same = Array.from(html.parentElement.children).filter((c) => c.tagName === html.tagName);
+      if (same.length > 1)
+        nth = same.indexOf(html) + 1;
+    }
+    const stabilized = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
+      testId,
+      id,
+      accessibleName,
+      role: getElementRole(html) || void 0,
+      nth
+    });
+    let uniqueStabilized = ensureStabilizedUnique(html, stabilized);
+    try {
+      if (typeof document !== "undefined" && !uniqueStabilized.startsWith("text=")) {
+        const matches = document.querySelectorAll(uniqueStabilized);
+        if (matches.length !== 1) {
+          const ancestorOnly = buildAncestorNthSelector(html);
+          if (ancestorOnly && ancestorOnly !== uniqueStabilized) {
+            const mm = document.querySelectorAll(ancestorOnly);
+            if (mm.length === 1)
+              uniqueStabilized = ancestorOnly;
+          }
+        }
+      }
+    } catch (e) {
+    }
+    return uniqueStabilized;
+  };
   var createClickDetail = (e) => {
     const target = e.target;
     const selectors = generateSelectorStrategies(target);
@@ -419,28 +455,7 @@ var userBehaviour = (() => {
       selAny.nth = nth;
     if (ancestors.length)
       selAny.ancestors = ancestors;
-    const stabilized = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
-      testId,
-      id,
-      accessibleName,
-      role: getElementRole(html) || void 0,
-      nth
-    });
-    let uniqueStabilized = ensureStabilizedUnique(html, stabilized);
-    try {
-      if (typeof document !== "undefined" && !uniqueStabilized.startsWith("text=")) {
-        const matches = document.querySelectorAll(uniqueStabilized);
-        if (matches.length !== 1) {
-          const ancestorOnly = buildAncestorNthSelector(html);
-          if (ancestorOnly && ancestorOnly !== uniqueStabilized) {
-            const mm = document.querySelectorAll(ancestorOnly);
-            if (mm.length === 1)
-              uniqueStabilized = ancestorOnly;
-          }
-        }
-      }
-    } catch (e2) {
-    }
+    const uniqueStabilized = getStabilizedSelector(target);
     selectors.stabilizedPrimary = uniqueStabilized;
     selectors.primary = uniqueStabilized;
     let visualSelector = null;
@@ -513,10 +528,6 @@ var userBehaviour = (() => {
       attrs.resolvedAriaLabel = resolvedLabel;
     }
     return attrs;
-  };
-  var getElementSelector = (element) => {
-    const strategies = generateSelectorStrategies(element);
-    return strategies.primary;
   };
   var filterClickDetails = (clickDetails, assertions, config) => {
     if (!clickDetails.length)
@@ -1410,6 +1421,15 @@ var userBehaviour = (() => {
       }
       return el;
     };
+    const uniqueOrNull = (matches) => {
+      if (matches.length === 1)
+        return matches[0];
+      if (matches.length > 1 && !__stakWarned[selector]) {
+        console.warn(`[staktrak] ambiguous selector, ${matches.length} matches \u2014 refusing to guess`, selector);
+        __stakWarned[selector] = true;
+      }
+      return null;
+    };
     if (selector.startsWith("role:")) {
       const roleMatch = selector.match(/^role:([^\[]+)(?:\[name(?:-regex)?="(.+?)"\])?/);
       if (roleMatch) {
@@ -1418,7 +1438,7 @@ var userBehaviour = (() => {
         const nameRegex = selector.includes("[name-regex=");
         const candidates = Array.from(queryByRole(role.trim()));
         if (!nameRaw) {
-          return noteMatch(candidates[0] || null, selector);
+          return noteMatch(uniqueOrNull(candidates), selector);
         }
         let matcher;
         if (nameRegex) {
@@ -1511,19 +1531,19 @@ var userBehaviour = (() => {
         if (nested)
           return noteMatch(nested, selector);
       }
-      return noteMatch(document.querySelector(`[aria-label="${cssEscape(label)}"]`), selector);
+      return noteMatch(uniqueOrNull(document.querySelectorAll(`[aria-label="${cssEscape(label)}"]`)), selector);
     }
     if (selector.startsWith("getByPlaceholder:")) {
       const ph = selector.substring("getByPlaceholder:".length);
-      return noteMatch(document.querySelector(`[placeholder="${cssEscape(ph)}"]`), selector);
+      return noteMatch(uniqueOrNull(document.querySelectorAll(`[placeholder="${cssEscape(ph)}"]`)), selector);
     }
     if (selector.startsWith("getByTitle:")) {
       const t = selector.substring("getByTitle:".length);
-      return noteMatch(document.querySelector(`[title="${cssEscape(t)}"]`), selector);
+      return noteMatch(uniqueOrNull(document.querySelectorAll(`[title="${cssEscape(t)}"]`)), selector);
     }
     if (selector.startsWith("getByAltText:")) {
       const alt = selector.substring("getByAltText:".length);
-      return noteMatch(document.querySelector(`[alt="${cssEscape(alt)}"]`), selector);
+      return noteMatch(uniqueOrNull(document.querySelectorAll(`[alt="${cssEscape(alt)}"]`)), selector);
     }
     const browserSelector = convertToBrowserSelector(selector);
     if (browserSelector && isValidSelector(browserSelector)) {
@@ -1669,13 +1689,27 @@ var userBehaviour = (() => {
     const ariaMatch = selector.match(/\[aria-label="([^"]+)"\]/);
     if (!ariaMatch)
       return null;
-    return document.querySelector(`[aria-label="${ariaMatch[1]}"]`);
+    const matches = document.querySelectorAll(`[aria-label="${ariaMatch[1]}"]`);
+    if (matches.length === 1)
+      return matches[0];
+    if (matches.length > 1 && !__stakWarned[selector]) {
+      console.warn(`[staktrak] ambiguous aria-label, ${matches.length} matches \u2014 refusing to guess`, selector);
+      __stakWarned[selector] = true;
+    }
+    return null;
   }
   function findByRole(selector) {
     const roleMatch = selector.match(/\[role="([^"]+)"\]/);
     if (!roleMatch)
       return null;
-    return document.querySelector(`[role="${roleMatch[1]}"]`);
+    const matches = document.querySelectorAll(`[role="${roleMatch[1]}"]`);
+    if (matches.length === 1)
+      return matches[0];
+    if (matches.length > 1 && !__stakWarned[selector]) {
+      console.warn(`[staktrak] ambiguous role, ${matches.length} matches \u2014 refusing to guess`, selector);
+      __stakWarned[selector] = true;
+    }
+    return null;
   }
   function findByTextContentTight(selector) {
     if (!selector.startsWith("text="))
@@ -3935,6 +3969,10 @@ var userBehaviour = (() => {
   }
 
   // src/playwright-generator.ts
+  var CLICK_FILTER_CONFIG = {
+    filterAssertionClicks: true,
+    multiClickInterval: 300
+  };
   var RecordingManager = class {
     constructor() {
       this.trackingData = {
@@ -4107,10 +4145,31 @@ var userBehaviour = (() => {
       }
     }
     /**
+     * trackingData with the same assertion-adjacent click filtering the in-iframe
+     * processResults() pipeline applies (filterClickDetails in utils.ts) — e.g. the
+     * click a text-selection drag can spuriously register right before an assertion.
+     * generateTest()/getReplaySteps() are the ONLY paths ever used for output (the
+     * host only calls recorder.generateTest()/getReplaySteps(); the filtered
+     * staktrak-results payload from processResults() is not read for generation — see
+     * hive useStaktrak.ts and mcp/tests/hooks.js), so without this, that filter never
+     * actually ran and generated tests could carry an extra bogus click.
+     */
+    filteredTrackingData() {
+      return __spreadProps(__spreadValues({}, this.trackingData), {
+        clicks: __spreadProps(__spreadValues({}, this.trackingData.clicks), {
+          clickDetails: filterClickDetails(
+            this.trackingData.clicks.clickDetails,
+            this.trackingData.assertions,
+            CLICK_FILTER_CONFIG
+          )
+        })
+      });
+    }
+    /**
      * Generate Playwright test from current data
      */
     generateTest(url, options) {
-      const actions = resultsToActions(this.trackingData);
+      const actions = resultsToActions(this.filteredTrackingData());
       return generatePlaywrightTestFromActions(actions, __spreadValues({
         baseUrl: url
       }, options));
@@ -4120,7 +4179,7 @@ var userBehaviour = (() => {
      * directly (no generated text, no re-parse). Single source of truth = trackingData.
      */
     getReplaySteps(url) {
-      const actions = resultsToActions(this.trackingData);
+      const actions = resultsToActions(this.filteredTrackingData());
       return actionsToReplaySteps(actions, { baseUrl: url });
     }
     /**
@@ -4177,7 +4236,7 @@ var userBehaviour = (() => {
     }
     return null;
   }
-  function clickExpr(locator) {
+  function locatorExpr(locator) {
     const testId = extractTestId(locator);
     if (testId)
       return `page.getByTestId('${q(testId)}')`;
@@ -4187,10 +4246,6 @@ var userBehaviour = (() => {
       const [, role, name] = roleM;
       return name ? `page.getByRole('${q(role)}', { name: '${q(name)}' })` : `page.getByRole('${q(role)}')`;
     }
-    return cssLocator(locator);
-  }
-  function cssLocator(locator) {
-    const sel = (locator == null ? void 0 : locator.stableSelector) || (locator == null ? void 0 : locator.primary) || "";
     return `page.locator('${q(sel)}')`;
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
@@ -4211,17 +4266,17 @@ var userBehaviour = (() => {
         case "click": {
           if (!((_a2 = action.locator) == null ? void 0 : _a2.primary) && !((_b = action.locator) == null ? void 0 : _b.stableSelector))
             return "";
-          return `  await ${clickExpr(action.locator)}.click();`;
+          return `  await ${locatorExpr(action.locator)}.click();`;
         }
         case "input": {
           if (!((_c = action.locator) == null ? void 0 : _c.primary) || action.value === void 0)
             return "";
-          return `  await ${cssLocator(action.locator)}.fill('${q(action.value)}');`;
+          return `  await ${locatorExpr(action.locator)}.fill('${q(action.value)}');`;
         }
         case "form": {
           if (!((_d = action.locator) == null ? void 0 : _d.primary))
             return "";
-          const target = cssLocator(action.locator);
+          const target = locatorExpr(action.locator);
           if (action.formType === "checkbox" || action.formType === "radio") {
             return action.checked ? `  await ${target}.check();` : `  await ${target}.uncheck();`;
           } else if (action.formType === "select" && action.value !== void 0) {
@@ -4232,7 +4287,7 @@ var userBehaviour = (() => {
         case "assertion": {
           if (!((_e = action.locator) == null ? void 0 : _e.primary) || action.value === void 0)
             return "";
-          return `  await expect(${cssLocator(action.locator)}).toContainText('${q(action.value)}');`;
+          return `  await expect(${locatorExpr(action.locator)}).toContainText('${q(action.value)}');`;
         }
         default:
           return "";
@@ -4606,7 +4661,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
           const inputEl = htmlEl;
           if (inputEl.type === "checkbox" || inputEl.type === "radio" || htmlEl.tagName === "SELECT") {
             const changeHandler = () => {
-              const selector = getElementSelector(htmlEl);
+              const selector = getStabilizedSelector(htmlEl);
               if (htmlEl.tagName === "SELECT") {
                 const selectEl = htmlEl;
                 const selectedOption = selectEl.options[selectEl.selectedIndex];
@@ -4678,7 +4733,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
             htmlEl.addEventListener("change", changeHandler);
           } else {
             const inputHandler = () => {
-              const selector = getElementSelector(htmlEl);
+              const selector = getStabilizedSelector(htmlEl);
               const elementId = inputEl.id || selector;
               const eventSeq = this.nextSeq();
               const eventTs = getTimeStamp();
@@ -4738,7 +4793,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
               );
             };
             const focusHandler = (e) => {
-              const selector = getElementSelector(htmlEl);
+              const selector = getStabilizedSelector(htmlEl);
               this.results.focusChanges.push({
                 elementSelector: selector,
                 type: e.type,
@@ -5058,7 +5113,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
             if (this.memory.assertionDebounceTimer)
               clearTimeout(this.memory.assertionDebounceTimer);
             this.memory.assertionDebounceTimer = setTimeout(() => {
-              const selector = getElementSelector(container);
+              const selector = getStabilizedSelector(container);
               const assertionId = Date.now() + Math.random();
               const assertion = {
                 id: assertionId,

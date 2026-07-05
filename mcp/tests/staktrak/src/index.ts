@@ -2,7 +2,7 @@ import { Config, Results, Memory } from "./types";
 import {
   getTimeStamp,
   isInputOrTextarea,
-  getElementSelector,
+  getStabilizedSelector,
   createClickDetail,
   filterClickDetails,
   getRelativeUrl,
@@ -377,7 +377,7 @@ class UserBehaviorTracker {
           htmlEl.tagName === "SELECT"
         ) {
           const changeHandler = () => {
-            const selector = getElementSelector(htmlEl);
+            const selector = getStabilizedSelector(htmlEl);
 
             if (htmlEl.tagName === "SELECT") {
               const selectEl = htmlEl as HTMLSelectElement;
@@ -457,7 +457,7 @@ class UserBehaviorTracker {
           htmlEl.addEventListener("change", changeHandler);
         } else {
           const inputHandler = () => {
-            const selector = getElementSelector(htmlEl);
+            const selector = getStabilizedSelector(htmlEl);
             const elementId = inputEl.id || selector;
 
             // Capture ordering metadata at the TRUE input-event time. The debounce
@@ -533,7 +533,7 @@ class UserBehaviorTracker {
           };
 
           const focusHandler = (e: FocusEvent) => {
-            const selector = getElementSelector(htmlEl);
+            const selector = getStabilizedSelector(htmlEl);
             this.results.focusChanges.push({
               elementSelector: selector,
               type: e.type,
@@ -902,7 +902,7 @@ class UserBehaviorTracker {
           if (this.memory.assertionDebounceTimer) clearTimeout(this.memory.assertionDebounceTimer);
 
           this.memory.assertionDebounceTimer = setTimeout(() => {
-            const selector = getElementSelector(container as Element);
+            const selector = getStabilizedSelector(container as Element);
             const assertionId = Date.now() + Math.random();
             const assertion = {
               id: assertionId,
