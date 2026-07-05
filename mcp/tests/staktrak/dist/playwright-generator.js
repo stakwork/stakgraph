@@ -208,6 +208,36 @@ var PlaywrightGenerator = (() => {
   }
 
   // src/utils.ts
+  var filterClickDetails = (clickDetails, assertions, config) => {
+    if (!clickDetails.length)
+      return [];
+    let filtered = config.filterAssertionClicks ? clickDetails.filter(
+      (click) => !assertions.some(
+        (assertion) => Math.abs(click.timestamp - assertion.timestamp) < 1e3 && (click.selectors.primary.includes(assertion.selector) || assertion.selector.includes(click.selectors.primary) || click.selectors.fallbacks.some(
+          (f) => f.includes(assertion.selector) || assertion.selector.includes(f)
+        ))
+      )
+    ) : clickDetails;
+    const clicksBySelector = {};
+    filtered.forEach((click) => {
+      const key = click.selectors.primary;
+      if (!clicksBySelector[key])
+        clicksBySelector[key] = [];
+      clicksBySelector[key].push(click);
+    });
+    const result = [];
+    Object.values(clicksBySelector).forEach((clicks) => {
+      clicks.sort((a, b) => a.timestamp - b.timestamp);
+      let lastClick = null;
+      clicks.forEach((click) => {
+        if (!lastClick || click.timestamp - lastClick.timestamp > config.multiClickInterval) {
+          result.push(click);
+        }
+        lastClick = click;
+      });
+    });
+    return result.sort((a, b) => a.timestamp - b.timestamp);
+  };
   function getRelativeUrl(url) {
     if (!url)
       return "/";
@@ -242,6 +272,10 @@ var PlaywrightGenerator = (() => {
   }
 
   // src/playwright-generator.ts
+  var CLICK_FILTER_CONFIG = {
+    filterAssertionClicks: true,
+    multiClickInterval: 300
+  };
   var RecordingManager = class {
     constructor() {
       this.trackingData = {
@@ -414,10 +448,31 @@ var PlaywrightGenerator = (() => {
       }
     }
     /**
+     * trackingData with the same assertion-adjacent click filtering the in-iframe
+     * processResults() pipeline applies (filterClickDetails in utils.ts) — e.g. the
+     * click a text-selection drag can spuriously register right before an assertion.
+     * generateTest()/getReplaySteps() are the ONLY paths ever used for output (the
+     * host only calls recorder.generateTest()/getReplaySteps(); the filtered
+     * staktrak-results payload from processResults() is not read for generation — see
+     * hive useStaktrak.ts and mcp/tests/hooks.js), so without this, that filter never
+     * actually ran and generated tests could carry an extra bogus click.
+     */
+    filteredTrackingData() {
+      return __spreadProps(__spreadValues({}, this.trackingData), {
+        clicks: __spreadProps(__spreadValues({}, this.trackingData.clicks), {
+          clickDetails: filterClickDetails(
+            this.trackingData.clicks.clickDetails,
+            this.trackingData.assertions,
+            CLICK_FILTER_CONFIG
+          )
+        })
+      });
+    }
+    /**
      * Generate Playwright test from current data
      */
     generateTest(url, options) {
-      const actions = resultsToActions(this.trackingData);
+      const actions = resultsToActions(this.filteredTrackingData());
       return generatePlaywrightTestFromActions(actions, __spreadValues({
         baseUrl: url
       }, options));
@@ -427,7 +482,7 @@ var PlaywrightGenerator = (() => {
      * directly (no generated text, no re-parse). Single source of truth = trackingData.
      */
     getReplaySteps(url) {
-      const actions = resultsToActions(this.trackingData);
+      const actions = resultsToActions(this.filteredTrackingData());
       return actionsToReplaySteps(actions, { baseUrl: url });
     }
     /**
@@ -484,7 +539,7 @@ var PlaywrightGenerator = (() => {
     }
     return null;
   }
-  function clickExpr(locator) {
+  function locatorExpr(locator) {
     const testId = extractTestId(locator);
     if (testId)
       return `page.getByTestId('${q(testId)}')`;
@@ -494,10 +549,6 @@ var PlaywrightGenerator = (() => {
       const [, role, name] = roleM;
       return name ? `page.getByRole('${q(role)}', { name: '${q(name)}' })` : `page.getByRole('${q(role)}')`;
     }
-    return cssLocator(locator);
-  }
-  function cssLocator(locator) {
-    const sel = (locator == null ? void 0 : locator.stableSelector) || (locator == null ? void 0 : locator.primary) || "";
     return `page.locator('${q(sel)}')`;
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
@@ -518,17 +569,17 @@ var PlaywrightGenerator = (() => {
         case "click": {
           if (!((_a = action.locator) == null ? void 0 : _a.primary) && !((_b = action.locator) == null ? void 0 : _b.stableSelector))
             return "";
-          return `  await ${clickExpr(action.locator)}.click();`;
+          return `  await ${locatorExpr(action.locator)}.click();`;
         }
         case "input": {
           if (!((_c = action.locator) == null ? void 0 : _c.primary) || action.value === void 0)
             return "";
-          return `  await ${cssLocator(action.locator)}.fill('${q(action.value)}');`;
+          return `  await ${locatorExpr(action.locator)}.fill('${q(action.value)}');`;
         }
         case "form": {
           if (!((_d = action.locator) == null ? void 0 : _d.primary))
             return "";
-          const target = cssLocator(action.locator);
+          const target = locatorExpr(action.locator);
           if (action.formType === "checkbox" || action.formType === "radio") {
             return action.checked ? `  await ${target}.check();` : `  await ${target}.uncheck();`;
           } else if (action.formType === "select" && action.value !== void 0) {
@@ -539,7 +590,7 @@ var PlaywrightGenerator = (() => {
         case "assertion": {
           if (!((_e = action.locator) == null ? void 0 : _e.primary) || action.value === void 0)
             return "";
-          return `  await expect(${cssLocator(action.locator)}).toContainText('${q(action.value)}');`;
+          return `  await expect(${locatorExpr(action.locator)}).toContainText('${q(action.value)}');`;
         }
         default:
           return "";

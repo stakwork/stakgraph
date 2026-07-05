@@ -123,10 +123,11 @@ export async function appendSessionEnd(
 ): Promise<void> {
   console.log(`[session] end session_id=${sessionId} model=${opts.model ?? ""} status=${opts.status ?? "success"} tokens=${opts.token_usage?.total ?? 0} duration_ms=${opts.duration_ms ?? 0}`);
 
-  const stored = sessionMeta.get(sessionId) ?? {
-    source: "unknown",
-    start_time: opts.end_time,
-  };
+  const stored = sessionMeta.get(sessionId);
+  if (!stored) {
+    console.error(`[session] appendSessionEnd: session_id=${sessionId} was never registered via createSession() in this process — refusing to create AgentSession node`);
+    return;
+  }
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
   const resolvedProvider = opts.provider || getProviderForModel(opts.model);

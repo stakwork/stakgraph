@@ -76,16 +76,13 @@ export function useIframeMessaging(iframeRef, initialURL) {
             console.log("Staktrak setup message received");
             break;
           case "staktrak-results":
-            // TODO: RecordingManager data sync issue
-            // RecordingManager's trackingData comes from real-time staktrak-event messages,
-            // but staktrak-results includes post-processing (e.g., filterClickDetails removes
-            // clicks associated with assertions). This means generated tests may have extra
-            // click actions that should have been filtered.
-            //
-            // WHEN TO FIX: During list view/action removal feature implementation
-            // APPROACH: Either sync RecordingManager here OR refactor to use final results
-            // directly for test generation. Be careful not to break removeAction() logic
-            // which depends on RecordingManager's internal structure.
+            // Generation always goes through recorder.generateTest()/getReplaySteps()
+            // (see useTestGenerator below), which reads RecordingManager's own
+            // real-time trackingData — this event.data.data payload is only used as
+            // the "do we have anything to generate from" readiness flag below, not as
+            // generation input. RecordingManager now applies the same assertion-adjacent
+            // click filtering itself (filterClickDetails, see playwright-generator.ts
+            // RecordingManager.filteredTrackingData), so the two no longer disagree.
             console.log("Staktrak results received", event.data.data);
             setTrackingData(event.data.data);
             setCanGenerate(true);
@@ -242,7 +239,7 @@ export function useTestGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  const generateTest = async (url, trackingData, recorder = null) => {
+  const generateTest = async (url, recorder = null) => {
     setIsGenerating(true);
     setError(null);
 
