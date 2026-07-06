@@ -26,18 +26,20 @@ import { ApiCallError, getErrorMessage } from "../api/client";
 import {
   useAgentBudget,
   useAgentCatalog,
+  useAgentEvals,
   useHistogramCost,
   useToggleSkill,
   useToggleTool,
 } from "../api/queries";
 import type { HistogramCostResponse, Window } from "../api/types";
 import { windowToSeconds } from "../api/window";
+import { EvalsView } from "./EvalsView";
 
 interface Props {
   name: string;
 }
 
-type Tab = "overview" | "prompts" | "tools" | "skills";
+type Tab = "overview" | "prompts" | "tools" | "skills" | "evals";
 
 const fmtUSD = (v: number) => {
   if (v === 0) return "$0.00";
@@ -101,6 +103,7 @@ export function AgentDetail({ name }: Props) {
 
   const [tab, setTab] = useState<Tab>("overview");
   const catalog = useAgentCatalog(name);
+  const evals = useAgentEvals(name);
   // 503 ⇒ neo4j not wired on this swarm: the catalog tabs render a
   // "not configured" notice rather than an error banner.
   const catalogUnavailable =
@@ -152,9 +155,18 @@ export function AgentDetail({ name }: Props) {
           label="Skills"
           count={cat?.skills.length}
         />
+        <TabButton
+          id="evals"
+          active={tab}
+          onSelect={setTab}
+          label="Evals"
+          count={evals.data?.sets.length}
+        />
       </nav>
 
-      {tab !== "overview" ? (
+      {tab === "evals" ? (
+        <EvalsView agentName={name} />
+      ) : tab !== "overview" ? (
         <CatalogPanel
           tab={tab}
           catalog={cat}

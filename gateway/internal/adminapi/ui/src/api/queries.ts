@@ -14,6 +14,9 @@ import { apiFetch, ApiCallError } from "./client";
 import type {
   AgentBudgetResponse,
   AgentCatalogResponse,
+  AgentEvalsResponse,
+  EvalRefResponse,
+  EvalSetDetailResponse,
   CatalogListResponse,
   CallDetailResponse,
   HistogramCostResponse,
@@ -420,5 +423,168 @@ export function useRunCall(
     enabled: !!runID && !!callID,
     staleTime: Infinity,
     retry: false, // 404 on cross-run / unknown id is meaningful; no retry
+  });
+}
+
+// ─── Evals (agent-detail tab) ───────────────────────────────────────
+//
+// Reads (list-for-agent, set detail) hit neo4j directly through the
+// gateway. Writes (create / link / update / delete / run) are
+// delegated by the gateway to Hive, so a mutation's success is only
+// as fresh as the subsequent read — we invalidate the relevant query
+// on settle rather than optimistically patching.
+//
+// A 503 "hive_not_connected" from a write means this swarm hasn't had
+// its Hive callback config pushed yet; the error bubbles up so the
+// EvalsView can show a "connect to Hive" notice.
+
+const AGENT_EVALS_KEY = (name: string) => ["agents", name, "evals"];
+const EVAL_SET_KEY = (setId: string) => ["evals", setId];
+
+export function useAgentEvals(name: string | undefined) {
+  return useQuery({
+    queryKey: ["agents", name, "evals"],
+    queryFn: () =>
+      apiFetch<AgentEvalsResponse>(`/agents/${encodeURIComponent(name!)}/evals`),
+    enabled: !!name,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useEvalSet(setId: string | undefined) {
+  return useQuery({
+    queryKey: ["evals", setId],
+    queryFn: () =>
+      apiFetch<EvalSetDetailResponse>(`/evals/${encodeURIComponent(setId!)}`),
+    enabled: !!setId,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+// Create a new eval set and link it to this agent (or link an existing
+// one when `setId` is provided). Backed by POST /agents/:name/evals.
+export function useCreateOrLinkEvalSet(agentName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { name?: string; description?: string; setId?: string }) =>
+      apiFetch<EvalRefResponse>(`/agents/${encodeURIComponent(agentName)}/evals`, {
+        method: "POST",
+        body: {
+          name: args.name,
+          description: args.description,
+          set_id: args.setId,
+        },
+      }),
+    onSettled: () =>
+      qc.invalidateQueries({ queryKey: AGENT_EVALS_KEY(agentName) }),
+  });
+}
+
+// Remove a set from this agent (unlink only — the set itself survives).
+export function useUnlinkEvalSet(agentName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (setId: string) =>
+      apiFetch<void>(
+        `/agents/${encodeURIComponent(agentName)}/evals/${encodeURIComponent(setId)}`,
+        { method: "DELETE" },
+      ),
+    onSettled: () =>
+      qc.invalidateQueries({ queryKey: AGENT_EVALS_KEY(agentName) }),
+  });
+}
+
+// Delete a set outright (via Hive) and refresh the agent's list.
+export function useDeleteEvalSet(agentName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (setId: string) =>
+      apiFetch<void>(`/evals/${encodeURIComponent(setId)}`, { method: "DELETE" }),
+    onSettled: () =>
+      qc.invalidateQueries({ queryKey: AGENT_EVALS_KEY(agentName) }),
+  });
+}
+
+export function useUpdateEvalSet(setId: string, agentName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { name?: string; description?: string }) =>
+      apiFetch<void>(`/evals/${encodeURIComponent(setId)}`, {
+        method: "PATCH",
+        body: args,
+      }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: EVAL_SET_KEY(setId) });
+      qc.invalidateQueries({ queryKey: AGENT_EVALS_KEY(agentName) });
+    },
+  });
+}
+
+interface RequirementWrite {
+  name?: string;
+  description?: string;
+  prompt_snippet?: string;
+  desirable_cases?: string[];
+  undesirable_cases?: string[];
+}
+
+export function useCreateRequirement(setId: string, agentName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: RequirementWrite) =>
+      apiFetch<EvalRefResponse>(
+        `/evals/${encodeURIComponent(setId)}/requirements`,
+        { method: "POST", body: args },
+      ),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: EVAL_SET_KEY(setId) });
+      qc.invalidateQueries({ queryKey: AGENT_EVALS_KEY(agentName) });
+    },
+  });
+}
+
+export function useUpdateRequirement(setId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { reqId: string } & RequirementWrite) => {
+      const { reqId, ...body } = args;
+      return apiFetch<void>(
+        `/evals/${encodeURIComponent(setId)}/requirements/${encodeURIComponent(reqId)}`,
+        { method: "PATCH", body },
+      );
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: EVAL_SET_KEY(setId) }),
+  });
+}
+
+export function useDeleteRequirement(setId: string, agentName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reqId: string) =>
+      apiFetch<void>(
+        `/evals/${encodeURIComponent(setId)}/requirements/${encodeURIComponent(reqId)}`,
+        { method: "DELETE" },
+      ),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: EVAL_SET_KEY(setId) });
+      qc.invalidateQueries({ queryKey: AGENT_EVALS_KEY(agentName) });
+    },
+  });
+}
+
+// Dispatch an eval run for a requirement. Hive fires the Stakwork
+// workflow; outputs land back in Jarvis, so we invalidate the set
+// detail on settle to pick up the new results on the next poll.
+export function useRunRequirement(setId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { reqId: string; agent?: string }) =>
+      apiFetch<{ project_ids?: unknown[] }>(
+        `/evals/${encodeURIComponent(setId)}/requirements/${encodeURIComponent(args.reqId)}/run`,
+        { method: "POST", body: { agent: args.agent } },
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: EVAL_SET_KEY(setId) }),
   });
 }

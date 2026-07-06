@@ -390,6 +390,57 @@ export interface AgentCatalogResponse {
   skills: CatalogSkill[];
 }
 
+// ─── Evals (agent-detail tab) ───────────────────────────────────────
+// Mirror of the Go structs in internal/adminapi/evals.go. Eval sets are
+// Jarvis-authored nodes surfaced under an agent via HAS_EVAL_SET; the
+// gateway reads them from neo4j and delegates writes/runs to Hive.
+
+export interface EvalSetSummary {
+  ref_id: string;
+  name?: string;
+  description?: string;
+  requirements: number;
+}
+
+export interface AgentEvalsResponse {
+  agent: string;
+  sets: EvalSetSummary[];
+}
+
+export interface EvalTriggerSummary {
+  ref_id: string;
+  agent?: string;
+  source?: string;
+  environment?: string;
+  change_type?: string;
+  last_result?: string; // "pass" | "fail" | ""
+  last_score?: number;
+  last_notes?: string;
+  last_attempt?: number;
+}
+
+export interface EvalRequirementDetail {
+  ref_id: string;
+  name?: string;
+  description?: string;
+  prompt_snippet?: string;
+  order: number;
+  triggers: EvalTriggerSummary[];
+}
+
+export interface EvalSetDetailResponse {
+  ref_id: string;
+  name?: string;
+  description?: string;
+  requirements: EvalRequirementDetail[];
+}
+
+// Acknowledgement for create/link (ref_id of the set/requirement).
+export interface EvalRefResponse {
+  ref_id: string;
+  linked?: boolean;
+}
+
 // Phase-7 error envelope (returned on 4xx/5xx).
 export interface ApiError {
   error: {
