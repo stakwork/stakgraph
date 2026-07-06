@@ -581,7 +581,7 @@ export function useRunRequirement(setId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (args: { reqId: string; agent?: string }) =>
-      apiFetch<{ project_id?: unknown }>(
+      apiFetch<{ project_ids?: unknown[] }>(
         `/evals/${encodeURIComponent(setId)}/requirements/${encodeURIComponent(args.reqId)}/run`,
         { method: "POST", body: { agent: args.agent } },
       ),

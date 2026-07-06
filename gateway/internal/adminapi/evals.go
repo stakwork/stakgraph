@@ -106,7 +106,9 @@ type evalRefResponse struct {
 }
 
 type evalRunResponse struct {
-	ProjectID any `json:"project_id,omitempty"`
+	// A requirement fans out to N triggers, so Hive dispatches one
+	// Stakwork project per trigger and returns them all.
+	ProjectIDs []any `json:"project_ids,omitempty"`
 }
 
 // ─── handler ─────────────────────────────────────────────────────────
@@ -421,12 +423,15 @@ func (h *evalHandlers) createSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, created)
 }
 
+// updateSet is reached by an inbound PATCH from the SPA (apiFetch only
+// speaks GET/POST/PATCH/DELETE) but forwards to Hive as PUT, which is
+// the verb the /api/gateway/evals contract uses.
 func (h *evalHandlers) updateSet(w http.ResponseWriter, r *http.Request, setID string) {
 	req, ok := decodeSetWrite(w, r)
 	if !ok {
 		return
 	}
-	if err := h.hive.call(r.Context(), http.MethodPatch,
+	if err := h.hive.call(r.Context(), http.MethodPut,
 		"/api/gateway/evals/"+urlSeg(setID),
 		map[string]any{"name": req.Name, "description": req.Description}, nil); err != nil {
 		relayHiveError(w, err)
@@ -478,7 +483,7 @@ func (h *evalHandlers) updateRequirement(w http.ResponseWriter, r *http.Request,
 	if !ok {
 		return
 	}
-	if err := h.hive.call(r.Context(), http.MethodPatch,
+	if err := h.hive.call(r.Context(), http.MethodPut,
 		"/api/gateway/evals/"+urlSeg(setID)+"/requirements/"+urlSeg(reqID), req, nil); err != nil {
 		relayHiveError(w, err)
 		return
