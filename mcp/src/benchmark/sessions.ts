@@ -23,7 +23,7 @@ function buildOrphanRun(dir: string, file: string) {
   const id = file.replace(/\.jsonl$/, "");
   const fullPath = path.join(dir, file);
   const stat = statSync(fullPath);
-  const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+  const { userPromptPreview, answerPreview, toolSequence, toolCallCount, messageCount } =
     parseSessionMessages(fullPath);
   const steps = loadStepMeta(id);
   let usage = emptyUsage();
@@ -55,6 +55,8 @@ function buildOrphanRun(dir: string, file: string) {
     error_message: "",
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
+    message_count: messageCount,
+    estimated_tokens: 0,
     user_prompt_preview: userPromptPreview,
     answer_preview: answerPreview,
   };
@@ -82,14 +84,17 @@ function parseSessionMessages(filePath: string): {
   answerPreview: string;
   toolSequence: string[];
   toolCallCount: number;
+  messageCount: number;
 } {
   let userPromptPreview = "";
   let answerPreview = "";
   const toolSequence: string[] = [];
+  let messageCount = 0;
 
   try {
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n").filter((l) => l.trim());
+    messageCount = lines.length;
     for (const line of lines) {
       try {
         const msg = JSON.parse(line) as {
@@ -131,6 +136,7 @@ function parseSessionMessages(filePath: string): {
     answerPreview,
     toolSequence,
     toolCallCount: toolSequence.length,
+    messageCount,
   };
 }
 
@@ -180,13 +186,18 @@ export async function list_sessions(_req: Request, res: Response) {
           answerPreview,
           toolSequence,
           toolCallCount,
+          messageCount,
         } = existsSync(filePath)
           ? parseSessionMessages(filePath)
           : {
               userPromptPreview: "",
               answerPreview: "",
               toolSequence: [],
-              toolCallCount: 0,
+              // No local transcript file for this node (e.g. sessions written by
+              // hive's agent-logs webhook) — fall back to the counts it sent
+              // directly on the AgentSession node.
+              toolCallCount: toNum(s.tool_call_count),
+              messageCount: toNum(s.message_count),
             };
         const startTimeMs = toNum(s.start_time);
         const input = toNum(s.input_tokens);
@@ -207,11 +218,15 @@ export async function list_sessions(_req: Request, res: Response) {
             : new Date().toISOString(),
           duration_ms: toNum(s.duration_ms),
           token_usage: { input, cache_read, cache_write, output, total },
+          // Heuristic (text-length) estimate from hive's agent-logs webhook —
+          // kept out of token_usage/cost_usd since it isn't provider-reported.
+          estimated_tokens: toNum(s.estimated_tokens),
           cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
           status: String(s.status ?? "success"),
           error_message: String(s.error_message ?? ""),
           tool_sequence: toolSequence,
           tool_call_count: toolCallCount,
+          message_count: messageCount,
           user_prompt_preview: userPromptPreview,
           answer_preview: answerPreview,
         };
