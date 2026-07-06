@@ -29,6 +29,28 @@ const (
 	RelHasTool   = "HAS_TOOL"
 	RelHasSkill  = "HAS_SKILL"
 	RelDefinedBy = "DEFINED_BY"
+
+	// ── Evals subgraph ────────────────────────────────────────────────
+	//
+	// The Eval* nodes are NOT gateway-owned: Jarvis (jarvis-backend)
+	// authors them through its schema/node_key/Data_Bank machinery, so
+	// the gateway only READS them (agent-detail Evals tab) and never
+	// creates/updates them via raw Cypher — mutations are delegated to
+	// Hive (see internal/adminapi/hivecallback.go). The one exception is
+	// HAS_EVAL_SET: that edge anchors a gateway-owned :HiveAgent to a
+	// Jarvis-owned :EvalSet, so the gateway MERGEs it directly (edge
+	// only, no node schema involved). Jarvis stamps every Eval* node
+	// with a `ref_id` (uuid4) which is how we address them.
+	LabelEvalSet         = "EvalSet"
+	LabelEvalRequirement = "EvalRequirement"
+	LabelEvalTrigger     = "EvalTrigger"
+	LabelEvalOutput      = "EvalTriggerOutput"
+
+	RelHasEvalSet     = "HAS_EVAL_SET" // HiveAgent -> EvalSet (gateway-owned)
+	RelHasRequirement = "HAS_REQUIREMENT"
+	RelHasTrigger     = "HAS_TRIGGER"
+	RelHasOutput      = "HAS_OUTPUT"
+	RelAttributedTo   = "ATTRIBUTED_TO" // EvalTrigger -> HiveAgent
 )
 
 // SchemaStatements are the constraint/index DDL the catalog needs.
