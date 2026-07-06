@@ -1215,3 +1215,61 @@ tr.is-disabled td.text-dim {
 .catalog-card.is-disabled .catalog-summary-main {
   opacity: 0.5;
 }
+
+/* ── Evals tab ─────────────────────────────────────────────────────── */
+.eval-create {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.eval-create .input {
+  flex: 1;
+}
+.eval-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.eval-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #2a2a2a);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.eval-req {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.eval-req-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.eval-req-name {
+  font-weight: 600;
+}
+.eval-req-desc {
+  font-size: 12px;
+}
+.eval-triggers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.eval-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
