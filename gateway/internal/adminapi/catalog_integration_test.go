@@ -79,7 +79,7 @@ func TestCatalogIntegration(t *testing.T) {
 			"default_model": "sonnet",
 			"version":       "git:abc123",
 			"prompts": []map[string]any{
-				{"name": promptA},
+				{"name": promptA, "role": "SYSTEM"},
 				{"name": "TEST_CATALOG_PROMPT_MISSING"}, // no such node → skipped
 			},
 			"tools": []map[string]any{
@@ -114,6 +114,9 @@ func TestCatalogIntegration(t *testing.T) {
 	if got.Prompts[0].Name != promptA || got.Prompts[0].Body != "You are prompt A." {
 		t.Errorf("prompt = %+v, want name=%s body from node", got.Prompts[0], promptA)
 	}
+	if got.Prompts[0].Role != "SYSTEM" {
+		t.Errorf("prompt role = %q, want SYSTEM (stored on HAS_PROMPT rel)", got.Prompts[0].Role)
+	}
 	if len(got.Tools) != 2 {
 		t.Fatalf("tools = %d, want 2", len(got.Tools))
 	}
@@ -128,6 +131,16 @@ func TestCatalogIntegration(t *testing.T) {
 		t.Errorf("read_file schema didn't round-trip: %+v", schemaTool)
 	}
 
+	// Freshly-seeded skills and tools default to enabled.
+	if len(got.Skills) != 1 || !got.Skills[0].Enabled {
+		t.Fatalf("skill should seed enabled: %+v", got.Skills)
+	}
+	for i := range got.Tools {
+		if !got.Tools[i].Enabled {
+			t.Fatalf("tool %q should seed enabled: %+v", got.Tools[i].Name, got.Tools[i])
+		}
+	}
+
 	// ── idempotency: re-push the same hive manifest ──
 	doPush(t, cat, hivePush)
 	got = doRead(t, cat, agent, http.StatusOK)
@@ -135,6 +148,44 @@ func TestCatalogIntegration(t *testing.T) {
 		t.Fatalf("re-push duplicated children: tools=%d prompts=%d skills=%d",
 			len(got.Tools), len(got.Prompts), len(got.Skills))
 	}
+
+	// ── operator disables the skill, then Hive re-seeds ──
+	// The toggle is the one piece of catalog state the gateway owns; a
+	// re-push must NOT resurrect the operator's off choice.
+	doToggleSkill(t, cat, agent, "hive", "security-review", false, http.StatusOK)
+	got = doRead(t, cat, agent, http.StatusOK)
+	if len(got.Skills) != 1 || got.Skills[0].Enabled {
+		t.Fatalf("skill should be disabled after toggle: %+v", got.Skills)
+	}
+	doPush(t, cat, hivePush) // re-seed the palette
+	got = doRead(t, cat, agent, http.StatusOK)
+	if len(got.Skills) != 1 || got.Skills[0].Enabled {
+		t.Fatalf("re-seed clobbered the operator's disabled toggle: %+v", got.Skills)
+	}
+	// Re-enable so downstream assertions see the original state.
+	doToggleSkill(t, cat, agent, "hive", "security-review", true, http.StatusOK)
+
+	// Toggling an unknown skill is a 404.
+	doToggleSkill(t, cat, agent, "hive", "no-such-skill", false, http.StatusNotFound)
+
+	// ── tools behave identically: toggle survives a re-seed ──
+	doToggleTool(t, cat, agent, "hive", "write_file", false, http.StatusOK)
+	doPush(t, cat, hivePush) // re-seed
+	got = doRead(t, cat, agent, http.StatusOK)
+	var wf *CatalogTool
+	for i := range got.Tools {
+		if got.Tools[i].Name == "write_file" {
+			wf = &got.Tools[i]
+		}
+	}
+	if wf == nil || wf.Enabled {
+		t.Fatalf("re-seed clobbered the tool's disabled toggle: %+v", wf)
+	}
+	if len(got.Tools) != 2 {
+		t.Fatalf("re-seed changed tool count: %d", len(got.Tools))
+	}
+	doToggleTool(t, cat, agent, "hive", "write_file", true, http.StatusOK)
+	doToggleTool(t, cat, agent, "hive", "no-such-tool", false, http.StatusNotFound)
 
 	// ── second source (prompt-manager) links another prompt ──
 	doPush(t, cat, map[string]any{
@@ -206,6 +257,28 @@ func doPush(t *testing.T, cat *catalogHandlers, body any) catalogWriteResponse {
 		t.Fatalf("push decode: %v", err)
 	}
 	return out
+}
+
+func doToggleSkill(t *testing.T, cat *catalogHandlers, agent, source, skill string, enabled bool, wantStatus int) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"name": skill, "source": source, "enabled": enabled})
+	req := httptest.NewRequest(http.MethodPatch, "/_plugin/agents/"+agent+"/skills", strings.NewReader(string(raw)))
+	rec := httptest.NewRecorder()
+	cat.toggleSkill(rec, req)
+	if rec.Code != wantStatus {
+		t.Fatalf("toggle %s/%s status = %d (want %d), body = %s", agent, skill, rec.Code, wantStatus, rec.Body.String())
+	}
+}
+
+func doToggleTool(t *testing.T, cat *catalogHandlers, agent, source, tool string, enabled bool, wantStatus int) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"name": tool, "source": source, "enabled": enabled})
+	req := httptest.NewRequest(http.MethodPatch, "/_plugin/agents/"+agent+"/tools", strings.NewReader(string(raw)))
+	rec := httptest.NewRecorder()
+	cat.toggleTool(rec, req)
+	if rec.Code != wantStatus {
+		t.Fatalf("toggle tool %s/%s status = %d (want %d), body = %s", agent, tool, rec.Code, wantStatus, rec.Body.String())
+	}
 }
 
 func doRead(t *testing.T, cat *catalogHandlers, name string, wantStatus int) AgentCatalogResponse {
