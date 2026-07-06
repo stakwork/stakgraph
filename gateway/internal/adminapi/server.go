@@ -273,6 +273,8 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// `:name/kill` live under the same prefix later).
 	bgt := newBudgetHandlers(deps.logstore)
 	cat := newCatalogHandlers(deps.graph)
+	hiveCb := newHiveCallbackHandlers()
+	evals := newEvalHandlers(deps.graph, hiveCb)
 
 	// The `/_plugin/agents/` subtree is shared: ServeMux allows only
 	// one handler per pattern, so a small dispatcher fans the trailing
@@ -306,6 +308,13 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 			cat.toggleTool(w, r)
 			return
 		}
+		// `<name>/evals` and `<name>/evals/<setId>`: the agent-scoped
+		// Evals tab. GET lists the sets linked to the agent; POST
+		// creates/links; DELETE unlinks. agentEvals picks by method.
+		if len(parts) >= 2 && parts[0] != "" && parts[1] == "evals" {
+			evals.agentEvals(w, r, parts[0], parts[2:])
+			return
+		}
 		// Default: the budget handler owns `<name>/budget` and 404s
 		// the rest.
 		bgt.budget(w, r)
@@ -318,6 +327,19 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// unconfigured so the handler can answer 503 rather than ServeMux
 	// 301-redirecting to the subtree.
 	mux.HandleFunc("/_plugin/agents", bearer(cat.push))
+
+	// Eval set / requirement CRUD + runs. Cookie-or-bearer: these are
+	// operator dashboard actions (the CSRF header guards cookie-authed
+	// mutations). Reads hit neo4j directly; node mutations + runs are
+	// delegated to Hive via the pushed callback config. The exact and
+	// subtree patterns both route through one dispatcher.
+	mux.HandleFunc("/_plugin/evals", cookieOrBearer(evals.dispatch))
+	mux.HandleFunc("/_plugin/evals/", cookieOrBearer(evals.dispatch))
+
+	// Hive callback config push: Hive sends its base URL + a
+	// workspace-scoped API key during agent-catalog reconciliation.
+	// Bearer-only (server-to-server), same posture as the catalog push.
+	mux.HandleFunc("/_plugin/hive-callback", bearer(hiveCb.storeConfig))
 
 	// SPA — served WITHOUT middleware auth. The SPA itself probes
 	// /_plugin/me at boot and redirects to /login on 401; gating
