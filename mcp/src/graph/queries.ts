@@ -334,6 +334,7 @@ RETURN n
 
 export const LIST_AGENT_SESSIONS_QUERY = `
 MATCH (n:AgentSession)
+WHERE n.file = 'session://generated'
 RETURN n
 ORDER BY n.start_time DESC
 `;
@@ -344,7 +345,8 @@ MATCH (n:AgentSession {node_key: $session_id}) RETURN n
 
 export const GET_SESSION_STATS_QUERY = `
 MATCH (n:AgentSession)
-WHERE ($since IS NULL OR n.start_time >= toInteger($since))
+WHERE n.file = 'session://generated'
+  AND ($since IS NULL OR n.start_time >= toInteger($since))
   AND ($source IS NULL OR n.source = $source)
   AND ($provider IS NULL OR n.provider = $provider)
   AND ($model IS NULL OR n.model = $model)
