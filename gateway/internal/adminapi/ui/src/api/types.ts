@@ -325,6 +325,9 @@ export interface AgentBudgetResponse {
 export interface CatalogPrompt {
   name: string;
   body: string;
+  /** Prompt slot for this agent: "SYSTEM" or "USER" (the main/task
+   *  prompt). Absent when the wiring source didn't classify it. */
+  role?: string;
   source: string;
   updated_at: string;
 }
@@ -337,6 +340,9 @@ export interface CatalogTool {
   schema?: unknown;
   source: string;
   version?: string;
+  /** Per-swarm operator toggle. Seeded enabled; preserved across
+   *  Hive re-seeds. Flip via PATCH /_plugin/agents/:name/tools. */
+  enabled: boolean;
   updated_at: string;
 }
 
@@ -345,6 +351,9 @@ export interface CatalogSkill {
   description: string;
   source: string;
   version?: string;
+  /** Per-swarm operator toggle. Seeded enabled; preserved across
+   *  Hive re-seeds. Flip via PATCH /_plugin/agents/:name/skills. */
+  enabled: boolean;
   updated_at: string;
 }
 
