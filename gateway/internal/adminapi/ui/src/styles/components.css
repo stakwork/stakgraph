@@ -1150,3 +1150,68 @@ details[open] > .catalog-summary::before {
   color: var(--warning);
   border: 1px solid rgba(245, 184, 108, 0.3);
 }
+
+/* ─── skill enable/disable switch ────────────────────────────── */
+/* A minimal toggle: a track + knob driven by a visually-hidden
+   checkbox so the control stays keyboard-accessible. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 18px;
+  flex: none;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.switch input:disabled {
+  cursor: default;
+}
+.switch .switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.switch .switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.switch input:checked ~ .switch-track {
+  background: rgba(110, 168, 255, 0.25);
+  border-color: rgba(110, 168, 255, 0.55);
+}
+.switch input:checked ~ .switch-knob {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+.switch input:focus-visible ~ .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.switch input:disabled ~ .switch-track {
+  opacity: 0.5;
+}
+tr.is-disabled td .mono,
+tr.is-disabled td.text-dim {
+  opacity: 0.5;
+}
+/* Disabled tool card: dim the summary's name/description but keep the
+   switch itself at full opacity so it stays easy to flip back on. */
+.catalog-card.is-disabled .catalog-summary-main {
+  opacity: 0.5;
+}

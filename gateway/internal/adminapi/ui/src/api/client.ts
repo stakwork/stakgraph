@@ -40,7 +40,7 @@ export class ApiCallError extends Error {
 }
 
 export interface ApiFetchOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
   /** Extra headers (e.g. Authorization: Basic on the login call). */
   headers?: Record<string, string>;

@@ -27,6 +27,8 @@ import {
   useAgentBudget,
   useAgentCatalog,
   useHistogramCost,
+  useToggleSkill,
+  useToggleTool,
 } from "../api/queries";
 import type { HistogramCostResponse, Window } from "../api/types";
 import { windowToSeconds } from "../api/window";
@@ -378,8 +380,8 @@ function CatalogPanel({ tab, catalog, loading, unavailable, error }: PanelProps)
   }
 
   if (tab === "prompts") return <PromptsView prompts={catalog.prompts} />;
-  if (tab === "tools") return <ToolsView tools={catalog.tools} />;
-  return <SkillsView skills={catalog.skills} />;
+  if (tab === "tools") return <ToolsView agentName={catalog.name} tools={catalog.tools} />;
+  return <SkillsView agentName={catalog.name} skills={catalog.skills} />;
 }
 
 // SourceChip is the source + version provenance marker shared by all
@@ -393,6 +395,48 @@ function SourceChip({ source, version }: { source: string; version?: string }) {
   );
 }
 
+// PromptRoleBadge marks which slot a prompt fills — the SYSTEM prompt
+// vs the USER (main/task) prompt. Reuses the role-badge pills that the
+// chat-message roles already style.
+function PromptRoleBadge({ role }: { role: string }) {
+  const lower = role.toLowerCase();
+  const cls = lower === "system" ? "badge role-system" : "badge role-user";
+  const label = lower === "system" ? "system" : "main";
+  return <span class={cls}>{label}</span>;
+}
+
+// EnabledSwitch is the accessible toggle shared by the tools and skills
+// tabs. `stopPropagation` is set inside <summary> (tools) so flipping
+// the switch doesn't also expand/collapse the details card.
+function EnabledSwitch({
+  enabled,
+  pending,
+  onChange,
+  stopPropagation,
+}: {
+  enabled: boolean;
+  pending: boolean;
+  onChange: (enabled: boolean) => void;
+  stopPropagation?: boolean;
+}) {
+  return (
+    <label
+      class="switch"
+      title={enabled ? "Enabled" : "Disabled"}
+      onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
+    >
+      <input
+        type="checkbox"
+        checked={enabled}
+        disabled={pending}
+        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
+      />
+      <span class="switch-track" />
+      <span class="switch-knob" />
+    </label>
+  );
+}
+
 function PromptsView({ prompts }: { prompts: CatalogPrompt[] }) {
   if (prompts.length === 0) return <div class="empty">No prompts.</div>;
   return (
@@ -402,6 +446,7 @@ function PromptsView({ prompts }: { prompts: CatalogPrompt[] }) {
           <summary class="catalog-summary">
             <span class="catalog-summary-main">
               <span class="mono">{p.name}</span>
+              {p.role ? <PromptRoleBadge role={p.role} /> : null}
             </span>
             <SourceChip source={p.source} />
           </summary>
@@ -412,13 +457,31 @@ function PromptsView({ prompts }: { prompts: CatalogPrompt[] }) {
   );
 }
 
-function ToolsView({ tools }: { tools: CatalogTool[] }) {
+function ToolsView({
+  agentName,
+  tools,
+}: {
+  agentName: string;
+  tools: CatalogTool[];
+}) {
+  const toggle = useToggleTool(agentName);
   if (tools.length === 0) return <div class="empty">No tools.</div>;
   return (
     <div class="catalog-list">
       {tools.map((t) => (
-        <details key={t.source + "/" + t.name} class="card catalog-card">
+        <details
+          key={t.source + "/" + t.name}
+          class={"card catalog-card" + (t.enabled ? "" : " is-disabled")}
+        >
           <summary class="catalog-summary">
+            <EnabledSwitch
+              enabled={t.enabled}
+              pending={toggle.isPending}
+              stopPropagation
+              onChange={(enabled) =>
+                toggle.mutate({ source: t.source, name: t.name, enabled })
+              }
+            />
             <span class="catalog-summary-main">
               <span class="mono">{t.name}</span>
               <span class="text-dim">{t.description}</span>
@@ -440,13 +503,21 @@ function ToolsView({ tools }: { tools: CatalogTool[] }) {
   );
 }
 
-function SkillsView({ skills }: { skills: CatalogSkill[] }) {
+function SkillsView({
+  agentName,
+  skills,
+}: {
+  agentName: string;
+  skills: CatalogSkill[];
+}) {
+  const toggle = useToggleSkill(agentName);
   if (skills.length === 0) return <div class="empty">No skills.</div>;
   return (
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
+            <th style="width: 70px">Enabled</th>
             <th>Skill</th>
             <th>Description</th>
             <th>Source</th>
@@ -454,7 +525,19 @@ function SkillsView({ skills }: { skills: CatalogSkill[] }) {
         </thead>
         <tbody>
           {skills.map((s) => (
-            <tr key={s.source + "/" + s.name}>
+            <tr
+              key={s.source + "/" + s.name}
+              class={s.enabled ? undefined : "is-disabled"}
+            >
+              <td>
+                <EnabledSwitch
+                  enabled={s.enabled}
+                  pending={toggle.isPending}
+                  onChange={(enabled) =>
+                    toggle.mutate({ source: s.source, name: s.name, enabled })
+                  }
+                />
+              </td>
               <td>
                 <span class="mono">{s.name}</span>
               </td>
