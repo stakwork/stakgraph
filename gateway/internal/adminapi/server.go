@@ -294,6 +294,18 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 			cat.read(w, r)
 			return
 		}
+		// `<name>/tools` and `<name>/skills` (PATCH) toggle a child's
+		// enabled flag. Operator dashboard actions, so they ride the same
+		// cookie-or-bearer auth as the reads (the catalog *push* stays
+		// bearer-only).
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "skills" {
+			cat.toggleSkill(w, r)
+			return
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "tools" {
+			cat.toggleTool(w, r)
+			return
+		}
 		// Default: the budget handler owns `<name>/budget` and 404s
 		// the rest.
 		bgt.budget(w, r)

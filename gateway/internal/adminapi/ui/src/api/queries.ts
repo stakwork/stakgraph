@@ -3,7 +3,12 @@
 // or retry policy. Those decisions live here, in one place, so
 // "should the dashboard poll every 30s" stays a one-line edit.
 
-import { useQueries, useQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { apiFetch, ApiCallError } from "./client";
 import type {
@@ -240,6 +245,66 @@ export function useAgentCatalog(name: string | undefined) {
     refetchInterval: 5 * 60_000,
     retry: false,
   });
+}
+
+// ─── PATCH /agents/:name/{tools,skills} (toggle enabled) ────────────
+//
+// The one mutable piece of catalog state the gateway owns (Hive seeds
+// the palette; the operator toggles which tools/skills are active). On
+// success we invalidate this agent's catalog query so the switch
+// reflects the persisted state. Optimistic update keeps the toggle
+// snappy and rolls back if the PATCH fails. Tools and skills share the
+// exact same shape, so one internal hook drives both `view`s.
+
+interface ChildToggleArgs {
+  source: string;
+  name: string;
+  enabled: boolean;
+}
+
+function useToggleCatalogChild(agentName: string, view: "tools" | "skills") {
+  const qc = useQueryClient();
+  const key = ["agents", agentName, "catalog"];
+  return useMutation({
+    mutationFn: (args: ChildToggleArgs) =>
+      apiFetch<{ name: string; source: string; enabled: boolean }>(
+        `/agents/${encodeURIComponent(agentName)}/${view}`,
+        { method: "PATCH", body: args },
+      ),
+    onMutate: async (args) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<AgentCatalogResponse | null>(key);
+      if (prev) {
+        const flip = <T extends ChildToggleArgs>(items: T[]) =>
+          items.map((it) =>
+            it.source === args.source && it.name === args.name
+              ? { ...it, enabled: args.enabled }
+              : it,
+          );
+        qc.setQueryData<AgentCatalogResponse | null>(key, {
+          ...prev,
+          ...(view === "tools"
+            ? { tools: flip(prev.tools) }
+            : { skills: flip(prev.skills) }),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _args, ctx) => {
+      if (ctx?.prev !== undefined) qc.setQueryData(key, ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+export function useToggleSkill(agentName: string) {
+  return useToggleCatalogChild(agentName, "skills");
+}
+
+export function useToggleTool(agentName: string) {
+  return useToggleCatalogChild(agentName, "tools");
 }
 
 // ─── /users/:id ─────────────────────────────────────────────────────

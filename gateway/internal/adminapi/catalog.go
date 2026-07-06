@@ -46,6 +46,11 @@ type catalogPushAgent struct {
 type catalogPushPrompt struct {
 	Name   string `json:"name"`
 	Source string `json:"source"` // optional per-item source override
+	// Role is the slot this prompt fills for the agent: "SYSTEM" (the
+	// system prompt) vs "USER" (the main/task prompt). The shared
+	// `:Prompt` node is authored elsewhere, so this is stored on the
+	// HAS_PROMPT relationship the catalog owns. Empty ⇒ unknown.
+	Role string `json:"role"`
 }
 
 type catalogPushTool struct {
@@ -114,8 +119,12 @@ type CatalogListResponse struct {
 // the shared `:Prompt` node the agent links to; source/updated_at come
 // from the HAS_PROMPT relationship (which system wired it, and when).
 type CatalogPrompt struct {
-	Name      string `json:"name"`
-	Body      string `json:"body"`
+	Name string `json:"name"`
+	Body string `json:"body"`
+	// Role is the prompt's slot for this agent — "SYSTEM" or "USER"
+	// (the main/task prompt). Stored on the HAS_PROMPT relationship;
+	// empty when the wiring source didn't classify it.
+	Role      string `json:"role,omitempty"`
 	Source    string `json:"source"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -126,7 +135,11 @@ type CatalogTool struct {
 	Schema      json.RawMessage `json:"schema,omitempty"`
 	Source      string          `json:"source"`
 	Version     string          `json:"version,omitempty"`
-	UpdatedAt   string          `json:"updated_at"`
+	// Enabled is the per-swarm operator toggle, mirroring skills:
+	// seeded enabled, flipped in the dashboard, preserved across
+	// Hive re-seeds. Legacy nodes with no value read back as true.
+	Enabled   bool   `json:"enabled"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type CatalogSkill struct {
@@ -134,7 +147,13 @@ type CatalogSkill struct {
 	Description string `json:"description"`
 	Source      string `json:"source"`
 	Version     string `json:"version,omitempty"`
-	UpdatedAt   string `json:"updated_at"`
+	// Enabled is the per-swarm operator toggle. Skills seed enabled by
+	// default; an operator flips this in the dashboard and the gateway
+	// preserves it across Hive re-seeds (a push only refreshes the
+	// palette + metadata, never the toggle). Legacy nodes with no
+	// stored value read back as true (coalesce on the read query).
+	Enabled   bool   `json:"enabled"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // ─── handler ─────────────────────────────────────────────────────────
@@ -252,6 +271,105 @@ func (h *catalogHandlers) read(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// ─── tool / skill enable/disable toggle ──────────────────────────────
+
+// childToggleRequest is the PATCH /_plugin/agents/:name/{tools,skills}
+// body. A child is addressed by (agent, source, name) — the same tuple
+// the node_key hashes — so the UI sends back the source/name it read
+// from the catalog view plus the desired state.
+type childToggleRequest struct {
+	Name    string `json:"name"`
+	Source  string `json:"source"`
+	Enabled bool   `json:"enabled"`
+}
+
+// childToggleResponse echoes the applied state.
+type childToggleResponse struct {
+	Name    string `json:"name"`
+	Source  string `json:"source"`
+	Enabled bool   `json:"enabled"`
+}
+
+// toggleTool handles PATCH /_plugin/agents/:name/tools.
+func (h *catalogHandlers) toggleTool(w http.ResponseWriter, r *http.Request) {
+	h.toggleChild(w, r, "tools", "tool", graphclient.RelHasTool, graphclient.LabelTool)
+}
+
+// toggleSkill handles PATCH /_plugin/agents/:name/skills.
+func (h *catalogHandlers) toggleSkill(w http.ResponseWriter, r *http.Request) {
+	h.toggleChild(w, r, "skills", "skill", graphclient.RelHasSkill, graphclient.LabelSkill)
+}
+
+// toggleChild flips one tool/skill's `enabled` flag — cookie-or-bearer
+// (an operator action in the dashboard, unlike the bearer-only catalog
+// push). This is the one piece of catalog state the gateway owns rather
+// than a source: Hive seeds the palette (enabled by default) and
+// re-seeds preserve the toggle, so an operator's on/off choice survives
+// deploys. `view` is the URL segment ("tools"/"skills"), `kind` the
+// node_key discriminator, and rel/label locate the child in the graph.
+func (h *catalogHandlers) toggleChild(w http.ResponseWriter, r *http.Request, view, kind, rel, label string) {
+	if r.Method != http.MethodPatch {
+		methodNotAllowed(w, http.MethodPatch)
+		return
+	}
+	if h.graph == nil {
+		writeError(w, http.StatusServiceUnavailable, "catalog_unavailable",
+			"agent catalog not configured (neo4j unset on this swarm)")
+		return
+	}
+
+	const prefix = "/_plugin/agents/"
+	rest := strings.TrimPrefix(r.URL.Path, prefix)
+	parts := strings.Split(rest, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] != view {
+		http.NotFound(w, r)
+		return
+	}
+	agent := parts[0]
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	var req childToggleRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Source) == "" {
+		writeError(w, http.StatusBadRequest, "missing_field", "name and source are required")
+		return
+	}
+
+	key := nodeKey(agent, req.Source, kind, req.Name)
+	now := time.Now().UTC().Format(time.RFC3339)
+	results, err := h.graph.Run(r.Context(), graphclient.Statement{
+		Statement: fmt.Sprintf(
+			"MATCH (a:%[1]s {name: $name})-[:%[2]s]->(c:%[3]s {node_key: $key}) "+
+				"SET c.enabled = $enabled, c.updated_at = $now "+
+				"RETURN c.node_key",
+			graphclient.LabelAgent, rel, label),
+		Parameters: map[string]any{
+			"name":    agent,
+			"key":     key,
+			"enabled": req.Enabled,
+			"now":     now,
+		},
+	})
+	if err != nil {
+		pluginlog.Errf("adminapi: %s toggle agent=%s name=%s: %v", kind, agent, req.Name, err)
+		writeError(w, http.StatusBadGateway, "catalog_write_failed", "neo4j write failed")
+		return
+	}
+	if len(results) == 0 || len(results[0].Data) == 0 {
+		writeError(w, http.StatusNotFound, "not_found", "no such "+kind+" for agent")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, childToggleResponse{
+		Name:    req.Name,
+		Source:  req.Source,
+		Enabled: req.Enabled,
+	})
+}
+
 // list handles GET /_plugin/agents/catalog — cookie-or-bearer. Returns
 // every agent in the registry with child counts, so the /agents list
 // can union the catalog with spend-derived agents (seeded agents that
@@ -344,14 +462,18 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 			prompts = append(prompts, map[string]any{
 				"name":   p.Name,
 				"source": src,
+				"role":   p.Role,
 			})
 		}
 		tools := make([]map[string]any, 0, len(ag.Tools))
+		toolKeys := make([]string, 0, len(ag.Tools))
 		for _, t := range ag.Tools {
 			src := srcOr(t.Source)
 			sourceSet[src] = struct{}{}
+			key := nodeKey(ag.Name, src, "tool", t.Name)
+			toolKeys = append(toolKeys, key)
 			tools = append(tools, map[string]any{
-				"node_key":    nodeKey(ag.Name, src, "tool", t.Name),
+				"node_key":    key,
 				"name":        t.Name,
 				"description": t.Description,
 				"schema":      rawToString(t.Schema),
@@ -360,11 +482,14 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 			})
 		}
 		skills := make([]map[string]any, 0, len(ag.Skills))
+		skillKeys := make([]string, 0, len(ag.Skills))
 		for _, s := range ag.Skills {
 			src := srcOr(s.Source)
 			sourceSet[src] = struct{}{}
+			key := nodeKey(ag.Name, src, "skill", s.Name)
+			skillKeys = append(skillKeys, key)
 			skills = append(skills, map[string]any{
-				"node_key":    nodeKey(ag.Name, src, "skill", s.Name),
+				"node_key":    key,
 				"name":        s.Name,
 				"description": s.Description,
 				"source":      src,
@@ -386,11 +511,11 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 		counts.Skills += len(skills)
 
 		stmts = append(stmts,
-			// 1. Upsert the agent + source + DEFINED_BY, then clear this
-			//    push's sources' owned tool/skill child nodes.
-			//    Prompt links are handled separately (statement 2) because
-			//    the linked `:Prompt` nodes are shared and must survive —
-			//    only the HAS_PROMPT relationship is replaced.
+			// 1. Upsert the agent + source + DEFINED_BY. No child cleanup
+			//    here anymore: prompts are replaced in statement 2, and
+			//    tools/skills self-prune in their own merge-preserve pairs
+			//    (statements 4-5 / 6-7) so their per-swarm `enabled`
+			//    toggle survives re-seeds.
 			graphclient.Statement{
 				Statement: fmt.Sprintf(
 					"MERGE (a:%[1]s {name: $name}) "+
@@ -399,19 +524,14 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 						"a.description = CASE WHEN $description <> '' THEN $description ELSE a.description END, "+
 						"a.default_model = CASE WHEN $default_model <> '' THEN $default_model ELSE a.default_model END "+
 						"MERGE (s:%[2]s {name: $source}) SET s.updated_at = $now "+
-						"MERGE (a)-[:%[3]s]->(s) "+
-						"WITH a "+
-						"OPTIONAL MATCH (a)-[:%[4]s|%[5]s]->(c) WHERE c.source IN $sources "+
-						"DETACH DELETE c",
-					graphclient.LabelAgent, graphclient.LabelSource, graphclient.RelDefinedBy,
-					graphclient.RelHasTool, graphclient.RelHasSkill),
+						"MERGE (a)-[:%[3]s]->(s)",
+					graphclient.LabelAgent, graphclient.LabelSource, graphclient.RelDefinedBy),
 				Parameters: map[string]any{
 					"name":          ag.Name,
 					"display_name":  ag.DisplayName,
 					"description":   ag.Description,
 					"default_model": ag.DefaultModel,
 					"source":        req.Source,
-					"sources":       sources,
 					"now":           now,
 				},
 			},
@@ -439,7 +559,7 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 						"UNWIND $rows AS row "+
 						"MATCH (p:%[3]s {name: row.name}) "+
 						"MERGE (a)-[r:%[2]s {source: row.source}]->(p) "+
-						"SET r.updated_at = $now",
+						"SET r.updated_at = $now, r.role = row.role",
 					graphclient.LabelAgent, graphclient.RelHasPrompt, graphclient.LabelPrompt),
 				Parameters: map[string]any{
 					"name": ag.Name,
@@ -447,30 +567,81 @@ func buildCatalogWrite(req catalogPushRequest) ([]graphclient.Statement, struct 
 					"now":  now,
 				},
 			},
-			unwindCreate(graphclient.RelHasTool, graphclient.LabelTool, ag.Name, now, tools,
-				"node_key: row.node_key, name: row.name, description: row.description, schema: row.schema, source: row.source, version: row.version"),
-			unwindCreate(graphclient.RelHasSkill, graphclient.LabelSkill, ag.Name, now, skills,
-				"node_key: row.node_key, name: row.name, description: row.description, source: row.source, version: row.version"),
 		)
+		// 4-5. Tools and 6-7. skills: both are Hive-owned child nodes
+		//      whose per-swarm `enabled` toggle must survive re-seeds, so
+		//      each gets a prune-removed + merge-preserve pair rather than
+		//      a destructive delete+recreate. Tools additionally carry a
+		//      `schema` column.
+		stmts = append(stmts, childMergePreserve(childWrite{
+			rel: graphclient.RelHasTool, label: graphclient.LabelTool,
+			agentName: ag.Name, now: now, rows: tools, keys: toolKeys, sources: sources,
+			setProps: "c.name = row.name, c.description = row.description, " +
+				"c.schema = row.schema, c.source = row.source, c.version = row.version",
+		})...)
+		stmts = append(stmts, childMergePreserve(childWrite{
+			rel: graphclient.RelHasSkill, label: graphclient.LabelSkill,
+			agentName: ag.Name, now: now, rows: skills, keys: skillKeys, sources: sources,
+			setProps: "c.name = row.name, c.description = row.description, " +
+				"c.source = row.source, c.version = row.version",
+		})...)
 	}
 	return stmts, counts
 }
 
-// unwindCreate builds a single UNWIND-CREATE statement for one child
-// kind. Over an empty `rows` slice it creates nothing (UNWIND of [] is
-// a no-op) — so an agent that dropped all its tools still runs the
-// statement harmlessly after cleanup cleared the old ones.
-func unwindCreate(rel, label, agentName, now string, rows []map[string]any, props string) graphclient.Statement {
-	return graphclient.Statement{
-		Statement: fmt.Sprintf(
-			"MATCH (a:%[1]s {name: $name}) "+
-				"UNWIND $rows AS row "+
-				"CREATE (a)-[:%[2]s]->(:%[3]s {%[4]s, updated_at: $now})",
-			graphclient.LabelAgent, rel, label, props),
-		Parameters: map[string]any{
-			"name": agentName,
-			"rows": rows,
-			"now":  now,
+// childWrite is the input to childMergePreserve — everything needed to
+// emit one owned child kind's prune + merge pair.
+type childWrite struct {
+	rel       string           // HAS_TOOL / HAS_SKILL
+	label     string           // HiveTool / HiveSkill
+	agentName string           // owning agent
+	now       string           // RFC3339 stamp
+	rows      []map[string]any // one map per child (must carry node_key + the setProps columns)
+	keys      []string         // node_keys in this push (the survivor set)
+	sources   []string         // sources this push touches
+	setProps  string           // comma-joined `c.<col> = row.<col>` (NEVER `enabled`)
+}
+
+// childMergePreserve builds the two-statement pair for a Hive-owned
+// child kind (tool/skill) whose per-swarm `enabled` toggle must survive
+// re-seeds:
+//
+//  1. Prune — delete this push's sources' children whose node_key is no
+//     longer in the manifest. Survivors (and other sources') keep their
+//     toggle. Over an empty push this clears the source's kind entirely
+//     (`NOT c.node_key IN []` is true for every row).
+//  2. Merge — MERGE by node_key (not delete+create) so an existing
+//     child keeps its operator-set `enabled`; only a brand-new node
+//     defaults to enabled=true. `setProps` refresh every push; UNWIND
+//     of [] is a harmless no-op.
+func childMergePreserve(c childWrite) []graphclient.Statement {
+	return []graphclient.Statement{
+		{
+			Statement: fmt.Sprintf(
+				"MATCH (a:%[1]s {name: $name})-[:%[2]s]->(c:%[3]s) "+
+					"WHERE c.source IN $sources AND NOT c.node_key IN $keys "+
+					"DETACH DELETE c",
+				graphclient.LabelAgent, c.rel, c.label),
+			Parameters: map[string]any{
+				"name":    c.agentName,
+				"sources": c.sources,
+				"keys":    c.keys,
+			},
+		},
+		{
+			Statement: fmt.Sprintf(
+				"MATCH (a:%[1]s {name: $name}) "+
+					"UNWIND $rows AS row "+
+					"MERGE (c:%[3]s {node_key: row.node_key}) "+
+					"ON CREATE SET c.enabled = true "+
+					"SET %[4]s, c.updated_at = $now "+
+					"MERGE (a)-[:%[2]s]->(c)",
+				graphclient.LabelAgent, c.rel, c.label, c.setProps),
+			Parameters: map[string]any{
+				"name": c.agentName,
+				"rows": c.rows,
+				"now":  c.now,
+			},
 		},
 	}
 }
@@ -536,19 +707,21 @@ func (h *catalogHandlers) fetchCatalog(ctx context.Context, name string) (*Agent
 		},
 		graphclient.Statement{
 			Statement: fmt.Sprintf("MATCH (a:%s {name: $name})-[r:%s]->(p:%s) "+
-				"RETURN p.name, p.body, r.source, r.updated_at ORDER BY r.source, p.name",
+				"RETURN p.name, p.body, r.source, r.updated_at, r.role ORDER BY r.source, p.name",
 				graphclient.LabelAgent, graphclient.RelHasPrompt, graphclient.LabelPrompt),
 			Parameters: p,
 		},
 		graphclient.Statement{
 			Statement: fmt.Sprintf("MATCH (a:%s {name: $name})-[:%s]->(t:%s) "+
-				"RETURN t.name, t.description, t.schema, t.source, t.version, t.updated_at ORDER BY t.source, t.name",
+				"RETURN t.name, t.description, t.schema, t.source, t.version, coalesce(t.enabled, true), t.updated_at "+
+				"ORDER BY t.source, t.name",
 				graphclient.LabelAgent, graphclient.RelHasTool, graphclient.LabelTool),
 			Parameters: p,
 		},
 		graphclient.Statement{
 			Statement: fmt.Sprintf("MATCH (a:%s {name: $name})-[:%s]->(k:%s) "+
-				"RETURN k.name, k.description, k.source, k.version, k.updated_at ORDER BY k.source, k.name",
+				"RETURN k.name, k.description, k.source, k.version, coalesce(k.enabled, true), k.updated_at "+
+				"ORDER BY k.source, k.name",
 				graphclient.LabelAgent, graphclient.RelHasSkill, graphclient.LabelSkill),
 			Parameters: p,
 		},
@@ -581,6 +754,7 @@ func (h *catalogHandlers) fetchCatalog(ctx context.Context, name string) (*Agent
 			Body:      rowString(at(row.Row, 1)),
 			Source:    rowString(at(row.Row, 2)),
 			UpdatedAt: rowString(at(row.Row, 3)),
+			Role:      rowString(at(row.Row, 4)),
 		})
 	}
 	for _, row := range results[3].Data {
@@ -590,7 +764,8 @@ func (h *catalogHandlers) fetchCatalog(ctx context.Context, name string) (*Agent
 			Schema:      stringToRaw(rowString(at(row.Row, 2))),
 			Source:      rowString(at(row.Row, 3)),
 			Version:     rowString(at(row.Row, 4)),
-			UpdatedAt:   rowString(at(row.Row, 5)),
+			Enabled:     rowBool(at(row.Row, 5), true),
+			UpdatedAt:   rowString(at(row.Row, 6)),
 		})
 	}
 	for _, row := range results[4].Data {
@@ -599,7 +774,8 @@ func (h *catalogHandlers) fetchCatalog(ctx context.Context, name string) (*Agent
 			Description: rowString(at(row.Row, 1)),
 			Source:      rowString(at(row.Row, 2)),
 			Version:     rowString(at(row.Row, 3)),
-			UpdatedAt:   rowString(at(row.Row, 4)),
+			Enabled:     rowBool(at(row.Row, 4), true),
+			UpdatedAt:   rowString(at(row.Row, 5)),
 		})
 	}
 	return out, true, nil
@@ -660,6 +836,20 @@ func rowInt(raw json.RawMessage) int {
 		return 0
 	}
 	return n
+}
+
+// rowBool decodes a single returned cell into a bool. A neo4j null
+// (unset property — e.g. a legacy skill node written before `enabled`
+// existed) or a decode failure falls back to `def`.
+func rowBool(raw json.RawMessage, def bool) bool {
+	if len(raw) == 0 {
+		return def
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return def
+	}
+	return b
 }
 
 // rowStrings decodes a returned cell that is a JSON array of strings
