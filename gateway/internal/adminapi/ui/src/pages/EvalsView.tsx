@@ -6,7 +6,7 @@
 // when this swarm hasn't had its Hive callback config pushed yet — we
 // surface that inline rather than as a fatal error.
 
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
 import { ApiCallError, getErrorMessage } from "../api/client";
 import {
@@ -24,6 +24,55 @@ import type {
   EvalSetSummary,
   EvalTriggerSummary,
 } from "../api/types";
+
+// ConfirmButton is a two-step destructive button: the first click arms
+// it (danger styling + confirm label), a second click within the
+// window fires, and it auto-disarms after a few seconds. We can't use
+// window.confirm() here — Hive embeds this SPA in a sandboxed iframe
+// without `allow-modals`, where confirm() is silently suppressed and
+// returns false, turning the button into a no-op.
+const CONFIRM_DISARM_MS = 4000;
+
+function ConfirmButton({
+  label,
+  confirmLabel,
+  title,
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  confirmLabel: string;
+  title?: string;
+  disabled?: boolean;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), CONFIRM_DISARM_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  return (
+    <button
+      type="button"
+      class={"btn" + (armed ? " is-danger" : "")}
+      title={armed ? undefined : title}
+      disabled={disabled}
+      onClick={() => {
+        if (!armed) {
+          setArmed(true);
+          return;
+        }
+        setArmed(false);
+        onConfirm();
+      }}
+    >
+      {armed ? confirmLabel : label}
+    </button>
+  );
+}
 
 export function EvalsView({ agentName }: { agentName: string }) {
   const evals = useAgentEvals(agentName);
@@ -125,28 +174,20 @@ function SetCard({
           <span class="pill pill-accent">{set.requirements} req</span>
         </button>
         <div class="btn-group">
-          <button
-            type="button"
-            class="btn"
+          <ConfirmButton
+            label="Unlink"
+            confirmLabel="Confirm unlink?"
             title="Remove from this agent (keeps the set)"
             disabled={unlink.isPending}
-            onClick={() => unlink.mutate(set.ref_id)}
-          >
-            Unlink
-          </button>
-          <button
-            type="button"
-            class="btn"
+            onConfirm={() => unlink.mutate(set.ref_id)}
+          />
+          <ConfirmButton
+            label="Delete"
+            confirmLabel="Confirm delete?"
             title="Delete the eval set entirely"
             disabled={del.isPending}
-            onClick={() => {
-              if (confirm(`Delete eval set "${set.name || set.ref_id}"?`)) {
-                del.mutate(set.ref_id);
-              }
-            }}
-          >
-            Delete
-          </button>
+            onConfirm={() => del.mutate(set.ref_id)}
+          />
         </div>
       </div>
       {del.isError ? (
@@ -245,14 +286,13 @@ function RequirementRow({
           >
             {run.isPending ? "Running…" : "Run"}
           </button>
-          <button
-            type="button"
-            class="btn"
+          <ConfirmButton
+            label="Delete"
+            confirmLabel="Confirm delete?"
+            title="Delete this requirement"
             disabled={del.isPending}
-            onClick={() => del.mutate(req.ref_id)}
-          >
-            Delete
-          </button>
+            onConfirm={() => del.mutate(req.ref_id)}
+          />
         </div>
       </div>
       {req.description ? (

@@ -263,6 +263,14 @@ table.table {
 .btn.is-primary:disabled:hover {
   background: var(--accent);
 }
+/* Armed state of the two-step destructive confirm (see EvalsView). */
+.btn.is-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn.is-danger:hover {
+  background: var(--surface-2);
+}
 .btn:disabled:hover {
   background: var(--surface-2);
 }
