@@ -197,7 +197,7 @@ Rules:
   stakgraph_map: "Trace relationships from a node in the code graph. Use direction 'up' for callers and 'down' for callees.",
   stakgraph_code:
     "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
-  jarvis: '', // virtual toggle: gates registration of get_ontology + graph_search tools.
+  jarvis: '', // deprecated: Jarvis tools now auto-register whenever JARVIS_URL is set.
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
   str_replace_based_edit_tool:
@@ -623,8 +623,8 @@ export async function get_tools(
     );
   }
 
-  // Conditionally register Jarvis ontology tools (gated by JARVIS_URL + toolsConfig.jarvis)
-  registerJarvisTools(allTools, toolsConfig?.jarvis ? true : false);
+  // Register Jarvis knowledge-graph tools (gated only by JARVIS_URL being set)
+  registerJarvisTools(allTools);
 
   // Register sub-agent tools (remote agent delegation)
   if (subAgents && subAgents.length > 0) {
