@@ -21,7 +21,12 @@ import (
 //     Hive round-trip. Eval sets surface under an agent via the
 //     gateway-owned HiveAgent-[:HAS_EVAL_SET]->EvalSet edge.
 //   - The HAS_EVAL_SET edge is written directly (edge-only, both
-//     endpoints already exist — no Jarvis node schema involved).
+//     endpoints already exist — no Jarvis node schema involved). It is
+//     ALSO auto-derived on every agent-evals read from the `agent`
+//     property Hive stamps on each captured EvalTrigger — sets created
+//     from the Hive dashboard show up here without hand-linking. An
+//     operator's explicit unlink writes an UNLINKED_EVAL_SET tombstone
+//     so derivation doesn't undo it; an explicit re-link clears it.
 //   - NODE mutations (create/update/delete a set or requirement) and
 //     RUNs are delegated to Hive, which owns the Jarvis write path and
 //     the Stakwork run orchestration.
@@ -158,21 +163,48 @@ func (h *evalHandlers) listForAgent(w http.ResponseWriter, r *http.Request, agen
 	if !h.graphReady(w) {
 		return
 	}
-	res, err := h.graph.Query(r.Context(), fmt.Sprintf(
-		"MATCH (a:%[1]s {name: $name})-[:%[2]s]->(es:%[3]s) "+
-			"RETURN es.ref_id, es.name, es.description, "+
-			"COUNT { (es)-[:%[4]s]->(:%[5]s) } AS reqs "+
-			"ORDER BY coalesce(es.name, es.ref_id)",
-		graphclient.LabelAgent, graphclient.RelHasEvalSet, graphclient.LabelEvalSet,
-		graphclient.RelHasRequirement, graphclient.LabelEvalRequirement,
-	), map[string]any{"name": agent})
-	if err != nil {
+	p := map[string]any{"name": agent}
+	// Statement 1 derives HAS_EVAL_SET edges before the read: a set
+	// whose triggers name this agent (EvalTrigger.agent — stamped at
+	// capture time by Hive) belongs on this agent's tab without anyone
+	// hand-linking it. MERGE keeps it idempotent; the UNLINKED_EVAL_SET
+	// tombstone keeps an operator's explicit unlink from being undone
+	// here. Same round-trip as the read, so the tab is always fresh —
+	// no dependency on catalog-push timing.
+	results, err := h.graph.Run(r.Context(),
+		graphclient.Statement{
+			Statement: fmt.Sprintf(
+				"MATCH (a:%[1]s {name: $name}) "+
+					"MATCH (es:%[2]s)-[:%[3]s]->(:%[4]s)-[:%[5]s]->(:%[6]s {agent: $name}) "+
+					"WHERE NOT (a)-[:%[7]s]->(es) "+
+					"WITH DISTINCT a, es "+
+					"MERGE (a)-[:%[8]s]->(es)",
+				graphclient.LabelAgent, graphclient.LabelEvalSet,
+				graphclient.RelHasRequirement, graphclient.LabelEvalRequirement,
+				graphclient.RelHasTrigger, graphclient.LabelEvalTrigger,
+				graphclient.RelUnlinkedEvalSet, graphclient.RelHasEvalSet,
+			),
+			Parameters: p,
+		},
+		graphclient.Statement{
+			Statement: fmt.Sprintf(
+				"MATCH (a:%[1]s {name: $name})-[:%[2]s]->(es:%[3]s) "+
+					"RETURN es.ref_id, es.name, es.description, "+
+					"COUNT { (es)-[:%[4]s]->(:%[5]s) } AS reqs "+
+					"ORDER BY coalesce(es.name, es.ref_id)",
+				graphclient.LabelAgent, graphclient.RelHasEvalSet, graphclient.LabelEvalSet,
+				graphclient.RelHasRequirement, graphclient.LabelEvalRequirement,
+			),
+			Parameters: p,
+		},
+	)
+	if err != nil || len(results) < 2 {
 		pluginlog.Errf("adminapi: evals listForAgent agent=%s: %v", agent, err)
 		writeError(w, http.StatusBadGateway, "catalog_read_failed", "neo4j read failed")
 		return
 	}
 	out := AgentEvalsResponse{Agent: agent, Sets: []EvalSetSummary{}}
-	for _, row := range res.Data {
+	for _, row := range results[1].Data {
 		out.Sets = append(out.Sets, EvalSetSummary{
 			RefID:        rowString(at(row.Row, 0)),
 			Name:         rowString(at(row.Row, 1)),
@@ -233,13 +265,17 @@ func (h *evalHandlers) createOrLinkForAgent(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, evalRefResponse{RefID: created.RefID})
 }
 
-// linkEdge MERGEs HiveAgent-[:HAS_EVAL_SET]->EvalSet. No-op (0 rows,
-// no error) if either endpoint is missing.
+// linkEdge MERGEs HiveAgent-[:HAS_EVAL_SET]->EvalSet and clears any
+// UNLINKED_EVAL_SET tombstone — an explicit link is the operator
+// overriding their earlier unlink, so trigger-derived re-linking may
+// resume too. No-op (0 rows, no error) if either endpoint is missing.
 func (h *evalHandlers) linkEdge(ctx context.Context, agent, setID string) error {
 	_, err := h.graph.Query(ctx, fmt.Sprintf(
 		"MATCH (a:%[1]s {name: $name}) MATCH (es:%[2]s {ref_id: $ref}) "+
-			"MERGE (a)-[:%[3]s]->(es)",
-		graphclient.LabelAgent, graphclient.LabelEvalSet, graphclient.RelHasEvalSet,
+			"MERGE (a)-[:%[3]s]->(es) "+
+			"WITH a, es OPTIONAL MATCH (a)-[u:%[4]s]->(es) DELETE u",
+		graphclient.LabelAgent, graphclient.LabelEvalSet,
+		graphclient.RelHasEvalSet, graphclient.RelUnlinkedEvalSet,
 	), map[string]any{"name": agent, "ref": setID})
 	return err
 }
@@ -248,9 +284,16 @@ func (h *evalHandlers) unlinkFromAgent(w http.ResponseWriter, r *http.Request, a
 	if !h.graphReady(w) {
 		return
 	}
+	// Delete the link AND leave a tombstone: listForAgent re-derives
+	// HAS_EVAL_SET from EvalTrigger.agent on every read, so without the
+	// tombstone a set with captured triggers would reappear on the next
+	// load. Tombstone first (MERGE on the nodes), then edge delete.
 	_, err := h.graph.Query(r.Context(), fmt.Sprintf(
-		"MATCH (a:%[1]s {name: $name})-[e:%[2]s]->(:%[3]s {ref_id: $ref}) DELETE e",
-		graphclient.LabelAgent, graphclient.RelHasEvalSet, graphclient.LabelEvalSet,
+		"MATCH (a:%[1]s {name: $name}) MATCH (es:%[2]s {ref_id: $ref}) "+
+			"MERGE (a)-[:%[3]s]->(es) "+
+			"WITH a, es OPTIONAL MATCH (a)-[e:%[4]s]->(es) DELETE e",
+		graphclient.LabelAgent, graphclient.LabelEvalSet,
+		graphclient.RelUnlinkedEvalSet, graphclient.RelHasEvalSet,
 	), map[string]any{"name": agent, "ref": setID})
 	if err != nil {
 		pluginlog.Errf("adminapi: evals unlink agent=%s set=%s: %v", agent, setID, err)
@@ -441,13 +484,14 @@ func (h *evalHandlers) updateSet(w http.ResponseWriter, r *http.Request, setID s
 }
 
 func (h *evalHandlers) deleteSet(w http.ResponseWriter, r *http.Request, setID string) {
-	// Drop the gateway-owned agent links first (best-effort — Jarvis's
-	// node delete is DETACH, but clearing here keeps the graph tidy even
-	// if the Hive call fails midway).
+	// Drop the gateway-owned agent links and unlink tombstones first
+	// (best-effort — Jarvis's node delete is DETACH, but clearing here
+	// keeps the graph tidy even if the Hive call fails midway).
 	if h.graph != nil {
 		if _, err := h.graph.Query(r.Context(), fmt.Sprintf(
-			"MATCH (:%[1]s)-[e:%[2]s]->(:%[3]s {ref_id: $ref}) DELETE e",
-			graphclient.LabelAgent, graphclient.RelHasEvalSet, graphclient.LabelEvalSet,
+			"MATCH (:%[1]s)-[e:%[2]s|%[3]s]->(:%[4]s {ref_id: $ref}) DELETE e",
+			graphclient.LabelAgent, graphclient.RelHasEvalSet,
+			graphclient.RelUnlinkedEvalSet, graphclient.LabelEvalSet,
 		), map[string]any{"ref": setID}); err != nil {
 			pluginlog.Warnf("adminapi: evals deleteSet unlink set=%s: %v", setID, err)
 		}

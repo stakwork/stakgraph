@@ -51,6 +51,14 @@ const (
 	RelHasTrigger     = "HAS_TRIGGER"
 	RelHasOutput      = "HAS_OUTPUT"
 	RelAttributedTo   = "ATTRIBUTED_TO" // EvalTrigger -> HiveAgent
+
+	// UNLINKED_EVAL_SET is the tombstone for an operator's explicit
+	// unlink. HAS_EVAL_SET edges are auto-derived from EvalTrigger.agent
+	// on every agent-evals read, so a bare edge delete would just get
+	// re-derived on the next load; the tombstone records "the operator
+	// said no" and blocks re-derivation until an explicit re-link (or
+	// set deletion) clears it. Gateway-owned, like HAS_EVAL_SET.
+	RelUnlinkedEvalSet = "UNLINKED_EVAL_SET" // HiveAgent -> EvalSet (gateway-owned)
 )
 
 // SchemaStatements are the constraint/index DDL the catalog needs.
