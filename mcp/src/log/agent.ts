@@ -15,6 +15,8 @@ import {
   appendSessionEnd,
   appendStepMeta,
   sessionExists,
+  saveSessionConfig,
+  saveSessionMetadata,
   SessionConfig,
   StepMeta,
 } from "../repo/session.js";
@@ -65,6 +67,8 @@ export interface LogAgentOptions {
   headers?: Record<string, string>;
   /** Abort signal to cancel the in-flight run (and forward into tools). */
   abortSignal?: AbortSignal;
+  /** Optional caller-supplied metadata persisted as a sidecar at session-create time. */
+  _metadata?: unknown;
 }
 
 export async function log_agent_context(
@@ -129,6 +133,24 @@ export async function log_agent_context(
       previousMessages = loadSessionMessages(sessionId);
     } else {
       sessionId = createNewSession(opts.sessionId, SYSTEM, opts.source);
+      // systemOverride carries the fixed SYSTEM prompt (not a caller override) —
+      // shape aligns with repo-agent's SessionInitConfig per contract requirement.
+      saveSessionConfig(sessionId, {
+        model: modelId,
+        provider,
+        systemOverride: SYSTEM,
+        sessionConfig: opts.sessionConfig,
+        source: opts.source,
+        temperature: 0, // required field on SessionInitConfig — must always be set
+        tools: Object.fromEntries(
+          Object.entries(tools).map(([name, t]) => [name, (t as any).description ?? ""])
+        ),
+        providerConfig: getProviderOptions(provider, undefined, modelId) as any,
+        baseUrl: opts.baseUrl,
+      });
+      if (opts._metadata !== undefined) {
+        saveSessionMetadata(sessionId, opts._metadata);
+      }
     }
     turnIndex = previousMessages.filter((m) => m.role === "user").length + 2;
   }

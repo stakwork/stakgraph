@@ -62,6 +62,17 @@ export async function logs_agent(req: Request, res: Response) {
   const logGroups = req.body.logGroups as string[] | undefined;
   const poolName = req.body.poolName as string | undefined;
   const headers = normalizeHeaders(req.body.headers);
+  const _metadataRaw = req.body._metadata;
+  let _metadata: unknown = undefined;
+  if (_metadataRaw !== undefined) {
+    const serialized = JSON.stringify(_metadataRaw);
+    const METADATA_SIZE_CAP = 64 * 1024; // 64KB
+    if (serialized.length > METADATA_SIZE_CAP) {
+      res.status(400).json({ error: "_metadata exceeds maximum allowed size of 64KB" });
+      return;
+    }
+    _metadata = _metadataRaw;
+  }
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -186,7 +197,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent", abortController);
 
   try {
-    log_agent_context(finalPrompt, { modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers, abortSignal: abortController.signal })
+    log_agent_context(finalPrompt, { modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent", headers, abortSignal: abortController.signal, _metadata })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
