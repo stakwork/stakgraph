@@ -248,6 +248,10 @@ table.table {
 .btn:hover {
   background: var(--surface);
 }
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .btn.is-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -255,6 +259,20 @@ table.table {
 }
 .btn.is-primary:hover {
   background: var(--accent-strong);
+}
+.btn.is-primary:disabled:hover {
+  background: var(--accent);
+}
+/* Armed state of the two-step destructive confirm (see EvalsView). */
+.btn.is-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn.is-danger:hover {
+  background: var(--surface-2);
+}
+.btn:disabled:hover {
+  background: var(--surface-2);
 }
 .btn-group {
   display: inline-flex;
