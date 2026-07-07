@@ -13,29 +13,90 @@ async function jarvisFetch(url: string, headers: Record<string, string>) {
   };
 }
 
+/** Max neighbors returned in a single hop — keeps tool output within budget. */
+const KG_NEIGHBOR_CAP = 50;
+
+/** Max length of a derived label so a single row doesn't flood the context. */
+const LABEL_MAX = 160;
+
 /**
- * Registers Jarvis ontology tools (`get_ontology` and `graph_search`) into the
- * given `allTools` map when both `JARVIS_URL` is set in the environment and
- * the caller has enabled them via `toolsConfig.jarvis`.
- *
- * Note: `jarvis` is a virtual toggle in `ToolsConfig` — it is not itself a
- * registered tool. It only gates the registration of the two real tools below.
+ * Node types that must never surface in neighbor expansion — internal /
+ * low-signal types (hint nodes, agent memory, media clips, transcript turns).
+ * Excluded server-side by Jarvis via `exclude_node_type` before LIMIT.
+ */
+const EXCLUDED_NODE_TYPES = ["Hint", "Memory", "Clip", "Turn"];
+
+/** Encode an array as a Python list literal, e.g. `["MODIFIES","CITES"]`. */
+function toPythonListLiteral(arr: string[]): string {
+  return `[${arr.map((s) => `"${s}"`).join(",")}]`;
+}
+
+/**
+ * Jarvis nodes keep their human label under wildly different keys depending on
+ * node type. Try a generous ordered list of candidates — short identifier-like
+ * fields first, long descriptive fields as a truncated last resort. Returns ""
+ * only when nothing usable exists.
+ */
+function deriveNodeName(node: any, properties: Record<string, any>): string {
+  const candidates = [
+    node?.name,
+    properties.name,
+    properties.title,
+    properties.label,
+    properties.display_name,
+    properties.displayName,
+    properties.identifier,
+    properties.file_name,
+    properties.fileName,
+    properties.file,
+    properties.path,
+    properties.symbol,
+    properties.function_name,
+    properties.class_name,
+    properties.method_name,
+    properties.operation_id,
+    properties.endpoint,
+    properties.route,
+    properties.url,
+    properties.entity,
+    properties.key,
+    properties.slug,
+    properties.episode_title,
+    properties.show_title,
+    properties.username,
+    properties.email,
+    properties.summary,
+    properties.description,
+    properties.text,
+    properties.content,
+    properties.body,
+    properties.docs,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) {
+      const trimmed = c.trim();
+      return trimmed.length > LABEL_MAX ? trimmed.slice(0, LABEL_MAX) : trimmed;
+    }
+  }
+  return "";
+}
+
+/**
+ * Registers Jarvis knowledge-graph tools into the given `allTools` map whenever
+ * `JARVIS_URL` is set in the environment. Registers four tools:
+ *   - `get_ontology`    — list all available node types in the ontology
+ *   - `graph_search`    — keyword search across ontology nodes
+ *   - `graph_get`       — resolve a single ref_id to its full node content
+ *   - `graph_neighbors` — return all adjacent nodes reachable in one hop
  */
 export function registerJarvisTools(
   allTools: Record<string, Tool<any, any>>,
-  jarvisEnabled: boolean | undefined,
 ): void {
   const jarvisUrl = process.env.JARVIS_URL;
-  if (!jarvisUrl || !jarvisEnabled) {
-    if (!jarvisUrl) {
-      console.error(
-        "[repo agent] JARVIS_URL is not set — skipping graph_search + get_ontology tools",
-      );
-    } else {
-      console.log(
-        "===> jarvis not enabled in toolsConfig, skipping graph_search + get_ontology tools",
-      );
-    }
+  if (!jarvisUrl) {
+    console.error(
+      "[repo agent] JARVIS_URL is not set — skipping Jarvis knowledge-graph tools",
+    );
     return;
   }
 
@@ -147,5 +208,143 @@ export function registerJarvisTools(
     },
   });
 
-  console.log("===> registered graph_search + get_ontology tools");
+  allTools.graph_get = tool({
+    description:
+      "Resolve a single node in the Jarvis knowledge graph to its full content by ref_id. " +
+      "Use the ref_id from graph_search or graph_neighbors results. " +
+      "Returns the node's ref_id, node_type, derived name, and properties.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the node to resolve."),
+    }),
+    execute: async ({ ref_id }: { ref_id: string }) => {
+      // limit=1 keeps Jarvis from materializing the node's whole neighborhood
+      // (which can OOM Neo4j for hub nodes) — we only read the node itself.
+      const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
+      console.log(`[graph_get] fetching ${url}`);
+      try {
+        const resp = await jarvisFetch(url, jarvisHeaders);
+        if (!resp.ok) {
+          const text = await resp.text();
+          return `HTTP ${resp.status}: ${text}`;
+        }
+        const data = (await resp.json()) as any;
+        // Deployed Jarvis wraps the node in `{ nodes, edges, status }`; some
+        // builds return the node directly. Handle both shapes.
+        const raw = Array.isArray(data?.nodes)
+          ? data.nodes.find((n: any) => n.ref_id === ref_id) ?? data.nodes[0]
+          : data;
+        if (!raw || !raw.ref_id) return `node not found: ${ref_id}`;
+        const properties = (raw.properties ?? {}) as Record<string, any>;
+        return JSON.stringify({
+          ref_id: raw.ref_id,
+          node_type: raw.node_type,
+          name: deriveNodeName(raw, properties),
+          properties: raw.properties,
+        });
+      } catch (err: any) {
+        return `graph_get failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.graph_neighbors = tool({
+    description:
+      "Return all nodes adjacent (one hop) to a node in the Jarvis knowledge graph, " +
+      "with edge_type and direction. Use the ref_id from graph_search or graph_get. " +
+      "Optionally filter by edge_type and/or node_type. " +
+      "Use this to traverse relationships between people, topics, episodes, code, etc.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the node to expand."),
+      edge_type: z
+        .array(z.string())
+        .optional()
+        .describe('Filter edges by type, e.g. ["MODIFIES", "CITES"].'),
+      node_type: z
+        .array(z.string())
+        .optional()
+        .describe('Filter neighbor nodes by type, e.g. ["File", "Function"].'),
+    }),
+    execute: async ({
+      ref_id,
+      edge_type,
+      node_type,
+    }: {
+      ref_id: string;
+      edge_type?: string[];
+      node_type?: string[];
+    }) => {
+      // `limit` bounds the Cypher traversal so a hub node doesn't OOM Neo4j.
+      // `sort_by=importance` orders edges before LIMIT so the cap keeps the most
+      // important neighbors. `canonicalize=false` matches the real Neo4j label.
+      const params = new URLSearchParams({
+        expand: "edges",
+        limit: String(KG_NEIGHBOR_CAP),
+        sort_by: "importance",
+        canonicalize: "false",
+        exclude_node_type: toPythonListLiteral(EXCLUDED_NODE_TYPES),
+      });
+      if (edge_type && edge_type.length > 0) {
+        params.set("edge_type", toPythonListLiteral(edge_type));
+      }
+      if (node_type && node_type.length > 0) {
+        params.set("node_type", toPythonListLiteral(node_type));
+      }
+      const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?${params.toString()}`;
+      console.log(
+        `[graph_neighbors] ref_id=${ref_id} edge_type=${edge_type?.join(",") ?? "*"} node_type=${node_type?.join(",") ?? "*"}`,
+      );
+      try {
+        const resp = await jarvisFetch(url, jarvisHeaders);
+        if (!resp.ok) {
+          const text = await resp.text();
+          return `HTTP ${resp.status}: ${text}`;
+        }
+        const data = (await resp.json()) as any;
+
+        // Look up node details by ref_id, excluding the queried node itself, so
+        // each neighbor carries a human-readable label alongside its ref_id.
+        const nodeMap = new Map<string, { node_type: string; name: string }>();
+        for (const node of data.nodes ?? []) {
+          if (node.ref_id !== ref_id) {
+            nodeMap.set(node.ref_id, {
+              node_type: node.node_type,
+              name: deriveNodeName(node, (node.properties ?? {}) as Record<string, any>),
+            });
+          }
+        }
+
+        const neighbors: any[] = [];
+        const seen = new Set<string>();
+        for (const edge of data.edges ?? []) {
+          const direction = edge.source === ref_id ? "forward" : "reverse";
+          const neighborRefId = direction === "forward" ? edge.target : edge.source;
+          // Self-loop guard / source dedup.
+          if (neighborRefId === ref_id) continue;
+          // A node can be reached via multiple parallel edges — keep the first.
+          if (seen.has(neighborRefId)) continue;
+          seen.add(neighborRefId);
+
+          const detail = nodeMap.get(neighborRefId);
+          const importance = edge.properties?.importance as number | undefined;
+          neighbors.push({
+            ref_id: neighborRefId,
+            node_type: detail?.node_type ?? "unknown",
+            name: detail?.name ?? "",
+            edge_type: edge.edge_type,
+            direction,
+            ...(importance !== undefined ? { importance } : {}),
+          });
+          if (neighbors.length >= KG_NEIGHBOR_CAP) break;
+        }
+
+        return JSON.stringify(neighbors);
+      } catch (err: any) {
+        return `graph_neighbors failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  console.log(
+    "===> registered graph_search + get_ontology + graph_get + graph_neighbors tools",
+  );
 }
