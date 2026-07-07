@@ -63,7 +63,19 @@ function parseGraphAgentBody(req: Request) {
     );
   }
 
-  return { prompt, modelName, apiKey, baseUrl, sessionId, sessionConfig, stream, maxTurns, authToken, headers, context };
+  // Parse optional _metadata with a 64 KB size cap to prevent unbounded writes to SESSIONS_DIR.
+  const MAX_METADATA_BYTES = 64 * 1024; // 64 KB
+  let _metadata: unknown = undefined;
+  if (req.body._metadata !== undefined) {
+    const serialized = JSON.stringify(req.body._metadata);
+    if (serialized.length > MAX_METADATA_BYTES) {
+      // Return sentinel so the handler can reject with 400.
+      return { prompt, modelName, apiKey, baseUrl, sessionId, sessionConfig, stream, maxTurns, authToken, headers, context, _metadata: null as unknown, _metadataOversized: true };
+    }
+    _metadata = req.body._metadata;
+  }
+
+  return { prompt, modelName, apiKey, baseUrl, sessionId, sessionConfig, stream, maxTurns, authToken, headers, context, _metadata, _metadataOversized: false };
 }
 
 // ── POST /graph_agent ────────────────────────────────────────────────────
@@ -95,6 +107,11 @@ export async function graph_agent(req: Request, res: Response) {
     return;
   }
 
+  if (body._metadataOversized) {
+    res.status(400).json({ error: "_metadata exceeds maximum allowed size (64 KB)" });
+    return;
+  }
+
   // ── Streaming path: direct SSE response ─────────────────────────────
   if (body.stream) {
     const opId = startTracking("graph_agent_stream");
@@ -118,6 +135,7 @@ export async function graph_agent(req: Request, res: Response) {
         abortSignal: abortController.signal,
         headers: body.headers,
         context: body.context,
+        _metadata: body._metadata,
       });
 
       const streamResponse = streamResult.toUIMessageStreamResponse();
@@ -218,6 +236,7 @@ export async function graph_agent(req: Request, res: Response) {
       abortSignal: abortController.signal,
       headers: body.headers,
       context: body.context,
+      _metadata: body._metadata,
       onStepEvent: (content) => {
         const events = filterStepContent(content);
         for (const ev of events) bus.emit(ev);
