@@ -21,6 +21,8 @@ import {
   appendMessages,
   appendStepMeta,
   sessionExists,
+  saveSessionConfig,
+  saveSessionMetadata,
   SessionConfig,
   StepMeta,
 } from "../repo/session.js";
@@ -52,6 +54,8 @@ export interface GraphAgentOptions {
   headers?: Record<string, string>;
   /** Optional context to scope the agent to a specific node and its neighbourhood. */
   context?: { selectedRefId: string; nodeType: string; title?: string };
+  /** Optional caller-supplied metadata persisted as a sidecar at session-create time only. */
+  _metadata?: unknown;
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -150,6 +154,27 @@ async function prepareGraphAgent(
     } else {
       sessionId = createSession(inputSessionId, systemPrompt, "graph_agent");
       hasSystemTurn = true;
+      // Persist config sidecar at session-create time so GET /repo/agent/session returns non-null config.
+      // Note: providerConfig is descriptive only — graph_agent's ToolLoopAgent does not pass providerOptions at runtime.
+      saveSessionConfig(sessionId, {
+        model: modelId,
+        provider,
+        // systemOverride here carries the resolved system prompt (context-aware or default).
+        systemOverride: systemPrompt,
+        sessionConfig: opts.sessionConfig,
+        source: "graph_agent",
+        maxTurns: opts.maxTurns,
+        temperature: 0, // required field on SessionInitConfig — must always be set
+        tools: Object.fromEntries(
+          Object.entries(tools).map(([name, t]) => [name, (t as any).description ?? ""])
+        ),
+        providerConfig: getProviderOptions(provider as any, undefined, modelId),
+        baseUrl: opts.baseUrl,
+      });
+      // Persist optional caller-supplied metadata only at create time (not on resume).
+      if (opts._metadata !== undefined) {
+        saveSessionMetadata(sessionId, opts._metadata);
+      }
     }
   }
 
