@@ -226,7 +226,16 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript => vec!["--stdio".to_string()],
+            Self::Typescript => {
+                let mut args = vec!["--stdio".to_string()];
+                if let Ok(tsserver_path) = std::env::var("LSP_TSSERVER_PATH") {
+                    if !tsserver_path.is_empty() {
+                        args.push("--tsserver-path".to_string());
+                        args.push(tsserver_path);
+                    }
+                }
+                args
+            }
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -266,7 +275,7 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript => vec!["npm install --force"],
+            Self::Typescript => vec!["npm install --legacy-peer-deps"],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),

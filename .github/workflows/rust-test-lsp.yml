@@ -49,6 +49,7 @@ jobs:
           npm install -g typescript typescript-language-server
           export PATH="$(npm bin -g):$PATH"
           echo "$(npm bin -g)" >> $GITHUB_PATH
+          echo "LSP_TSSERVER_PATH=$(npm root -g)/typescript/lib/tsserver.js" >> $GITHUB_ENV
 
       - name: Install dependencies for TypeScript test projects
         run: |
