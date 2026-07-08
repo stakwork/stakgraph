@@ -241,7 +241,7 @@ export async function repo_agent(req: Request, res: Response) {
   const isExistingSession = body.sessionId && sessionExists(body.sessionId);
   const promptInput: string | ModelMessage[] = transparent
     ? body.messages!
-    : (isExistingSession || body.ignoreRepoInfo)
+    : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph")
       ? body.prompt
       : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   // ── Streaming path: direct SSE response ──────────────────────────────
