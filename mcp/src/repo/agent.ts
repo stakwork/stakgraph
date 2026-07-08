@@ -542,6 +542,7 @@ Apply the guidance from each skill throughout your response.`;
         model: modelId,
         provider,
         systemOverride: opts.systemOverride,
+        mode: opts.mode,
         toolsConfig: opts.toolsConfig,
         schema: opts.schema,
         sessionConfig: opts.sessionConfig,
