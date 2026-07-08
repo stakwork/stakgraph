@@ -141,6 +141,12 @@ jobs:
           which solargraph || echo "solargraph not found"
           which ruby-lsp || echo "ruby-lsp not found"
 
+      # -------------------- Install TypeScript deps for test fixtures --------------------
+      - name: Install npm deps for nextjs test fixture
+        run: |
+          cd ast/src/testing/nextjs
+          npm install
+
       # -------------------- Rust full test with LSP --------------------
       - name: Run rust library tests with LSP
         run: USE_LSP=true cargo test -p ast --lib -- --test-threads=1
