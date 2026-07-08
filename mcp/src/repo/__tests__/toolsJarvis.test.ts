@@ -79,26 +79,34 @@ test.describe("buildOntologyPayload", () => {
     expect(orphan?.domain).toBeNull();
   });
 
-  test("edges are deduped compact triples sorted by edge_type", () => {
+  test("edges are omitted by default", () => {
     const payload = buildOntologyPayload(fixtureSchemaData);
+    expect(payload.edges).toBeUndefined();
+  });
+
+  test("edges are deduped compact triples sorted by edge_type when includeEdges=true", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
     // KNOWS appears twice in fixture — should appear once
-    const knowsEdges = payload.edges.filter((e) => e.edge_type === "KNOWS");
+    const knowsEdges = payload.edges!.filter((e) => e.edge_type === "KNOWS");
     expect(knowsEdges).toHaveLength(1);
 
     // Only compact fields: edge_type, source_type, target_type
-    for (const edge of payload.edges) {
+    for (const edge of payload.edges!) {
       expect(Object.keys(edge)).toEqual(["edge_type", "source_type", "target_type"]);
     }
 
     // Sorted by edge_type: ABOUT, AUTHORED, KNOWS
-    expect(payload.edges.map((e) => e.edge_type)).toEqual(["ABOUT", "AUTHORED", "KNOWS"]);
+    expect(payload.edges!.map((e) => e.edge_type)).toEqual(["ABOUT", "AUTHORED", "KNOWS"]);
   });
 
   test("handles missing schemas and edges gracefully", () => {
     const payload = buildOntologyPayload({});
     expect(payload.domains).toEqual([]);
     expect(payload.node_types).toEqual({});
-    expect(payload.edges).toEqual([]);
+    expect(payload.edges).toBeUndefined();
+
+    const withEdges = buildOntologyPayload({}, true);
+    expect(withEdges.edges).toEqual([]);
   });
 
   test("node types include description field", () => {
