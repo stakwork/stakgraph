@@ -96,7 +96,7 @@ export interface OntologyEdge {
 export interface OntologyPayload {
   domains: string[];
   node_types: Record<string, OntologyNodeType[]>;
-  edges: OntologyEdge[];
+  edges?: OntologyEdge[];
 }
 
 /**
@@ -107,9 +107,13 @@ export interface OntologyPayload {
  * - Lowercases the per-entry `domain` so it matches `graph_search`'s `domains` param.
  * - Groups node types by domain; null-domain types land in the `"ungrouped"` bucket.
  * - `domains` list is the distinct, non-null, lowercased, sorted set.
- * - Edges are deduped compact triples sorted by `edge_type`.
+ * - Edges are omitted by default (they dominate the payload); pass
+ *   `includeEdges` to append deduped compact triples sorted by `edge_type`.
  */
-export function buildOntologyPayload(schemaData: any): OntologyPayload {
+export function buildOntologyPayload(
+  schemaData: any,
+  includeEdges = false,
+): OntologyPayload {
   const schemas: any[] = schemaData?.schemas ?? [];
   const rawEdges: any[] = schemaData?.edges ?? [];
 
@@ -135,6 +139,10 @@ export function buildOntologyPayload(schemaData: any): OntologyPayload {
     const key = nt.domain ?? "ungrouped";
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(nt);
+  }
+
+  if (!includeEdges) {
+    return { domains, node_types: grouped };
   }
 
   // Build deduped compact edge triples sorted by edge_type
@@ -183,14 +191,26 @@ export function registerJarvisTools(
 
   allTools.get_ontology = tool({
     description:
-      "Fetch the full ontology of the Jarvis knowledge graph: node types (with their domain), " +
-      "relationship edges, and the canonical list of valid `domains`. " +
+      "Fetch the ontology of the Jarvis knowledge graph: node types (with their domain) " +
+      "and the canonical list of valid `domains`. " +
       "Call this once before graph_search to discover valid values for both the `type` and `domains` parameters. " +
-      "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`.",
-    inputSchema: z.object({}),
-    execute: async () => {
+      "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`. " +
+      "Relationship edges are omitted by default — graph_neighbors returns edge types live as you traverse. " +
+      "Set `include_edges` to also get the full relationship map (source_type -> target_type triples).",
+    inputSchema: z.object({
+      include_edges: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Include the full list of relationship edges (source_type/edge_type/target_type triples). " +
+          "Off by default — the edge list is large and graph_neighbors surfaces edge types live. " +
+          "Only enable when you need the complete relationship map up front."
+        ),
+    }),
+    execute: async ({ include_edges = false }: { include_edges?: boolean }) => {
       const url = `${jarvisUrl}/v2/schema`;
-      console.log(`[get_ontology] fetching ${url}`);
+      console.log(`[get_ontology] fetching ${url} include_edges=${include_edges}`);
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);
         if (!resp.ok) {
@@ -198,7 +218,7 @@ export function registerJarvisTools(
           return `HTTP ${resp.status}: ${text}`;
         }
         const data = (await resp.json()) as any;
-        return JSON.stringify(buildOntologyPayload(data));
+        return JSON.stringify(buildOntologyPayload(data, include_edges));
       } catch (err: any) {
         return `get_ontology failed: ${err?.message ?? String(err)}`;
       }
