@@ -47,8 +47,9 @@ jobs:
       - name: Install TypeScript and TypeScript LSP
         run: |
           npm install -g typescript typescript-language-server
-          export PATH="$(npm bin -g):$PATH"
-          echo "$(npm bin -g)" >> $GITHUB_PATH
+          NPM_GLOBAL_BIN="$(npm config get prefix)/bin"
+          export PATH="$NPM_GLOBAL_BIN:$PATH"
+          echo "$NPM_GLOBAL_BIN" >> $GITHUB_PATH
 
       - name: Verify TypeScript Installation
         run: |
