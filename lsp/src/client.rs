@@ -105,13 +105,15 @@ impl LspClient {
     }
     pub async fn init(&mut self) -> Result<InitializeResult> {
         debug!("LSP init... {:?}", self.root);
+        let root_uri = Url::from_file_path(&self.root).map_err(|_| {
+            Error::validation(format!("Invalid root path for LSP: {:?}", self.root))
+        })?;
         let ret = self
             .server
             .initialize(InitializeParams {
+                root_uri: Some(root_uri.clone()),
                 workspace_folders: Some(vec![WorkspaceFolder {
-                    uri: Url::from_file_path(&self.root).map_err(|_| {
-                        Error::validation(format!("Invalid root path for LSP: {:?}", self.root))
-                    })?,
+                    uri: root_uri,
                     name: "root".into(),
                 }]),
                 capabilities: ClientCapabilities {

@@ -226,7 +226,16 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript => vec!["--stdio".to_string()],
+            Self::Typescript => {
+                let mut args = vec!["--stdio".to_string()];
+                if let Ok(tsserver_path) = std::env::var("TSSERVER_PATH") {
+                    if !tsserver_path.is_empty() {
+                        args.push("--tsserver-path".to_string());
+                        args.push(tsserver_path);
+                    }
+                }
+                args
+            }
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),

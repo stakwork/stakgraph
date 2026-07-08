@@ -48,18 +48,14 @@ jobs:
         run: |
           npm install -g typescript typescript-language-server
           NPM_GLOBAL_BIN="$(npm config get prefix)/bin"
-          export PATH="$NPM_GLOBAL_BIN:$PATH"
+          NPM_GLOBAL_ROOT="$(npm root -g)"
           echo "$NPM_GLOBAL_BIN" >> $GITHUB_PATH
+          echo "TSSERVER_PATH=$NPM_GLOBAL_ROOT/typescript/bin/tsserver" >> $GITHUB_ENV
 
       - name: Verify TypeScript Installation
         run: |
           tsc --version
           typescript-language-server --version
-
-      - name: Install TypeScript in nextjs test fixture
-        run: |
-          cd ast/src/testing/nextjs
-          npm install --ignore-scripts
 
       # -------------------- Java / Kotlin --------------------
       - name: Install OpenJDK 17 and jq
