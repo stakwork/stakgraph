@@ -149,9 +149,9 @@ jobs:
       # -------------------- Install TypeScript deps for test fixtures --------------------
       - name: Install npm deps for TypeScript test fixtures
         run: |
-          cd ast/src/testing/nextjs && npm install
-          cd ../../testing/react && npm install
-          cd ../../testing/typescript && npm install
+          npm install --prefix ast/src/testing/nextjs
+          npm install --prefix ast/src/testing/react --legacy-peer-deps
+          npm install --prefix ast/src/testing/typescript
 
       # -------------------- Rust full test with LSP --------------------
       - name: Run rust library tests with LSP
