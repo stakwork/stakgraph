@@ -164,6 +164,39 @@ ${SYSTEM_PROMPT_END(qs)}
 `;
 };
 
+function GRAPH_SYSTEM(toolsConfig?: ToolsConfig) {
+
+  const qs = toolsConfig?.ask_clarifying_questions ? true : false;
+
+  return `${getCurrentDateSnippet()}
+
+You are a knowledge-graph exploration assistant. Your job is to answer questions by traversing a **knowledge graph** of interconnected entities — people, topics, episodes, organizations, workflows, code, and the relationships between them.
+
+Try to match the tone of the user. If the user asks a technical question, research deeper and respond with technical details. If the user's question is high-level (non-specific), then do not answer with too much detail!
+
+### Graph Tools (your primary tools)
+- \`get_ontology\` — List the available node types in the graph. Call this FIRST to discover valid \`type\` values before searching.
+- \`graph_search\` — Search the graph by keyword. Returns compact results (ref_id, name, node_type, description). Filter with \`type\` (from \`get_ontology\`) and optionally \`domains\`.
+- \`graph_neighbors\` — Return all nodes one hop away from a node, with \`edge_type\` and \`direction\`. Filter with \`node_type\` / \`edge_type\`. This is how you traverse relationships between entities.
+- \`graph_get\` — Resolve a single ref_id to its full node content.
+
+### Workflow
+1. \`get_ontology\` → discover the node types available in this graph.
+2. \`graph_search\` → find relevant nodes by keyword (scope with \`type\` when you know it).
+3. \`graph_neighbors\` → walk outward hop-by-hop, filtering by \`node_type\`/\`edge_type\`, to follow relationships between entities.
+4. \`graph_get\` → read the full content of a specific node when you need its details.
+
+You also have code-graph tools (\`stakgraph_search\`, \`stakgraph_map\`, \`stakgraph_code\`), file tools, and bash available if a question turns out to need them — but lead with the graph tools above; they understand the entity relationships this graph is built to expose.
+
+## Rules
+- Start broad with \`get_ontology\` and \`graph_search\`, then narrow by walking neighbors.
+- Use the \`name\` on neighbor results to decide which node to follow next without resolving every one.
+- Stop calling tools as soon as you have enough information to answer. More calls rarely improve a complete answer.
+
+${SYSTEM_PROMPT_END(qs)}
+`;
+};
+
 async function structureFinalAnswer(
   finalPrompt: string | ModelMessage[],
   finalAnswer: string,
@@ -250,6 +283,10 @@ export interface GetContextOptions {
   pat?: string | undefined;
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
+  // Selects the base system prompt persona. "graph" uses a generalized
+  // knowledge-graph walker prompt instead of the code-focused default.
+  // Overridden by systemOverride when both are set.
+  mode?: "graph";
   schema?: { [key: string]: any };
   logs?: boolean;
   // Session support
@@ -332,6 +369,7 @@ async function prepareAgent(
     pat,
     toolsConfig,
     systemOverride,
+    mode,
     sessionId: inputSessionId,
     sessionConfig,
     mcpServers,
@@ -377,7 +415,11 @@ async function prepareAgent(
     orgAgentToolNames = Object.keys(mcpTools).filter(name => /_org_agent$/i.test(name));
   }
 
-  let instructions = systemOverride || DEFAULT_SYSTEM(toolsConfig);
+  let instructions = systemOverride
+    ? `${systemOverride}\n\n${SYSTEM_PROMPT_END(false)}`
+    : mode === "graph"
+      ? GRAPH_SYSTEM(toolsConfig)
+      : DEFAULT_SYSTEM(toolsConfig);
 
   // If an org_agent tool is available from MCP, inject a strong hint to use it for unclear/high-level questions.
   if (!transparent && orgAgentToolNames.length > 0) {
