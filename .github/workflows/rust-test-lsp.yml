@@ -53,7 +53,7 @@ jobs:
       - name: Install dependencies for TypeScript test projects
         run: |
           cd ast/src/testing/nextjs && npm install
-          cd $GITHUB_WORKSPACE/ast/src/testing/react && npm install
+          cd $GITHUB_WORKSPACE/ast/src/testing/react && npm install --legacy-peer-deps
           cd $GITHUB_WORKSPACE/ast/src/testing/typescript && npm install
 
       - name: Verify TypeScript Installation
