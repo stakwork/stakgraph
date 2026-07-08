@@ -50,6 +50,12 @@ jobs:
           export PATH="$(npm bin -g):$PATH"
           echo "$(npm bin -g)" >> $GITHUB_PATH
 
+      - name: Install dependencies for TypeScript test projects
+        run: |
+          cd ast/src/testing/nextjs && npm install
+          cd $GITHUB_WORKSPACE/ast/src/testing/react && npm install
+          cd $GITHUB_WORKSPACE/ast/src/testing/typescript && npm install
+
       - name: Verify TypeScript Installation
         run: |
           tsc --version
