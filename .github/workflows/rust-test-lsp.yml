@@ -55,6 +55,11 @@ jobs:
           tsc --version
           typescript-language-server --version
 
+      - name: Install TypeScript in nextjs test fixture
+        run: |
+          cd ast/src/testing/nextjs
+          npm install --ignore-scripts
+
       # -------------------- Java / Kotlin --------------------
       - name: Install OpenJDK 17 and jq
         run: |
