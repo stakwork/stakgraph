@@ -142,6 +142,7 @@ function parseAgentBody(req: Request) {
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const mcpServers = req.body.mcpServers as McpServer[] | undefined;
   const systemOverride = req.body.systemOverride as string | undefined;
+  const mode = req.body.mode === "graph" ? "graph" as const : undefined;
   const skills = req.body.skills as SkillsConfig | undefined;
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
@@ -165,7 +166,7 @@ function parseAgentBody(req: Request) {
   return {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
-    systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
+    systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
     ignoreRepoInfo, attachments, _metadata,
   };
 }
@@ -272,6 +273,7 @@ export async function repo_agent(req: Request, res: Response) {
           mcpServers: body.mcpServers,
           repos: effectiveRepos,
           systemOverride: body.systemOverride,
+          mode: body.mode,
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
@@ -393,6 +395,7 @@ export async function repo_agent(req: Request, res: Response) {
           mcpServers: body.mcpServers,
           repos: effectiveRepos,
           systemOverride: body.systemOverride,
+          mode: body.mode,
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
