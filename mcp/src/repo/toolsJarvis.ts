@@ -81,6 +81,82 @@ function deriveNodeName(node: any, properties: Record<string, any>): string {
   return "";
 }
 
+export interface OntologyNodeType {
+  type: string;
+  domain: string | null;
+  description: string;
+}
+
+export interface OntologyEdge {
+  edge_type: string;
+  source_type: string;
+  target_type: string;
+}
+
+export interface OntologyPayload {
+  domains: string[];
+  node_types: Record<string, OntologyNodeType[]>;
+  edges: OntologyEdge[];
+}
+
+/**
+ * Pure transform: given the raw `/v2/schema` response (full mode), build the
+ * enriched ontology payload that `get_ontology` returns.
+ *
+ * - Filters out `type === "*"` and `is_deleted` schema entries.
+ * - Lowercases the per-entry `domain` so it matches `graph_search`'s `domains` param.
+ * - Groups node types by domain; null-domain types land in the `"ungrouped"` bucket.
+ * - `domains` list is the distinct, non-null, lowercased, sorted set.
+ * - Edges are deduped compact triples sorted by `edge_type`.
+ */
+export function buildOntologyPayload(schemaData: any): OntologyPayload {
+  const schemas: any[] = schemaData?.schemas ?? [];
+  const rawEdges: any[] = schemaData?.edges ?? [];
+
+  // Build node type list
+  const nodeTypes: OntologyNodeType[] = schemas
+    .filter((s: any) => s.type && s.type !== "*" && !s.is_deleted)
+    .map((s: any) => ({
+      type: s.type as string,
+      domain: s.domain ? (s.domain as string).toLowerCase() : null,
+      description: (s.description as string) ?? "",
+    }));
+
+  // Derive canonical domains list (distinct, non-null, sorted)
+  const domainsSet = new Set<string>();
+  for (const nt of nodeTypes) {
+    if (nt.domain !== null) domainsSet.add(nt.domain);
+  }
+  const domains = Array.from(domainsSet).sort();
+
+  // Group node types by domain (null → "ungrouped")
+  const grouped: Record<string, OntologyNodeType[]> = {};
+  for (const nt of nodeTypes) {
+    const key = nt.domain ?? "ungrouped";
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(nt);
+  }
+
+  // Build deduped compact edge triples sorted by edge_type
+  const edgeSeen = new Set<string>();
+  const edges: OntologyEdge[] = [];
+  for (const e of rawEdges) {
+    const triple: OntologyEdge = {
+      edge_type: e.edge_type as string,
+      source_type: e.source_type as string,
+      target_type: e.target_type as string,
+    };
+    const key = `${triple.edge_type}|${triple.source_type}|${triple.target_type}`;
+    if (!edgeSeen.has(key)) {
+      edgeSeen.add(key);
+      edges.push(triple);
+    }
+  }
+  edges.sort((a, b) => a.edge_type.localeCompare(b.edge_type));
+
+  return { domains, node_types: grouped, edges };
+}
+
 /**
  * Registers Jarvis knowledge-graph tools into the given `allTools` map whenever
  * `JARVIS_URL` is set in the environment. Registers four tools:
@@ -107,11 +183,13 @@ export function registerJarvisTools(
 
   allTools.get_ontology = tool({
     description:
-      "Fetch the list of all available node types in the Jarvis knowledge graph ontology. " +
-      "Call this before graph_search to discover valid values for the `type` parameter.",
+      "Fetch the full ontology of the Jarvis knowledge graph: node types (with their domain), " +
+      "relationship edges, and the canonical list of valid `domains`. " +
+      "Call this once before graph_search to discover valid values for both the `type` and `domains` parameters. " +
+      "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`.",
     inputSchema: z.object({}),
     execute: async () => {
-      const url = `${jarvisUrl}/v2/schema?concise=true`;
+      const url = `${jarvisUrl}/v2/schema`;
       console.log(`[get_ontology] fetching ${url}`);
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);
@@ -120,13 +198,7 @@ export function registerJarvisTools(
           return `HTTP ${resp.status}: ${text}`;
         }
         const data = (await resp.json()) as any;
-        const schemas: any[] = data.schemas ?? [];
-        return JSON.stringify(
-          schemas
-            .filter((s: any) => s.type && !s.is_deleted)
-            .map((s: any) => s.type)
-            .sort()
-        );
+        return JSON.stringify(buildOntologyPayload(data));
       } catch (err: any) {
         return `get_ontology failed: ${err?.message ?? String(err)}`;
       }
@@ -158,7 +230,7 @@ export function registerJarvisTools(
         .describe(
           "Comma-separated domain filter, e.g. 'entity' or 'content,entity'. " +
           "Not required — the search works without it. " +
-          "Valid values: entity, content, knowledgeartifact, workflow, codeartifact."
+          "Call `get_ontology` to see valid domains."
         ),
     }),
     execute: async ({
