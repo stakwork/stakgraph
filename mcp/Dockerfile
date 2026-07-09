@@ -13,8 +13,11 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 && \
+RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip && \
     ln -s /usr/bin/python3 /usr/bin/python
+
+# Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)
+RUN pip install --break-system-packages openpyxl
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
@@ -91,6 +94,10 @@ RUN cd src/aieo && yarn build
 
 RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html
+
+# Docgen assets (build_workbook.py + reference templates) — bundled alongside compiled output
+COPY ./src/repo/build_workbook.py ./src/repo/build_workbook.py
+COPY ./src/repo/docgen-templates ./src/repo/docgen-templates
 COPY ./textarea ./textarea
 COPY ./app ./app
 RUN mkdir -p ./tests
