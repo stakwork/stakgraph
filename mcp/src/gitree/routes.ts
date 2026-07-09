@@ -1123,6 +1123,102 @@ export async function gitree_create_concept(req: Request, res: Response) {
 }
 
 /**
+ * Directly create a concept from a name + documentation, WITHOUT the
+ * agentic codebase analysis that `gitree_create_concept` performs.
+ *
+ * `gitree_create_concept` clones the repo and runs `get_context` (an LLM
+ * pass over the code) to synthesize the documentation — a heavy, async
+ * (polled) operation. This route is the lightweight, synchronous
+ * counterpart: the caller already has the documentation text (e.g. an AI
+ * agent capturing a "remember this" note), so we just persist it.
+ *
+ * POST /gitree/create-concept-direct
+ * Body: { name, documentation, description?, repo? }
+ *   - repo is "owner/repo"; when present the concept id is repo-prefixed
+ *     ("owner/repo/slug") to match how concepts are normally stored.
+ * Returns 409 if a concept with the derived id already exists (create is
+ * not an overwrite — use PUT /gitree/concepts/:id/documentation to edit).
+ */
+export async function gitree_create_concept_direct(
+  req: Request,
+  res: Response
+) {
+  console.log("===> gitree_create_concept_direct", req.path, req.method);
+  try {
+    const { name, documentation, description, repo } = req.body;
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+    if (typeof documentation !== "string") {
+      res
+        .status(400)
+        .json({ error: "documentation is required and must be a string" });
+      return;
+    }
+
+    const slug = generateSlug(name);
+    if (!slug) {
+      res
+        .status(400)
+        .json({ error: "name must contain alphanumeric characters" });
+      return;
+    }
+    const repoId =
+      typeof repo === "string" && repo.trim() ? repo.trim() : undefined;
+    const conceptId = repoId ? makeRepoId(repoId, slug) : slug;
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const existing = await storage.getConcept(conceptId, repoId);
+    if (existing) {
+      res.status(409).json({
+        error: `Concept ${conceptId} already exists`,
+        conceptId,
+      });
+      return;
+    }
+
+    const now = new Date();
+    const concept: Concept = {
+      id: conceptId,
+      repo: repoId,
+      name: name.trim(),
+      description: typeof description === "string" ? description : "",
+      prNumbers: [],
+      commitShas: [],
+      createdAt: now,
+      lastUpdated: now,
+      documentation,
+    };
+
+    await storage.saveConcept(concept);
+    await storage.saveDocumentation(conceptId, documentation);
+
+    console.log(`✅ Concept created (direct): ${conceptId}`);
+
+    res.json({
+      status: "success",
+      message: `Created concept ${conceptId}`,
+      concept: {
+        id: concept.id,
+        repo: concept.repo,
+        name: concept.name,
+        description: concept.description,
+        documentation: concept.documentation,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error creating concept (direct):", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to create concept" });
+  }
+}
+
+/**
  * POST /gitree/analyze-clues
  * Analyze a specific concept or all concepts for clues
  */
