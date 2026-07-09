@@ -2,7 +2,6 @@ use crate::lang::graphs::{EdgeType, Graph, NodeType};
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::Lang;
 use crate::repo::{Repo, Repos};
-use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
 
@@ -99,7 +98,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_btreemap_indirect_test_metadata() -> Result<()> {
-    let use_lsp = get_use_lsp();
+    let use_lsp = false;
 
     let repo = Repo::new(
         "src/testing/nextjs",
@@ -154,7 +153,7 @@ async fn test_btreemap_indirect_test_metadata() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_btreemap_tested_endpoints() -> Result<()> {
-    let use_lsp = get_use_lsp();
+    let use_lsp = false;
 
     let repo = Repo::new(
         "src/testing/nextjs",

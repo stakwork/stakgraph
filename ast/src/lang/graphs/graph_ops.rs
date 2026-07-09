@@ -197,8 +197,29 @@ impl GraphOps {
             self.graph
                 .update_repository_hash(repo_url, current_hash)
                 .await?;
-        } else if stored_hash.is_empty() && !current_hash.is_empty() {
-            info!("Processing new repository with hash: {}", current_hash);
+        } else if !current_hash.is_empty() {
+            let mut preserved_muted = Vec::new();
+            let mut preserved_dynamic = Vec::new();
+            if stored_hash.is_empty() {
+                info!("Processing new repository with hash: {}", current_hash);
+            } else {
+                info!(
+                    "Stored revision {} is unreachable in the current checkout; performing a full re-index",
+                    stored_hash
+                );
+                let graph_root = strip_tmp(&PathBuf::from(&repo_path)).display().to_string();
+                let repo_files: Vec<String> = self
+                    .graph
+                    .find_nodes_by_type_async(NodeType::File)
+                    .await
+                    .into_iter()
+                    .map(|n| n.file)
+                    .filter(|f| f.starts_with(&graph_root))
+                    .collect();
+                preserved_muted = self.collect_muted_nodes_for_files(&repo_files).await?;
+                preserved_dynamic = self.graph.get_all_dynamic_edges().await?;
+                self.graph.clear_existing_graph(&graph_root).await?;
+            }
             let mut repos = Repo::new_clone_multi_detect(
                 repo_url,
                 username.clone(),
@@ -216,6 +237,22 @@ impl GraphOps {
             }
 
             let _graph = repos.build_graphs_neo4j_incremental().await?;
+
+            if !preserved_dynamic.is_empty() {
+                info!(
+                    "[full re-index] restoring {} dynamic edges",
+                    preserved_dynamic.len()
+                );
+                self.graph.restore_dynamic_edges(preserved_dynamic).await?;
+            }
+
+            if !preserved_muted.is_empty() {
+                info!(
+                    "[full re-index] restoring {} muted nodes",
+                    preserved_muted.len()
+                );
+                self.restore_muted_nodes(preserved_muted).await?;
+            }
 
             info!("Setting Data_Bank property for nodes missing it...");
             if let Err(e) = self.graph.set_missing_data_bank().await {
