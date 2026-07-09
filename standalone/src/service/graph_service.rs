@@ -340,8 +340,8 @@ pub async fn sync(
         }
     }
 
-    let delta_nodes = nodes - prev_nodes;
-    let delta_edges = edges - prev_edges;
+    let delta_nodes = nodes.saturating_sub(prev_nodes);
+    let delta_edges = edges.saturating_sub(prev_edges);
 
     Ok(Json(ProcessResponse {
         nodes: delta_nodes,
