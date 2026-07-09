@@ -190,22 +190,21 @@ async fn test_cross_repo_resync_idempotent() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_backward_sync_is_silent_noop_characterization() {
+async fn test_backward_sync_full_reindex() {
     let state = test_state();
     let mut g = fresh_graph().await;
 
     ingest_both(&state).await;
     sync_repo(&state, BE, "after").await;
     sync_repo(&state, FE, "after").await;
-    let evolved = calls_edges(&mut g);
-    assert_eq!(evolved, evolved_edges());
+    assert_eq!(calls_edges(&mut g), evolved_edges());
 
     sync_repo(&state, BE, "before").await;
     sync_repo(&state, FE, "before").await;
     assert_eq!(
         calls_edges(&mut g),
-        evolved,
-        "backward sync changed the graph — the limitation may now be fixed; update this test"
+        baseline_edges(),
+        "backward sync must full re-index and revert the graph to baseline"
     );
 }
 
@@ -233,5 +232,32 @@ async fn test_cross_repo_muted_preservation() {
             .await
             .unwrap_or(false),
         "mute lost across cross-repo sync"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_backward_sync_preserves_mute() {
+    let state = test_state();
+    let g = fresh_graph().await;
+
+    ingest_both(&state).await;
+    sync_repo(&state, BE, "after").await;
+    sync_repo(&state, FE, "after").await;
+
+    let file = "fayekelmith/graph-update-backend/handlers/bounties.go";
+    let muted = g
+        .set_node_muted(&NodeType::Function, "ListBounties", file, true)
+        .await
+        .unwrap_or(0);
+    assert!(muted > 0, "expected to mute the ListBounties function node");
+
+    sync_repo(&state, BE, "before").await;
+    sync_repo(&state, FE, "before").await;
+
+    assert!(
+        g.is_node_muted(&NodeType::Function, "ListBounties", file)
+            .await
+            .unwrap_or(false),
+        "mute lost across backward full re-index"
     );
 }
