@@ -2,6 +2,12 @@ import { tool, Tool } from "ai";
 import { z } from "zod";
 import axios from "axios";
 
+function appendNamespace(params: URLSearchParams, namespace?: string): void {
+  if (namespace && namespace.length > 0) {
+    params.set("namespace", namespace);
+  }
+}
+
 async function jarvisFetch(url: string, headers: Record<string, string>) {
   const resp = await axios.get(url, { headers, validateStatus: () => true, responseType: "text" });
   const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
@@ -252,24 +258,33 @@ export function registerJarvisTools(
           "Not required — the search works without it. " +
           "Call `get_ontology` to see valid domains."
         ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Scope the search to a Jarvis namespace (data partition). Not an access-control boundary."
+        ),
     }),
     execute: async ({
       q,
       type,
       limit = 10,
       domains,
+      namespace,
     }: {
       q: string;
       type?: string;
       limit?: number;
       domains?: string;
+      namespace?: string;
     }) => {
       const params = new URLSearchParams({ q, limit: String(limit) });
       if (type) params.set("type", type);
       if (domains) params.set("domains", domains);
+      appendNamespace(params, namespace);
       const url = `${jarvisUrl}/v2/nodes?${params.toString()}`;
       console.log(
-        `[graph_search] q=${q} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit}`,
+        `[graph_search] q=${q} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit} namespace=${namespace ?? "*"}`,
       );
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);
