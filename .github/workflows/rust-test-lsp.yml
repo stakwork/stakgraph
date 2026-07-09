@@ -49,6 +49,13 @@ jobs:
           npm install -g typescript typescript-language-server
           export PATH="$(npm bin -g):$PATH"
           echo "$(npm bin -g)" >> $GITHUB_PATH
+          echo "LSP_TSSERVER_PATH=$(npm root -g)/typescript/lib/tsserver.js" >> $GITHUB_ENV
+
+      - name: Install dependencies for TypeScript test projects
+        run: |
+          cd ast/src/testing/nextjs && npm install
+          cd $GITHUB_WORKSPACE/ast/src/testing/react && npm install --legacy-peer-deps
+          cd $GITHUB_WORKSPACE/ast/src/testing/typescript && npm install
 
       - name: Verify TypeScript Installation
         run: |
