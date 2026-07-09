@@ -31,7 +31,6 @@ import os
 
 try:
     from openpyxl import Workbook
-    from openpyxl.utils import column_index_from_string, coordinate_from_string
 except ImportError as e:
     print(f"openpyxl is not installed: {e}", file=sys.stderr)
     sys.exit(1)
@@ -60,18 +59,17 @@ def build(spec: dict) -> None:
         for row_data in sheet_spec.get("rows") or []:
             ws.append(list(row_data))
 
-        # Apply fine-grained cell overrides.
+        # Apply fine-grained cell overrides. Assigning via the A1-style ref
+        # (ws["B2"] = ...) avoids depending on openpyxl.utils helpers whose
+        # import paths have shifted across openpyxl versions.
         for cell_spec in sheet_spec.get("cells") or []:
             ref = cell_spec.get("ref")
             if not ref:
                 continue
-            col_str, row_idx = coordinate_from_string(ref)
-            col_idx = column_index_from_string(col_str)
-            cell = ws.cell(row=row_idx, column=col_idx)
             if "formula" in cell_spec:
-                cell.value = cell_spec["formula"]
+                ws[ref] = cell_spec["formula"]
             elif "value" in cell_spec:
-                cell.value = cell_spec["value"]
+                ws[ref] = cell_spec["value"]
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     wb.save(output_path)
