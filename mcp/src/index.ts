@@ -286,6 +286,10 @@ app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);
 app.post("/gitree/relevant-concepts", gitree.gitree_relevant_concepts);
 app.post("/gitree/create-concept", gitree.gitree_create_concept);
+app.post(
+  "/gitree/create-concept-direct",
+  gitree.gitree_create_concept_direct,
+);
 app.post("/gitree/analyze-clues", gitree.gitree_analyze_clues);
 app.post("/gitree/analyze-changes", gitree.gitree_analyze_changes);
 app.post("/gitree/link-clues", gitree.gitree_link_clues);
@@ -309,6 +313,10 @@ app.get("/gitree/features/:id/files", gitree.gitree_get_concept_files);
 app.get("/gitree/all-features-graph", gitree.gitree_all_concepts_graph);
 app.post("/gitree/relevant-features", gitree.gitree_relevant_concepts);
 app.post("/gitree/create-feature", gitree.gitree_create_concept);
+app.post(
+  "/gitree/create-feature-direct",
+  gitree.gitree_create_concept_direct,
+);
 
 app.post("/importance/score", importance.score_importance);
 app.get("/importance/top", importance.get_top_importance);
