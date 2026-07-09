@@ -11,6 +11,7 @@ import {
   executeBashCommand,
 } from "./bash.js";
 import { textEdit, TextEditInput } from "./textEdit.js";
+import { runDocx, runXlsx } from "./docgen.js";
 import { AGENT_ARTIFACTS_DIR } from "./artifacts.js";
 import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "../aieo/src/index.js";
 import { log_agent_context } from "../log/agent.js";
@@ -88,7 +89,9 @@ type ToolName =
   | "jarvis"
   | "logs_agent"
   | "str_replace_based_edit_tool"
-  | "apply_patch";
+  | "apply_patch"
+  | "generate_docx"
+  | "generate_xlsx";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -99,6 +102,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
   "str_replace_based_edit_tool", "apply_patch",
+  "generate_docx", "generate_xlsx",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -208,6 +212,19 @@ Rules:
   apply_patch:
     "Apply a unified-diff patch string to the cloned repo via `git apply`. " +
     "Patch must be valid unified-diff format. Returns success message or error details.",
+  generate_docx:
+    "Generate a Word (.docx) document from Markdown content using Pandoc. " +
+    "Input: { markdown: string; template?: string } where 'template' is an optional " +
+    "bundled reference-doc name for styling. Writes the file to the durable artifacts " +
+    "directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
+    "On failure returns a non-fatal 'generate_docx failed: ...' string.",
+  generate_xlsx:
+    "Generate an Excel (.xlsx) workbook from a structured definition using openpyxl. " +
+    "Input: { filename?: string; sheets: Array<{ name: string; rows?: (string|number)[][]; " +
+    "cells?: Array<{ ref: string; value?: string|number; formula?: string }> }> }. " +
+    "Supports multiple sheets, formulas, and cross-sheet references (e.g. =Sheet2!B2). " +
+    "Writes the file to the durable artifacts directory and returns a download path: " +
+    "'Generated: /repo/agent/file?path=...' On failure returns a non-fatal 'generate_xlsx failed: ...' string.",
 };
 
 export async function get_tools(
@@ -933,6 +950,43 @@ export async function get_tools(
             } catch {}
           }
         },
+      });
+    }
+    // generate_docx — Pandoc-based Word document generation
+    if (toolsConfig.generate_docx) {
+      allTools.generate_docx = tool({
+        description:
+          typeof toolsConfig.generate_docx === "string"
+            ? toolsConfig.generate_docx
+            : defaultDescriptions.generate_docx,
+        inputSchema: z.object({
+          markdown: z.string().describe("Markdown content to convert to .docx"),
+          template: z.string().optional().describe("Optional bundled reference-doc template name for styling"),
+        }),
+        execute: async (input) => runDocx(input),
+      });
+    }
+    // generate_xlsx — openpyxl-based Excel workbook generation
+    if (toolsConfig.generate_xlsx) {
+      allTools.generate_xlsx = tool({
+        description:
+          typeof toolsConfig.generate_xlsx === "string"
+            ? toolsConfig.generate_xlsx
+            : defaultDescriptions.generate_xlsx,
+        inputSchema: z.object({
+          filename: z.string().optional().describe("Base filename hint (without extension)"),
+          sheets: z.array(z.object({
+            name: z.string().describe("Sheet tab name"),
+            rows: z.array(z.array(z.union([z.string(), z.number()]))).optional()
+              .describe("Row-based data: each inner array is one row"),
+            cells: z.array(z.object({
+              ref: z.string().describe("Cell reference, e.g. A1 or B3"),
+              value: z.union([z.string(), z.number()]).optional().describe("Cell value"),
+              formula: z.string().optional().describe("Cell formula, e.g. =Sheet2!B2+1"),
+            })).optional().describe("Fine-grained cell overrides (applied after rows)"),
+          })).describe("Array of sheet definitions"),
+        }),
+        execute: async (input) => runXlsx(input),
       });
     }
     // concepts
