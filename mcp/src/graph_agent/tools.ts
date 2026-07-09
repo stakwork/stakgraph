@@ -4,6 +4,12 @@ import axios from "axios";
 
 const JARVIS_URL = process.env.JARVIS_URL ?? "";
 
+function appendNamespace(params: URLSearchParams, namespace?: string): void {
+  if (namespace && namespace.length > 0) {
+    params.set("namespace", namespace);
+  }
+}
+
 async function jarvisFetch(url: string, headers: Record<string, string>) {
   const resp = await axios.get(url, { headers, validateStatus: () => true, responseType: "text" });
   const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
@@ -63,13 +69,20 @@ export function get_graph_tools(config: GraphToolsConfig = {}) {
         .optional()
         .default(10)
         .describe("Maximum number of results to return"),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Scope the search to a Jarvis namespace (data partition). Not an access-control boundary."
+        ),
     }),
-    execute: async ({ q, search_method = "hybrid", type, limit = 10 }: { q: string; search_method?: string; type?: string; limit?: number }) => {
+    execute: async ({ q, search_method = "hybrid", type, limit = 10, namespace }: { q: string; search_method?: string; type?: string; limit?: number; namespace?: string }) => {
       const start = Date.now();
       const params = new URLSearchParams({ q, search_method: search_method ?? "hybrid", limit: String(limit) });
       if (type) params.set("type", type);
+      appendNamespace(params, namespace);
       const url = `${JARVIS_URL}/v2/nodes?${params.toString()}`;
-      console.log(`[graph_search] q=${q} method=${search_method} type=${type ?? "*"} limit=${limit} url=${url}`);
+      console.log(`[graph_search] q=${q} method=${search_method} type=${type ?? "*"} limit=${limit} namespace=${namespace ?? "*"} url=${url}`);
       try {
         const resp = await jarvisFetch(url, authHeaders(authToken) as Record<string, string>);
         if (!resp.ok) {
