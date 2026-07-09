@@ -95,7 +95,9 @@ RUN cd src/aieo && yarn build
 RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html
 
-# Docgen assets (build_workbook.py + reference templates) — bundled alongside compiled output
+# Docgen assets (build_workbook.py + reference templates). Staged into src/repo
+# here; `yarn build` (scripts/copy-lab-assets.mjs) copies them into build/repo/
+# alongside the compiled docgen.js, which resolves them via import.meta.url.
 COPY ./src/repo/build_workbook.py ./src/repo/build_workbook.py
 COPY ./src/repo/docgen-templates ./src/repo/docgen-templates
 COPY ./textarea ./textarea
