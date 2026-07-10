@@ -1,6 +1,7 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context, stream_context } from "./agent.js";
-import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
+import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig, editorRoots } from "./tools.js";
+import { resolveInCwd } from "./textEdit.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { ModelMessage } from "ai";
@@ -609,10 +610,18 @@ export async function get_agent_file(req: Request, res: Response) {
     return;
   }
 
-  if (!existsSync(filePath)) {
+  let resolved: string;
+  try {
+    resolved = resolveInCwd(filePath, editorRoots("/tmp"));
+  } catch {
+    res.status(403).json({ error: "Path outside allowed roots" });
+    return;
+  }
+
+  if (!existsSync(resolved)) {
     res.status(404).json({ error: "File not found" });
     return;
   }
 
-  res.sendFile(path.resolve(filePath));
+  res.sendFile(resolved);
 }
