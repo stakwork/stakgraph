@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 import { redactSecrets, redactSecretsDeep } from "../redact.js";
 
 test.describe("redactSecrets", () => {

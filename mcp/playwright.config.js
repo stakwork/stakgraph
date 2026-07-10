@@ -8,6 +8,13 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './src',
   testMatch: '**/__tests__/**/*.test.ts',
+  // These run with node:test via `npm run test:node`, not Playwright.
+  testIgnore: [
+    '**/repo/**/*.test.ts',
+    '**/log/**/*.test.ts',
+    '**/graph_agent/**/*.test.ts',
+    '**/__tests__/tools.test.ts',
+  ],
 
   /* Run tests in files in parallel */
   fullyParallel: true,

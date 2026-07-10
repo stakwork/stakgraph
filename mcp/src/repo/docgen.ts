@@ -36,6 +36,17 @@ export interface DocxInput {
   template?: string;
 }
 
+export interface ComputedCell {
+  ref: string;
+  op: "sum" | "percent_of_total" | "ratio";
+  range?: string;
+  value_ref?: string;
+  total_ref?: string;
+  denominator_ref?: string;
+  decimals?: number;
+  as_fraction?: boolean;
+}
+
 export interface XlsxSheet {
   name: string;
   rows?: (string | number)[][];
@@ -44,6 +55,7 @@ export interface XlsxSheet {
     value?: string | number;
     formula?: string;
   }>;
+  computed?: ComputedCell[];
 }
 
 export interface XlsxInput {
@@ -97,8 +109,9 @@ export async function runDocx(input: DocxInput): Promise<string> {
 /**
  * Generate a .xlsx file from a workbook definition via build_workbook.py (openpyxl).
  * Returns a string with the download path on success, or a non-fatal error string.
+ * @param logLabel - Label used in log/error strings (default: "generate_xlsx")
  */
-export async function runXlsx(input: XlsxInput): Promise<string> {
+export async function runXlsx(input: XlsxInput, logLabel = "generate_xlsx"): Promise<string> {
   const base = (input.filename || "workbook")
     .replace(/\.xlsx$/i, "")
     .replace(/[^a-zA-Z0-9_-]/g, "_")
@@ -107,7 +120,7 @@ export async function runXlsx(input: XlsxInput): Promise<string> {
   const outFile = path.join(artifactsDir, `${base}-${uuid}.xlsx`);
   const tmpJson = path.join(tmpdir(), `docgen-${uuid}.json`);
 
-  console.log(`===> generate_xlsx: ${outFile}`);
+  console.log(`===> ${logLabel}: ${outFile}`);
 
   const payload = JSON.stringify({ ...input, output: outFile });
   writeFileSync(tmpJson, payload, "utf8");
@@ -119,12 +132,12 @@ export async function runXlsx(input: XlsxInput): Promise<string> {
 
   try {
     await execFileAsync("python3", [scriptPath, tmpJson]);
-    console.log(`===> generate_xlsx: written ${outFile}`);
+    console.log(`===> ${logLabel}: written ${outFile}`);
     return `Generated: /repo/agent/file?path=${encodeURIComponent(outFile)}`;
   } catch (e: any) {
     const stderr = e?.stderr || String(e);
-    console.error(`===> generate_xlsx failed: ${stderr}`);
-    return `generate_xlsx failed: ${stderr}`;
+    console.error(`===> ${logLabel} failed: ${stderr}`);
+    return `${logLabel} failed: ${stderr}`;
   } finally {
     try { unlinkSync(tmpJson); } catch {}
   }

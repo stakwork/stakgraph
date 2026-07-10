@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 
 // ── appendNamespace unit tests ───────────────────────────────────────────────
 // appendNamespace is not exported from tools.ts, so we test the same pure

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 
 const describe = test.describe;
 

@@ -11,7 +11,7 @@
  * real code paths) to verify the sidecar contract.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
