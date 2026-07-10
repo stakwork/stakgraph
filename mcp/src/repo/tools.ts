@@ -91,7 +91,8 @@ type ToolName =
   | "str_replace_based_edit_tool"
   | "apply_patch"
   | "generate_docx"
-  | "generate_xlsx";
+  | "generate_xlsx"
+  | "generate_xlsx_computed";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -102,7 +103,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
   "str_replace_based_edit_tool", "apply_patch",
-  "generate_docx", "generate_xlsx",
+  "generate_docx", "generate_xlsx", "generate_xlsx_computed",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -225,6 +226,23 @@ Rules:
     "Supports multiple sheets, formulas, and cross-sheet references (e.g. =Sheet2!B2). " +
     "Writes the file to the durable artifacts directory and returns a download path: " +
     "'Generated: /repo/agent/file?path=...' On failure returns a non-fatal 'generate_xlsx failed: ...' string.",
+  generate_xlsx_computed:
+    "Generate an Excel (.xlsx) workbook where computed cells (sums, percentages, ratios) are " +
+    "evaluated in Python and written as literal numeric values — never formula strings. " +
+    "Use this instead of generate_xlsx when the Harvey judge or any value-reader must see real numbers. " +
+    "Input: { filename?: string; sheets: Array<{ name: string; rows?: (string|number)[][]; " +
+    "cells?: Array<{ ref: string; value?: string|number }> (no formula field — literal values only); " +
+    "computed?: Array<{ ref: string; op: 'sum'|'percent_of_total'|'ratio'; " +
+    "range?: string; value_ref?: string; total_ref?: string; denominator_ref?: string; " +
+    "decimals?: number; as_fraction?: boolean }> }> }. " +
+    "Supported ops: 'sum' (column sum B2:B9 or row sum B2:E2), " +
+    "'percent_of_total' (value_ref/total_ref × 100 by default; set as_fraction:true for raw 0–1 ratio; " +
+    "for per-row '% of shares' over a column, emit one computed entry per destination row), " +
+    "'ratio' (value_ref/denominator_ref). " +
+    "Refs may be sheet-qualified: 'Sheet2!B2'. Computed entries are evaluated sequentially so earlier " +
+    "results (e.g. a column sum) can feed later entries (e.g. percent_of_total). " +
+    "Returns 'Generated: /repo/agent/file?path=...' on success. " +
+    "On failure returns a non-fatal 'generate_xlsx_computed failed: ...' string.",
 };
 
 export async function get_tools(
@@ -987,6 +1005,46 @@ export async function get_tools(
           })).describe("Array of sheet definitions"),
         }),
         execute: async (input) => runXlsx(input),
+      });
+    }
+    // generate_xlsx_computed — formula-free Excel workbook with server-side computed values
+    if (toolsConfig.generate_xlsx_computed) {
+      allTools.generate_xlsx_computed = tool({
+        description:
+          typeof toolsConfig.generate_xlsx_computed === "string"
+            ? toolsConfig.generate_xlsx_computed
+            : defaultDescriptions.generate_xlsx_computed,
+        inputSchema: z.object({
+          filename: z.string().optional().describe("Base filename hint (without extension)"),
+          sheets: z.array(z.object({
+            name: z.string().describe("Sheet tab name"),
+            rows: z.array(z.array(z.union([z.string(), z.number()]))).optional()
+              .describe("Row-based data: each inner array is one row"),
+            cells: z.array(z.object({
+              ref: z.string().describe("Cell reference, e.g. A1 or B3"),
+              value: z.union([z.string(), z.number()]).optional().describe("Literal cell value (no formula field — this tool is formula-free)"),
+            })).optional().describe("Fine-grained literal cell overrides (applied after rows)"),
+            computed: z.array(z.object({
+              ref: z.string().describe("Destination cell reference, e.g. B10"),
+              op: z.enum(["sum", "percent_of_total", "ratio"]).describe(
+                "'sum': sum a range (column B2:B9 or row B2:E2); " +
+                "'percent_of_total': value_ref/total_ref × 100 (or raw ratio if as_fraction:true); " +
+                "'ratio': value_ref/denominator_ref"
+              ),
+              range: z.string().optional().describe("Cell range for 'sum' op, e.g. B2:B9 or Sheet2!B2:B9"),
+              value_ref: z.string().optional().describe("Numerator cell for 'percent_of_total' or 'ratio', e.g. B2 or Sheet2!B2"),
+              total_ref: z.string().optional().describe("Denominator cell for 'percent_of_total' (also '% of shares'), e.g. B10"),
+              denominator_ref: z.string().optional().describe("Denominator cell for 'ratio'"),
+              decimals: z.number().optional().describe("Decimal places to round to (default 2)"),
+              as_fraction: z.boolean().optional().describe("For 'percent_of_total': write raw 0–1 ratio instead of percent-scaled (×100)"),
+            })).optional().describe(
+              "Computed cells evaluated server-side and written as literal numbers. " +
+              "Evaluated sequentially so earlier results feed later entries. " +
+              "For per-row '% of shares', emit one entry per destination row."
+            ),
+          })).describe("Array of sheet definitions"),
+        }),
+        execute: async (input) => runXlsx(input, "generate_xlsx_computed"),
       });
     }
     // concepts
