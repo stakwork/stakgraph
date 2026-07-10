@@ -1708,6 +1708,65 @@ export async function gitree_search_clues(req: Request, res: Response) {
 }
 
 /**
+ * POST /gitree/search-concepts
+ * Search concepts by semantic similarity using name + description embeddings
+ * Body: { query: string, limit?: number, similarityThreshold?: number, repo?: string }
+ curl -X POST http://localhost:3355/gitree/search-concepts \
+    -H "Content-Type: application/json" \
+    -d '{"query": "authentication"}'
+ */
+export async function gitree_search_concepts(req: Request, res: Response) {
+  try {
+    const { query, limit = 10, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
+    // Support repo from both query param and body
+    const repo = parseRepoParam(req) || bodyRepo;
+
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ error: "query is required and must be a string" });
+    }
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Generate embeddings for the query
+    const { vectorizeQuery } = await import("../vector/index.js");
+    const embeddings = await vectorizeQuery(query);
+
+    // Search concepts
+    const results = await storage.searchConcepts(
+      query,
+      embeddings,
+      limit,
+      similarityThreshold,
+      repo
+    );
+
+    res.json({
+      query,
+      repo: repo || "all",
+      count: results.length,
+      results: results.map((r) => ({
+        id: r.id,
+        repo: r.repo,
+        ref_id: r.ref_id,
+        name: r.name,
+        description: r.description,
+        prCount: r.prNumbers.length,
+        commitCount: (r.commitShas || []).length,
+        lastUpdated: r.lastUpdated.toISOString(),
+        hasDocumentation: !!r.documentation,
+        score: r.score,
+      })),
+    });
+  } catch (error) {
+    console.error("Error in gitree_search_concepts:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
  * Get provenance data for concepts
  * POST /gitree/provenance
  * Body: { conceptIds: string[] } (array of concept IDs)

@@ -1,6 +1,32 @@
 import { Concept, PRRecord, CommitRecord } from "../types.js";
 import { Storage } from "./index.js";
 
+/**
+ * Build the text used to generate a concept's semantic embedding.
+ * We embed name + description (concise, high signal) rather than the full
+ * documentation, which can be arbitrarily long and would be truncated/diluted.
+ */
+export function conceptEmbeddingText(concept: {
+  name?: string;
+  description?: string;
+}): string {
+  return [concept.name, concept.description].filter(Boolean).join("\n\n").trim();
+}
+
+/**
+ * Compute a concept's embedding from name + description.
+ * Returns null when there is no text to embed.
+ */
+export async function computeConceptEmbedding(concept: {
+  name?: string;
+  description?: string;
+}): Promise<number[] | null> {
+  const text = conceptEmbeddingText(concept);
+  if (!text) return null;
+  const { vectorizeQuery } = await import("../../vector/index.js");
+  return await vectorizeQuery(text);
+}
+
 // ============================================================================
 // Multi-Repo Utility Functions
 // ============================================================================

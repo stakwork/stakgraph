@@ -297,6 +297,7 @@ app.get("/gitree/clues", gitree.gitree_list_clues);
 app.get("/gitree/clues/:id", gitree.gitree_get_clue);
 app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
+app.post("/gitree/search-concepts", gitree.gitree_search_concepts);
 app.post("/gitree/provenance", gitree.gitree_provenance);
 
 // Legacy `/gitree/features*` aliases (deprecated) — kept so existing API

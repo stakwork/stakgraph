@@ -17,6 +17,13 @@ export abstract class Storage {
   abstract getConcept(id: string, repo?: string): Promise<Concept | null>;
   abstract getAllConcepts(repo?: string): Promise<Concept[]>;
   abstract deleteConcept(id: string, repo?: string): Promise<void>;
+  abstract searchConcepts(
+    query: string,
+    embeddings: number[],
+    limit?: number,
+    similarityThreshold?: number,
+    repo?: string
+  ): Promise<Array<Concept & { score: number }>>;
 
   // PRs
   abstract savePR(pr: PRRecord): Promise<void>;

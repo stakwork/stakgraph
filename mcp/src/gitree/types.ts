@@ -36,6 +36,7 @@ export interface Concept {
   cluesCount?: number; // Number of clues for this concept
   cluesLastAnalyzedAt?: Date; // Last time clues were generated
   usage?: Usage; // Token usage for summarizing this concept
+  embedding?: number[]; // Vector embedding of name + description for semantic search
 }
 
 export interface PRRecord {
