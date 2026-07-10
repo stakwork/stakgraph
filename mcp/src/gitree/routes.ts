@@ -1744,8 +1744,8 @@ export async function gitree_search_concepts(req: Request, res: Response) {
     res.json({
       query,
       repo: repo || "all",
-      count: results.length,
-      results: results.map((r) => ({
+      total: results.length,
+      concepts: results.map((r) => ({
         id: r.id,
         repo: r.repo,
         ref_id: r.ref_id,
