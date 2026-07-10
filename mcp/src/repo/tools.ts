@@ -95,7 +95,54 @@ type ToolName =
   | "generate_xlsx"
   | "generate_xlsx_computed";
 
-export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
+/**
+ * Object form of a per-tool config value. Lets a caller pass a description
+ * override AND tool-specific options at once (instead of just a bare string).
+ * Unknown/extra fields are ignored by tools that don't read them.
+ */
+export interface ToolConfigObject {
+  /** Explicitly enable/disable the tool. Defaults to true when the object is present. */
+  enabled?: boolean;
+  /** Override the tool's description shown to the LLM. */
+  description?: string;
+  /** graph_sub_agent: max recursion depth for nested sub-agents. */
+  maxDepth?: number;
+  /** graph_sub_agent: max tool-loop steps per sub-agent run. */
+  maxSteps?: number;
+}
+
+/**
+ * A per-tool config value. Backwards compatible:
+ *   - `string`  → enable + use as description override
+ *   - `boolean` → enable/disable
+ *   - `null`    → keep default
+ *   - object    → enable (unless `enabled: false`) + carry description/options
+ */
+export type ToolConfigValue = string | boolean | null | ToolConfigObject;
+
+export type ToolsConfig = Partial<Record<ToolName, ToolConfigValue>>;
+
+/** Narrow a config value to its object form. */
+export function isToolConfigObject(v: unknown): v is ToolConfigObject {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Whether a tool-config value should count as "on" (for opt-in tools). */
+export function toolConfigEnabled(v: ToolConfigValue | undefined): boolean {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") return v.length > 0;
+  return v.enabled !== false; // object present ⇒ enabled unless explicitly false
+}
+
+/** Description override carried by a tool-config value, if any. */
+export function toolConfigDescription(v: ToolConfigValue | undefined): string | undefined {
+  if (typeof v === "string" && v.length > 0) return v;
+  if (isToolConfigObject(v) && typeof v.description === "string" && v.description.length > 0) {
+    return v.description;
+  }
+  return undefined;
+}
 
 const TOOL_NAMES: Set<string> = new Set<string>([
   "repo_overview", "file_summary", "recent_commits", "recent_contributions",
@@ -664,13 +711,17 @@ export async function get_tools(
   // Register Jarvis knowledge-graph tools (gated only by JARVIS_URL being set).
   // The recursive graph_sub_agent tool is opt-in via toolsConfig.graph_sub_agent
   // (a string value overrides its description); depth is capped in toolsJarvis.
+  const graphSubAgentCfg = toolsConfig?.graph_sub_agent;
   registerJarvisTools(allTools, {
-    subAgent: toolsConfig?.graph_sub_agent
+    subAgent: toolConfigEnabled(graphSubAgentCfg)
       ? {
-          description:
-            typeof toolsConfig.graph_sub_agent === "string"
-              ? toolsConfig.graph_sub_agent
-              : undefined,
+          description: toolConfigDescription(graphSubAgentCfg),
+          maxDepth: isToolConfigObject(graphSubAgentCfg)
+            ? graphSubAgentCfg.maxDepth
+            : undefined,
+          maxSteps: isToolConfigObject(graphSubAgentCfg)
+            ? graphSubAgentCfg.maxSteps
+            : undefined,
           modelName,
           apiKey,
         }
@@ -859,7 +910,7 @@ export async function get_tools(
     return allTools;
   } else {
     // SPECIAL TOOLS: NOT included by default, but can be enabled with toolsConfig
-    if (toolsConfig.ask_clarifying_questions) {
+    if (toolConfigEnabled(toolsConfig.ask_clarifying_questions)) {
       // Schema for artifact objects (color swatches, diagrams, tables, etc.)
       const artifactSchema = z.object({
         type: z.enum(["mermaid", "comparison_table", "color_swatch"]),
@@ -896,12 +947,11 @@ export async function get_tools(
         },
       });
     }
-    if (toolsConfig.logs_agent) {
+    if (toolConfigEnabled(toolsConfig.logs_agent)) {
       allTools.logs_agent = tool({
         description:
-          typeof toolsConfig.logs_agent === "string"
-            ? toolsConfig.logs_agent
-            : DEFAULT_DESCRIPTIONS.logs_agent,
+          toolConfigDescription(toolsConfig.logs_agent) ??
+          DEFAULT_DESCRIPTIONS.logs_agent,
         inputSchema: z.object({
           prompt: z.string().describe("A focused question about runtime logs"),
         }),
@@ -926,7 +976,7 @@ export async function get_tools(
       });
     }
     // str_replace_based_edit_tool
-    if (toolsConfig.str_replace_based_edit_tool) {
+    if (toolConfigEnabled(toolsConfig.str_replace_based_edit_tool)) {
       if (provider === "anthropic") {
         // Native provider tool — model is specially trained on this schema
         const { createAnthropic } = await import("@ai-sdk/anthropic");
@@ -939,9 +989,8 @@ export async function get_tools(
         // Generic fallback for OpenAI / other providers
         allTools.str_replace_based_edit_tool = tool({
           description:
-            typeof toolsConfig.str_replace_based_edit_tool === "string"
-              ? toolsConfig.str_replace_based_edit_tool
-              : defaultDescriptions.str_replace_based_edit_tool,
+            toolConfigDescription(toolsConfig.str_replace_based_edit_tool) ??
+            defaultDescriptions.str_replace_based_edit_tool,
           inputSchema: z.object({
             command: z.enum(["view", "create", "str_replace", "insert"]),
             path: z.string(),
@@ -957,12 +1006,11 @@ export async function get_tools(
       }
     }
     // apply_patch — shells out to `git apply`; cloned repos are real git repos
-    if (toolsConfig.apply_patch) {
+    if (toolConfigEnabled(toolsConfig.apply_patch)) {
       allTools.apply_patch = tool({
         description:
-          typeof toolsConfig.apply_patch === "string"
-            ? toolsConfig.apply_patch
-            : defaultDescriptions.apply_patch,
+          toolConfigDescription(toolsConfig.apply_patch) ??
+          defaultDescriptions.apply_patch,
         inputSchema: z.object({
           patch: z.string().describe("Unified-diff patch string to apply"),
         }),
@@ -987,12 +1035,11 @@ export async function get_tools(
       });
     }
     // generate_docx — Pandoc-based Word document generation
-    if (toolsConfig.generate_docx) {
+    if (toolConfigEnabled(toolsConfig.generate_docx)) {
       allTools.generate_docx = tool({
         description:
-          typeof toolsConfig.generate_docx === "string"
-            ? toolsConfig.generate_docx
-            : defaultDescriptions.generate_docx,
+          toolConfigDescription(toolsConfig.generate_docx) ??
+          defaultDescriptions.generate_docx,
         inputSchema: z.object({
           markdown: z.string().describe("Markdown content to convert to .docx"),
           template: z.string().optional().describe("Optional bundled reference-doc template name for styling"),
@@ -1001,12 +1048,11 @@ export async function get_tools(
       });
     }
     // generate_xlsx — openpyxl-based Excel workbook generation
-    if (toolsConfig.generate_xlsx) {
+    if (toolConfigEnabled(toolsConfig.generate_xlsx)) {
       allTools.generate_xlsx = tool({
         description:
-          typeof toolsConfig.generate_xlsx === "string"
-            ? toolsConfig.generate_xlsx
-            : defaultDescriptions.generate_xlsx,
+          toolConfigDescription(toolsConfig.generate_xlsx) ??
+          defaultDescriptions.generate_xlsx,
         inputSchema: z.object({
           filename: z.string().optional().describe("Base filename hint (without extension)"),
           sheets: z.array(z.object({
@@ -1024,12 +1070,11 @@ export async function get_tools(
       });
     }
     // generate_xlsx_computed — formula-free Excel workbook with server-side computed values
-    if (toolsConfig.generate_xlsx_computed) {
+    if (toolConfigEnabled(toolsConfig.generate_xlsx_computed)) {
       allTools.generate_xlsx_computed = tool({
         description:
-          typeof toolsConfig.generate_xlsx_computed === "string"
-            ? toolsConfig.generate_xlsx_computed
-            : defaultDescriptions.generate_xlsx_computed,
+          toolConfigDescription(toolsConfig.generate_xlsx_computed) ??
+          defaultDescriptions.generate_xlsx_computed,
         inputSchema: z.object({
           filename: z.string().optional().describe("Base filename hint (without extension)"),
           sheets: z.array(z.object({
@@ -1065,9 +1110,9 @@ export async function get_tools(
     }
     // concepts
     if (
-      toolsConfig.learn_concept ||
-      toolsConfig.list_concepts ||
-      toolsConfig.learn_concepts
+      toolConfigEnabled(toolsConfig.learn_concept) ||
+      toolConfigEnabled(toolsConfig.list_concepts) ||
+      toolConfigEnabled(toolsConfig.learn_concepts)
     ) {
       allTools.list_concepts = tool({
         description: defaultDescriptions.list_concepts,
@@ -1120,23 +1165,26 @@ export async function get_tools(
 
   for (const [toolName, config] of Object.entries(toolsConfig) as [
     ToolName,
-    string | boolean | null,
+    ToolConfigValue,
   ][]) {
     const originalTool = allTools[toolName];
     if (!originalTool) continue;
 
-    // If config is false, exclude the tool
-    if (config === false) {
+    // Exclude the tool when explicitly disabled (false, or object { enabled: false }).
+    if (config === false || (isToolConfigObject(config) && config.enabled === false)) {
       delete selectedTools[toolName];
-    } else if (typeof config === "string" && config !== "") {
-      // If config is a non-empty string, override the description
+      continue;
+    }
+    // Apply a description override carried by a string or object config value.
+    const description = toolConfigDescription(config);
+    if (description) {
       selectedTools[toolName] = tool({
-        description: config,
+        description,
         inputSchema: (originalTool as any).inputSchema,
         execute: (originalTool as any).execute,
       }) as Tool<any, any>;
     }
-    // If config is null or empty string, keep the default (already in selectedTools)
+    // Otherwise keep the default (already in selectedTools).
   }
 
   console.log("selectedTools", Object.keys(selectedTools));
