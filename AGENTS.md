@@ -12,7 +12,7 @@ Core Rust library that parses source code into a graph of nodes and edges using 
 
 TypeScript MCP (Model Context Protocol) server that exposes the stakgraph tools to AI agents. Includes graph querying, repo ingestion, and vector search capabilities.
 
-For running `/mcp` unit tests, use `npm run test:node`
+For running `/mcp` unit tests, use `npm run test:node`. Or if you are running a single test file, use `NO_DB=true` to avoid auto-connecting to the neo4j db during the test.
 
 ### standalone
 

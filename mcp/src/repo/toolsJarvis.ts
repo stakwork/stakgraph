@@ -420,6 +420,8 @@ export function registerJarvisTools(
     description:
       "Return all nodes adjacent (one hop) to a node in the Jarvis knowledge graph, " +
       "with edge_type and direction. Use the ref_id from graph_search or graph_get. " +
+      "Each neighbor also includes an `edges` map ({EDGE_TYPE: count}) showing how " +
+      "connected that neighbor is and which relationship types you can hop along next. " +
       "Optionally filter by edge_type and/or node_type. " +
       "Use this to traverse relationships between people, topics, episodes, code, etc.",
     inputSchema: z.object({
@@ -432,25 +434,36 @@ export function registerJarvisTools(
         .array(z.string())
         .optional()
         .describe('Filter neighbor nodes by type, e.g. ["File", "Function"].'),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Scope neighbor edge-count computation to a Jarvis namespace (data partition). " +
+          "Only affects each neighbor's `edges` map. Not an access-control boundary."
+        ),
     }),
     execute: async ({
       ref_id,
       edge_type,
       node_type,
+      namespace,
     }: {
       ref_id: string;
       edge_type?: string[];
       node_type?: string[];
+      namespace?: string;
     }) => {
       // `limit` bounds the Cypher traversal so a hub node doesn't OOM Neo4j.
       // `sort_by=importance` orders edges before LIMIT so the cap keeps the most
       // important neighbors. `canonicalize=false` matches the real Neo4j label.
+      // `include_edge_counts` attaches each neighbor's {EDGE_TYPE: count} map.
       const params = new URLSearchParams({
         expand: "edges",
         limit: String(KG_NEIGHBOR_CAP),
         sort_by: "importance",
         canonicalize: "false",
         exclude_node_type: toPythonListLiteral(EXCLUDED_NODE_TYPES),
+        include_edge_counts: "true",
       });
       if (edge_type && edge_type.length > 0) {
         params.set("edge_type", toPythonListLiteral(edge_type));
@@ -458,6 +471,7 @@ export function registerJarvisTools(
       if (node_type && node_type.length > 0) {
         params.set("node_type", toPythonListLiteral(node_type));
       }
+      appendNamespace(params, namespace);
       const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?${params.toString()}`;
       console.log(
         `[graph_neighbors] ref_id=${ref_id} edge_type=${edge_type?.join(",") ?? "*"} node_type=${node_type?.join(",") ?? "*"}`,
@@ -471,13 +485,18 @@ export function registerJarvisTools(
         const data = (await resp.json()) as any;
 
         // Look up node details by ref_id, excluding the queried node itself, so
-        // each neighbor carries a human-readable label alongside its ref_id.
-        const nodeMap = new Map<string, { node_type: string; name: string }>();
+        // each neighbor carries a human-readable label (and its own connectivity
+        // map) alongside its ref_id.
+        const nodeMap = new Map<
+          string,
+          { node_type: string; name: string; edges: Record<string, number> }
+        >();
         for (const node of data.nodes ?? []) {
           if (node.ref_id !== ref_id) {
             nodeMap.set(node.ref_id, {
               node_type: node.node_type,
               name: deriveNodeName(node, (node.properties ?? {}) as Record<string, any>),
+              edges: (node.edges ?? {}) as Record<string, number>,
             });
           }
         }
@@ -501,6 +520,9 @@ export function registerJarvisTools(
             name: detail?.name ?? "",
             edge_type: edge.edge_type,
             direction,
+            // {EDGE_TYPE: count} map of this neighbor's own relationships —
+            // shows how connected it is and which edges to follow next.
+            edges: detail?.edges ?? {},
             ...(importance !== undefined ? { importance } : {}),
           });
           if (neighbors.length >= KG_NEIGHBOR_CAP) break;
