@@ -1717,7 +1717,7 @@ export async function gitree_search_clues(req: Request, res: Response) {
  */
 export async function gitree_search_concepts(req: Request, res: Response) {
   try {
-    const { query, limit = 10, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
+    const { query, limit = 40, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
     // Support repo from both query param and body
     const repo = parseRepoParam(req) || bodyRepo;
 

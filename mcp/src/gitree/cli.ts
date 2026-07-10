@@ -851,7 +851,7 @@ program
   .argument("<query>", "Search query")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage")
-  .option("-l, --limit <number>", "Maximum number of results", "10")
+  .option("-l, --limit <number>", "Maximum number of results", "40")
   .option("-t, --threshold <number>", "Similarity threshold (0-1)", "0.5")
   .action(async (query: string, options) => {
     try {
