@@ -12,6 +12,8 @@ Core Rust library that parses source code into a graph of nodes and edges using 
 
 TypeScript MCP (Model Context Protocol) server that exposes the stakgraph tools to AI agents. Includes graph querying, repo ingestion, and vector search capabilities.
 
+For running `/mcp` unit tests, use `npm run test:node`
+
 ### standalone
 
 Rust HTTP server (Axum) that wraps the `ast` library, providing a web API and webhook interface for parsing and indexing repositories.
