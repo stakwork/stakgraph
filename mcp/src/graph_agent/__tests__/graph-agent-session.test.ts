@@ -10,7 +10,7 @@
  * so no real network calls are made.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -20,13 +20,17 @@ import * as os from "os";
 // Temp SESSIONS_DIR — set before importing any session.ts-dependent code
 // ---------------------------------------------------------------------------
 
-let tmpSessionsDir: string;
-
 function setupTempSessionsDir(): string {
   const dir = path.join(os.tmpdir(), `test-graph-sessions-${randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+// session.ts reads SESSIONS_DIR ONCE at module load, so it must be a single
+// stable path set before the first dynamic import and must not change between
+// tests. Session IDs are random UUIDs, so a shared dir has no collisions.
+const tmpSessionsDir = setupTempSessionsDir();
+process.env.SESSIONS_DIR = tmpSessionsDir;
 
 // ---------------------------------------------------------------------------
 // Helpers: read sidecar files directly (mirrors session.ts internals)
@@ -79,8 +83,7 @@ async function getSessionModule(sessionsDir: string): Promise<SessionModule> {
 
 test.describe("graph_agent session config + metadata persistence", () => {
   test.beforeEach(() => {
-    tmpSessionsDir = setupTempSessionsDir();
-    process.env.SESSIONS_DIR = tmpSessionsDir;
+    fs.mkdirSync(tmpSessionsDir, { recursive: true });
   });
 
   test.afterEach(() => {

@@ -323,7 +323,6 @@ print(repr(ws[sys.argv[3]].value))
 
   /** Simpler helper using inline python */
   function readCellSync(filePath: string, sheet: string, ref: string): any {
-    const { execSync } = require("child_process");
     const out = execSync(
       `python3 -c "import openpyxl; wb=openpyxl.load_workbook('${filePath}', data_only=True); ws=wb['${sheet}']; print(ws['${ref}'].value)"`,
       { encoding: "utf8" }

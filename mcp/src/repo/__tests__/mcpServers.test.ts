@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 
 // ---- maskCredential unit tests ----
 // maskCredential is module-scope but not exported; we replicate its logic here

@@ -16,7 +16,7 @@
  * assert file creation without triggering real LLM calls.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../testkit.js";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
