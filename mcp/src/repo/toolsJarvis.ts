@@ -1,6 +1,15 @@
-import { tool, Tool } from "ai";
+import { tool, Tool, ToolLoopAgent, stepCountIs } from "ai";
 import { z } from "zod";
 import axios from "axios";
+import {
+  getModelDetails,
+  getProviderOptions,
+  ModelName,
+} from "../aieo/src/index.js";
+import {
+  extractFinalAnswer,
+  createHasEndMarkerCondition,
+} from "./utils.js";
 
 function appendNamespace(params: URLSearchParams, namespace?: string): void {
   if (namespace && namespace.length > 0) {
@@ -188,16 +197,154 @@ export function buildOntologyPayload(
   return { domains, node_types: grouped, edges };
 }
 
+/** Default recursion depth for nested `graph_sub_agent` spawning. */
+const DEFAULT_SUBAGENT_MAX_DEPTH = 2;
+
+/** Default tool-loop step cap for a single sub-agent run. */
+const DEFAULT_SUBAGENT_MAX_STEPS = 20;
+
+/**
+ * Config for the recursive `graph_sub_agent` tool. When present (see
+ * `JarvisToolsOptions.subAgent`) a child agent tool is registered that spawns an
+ * in-process ToolLoopAgent with its own copy of the graph tools.
+ */
+export interface JarvisSubAgentConfig {
+  /** Override the tool description shown to the parent LLM. */
+  description?: string;
+  /**
+   * Max nesting depth for sub-agents. depth 0 = the top-level agent, so a
+   * maxDepth of 2 means the top agent can spawn children, those children can
+   * spawn grandchildren, but grandchildren get no `graph_sub_agent` tool.
+   * Defaults to `DEFAULT_SUBAGENT_MAX_DEPTH`.
+   */
+  maxDepth?: number;
+  /** Max tool-loop steps a single sub-agent run may take. */
+  maxSteps?: number;
+  /** LLM selection forwarded to child agents (reuses the parent's provider). */
+  modelName?: ModelName;
+  apiKey?: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  /**
+   * Current recursion depth. Internal — callers should leave this unset (0);
+   * it is incremented automatically as sub-agents spawn sub-agents.
+   */
+  depth?: number;
+}
+
+export interface JarvisToolsOptions {
+  /**
+   * When provided, registers the recursive `graph_sub_agent` tool alongside the
+   * read tools. Omit to expose only the read tools (get_ontology, graph_search,
+   * graph_get, graph_neighbors).
+   */
+  subAgent?: JarvisSubAgentConfig;
+}
+
+const DEFAULT_SUBAGENT_DESCRIPTION =
+  "Spawn a focused child agent to explore the Jarvis knowledge graph and report back. " +
+  "The child has its own copy of the graph tools (get_ontology, graph_search, graph_get, graph_neighbors) " +
+  "and runs an independent exploration loop, returning a synthesized text summary of its findings. " +
+  "Use this to parallelize or delegate: after you locate a few key nodes, fan out one sub-agent per " +
+  "node/subtopic with a specific, self-contained prompt (include the relevant ref_ids and exactly what " +
+  "to find), then collate their answers. Each prompt must stand alone — the child does not see this " +
+  "conversation. Prefer a handful of targeted sub-agents over one broad one.";
+
+/** System prompt for a spawned graph exploration sub-agent. */
+const GRAPH_SUBAGENT_SYSTEM = `You are a focused knowledge-graph exploration sub-agent. A parent agent has delegated a specific exploration task to you. Answer ONLY the task you were given — do not expand scope.
+
+You traverse a knowledge graph of interconnected entities (people, topics, episodes, organizations, workflows, code, and their relationships) using these tools:
+- \`get_ontology\` — list node types (grouped by domain) and valid \`domains\`. Call FIRST if you don't already know the relevant types.
+- \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`.
+- \`graph_neighbors\` — nodes one hop away, with \`edge_type\` and \`direction\`. This is how you follow relationships.
+- \`graph_get\` — resolve a single ref_id to its full content.
+- \`graph_sub_agent\` (only if available) — delegate an even more focused subtask to a further child agent.
+
+Workflow:
+1. If the parent gave you ref_ids, start with \`graph_get\`/\`graph_neighbors\` on them. Otherwise start with \`graph_search\`.
+2. Walk outward hop-by-hop, filtering by \`node_type\`/\`edge_type\`, following the \`name\` labels to decide where to go.
+3. Stop calling tools as soon as you have enough to answer — extra calls rarely improve a complete answer.
+
+Be efficient and concrete. Cite the node names/ref_ids you relied on so the parent can verify or dig deeper.
+
+CRITICAL: When ready, output your complete findings followed by [END_OF_ANSWER] on a new line. Always finish with this marker.`;
+
+/**
+ * Register the recursive `graph_sub_agent` tool. Each invocation builds a fresh
+ * child tool set (via `registerJarvisTools` with an incremented depth) and runs
+ * an in-process ToolLoopAgent, returning the child's synthesized text answer.
+ * Depth capping happens at the call site (only registered while depth < maxDepth),
+ * so leaf children never receive another `graph_sub_agent` tool.
+ */
+function registerGraphSubAgentTool(
+  allTools: Record<string, Tool<any, any>>,
+  sub: JarvisSubAgentConfig,
+  depth: number,
+): void {
+  allTools.graph_sub_agent = tool({
+    description: sub.description ?? DEFAULT_SUBAGENT_DESCRIPTION,
+    inputSchema: z.object({
+      prompt: z
+        .string()
+        .describe(
+          "A focused, self-contained exploration task for the child agent. " +
+          "Include any relevant ref_ids and state exactly what to find and report back. " +
+          "The child cannot see this conversation.",
+        ),
+    }),
+    execute: async ({ prompt }: { prompt: string }) => {
+      const childTools: Record<string, Tool<any, any>> = {};
+      // Recurse with depth+1 so nested sub-agents stop at maxDepth.
+      registerJarvisTools(childTools, {
+        subAgent: { ...sub, depth: depth + 1 },
+      });
+
+      try {
+        const { model, provider, modelId } = getModelDetails(
+          sub.modelName,
+          sub.apiKey,
+          sub.baseUrl,
+          sub.headers,
+        );
+        const maxSteps = sub.maxSteps ?? DEFAULT_SUBAGENT_MAX_STEPS;
+        const hasEndMarker = createHasEndMarkerCondition<typeof childTools>();
+        const agent = new ToolLoopAgent({
+          model,
+          instructions: GRAPH_SUBAGENT_SYSTEM,
+          tools: childTools,
+          providerOptions: getProviderOptions(provider, undefined, modelId) as any,
+          stopWhen: maxSteps > 0 ? [hasEndMarker, stepCountIs(maxSteps)] : hasEndMarker,
+          stopSequences: ["[END_OF_ANSWER]"],
+        });
+        console.log(
+          `[graph_sub_agent] depth=${depth + 1} spawning child: ${prompt.slice(0, 200)}`,
+        );
+        const result = await agent.generate({ prompt });
+        const final = extractFinalAnswer(result.steps);
+        return final.answer || "Sub-agent returned no findings.";
+      } catch (err: any) {
+        return `graph_sub_agent failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+  console.log(`===> registered graph_sub_agent tool (depth ${depth})`);
+}
+
 /**
  * Registers Jarvis knowledge-graph tools into the given `allTools` map whenever
- * `JARVIS_URL` is set in the environment. Registers four tools:
+ * `JARVIS_URL` is set in the environment. Registers four read tools:
  *   - `get_ontology`    — list all available node types in the ontology
  *   - `graph_search`    — keyword search across ontology nodes
  *   - `graph_get`       — resolve a single ref_id to its full node content
  *   - `graph_neighbors` — return all adjacent nodes reachable in one hop
+ *
+ * When `options.subAgent` is provided (and the recursion depth is below
+ * `maxDepth`) it additionally registers `graph_sub_agent`, which spawns an
+ * in-process child agent with its own copy of these tools.
  */
 export function registerJarvisTools(
   allTools: Record<string, Tool<any, any>>,
+  options: JarvisToolsOptions = {},
 ): void {
   const jarvisUrl = process.env.JARVIS_URL;
   if (!jarvisUrl) {
@@ -538,4 +685,32 @@ export function registerJarvisTools(
   console.log(
     "===> registered graph_search + get_ontology + graph_get + graph_neighbors tools",
   );
+
+  // Recursive sub-agent tool, gated by config + depth so children can't spawn
+  // forever. Registered only while the current depth is below maxDepth, meaning
+  // leaf children never receive a `graph_sub_agent` tool.
+  const sub = options.subAgent;
+  if (sub) {
+    const depth = sub.depth ?? 0;
+    const maxDepth = sub.maxDepth ?? DEFAULT_SUBAGENT_MAX_DEPTH;
+    if (depth < maxDepth) {
+      registerGraphSubAgentTool(allTools, sub, depth);
+    }
+  }
 }
+
+
+/*
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/mikeoss",
+    "prompt": "please spin up graph sub agents (graph_sub_agent tool) so i can see if that actually works. explore graph nodes. MAKE SURE YOU USE graph_sub_agent tool!!!",
+    "mode": "graph",
+    "toolsConfig": { "graph_sub_agent": true }
+  }' \
+  "http://localhost:3355/repo/agent"
+
+curl "http://localhost:3355/progress?request_id=77591d86-994f-4758-8b66-26a7b13a7bf8"
+
+*/
