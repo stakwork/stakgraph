@@ -31,7 +31,7 @@ import { relevant_node_types } from "../graph/types.js";
  * path outside these (see resolveInCwd in textEdit.ts): the cloned repo, the
  * OS temp dir (scratch), and — when configured — the durable artifacts dir.
  */
-function editorRoots(repoPath: string): string[] {
+export function editorRoots(repoPath: string): string[] {
   const roots = [repoPath, os.tmpdir()];
   if (AGENT_ARTIFACTS_DIR) roots.push(AGENT_ARTIFACTS_DIR);
   return roots;
