@@ -15,7 +15,7 @@ import {
   getProviderOptions,
   normalizeUsage,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled } from "./tools.js";
 import { SKILLS } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
@@ -89,9 +89,9 @@ function SYSTEM_PROMPT_END(qs: boolean) {
 
 function DEFAULT_SYSTEM(toolsConfig?: ToolsConfig) {
 
-  const learn_concepts = toolsConfig?.learn_concept || toolsConfig?.list_concepts || toolsConfig?.learn_concepts
+  const learn_concepts = toolConfigEnabled(toolsConfig?.learn_concept) || toolConfigEnabled(toolsConfig?.list_concepts) || toolConfigEnabled(toolsConfig?.learn_concepts)
 
-  const qs = toolsConfig?.ask_clarifying_questions ? true : false;
+  const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
 
   return `${getCurrentDateSnippet()}
 
@@ -166,7 +166,7 @@ ${SYSTEM_PROMPT_END(qs)}
 
 function GRAPH_SYSTEM(toolsConfig?: ToolsConfig) {
 
-  const qs = toolsConfig?.ask_clarifying_questions ? true : false;
+  const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
 
   return `${getCurrentDateSnippet()}
 
@@ -500,7 +500,7 @@ Apply the guidance from each skill throughout your response.`;
   const stopConditions: StopCondition<ToolSet>[] = [hasEndMarker];
   let finalPrompt: string | ModelMessage[] = prompt;
 
-  if (toolsConfig?.ask_clarifying_questions) {
+  if (toolConfigEnabled(toolsConfig?.ask_clarifying_questions)) {
     stopConditions.push(hasAskQuestions);
   }
 
