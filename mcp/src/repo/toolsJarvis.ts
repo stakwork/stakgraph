@@ -38,6 +38,23 @@ function toPythonListLiteral(arr: string[]): string {
 }
 
 /**
+ * Collapse Jarvis `/connection-counts` rows ([{edge_type, target_type, count}])
+ * into a compact `{EDGE_TYPE: totalCount}` map, summing across target types.
+ * This mirrors the inline `edges` map returned by graph_search so both tools
+ * present connectivity the same way.
+ */
+export function collapseConnectionCounts(
+  counts: Array<{ edge_type: string; target_type?: string; count: number }>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of counts ?? []) {
+    if (!c?.edge_type) continue;
+    out[c.edge_type] = (out[c.edge_type] ?? 0) + Number(c.count ?? 0);
+  }
+  return out;
+}
+
+/**
  * Jarvis nodes keep their human label under wildly different keys depending on
  * node type. Try a generous ordered list of candidates — short identifier-like
  * fields first, long descriptive fields as a truncated last resort. Returns ""
@@ -235,6 +252,8 @@ export function registerJarvisTools(
     description:
       "Search the Jarvis knowledge graph for ontology nodes — people, topics, episodes, clips, organizations, workflows, and more. " +
       "Unlike stakgraph_search (code nodes only), this queries the full Jarvis ontology. " +
+      "Each result includes an `edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
+      "which relationship types you can traverse next with graph_neighbors. " +
       "Call get_ontology first to discover valid values for the `type` parameter.",
     inputSchema: z.object({
       q: z.string().describe("The search query"),
@@ -281,6 +300,9 @@ export function registerJarvisTools(
       const params = new URLSearchParams({ q, limit: String(limit) });
       if (type) params.set("type", type);
       if (domains) params.set("domains", domains);
+      // Ask Jarvis to attach a per-node {EDGE_TYPE: count} map inline so the
+      // agent can gauge connectivity and see hop targets in one call.
+      params.set("include_edge_counts", "true");
       appendNamespace(params, namespace);
       const url = `${jarvisUrl}/v2/nodes?${params.toString()}`;
       console.log(
@@ -307,6 +329,9 @@ export function registerJarvisTools(
               n.properties?.summary ??
               n.properties?.text ??
               "",
+            // {EDGE_TYPE: count} map of this node's relationships — shows how
+            // connected it is and which edge types graph_neighbors can follow.
+            edges: (n.edges ?? {}) as Record<string, number>,
           }))
         );
       } catch (err: any) {
@@ -319,11 +344,26 @@ export function registerJarvisTools(
     description:
       "Resolve a single node in the Jarvis knowledge graph to its full content by ref_id. " +
       "Use the ref_id from graph_search or graph_neighbors results. " +
-      "Returns the node's ref_id, node_type, derived name, and properties.",
+      "Returns the node's ref_id, node_type, derived name, properties, and an " +
+      "`edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
+      "which relationship types you can traverse next with graph_neighbors.",
     inputSchema: z.object({
       ref_id: z.string().describe("The ref_id of the node to resolve."),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Scope edge-count computation to a Jarvis namespace (data partition). " +
+          "Only affects the `edges` map. Not an access-control boundary."
+        ),
     }),
-    execute: async ({ ref_id }: { ref_id: string }) => {
+    execute: async ({
+      ref_id,
+      namespace,
+    }: {
+      ref_id: string;
+      namespace?: string;
+    }) => {
       // limit=1 keeps Jarvis from materializing the node's whole neighborhood
       // (which can OOM Neo4j for hub nodes) — we only read the node itself.
       const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
@@ -342,11 +382,33 @@ export function registerJarvisTools(
           : data;
         if (!raw || !raw.ref_id) return `node not found: ${ref_id}`;
         const properties = (raw.properties ?? {}) as Record<string, any>;
+
+        // Fetch edge-type connectivity from the dedicated aggregation endpoint
+        // (cheap: counts only, no neighbor materialization). Collapse the
+        // (edge_type, target_type) breakdown into a {EDGE_TYPE: count} map so
+        // graph_get and graph_search present connectivity identically. Best
+        // effort — never fail the whole call if this lookup errors.
+        let edges: Record<string, number> = {};
+        try {
+          const ccParams = new URLSearchParams();
+          appendNamespace(ccParams, namespace);
+          const ccQuery = ccParams.toString();
+          const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
+          const ccResp = await jarvisFetch(ccUrl, jarvisHeaders);
+          if (ccResp.ok) {
+            const ccData = (await ccResp.json()) as any;
+            edges = collapseConnectionCounts(ccData?.counts ?? []);
+          }
+        } catch {
+          // ignore — edges stays {}
+        }
+
         return JSON.stringify({
           ref_id: raw.ref_id,
           node_type: raw.node_type,
           name: deriveNodeName(raw, properties),
           properties: raw.properties,
+          edges,
         });
       } catch (err: any) {
         return `graph_get failed: ${err?.message ?? String(err)}`;

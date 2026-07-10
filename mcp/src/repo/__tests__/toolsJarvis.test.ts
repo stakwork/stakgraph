@@ -1,5 +1,5 @@
 import { test, expect } from "../../testkit.js";
-import { buildOntologyPayload } from "../toolsJarvis.js";
+import { buildOntologyPayload, collapseConnectionCounts } from "../toolsJarvis.js";
 
 // ── graph_search URL construction helpers ────────────────────────────────────
 // Simulate the URL-building logic from graph_search in toolsJarvis.ts so we
@@ -27,6 +27,7 @@ function buildJarvisSearchUrl(
   const params = new URLSearchParams({ q, limit: String(limit) });
   if (type) params.set("type", type);
   if (domains) params.set("domains", domains);
+  params.set("include_edge_counts", "true");
   appendNs(params, namespace);
   return `${baseUrl}/v2/nodes?${params.toString()}`;
 }
@@ -54,9 +55,14 @@ test.describe("graph_search URL construction (toolsJarvis.ts)", () => {
     expect(url).toContain("namespace=MyNamespace");
   });
 
-  test("without namespace, URL is identical to today's baseline", () => {
+  test("without namespace, URL carries q, limit, and include_edge_counts", () => {
     const url = buildJarvisSearchUrl(BASE, { q: "bitcoin", limit: 10 });
-    expect(url).toBe(`${BASE}/v2/nodes?q=bitcoin&limit=10`);
+    expect(url).toBe(`${BASE}/v2/nodes?q=bitcoin&limit=10&include_edge_counts=true`);
+  });
+
+  test("always requests inline edge counts", () => {
+    const url = buildJarvisSearchUrl(BASE, { q: "bitcoin" });
+    expect(url).toContain("include_edge_counts=true");
   });
 
   test("with type, domains, and namespace, all params appear", () => {
@@ -225,5 +231,38 @@ test.describe("buildOntologyPayload", () => {
     const payload = buildOntologyPayload(fixtureSchemaData);
     const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
     expect(person?.description).toBe("A person node");
+  });
+});
+
+test.describe("collapseConnectionCounts", () => {
+  test("sums counts across target types per edge_type", () => {
+    const edges = collapseConnectionCounts([
+      { edge_type: "CONTAINS", target_type: "File", count: 3 },
+      { edge_type: "CONTAINS", target_type: "Function", count: 2 },
+      { edge_type: "PART_OF", target_type: "Repository", count: 1 },
+    ]);
+    expect(edges).toEqual({ CONTAINS: 5, PART_OF: 1 });
+  });
+
+  test("works when target_type is absent", () => {
+    const edges = collapseConnectionCounts([
+      { edge_type: "CITES", count: 4 },
+      { edge_type: "CITES", count: 1 },
+    ]);
+    expect(edges).toEqual({ CITES: 5 });
+  });
+
+  test("returns empty object for empty or missing input", () => {
+    expect(collapseConnectionCounts([])).toEqual({});
+    expect(collapseConnectionCounts(undefined as any)).toEqual({});
+  });
+
+  test("coerces non-numeric counts and skips rows without edge_type", () => {
+    const edges = collapseConnectionCounts([
+      { edge_type: "", target_type: "File", count: 9 } as any,
+      { edge_type: "HAS", target_type: "Tag", count: "2" as any },
+      { edge_type: "HAS", target_type: "Tag", count: undefined as any },
+    ]);
+    expect(edges).toEqual({ HAS: 2 });
   });
 });
