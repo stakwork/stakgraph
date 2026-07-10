@@ -13,6 +13,7 @@ export default defineConfig({
     '**/repo/**/*.test.ts',
     '**/log/**/*.test.ts',
     '**/graph_agent/**/*.test.ts',
+    '**/__tests__/tools.test.ts',
   ],
 
   /* Run tests in files in parallel */

@@ -30,7 +30,7 @@
     "stage-vein": "rm -rf .vein && rsync -a --exclude node_modules --exclude web/node_modules --exclude build --exclude web/dist --exclude .git --exclude .env --exclude workspace ../vein/ .vein/",
     "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
-    "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\"",
+    "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\" \"src/__tests__/tools.test.ts\"",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",

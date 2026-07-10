@@ -46,6 +46,15 @@ function isPrimitiveNumber(v: unknown): v is number {
   return typeof v === "number" || typeof v === "bigint";
 }
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  try {
+    assert.deepStrictEqual(a, b);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function makeMatchers(actual: any, negate: boolean) {
   const ok = (pass: boolean, message: string) => {
     assert.ok(negate ? !pass : pass, (negate ? "NOT: " : "") + message);
@@ -112,6 +121,20 @@ function makeMatchers(actual: any, negate: boolean) {
     },
     toHaveLength(n: number) {
       ok(actual?.length === n, `expected length ${actual?.length} to be ${n}`);
+    },
+    toHaveProperty(propPath: string | (string | number)[], value?: any) {
+      const keys = Array.isArray(propPath) ? propPath : String(propPath).split(".");
+      let cur: any = actual;
+      let has = true;
+      for (const k of keys) {
+        if (cur != null && k in Object(cur)) cur = cur[k as any];
+        else {
+          has = false;
+          break;
+        }
+      }
+      const pass = has && (arguments.length < 2 || deepEqual(cur, value));
+      ok(pass, `expected object to have property ${JSON.stringify(propPath)}`);
     },
     toBeInstanceOf(cls: any) {
       ok(actual instanceof cls, `expected value to be instance of ${cls?.name}`);
