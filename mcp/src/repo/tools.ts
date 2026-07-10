@@ -87,6 +87,7 @@ type ToolName =
   | "stakgraph_map"
   | "stakgraph_code"
   | "jarvis"
+  | "graph_sub_agent"
   | "logs_agent"
   | "str_replace_based_edit_tool"
   | "apply_patch"
@@ -102,6 +103,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
+  "graph_sub_agent",
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
 ]);
@@ -203,6 +205,7 @@ Rules:
   stakgraph_code:
     "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
   jarvis: '', // deprecated: Jarvis tools now auto-register whenever JARVIS_URL is set.
+  graph_sub_agent: '', // default lives in toolsJarvis.ts; string value here overrides it.
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
   str_replace_based_edit_tool:
@@ -658,8 +661,21 @@ export async function get_tools(
     );
   }
 
-  // Register Jarvis knowledge-graph tools (gated only by JARVIS_URL being set)
-  registerJarvisTools(allTools);
+  // Register Jarvis knowledge-graph tools (gated only by JARVIS_URL being set).
+  // The recursive graph_sub_agent tool is opt-in via toolsConfig.graph_sub_agent
+  // (a string value overrides its description); depth is capped in toolsJarvis.
+  registerJarvisTools(allTools, {
+    subAgent: toolsConfig?.graph_sub_agent
+      ? {
+          description:
+            typeof toolsConfig.graph_sub_agent === "string"
+              ? toolsConfig.graph_sub_agent
+              : undefined,
+          modelName,
+          apiKey,
+        }
+      : undefined,
+  });
 
   // Register sub-agent tools (remote agent delegation)
   if (subAgents && subAgents.length > 0) {
