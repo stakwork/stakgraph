@@ -357,12 +357,11 @@ export class FileSystemStore extends Storage {
     const allConcepts = await this.getAllConcepts(repo);
 
     return allConcepts
-      .map((concept) => {
-        const score = concept.embedding
-          ? this.cosineSimilarity(embeddings, concept.embedding)
-          : 0;
-        return { ...concept, score };
-      })
+      .filter((concept) => concept.embedding)
+      .map((concept) => ({
+        ...concept,
+        score: this.cosineSimilarity(embeddings, concept.embedding!),
+      }))
       .filter((result) => result.score >= similarityThreshold)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
