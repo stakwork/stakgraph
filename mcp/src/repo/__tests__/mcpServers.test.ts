@@ -112,4 +112,45 @@ test.describe("getMcpTools logging", () => {
     expect(connectLine).toBeTruthy();
     expect(connectLine).toContain("(no credential)");
   });
+
+  test("shared headers object is not mutated when servers share the same reference", async () => {
+    const { getMcpTools } = await import("../mcpServers.js");
+    const shared: Record<string, string> = {};
+    const servers = [
+      { name: "a", url: "http://localhost:19999", token: "tokenAAA", headers: shared },
+      { name: "b", url: "http://localhost:19999", token: "tokenBBB", headers: shared },
+    ];
+
+    try {
+      await getMcpTools(servers);
+    } catch {
+      // connection failure is expected in test env
+    }
+
+    expect(shared.Authorization).toBeUndefined();
+  });
+
+  test("no token leak across servers sharing headers when only one has a token", async () => {
+    const { getMcpTools } = await import("../mcpServers.js");
+    const shared: Record<string, string> = {};
+    const logs: string[] = [];
+    const orig = console.log;
+    console.log = (...args: unknown[]) => { logs.push(args.join(" ")); };
+
+    try {
+      await getMcpTools([
+        { name: "a", url: "http://localhost:19999", token: "tokenAAA", headers: shared },
+        { name: "b", url: "http://localhost:19999", headers: shared },
+      ]);
+    } catch {
+      // connection failure is expected in test env
+    } finally {
+      console.log = orig;
+    }
+
+    const connectLineB = logs.find((l) => l.includes("[MCP] Connecting to b"));
+    expect(connectLineB).toBeTruthy();
+    expect(connectLineB).toContain("(no credential)");
+    expect(connectLineB).not.toContain("tokenAAA");
+  });
 });

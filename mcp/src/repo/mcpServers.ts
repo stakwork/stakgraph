@@ -77,7 +77,7 @@ export async function getMcpTools(
   for (const server of mcpServers) {
     try {
       // Build headers: token takes precedence, then headers
-      const headers: Record<string, string> = server.headers || {};
+      const headers: Record<string, string> = { ...(server.headers || {}) };
       if (server.token) {
         headers.Authorization = `Bearer ${server.token}`;
       }
