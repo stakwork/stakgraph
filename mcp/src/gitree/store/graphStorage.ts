@@ -11,7 +11,7 @@ import {
   ChronologicalCheckpoint,
   Usage,
 } from "../types.js";
-import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl } from "./utils.js";
+import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
 
 const Data_Bank = "Data_Bank";
@@ -153,6 +153,66 @@ export class GraphStorage extends Storage {
 
     // Backfill direct PR->File edges if none exist yet (runs once per DB).
     await this.backfillPRFileEdges();
+
+    // Backfill embeddings for concepts created before semantic search existed.
+    await this.backfillConceptEmbeddings();
+  }
+
+  /**
+   * One-time backfill of `embeddings` on :Concept nodes that predate semantic
+   * search. Runs on every `initialize()` but short-circuits cheaply: it only
+   * processes concepts whose `embeddings` are null (and that have text to
+   * embed), so once every concept is embedded this becomes a no-op scan.
+   */
+  private async backfillConceptEmbeddings(): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      // Fetch concepts missing an embedding (but with text to embed).
+      const result = await session.run(`
+        MATCH (c:Concept)
+        WHERE c.embeddings IS NULL
+          AND (
+            (c.name IS NOT NULL AND c.name <> "") OR
+            (c.description IS NOT NULL AND c.description <> "")
+          )
+        RETURN c.id AS id, c.name AS name, c.description AS description
+      `);
+
+      if (result.records.length === 0) {
+        return; // Nothing to backfill.
+      }
+
+      console.log(
+        `[gitree] Backfilling embeddings for ${result.records.length} concept(s)...`
+      );
+
+      let updated = 0;
+      for (const record of result.records) {
+        const id = record.get("id");
+        const name = record.get("name") || "";
+        const description = record.get("description") || "";
+        try {
+          const embeddings = await computeConceptEmbedding({ name, description });
+          if (!embeddings) continue;
+          await session.run(
+            `MATCH (c:Concept {id: $id}) SET c.embeddings = $embeddings`,
+            { id, embeddings }
+          );
+          updated++;
+        } catch (error) {
+          console.error(
+            `[gitree] Failed to backfill embedding for concept ${id}:`,
+            error
+          );
+        }
+      }
+
+      console.log(`[gitree] Backfilled embeddings for ${updated} concept(s).`);
+    } catch (error) {
+      console.error("[gitree] Error backfilling concept embeddings:", error);
+    } finally {
+      await session.close();
+    }
   }
 
   /**
@@ -426,12 +486,27 @@ export class GraphStorage extends Storage {
         ? Math.floor(concept.cluesLastAnalyzedAt.getTime() / 1000)
         : null;
 
+      // Generate a semantic embedding from name + description so concepts are
+      // discoverable via vector search. Falls back to any embedding already on
+      // the concept if generation fails (e.g. model unavailable).
+      let embeddings: number[] | null = concept.embedding || null;
+      try {
+        const computed = await computeConceptEmbedding(concept);
+        if (computed) embeddings = computed;
+      } catch (error) {
+        console.error(
+          `Failed to compute embedding for concept ${concept.id}:`,
+          error
+        );
+      }
+
       await session.run(
         `
         MERGE (f:${Data_Bank}:Concept {id: $id})
         SET f.name = $name,
             f.repo = $repo,
             f.description = $description,
+            f.embeddings = $embeddings,
             f.prNumbers = $prNumbers,
             f.commitShas = $commitShas,
             f.date = $date,
@@ -459,6 +534,7 @@ export class GraphStorage extends Storage {
           commitShas: concept.commitShas,
           date: dateTimestamp,
           docs: concept.documentation || "",
+          embeddings,
           cluesCount: concept.cluesCount || null,
           cluesLastAnalyzedAt: cluesLastAnalyzedAtTimestamp,
           ...usageParams(concept.usage),
@@ -1140,6 +1216,51 @@ export class GraphStorage extends Storage {
     }
   }
 
+  /**
+   * Search concepts by semantic similarity using name + description embeddings.
+   * Brute-force cosine over :Concept nodes (concept counts are small, so a full
+   * scan is fast and gives exact scores).
+   */
+  async searchConcepts(
+    _query: string,
+    embeddings: number[],
+    limit: number = 10,
+    similarityThreshold: number = 0.5,
+    repo?: string
+  ): Promise<Array<Concept & { score: number }>> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Concept)
+        WHERE c.embeddings IS NOT NULL
+          AND ($repo IS NULL OR c.repo = $repo)
+        WITH c, gds.similarity.cosine(c.embeddings, $embeddings) AS score
+        WHERE score >= $similarityThreshold
+        RETURN c, score
+        ORDER BY score DESC
+        LIMIT toInteger($limit)
+        `,
+        {
+          embeddings,
+          repo: repo || null,
+          limit,
+          similarityThreshold,
+        }
+      );
+
+      return result.records.map((record) => {
+        const concept = this.nodeToConcept(record.get("c"));
+        return {
+          ...concept,
+          score: record.get("score"),
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
   // Metadata - now per-repo
 
   async getLastProcessedPR(repo: string): Promise<number> {
@@ -1638,6 +1759,7 @@ export class GraphStorage extends Storage {
         ? new Date(props.cluesLastAnalyzedAt * 1000)
         : undefined,
       usage: usageFromProps(props),
+      embedding: props.embeddings || undefined,
     };
   }
 

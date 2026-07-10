@@ -845,4 +845,52 @@ program
     }
   });
 
+program
+  .command("search-concepts")
+  .description("Search concepts by semantic similarity (name + description embeddings)")
+  .argument("<query>", "Search query")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage")
+  .option("-l, --limit <number>", "Maximum number of results", "40")
+  .option("-t, --threshold <number>", "Similarity threshold (0-1)", "0.5")
+  .action(async (query: string, options) => {
+    try {
+      const storage = await createStorage(options);
+      const { vectorizeQuery } = await import("../vector/index.js");
+
+      console.log(`\n🔍 Searching concepts for: "${query}"\n`);
+
+      // Generate embeddings
+      const embeddings = await vectorizeQuery(query);
+
+      // Search
+      const results = await storage.searchConcepts(
+        query,
+        embeddings,
+        parseInt(options.limit),
+        parseFloat(options.threshold)
+      );
+
+      if (results.length === 0) {
+        console.log("📭 No concepts found matching your query.\n");
+        return;
+      }
+
+      console.log(`Found ${results.length} relevant concept(s):\n`);
+
+      for (const result of results) {
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`📍 ${result.name} (${result.id})`);
+        console.log(`   Score: ${result.score.toFixed(3)}`);
+        console.log(`   ${result.description}`);
+        console.log();
+      }
+
+      console.log();
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
 program.parse();

@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { Concept, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
 import { Storage } from "./storage.js";
-import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
+import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown, computeConceptEmbedding } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
 
 function normalizeConcept(concept: any): Concept {
@@ -84,8 +84,23 @@ export class FileSystemStore extends Storage {
     // Use sanitized ID for filename (replace / with __)
     const safeId = concept.id.replace(/\//g, "__");
     const filePath = path.join(this.conceptsDir, `${safeId}.json`);
+
+    // Generate a semantic embedding from name + description so concepts are
+    // discoverable via vector search.
+    let embedding: number[] | undefined = concept.embedding;
+    try {
+      const computed = await computeConceptEmbedding(concept);
+      if (computed) embedding = computed;
+    } catch (error) {
+      console.error(
+        `Failed to compute embedding for concept ${concept.id}:`,
+        error
+      );
+    }
+
     const serialized = {
       ...concept,
+      embedding,
       createdAt: concept.createdAt.toISOString(),
       lastUpdated: concept.lastUpdated.toISOString(),
       cluesLastAnalyzedAt: concept.cluesLastAnalyzedAt?.toISOString(),
@@ -327,6 +342,29 @@ export class FileSystemStore extends Storage {
       .slice(0, limit);
 
     return scored;
+  }
+
+  /**
+   * Search concepts by semantic similarity using name + description embeddings.
+   */
+  async searchConcepts(
+    _query: string,
+    embeddings: number[],
+    limit: number = 10,
+    similarityThreshold: number = 0.5,
+    repo?: string
+  ): Promise<Array<Concept & { score: number }>> {
+    const allConcepts = await this.getAllConcepts(repo);
+
+    return allConcepts
+      .filter((concept) => concept.embedding)
+      .map((concept) => ({
+        ...concept,
+        score: this.cosineSimilarity(embeddings, concept.embedding!),
+      }))
+      .filter((result) => result.score >= similarityThreshold)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
   }
 
   /**
