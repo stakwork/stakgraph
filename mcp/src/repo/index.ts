@@ -140,7 +140,10 @@ function parseAgentBody(req: Request) {
   const logs = req.body.logs as boolean | undefined;
   const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
-  const mcpServers = req.body.mcpServers as McpServer[] | undefined;
+  const mcpServers = (req.body.mcpServers as McpServer[] | undefined)?.map((s) => ({
+    ...s,
+    headers: s.headers ? { ...s.headers } : s.headers,
+  }));
   const systemOverride = req.body.systemOverride as string | undefined;
   const mode = req.body.mode === "graph" ? "graph" as const : undefined;
   const skills = req.body.skills as SkillsConfig | undefined;
