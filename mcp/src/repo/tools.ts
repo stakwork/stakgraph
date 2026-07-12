@@ -88,6 +88,7 @@ type ToolName =
   | "stakgraph_code"
   | "jarvis"
   | "graph_sub_agent"
+  | "ontology_edit"
   | "logs_agent"
   | "str_replace_based_edit_tool"
   | "apply_patch"
@@ -150,7 +151,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
-  "graph_sub_agent",
+  "graph_sub_agent", "ontology_edit",
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
 ]);
@@ -253,6 +254,7 @@ Rules:
     "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
   jarvis: '', // deprecated: Jarvis tools now auto-register whenever JARVIS_URL is set.
   graph_sub_agent: '', // default lives in toolsJarvis.ts; string value here overrides it.
+  ontology_edit: '', // group gate: registers the ontology write tools (defaults live in toolsJarvis.ts).
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
   str_replace_based_edit_tool:
@@ -726,6 +728,8 @@ export async function get_tools(
           apiKey,
         }
       : undefined,
+    // Opt-in ontology write tools (create/update/delete node & edge types).
+    ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
   });
 
   // Register sub-agent tools (remote agent delegation)
