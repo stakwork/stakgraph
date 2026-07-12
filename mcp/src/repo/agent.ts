@@ -164,9 +164,31 @@ ${SYSTEM_PROMPT_END(qs)}
 `;
 };
 
+/**
+ * Guidance injected into the graph system prompt when the `ontology_edit` flag
+ * is on. Teaches the agent to inspect before mutating and to gate destructive
+ * changes behind explicit user confirmation.
+ */
+const ONTOLOGY_EDIT_GUIDANCE = `
+### Ontology Editing (write access — enabled)
+You can modify the graph's schema on the fly. Changes are applied live to the graph immediately.
+- \`ontology_create_type\` / \`ontology_update_type\` / \`ontology_delete_type\` — create, update, or soft-delete NODE types.
+- \`ontology_create_edge\` / \`ontology_update_edge\` / \`ontology_delete_edge\` — create, update, or soft-delete EDGE types (relationships).
+- \`ontology_rename_attribute\` — rename an attribute and migrate existing node data to the new name.
+
+Rules for editing:
+- **Always inspect before you mutate.** Call \`get_ontology\` (with \`include_edges: true\` when touching edges or when you need ref_ids) to confirm current types, domains, inheritance (\`CHILD_OF\`), and whether the target already exists. Never create something that already exists — update it instead.
+- Make the **smallest** change that satisfies the request. Prefer adding attributes over renaming.
+- New node types default to \`domain: "entity"\` and must inherit from an existing parent (the root is \`Thing\`).
+- Attribute values are type descriptors: \`string\`, \`?string\` (optional), \`boolean\`, \`int\`, \`float\`, \`datetime\`, \`list\`, \`complex\`. Use \`delete\` to remove an attribute. Never use reserved names (\`status\`, \`is_deleted\`, \`boost\`, \`algo_*\`) and never touch \`CHILD_OF\` edges.
+- **Destructive changes require explicit user confirmation**: \`ontology_delete_type\`, \`ontology_delete_edge\`, and \`ontology_rename_attribute\` (which migrates live data). If the request is ambiguous, ask before calling them.
+- After each write, re-read the affected schema (\`get_ontology\` or \`graph_get\`) to confirm it applied, and report exactly what changed.
+`;
+
 function GRAPH_SYSTEM(toolsConfig?: ToolsConfig) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
+  const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
 
   return `${getCurrentDateSnippet()}
 
@@ -187,7 +209,7 @@ Try to match the tone of the user. If the user asks a technical question, resear
 4. \`graph_get\` → read the full content of a specific node when you need its details.
 
 You also have code-graph tools (\`stakgraph_search\`, \`stakgraph_map\`, \`stakgraph_code\`), file tools, and bash available if a question turns out to need them — but lead with the graph tools above; they understand the entity relationships this graph is built to expose.
-
+${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}
 ## Rules
 - Start broad with \`get_ontology\` and \`graph_search\`, then narrow by walking neighbors.
 - Use the \`name\` on neighbor results to decide which node to follow next without resolving every one.

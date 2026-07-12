@@ -28,6 +28,33 @@ async function jarvisFetch(url: string, headers: Record<string, string>) {
   };
 }
 
+/**
+ * Perform a write (POST/PUT/DELETE) against Jarvis. Mirrors `jarvisFetch` but
+ * for mutations. Never throws on non-2xx (validateStatus) so the tool can
+ * surface Jarvis's `errorCode`/`message` body back to the agent verbatim.
+ */
+async function jarvisMutate(
+  method: "post" | "put" | "delete",
+  url: string,
+  headers: Record<string, string>,
+  body?: unknown,
+) {
+  const resp = await axios.request({
+    method,
+    url,
+    headers,
+    data: body,
+    validateStatus: () => true,
+    responseType: "text",
+  });
+  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+  return {
+    ok: resp.status >= 200 && resp.status < 300,
+    status: resp.status,
+    text,
+  };
+}
+
 /** Max neighbors returned in a single hop — keeps tool output within budget. */
 const KG_NEIGHBOR_CAP = 50;
 
@@ -239,6 +266,14 @@ export interface JarvisToolsOptions {
    * graph_get, graph_neighbors).
    */
   subAgent?: JarvisSubAgentConfig;
+  /**
+   * When true, registers the ontology WRITE tools (ontology_create_type,
+   * ontology_update_type, ontology_delete_type, ontology_create_edge,
+   * ontology_update_edge, ontology_delete_edge, ontology_rename_attribute)
+   * that POST/PUT/DELETE directly against Jarvis `/v2/schema`. Opt-in and
+   * off by default — the default posture stays read-only.
+   */
+  ontologyEdit?: boolean;
 }
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
@@ -328,6 +363,283 @@ function registerGraphSubAgentTool(
     },
   });
   console.log(`===> registered graph_sub_agent tool (depth ${depth})`);
+}
+
+/** Human-readable summary of a Jarvis mutation response for the agent. */
+function formatMutationResult(
+  label: string,
+  res: { ok: boolean; status: number; text: string },
+): string {
+  if (res.ok) {
+    return `${label} succeeded (HTTP ${res.status}): ${res.text}`;
+  }
+  return `${label} failed — HTTP ${res.status}: ${res.text}`;
+}
+
+/**
+ * Valid attribute type descriptors for schema node/edge attributes. Prefix any
+ * value with `?` to mark it optional (e.g. `?string`). `delete` removes an
+ * existing attribute on an update.
+ */
+const ATTRIBUTE_TYPES_DOC =
+  'Map of attribute name → type descriptor. Valid types: "string", "boolean", ' +
+  '"int", "float", "datetime", "list", "complex". Prefix with "?" to make it ' +
+  'optional (e.g. "?string"). Use "delete" as the value to remove an attribute ' +
+  "on an update. Attribute names cannot contain '-' or be reserved system " +
+  "properties (status, is_deleted, boost, algo_*).";
+
+/**
+ * Register the ontology WRITE tools. Each tool POST/PUT/DELETEs directly
+ * against the Jarvis `/v2/schema` endpoints (which already apply changes live
+ * to Neo4j and invalidate caches). Gated by `JarvisToolsOptions.ontologyEdit`.
+ */
+function registerOntologyWriteTools(
+  allTools: Record<string, Tool<any, any>>,
+  jarvisUrl: string,
+  jarvisHeaders: Record<string, string>,
+): void {
+  const schemaUrl = `${jarvisUrl}/v2/schema`;
+
+  allTools.ontology_create_type = tool({
+    description:
+      "Create a new NODE TYPE in the Jarvis ontology (writes live to the graph). " +
+      "Call get_ontology first to confirm the type does not already exist and to pick a valid `parent`. " +
+      "Node types form an inheritance tree rooted at `Thing`; children inherit parent attributes.",
+    inputSchema: z.object({
+      type: z.string().describe("The new node type name, e.g. 'Statute' (PascalCase)."),
+      parent: z
+        .string()
+        .describe("The parent node type it inherits from (e.g. 'Thing'). Required."),
+      attributes: z
+        .record(z.string(), z.string())
+        .describe(ATTRIBUTE_TYPES_DOC),
+      node_key: z
+        .string()
+        .describe(
+          "A unique key for the type — usually one of the attribute names used to identify a node. " +
+          "Jarvis prefixes it with the lowercased type automatically.",
+        ),
+      domain: z
+        .string()
+        .optional()
+        .describe("Domain grouping (defaults to 'entity'). Call get_ontology to see existing domains."),
+      description: z.string().optional().describe("Human-readable description of the type."),
+    }),
+    execute: async (input: {
+      type: string;
+      parent: string;
+      attributes: Record<string, string>;
+      node_key: string;
+      domain?: string;
+      description?: string;
+    }) => {
+      console.log(`[ontology_create_type] type=${input.type} parent=${input.parent}`);
+      try {
+        const res = await jarvisMutate("post", schemaUrl, jarvisHeaders, input);
+        return formatMutationResult(`create node type '${input.type}'`, res);
+      } catch (err: any) {
+        return `ontology_create_type failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.ontology_update_type = tool({
+    description:
+      "Update an existing NODE TYPE in the Jarvis ontology by ref_id (writes live to the graph). " +
+      "Use to add/change attributes, description, or domain. To remove an attribute, set its value to 'delete'. " +
+      "Get the ref_id from get_ontology (include_edges) or graph_get.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the schema node type to update."),
+      type: z
+        .string()
+        .optional()
+        .describe("New type name — only pass this when RENAMING the type."),
+      attributes: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(ATTRIBUTE_TYPES_DOC),
+      domain: z.string().optional().describe("New domain grouping."),
+      description: z.string().optional().describe("New description."),
+    }),
+    execute: async (input: {
+      ref_id: string;
+      type?: string;
+      attributes?: Record<string, string>;
+      domain?: string;
+      description?: string;
+    }) => {
+      const { ref_id, ...body } = input;
+      console.log(`[ontology_update_type] ref_id=${ref_id}`);
+      try {
+        const url = `${schemaUrl}/${encodeURIComponent(ref_id)}`;
+        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        return formatMutationResult(`update node type ${ref_id}`, res);
+      } catch (err: any) {
+        return `ontology_update_type failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.ontology_delete_type = tool({
+    description:
+      "Soft-delete a NODE TYPE from the Jarvis ontology (sets is_deleted=true; writes live to the graph). " +
+      "DESTRUCTIVE — only call after the user has explicitly confirmed. " +
+      "Accepts either the ref_id or the type name.",
+    inputSchema: z.object({
+      ref_id_or_type: z
+        .string()
+        .describe("The ref_id or the type name of the node type to soft-delete."),
+    }),
+    execute: async ({ ref_id_or_type }: { ref_id_or_type: string }) => {
+      console.log(`[ontology_delete_type] ${ref_id_or_type}`);
+      try {
+        const url = `${schemaUrl}/${encodeURIComponent(ref_id_or_type)}`;
+        const res = await jarvisMutate("delete", url, jarvisHeaders);
+        return formatMutationResult(`delete node type '${ref_id_or_type}'`, res);
+      } catch (err: any) {
+        return `ontology_delete_type failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.ontology_create_edge = tool({
+    description:
+      "Create a new EDGE TYPE (relationship) between two node types in the Jarvis ontology (writes live to the graph). " +
+      "Call get_ontology first to confirm both source and target types exist. " +
+      "Use '*' for source or target to define a wildcard relationship rule.",
+    inputSchema: z.object({
+      source: z.string().describe("Source node type (or '*' wildcard)."),
+      target: z.string().describe("Target node type (or '*' wildcard)."),
+      edge_type: z
+        .string()
+        .describe("The relationship name, e.g. 'CITES'. Uppercased with spaces→underscores by Jarvis."),
+      attributes: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(ATTRIBUTE_TYPES_DOC),
+      display_name: z.string().optional().describe("Human-readable label for the edge."),
+      temporal: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, Jarvis auto-adds bitemporal attributes (valid_at, invalid_at, expired_at, etc.).",
+        ),
+    }),
+    execute: async (input: {
+      source: string;
+      target: string;
+      edge_type: string;
+      attributes?: Record<string, string>;
+      display_name?: string;
+      temporal?: boolean;
+    }) => {
+      console.log(
+        `[ontology_create_edge] ${input.source} -[${input.edge_type}]-> ${input.target}`,
+      );
+      try {
+        const url = `${schemaUrl}/edge`;
+        const res = await jarvisMutate("post", url, jarvisHeaders, input);
+        return formatMutationResult(
+          `create edge '${input.source}-[${input.edge_type}]->${input.target}'`,
+          res,
+        );
+      } catch (err: any) {
+        return `ontology_create_edge failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.ontology_update_edge = tool({
+    description:
+      "Update an existing EDGE TYPE in the Jarvis ontology by ref_id (writes live to the graph). " +
+      "Use to rename the edge_type, change its display_name, or add/change attributes. " +
+      "Get the ref_id from get_ontology (include_edges). CHILD_OF edges cannot be modified.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the edge schema to update."),
+      edge_type: z
+        .string()
+        .optional()
+        .describe("New relationship name — only pass this when RENAMING the edge."),
+      display_name: z.string().optional().describe("New human-readable label."),
+      attributes: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(ATTRIBUTE_TYPES_DOC),
+    }),
+    execute: async (input: {
+      ref_id: string;
+      edge_type?: string;
+      display_name?: string;
+      attributes?: Record<string, string>;
+    }) => {
+      const { ref_id, ...body } = input;
+      console.log(`[ontology_update_edge] ref_id=${ref_id}`);
+      try {
+        const url = `${schemaUrl}/edge/${encodeURIComponent(ref_id)}`;
+        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        return formatMutationResult(`update edge ${ref_id}`, res);
+      } catch (err: any) {
+        return `ontology_update_edge failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.ontology_delete_edge = tool({
+    description:
+      "Soft-delete an EDGE TYPE from the Jarvis ontology by ref_id (sets is_deleted=true; writes live to the graph). " +
+      "DESTRUCTIVE — only call after the user has explicitly confirmed. CHILD_OF edges cannot be deleted.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the edge schema to soft-delete."),
+    }),
+    execute: async ({ ref_id }: { ref_id: string }) => {
+      console.log(`[ontology_delete_edge] ref_id=${ref_id}`);
+      try {
+        const url = `${schemaUrl}/edge/${encodeURIComponent(ref_id)}`;
+        const res = await jarvisMutate("delete", url, jarvisHeaders);
+        return formatMutationResult(`delete edge ${ref_id}`, res);
+      } catch (err: any) {
+        return `ontology_delete_edge failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  allTools.ontology_rename_attribute = tool({
+    description:
+      "Rename an attribute on a NODE TYPE and migrate all existing node data to the new name (writes live to the graph). " +
+      "DESTRUCTIVE data migration — only call after the user has explicitly confirmed. " +
+      "Get the ref_id from get_ontology (include_edges) or graph_get.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the schema node type."),
+      current_attribute: z.string().describe("The existing attribute name to rename."),
+      new_attribute: z.string().describe("The new attribute name."),
+    }),
+    execute: async (input: {
+      ref_id: string;
+      current_attribute: string;
+      new_attribute: string;
+    }) => {
+      const { ref_id, ...body } = input;
+      console.log(
+        `[ontology_rename_attribute] ref_id=${ref_id} ${input.current_attribute}→${input.new_attribute}`,
+      );
+      try {
+        const url = `${schemaUrl}/${encodeURIComponent(ref_id)}/attribute`;
+        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        return formatMutationResult(
+          `rename attribute '${input.current_attribute}'→'${input.new_attribute}' on ${ref_id}`,
+          res,
+        );
+      } catch (err: any) {
+        return `ontology_rename_attribute failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  console.log(
+    "===> registered ontology write tools: ontology_create_type, ontology_update_type, " +
+    "ontology_delete_type, ontology_create_edge, ontology_update_edge, ontology_delete_edge, " +
+    "ontology_rename_attribute",
+  );
 }
 
 /**
@@ -696,6 +1008,12 @@ export function registerJarvisTools(
     if (depth < maxDepth) {
       registerGraphSubAgentTool(allTools, sub, depth);
     }
+  }
+
+  // Ontology write tools — opt-in via toolsConfig.ontology_edit. Off by default
+  // so the standard posture stays read-only.
+  if (options.ontologyEdit) {
+    registerOntologyWriteTools(allTools, jarvisUrl, jarvisHeaders);
   }
 }
 
