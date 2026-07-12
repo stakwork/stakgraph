@@ -403,8 +403,14 @@ function registerOntologyWriteTools(
   allTools.ontology_create_type = tool({
     description:
       "Create a new NODE TYPE in the Jarvis ontology (writes live to the graph). " +
-      "Call get_ontology first to confirm the type does not already exist and to pick a valid `parent`. " +
-      "Node types form an inheritance tree rooted at `Thing`; children inherit parent attributes.",
+      "LAST RESORT — only use when NO existing type can represent the concept. " +
+      "You MUST call get_ontology first and confirm no existing type already covers this concept " +
+      "(match on meaning, not just spelling — check synonyms, plurals, and broader/narrower terms, " +
+      "e.g. reuse `Episode` instead of creating `Podcast`, `Person` instead of `Individual`). " +
+      "Prefer extending an existing type (ontology_update_type to add an attribute, or ontology_create_edge) " +
+      "over inventing a new node type. " +
+      "When you do create, inherit from the closest existing `parent` (not `Thing` if a more specific ancestor exists) " +
+      "and keep naming consistent with existing types. Children inherit parent attributes.",
     inputSchema: z.object({
       type: z.string().describe("The new node type name, e.g. 'Statute' (PascalCase)."),
       parent: z
@@ -505,7 +511,9 @@ function registerOntologyWriteTools(
   allTools.ontology_create_edge = tool({
     description:
       "Create a new EDGE TYPE (relationship) between two node types in the Jarvis ontology (writes live to the graph). " +
-      "Call get_ontology first to confirm both source and target types exist. " +
+      "You MUST call get_ontology (include_edges: true) first to confirm both source and target types exist " +
+      "and that no existing edge type already expresses this relationship (reuse an existing edge type when one fits, " +
+      "matching on meaning not just spelling). Do not create near-duplicate relationships. " +
       "Use '*' for source or target to define a wildcard relationship rule.",
     inputSchema: z.object({
       source: z.string().describe("Source node type (or '*' wildcard)."),

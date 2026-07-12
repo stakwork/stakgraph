@@ -171,14 +171,23 @@ ${SYSTEM_PROMPT_END(qs)}
  */
 const ONTOLOGY_EDIT_GUIDANCE = `
 ### Ontology Editing (write access — enabled)
-You can modify the graph's schema on the fly. Changes are applied live to the graph immediately.
+You can modify the graph's schema on the fly. Changes are applied live to the graph immediately, so treat every write as production-grade and reversible only with effort.
 - \`ontology_create_type\` / \`ontology_update_type\` / \`ontology_delete_type\` — create, update, or soft-delete NODE types.
 - \`ontology_create_edge\` / \`ontology_update_edge\` / \`ontology_delete_edge\` — create, update, or soft-delete EDGE types (relationships).
 - \`ontology_rename_attribute\` — rename an attribute and migrate existing node data to the new name.
 
-Rules for editing:
-- **Always inspect before you mutate.** Call \`get_ontology\` (with \`include_edges: true\` when touching edges or when you need ref_ids) to confirm current types, domains, inheritance (\`CHILD_OF\`), and whether the target already exists. Never create something that already exists — update it instead.
-- Make the **smallest** change that satisfies the request. Prefer adding attributes over renaming.
+**MANDATORY first step — inspect the existing ontology.** Before ANY write, call \`get_ontology\` (with \`include_edges: true\` when touching edges or when you need ref_ids). Never call a create/update/delete tool without having inspected the current schema in this conversation first. If a first look is inconclusive, use \`graph_search\` to see how the concept is already modeled with real data.
+
+**Reuse before you create — do NOT invent node types out of thin air.** Creating a new node type is a heavyweight, last-resort action. A new type is only justified when NO existing type can represent the concept. Before creating anything, work through this in order:
+1. **Does an existing type already cover this?** Match on meaning, not just exact spelling — check synonyms, plurals, and broader/narrower terms (e.g. don't create \`Podcast\` if \`Episode\` exists; don't create \`Individual\` if \`Person\` exists; don't create \`Org\` if \`Organization\` exists). If yes, use it.
+2. **Can the need be met by extending an existing type?** Prefer adding an attribute (\`ontology_update_type\`) or adding an edge (\`ontology_create_edge\`) to existing types over introducing a new node type.
+3. **Is this really a distinct entity, or just a value/attribute of an existing one?** Attributes and enum-like values do not need their own node type.
+4. **Only if nothing above fits**, create the new type — inherit from the closest existing parent (never default to \`Thing\` if a more specific ancestor exists), keep naming consistent with existing types (casing, singular/plural), and in your response state plainly WHY no existing type worked.
+
+Avoid near-duplicate or overlapping types at all costs — they fragment the graph.
+
+Other rules:
+- Make the **smallest** change that satisfies the request. Prefer adding attributes over renaming; prefer reusing an existing edge type over creating a new one.
 - New node types default to \`domain: "entity"\` and must inherit from an existing parent (the root is \`Thing\`).
 - Attribute values are type descriptors: \`string\`, \`?string\` (optional), \`boolean\`, \`int\`, \`float\`, \`datetime\`, \`list\`, \`complex\`. Use \`delete\` to remove an attribute. Never use reserved names (\`status\`, \`is_deleted\`, \`boost\`, \`algo_*\`) and never touch \`CHILD_OF\` edges.
 - **Destructive changes require explicit user confirmation**: \`ontology_delete_type\`, \`ontology_delete_edge\`, and \`ontology_rename_attribute\` (which migrates live data). If the request is ambiguous, ask before calling them.
