@@ -47,11 +47,11 @@
 #                               (default org_concat)
 #   BIFROST_VK                  the VK to glue onto each macaroon.
 #                               Default: a placeholder VK shape. With
-#                               disable_auth_on_inference=true (the
+#                               disable_auth_on_inference=false (the
 #                               default in data/config.json), Bifrost
-#                               doesn't reject unknown VKs — it just
-#                               doesn't stamp customer_id on the log
-#                               row. The wrapper's split logic doesn't
+#                               rejects unknown VKs with 401. Override
+#                               with a real provisioned VK to get 200
+#                               responses. The wrapper's split logic doesn't
 #                               care whether the VK is real, only that
 #                               it matches the VK-shape regex.
 #
@@ -341,8 +341,9 @@ section "assertions"
 #
 # (With a real provisioned VK that has provider keys attached, all
 # four are 200. With an unprovisioned VK and disable_auth_on_inference
-# off, all four are 401. With a provisioned VK whose provider keys
-# aren't wired, all four are 400 "no keys found". The point of THIS
+# false (the default in data/config.json), all four are 401. With a
+# provisioned VK whose provider keys aren't wired, all four are 400
+# "no keys found". The point of THIS
 # test is that those outcomes are always identical across all four
 # call shapes — which proves the wrapper is transparent.)
 expect_eq "Authorization concat matches two-header HTTP"   "$COMPAT_STATUS" "$AUTH_STATUS"
