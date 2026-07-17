@@ -7,6 +7,7 @@ use axum::Json;
 use base64::prelude::*;
 use serde_json::json;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 
 // Bearer token authentication middleware for JSON API routes
 pub async fn bearer_auth(
@@ -26,7 +27,11 @@ pub async fn bearer_auth(
 
     if let Some(auth_header) = auth_header {
         if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            if token == expected_token {
+            if token
+                .as_bytes()
+                .ct_eq(expected_token.as_bytes())
+                .into()
+            {
                 return Ok(next.run(request).await);
             }
         }
@@ -37,7 +42,11 @@ pub async fn bearer_auth(
         .and_then(|header| header.to_str().ok());
 
     if let Some(token) = api_token_header {
-        if token == expected_token {
+        if token
+            .as_bytes()
+            .ct_eq(expected_token.as_bytes())
+            .into()
+        {
             return Ok(next.run(request).await);
         }
     }

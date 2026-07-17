@@ -103,6 +103,11 @@ async fn main() -> Result<()> {
         .route("/tests/coverage", get(coverage_handler))
         .route("/tests/nodes", get(nodes_handler))
         .route("/tests/has", get(has_handler))
+        .route(
+            "/api/hive/query",
+            post(hive_query_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(16_384)),
+        )
         .merge(busy_routes)
         .merge(async_routes);
 

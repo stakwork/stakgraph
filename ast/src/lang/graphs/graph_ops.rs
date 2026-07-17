@@ -1,4 +1,5 @@
 use neo4rs::BoltMap;
+use serde_json;
 use shared::error::{Error, Result};
 use std::time::Duration;
 use tokio::sync::broadcast::Sender;
@@ -580,5 +581,79 @@ impl GraphOps {
         file: &str,
     ) -> Result<bool> {
         self.graph.is_node_muted_async(node_type, name, file).await
+    }
+
+    /// Execute an arbitrary read-only Cypher query and return a flat `(columns, rows)` result.
+    ///
+    /// ## Write protection
+    /// The bolt transaction is opened in **read mode** so Neo4j itself rejects any write
+    /// operation — including write procedures invoked via `CALL` that bypass the
+    /// application-level keyword denylist. The caller's denylist check is defense-in-depth.
+    ///
+    /// ## Column names
+    /// Column names are derived from the first row returned by the query. neo4rs 0.8.x does
+    /// not expose a `keys()` method on `DetachedRowStream` (the internal `fields` BoltList
+    /// from the protocol response is not publicly accessible). As a consequence, empty
+    /// result sets will return `columns: []` — this is an API limitation of neo4rs 0.8.x.
+    ///
+    /// ## Graph object serialization
+    /// Each row is deserialized via `row.to::<serde_json::Value>()` which uses the neo4rs
+    /// serde bridge. Scalar bolt types (String, Integer, Float, Boolean, Null, List) round-
+    /// trip correctly. For full graph objects (`RETURN n` where `n` is a Node), the bridge
+    /// returns the node's properties as a nested JSON object; labels and element IDs are not
+    /// included. If full graph-object representation is required, the caller should project
+    /// scalar properties explicitly: `RETURN n.name, n.file, ...`.
+    pub async fn execute_raw_cypher(
+        &self,
+        cypher: &str,
+    ) -> Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
+        use neo4rs::query;
+
+        // Clone the connection handle out of the mutex before calling execute() so we do
+        // not hold the lock across the streaming loop. Holding the lock across streaming
+        // would block every concurrent bolt operation (ingest, sync, embed) that shares
+        // this lock path.
+        let connection = self.graph.ensure_connected().await?;
+
+        let query_obj = query(cypher);
+
+        let mut stream = connection
+            .execute(query_obj)
+            .await
+            .map_err(|e| Error::dependency(format!("Neo4j execute error: {e}")))?;
+
+        // neo4rs 0.8.x does not expose column names from DetachedRowStream before
+        // row consumption. Columns are initialized from the first row's keys.
+        let mut columns: Vec<String> = Vec::new();
+        let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
+        let mut columns_initialized = false;
+
+        while let Some(row) = stream
+            .next()
+            .await
+            .map_err(|e| Error::dependency(format!("Neo4j stream error: {e}")))?
+        {
+            // Deserialize the row as a serde_json::Value::Object to extract both column
+            // names (keys) and typed values in a single pass.
+            let row_obj = row
+                .to::<serde_json::Value>()
+                .map_err(|e| Error::dependency(format!("Neo4j row deserialization error: {e}")))?;
+
+            if let serde_json::Value::Object(map) = row_obj {
+                if !columns_initialized {
+                    // Capture column names from the first row. Subsequent rows will use
+                    // the same ordered column list to ensure consistent array ordering.
+                    columns = map.keys().cloned().collect();
+                    columns_initialized = true;
+                }
+                let row_values: Vec<serde_json::Value> = columns
+                    .iter()
+                    .map(|col| map.get(col).cloned().unwrap_or(serde_json::Value::Null))
+                    .collect();
+                rows.push(row_values);
+            }
+        }
+
+        Ok((columns, rows))
     }
 }
