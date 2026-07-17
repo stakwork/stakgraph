@@ -719,11 +719,32 @@ export function registerJarvisTools(
     description:
       "Search the Jarvis knowledge graph for ontology nodes — people, topics, episodes, clips, organizations, workflows, and more. " +
       "Unlike stakgraph_search (code nodes only), this queries the full Jarvis ontology. " +
+      "Provide at least one of `q`, `input_q`, `output_q` — they can be combined, each acting as its own " +
+      "retriever fused into one ranked result set. " +
       "Each result includes an `edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
       "which relationship types you can traverse next with graph_neighbors. " +
       "Call get_ontology first to discover valid values for the `type` parameter.",
     inputSchema: z.object({
-      q: z.string().describe("The search query"),
+      q: z
+        .string()
+        .optional()
+        .describe(
+          "General hybrid (keyword + semantic) search query over node names, descriptions, bodies, and schemas."
+        ),
+      input_q: z
+        .string()
+        .optional()
+        .describe(
+          "Semantic search scoped to node INPUT schemas — find nodes by what they take as input, " +
+          "e.g. 'a video file url'. Applies to node types with input embeddings (Workflow, Skill)."
+        ),
+      output_q: z
+        .string()
+        .optional()
+        .describe(
+          "Semantic search scoped to node OUTPUT schemas — find nodes by what they produce, " +
+          "e.g. 'transcript with word-level timestamps'. Applies to node types with output embeddings (Workflow, Skill)."
+        ),
       type: z
         .string()
         .optional()
@@ -753,18 +774,30 @@ export function registerJarvisTools(
     }),
     execute: async ({
       q,
+      input_q,
+      output_q,
       type,
       limit = 10,
       domains,
       namespace,
     }: {
-      q: string;
+      q?: string;
+      input_q?: string;
+      output_q?: string;
       type?: string;
       limit?: number;
       domains?: string;
       namespace?: string;
     }) => {
-      const params = new URLSearchParams({ q, limit: String(limit) });
+      if (!q && !input_q && !output_q) {
+        return "graph_search requires at least one of: q, input_q, output_q";
+      }
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (q) params.set("q", q);
+      // Field-scoped vector search: Jarvis embeds these against the per-field
+      // input/output schema embeddings and fuses them with `q` via RRF.
+      if (input_q) params.set("input_q", input_q);
+      if (output_q) params.set("output_q", output_q);
       if (type) params.set("type", type);
       if (domains) params.set("domains", domains);
       // Ask Jarvis to attach a per-node {EDGE_TYPE: count} map inline so the
@@ -773,7 +806,7 @@ export function registerJarvisTools(
       appendNamespace(params, namespace);
       const url = `${jarvisUrl}/v2/nodes?${params.toString()}`;
       console.log(
-        `[graph_search] q=${q} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit} namespace=${namespace ?? "*"}`,
+        `[graph_search] q=${q ?? "-"} input_q=${input_q ?? "-"} output_q=${output_q ?? "-"} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit} namespace=${namespace ?? "*"}`,
       );
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);

@@ -35,7 +35,7 @@ export interface SessionInitConfig {
   model?: string;
   provider?: string;
   systemOverride?: string;
-  mode?: "graph";
+  mode?: "graph" | "workflow";
   toolsConfig?: { [key: string]: any };
   schema?: { [key: string]: any };
   sessionConfig?: SessionConfig;
