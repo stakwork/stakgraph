@@ -97,11 +97,13 @@ services:
       # Named volumes use the Linux VM's native filesystem and avoid this.
       # See plans/bifrost-log-drop-debug.md for the full investigation.
       #
-      # config.json is baked into the image (see Dockerfile) and seeded into
-      # /app/data on first boot. To re-seed after editing data/config.json:
-      #   make docker-build && docker compose down -v && docker compose up -d
-      # (Note: -v removes the volume, including logs.db. Omit if you need to
-      # preserve historical logs across a config change.)
+      # config.json is baked into the image (see Dockerfile) and the wrapper
+      # re-seeds it into /app/data on every container start, so a new image
+      # always wins over the volume's copy. To apply an edit to
+      # data/config.json:
+      #   make docker-build && docker compose up -d
+      # (No `down -v` needed — and avoid it: it deletes config.db, which
+      # holds provisioned VKs, and logs.db.)
       - bifrost-data:/app/data
 
 volumes:
