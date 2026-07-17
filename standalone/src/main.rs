@@ -35,14 +35,6 @@ async fn main() -> Result<()> {
         .with_env_filter(filter)
         .init();
 
-    // Guard: API_TOKEN must be set — the /api/hive/query endpoint is an arbitrary Cypher
-    // execution surface and the bearer_auth middleware is only applied when a token is
-    // present. Without this guard the entire protected_routes group would be fully
-    // unauthenticated in any deployment that omits API_TOKEN.
-    if std::env::var("API_TOKEN").unwrap_or_default().is_empty() {
-        panic!("API_TOKEN must be set — the /api/hive/query endpoint is an arbitrary Cypher execution surface");
-    }
-
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {
         eprintln!("Failed to connect to graph db: {:?}", e);
