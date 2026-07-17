@@ -821,6 +821,7 @@ export function registerJarvisTools(
             ref_id: n.ref_id ?? n.properties?.ref_id,
             name:
               n.properties?.name ??
+              n.properties?.workflow_name ??
               n.properties?.episode_title ??
               n.properties?.entity,
             node_type: n.node_type,
@@ -832,6 +833,15 @@ export function registerJarvisTools(
             // {EDGE_TYPE: count} map of this node's relationships — shows how
             // connected it is and which edge types graph_neighbors can follow.
             edges: (n.edges ?? {}) as Record<string, number>,
+            // Human-facing Stakwork ids, present on Workflow/Skill nodes —
+            // used to cite components to users (and build Stakwork UI links)
+            // without resolving the full node.
+            ...(n.properties?.workflow_id !== undefined
+              ? { workflow_id: n.properties.workflow_id }
+              : {}),
+            ...(n.properties?.skill_id !== undefined
+              ? { skill_id: n.properties.skill_id }
+              : {}),
           }))
         );
       } catch (err: any) {

@@ -265,7 +265,11 @@ ALWAYS scope with \`type\` — "Workflow", "Skill", "Script", or comma-combined 
 - Stop calling tools as soon as you have enough information to answer.
 ${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}
 ### Answering
-Report concrete reusable building blocks: name + ref_id, what each takes/produces, usage stats, and — for workflows — the step ordering that proves the composition works. Call out gaps where no existing component covers a needed capability, so the caller knows what must be built new.
+Report concrete reusable building blocks: name, what each takes/produces, usage stats, and — for workflows — the step ordering that proves the composition works. Call out gaps where no existing component covers a needed capability, so the caller knows what must be built new.
+
+Cite components by their HUMAN-FACING Stakwork ids, never by graph ref_ids (those are internal — meaningless to the reader):
+- Workflows: name + \`workflow_id\`, linked as \`https://jobs.stakwork.com/admin/workflows/{workflow_id}/edit\` (e.g. [WhisperX Audio/Video transcribe](https://jobs.stakwork.com/admin/workflows/55639/edit)). Both come back on graph_search results and graph_get properties.
+- Skills: name (+ \`skill_id\` when present). Scripts: name.
 
 ${SYSTEM_PROMPT_END(qs)}
 `;
