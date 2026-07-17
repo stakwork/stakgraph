@@ -146,7 +146,10 @@ function parseAgentBody(req: Request) {
     headers: s.headers ? { ...s.headers } : s.headers,
   }));
   const systemOverride = req.body.systemOverride as string | undefined;
-  const mode = req.body.mode === "graph" ? "graph" as const : undefined;
+  const mode =
+    req.body.mode === "graph" ? "graph" as const :
+    req.body.mode === "workflow" ? "workflow" as const :
+    undefined;
   const skills = req.body.skills as SkillsConfig | undefined;
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
@@ -245,7 +248,7 @@ export async function repo_agent(req: Request, res: Response) {
   const isExistingSession = body.sessionId && sessionExists(body.sessionId);
   const promptInput: string | ModelMessage[] = transparent
     ? body.messages!
-    : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph")
+    : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph" || body.mode === "workflow")
       ? body.prompt
       : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   // ── Streaming path: direct SSE response ──────────────────────────────
