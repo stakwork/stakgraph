@@ -8,6 +8,7 @@ import {
   jsonSchema,
   stepCountIs,
 } from "ai";
+import type { StreamTextResult, LanguageModelUsage } from "ai";
 import {
   addUsage,
   ModelName,
@@ -804,17 +805,21 @@ export async function get_context(
   } = prepared;
   const { schema } = opts;
 
-  let result;
+  let steps: Awaited<ReturnType<typeof agent.generate>>["steps"] = [];
+  let streamTotalUsage: LanguageModelUsage | undefined;
   try {
-    result = await agent.generate(buildCallParams(prepared));
+    const streamResult = await agent.stream(buildCallParams(prepared));
+    steps = (await streamResult.steps) ?? [];
+    streamTotalUsage = await streamResult.totalUsage;
   } catch (err) {
     const aborted = isAbortError(err);
     if (sessionId) {
+      const endTime = new Date();
       await appendSessionEnd(sessionId, {
-        end_time: new Date().toISOString(),
+        end_time: endTime.toISOString(),
         model: modelId,
         provider,
-        duration_ms: Date.now() - startTime,
+        duration_ms: endTime.getTime() - startTime,
         status: aborted ? "aborted" : "error",
         error_message: err instanceof Error ? err.message : String(err),
       });
@@ -822,10 +827,9 @@ export async function get_context(
     throw err;
   }
 
-  const { steps, totalUsage } = result;
   const usage = stepMetas.length > 0
     ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
-    : normalizeUsage(totalUsage);
+    : normalizeUsage(streamTotalUsage);
 
   const endTime = Date.now();
   const duration = endTime - startTime;
