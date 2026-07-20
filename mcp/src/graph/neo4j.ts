@@ -505,6 +505,9 @@ class Db {
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
         limit,
+        // KNN k must exceed the requested limit: post-filters (score >= 0.4,
+        // labels, paths) consume neighbor slots and there is no refetch.
+        knn_k: Math.max(limit * 10, 100),
         node_types,
         skip_node_types,
         extensions,

@@ -547,7 +547,7 @@ ${NODE_TYPES}
 `;
 
 export const VECTOR_SEARCH_QUERY = `
-CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($limit), $embeddings)
+CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($knn_k), $embeddings)
 YIELD node, score
 WITH node, score
 WHERE score >= 0.4
@@ -578,6 +578,7 @@ WHERE score >= 0.4
   END
 RETURN node, score
 ORDER BY score DESC
+LIMIT toInteger($limit)
 `;
 
 export const FIND_NODE_QUERY = `
