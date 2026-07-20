@@ -1311,7 +1311,7 @@ class Db {
     limit: number,
     repo_paths: string[] | null,
     file_paths: string[],
-  ): Promise<{ ref_id: string; description: string }[]> {
+  ): Promise<{ ref_id: string; name: string; description: string }[]> {
     const session = this.resilientSession();
     try {
       const result = await session.run(
@@ -1324,6 +1324,7 @@ class Db {
       );
       return result.records.map((record) => ({
         ref_id: record.get("ref_id"),
+        name: record.get("name"),
         description: record.get("description"),
       }));
     } finally {
