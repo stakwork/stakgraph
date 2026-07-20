@@ -229,10 +229,24 @@ ${SYSTEM_PROMPT_END(qs)}
 `;
 };
 
-function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig) {
+function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
+
+  const runToolsGuidance = hasRunTools
+    ? `
+### Ground-truth run data (Stakwork API tools)
+The graph tells you how workflows are DEFINED; these tools tell you how they actually RAN:
+- \`stakwork_skill_usage\` — usage stats for a skill by name, the workflows that invoke it ({workflow_id, use_count} from real run telemetry), and curated input/output examples.
+- \`stakwork_workflow_runs\` — recent runs of a workflow_id with state (completed/error/halted/stopped) and timing.
+- \`stakwork_run_steps\` — the executed steps of one run: skill_name plus the ACTUAL params sent and output produced (previews; pass \`step_name\` for one step's full IO, \`skill_name\` to filter).
+
+Use them to (a) verify a candidate workflow actually runs successfully and recently before recommending it, and (b) cite real working configurations — exact URL formats, variable interpolations like \`[#(step).output.var]\` — instead of guessing from schemas. Runs and stats are scoped to this customer's own executions.
+
+Flow for "how is skill X actually used": \`stakwork_skill_usage(X)\` → top workflow by use_count → \`stakwork_workflow_runs\` → pick a recent completed run → \`stakwork_run_steps(project_id, skill_name: X)\`. A run with \`workflow_state: "error"\` is also useful evidence — its steps show what data shape caused the failure.
+`
+    : "";
 
   return `${getCurrentDateSnippet()}
 
@@ -258,10 +272,11 @@ ALWAYS scope with \`type\` — "Workflow", "Skill", "Script", or comma-combined 
 2. \`graph_get\` each promising Workflow → read \`body.transitions\` + \`body.connections\` for the proven step ordering and per-step configuration.
 3. \`graph_get\` promising Skills/Scripts → read their exact IO contracts (and a Script's code in \`body\`).
 4. Prefer components with higher \`usage_count\`/\`usage_count_30d\` — they are battle-tested.
+${runToolsGuidance}
 
 ### Rules
 - Do NOT traverse Workflow_version, Generated_step, Step, or Run nodes, and do not walk NEXT/START/HAS chains — everything they encode is already denormalized into the Workflow's \`body\`. Chain-walking wastes many tool calls for no new information.
-- Ignore Run nodes entirely: they carry only an external project id and a state string, with no research signal.
+- Ignore Run nodes entirely: they carry only an external project id and a state string, with no research signal.${hasRunTools ? " For real execution data use the stakwork_* API tools instead — the graph's run data is stale." : ""}
 - To find which workflows use a given skill, \`graph_search\` the skill name with \`type: "Workflow"\`, then confirm via \`graph_get\` that the skill actually appears in \`body.transitions\` — search is fuzzy and returns semantic lookalikes.
 - Stop calling tools as soon as you have enough information to answer.
 ${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}
@@ -383,6 +398,10 @@ export interface GetContextOptions {
   subAgents?: SubAgent[];
   // GGNN integration
   ggnn?: GgnnConfig;
+  // Stakwork API access for run-research tools (stakwork_skill_usage,
+  // stakwork_workflow_runs, stakwork_run_steps). The key arrives on the
+  // request body server-to-server and is never an LLM-visible parameter.
+  stakwork?: { apiKey: string; baseUrl?: string };
   // Real-time step event callback (for SSE streaming)
   onStepEvent?: (content: any[]) => void;
   // Source label persisted to the session file
@@ -484,6 +503,7 @@ async function prepareAgent(
     messagesRef,
     provenanceCollector,
     modelName,
+    opts.stakwork,
   );
 
   // Load and merge MCP server tools if configured
@@ -501,7 +521,7 @@ async function prepareAgent(
     : mode === "graph"
       ? GRAPH_SYSTEM(toolsConfig)
       : mode === "workflow"
-        ? WORKFLOW_SYSTEM(toolsConfig)
+        ? WORKFLOW_SYSTEM(toolsConfig, Boolean(opts.stakwork?.apiKey))
         : DEFAULT_SYSTEM(toolsConfig);
 
   // If an org_agent tool is available from MCP, inject a strong hint to use it for unclear/high-level questions.
