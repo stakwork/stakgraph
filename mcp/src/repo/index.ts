@@ -158,6 +158,10 @@ function parseAgentBody(req: Request) {
   const maxTurns = typeof req.body.maxTurns === "number" ? req.body.maxTurns : undefined;
   const headers = normalizeHeaders(req.body.headers);
   const ignoreRepoInfo = req.body.ignoreRepoInfo as boolean | undefined;
+  // Stakwork API key for the run-research tools. Server-to-server secret
+  // (like `pat`/`apiKey`): read off the body, never exposed to the LLM.
+  const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
+  const stakworkBaseUrl = req.body.stakworkBaseUrl as string | undefined;
   const attachments = Array.isArray(req.body.attachments)
     ? (req.body.attachments as unknown[]).filter(
         (a): a is string => typeof a === "string" && a.trim().length > 0,
@@ -175,6 +179,7 @@ function parseAgentBody(req: Request) {
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
     ignoreRepoInfo, attachments, _metadata,
+    stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
   };
 }
 
@@ -228,6 +233,7 @@ export async function repo_agent(req: Request, res: Response) {
     hasSchema: Boolean(req.body?.jsonSchema),
     hasSystemOverride: Boolean(req.body?.systemOverride),
     mcpServers: mcpServersCount,
+    hasStakworkApiKey: Boolean(req.body?.stakworkApiKey),
   });
 
   const body = parseAgentBody(req);
@@ -284,6 +290,7 @@ export async function repo_agent(req: Request, res: Response) {
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
+          stakwork: body.stakwork,
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
@@ -406,6 +413,7 @@ export async function repo_agent(req: Request, res: Response) {
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
+          stakwork: body.stakwork,
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,

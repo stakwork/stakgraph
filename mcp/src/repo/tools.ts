@@ -21,6 +21,7 @@ import { listConcepts, getConceptDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
 import { registerJarvisTools } from "./toolsJarvis.js";
+import { registerStakworkTools, type StakworkToolsOptions } from "./toolsStakwork.js";
 import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
@@ -309,6 +310,7 @@ export async function get_tools(
   messagesRef?: MessagesRef,
   provenanceCollector?: ProvenanceCollector,
   modelName?: ModelName,
+  stakwork?: StakworkToolsOptions,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -731,6 +733,13 @@ export async function get_tools(
     // Opt-in ontology write tools (create/update/delete node & edge types).
     ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
   });
+
+  // Register Stakwork run-research tools (read-only, gated on the caller
+  // supplying a Stakwork API key — plumbed via the request body, never an
+  // LLM-visible parameter).
+  if (stakwork?.apiKey) {
+    registerStakworkTools(allTools, stakwork);
+  }
 
   // Register sub-agent tools (remote agent delegation)
   if (subAgents && subAgents.length > 0) {
