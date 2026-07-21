@@ -193,9 +193,10 @@ Docs: ${existingDocs}
 Code:
 ${content.slice(0, 2000)}`;
             try {
-              const { text, usage: rawUsage } = await generateText({ model, prompt, providerOptions: providerOptions as any });
+              const { text, usage: rawUsage, providerMetadata } = await generateText({ model, prompt, providerOptions: providerOptions as any });
               const usage = normalizeUsage(rawUsage);
-              const cost = computeSessionCost(llm.provider, usage, llm.modelName);
+              const actualCost = (providerMetadata as any)?.openrouter?.usage?.cost;
+              const cost = computeSessionCost(llm.provider, usage, llm.modelName, actualCost);
               console.log(
                 `[describe_nodes] LLM done: ${name} ($${cost.toFixed(6)})`,
               );

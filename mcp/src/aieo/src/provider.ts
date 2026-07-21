@@ -195,7 +195,8 @@ export interface TokenUsageForCost {
   output: number;
 }
 
-export function computeSessionCost(provider: Provider, usage: TokenUsageForCost, modelId?: string): number {
+export function computeSessionCost(provider: Provider, usage: TokenUsageForCost, modelId?: string, actualCost?: number): number {
+  if (typeof actualCost === "number" && actualCost >= 0) return actualCost;
   const pricing = (modelId ? getModelPricing(modelId) : undefined) ?? TOKEN_PRICING[provider];
   if (!pricing) return 0;
   const inputCost = (usage.input / 1_000_000) * pricing.inputTokenPrice;
@@ -653,7 +654,7 @@ export function getProviderOptions(
       };
     case "openrouter":
       return {
-        openrouter: {} satisfies OpenRouterModelOptions,
+        openrouter: { usage: { include: true } } satisfies OpenRouterModelOptions,
       };
     default:
       throw new Error(`Unsupported provider: ${provider}`);
