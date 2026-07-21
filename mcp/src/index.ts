@@ -24,6 +24,7 @@ import * as l from "./graph/learnings.js";
 import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
 import { mountLab } from "./lab/mount.js";
+import { loadModelPricing } from "./aieo/src/index.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
@@ -336,6 +337,8 @@ const port = parseInt(process.env.PORT || "3355", 10);
 const host = process.env.HOST || "0.0.0.0";
 app.listen(port, host, () => {
   console.log(`Server started at http://${host}:${port}`);
+
+  loadModelPricing();
 
   // Prune expired sessions on startup, then every 6 hours
   pruneExpiredSessions();

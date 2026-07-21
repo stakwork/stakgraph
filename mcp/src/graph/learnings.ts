@@ -7,6 +7,8 @@ import { addUsage, normalizeUsage, withLegacyUsage } from "../aieo/src/index.js"
 
 // === Learning + Scope routes ===
 
+const LEARNINGS_MODEL = "openrouter/deepseek/deepseek-v4-flash";
+
 interface LearningInput {
   id: string;
   rule: string;
@@ -89,7 +91,7 @@ export async function post_relevant_learnings(req: Request, res: Response) {
   }
 
   try {
-    const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey, light: true });
+    const llm = resolveLLMConfig({ model: req.body.model || LEARNINGS_MODEL, apiKey: req.body.apiKey, light: true });
     const model = llm.model;
     const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 

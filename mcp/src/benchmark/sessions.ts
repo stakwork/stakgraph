@@ -165,7 +165,7 @@ function calcCost(
       cache_read: cacheRead,
       cache_write: cacheWrite,
       output,
-    });
+    }, model);
   } catch {
     return 0;
   }

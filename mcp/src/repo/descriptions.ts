@@ -17,6 +17,8 @@ import { startTracking, endTracking } from "../busy.js";
 import PQueueModule from "p-queue";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
 
+const DESCRIBE_MODEL = "openrouter/qwen/qwen3-coder-30b-a3b-instruct";
+
 function usageTotals(usage: AiUsageWithLegacy) {
   return {
     input: usage.input,
@@ -62,7 +64,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const repo_url = req.body.repo_url as string | undefined;
   const file_paths = (req.body.file_paths || []) as string[];
   const do_embed = req.body.embed !== false && req.body.embed !== "false";
-  const reqModel = req.body.model as string | undefined;
+  const reqModel = (req.body.model as string | undefined) || DESCRIBE_MODEL;
   const reqApiKey = req.body.apiKey as string | undefined;
 
   if (isNaN(cost_limit) || cost_limit <= 0) {
@@ -193,9 +195,10 @@ Docs: ${existingDocs}
 Code:
 ${content.slice(0, 2000)}`;
             try {
-              const { text, usage: rawUsage } = await generateText({ model, prompt, providerOptions: providerOptions as any });
+              const { text, usage: rawUsage, providerMetadata } = await generateText({ model, prompt, providerOptions: providerOptions as any });
               const usage = normalizeUsage(rawUsage);
-              const cost = computeSessionCost(llm.provider, usage);
+              const actualCost = (providerMetadata as any)?.openrouter?.usage?.cost;
+              const cost = computeSessionCost(llm.provider, usage, llm.modelName, actualCost);
               console.log(
                 `[describe_nodes] LLM done: ${name} ($${cost.toFixed(6)})`,
               );

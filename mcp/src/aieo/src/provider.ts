@@ -195,8 +195,9 @@ export interface TokenUsageForCost {
   output: number;
 }
 
-export function computeSessionCost(provider: Provider, usage: TokenUsageForCost): number {
-  const pricing = TOKEN_PRICING[provider];
+export function computeSessionCost(provider: Provider, usage: TokenUsageForCost, modelId?: string, actualCost?: number): number {
+  if (typeof actualCost === "number" && actualCost >= 0) return actualCost;
+  const pricing = (modelId ? getModelPricing(modelId) : undefined) ?? TOKEN_PRICING[provider];
   if (!pricing) return 0;
   const inputCost = (usage.input / 1_000_000) * pricing.inputTokenPrice;
   const cacheReadCost = (usage.cache_read / 1_000_000) * (pricing.cacheReadPrice ?? pricing.inputTokenPrice);
@@ -545,6 +546,40 @@ export function getTokenPricing(provider: Provider): TokenPricing {
   return TOKEN_PRICING[provider];
 }
 
+const modelPricing: Record<string, TokenPricing> = {};
+
+export async function loadModelPricing(): Promise<void> {
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models");
+    const { data } = (await res.json()) as { data: any[] };
+    for (const m of data) {
+      const p = m.pricing || {};
+      const inputTokenPrice = parseFloat(p.prompt) * 1_000_000;
+      const outputTokenPrice = parseFloat(p.completion) * 1_000_000;
+      if (!inputTokenPrice && !outputTokenPrice) continue;
+      modelPricing[m.id] = {
+        inputTokenPrice,
+        outputTokenPrice,
+        ...(parseFloat(p.input_cache_read) > 0 && {
+          cacheReadPrice: parseFloat(p.input_cache_read) * 1_000_000,
+        }),
+        ...(parseFloat(p.input_cache_write) > 0 && {
+          cacheWritePrice: parseFloat(p.input_cache_write) * 1_000_000,
+        }),
+      };
+    }
+  } catch {
+    console.warn("Failed to load model pricing; using provider defaults");
+  }
+}
+
+function getModelPricing(modelId: string): TokenPricing | undefined {
+  const key = modelId.startsWith("openrouter/")
+    ? modelId.slice("openrouter/".length)
+    : modelId;
+  return modelPricing[key];
+}
+
 export type ThinkingSpeed = "thinking" | "fast";
 
 // Anthropic models that do NOT support `adaptive` thinking. Adaptive is only
@@ -619,7 +654,7 @@ export function getProviderOptions(
       };
     case "openrouter":
       return {
-        openrouter: {} satisfies OpenRouterModelOptions,
+        openrouter: { usage: { include: true } } satisfies OpenRouterModelOptions,
       };
     default:
       throw new Error(`Unsupported provider: ${provider}`);
