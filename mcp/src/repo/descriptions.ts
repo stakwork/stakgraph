@@ -62,7 +62,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const repo_url = req.body.repo_url as string | undefined;
   const file_paths = (req.body.file_paths || []) as string[];
   const do_embed = req.body.embed !== false && req.body.embed !== "false";
-  const reqModel = req.body.model as string | undefined;
+  const reqModel = (req.body.model as string | undefined) || process.env.DESCRIBE_MODEL;
   const reqApiKey = req.body.apiKey as string | undefined;
 
   if (isNaN(cost_limit) || cost_limit <= 0) {
