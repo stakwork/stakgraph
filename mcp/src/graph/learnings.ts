@@ -89,7 +89,7 @@ export async function post_relevant_learnings(req: Request, res: Response) {
   }
 
   try {
-    const llm = resolveLLMConfig({ model: req.body.model || process.env.LEARNINGS_MODEL, apiKey: req.body.apiKey, light: true });
+    const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey, light: true });
     const model = llm.model;
     const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
