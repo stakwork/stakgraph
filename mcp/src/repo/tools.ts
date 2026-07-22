@@ -317,6 +317,11 @@ export async function get_tools(
   // For single repo, extract owner/name from path. For multi-repo, these will be empty.
   const repoOwner = isMultiRepo ? "" : repoArr[repoArr.length - 2];
   const repoName = isMultiRepo ? "" : repoArr[repoArr.length - 1];
+  // Default content-search scope: constrain graph search to the session's repos
+  // (owner/repo form) so results don't leak across repos on a multi-repo graph.
+  // Returns undefined when no repos are known (single-repo deployments / no scope).
+  const repoScopePatterns = (rs?: string[]): string[] | undefined =>
+    rs && rs.length > 0 ? rs.map((r) => `${r}/**`) : undefined;
   // Resolve a repo owner/name pair from an optional "owner/name" string,
   // falling back to the single-repo values or the first entry in repos.
   function resolveRepo(repo?: string): { owner: string; name: string } | null {
@@ -624,6 +629,10 @@ export async function get_tools(
               query,
               limit || 10,
               codeNodeTypes as any,
+              [],
+              0,
+              undefined,
+              repoScopePatterns(repos),
             );
             return results.map((node) => ({
               name: node.properties.name,
@@ -667,7 +676,10 @@ export async function get_tools(
           [],
           args.language,
           "relevance",
-          args.include_patterns,
+          // Default to the session's repo scope so search doesn't leak across
+          // repos on a multi-repo graph; the model may still override with a
+          // narrower pattern.
+          args.include_patterns ?? repoScopePatterns(repos),
           args.exclude_patterns,
         );
         if (provenanceCollector) {
@@ -695,7 +707,14 @@ export async function get_tools(
       description: stak.GetMapTool.description || defaultDescriptions.stakgraph_map,
       inputSchema: stak.GetMapSchema,
       execute: async (args: z.infer<typeof stak.GetMapSchema>) => {
-        const result = await stak.getMap(args);
+        // When exactly one repo is in scope and the model resolved the node by
+        // name (no ref_id/file), constrain node resolution to that repo so a
+        // same-named node in another repo isn't picked.
+        const scoped =
+          !args.ref_id && !args.file && repos && repos.length === 1
+            ? { ...args, file: repos[0] }
+            : args;
+        const result = await stak.getMap(scoped);
         return result.content?.[0]?.text ?? "";
       },
     });
