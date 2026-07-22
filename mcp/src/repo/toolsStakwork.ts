@@ -12,6 +12,10 @@ import axios from "axios";
  * body (`stakworkApiKey`) — the key is plumbed server-to-server and is never
  * an LLM-visible parameter. All endpoints are GETs; runs/stats are scoped by
  * Stakwork to the customer that owns the API key.
+ *
+ * Exception: `stakwork_run_step` EXECUTES a single workflow step (a real,
+ * billable run). It is double-gated — the API key must be present AND the
+ * caller must opt in with a truthy `toolsConfig.stakwork_run_step`.
  */
 
 const DEFAULT_STAKWORK_API_URL = "https://jobs.stakwork.com/api/v1";
@@ -26,7 +30,16 @@ const EXAMPLE_FIELD_CHARS = 1500;
 export interface StakworkToolsOptions {
   apiKey: string;
   baseUrl?: string;
+  /** Opt-in for the execute tool stakwork_run_step (launches real runs). */
+  runStep?: boolean;
 }
+
+/** Poll interval and wait bounds for stakwork_run_step. */
+const RUN_STEP_POLL_MS = 5000;
+const RUN_STEP_DEFAULT_WAIT_S = 120;
+const RUN_STEP_MAX_WAIT_S = 600;
+/** Project states after which a run will not progress further. */
+const TERMINAL_RUN_STATES = new Set(["completed", "error", "halted", "stopped", "failed"]);
 
 async function stakworkGet(
   url: string,
@@ -34,6 +47,31 @@ async function stakworkGet(
 ): Promise<{ ok: boolean; status: number; body: any }> {
   const resp = await axios.get(url, {
     headers: { Authorization: `Token token=${apiKey}` },
+    validateStatus: () => true,
+    responseType: "text",
+    timeout: 60_000,
+  });
+  const text: string =
+    typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+  let body: any = text;
+  try {
+    body = JSON.parse(text);
+  } catch (_) {
+    // leave as raw text
+  }
+  return { ok: resp.status >= 200 && resp.status < 300, status: resp.status, body };
+}
+
+async function stakworkPost(
+  url: string,
+  apiKey: string,
+  payload: unknown,
+): Promise<{ ok: boolean; status: number; body: any }> {
+  const resp = await axios.post(url, payload, {
+    headers: {
+      Authorization: `Token token=${apiKey}`,
+      "Content-Type": "application/json",
+    },
     validateStatus: () => true,
     responseType: "text",
     timeout: 60_000,
@@ -234,7 +272,129 @@ export function registerStakworkTools(
     },
   });
 
+  if (options.runStep) {
+    allTools.stakwork_run_step = tool({
+      description:
+        "EXECUTE one Stakwork workflow step with your own literal inputs and return its output. " +
+        "This launches a REAL run that consumes execution resources — use it deliberately for testing a specific step, never for browsing. " +
+        "Flow: study a real run first (stakwork_run_steps with step_name for that step's resolved inputs), copy the input shape, " +
+        "modify the values you want to test, and pass them as params/attributes overrides. Overrides are literal — they replace " +
+        "[$(ancestor).output.x] interpolations, so NO ancestor steps or prior outputs are needed; {{SECRET_NAME}} aliases are still " +
+        "resolved server-side at execution time (pass them through unchanged, never inline real secrets). " +
+        "The tool polls until the run reaches a terminal state or wait_seconds elapses; on timeout it returns status in_progress — " +
+        "call it again with the returned project_id (plus step_id) to continue waiting without launching a new run.",
+      inputSchema: z.object({
+        step_id: z
+          .string()
+          .describe("The step's id in the workflow spec (its transition id, e.g. 'call_swarm_agent')."),
+        workflow_id: z
+          .number()
+          .optional()
+          .describe("Workflow that defines the step. Required to LAUNCH a run; omit when resuming with project_id."),
+        params: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe("Literal overrides merged over the step's `params` before execution."),
+        attributes: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe("Literal overrides merged over the step's `attributes`, e.g. { vars: { prompt: '...' } }."),
+        project_id: z
+          .number()
+          .optional()
+          .describe("A project_id returned by a previous stakwork_run_step call: resume waiting on that run instead of launching a new one."),
+        wait_seconds: z
+          .number()
+          .optional()
+          .default(RUN_STEP_DEFAULT_WAIT_S)
+          .describe(`How long to wait for the run to finish before returning in_progress (max ${RUN_STEP_MAX_WAIT_S}).`),
+      }),
+      execute: async ({
+        step_id,
+        workflow_id,
+        params,
+        attributes,
+        project_id,
+        wait_seconds = RUN_STEP_DEFAULT_WAIT_S,
+      }: {
+        step_id: string;
+        workflow_id?: number;
+        params?: Record<string, unknown>;
+        attributes?: Record<string, unknown>;
+        project_id?: number;
+        wait_seconds?: number;
+      }) => {
+        console.log(
+          `[stakwork_run_step] workflow_id=${workflow_id ?? "-"} step_id=${step_id} project_id=${project_id ?? "-"}`,
+        );
+        try {
+          let runId = project_id;
+
+          if (runId === undefined) {
+            if (workflow_id === undefined) {
+              return "stakwork_run_step failed: pass workflow_id + step_id to launch a run, or project_id to resume waiting on one.";
+            }
+            const overrides: Record<string, unknown> = {};
+            if (params !== undefined) overrides.params = params;
+            if (attributes !== undefined) overrides.attributes = attributes;
+
+            const launch = await stakworkPost(`${baseUrl}/workflow_steps/run`, apiKey, {
+              workflow_id,
+              step_id,
+              ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
+            });
+            if (!launch.ok) return errorResult("stakwork_run_step", launch.status, launch.body);
+            runId = (launch.body?.data ?? launch.body)?.project_id;
+            if (runId === undefined) {
+              return `stakwork_run_step failed: launch response had no project_id: ${truncateJson(launch.body, 500)}`;
+            }
+          }
+
+          const waitMs = Math.min(Math.max(wait_seconds, 0), RUN_STEP_MAX_WAIT_S) * 1000;
+          const deadline = Date.now() + waitMs;
+          let status = "unknown";
+
+          for (;;) {
+            const st = await stakworkGet(
+              `${baseUrl}/projects/${encodeURIComponent(String(runId))}/status`,
+              apiKey,
+            );
+            if (st.ok) status = String((st.body?.data ?? st.body)?.status ?? "unknown");
+            if (TERMINAL_RUN_STATES.has(status) || Date.now() >= deadline) break;
+            await new Promise((r) => setTimeout(r, RUN_STEP_POLL_MS));
+          }
+
+          if (!TERMINAL_RUN_STATES.has(status)) {
+            return JSON.stringify({
+              project_id: runId,
+              step_id,
+              status,
+              note: "Run still in progress — call stakwork_run_step again with this project_id (and step_id) to continue waiting.",
+            });
+          }
+
+          const io = await stakworkGet(
+            `${baseUrl}/projects/${encodeURIComponent(String(runId))}/steps/${encodeURIComponent(step_id)}/io`,
+            apiKey,
+          );
+          const ioData = io.ok ? (io.body?.data ?? io.body) : undefined;
+
+          return JSON.stringify({
+            project_id: runId,
+            step_id,
+            status,
+            inputs: truncateJson(ioData?.inputs, STEP_IO_FIELD_CHARS),
+            outputs: truncateJson(ioData?.outputs, STEP_IO_FIELD_CHARS),
+            ...(io.ok ? {} : { io_error: errorResult("step io read", io.status, io.body) }),
+          });
+        } catch (err: any) {
+          return `stakwork_run_step failed: ${err?.message ?? String(err)}`;
+        }
+      },
+    });
+  }
+
   console.log(
-    "===> registered stakwork run tools: stakwork_skill_usage, stakwork_workflow_runs, stakwork_run_steps",
+    `===> registered stakwork run tools: stakwork_skill_usage, stakwork_workflow_runs, stakwork_run_steps${options.runStep ? ", stakwork_run_step" : ""}`,
   );
 }
