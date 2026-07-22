@@ -197,7 +197,7 @@ export interface TokenUsageForCost {
 
 export function computeSessionCost(provider: Provider, usage: TokenUsageForCost, modelId?: string, actualCost?: number): number {
   if (typeof actualCost === "number" && actualCost >= 0) return actualCost;
-  const pricing = (modelId ? getModelPricing(modelId) : undefined) ?? TOKEN_PRICING[provider];
+  const pricing = (modelId ? getModelPricing(modelId, provider) : undefined) ?? TOKEN_PRICING[provider];
   if (!pricing) return 0;
   const inputCost = (usage.input / 1_000_000) * pricing.inputTokenPrice;
   const cacheReadCost = (usage.cache_read / 1_000_000) * (pricing.cacheReadPrice ?? pricing.inputTokenPrice);
@@ -546,38 +546,98 @@ export function getTokenPricing(provider: Provider): TokenPricing {
   return TOKEN_PRICING[provider];
 }
 
+// Per-model pricing (per 1M tokens), sourced live from the OpenRouter catalog.
 const modelPricing: Record<string, TokenPricing> = {};
 
-export async function loadModelPricing(): Promise<void> {
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/models");
-    const { data } = (await res.json()) as { data: any[] };
-    for (const m of data) {
-      const p = m.pricing || {};
-      const inputTokenPrice = parseFloat(p.prompt) * 1_000_000;
-      const outputTokenPrice = parseFloat(p.completion) * 1_000_000;
-      if (!inputTokenPrice && !outputTokenPrice) continue;
-      modelPricing[m.id] = {
-        inputTokenPrice,
-        outputTokenPrice,
-        ...(parseFloat(p.input_cache_read) > 0 && {
-          cacheReadPrice: parseFloat(p.input_cache_read) * 1_000_000,
-        }),
-        ...(parseFloat(p.input_cache_write) > 0 && {
-          cacheWritePrice: parseFloat(p.input_cache_write) * 1_000_000,
-        }),
-      };
+const PRICING_URL = "https://openrouter.ai/api/v1/models";
+const PRICING_REFRESH_MS = 6 * 60 * 60 * 1000; // 6h
+let pricingTimer: ReturnType<typeof setInterval> | undefined;
+
+// Native provider model ids are bare (e.g. "claude-opus-4-6"); the OpenRouter
+// catalog keys them vendor-namespaced with dotted versions
+// (e.g. "anthropic/claude-opus-4.6"). Map a bare id to the catalog scheme so
+// native Anthropic/OpenAI/Google sessions get per-model pricing instead of the
+// flat provider default. Returns the id unchanged when it is already
+// vendor/model form. Unknown models simply miss the table and fall back.
+const PROVIDER_VENDOR: Partial<Record<Provider, string>> = {
+  anthropic: "anthropic",
+  openai: "openai",
+  google: "google",
+};
+
+function toCatalogId(modelId: string, provider?: Provider): string {
+  let key = modelId.startsWith("openrouter/")
+    ? modelId.slice("openrouter/".length)
+    : modelId;
+  if (key.includes("/")) return key; // already vendor/model (OpenRouter form)
+  // Normalize a trailing version separator: "opus-4-6" -> "opus-4.6".
+  key = key.replace(/-(\d+)-(\d+)$/, "-$1.$2");
+  const vendor = provider ? PROVIDER_VENDOR[provider] : undefined;
+  return vendor ? `${vendor}/${key}` : key;
+}
+
+async function fetchModelPricing(): Promise<void> {
+  const res = await fetch(PRICING_URL);
+  if (!res.ok) throw new Error(`OpenRouter models fetch failed: ${res.status}`);
+  const { data } = (await res.json()) as { data: any[] };
+  const next: Record<string, TokenPricing> = {};
+  for (const m of data) {
+    const p = m.pricing || {};
+    const inputTokenPrice = parseFloat(p.prompt) * 1_000_000;
+    const outputTokenPrice = parseFloat(p.completion) * 1_000_000;
+    const input = Number.isFinite(inputTokenPrice) ? inputTokenPrice : 0;
+    const output = Number.isFinite(outputTokenPrice) ? outputTokenPrice : 0;
+    if (!input && !output) continue;
+    const cacheRead = parseFloat(p.input_cache_read) * 1_000_000;
+    const cacheWrite = parseFloat(p.input_cache_write) * 1_000_000;
+    next[m.id] = {
+      inputTokenPrice: input,
+      outputTokenPrice: output,
+      ...(Number.isFinite(cacheRead) && cacheRead > 0 && { cacheReadPrice: cacheRead }),
+      ...(Number.isFinite(cacheWrite) && cacheWrite > 0 && { cacheWritePrice: cacheWrite }),
+    };
+  }
+  // Merge in place (built fully before assign, so readers never see a partial
+  // table); keeps prior prices if a later refresh returns fewer models.
+  Object.assign(modelPricing, next);
+}
+
+export async function loadModelPricing(opts?: {
+  retries?: number;
+  refreshMs?: number;
+}): Promise<void> {
+  const retries = opts?.retries ?? 3;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await fetchModelPricing();
+      console.log(`[pricing] loaded ${Object.keys(modelPricing).length} model prices`);
+      break;
+    } catch (e) {
+      if (attempt === retries) {
+        console.warn(
+          `[pricing] failed after ${retries} attempts; using provider defaults`,
+          e,
+        );
+      } else {
+        await new Promise((r) => setTimeout(r, attempt * 1000));
+      }
     }
-  } catch {
-    console.warn("Failed to load model pricing; using provider defaults");
+  }
+  // Refresh periodically so long-running processes don't drift on stale prices.
+  const refreshMs = opts?.refreshMs ?? PRICING_REFRESH_MS;
+  if (!pricingTimer && refreshMs > 0) {
+    pricingTimer = setInterval(() => {
+      fetchModelPricing().catch(() => {});
+    }, refreshMs);
+    if (typeof pricingTimer.unref === "function") pricingTimer.unref();
   }
 }
 
-function getModelPricing(modelId: string): TokenPricing | undefined {
-  const key = modelId.startsWith("openrouter/")
-    ? modelId.slice("openrouter/".length)
-    : modelId;
-  return modelPricing[key];
+function getModelPricing(
+  modelId: string,
+  provider?: Provider,
+): TokenPricing | undefined {
+  return modelPricing[toCatalogId(modelId, provider)];
 }
 
 export type ThinkingSpeed = "thinking" | "fast";
