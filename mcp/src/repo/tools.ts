@@ -95,7 +95,8 @@ type ToolName =
   | "apply_patch"
   | "generate_docx"
   | "generate_xlsx"
-  | "generate_xlsx_computed";
+  | "generate_xlsx_computed"
+  | "stakwork_run_step";
 
 /**
  * Object form of a per-tool config value. Lets a caller pass a description
@@ -155,6 +156,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "graph_sub_agent", "ontology_edit",
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
+  "stakwork_run_step",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -296,6 +298,7 @@ Rules:
     "results (e.g. a column sum) can feed later entries (e.g. percent_of_total). " +
     "Returns 'Generated: /repo/agent/file?path=...' on success. " +
     "On failure returns a non-fatal 'generate_xlsx_computed failed: ...' string.",
+  stakwork_run_step: '', // opt-in; default lives in toolsStakwork.ts; string value here overrides it.
 };
 
 export async function get_tools(
@@ -736,9 +739,14 @@ export async function get_tools(
 
   // Register Stakwork run-research tools (read-only, gated on the caller
   // supplying a Stakwork API key — plumbed via the request body, never an
-  // LLM-visible parameter).
+  // LLM-visible parameter). The execute tool stakwork_run_step additionally
+  // requires an explicit truthy toolsConfig.stakwork_run_step opt-in, since
+  // it launches real (billable) step executions.
   if (stakwork?.apiKey) {
-    registerStakworkTools(allTools, stakwork);
+    registerStakworkTools(allTools, {
+      ...stakwork,
+      runStep: toolConfigEnabled(toolsConfig?.stakwork_run_step),
+    });
   }
 
   // Register sub-agent tools (remote agent delegation)

@@ -233,6 +233,14 @@ function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
+  const runStepEnabled = Boolean(hasRunTools) && toolConfigEnabled(toolsConfig?.stakwork_run_step);
+
+  const runStepGuidance = runStepEnabled
+    ? `- \`stakwork_run_step\` — EXECUTE one step with your own inputs (a live, billable run — use deliberately to test a specific step, never for browsing).
+
+Flow for testing a step: \`stakwork_run_steps(project_id, step_name: S)\` on a real run to see the step's resolved inputs → copy that shape, modify the values under test → \`stakwork_run_step(workflow_id, step_id: S, attributes: {...}, params: {...})\` → read the returned outputs. Overrides are literal: they replace \`[$(ancestor).output.x]\` interpolations, so no ancestor steps are needed; \`{{SECRET}}\` aliases resolve server-side — pass them through unchanged, never inline real secret values. If the tool returns \`in_progress\`, call it again with the returned \`project_id\` to keep waiting instead of launching a new run.
+`
+    : "";
 
   const runToolsGuidance = hasRunTools
     ? `
@@ -241,7 +249,7 @@ The graph tells you how workflows are DEFINED; these tools tell you how they act
 - \`stakwork_skill_usage\` — usage stats for a skill by name, the workflows that invoke it ({workflow_id, use_count} from real run telemetry), and curated input/output examples.
 - \`stakwork_workflow_runs\` — recent runs of a workflow_id with state (completed/error/halted/stopped) and timing.
 - \`stakwork_run_steps\` — the executed steps of one run: skill_name plus the ACTUAL params sent and output produced (previews; pass \`step_name\` for one step's full IO, \`skill_name\` to filter).
-
+${runStepGuidance}
 Use them to (a) verify a candidate workflow actually runs successfully and recently before recommending it, and (b) cite real working configurations — exact URL formats, variable interpolations like \`[#(step).output.var]\` — instead of guessing from schemas. Runs and stats are scoped to this customer's own executions.
 
 Flow for "how is skill X actually used": \`stakwork_skill_usage(X)\` → top workflow by use_count → \`stakwork_workflow_runs\` → pick a recent completed run → \`stakwork_run_steps(project_id, skill_name: X)\`. A run with \`workflow_state: "error"\` is also useful evidence — its steps show what data shape caused the failure.
