@@ -505,6 +505,9 @@ class Db {
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
         limit,
+        // KNN k must exceed the requested limit: post-filters (score >= 0.4,
+        // labels, paths) consume neighbor slots and there is no refetch.
+        knn_k: Math.max(limit * 10, 100),
         node_types,
         skip_node_types,
         extensions,
@@ -1308,7 +1311,7 @@ class Db {
     limit: number,
     repo_paths: string[] | null,
     file_paths: string[],
-  ): Promise<{ ref_id: string; description: string }[]> {
+  ): Promise<{ ref_id: string; name: string; description: string }[]> {
     const session = this.resilientSession();
     try {
       const result = await session.run(
@@ -1321,6 +1324,7 @@ class Db {
       );
       return result.records.map((record) => ({
         ref_id: record.get("ref_id"),
+        name: record.get("name"),
         description: record.get("description"),
       }));
     } finally {

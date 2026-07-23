@@ -34,6 +34,12 @@ function usageTotals(usage: AiUsageWithLegacy) {
 
 
 
+// Text that gets embedded for a node: prepend the identifier so the vector
+// carries the symbol name's semantics, not just the prose description.
+function embedText(name: string | undefined, description: string): string {
+  return name ? `${name}: ${description}` : description;
+}
+
 function extractRepoPaths(repo_url?: string): string[] | null {
   if (!repo_url || repo_url.trim() === "") return null;
 
@@ -224,7 +230,7 @@ ${content.slice(0, 2000)}`;
       // Bulk write to Neo4j
       if (results.length > 0) {
         if (do_embed) {
-          const texts = results.map((r) => r.text);
+          const texts = results.map((r) => embedText(r.name, r.text));
           const embeddings = await vectorizeBatch(texts);
           await db.bulk_update_descriptions_and_embeddings(
             results.map((r, i) => ({
@@ -318,7 +324,7 @@ export const embed_nodes_agent = async (req: Request, res: Response) => {
         current_batch_size: nodes.length,
       });
 
-      const texts = nodes.map((n) => n.description);
+      const texts = nodes.map((n) => embedText(n.name, n.description));
       const embeddings = await vectorizeBatch(texts);
 
       const batch = nodes.map((n, i) => ({

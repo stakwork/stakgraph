@@ -547,7 +547,7 @@ ${NODE_TYPES}
 `;
 
 export const VECTOR_SEARCH_QUERY = `
-CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($limit), $embeddings)
+CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($knn_k), $embeddings)
 YIELD node, score
 WITH node, score
 WHERE score >= 0.4
@@ -578,6 +578,7 @@ WHERE score >= 0.4
   END
 RETURN node, score
 ORDER BY score DESC
+LIMIT toInteger($limit)
 `;
 
 export const FIND_NODE_QUERY = `
@@ -979,7 +980,7 @@ WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page
   AND (n.embeddings IS NULL)
   AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
   AND ($file_paths IS NULL OR size($file_paths) = 0 OR ANY(path IN $file_paths WHERE n.file ENDS WITH path))
-RETURN n.ref_id as ref_id, n.description as description
+RETURN n.ref_id as ref_id, n.name as name, n.description as description
 LIMIT toInteger($limit)
 `;
 
