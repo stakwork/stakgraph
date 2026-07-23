@@ -238,7 +238,7 @@ function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
   const runStepGuidance = runStepEnabled
     ? `- \`stakwork_run_step\` — EXECUTE one step of a published workflow with your own inputs (a live, billable run — use deliberately to test a specific step, never for browsing).
 
-Flow for testing a step: \`stakwork_run_step(workflow_id, step_id: S)\` with NO params first — the response enumerates every required ancestor key (the step's exact input shape). Fill values from a real run (\`stakwork_run_steps(project_id, step_name: S)\`) or your own test data, then relaunch with \`params: { "<ancestor_id>": { "<output.path>": value } }\` and read the returned outputs. Values are seeded as literals into a synthesized set_var step, so no prior run or ancestor execution is needed; \`{{SECRET}}\` aliases resolve server-side — pass them through unchanged, never inline real secret values. \`mock_mode: true\` uses stored mock outputs instead of live execution. If the tool returns \`in_progress\`, call it again with the returned \`project_id\` to keep waiting instead of launching a new run.
+Flow for testing a step: \`stakwork_run_step(workflow_id, step_id: S)\` with NO params first — the response enumerates every required ancestor key (the step's exact input shape). Fill values from a real run (\`stakwork_inspect_run(project_id, step_name: S)\`) or your own test data, then relaunch with \`params: { "<ancestor_id>": { "<output.path>": value } }\` and read the returned outputs. Values are seeded as literals into a synthesized set_var step, so no prior run or ancestor execution is needed; \`{{SECRET}}\` aliases resolve server-side — pass them through unchanged, never inline real secret values. \`mock_mode: true\` uses stored mock outputs instead of live execution. If the tool returns \`in_progress\`, call it again with the returned \`project_id\` to keep waiting instead of launching a new run.
 `
     : "";
 
@@ -248,11 +248,11 @@ Flow for testing a step: \`stakwork_run_step(workflow_id, step_id: S)\` with NO 
 The graph tells you how workflows are DEFINED; these tools tell you how they actually RAN:
 - \`stakwork_skill_usage\` — usage stats for a skill by name, the workflows that invoke it ({workflow_id, use_count} from real run telemetry), and curated input/output examples.
 - \`stakwork_workflow_runs\` — recent runs of a workflow_id with state (completed/error/halted/stopped) and timing.
-- \`stakwork_run_steps\` — the executed steps of one run: skill_name plus the ACTUAL params sent and output produced (previews; pass \`step_name\` for one step's full IO, \`skill_name\` to filter).
+- \`stakwork_inspect_run\` — the executed steps of one run: skill_name plus the ACTUAL params sent and output produced (previews; pass \`step_name\` for one step's full IO, \`skill_name\` to filter).
 ${runStepGuidance}
 Use them to (a) verify a candidate workflow actually runs successfully and recently before recommending it, and (b) cite real working configurations — exact URL formats, variable interpolations like \`[#(step).output.var]\` — instead of guessing from schemas. Runs and stats are scoped to this customer's own executions.
 
-Flow for "how is skill X actually used": \`stakwork_skill_usage(X)\` → top workflow by use_count → \`stakwork_workflow_runs\` → pick a recent completed run → \`stakwork_run_steps(project_id, skill_name: X)\`. A run with \`workflow_state: "error"\` is also useful evidence — its steps show what data shape caused the failure.
+Flow for "how is skill X actually used": \`stakwork_skill_usage(X)\` → top workflow by use_count → \`stakwork_workflow_runs\` → pick a recent completed run → \`stakwork_inspect_run(project_id, skill_name: X)\`. A run with \`workflow_state: "error"\` is also useful evidence — its steps show what data shape caused the failure.
 `
     : "";
 
@@ -407,7 +407,7 @@ export interface GetContextOptions {
   // GGNN integration
   ggnn?: GgnnConfig;
   // Stakwork API access for run-research tools (stakwork_skill_usage,
-  // stakwork_workflow_runs, stakwork_run_steps). The key arrives on the
+  // stakwork_workflow_runs, stakwork_inspect_run). The key arrives on the
   // request body server-to-server and is never an LLM-visible parameter.
   stakwork?: { apiKey: string; baseUrl?: string };
   // Real-time step event callback (for SSE streaming)

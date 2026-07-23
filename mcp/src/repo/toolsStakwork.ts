@@ -115,7 +115,7 @@ export function registerStakworkTools(
       "and the breakdown of which workflows actually invoke it ({workflow_id, use_count}), computed from run telemetry. " +
       "Optionally includes curated input/output examples for the skill. " +
       "Use this as the entry point for 'how is skill X actually used' — then follow the top workflow_id " +
-      "into stakwork_workflow_runs → stakwork_run_steps to see real params from a live run.",
+      "into stakwork_workflow_runs → stakwork_inspect_run to see real params from a live run.",
     inputSchema: z.object({
       skill_name: z
         .string()
@@ -169,7 +169,7 @@ export function registerStakworkTools(
       "List recent execution runs of a Stakwork workflow by workflow_id (the same id cited from graph results). " +
       "Each run has an id (project_id), workflow_state (completed | error | halted | stopped | in-flight states), " +
       "started_at and duration. Use it to verify a workflow actually runs successfully and recently, " +
-      "then feed a run's id into stakwork_run_steps to inspect the real data it processed. " +
+      "then feed a run's id into stakwork_inspect_run to inspect the real data it processed. " +
       "Only runs owned by this customer are visible.",
     inputSchema: z.object({
       workflow_id: z.number().describe("Stakwork workflow id, e.g. 55639."),
@@ -192,7 +192,7 @@ export function registerStakworkTools(
     },
   });
 
-  allTools.stakwork_run_steps = tool({
+  allTools.stakwork_inspect_run = tool({
     description:
       "Inspect the executed steps of one Stakwork run (project): per step the skill invoked (skill_name) and the " +
       "ACTUAL params sent and output produced — ground truth for how a skill is configured in practice " +
@@ -210,7 +210,7 @@ export function registerStakworkTools(
         .string()
         .optional()
         .describe(
-          "A step's `name` from a prior stakwork_run_steps call. When set, returns that single step's FULL inputs/outputs instead of the step list."
+          "A step's `name` from a prior stakwork_inspect_run call. When set, returns that single step's FULL inputs/outputs instead of the step list."
         ),
       limit: z
         .number()
@@ -230,14 +230,14 @@ export function registerStakworkTools(
       limit?: number;
     }) => {
       console.log(
-        `[stakwork_run_steps] project_id=${project_id} skill_name=${skill_name ?? "*"} step_name=${step_name ?? "-"}`,
+        `[stakwork_inspect_run] project_id=${project_id} skill_name=${skill_name ?? "*"} step_name=${step_name ?? "-"}`,
       );
       try {
         // Drill-down: one step's full IO (still capped to protect context).
         if (step_name) {
           const url = `${baseUrl}/projects/${encodeURIComponent(String(project_id))}/steps/${encodeURIComponent(step_name)}/io`;
           const resp = await stakworkGet(url, apiKey);
-          if (!resp.ok) return errorResult("stakwork_run_steps", resp.status, resp.body);
+          if (!resp.ok) return errorResult("stakwork_inspect_run", resp.status, resp.body);
           const io = resp.body?.data ?? resp.body;
           return JSON.stringify({
             step_name,
@@ -249,7 +249,7 @@ export function registerStakworkTools(
 
         const url = `${baseUrl}/projects/${encodeURIComponent(String(project_id))}/steps?limit=${encodeURIComponent(String(limit))}`;
         const resp = await stakworkGet(url, apiKey);
-        if (!resp.ok) return errorResult("stakwork_run_steps", resp.status, resp.body);
+        if (!resp.ok) return errorResult("stakwork_inspect_run", resp.status, resp.body);
         const data = resp.body?.data ?? resp.body;
         let steps: any[] = data?.steps ?? [];
         if (skill_name) {
@@ -269,7 +269,7 @@ export function registerStakworkTools(
           })),
         });
       } catch (err: any) {
-        return `stakwork_run_steps failed: ${err?.message ?? String(err)}`;
+        return `stakwork_inspect_run failed: ${err?.message ?? String(err)}`;
       }
     },
   });
@@ -283,7 +283,7 @@ export function registerStakworkTools(
         "[$(ancestor).output.path] reference the step consumes (flat \"ancestor_id.output.path\" keys also accepted). " +
         "Stakwork seeds them as literals into a synthesized set_var step, so NO prior run or ancestor execution is needed. " +
         "DISCOVERY: call with workflow_id + step_id and NO params — the response lists every required ancestor key, which is " +
-        "exactly the input shape to fill in. Or read a real run first via stakwork_run_steps to copy actual values. " +
+        "exactly the input shape to fill in. Or read a real run first via stakwork_inspect_run to copy actual values. " +
         "{{SECRET_NAME}} aliases resolve server-side at execution (pass them through unchanged, never inline real secrets); " +
         "set mock_mode: true to use stored mock step outputs instead of live execution. " +
         "The tool polls until the run reaches a terminal state or wait_seconds elapses; on timeout it returns status in_progress — " +
@@ -415,6 +415,6 @@ export function registerStakworkTools(
   }
 
   console.log(
-    `===> registered stakwork run tools: stakwork_skill_usage, stakwork_workflow_runs, stakwork_run_steps${options.runStep ? ", stakwork_run_step" : ""}`,
+    `===> registered stakwork run tools: stakwork_skill_usage, stakwork_workflow_runs, stakwork_inspect_run${options.runStep ? ", stakwork_run_step" : ""}`,
   );
 }
