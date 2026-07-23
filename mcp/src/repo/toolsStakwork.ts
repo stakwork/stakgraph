@@ -13,9 +13,11 @@ import axios from "axios";
  * an LLM-visible parameter. All endpoints are GETs; runs/stats are scoped by
  * Stakwork to the customer that owns the API key.
  *
- * Exception: `stakwork_run_step` EXECUTES a single workflow step (a real,
- * billable run). It is double-gated — the API key must be present AND the
- * caller must opt in with a truthy `toolsConfig.stakwork_run_step`.
+ * Exception: `stakwork_run_step` EXECUTES a single step of a published
+ * workflow (a real, billable run) via POST /workflows/:id/run_step_from_template,
+ * with ancestor-keyed inputs seeded as literals into a synthesized set_var
+ * step. It is double-gated — the API key must be present AND the caller must
+ * opt in with a truthy `toolsConfig.stakwork_run_step`.
  */
 
 const DEFAULT_STAKWORK_API_URL = "https://jobs.stakwork.com/api/v1";
@@ -275,12 +277,15 @@ export function registerStakworkTools(
   if (options.runStep) {
     allTools.stakwork_run_step = tool({
       description:
-        "EXECUTE one Stakwork workflow step with your own literal inputs and return its output. " +
+        "EXECUTE one step of a PUBLISHED Stakwork workflow with your own inputs and return its output. " +
         "This launches a REAL run that consumes execution resources — use it deliberately for testing a specific step, never for browsing. " +
-        "Flow: study a real run first (stakwork_run_steps with step_name for that step's resolved inputs), copy the input shape, " +
-        "modify the values you want to test, and pass them as params/attributes overrides. Overrides are literal — they replace " +
-        "[$(ancestor).output.x] interpolations, so NO ancestor steps or prior outputs are needed; {{SECRET_NAME}} aliases are still " +
-        "resolved server-side at execution time (pass them through unchanged, never inline real secrets). " +
+        "params are ANCESTOR-KEYED: { \"<ancestor_step_id>\": { \"<output.path>\": value } } — one value for each " +
+        "[$(ancestor).output.path] reference the step consumes (flat \"ancestor_id.output.path\" keys also accepted). " +
+        "Stakwork seeds them as literals into a synthesized set_var step, so NO prior run or ancestor execution is needed. " +
+        "DISCOVERY: call with workflow_id + step_id and NO params — the response lists every required ancestor key, which is " +
+        "exactly the input shape to fill in. Or read a real run first via stakwork_run_steps to copy actual values. " +
+        "{{SECRET_NAME}} aliases resolve server-side at execution (pass them through unchanged, never inline real secrets); " +
+        "set mock_mode: true to use stored mock step outputs instead of live execution. " +
         "The tool polls until the run reaches a terminal state or wait_seconds elapses; on timeout it returns status in_progress — " +
         "call it again with the returned project_id (plus step_id) to continue waiting without launching a new run.",
       inputSchema: z.object({
@@ -290,15 +295,17 @@ export function registerStakworkTools(
         workflow_id: z
           .number()
           .optional()
-          .describe("Workflow that defines the step. Required to LAUNCH a run; omit when resuming with project_id."),
+          .describe("Source workflow (must have a published version) that defines the step. Required to LAUNCH; omit when resuming with project_id."),
         params: z
           .record(z.string(), z.any())
           .optional()
-          .describe("Literal overrides merged over the step's `params` before execution."),
-        attributes: z
-          .record(z.string(), z.any())
+          .describe(
+            "Ancestor-keyed inputs: { \"<ancestor_step_id>\": { \"<output.path>\": value } }. Omit to DISCOVER the required keys without running anything.",
+          ),
+        mock_mode: z
+          .boolean()
           .optional()
-          .describe("Literal overrides merged over the step's `attributes`, e.g. { vars: { prompt: '...' } }."),
+          .describe("Run with stored mock step outputs instead of live execution (cheap dry test)."),
         project_id: z
           .number()
           .optional()
@@ -313,19 +320,19 @@ export function registerStakworkTools(
         step_id,
         workflow_id,
         params,
-        attributes,
+        mock_mode,
         project_id,
         wait_seconds = RUN_STEP_DEFAULT_WAIT_S,
       }: {
         step_id: string;
         workflow_id?: number;
         params?: Record<string, unknown>;
-        attributes?: Record<string, unknown>;
+        mock_mode?: boolean;
         project_id?: number;
         wait_seconds?: number;
       }) => {
         console.log(
-          `[stakwork_run_step] workflow_id=${workflow_id ?? "-"} step_id=${step_id} project_id=${project_id ?? "-"}`,
+          `[stakwork_run_step] workflow_id=${workflow_id ?? "-"} step_id=${step_id} project_id=${project_id ?? "-"} mock=${mock_mode ?? false}`,
         );
         try {
           let runId = project_id;
@@ -334,16 +341,29 @@ export function registerStakworkTools(
             if (workflow_id === undefined) {
               return "stakwork_run_step failed: pass workflow_id + step_id to launch a run, or project_id to resume waiting on one.";
             }
-            const overrides: Record<string, unknown> = {};
-            if (params !== undefined) overrides.params = params;
-            if (attributes !== undefined) overrides.attributes = attributes;
-
-            const launch = await stakworkPost(`${baseUrl}/workflow_steps/run`, apiKey, {
-              workflow_id,
-              step_id,
-              ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
-            });
+            const probing = !params || Object.keys(params).length === 0;
+            // The endpoint rejects blank params before validating coverage, so a
+            // structurally-empty probe object triggers the missing-keys check,
+            // whose error message enumerates every required ancestor input.
+            const launch = await stakworkPost(
+              `${baseUrl}/workflows/${encodeURIComponent(String(workflow_id))}/run_step_from_template`,
+              apiKey,
+              {
+                step_id,
+                params: probing ? { _probe: { _: "_" } } : params,
+                ...(mock_mode !== undefined ? { mock_mode } : {}),
+              },
+            );
             if (!launch.ok) return errorResult("stakwork_run_step", launch.status, launch.body);
+            if (launch.body?.success === false) {
+              const errors = launch.body?.errors ?? launch.body?.error;
+              return JSON.stringify({
+                launched: false,
+                ...(probing ? { discovery: true } : {}),
+                errors: truncateJson(errors, 2000),
+                hint: "'Missing required ancestor keys: a.b, c.d' enumerates the step's full input shape — relaunch with params: { \"a\": { \"b\": <value> }, \"c\": { \"d\": <value> } }.",
+              });
+            }
             runId = (launch.body?.data ?? launch.body)?.project_id;
             if (runId === undefined) {
               return `stakwork_run_step failed: launch response had no project_id: ${truncateJson(launch.body, 500)}`;

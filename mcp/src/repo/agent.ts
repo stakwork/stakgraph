@@ -236,9 +236,9 @@ function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
   const runStepEnabled = Boolean(hasRunTools) && toolConfigEnabled(toolsConfig?.stakwork_run_step);
 
   const runStepGuidance = runStepEnabled
-    ? `- \`stakwork_run_step\` — EXECUTE one step with your own inputs (a live, billable run — use deliberately to test a specific step, never for browsing).
+    ? `- \`stakwork_run_step\` — EXECUTE one step of a published workflow with your own inputs (a live, billable run — use deliberately to test a specific step, never for browsing).
 
-Flow for testing a step: \`stakwork_run_steps(project_id, step_name: S)\` on a real run to see the step's resolved inputs → copy that shape, modify the values under test → \`stakwork_run_step(workflow_id, step_id: S, attributes: {...}, params: {...})\` → read the returned outputs. Overrides are literal: they replace \`[$(ancestor).output.x]\` interpolations, so no ancestor steps are needed; \`{{SECRET}}\` aliases resolve server-side — pass them through unchanged, never inline real secret values. If the tool returns \`in_progress\`, call it again with the returned \`project_id\` to keep waiting instead of launching a new run.
+Flow for testing a step: \`stakwork_run_step(workflow_id, step_id: S)\` with NO params first — the response enumerates every required ancestor key (the step's exact input shape). Fill values from a real run (\`stakwork_run_steps(project_id, step_name: S)\`) or your own test data, then relaunch with \`params: { "<ancestor_id>": { "<output.path>": value } }\` and read the returned outputs. Values are seeded as literals into a synthesized set_var step, so no prior run or ancestor execution is needed; \`{{SECRET}}\` aliases resolve server-side — pass them through unchanged, never inline real secret values. \`mock_mode: true\` uses stored mock outputs instead of live execution. If the tool returns \`in_progress\`, call it again with the returned \`project_id\` to keep waiting instead of launching a new run.
 `
     : "";
 
