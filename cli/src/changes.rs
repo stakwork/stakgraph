@@ -494,22 +494,20 @@ async fn run_diff(
         canon_repo_str.to_string()
     };
 
-    let changed_abs: HashSet<String> = after_files
+    let changed_after_rel: HashSet<String> = after_files
         .iter()
-        .filter_map(|f| std::fs::canonicalize(f).ok())
-        .map(|p| p.to_string_lossy().to_string())
+        .filter_map(|f| rel_from_root(f, &canon_after_root))
         .collect();
-    let changed_tmp: HashSet<String> = before_files
+    let changed_before_rel: HashSet<String> = before_files
         .iter()
-        .filter_map(|f| std::fs::canonicalize(f).ok())
-        .map(|p| p.to_string_lossy().to_string())
+        .filter_map(|f| rel_from_root(f, canon_tmp_str))
         .collect();
 
-    let after_by_key = index_graph_by_norm_key(&after_graph, &canon_after_root, &changed_abs);
-    let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp_str, &changed_tmp);
+    let after_by_key = index_graph_by_norm_key(&after_graph, &canon_after_root, &changed_after_rel);
+    let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp_str, &changed_before_rel);
 
-    let after_edge_by_key = index_edges_by_key(&after_graph, &canon_after_root, &changed_abs);
-    let before_edge_by_key = index_edges_by_key(&before_graph, canon_tmp_str, &changed_tmp);
+    let after_edge_by_key = index_edges_by_key(&after_graph, &canon_after_root, &changed_after_rel);
+    let before_edge_by_key = index_edges_by_key(&before_graph, canon_tmp_str, &changed_before_rel);
 
     let after_keys: HashSet<String> = after_by_key.keys().cloned().collect();
     let before_keys: HashSet<String> = before_by_key.keys().cloned().collect();
@@ -741,27 +739,41 @@ fn node_signature(node: &Node) -> Option<String> {
     })
 }
 
+// Node file paths may have had their `/tmp/` (or `/private/tmp/`) prefix
+// stripped by the ast builder, so try the root, the tmp-stripped root, and
+// finally symlink resolution before giving up.
+fn rel_from_root(file: &str, root: &str) -> Option<String> {
+    if root.is_empty() {
+        return None;
+    }
+    if let Some(rel) = file.strip_prefix(root) {
+        return Some(rel.trim_start_matches('/').to_string());
+    }
+    let tmp_stripped = root
+        .strip_prefix("/private/tmp/")
+        .or_else(|| root.strip_prefix("/tmp/"))
+        .unwrap_or(root);
+    if tmp_stripped != root {
+        if let Some(rel) = file.strip_prefix(tmp_stripped) {
+            return Some(rel.trim_start_matches('/').to_string());
+        }
+    }
+    std::fs::canonicalize(file).ok().and_then(|c| {
+        c.to_str()
+            .and_then(|cs| cs.strip_prefix(root))
+            .map(|rel| rel.trim_start_matches('/').to_string())
+    })
+}
+
 fn norm_key(node: &Node, root: &str) -> String {
     let file = &node.node_data.file;
-    let rel_file = if root.is_empty() {
-        file.as_str()
-    } else {
-        file.strip_prefix(root)
-            .map(|s| s.trim_start_matches('/'))
-            .unwrap_or(file.as_str())
-    };
+    let rel_file = rel_from_root(file, root).unwrap_or_else(|| file.clone());
     format!("{}-{}-{}", node.node_type, node.node_data.name, rel_file)
 }
 
 fn norm_key_from_ref(node_ref: &ast::lang::graphs::NodeRef, root: &str) -> String {
     let file = &node_ref.node_data.file;
-    let rel_file = if root.is_empty() {
-        file.as_str()
-    } else {
-        file.strip_prefix(root)
-            .map(|s| s.trim_start_matches('/'))
-            .unwrap_or(file.as_str())
-    };
+    let rel_file = rel_from_root(file, root).unwrap_or_else(|| file.clone());
     format!(
         "{}-{}-{}",
         node_ref.node_type, node_ref.node_data.name, rel_file
@@ -787,11 +799,9 @@ fn index_graph_by_norm_key<'a>(
             continue;
         }
         if !allowed_files.is_empty() {
-            let canon = std::fs::canonicalize(&node.node_data.file)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if !allowed_files.contains(&canon) {
-                continue;
+            match rel_from_root(&node.node_data.file, root) {
+                Some(rel) if allowed_files.contains(&rel) => {}
+                _ => continue,
             }
         }
         let key = norm_key(node, root);
@@ -803,22 +813,8 @@ fn index_graph_by_norm_key<'a>(
 fn edge_key(edge: &Edge, src_root: &str, tgt_root: &str) -> String {
     let src_file = &edge.source.node_data.file;
     let tgt_file = &edge.target.node_data.file;
-    let rel_src = if src_root.is_empty() {
-        src_file.as_str()
-    } else {
-        src_file
-            .strip_prefix(src_root)
-            .map(|s| s.trim_start_matches('/'))
-            .unwrap_or(src_file.as_str())
-    };
-    let rel_tgt = if tgt_root.is_empty() {
-        tgt_file.as_str()
-    } else {
-        tgt_file
-            .strip_prefix(tgt_root)
-            .map(|s| s.trim_start_matches('/'))
-            .unwrap_or(tgt_file.as_str())
-    };
+    let rel_src = rel_from_root(src_file, src_root).unwrap_or_else(|| src_file.clone());
+    let rel_tgt = rel_from_root(tgt_file, tgt_root).unwrap_or_else(|| tgt_file.clone());
     format!(
         "{}-{}-{}→{}-{}-{}",
         edge.source.node_type,
@@ -842,13 +838,13 @@ fn index_edges_by_key<'a>(
         }
         // Only include edges where at least one endpoint is in the changed files set
         if !allowed_files.is_empty() {
-            let src_canon = std::fs::canonicalize(&edge.source.node_data.file)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let tgt_canon = std::fs::canonicalize(&edge.target.node_data.file)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if !allowed_files.contains(&src_canon) && !allowed_files.contains(&tgt_canon) {
+            let src_ok = rel_from_root(&edge.source.node_data.file, root)
+                .map(|rel| allowed_files.contains(&rel))
+                .unwrap_or(false);
+            let tgt_ok = rel_from_root(&edge.target.node_data.file, root)
+                .map(|rel| allowed_files.contains(&rel))
+                .unwrap_or(false);
+            if !src_ok && !tgt_ok {
                 continue;
             }
         }
@@ -859,16 +855,13 @@ fn index_edges_by_key<'a>(
 }
 
 fn rel_path(file: &str, root: &str) -> String {
-    Path::new(file)
-        .strip_prefix(root)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| {
-            Path::new(file)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(file)
-                .to_string()
-        })
+    rel_from_root(file, root).unwrap_or_else(|| {
+        Path::new(file)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(file)
+            .to_string()
+    })
 }
 
 fn print_delta(
