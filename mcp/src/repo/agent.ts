@@ -50,6 +50,7 @@ import {
   StepMeta,
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
+import type { GoogleSheetsToolsOptions } from "./toolsGoogleSheets.js";
 import {
   resolveCurrentTurnAttachments,
   cacheAttachments,
@@ -410,6 +411,10 @@ export interface GetContextOptions {
   // stakwork_workflow_runs, stakwork_inspect_run). The key arrives on the
   // request body server-to-server and is never an LLM-visible parameter.
   stakwork?: { apiKey: string; baseUrl?: string };
+  // Google Sheets tools (sheets_create_spreadsheet, sheets_update_values, ...).
+  // Service-account credentials arrive on the request body server-to-server
+  // and are never an LLM-visible parameter.
+  googleSheets?: GoogleSheetsToolsOptions;
   // Real-time step event callback (for SSE streaming)
   onStepEvent?: (content: any[]) => void;
   // Source label persisted to the session file
@@ -512,6 +517,7 @@ async function prepareAgent(
     provenanceCollector,
     modelName,
     opts.stakwork,
+    opts.googleSheets,
   );
 
   // Load and merge MCP server tools if configured
@@ -1094,6 +1100,21 @@ curl -X POST \
     "prompt": "as logs_agent to tell me a joke",
     "toolsConfig": {
       "logs_agent": true
+    }
+  }' \
+  "http://localhost:3355/repo/agent"
+
+# Google Sheets tools: gated on googleSheets.serviceAccount (full service-account
+# JSON, a JSON string, or base64 JSON). Spreadsheets are created inside
+# driveFolderId — share that folder with the service account's client_email.
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "create a spreadsheet comparing 15 vs 30 year mortgage payments on $500k at 6%, using live formulas, and report the monthly difference",
+    "googleSheets": {
+      "serviceAccount": { "client_email": "agent@proj.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n", "token_uri": "https://oauth2.googleapis.com/token" },
+      "driveFolderId": "167ymxOFhTf5EKYgTVxio2OUJGTixiSO5"
     }
   }' \
   "http://localhost:3355/repo/agent"
