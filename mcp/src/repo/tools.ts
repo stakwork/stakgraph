@@ -22,6 +22,12 @@ import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
 import { registerJarvisTools } from "./toolsJarvis.js";
 import { registerStakworkTools, type StakworkToolsOptions } from "./toolsStakwork.js";
+import {
+  registerGoogleSheetsTools,
+  GOOGLE_SHEETS_TOOL_NAMES,
+  type GoogleSheetsToolsOptions,
+  type GoogleSheetsToolOverrides,
+} from "./toolsGoogleSheets.js";
 import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
@@ -96,7 +102,12 @@ type ToolName =
   | "generate_docx"
   | "generate_xlsx"
   | "generate_xlsx_computed"
-  | "stakwork_run_step";
+  | "stakwork_run_step"
+  | "sheets_create_spreadsheet"
+  | "sheets_update_values"
+  | "sheets_batch_update_values"
+  | "sheets_get_values"
+  | "sheets_add_sheet";
 
 /**
  * Object form of a per-tool config value. Lets a caller pass a description
@@ -157,6 +168,8 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
   "stakwork_run_step",
+  "sheets_create_spreadsheet", "sheets_update_values", "sheets_batch_update_values",
+  "sheets_get_values", "sheets_add_sheet",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -299,6 +312,12 @@ Rules:
     "Returns 'Generated: /repo/agent/file?path=...' on success. " +
     "On failure returns a non-fatal 'generate_xlsx_computed failed: ...' string.",
   stakwork_run_step: '', // opt-in; default lives in toolsStakwork.ts; string value here overrides it.
+  // Gated on googleSheets credentials; defaults live in toolsGoogleSheets.ts.
+  sheets_create_spreadsheet: '',
+  sheets_update_values: '',
+  sheets_batch_update_values: '',
+  sheets_get_values: '',
+  sheets_add_sheet: '',
 };
 
 export async function get_tools(
@@ -314,6 +333,7 @@ export async function get_tools(
   provenanceCollector?: ProvenanceCollector,
   modelName?: ModelName,
   stakwork?: StakworkToolsOptions,
+  googleSheets?: GoogleSheetsToolsOptions,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -747,6 +767,27 @@ export async function get_tools(
       ...stakwork,
       runStep: toolConfigEnabled(toolsConfig?.stakwork_run_step),
     });
+  }
+
+  // Register Google Sheets tools (gated on the caller supplying service-account
+  // credentials via the request body — never an LLM-visible parameter). The
+  // family is on by default when credentials are present; toolsConfig can
+  // disable individual tools (`sheets_get_values: false`) or override their
+  // descriptions.
+  if (googleSheets?.serviceAccount) {
+    const sheetsOverrides: GoogleSheetsToolOverrides = Object.fromEntries(
+      GOOGLE_SHEETS_TOOL_NAMES.map((name) => {
+        const v = toolsConfig?.[name];
+        return [
+          name,
+          {
+            disabled: v === false || (isToolConfigObject(v) && v.enabled === false),
+            description: toolConfigDescription(v),
+          },
+        ];
+      })
+    );
+    registerGoogleSheetsTools(allTools, googleSheets, sheetsOverrides);
   }
 
   // Register sub-agent tools (remote agent delegation)

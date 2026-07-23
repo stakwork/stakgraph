@@ -162,6 +162,20 @@ function parseAgentBody(req: Request) {
   // (like `pat`/`apiKey`): read off the body, never exposed to the LLM.
   const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
   const stakworkBaseUrl = req.body.stakworkBaseUrl as string | undefined;
+  // Google Sheets service-account credentials. Server-to-server secret (like
+  // `pat`/`apiKey`): read off the body, never exposed to the LLM.
+  const googleSheetsRaw = req.body.googleSheets as
+    | { serviceAccount?: unknown; driveFolderId?: unknown }
+    | undefined;
+  const googleSheets = googleSheetsRaw?.serviceAccount
+    ? {
+        serviceAccount: googleSheetsRaw.serviceAccount,
+        driveFolderId:
+          typeof googleSheetsRaw.driveFolderId === "string" && googleSheetsRaw.driveFolderId
+            ? googleSheetsRaw.driveFolderId
+            : undefined,
+      }
+    : undefined;
   const attachments = Array.isArray(req.body.attachments)
     ? (req.body.attachments as unknown[]).filter(
         (a): a is string => typeof a === "string" && a.trim().length > 0,
@@ -180,6 +194,7 @@ function parseAgentBody(req: Request) {
     systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
     ignoreRepoInfo, attachments, _metadata,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
+    googleSheets,
   };
 }
 
@@ -234,6 +249,7 @@ export async function repo_agent(req: Request, res: Response) {
     hasSystemOverride: Boolean(req.body?.systemOverride),
     mcpServers: mcpServersCount,
     hasStakworkApiKey: Boolean(req.body?.stakworkApiKey),
+    hasGoogleSheets: Boolean(req.body?.googleSheets?.serviceAccount),
   });
 
   const body = parseAgentBody(req);
@@ -291,6 +307,7 @@ export async function repo_agent(req: Request, res: Response) {
           subAgents: body.subAgents,
           ggnn: body.ggnn,
           stakwork: body.stakwork,
+          googleSheets: body.googleSheets,
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
@@ -414,6 +431,7 @@ export async function repo_agent(req: Request, res: Response) {
           subAgents: body.subAgents,
           ggnn: body.ggnn,
           stakwork: body.stakwork,
+          googleSheets: body.googleSheets,
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
