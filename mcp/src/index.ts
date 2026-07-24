@@ -15,7 +15,7 @@ console.debug = (...a: unknown[]) => _debug(_ts(), ...a);
 console.info = (...a: unknown[]) => _info(_ts(), ...a);
 console.trace = (...a: unknown[]) => _trace(_ts(), ...a);
 
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import { graph_mcp_routes } from "./tools/server.js";
 import { graph_sse_routes } from "./tools/sse.js";
 import fileUpload from "express-fileupload";
@@ -206,7 +206,7 @@ app.use(
 );
 // Gated: index.html — requires API_TOKEN auth, then injects a short-lived JWT
 app.get(
-  ["/sessions", "/sessions/", "/sessions/*"],
+  ["/sessions", "/sessions/", "/sessions/*splat"],
   r.authMiddleware,
   sendIndexWithToken(path.join(benchmarkDist, "index.html")),
 );
@@ -331,6 +331,20 @@ app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {
   clearCache();
   res.json({ message: "Cache cleared" });
+});
+
+// Terminal error handler — Express 5 forwards rejected promises from async
+// route handlers here instead of crashing the process on an unhandled
+// rejection. Must be registered after every route.
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[express] Unhandled route error:", err);
+  if (res.headersSent) {
+    // Response already streaming (SSE, fire-and-forget jobs) — nothing safe
+    // to send; just terminate the connection.
+    res.end();
+    return;
+  }
+  res.status(500).json({ error: err?.message || "Internal server error" });
 });
 
 const port = parseInt(process.env.PORT || "3355", 10);
