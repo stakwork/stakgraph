@@ -3,13 +3,14 @@ import { shortId } from "../ui";
 import { SourceBadge } from "./SessionBadges";
 import { card, muted } from "./styles";
 import { formatNumber, formatSourceLabel } from "../../utils";
-import type { ProductionRun } from "../../types";
+import type { ProductionRun, SearchMatchInfo } from "../../types";
 
 interface SessionSidebarProps {
   loading: boolean;
   runs: ProductionRun[];
   filteredRuns: ProductionRun[];
   selected: ProductionRun | null;
+  quickSearch: string;
   repoSearch: string;
   sourceFilter: string;
   rangeFilter: "24h" | "7d" | "30d" | "all";
@@ -18,11 +19,14 @@ interface SessionSidebarProps {
   sourceOptions: string[];
   load: () => void;
   loadDetail: (run: ProductionRun) => void;
+  setQuickSearch: (v: string) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
   setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
   setDayFilter: (v: string) => void;
   clearFilters: () => void;
+  searching: boolean;
+  searchMatchMap: Map<string, SearchMatchInfo>;
 }
 
 export function SessionSidebar({
@@ -30,6 +34,7 @@ export function SessionSidebar({
   runs,
   filteredRuns,
   selected,
+  quickSearch,
   repoSearch,
   sourceFilter,
   rangeFilter,
@@ -38,11 +43,14 @@ export function SessionSidebar({
   sourceOptions,
   load,
   loadDetail,
+  setQuickSearch,
   setRepoSearch,
   setSourceFilter,
   setRangeFilter,
   setDayFilter,
   clearFilters,
+  searching,
+  searchMatchMap,
 }: SessionSidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -151,6 +159,17 @@ export function SessionSidebar({
             }}
           >
             <input
+              placeholder={"Search traces, repos, models\u2026"}
+              value={quickSearch}
+              onChange={(e) => setQuickSearch(e.target.value)}
+              style={inputStyle}
+            />
+            {searching && (
+              <p style={{ ...muted, fontSize: "10px", margin: 0, textAlign: "center" }}>
+                Searching traces\u2026
+              </p>
+            )}
+            <input
               placeholder={"Filter by repo\u2026"}
               value={repoSearch}
               onChange={(e) => setRepoSearch(e.target.value)}
@@ -189,7 +208,8 @@ export function SessionSidebar({
                 <option key={r} value={r} />
               ))}
             </datalist>
-            {(repoSearch ||
+            {(quickSearch ||
+              repoSearch ||
               sourceFilter !== "all" ||
               rangeFilter !== "all" ||
               dayFilter) && (
@@ -318,6 +338,25 @@ export function SessionSidebar({
                       {run.user_prompt_preview}
                     </p>
                   )}
+                  {searchMatchMap.has(run.id) && (() => {
+                    const m = searchMatchMap.get(run.id)!;
+                    return (
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          color: "#22d3ee",
+                          margin: "3px 0 0 0",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.first_match_at_call === 0
+                          ? "match in prompt"
+                          : `match at call #${m.first_match_at_call}/${m.total_tool_calls}`}
+                      </p>
+                    );
+                  })()}
                 </button>
               ))
             )}
