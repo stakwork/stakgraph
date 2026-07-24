@@ -5,7 +5,11 @@ package main
 // @ast node: DataModel "ServiceHandler"
 // @ast node: Class "ItemStore"
 // @ast edge: Operand -> Function "fetchItems" "method_chain.go"
+// @ast edge: Operand -> Function "getRecord" "method_chain.go"
 // @ast node: DataModel "ItemStore"
+// @ast node: Class "Record"
+// @ast edge: Operand -> Function "process" "method_chain.go"
+// @ast node: DataModel "Record"
 // @ast node: Function "fetchItems"
 // @ast node: Function "processItems"
 // @ast edge: Calls -> Function "fetchItems" "method_chain.go"
@@ -15,6 +19,12 @@ package main
 // @ast node: Function "runFactory"
 // @ast edge: Calls -> Function "newItemStore" "method_chain.go"
 // @ast edge: Calls -> Function "fetchItems" "method_chain.go"
+// @ast node: Function "getRecord"
+// @ast node: Function "process"
+// @ast node: Function "runMethodChain"
+// @ast edge: Calls -> Function "newItemStore" "method_chain.go"
+// @ast edge: Calls -> Function "getRecord" "method_chain.go"
+// @ast edge: Calls -> Function "process" "method_chain.go"
 
 type ServiceHandler struct {
 	store *ItemStore
@@ -47,4 +57,20 @@ func newItemStore() *ItemStore {
 func runFactory() []string {
 	store := newItemStore()
 	return store.fetchItems()
+}
+
+// Record is a result type returned by a method.
+type Record struct{}
+
+func (r *Record) process() string { return "done" }
+
+// getRecord is a method on ItemStore returning *Record; its return type seeds method_returns.
+func (s *ItemStore) getRecord() *Record { return &Record{} }
+
+// runMethodChain exercises the method_returns path: store.getRecord() types the result
+// as Record, then record.process() resolves via the method_returns lookup.
+func runMethodChain() string {
+	store := newItemStore()
+	record := store.getRecord()
+	return record.process()
 }

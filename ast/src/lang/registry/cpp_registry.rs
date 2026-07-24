@@ -1,4 +1,4 @@
-use super::{kotlin_resolver, Registry};
+use super::{cpp_resolver, Registry};
 use crate::lang::asg::NodeKeys;
 use crate::lang::graphs::{Graph, NodeType};
 use std::collections::HashMap;
@@ -11,7 +11,7 @@ fn parent_dir(file: &str) -> String {
         .unwrap_or_default()
 }
 
-pub struct KotlinRegistry {
+pub struct CppRegistry {
     var_types: HashMap<(String, String), String>,
     methods: HashMap<(String, String), String>,
     class_fields: HashMap<String, HashMap<String, String>>,
@@ -21,9 +21,9 @@ pub struct KotlinRegistry {
     resolved: HashMap<(String, usize, usize), NodeKeys>,
 }
 
-impl KotlinRegistry {
+impl CppRegistry {
     pub fn new(graph: &impl Graph, filez: &[(String, String)]) -> Self {
-        let mut reg = KotlinRegistry {
+        let mut reg = CppRegistry {
             var_types: HashMap::new(),
             methods: HashMap::new(),
             class_fields: HashMap::new(),
@@ -33,9 +33,13 @@ impl KotlinRegistry {
             resolved: HashMap::new(),
         };
 
-        // Pass 1: index graph nodes — functions, methods, and typed variables.
         for (node_type, node_data) in graph.iter_all_nodes() {
-            if !node_data.file.ends_with(".kt") {
+            if !(node_data.file.ends_with(".cpp")
+                || node_data.file.ends_with(".cc")
+                || node_data.file.ends_with(".cxx")
+                || node_data.file.ends_with(".h")
+                || node_data.file.ends_with(".hpp"))
+            {
                 continue;
             }
             match node_type {
@@ -63,34 +67,43 @@ impl KotlinRegistry {
             }
         }
 
-        // Pass 1.5: extract class field types and method return types from source.
         for (file, source) in filez {
-            if !file.ends_with(".kt") {
+            if !(file.ends_with(".cpp")
+                || file.ends_with(".cc")
+                || file.ends_with(".cxx")
+                || file.ends_with(".h")
+                || file.ends_with(".hpp"))
+            {
                 continue;
             }
-            let fields = kotlin_resolver::extract_class_fields(source);
+            let fields = cpp_resolver::extract_class_fields(source);
             for (class_name, field_map) in fields {
                 reg.class_fields
                     .entry(class_name)
                     .or_default()
                     .extend(field_map);
             }
-            let returns = kotlin_resolver::extract_method_return_types(source);
+            let returns = cpp_resolver::extract_method_return_types(source);
             for (key, ret) in returns {
                 reg.method_returns.entry(key).or_insert(ret);
             }
-            let fns = kotlin_resolver::extract_fn_returns(source);
-            for (fname, ret) in fns {
-                reg.fn_returns.entry(fname).or_insert(ret);
+            let fn_rets = cpp_resolver::extract_fn_returns(source);
+            for (key, ret) in fn_rets {
+                reg.fn_returns.entry(key).or_insert(ret);
             }
         }
 
-        // Pass 2: pre-resolve all call sites per file.
         let all_resolved: Vec<((String, usize, usize), NodeKeys)> = filez
             .iter()
-            .filter(|(f, _)| f.ends_with(".kt"))
+            .filter(|(f, _)| {
+                f.ends_with(".cpp")
+                    || f.ends_with(".cc")
+                    || f.ends_with(".cxx")
+                    || f.ends_with(".h")
+                    || f.ends_with(".hpp")
+            })
             .flat_map(|(file, source)| {
-                kotlin_resolver::resolve_file_calls(
+                cpp_resolver::resolve_file_calls(
                     source,
                     file,
                     &reg.class_fields,
@@ -109,7 +122,7 @@ impl KotlinRegistry {
     }
 }
 
-impl Registry for KotlinRegistry {
+impl Registry for CppRegistry {
     fn resolve_type(&self, file: &str, var_name: &str) -> Option<&str> {
         self.var_types
             .get(&(file.to_string(), var_name.to_string()))

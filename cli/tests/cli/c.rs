@@ -43,9 +43,9 @@ fn parse_stats_c_dir() {
     let out = run_stakgraph(&["--stats", &dir]);
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("Class                23"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                24"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Endpoint             4"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             46"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             48"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

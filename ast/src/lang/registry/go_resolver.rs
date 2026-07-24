@@ -193,12 +193,92 @@ fn extract_fn_return_from_node(node: Node, source: &[u8], out: &mut HashMap<Stri
     }
 }
 
+/// Extract method return types from Go source.
+/// Returns { (receiver_type, method_name) → base_return_type }.
+pub fn extract_method_return_types(source: &str) -> HashMap<(String, String), String> {
+    let mut out = HashMap::new();
+    let Some(mut parser) = make_parser() else {
+        return out;
+    };
+    let Some(tree) = parser.parse(source, None) else {
+        return out;
+    };
+    let src = source.as_bytes();
+    let root = tree.root_node();
+    for i in 0..root.named_child_count() {
+        let Some(node) = root.named_child(i) else {
+            continue;
+        };
+        if node.kind() != "method_declaration" {
+            continue;
+        }
+        extract_method_return_from_node(node, src, &mut out);
+    }
+    out
+}
+
+fn extract_method_return_from_node(
+    node: Node,
+    source: &[u8],
+    out: &mut HashMap<(String, String), String>,
+) {
+    // Receiver: (parameter_list (parameter_declaration type: T | *T))
+    let Some(recv_list) = node.child_by_field_name("receiver") else {
+        return;
+    };
+    let Some(pd) = recv_list.named_child(0) else {
+        return;
+    };
+    if pd.kind() != "parameter_declaration" {
+        return;
+    }
+    let Some(type_node) = pd.child_by_field_name("type") else {
+        return;
+    };
+    let Some(recv_type) = strip_go_type(type_node, source) else {
+        return;
+    };
+
+    let Some(name_node) = node.child_by_field_name("name") else {
+        return;
+    };
+    let Ok(method_name) = name_node.utf8_text(source) else {
+        return;
+    };
+
+    let Some(result_node) = node.child_by_field_name("result") else {
+        return;
+    };
+    let base_type: Option<String> = match result_node.kind() {
+        "type_identifier" | "pointer_type" | "generic_type" => {
+            strip_go_type(result_node, source).filter(|t| t != "error")
+        }
+        "parameter_list" => (0..result_node.named_child_count())
+            .filter_map(|j| result_node.named_child(j))
+            .find_map(|child| {
+                let tn = if child.kind() == "parameter_declaration" {
+                    child.child_by_field_name("type")?
+                } else {
+                    child
+                };
+                let t = strip_go_type(tn, source)?;
+                if t == "error" { None } else { Some(t) }
+            }),
+        _ => None,
+    };
+
+    if let Some(t) = base_type {
+        out.entry((recv_type, method_name.to_string())).or_insert(t);
+    }
+}
+
 // ── Type evaluator ─────────────────────────────────────────────────────────────
 
 fn eval_expr_type(
     scope: &Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
     fn_returns: &HashMap<String, String>,
+    method_returns: &HashMap<(String, String), String>,
     node: Node,
     source: &[u8],
 ) -> Option<String> {
@@ -209,6 +289,7 @@ fn eval_expr_type(
                 scope,
                 struct_fields,
                 fn_returns,
+                method_returns,
                 node.child_by_field_name("operand")?,
                 source,
             )?;
@@ -220,8 +301,9 @@ fn eval_expr_type(
         }
         "unary_expression" => {
             // &T{} or *ptr → eval the operand
-            node.named_child(0)
-                .and_then(|inner| eval_expr_type(scope, struct_fields, fn_returns, inner, source))
+            node.named_child(0).and_then(|inner| {
+                eval_expr_type(scope, struct_fields, fn_returns, method_returns, inner, source)
+            })
         }
         "composite_literal" => {
             // SomeType{...} or &SomeType{...} → extract type child
@@ -230,11 +312,27 @@ fn eval_expr_type(
         }
         "call_expression" => {
             let func = node.child_by_field_name("function")?;
-            if func.kind() == "identifier" {
-                let func_name = func.utf8_text(source).ok()?;
-                fn_returns.get(func_name).cloned()
-            } else {
-                None
+            match func.kind() {
+                "identifier" => {
+                    let func_name = func.utf8_text(source).ok()?;
+                    fn_returns.get(func_name).cloned()
+                }
+                "selector_expression" => {
+                    let obj_type = eval_expr_type(
+                        scope,
+                        struct_fields,
+                        fn_returns,
+                        method_returns,
+                        func.child_by_field_name("operand")?,
+                        source,
+                    )?;
+                    let method_name =
+                        func.child_by_field_name("field")?.utf8_text(source).ok()?;
+                    method_returns
+                        .get(&(obj_type, method_name.to_string()))
+                        .cloned()
+                }
+                _ => None,
             }
         }
         _ => None,
@@ -247,6 +345,7 @@ fn resolve_callee<G: Graph>(
     scope: &Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
     fn_returns: &HashMap<String, String>,
+    method_returns: &HashMap<(String, String), String>,
     pkg_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     node: Node,
@@ -259,6 +358,7 @@ fn resolve_callee<G: Graph>(
                 scope,
                 struct_fields,
                 fn_returns,
+                method_returns,
                 node.child_by_field_name("operand")?,
                 source,
             )?;
@@ -339,6 +439,7 @@ fn try_bind_short_var(
     scope: &mut Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
     fn_returns: &HashMap<String, String>,
+    method_returns: &HashMap<(String, String), String>,
 ) {
     let Some(left) = node.child_by_field_name("left") else {
         return;
@@ -355,7 +456,7 @@ fn try_bind_short_var(
 
     let types: Vec<Option<String>> = (0..right.named_child_count())
         .filter_map(|i| right.named_child(i))
-        .map(|n| eval_expr_type(scope, struct_fields, fn_returns, n, source))
+        .map(|n| eval_expr_type(scope, struct_fields, fn_returns, method_returns, n, source))
         .collect();
 
     for (i, name) in names.iter().enumerate() {
@@ -376,6 +477,7 @@ fn walk_node<G: Graph>(
     scope: &mut Scope,
     struct_fields: &HashMap<String, HashMap<String, String>>,
     fn_returns: &HashMap<String, String>,
+    method_returns: &HashMap<(String, String), String>,
     pkg_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
@@ -388,7 +490,10 @@ fn walk_node<G: Graph>(
                 bind_params(params, source, scope);
             }
             if let Some(body) = node.child_by_field_name("body") {
-                walk_node(body, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                walk_node(
+                    body, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                    graph, out, file,
+                );
             }
             scope_pop(scope);
         }
@@ -426,7 +531,10 @@ fn walk_node<G: Graph>(
                 bind_params(params, source, scope);
             }
             if let Some(body) = node.child_by_field_name("body") {
-                walk_node(body, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                walk_node(
+                    body, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                    graph, out, file,
+                );
             }
             scope_pop(scope);
         }
@@ -436,22 +544,36 @@ fn walk_node<G: Graph>(
                 bind_params(params, source, scope);
             }
             if let Some(body) = node.child_by_field_name("body") {
-                walk_node(body, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                walk_node(
+                    body, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                    graph, out, file,
+                );
             }
             scope_pop(scope);
         }
         "short_var_declaration" => {
             // Bind types before recursing so later calls can see them in scope
-            try_bind_short_var(node, source, scope, struct_fields, fn_returns);
+            try_bind_short_var(node, source, scope, struct_fields, fn_returns, method_returns);
             if let Some(right) = node.child_by_field_name("right") {
-                walk_node(right, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                walk_node(
+                    right, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                    graph, out, file,
+                );
             }
         }
         "call_expression" => {
             if let Some(func_node) = node.child_by_field_name("function") {
-                if let Some(target) =
-                    resolve_callee(scope, struct_fields, fn_returns, pkg_fns, graph, func_node, source, file)
-                {
+                if let Some(target) = resolve_callee(
+                    scope,
+                    struct_fields,
+                    fn_returns,
+                    method_returns,
+                    pkg_fns,
+                    graph,
+                    func_node,
+                    source,
+                    file,
+                ) {
                     let pos = if func_node.kind() == "selector_expression" {
                         func_node
                             .child_by_field_name("field")
@@ -463,17 +585,26 @@ fn walk_node<G: Graph>(
                     out.insert((pos.row, pos.column), target);
                 }
                 // Recurse into func_node to find nested calls (e.g. chained method calls)
-                walk_node(func_node, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                walk_node(
+                    func_node, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                    graph, out, file,
+                );
                 // Recurse into arguments for nested calls within args
                 if let Some(args) = node.child_by_field_name("arguments") {
-                    walk_node(args, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                    walk_node(
+                        args, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                        graph, out, file,
+                    );
                 }
             }
         }
         _ => {
             for i in 0..node.named_child_count() {
                 if let Some(child) = node.named_child(i) {
-                    walk_node(child, source, scope, struct_fields, fn_returns, pkg_fns, graph, out, file);
+                    walk_node(
+                        child, source, scope, struct_fields, fn_returns, method_returns, pkg_fns,
+                        graph, out, file,
+                    );
                 }
             }
         }
@@ -489,6 +620,7 @@ pub fn resolve_file_calls<G: Graph>(
     file: &str,
     struct_fields: &HashMap<String, HashMap<String, String>>,
     fn_returns: &HashMap<String, String>,
+    method_returns: &HashMap<(String, String), String>,
     pkg_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     var_types: &HashMap<(String, String), String>,
     graph: &G,
@@ -519,6 +651,7 @@ pub fn resolve_file_calls<G: Graph>(
         &mut scope,
         struct_fields,
         fn_returns,
+        method_returns,
         pkg_fns,
         graph,
         &mut out,
