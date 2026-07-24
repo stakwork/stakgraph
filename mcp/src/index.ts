@@ -361,6 +361,9 @@ app.listen(port, host, () => {
   // Prune expired agent artifacts (>7 days) on startup, then every 6 hours
   pruneExpiredArtifacts();
   setInterval(pruneExpiredArtifacts, 6 * 60 * 60 * 1000);
+
+  // Mark requests orphaned by the restart as failed and fire their webhooks
+  rr.sweepOrphanedRuns();
 });
 
 //
