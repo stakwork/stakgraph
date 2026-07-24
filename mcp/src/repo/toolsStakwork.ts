@@ -13,11 +13,13 @@ import axios from "axios";
  * an LLM-visible parameter. All endpoints are GETs; runs/stats are scoped by
  * Stakwork to the customer that owns the API key.
  *
- * Exception: `stakwork_run_step` EXECUTES a single step of a published
- * workflow (a real, billable run) via POST /workflows/:id/run_step_from_template,
+ * Exception: `stakwork_run_step` EXECUTES a single step of a workflow
+ * (a real, billable run) via POST /workflows/:id/run_step_from_template,
  * with ancestor-keyed inputs seeded as literals into a synthesized set_var
- * step. It is double-gated — the API key must be present AND the caller must
- * opt in with a truthy `toolsConfig.stakwork_run_step`.
+ * step. A specific WorkflowVersion (including drafts) can be targeted via the
+ * optional `workflow_version_id` param; when omitted it falls back to the
+ * workflow's last published version. It is double-gated — the API key must be
+ * present AND the caller must opt in with a truthy `toolsConfig.stakwork_run_step`.
  */
 
 const DEFAULT_STAKWORK_API_URL = "https://jobs.stakwork.com/api/v1";
@@ -277,7 +279,7 @@ export function registerStakworkTools(
   if (options.runStep) {
     allTools.stakwork_run_step = tool({
       description:
-        "EXECUTE one step of a PUBLISHED Stakwork workflow with your own inputs and return its output. " +
+        "EXECUTE one step of a Stakwork workflow with your own inputs and return its output. " +
         "This launches a REAL run that consumes execution resources — use it deliberately for testing a specific step, never for browsing. " +
         "params are ANCESTOR-KEYED: { \"<ancestor_step_id>\": { \"<output.path>\": value } } — one value for each " +
         "[$(ancestor).output.path] reference the step consumes (flat \"ancestor_id.output.path\" keys also accepted). " +
@@ -286,6 +288,9 @@ export function registerStakworkTools(
         "exactly the input shape to fill in. Or read a real run first via stakwork_inspect_run to copy actual values. " +
         "{{SECRET_NAME}} aliases resolve server-side at execution (pass them through unchanged, never inline real secrets); " +
         "set mock_mode: true to use stored mock step outputs instead of live execution. " +
+        "VERSIONING: pass workflow_version_id to target a specific WorkflowVersion (drafts allowed) — it must belong to the " +
+        "given workflow_id, and step_id must exist in that version's spec. Only meaningful on a launch (not a project_id resume); " +
+        "omit to fall back to the workflow's last published version. " +
         "The tool polls until the run reaches a terminal state or wait_seconds elapses; on timeout it returns status in_progress — " +
         "call it again with the returned project_id (plus step_id) to continue waiting without launching a new run.",
       inputSchema: z.object({
@@ -295,7 +300,11 @@ export function registerStakworkTools(
         workflow_id: z
           .number()
           .optional()
-          .describe("Source workflow (must have a published version) that defines the step. Required to LAUNCH; omit when resuming with project_id."),
+          .describe("Source workflow that defines the step — required to LAUNCH (uses the published version unless workflow_version_id is given); omit when resuming with project_id."),
+        workflow_version_id: z
+          .number()
+          .optional()
+          .describe("Target a specific WorkflowVersion (drafts allowed) instead of the workflow's published version. Omit to use the last published version."),
         params: z
           .record(z.string(), z.any())
           .optional()
@@ -319,6 +328,7 @@ export function registerStakworkTools(
       execute: async ({
         step_id,
         workflow_id,
+        workflow_version_id,
         params,
         mock_mode,
         project_id,
@@ -326,13 +336,14 @@ export function registerStakworkTools(
       }: {
         step_id: string;
         workflow_id?: number;
+        workflow_version_id?: number;
         params?: Record<string, unknown>;
         mock_mode?: boolean;
         project_id?: number;
         wait_seconds?: number;
       }) => {
         console.log(
-          `[stakwork_run_step] workflow_id=${workflow_id ?? "-"} step_id=${step_id} project_id=${project_id ?? "-"} mock=${mock_mode ?? false}`,
+          `[stakwork_run_step] workflow_id=${workflow_id ?? "-"} version=${workflow_version_id ?? "-"} step_id=${step_id} project_id=${project_id ?? "-"} mock=${mock_mode ?? false}`,
         );
         try {
           let runId = project_id;
@@ -352,6 +363,7 @@ export function registerStakworkTools(
                 step_id,
                 params: probing ? { _probe: { _: "_" } } : params,
                 ...(mock_mode !== undefined ? { mock_mode } : {}),
+                ...(workflow_version_id !== undefined ? { workflow_version_id } : {}),
               },
             );
             if (!launch.ok) return errorResult("stakwork_run_step", launch.status, launch.body);
