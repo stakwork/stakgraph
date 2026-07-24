@@ -3573,8 +3573,10 @@ var userBehaviour = (() => {
         },
         getParentOrigin()
       );
+      return id;
     } catch (error) {
       console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
+      return null;
     }
   }
   function beginReplay(actions, testCode) {
@@ -3649,20 +3651,26 @@ var userBehaviour = (() => {
         executeNextPlaywrightAction();
       }, 500);
     } catch (error) {
-      state.errors.push(
-        `Action ${state.currentActionIndex + 1}: ${error instanceof Error ? error.message : "Unknown error"}`
+      const message = error instanceof Error ? error.message : "Unknown error";
+      state.errors.push(`Action ${state.currentActionIndex + 1}: ${message}`);
+      state.status = "error" /* ERROR */;
+      state.timeouts.forEach((id) => clearTimeout(id));
+      state.timeouts = [];
+      const screenshotId = await captureScreenshot(
+        state.currentActionIndex,
+        window.location.href
       );
-      state.currentActionIndex++;
       window.parent.postMessage(
         {
           type: "staktrak-playwright-replay-error",
-          error: error instanceof Error ? error.message : "Unknown error",
-          actionIndex: state.currentActionIndex - 1,
-          action
+          error: message,
+          actionIndex: state.currentActionIndex,
+          action,
+          fatal: true,
+          screenshotId
         },
         getParentOrigin()
       );
-      executeNextPlaywrightAction();
     }
   }
   function pausePlaywrightReplay() {
