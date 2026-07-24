@@ -199,6 +199,11 @@ ${content.slice(0, 2000)}`;
               const usage = normalizeUsage(rawUsage);
               const actualCost = (providerMetadata as any)?.openrouter?.usage?.cost;
               const cost = computeSessionCost(llm.provider, usage, llm.modelName, actualCost);
+              // Accumulate immediately so the in-flight cost guard above is live
+              // and concurrent overshoot is bounded to ~concurrency, not a full
+              // batch. Safe: no await between read and write of totalCost.
+              totalCost += cost;
+              totalUsage = addUsage(totalUsage, usage);
               console.log(
                 `[describe_nodes] LLM done: ${name} ($${cost.toFixed(6)})`,
               );
@@ -215,10 +220,16 @@ ${content.slice(0, 2000)}`;
           }),
       );
 
-      // Accumulate costs
-      for (const r of results) {
-        totalCost += r.cost;
-        totalUsage = addUsage(totalUsage, r.usage);
+      // Cost/usage already accumulated per-task above.
+
+      // Guard against an infinite loop: if every LLM call in this batch failed,
+      // no cost accrues and the same undescribed nodes are re-fetched forever.
+      // Stop making zero progress rather than spin.
+      if (results.length === 0) {
+        console.warn(
+          `[describe_nodes] Zero progress on batch of ${nodes.length} nodes (all calls failed); aborting.`,
+        );
+        break;
       }
 
       // Bulk write to Neo4j
