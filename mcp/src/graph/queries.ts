@@ -236,33 +236,29 @@ MATCH (p:Prompt {ref_id: $prompt_ref_id})-[r]->(h:Hint)
 RETURN h
 `;
 
-export const GET_NODE_WITH_RELATED_QUERY = `
-// First, collect all related nodes
-MATCH (h:${Data_Bank} {ref_id: $ref_id})
-OPTIONAL MATCH (h)-[e]-(m)
-WITH h, collect(DISTINCT m) AS relatedNodes
-
-// Collect all nodes including the main node
-WITH h, relatedNodes, [h] + relatedNodes AS allNodes
-
-// Extract ref_ids for finding interconnections
-WITH h, allNodes, [node IN allNodes WHERE node IS NOT NULL | node.ref_id] AS allRefIds
-
-// Find all edges between any of the collected nodes
-OPTIONAL MATCH (a)-[r]->(b)
-WHERE a.ref_id IN allRefIds
-  AND b.ref_id IN allRefIds
-  AND a.ref_id <> b.ref_id
-
-// Return nodes and interconnecting edges
-RETURN h, allNodes,
-  collect(DISTINCT {
-    source: a.ref_id,
-    target: b.ref_id,
+// apoc.path.subgraphAll always includes the start node, expanding outward up to
+// $depth hops and capping traversal at $limit paths. $node_filter/$edge_filter are
+// null when the caller passes no types, which APOC treats as "no restriction".
+export const SUBGRAPH_ALL_QUERY = `
+MATCH (start:${Data_Bank} {ref_id: $ref_id})
+CALL apoc.path.subgraphAll(start, {
+  maxLevel: $depth,
+  relationshipFilter: $edge_filter,
+  labelFilter: $node_filter,
+  limit: $limit
+})
+YIELD nodes, relationships
+WITH nodes, relationships
+UNWIND CASE WHEN size(relationships) = 0 THEN [null] ELSE relationships END AS r
+WITH nodes, collect(
+  CASE WHEN r IS NULL THEN null ELSE {
+    source: startNode(r).ref_id,
+    target: endNode(r).ref_id,
     edge_type: type(r),
-    properties: properties(r),
-    ref_id: r.ref_id
-  }) AS edges
+    properties: properties(r)
+  } END
+) AS rawEdges
+RETURN nodes, [e IN rawEdges WHERE e IS NOT NULL] AS edges
 `;
 
 export const GET_WORKFLOW_PUBLISHED_VERSION_SUBGRAPH_QUERY = `
