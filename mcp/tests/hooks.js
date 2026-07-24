@@ -674,12 +674,26 @@ export function usePlaywrightReplay(iframeRef) {
             },
           ]);
 
-          // Don't stop replay on error, just log it
           console.warn("Playwright replay error:", errorMsg);
+
+          // A fatal error halts the replay (issue #756): tear down the replaying
+          // state just like a normal stop so the UI doesn't look stuck "playing".
+          if (data.fatal) {
+            setIsPlaywrightReplaying(false);
+            setIsPlaywrightPaused(false);
+            setPlaywrightStatus("error");
+            setCurrentAction(null);
+
+            const errContainer = document.querySelector(".iframe-container");
+            if (errContainer) {
+              errContainer.classList.remove("playwright-replaying");
+            }
+          }
+
           if (data.actionIndex !== undefined) {
             showPopup(
-              `Error at action ${data.actionIndex + 1}: ${errorMsg}`,
-              "warning"
+              `Replay stopped at action ${data.actionIndex + 1}: ${errorMsg}`,
+              "error"
             );
           }
           break;

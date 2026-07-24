@@ -147,6 +147,7 @@ export enum ReplayStatus {
   PLAYING = "playing",
   PAUSED = "paused",
   COMPLETED = "completed",
+  ERROR = "error",
 }
 
 export interface ReplayAction {
