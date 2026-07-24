@@ -278,6 +278,24 @@ async function postTerminalWebhook(
   );
 }
 
+/**
+ * Startup reconciliation: mark runs orphaned by a process restart as failed
+ * (their driving work died with the old process) and deliver the terminal
+ * webhook for any that registered a webhookUrl, so callers waiting on a
+ * callback instead of polling still hear about the failure.
+ */
+export function sweepOrphanedRuns(): void {
+  for (const orphan of asyncReqs.sweepOrphanedReqs()) {
+    if (orphan.webhookUrl) {
+      void postTerminalWebhook(orphan.webhookUrl, {
+        request_id: orphan.request_id,
+        status: "failed",
+        error: orphan.error,
+      });
+    }
+  }
+}
+
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
 export async function repo_agent(req: Request, res: Response) {
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
@@ -447,7 +465,9 @@ export async function repo_agent(req: Request, res: Response) {
   }
 
   // ── Non-streaming path: async job with event bus ─────────────────────
-  const request_id = asyncReqs.startReq();
+  // webhookUrl is persisted into the .reqs file so the startup sweep can
+  // still deliver a terminal callback if a restart orphans this run.
+  const request_id = asyncReqs.startReq(body.webhookUrl);
 
   // Create an event bus for real-time SSE streaming of this request
   const bus = createBus(request_id);
