@@ -7,6 +7,7 @@ import {
   computeSessionCost,
   emptyUsage,
   getProviderOptions,
+  hasApiKeyForProvider,
   normalizeUsage,
   resolveLLMConfig,
   withLegacyUsage,
@@ -64,8 +65,15 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const repo_url = req.body.repo_url as string | undefined;
   const file_paths = (req.body.file_paths || []) as string[];
   const do_embed = req.body.embed !== false && req.body.embed !== "false";
-  const reqModel = (req.body.model as string | undefined) || DESCRIBE_MODEL;
   const reqApiKey = req.body.apiKey as string | undefined;
+  // Only default to the openrouter model when a key for it is available;
+  // otherwise leave the model unset so resolveLLMConfig picks the env
+  // default provider (with its light model).
+  const reqModel =
+    (req.body.model as string | undefined) ||
+    (reqApiKey || hasApiKeyForProvider("openrouter")
+      ? DESCRIBE_MODEL
+      : undefined);
 
   if (isNaN(cost_limit) || cost_limit <= 0) {
     res
