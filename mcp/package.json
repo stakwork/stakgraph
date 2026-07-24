@@ -67,7 +67,7 @@
     "commander": "14.0.3",
     "cors": "2.8.6",
     "dotenv": "16.6.1",
-    "express": "4.22.1",
+    "express": "5.2.1",
     "express-fileupload": "1.5.2",
     "fast-glob": "3.3.3",
     "fastembed": "2.1.0",
