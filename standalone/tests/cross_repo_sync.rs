@@ -3,7 +3,7 @@
 use ast::lang::graphs::graph_ops::GraphOps;
 use ast::lang::graphs::EdgeType;
 use ast::lang::linker::normalize_frontend_path;
-use ast::lang::{Graph, NodeType};
+use ast::lang::{Graph, NodeData, NodeType};
 use ast::repo::Repo;
 use axum::{extract::State, Json};
 use standalone::{ingest, sync, AppState, ProcessBody};
@@ -232,6 +232,40 @@ async fn test_cross_repo_muted_preservation() {
             .await
             .unwrap_or(false),
         "mute lost across cross-repo sync"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sync_hash_scoped_to_exact_repo() {
+    let state = test_state();
+    let g = fresh_graph().await;
+
+    reset_clones();
+    let _ = ingest(State(state.clone()), Json(body(BE, Some("before"))))
+        .await
+        .expect("backend ingest failed");
+
+    let sibling = NodeData {
+        name: "fayekelmith/graph-update-backend-extra".to_string(),
+        file: "fayekelmith/graph-update-backend-extra".to_string(),
+        hash: Some("sentinel".to_string()),
+        ..Default::default()
+    };
+    g.graph
+        .add_node_async(NodeType::Repository, sibling)
+        .await
+        .expect("failed to seed sibling repository node");
+
+    sync_repo(&state, BE, "after").await;
+
+    let hash = g
+        .graph
+        .get_repository_hash("https://github.com/fayekelmith/graph-update-backend-extra")
+        .await
+        .expect("sibling repository node lost after syncing another repo");
+    assert_eq!(
+        hash, "sentinel",
+        "sibling repository hash must not change when syncing another repo"
     );
 }
 

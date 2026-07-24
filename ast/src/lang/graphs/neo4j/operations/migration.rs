@@ -4,6 +4,7 @@ use crate::lang::graphs::{
     queries::*,
     Edge, EdgeType, Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
 };
+use git_url_parse::GitUrl;
 use neo4rs::{query, BoltMap};
 use shared::{Error, Result};
 use tracing::{info, warn};
@@ -297,20 +298,24 @@ impl Neo4jGraph {
     }
 }
 
+fn repo_full_name(repo_url: &str) -> String {
+    match GitUrl::parse(repo_url) {
+        Ok(gurl) => format!("{}/{}", gurl.owner.unwrap_or_default(), gurl.name),
+        Err(_) => repo_url
+            .trim_end_matches(".git")
+            .rsplit('/')
+            .next()
+            .unwrap_or(repo_url)
+            .to_string(),
+    }
+}
+
 pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
 
-    let repo_name = if repo_url.contains('/') {
-        let parts: Vec<&str> = repo_url.split('/').collect();
-        let name = parts.last().unwrap_or(&repo_url);
-        name.trim_end_matches(".git")
-    } else {
-        repo_url
-    };
-
-    boltmap_insert_str(&mut params, "repo_name", repo_name);
-    let query = "MATCH (r:Repository) 
-                 WHERE r.name CONTAINS $repo_name 
+    boltmap_insert_str(&mut params, "repo_name", &repo_full_name(repo_url));
+    let query = "MATCH (r:Repository)
+                 WHERE r.name = $repo_name
                  RETURN r.hash as hash";
 
     (query.to_string(), params)
@@ -392,19 +397,11 @@ pub fn remove_nodes_by_files_chunked_query(
 pub fn update_repository_hash_query(repo_url: &str, new_hash: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
 
-    let name = if repo_url.contains('/') {
-        let parts: Vec<&str> = repo_url.split('/').collect();
-        let n = parts.last().unwrap_or(&repo_url);
-        n.trim_end_matches(".git")
-    } else {
-        repo_url
-    };
-
-    boltmap_insert_str(&mut params, "repo_name", name);
+    boltmap_insert_str(&mut params, "repo_name", &repo_full_name(repo_url));
     boltmap_insert_str(&mut params, "new_hash", new_hash);
 
-    let query = "MATCH (r:Repository) 
-                 WHERE r.name CONTAINS $repo_name 
+    let query = "MATCH (r:Repository)
+                 WHERE r.name = $repo_name
                  SET r.hash = $new_hash";
 
     (query.to_string(), params)
