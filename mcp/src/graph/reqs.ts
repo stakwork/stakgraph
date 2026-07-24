@@ -81,39 +81,37 @@ export function startReq(): string {
   return key;
 }
 
+// Terminal writes always hit disk, even when the in-memory META entry was
+// evicted (long run outliving MAX_REQS churn) or wiped (process restart):
+// the .reqs file is the source of truth a late poller reads.
+
 export function finishReq(id: string, result: any) {
-  if (META[id]) {
-    META[id].status = "completed";
-    writeToDisk(id, { status: "completed", result });
-  }
+  if (META[id]) META[id].status = "completed";
+  writeToDisk(id, { status: "completed", result });
 }
 
 export function failReq(id: string, error: any) {
-  if (META[id]) {
-    META[id].status = "failed";
-    // Serialize error safely — Error objects don't JSON.stringify well
-    const serializedError =
-      error instanceof Error
-        ? { message: error.message, stack: error.stack }
-        : error;
-    writeToDisk(id, { status: "failed", error: serializedError });
-  }
+  if (META[id]) META[id].status = "failed";
+  // Serialize error safely — Error objects don't JSON.stringify well
+  const serializedError =
+    error instanceof Error
+      ? { message: error.message, stack: error.stack }
+      : error;
+  writeToDisk(id, { status: "failed", error: serializedError });
 }
 
 export function updateReq(id: string, progress: any) {
-  if (META[id]) {
-    // Read existing, merge progress, write back
-    const existing = readFromDisk(id);
-    if (existing) {
-      existing.progress = progress;
-      writeToDisk(id, existing);
-    }
+  // Read existing, merge progress, write back
+  const existing = readFromDisk(id);
+  if (existing) {
+    existing.progress = progress;
+    writeToDisk(id, existing);
   }
 }
 
 export function checkReq(id: string): Request {
-  // Quick reject if we've never seen this id
-  if (!META[id]) return undefined as any;
-  // Read full data from disk
+  // Disk is authoritative: the in-memory META gate previously rejected any
+  // id created before a process restart, 404ing completed runs whose
+  // .reqs/<id>.json file physically survived.
   return readFromDisk(id) as Request;
 }
