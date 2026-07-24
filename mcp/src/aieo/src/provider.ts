@@ -249,25 +249,31 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
   }
 }
 
-export function getApiKeyForProvider(provider: Provider | string): string {
-  let apiKey: string | undefined;
+function lookupApiKeyForProvider(
+  provider: Provider | string,
+): string | undefined {
   switch (provider) {
     case "anthropic":
-      apiKey = process.env.ANTHROPIC_API_KEY;
-      break;
+      return process.env.ANTHROPIC_API_KEY;
     case "google":
-      apiKey = process.env.GOOGLE_API_KEY;
-      break;
+      return process.env.GOOGLE_API_KEY;
     case "openai":
-      apiKey = process.env.OPENAI_API_KEY;
-      break;
+      return process.env.OPENAI_API_KEY;
     case "openrouter":
-      apiKey = process.env.OPENROUTER_API_KEY;
-      break;
+      return process.env.OPENROUTER_API_KEY;
     case "claude_code":
-      apiKey = process.env.CLAUDE_CODE_API_KEY;
-      break;
+      return process.env.CLAUDE_CODE_API_KEY;
+    default:
+      return undefined;
   }
+}
+
+export function hasApiKeyForProvider(provider: Provider | string): boolean {
+  return !!lookupApiKeyForProvider(provider);
+}
+
+export function getApiKeyForProvider(provider: Provider | string): string {
+  const apiKey = lookupApiKeyForProvider(provider);
   if (!apiKey) {
     throw new Error(`API key not found for provider: ${provider}`);
   }
@@ -686,11 +692,26 @@ export function resolveLLMConfig(opts?: {
     providerHint = undefined;
   }
 
-  const provider = modelName
+  let provider = modelName
     ? getProviderForModel(modelName)
     : (providerHint as Provider | undefined) ||
       (process.env.LLM_PROVIDER as Provider | undefined) ||
       getProviderForModel();
+
+  // Without a caller-supplied key, a provider whose env key is missing would
+  // throw below — fall back to anthropic (and its default models) instead.
+  if (
+    !opts?.apiKey &&
+    provider !== "anthropic" &&
+    !hasApiKeyForProvider(provider) &&
+    hasApiKeyForProvider("anthropic")
+  ) {
+    console.warn(
+      `[resolveLLMConfig] No API key for provider "${provider}", falling back to anthropic`,
+    );
+    provider = "anthropic";
+    modelName = undefined;
+  }
 
   console.log(
     `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light}`,
