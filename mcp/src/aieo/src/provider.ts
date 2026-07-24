@@ -692,26 +692,11 @@ export function resolveLLMConfig(opts?: {
     providerHint = undefined;
   }
 
-  let provider = modelName
+  const provider = modelName
     ? getProviderForModel(modelName)
     : (providerHint as Provider | undefined) ||
       (process.env.LLM_PROVIDER as Provider | undefined) ||
       getProviderForModel();
-
-  // Without a caller-supplied key, a provider whose env key is missing would
-  // throw below — fall back to anthropic (and its default models) instead.
-  if (
-    !opts?.apiKey &&
-    provider !== "anthropic" &&
-    !hasApiKeyForProvider(provider) &&
-    hasApiKeyForProvider("anthropic")
-  ) {
-    console.warn(
-      `[resolveLLMConfig] No API key for provider "${provider}", falling back to anthropic`,
-    );
-    provider = "anthropic";
-    modelName = undefined;
-  }
 
   console.log(
     `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light}`,
