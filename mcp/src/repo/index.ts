@@ -182,6 +182,14 @@ function parseAgentBody(req: Request) {
       )
     : undefined;
   const _metadata = req.body._metadata as unknown;
+  // Optional terminal-result callback (non-streaming path only). When set,
+  // the run's terminal payload — the same shape GET /progress serves, plus
+  // request_id — is POSTed to this URL on completion/failure, so callers
+  // don't have to keep a poll loop alive for the life of the run.
+  const webhookUrl =
+    typeof req.body.webhookUrl === "string" && req.body.webhookUrl.trim()
+      ? req.body.webhookUrl.trim()
+      : undefined;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -192,7 +200,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments, _metadata,
+    ignoreRepoInfo, attachments, _metadata, webhookUrl,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,
   };
@@ -212,6 +220,62 @@ function normalizeHeaders(input: unknown): Record<string, string> | undefined {
     else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Terminal payload delivered to a caller-supplied `webhookUrl`. Mirrors the
+ * GET /progress response shape (`{ status, result }` / `{ status, error }`)
+ * with `request_id` added so the receiver can correlate without parsing the
+ * URL it registered.
+ */
+type TerminalWebhookPayload =
+  | { request_id: string; status: "completed"; result: unknown }
+  | { request_id: string; status: "failed"; error: unknown };
+
+const WEBHOOK_RETRY_DELAYS_MS = [0, 5_000, 30_000];
+const WEBHOOK_TIMEOUT_MS = 15_000;
+
+/**
+ * Best-effort POST of a run's terminal state to the caller's webhook.
+ * Retries on network errors and non-2xx responses. Never throws — webhook
+ * delivery is a side effect and must not affect the run's recorded status
+ * (the .reqs file remains the source of truth; /progress still works as a
+ * fallback for receivers that missed the callback).
+ */
+async function postTerminalWebhook(
+  url: string,
+  payload: TerminalWebhookPayload,
+): Promise<void> {
+  for (let attempt = 0; attempt < WEBHOOK_RETRY_DELAYS_MS.length; attempt++) {
+    if (WEBHOOK_RETRY_DELAYS_MS[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, WEBHOOK_RETRY_DELAYS_MS[attempt]));
+    }
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+      });
+      if (resp.ok) {
+        console.log(
+          `[repo_agent] Webhook delivered (${payload.status}) for ${payload.request_id}`,
+        );
+        return;
+      }
+      console.error(
+        `[repo_agent] Webhook attempt ${attempt + 1} got ${resp.status} for ${payload.request_id}`,
+      );
+    } catch (e: any) {
+      console.error(
+        `[repo_agent] Webhook attempt ${attempt + 1} failed for ${payload.request_id}:`,
+        e?.message || e,
+      );
+    }
+  }
+  console.error(
+    `[repo_agent] Webhook delivery exhausted retries for ${payload.request_id} (${payload.status})`,
+  );
 }
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
@@ -447,7 +511,7 @@ export async function repo_agent(req: Request, res: Response) {
         });
       })
       .then((result) => {
-        asyncReqs.finishReq(request_id, {
+        const terminalResult = {
           success: true,
           final_answer: result.final,
           tool_use: result.tool_use,
@@ -455,30 +519,53 @@ export async function repo_agent(req: Request, res: Response) {
           usage: result.usage,
           logs: result.logs,
           sessionId: result.sessionId,
-        });
-        bus.emit({
-          type: "done",
-          result: { final_answer: result.final, usage: result.usage },
-          timestamp: new Date().toISOString(),
-        });
+        };
+        asyncReqs.finishReq(request_id, terminalResult);
+        // Post-completion side effects are isolated: if one throws it must
+        // NOT fall through to the .catch below, which would overwrite the
+        // just-written "completed" status with "failed".
+        try {
+          bus.emit({
+            type: "done",
+            result: { final_answer: result.final, usage: result.usage },
+            timestamp: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.error("[repo_agent] bus.emit(done) failed (non-fatal):", e);
+        }
+        if (body.webhookUrl) {
+          void postTerminalWebhook(body.webhookUrl, {
+            request_id,
+            status: "completed",
+            result: terminalResult,
+          });
+        }
       })
       .catch((error) => {
         const aborted = abortController.signal.aborted;
+        const errorMessage = aborted
+          ? "aborted"
+          : error.message || error.toString();
         if (aborted) {
           console.log(`[repo_agent] Run aborted: ${request_id}`);
-          asyncReqs.failReq(request_id, "aborted");
-          bus.emit({
-            type: "error",
-            error: "aborted",
-            timestamp: new Date().toISOString(),
-          });
         } else {
           console.error("[repo_agent] Background work failed with error:", error);
-          asyncReqs.failReq(request_id, error.message || error.toString());
+        }
+        asyncReqs.failReq(request_id, errorMessage);
+        try {
           bus.emit({
             type: "error",
-            error: error.message || error.toString(),
+            error: errorMessage,
             timestamp: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.error("[repo_agent] bus.emit(error) failed (non-fatal):", e);
+        }
+        if (body.webhookUrl) {
+          void postTerminalWebhook(body.webhookUrl, {
+            request_id,
+            status: "failed",
+            error: errorMessage,
           });
         }
       })
