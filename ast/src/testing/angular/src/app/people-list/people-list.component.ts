@@ -11,6 +11,9 @@ import { CommonModule } from '@angular/common';
 // @ast edge: Calls -> Request "this.personDeleted.emit" "people-list.component.ts"
 // @ast node: Import "import-imports-srctestingangularsrcapppeoplelistpeoplelistcomponentts-0"
 // @ast node: Page "PeopleListComponent"
+// @ast node: Var "people"
+// @ast node: Var "maxItems"
+// @ast node: Var "personDeleted"
 
 
 
