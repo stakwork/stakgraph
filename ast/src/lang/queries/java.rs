@@ -111,10 +111,15 @@ impl Stack for Java {
             r#"
                  (class_declaration
                     (identifier)@{CLASS_NAME}
-                    (superclass 
+                    (superclass
                         (type_identifier)@{CLASS_PARENT}
                     )?
                     (super_interfaces
+                        (type_list
+                            (type_identifier)@{INCLUDED_MODULES}
+                        )
+                    )?
+                    (permits
                         (type_list
                             (type_identifier)@{INCLUDED_MODULES}
                         )
