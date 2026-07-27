@@ -18,6 +18,7 @@ import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listConcepts, getConceptDocumentation } from "../gitree/service.js";
+import { scanSkills, listPack, loadSkill, type IndexEntry } from "./skills.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
 import { registerJarvisTools } from "./toolsJarvis.js";
@@ -86,6 +87,8 @@ type ToolName =
   | "list_concepts"
   | "learn_concept"
   | "learn_concepts"
+  | "list_skills"
+  | "load_skill"
   | "list_workflows"
   | "learn_workflow"
   | "read_workflow_json"
@@ -162,7 +165,8 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "repo_overview", "file_summary", "recent_commits", "recent_contributions",
   "fulltext_search", "web_search", "bash", "final_answer",
   "ask_clarifying_questions", "list_concepts", "learn_concept",
-  "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
+  "learn_concepts", "list_skills", "load_skill",
+  "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
   "graph_sub_agent", "ontology_edit",
   "str_replace_based_edit_tool", "apply_patch",
@@ -259,6 +263,10 @@ Rules:
   learn_concept:
     "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
   learn_concepts: '', // this is just for naming, to enable the above 2.
+  list_skills:
+    "List available skills. Called with no argument, returns every skill and skill pack installed — including packs not listed in your system prompt. Pass `pack` to expand one pack into its individual skills with their descriptions. This returns names and descriptions only; use load_skill to read a skill's actual instructions.",
+  load_skill:
+    "Load a skill's full instructions into context. Call this BEFORE doing work the skill covers — a skill's description says what area it covers, not how to do it, so acting on the description alone means working without the guidance. Pass the name exactly as listed in your system prompt or by list_skills; skills belonging to a pack are addressed as \"pack/skill\" (e.g. \"commercial-legal/nda-review\"). Loading a pack skill also pulls in that pack's shared context the first time.",
   list_workflows: 'List all Workflow nodes in the graph, returning workflow_name and node_key for each.',
   learn_workflow: 'Get the generated documentation for a specific workflow by its node_key.',
   read_workflow_json: 'Read the raw workflow_json property of a Workflow node by its node_key.',
@@ -334,6 +342,7 @@ export async function get_tools(
   modelName?: ModelName,
   stakwork?: StakworkToolsOptions,
   googleSheets?: GoogleSheetsToolsOptions,
+  skills?: SkillsConfig,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -553,6 +562,107 @@ export async function get_tools(
           return await executeBashCommand(command, repoPath, undefined, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
+        }
+      },
+    });
+  }
+
+  // Skills: registered only when the caller enabled at least one, so a run that
+  // never asked for skills pays nothing — not the ~200 tokens of tool schema,
+  // and not the risk of the model wandering into an unrelated pack.
+  //
+  // Registration is all-or-nothing rather than per-entry: once a caller is in,
+  // these tools reach EVERYTHING installed, including packs absent from the
+  // prompt index. That's the intended discovery path — the index is the
+  // shortlist, not the allowlist.
+  const anySkillEnabled = Object.values(skills || {}).some(Boolean);
+  const installedSkills: IndexEntry[] = anySkillEnabled ? scanSkills() : [];
+  if (installedSkills.length > 0) {
+    // A pack's shared preamble is large (~9k tokens) and every skill in the
+    // pack assumes the same one, so it's sent once per pack per request.
+    const preamblesSent = new Set<string>();
+
+    allTools.list_skills = tool({
+      description: defaultDescriptions.list_skills,
+      inputSchema: z.object({
+        pack: z
+          .string()
+          .optional()
+          .describe("Expand this pack into its individual skills. Omit to list everything installed."),
+      }),
+      execute: async ({ pack }: { pack?: string }) => {
+        try {
+          if (pack) {
+            const skills = listPack(pack);
+            if (!skills) {
+              return {
+                error: `No pack named "${pack}".`,
+                packs: scanSkills()
+                  .filter((e) => e.kind === "pack")
+                  .map((e) => e.name),
+              };
+            }
+            return {
+              pack,
+              skills: skills.map((s) => ({
+                name: s.qualified,
+                description: s.description,
+              })),
+            };
+          }
+          return {
+            entries: scanSkills().map((e) =>
+              e.kind === "pack"
+                ? {
+                    type: "pack" as const,
+                    name: e.name,
+                    description: e.description,
+                    skill_count: e.skills.length,
+                  }
+                : {
+                    type: "skill" as const,
+                    name: e.qualified,
+                    description: e.description,
+                  },
+            ),
+          };
+        } catch (e) {
+          console.error("Error listing skills:", e);
+          return "Could not list skills";
+        }
+      },
+    });
+
+    allTools.load_skill = tool({
+      description: defaultDescriptions.load_skill,
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe('Skill name, pack-qualified when it belongs to a pack (e.g. "commercial-legal/nda-review")'),
+      }),
+      execute: async ({ name }: { name: string }) => {
+        try {
+          const result = loadSkill(name);
+          if ("error" in result) return result;
+
+          const sendPreamble =
+            result.preamble && result.packName && !preamblesSent.has(result.packName);
+          if (sendPreamble) preamblesSent.add(result.packName!);
+
+          return {
+            name: result.name,
+            ...(sendPreamble
+              ? {
+                  pack: result.packName,
+                  pack_context: result.preamble,
+                  note: `Shared context for the "${result.packName}" pack — applies to every skill in it, sent once.`,
+                }
+              : {}),
+            skill: result.body,
+          };
+        } catch (e) {
+          console.error("Error loading skill:", e);
+          return `Could not load skill "${name}"`;
         }
       },
     });

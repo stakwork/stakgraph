@@ -130,6 +130,14 @@ RUN npx -y skills add https://github.com/anthropics/skills --skill frontend-desi
 RUN npx -y skills add https://github.com/getsentry/skills --skill code-simplifier -y -g
 RUN npx -y skills add https://github.com/getsentry/skills --skill security-review -y -g
 
+# Vendored skill packs (./skills -> ~/.agents/skills). COPY merges into the
+# existing directory, so the npx-installed skills above survive alongside them.
+# A directory with a SKILL.md is a skill; a directory of skill directories is a
+# pack contributing ONE line to the prompt index. Regenerate with
+# `node scripts/vendor-skills.mjs`. Placed late: skill markdown changes far more
+# often than the dep installs above it.
+COPY ./skills /root/.agents/skills
+
 # Download fastembed models (~128MB) - only on amd64
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \

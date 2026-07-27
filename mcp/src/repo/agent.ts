@@ -17,7 +17,7 @@ import {
   normalizeUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled } from "./tools.js";
-import { SKILLS } from "./skills.js";
+import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -518,6 +518,7 @@ async function prepareAgent(
     modelName,
     opts.stakwork,
     opts.googleSheets,
+    skills,
   );
 
   // Load and merge MCP server tools if configured
@@ -586,29 +587,29 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     }
   }
 
-  // Append skills instructions if any skills are active
+  // Append skills if any are active. Two tiers:
+  //
+  //   inline — short style guidance compiled into SKILLS, concatenated eagerly.
+  //     These have to be eager: a formatting guide the model never thinks to
+  //     load is a formatting guide that does nothing.
+  //   on-disk — surfaced as a one-line-per-entry index; the model pulls bodies
+  //     through `load_skill`. Packs collapse to a single line, so enabling a
+  //     13-pack library costs ~600 prompt tokens rather than ~13k.
   const activeSkills = Object.entries(skills || {})
     .filter(([, enabled]) => enabled)
     .map(([name]) => name);
 
   if (!transparent && activeSkills.length > 0) {
-    const inlineSkills = activeSkills.filter(name => !name.includes("/") && SKILLS[name]);
-    const pathSkills = activeSkills.filter(name => name.includes("/") || !SKILLS[name]);
-
+    const inlineSkills = activeSkills.filter((name) => !name.includes("/") && SKILLS[name]);
     if (inlineSkills.length > 0) {
-      const inlineBlock = inlineSkills.map(name => SKILLS[name]).join('\n\n');
-      instructions += `\n\n${inlineBlock}`;
+      instructions += `\n\n${inlineSkills.map((name) => SKILLS[name]).join("\n\n")}`;
     }
 
-    if (pathSkills.length > 0) {
-      const pathBlock = `\n\nSKILLS INSTRUCTIONS:
-Before starting your main task, use the bash tool to load your active skills into context:
-${pathSkills
-    .map(name => `  - Run: ls ~/.agents/skills/${name}/\n  - Then: cat ~/.agents/skills/${name}/SKILL.md`)
-    .join('\n')}
-Apply the guidance from each skill throughout your response.`;
-      instructions += pathBlock;
-    }
+    // Everything not inline is resolved against the skills directory. Names
+    // that match nothing installed are dropped rather than pointed at, so the
+    // model never gets an index entry it can't load.
+    const diskEntries = enabledEntries(skills);
+    instructions += renderSkillIndex(diskEntries);
   }
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();

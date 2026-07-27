@@ -102,11 +102,31 @@ export function ensureAdditionalPropertiesFalse(schema: {
   return result;
 }
 
+/**
+ * One-line rendering of a tool call's arguments for the step log. Tool inputs
+ * are LLM-authored (never server-side secrets), but they can be large — a file
+ * body for an edit, a long bash command — so this truncates hard. The point is
+ * to see WHICH skill was loaded or WHAT was searched, not to reproduce the call.
+ */
+function formatToolInput(input: unknown, max = 160): string {
+  if (input == null) return "";
+  let s: string;
+  try {
+    s = typeof input === "string" ? input : JSON.stringify(input);
+  } catch {
+    return ""; // circular or otherwise unserializable — the tool name alone still logs
+  }
+  if (!s || s === "{}") return "";
+  s = s.replace(/\s+/g, " ").trim();
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
 export function logStep(contents: any): void {
   if (!Array.isArray(contents)) return;
   for (const item of contents) {
     if (item.type === "tool-call") {
-      console.log(`[repo_agent] tool_call: ${item.toolName}`);
+      const args = formatToolInput(item.input);
+      console.log(`[repo_agent] tool_call: ${item.toolName}${args ? ` ${args}` : ""}`);
     } else if (item.type === "text" && item.text) {
       console.log(`[repo_agent] text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
     }
