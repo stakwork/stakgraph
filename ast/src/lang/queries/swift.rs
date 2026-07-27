@@ -98,10 +98,9 @@ impl Stack for Swift {
     }
 
     fn implements_query(&self) -> Option<String> {
-        // `class Foo: Bar, Codable, ObservableObject` — Swift's grammar doesn't
-        // distinguish a superclass from a protocol conformance here (both are
-        // `inheritance_specifier`), so every entry is treated uniformly as a
-        // conformance/inheritance relationship.
+        // Swift's grammar doesn't distinguish a superclass from a protocol
+        // conformance (both are `inheritance_specifier`), so treat every entry
+        // as a conformance/inheritance relationship.
         Some(format!(
             r#"
             (class_declaration
@@ -178,11 +177,9 @@ impl Stack for Swift {
                 let query =
                     self.q("name: [(type_identifier)(user_type)] @class-name", &NodeType::Class);
                 let parent_name = query_to_ident(query, p, code)?;
-                // `class_declaration` covers class/struct/enum/extension/actor in this
-                // grammar — an `extension Foo { ... }` block re-opening an existing type
-                // is itself a distinct node, but its methods still belong to the one real
-                // `Foo`. Resolve by name so every block's methods land on the same node,
-                // instead of keying the edge to whichever block happens to contain them.
+                // Resolve by name (not this block's own position) so an
+                // `extension Foo { ... }` block's methods land on the same
+                // node as `Foo`'s own declaration.
                 parent_name.and_then(|name| {
                     find_class(&name).map(|(class, source_type)| Operand {
                         source: NodeKeys::new(&class.name, &class.file, class.start),

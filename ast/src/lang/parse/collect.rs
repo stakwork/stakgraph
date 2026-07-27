@@ -42,9 +42,6 @@ impl Lang {
         Ok(res)
     }
 
-    /// For a class_definition_query match, return (name, declaration_kind).
-    /// `declaration_kind` is `None` for grammars that don't distinguish
-    /// declaration forms at the node-kind level (see `class_declaration_kind`).
     fn class_match_name_and_kind(
         &self,
         q: &Query,
@@ -73,12 +70,8 @@ impl Lang {
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
         let tree = self.parse(code, &NodeType::Class)?;
 
-        // Some grammars reuse one node kind for several declaration forms
-        // (e.g. Swift's `class_declaration` covers class/struct/enum/extension/
-        // actor). Pre-scan this file's matches so an `extension Foo { ... }`
-        // block doesn't create a redundant Class node when `Foo` is already
-        // declared (class/struct/enum) elsewhere in the same file — its
-        // methods still get attributed to the real node via find_function_parent.
+        // Avoid a redundant node for e.g. Swift's `extension Foo { ... }` when `Foo` is
+        // already declared elsewhere in the same file.
         let mut names_with_primary_decl: HashSet<String> = HashSet::new();
         {
             let mut cursor = QueryCursor::new();
