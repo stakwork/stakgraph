@@ -16,7 +16,7 @@ import {
   getProviderOptions,
   normalizeUsage,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, redactToolsConfig } from "./tools.js";
 import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
@@ -665,7 +665,8 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         provider,
         systemOverride: opts.systemOverride,
         mode: opts.mode,
-        toolsConfig: opts.toolsConfig,
+        // Redacted: toolsConfig may carry google_sheets service-account creds
+        toolsConfig: redactToolsConfig(opts.toolsConfig),
         schema: opts.schema,
         sessionConfig: opts.sessionConfig,
         maxTurns: opts.maxTurns,
@@ -1191,6 +1192,25 @@ curl -X POST \
     "googleSheets": {
       "serviceAccount": { "client_email": "agent@proj.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n", "token_uri": "https://oauth2.googleapis.com/token" },
       "driveFolderId": "167ymxOFhTf5EKYgTVxio2OUJGTixiSO5"
+    }
+  }' \
+  "http://localhost:3355/repo/agent"
+
+# Same credentials nested inside toolsConfig, for callers that can only send one
+# config blob. `toolsConfig.google_sheets` (or `googleSheets`) is a fallback —
+# the top-level `googleSheets` field wins when both are present. The
+# serviceAccount is stripped before the config is persisted to the session.
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "create a spreadsheet of the top contributors to this repo",
+    "toolsConfig": {
+      "sheets_get_values": false,
+      "google_sheets": {
+        "serviceAccount": { "client_email": "agent@proj.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n" },
+        "driveFolderId": "167ymxOFhTf5EKYgTVxio2OUJGTixiSO5"
+      }
     }
   }' \
   "http://localhost:3355/repo/agent"
