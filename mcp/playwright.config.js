@@ -14,6 +14,7 @@ export default defineConfig({
     '**/log/**/*.test.ts',
     '**/graph_agent/**/*.test.ts',
     '**/__tests__/tools.test.ts',
+    '**/__tests__/skills.test.ts',
   ],
 
   /* Run tests in files in parallel */

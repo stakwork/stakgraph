@@ -986,6 +986,24 @@ paths:
                 toolsConfig:
                   type: object
                   description: Configuration for tools
+                skills:
+                  type: object
+                  description: >
+                    Map of skill or skill-pack name to boolean. Enabled entries are listed
+                    in the agent's system prompt as one `name: description` line each — a
+                    pack contributes a single line regardless of how many skills it holds.
+                    The agent reads a skill's actual instructions on demand via `load_skill`,
+                    and can discover packs that were not enabled via `list_skills`.
+                    A key may be a tag ("legal" — every pack carrying it), a pack name
+                    ("commercial-legal"), a bare skill ("frontend-design"), or a qualified
+                    name ("commercial-legal/nda-review") to offer just one skill out of a
+                    pack. An entry name takes precedence over a tag of the same spelling.
+                    Unknown keys are ignored.
+                  additionalProperties:
+                    type: boolean
+                  example:
+                    legal: true
+                    mermaid: true
       responses:
         '200':
           description: Successful response
