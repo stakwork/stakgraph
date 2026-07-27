@@ -4,6 +4,7 @@ import {
   registerGoogleSheetsTools,
   GOOGLE_SHEETS_TOOL_NAMES,
 } from "../toolsGoogleSheets.js";
+import { resolveGoogleSheetsOptions, redactToolsConfig } from "../tools.js";
 import type { Tool } from "ai";
 
 const SA = {
@@ -101,5 +102,66 @@ test.describe("registerGoogleSheetsTools", () => {
     expect((withoutFolder.sheets_create_spreadsheet as any).description).not.toContain(
       "Drive folder"
     );
+  });
+});
+
+test.describe("resolveGoogleSheetsOptions", () => {
+  test("returns undefined when neither source has credentials", () => {
+    expect(resolveGoogleSheetsOptions(undefined, undefined)).toBeUndefined();
+    expect(resolveGoogleSheetsOptions(undefined, { bash: true })).toBeUndefined();
+    // An object without serviceAccount is not credentials.
+    expect(
+      resolveGoogleSheetsOptions(undefined, { google_sheets: { driveFolderId: "abc" } as any })
+    ).toBeUndefined();
+  });
+
+  test("falls back to toolsConfig.google_sheets", () => {
+    const resolved = resolveGoogleSheetsOptions(undefined, {
+      google_sheets: { serviceAccount: SA, driveFolderId: "abc123" },
+    });
+    expect(resolved?.serviceAccount).toBe(SA);
+    expect(resolved?.driveFolderId).toBe("abc123");
+  });
+
+  test("accepts the camelCase alias and drops a blank driveFolderId", () => {
+    const resolved = resolveGoogleSheetsOptions(undefined, {
+      googleSheets: { serviceAccount: SA, driveFolderId: "" },
+    });
+    expect(resolved?.serviceAccount).toBe(SA);
+    expect(resolved?.driveFolderId).toBeUndefined();
+  });
+
+  test("the top-level field wins over the toolsConfig fallback", () => {
+    const other = { ...SA, client_email: "top-level@proj.iam.gserviceaccount.com" };
+    const resolved = resolveGoogleSheetsOptions(
+      { serviceAccount: other, driveFolderId: "top" },
+      { google_sheets: { serviceAccount: SA, driveFolderId: "nested" } }
+    );
+    expect(resolved?.serviceAccount).toBe(other);
+    expect(resolved?.driveFolderId).toBe("top");
+  });
+});
+
+test.describe("redactToolsConfig", () => {
+  test("strips serviceAccount but keeps the rest of the config", () => {
+    const input = {
+      bash: true,
+      sheets_get_values: false,
+      google_sheets: { serviceAccount: SA, driveFolderId: "abc123" },
+    } as any;
+    const out = redactToolsConfig(input) as any;
+    expect(out.google_sheets.serviceAccount).toBeUndefined();
+    expect(out.google_sheets.driveFolderId).toBe("abc123");
+    expect(out.bash).toBe(true);
+    expect(out.sheets_get_values).toBe(false);
+    // The caller's object is not mutated — the live run still has credentials.
+    expect(input.google_sheets.serviceAccount).toBe(SA);
+    expect(JSON.stringify(out)).not.toContain("BEGIN PRIVATE KEY");
+  });
+
+  test("passes through configs with no credentials, and undefined", () => {
+    expect(redactToolsConfig(undefined)).toBeUndefined();
+    const plain = { bash: true, logs_agent: "custom" } as any;
+    expect(redactToolsConfig(plain)).toBe(plain);
   });
 });

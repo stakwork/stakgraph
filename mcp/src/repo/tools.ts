@@ -137,7 +137,63 @@ export interface ToolConfigObject {
  */
 export type ToolConfigValue = string | boolean | null | ToolConfigObject;
 
-export type ToolsConfig = Partial<Record<ToolName, ToolConfigValue>>;
+/**
+ * Keys a caller may nest inside `toolsConfig` that configure a tool *family*
+ * rather than one tool. These are not tool names — they never reach the tool
+ * selection loop — and they may carry secrets, so anything added here must be
+ * handled by `redactToolsConfig` before the config is persisted or served.
+ */
+export interface ToolsConfigExtras {
+  /** Google Sheets credentials, as an alternative to the top-level `googleSheets` body field. */
+  google_sheets?: GoogleSheetsToolsOptions;
+  /** camelCase alias of `google_sheets`. */
+  googleSheets?: GoogleSheetsToolsOptions;
+}
+
+export type ToolsConfig = Partial<Record<ToolName, ToolConfigValue>> & ToolsConfigExtras;
+
+/** Keys of ToolsConfig that are family config, not per-tool config. */
+const TOOLS_CONFIG_EXTRA_KEYS: (keyof ToolsConfigExtras)[] = ["google_sheets", "googleSheets"];
+
+/**
+ * Google Sheets credentials for this run. The top-level `googleSheets` option
+ * wins; `toolsConfig.google_sheets` / `toolsConfig.googleSheets` is a fallback
+ * for callers that can only send a single config blob.
+ */
+export function resolveGoogleSheetsOptions(
+  googleSheets?: GoogleSheetsToolsOptions,
+  toolsConfig?: ToolsConfig
+): GoogleSheetsToolsOptions | undefined {
+  if (googleSheets?.serviceAccount) return googleSheets;
+  for (const key of TOOLS_CONFIG_EXTRA_KEYS) {
+    const v = toolsConfig?.[key];
+    if (isToolConfigObject(v) && (v as GoogleSheetsToolsOptions).serviceAccount) {
+      const { serviceAccount, driveFolderId } = v as GoogleSheetsToolsOptions;
+      return {
+        serviceAccount,
+        driveFolderId: typeof driveFolderId === "string" && driveFolderId ? driveFolderId : undefined,
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Strip secrets from a toolsConfig before it is written to the session config
+ * sidecar (which GET /repo/agent/session serves back to callers). Non-secret
+ * fields are kept so the persisted config still describes the run.
+ */
+export function redactToolsConfig(toolsConfig?: ToolsConfig): ToolsConfig | undefined {
+  if (!toolsConfig) return toolsConfig;
+  let redacted: ToolsConfig | undefined;
+  for (const [key, value] of Object.entries(toolsConfig)) {
+    if (!isToolConfigObject(value) || !("serviceAccount" in value)) continue;
+    redacted = redacted ?? { ...toolsConfig };
+    const { serviceAccount, ...rest } = value as Record<string, unknown>;
+    (redacted as any)[key] = rest;
+  }
+  return redacted ?? toolsConfig;
+}
 
 /** Narrow a config value to its object form. */
 export function isToolConfigObject(v: unknown): v is ToolConfigObject {
@@ -880,11 +936,14 @@ export async function get_tools(
   }
 
   // Register Google Sheets tools (gated on the caller supplying service-account
-  // credentials via the request body — never an LLM-visible parameter). The
-  // family is on by default when credentials are present; toolsConfig can
-  // disable individual tools (`sheets_get_values: false`) or override their
-  // descriptions.
-  if (googleSheets?.serviceAccount) {
+  // credentials via the request body — never an LLM-visible parameter, and
+  // never persisted; see redactToolsConfig). Credentials come from the
+  // top-level `googleSheets` field or, as a fallback, from
+  // `toolsConfig.google_sheets`. The family is on by default when credentials
+  // are present; toolsConfig can disable individual tools
+  // (`sheets_get_values: false`) or override their descriptions.
+  const sheetsOptions = resolveGoogleSheetsOptions(googleSheets, toolsConfig);
+  if (sheetsOptions) {
     const sheetsOverrides: GoogleSheetsToolOverrides = Object.fromEntries(
       GOOGLE_SHEETS_TOOL_NAMES.map((name) => {
         const v = toolsConfig?.[name];
@@ -897,7 +956,7 @@ export async function get_tools(
         ];
       })
     );
-    registerGoogleSheetsTools(allTools, googleSheets, sheetsOverrides);
+    registerGoogleSheetsTools(allTools, sheetsOptions, sheetsOverrides);
   }
 
   // Register sub-agent tools (remote agent delegation)

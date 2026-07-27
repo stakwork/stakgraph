@@ -334,7 +334,11 @@ export async function repo_agent(req: Request, res: Response) {
     hasSystemOverride: Boolean(req.body?.systemOverride),
     mcpServers: mcpServersCount,
     hasStakworkApiKey: Boolean(req.body?.stakworkApiKey),
-    hasGoogleSheets: Boolean(req.body?.googleSheets?.serviceAccount),
+    hasGoogleSheets: Boolean(
+      req.body?.googleSheets?.serviceAccount ||
+        req.body?.toolsConfig?.google_sheets?.serviceAccount ||
+        req.body?.toolsConfig?.googleSheets?.serviceAccount,
+    ),
   });
 
   const body = parseAgentBody(req);
