@@ -46,6 +46,8 @@ import {
   sessionExists,
   saveSessionConfig,
   saveSessionMetadata,
+  saveSessionSummary,
+  saveSummaryToGraph,
   SessionConfig,
   StepMeta,
 } from "./session.js";
@@ -435,6 +437,8 @@ export interface GetContextOptions {
   commitList?: string[];
   // Skip prepending repo info to the first prompt (handler-level; recorded in config)
   ignoreRepoInfo?: boolean;
+  summarize?: boolean;
+  summarizePrompt?: string;
   // Replay mode: `prompt` is a full ModelMessage[] (including the system turn)
   // that is run verbatim. No system prompt is generated, no enrichment blocks
   // are appended, no session history is loaded, no attachments are resolved,
@@ -720,7 +724,6 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     model,
     // Transparent replay: no code-generated system prompt — the system turn
     // (if any) must be present inside the replayed messages array.
-    instructions: transparent ? undefined : instructions,
     tools,
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
@@ -882,14 +885,27 @@ export async function get_context(
       appendSearchProvenance(sessionId, provenanceCollector.entries);
     }
 
+    const summaryUsage = opts.summarize
+      ? await summarizeAfterTurn(
+          prepared,
+          newMessages,
+          opts.summarizePrompt || DEFAULT_SUMMARIZE_PROMPT,
+        ).catch((e) => {
+          console.error("[summarize] failed (non-fatal):", e);
+          return undefined;
+        })
+      : undefined;
+
     await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
       provider,
       duration_ms: duration,
       status: "success",
-      token_usage: usage,
+      token_usage: summaryUsage ? normalizeUsage(addUsage(usage, summaryUsage.usage)) : usage,
     });
+
+    if (summaryUsage?.summary) saveSummaryToGraph(sessionId, summaryUsage.summary);
   }
 
   const final = extractFinalAnswer(steps);
@@ -970,14 +986,28 @@ export async function stream_context(
         const stepUsage = stepMetas.length > 0
           ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
           : normalizeUsage(usage);
+
+        const summaryUsage = opts.summarize
+          ? await summarizeAfterTurn(
+              prepared,
+              newMessages,
+              opts.summarizePrompt || DEFAULT_SUMMARIZE_PROMPT,
+            ).catch((e) => {
+              console.error("[summarize] failed (non-fatal):", e);
+              return undefined;
+            })
+          : undefined;
+
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
           provider,
           duration_ms: duration,
           status: "success",
-          token_usage: stepUsage,
+          token_usage: summaryUsage ? normalizeUsage(addUsage(stepUsage, summaryUsage.usage)) : stepUsage,
         });
+
+        if (summaryUsage?.summary) saveSummaryToGraph(sessionId, summaryUsage.summary);
       } catch (e) {
         const aborted = isAbortError(e);
         if (aborted) {
@@ -996,6 +1026,51 @@ export async function stream_context(
       }
     },
   };
+}
+
+export const DEFAULT_SUMMARIZE_PROMPT = `Summarize this session for a future reader who was not here. Answer directly from the conversation above — do not use any tools.
+
+Write prose under exactly these three headings:
+
+## What happened
+What was asked, what was explored, and what was concluded or delivered. Name the specific files, functions, commands, and decisions.
+
+## Mistakes, wrong turns, and bad assumptions
+This is the most important section. Record every incorrect assumption, every dead end, every search or tool call that returned nothing useful, every fix that had to be redone, and anything that behaved differently than expected. For each one, say what was believed and what turned out to be true. If the session ran clean, say so in one line.
+
+## Open threads
+Unfinished work, unanswered questions, and anything deliberately deferred.`;
+
+async function summarizeAfterTurn(
+  prepared: PreparedAgent,
+  newMessages: ModelMessage[],
+  summarizePrompt: string,
+): Promise<{ usage: ReturnType<typeof normalizeUsage>; summary: string } | undefined> {
+  const { sessionId } = prepared;
+  if (!sessionId) return;
+
+  const params = {
+    messages: [
+      ...prepared.previousMessages,
+      ...newMessages,
+      { role: "user", content: summarizePrompt } as ModelMessage,
+    ],
+    providerOptions: getProviderOptions(prepared.provider as any, undefined, prepared.modelId),
+    ...(prepared.abortSignal ? { abortSignal: prepared.abortSignal } : {}),
+  };
+  const result = await prepared.agent.stream(params);
+
+  const summary = extractFinalAnswer((await result.steps) ?? []).answer.trim();
+  const usage = normalizeUsage(await result.totalUsage);
+  console.log("===> summarize_session", {
+    sessionId,
+    cache_read: usage.cache_read,
+    input: usage.input,
+    empty: !summary,
+  });
+
+  if (summary) saveSessionSummary(sessionId, { summary });
+  return { usage, summary };
 }
 
 /*

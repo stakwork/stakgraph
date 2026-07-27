@@ -332,6 +332,12 @@ SET n.end_time = toInteger($end_time),
 RETURN n
 `;
 
+export const SET_AGENT_SESSION_SUMMARY_QUERY = `
+MATCH (n:AgentSession:${Data_Bank} {node_key: $session_id})
+SET n.summary = $summary
+RETURN n.node_key
+`;
+
 export const LIST_AGENT_SESSIONS_QUERY = `
 MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
