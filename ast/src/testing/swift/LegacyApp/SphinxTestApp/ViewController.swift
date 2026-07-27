@@ -8,7 +8,6 @@
 import UIKit
 import SwiftyJSON
 // @ast node: Class "ViewController"
-// @ast node: Class "ViewController"
 // @ast edge: Operand -> Function "viewDidLoad" "ViewController.swift"
 // @ast edge: Operand -> Function "configureTableView" "ViewController.swift"
 // @ast edge: Operand -> Function "getPeopleAndSave" "ViewController.swift"
@@ -28,6 +27,8 @@ import SwiftyJSON
 // @ast node: Function "tableView"
 // @ast node: Function "tableView"
 // @ast edge: Calls -> Function "updateProfile" "ViewController.swift"
+// @ast node: Var "peopleTableView"
+// @ast node: Var "persons"
 // @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappviewcontrollerswift-7"
 
 class ViewController: UIViewController {

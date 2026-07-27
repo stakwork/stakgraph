@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 // @ast node: Class "DependencyContainer"
+// @ast node: Var "profileService"
+// @ast node: Var "chatManager"
+// @ast node: Var "apiClient"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcesmodernappdependencyinjectionswift-0"
 
 class DependencyContainer: ObservableObject {

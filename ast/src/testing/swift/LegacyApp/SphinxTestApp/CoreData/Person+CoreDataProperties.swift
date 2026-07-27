@@ -11,6 +11,10 @@ import CoreData
 // @ast node: Class "Person"
 // @ast node: Function "fetchRequest"
 // @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappcoredatapersoncoredatapropertiesswift-8"
+// @ast node: Var "alias"
+// @ast node: Var "imageUrl"
+// @ast node: Var "publicKey"
+// @ast node: Var "routeHint"
 
 
 extension Person {

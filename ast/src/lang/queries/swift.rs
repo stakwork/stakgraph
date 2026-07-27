@@ -48,11 +48,21 @@ impl Stack for Swift {
         Some(format!(
             r#"
             (source_file
-                (property_declaration 
+                (property_declaration
                     (pattern
                         (simple_identifier) @{VARIABLE_NAME}
                     )
                 )@{VARIABLE_DECLARATION}
+            )
+
+            (class_declaration
+                (class_body
+                    (property_declaration
+                        (pattern
+                            (simple_identifier) @{VARIABLE_NAME}
+                        )
+                    )@{VARIABLE_DECLARATION}
+                )
             )
             "#
         ))
@@ -69,6 +79,41 @@ impl Stack for Swift {
             ) @{CLASS_DEFINITION}
             "#
         )
+    }
+
+    fn class_declaration_kind(&self, node: TreeNode, code: &str) -> Option<String> {
+        node.child_by_field_name("declaration_kind")
+            .and_then(|n| n.utf8_text(code.as_bytes()).ok())
+            .map(|s| s.to_string())
+    }
+
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (protocol_declaration
+                name: (type_identifier) @{TRAIT_NAME}
+            ) @{TRAIT}
+            "#
+        ))
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        // `class Foo: Bar, Codable, ObservableObject` — Swift's grammar doesn't
+        // distinguish a superclass from a protocol conformance here (both are
+        // `inheritance_specifier`), so every entry is treated uniformly as a
+        // conformance/inheritance relationship.
+        Some(format!(
+            r#"
+            (class_declaration
+                name: [(type_identifier)(user_type)] @{CLASS_NAME}
+                (inheritance_specifier
+                    (user_type
+                        (type_identifier) @{TRAIT_NAME}
+                    )
+                )
+            ) @{IMPLEMENTS}
+            "#
+        ))
     }
 
     fn function_definition_query(&self) -> String {
@@ -118,23 +163,32 @@ impl Stack for Swift {
         code: &str,
         file: &str,
         func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
+        find_class: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while let Some(current) = parent {
-            if current.kind() == "class_declaration" {
+            if current.kind() == "class_declaration" || current.kind() == "protocol_declaration" {
                 break;
             }
             parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {
-                let query = self.q("name: (type_identifier) @class-name", &NodeType::Class);
-                query_to_ident(query, p, code)?.map(|parent_name| Operand {
-                    source: NodeKeys::new(&parent_name, file, p.start_position().row),
-                    target: NodeKeys::new(func_name, file, node.start_position().row),
-                    source_type: NodeType::Class,
+                let query =
+                    self.q("name: [(type_identifier)(user_type)] @class-name", &NodeType::Class);
+                let parent_name = query_to_ident(query, p, code)?;
+                // `class_declaration` covers class/struct/enum/extension/actor in this
+                // grammar — an `extension Foo { ... }` block re-opening an existing type
+                // is itself a distinct node, but its methods still belong to the one real
+                // `Foo`. Resolve by name so every block's methods land on the same node,
+                // instead of keying the edge to whichever block happens to contain them.
+                parent_name.and_then(|name| {
+                    find_class(&name).map(|(class, source_type)| Operand {
+                        source: NodeKeys::new(&class.name, &class.file, class.start),
+                        target: NodeKeys::new(func_name, file, node.start_position().row),
+                        source_type,
+                    })
                 })
             }
             None => None,

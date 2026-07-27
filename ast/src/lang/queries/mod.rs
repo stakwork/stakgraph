@@ -82,6 +82,14 @@ pub trait Stack {
         None
     }
     fn class_definition_query(&self) -> String;
+    // For grammars that reuse one node kind for several declaration forms (e.g.
+    // Swift's `class_declaration` covers class/struct/enum/extension/actor),
+    // return a discriminator string (e.g. "extension") for a CLASS_DEFINITION
+    // node so `collect_classes` can suppress a redundant node when another
+    // declaration of the same name already exists in the same file.
+    fn class_declaration_kind(&self, _node: TreeNode, _code: &str) -> Option<String> {
+        None
+    }
     fn instance_definition_query(&self) -> Option<String> {
         None
     }
