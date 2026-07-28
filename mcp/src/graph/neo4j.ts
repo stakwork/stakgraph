@@ -1664,15 +1664,6 @@ class Db {
     }
   }
 
-  async set_agent_session_summary(session_id: string, summary: string): Promise<void> {
-    const session = this.resilientSession();
-    try {
-      await session.run(Q.SET_AGENT_SESSION_SUMMARY_QUERY, { session_id, summary });
-    } finally {
-      await session.close();
-    }
-  }
-
   async list_agent_sessions(): Promise<any[]> {
     const session = this.resilientSession();
     try {
