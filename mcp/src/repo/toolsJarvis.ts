@@ -290,7 +290,7 @@ const GRAPH_SUBAGENT_SYSTEM = `You are a focused knowledge-graph exploration sub
 
 You traverse a knowledge graph of interconnected entities (people, topics, episodes, organizations, workflows, code, and their relationships) using these tools:
 - \`get_ontology\` — list node types (grouped by domain) and valid \`domains\`. Call FIRST if you don't already know the relevant types.
-- \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`.
+- \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`, and \`namespace\` (data partition) when one applies.
 - \`graph_neighbors\` — nodes one hop away, with \`edge_type\` and \`direction\`. This is how you follow relationships.
 - \`graph_get\` — resolve a single ref_id to its full content.
 - \`graph_sub_agent\` (only if available) — delegate an even more focused subtask to a further child agent.
