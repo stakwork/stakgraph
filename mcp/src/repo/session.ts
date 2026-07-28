@@ -55,10 +55,6 @@ export interface SessionInitConfig {
   ignoreRepoInfo?: boolean;
 }
 
-export interface SessionSummary {
-  summary: string;
-}
-
 export interface StepMeta {
   step: number;
   turn: number;
@@ -233,10 +229,6 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(metadataPath)) {
     unlinkSync(metadataPath);
   }
-  const summaryPath = getSummaryFile(sessionId);
-  if (existsSync(summaryPath)) {
-    unlinkSync(summaryPath);
-  }
   deleteAttachments(sessionId);
 }
 
@@ -303,36 +295,6 @@ export function loadSessionMetadata(sessionId: string): unknown | null {
   if (!existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-function getSummaryFile(sessionId: string): string {
-  const sessionDir = path.isAbsolute(SESSIONS_DIR)
-    ? SESSIONS_DIR
-    : path.join(process.cwd(), SESSIONS_DIR);
-  if (!existsSync(sessionDir)) {
-    mkdirSync(sessionDir, { recursive: true });
-  }
-  return path.join(sessionDir, `${sessionId}.summary.json`);
-}
-
-export function saveSessionSummary(sessionId: string, summary: SessionSummary): void {
-  writeFileSync(getSummaryFile(sessionId), JSON.stringify(summary, null, 2));
-}
-
-export function saveSummaryToGraph(sessionId: string, summary: string): void {
-  void db
-    ?.set_agent_session_summary(sessionId, summary)
-    .catch((e: unknown) => console.error("[sessions] Neo4j summary write failed:", e));
-}
-
-export function loadSessionSummary(sessionId: string): SessionSummary | null {
-  const filePath = getSummaryFile(sessionId);
-  if (!existsSync(filePath)) return null;
-  try {
-    return JSON.parse(readFileSync(filePath, "utf-8")) as SessionSummary;
   } catch {
     return null;
   }
@@ -582,8 +544,6 @@ export function pruneExpiredSessions(): number {
         if (existsSync(annPath)) unlinkSync(annPath);
         const configPath = filePath.replace(/\.jsonl$/, ".config.json");
         if (existsSync(configPath)) unlinkSync(configPath);
-        const summaryPath = filePath.replace(/\.jsonl$/, ".summary.json");
-        if (existsSync(summaryPath)) unlinkSync(summaryPath);
         deleteAttachments(sessionId);
         pruned++;
       }

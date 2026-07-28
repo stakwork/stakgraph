@@ -12,7 +12,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
-import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, loadSessionSummary, sessionExists } from "./session.js";
+import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
@@ -25,7 +25,6 @@ import {
   abortRequest,
 } from "./events.js";
 import { db } from "../graph/neo4j.js";
-import { isTrue } from "../graph/utils.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
@@ -159,8 +158,6 @@ function parseAgentBody(req: Request) {
   const maxTurns = typeof req.body.maxTurns === "number" ? req.body.maxTurns : undefined;
   const headers = normalizeHeaders(req.body.headers);
   const ignoreRepoInfo = req.body.ignoreRepoInfo as boolean | undefined;
-  const summarize = req.body.summarize as boolean | undefined;
-  const summarizePrompt = req.body.summarizePrompt as string | undefined;
   // Stakwork API key for the run-research tools. Server-to-server secret
   // (like `pat`/`apiKey`): read off the body, never exposed to the LLM.
   const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
@@ -203,7 +200,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments, _metadata, webhookUrl, summarize, summarizePrompt,
+    ignoreRepoInfo, attachments, _metadata, webhookUrl,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,
   };
@@ -405,8 +402,6 @@ export async function repo_agent(req: Request, res: Response) {
           _metadata: body._metadata,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
-          summarize: body.summarize,
-          summarizePrompt: body.summarizePrompt,
         },
       );
 
@@ -533,8 +528,6 @@ export async function repo_agent(req: Request, res: Response) {
           _metadata: body._metadata,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
-          summarize: body.summarize,
-          summarizePrompt: body.summarizePrompt,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
@@ -663,8 +656,7 @@ export async function get_agent_tools(req: Request, res: Response) {
 
 export async function get_agent_session(req: Request, res: Response) {
   const sessionId = req.query.session_id as string || req.query.sessionId as string;
-  const summarize = isTrue((req.query.summarize as string) || "");
-  console.log("===> GET /repo/agent/session", { hasSessionId: Boolean(sessionId), summarize });
+  console.log("===> GET /repo/agent/session", { hasSessionId: Boolean(sessionId) });
 
   if (!sessionId) {
     res.status(400).json({ error: "Missing session_id" });
@@ -680,17 +672,7 @@ export async function get_agent_session(req: Request, res: Response) {
     const messages = loadSession(sessionId);
     const config = loadSessionConfig(sessionId);
     const _metadata = loadSessionMetadata(sessionId);
-    if (!summarize) {
-      res.json({ sessionId, messages, config, _metadata });
-      return;
-    }
-    res.json({
-      sessionId,
-      messages,
-      config,
-      _metadata,
-      summary: loadSessionSummary(sessionId)?.summary ?? null,
-    });
+    res.json({ sessionId, messages, config, _metadata });
   } catch (e) {
     console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });
