@@ -1145,7 +1145,7 @@ export async function gitree_create_concept_direct(
 ) {
   console.log("===> gitree_create_concept_direct", req.path, req.method);
   try {
-    const { name, documentation, description, repo } = req.body;
+    const { name, documentation, description, repo, parent } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
       res.status(400).json({ error: "name is required" });
@@ -1168,6 +1168,8 @@ export async function gitree_create_concept_direct(
     const repoId =
       typeof repo === "string" && repo.trim() ? repo.trim() : undefined;
     const conceptId = repoId ? makeRepoId(repoId, slug) : slug;
+    const parentId =
+      typeof parent === "string" && parent.trim() ? parent.trim() : undefined;
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1179,6 +1181,23 @@ export async function gitree_create_concept_direct(
         conceptId,
       });
       return;
+    }
+
+    // Validate parent before any persistence — a bad parent must never leave
+    // a partially-created concept behind.
+    let parentConcept = null;
+    if (parentId) {
+      parentConcept = await storage.getConcept(parentId, repoId);
+      if (!parentConcept) {
+        res
+          .status(400)
+          .json({ error: `Parent concept ${parentId} not found` });
+        return;
+      }
+      if (parentConcept.id === conceptId) {
+        res.status(400).json({ error: "A concept cannot be its own parent" });
+        return;
+      }
     }
 
     const now = new Date();
@@ -1197,6 +1216,28 @@ export async function gitree_create_concept_direct(
     await storage.saveConcept(concept);
     await storage.saveDocumentation(conceptId, documentation);
 
+    // Link to parent if provided — compensating rollback on failure.
+    if (parentId && parentConcept) {
+      try {
+        await storage.linkConceptParent(parentConcept.id, conceptId);
+        console.log(
+          `🔗 Linked concept ${conceptId} under parent ${parentConcept.id}`
+        );
+      } catch (linkErr: any) {
+        try {
+          await storage.deleteConcept(conceptId, repoId);
+        } catch (rollbackErr: any) {
+          console.error(
+            `Rollback failed for orphaned concept ${conceptId}:`,
+            rollbackErr
+          );
+        }
+        return res.status(500).json({
+          error: `Concept created but parent link failed; rolled back: ${linkErr.message}`,
+        });
+      }
+    }
+
     console.log(`✅ Concept created (direct): ${conceptId}`);
 
     res.json({
@@ -1208,6 +1249,7 @@ export async function gitree_create_concept_direct(
         name: concept.name,
         description: concept.description,
         documentation: concept.documentation,
+        ...(parentConcept ? { parent: parentConcept.id } : {}),
       },
     });
   } catch (error: any) {

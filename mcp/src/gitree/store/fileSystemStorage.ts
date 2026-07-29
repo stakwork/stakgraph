@@ -629,6 +629,12 @@ export class FileSystemStore extends Storage {
     );
   }
 
+  async linkConceptParent(_parentId: string, _childId: string): Promise<void> {
+    throw new Error(
+      "Concept parent linking is only supported with GraphStorage. Use --graph flag."
+    );
+  }
+
   // Get Files for Concept (not supported in FileSystemStorage)
   async getFilesForConcept(_conceptId: string, _expand?: string[]): Promise<any[]> {
     throw new Error(
