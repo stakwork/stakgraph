@@ -92,6 +92,10 @@ export abstract class Storage {
   // ingestion and as a backfill for existing PRs.
   abstract linkPRsToFiles(repo?: string): Promise<{ prsProcessed: number; edgesLinked: number }>;
 
+  // Link an existing parent Concept to a child Concept via PARENT_OF edge (parent → child).
+  // Cross-repo links are allowed; no repo predicate is applied.
+  abstract linkConceptParent(parentId: string, childId: string): Promise<void>;
+
   // Get Files for Concept
   abstract getFilesForConcept(conceptId: string, expand?: string[]): Promise<any[]>;
 

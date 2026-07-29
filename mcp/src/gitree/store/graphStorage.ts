@@ -2493,4 +2493,34 @@ export class GraphStorage extends Storage {
       await session.close();
     }
   }
+
+  /**
+   * Create a PARENT_OF edge from an existing parent Concept to an existing child Concept.
+   * Direction: parent → child (consistent with AST builder convention).
+   * Cross-repo links are permitted — no repo predicate is applied.
+   * Throws if either node is not found (double-MATCH + RETURN pattern).
+   */
+  async linkConceptParent(parentId: string, childId: string): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (parent:Concept {id: $parentId})
+        MATCH (child:Concept {id: $childId})
+        MERGE (parent)-[r:PARENT_OF]->(child)
+        ON CREATE SET r.ref_id = randomUUID()
+        RETURN r
+        `,
+        { parentId, childId }
+      );
+
+      if (result.records.length === 0) {
+        throw new Error(
+          `Failed to link concept ${childId} under parent ${parentId}: node(s) not found`
+        );
+      }
+    } finally {
+      await session.close();
+    }
+  }
 }
