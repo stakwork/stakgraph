@@ -196,10 +196,26 @@ Other rules:
 - After each write, re-read the affected schema (\`get_ontology\` or \`graph_get\`) to confirm it applied, and report exactly what changed.
 `;
 
+/**
+ * Guidance injected into the graph/workflow system prompts when the
+ * `create_triplet` flag is on. Teaches the agent to reuse existing nodes
+ * (search-then-write) instead of minting duplicates.
+ */
+const GRAPH_WRITE_GUIDANCE = `
+### Graph Writes (create_triplet — enabled)
+You can assert facts into the graph as DATA: source node -[edge]-> target node. Writes apply live to the graph immediately.
+- **Reuse before you create.** For each side of the triplet, \`graph_search\` for the entity first and pass its \`ref_id\`. Only create a node inline (\`*_type\` + \`*_data\`) when the entity genuinely does not exist yet — duplicate nodes fragment the graph.
+- Node types and the edge type must exist in the ontology — verify with \`get_ontology\` (\`include_edges: true\` to see valid relationships). \`create_schema_if_missing\` auto-creates a missing edge schema; use it sparingly, and never to paper over a typo in \`edge_type\`.
+- Pass \`namespace\` when writing into a specific data partition.
+- Writes are create-or-merge: re-asserting an existing triplet is safe and returns the existing ref_ids (reported as a Warning).
+- After a write, report exactly what was created (source, edge, target ref_ids).
+`;
+
 function GRAPH_SYSTEM(toolsConfig?: ToolsConfig) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
+  const graphWrite = toolConfigEnabled(toolsConfig?.create_triplet);
 
   return `${getCurrentDateSnippet()}
 
@@ -220,7 +236,7 @@ Try to match the tone of the user. If the user asks a technical question, resear
 4. \`graph_get\` → read the full content of a specific node when you need its details.
 
 You also have code-graph tools (\`stakgraph_search\`, \`stakgraph_map\`, \`stakgraph_code\`), file tools, and bash available if a question turns out to need them — but lead with the graph tools above; they understand the entity relationships this graph is built to expose.
-${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}
+${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}${graphWrite ? GRAPH_WRITE_GUIDANCE : ""}
 ## Rules
 - Start broad with \`get_ontology\` and \`graph_search\`, then narrow by walking neighbors.
 - Use the \`name\` on neighbor results to decide which node to follow next without resolving every one.
@@ -234,6 +250,7 @@ function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
+  const graphWrite = toolConfigEnabled(toolsConfig?.create_triplet);
   const runStepEnabled = Boolean(hasRunTools) && toolConfigEnabled(toolsConfig?.stakwork_run_step);
 
   const runStepGuidance = runStepEnabled
@@ -288,7 +305,7 @@ ${runToolsGuidance}
 - Ignore Run nodes entirely: they carry only an external project id and a state string, with no research signal.${hasRunTools ? " For real execution data use the stakwork_* API tools instead — the graph's run data is stale." : ""}
 - To find which workflows use a given skill, \`graph_search\` the skill name with \`type: "Workflow"\`, then confirm via \`graph_get\` that the skill actually appears in \`body.transitions\` — search is fuzzy and returns semantic lookalikes.
 - Stop calling tools as soon as you have enough information to answer.
-${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}
+${ontologyEdit ? ONTOLOGY_EDIT_GUIDANCE : ""}${graphWrite ? GRAPH_WRITE_GUIDANCE : ""}
 ### Answering
 Report concrete reusable building blocks: name, what each takes/produces, usage stats, and — for workflows — the step ordering that proves the composition works. Call out gaps where no existing component covers a needed capability, so the caller knows what must be built new.
 

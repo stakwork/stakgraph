@@ -1,5 +1,11 @@
 import { test, expect } from "../../testkit.js";
-import { buildOntologyPayload, collapseConnectionCounts } from "../toolsJarvis.js";
+import {
+  buildOntologyPayload,
+  collapseConnectionCounts,
+  validateTripletSide,
+  extractNodeRefId,
+  extractEdgeRefId,
+} from "../toolsJarvis.js";
 
 // ── graph_search URL construction helpers ────────────────────────────────────
 // Simulate the URL-building logic from graph_search in toolsJarvis.ts so we
@@ -264,5 +270,104 @@ test.describe("collapseConnectionCounts", () => {
       { edge_type: "HAS", target_type: "Tag", count: undefined as any },
     ]);
     expect(edges).toEqual({ HAS: 2 });
+  });
+});
+
+// ── create_triplet helpers ───────────────────────────────────────────────────
+
+test.describe("validateTripletSide", () => {
+  test("accepts an existing node by ref_id", () => {
+    expect(validateTripletSide("source", "ref-123")).toBeNull();
+  });
+
+  test("accepts an inline node with type + data", () => {
+    expect(
+      validateTripletSide("target", undefined, "Person", { name: "Alice" })
+    ).toBeNull();
+  });
+
+  test("rejects when neither form is provided", () => {
+    const err = validateTripletSide("source");
+    expect(err).toContain("source_ref_id");
+    expect(err).toContain("source_type");
+  });
+
+  test("rejects inline type without data", () => {
+    const err = validateTripletSide("target", undefined, "Person", undefined);
+    expect(err).toContain("target");
+  });
+
+  test("rejects inline data without type", () => {
+    const err = validateTripletSide("target", undefined, undefined, { name: "x" });
+    expect(err).toContain("target");
+  });
+
+  test("rejects mixing ref_id with inline fields (ambiguous)", () => {
+    const err = validateTripletSide("source", "ref-123", "Person", { name: "x" });
+    expect(err).toContain("not both");
+  });
+
+  test("treats empty-string ref_id as absent", () => {
+    expect(validateTripletSide("source", "", "Person", { name: "x" })).toBeNull();
+    expect(validateTripletSide("source", "")).not.toBeNull();
+  });
+});
+
+test.describe("extractNodeRefId", () => {
+  test("reads data.ref_id from a fresh-create response", () => {
+    expect(
+      extractNodeRefId({ status: "success", data: { ref_id: "abc", node_key: "k" } })
+    ).toBe("abc");
+  });
+
+  test("reads data.ref_id from a 'Node already exists' merge response", () => {
+    expect(
+      extractNodeRefId({
+        status: "Warning",
+        errorCode: "Node already exists in the graph",
+        data: { ref_id: "existing-1" },
+      })
+    ).toBe("existing-1");
+  });
+
+  test("returns undefined for error bodies and junk", () => {
+    expect(extractNodeRefId({ status: "Error", status_messages: ["boom"] })).toBeUndefined();
+    expect(extractNodeRefId({ errorCode: "Not a valid node_type" })).toBeUndefined();
+    expect(extractNodeRefId({ data: { ref_id: "" } })).toBeUndefined();
+    expect(extractNodeRefId(undefined)).toBeUndefined();
+    expect(extractNodeRefId(null)).toBeUndefined();
+  });
+});
+
+test.describe("extractEdgeRefId", () => {
+  test("reads edges[0].ref_id from a fresh edge-create response", () => {
+    expect(
+      extractEdgeRefId({
+        status: "Success",
+        edges: [{ ref_id: "edge-1", source: "a", target: "b" }],
+      })
+    ).toBe("edge-1");
+  });
+
+  test("reads data.ref_id from an 'Edge already exists' warning response", () => {
+    expect(
+      extractEdgeRefId({
+        status: "Warning",
+        errorCode: "Edge already exists in the graph",
+        data: { ref_id: "edge-existing", edge_key: "works_at" },
+      })
+    ).toBe("edge-existing");
+  });
+
+  test("prefers edges[0].ref_id over data.ref_id when both are present", () => {
+    expect(
+      extractEdgeRefId({ edges: [{ ref_id: "from-edges" }], data: { ref_id: "from-data" } })
+    ).toBe("from-edges");
+  });
+
+  test("returns undefined for error bodies and junk", () => {
+    expect(extractEdgeRefId({ status: "Error", status_messages: ["boom"] })).toBeUndefined();
+    expect(extractEdgeRefId({ edges: [] })).toBeUndefined();
+    expect(extractEdgeRefId(undefined)).toBeUndefined();
   });
 });

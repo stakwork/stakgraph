@@ -99,6 +99,7 @@ type ToolName =
   | "jarvis"
   | "graph_sub_agent"
   | "ontology_edit"
+  | "create_triplet"
   | "logs_agent"
   | "str_replace_based_edit_tool"
   | "apply_patch"
@@ -224,7 +225,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "learn_concepts", "list_skills", "load_skill",
   "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
-  "graph_sub_agent", "ontology_edit",
+  "graph_sub_agent", "ontology_edit", "create_triplet",
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
   "stakwork_run_step",
@@ -335,6 +336,7 @@ Rules:
   jarvis: '', // deprecated: Jarvis tools now auto-register whenever JARVIS_URL is set.
   graph_sub_agent: '', // default lives in toolsJarvis.ts; string value here overrides it.
   ontology_edit: '', // group gate: registers the ontology write tools (defaults live in toolsJarvis.ts).
+  create_triplet: '', // gate: registers the graph data-write tool (default lives in toolsJarvis.ts).
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
   str_replace_based_edit_tool:
@@ -921,6 +923,8 @@ export async function get_tools(
       : undefined,
     // Opt-in ontology write tools (create/update/delete node & edge types).
     ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
+    // Opt-in graph data-write tool (assert source -[edge]-> target triplets).
+    graphWrite: toolConfigEnabled(toolsConfig?.create_triplet),
   });
 
   // Register Stakwork run-research tools (read-only, gated on the caller
