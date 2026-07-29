@@ -274,6 +274,13 @@ export interface JarvisToolsOptions {
    * off by default — the default posture stays read-only.
    */
   ontologyEdit?: boolean;
+  /**
+   * When true, registers the `create_triplet` graph DATA write tool, which
+   * asserts source -[edge]-> target instance facts (creating/merging nodes as
+   * needed) via Jarvis `/v2/nodes` + `/v2/edges`. Distinct from `ontologyEdit`
+   * (schema writes). Opt-in and off by default.
+   */
+  graphWrite?: boolean;
 }
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
@@ -648,6 +655,263 @@ function registerOntologyWriteTools(
     "ontology_delete_type, ontology_create_edge, ontology_update_edge, ontology_delete_edge, " +
     "ontology_rename_attribute",
   );
+}
+
+/**
+ * Validate one side (source/target) of a triplet. A side must be EITHER an
+ * existing node (`<side>_ref_id`) OR an inline node (`<side>_type` +
+ * `<side>_data`) — never both, never neither. Returns an error message for the
+ * agent, or null when valid.
+ */
+export function validateTripletSide(
+  side: "source" | "target",
+  refId?: string,
+  nodeType?: string,
+  nodeData?: Record<string, any>,
+): string | null {
+  const hasRef = typeof refId === "string" && refId.length > 0;
+  const hasInline = Boolean(nodeType) || Boolean(nodeData);
+  if (hasRef && hasInline) {
+    return `${side}: pass either ${side}_ref_id OR ${side}_type + ${side}_data, not both`;
+  }
+  if (hasRef) return null;
+  if (nodeType && nodeData) return null;
+  return (
+    `${side}: pass ${side}_ref_id (an existing node), ` +
+    `or both ${side}_type and ${side}_data (create/merge inline)`
+  );
+}
+
+/**
+ * Pull the created/merged node ref_id out of a Jarvis `POST /v2/nodes`
+ * response body. Both plain success and the "Node already exists in the graph"
+ * warning carry `data.ref_id` (merge semantics); anything else is a failure.
+ */
+export function extractNodeRefId(body: any): string | undefined {
+  const refId = body?.data?.ref_id;
+  return typeof refId === "string" && refId.length > 0 ? refId : undefined;
+}
+
+/**
+ * Pull the edge ref_id out of a Jarvis `POST /v2/edges` response body. A fresh
+ * edge lands in `edges[0].ref_id`; the "Edge already exists in the graph"
+ * warning carries `data.ref_id` instead.
+ */
+export function extractEdgeRefId(body: any): string | undefined {
+  const refId = body?.edges?.[0]?.ref_id ?? body?.data?.ref_id;
+  return typeof refId === "string" && refId.length > 0 ? refId : undefined;
+}
+
+/**
+ * Register the graph DATA write tool (`create_triplet`): assert a fact as
+ * source -[edge]-> target instance data (not schema). Gated by
+ * `JarvisToolsOptions.graphWrite`.
+ *
+ * Inline nodes are pre-created via `POST /v2/nodes` and the edge is then
+ * created with two concrete ref_ids in a second call — rather than sending
+ * inline nodes straight to `POST /v2/edges` — both for per-node error
+ * attribution and because Jarvis's edge endpoint mis-orders its ref_id list
+ * when only the source is inline (which would reverse the edge direction).
+ */
+function registerGraphWriteTools(
+  allTools: Record<string, Tool<any, any>>,
+  jarvisUrl: string,
+  jarvisHeaders: Record<string, string>,
+): void {
+  allTools.create_triplet = tool({
+    description:
+      "Assert a fact into the Jarvis knowledge graph as DATA: a triplet of source node -[edge]-> target node " +
+      "(instances, not schema — for schema changes use the ontology_* tools). Writes live to the graph. " +
+      "For each side pass EITHER the ref_id of an existing node (preferred — find it with graph_search) " +
+      "OR a node type + data object to create/merge the node inline. " +
+      "REUSE existing nodes wherever possible: search first, and only create inline when the entity " +
+      "genuinely doesn't exist yet — duplicate nodes fragment the graph. " +
+      "Node types and the edge type must already exist in the ontology (check with get_ontology); " +
+      "create_schema_if_missing auto-creates a missing edge schema as a last resort.",
+    inputSchema: z.object({
+      source_ref_id: z
+        .string()
+        .optional()
+        .describe(
+          "ref_id of an EXISTING source node (from graph_search/graph_get). Preferred over inline creation.",
+        ),
+      source_type: z
+        .string()
+        .optional()
+        .describe(
+          "Node type for an INLINE source node (must exist in the ontology — see get_ontology). " +
+          "Requires source_data; omit when source_ref_id is set.",
+        ),
+      source_data: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe(
+          'Properties for an INLINE source node, e.g. {"name": "Alice"}. ' +
+          "Must satisfy the type's schema, including its node_key attribute.",
+        ),
+      target_ref_id: z
+        .string()
+        .optional()
+        .describe(
+          "ref_id of an EXISTING target node (from graph_search/graph_get). Preferred over inline creation.",
+        ),
+      target_type: z
+        .string()
+        .optional()
+        .describe(
+          "Node type for an INLINE target node (must exist in the ontology — see get_ontology). " +
+          "Requires target_data; omit when target_ref_id is set.",
+        ),
+      target_data: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe(
+          'Properties for an INLINE target node, e.g. {"name": "Acme Corp"}. ' +
+          "Must satisfy the type's schema, including its node_key attribute.",
+        ),
+      edge_type: z
+        .string()
+        .describe(
+          "The relationship type, e.g. 'WORKS_AT'. Uppercased by Jarvis. Must exist in the ontology " +
+          "between the two node types unless create_schema_if_missing is set.",
+        ),
+      edge_data: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe("Optional properties to set on the edge."),
+      weight: z.number().optional().describe("Optional edge weight (defaults to 1)."),
+      create_schema_if_missing: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Auto-create the edge schema when the (source_type, edge_type, target_type) relationship " +
+          "is not yet in the ontology. Last resort — prefer defining it deliberately with ontology_create_edge.",
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) for inline node creation. Not an access-control boundary.",
+        ),
+    }),
+    execute: async (input: {
+      source_ref_id?: string;
+      source_type?: string;
+      source_data?: Record<string, any>;
+      target_ref_id?: string;
+      target_type?: string;
+      target_data?: Record<string, any>;
+      edge_type: string;
+      edge_data?: Record<string, any>;
+      weight?: number;
+      create_schema_if_missing?: boolean;
+      namespace?: string;
+    }) => {
+      const {
+        source_ref_id,
+        source_type,
+        source_data,
+        target_ref_id,
+        target_type,
+        target_data,
+        edge_type,
+        edge_data,
+        weight,
+        create_schema_if_missing = false,
+        namespace,
+      } = input;
+
+      for (const err of [
+        validateTripletSide("source", source_ref_id, source_type, source_data),
+        validateTripletSide("target", target_ref_id, target_type, target_data),
+      ]) {
+        if (err) return `create_triplet invalid input — ${err}`;
+      }
+
+      console.log(
+        `[create_triplet] ${source_ref_id ?? source_type} -[${edge_type}]-> ${target_ref_id ?? target_type} namespace=${namespace ?? "-"}`,
+      );
+
+      // Resolve one side to a concrete ref_id, creating/merging an inline node
+      // via /v2/nodes when no ref_id was given. Namespace applies to node
+      // creation only — the edge endpoint matches by globally-unique ref_id.
+      const resolveSide = async (
+        side: "source" | "target",
+        refId?: string,
+        nodeType?: string,
+        nodeData?: Record<string, any>,
+      ): Promise<string> => {
+        if (refId) return refId;
+        const params = new URLSearchParams();
+        appendNamespace(params, namespace);
+        const qs = params.toString();
+        const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
+        const res = await jarvisMutate("post", url, jarvisHeaders, {
+          node_type: nodeType,
+          node_data: nodeData,
+        });
+        let body: any;
+        try {
+          body = JSON.parse(res.text);
+        } catch {
+          // non-JSON body — fall through to the error below
+        }
+        const created = extractNodeRefId(body);
+        if (!created) {
+          throw new Error(
+            `could not create/merge ${side} node (HTTP ${res.status}): ${res.text}`,
+          );
+        }
+        return created;
+      };
+
+      try {
+        // Sequential so a failure names the side that broke.
+        const sourceRef = await resolveSide("source", source_ref_id, source_type, source_data);
+        const targetRef = await resolveSide("target", target_ref_id, target_type, target_data);
+
+        const res = await jarvisMutate("post", `${jarvisUrl}/v2/edges`, jarvisHeaders, {
+          edge: {
+            edge_type,
+            ...(weight !== undefined ? { weight } : {}),
+            ...(edge_data ? { edge_data } : {}),
+          },
+          source: { ref_id: sourceRef },
+          target: { ref_id: targetRef },
+          create_schema_if_missing,
+        });
+        let body: any;
+        try {
+          body = JSON.parse(res.text);
+        } catch {
+          // non-JSON body — fall through to the error below
+        }
+        const edgeRef = extractEdgeRefId(body);
+        if (!res.ok || !edgeRef) {
+          return (
+            `create_triplet: nodes resolved (source=${sourceRef}, target=${targetRef}) ` +
+            `but the edge write failed — HTTP ${res.status}: ${res.text}`
+          );
+        }
+        return JSON.stringify({
+          // "Warning" here means the edge already existed (idempotent merge).
+          status: body?.status ?? "Success",
+          source_ref_id: sourceRef,
+          target_ref_id: targetRef,
+          edge_ref_id: edgeRef,
+          edge_type,
+          ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
+            ? { messages: body.status_messages }
+            : {}),
+        });
+      } catch (err: any) {
+        return `create_triplet failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  console.log("===> registered graph write tool: create_triplet");
 }
 
 /**
@@ -1065,6 +1329,12 @@ export function registerJarvisTools(
   // so the standard posture stays read-only.
   if (options.ontologyEdit) {
     registerOntologyWriteTools(allTools, jarvisUrl, jarvisHeaders);
+  }
+
+  // Graph data-write tool — opt-in via toolsConfig.create_triplet. Off by
+  // default so the standard posture stays read-only.
+  if (options.graphWrite) {
+    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders);
   }
 }
 
