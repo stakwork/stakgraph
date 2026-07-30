@@ -125,18 +125,25 @@ RUN cd web && npm install && npm run build
 COPY ./benchmark ./benchmark
 RUN cd benchmark && npm install && npm run build
 
-# Install agent skills
-RUN npx -y skills add https://github.com/anthropics/skills --skill frontend-design -y -g
-RUN npx -y skills add https://github.com/getsentry/skills --skill code-simplifier -y -g
-RUN npx -y skills add https://github.com/getsentry/skills --skill security-review -y -g
+# Install agent skills. Baked OUTSIDE /root and exposed via SKILLS_ROOT:
+# sphinx-swarm mounts a named volume over /root, which is initialized from the
+# image only once and then shadows /root/.agents/skills on every image update —
+# skills shipped in newer images silently never appear (stale-volume bug).
+RUN npx -y skills add https://github.com/anthropics/skills --skill frontend-design -y -g && \
+    npx -y skills add https://github.com/getsentry/skills --skill code-simplifier -y -g && \
+    npx -y skills add https://github.com/getsentry/skills --skill security-review -y -g && \
+    mkdir -p /usr/src/skills && \
+    cp -r /root/.agents/skills/. /usr/src/skills/ && \
+    rm -rf /root/.agents/skills
+ENV SKILLS_ROOT=/usr/src/skills
 
-# Vendored skill packs (./skills -> ~/.agents/skills). COPY merges into the
-# existing directory, so the npx-installed skills above survive alongside them.
+# Vendored skill packs (./skills -> SKILLS_ROOT). COPY merges into the existing
+# directory, so the npx-installed skills above survive alongside them.
 # A directory with a SKILL.md is a skill; a directory of skill directories is a
 # pack contributing ONE line to the prompt index. Regenerate with
 # `node scripts/vendor-skills.mjs`. Placed late: skill markdown changes far more
 # often than the dep installs above it.
-COPY ./skills /root/.agents/skills
+COPY ./skills /usr/src/skills
 
 # Download fastembed models (~128MB) - only on amd64
 RUN ARCH=$(dpkg --print-architecture) && \

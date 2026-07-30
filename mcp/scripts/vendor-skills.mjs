@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Vendor skill packs from upstream plugin repos into ./skills, which the
- * Dockerfile copies to ~/.agents/skills.
+ * Dockerfile copies to $SKILLS_ROOT (/usr/src/skills — deliberately outside
+ * /root, which sphinx-swarm shadows with a named volume).
  *
  * Upstream repos are Claude Code *plugins*: each top-level plugin holds a
  * skills/ dir plus a large CLAUDE.md that its skills assume is loaded. We
