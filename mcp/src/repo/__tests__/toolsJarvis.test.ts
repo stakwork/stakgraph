@@ -127,8 +127,26 @@ test.describe("appendNamespace (via URLSearchParams)", () => {
 
 const fixtureSchemaData = {
   schemas: [
-    { type: "Person", domain: "Entity", description: "A person node", is_deleted: false },
-    { type: "Episode", domain: "Content", description: "A podcast episode", is_deleted: false },
+    {
+      type: "Person",
+      domain: "Entity",
+      description: "A person node",
+      is_deleted: false,
+      // own attributes only (non-overlapping bulk-endpoint shape)
+      attributes: { name: "string", age: "?int" },
+      // inherited from the Thing base schema — repeats verbatim across types
+      inherited_attributes: { ref_id: "string", created_at: "?datetime" },
+    },
+    {
+      type: "Episode",
+      domain: "Content",
+      description: "A podcast episode",
+      is_deleted: false,
+      attributes: { title: "string", duration: "?float" },
+      inherited_attributes: { ref_id: "string", created_at: "?datetime" },
+      // carries a parent relationship to exercise inheritance-flavored data
+      parent: "Thing",
+    },
     { type: "Topic", domain: "Entity", description: "A topic node", is_deleted: false },
     { type: "Workflow", domain: "Workflow", description: "A workflow node", is_deleted: false },
     { type: "Orphan", domain: null, description: "No domain node", is_deleted: false },
@@ -237,6 +255,88 @@ test.describe("buildOntologyPayload", () => {
     const payload = buildOntologyPayload(fixtureSchemaData);
     const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
     expect(person?.description).toBe("A person node");
+  });
+
+  // ── include_attributes tests ────────────────────────────────────────────────
+
+  test("attributes/inherited_attributes are omitted entirely by default (no empty objects)", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData);
+    const allNodes = Object.values(payload.node_types).flat();
+    for (const node of allNodes) {
+      expect(Object.prototype.hasOwnProperty.call(node, "attributes")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(node, "inherited_attributes")).toBe(false);
+    }
+  });
+
+  test("attributes/inherited_attributes are omitted when includeAttributes=false explicitly", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, false, false);
+    const allNodes = Object.values(payload.node_types).flat();
+    for (const node of allNodes) {
+      expect(Object.prototype.hasOwnProperty.call(node, "attributes")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(node, "inherited_attributes")).toBe(false);
+    }
+  });
+
+  test("attributes/inherited_attributes are present and correctly sourced when includeAttributes=true", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, false, true);
+    const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
+    expect(person?.attributes).toEqual({ name: "string", age: "?int" });
+    expect(person?.inherited_attributes).toEqual({ ref_id: "string", created_at: "?datetime" });
+
+    const episode = Object.values(payload.node_types).flat().find((n) => n.type === "Episode");
+    expect(episode?.attributes).toEqual({ title: "string", duration: "?float" });
+    expect(episode?.inherited_attributes).toEqual({ ref_id: "string", created_at: "?datetime" });
+  });
+
+  test("node types without attributes in fixture get empty objects when includeAttributes=true", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, false, true);
+    const topic = Object.values(payload.node_types).flat().find((n) => n.type === "Topic");
+    expect(topic?.attributes).toEqual({});
+    expect(topic?.inherited_attributes).toEqual({});
+  });
+
+  test("includeAttributes=true does not add edges (flags are independent)", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, false, true);
+    expect(payload.edges).toBeUndefined();
+  });
+
+  test("includeEdges=true does not add attributes (flags are independent)", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true, false);
+    expect(payload.edges).toBeDefined();
+    const allNodes = Object.values(payload.node_types).flat();
+    for (const node of allNodes) {
+      expect(Object.prototype.hasOwnProperty.call(node, "attributes")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(node, "inherited_attributes")).toBe(false);
+    }
+  });
+
+  test("both includeEdges=true and includeAttributes=true work together", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true, true);
+    // edges present and correct
+    expect(payload.edges).toBeDefined();
+    expect(payload.edges!.map((e) => e.edge_type)).toEqual(["ABOUT", "AUTHORED", "KNOWS"]);
+    // attributes present and correct
+    const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
+    expect(person?.attributes).toEqual({ name: "string", age: "?int" });
+    expect(person?.inherited_attributes).toEqual({ ref_id: "string", created_at: "?datetime" });
+  });
+
+  test("node type with parent field in fixture has its attributes surfaced (inheritance-flavored data)", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, false, true);
+    const episode = Object.values(payload.node_types).flat().find((n) => n.type === "Episode");
+    // parent field is on the raw fixture entry; attributes/inherited_attributes are correctly sourced
+    expect(episode?.attributes).toEqual({ title: "string", duration: "?float" });
+    expect(episode?.inherited_attributes).toEqual({ ref_id: "string", created_at: "?datetime" });
+  });
+
+  test("both false (default 2x2 matrix — no edges, no attributes)", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, false, false);
+    expect(payload.edges).toBeUndefined();
+    const allNodes = Object.values(payload.node_types).flat();
+    for (const node of allNodes) {
+      expect(Object.prototype.hasOwnProperty.call(node, "attributes")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(node, "inherited_attributes")).toBe(false);
+    }
   });
 });
 

@@ -140,10 +140,21 @@ function deriveNodeName(node: any, properties: Record<string, any>): string {
   return "";
 }
 
+// NOTE on attribute semantics: the bulk list endpoint backing `get_ontology`
+// (`/v2/schema`) splits attributes into non-overlapping "own-only" `attributes`
+// and `inherited_attributes` buckets. The single-schema endpoint
+// (`format_single_schema` in jarvis-backend) keeps all attributes (own +
+// inherited) in `attributes` for backward compatibility and derives
+// `inherited_attributes` as an overlapping read-only view. This implementation
+// assumes the non-overlapping bulk-endpoint shape — if the `get_ontology` fetch
+// is ever repointed at the single-schema endpoint, the spread logic below needs
+// re-verification.
 export interface OntologyNodeType {
   type: string;
   domain: string | null;
   description: string;
+  attributes?: Record<string, string>;
+  inherited_attributes?: Record<string, string>;
 }
 
 export interface OntologyEdge {
@@ -172,6 +183,7 @@ export interface OntologyPayload {
 export function buildOntologyPayload(
   schemaData: any,
   includeEdges = false,
+  includeAttributes = false,
 ): OntologyPayload {
   const schemas: any[] = schemaData?.schemas ?? [];
   const rawEdges: any[] = schemaData?.edges ?? [];
@@ -183,6 +195,10 @@ export function buildOntologyPayload(
       type: s.type as string,
       domain: s.domain ? (s.domain as string).toLowerCase() : null,
       description: (s.description as string) ?? "",
+      ...(includeAttributes && {
+        attributes: (s.attributes ?? {}) as Record<string, string>,
+        inherited_attributes: (s.inherited_attributes ?? {}) as Record<string, string>,
+      }),
     }));
 
   // Derive canonical domains list (distinct, non-null, sorted)
@@ -950,7 +966,8 @@ export function registerJarvisTools(
       "Call this once before graph_search to discover valid values for both the `type` and `domains` parameters. " +
       "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`. " +
       "Relationship edges are omitted by default — graph_neighbors returns edge types live as you traverse. " +
-      "Set `include_edges` to also get the full relationship map (source_type -> target_type triples).",
+      "Set `include_edges` to also get the full relationship map (source_type -> target_type triples). " +
+      "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status).",
     inputSchema: z.object({
       include_edges: z
         .boolean()
@@ -961,10 +978,28 @@ export function registerJarvisTools(
           "Off by default — the edge list is large and graph_neighbors surfaces edge types live. " +
           "Only enable when you need the complete relationship map up front."
         ),
+      include_attributes: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Include each node type's attribute schema maps (`attributes` and `inherited_attributes`). " +
+          "Off by default to keep the payload lean. Enable when you need to inspect field names, " +
+          "required/optional status (`?` prefix = optional), and value types per node type. " +
+          ATTRIBUTE_TYPES_DOC
+        ),
     }),
-    execute: async ({ include_edges = false }: { include_edges?: boolean }) => {
+    execute: async ({
+      include_edges = false,
+      include_attributes = false,
+    }: {
+      include_edges?: boolean;
+      include_attributes?: boolean;
+    }) => {
       const url = `${jarvisUrl}/v2/schema`;
-      console.log(`[get_ontology] fetching ${url} include_edges=${include_edges}`);
+      console.log(
+        `[get_ontology] fetching ${url} include_edges=${include_edges} include_attributes=${include_attributes}`
+      );
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);
         if (!resp.ok) {
@@ -972,7 +1007,7 @@ export function registerJarvisTools(
           return `HTTP ${resp.status}: ${text}`;
         }
         const data = (await resp.json()) as any;
-        return JSON.stringify(buildOntologyPayload(data, include_edges));
+        return JSON.stringify(buildOntologyPayload(data, include_edges, include_attributes));
       } catch (err: any) {
         return `get_ontology failed: ${err?.message ?? String(err)}`;
       }
