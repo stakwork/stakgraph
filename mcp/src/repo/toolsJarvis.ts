@@ -301,7 +301,7 @@ export interface JarvisToolsOptions {
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
   "Spawn a focused child agent to explore the Jarvis knowledge graph and report back. " +
-  "The child has its own copy of the graph tools (get_ontology, graph_search, graph_get, graph_neighbors) " +
+  "The child has its own copy of the graph tools (get_ontology, get_ontology_type, graph_search, graph_get, graph_neighbors) " +
   "and runs an independent exploration loop, returning a synthesized text summary of its findings. " +
   "Use this to parallelize or delegate: after you locate a few key nodes, fan out one sub-agent per " +
   "node/subtopic with a specific, self-contained prompt (include the relevant ref_ids and exactly what " +
@@ -313,6 +313,7 @@ const GRAPH_SUBAGENT_SYSTEM = `You are a focused knowledge-graph exploration sub
 
 You traverse a knowledge graph of interconnected entities (people, topics, episodes, organizations, workflows, code, and their relationships) using these tools:
 - \`get_ontology\` — list node types (grouped by domain) and valid \`domains\`. Call FIRST if you don't already know the relevant types.
+- \`get_ontology_type\` — fetch the full schema for a single node type (attributes + required/optional). Use when you need field-level detail for one type instead of the whole ontology.
 - \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`, and \`namespace\` (data partition) when one applies.
 - \`graph_neighbors\` — nodes one hop away, with \`edge_type\` and \`direction\`. This is how you follow relationships.
 - \`graph_get\` — resolve a single ref_id to its full content.
@@ -1014,6 +1015,46 @@ export function registerJarvisTools(
     },
   });
 
+  allTools.get_ontology_type = tool({
+    description:
+      "Fetch the full schema for a SINGLE ontology node type: its core fields " +
+      "(parent, domain, description, etc.) plus `attributes` and `inherited_attributes`. " +
+      "Each attribute value is a type string (e.g. 'string', 'int'); a `?` prefix " +
+      "(e.g. '?string') means the attribute is OPTIONAL, no prefix means REQUIRED. " +
+      "`attributes` already includes both the type's own attributes AND everything " +
+      "inherited from parent types (kept together for backward compatibility); " +
+      "`inherited_attributes` is a separate, redundant view containing only the " +
+      "inherited subset — use it if you specifically need to distinguish inherited " +
+      "vs. own fields, otherwise `attributes` alone is complete. " +
+      "Lookup is case-insensitive for every type EXCEPT the root type 'Thing', which " +
+      "must be passed with exact casing. You may also pass a schema ref_id instead " +
+      "of a type name — the lookup falls back to ref_id resolution automatically. " +
+      "This is for NODE types only; edge type names (e.g. 'KNOWS') are not schema " +
+      "nodes and will return the not-found error below. " +
+      "Call get_ontology first if you don't already know the exact type name.",
+    inputSchema: z.object({
+      type: z.string().describe(
+        "The node type name, e.g. 'Person' (case-insensitive, except the literal " +
+        "root type 'Thing' which is case-sensitive). A schema ref_id is also accepted."
+      ),
+    }),
+    execute: async ({ type }: { type: string }) => {
+      const url = `${jarvisUrl}/v2/schema/${encodeURIComponent(type)}`;
+      console.log(`[get_ontology_type] fetching ${url}`);
+      try {
+        const resp = await jarvisFetch(url, jarvisHeaders);
+        if (!resp.ok) {
+          const text = await resp.text();
+          return `HTTP ${resp.status}: ${text}`;
+        }
+        const data = (await resp.json()) as any;
+        return JSON.stringify(data);
+      } catch (err: any) {
+        return `get_ontology_type failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
   allTools.graph_search = tool({
     description:
       "Search the Jarvis knowledge graph for ontology nodes — people, topics, episodes, clips, organizations, workflows, and more. " +
@@ -1345,7 +1386,7 @@ export function registerJarvisTools(
   });
 
   console.log(
-    "===> registered graph_search + get_ontology + graph_get + graph_neighbors tools",
+    "===> registered graph_search + get_ontology + get_ontology_type + graph_get + graph_neighbors tools",
   );
 
   // Recursive sub-agent tool, gated by config + depth so children can't spawn
