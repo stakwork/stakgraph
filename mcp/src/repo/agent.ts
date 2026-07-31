@@ -49,7 +49,7 @@ import {
   SessionConfig,
   StepMeta,
 } from "./session.js";
-import { McpServer, getMcpTools } from "./mcpServers.js";
+import { McpServer, getMcpTools, McpToolsResult } from "./mcpServers.js";
 import type { GoogleSheetsToolsOptions } from "./toolsGoogleSheets.js";
 import {
   resolveCurrentTurnAttachments,
@@ -476,6 +476,7 @@ interface PreparedAgent {
   turnIndex: number;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
+  mcpClients: McpToolsResult["clients"];
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -539,14 +540,17 @@ async function prepareAgent(
     skills,
   );
 
-  // Load and merge MCP server tools if configured
+  // Load and merge MCP server tools if configured.
+  // mcpClients is captured here so it can be closed in a finally after the run.
   let orgAgentToolNames: string[] = [];
+  let mcpClients: McpToolsResult["clients"] = [];
   if (mcpServers && mcpServers.length > 0) {
-    const mcpTools = await getMcpTools(mcpServers);
-    tools = { ...tools, ...mcpTools };
-    console.log(`[MCP] Merged ${Object.keys(mcpTools).length} MCP tools`);
+    const mcpResult = await getMcpTools(mcpServers, repoPath);
+    tools = { ...tools, ...mcpResult.tools };
+    mcpClients = mcpResult.clients;
+    console.log(`[MCP] Merged ${Object.keys(mcpResult.tools).length} MCP tools`);
     // Detect any "*_org_agent" tools (e.g. stakwork_org_agent, evanfeenstra_org_agent)
-    orgAgentToolNames = Object.keys(mcpTools).filter(name => /_org_agent$/i.test(name));
+    orgAgentToolNames = Object.keys(mcpResult.tools).filter(name => /_org_agent$/i.test(name));
   }
 
   let instructions = systemOverride
@@ -693,8 +697,11 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         ),
         providerConfig: getProviderOptions(provider as any, undefined, modelId),
         baseUrl: opts.baseUrl,
-        // Redact secrets before persisting
-        mcpServers: opts.mcpServers?.map(({ token, headers, ...rest }) => rest),
+        // Redact secrets (token, headers, env) before persisting.
+        // command/args are retained as the non-secret server identifier
+        // (analogous to url for HTTP servers, which is likewise kept).
+        // IMPORTANT: secrets must be placed in env (stripped here), never in args/command.
+        mcpServers: opts.mcpServers?.map(({ token, headers, env, ...rest }: any) => rest),
         subAgents: opts.subAgents?.map(({ apiToken, ...rest }) => rest),
         ggnn: opts.ggnn,
         skills: opts.skills,
@@ -817,6 +824,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     turnIndex,
     provenanceCollector,
     abortSignal: opts.abortSignal,
+    mcpClients,
   };
 }
 
@@ -879,6 +887,13 @@ export async function get_context(
       });
     }
     throw err;
+  } finally {
+    // Close all MCP clients (HTTP and stdio) after the run.
+    // Each close is wrapped individually so one failure doesn't block the others.
+    // This is essential for stdio servers to avoid leaking child processes.
+    for (const client of prepared.mcpClients) {
+      try { await client.close(); } catch {}
+    }
   }
 
   const usage = stepMetas.length > 0
@@ -969,6 +984,13 @@ export async function stream_context(
 
   return {
     streamResult,
+    async closeMcpClients() {
+      // Close all MCP clients (HTTP and stdio) after the stream is consumed.
+      // Each close is wrapped individually so one failure doesn't block the others.
+      for (const client of prepared.mcpClients) {
+        try { await client.close(); } catch {}
+      }
+    },
     async finalizeSession() {
       if (!sessionId) return;
       try {
