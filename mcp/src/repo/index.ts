@@ -143,7 +143,11 @@ function parseAgentBody(req: Request) {
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const mcpServers = (req.body.mcpServers as McpServer[] | undefined)?.map((s) => ({
     ...s,
-    headers: s.headers ? { ...s.headers } : s.headers,
+    // Shallow-copy mutable fields so caller-supplied objects are never mutated
+    // by downstream code. Guards use "in" narrowing across the union variants.
+    headers: "headers" in s && s.headers ? { ...s.headers } : (s as any).headers,
+    env: "env" in s && (s as any).env ? { ...(s as any).env } : (s as any).env,
+    args: "args" in s && (s as any).args ? [...(s as any).args] : (s as any).args,
   }));
   const systemOverride = req.body.systemOverride as string | undefined;
   const mode =
