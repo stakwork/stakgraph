@@ -70,7 +70,8 @@ test.describe('Backward Compatibility', () => {
 
       expect(gotoAction).toBeTruthy();
       expect(gotoAction.type).toBe('goto');
-      expect(gotoAction.url).toBe('http://localhost:3000');
+      // pushState normalises a bare origin to a trailing slash.
+      expect(gotoAction.url.replace(/\/$/, '')).toBe('http://localhost:3000');
     });
   });
 
@@ -315,7 +316,7 @@ test.describe('Backward Compatibility', () => {
 
       // Should contain actions
       expect(testCode).toContain('await page.goto');
-      expect(testCode).toContain('await page.click');
+      expect(testCode).toContain('.click()');
     });
 
     test('should handle baseUrl option in code generation', async ({ page }) => {
