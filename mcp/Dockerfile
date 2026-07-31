@@ -19,6 +19,15 @@ RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 p
 # Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)
 RUN pip install --break-system-packages openpyxl
 
+# Install docx-mcp-server for stdio MCP Word document editing (tracked changes, comments, audit).
+# A plain pip install places the `docx-mcp-server` console-script on PATH at
+# /usr/local/bin/docx-mcp-server — callers should attach this server as:
+#   { name: "docx", command: "docx-mcp-server" }
+# Verified against v0.7.4: all 14 tools in the default filter exist in the package.
+# NOTE: convert_to_pdf is deliberately excluded from the default tool filter —
+# it requires LibreOffice/soffice which is NOT installed here to keep the image lean.
+RUN pip install --break-system-packages docx-mcp-server
+
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
     chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
