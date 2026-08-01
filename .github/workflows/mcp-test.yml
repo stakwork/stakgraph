@@ -23,6 +23,11 @@ jobs:
         working-directory: mcp
         run: yarn install --frozen-lockfile
 
+      # Guards against a test file that runs in neither node:test nor playwright.
+      - name: Check test partition
+        working-directory: mcp
+        run: npm run test:partition
+
       - name: Run node tests
         working-directory: mcp
         run: npm run test:node
