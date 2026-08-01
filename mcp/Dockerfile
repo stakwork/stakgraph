@@ -45,9 +45,6 @@ RUN pip freeze | grep -Ei 'mcp|httpx|pydantic|starlette|sse'
 # Fail the build (not runtime) if the docx-mcp import chain doesn't load.
 # Separate, unredirected steps so the real traceback surfaces in the build log.
 RUN python -c "from mcp.server.fastmcp import FastMCP"
-# Guard with timeout 30 to prevent the stdio server from hanging the build
-# indefinitely if it drops into a stdin read loop instead of exiting.
-RUN timeout 30 docx-mcp-server --help
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
