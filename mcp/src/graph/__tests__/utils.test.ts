@@ -45,29 +45,37 @@ test.describe("normalizeRepoParam", () => {
     );
   });
 
-  /**
-   * Known bug: the bare-slug fast path `/^[^\s\/]+\/[^\s\/]+$/` matches
-   * `git@github.com:org/repo` before the ssh branch below it can run, so the
-   * ssh branch is unreachable for single-slash ssh urls and the host prefix
-   * survives. Asserting current behavior so a fix is a deliberate change.
-   */
-  test("does NOT normalize a single-slash ssh url (known bug)", () => {
-    expect(normalizeRepoParam("git@github.com:org/repo.git")).toBe(
-      "git@github.com:org/repo"
+  test("reduces an ssh url to org/repo", () => {
+    expect(normalizeRepoParam("git@github.com:org/repo.git")).toBe("org/repo");
+    expect(normalizeRepoParam("ssh://git@github.com/org/repo.git")).toBe(
+      "org/repo"
     );
   });
 
   /**
-   * Known bug: a url with a nested group keeps the first two path segments
-   * and drops the repo name, so gitlab subgroups resolve to the wrong repo.
+   * Nested gitlab groups are part of the owner, matching the `{owner}/{name}`
+   * Repository node name that ingestion writes.
    */
-  test("keeps only the first two path segments of a nested url (known bug)", () => {
+  test("keeps a nested group in the owner rather than dropping the repo", () => {
     expect(normalizeRepoParam("http://gitlab.com/group/sub/repo")).toBe(
-      "group/sub"
+      "group/sub/repo"
+    );
+    expect(normalizeRepoParam("git@gitlab.com:group/sub/repo.git")).toBe(
+      "group/sub/repo"
     );
   });
 
-  test("falls back to the raw input when it cannot find two segments", () => {
+  test("passes an already-normalized nested slug through untouched", () => {
+    expect(normalizeRepoParam("group/sub/repo")).toBe("group/sub/repo");
+  });
+
+  test("ignores extra path segments on a browser url", () => {
+    expect(normalizeRepoParam("https://github.com/org/repo/tree/main")).toBe(
+      "org/repo"
+    );
+  });
+
+  test("falls back to the raw input when there is no owner to pair", () => {
     expect(normalizeRepoParam("just-one-word")).toBe("just-one-word");
     expect(normalizeRepoParam("https://github.com/org")).toBe(
       "https://github.com/org"
