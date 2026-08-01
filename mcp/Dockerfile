@@ -26,7 +26,23 @@ RUN pip install --break-system-packages openpyxl
 # Verified against v0.7.4: all 14 tools in the default filter exist in the package.
 # NOTE: convert_to_pdf is deliberately excluded from the default tool filter —
 # it requires LibreOffice/soffice which is NOT installed here to keep the image lean.
-RUN pip install --break-system-packages docx-mcp-server
+#
+# Pin: docx-mcp-server 0.7.4 declares no upper bound on `mcp`, and mcp 2.0.0
+# (2026-07-28) removed `mcp.server.fastmcp` (FastMCP -> MCPServer). Keep mcp on
+# the 1.x line so docx-mcp's `from mcp.server.fastmcp import FastMCP` resolves.
+# docx-mcp-server itself is pinned to the version this image is validated against,
+# since it is otherwise fully unpinned and a future release that raises its own
+# floor to mcp>=2.0.0 would make `mcp<2.0.0` unsatisfiable and turn this into a
+# hard pip-resolver build failure instead of a controlled one.
+# Both packages co-resolved in one invocation so the mcp<2.0.0 constraint is
+# honoured up front (a separate later pip install could leave 2.0.0 in place).
+RUN pip install --break-system-packages "docx-mcp-server==0.7.4" "mcp<2.0.0"
+
+# Fail the build (not runtime) if the docx-mcp import chain doesn't load --
+# e.g. an unconstrained httpx/httpx-sse pair breaking the import on 1.x.
+RUN python -c "from mcp.server.fastmcp import FastMCP" && \
+    docx-mcp-server --help >/dev/null 2>&1 || \
+    (echo "docx-mcp-server failed to import/launch" && exit 1)
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
