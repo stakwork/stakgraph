@@ -38,11 +38,16 @@ RUN pip install --break-system-packages openpyxl
 # honoured up front (a separate later pip install could leave 2.0.0 in place).
 RUN pip install --break-system-packages "docx-mcp-server==0.7.4" "mcp<2.0.0"
 
-# Fail the build (not runtime) if the docx-mcp import chain doesn't load --
-# e.g. an unconstrained httpx/httpx-sse pair breaking the import on 1.x.
-RUN python -c "from mcp.server.fastmcp import FastMCP" && \
-    docx-mcp-server --help >/dev/null 2>&1 || \
-    (echo "docx-mcp-server failed to import/launch" && exit 1)
+# Print resolved versions of key packages for a durable audit record.
+# Uses pip freeze + grep so the step never fails due to an absent package name.
+RUN pip freeze | grep -Ei 'mcp|httpx|pydantic|starlette|sse'
+
+# Fail the build (not runtime) if the docx-mcp import chain doesn't load.
+# Separate, unredirected steps so the real traceback surfaces in the build log.
+RUN python -c "from mcp.server.fastmcp import FastMCP"
+# Guard with timeout 30 to prevent the stdio server from hanging the build
+# indefinitely if it drops into a stdin read loop instead of exiting.
+RUN timeout 30 docx-mcp-server --help
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
