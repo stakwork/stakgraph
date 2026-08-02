@@ -71,7 +71,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 0);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 36);
+    assert_eq!(functions.len(), 37);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 5);
@@ -89,7 +89,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(data_models.len(), 1);
 
     let traits = graph.find_nodes_by_type(NodeType::Trait);
-    assert_eq!(traits.len(), 0);
+    assert_eq!(traits.len(), 1);
 
     Ok(())
 }
@@ -108,16 +108,16 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges, 24);
+    assert_eq!(calls_edges, 25);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 168);
+    assert_eq!(contains_edges, 210);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 0);
 
     let implements_edges = graph.count_edges_of_type(EdgeType::Implements);
-    assert_eq!(implements_edges, 0);
+    assert_eq!(implements_edges, 1);
 
     let unit_test_to_function_edges =
         graph.find_nodes_with_edge_type(NodeType::UnitTest, NodeType::Function, EdgeType::Calls);

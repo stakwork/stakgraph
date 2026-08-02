@@ -3,6 +3,10 @@ import SwiftUI
 // @ast edge: Operand -> Function "loadProfile" "ProfileView.swift"
 // @ast node: Function "loadProfile"
 // @ast edge: Calls -> Function "fetchProfile" "ProfileService.swift"
+// @ast node: Var "profile"
+// @ast node: Var "isLoading"
+// @ast node: Var "container"
+// @ast node: Var "body"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofileviewswift-0"
 
 struct ProfileView: View {

@@ -8,6 +8,8 @@ import XCTest
 // @ast node: UnitTest "testStatusUpdate"
 // @ast edge: Calls -> Function "updateStatus" "ProfileService.swift"
 // @ast node: UnitTest "testEmailValidation"
+// @ast node: Var "service"
+// @ast node: Var "mockClient"
 // @ast node: Import "import-imports-srctestingswiftmodernapptestsmodernapptestsprofiletestsswift-0"
 
 final class ProfileTests: XCTestCase {

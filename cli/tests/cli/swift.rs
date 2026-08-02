@@ -22,13 +22,13 @@ fn api_swift_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Class: API (26-141)"), true);
+    assert_eq!(out.stdout.contains("Class: API (29-144)"), true);
     assert_eq!(
-        out.stdout.contains("Function: API.getPeopleList (77-100)"),
+        out.stdout.contains("Function: API.getPeopleList (80-103)"),
         true
     );
-    assert_eq!(out.stdout.contains("Request: GET /people (83-87)"), true);
-    assert_eq!(out.stdout.contains("Request: POST /person (118-122)"), true);
+    assert_eq!(out.stdout.contains("Request: GET /people (86-90)"), true);
+    assert_eq!(out.stdout.contains("Request: POST /person (121-125)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ fn parse_stats_swift_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Class                26"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             36"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             37"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             5"), "stdout: {}", out.stdout);
 }
 

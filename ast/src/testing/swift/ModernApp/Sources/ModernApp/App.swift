@@ -1,6 +1,9 @@
 import SwiftUI
 // @ast node: Class "ModernApp"
 // @ast node: Class "ContentView"
+// @ast node: Var "dependencyContainer"
+// @ast node: Var "body"
+// @ast node: Var "body"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcesmodernappappswift-0"
 
 @main
