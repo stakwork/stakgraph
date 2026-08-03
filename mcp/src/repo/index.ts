@@ -407,7 +407,7 @@ export async function repo_agent(req: Request, res: Response) {
       const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
-      const { streamResult, finalizeSession } = await stream_context(
+      const { streamResult, finalizeSession, closeMcpClients } = await stream_context(
         promptInput,
         repoDir,
         {
@@ -490,6 +490,8 @@ export async function repo_agent(req: Request, res: Response) {
         .finally(async () => {
           res.off("close", onClientClose);
           await finalizeSession();
+          // After finalizeSession: it awaits streamResult.steps/.usage.
+          await closeMcpClients();
           unregisterAbortController(body.sessionId, abortController);
           endTracking(opId);
         });
@@ -613,9 +615,7 @@ export async function repo_agent(req: Request, res: Response) {
       })
       .catch((error) => {
         const aborted = abortController.signal.aborted;
-        // This string is persisted to `.reqs/<id>.json`, served by
-        // `GET /progress`, and POSTed to the caller-supplied webhook URL —
-        // scrub any credentialed clone URL git left in it first.
+        // Persisted to `.reqs/<id>.json` and POSTed to the caller's webhook.
         const errorMessage = aborted
           ? "aborted"
           : redactCredentials(error.message || error.toString());
