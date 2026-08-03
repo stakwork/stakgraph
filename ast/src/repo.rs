@@ -691,11 +691,10 @@ impl Repo {
         let fname = path.display().to_string();
 
         let rel = path.strip_prefix(&self.root).unwrap_or(path);
-        let rel_str = rel.display().to_string();
-        let in_skipped_dir = conf
-            .skip_dirs
-            .iter()
-            .any(|sd| rel_str == *sd || rel_str.starts_with(&format!("{}/", sd)));
+        let in_skipped_dir = conf.skip_dirs.iter().any(|sd| {
+            rel.components()
+                .any(|c| c.as_os_str().to_str() == Some(sd.as_str()))
+        });
         if in_skipped_dir {
             return true;
         }
@@ -875,10 +874,13 @@ fn skip_dir(entry: &DirEntry, skip_dirs: &[String], root: &PathBuf) -> bool {
     }
     let entry_path = entry.path();
     let relative = entry_path.strip_prefix(root).unwrap_or(entry_path);
-    let relative_str = relative.display().to_string();
-    let should_skip = skip_dirs
-        .iter()
-        .any(|sd| relative_str == *sd || relative_str.starts_with(&format!("{}/", sd)));
+    // Match any path component by name so that e.g. "migrate" skips "db/migrate" as well as
+    // top-level "migrate/".
+    let should_skip = skip_dirs.iter().any(|sd| {
+        relative
+            .components()
+            .any(|c| c.as_os_str().to_str() == Some(sd.as_str()))
+    });
     should_skip
 }
 fn only_files(path: &std::path::Path, only_include_files: &[String]) -> bool {
