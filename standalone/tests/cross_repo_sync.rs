@@ -99,6 +99,38 @@ fn linked_requests(g: &mut GraphOps) -> BTreeSet<String> {
         .collect()
 }
 
+fn function_calls(g: &mut GraphOps) -> BTreeSet<String> {
+    g.graph
+        .find_nodes_with_edge_type(NodeType::Function, NodeType::Function, EdgeType::Calls)
+        .iter()
+        .map(|(src, dst)| format!("{} -> {}", src.name, dst.name))
+        .collect()
+}
+
+fn integration_test_calls(g: &mut GraphOps) -> BTreeSet<String> {
+    g.graph
+        .find_nodes_with_edge_type(
+            NodeType::IntegrationTest,
+            NodeType::Function,
+            EdgeType::Calls,
+        )
+        .iter()
+        .map(|(src, dst)| format!("{} -> {}", src.name, dst.name))
+        .collect()
+}
+
+fn integration_test_endpoint_calls(g: &mut GraphOps) -> BTreeSet<String> {
+    g.graph
+        .find_nodes_with_edge_type(
+            NodeType::IntegrationTest,
+            NodeType::Endpoint,
+            EdgeType::Calls,
+        )
+        .iter()
+        .map(|(src, dst)| format!("{} -> {}", src.name, dst.name))
+        .collect()
+}
+
 fn expected(items: &[&str]) -> BTreeSet<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -121,6 +153,70 @@ fn baseline_edges() -> BTreeSet<String> {
         "GET /people/{id}",
         "POST /auth/login",
     ])
+}
+
+fn baseline_function_calls() -> BTreeSet<String> {
+    expected(&[
+        "main -> NewRouter",
+        "Login -> writeJSON",
+        "ListBounties -> AllBounties",
+        "ListBounties -> writeJSON",
+        "CreateBounty -> SaveBounty",
+        "CreateBounty -> writeJSON",
+        "GetBounty -> FindBounty",
+        "GetBounty -> writeJSON",
+        "UpdateBounty -> SaveBounty",
+        "UpdateBounty -> writeJSON",
+        "DeleteBounty -> RemoveBounty",
+        "ListPeople -> AllPeople",
+        "ListPeople -> writeJSON",
+        "GetPerson -> FindPerson",
+        "GetPerson -> writeJSON",
+        "GetWorkspace -> writeJSON",
+    ])
+}
+
+fn evolved_function_calls() -> BTreeSet<String> {
+    expected(&[
+        "main -> NewRouter",
+        "Login -> writeJSON",
+        "ListBounties -> AllBounties",
+        "ListBounties -> writeJSON",
+        "CreateBounty -> SaveBounty",
+        "CreateBounty -> writeJSON",
+        "GetBounty -> FindBounty",
+        "GetBounty -> writeJSON",
+        "UpdateBounty -> SaveBounty",
+        "UpdateBounty -> writeJSON",
+        "AssignBounty -> FindBounty",
+        "AssignBounty -> SaveBounty",
+        "AssignBounty -> writeJSON",
+        "ListUsers -> AllPeople",
+        "ListUsers -> writeJSON",
+        "GetUser -> FindPerson",
+        "GetUser -> writeJSON",
+        "GetWorkspace -> writeJSON",
+        "ListWorkspaceBounties -> AllBounties",
+        "ListWorkspaceBounties -> writeJSON",
+    ])
+}
+
+fn expected_test_calls() -> BTreeSet<String> {
+    expected(&[
+        "TestListBounties -> ListBounties",
+        "TestLoginRejectsBadBody -> Login",
+    ])
+}
+
+fn expected_test_endpoint_calls() -> BTreeSet<String> {
+    expected(&[
+        "TestListBounties -> /bounties",
+        "TestLoginRejectsBadBody -> /auth/login",
+    ])
+}
+
+fn unmodified_caller_probes() -> [&'static str; 2] {
+    ["main -> NewRouter", "Login -> writeJSON"]
 }
 
 fn evolved_edges() -> BTreeSet<String> {
@@ -205,6 +301,116 @@ async fn test_backward_sync_full_reindex() {
         calls_edges(&mut g),
         baseline_edges(),
         "backward sync must full re-index and revert the graph to baseline"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sync_preserves_calls_from_unmodified_files() {
+    let state = test_state();
+    let mut g = fresh_graph().await;
+
+    reset_clones();
+    let _ = ingest(State(state.clone()), Json(body(BE, Some("before"))))
+        .await
+        .expect("backend ingest failed");
+
+    let baseline = function_calls(&mut g);
+    for probe in unmodified_caller_probes() {
+        assert!(
+            baseline.contains(probe),
+            "baseline missing call edge {probe}; full set: {baseline:?}"
+        );
+    }
+    assert_eq!(
+        baseline,
+        baseline_function_calls(),
+        "baseline function call graph"
+    );
+    assert_eq!(
+        integration_test_calls(&mut g),
+        expected_test_calls(),
+        "baseline test-to-function call edges"
+    );
+    assert_eq!(
+        integration_test_endpoint_calls(&mut g),
+        expected_test_endpoint_calls(),
+        "baseline test-to-endpoint call edges"
+    );
+    let baseline_pairs = g.graph.find_nodes_with_edge_type(
+        NodeType::Function,
+        NodeType::Function,
+        EdgeType::Calls,
+    );
+    assert_eq!(
+        baseline_pairs.len(),
+        baseline.len(),
+        "duplicate baseline function call edges"
+    );
+
+    let auth_file = "fayekelmith/graph-update-backend/handlers/auth.go";
+    let muted = g
+        .set_node_muted(&NodeType::Function, "Login", auth_file, true)
+        .await
+        .unwrap_or(0);
+    assert!(muted > 0, "expected to mute the Login function node");
+
+    sync_repo(&state, BE, "after").await;
+
+    let evolved = function_calls(&mut g);
+    for probe in unmodified_caller_probes() {
+        assert!(
+            evolved.contains(probe),
+            "call edge from unmodified file lost after sync: {probe}"
+        );
+    }
+    assert!(
+        !evolved.contains("DeleteBounty -> RemoveBounty"),
+        "call edge from deleted function survived sync"
+    );
+    assert!(
+        !evolved.contains("ListPeople -> AllPeople"),
+        "call edge from renamed-away function survived sync"
+    );
+    assert_eq!(
+        evolved,
+        evolved_function_calls(),
+        "evolved function call graph"
+    );
+    assert_eq!(
+        integration_test_calls(&mut g),
+        expected_test_calls(),
+        "test-to-function call edges from unmodified test file lost after sync"
+    );
+    assert_eq!(
+        integration_test_endpoint_calls(&mut g),
+        expected_test_endpoint_calls(),
+        "test-to-endpoint call edges from unmodified test file lost after sync"
+    );
+    let evolved_pairs = g.graph.find_nodes_with_edge_type(
+        NodeType::Function,
+        NodeType::Function,
+        EdgeType::Calls,
+    );
+    assert_eq!(
+        evolved_pairs.len(),
+        evolved.len(),
+        "duplicate function call edges after sync"
+    );
+    let test_pairs = g.graph.find_nodes_with_edge_type(
+        NodeType::IntegrationTest,
+        NodeType::Function,
+        EdgeType::Calls,
+    );
+    assert_eq!(
+        test_pairs.len(),
+        expected_test_calls().len(),
+        "duplicate test call edges after sync"
+    );
+    assert!(
+        g.is_node_muted(&NodeType::Function, "Login", auth_file)
+            .await
+            .unwrap_or(false),
+        "mute on re-parsed caller file lost after sync"
     );
 }
 

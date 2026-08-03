@@ -143,6 +143,15 @@ impl GraphOps {
 
                 let muted_nodes = self.collect_muted_nodes_for_files(&absolute_files).await?;
 
+                let root_prefix = format!("{}/", graph_root);
+                let caller_files: Vec<String> = self
+                    .graph
+                    .get_incoming_edge_source_files(&absolute_files)
+                    .await?
+                    .iter()
+                    .filter_map(|f| f.strip_prefix(&root_prefix).map(str::to_string))
+                    .collect();
+
                 info!(
                     "[incremental] removing existing nodes for {} modified file(s)",
                     modified_files.len()
@@ -157,10 +166,19 @@ impl GraphOps {
                     modified_files.len()
                 );
 
+                let mut parse_files = modified_files;
+                if !caller_files.is_empty() {
+                    info!(
+                        "[incremental] re-parsing {} caller file(s) with edges into modified files",
+                        caller_files.len()
+                    );
+                    parse_files.extend(caller_files);
+                }
+
                 let mut subgraph_repos = Repo::new_multi_detect(
                     &repo_path,
                     Some(repo_url.to_string()),
-                    modified_files,
+                    parse_files,
                     vec![stored_hash.to_string(), current_hash.to_string()],
                     use_lsp,
                 )
