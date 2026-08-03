@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { db } from "../graph/neo4j.js";
+import { toNum } from "../graph/types.js";
 import {
   loadStepMeta,
   loadSearchProvenance,
@@ -138,13 +139,6 @@ function parseSessionMessages(filePath: string): {
     toolCallCount: toolSequence.length,
     messageCount,
   };
-}
-
-function toNum(v: any): number {
-  if (v == null) return 0;
-  if (typeof v === "object" && typeof v.toNumber === "function")
-    return v.toNumber();
-  return Number(v) || 0;
 }
 
 function calcCost(
