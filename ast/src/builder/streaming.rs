@@ -1,10 +1,11 @@
 #![cfg(feature = "neo4j")]
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::time::Instant;
 
 use crate::builder::utils::log_stage_timing;
-use crate::lang::graphs::{neo4j::*, Graph, Neo4jGraph};
+use crate::lang::graphs::{neo4j::*, Graph, Neo4jGraph, Node};
 use crate::lang::{EdgeType, NodeData, NodeType};
+use crate::utils::create_node_key;
 use neo4rs::BoltMap;
 use shared::Result;
 use tracing::{debug, info};
@@ -70,8 +71,8 @@ impl GraphStreamingUploader {
 pub struct StreamingUploadContext {
     pub neo: Neo4jGraph,
     pub uploader: GraphStreamingUploader,
-    pub flushed_node_count: usize,
-    pub flushed_edge_count: usize,
+    pub flushed_node_keys: HashSet<String>,
+    pub flushed_edge_keys: HashSet<(String, String, EdgeType)>,
 }
 
 impl StreamingUploadContext {
@@ -79,8 +80,8 @@ impl StreamingUploadContext {
         Self {
             neo,
             uploader: GraphStreamingUploader::new(),
-            flushed_node_count: 0,
-            flushed_edge_count: 0,
+            flushed_node_keys: HashSet::new(),
+            flushed_edge_keys: HashSet::new(),
         }
     }
 }
@@ -93,17 +94,33 @@ pub fn nodes_to_bolt_format<'a>(
         .collect()
 }
 
+fn collect_new_nodes<'a, G: Graph>(
+    ctx: &StreamingUploadContext,
+    graph: &'a G,
+) -> Vec<(String, (&'a NodeType, &'a NodeData))> {
+    graph
+        .iter_all_nodes()
+        .filter_map(|(nt, nd)| {
+            let key = create_node_key(&Node::new(nt.clone(), nd.clone()));
+            if ctx.flushed_node_keys.contains(&key) {
+                None
+            } else {
+                Some((key, (nt, nd)))
+            }
+        })
+        .collect()
+}
+
 pub async fn flush_stage_nodes<G: Graph>(
     ctx: &mut StreamingUploadContext,
     graph: &G,
     stage: &str,
 ) -> Result<()> {
-    let all_nodes: Vec<_> = graph.iter_all_nodes().collect();
-    let new_nodes = &all_nodes[ctx.flushed_node_count..];
+    let new_nodes = collect_new_nodes(ctx, graph);
     if !new_nodes.is_empty() {
-        let bolt_nodes = nodes_to_bolt_format(new_nodes.iter().copied());
+        let bolt_nodes = nodes_to_bolt_format(new_nodes.iter().map(|(_, n)| *n));
         ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
-        ctx.flushed_node_count = all_nodes.len();
+        ctx.flushed_node_keys.extend(new_nodes.into_iter().map(|(k, _)| k));
     }
     Ok(())
 }
@@ -113,18 +130,15 @@ pub async fn flush_stage_nodes_and_edges<G: Graph>(
     graph: &G,
     stage: &str,
 ) -> Result<()> {
-    let all_nodes: Vec<_> = graph.iter_all_nodes().collect();
-    let new_nodes = &all_nodes[ctx.flushed_node_count..];
-    if !new_nodes.is_empty() {
-        let bolt_nodes = nodes_to_bolt_format(new_nodes.iter().copied());
-        ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
-        ctx.flushed_node_count = all_nodes.len();
-    }
+    flush_stage_nodes(ctx, graph, stage).await?;
     let all_edges = graph.get_edge_keys();
-    let new_edges: BTreeSet<_> = all_edges.iter().skip(ctx.flushed_edge_count).cloned().collect();
+    let new_edges: BTreeSet<_> = all_edges
+        .into_iter()
+        .filter(|e| !ctx.flushed_edge_keys.contains(e))
+        .collect();
     if !new_edges.is_empty() {
         ctx.uploader.flush_edges_stage(&ctx.neo, stage, &new_edges).await?;
-        ctx.flushed_edge_count = all_edges.len();
+        ctx.flushed_edge_keys.extend(new_edges);
     }
     Ok(())
 }

@@ -1,7 +1,9 @@
 use crate::builder::memory;
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
-use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
+use crate::builder::streaming::{
+    flush_stage_nodes, flush_stage_nodes_and_edges, StreamingUploadContext,
+};
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::graphs::{Edge, Graph, NodeType};
@@ -121,13 +123,16 @@ impl Repos {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
+        let mut streaming_ctx: Option<StreamingUploadContext> =
             if enable_batch_upload && std::any::type_name::<G>().contains("BTreeMapGraph") {
                 let neo = Neo4jGraph::default();
-                if let Err(e) = neo.connect().await {
-                    warn!("Neo4j connection failed, streaming upload will be skipped: {}", e);
+                match neo.connect().await {
+                    Ok(_) => Some(StreamingUploadContext::new(neo)),
+                    Err(e) => {
+                        warn!("Neo4j connection failed, streaming upload will be skipped: {}", e);
+                        None
+                    }
                 }
-                Some((neo, GraphStreamingUploader::new()))
             } else {
                 None
             };
@@ -139,15 +144,9 @@ impl Repos {
             memory::log_memory("repo_done");
 
             #[cfg(feature = "neo4j")]
-            if let Some((neo, uploader)) = &mut streaming_ctx {
-                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
-                if !bolt_nodes.is_empty() {
-                    if let Err(e) = uploader
-                        .flush_stage(neo, "repo_complete", &bolt_nodes)
-                        .await
-                    {
-                        warn!("Neo4j flush failed at stage 'repo_complete': {}", e);
-                    }
+            if let Some(ctx) = &mut streaming_ctx {
+                if let Err(e) = flush_stage_nodes(ctx, &graph, "repo_complete").await {
+                    warn!("Neo4j flush failed at stage 'repo_complete': {}", e);
                 }
             }
         }
@@ -176,22 +175,9 @@ impl Repos {
         memory::log_memory("cross_repo_linking");
 
         #[cfg(feature = "neo4j")]
-        if let Some((neo, uploader)) = &mut streaming_ctx {
-            let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
-            if !bolt_nodes.is_empty() {
-                if let Err(e) = uploader
-                    .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
-                    .await
-                {
-                    warn!("Neo4j flush failed at stage 'cross_repo_linking': {}", e);
-                }
-            }
-            let edges = graph.get_edge_keys();
-            if let Err(e) = uploader
-                .flush_edges_stage(neo, "cross_repo_linking", &edges)
-                .await
-            {
-                warn!("Neo4j edge flush failed at stage 'cross_repo_linking': {}", e);
+        if let Some(ctx) = &mut streaming_ctx {
+            if let Err(e) = flush_stage_nodes_and_edges(ctx, &graph, "cross_repo_linking").await {
+                warn!("Neo4j flush failed at stage 'cross_repo_linking': {}", e);
             }
         }
 
