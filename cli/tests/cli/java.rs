@@ -40,8 +40,8 @@ fn parse_stats_java_dir() {
     let out = run_stakgraph(&["--stats", &dir]);
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("Class                13"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Import               17"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                16"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Import               18"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

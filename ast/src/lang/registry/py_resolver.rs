@@ -311,11 +311,56 @@ pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
     out
 }
 
+pub fn extract_method_return_types(source: &str) -> HashMap<(String, String), String> {
+    let mut out = HashMap::new();
+    let Some(mut parser) = make_parser() else { return out };
+    let Some(tree) = parser.parse(source, None) else { return out };
+    let src = source.as_bytes();
+    let root = tree.root_node();
+
+    for i in 0..root.named_child_count() {
+        let Some(stmt) = root.named_child(i) else { continue };
+        let class_node = if stmt.kind() == "decorated_definition" {
+            stmt.child_by_field_name("definition").unwrap_or(stmt)
+        } else {
+            stmt
+        };
+        if class_node.kind() != "class_definition" {
+            continue;
+        }
+        let Some(name_node) = class_node.child_by_field_name("name") else { continue };
+        let Ok(class_name) = name_node.utf8_text(src) else { continue };
+        let Some(body) = class_node.child_by_field_name("body") else { continue };
+        for j in 0..body.named_child_count() {
+            let Some(member) = body.named_child(j) else { continue };
+            let fn_node = if member.kind() == "decorated_definition" {
+                member.child_by_field_name("definition").unwrap_or(member)
+            } else {
+                member
+            };
+            if fn_node.kind() != "function_definition" {
+                continue;
+            }
+            let Some(fn_name_node) = fn_node.child_by_field_name("name") else { continue };
+            let Ok(fn_name) = fn_name_node.utf8_text(src) else { continue };
+            if fn_name == "__init__" {
+                continue;
+            }
+            let Some(ret_node) = fn_node.child_by_field_name("return_type") else { continue };
+            if let Some(t) = extract_type_annotation(ret_node, src) {
+                out.entry((class_name.to_string(), fn_name.to_string())).or_insert(t);
+            }
+        }
+    }
+    out
+}
+
 // ── expression type evaluator ─────────────────────────────────────────────────
 
 fn eval_expr_type(
     scope: &Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
+    method_returns: &HashMap<(String, String), String>,
     fn_returns: &HashMap<String, (String, String)>,
     node: Node,
     source: &[u8],
@@ -326,6 +371,7 @@ fn eval_expr_type(
             let obj_type = eval_expr_type(
                 scope,
                 class_fields,
+                method_returns,
                 fn_returns,
                 node.child_by_field_name("object")?,
                 source,
@@ -340,6 +386,11 @@ fn eval_expr_type(
                 fn_returns
                     .get(func_name)
                     .map(|(ret_type, def_file)| format!("{}@{}", ret_type, def_file))
+            } else if func.kind() == "attribute" {
+                let obj_node = func.child_by_field_name("object")?;
+                let obj_type = eval_expr_type(scope, class_fields, method_returns, fn_returns, obj_node, source)?;
+                let method_name = func.child_by_field_name("attribute")?.utf8_text(source).ok()?;
+                method_returns.get(&(base_type(&obj_type).to_string(), method_name.to_string())).cloned()
             } else {
                 None
             }
@@ -347,7 +398,7 @@ fn eval_expr_type(
         "await" => {
             for i in 0..node.named_child_count() {
                 if let Some(child) = node.named_child(i) {
-                    if let Some(t) = eval_expr_type(scope, class_fields, fn_returns, child, source)
+                    if let Some(t) = eval_expr_type(scope, class_fields, method_returns, fn_returns, child, source)
                     {
                         return Some(t);
                     }
@@ -364,6 +415,7 @@ fn eval_expr_type(
 fn resolve_callee<G: Graph>(
     scope: &Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
+    method_returns: &HashMap<(String, String), String>,
     fn_returns: &HashMap<String, (String, String)>,
     graph: &G,
     node: Node,
@@ -393,6 +445,7 @@ fn resolve_callee<G: Graph>(
     let raw_type = eval_expr_type(
         scope,
         class_fields,
+        method_returns,
         fn_returns,
         node.child_by_field_name("object")?,
         source,
@@ -448,6 +501,7 @@ fn try_bind_assignment(
     source: &[u8],
     scope: &mut Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
+    method_returns: &HashMap<(String, String), String>,
     fn_returns: &HashMap<String, (String, String)>,
 ) {
     if node.kind() != "assignment" {
@@ -481,7 +535,7 @@ fn try_bind_assignment(
     }
 
     // x = expr  — infer via eval
-    if let Some(t) = eval_expr_type(scope, class_fields, fn_returns, right, source) {
+    if let Some(t) = eval_expr_type(scope, class_fields, method_returns, fn_returns, right, source) {
         scope_bind(scope, name, &t);
     }
 }
@@ -515,6 +569,7 @@ fn walk_node<G: Graph>(
     scope: &mut Scope,
     enclosing_class: Option<&str>,
     class_fields: &HashMap<String, HashMap<String, String>>,
+    method_returns: &HashMap<(String, String), String>,
     fn_returns: &HashMap<String, (String, String)>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
@@ -536,6 +591,7 @@ fn walk_node<G: Graph>(
                             scope,
                             class_name.as_deref(),
                             class_fields,
+                            method_returns,
                             fn_returns,
                             graph,
                             out,
@@ -554,6 +610,7 @@ fn walk_node<G: Graph>(
                 scope,
                 enclosing_class,
                 class_fields,
+                method_returns,
                 fn_returns,
                 graph,
                 out,
@@ -587,6 +644,7 @@ fn walk_node<G: Graph>(
                     scope,
                     enclosing_class,
                     class_fields,
+                    method_returns,
                     fn_returns,
                     graph,
                     out,
@@ -599,7 +657,7 @@ fn walk_node<G: Graph>(
         "call" => {
             if let Some(func_node) = node.child_by_field_name("function") {
                 if let Some(target) =
-                    resolve_callee(scope, class_fields, fn_returns, graph, func_node, source, file, import_sources)
+                    resolve_callee(scope, class_fields, method_returns, fn_returns, graph, func_node, source, file, import_sources)
                 {
                     // Key by the attribute identifier position (the method name)
                     let pos = func_node
@@ -616,6 +674,7 @@ fn walk_node<G: Graph>(
                         scope,
                         enclosing_class,
                         class_fields,
+                        method_returns,
                         fn_returns,
                         graph,
                         out,
@@ -628,7 +687,7 @@ fn walk_node<G: Graph>(
         "expression_statement" => {
             if let Some(inner) = node.named_child(0) {
                 if inner.kind() == "assignment" {
-                    try_bind_assignment(inner, source, scope, class_fields, fn_returns);
+                    try_bind_assignment(inner, source, scope, class_fields, method_returns, fn_returns);
                 }
                 // Still walk for nested calls
                 walk_node(
@@ -637,6 +696,7 @@ fn walk_node<G: Graph>(
                     scope,
                     enclosing_class,
                     class_fields,
+                    method_returns,
                     fn_returns,
                     graph,
                     out,
@@ -654,6 +714,7 @@ fn walk_node<G: Graph>(
                         scope,
                         enclosing_class,
                         class_fields,
+                        method_returns,
                         fn_returns,
                         graph,
                         out,
@@ -691,6 +752,7 @@ pub fn resolve_file_calls<G: Graph>(
     source: &str,
     file: &str,
     class_fields: &HashMap<String, HashMap<String, String>>,
+    method_returns: &HashMap<(String, String), String>,
     fn_returns: &HashMap<String, (String, String)>,
     import_sources: &HashMap<(String, String), String>,
     var_types: &HashMap<(String, String), String>,
@@ -719,6 +781,7 @@ pub fn resolve_file_calls<G: Graph>(
         &mut scope,
         None,
         class_fields,
+        method_returns,
         fn_returns,
         graph,
         &mut out,

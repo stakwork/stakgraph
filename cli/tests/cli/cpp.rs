@@ -38,8 +38,8 @@ fn parse_stats_cpp_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             3"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             110"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Class                1"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             113"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                2"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

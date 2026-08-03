@@ -9,6 +9,7 @@ pub struct PythonRegistry {
     methods: HashMap<(String, String), String>,
     pub(super) import_sources: HashMap<(String, String), String>,
     pub(super) class_fields: HashMap<String, HashMap<String, String>>,
+    method_returns: HashMap<(String, String), String>,
     resolved: HashMap<(String, usize, usize), NodeKeys>,
 }
 
@@ -19,6 +20,7 @@ impl PythonRegistry {
             methods: HashMap::new(),
             import_sources: HashMap::new(),
             class_fields: HashMap::new(),
+            method_returns: HashMap::new(),
             resolved: HashMap::new(),
         };
 
@@ -84,6 +86,10 @@ impl PythonRegistry {
                     .entry((file.clone(), var_name))
                     .or_insert(type_name);
             }
+            let method_rets = py_resolver::extract_method_return_types(source);
+            for (key, ret) in method_rets {
+                reg.method_returns.entry(key).or_insert(ret);
+            }
         }
 
         // Build fn_returns: func_name → (return_type, defining_file)
@@ -106,6 +112,7 @@ impl PythonRegistry {
                     source,
                     file,
                     &reg.class_fields,
+                    &reg.method_returns,
                     &fn_returns,
                     &reg.import_sources,
                     &reg.var_types,

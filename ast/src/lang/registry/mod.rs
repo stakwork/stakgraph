@@ -1,3 +1,7 @@
+pub mod c_registry;
+pub mod c_resolver;
+pub mod cpp_registry;
+pub mod cpp_resolver;
 pub mod cs_resolver;
 pub mod csharp_registry;
 pub mod scope;
@@ -49,6 +53,8 @@ pub fn build(
         Language::Kotlin => Some(Box::new(kotlin_registry::KotlinRegistry::new(graph, filez))),
         Language::Swift => Some(Box::new(swift_registry::SwiftRegistry::new(graph, filez))),
         Language::Php => Some(Box::new(php_registry::PhpRegistry::new(graph, filez))),
+        Language::C => Some(Box::new(c_registry::CRegistry::new(graph, filez))),
+        Language::Cpp => Some(Box::new(cpp_registry::CppRegistry::new(graph, filez))),
         _ => None,
     }
 }
