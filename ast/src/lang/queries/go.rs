@@ -185,6 +185,9 @@ impl Stack for Go {
                         ]
                         field: (field_identifier) @{FUNCTION_NAME}
                     )
+                    (type_instantiation_expression
+                        type: (type_identifier) @{FUNCTION_NAME}
+                    )
                 ]
                 arguments: (argument_list) @{ARGUMENTS}
             ) @{FUNCTION_CALL}"
