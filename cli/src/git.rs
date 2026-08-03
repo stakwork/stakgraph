@@ -117,7 +117,7 @@ pub fn list_commits_for_paths(
 pub fn read_file_at_rev(repo_path: &str, rev: &str, file_path: &str) -> Result<Option<Vec<u8>>> {
     let spec = format!("{}:{}", rev, file_path);
     let output = std::process::Command::new("git")
-        .args(["show", "--", &spec])
+        .args(["show", "--end-of-options", &spec])
         .current_dir(repo_path)
         .output()
         .map_err(|e| Error::internal(format!("Failed to run git show: {}", e)))?;
