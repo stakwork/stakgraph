@@ -697,11 +697,21 @@ class Db {
     }
   }
 
-  async get_node_with_related(ref_id: string) {
+  async get_node_with_related(
+    ref_id: string,
+    depth: number = 100,
+    node_type: NodeType[] = [],
+    edge_type: EdgeType[] = [],
+    limit: number = 25,
+  ) {
     const session = this.resilientSession();
     try {
-      const result = await session.run(Q.GET_NODE_WITH_RELATED_QUERY, {
+      const result = await session.run(Q.SUBGRAPH_ALL_QUERY, {
         ref_id,
+        depth,
+        limit,
+        node_filter: node_type.length > 0 ? node_type.join("|") : null,
+        edge_filter: edge_type.length > 0 ? edge_type.join("|") : null,
       });
 
       if (result.records.length === 0) {
@@ -709,7 +719,7 @@ class Db {
       }
 
       const record = result.records[0];
-      const allNodesArray = record.get("allNodes");
+      const allNodesArray = record.get("nodes");
       const edgesArray = record.get("edges");
 
       // Process nodes
