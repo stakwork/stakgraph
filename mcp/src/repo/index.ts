@@ -376,7 +376,7 @@ export async function repo_agent(req: Request, res: Response) {
       const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
-      const { streamResult, finalizeSession } = await stream_context(
+      const { streamResult, finalizeSession, closeMcpClients } = await stream_context(
         promptInput,
         repoDir,
         {
@@ -457,6 +457,8 @@ export async function repo_agent(req: Request, res: Response) {
         .finally(async () => {
           res.off("close", onClientClose);
           await finalizeSession();
+          // After finalizeSession: it awaits streamResult.steps/.usage.
+          await closeMcpClients();
           unregisterAbortController(body.sessionId);
           endTracking(opId);
         });
