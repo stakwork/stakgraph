@@ -15,7 +15,7 @@ pub async fn validate_callback_url_async(raw: &str) -> Result<Url, shared::Error
         let allow_insecure = std::env::var("ALLOW_INSECURE_WEBHOOKS")
             .ok()
             .map(|v| v == "true")
-            .unwrap_or(true);
+            .unwrap_or(false);
         if !allow_insecure {
             return Err(shared::Error::validation("Callback_url must use https"));
         }
