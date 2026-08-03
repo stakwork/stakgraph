@@ -237,7 +237,7 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
         let canonical_path = std::fs::canonicalize(file_path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| file_path.clone());
-        let language = Language::from_path(file_path);
+        let language = crate::utils::detect_language_for_file(file_path);
         match language {
             Some(lang) => {
                 if let Some((_, file_list)) = files_by_lang.iter_mut().find(|(l, _)| *l == lang) {
