@@ -21,7 +21,10 @@ export function use_stagehand(): boolean {
 export function bearerToken(req: Request, res: Response, next: NextFunction) {
   const apiToken = process.env.API_TOKEN;
   if (!apiToken) {
-    return next();
+    res
+      .status(500)
+      .json({ error: "Server misconfiguration: API_TOKEN is not set" });
+    return;
   }
   const requestToken =
     req.header("Authorization") || req.header("authorization");

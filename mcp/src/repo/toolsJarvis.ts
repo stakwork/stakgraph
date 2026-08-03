@@ -161,6 +161,7 @@ export interface OntologyEdge {
   edge_type: string;
   source_type: string;
   target_type: string;
+  applies_to?: string;
 }
 
 export interface OntologyPayload {
@@ -228,6 +229,7 @@ export function buildOntologyPayload(
       edge_type: e.edge_type as string,
       source_type: e.source_type as string,
       target_type: e.target_type as string,
+      ...(e.applies_to !== undefined ? { applies_to: e.applies_to as string } : {}),
     };
     const key = `${triple.edge_type}|${triple.source_type}|${triple.target_type}`;
     if (!edgeSeen.has(key)) {
