@@ -1,6 +1,7 @@
 import { SimpleGitOptions, SimpleGit, simpleGit } from "simple-git";
 import path from "path";
 import fs from "fs";
+import { redactCredentials } from "./utils.js";
 
 // Fail immediately on credential prompts instead of blocking on a TTY
 process.env.GIT_TERMINAL_PROMPT = "0";
@@ -130,7 +131,10 @@ async function cloneMultipleRepos(
     if (result.status === "fulfilled") {
       succeeded.push(url);
     } else {
-      const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      // `msg` is raw git stderr, which carries the inlined PAT.
+      const msg = redactCredentials(
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      );
       failed.push({ url, error: msg });
       console.warn(`[clone] Failed to clone ${url}: ${msg}`);
     }

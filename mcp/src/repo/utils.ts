@@ -55,6 +55,17 @@ export function maxOutputTokensFor(provider?: string): number {
   return provider === "anthropic" ? 128_000 : 64_000;
 }
 
+/**
+ * Strip the userinfo section out of any URL embedded in `text`.
+ *
+ * `cloneRepo` inlines the caller's PAT into the clone URL, and git echoes the
+ * whole remote back in its stderr on failure — which reaches the HTTP
+ * response, the `.reqs/*.json` files, `GET /progress`, and the webhook.
+ */
+export function redactCredentials(text: string): string {
+  return text.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s/@]*@/g, "$1***@");
+}
+
 export function createHasEndMarkerCondition<
   T extends ToolSet
 >(): StopCondition<T> {
