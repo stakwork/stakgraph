@@ -491,7 +491,8 @@ function isAbortError(err: unknown): boolean {
   return false;
 }
 
-async function prepareAgent(
+// Exported for tests.
+export async function prepareAgent(
   prompt: string | ModelMessage[],
   repoPath: string,
   opts: GetContextOptions,

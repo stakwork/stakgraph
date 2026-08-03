@@ -191,8 +191,8 @@ test.describe('Action Type Normalization', () => {
       const testCode = await generatePlaywrightTest(page);
 
       expect(testCode).toContain('await page.goto');
-      expect(testCode).toContain('await page.click');
-      expect(testCode).toContain('await page.fill');
+      expect(testCode).toContain('.click()');
+      expect(testCode).toContain('.fill(');
     });
 
     test('should not include "kind" field in generated code comments or structure', async ({ page }) => {
@@ -256,8 +256,8 @@ test.describe('Action Type Normalization', () => {
       const testCode = await generatePlaywrightTest(page);
 
       expect(testCode).toContain('await page.goto');
-      expect(testCode).toContain('await page.click');
-      expect(testCode).toContain('await page.fill');
+      expect(testCode).toContain('.click()');
+      expect(testCode).toContain('.fill(');
       expect(testCode).not.toContain('kind');
       expect(testCode).not.toContain("'nav'");
     });

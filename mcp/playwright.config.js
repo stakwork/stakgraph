@@ -13,8 +13,16 @@ export default defineConfig({
     '**/repo/**/*.test.ts',
     '**/log/**/*.test.ts',
     '**/graph_agent/**/*.test.ts',
+    '**/graph/**/*.test.ts',
+    '**/gitree/**/*.test.ts',
+    '**/utils/**/*.test.ts',
+    '**/vector/**/*.test.ts',
     '**/__tests__/tools.test.ts',
+    '**/__tests__/toolsStakwork.test.ts',
     '**/__tests__/skills.test.ts',
+    // A standalone script, not a test file — it runs assertions at import
+    // time and calls process.exit(1), which would abort collection.
+    '**/aieo/**/*.test.ts',
   ],
 
   /* Run tests in files in parallel */

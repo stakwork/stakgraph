@@ -1,6 +1,7 @@
 import { Node, Neo4jNode, ReturnNode, NodeType, toNum } from "./types.js";
 import { Data_Bank } from "./neo4j.js";
 import { simpleGit } from "simple-git";
+import gitUrlParse from "git-url-parse";
 import path from "path";
 import fg from "fast-glob";
 import fs from "fs/promises";
@@ -22,23 +23,14 @@ export function normalizeRepoParam(value?: string): string | undefined {
   const input = value.trim();
   if (!input) return undefined;
 
-  if (/^[^\s\/]+\/[^\s\/]+$/.test(input)) {
-    return input.replace(/\.git$/, "");
-  }
-
-  let clean = input.replace(/\.git$/, "");
-
-  const sshMatch = clean.match(/^git@[^:]+:(.+)$/);
-  if (sshMatch) {
-    clean = sshMatch[1];
-  } else {
-    clean = clean.replace(/^https?:\/\//, "");
-    clean = clean.replace(/^[^\/]+\//, "");
-  }
-
-  const parts = clean.split("/").filter(Boolean);
-  if (parts.length >= 2) {
-    return `${parts[0]}/${parts[1]}`;
+  // Ingestion names Repository nodes `{owner}/{name}` from these same
+  // git-url-parse fields (ast/src/builder/core.rs), so derive them the same
+  // way rather than slicing path segments by hand.
+  try {
+    const { owner, name } = gitUrlParse(input);
+    if (owner && name) return `${owner}/${name}`;
+  } catch (_) {
+    // Not a git url — fall through and use the value as given.
   }
 
   return input;

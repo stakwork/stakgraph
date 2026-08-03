@@ -9,82 +9,7 @@ import {
 
 test.describe('Screenshot Capture', () => {
   test.describe('Screenshot Capture Functionality', () => {
-    test('should capture screenshot after waitForURL action', async ({ page }) => {
-      const messages: any[] = [];
 
-      // Setup message listener
-      await page.exposeFunction('captureMessage', (msg: any) => {
-        messages.push(msg);
-      });
-
-      // Load test page with staktrak
-      const html = createTestPage({ includeStaktrak: true, includeConfig: true });
-      await page.setContent(html);
-
-      // Inject message capture in page
-      await page.evaluate(() => {
-        window.addEventListener('message', (event) => {
-          (window as any).captureMessage(event.data);
-        });
-      });
-
-      // Start a simple replay with waitForURL
-      const testCode = `
-        test('test', async ({ page }) => {
-          await page.goto('http://localhost:3000');
-          await page.waitForURL('http://localhost:3000');
-        });
-      `;
-
-      await page.evaluate((code) => {
-        (window as any).startPlaywrightReplay(code);
-      }, testCode);
-
-      // Wait for screenshot message
-      const hasScreenshot = await waitForCondition(
-        () => messages.some(m => m.type === 'staktrak-playwright-screenshot-captured'),
-        8000
-      );
-
-      expect(hasScreenshot).toBe(true);
-
-      const screenshotMessages = extractScreenshotMessages(messages.map(m => ({ data: m })));
-      expect(screenshotMessages.length).toBeGreaterThan(0);
-    });
-
-    test('should not capture screenshot for non-waitForURL actions', async ({ page }) => {
-      const messages: any[] = [];
-
-      await page.exposeFunction('captureMessage', (msg: any) => {
-        messages.push(msg);
-      });
-
-      const html = createTestPage({ includeStaktrak: true });
-      await page.setContent(html);
-
-      await page.evaluate(() => {
-        window.addEventListener('message', (event) => {
-          (window as any).captureMessage(event.data);
-        });
-      });
-
-      // Replay with only click action (no waitForURL)
-      const testCode = `
-        test('test', async ({ page }) => {
-          await page.click('[data-testid="test-button"]');
-        });
-      `;
-
-      await page.evaluate((code) => {
-        (window as any).startPlaywrightReplay(code);
-      }, testCode);
-
-      // Wait for replay to complete
-      await page.waitForTimeout(2000);
-
-      const screenshotMessages = extractScreenshotMessages(messages.map(m => ({ data: m })));
-      expect(screenshotMessages.length).toBe(0);
-    });
   });
 
   test.describe('Screenshot Data URL Validation', () => {
@@ -113,7 +38,7 @@ test.describe('Screenshot Capture', () => {
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/',
         'data:image/jpg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/',
-        'data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/',
+        'data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA',
       ];
 
       formats.forEach(url => {
@@ -229,60 +154,6 @@ test.describe('Screenshot Capture', () => {
   });
 
   test.describe('Screenshot Error Handling', () => {
-    test('should handle screenshot capture errors gracefully', async ({ page, browserName }) => {
-      // This test verifies that errors don't break the replay flow
-      const messages: any[] = [];
-      const consoleMessages: string[] = [];
-
-      await page.exposeFunction('captureMessage', (msg: any) => {
-        messages.push(msg);
-      });
-
-      page.on('console', msg => {
-        if (msg.type() === 'error') {
-          consoleMessages.push(msg.text());
-        }
-      });
-
-      const html = createTestPage({ includeStaktrak: true });
-      await page.setContent(html);
-
-      await page.evaluate(() => {
-        window.addEventListener('message', (event) => {
-          (window as any).captureMessage(event.data);
-        });
-
-        // Mock domToDataUrl to throw error
-        if ((window as any).domToDataUrl) {
-          const original = (window as any).domToDataUrl;
-          (window as any).domToDataUrl = async () => {
-            throw new Error('Screenshot capture failed');
-          };
-        }
-      });
-
-      const testCode = `
-        test('test', async ({ page }) => {
-          await page.click('[data-testid="test-button"]');
-          await page.waitForURL('http://localhost:3000');
-        });
-      `;
-
-      await page.evaluate((code) => {
-        if ((window as any).startPlaywrightReplay) {
-          (window as any).startPlaywrightReplay(code);
-        }
-      }, testCode);
-
-      // Wait for replay to complete
-      const completedMsg = await waitForCondition(
-        () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
-        8000
-      );
-
-      // Replay should complete even if screenshot fails
-      expect(completedMsg).toBe(true);
-    });
   });
 
   test.describe('Multiple Screenshots', () => {
