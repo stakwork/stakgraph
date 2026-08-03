@@ -345,7 +345,7 @@ test.describe('Playwright Replay Integration', () => {
       });
     });
 
-    test('should continue replay on action errors', async ({ page }) => {
+    test('should halt replay on action errors (does not run later steps)', async ({ page }) => {
       const html = createTestPage({ includeStaktrak: true });
       await page.setContent(html);
 
@@ -355,7 +355,7 @@ test.describe('Playwright Replay Integration', () => {
         });
       });
 
-      // Test code with invalid selector that will fail
+      // First step fails; the second step must NOT run because replay halts.
       const testCode = `
         test('test', async ({ page }) => {
           await page.click('[data-testid="nonexistent-button"]');
@@ -369,16 +369,19 @@ test.describe('Playwright Replay Integration', () => {
         }
       }, testCode);
 
-      const completed = await waitForCondition(
-        () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
+      const errored = await waitForCondition(
+        () => messages.some(m => m.type === 'staktrak-playwright-replay-error'),
         5000
       );
+      expect(errored).toBe(true);
 
-      // Should complete despite error
-      expect(completed).toBe(true);
-
+      // The failing step is index 0, so replay must stop there and never
+      // reach — or complete — the second step.
       const errorMsgs = messages.filter(m => m.type === 'staktrak-playwright-replay-error');
-      expect(errorMsgs.length).toBeGreaterThan(0);
+      expect(errorMsgs.length).toBe(1);
+      expect(errorMsgs[0].fatal).toBe(true);
+      expect(errorMsgs[0].actionIndex).toBe(0);
+      expect(messages.some(m => m.type === 'staktrak-playwright-replay-completed')).toBe(false);
     });
 
     test('should report error details in error messages', async ({ page }) => {
@@ -416,7 +419,7 @@ test.describe('Playwright Replay Integration', () => {
       expect(typeof errorMsg.error).toBe('string');
     });
 
-    test('should continue capturing screenshots after action errors', async ({ page }) => {
+    test('should capture a screenshot of the failure frame when a step errors', async ({ page }) => {
       const html = createTestPage({ includeStaktrak: true, includeConfig: true });
       await page.setContent(html);
 
@@ -429,7 +432,7 @@ test.describe('Playwright Replay Integration', () => {
       const testCode = `
         test('test', async ({ page }) => {
           await page.click('[data-testid="nonexistent"]');
-          await page.waitForURL('http://localhost:3000');
+          await page.click('[data-testid="test-button"]');
         });
       `;
 
@@ -440,16 +443,20 @@ test.describe('Playwright Replay Integration', () => {
       }, testCode);
 
       await waitForCondition(
-        () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
+        () => messages.some(m => m.type === 'staktrak-playwright-replay-error'),
         8000
       );
 
-      const screenshotMsgs = extractScreenshotMessages(messages.map(m => ({ data: m })));
       const errorMsgs = messages.filter(m => m.type === 'staktrak-playwright-replay-error');
+      expect(errorMsgs.length).toBe(1);
+      expect(errorMsgs[0].fatal).toBe(true);
 
-      // Should have error and still capture screenshot
-      expect(errorMsgs.length).toBeGreaterThan(0);
-      // Screenshot may or may not be captured depending on implementation
+      // A failure screenshot should have been captured and referenced by id on
+      // the error message.
+      const screenshotMsgs = extractScreenshotMessages(messages.map(m => ({ data: m })));
+      expect(screenshotMsgs.length).toBeGreaterThan(0);
+      expect(errorMsgs[0].screenshotId).toBeTruthy();
+      expect(messages.some(m => m.type === 'staktrak-playwright-replay-completed')).toBe(false);
     });
   });
 

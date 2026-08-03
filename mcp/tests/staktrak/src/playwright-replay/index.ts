@@ -45,7 +45,7 @@ function getParentOrigin(): string {
 /**
  * Capture screenshot and send to parent window
  */
-async function captureScreenshot(actionIndex: number, url: string): Promise<void> {
+async function captureScreenshot(actionIndex: number, url: string): Promise<string | null> {
   try {
     // Get screenshot config from STAKTRAK_CONFIG or use defaults
     // Note: In cross-origin iframes, STAKTRAK_CONFIG may not be accessible
@@ -80,8 +80,11 @@ async function captureScreenshot(actionIndex: number, url: string): Promise<void
       },
       getParentOrigin()
     );
+
+    return id;
   } catch (error) {
     console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
+    return null;
   }
 }
 
@@ -175,23 +178,34 @@ async function executeNextPlaywrightAction(): Promise<void> {
       executeNextPlaywrightAction();
     }, 500);
   } catch (error) {
-    state.errors.push(
-      `Action ${state.currentActionIndex + 1}: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
+    const message = error instanceof Error ? error.message : "Unknown error";
+    state.errors.push(`Action ${state.currentActionIndex + 1}: ${message}`);
 
-    state.currentActionIndex++;
+    // Halt the replay: a failed step means everything after it runs against an
+    // unexpected page state, so continuing produces misleading results. Stop here
+    // and let the host surface the failure. (See stakgraph issue #756.)
+    state.status = ReplayStatus.ERROR;
+    state.timeouts.forEach((id) => clearTimeout(id as any));
+    state.timeouts = [];
+
+    // Capture the screen at the point of failure so the host can show *where* it
+    // broke — not just the error text.
+    const screenshotId = await captureScreenshot(
+      state.currentActionIndex,
+      window.location.href
+    );
 
     window.parent.postMessage(
       {
         type: "staktrak-playwright-replay-error",
-        error: error instanceof Error ? error.message : "Unknown error",
-        actionIndex: state.currentActionIndex - 1,
+        error: message,
+        actionIndex: state.currentActionIndex,
         action: action,
+        fatal: true,
+        screenshotId,
       },
       getParentOrigin()
     );
-
-    executeNextPlaywrightAction();
   }
 }
 
