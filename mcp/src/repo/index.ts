@@ -2,6 +2,7 @@ import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context, stream_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig, editorRoots } from "./tools.js";
 import { resolveInCwd } from "./textEdit.js";
+import { redactCredentials } from "./utils.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { ModelMessage } from "ai";
@@ -466,7 +467,9 @@ export async function repo_agent(req: Request, res: Response) {
       unregisterAbortController(body.sessionId);
       endTracking(opId);
       if (!res.headersSent) {
-        res.status(500).json({ error: error.message || "Internal server error" });
+        res.status(500).json({
+          error: redactCredentials(error.message || "Internal server error"),
+        });
       }
       return;
     }
@@ -571,9 +574,12 @@ export async function repo_agent(req: Request, res: Response) {
       })
       .catch((error) => {
         const aborted = abortController.signal.aborted;
+        // This string is persisted to `.reqs/<id>.json`, served by
+        // `GET /progress`, and POSTed to the caller-supplied webhook URL —
+        // scrub any credentialed clone URL git left in it first.
         const errorMessage = aborted
           ? "aborted"
-          : error.message || error.toString();
+          : redactCredentials(error.message || error.toString());
         if (aborted) {
           console.log(`[repo_agent] Run aborted: ${request_id}`);
         } else {

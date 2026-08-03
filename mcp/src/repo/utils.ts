@@ -32,6 +32,23 @@ function countTokens(text: string): number {
   return Math.ceil(text.length / 3);
 }
 
+/**
+ * Strip the userinfo section out of any URL embedded in `text`.
+ *
+ * `cloneRepo` authenticates by inlining the caller's PAT into the clone URL
+ * (`https://x-access-token:<PAT>@github.com/...`), and git echoes that whole
+ * remote back in its stderr on failure — e.g. "fatal: Authentication failed
+ * for 'https://x-access-token:<PAT>@github.com/o/r.git/'". Those messages
+ * reach the HTTP response, the `.reqs/*.json` files on disk, `GET /progress`,
+ * and the caller-supplied webhook URL, so they have to be scrubbed before
+ * they leave this process.
+ *
+ * Matches `token@` as well as `user:token@` — the whole userinfo goes.
+ */
+export function redactCredentials(text: string): string {
+  return text.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s/@]*@/g, "$1***@");
+}
+
 export function createHasEndMarkerCondition<
   T extends ToolSet
 >(): StopCondition<T> {
