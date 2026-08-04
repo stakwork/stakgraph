@@ -4,7 +4,48 @@ import {
   extractLeadingJsonObject,
   matchesSchemaShape,
   collectEnumConstraints,
+  redactCredentials,
 } from "../utils.js";
+
+test.describe("redactCredentials", () => {
+  test("strips a user:token pair from a git auth failure", () => {
+    const msg =
+      "fatal: Authentication failed for 'https://x-access-token:ghp_SECRET123@github.com/org/repo.git/'";
+    const out = redactCredentials(msg);
+    expect(out).not.toContain("ghp_SECRET123");
+    expect(out).not.toContain("x-access-token");
+    expect(out).toBe(
+      "fatal: Authentication failed for 'https://***@github.com/org/repo.git/'"
+    );
+  });
+
+  test("strips a bare token used as the username", () => {
+    const out = redactCredentials("remote: https://ghp_SECRET123@github.com/o/r.git");
+    expect(out).not.toContain("ghp_SECRET123");
+    expect(out).toBe("remote: https://***@github.com/o/r.git");
+  });
+
+  test("redacts every occurrence in a multi-repo failure summary", () => {
+    const out = redactCredentials(
+      "a: https://u:t1@github.com/o/a.git failed; b: https://u:t2@github.com/o/b.git failed"
+    );
+    expect(out).not.toContain("t1");
+    expect(out).not.toContain("t2");
+  });
+
+  test("leaves credential-free urls and plain text untouched", () => {
+    expect(redactCredentials("cloning https://github.com/org/repo.git")).toBe(
+      "cloning https://github.com/org/repo.git"
+    );
+    expect(redactCredentials("no url here at all")).toBe("no url here at all");
+  });
+
+  test("does not treat a bare email address as a url userinfo", () => {
+    expect(redactCredentials("contact dev@example.com")).toBe(
+      "contact dev@example.com"
+    );
+  });
+});
 
 test.describe("deepParseJsonStrings", () => {
   test("should parse stringified array into parsed array", () => {
