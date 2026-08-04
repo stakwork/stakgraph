@@ -602,7 +602,7 @@ export async function get_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, repoPath, undefined, ghEnv);
+          return await executeBashCommand(command, repoPath, 60000, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
         }
@@ -617,7 +617,7 @@ export async function get_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, repoPath, undefined, ghEnv);
+          return await executeBashCommand(command, repoPath, 60000, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
         }
