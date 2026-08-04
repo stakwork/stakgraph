@@ -96,6 +96,8 @@ jobs:
 
       - name: Prepare Node Server
         working-directory: ./mcp
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: yarn install
 
       - name: Install dependencies in src/aieo

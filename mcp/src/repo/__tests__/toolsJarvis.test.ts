@@ -6,6 +6,7 @@ import {
   extractNodeRefId,
   extractEdgeRefId,
 } from "../toolsJarvis.js";
+import { bearerToken } from "../../tools/utils.js";
 
 // ── graph_search URL construction helpers ────────────────────────────────────
 // Simulate the URL-building logic from graph_search in toolsJarvis.ts so we
@@ -169,6 +170,11 @@ const fixtureSchemaData = {
     { edge_type: "LINKED_TO", source_type: "Person", target_type: "*" },
     // both-sides wildcard
     { edge_type: "RELATES_TO", source_type: "*", target_type: "*" },
+    // concrete SUPERSEDES rows (no applies_to)
+    { edge_type: "SUPERSEDES", source_type: "Claim", target_type: "Claim" },
+    { edge_type: "SUPERSEDES", source_type: "LegalDocument", target_type: "LegalDocument" },
+    // wildcard SUPERSEDES row — applies_to should be preserved
+    { edge_type: "SUPERSEDES", source_type: "*", target_type: "*", applies_to: "any" },
   ],
 };
 
@@ -238,18 +244,26 @@ test.describe("buildOntologyPayload", () => {
     const knowsEdges = payload.edges!.filter((e) => e.edge_type === "KNOWS");
     expect(knowsEdges).toHaveLength(1);
 
-    // Only compact fields: edge_type, source_type, target_type
+    // Concrete rows and wildcard-without-applies_to have 3 keys; wildcard rows with applies_to have 4
     for (const edge of payload.edges!) {
-      expect(Object.keys(edge)).toEqual(["edge_type", "source_type", "target_type"]);
+      const keys = Object.keys(edge);
+      if (edge.applies_to !== undefined) {
+        expect(keys).toEqual(["edge_type", "source_type", "target_type", "applies_to"]);
+      } else {
+        expect(keys).toEqual(["edge_type", "source_type", "target_type"]);
+      }
     }
 
-    // Sorted by edge_type: ABOUT, AUTHORED, KNOWS, LINKED_TO, RELATES_TO, TAGGED_WITH
+    // Sorted by edge_type: ABOUT, AUTHORED, KNOWS, LINKED_TO, RELATES_TO, SUPERSEDES×3, TAGGED_WITH
     expect(payload.edges!.map((e) => e.edge_type)).toEqual([
       "ABOUT",
       "AUTHORED",
       "KNOWS",
       "LINKED_TO",
       "RELATES_TO",
+      "SUPERSEDES",
+      "SUPERSEDES",
+      "SUPERSEDES",
       "TAGGED_WITH",
     ]);
   });
@@ -268,8 +282,43 @@ test.describe("buildOntologyPayload", () => {
 
   test("both-sides wildcard ('*'/'*') passes through unmodified in edges array", () => {
     const payload = buildOntologyPayload(fixtureSchemaData, true);
-    const relatesTo = payload.edges!.find((e) => e.edge_type === "RELATES_TO");
+    const relatesTo = payload.edges!.find(
+      (e) => e.edge_type === "RELATES_TO" && e.source_type === "*" && e.target_type === "*"
+    );
     expect(relatesTo).toEqual({ edge_type: "RELATES_TO", source_type: "*", target_type: "*" });
+  });
+
+  test("applies_to is present for wildcard edge rows and genuinely absent for concrete rows", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const wildcardEdge = payload.edges!.find(
+      (e) => e.edge_type === "SUPERSEDES" && e.source_type === "*" && e.target_type === "*"
+    );
+    expect(wildcardEdge).toBeDefined();
+    expect(wildcardEdge!.applies_to).toBe("any");
+    // applies_to must be a real key, not just truthy
+    expect(Object.keys(wildcardEdge!)).toContain("applies_to");
+
+    // Concrete SUPERSEDES rows must NOT have applies_to as a key at all
+    const concreteEdges = payload.edges!.filter(
+      (e) => e.edge_type === "SUPERSEDES" && e.source_type !== "*" && e.target_type !== "*"
+    );
+    expect(concreteEdges.length).toBeGreaterThan(0);
+    for (const edge of concreteEdges) {
+      expect(Object.keys(edge)).not.toContain("applies_to");
+    }
+  });
+
+  test("edgeSeen dedup distinguishes wildcard SUPERSEDES from concrete SUPERSEDES rows", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const supersedesEdges = payload.edges!.filter((e) => e.edge_type === "SUPERSEDES");
+    // fixture has: Claim→Claim, LegalDocument→LegalDocument, *→* — all distinct keys
+    expect(supersedesEdges).toHaveLength(3);
+    const keys = supersedesEdges.map(
+      (e) => `${e.edge_type}|${e.source_type}|${e.target_type}`
+    );
+    expect(keys).toContain("SUPERSEDES|Claim|Claim");
+    expect(keys).toContain("SUPERSEDES|LegalDocument|LegalDocument");
+    expect(keys).toContain("SUPERSEDES|*|*");
   });
 
   test("handles missing schemas and edges gracefully", () => {
@@ -351,6 +400,9 @@ test.describe("buildOntologyPayload", () => {
       "KNOWS",
       "LINKED_TO",
       "RELATES_TO",
+      "SUPERSEDES",
+      "SUPERSEDES",
+      "SUPERSEDES",
       "TAGGED_WITH",
     ]);
     // attributes present and correct
@@ -507,5 +559,97 @@ test.describe("extractEdgeRefId", () => {
     expect(extractEdgeRefId({ status: "Error", status_messages: ["boom"] })).toBeUndefined();
     expect(extractEdgeRefId({ edges: [] })).toBeUndefined();
     expect(extractEdgeRefId(undefined)).toBeUndefined();
+  });
+});
+
+// ── bearerToken middleware ───────────────────────────────────────────────────
+
+test.describe("bearerToken", () => {
+  function makeReqRes(authHeader?: string): {
+    req: any;
+    res: any;
+    statusCode: number | undefined;
+    body: any;
+    nextCalled: boolean;
+  } {
+    const ctx: { statusCode: number | undefined; body: any; nextCalled: boolean } = {
+      statusCode: undefined,
+      body: undefined,
+      nextCalled: false,
+    };
+    const req: any = {
+      header: (name: string) =>
+        name.toLowerCase() === "authorization" ? authHeader : undefined,
+    };
+    const res: any = {
+      status(code: number) {
+        ctx.statusCode = code;
+        return res;
+      },
+      json(b: any) {
+        ctx.body = b;
+        return res;
+      },
+    };
+    const next = () => {
+      ctx.nextCalled = true;
+    };
+    return { req, res, next, ...ctx, get statusCode() { return ctx.statusCode; }, get body() { return ctx.body; }, get nextCalled() { return ctx.nextCalled; } };
+  }
+
+  test("returns 500 when API_TOKEN is not set", () => {
+    const saved = process.env.API_TOKEN;
+    delete process.env.API_TOKEN;
+    try {
+      const ctx = makeReqRes();
+      bearerToken(ctx.req, ctx.res, () => { ctx.nextCalled = true; });
+      expect(ctx.statusCode).toBe(500);
+      expect(ctx.nextCalled).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.API_TOKEN = saved;
+    }
+  });
+
+  test("returns 401 when API_TOKEN is set but Authorization header is missing", () => {
+    const saved = process.env.API_TOKEN;
+    process.env.API_TOKEN = "secret-token";
+    try {
+      const ctx = makeReqRes(undefined);
+      bearerToken(ctx.req, ctx.res, () => { ctx.nextCalled = true; });
+      expect(ctx.statusCode).toBe(401);
+      expect(ctx.nextCalled).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.API_TOKEN = saved;
+      else delete process.env.API_TOKEN;
+    }
+  });
+
+  test("returns 401 when API_TOKEN is set but token does not match", () => {
+    const saved = process.env.API_TOKEN;
+    process.env.API_TOKEN = "secret-token";
+    try {
+      const ctx = makeReqRes("Bearer wrong-token");
+      bearerToken(ctx.req, ctx.res, () => { ctx.nextCalled = true; });
+      expect(ctx.statusCode).toBe(401);
+      expect(ctx.nextCalled).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.API_TOKEN = saved;
+      else delete process.env.API_TOKEN;
+    }
+  });
+
+  test("calls next() when API_TOKEN is set and matching Bearer token is supplied", () => {
+    const saved = process.env.API_TOKEN;
+    process.env.API_TOKEN = "secret-token";
+    try {
+      let nextCalled = false;
+      const ctx = makeReqRes("Bearer secret-token");
+      bearerToken(ctx.req, ctx.res, () => { nextCalled = true; });
+      expect(nextCalled).toBe(true);
+      expect(ctx.statusCode).toBeUndefined();
+    } finally {
+      if (saved !== undefined) process.env.API_TOKEN = saved;
+      else delete process.env.API_TOKEN;
+    }
   });
 });
