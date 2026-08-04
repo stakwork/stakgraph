@@ -164,6 +164,12 @@ const fixtureSchemaData = {
     { edge_type: "KNOWS", source_type: "Person", target_type: "Person" },
     // another edge — sorts before KNOWS
     { edge_type: "AUTHORED", source_type: "Person", target_type: "Episode" },
+    // wildcard edges — source_type="*" means "any source type"
+    { edge_type: "TAGGED_WITH", source_type: "*", target_type: "Topic" },
+    // wildcard edges — target_type="*" means "any target type"
+    { edge_type: "LINKED_TO", source_type: "Person", target_type: "*" },
+    // both-sides wildcard
+    { edge_type: "RELATES_TO", source_type: "*", target_type: "*" },
     // concrete SUPERSEDES rows (no applies_to)
     { edge_type: "SUPERSEDES", source_type: "Claim", target_type: "Claim" },
     { edge_type: "SUPERSEDES", source_type: "LegalDocument", target_type: "LegalDocument" },
@@ -238,25 +244,48 @@ test.describe("buildOntologyPayload", () => {
     const knowsEdges = payload.edges!.filter((e) => e.edge_type === "KNOWS");
     expect(knowsEdges).toHaveLength(1);
 
-    // Concrete rows have exactly 3 keys; wildcard rows have 4 keys (adds applies_to)
+    // Concrete rows and wildcard-without-applies_to have 3 keys; wildcard rows with applies_to have 4
     for (const edge of payload.edges!) {
       const keys = Object.keys(edge);
-      if (edge.source_type === "*" || edge.target_type === "*") {
+      if (edge.applies_to !== undefined) {
         expect(keys).toEqual(["edge_type", "source_type", "target_type", "applies_to"]);
       } else {
         expect(keys).toEqual(["edge_type", "source_type", "target_type"]);
       }
     }
 
-    // Sorted by edge_type: ABOUT, AUTHORED, KNOWS, SUPERSEDES×3
+    // Sorted by edge_type: ABOUT, AUTHORED, KNOWS, LINKED_TO, RELATES_TO, SUPERSEDES×3, TAGGED_WITH
     expect(payload.edges!.map((e) => e.edge_type)).toEqual([
       "ABOUT",
       "AUTHORED",
       "KNOWS",
+      "LINKED_TO",
+      "RELATES_TO",
       "SUPERSEDES",
       "SUPERSEDES",
       "SUPERSEDES",
+      "TAGGED_WITH",
     ]);
+  });
+
+  test("wildcard source_type ('*') passes through unmodified in edges array", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const taggedWith = payload.edges!.find((e) => e.edge_type === "TAGGED_WITH");
+    expect(taggedWith).toEqual({ edge_type: "TAGGED_WITH", source_type: "*", target_type: "Topic" });
+  });
+
+  test("wildcard target_type ('*') passes through unmodified in edges array", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const linkedTo = payload.edges!.find((e) => e.edge_type === "LINKED_TO");
+    expect(linkedTo).toEqual({ edge_type: "LINKED_TO", source_type: "Person", target_type: "*" });
+  });
+
+  test("both-sides wildcard ('*'/'*') passes through unmodified in edges array", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const relatesTo = payload.edges!.find(
+      (e) => e.edge_type === "RELATES_TO" && e.source_type === "*" && e.target_type === "*"
+    );
+    expect(relatesTo).toEqual({ edge_type: "RELATES_TO", source_type: "*", target_type: "*" });
   });
 
   test("applies_to is present for wildcard edge rows and genuinely absent for concrete rows", () => {
@@ -369,9 +398,12 @@ test.describe("buildOntologyPayload", () => {
       "ABOUT",
       "AUTHORED",
       "KNOWS",
+      "LINKED_TO",
+      "RELATES_TO",
       "SUPERSEDES",
       "SUPERSEDES",
       "SUPERSEDES",
+      "TAGGED_WITH",
     ]);
     // attributes present and correct
     const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
