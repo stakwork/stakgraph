@@ -13,7 +13,7 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip && \
+RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip unzip && \
     ln -s /usr/bin/python3 /usr/bin/python
 
 # Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)

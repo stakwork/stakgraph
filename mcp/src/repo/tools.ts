@@ -247,7 +247,7 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   fulltext_search:
     "Search the entire codebase for a specific term, using ripgrep (rg). Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
   web_search: "Search the web for information",
-  bash: "Execute bash commands",
+  bash: "Execute bash commands in the cloned repo. This includes unzip for extracting archives, e.g. unzip -q -o <file> -d <dir>. Use -q to keep output small (verbose listings on large archives get truncated at 10,000 characters), and extract into a scratch directory such as one under /tmp when the extracted contents should not become part of the repo tree.",
   final_answer: `Provide the final answer to the user. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
 CRITICAL: Put your ENTIRE response inside the 'answer' parameter as a well-formatted string. Do NOT call this tool with an empty object or without the answer field.
 
@@ -602,7 +602,7 @@ export async function get_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, repoPath, undefined, ghEnv);
+          return await executeBashCommand(command, repoPath, 60000, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
         }
@@ -617,7 +617,7 @@ export async function get_tools(
       }),
       execute: async ({ command }: { command: string }) => {
         try {
-          return await executeBashCommand(command, repoPath, undefined, ghEnv);
+          return await executeBashCommand(command, repoPath, 60000, ghEnv);
         } catch (e) {
           return `Command execution failed: ${e}`;
         }

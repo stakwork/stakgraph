@@ -1,5 +1,5 @@
 import { test, expect } from '../testkit.js';
-import { get_tools } from "../repo/tools.js";
+import { get_tools, getDefaultToolDescriptions } from "../repo/tools.js";
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -183,6 +183,36 @@ test.describe("bash tool registration", () => {
         expect(result, `bash tool should execute for ${provider}`).toContain("test");
       }
     });
+  });
+});
+
+test.describe("bash tool description content", () => {
+  let testRepo: string;
+
+  test.beforeEach(async () => {
+    testRepo = await createTestRepo();
+  });
+
+  test.afterEach(async () => {
+    await cleanupTestRepo(testRepo);
+  });
+
+  test("DEFAULT_DESCRIPTIONS.bash advertises unzip", () => {
+    const descriptions = getDefaultToolDescriptions();
+    expect(descriptions.bash).toContain("unzip");
+    expect(descriptions.bash).toContain("unzip -q -o");
+  });
+
+  test("registered bash tool description contains unzip for openai provider", async () => {
+    const tools = await get_tools(testRepo, "", undefined, undefined, "openai");
+    expect(tools.bash).toBeDefined();
+    expect(tools.bash.description).toContain("unzip");
+  });
+
+  test("registered bash tool description contains unzip for anthropic provider", async () => {
+    const tools = await get_tools(testRepo, "test-key", undefined, undefined, "anthropic");
+    expect(tools.bash).toBeDefined();
+    expect(tools.bash.description).toContain("unzip");
   });
 });
 
