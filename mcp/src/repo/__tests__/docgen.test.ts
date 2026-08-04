@@ -545,3 +545,346 @@ print(repr(ws[sys.argv[3]].value))
     assert.match(result, /generate_xlsx_computed failed:/, "divide-by-zero in ratio must produce non-fatal error");
   });
 });
+
+// ─── Unit: injectParaIds ─────────────────────────────────────────────────────
+
+describe("injectParaIds — unit tests", () => {
+  // Minimal realistic document.xml snippet that exercises all tricky shapes
+  const FIXTURE_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" mc:Ignorable="wpc w14c" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+<w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Title</w:t></w:r></w:p>
+<w:p w:rsidR="00A1B2C3"><w:r><w:t>Para with attr</w:t></w:r></w:p>
+<w:p/>
+<w:p w14:paraId="AABBCCDD" w14:textId="11223344" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:r><w:t>Already stamped</w:t></w:r></w:p>
+<w:pStyle w:val="ShouldNotMatch"/>
+<w:pPr><w:pStyle w:val="AlsoShouldNotMatch"/></w:pPr>
+</w:body>
+</w:document>`;
+
+  it("returns xml and count", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const result = injectParaIds(FIXTURE_XML);
+    assert.ok(typeof result.xml === "string", "xml must be a string");
+    assert.ok(typeof result.count === "number", "count must be a number");
+  });
+
+  it("declares xmlns:w14 on the document root exactly once", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const { xml } = injectParaIds(FIXTURE_XML);
+    const matches = xml.match(/xmlns:w14=/g) ?? [];
+    // The existing pre-stamped paragraph also has xmlns:w14 on itself — only root is ours
+    assert.ok(
+      xml.includes('xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"'),
+      "must declare w14 namespace"
+    );
+    // Should not be added twice to the <w:document> tag
+    const docTag = xml.match(/<w:document[^>]*>/)?.[0] ?? "";
+    assert.strictEqual(
+      (docTag.match(/xmlns:w14=/g) ?? []).length,
+      1,
+      "xmlns:w14 must appear exactly once on <w:document>"
+    );
+  });
+
+  it("is idempotent: re-running adds xmlns:w14 exactly once", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const { xml: once } = injectParaIds(FIXTURE_XML);
+    const { xml: twice } = injectParaIds(once);
+    const docTag = twice.match(/<w:document[^>]*>/)?.[0] ?? "";
+    assert.strictEqual(
+      (docTag.match(/xmlns:w14=/g) ?? []).length,
+      1,
+      "idempotent: xmlns:w14 still appears exactly once"
+    );
+  });
+
+  it("appends w14 to existing mc:Ignorable token list without duplication", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    // FIXTURE_XML already has mc:Ignorable="wpc w14c" — w14 should be appended
+    const { xml } = injectParaIds(FIXTURE_XML);
+    const docTag = xml.match(/<w:document[^>]*>/)?.[0] ?? "";
+    assert.ok(
+      /mc:Ignorable="[^"]*\bw14\b/.test(docTag),
+      "w14 must appear in mc:Ignorable"
+    );
+    // Must not duplicate existing tokens
+    assert.ok(
+      /mc:Ignorable="wpc w14c w14"/.test(docTag) ||
+      /mc:Ignorable="[^"]*wpc[^"]*w14c[^"]*w14[^"]*"/.test(docTag),
+      "existing tokens preserved, w14 appended"
+    );
+  });
+
+  it("creates mc:Ignorable='w14' when attribute is absent", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const noIgnorable = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hi</w:t></w:r></w:p></w:body></w:document>`;
+    const { xml } = injectParaIds(noIgnorable);
+    const docTag = xml.match(/<w:document[^>]*>/)?.[0] ?? "";
+    assert.ok(docTag.includes('mc:Ignorable="w14"'), "must add mc:Ignorable=\"w14\"");
+    assert.ok(docTag.includes("xmlns:mc="), "must add xmlns:mc when absent");
+  });
+
+  it("does not add xmlns:mc if already present", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const withMc = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><w:body><w:p/></w:body></w:document>`;
+    const { xml } = injectParaIds(withMc);
+    const docTag = xml.match(/<w:document[^>]*>/)?.[0] ?? "";
+    // Should have exactly one xmlns:mc
+    assert.strictEqual(
+      (docTag.match(/xmlns:mc=/g) ?? []).length,
+      1,
+      "xmlns:mc must appear exactly once"
+    );
+  });
+
+  it("stamps a plain <w:p> paragraph", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>`;
+    const { xml: out, count } = injectParaIds(xml);
+    assert.ok(out.includes("w14:paraId="), "must inject w14:paraId");
+    assert.ok(out.includes("w14:textId="), "must inject w14:textId");
+    assert.strictEqual(count, 1, "must stamp exactly 1 paragraph");
+  });
+
+  it("stamps a <w:p attr='x'> paragraph with existing attributes", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p w:rsidR="001122"><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>`;
+    const { xml: out, count } = injectParaIds(xml);
+    assert.ok(out.includes("w14:paraId="), "must inject w14:paraId");
+    assert.strictEqual(count, 1, "must stamp exactly 1 paragraph");
+    // Original attribute must be preserved
+    assert.ok(out.includes('w:rsidR="001122"'), "must preserve existing attributes");
+  });
+
+  it("stamps a self-closing <w:p/> paragraph", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p/></w:body></w:document>`;
+    const { xml: out, count } = injectParaIds(xml);
+    assert.ok(out.includes("w14:paraId="), "self-closing <w:p/> must be stamped");
+    assert.ok(out.includes("w14:textId="), "self-closing <w:p/> must have textId");
+    assert.strictEqual(count, 1, "must stamp exactly 1 self-closing paragraph");
+    // Must remain self-closing
+    assert.ok(/w14:paraId="[0-9A-F]{8}"[^/]*\/>/.test(out) || /w14:paraId="[0-9A-F]{8}" w14:textId="[0-9A-F]{8}"\/>/.test(out),
+      "self-closing tag must still close with />"
+    );
+  });
+
+  it("does NOT match <w:pPr> elements", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr></w:p></w:body></w:document>`;
+    const { xml: out } = injectParaIds(xml);
+    // <w:pPr> and <w:pStyle> must NOT have w14:paraId injected into them
+    const pPrMatch = out.match(/<w:pPr[^>]*>/);
+    assert.ok(!pPrMatch?.[0].includes("w14:paraId"), "<w:pPr> must not receive w14:paraId");
+    const pStyleMatch = out.match(/<w:pStyle[^>]*>/);
+    assert.ok(!pStyleMatch?.[0].includes("w14:paraId"), "<w:pStyle> must not receive w14:paraId");
+  });
+
+  it("does NOT match <w:pStyle> or other <w:p*> elements", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:pStyle w:val="Normal"/><w:pPr/><w:p/></w:body></w:document>`;
+    const { count } = injectParaIds(xml);
+    assert.strictEqual(count, 1, "only the <w:p/> should be counted, not <w:pStyle> or <w:pPr>");
+  });
+
+  it("leaves an existing w14:paraId untouched and does not reuse its value", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const existingId = "AABBCCDD";
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:body>
+<w:p w14:paraId="${existingId}" w14:textId="11223344"><w:r><w:t>Pre-stamped</w:t></w:r></w:p>
+<w:p><w:r><w:t>Unstamped</w:t></w:r></w:p>
+</w:body></w:document>`;
+    const { xml: out, count } = injectParaIds(xml);
+    // Pre-stamped paragraph must retain its original ID
+    assert.ok(out.includes(`w14:paraId="${existingId}"`), "pre-existing paraId must be unchanged");
+    // Only 1 new paragraph stamped
+    assert.strictEqual(count, 1, "only 1 unstamped paragraph should be stamped");
+    // New paraId must not be the same as the existing one
+    const allParaIds = [...out.matchAll(/w14:paraId="([0-9A-F]{8})"/g)].map(m => m[1]);
+    assert.strictEqual(new Set(allParaIds).size, allParaIds.length, "all paraIds must be unique");
+  });
+
+  it("generates uppercase 8-hex-digit IDs only", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p/><w:p/><w:p/>
+</w:body></w:document>`;
+    const { xml: out } = injectParaIds(xml);
+    const ids = [...out.matchAll(/w14:(?:paraId|textId)="([^"]+)"/g)].map(m => m[1]);
+    assert.ok(ids.length >= 6, "3 paragraphs × 2 IDs each = at least 6");
+    for (const id of ids) {
+      assert.match(id, /^[0-9A-F]{8}$/, `ID "${id}" must be uppercase 8-hex digits`);
+      assert.notStrictEqual(id, "00000000", "must never emit 00000000");
+    }
+  });
+
+  it("generates unique IDs across multiple paragraphs", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    // Generate 20 paragraphs to surface collision issues
+    const paras = Array(20).fill("<w:p/>").join("\n");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}</w:body></w:document>`;
+    const { xml: out, count } = injectParaIds(xml);
+    assert.strictEqual(count, 20, "must stamp all 20 paragraphs");
+    const ids = [...out.matchAll(/w14:(?:paraId|textId)="([^"]+)"/g)].map(m => m[1]);
+    assert.strictEqual(new Set(ids).size, ids.length, "all generated IDs must be unique");
+  });
+
+  it("deduplicates new IDs against pre-seeded existing IDs from template", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    // Construct XML with many pre-existing IDs to exercise dedup logic
+    const preSeeded = Array.from({ length: 100 }, (_, i) =>
+      `w14:paraId="${i.toString(16).toUpperCase().padStart(8, "0")}" w14:textId="${(i + 200).toString(16).toUpperCase().padStart(8, "0")}"`
+    );
+    const existingParas = preSeeded
+      .map(attrs => `<w:p ${attrs}><w:r><w:t>x</w:t></w:r></w:p>`)
+      .join("\n");
+    const newPara = `<w:p><w:r><w:t>new</w:t></w:r></w:p>`;
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:body>${existingParas}${newPara}</w:body></w:document>`;
+    const { xml: out, count } = injectParaIds(xml);
+    assert.strictEqual(count, 1, "only the 1 new paragraph should be stamped");
+    const allIds = [...out.matchAll(/w14:(?:paraId|textId)="([^"]+)"/g)].map(m => m[1]);
+    assert.strictEqual(new Set(allIds).size, allIds.length, "no duplicate IDs after dedup");
+  });
+
+  it("never emits 00000000 as an ID", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    const paras = Array(50).fill("<w:p/>").join("\n");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}</w:body></w:document>`;
+    const { xml: out } = injectParaIds(xml);
+    assert.ok(!out.includes('w14:paraId="00000000"'), "must never emit 00000000 as paraId");
+    assert.ok(!out.includes('w14:textId="00000000"'), "must never emit 00000000 as textId");
+  });
+
+  it("fixture: combined shapes in one document", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    // Exercises: plain <w:p>, attributed <w:p>, self-closing <w:p/>,
+    // pre-stamped paragraph, <w:pPr>, <w:pStyle> — all in one string
+    const { xml: out, count } = injectParaIds(FIXTURE_XML);
+    // 3 unstamped paragraphs: plain, with-attr, self-closing
+    assert.strictEqual(count, 3, "must stamp exactly 3 paragraphs (not the pre-stamped one)");
+    // Pre-existing ID must be preserved
+    assert.ok(out.includes('w14:paraId="AABBCCDD"'), "pre-existing paraId must be preserved");
+    // All generated IDs must be uppercase 8-hex
+    const ids = [...out.matchAll(/w14:(?:paraId|textId)="([^"]+)"/g)].map(m => m[1]);
+    for (const id of ids) {
+      assert.match(id, /^[0-9A-F]{8}$/, `ID "${id}" must be uppercase 8-hex`);
+    }
+    // All IDs must be unique
+    assert.strictEqual(new Set(ids).size, ids.length, "all IDs in fixture output must be unique");
+    // w14 namespace declared on root
+    const docTag = out.match(/<w:document[^>]*>/)?.[0] ?? "";
+    assert.ok(docTag.includes("xmlns:w14="), "root must declare xmlns:w14");
+    assert.ok(/mc:Ignorable="[^"]*\bw14\b/.test(docTag), "mc:Ignorable must include w14");
+  });
+});
+
+// ─── Integration: runDocx paraId stamping ────────────────────────────────────
+
+describe(
+  "runDocx — paraId stamping integration",
+  { skip: !hasPandoc ? "pandoc not installed" : undefined },
+  () => {
+    let tmpArtifacts: string;
+
+    before(() => {
+      tmpArtifacts = mkdtempSync(join(tmpdir(), "docgen-paraid-test-"));
+      process.env.AGENT_ARTIFACTS_DIR = tmpArtifacts;
+    });
+
+    after(() => {
+      delete process.env.AGENT_ARTIFACTS_DIR;
+      try { rmSync(tmpArtifacts, { recursive: true, force: true }); } catch {}
+    });
+
+    it("output docx has w14 namespace and every <w:p> has w14:paraId", async () => {
+      const { runDocx } = await import("../docgen.js?t=" + Date.now());
+      const result = await runDocx({
+        markdown: [
+          "# Test Document",
+          "",
+          "First paragraph.",
+          "",
+          "Second paragraph with **bold** text.",
+          "",
+          "Third paragraph.",
+        ].join("\n"),
+      });
+      assert.match(result, /Generated:.*\/repo\/agent\/file\?path=/, "must return download path");
+
+      const match = result.match(/path=(.+)$/);
+      assert.ok(match, "result must have path= param");
+      const filePath = decodeURIComponent(match[1]);
+      assert.ok(existsSync(filePath), `docx file must exist at ${filePath}`);
+
+      // Unzip and inspect with JSZip
+      const JSZip = (await import("jszip")).default;
+      const { readFileSync: rfs } = await import("node:fs");
+      const zip = await JSZip.loadAsync(rfs(filePath));
+
+      // [Content_Types].xml must still be present
+      assert.ok(zip.file("[Content_Types].xml") !== null, "[Content_Types].xml must be present");
+
+      // word/document.xml must exist
+      const docEntry = zip.file("word/document.xml");
+      assert.ok(docEntry !== null, "word/document.xml must exist in the output docx");
+
+      const docXml = await docEntry!.async("string");
+
+      // Must declare xmlns:w14 on root
+      const docTag = docXml.match(/<w:document[^>]*>/)?.[0] ?? "";
+      assert.ok(
+        docTag.includes('xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"'),
+        "document root must declare xmlns:w14"
+      );
+
+      // Must list w14 in mc:Ignorable
+      assert.ok(
+        /mc:Ignorable="[^"]*\bw14\b/.test(docTag),
+        "mc:Ignorable must include w14"
+      );
+
+      // Every <w:p …> must have w14:paraId
+      const paragraphTags = [...docXml.matchAll(/<w:p(?=[ />])[^>]*>/g)].map(m => m[0]);
+      assert.ok(paragraphTags.length > 0, "output document must contain at least one <w:p>");
+      for (const tag of paragraphTags) {
+        assert.ok(
+          tag.includes("w14:paraId="),
+          `paragraph tag missing w14:paraId: ${tag.slice(0, 120)}`
+        );
+      }
+
+      // All paraIds must be unique uppercase 8-hex
+      const allIds = [...docXml.matchAll(/w14:(?:paraId|textId)="([^"]+)"/g)].map(m => m[1]);
+      assert.ok(allIds.length > 0, "must have at least some IDs");
+      for (const id of allIds) {
+        assert.match(id, /^[0-9A-F]{8}$/, `ID "${id}" must be uppercase 8-hex`);
+        assert.notStrictEqual(id, "00000000", "must never emit 00000000");
+      }
+      assert.strictEqual(new Set(allIds).size, allIds.length, "all paraIds must be unique");
+    });
+
+    it("all non-document.xml entries are preserved intact", async () => {
+      const { runDocx } = await import("../docgen.js");
+      const result = await runDocx({ markdown: "# Preservation Test\n\nHello world." });
+      assert.match(result, /Generated:/);
+
+      const filePath = decodeURIComponent(result.match(/path=(.+)$/)![1]);
+      const JSZip = (await import("jszip")).default;
+      const { readFileSync: rfs } = await import("node:fs");
+      const zip = await JSZip.loadAsync(rfs(filePath));
+
+      // Verify essential docx structure entries are present
+      const entryNames = Object.keys(zip.files);
+      assert.ok(entryNames.includes("[Content_Types].xml"), "[Content_Types].xml must be present");
+      assert.ok(
+        entryNames.some(n => n.startsWith("word/")),
+        "word/ directory entries must be present"
+      );
+      assert.ok(
+        entryNames.some(n => n.startsWith("_rels/") || n === "_rels/.rels"),
+        "_rels/ entries must be present"
+      );
+    });
+  }
+);

@@ -76,6 +76,7 @@
     "gitsee-agent": "1.0.19",
     "js-yaml": "4.1.1",
     "jsonwebtoken": "9.0.3",
+    "jszip": "3.10.1",
     "nanoid": "5.1.6",
     "neo4j-driver": "5.28.3",
     "node-cache": "5.1.2",

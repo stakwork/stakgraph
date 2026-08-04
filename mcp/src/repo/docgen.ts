@@ -1,10 +1,11 @@
 import { randomUUID } from "crypto";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, isAbsolute, join, sep } from "node:path";
+import JSZip from "jszip";
 import { AGENT_ARTIFACTS_DIR } from "./artifacts.js";
 
 const execFileAsync = promisify(execFile);
@@ -64,6 +65,98 @@ export interface XlsxInput {
 }
 
 /**
+ * Generate a unique 8-digit uppercase hex ID, avoiding the reserved value
+ * "00000000" and any IDs already in the `used` set. Adds the new ID to `used`.
+ */
+function genParaId(used: Set<string>): string {
+  while (true) {
+    const id = Math.floor(Math.random() * 0xffffffff + 1)
+      .toString(16)
+      .toUpperCase()
+      .padStart(8, "0");
+    if (id !== "00000000" && !used.has(id)) {
+      used.add(id);
+      return id;
+    }
+  }
+}
+
+/**
+ * Post-process a `word/document.xml` string to stamp `w14:paraId` and
+ * `w14:textId` attributes onto every `<w:p>` element that lacks them.
+ *
+ * - Declares `xmlns:w14` on the document root (idempotent).
+ * - Registers `w14` in `mc:Ignorable` (appends if present, creates if absent).
+ * - Matches `<w:p>`, `<w:p …>`, and `<w:p/>` but NOT `<w:pPr>`, `<w:pStyle>`, etc.
+ * - Self-closing `<w:p/>` paragraphs are also stamped.
+ * - Pre-scans existing `w14:paraId`/`w14:textId` values to avoid collisions.
+ * - Never emits the reserved value `00000000`.
+ *
+ * Returns the rewritten XML and the count of paragraphs stamped.
+ */
+export function injectParaIds(documentXml: string): { xml: string; count: number } {
+  // ── 1. Seed the used-ID set from pre-existing values in the XML ─────────
+  const used = new Set<string>();
+  const existingIds = documentXml.matchAll(/w14:(?:paraId|textId)="([0-9A-Fa-f]{8})"/g);
+  for (const m of existingIds) {
+    used.add(m[1].toUpperCase());
+  }
+
+  // ── 2. Ensure xmlns:w14 is declared on the <w:document …> opening tag ───
+  // Match the opening tag of <w:document (everything up to the first >)
+  let xml = documentXml.replace(
+    /(<w:document\b[^>]*)(>)/,
+    (full, attrs, close) => {
+      if (attrs.includes("xmlns:w14=")) return full; // already declared
+
+      // ── 2a. Handle mc:Ignorable ─────────────────────────────────────────
+      let newAttrs = attrs;
+
+      // Ensure xmlns:mc is declared
+      if (!newAttrs.includes("xmlns:mc=")) {
+        newAttrs += ' xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"';
+      }
+
+      // Append w14 to mc:Ignorable or create it
+      if (/mc:Ignorable="([^"]*)"/.test(newAttrs)) {
+        newAttrs = newAttrs.replace(/mc:Ignorable="([^"]*)"/, (_m: string, tokens: string) => {
+          const list = tokens.split(/\s+/).filter(Boolean);
+          if (!list.includes("w14")) list.push("w14");
+          return `mc:Ignorable="${list.join(" ")}"`;
+        });
+      } else {
+        newAttrs += ' mc:Ignorable="w14"';
+      }
+
+      // Add xmlns:w14
+      newAttrs += ' xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"';
+
+      return newAttrs + close;
+    }
+  );
+
+  // ── 3. Stamp each <w:p …> / <w:p> / <w:p/> that lacks w14:paraId ───────
+  // Lookahead ensures we match only true paragraph tags, not <w:pPr>, <w:pStyle>, etc.
+  let count = 0;
+  xml = xml.replace(/<w:p(?=[ />])((?:[^>]|>(?!\/w:p>))*?)(\/?)\s*>/g, (full, inner, selfClose) => {
+    // Skip if already has a paraId
+    if (/w14:paraId=/.test(inner)) return full;
+
+    const paraId = genParaId(used);
+    const textId = genParaId(used);
+    count++;
+
+    // Reconstruct: <w:p {existing attrs} w14:paraId="…" w14:textId="…"[/]>
+    const attrs = inner.trimEnd();
+    const sep = attrs.length > 0 ? " " : "";
+    const sc = selfClose === "/" ? "/" : "";
+    return `<w:p${attrs}${sep}w14:paraId="${paraId}" w14:textId="${textId}"${sc}>`;
+  });
+
+  return { xml, count };
+}
+
+/**
  * Generate a .docx file from Markdown via Pandoc.
  * Returns a string with the download path on success, or a non-fatal error string.
  */
@@ -96,6 +189,31 @@ export async function runDocx(input: DocxInput): Promise<string> {
   try {
     await execFileAsync("pandoc", args);
     console.log(`===> generate_docx: written ${outFile}`);
+
+    // ── Post-process: stamp w14:paraId / w14:textId onto every <w:p> ──────
+    try {
+      const zipData = readFileSync(outFile);
+      const zip = await JSZip.loadAsync(zipData);
+      const docEntry = zip.file("word/document.xml");
+      if (!docEntry) throw new Error("word/document.xml not found in docx");
+
+      const docXml = await docEntry.async("string");
+      const { xml: stamped, count } = injectParaIds(docXml);
+      zip.file("word/document.xml", stamped);
+
+      const buf = await zip.generateAsync({
+        type: "nodebuffer",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 },
+      });
+      writeFileSync(outFile, buf);
+      console.log(`===> generate_docx: stamped ${count} paraIds`);
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error(`===> generate_docx failed (paraId stamping): ${msg}`);
+      return `generate_docx failed: ${msg}`;
+    }
+
     return `Generated: /repo/agent/file?path=${encodeURIComponent(outFile)}`;
   } catch (e: any) {
     const stderr = e?.stderr || String(e);
