@@ -59,6 +59,7 @@ export interface StepMeta {
   step: number;
   turn: number;
   label?: string;
+  finishReason?: string;
   usage: AiUsageWithLegacy;
   cumulativeInput: number;
   cumulativeOutput: number;

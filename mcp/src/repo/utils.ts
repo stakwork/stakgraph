@@ -32,6 +32,15 @@ function countTokens(text: string): number {
   return Math.ceil(text.length / 3);
 }
 
+/**
+ * Hard ceiling on per-step output tokens (thinking + text). Without an
+ * explicit value the provider falls back to its own per-model default —
+ * 4096 for any model id missing from its capability table — which can
+ * truncate a deep thinking pass mid-step and silently end the tool loop
+ * with no answer.
+ */
+export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 64000;
+
 export function createHasEndMarkerCondition<
   T extends ToolSet
 >(): StopCondition<T> {

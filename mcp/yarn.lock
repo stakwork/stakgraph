@@ -2,13 +2,13 @@
 # yarn lockfile v1
 
 
-"@ai-sdk/anthropic@2.0.59", "@ai-sdk/anthropic@3.0.0-beta.66", "@ai-sdk/anthropic@3.0.92", "@ai-sdk/anthropic@^2.0.34":
-  version "3.0.92"
-  resolved "https://registry.npmjs.org/@ai-sdk/anthropic/-/anthropic-3.0.92.tgz"
-  integrity sha512-dFrf4xhx2yM686KHFm76Nn7nBekjkjiw1btqOyR26/kXz58QMguhNsjyvMqPktD8AW/wwTAq0fDRVyDvF2gH1w==
+"@ai-sdk/anthropic@2.0.59", "@ai-sdk/anthropic@3.0.0-beta.66", "@ai-sdk/anthropic@3.0.105", "@ai-sdk/anthropic@3.0.92", "@ai-sdk/anthropic@^2.0.34":
+  version "3.0.105"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-3.0.105.tgz#511a3bcd34c1a1c7bf3dd14b82cd0de6765061f4"
+  integrity sha512-6B9UjgK14JwG4PtyhHKMQrqg49s90FClsreNZ9HmMdSWZ9tJFHuYmy4cauS/BqO/6rKC+qcNEXTP45+qivdypA==
   dependencies:
-    "@ai-sdk/provider" "3.0.13"
-    "@ai-sdk/provider-utils" "4.0.35"
+    "@ai-sdk/provider" "3.0.14"
+    "@ai-sdk/provider-utils" "4.0.41"
 
 "@ai-sdk/azure@^2.0.54":
   version "2.0.91"
@@ -148,14 +148,15 @@
     "@standard-schema/spec" "^1.1.0"
     eventsource-parser "^3.0.8"
 
-"@ai-sdk/provider-utils@4.0.35", "@ai-sdk/provider-utils@^4.0.0":
-  version "4.0.35"
-  resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.35.tgz"
-  integrity sha512-bjYld/2KGPLt78kpqbya+fD4LYS7BqVQJyUjE3qAHrYB0FR2Q90BaWEVIBZaguTWXf/A8L6uG1zO1v9TxVlGWg==
+"@ai-sdk/provider-utils@4.0.41":
+  version "4.0.41"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-4.0.41.tgz#77038b614d4147fde9d903e34bafbb46ca9d668b"
+  integrity sha512-I7hhjfw01yEI8NkuAsT8Mv6xbWFr/lqLXMdaJQ2zWfXEpxog1eT7skDcv1+RY29/+5btzH8wD+vVvy48bk9oNQ==
   dependencies:
-    "@ai-sdk/provider" "3.0.13"
+    "@ai-sdk/provider" "3.0.14"
     "@standard-schema/spec" "^1.1.0"
     eventsource-parser "^3.0.8"
+    undici "^5.29.0"
 
 "@ai-sdk/provider-utils@^3.0.17":
   version "3.0.22"
@@ -165,6 +166,15 @@
     "@ai-sdk/provider" "2.0.1"
     "@standard-schema/spec" "^1.0.0"
     eventsource-parser "^3.0.6"
+
+"@ai-sdk/provider-utils@^4.0.0":
+  version "4.0.35"
+  resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.35.tgz"
+  integrity sha512-bjYld/2KGPLt78kpqbya+fD4LYS7BqVQJyUjE3qAHrYB0FR2Q90BaWEVIBZaguTWXf/A8L6uG1zO1v9TxVlGWg==
+  dependencies:
+    "@ai-sdk/provider" "3.0.13"
+    "@standard-schema/spec" "^1.1.0"
+    eventsource-parser "^3.0.8"
 
 "@ai-sdk/provider@2.0.1":
   version "2.0.1"
@@ -184,6 +194,13 @@
   version "3.0.13"
   resolved "https://registry.npmjs.org/@ai-sdk/provider/-/provider-3.0.13.tgz"
   integrity sha512-ZPtVYt5QIJzOta1kdUiDuCx4HhFkvNPv/rvmZ2b1iXwybYjJsCnNYR4PAw4kW7rgVfDARvHXcU64efWuqNp6bw==
+  dependencies:
+    json-schema "^0.4.0"
+
+"@ai-sdk/provider@3.0.14":
+  version "3.0.14"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider/-/provider-3.0.14.tgz#5893a90e0b5355ec6a5c148f06bd7f08355c1a6f"
+  integrity sha512-5X1k57JBJ4H7H1QjX7CnJYAB1I19r/trVZTMcSms7/kLNZ8RaU4Nt2agcwZzv82Hfx6Q7/TOLU7agAKeFfc8cA==
   dependencies:
     json-schema "^0.4.0"
 
@@ -1236,6 +1253,11 @@
   version "0.27.2"
   resolved "https://registry.yarnpkg.com/@esbuild/win32-x64/-/win32-x64-0.27.2.tgz#9e585ab6086bef994c6e8a5b3a0481219ada862b"
   integrity sha512-sRdU18mcKf7F+YgheI/zGf5alZatMUTKj/jNS6l744f9u3WFu4v7twcUI9vu4mknF4Y9aDlblIie0IM+5xxaqQ==
+
+"@fastify/busboy@^2.0.0":
+  version "2.1.1"
+  resolved "https://registry.yarnpkg.com/@fastify/busboy/-/busboy-2.1.1.tgz#b9da6a878a371829a0502c9b6c1c143ef6663f4d"
+  integrity sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==
 
 "@google/genai@^1.22.0":
   version "1.40.0"
@@ -6116,6 +6138,13 @@ undici-types@~7.10.0:
   version "7.10.0"
   resolved "https://registry.npmjs.org/undici-types/-/undici-types-7.10.0.tgz"
   integrity sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag==
+
+undici@^5.29.0:
+  version "5.29.0"
+  resolved "https://registry.yarnpkg.com/undici/-/undici-5.29.0.tgz#419595449ae3f2cdcba3580a2e8903399bd1f5a3"
+  integrity sha512-raqeBD6NQK4SkWhQzeYKd1KmIG6dllBOTt55Rmkt4HtI9mwdWtJljnrXjAFUBLTSN67HWrOIZ3EPF4kjUw80Bg==
+  dependencies:
+    "@fastify/busboy" "^2.0.0"
 
 universal-user-agent@^6.0.0:
   version "6.0.1"
