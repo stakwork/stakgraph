@@ -23,6 +23,7 @@ import { ContextResult } from "../tools/types.js";
 import {
   logStep,
   extractFinalAnswer,
+  MAX_OUTPUT_TOKENS,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
@@ -761,6 +762,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
+        finishReason: sf.finishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
@@ -832,7 +834,9 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
 function buildCallParams(prepared: PreparedAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
-  const base = abortSignal ? { providerOptions, abortSignal } : { providerOptions };
+  const base = abortSignal
+    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
+    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
   if (previousMessages.length > 0) {
     const messagesToSend =
       typeof finalPrompt === "string"
