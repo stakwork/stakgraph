@@ -163,6 +163,12 @@ const fixtureSchemaData = {
     { edge_type: "KNOWS", source_type: "Person", target_type: "Person" },
     // another edge — sorts before KNOWS
     { edge_type: "AUTHORED", source_type: "Person", target_type: "Episode" },
+    // wildcard edges — source_type="*" means "any source type"
+    { edge_type: "TAGGED_WITH", source_type: "*", target_type: "Topic" },
+    // wildcard edges — target_type="*" means "any target type"
+    { edge_type: "LINKED_TO", source_type: "Person", target_type: "*" },
+    // both-sides wildcard
+    { edge_type: "RELATES_TO", source_type: "*", target_type: "*" },
   ],
 };
 
@@ -237,8 +243,33 @@ test.describe("buildOntologyPayload", () => {
       expect(Object.keys(edge)).toEqual(["edge_type", "source_type", "target_type"]);
     }
 
-    // Sorted by edge_type: ABOUT, AUTHORED, KNOWS
-    expect(payload.edges!.map((e) => e.edge_type)).toEqual(["ABOUT", "AUTHORED", "KNOWS"]);
+    // Sorted by edge_type: ABOUT, AUTHORED, KNOWS, LINKED_TO, RELATES_TO, TAGGED_WITH
+    expect(payload.edges!.map((e) => e.edge_type)).toEqual([
+      "ABOUT",
+      "AUTHORED",
+      "KNOWS",
+      "LINKED_TO",
+      "RELATES_TO",
+      "TAGGED_WITH",
+    ]);
+  });
+
+  test("wildcard source_type ('*') passes through unmodified in edges array", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const taggedWith = payload.edges!.find((e) => e.edge_type === "TAGGED_WITH");
+    expect(taggedWith).toEqual({ edge_type: "TAGGED_WITH", source_type: "*", target_type: "Topic" });
+  });
+
+  test("wildcard target_type ('*') passes through unmodified in edges array", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const linkedTo = payload.edges!.find((e) => e.edge_type === "LINKED_TO");
+    expect(linkedTo).toEqual({ edge_type: "LINKED_TO", source_type: "Person", target_type: "*" });
+  });
+
+  test("both-sides wildcard ('*'/'*') passes through unmodified in edges array", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData, true);
+    const relatesTo = payload.edges!.find((e) => e.edge_type === "RELATES_TO");
+    expect(relatesTo).toEqual({ edge_type: "RELATES_TO", source_type: "*", target_type: "*" });
   });
 
   test("handles missing schemas and edges gracefully", () => {
@@ -314,7 +345,14 @@ test.describe("buildOntologyPayload", () => {
     const payload = buildOntologyPayload(fixtureSchemaData, true, true);
     // edges present and correct
     expect(payload.edges).toBeDefined();
-    expect(payload.edges!.map((e) => e.edge_type)).toEqual(["ABOUT", "AUTHORED", "KNOWS"]);
+    expect(payload.edges!.map((e) => e.edge_type)).toEqual([
+      "ABOUT",
+      "AUTHORED",
+      "KNOWS",
+      "LINKED_TO",
+      "RELATES_TO",
+      "TAGGED_WITH",
+    ]);
     // attributes present and correct
     const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
     expect(person?.attributes).toEqual({ name: "string", age: "?int" });
