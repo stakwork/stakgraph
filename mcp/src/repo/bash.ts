@@ -29,18 +29,18 @@ function execRipgrepCommandDirect(
     process.stdout.on("data", (data) => {
       stdout += data.toString();
 
-      if (stdout.length > 10000) {
-        process.kill("SIGKILL");
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          const truncated =
-            stdout.substring(0, 10000) +
-            "\n\n[... output truncated due to size limit ...]";
-          resolve(truncated);
-        }
-        return;
-      }
+      // if (stdout.length > 10000) {
+      //   process.kill("SIGKILL");
+      //   if (!resolved) {
+      //     resolved = true;
+      //     clearTimeout(timeout);
+      //     const truncated =
+      //       stdout.substring(0, 10000) +
+      //       "\n\n[... output truncated due to size limit ...]";
+      //     resolve(truncated);
+      //   }
+      //   return;
+      // }
     });
 
     process.stderr.on("data", (data) => {
@@ -109,18 +109,18 @@ function execShellCommand(
     process.stdout.on("data", (data) => {
       stdout += data.toString();
 
-      if (stdout.length > 10000) {
-        process.kill("SIGKILL");
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          const truncated =
-            stdout.substring(0, 10000) +
-            "\n\n[... output truncated due to size limit ...]";
-          resolve(truncated);
-        }
-        return;
-      }
+      // if (stdout.length > 10000) {
+      //   process.kill("SIGKILL");
+      //   if (!resolved) {
+      //     resolved = true;
+      //     clearTimeout(timeout);
+      //     const truncated =
+      //       stdout.substring(0, 10000) +
+      //       "\n\n[... output truncated due to size limit ...]";
+      //     resolve(truncated);
+      //   }
+      //   return;
+      // }
     });
 
     process.stderr.on("data", (data) => {
