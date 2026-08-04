@@ -746,7 +746,12 @@ function registerGraphWriteTools(
       "REUSE existing nodes wherever possible: search first, and only create inline when the entity " +
       "genuinely doesn't exist yet — duplicate nodes fragment the graph. " +
       "Node types and the edge type must already exist in the ontology (check with get_ontology); " +
-      "create_schema_if_missing auto-creates a missing edge schema as a last resort.",
+      "create_schema_if_missing auto-creates a missing edge schema as a last resort. " +
+      "WILDCARD EDGE MATCHING: when checking source_type/target_type against get_ontology's edges for validity, " +
+      "an edge entry with \"*\" on either side matches any concrete type on that side — do not require an exact string match. " +
+      "IMPORTANT: \"*\" is valid to SEE in get_ontology's edge output, but is NEVER a valid value to SUPPLY as " +
+      "source_type or target_type when calling create_triplet — supplying \"*\" would create a node of type \"*\", " +
+      "which is an unintended backend sentinel, not a real node type.",
     inputSchema: z.object({
       source_ref_id: z
         .string()
@@ -805,7 +810,10 @@ function registerGraphWriteTools(
         .default(false)
         .describe(
           "Auto-create the edge schema when the (source_type, edge_type, target_type) relationship " +
-          "is not yet in the ontology. Last resort — prefer defining it deliberately with ontology_create_edge.",
+          "is not yet in the ontology. Last resort — prefer defining it deliberately with ontology_create_edge. " +
+          "Before enabling, check get_ontology's edges for an existing wildcard (\"*\") rule covering the same " +
+          "edge_type — a wildcard schema already matches any concrete type pair, so creating a new concrete-type " +
+          "schema on top of it would produce a redundant, overlapping rule.",
         ),
       namespace: z
         .string()
@@ -962,6 +970,13 @@ export function registerJarvisTools(
     "X-Api-Token": process.env.API_TOKEN ?? "",
   };
 
+  // Wildcard sentinel: jarvis-backend uses a real Schema node with type="*" to
+  // mean "this edge type applies to any node type on that side." This sentinel
+  // is created by `_ensure_wildcard_sentinel`, honoured by `create_edge_schema`
+  // (which skips existence checks when source/target is "*"), and used as a
+  // fallback in `get_schema_edge_by_edge_type` — all in
+  // jarvis-backend/api/helper/schema_crud.py. The descriptions below explain
+  // this convention to agents so they can interpret wildcard edges correctly.
   allTools.get_ontology = tool({
     description:
       "Fetch the ontology of the Jarvis knowledge graph: node types (with their domain) " +
@@ -970,7 +985,13 @@ export function registerJarvisTools(
       "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`. " +
       "Relationship edges are omitted by default — graph_neighbors returns edge types live as you traverse. " +
       "Set `include_edges` to also get the full relationship map (source_type -> target_type triples). " +
-      "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status).",
+      "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status). " +
+      "WILDCARD EDGES: when include_edges is true, an edge entry whose source_type and/or target_type is \"*\" " +
+      "means that edge type applies to ANY node type on that side (use \"*\" for source or target to define a wildcard relationship rule). " +
+      "\"*\" is intentionally absent from node_types — it is a backend sentinel, not a real type. " +
+      "Wildcard edges are guaranteed to appear only via the default fetch path; if the backend route applies " +
+      "visibility filtering (get_all_schemas in jarvis-backend filters edges to those whose source/target are " +
+      "in visible_types, silently dropping wildcards), wildcard edges are omitted rather than passed through.",
     inputSchema: z.object({
       include_edges: z
         .boolean()
@@ -979,7 +1000,8 @@ export function registerJarvisTools(
         .describe(
           "Include the full list of relationship edges (source_type/edge_type/target_type triples). " +
           "Off by default — the edge list is large and graph_neighbors surfaces edge types live. " +
-          "Only enable when you need the complete relationship map up front."
+          "Only enable when you need the complete relationship map up front. " +
+          "Edges may include \"*\" as a wildcard source_type/target_type — see the tool description above for what this means."
         ),
       include_attributes: z
         .boolean()
