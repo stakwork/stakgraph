@@ -460,13 +460,29 @@ export function getModel(
         ...(extraHeaders && { headers: extraHeaders }),
       });
       return openai(modelId);
-    case "openrouter":
+    case "openrouter": {
       const openrouter = createOpenRouter({
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
       });
-      return openrouter(modelId);
+      // Kimi models are served by many OpenRouter hosts (Fireworks, Together,
+      // Chutes, ...) but only Moonshot's own endpoint has automatic prompt
+      // caching (reads at 0.25x, writes free). Left unpinned, long agentic
+      // runs get routed to non-caching hosts and re-pay the full conversation
+      // on every step. Prefer Moonshot, keep fallbacks for availability.
+      // usage.include surfaces cached-token counts in the response usage.
+      const isMoonshot =
+        modelId.startsWith("moonshotai/") ||
+        modelId.toLowerCase().includes("kimi");
+      const modelOptions: OpenRouterModelOptions = {
+        usage: { include: true },
+        ...(isMoonshot
+          ? { provider: { order: ["moonshotai"], allowFallbacks: true } }
+          : {}),
+      };
+      return openrouter(modelId, modelOptions);
+    }
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
