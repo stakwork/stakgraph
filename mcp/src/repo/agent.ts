@@ -16,6 +16,7 @@ import {
   getModelDetails,
   getProviderOptions,
   normalizeUsage,
+  withProviderCacheUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, redactToolsConfig } from "./tools.js";
 import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
@@ -777,7 +778,10 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = normalizeUsage(sf.usage);
+      const u = withProviderCacheUsage(
+        normalizeUsage(sf.usage),
+        sf.providerMetadata as Record<string, any> | undefined
+      );
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({

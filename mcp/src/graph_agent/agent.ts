@@ -9,6 +9,7 @@ import {
 import {
   addUsage,
   normalizeUsage,
+  withProviderCacheUsage,
   getModelDetails,
   getProviderOptions,
   ModelName,
@@ -204,7 +205,10 @@ async function prepareGraphAgent(
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = normalizeUsage(sf.usage);
+      const u = withProviderCacheUsage(
+        normalizeUsage(sf.usage),
+        sf.providerMetadata as Record<string, any> | undefined
+      );
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({

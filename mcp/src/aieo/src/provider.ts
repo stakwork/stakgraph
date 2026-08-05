@@ -358,6 +358,63 @@ export function getModelDetails(
   return { model, provider, apiKey, contextLimit, modelId }
 }
 
+/**
+ * Workaround for the v6-alpha @openrouter/ai-sdk-provider: its Responses-API
+ * path silently drops modelOptions and extraBody, so OpenRouter provider
+ * routing preferences never reach the request. Kimi/Moonshot models must be
+ * routed to Moonshot's own endpoint to get automatic prompt caching — every
+ * other kimi host re-bills the full conversation on each agent step.
+ *
+ * This patches globalThis.fetch ONCE, rewriting only POST bodies to
+ * OpenRouter's /responses endpoint for kimi/moonshot models that don't
+ * already carry a provider preference. Any parse failure falls through to the
+ * original request untouched. Remove when the SDK forwards model options.
+ */
+let openrouterFetchPatched = false;
+function patchOpenRouterFetchForProviderRouting(): void {
+  if (openrouterFetchPatched) return;
+  openrouterFetchPatched = true;
+  const realFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (async (input: any, init?: any) => {
+    try {
+      const url: string | undefined =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input?.url;
+      if (url && url.startsWith("https://openrouter.ai/api/v1/responses")) {
+        let raw: string | undefined;
+        if (typeof init?.body === "string") {
+          raw = init.body;
+        } else if (typeof Request !== "undefined" && input instanceof Request) {
+          raw = await input.clone().text();
+        }
+        if (raw) {
+          const body = JSON.parse(raw);
+          const model = typeof body?.model === "string" ? body.model : "";
+          const isMoonshot =
+            model.startsWith("moonshotai/") ||
+            model.toLowerCase().includes("kimi");
+          if (isMoonshot && !body.provider) {
+            // Wire format (snake_case) — this bypasses the SDK's serializers
+            body.provider = { order: ["moonshotai"], allow_fallbacks: true };
+            const patched = JSON.stringify(body);
+            if (typeof init?.body === "string") {
+              init = { ...init, body: patched };
+            } else {
+              input = new Request(input, { body: patched });
+            }
+          }
+        }
+      }
+    } catch {
+      // fall through with the original request
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+}
+
 export function getModel(
   provider: Provider,
   opts?: string | GetModelOptions
@@ -471,7 +528,14 @@ export function getModel(
       // caching (reads at 0.25x, writes free). Left unpinned, long agentic
       // runs get routed to non-caching hosts and re-pay the full conversation
       // on every step. Prefer Moonshot, keep fallbacks for availability.
-      // usage.include surfaces cached-token counts in the response usage.
+      //
+      // The v6-alpha @openrouter/ai-sdk-provider drops modelOptions AND
+      // extraBody on its Responses-API path (verified by inspecting request
+      // bodies), so routing preferences cannot be passed through the SDK —
+      // they are injected at the fetch layer instead (see
+      // patchOpenRouterFetchForProviderRouting). The model options below are
+      // kept so this starts working through the SDK once it forwards them.
+      patchOpenRouterFetchForProviderRouting();
       const isMoonshot =
         modelId.startsWith("moonshotai/") ||
         modelId.toLowerCase().includes("kimi");

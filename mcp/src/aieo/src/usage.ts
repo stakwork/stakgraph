@@ -87,6 +87,29 @@ export function normalizeUsage(raw?: RawUsage | null): AiUsageWithLegacy {
   });
 }
 
+/**
+ * Fold provider-metadata cache info into a normalized usage. The v6-alpha
+ * OpenRouter provider drops inputTokensDetails from the SDK usage object
+ * (cached-token counts survive only in providerMetadata.openrouter.usage),
+ * so without this every OpenRouter step reports cache_read 0 regardless of
+ * whether the upstream host actually cached.
+ */
+export function withProviderCacheUsage(
+  usage: AiUsageWithLegacy,
+  providerMetadata?: Record<string, any> | null
+): AiUsageWithLegacy {
+  const cached =
+    providerMetadata?.openrouter?.usage?.promptTokensDetails?.cachedTokens;
+  if (typeof cached !== "number" || cached <= 0 || usage.cache_read > 0) {
+    return usage;
+  }
+  return withLegacyUsage({
+    ...usage,
+    input: Math.max(usage.input - cached, 0),
+    cache_read: cached,
+  });
+}
+
 export function addUsage(...usages: Array<AiUsage | undefined | null>): AiUsage {
   return usages.reduce<AiUsage>((total, usage) => {
     if (!usage) return total;
