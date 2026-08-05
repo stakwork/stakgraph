@@ -215,6 +215,7 @@ async function prepareGraphAgent(
         step: stepMetas.length,
         turn: turnIndex,
         finishReason: sf.finishReason,
+        rawFinishReason: sf.rawFinishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,

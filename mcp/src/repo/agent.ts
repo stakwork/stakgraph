@@ -484,13 +484,29 @@ interface PreparedAgent {
   startTime: number;
   stepMetas: StepMeta[];
   turnIndex: number;
-  // True when the provider can't report stop-sequence matches (any
-  // OpenAI-compatible backend): stopSequences is disabled so [END_OF_ANSWER]
-  // stays in the generated text and completion is detected from the text.
-  markerInText: boolean;
+  // Live view of the in-flight step's message array (updated by prepareStep);
+  // used to resume from the exact failure point on a 400 retry.
+  messagesRef: MessagesRef;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
   mcpClients: McpToolsResult["clients"];
+}
+
+/**
+ * Append the API response body to an error's message when the message alone
+ * is uninformative (e.g. a bare "Bad Request"). Mutates the error so every
+ * downstream consumer of err.message — session end records, async request
+ * records, webhooks — sees the real reason.
+ */
+function enrichErrorMessage(err: unknown): void {
+  if (!(err instanceof Error)) return;
+  const body =
+    (err as any)?.responseBody ?? (err as any)?.cause?.responseBody;
+  if (!body) return;
+  const detail = String(body).slice(0, 600);
+  if (!err.message.includes(detail.slice(0, 40))) {
+    err.message = `${err.message} — ${detail}`;
+  }
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -756,15 +772,6 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     previousMessages.filter((m) => m.role === "user").length +
     (hasSystemTurn ? 2 : 1);
 
-  // Anthropic reports a matched stop sequence (raw stop_reason
-  // "stop_sequence" + providerMetadata), so we can strip the marker from
-  // output via stopSequences and still detect proper completion. OpenAI-
-  // compatible providers (OpenRouter/Kimi, GPT, Gemini) report a plain "stop"
-  // either way — for those, leave stopSequences off so [END_OF_ANSWER]
-  // remains in the text as the completion signal (extractFinalAnswer strips
-  // it from the returned answer).
-  const markerInText = provider !== "anthropic";
-
   const agent = new ToolLoopAgent({
     model,
     // Transparent replay: no code-generated system prompt — the system turn
@@ -772,7 +779,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     instructions: transparent ? undefined : instructions,
     tools,
     stopWhen,
-    ...(markerInText ? {} : { stopSequences: ["[END_OF_ANSWER]"] }),
+    stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
       logStep(sf.content);
       if (onStepEvent) {
@@ -788,6 +795,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         step: stepMetas.length,
         turn: turnIndex,
         finishReason: sf.finishReason,
+        rawFinishReason: sf.rawFinishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
@@ -849,7 +857,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     startTime,
     stepMetas,
     turnIndex,
-    markerInText,
+    messagesRef,
     provenanceCollector,
     abortSignal: opts.abortSignal,
     mcpClients,
@@ -935,44 +943,102 @@ export async function get_context(
   let streamTotalUsage: LanguageModelUsage | undefined;
   // Each segment pairs the user-facing message that started it (the real user
   // message, then continuation nudges) with the steps it produced, so session
-  // persistence can interleave them faithfully.
-  const segments: { userMessage: ModelMessage; steps: StepResult<ToolSet>[] }[] = [];
+  // persistence can interleave them faithfully. priorMessages holds messages
+  // recovered from a 400-retried attempt (see runWithBadRequestRetry).
+  const segments: {
+    userMessage: ModelMessage;
+    priorMessages: ModelMessage[];
+    steps: StepResult<ToolSet>[];
+  }[] = [];
+
+  // Retry a model call once when the API rejects it with a 400 mid-run. The
+  // AI SDK only auto-retries 408/409/429/5xx, so a transient 400 sixty steps
+  // into a run otherwise kills it outright (observed in prod; replaying the
+  // identical conversation succeeded). prepareStep keeps messagesRef.current
+  // pointed at the exact messages of the in-flight step, so the retry resumes
+  // from the failure point — prompt caching makes the re-send cheap. Returns
+  // the messages generated during the failed attempt (recovered) so
+  // persistence and later continuations can account for them.
+  let badRequestRetried = false;
+  const runWithBadRequestRetry = async (
+    params: ReturnType<typeof buildCallParams>,
+    sentMessages: ModelMessage[]
+  ): Promise<{
+    streamResult: Awaited<ReturnType<typeof agent.stream>>;
+    segSteps: StepResult<ToolSet>[];
+    effectiveSent: ModelMessage[];
+  }> => {
+    try {
+      const streamResult = await agent.stream(params);
+      const segSteps = [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])];
+      return { streamResult, segSteps, effectiveSent: sentMessages };
+    } catch (err) {
+      const statusCode =
+        (err as any)?.statusCode ?? (err as any)?.cause?.statusCode;
+      const current = prepared.messagesRef.current as ModelMessage[];
+      if (badRequestRetried || statusCode !== 400 || current.length <= sentMessages.length) {
+        throw err;
+      }
+      badRequestRetried = true;
+      console.warn(
+        `===> model call rejected with 400 at message ${current.length} (sent ${sentMessages.length}); retrying once from the failure point`
+      );
+      const retryMessages = [...current];
+      const streamResult = await agent.stream(
+        continueCallParams(prepared, retryMessages)
+      );
+      const segSteps = [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])];
+      return { streamResult, segSteps, effectiveSent: retryMessages };
+    }
+  };
+
   try {
-    let streamResult = await agent.stream(buildCallParams(prepared));
+    let sent = initialModelMessages(prepared);
+    let run = await runWithBadRequestRetry(buildCallParams(prepared), sent);
     segments.push({
       userMessage: prepared.storageUserMessage,
-      steps: [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])],
+      priorMessages: run.effectiveSent.slice(sent.length),
+      steps: run.segSteps,
     });
-    streamTotalUsage = await streamResult.totalUsage;
+    sent = run.effectiveSent;
+    streamTotalUsage = await run.streamResult.totalUsage;
 
     // The model occasionally ends its turn with a text-only statement of
     // intent ("Let me now run X...") without emitting the tool calls, or a
     // step gets truncated mid-thinking — either way the tool loop exits with
     // no real answer. Nudge it to continue, at most MAX_CONTINUATIONS times.
-    let convo: ModelMessage[] | undefined;
     for (let attempt = 1; attempt <= MAX_CONTINUATIONS; attempt++) {
       const allSteps = segments.flatMap((s) => s.steps);
-      if (!needsContinuation(allSteps, prepared.markerInText)) break;
-      const generated = (await streamResult.response).messages as ModelMessage[];
-      if (!convo) convo = initialModelMessages(prepared);
+      if (!needsContinuation(allSteps)) break;
+      const generated = (await run.streamResult.response).messages as ModelMessage[];
       const nudge: ModelMessage = { role: "user", content: CONTINUATION_NUDGE };
-      convo = [...convo, ...generated, nudge];
+      const convo = [...sent, ...generated, nudge];
       console.warn(
         `===> agent ended turn without finishing (rawFinishReason: ${
           allSteps[allSteps.length - 1]?.rawFinishReason
         }); continuation attempt ${attempt}/${MAX_CONTINUATIONS}`
       );
-      streamResult = await agent.stream(continueCallParams(prepared, convo));
+      run = await runWithBadRequestRetry(
+        continueCallParams(prepared, convo),
+        convo
+      );
       segments.push({
         userMessage: nudge,
-        steps: [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])],
+        priorMessages: run.effectiveSent.slice(convo.length),
+        steps: run.segSteps,
       });
-      streamTotalUsage = await streamResult.totalUsage;
+      sent = run.effectiveSent;
+      streamTotalUsage = await run.streamResult.totalUsage;
     }
 
     steps = segments.flatMap((s) => s.steps);
   } catch (err) {
     const aborted = isAbortError(err);
+    // Surface the API's error detail: some failures (e.g. 400s) carry only a
+    // generic statusText in err.message while the real reason is in the
+    // response body. Enrich the error itself so both the session record and
+    // the async-request record (which persist err.message) get the detail.
+    enrichErrorMessage(err);
     if (sessionId) {
       const endTime = new Date();
       await appendSessionEnd(sessionId, {
@@ -1005,9 +1071,14 @@ export async function get_context(
   // response messages only cover that call, and the nudge user messages must
   // be interleaved for the transcript to replay correctly.
   if (sessionId) {
-    const newMessages = segments.flatMap((seg) =>
-      extractMessagesFromSteps(seg.userMessage, seg.steps, sessionConfig)
-    );
+    const newMessages = segments.flatMap((seg) => {
+      const extracted = extractMessagesFromSteps(seg.userMessage, seg.steps, sessionConfig);
+      // Messages recovered from a 400-retried attempt sit between the user
+      // message and the retry call's own response messages.
+      return seg.priorMessages.length > 0
+        ? [extracted[0], ...seg.priorMessages, ...extracted.slice(1)]
+        : extracted;
+    });
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);
     if (provenanceCollector.entries.length > 0) {
@@ -1119,6 +1190,7 @@ export async function stream_context(
         });
       } catch (e) {
         const aborted = isAbortError(e);
+        enrichErrorMessage(e);
         if (aborted) {
           console.log("[stream_context] Stream aborted by client");
         } else {
