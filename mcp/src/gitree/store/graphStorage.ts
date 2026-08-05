@@ -1751,12 +1751,12 @@ export class GraphStorage extends Storage {
       description: props.description,
       prNumbers: props.prNumbers || [],
       commitShas: props.commitShas || [],
-      createdAt: new Date(props.date * 1000),
-      lastUpdated: new Date(props.date * 1000),
+      createdAt: new Date(numberOrUndefined(props.date)! * 1000),
+      lastUpdated: new Date(numberOrUndefined(props.date)! * 1000),
       documentation: props.docs || undefined,
-      cluesCount: props.cluesCount || undefined,
+      cluesCount: numberOrUndefined(props.cluesCount),
       cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
-        ? new Date(props.cluesLastAnalyzedAt * 1000)
+        ? new Date(numberOrUndefined(props.cluesLastAnalyzedAt)! * 1000)
         : undefined,
       usage: usageFromProps(props),
       embedding: props.embeddings || undefined,
@@ -1772,7 +1772,7 @@ export class GraphStorage extends Storage {
       repo: props.repo || undefined,
       title: props.title,
       summary: props.summary,
-      mergedAt: new Date(props.date * 1000),
+      mergedAt: new Date(numberOrUndefined(props.date)! * 1000),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -1791,7 +1791,7 @@ export class GraphStorage extends Storage {
       message: props.message,
       summary: props.summary,
       author: props.author,
-      committedAt: new Date(props.date * 1000),
+      committedAt: new Date(numberOrUndefined(props.date)! * 1000),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -1819,8 +1819,8 @@ export class GraphStorage extends Storage {
       relatedConcepts: props.relatedConcepts || [],
       relatedClues: props.relatedClues || [],
       dependsOn: props.dependsOn || [],
-      createdAt: new Date(props.createdAt * 1000),
-      updatedAt: new Date(props.updatedAt * 1000),
+      createdAt: new Date(numberOrUndefined(props.createdAt)! * 1000),
+      updatedAt: new Date(numberOrUndefined(props.updatedAt)! * 1000),
     };
   }
 
