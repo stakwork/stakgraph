@@ -4,7 +4,38 @@ import {
   extractLeadingJsonObject,
   matchesSchemaShape,
   collectEnumConstraints,
+  extractFinalAnswer,
+  needsContinuation,
+  isContinuationNudge,
+  timeBudgetNudge,
 } from "../utils.js";
+import type { StepResult, ToolSet } from "ai";
+
+// Minimal StepResult factory — only the fields the functions under test read.
+function step(opts: {
+  content?: any[];
+  toolCalls?: any[];
+  finishReason?: string;
+  rawFinishReason?: string;
+}): StepResult<ToolSet> {
+  return {
+    content: opts.content ?? [],
+    toolCalls: opts.toolCalls ?? [],
+    finishReason: opts.finishReason ?? "stop",
+    rawFinishReason: opts.rawFinishReason,
+  } as unknown as StepResult<ToolSet>;
+}
+
+const toolCallStep = (narration?: string) =>
+  step({
+    content: [
+      ...(narration ? [{ type: "text", text: narration }] : []),
+      { type: "tool-call", toolName: "bash" },
+      { type: "tool-result", toolName: "bash", output: "ok" },
+    ],
+    toolCalls: [{ toolName: "bash" }],
+    finishReason: "tool-calls",
+  });
 
 test.describe("deepParseJsonStrings", () => {
   test("should parse stringified array into parsed array", () => {
@@ -334,5 +365,180 @@ test.describe("collectEnumConstraints", () => {
     expect(collectEnumConstraints(schema)).toEqual([
       { path: "choice", values: ["x", "y"] },
     ]);
+  });
+});
+
+test.describe("extractFinalAnswer", () => {
+  test("marker in text: answer is everything before [END_OF_ANSWER]", () => {
+    const steps = [
+      toolCallStep("Investigating."),
+      step({
+        content: [
+          { type: "text", text: "# Report\nThe answer.\n[END_OF_ANSWER]" },
+        ],
+      }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.answer.endsWith("The answer.")).toBe(true);
+    expect(result.answer).not.toContain("[END_OF_ANSWER]");
+    expect(result.tool_use).toBe("text_with_end_marker");
+  });
+
+  test("no marker (stripped by stop sequence): falls back to text after last tool call", () => {
+    const steps = [
+      toolCallStep("Investigating."),
+      step({ content: [{ type: "text", text: "Final answer without marker." }] }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.answer).toBe("Final answer without marker.");
+  });
+
+  test("no tools at all: falls back to all text", () => {
+    const steps = [
+      step({ content: [{ type: "text", text: "Just a direct reply." }] }),
+    ];
+    expect(extractFinalAnswer(steps).answer).toBe("Just a direct reply.");
+  });
+});
+
+test.describe("needsContinuation", () => {
+  test("anthropic stop_sequence finish is a proper termination", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "The answer." }],
+        rawFinishReason: "stop_sequence",
+      }),
+    ];
+    expect(needsContinuation(steps)).toBe(false);
+  });
+
+  test("anthropic end_turn with only a plan is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Let me now run six graph searches." }],
+        rawFinishReason: "end_turn",
+      }),
+    ];
+    expect(needsContinuation(steps)).toBe(true);
+  });
+
+  test("truncation (length) is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({ content: [{ type: "reasoning", text: "hmm" }], finishReason: "length" }),
+    ];
+    expect(needsContinuation(steps)).toBe(true);
+  });
+
+  test("mid-stream error step (e.g. connection drop after reasoning) is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({ content: [{ type: "reasoning", text: "I now have all six documents..." }], finishReason: "error" }),
+    ];
+    expect(needsContinuation(steps)).toBe(true);
+  });
+
+  test("ambiguous raw stop (OpenAI-compatible providers) is left alone", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Some answer." }],
+        rawFinishReason: "stop",
+      }),
+    ];
+    expect(needsContinuation(steps)).toBe(false);
+  });
+
+  test("last step with tool calls (e.g. maxTurns stop) is not a stall", () => {
+    const steps = [toolCallStep(), toolCallStep()];
+    expect(needsContinuation(steps)).toBe(false);
+  });
+
+  test("ask_clarifying_questions is a proper termination", () => {
+    const steps = [
+      step({
+        content: [
+          { type: "tool-result", toolName: "ask_clarifying_questions", output: "{}" },
+        ],
+      }),
+    ];
+    expect(needsContinuation(steps)).toBe(false);
+  });
+
+  test("text containing [END_OF_ANSWER] is a proper termination", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Answer.\n[END_OF_ANSWER]" }],
+        rawFinishReason: "end_turn",
+      }),
+    ];
+    expect(needsContinuation(steps)).toBe(false);
+  });
+});
+
+test.describe("timeBudgetNudge", () => {
+  const MIN = 60_000;
+
+  test("nothing before 50% of budget", () => {
+    expect(timeBudgetNudge(59 * MIN, 120, new Set(), false)).toBe(null);
+  });
+
+  test("each threshold fires once, in order, with escalating urgency", () => {
+    const fired = new Set<number>();
+    const first = timeBudgetNudge(61 * MIN, 120, fired, false);
+    expect(first).toContain("61 of 120 minutes");
+    expect(timeBudgetNudge(62 * MIN, 120, fired, false)).toBe(null);
+    const second = timeBudgetNudge(91 * MIN, 120, fired, false);
+    expect(second).toContain("Start converging");
+    const third = timeBudgetNudge(111 * MIN, 120, fired, false);
+    expect(third).toContain("~9 minutes remain");
+    expect(third).toContain("[END_OF_ANSWER]");
+    expect(timeBudgetNudge(115 * MIN, 120, fired, false)).toBe(null);
+  });
+
+  test("a slow step that jumps past several thresholds fires only the most urgent", () => {
+    const fired = new Set<number>();
+    const nudge = timeBudgetNudge(112 * MIN, 120, fired, false);
+    expect(nudge).toContain("minutes remain");
+    expect(timeBudgetNudge(113 * MIN, 120, fired, false)).toBe(null);
+  });
+
+  test("final warning offers ask_clarifying_questions when enabled", () => {
+    const withAsk = timeBudgetNudge(111 * MIN, 120, new Set(), true);
+    expect(withAsk).toContain("ask_clarifying_questions");
+    const withoutAsk = timeBudgetNudge(111 * MIN, 120, new Set(), false);
+    expect(withoutAsk).not.toContain("ask_clarifying_questions");
+  });
+
+  test("thresholds scale with a non-default budget", () => {
+    const fired = new Set<number>();
+    expect(timeBudgetNudge(14 * MIN, 30, fired, false)).toBe(null);
+    expect(timeBudgetNudge(15 * MIN, 30, fired, false)).toContain("15 of 30 minutes");
+  });
+});
+
+test.describe("isContinuationNudge", () => {
+  test("detects a tagged nudge message", () => {
+    expect(
+      isContinuationNudge({
+        role: "user",
+        content: "You ended your turn without completing the task...",
+        providerOptions: { stakgraph: { continuationNudge: true } },
+      })
+    ).toBe(true);
+  });
+
+  test("real user messages are not nudges", () => {
+    expect(isContinuationNudge({ role: "user", content: "hi" })).toBe(false);
+    expect(
+      isContinuationNudge({
+        role: "user",
+        content: "hi",
+        providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+      })
+    ).toBe(false);
   });
 });

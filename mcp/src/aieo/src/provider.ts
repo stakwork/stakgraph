@@ -6,7 +6,7 @@ import {
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
-import { createOpenRouter, OpenRouterModelOptions } from "@openrouter/ai-sdk-provider";
+import { createOpenRouter, OpenRouterChatSettings } from "@openrouter/ai-sdk-provider";
 
 export type Provider = "anthropic" | "google" | "openai" | "openrouter";
 
@@ -460,13 +460,29 @@ export function getModel(
         ...(extraHeaders && { headers: extraHeaders }),
       });
       return openai(modelId);
-    case "openrouter":
+    case "openrouter": {
       const openrouter = createOpenRouter({
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
       });
-      return openrouter(modelId);
+      // Kimi models are served by many OpenRouter hosts (Fireworks, Together,
+      // Chutes, ...) but only Moonshot's own endpoint has automatic prompt
+      // caching (reads at 0.25x, writes free). Left unpinned, long agentic
+      // runs get routed to non-caching hosts and re-pay the full conversation
+      // on every step. Prefer Moonshot, keep fallbacks for availability.
+      // usage.include surfaces cached-token counts in the response usage.
+      const isMoonshot =
+        modelId.startsWith("moonshotai/") ||
+        modelId.toLowerCase().includes("kimi");
+      const settings: OpenRouterChatSettings = {
+        usage: { include: true },
+        ...(isMoonshot
+          ? { provider: { order: ["moonshotai"], allow_fallbacks: true } }
+          : {}),
+      };
+      return openrouter(modelId, settings);
+    }
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -506,8 +522,14 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // OpenAI
   "gpt-5": 128_000,
   "gpt-4.1-mini": 1_000_000,
-  // OpenRouter
-  "moonshotai/kimi-k2.6": 128_000,
+  // OpenRouter — values from the OpenRouter model catalog
+  // (https://openrouter.ai/api/v1/models, context_length).
+  "moonshotai/kimi-k3": 1_048_576,
+  "moonshotai/kimi-k2.7-code": 262_144,
+  "moonshotai/kimi-k2.6": 262_144,
+  "moonshotai/kimi-k2.5": 262_144,
+  "moonshotai/kimi-k2-thinking": 262_144,
+  "moonshotai/kimi-k2": 131_072,
 };
 
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
@@ -660,7 +682,7 @@ export function getProviderOptions(
       };
     case "openrouter":
       return {
-        openrouter: { usage: { include: true } } satisfies OpenRouterModelOptions,
+        openrouter: { usage: { include: true } } satisfies OpenRouterChatSettings,
       };
     default:
       throw new Error(`Unsupported provider: ${provider}`);

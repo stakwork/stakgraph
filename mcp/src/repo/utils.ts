@@ -39,7 +39,21 @@ function countTokens(text: string): number {
  * truncate a deep thinking pass mid-step and silently end the tool loop
  * with no answer.
  */
-export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 64000;
+/**
+ * Per-call output-token cap. An explicit MAX_OUTPUT_TOKENS env always wins.
+ * Otherwise the default is provider-aware: Anthropic runs at 128k because
+ * @ai-sdk/anthropic clamps known models down to their true per-model max
+ * (e.g. Opus 5 at 128k) instead of erroring, while OpenAI-compatible hosts
+ * (OpenRouter et al) reject max_tokens above the model limit rather than
+ * clamping, so they keep the conservative 64k default. Thinking tokens count
+ * against this same budget, so headroom matters more than the visible text
+ * length suggests.
+ */
+export function maxOutputTokensFor(provider?: string): number {
+  const env = Number(process.env.MAX_OUTPUT_TOKENS);
+  if (env > 0) return env;
+  return provider === "anthropic" ? 128_000 : 64_000;
+}
 
 export function createHasEndMarkerCondition<
   T extends ToolSet
@@ -54,6 +68,103 @@ export function createHasEndMarkerCondition<
     }
     return false;
   };
+}
+
+/**
+ * True when a run ended without a proper termination and should be nudged to
+ * continue. Proper terminations are: an ask_clarifying_questions call, or the
+ * [END_OF_ANSWER] marker — present in text, or matched as a stop sequence
+ * (surfaced as rawFinishReason "stop_sequence"). A run whose last step has no
+ * tool calls and none of those is either a voluntary early stop (raw
+ * "end_turn" — the model narrated a plan or emitted only reasoning and quit)
+ * or a truncation ("length"); both are recoverable by asking it to continue.
+ *
+ * Detection relies on the raw provider stop reason: a proper Anthropic finish
+ * hits the [END_OF_ANSWER] stop sequence (raw "stop_sequence") while a stall
+ * ends with raw "end_turn". OpenAI-compatible providers report a plain "stop"
+ * either way, so their stalls are not detectable this way and are left alone.
+ */
+export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
+  const last = steps[steps.length - 1];
+  if (!last) return false;
+  // stopWhen (e.g. maxTurns) ended the loop mid-work; not a model stall
+  if ((last.toolCalls?.length ?? 0) > 0) return false;
+  for (const step of steps) {
+    for (const item of step.content) {
+      if (
+        item.type === "tool-result" &&
+        item.toolName === "ask_clarifying_questions"
+      ) {
+        return false;
+      }
+      if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
+        return false;
+      }
+    }
+  }
+  if (last.rawFinishReason === "stop_sequence") return false; // hit [END_OF_ANSWER]
+  return (
+    last.rawFinishReason === "end_turn" ||
+    last.finishReason === "length" ||
+    // A mid-step stream error (observed with Kimi via OpenRouter: the stream
+    // dies right after a reasoning block, before tool calls) is surfaced by
+    // the SDK as a final step with finishReason "error" instead of a thrown
+    // exception — the loop exits and the run would report success with a
+    // garbage answer. The conversation up to the error is intact, so it is
+    // the most recoverable stall of all.
+    last.finishReason === "error"
+  );
+}
+
+/**
+ * Time-budget status nudges, injected between steps as a run approaches the
+ * busy-timeout hard kill (which aborts the stream and discards all work).
+ * Thresholds are fractions of the total budget so they track
+ * BUSY_TIMEOUT_MINUTES overrides: at 120 minutes they fall at 60 / 90 / ~110.
+ * Returns the message for the highest threshold that elapsed time has
+ * crossed and that hasn't fired yet, or null. Crossing a threshold also
+ * marks all lower ones fired, so a single slow step can't queue up stale
+ * lower-urgency nudges behind the current one. The final warning fires with
+ * ~8% of budget left (about 10 minutes at 120) so at least one more step
+ * boundary should occur before the kill.
+ */
+export function timeBudgetNudge(
+  elapsedMs: number,
+  totalMinutes: number,
+  fired: Set<number>,
+  askQuestionsEnabled: boolean
+): string | null {
+  const elapsedMin = Math.floor(elapsedMs / 60_000);
+  const fractions = [0.92, 0.75, 0.5];
+  for (const f of fractions) {
+    if (fired.has(f) || elapsedMin < totalMinutes * f) continue;
+    for (const g of fractions) if (g <= f) fired.add(g);
+    if (f === 0.5) {
+      return `Time status: ${elapsedMin} of ${totalMinutes} minutes elapsed. Pace yourself accordingly.`;
+    }
+    if (f === 0.75) {
+      return `Time status: ${elapsedMin} of ${totalMinutes} minutes elapsed. Start converging: prioritize the essential remaining work and begin producing your deliverables.`;
+    }
+    const remaining = Math.max(totalMinutes - elapsedMin, 1);
+    const askPath = askQuestionsEnabled
+      ? " If you are blocked on information only the user can provide, call ask_clarifying_questions immediately instead."
+      : "";
+    return `Time status: only ~${remaining} minutes remain before this run is forcibly terminated and unfinished work is lost. Stop exploring NOW and write your final answer with what you already have, ending with [END_OF_ANSWER].${askPath}`;
+  }
+  return null;
+}
+
+/**
+ * True for the synthetic "continue" user messages injected after a stall
+ * (see continuationNudge in agent.ts). They are persisted to the session for
+ * transparent replay but are not real user turns: transcript rendering and
+ * turn counting should skip them.
+ */
+export function isContinuationNudge(m: ModelMessage): boolean {
+  return (
+    (m.providerOptions as Record<string, any> | undefined)?.stakgraph
+      ?.continuationNudge === true
+  );
 }
 
 export function createHasAskQuestionsCondition<

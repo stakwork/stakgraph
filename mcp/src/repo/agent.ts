@@ -4,6 +4,7 @@ import {
   ToolLoopAgent,
   ModelMessage,
   StopCondition,
+  StepResult,
   ToolSet,
   jsonSchema,
   stepCountIs,
@@ -15,6 +16,7 @@ import {
   getModelDetails,
   getProviderOptions,
   normalizeUsage,
+  withProviderCacheUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, redactToolsConfig } from "./tools.js";
 import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
@@ -23,7 +25,10 @@ import { ContextResult } from "../tools/types.js";
 import {
   logStep,
   extractFinalAnswer,
-  MAX_OUTPUT_TOKENS,
+  maxOutputTokensFor,
+  needsContinuation,
+  isContinuationNudge,
+  timeBudgetNudge,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
@@ -36,6 +41,7 @@ import {
   getCurrentDateSnippet,
 } from "./utils.js";
 import { LanguageModel } from "ai";
+import { BUSY_TIMEOUT_MINUTES } from "../busy.js";
 import {
   createSession as createNewSession,
   appendSessionEnd,
@@ -64,7 +70,11 @@ import {
 import type { TextPart } from "ai";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
+  const antiStall = `Never end your turn on a plan or a statement of intent. If you are about to write "Let me now..." or "Next I will...", do those things in this same turn by calling the tools instead of describing them. End your turn only once your final answer is written${qs ? ", or you have called ask_clarifying_questions" : ""}.`;
+
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
+
+  ${antiStall}
 
   Write your answer directly as text and end with [END_OF_ANSWER].`;
   
@@ -85,7 +95,9 @@ function SYSTEM_PROMPT_END(qs: boolean) {
   - Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
   - Color picker: Use questionArtifact with type "color_swatch" to show a color picker
   
-  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`
+  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.
+
+  ${antiStall}`
 
   return qs ? qsEnd : normalEnd;
 }
@@ -475,9 +487,32 @@ interface PreparedAgent {
   startTime: number;
   stepMetas: StepMeta[];
   turnIndex: number;
+  // Live view of the in-flight step's message array (updated by prepareStep);
+  // used to resume from the exact failure point on a 400 retry.
+  messagesRef: MessagesRef;
+  // Whether the ask_clarifying_questions tool is available this run; selects
+  // the escape hatch offered in the continuation nudge.
+  askQuestionsEnabled: boolean;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
   mcpClients: McpToolsResult["clients"];
+}
+
+/**
+ * Append the API response body to an error's message when the message alone
+ * is uninformative (e.g. a bare "Bad Request"). Mutates the error so every
+ * downstream consumer of err.message — session end records, async request
+ * records, webhooks — sees the real reason.
+ */
+function enrichErrorMessage(err: unknown): void {
+  if (!(err instanceof Error)) return;
+  const body =
+    (err as any)?.responseBody ?? (err as any)?.cause?.responseBody;
+  if (!body) return;
+  const detail = String(body).slice(0, 600);
+  if (!err.message.includes(detail.slice(0, 40))) {
+    err.message = `${err.message} — ${detail}`;
+  }
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -739,9 +774,12 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
   const stepMetas: StepMeta[] = [];
   let cumInput = 0;
   let cumOutput = 0;
+  const askQuestionsEnabled = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
+  const firedTimeNudges = new Set<number>();
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length +
-    (hasSystemTurn ? 2 : 1);
+    previousMessages.filter(
+      (m) => m.role === "user" && !isContinuationNudge(m)
+    ).length + (hasSystemTurn ? 2 : 1);
 
   const agent = new ToolLoopAgent({
     model,
@@ -756,13 +794,17 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = normalizeUsage(sf.usage);
+      const u = withProviderCacheUsage(
+        normalizeUsage(sf.usage),
+        sf.providerMetadata as Record<string, any> | undefined
+      );
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
         finishReason: sf.finishReason,
+        rawFinishReason: sf.rawFinishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
@@ -772,9 +814,31 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     },
     prepareStep: async ({ steps, messages }) => {
       messagesRef.current = messages as ModelMessage[];
+      // Time-budget nudge: model-facing only (appended per step, not
+      // persisted), so it must not leak into messagesRef used by the
+      // 400-retry resume.
+      const timeNudge = timeBudgetNudge(
+        Date.now() - startTime,
+        BUSY_TIMEOUT_MINUTES,
+        firedTimeNudges,
+        askQuestionsEnabled
+      );
+      if (timeNudge) {
+        console.warn(`===> time-budget nudge injected: ${timeNudge}`);
+      }
+      const withNudge: ModelMessage[] = timeNudge
+        ? [
+            ...(messages as ModelMessage[]),
+            {
+              role: "user",
+              content: timeNudge,
+              providerOptions: { stakgraph: { timeNudge: true } },
+            },
+          ]
+        : (messages as ModelMessage[]);
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
-      const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
+      const truncated = await truncateOldToolResults(withNudge, inputTokens, contextLimit);
       if (truncated === messages) return undefined;
       return { messages: truncated };
     },
@@ -824,19 +888,88 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     startTime,
     stepMetas,
     turnIndex,
+    messagesRef,
+    askQuestionsEnabled,
     provenanceCollector,
     abortSignal: opts.abortSignal,
     mcpClients,
   };
 }
 
+/**
+ * Continuation allowances after the model ends its turn without a proper
+ * termination (no [END_OF_ANSWER], no ask_clarifying_questions, no pending
+ * tool calls). Voluntary stalls (raw "end_turn" — a text-only "Let me
+ * now..." plan) get few nudges: a model still narrating after two won't be
+ * fixed by a third. Token-limit truncations ("length") get more, because
+ * each continuation verifiably extends the answer and a large deliverable
+ * may need several segments; a progress gate in the loop stops empty ones.
+ */
+const MAX_STALL_NUDGES = 2;
+const MAX_LENGTH_CONTINUATIONS = 5;
+
+/**
+ * The two stall types need different instructions. After a token-limit
+ * truncation ("length"), telling the model to "write the final answer" makes
+ * it restart the answer from the top and re-truncate; it must instead pick up
+ * from the cutoff (partial text is already in the conversation and in the
+ * extracted answer, so repeating it duplicates; a cut-off tool call never
+ * executed, so it must be re-issued). After a voluntary stop ("end_turn"),
+ * the nudge must also leave a legitimate way to ask the user something:
+ * without it, a model that stalled because it genuinely needs input gets
+ * pushed toward fabricating an answer instead of asking.
+ */
+type ContinuationKind = "stall" | "length" | "error";
+
+function continuationNudge(
+  askQuestionsEnabled: boolean,
+  kind: ContinuationKind,
+  maxOutputTokens: number
+): string {
+  if (kind === "error") {
+    return "Your previous message was interrupted mid-stream by a transient connection error; nothing after the interruption was received. Continue from where the conversation actually is: any tool call you were about to make never executed — issue it now, and do not repeat text already written. When the answer is complete, end with [END_OF_ANSWER].";
+  }
+  if (kind === "length") {
+    return `Your previous message was cut off by the output token limit (${maxOutputTokens} tokens per message, thinking included). Continue from where the conversation actually is: if a tool call was cut off, it never executed — re-issue it, splitting large writes into several calls each well under that limit. If you were writing your final answer, continue from the exact point it was cut off — do not repeat anything already written. When the answer is complete, end with [END_OF_ANSWER].`;
+  }
+  const askPath = askQuestionsEnabled
+    ? "call ask_clarifying_questions"
+    : "ask your question and end with [END_OF_ANSWER]";
+  return `You ended your turn without completing the task. Do not stop to describe a plan or intention — execute it now: make the tool calls you described, and when you have the final answer, write it followed by [END_OF_ANSWER]. If you are blocked on information only the user can provide, ${askPath} instead of guessing.`;
+}
+
+/** The exact messages sent to the model on the initial call (model-facing, not storage). */
+function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
+  const { finalPrompt, previousMessages, userMessage } = prepared;
+  if (previousMessages.length > 0) {
+    return typeof finalPrompt === "string"
+      ? [...previousMessages, userMessage]
+      : [...previousMessages, ...finalPrompt];
+  }
+  return typeof finalPrompt === "string"
+    ? [{ role: "user", content: finalPrompt }]
+    : [...finalPrompt];
+}
+
+/** Call params for a continuation retry: full conversation so far + nudge. */
+function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
+  const { provider, modelId, abortSignal } = prepared;
+  const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
+  const base = abortSignal
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
+  return { messages, ...base };
+}
+
 /** Build the generate/stream call params from the prepared agent state. */
 function buildCallParams(prepared: PreparedAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
   const base = abortSignal
-    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
-    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
   if (previousMessages.length > 0) {
     const messagesToSend =
       typeof finalPrompt === "string"
@@ -873,12 +1006,154 @@ export async function get_context(
 
   let steps: Awaited<ReturnType<typeof agent.generate>>["steps"] = [];
   let streamTotalUsage: LanguageModelUsage | undefined;
+  // Each segment pairs the user-facing message that started it (the real user
+  // message, then continuation nudges) with the steps it produced, so session
+  // persistence can interleave them faithfully. priorMessages holds messages
+  // recovered from a 400-retried attempt (see runWithBadRequestRetry).
+  const segments: {
+    userMessage: ModelMessage;
+    priorMessages: ModelMessage[];
+    steps: StepResult<ToolSet>[];
+  }[] = [];
+
+  // Retry a model call once when the API rejects it with a 400 mid-run. The
+  // AI SDK only auto-retries 408/409/429/5xx, so a transient 400 sixty steps
+  // into a run otherwise kills it outright (observed in prod; replaying the
+  // identical conversation succeeded). prepareStep keeps messagesRef.current
+  // pointed at the exact messages of the in-flight step, so the retry resumes
+  // from the failure point — prompt caching makes the re-send cheap. Returns
+  // the messages generated during the failed attempt (recovered) so
+  // persistence and later continuations can account for them.
+  let badRequestRetried = false;
+  const runWithBadRequestRetry = async (
+    params: ReturnType<typeof buildCallParams>,
+    sentMessages: ModelMessage[]
+  ): Promise<{
+    streamResult: Awaited<ReturnType<typeof agent.stream>>;
+    segSteps: StepResult<ToolSet>[];
+    effectiveSent: ModelMessage[];
+  }> => {
+    try {
+      const streamResult = await agent.stream(params);
+      const segSteps = [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])];
+      return { streamResult, segSteps, effectiveSent: sentMessages };
+    } catch (err) {
+      const statusCode =
+        (err as any)?.statusCode ?? (err as any)?.cause?.statusCode;
+      const current = prepared.messagesRef.current as ModelMessage[];
+      if (badRequestRetried || statusCode !== 400 || current.length <= sentMessages.length) {
+        throw err;
+      }
+      badRequestRetried = true;
+      console.warn(
+        `===> model call rejected with 400 at message ${current.length} (sent ${sentMessages.length}); retrying once from the failure point`
+      );
+      const retryMessages = [...current];
+      const streamResult = await agent.stream(
+        continueCallParams(prepared, retryMessages)
+      );
+      const segSteps = [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])];
+      return { streamResult, segSteps, effectiveSent: retryMessages };
+    }
+  };
+
   try {
-    const streamResult = await agent.stream(buildCallParams(prepared));
-    steps = (await streamResult.steps) ?? [];
-    streamTotalUsage = await streamResult.totalUsage;
+    let sent = initialModelMessages(prepared);
+    let run = await runWithBadRequestRetry(buildCallParams(prepared), sent);
+    segments.push({
+      userMessage: prepared.storageUserMessage,
+      priorMessages: run.effectiveSent.slice(sent.length),
+      steps: run.segSteps,
+    });
+    sent = run.effectiveSent;
+    streamTotalUsage = await run.streamResult.totalUsage;
+
+    // The model occasionally ends its turn with a text-only statement of
+    // intent ("Let me now run X...") without emitting the tool calls, or a
+    // step gets truncated by the output token limit — either way the tool
+    // loop exits with no real answer. Nudge it to continue. The two cases
+    // get separate allowances: a truncation continuation verifiably makes
+    // forward progress (each segment appends answer text), so a large
+    // deliverable may legitimately need several; a voluntary stall that two
+    // nudges didn't fix won't be fixed by a third.
+    let stallNudges = 0;
+    let lengthContinuations = 0;
+    for (;;) {
+      const allSteps = segments.flatMap((s) => s.steps);
+      if (!needsContinuation(allSteps)) break;
+      const lastFinish = allSteps[allSteps.length - 1]?.finishReason;
+      const kind: ContinuationKind =
+        lastFinish === "length"
+          ? "length"
+          : lastFinish === "error"
+            ? "error"
+            : "stall";
+      // Involuntary interruptions (truncation, mid-stream connection errors)
+      // share the larger progress-gated allowance; only voluntary stalls are
+      // capped at MAX_STALL_NUDGES.
+      if (kind !== "stall") {
+        if (lengthContinuations >= MAX_LENGTH_CONTINUATIONS) break;
+        lengthContinuations++;
+      } else {
+        if (stallNudges >= MAX_STALL_NUDGES) break;
+        stallNudges++;
+      }
+      const generated = (await run.streamResult.response).messages as ModelMessage[];
+      // Tagged via providerOptions so session consumers (transcript rendering,
+      // turn counting) can tell this synthetic message from a real user turn;
+      // model providers only read their own providerOptions key and ignore it.
+      const nudge: ModelMessage = {
+        role: "user",
+        content: continuationNudge(
+          prepared.askQuestionsEnabled,
+          kind,
+          maxOutputTokensFor(prepared.provider)
+        ),
+        providerOptions: { stakgraph: { continuationNudge: true } },
+      };
+      const convo = [...sent, ...generated, nudge];
+      console.warn(
+        `===> agent ended turn without finishing (finishReason: ${lastFinish}, raw: ${
+          allSteps[allSteps.length - 1]?.rawFinishReason
+        }); ${
+          kind !== "stall"
+            ? `${kind} continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
+            : `stall nudge ${stallNudges}/${MAX_STALL_NUDGES}`
+        }`
+      );
+      run = await runWithBadRequestRetry(
+        continueCallParams(prepared, convo),
+        convo
+      );
+      segments.push({
+        userMessage: nudge,
+        priorMessages: run.effectiveSent.slice(convo.length),
+        steps: run.segSteps,
+      });
+      sent = run.effectiveSent;
+      streamTotalUsage = await run.streamResult.totalUsage;
+      // Progress gate: a continuation that generated nothing new will not do
+      // better next round — stop rather than loop on empty segments.
+      const segmentOutput = run.segSteps.reduce(
+        (n, s) => n + (s.usage?.outputTokens ?? 0),
+        0
+      );
+      if (segmentOutput === 0) {
+        console.warn(
+          "===> continuation produced no output tokens; stopping continuation loop"
+        );
+        break;
+      }
+    }
+
+    steps = segments.flatMap((s) => s.steps);
   } catch (err) {
     const aborted = isAbortError(err);
+    // Surface the API's error detail: some failures (e.g. 400s) carry only a
+    // generic statusText in err.message while the real reason is in the
+    // response body. Enrich the error itself so both the session record and
+    // the async-request record (which persist err.message) get the detail.
+    enrichErrorMessage(err);
     if (sessionId) {
       const endTime = new Date();
       await appendSessionEnd(sessionId, {
@@ -907,13 +1182,18 @@ export async function get_context(
   const endTime = Date.now();
   const duration = endTime - startTime;
 
-  // Save to session if enabled
+  // Save to session if enabled. Extract per segment: each continuation call's
+  // response messages only cover that call, and the nudge user messages must
+  // be interleaved for the transcript to replay correctly.
   if (sessionId) {
-    const newMessages = extractMessagesFromSteps(
-      storageUserMessage,
-      steps,
-      sessionConfig
-    );
+    const newMessages = segments.flatMap((seg) => {
+      const extracted = extractMessagesFromSteps(seg.userMessage, seg.steps, sessionConfig);
+      // Messages recovered from a 400-retried attempt sit between the user
+      // message and the retry call's own response messages.
+      return seg.priorMessages.length > 0
+        ? [extracted[0], ...seg.priorMessages, ...extracted.slice(1)]
+        : extracted;
+    });
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);
     if (provenanceCollector.entries.length > 0) {
@@ -1025,6 +1305,7 @@ export async function stream_context(
         });
       } catch (e) {
         const aborted = isAbortError(e);
+        enrichErrorMessage(e);
         if (aborted) {
           console.log("[stream_context] Stream aborted by client");
         } else {

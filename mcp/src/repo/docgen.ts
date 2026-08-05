@@ -33,7 +33,15 @@ function resolveTemplate(template: string): string {
 }
 
 export interface DocxInput {
-  markdown: string;
+  // Inline Markdown content. For large documents prefer markdownPath: a
+  // single tool call carrying a whole document as one JSON string must fit
+  // in one model message (output-token capped) and fails for models that
+  // can't reliably emit huge arguments.
+  markdown?: string;
+  // Path to a Markdown file to convert instead of inline content — build it
+  // incrementally (e.g. bash appends), then convert. Relative paths resolve
+  // against the repo directory.
+  markdownPath?: string;
   template?: string;
 }
 
@@ -160,8 +168,24 @@ export function injectParaIds(documentXml: string): { xml: string; count: number
  * Generate a .docx file from Markdown via Pandoc.
  * Returns a string with the download path on success, or a non-fatal error string.
  */
-export async function runDocx(input: DocxInput): Promise<string> {
-  const base = input.markdown
+export async function runDocx(input: DocxInput, repoPath?: string): Promise<string> {
+  let markdown: string;
+  if (input.markdownPath) {
+    const resolved = path.isAbsolute(input.markdownPath)
+      ? input.markdownPath
+      : path.join(repoPath ?? process.cwd(), input.markdownPath);
+    try {
+      markdown = readFileSync(resolved, "utf8");
+    } catch (e) {
+      return `generate_docx failed: could not read markdownPath "${resolved}": ${(e as Error).message}`;
+    }
+  } else if (input.markdown) {
+    markdown = input.markdown;
+  } else {
+    return "generate_docx failed: provide either 'markdown' (inline) or 'markdownPath' (path to a .md file).";
+  }
+
+  const base = markdown
     .split("\n")[0]
     .replace(/^#+\s*/, "")
     .trim()
@@ -173,7 +197,7 @@ export async function runDocx(input: DocxInput): Promise<string> {
 
   console.log(`===> generate_docx: ${outFile}`);
 
-  writeFileSync(tmpMd, input.markdown, "utf8");
+  writeFileSync(tmpMd, markdown, "utf8");
 
   const args = [tmpMd, "-o", outFile];
 

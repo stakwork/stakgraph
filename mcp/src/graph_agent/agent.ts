@@ -9,6 +9,7 @@ import {
 import {
   addUsage,
   normalizeUsage,
+  withProviderCacheUsage,
   getModelDetails,
   getProviderOptions,
   ModelName,
@@ -31,7 +32,7 @@ import {
   createHasEndMarkerCondition,
   extractMessagesFromSteps,
   truncateOldToolResults,
-  MAX_OUTPUT_TOKENS,
+  maxOutputTokensFor,
 } from "../repo/utils.js";
 import { get_graph_tools, GraphToolsConfig } from "./tools.js";
 
@@ -204,13 +205,17 @@ async function prepareGraphAgent(
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = normalizeUsage(sf.usage);
+      const u = withProviderCacheUsage(
+        normalizeUsage(sf.usage),
+        sf.providerMetadata as Record<string, any> | undefined
+      );
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
         finishReason: sf.finishReason,
+        rawFinishReason: sf.rawFinishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
@@ -257,9 +262,10 @@ async function prepareGraphAgent(
 function buildCallParams(prepared: PreparedGraphAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
   const base = abortSignal
-    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
-    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
 
   if (previousMessages.length > 0) {
     const messagesToSend =

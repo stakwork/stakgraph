@@ -8,7 +8,8 @@ interface TrackedOperation {
   externalAbortController?: AbortController;
 }
 
-const TIMEOUT_MINUTES = parseInt(process.env.BUSY_TIMEOUT_MINUTES || "", 10) || 120;
+export const BUSY_TIMEOUT_MINUTES = parseInt(process.env.BUSY_TIMEOUT_MINUTES || "", 10) || 120;
+const TIMEOUT_MINUTES = BUSY_TIMEOUT_MINUTES;
 const TIMEOUT_MS = TIMEOUT_MINUTES * 60 * 1000;
 const activeOperations = new Map<string, TrackedOperation>();
 let operationCounter = 0;
