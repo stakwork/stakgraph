@@ -895,10 +895,11 @@ const MAX_LENGTH_CONTINUATIONS = 5;
  */
 function continuationNudge(
   askQuestionsEnabled: boolean,
-  truncated: boolean
+  truncated: boolean,
+  maxOutputTokens: number
 ): string {
   if (truncated) {
-    return "Your previous message was cut off by the output token limit. Continue from where the conversation actually is: if a tool call was cut off, it never executed — re-issue it, splitting large writes into several smaller calls. If you were writing your final answer, continue from the exact point it was cut off — do not repeat anything already written. When the answer is complete, end with [END_OF_ANSWER].";
+    return `Your previous message was cut off by the output token limit (${maxOutputTokens} tokens per message, thinking included). Continue from where the conversation actually is: if a tool call was cut off, it never executed — re-issue it, splitting large writes into several calls each well under that limit. If you were writing your final answer, continue from the exact point it was cut off — do not repeat anything already written. When the answer is complete, end with [END_OF_ANSWER].`;
   }
   const askPath = askQuestionsEnabled
     ? "call ask_clarifying_questions"
@@ -1064,7 +1065,11 @@ export async function get_context(
       // model providers only read their own providerOptions key and ignore it.
       const nudge: ModelMessage = {
         role: "user",
-        content: continuationNudge(prepared.askQuestionsEnabled, truncated),
+        content: continuationNudge(
+          prepared.askQuestionsEnabled,
+          truncated,
+          maxOutputTokensFor(prepared.provider)
+        ),
         providerOptions: { stakgraph: { continuationNudge: true } },
       };
       const convo = [...sent, ...generated, nudge];
