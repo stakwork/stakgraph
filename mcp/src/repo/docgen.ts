@@ -148,7 +148,7 @@ export function injectParaIds(documentXml: string): { xml: string; count: number
 
     // Reconstruct: <w:p {existing attrs} w14:paraId="…" w14:textId="…"[/]>
     const attrs = inner.trimEnd();
-    const sep = attrs.length > 0 ? " " : "";
+    const sep = " ";
     const sc = selfClose === "/" ? "/" : "";
     return `<w:p${attrs}${sep}w14:paraId="${paraId}" w14:textId="${textId}"${sc}>`;
   });
