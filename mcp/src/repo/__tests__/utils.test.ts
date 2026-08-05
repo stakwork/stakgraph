@@ -6,6 +6,7 @@ import {
   collectEnumConstraints,
   extractFinalAnswer,
   needsContinuation,
+  isContinuationNudge,
 } from "../utils.js";
 import type { StepResult, ToolSet } from "ai";
 
@@ -466,5 +467,28 @@ test.describe("needsContinuation", () => {
       }),
     ];
     expect(needsContinuation(steps)).toBe(false);
+  });
+});
+
+test.describe("isContinuationNudge", () => {
+  test("detects a tagged nudge message", () => {
+    expect(
+      isContinuationNudge({
+        role: "user",
+        content: "You ended your turn without completing the task...",
+        providerOptions: { stakgraph: { continuationNudge: true } },
+      })
+    ).toBe(true);
+  });
+
+  test("real user messages are not nudges", () => {
+    expect(isContinuationNudge({ role: "user", content: "hi" })).toBe(false);
+    expect(
+      isContinuationNudge({
+        role: "user",
+        content: "hi",
+        providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+      })
+    ).toBe(false);
   });
 });

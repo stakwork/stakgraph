@@ -92,6 +92,19 @@ export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
   return last.rawFinishReason === "end_turn" || last.finishReason === "length";
 }
 
+/**
+ * True for the synthetic "continue" user messages injected after a stall
+ * (see continuationNudge in agent.ts). They are persisted to the session for
+ * transparent replay but are not real user turns: transcript rendering and
+ * turn counting should skip them.
+ */
+export function isContinuationNudge(m: ModelMessage): boolean {
+  return (
+    (m.providerOptions as Record<string, any> | undefined)?.stakgraph
+      ?.continuationNudge === true
+  );
+}
+
 export function createHasAskQuestionsCondition<
   T extends ToolSet
 >(): StopCondition<T> {

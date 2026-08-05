@@ -27,6 +27,7 @@ import {
   extractFinalAnswer,
   MAX_OUTPUT_TOKENS,
   needsContinuation,
+  isContinuationNudge,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
@@ -487,6 +488,9 @@ interface PreparedAgent {
   // Live view of the in-flight step's message array (updated by prepareStep);
   // used to resume from the exact failure point on a 400 retry.
   messagesRef: MessagesRef;
+  // Whether the ask_clarifying_questions tool is available this run; selects
+  // the escape hatch offered in the continuation nudge.
+  askQuestionsEnabled: boolean;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
   mcpClients: McpToolsResult["clients"];
@@ -769,8 +773,9 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
   let cumInput = 0;
   let cumOutput = 0;
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length +
-    (hasSystemTurn ? 2 : 1);
+    previousMessages.filter(
+      (m) => m.role === "user" && !isContinuationNudge(m)
+    ).length + (hasSystemTurn ? 2 : 1);
 
   const agent = new ToolLoopAgent({
     model,
@@ -858,6 +863,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     stepMetas,
     turnIndex,
     messagesRef,
+    askQuestionsEnabled: toolConfigEnabled(toolsConfig?.ask_clarifying_questions),
     provenanceCollector,
     abortSignal: opts.abortSignal,
     mcpClients,
@@ -872,8 +878,17 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
  */
 const MAX_CONTINUATIONS = 2;
 
-const CONTINUATION_NUDGE =
-  "You ended your turn without completing the task. Do not stop to describe a plan or intention — execute it now: make the tool calls you described, and when you have the final answer, write it followed by [END_OF_ANSWER].";
+/**
+ * The nudge must leave the model a legitimate way to ask the user something:
+ * without it, a model that stalled because it genuinely needs input gets
+ * pushed toward fabricating an answer instead of asking.
+ */
+function continuationNudge(askQuestionsEnabled: boolean): string {
+  const askPath = askQuestionsEnabled
+    ? "call ask_clarifying_questions"
+    : "ask your question and end with [END_OF_ANSWER]";
+  return `You ended your turn without completing the task. Do not stop to describe a plan or intention — execute it now: make the tool calls you described, and when you have the final answer, write it followed by [END_OF_ANSWER]. If you are blocked on information only the user can provide, ${askPath} instead of guessing.`;
+}
 
 /** The exact messages sent to the model on the initial call (model-facing, not storage). */
 function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
@@ -1011,7 +1026,14 @@ export async function get_context(
       const allSteps = segments.flatMap((s) => s.steps);
       if (!needsContinuation(allSteps)) break;
       const generated = (await run.streamResult.response).messages as ModelMessage[];
-      const nudge: ModelMessage = { role: "user", content: CONTINUATION_NUDGE };
+      // Tagged via providerOptions so session consumers (transcript rendering,
+      // turn counting) can tell this synthetic message from a real user turn;
+      // model providers only read their own providerOptions key and ignore it.
+      const nudge: ModelMessage = {
+        role: "user",
+        content: continuationNudge(prepared.askQuestionsEnabled),
+        providerOptions: { stakgraph: { continuationNudge: true } },
+      };
       const convo = [...sent, ...generated, nudge];
       console.warn(
         `===> agent ended turn without finishing (rawFinishReason: ${
