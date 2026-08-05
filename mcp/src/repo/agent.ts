@@ -4,6 +4,7 @@ import {
   ToolLoopAgent,
   ModelMessage,
   StopCondition,
+  StepResult,
   ToolSet,
   jsonSchema,
   stepCountIs,
@@ -24,6 +25,7 @@ import {
   logStep,
   extractFinalAnswer,
   MAX_OUTPUT_TOKENS,
+  needsContinuation,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
@@ -64,7 +66,11 @@ import {
 import type { TextPart } from "ai";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
+  const antiStall = `Never end your turn on a plan or a statement of intent. If you are about to write "Let me now..." or "Next I will...", do those things in this same turn by calling the tools instead of describing them. End your turn only once your final answer is written${qs ? ", or you have called ask_clarifying_questions" : ""}.`;
+
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
+
+  ${antiStall}
 
   Write your answer directly as text and end with [END_OF_ANSWER].`;
   
@@ -85,7 +91,9 @@ function SYSTEM_PROMPT_END(qs: boolean) {
   - Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
   - Color picker: Use questionArtifact with type "color_swatch" to show a color picker
   
-  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`
+  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.
+
+  ${antiStall}`
 
   return qs ? qsEnd : normalEnd;
 }
@@ -475,6 +483,10 @@ interface PreparedAgent {
   startTime: number;
   stepMetas: StepMeta[];
   turnIndex: number;
+  // True when the provider can't report stop-sequence matches (any
+  // OpenAI-compatible backend): stopSequences is disabled so [END_OF_ANSWER]
+  // stays in the generated text and completion is detected from the text.
+  markerInText: boolean;
   provenanceCollector: ProvenanceCollector;
   abortSignal: AbortSignal | undefined;
   mcpClients: McpToolsResult["clients"];
@@ -743,6 +755,15 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     previousMessages.filter((m) => m.role === "user").length +
     (hasSystemTurn ? 2 : 1);
 
+  // Anthropic reports a matched stop sequence (raw stop_reason
+  // "stop_sequence" + providerMetadata), so we can strip the marker from
+  // output via stopSequences and still detect proper completion. OpenAI-
+  // compatible providers (OpenRouter/Kimi, GPT, Gemini) report a plain "stop"
+  // either way — for those, leave stopSequences off so [END_OF_ANSWER]
+  // remains in the text as the completion signal (extractFinalAnswer strips
+  // it from the returned answer).
+  const markerInText = provider !== "anthropic";
+
   const agent = new ToolLoopAgent({
     model,
     // Transparent replay: no code-generated system prompt — the system turn
@@ -750,7 +771,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     instructions: transparent ? undefined : instructions,
     tools,
     stopWhen,
-    stopSequences: ["[END_OF_ANSWER]"],
+    ...(markerInText ? {} : { stopSequences: ["[END_OF_ANSWER]"] }),
     onStepFinish: (sf) => {
       logStep(sf.content);
       if (onStepEvent) {
@@ -824,10 +845,45 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     startTime,
     stepMetas,
     turnIndex,
+    markerInText,
     provenanceCollector,
     abortSignal: opts.abortSignal,
     mcpClients,
   };
+}
+
+/**
+ * Max number of continuation nudges after the model ends its turn without a
+ * proper termination (no [END_OF_ANSWER], no ask_clarifying_questions, no
+ * pending tool calls) — e.g. a text-only "Let me now..." plan (raw stop
+ * reason "end_turn") or a step truncated mid-thinking ("length").
+ */
+const MAX_CONTINUATIONS = 2;
+
+const CONTINUATION_NUDGE =
+  "You ended your turn without completing the task. Do not stop to describe a plan or intention — execute it now: make the tool calls you described, and when you have the final answer, write it followed by [END_OF_ANSWER].";
+
+/** The exact messages sent to the model on the initial call (model-facing, not storage). */
+function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
+  const { finalPrompt, previousMessages, userMessage } = prepared;
+  if (previousMessages.length > 0) {
+    return typeof finalPrompt === "string"
+      ? [...previousMessages, userMessage]
+      : [...previousMessages, ...finalPrompt];
+  }
+  return typeof finalPrompt === "string"
+    ? [{ role: "user", content: finalPrompt }]
+    : [...finalPrompt];
+}
+
+/** Call params for a continuation retry: full conversation so far + nudge. */
+function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
+  const { provider, modelId, abortSignal } = prepared;
+  const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const base = abortSignal
+    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
+    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
+  return { messages, ...base };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
@@ -873,10 +929,44 @@ export async function get_context(
 
   let steps: Awaited<ReturnType<typeof agent.generate>>["steps"] = [];
   let streamTotalUsage: LanguageModelUsage | undefined;
+  // Each segment pairs the user-facing message that started it (the real user
+  // message, then continuation nudges) with the steps it produced, so session
+  // persistence can interleave them faithfully.
+  const segments: { userMessage: ModelMessage; steps: StepResult<ToolSet>[] }[] = [];
   try {
-    const streamResult = await agent.stream(buildCallParams(prepared));
-    steps = (await streamResult.steps) ?? [];
+    let streamResult = await agent.stream(buildCallParams(prepared));
+    segments.push({
+      userMessage: prepared.storageUserMessage,
+      steps: [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])],
+    });
     streamTotalUsage = await streamResult.totalUsage;
+
+    // The model occasionally ends its turn with a text-only statement of
+    // intent ("Let me now run X...") without emitting the tool calls, or a
+    // step gets truncated mid-thinking — either way the tool loop exits with
+    // no real answer. Nudge it to continue, at most MAX_CONTINUATIONS times.
+    let convo: ModelMessage[] | undefined;
+    for (let attempt = 1; attempt <= MAX_CONTINUATIONS; attempt++) {
+      const allSteps = segments.flatMap((s) => s.steps);
+      if (!needsContinuation(allSteps, prepared.markerInText)) break;
+      const generated = (await streamResult.response).messages as ModelMessage[];
+      if (!convo) convo = initialModelMessages(prepared);
+      const nudge: ModelMessage = { role: "user", content: CONTINUATION_NUDGE };
+      convo = [...convo, ...generated, nudge];
+      console.warn(
+        `===> agent ended turn without finishing (rawFinishReason: ${
+          allSteps[allSteps.length - 1]?.rawFinishReason
+        }); continuation attempt ${attempt}/${MAX_CONTINUATIONS}`
+      );
+      streamResult = await agent.stream(continueCallParams(prepared, convo));
+      segments.push({
+        userMessage: nudge,
+        steps: [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])],
+      });
+      streamTotalUsage = await streamResult.totalUsage;
+    }
+
+    steps = segments.flatMap((s) => s.steps);
   } catch (err) {
     const aborted = isAbortError(err);
     if (sessionId) {
@@ -907,12 +997,12 @@ export async function get_context(
   const endTime = Date.now();
   const duration = endTime - startTime;
 
-  // Save to session if enabled
+  // Save to session if enabled. Extract per segment: each continuation call's
+  // response messages only cover that call, and the nudge user messages must
+  // be interleaved for the transcript to replay correctly.
   if (sessionId) {
-    const newMessages = extractMessagesFromSteps(
-      storageUserMessage,
-      steps,
-      sessionConfig
+    const newMessages = segments.flatMap((seg) =>
+      extractMessagesFromSteps(seg.userMessage, seg.steps, sessionConfig)
     );
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);

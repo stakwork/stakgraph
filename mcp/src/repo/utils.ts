@@ -46,6 +46,9 @@ export function createHasEndMarkerCondition<
 >(): StopCondition<T> {
   return ({ steps }) => {
     for (const step of steps) {
+      // A step that also makes tool calls isn't done — marker text there is a
+      // quotation (e.g. an answer describing this codebase), not a terminator.
+      if (step.content.some((item) => item.type === "tool-call")) continue;
       for (const item of step.content) {
         if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
           return true;
@@ -54,6 +57,51 @@ export function createHasEndMarkerCondition<
     }
     return false;
   };
+}
+
+/**
+ * True when a run ended without a proper termination and should be nudged to
+ * continue. Proper terminations are: an ask_clarifying_questions call, or the
+ * [END_OF_ANSWER] marker — present in text, or matched as a stop sequence
+ * (surfaced as rawFinishReason "stop_sequence"). A run whose last step has no
+ * tool calls and none of those is either a voluntary early stop (raw
+ * "end_turn" — the model narrated a plan or emitted only reasoning and quit)
+ * or a truncation ("length"); both are recoverable by asking it to continue.
+ *
+ * OpenAI-compatible providers report raw "stop" for a stop-sequence match and
+ * a natural stop alike, so for them stopSequences is disabled and the marker
+ * is expected in the generated text (`markerInText`). In that mode a plain
+ * "stop" with no marker and no tool calls IS a stall. Without that mode
+ * (Anthropic), "stop" is only a stall when the raw reason is "end_turn" —
+ * a "stop_sequence" finish means the marker fired and was stripped.
+ */
+export function needsContinuation(
+  steps: StepResult<ToolSet>[],
+  markerInText: boolean
+): boolean {
+  const last = steps[steps.length - 1];
+  if (!last) return false;
+  // stopWhen (e.g. maxTurns) ended the loop mid-work; not a model stall
+  if ((last.toolCalls?.length ?? 0) > 0) return false;
+  for (const step of steps) {
+    for (const item of step.content) {
+      if (
+        item.type === "tool-result" &&
+        item.toolName === "ask_clarifying_questions"
+      ) {
+        return false;
+      }
+      if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
+        return false;
+      }
+    }
+  }
+  if (last.rawFinishReason === "stop_sequence") return false; // hit [END_OF_ANSWER]
+  if (last.rawFinishReason === "end_turn" || last.finishReason === "length") {
+    return true;
+  }
+  // Marker mode: no marker anywhere + no tool calls + a plain stop = stall
+  return markerInText && last.finishReason === "stop";
 }
 
 export function createHasAskQuestionsCondition<
@@ -211,7 +259,7 @@ export function extractFinalAnswer(
     }
   }
 
-  // Look for text with [END_OF_ANSWER] sequence (search all text)
+  // Collect all text, and separately the text AFTER the last tool call.
   let allText = "";
   for (const step of steps) {
     for (const item of step.content) {
@@ -221,18 +269,6 @@ export function extractFinalAnswer(
     }
   }
 
-  const endMarkerIndex = allText.indexOf("[END_OF_ANSWER]");
-  if (endMarkerIndex !== -1) {
-    const answer = allText.substring(0, endMarkerIndex).trim();
-    if (answer) {
-      return {
-        answer,
-        tool_use: "text_with_end_marker",
-      };
-    }
-  }
-
-  // Fallback: collect all text after the last tool call
   let lastToolStepIndex = -1;
   let lastToolContentIndex = -1;
 
@@ -266,6 +302,34 @@ export function extractFinalAnswer(
       if (startCollecting && item.type === "text" && item.text) {
         textAfterLastTool += item.text;
       }
+    }
+  }
+
+  // Marker search. Prefer the text AFTER the last tool call — with providers
+  // that keep [END_OF_ANSWER] in the generated text, earlier inter-tool
+  // narration would otherwise ride along in the answer. Use the LAST
+  // occurrence in either case: an answer may legitimately QUOTE the marker
+  // mid-text (e.g. a report about this very codebase), while the protocol
+  // terminator is always at the end.
+  const markerIdxAfterTool = textAfterLastTool.lastIndexOf("[END_OF_ANSWER]");
+  if (markerIdxAfterTool !== -1) {
+    const answer = textAfterLastTool.substring(0, markerIdxAfterTool).trim();
+    if (answer) {
+      return {
+        answer,
+        tool_use: "text_with_end_marker",
+      };
+    }
+  }
+
+  const endMarkerIndex = allText.lastIndexOf("[END_OF_ANSWER]");
+  if (endMarkerIndex !== -1) {
+    const answer = allText.substring(0, endMarkerIndex).trim();
+    if (answer) {
+      return {
+        answer,
+        tool_use: "text_with_end_marker",
+      };
     }
   }
 

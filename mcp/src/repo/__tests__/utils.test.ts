@@ -4,7 +4,36 @@ import {
   extractLeadingJsonObject,
   matchesSchemaShape,
   collectEnumConstraints,
+  extractFinalAnswer,
+  needsContinuation,
 } from "../utils.js";
+import type { StepResult, ToolSet } from "ai";
+
+// Minimal StepResult factory — only the fields the functions under test read.
+function step(opts: {
+  content?: any[];
+  toolCalls?: any[];
+  finishReason?: string;
+  rawFinishReason?: string;
+}): StepResult<ToolSet> {
+  return {
+    content: opts.content ?? [],
+    toolCalls: opts.toolCalls ?? [],
+    finishReason: opts.finishReason ?? "stop",
+    rawFinishReason: opts.rawFinishReason,
+  } as unknown as StepResult<ToolSet>;
+}
+
+const toolCallStep = (narration?: string) =>
+  step({
+    content: [
+      ...(narration ? [{ type: "text", text: narration }] : []),
+      { type: "tool-call", toolName: "bash" },
+      { type: "tool-result", toolName: "bash", output: "ok" },
+    ],
+    toolCalls: [{ toolName: "bash" }],
+    finishReason: "tool-calls",
+  });
 
 test.describe("deepParseJsonStrings", () => {
   test("should parse stringified array into parsed array", () => {
@@ -334,5 +363,138 @@ test.describe("collectEnumConstraints", () => {
     expect(collectEnumConstraints(schema)).toEqual([
       { path: "choice", values: ["x", "y"] },
     ]);
+  });
+});
+
+test.describe("extractFinalAnswer", () => {
+  test("marker in final text: narration before the last tool call is excluded", () => {
+    const steps = [
+      toolCallStep("Let me look at the code."),
+      toolCallStep("Now reading session.ts."),
+      step({
+        content: [
+          { type: "text", text: "# Report\nThe answer.\n[END_OF_ANSWER]" },
+        ],
+      }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.answer).toBe("# Report\nThe answer.");
+    expect(result.tool_use).toBe("text_with_end_marker");
+  });
+
+  test("answer that QUOTES the marker mid-text is not truncated at the quote", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [
+          {
+            type: "text",
+            text:
+              'The agent uses stopSequences: ["[END_OF_ANSWER]"] to stop generation.\n' +
+              "That is the whole mechanism.\n[END_OF_ANSWER]",
+          },
+        ],
+      }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.answer).toContain("That is the whole mechanism.");
+    expect(result.answer).toContain('stopSequences: ["[END_OF_ANSWER]"]');
+  });
+
+  test("no marker (stripped by stop sequence): falls back to text after last tool call", () => {
+    const steps = [
+      toolCallStep("Investigating."),
+      step({ content: [{ type: "text", text: "Final answer without marker." }] }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.answer).toBe("Final answer without marker.");
+  });
+
+  test("no tools at all: falls back to all text", () => {
+    const steps = [
+      step({ content: [{ type: "text", text: "Just a direct reply." }] }),
+    ];
+    expect(extractFinalAnswer(steps).answer).toBe("Just a direct reply.");
+  });
+});
+
+test.describe("needsContinuation", () => {
+  test("anthropic stop_sequence finish is a proper termination", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "The answer." }],
+        rawFinishReason: "stop_sequence",
+      }),
+    ];
+    expect(needsContinuation(steps, false)).toBe(false);
+  });
+
+  test("anthropic end_turn with only a plan is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Let me now run six graph searches." }],
+        rawFinishReason: "end_turn",
+      }),
+    ];
+    expect(needsContinuation(steps, false)).toBe(true);
+  });
+
+  test("truncation (length) is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({ content: [{ type: "reasoning", text: "hmm" }], finishReason: "length" }),
+    ];
+    expect(needsContinuation(steps, false)).toBe(true);
+  });
+
+  test("marker mode: plain stop without marker is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Batch 1 (parallel): 6 searches." }],
+        rawFinishReason: "stop",
+      }),
+    ];
+    expect(needsContinuation(steps, true)).toBe(true);
+  });
+
+  test("marker mode: marker in text is a proper termination", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Answer.\n[END_OF_ANSWER]" }],
+        rawFinishReason: "stop",
+      }),
+    ];
+    expect(needsContinuation(steps, true)).toBe(false);
+  });
+
+  test("non-marker mode: ambiguous raw stop is left alone", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [{ type: "text", text: "Some answer." }],
+        rawFinishReason: "stop",
+      }),
+    ];
+    expect(needsContinuation(steps, false)).toBe(false);
+  });
+
+  test("last step with tool calls (e.g. maxTurns stop) is not a stall", () => {
+    const steps = [toolCallStep(), toolCallStep()];
+    expect(needsContinuation(steps, true)).toBe(false);
+  });
+
+  test("ask_clarifying_questions is a proper termination", () => {
+    const steps = [
+      step({
+        content: [
+          { type: "tool-result", toolName: "ask_clarifying_questions", output: "{}" },
+        ],
+      }),
+    ];
+    expect(needsContinuation(steps, true)).toBe(false);
   });
 });
