@@ -7,6 +7,7 @@ import {
   extractFinalAnswer,
   needsContinuation,
   isContinuationNudge,
+  timeBudgetNudge,
 } from "../utils.js";
 import type { StepResult, ToolSet } from "ai";
 
@@ -467,6 +468,47 @@ test.describe("needsContinuation", () => {
       }),
     ];
     expect(needsContinuation(steps)).toBe(false);
+  });
+});
+
+test.describe("timeBudgetNudge", () => {
+  const MIN = 60_000;
+
+  test("nothing before 50% of budget", () => {
+    expect(timeBudgetNudge(59 * MIN, 120, new Set(), false)).toBe(null);
+  });
+
+  test("each threshold fires once, in order, with escalating urgency", () => {
+    const fired = new Set<number>();
+    const first = timeBudgetNudge(61 * MIN, 120, fired, false);
+    expect(first).toContain("61 of 120 minutes");
+    expect(timeBudgetNudge(62 * MIN, 120, fired, false)).toBe(null);
+    const second = timeBudgetNudge(91 * MIN, 120, fired, false);
+    expect(second).toContain("Start converging");
+    const third = timeBudgetNudge(111 * MIN, 120, fired, false);
+    expect(third).toContain("~9 minutes remain");
+    expect(third).toContain("[END_OF_ANSWER]");
+    expect(timeBudgetNudge(115 * MIN, 120, fired, false)).toBe(null);
+  });
+
+  test("a slow step that jumps past several thresholds fires only the most urgent", () => {
+    const fired = new Set<number>();
+    const nudge = timeBudgetNudge(112 * MIN, 120, fired, false);
+    expect(nudge).toContain("minutes remain");
+    expect(timeBudgetNudge(113 * MIN, 120, fired, false)).toBe(null);
+  });
+
+  test("final warning offers ask_clarifying_questions when enabled", () => {
+    const withAsk = timeBudgetNudge(111 * MIN, 120, new Set(), true);
+    expect(withAsk).toContain("ask_clarifying_questions");
+    const withoutAsk = timeBudgetNudge(111 * MIN, 120, new Set(), false);
+    expect(withoutAsk).not.toContain("ask_clarifying_questions");
+  });
+
+  test("thresholds scale with a non-default budget", () => {
+    const fired = new Set<number>();
+    expect(timeBudgetNudge(14 * MIN, 30, fired, false)).toBe(null);
+    expect(timeBudgetNudge(15 * MIN, 30, fired, false)).toContain("15 of 30 minutes");
   });
 });
 

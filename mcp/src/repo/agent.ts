@@ -28,6 +28,7 @@ import {
   maxOutputTokensFor,
   needsContinuation,
   isContinuationNudge,
+  timeBudgetNudge,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
@@ -40,6 +41,7 @@ import {
   getCurrentDateSnippet,
 } from "./utils.js";
 import { LanguageModel } from "ai";
+import { BUSY_TIMEOUT_MINUTES } from "../busy.js";
 import {
   createSession as createNewSession,
   appendSessionEnd,
@@ -772,6 +774,8 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
   const stepMetas: StepMeta[] = [];
   let cumInput = 0;
   let cumOutput = 0;
+  const askQuestionsEnabled = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
+  const firedTimeNudges = new Set<number>();
   const turnIndex =
     previousMessages.filter(
       (m) => m.role === "user" && !isContinuationNudge(m)
@@ -810,9 +814,31 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     },
     prepareStep: async ({ steps, messages }) => {
       messagesRef.current = messages as ModelMessage[];
+      // Time-budget nudge: model-facing only (appended per step, not
+      // persisted), so it must not leak into messagesRef used by the
+      // 400-retry resume.
+      const timeNudge = timeBudgetNudge(
+        Date.now() - startTime,
+        BUSY_TIMEOUT_MINUTES,
+        firedTimeNudges,
+        askQuestionsEnabled
+      );
+      if (timeNudge) {
+        console.warn(`===> time-budget nudge injected: ${timeNudge}`);
+      }
+      const withNudge: ModelMessage[] = timeNudge
+        ? [
+            ...(messages as ModelMessage[]),
+            {
+              role: "user",
+              content: timeNudge,
+              providerOptions: { stakgraph: { timeNudge: true } },
+            },
+          ]
+        : (messages as ModelMessage[]);
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
-      const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
+      const truncated = await truncateOldToolResults(withNudge, inputTokens, contextLimit);
       if (truncated === messages) return undefined;
       return { messages: truncated };
     },
@@ -863,7 +889,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     stepMetas,
     turnIndex,
     messagesRef,
-    askQuestionsEnabled: toolConfigEnabled(toolsConfig?.ask_clarifying_questions),
+    askQuestionsEnabled,
     provenanceCollector,
     abortSignal: opts.abortSignal,
     mcpClients,

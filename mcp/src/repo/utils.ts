@@ -107,6 +107,44 @@ export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
 }
 
 /**
+ * Time-budget status nudges, injected between steps as a run approaches the
+ * busy-timeout hard kill (which aborts the stream and discards all work).
+ * Thresholds are fractions of the total budget so they track
+ * BUSY_TIMEOUT_MINUTES overrides: at 120 minutes they fall at 60 / 90 / ~110.
+ * Returns the message for the highest threshold that elapsed time has
+ * crossed and that hasn't fired yet, or null. Crossing a threshold also
+ * marks all lower ones fired, so a single slow step can't queue up stale
+ * lower-urgency nudges behind the current one. The final warning fires with
+ * ~8% of budget left (about 10 minutes at 120) so at least one more step
+ * boundary should occur before the kill.
+ */
+export function timeBudgetNudge(
+  elapsedMs: number,
+  totalMinutes: number,
+  fired: Set<number>,
+  askQuestionsEnabled: boolean
+): string | null {
+  const elapsedMin = Math.floor(elapsedMs / 60_000);
+  const fractions = [0.92, 0.75, 0.5];
+  for (const f of fractions) {
+    if (fired.has(f) || elapsedMin < totalMinutes * f) continue;
+    for (const g of fractions) if (g <= f) fired.add(g);
+    if (f === 0.5) {
+      return `Time status: ${elapsedMin} of ${totalMinutes} minutes elapsed. Pace yourself accordingly.`;
+    }
+    if (f === 0.75) {
+      return `Time status: ${elapsedMin} of ${totalMinutes} minutes elapsed. Start converging: prioritize the essential remaining work and begin producing your deliverables.`;
+    }
+    const remaining = Math.max(totalMinutes - elapsedMin, 1);
+    const askPath = askQuestionsEnabled
+      ? " If you are blocked on information only the user can provide, call ask_clarifying_questions immediately instead."
+      : "";
+    return `Time status: only ~${remaining} minutes remain before this run is forcibly terminated and unfinished work is lost. Stop exploring NOW and write your final answer with what you already have, ending with [END_OF_ANSWER].${askPath}`;
+  }
+  return null;
+}
+
+/**
  * True for the synthetic "continue" user messages injected after a stall
  * (see continuationNudge in agent.ts). They are persisted to the session for
  * transparent replay but are not real user turns: transcript rendering and
