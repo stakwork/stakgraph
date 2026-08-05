@@ -879,11 +879,23 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
 const MAX_CONTINUATIONS = 2;
 
 /**
- * The nudge must leave the model a legitimate way to ask the user something:
+ * The two stall types need different instructions. After a token-limit
+ * truncation ("length"), telling the model to "write the final answer" makes
+ * it restart the answer from the top and re-truncate; it must instead pick up
+ * from the cutoff (partial text is already in the conversation and in the
+ * extracted answer, so repeating it duplicates; a cut-off tool call never
+ * executed, so it must be re-issued). After a voluntary stop ("end_turn"),
+ * the nudge must also leave a legitimate way to ask the user something:
  * without it, a model that stalled because it genuinely needs input gets
  * pushed toward fabricating an answer instead of asking.
  */
-function continuationNudge(askQuestionsEnabled: boolean): string {
+function continuationNudge(
+  askQuestionsEnabled: boolean,
+  truncated: boolean
+): string {
+  if (truncated) {
+    return "Your previous message was cut off by the output token limit. Continue from where the conversation actually is: if a tool call was cut off, it never executed — re-issue it, splitting large writes into several smaller calls. If you were writing your final answer, continue from the exact point it was cut off — do not repeat anything already written. When the answer is complete, end with [END_OF_ANSWER].";
+  }
   const askPath = askQuestionsEnabled
     ? "call ask_clarifying_questions"
     : "ask your question and end with [END_OF_ANSWER]";
@@ -1026,12 +1038,14 @@ export async function get_context(
       const allSteps = segments.flatMap((s) => s.steps);
       if (!needsContinuation(allSteps)) break;
       const generated = (await run.streamResult.response).messages as ModelMessage[];
+      const truncated =
+        allSteps[allSteps.length - 1]?.finishReason === "length";
       // Tagged via providerOptions so session consumers (transcript rendering,
       // turn counting) can tell this synthetic message from a real user turn;
       // model providers only read their own providerOptions key and ignore it.
       const nudge: ModelMessage = {
         role: "user",
-        content: continuationNudge(prepared.askQuestionsEnabled),
+        content: continuationNudge(prepared.askQuestionsEnabled, truncated),
         providerOptions: { stakgraph: { continuationNudge: true } },
       };
       const convo = [...sent, ...generated, nudge];
