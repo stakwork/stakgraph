@@ -645,6 +645,8 @@ describe("injectParaIds — unit tests", () => {
     assert.ok(out.includes("w14:paraId="), "must inject w14:paraId");
     assert.ok(out.includes("w14:textId="), "must inject w14:textId");
     assert.strictEqual(count, 1, "must stamp exactly 1 paragraph");
+    assert.ok(!out.includes("<w:pw14"), "tag name must not merge into paraId");
+    assert.match(out, /<w:p w14:paraId="[0-9A-F]{8}"/);
   });
 
   it("stamps a <w:p attr='x'> paragraph with existing attributes", async () => {
@@ -655,6 +657,8 @@ describe("injectParaIds — unit tests", () => {
     assert.strictEqual(count, 1, "must stamp exactly 1 paragraph");
     // Original attribute must be preserved
     assert.ok(out.includes('w:rsidR="001122"'), "must preserve existing attributes");
+    assert.ok(!out.includes("<w:pw14"), "tag name must not merge into paraId");
+    assert.match(out, /<w:p w:rsidR="001122" w14:paraId="[0-9A-F]{8}"/);
   });
 
   it("stamps a self-closing <w:p/> paragraph", async () => {
@@ -668,6 +672,8 @@ describe("injectParaIds — unit tests", () => {
     assert.ok(/w14:paraId="[0-9A-F]{8}"[^/]*\/>/.test(out) || /w14:paraId="[0-9A-F]{8}" w14:textId="[0-9A-F]{8}"\/>/.test(out),
       "self-closing tag must still close with />"
     );
+    assert.ok(!out.includes("<w:pw14"), "tag name must not merge into paraId");
+    assert.match(out, /w14:paraId="[0-9A-F]{8}" w14:textId="[0-9A-F]{8}"\/>/);
   });
 
   it("does NOT match <w:pPr> elements", async () => {
@@ -776,6 +782,7 @@ describe("injectParaIds — unit tests", () => {
     const docTag = out.match(/<w:document[^>]*>/)?.[0] ?? "";
     assert.ok(docTag.includes("xmlns:w14="), "root must declare xmlns:w14");
     assert.ok(/mc:Ignorable="[^"]*\bw14\b/.test(docTag), "mc:Ignorable must include w14");
+    assert.ok(!out.includes("<w:pw14"), "no merged tag/attribute in any stamped paragraph");
   });
 });
 
