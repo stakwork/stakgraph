@@ -167,15 +167,6 @@
     "@standard-schema/spec" "^1.0.0"
     eventsource-parser "^3.0.6"
 
-"@ai-sdk/provider-utils@^4.0.0":
-  version "4.0.35"
-  resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.35.tgz"
-  integrity sha512-bjYld/2KGPLt78kpqbya+fD4LYS7BqVQJyUjE3qAHrYB0FR2Q90BaWEVIBZaguTWXf/A8L6uG1zO1v9TxVlGWg==
-  dependencies:
-    "@ai-sdk/provider" "3.0.13"
-    "@standard-schema/spec" "^1.1.0"
-    eventsource-parser "^3.0.8"
-
 "@ai-sdk/provider@2.0.1":
   version "2.0.1"
   resolved "https://registry.npmjs.org/@ai-sdk/provider/-/provider-2.0.1.tgz"
@@ -187,13 +178,6 @@
   version "3.0.10"
   resolved "https://registry.npmjs.org/@ai-sdk/provider/-/provider-3.0.10.tgz"
   integrity sha512-Q3BZ27qfpYqnCYGvE3vt+Qi6LGOF9R5Nmzn+9JoM1lCRsD9mYaIhfJLkSunN48nfGXJ6n+XNV0J/XVpqGQl7Dw==
-  dependencies:
-    json-schema "^0.4.0"
-
-"@ai-sdk/provider@3.0.13", "@ai-sdk/provider@^3.0.0":
-  version "3.0.13"
-  resolved "https://registry.npmjs.org/@ai-sdk/provider/-/provider-3.0.13.tgz"
-  integrity sha512-ZPtVYt5QIJzOta1kdUiDuCx4HhFkvNPv/rvmZ2b1iXwybYjJsCnNYR4PAw4kW7rgVfDARvHXcU64efWuqNp6bw==
   dependencies:
     json-schema "^0.4.0"
 
@@ -1645,21 +1629,10 @@
   dependencies:
     "@octokit/openapi-types" "^27.0.0"
 
-"@openrouter/ai-sdk-provider@6.0.0-alpha.1":
-  version "6.0.0-alpha.1"
-  resolved "https://registry.npmjs.org/@openrouter/ai-sdk-provider/-/ai-sdk-provider-6.0.0-alpha.1.tgz"
-  integrity sha512-N91glWtq6XFl8Kvgft14BiDeCLABHatylAVKHOWMRJHnBl6iKblI4iZgcipnF9Pj8ZRUO752qpPoZVC+L2C6tA==
-  dependencies:
-    "@ai-sdk/provider" "^3.0.0"
-    "@ai-sdk/provider-utils" "^4.0.0"
-    "@openrouter/sdk" "^0.3.11"
-
-"@openrouter/sdk@^0.3.11":
-  version "0.3.16"
-  resolved "https://registry.npmjs.org/@openrouter/sdk/-/sdk-0.3.16.tgz"
-  integrity sha512-WEBlrXdc5R8I7o2temkMV65tIRGkzg9ct4DMNZ/FHS/hiRscLRS5EpcuORnAgjzZAh9X2dSsBpgygM8T7KiNAw==
-  dependencies:
-    zod "^3.25.0 || ^4.0.0"
+"@openrouter/ai-sdk-provider@2.10.0":
+  version "2.10.0"
+  resolved "https://registry.yarnpkg.com/@openrouter/ai-sdk-provider/-/ai-sdk-provider-2.10.0.tgz#83aa7b285a1f07500d85a23bfe909546e6916077"
+  integrity sha512-FMsAEjLUt5pWuRE2LDC/LCvVrFjLlrEzUITH5+5SZtfq7KZ2wrOHjQVxzz92sju8S9ltpzW87CLW8/b0oBXVCw==
 
 "@opentelemetry/api@1.9.0":
   version "1.9.0"
@@ -6353,7 +6326,7 @@ zod@4.1.12, zod@^4.1.8:
   resolved "https://registry.npmjs.org/zod/-/zod-4.1.12.tgz"
   integrity sha512-JInaHOamG8pt5+Ey8kGmdcAcg3OL9reK8ltczgHTAwNhMys/6ThXHityHxVV2p3fkw/c+MAvBHFVYHFZDmjMCQ==
 
-zod@4.3.6, "zod@^3.25 || ^4.0", "zod@^3.25.0 || ^4.0.0":
+zod@4.3.6, "zod@^3.25 || ^4.0":
   version "4.3.6"
   resolved "https://registry.npmjs.org/zod/-/zod-4.3.6.tgz"
   integrity sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==
