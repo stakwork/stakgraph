@@ -39,7 +39,21 @@ function countTokens(text: string): number {
  * truncate a deep thinking pass mid-step and silently end the tool loop
  * with no answer.
  */
-export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 64000;
+/**
+ * Per-call output-token cap. An explicit MAX_OUTPUT_TOKENS env always wins.
+ * Otherwise the default is provider-aware: Anthropic runs at 128k because
+ * @ai-sdk/anthropic clamps known models down to their true per-model max
+ * (e.g. Opus 5 at 128k) instead of erroring, while OpenAI-compatible hosts
+ * (OpenRouter et al) reject max_tokens above the model limit rather than
+ * clamping, so they keep the conservative 64k default. Thinking tokens count
+ * against this same budget, so headroom matters more than the visible text
+ * length suggests.
+ */
+export function maxOutputTokensFor(provider?: string): number {
+  const env = Number(process.env.MAX_OUTPUT_TOKENS);
+  if (env > 0) return env;
+  return provider === "anthropic" ? 128_000 : 64_000;
+}
 
 export function createHasEndMarkerCondition<
   T extends ToolSet

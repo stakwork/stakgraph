@@ -25,7 +25,7 @@ import { ContextResult } from "../tools/types.js";
 import {
   logStep,
   extractFinalAnswer,
-  MAX_OUTPUT_TOKENS,
+  maxOutputTokensFor,
   needsContinuation,
   isContinuationNudge,
   createHasEndMarkerCondition,
@@ -871,12 +871,16 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
 }
 
 /**
- * Max number of continuation nudges after the model ends its turn without a
- * proper termination (no [END_OF_ANSWER], no ask_clarifying_questions, no
- * pending tool calls) — e.g. a text-only "Let me now..." plan (raw stop
- * reason "end_turn") or a step truncated mid-thinking ("length").
+ * Continuation allowances after the model ends its turn without a proper
+ * termination (no [END_OF_ANSWER], no ask_clarifying_questions, no pending
+ * tool calls). Voluntary stalls (raw "end_turn" — a text-only "Let me
+ * now..." plan) get few nudges: a model still narrating after two won't be
+ * fixed by a third. Token-limit truncations ("length") get more, because
+ * each continuation verifiably extends the answer and a large deliverable
+ * may need several segments; a progress gate in the loop stops empty ones.
  */
-const MAX_CONTINUATIONS = 2;
+const MAX_STALL_NUDGES = 2;
+const MAX_LENGTH_CONTINUATIONS = 5;
 
 /**
  * The two stall types need different instructions. After a token-limit
@@ -919,9 +923,10 @@ function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
 function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
   const { provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
   const base = abortSignal
-    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
-    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
   return { messages, ...base };
 }
 
@@ -929,9 +934,10 @@ function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
 function buildCallParams(prepared: PreparedAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
   const base = abortSignal
-    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
-    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
   if (previousMessages.length > 0) {
     const messagesToSend =
       typeof finalPrompt === "string"
@@ -1032,14 +1038,27 @@ export async function get_context(
 
     // The model occasionally ends its turn with a text-only statement of
     // intent ("Let me now run X...") without emitting the tool calls, or a
-    // step gets truncated mid-thinking — either way the tool loop exits with
-    // no real answer. Nudge it to continue, at most MAX_CONTINUATIONS times.
-    for (let attempt = 1; attempt <= MAX_CONTINUATIONS; attempt++) {
+    // step gets truncated by the output token limit — either way the tool
+    // loop exits with no real answer. Nudge it to continue. The two cases
+    // get separate allowances: a truncation continuation verifiably makes
+    // forward progress (each segment appends answer text), so a large
+    // deliverable may legitimately need several; a voluntary stall that two
+    // nudges didn't fix won't be fixed by a third.
+    let stallNudges = 0;
+    let lengthContinuations = 0;
+    for (;;) {
       const allSteps = segments.flatMap((s) => s.steps);
       if (!needsContinuation(allSteps)) break;
-      const generated = (await run.streamResult.response).messages as ModelMessage[];
       const truncated =
         allSteps[allSteps.length - 1]?.finishReason === "length";
+      if (truncated) {
+        if (lengthContinuations >= MAX_LENGTH_CONTINUATIONS) break;
+        lengthContinuations++;
+      } else {
+        if (stallNudges >= MAX_STALL_NUDGES) break;
+        stallNudges++;
+      }
+      const generated = (await run.streamResult.response).messages as ModelMessage[];
       // Tagged via providerOptions so session consumers (transcript rendering,
       // turn counting) can tell this synthetic message from a real user turn;
       // model providers only read their own providerOptions key and ignore it.
@@ -1052,7 +1071,11 @@ export async function get_context(
       console.warn(
         `===> agent ended turn without finishing (rawFinishReason: ${
           allSteps[allSteps.length - 1]?.rawFinishReason
-        }); continuation attempt ${attempt}/${MAX_CONTINUATIONS}`
+        }); ${
+          truncated
+            ? `length continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
+            : `stall nudge ${stallNudges}/${MAX_STALL_NUDGES}`
+        }`
       );
       run = await runWithBadRequestRetry(
         continueCallParams(prepared, convo),
@@ -1065,6 +1088,18 @@ export async function get_context(
       });
       sent = run.effectiveSent;
       streamTotalUsage = await run.streamResult.totalUsage;
+      // Progress gate: a continuation that generated nothing new will not do
+      // better next round — stop rather than loop on empty segments.
+      const segmentOutput = run.segSteps.reduce(
+        (n, s) => n + (s.usage?.outputTokens ?? 0),
+        0
+      );
+      if (segmentOutput === 0) {
+        console.warn(
+          "===> continuation produced no output tokens; stopping continuation loop"
+        );
+        break;
+      }
     }
 
     steps = segments.flatMap((s) => s.steps);

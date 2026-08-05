@@ -32,7 +32,7 @@ import {
   createHasEndMarkerCondition,
   extractMessagesFromSteps,
   truncateOldToolResults,
-  MAX_OUTPUT_TOKENS,
+  maxOutputTokensFor,
 } from "../repo/utils.js";
 import { get_graph_tools, GraphToolsConfig } from "./tools.js";
 
@@ -262,9 +262,10 @@ async function prepareGraphAgent(
 function buildCallParams(prepared: PreparedGraphAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
   const base = abortSignal
-    ? { providerOptions, abortSignal, maxOutputTokens: MAX_OUTPUT_TOKENS }
-    : { providerOptions, maxOutputTokens: MAX_OUTPUT_TOKENS };
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
 
   if (previousMessages.length > 0) {
     const messagesToSend =
