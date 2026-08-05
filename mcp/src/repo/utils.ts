@@ -103,7 +103,17 @@ export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
     }
   }
   if (last.rawFinishReason === "stop_sequence") return false; // hit [END_OF_ANSWER]
-  return last.rawFinishReason === "end_turn" || last.finishReason === "length";
+  return (
+    last.rawFinishReason === "end_turn" ||
+    last.finishReason === "length" ||
+    // A mid-step stream error (observed with Kimi via OpenRouter: the stream
+    // dies right after a reasoning block, before tool calls) is surfaced by
+    // the SDK as a final step with finishReason "error" instead of a thrown
+    // exception — the loop exits and the run would report success with a
+    // garbage answer. The conversation up to the error is intact, so it is
+    // the most recoverable stall of all.
+    last.finishReason === "error"
+  );
 }
 
 /**

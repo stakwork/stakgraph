@@ -919,12 +919,17 @@ const MAX_LENGTH_CONTINUATIONS = 5;
  * without it, a model that stalled because it genuinely needs input gets
  * pushed toward fabricating an answer instead of asking.
  */
+type ContinuationKind = "stall" | "length" | "error";
+
 function continuationNudge(
   askQuestionsEnabled: boolean,
-  truncated: boolean,
+  kind: ContinuationKind,
   maxOutputTokens: number
 ): string {
-  if (truncated) {
+  if (kind === "error") {
+    return "Your previous message was interrupted mid-stream by a transient connection error; nothing after the interruption was received. Continue from where the conversation actually is: any tool call you were about to make never executed — issue it now, and do not repeat text already written. When the answer is complete, end with [END_OF_ANSWER].";
+  }
+  if (kind === "length") {
     return `Your previous message was cut off by the output token limit (${maxOutputTokens} tokens per message, thinking included). Continue from where the conversation actually is: if a tool call was cut off, it never executed — re-issue it, splitting large writes into several calls each well under that limit. If you were writing your final answer, continue from the exact point it was cut off — do not repeat anything already written. When the answer is complete, end with [END_OF_ANSWER].`;
   }
   const askPath = askQuestionsEnabled
@@ -1076,9 +1081,17 @@ export async function get_context(
     for (;;) {
       const allSteps = segments.flatMap((s) => s.steps);
       if (!needsContinuation(allSteps)) break;
-      const truncated =
-        allSteps[allSteps.length - 1]?.finishReason === "length";
-      if (truncated) {
+      const lastFinish = allSteps[allSteps.length - 1]?.finishReason;
+      const kind: ContinuationKind =
+        lastFinish === "length"
+          ? "length"
+          : lastFinish === "error"
+            ? "error"
+            : "stall";
+      // Involuntary interruptions (truncation, mid-stream connection errors)
+      // share the larger progress-gated allowance; only voluntary stalls are
+      // capped at MAX_STALL_NUDGES.
+      if (kind !== "stall") {
         if (lengthContinuations >= MAX_LENGTH_CONTINUATIONS) break;
         lengthContinuations++;
       } else {
@@ -1093,18 +1106,18 @@ export async function get_context(
         role: "user",
         content: continuationNudge(
           prepared.askQuestionsEnabled,
-          truncated,
+          kind,
           maxOutputTokensFor(prepared.provider)
         ),
         providerOptions: { stakgraph: { continuationNudge: true } },
       };
       const convo = [...sent, ...generated, nudge];
       console.warn(
-        `===> agent ended turn without finishing (rawFinishReason: ${
+        `===> agent ended turn without finishing (finishReason: ${lastFinish}, raw: ${
           allSteps[allSteps.length - 1]?.rawFinishReason
         }); ${
-          truncated
-            ? `length continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
+          kind !== "stall"
+            ? `${kind} continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
             : `stall nudge ${stallNudges}/${MAX_STALL_NUDGES}`
         }`
       );

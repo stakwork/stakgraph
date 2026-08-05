@@ -432,6 +432,14 @@ test.describe("needsContinuation", () => {
     expect(needsContinuation(steps)).toBe(true);
   });
 
+  test("mid-stream error step (e.g. connection drop after reasoning) is a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({ content: [{ type: "reasoning", text: "I now have all six documents..." }], finishReason: "error" }),
+    ];
+    expect(needsContinuation(steps)).toBe(true);
+  });
+
   test("ambiguous raw stop (OpenAI-compatible providers) is left alone", () => {
     const steps = [
       toolCallStep(),
