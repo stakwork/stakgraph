@@ -522,8 +522,14 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // OpenAI
   "gpt-5": 128_000,
   "gpt-4.1-mini": 1_000_000,
-  // OpenRouter
-  "moonshotai/kimi-k2.6": 128_000,
+  // OpenRouter — values from the OpenRouter model catalog
+  // (https://openrouter.ai/api/v1/models, context_length).
+  "moonshotai/kimi-k3": 1_048_576,
+  "moonshotai/kimi-k2.7-code": 262_144,
+  "moonshotai/kimi-k2.6": 262_144,
+  "moonshotai/kimi-k2.5": 262_144,
+  "moonshotai/kimi-k2-thinking": 262_144,
+  "moonshotai/kimi-k2": 131_072,
 };
 
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
