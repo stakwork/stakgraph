@@ -348,10 +348,14 @@ Rules:
     "Apply a unified-diff patch string to the cloned repo via `git apply`. " +
     "Patch must be valid unified-diff format. Returns success message or error details.",
   generate_docx:
-    "Generate a Word (.docx) document from Markdown content using Pandoc. " +
-    "Input: { markdown: string; template?: string } where 'template' is an optional " +
-    "bundled reference-doc name for styling. Writes the file to the durable artifacts " +
-    "directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
+    "Generate a Word (.docx) document from Markdown using Pandoc. " +
+    "Input: { markdown?: string; markdownPath?: string; template?: string } — provide exactly one " +
+    "of 'markdown' (inline content) or 'markdownPath' (path to a .md file; relative paths resolve " +
+    "against the repo directory). For anything longer than a couple of pages, ALWAYS use markdownPath: " +
+    "write the document to a .md file incrementally with bash (several appends), then convert it — " +
+    "a large inline 'markdown' argument must fit in a single message and will be cut off. " +
+    "'template' is an optional bundled reference-doc name for styling. Writes the file to the durable " +
+    "artifacts directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
     "On failure returns a non-fatal 'generate_docx failed: ...' string.",
   generate_xlsx:
     "Generate an Excel (.xlsx) workbook from a structured definition using openpyxl. " +
@@ -1276,10 +1280,11 @@ export async function get_tools(
           toolConfigDescription(toolsConfig.generate_docx) ??
           defaultDescriptions.generate_docx,
         inputSchema: z.object({
-          markdown: z.string().describe("Markdown content to convert to .docx"),
+          markdown: z.string().optional().describe("Inline Markdown content to convert to .docx (small documents only)"),
+          markdownPath: z.string().optional().describe("Path to a Markdown file to convert (preferred for large documents — build it incrementally with bash first); relative paths resolve against the repo directory"),
           template: z.string().optional().describe("Optional bundled reference-doc template name for styling"),
         }),
-        execute: async (input) => runDocx(input),
+        execute: async (input) => runDocx(input, repoPath),
       });
     }
     // generate_xlsx — openpyxl-based Excel workbook generation

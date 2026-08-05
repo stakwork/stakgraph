@@ -6,7 +6,7 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, rmSync, mkdtempSync } from "node:fs";
+import { existsSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -151,6 +151,26 @@ describe("runDocx — integration", { skip: !hasPandoc ? "pandoc not installed" 
     const filePath = decodeURIComponent(match[1]);
     assert.ok(filePath.endsWith(".docx"), "output must be a .docx file");
     assert.ok(existsSync(filePath), `file must exist at ${filePath}`);
+  });
+
+  it("converts from markdownPath, resolving relative paths against repoPath", async () => {
+    const { runDocx } = await import("../docgen.js?t=path" + Date.now());
+    const repoDir = mkdtempSync(join(tmpdir(), "docgen-repo-"));
+    try {
+      writeFileSync(join(repoDir, "doc.md"), "# From File\n\nBuilt incrementally.", "utf8");
+      const result = await runDocx({ markdownPath: "doc.md" }, repoDir);
+      assert.match(result, /Generated:.*\/repo\/agent\/file\?path=/, "result must contain download path");
+    } finally {
+      try { rmSync(repoDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("returns non-fatal errors for a missing markdownPath file and for neither input", async () => {
+    const { runDocx } = await import("../docgen.js");
+    const missing = await runDocx({ markdownPath: "/nonexistent/nope.md" });
+    assert.match(missing, /generate_docx failed: could not read markdownPath/);
+    const neither = await runDocx({});
+    assert.match(neither, /generate_docx failed: provide either/);
   });
 
   it("returns a non-fatal error string on invalid input (empty markdown is ok, pandoc error would be bad args)", async () => {
