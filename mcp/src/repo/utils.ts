@@ -241,14 +241,15 @@ function formatToolInput(input: unknown, max = 160): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-export function logStep(contents: any): void {
+export function logStep(contents: any, sessionId: string, elapsedMs: number): void {
   if (!Array.isArray(contents)) return;
+  const prefix = `sessionId=${sessionId} elapsedMs=${elapsedMs}`;
   for (const item of contents) {
     if (item.type === "tool-call") {
       const args = formatToolInput(item.input);
-      console.log(`[repo_agent] tool_call: ${item.toolName}${args ? ` ${args}` : ""}`);
+      console.log(`[repo_agent] ${prefix} tool_call: ${item.toolName}${args ? ` ${args}` : ""}`);
     } else if (item.type === "text" && item.text) {
-      console.log(`[repo_agent] text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
+      console.log(`[repo_agent] ${prefix} text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
     }
   }
 }

@@ -72,12 +72,13 @@ function isAbortError(err: unknown): boolean {
   return false;
 }
 
-function logStep(content: any[]): void {
+function logStep(content: any[], sessionId: string, elapsedMs: number): void {
+  const prefix = `sessionId=${sessionId} elapsedMs=${elapsedMs}`;
   for (const item of content) {
     if (item.type === "tool-call") {
-      console.log(`[graph_agent] tool_call: ${item.toolName}`);
+      console.log(`[graph_agent] ${prefix} tool_call: ${item.toolName}`);
     } else if (item.type === "text" && item.text) {
-      console.log(`[graph_agent] text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
+      console.log(`[graph_agent] ${prefix} text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
     }
   }
 }
@@ -194,6 +195,10 @@ async function prepareGraphAgent(
     previousMessages.filter((m) => m.role === "user").length +
     (hasSystemTurn ? 2 : 1);
 
+  // Seed the per-step interval clock *after* any setup work (tool loading,
+  // context building) so step 0's elapsedMs reflects only its own execution.
+  let lastStepTime = Date.now();
+
   const agent = new ToolLoopAgent({
     model,
     instructions: systemPrompt,
@@ -201,7 +206,10 @@ async function prepareGraphAgent(
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
-      logStep(sf.content);
+      const now = Date.now();
+      const elapsedMs = now - lastStepTime;
+      lastStepTime = now;
+      logStep(sf.content, sessionId ?? "none", elapsedMs);
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
@@ -221,6 +229,8 @@ async function prepareGraphAgent(
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
         timestamp: new Date().toISOString(),
+        sessionId: sessionId ?? "none",
+        elapsedMs,
       });
     },
     prepareStep: async ({ steps, messages }) => {
