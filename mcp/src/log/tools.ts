@@ -262,7 +262,7 @@ export function get_log_tools(
 
     tools.fetch_workflow_run = tool({
       description:
-        "Fetch logs for a Stakwork workflow run. Pick the projectId from the list of recent runs provided in the prompt. Returns logs in reverse chronological order. Supports filtering by step name, status, and pagination.",
+        'Fetch logs for a Stakwork workflow run. Pick the projectId from the list of recent runs provided in the prompt. Returns logs in reverse chronological order. Supports filtering by step name, status, and pagination. NOTE: messages are truncated to 1000 chars per line (ending in "... (continued)") — the full untruncated lines live in the CloudWatch log group "/stakwork/production", searchable with fetch_cloudwatch using filter_pattern "project_id_<projectId>".',
       inputSchema: z.object({
         project_id: z
           .string()

@@ -109,6 +109,7 @@ export async function logs_agent(req: Request, res: Response) {
       `\nRecent Stakwork workflow runs (use projectId with fetch_workflow_run to get logs):`,
       runsJson,
       `\nPick the most relevant run based on the user's question, if its about a recent workflow (like a feature architecture, hive task, etc.) Use the projectId to fetch logs. If a run has agentLogs, you can use fetch_agent_log to read the full log content for a specific agent.`,
+      `\nIMPORTANT: fetch_workflow_run messages are truncated to 1000 characters per line (truncated lines end with "... (continued)"). The full untruncated lines for a run are in the CloudWatch log group "/stakwork/production" — if you hit a truncated line you need in full, use fetch_cloudwatch with log_group "/stakwork/production", filter_pattern "project_id_<projectId>", and minutes covering the run's createdAt time.`,
     ].join("\n");
     finalPrompt = runsContext + `\n\n${finalPrompt}`;
   }
