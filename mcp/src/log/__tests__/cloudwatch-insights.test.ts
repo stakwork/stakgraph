@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import {
   buildInsightsQuery,
   fetchCloudwatchLogsInsights,
+  HYDRATE_MIN_MSG_LEN,
   type FetchCloudwatchParams,
 } from "../cloudwatch.js";
 
@@ -26,6 +27,7 @@ type SendResult = Record<string, unknown>;
 function makeMockClient(handlers: {
   StartQueryCommand?: (input: Record<string, unknown>) => SendResult;
   GetQueryResultsCommand?: (input: Record<string, unknown>) => SendResult;
+  GetLogRecordCommand?: (input: Record<string, unknown>) => SendResult;
 }) {
   return {
     send: async (command: { constructor: { name: string }; input: Record<string, unknown> }) => {
@@ -260,4 +262,89 @@ test("fetchCloudwatchLogsInsights: Timeout status with no results returns lineCo
 
   expect(resultB.truncated).toBe(true);
   expect(resultB.lineCount).toBe(0);
+});
+
+// ---------------------------------------------------------------------------
+// Hydration of truncated messages via @ptr → GetLogRecord
+// ---------------------------------------------------------------------------
+test("fetchCloudwatchLogsInsights: hydrates long messages to full length via GetLogRecord", async () => {
+  const logsDir = makeTmpDir();
+
+  const truncatedMsg = "x".repeat(HYDRATE_MIN_MSG_LEN + 50);
+  const fullMsg = truncatedMsg + "y".repeat(3000);
+  const shortMsg = "short line";
+  let getLogRecordCalls: string[] = [];
+
+  const mockClient = makeMockClient({
+    StartQueryCommand: () => ({ queryId: "qid-hydrate-test" }),
+    GetQueryResultsCommand: () => ({
+      status: "Complete",
+      results: [
+        [
+          { field: "@timestamp", value: "2024-01-01T00:00:00.000Z" },
+          { field: "@logStream", value: "stream1" },
+          { field: "@message", value: truncatedMsg },
+          { field: "@ptr", value: "ptr-long" },
+        ],
+        [
+          { field: "@timestamp", value: "2024-01-01T00:00:01.000Z" },
+          { field: "@logStream", value: "stream1" },
+          { field: "@message", value: shortMsg },
+          { field: "@ptr", value: "ptr-short" },
+        ],
+      ],
+    }),
+    GetLogRecordCommand: (input) => {
+      getLogRecordCalls.push(input.logRecordPointer as string);
+      return { logRecord: { "@message": fullMsg } };
+    },
+  });
+
+  const result = await fetchCloudwatchLogsInsights(
+    { logGroupName: "/test/group", minutes: 30, logsDir },
+    mockClient
+  );
+
+  expect(result.lineCount).toBe(2);
+  expect(result.hydratedLines).toBe(1);
+  // Only the suspect (long) line should be hydrated, not the short one
+  expect(getLogRecordCalls).toEqual(["ptr-long"]);
+
+  const content = fs.readFileSync(path.join(logsDir, result.file), "utf-8");
+  expect(content).toContain(fullMsg);
+  expect(content).toContain(shortMsg);
+});
+
+test("fetchCloudwatchLogsInsights: keeps truncated message when GetLogRecord fails", async () => {
+  const logsDir = makeTmpDir();
+
+  const truncatedMsg = "z".repeat(HYDRATE_MIN_MSG_LEN + 10);
+
+  const mockClient = makeMockClient({
+    StartQueryCommand: () => ({ queryId: "qid-hydrate-fail-test" }),
+    GetQueryResultsCommand: () => ({
+      status: "Complete",
+      results: [
+        [
+          { field: "@timestamp", value: "2024-01-01T00:00:00.000Z" },
+          { field: "@logStream", value: "stream1" },
+          { field: "@message", value: truncatedMsg },
+          { field: "@ptr", value: "ptr-fail" },
+        ],
+      ],
+    }),
+    GetLogRecordCommand: () => {
+      throw new Error("ThrottlingException");
+    },
+  });
+
+  const result = await fetchCloudwatchLogsInsights(
+    { logGroupName: "/test/group", minutes: 30, logsDir },
+    mockClient
+  );
+
+  expect(result.lineCount).toBe(1);
+  expect(result.hydratedLines).toBe(0);
+  const content = fs.readFileSync(path.join(logsDir, result.file), "utf-8");
+  expect(content).toContain(truncatedMsg);
 });
