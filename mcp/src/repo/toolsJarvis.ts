@@ -700,6 +700,82 @@ export function validateTripletSide(
 }
 
 /**
+ * Build a stable dedup key for an inline node side so identical sides across a
+ * batch collapse to a single resolution call. Key = node_type + canonical JSON
+ * of node_data with object keys sorted recursively — key order in node_data is
+ * ignored, matching Jarvis's own identity semantics.
+ */
+export function buildNodeDedupKey(
+  nodeType: string,
+  nodeData: Record<string, any>,
+): string {
+  function sortedJson(v: any): any {
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return v;
+    const sorted: Record<string, any> = {};
+    for (const k of Object.keys(v).sort()) {
+      sorted[k] = sortedJson(v[k]);
+    }
+    return sorted;
+  }
+  return `${nodeType}::${JSON.stringify(sortedJson(nodeData))}`;
+}
+
+/**
+ * Resolved triplet for the edge pass — all three fields are guaranteed
+ * non-empty when the triplet reaches this stage.
+ */
+export interface ResolvedTriplet {
+  /** original input index */
+  index: number;
+  source_ref_id: string;
+  target_ref_id: string;
+  edge_type: string;
+  edge_data?: Record<string, any>;
+  weight?: number;
+  create_schema_if_missing: boolean;
+}
+
+/**
+ * Match returned edges from the bulk `POST /v2/edges` response back to the
+ * originating triplets.  Matching key = (source_ref_id, target_ref_id,
+ * edge_type).  Each returned edge is consumed **at most once** in input order
+ * so duplicate keys (same triple but different edge_data/weight) are
+ * disambiguated deterministically.
+ *
+ * Returns `{ matched: Map<index, edgeRefId>, unmatched: ResolvedTriplet[] }`.
+ */
+export function matchEdgeResults(
+  triplets: ResolvedTriplet[],
+  returnedEdges: Array<{ ref_id: string; source?: string; target?: string; edge_type?: string }>,
+): { matched: Map<number, string>; unmatched: ResolvedTriplet[] } {
+  // Build a pool of returned edges grouped by (src, tgt, edge_type) key.
+  // Each pool entry is a queue; we shift() one per matched triplet so each
+  // returned edge is consumed at most once.
+  const pool = new Map<string, string[]>();
+  for (const e of returnedEdges) {
+    if (!e?.ref_id) continue;
+    const key = `${e.source ?? ""}|${e.target ?? ""}|${e.edge_type ?? ""}`;
+    if (!pool.has(key)) pool.set(key, []);
+    pool.get(key)!.push(e.ref_id);
+  }
+
+  const matched = new Map<number, string>();
+  const unmatched: ResolvedTriplet[] = [];
+
+  for (const t of triplets) {
+    const key = `${t.source_ref_id}|${t.target_ref_id}|${t.edge_type}`;
+    const queue = pool.get(key);
+    if (queue && queue.length > 0) {
+      matched.set(t.index, queue.shift()!);
+    } else {
+      unmatched.push(t);
+    }
+  }
+
+  return { matched, unmatched };
+}
+
+/**
  * Pull the created/merged node ref_id out of a Jarvis `POST /v2/nodes`
  * response body. Both plain success and the "Node already exists in the graph"
  * warning carry `data.ref_id` (merge semantics); anything else is a failure.
@@ -937,6 +1013,388 @@ function registerGraphWriteTools(
   });
 
   console.log("===> registered graph write tool: create_triplet");
+
+  // ── create_batch_triplet ──────────────────────────────────────────────────
+  // Accepts an array of triplet specs and asserts all of them in one call,
+  // returning a per-triplet result array in input order.
+  allTools.create_batch_triplet = tool({
+    description:
+      "Assert MANY facts into the Jarvis knowledge graph in a single call. " +
+      "Each item in `triplets` has the same shape as `create_triplet` (source/target as ref_id or inline " +
+      "node_type+node_data, plus edge_type and optional edge_data/weight/create_schema_if_missing). " +
+      "A single top-level `namespace` applies to all inline node creation. " +
+      "REUSE existing nodes wherever possible: supply ref_ids from graph_search when entities already exist — " +
+      "inline creation is a last resort. Identical inline sides across the batch are resolved once (deduped). " +
+      "Returns one result entry per input triplet in input order; a failed item does not abort the rest. " +
+      "Use `create_triplet` for a single fact; use this tool when asserting multiple related facts at once " +
+      "to avoid redundant round-trips.",
+    inputSchema: z.object({
+      triplets: z
+        .array(
+          z.object({
+            source_ref_id: z
+              .string()
+              .optional()
+              .describe(
+                "ref_id of an EXISTING source node. Preferred over inline creation.",
+              ),
+            source_type: z
+              .string()
+              .optional()
+              .describe(
+                "Node type for an INLINE source node. Requires source_data; omit when source_ref_id is set.",
+              ),
+            source_data: z
+              .record(z.string(), z.any())
+              .optional()
+              .describe(
+                "Properties for an INLINE source node. Must satisfy the type's schema.",
+              ),
+            target_ref_id: z
+              .string()
+              .optional()
+              .describe(
+                "ref_id of an EXISTING target node. Preferred over inline creation.",
+              ),
+            target_type: z
+              .string()
+              .optional()
+              .describe(
+                "Node type for an INLINE target node. Requires target_data; omit when target_ref_id is set.",
+              ),
+            target_data: z
+              .record(z.string(), z.any())
+              .optional()
+              .describe(
+                "Properties for an INLINE target node. Must satisfy the type's schema.",
+              ),
+            edge_type: z
+              .string()
+              .describe(
+                "The relationship type, e.g. 'WORKS_AT'. Must exist in the ontology unless " +
+                "create_schema_if_missing is set.",
+              ),
+            edge_data: z
+              .record(z.string(), z.any())
+              .optional()
+              .describe("Optional properties to set on the edge."),
+            weight: z.number().optional().describe("Optional edge weight."),
+            create_schema_if_missing: z
+              .boolean()
+              .optional()
+              .default(false)
+              .describe(
+                "Auto-create the edge schema when the relationship type is not yet in the ontology. " +
+                "Last resort — prefer defining it deliberately with ontology_create_edge.",
+              ),
+          }),
+        )
+        .describe("Array of triplet specs to assert."),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) for inline node creation. Applies to all items. " +
+          "Not an access-control boundary.",
+        ),
+    }),
+    execute: async (input: {
+      triplets: Array<{
+        source_ref_id?: string;
+        source_type?: string;
+        source_data?: Record<string, any>;
+        target_ref_id?: string;
+        target_type?: string;
+        target_data?: Record<string, any>;
+        edge_type: string;
+        edge_data?: Record<string, any>;
+        weight?: number;
+        create_schema_if_missing?: boolean;
+      }>;
+      namespace?: string;
+    }) => {
+      const { triplets, namespace } = input;
+      console.log(
+        `[create_batch_triplet] count=${triplets.length} namespace=${namespace ?? "-"}`,
+      );
+
+      // ── Phase 0: per-item validation ────────────────────────────────────
+      // Keep a parallel array tracking failures so a bad item doesn't abort
+      // the rest. null = still alive.
+      const failures: Array<string | null> = triplets.map(() => null);
+
+      for (let i = 0; i < triplets.length; i++) {
+        const t = triplets[i];
+        const srcErr = validateTripletSide(
+          "source",
+          t.source_ref_id,
+          t.source_type,
+          t.source_data,
+        );
+        const tgtErr = validateTripletSide(
+          "target",
+          t.target_ref_id,
+          t.target_type,
+          t.target_data,
+        );
+        const err = srcErr ?? tgtErr;
+        if (err) failures[i] = `invalid input — ${err}`;
+      }
+
+      // ── Phase 1: dedup + resolve inline node sides ───────────────────────
+      // Collect all unique (node_type, node_data) pairs across the batch and
+      // resolve each once via single-object POST /v2/nodes.
+      //
+      // Map: dedupKey → resolved ref_id (or Error if resolution failed).
+      const resolvedNodes = new Map<string, string | Error>();
+      // Which dedupKeys still need to be fetched.
+      const toResolve = new Map<string, { nodeType: string; nodeData: Record<string, any> }>();
+
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i]) continue;
+        const t = triplets[i];
+        for (const [refId, nodeType, nodeData] of [
+          [t.source_ref_id, t.source_type, t.source_data],
+          [t.target_ref_id, t.target_type, t.target_data],
+        ] as [string | undefined, string | undefined, Record<string, any> | undefined][]) {
+          const hasRef = typeof refId === "string" && refId.length > 0;
+          if (hasRef || !nodeType || !nodeData) continue; // ref_id side — no resolution needed
+          const key = buildNodeDedupKey(nodeType, nodeData);
+          if (!resolvedNodes.has(key) && !toResolve.has(key)) {
+            toResolve.set(key, { nodeType, nodeData });
+          }
+        }
+      }
+
+      // Resolve each unique inline side sequentially.
+      let uniqueNodesResolved = 0;
+      for (const [key, { nodeType, nodeData }] of toResolve) {
+        try {
+          const params = new URLSearchParams();
+          appendNamespace(params, namespace);
+          const qs = params.toString();
+          const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
+          const res = await jarvisMutate("post", url, jarvisHeaders, {
+            node_type: nodeType,
+            node_data: nodeData,
+          });
+          let body: any;
+          try {
+            body = JSON.parse(res.text);
+          } catch {
+            // non-JSON — will fail below
+          }
+          const ref = extractNodeRefId(body);
+          if (!ref) {
+            resolvedNodes.set(
+              key,
+              new Error(
+                `could not create/merge node type=${nodeType} (HTTP ${res.status}): ${res.text}`,
+              ),
+            );
+          } else {
+            resolvedNodes.set(key, ref);
+            uniqueNodesResolved++;
+          }
+        } catch (err: any) {
+          resolvedNodes.set(
+            key,
+            new Error(`could not create/merge node type=${nodeType}: ${err?.message ?? String(err)}`),
+          );
+        }
+      }
+
+      // Propagate node-resolution failures to every dependent triplet and
+      // build the concrete ref_id pair for surviving triplets.
+      const sourceRefs: Array<string | null> = triplets.map(() => null);
+      const targetRefs: Array<string | null> = triplets.map(() => null);
+
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i]) continue;
+        const t = triplets[i];
+
+        // Source side
+        const srcHasRef = typeof t.source_ref_id === "string" && t.source_ref_id.length > 0;
+        if (srcHasRef) {
+          sourceRefs[i] = t.source_ref_id!;
+        } else {
+          const key = buildNodeDedupKey(t.source_type!, t.source_data!);
+          const r = resolvedNodes.get(key);
+          if (r instanceof Error) {
+            failures[i] = `source node resolution failed: ${r.message}`;
+          } else {
+            sourceRefs[i] = r ?? null;
+          }
+        }
+
+        if (failures[i]) continue;
+
+        // Target side
+        const tgtHasRef = typeof t.target_ref_id === "string" && t.target_ref_id.length > 0;
+        if (tgtHasRef) {
+          targetRefs[i] = t.target_ref_id!;
+        } else {
+          const key = buildNodeDedupKey(t.target_type!, t.target_data!);
+          const r = resolvedNodes.get(key);
+          if (r instanceof Error) {
+            failures[i] = `target node resolution failed: ${r.message}`;
+          } else {
+            targetRefs[i] = r ?? null;
+          }
+        }
+      }
+
+      // ── Phase 2: bulk edge write ─────────────────────────────────────────
+      // Build the edge list for all triplets that survived validation +
+      // node resolution.
+      const resolvedTriplets: ResolvedTriplet[] = [];
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i] || !sourceRefs[i] || !targetRefs[i]) continue;
+        const t = triplets[i];
+        resolvedTriplets.push({
+          index: i,
+          source_ref_id: sourceRefs[i]!,
+          target_ref_id: targetRefs[i]!,
+          edge_type: t.edge_type,
+          edge_data: t.edge_data,
+          weight: t.weight,
+          create_schema_if_missing: t.create_schema_if_missing ?? false,
+        });
+      }
+
+      // Per-triplet edge ref_id accumulator (index → edge_ref_id).
+      const edgeResults = new Map<number, string>();
+      const bulkStatusMessages: string[] = [];
+
+      if (resolvedTriplets.length > 0) {
+        // Build list-body for sequential bulk endpoint.
+        const edgeList = resolvedTriplets.map((rt) => ({
+          edge: {
+            edge_type: rt.edge_type,
+            ...(rt.weight !== undefined ? { weight: rt.weight } : {}),
+            ...(rt.edge_data ? { edge_data: rt.edge_data } : {}),
+          },
+          source: { ref_id: rt.source_ref_id },
+          target: { ref_id: rt.target_ref_id },
+          create_schema_if_missing: rt.create_schema_if_missing,
+        }));
+
+        const edgeParams = new URLSearchParams();
+        appendNamespace(edgeParams, namespace);
+        const edgeQs = edgeParams.toString();
+        const edgeUrl = `${jarvisUrl}/v2/edges${edgeQs ? `?${edgeQs}` : ""}`;
+
+        let bulkBody: any;
+        try {
+          const bulkRes = await jarvisMutate("post", edgeUrl, jarvisHeaders, edgeList);
+          try {
+            bulkBody = JSON.parse(bulkRes.text);
+          } catch {
+            // non-JSON — treat as total failure; every triplet will fall back
+          }
+        } catch (err: any) {
+          // Network / timeout — every edge will fall through to the fallback.
+        }
+
+        const returnedEdges: Array<{
+          ref_id: string;
+          source?: string;
+          target?: string;
+          edge_type?: string;
+        }> = Array.isArray(bulkBody?.edges) ? bulkBody.edges : [];
+
+        if (Array.isArray(bulkBody?.status_messages)) {
+          bulkStatusMessages.push(...bulkBody.status_messages);
+        }
+
+        const { matched, unmatched } = matchEdgeResults(resolvedTriplets, returnedEdges);
+
+        // Record matched edges.
+        for (const [idx, refId] of matched) {
+          edgeResults.set(idx, refId);
+        }
+
+        // Fallback: re-issue each unmatched triplet as a single-object POST.
+        for (const rt of unmatched) {
+          try {
+            const res = await jarvisMutate("post", edgeUrl, jarvisHeaders, {
+              edge: {
+                edge_type: rt.edge_type,
+                ...(rt.weight !== undefined ? { weight: rt.weight } : {}),
+                ...(rt.edge_data ? { edge_data: rt.edge_data } : {}),
+              },
+              source: { ref_id: rt.source_ref_id },
+              target: { ref_id: rt.target_ref_id },
+              create_schema_if_missing: rt.create_schema_if_missing,
+            });
+            let body: any;
+            try {
+              body = JSON.parse(res.text);
+            } catch {
+              // non-JSON — edgeRef will be undefined
+            }
+            const edgeRef = extractEdgeRefId(body);
+            if (edgeRef) {
+              edgeResults.set(rt.index, edgeRef);
+            } else {
+              failures[rt.index] =
+                `edge write failed (HTTP ${res.status}): ${res.text}`;
+            }
+          } catch (err: any) {
+            failures[rt.index] =
+              `edge write failed: ${err?.message ?? String(err)}`;
+          }
+        }
+      }
+
+      // ── Phase 3: assemble results in input order ─────────────────────────
+      const results = triplets.map((t, i) => {
+        if (failures[i]) {
+          return {
+            status: "Error",
+            index: i,
+            edge_type: t.edge_type,
+            error: failures[i],
+          };
+        }
+        const edgeRef = edgeResults.get(i);
+        if (!edgeRef) {
+          return {
+            status: "Error",
+            index: i,
+            edge_type: t.edge_type,
+            error: "edge ref_id could not be recovered",
+          };
+        }
+        return {
+          status: "Success",
+          source_ref_id: sourceRefs[i]!,
+          target_ref_id: targetRefs[i]!,
+          edge_ref_id: edgeRef,
+          edge_type: t.edge_type,
+        };
+      });
+
+      const failedCount = results.filter((r) => r.status === "Error").length;
+      const bulkMatched = resolvedTriplets.length - (
+        resolvedTriplets.filter((rt) => !edgeResults.has(rt.index) || failures[rt.index]).length
+      );
+      const fallbackRecovered = results.filter(
+        (r) => r.status === "Success",
+      ).length - Math.max(0, bulkMatched);
+
+      console.log(
+        `[create_batch_triplet] resolvedNodes=${uniqueNodesResolved} edgesWritten=${bulkMatched} edgesMerged=${fallbackRecovered} failed=${failedCount}`,
+      );
+
+      return JSON.stringify({
+        results,
+        ...(bulkStatusMessages.length > 0 ? { status_messages: bulkStatusMessages } : {}),
+      });
+    },
+  });
+
+  console.log("===> registered graph write tool: create_triplet + create_batch_triplet");
 }
 
 /**
