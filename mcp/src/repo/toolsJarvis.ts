@@ -151,7 +151,7 @@ function deriveNodeName(node: any, properties: Record<string, any>): string {
 // re-verification.
 export interface OntologyNodeType {
   type: string;
-  domain: string | null;
+  /** Domain is conveyed by the grouping key in `node_types[<domain>]`; null-domain types land in the "ungrouped" bucket. */
   description: string;
   attributes?: Record<string, string>;
   inherited_attributes?: Record<string, string>;
@@ -174,7 +174,8 @@ export interface OntologyPayload {
  * enriched ontology payload that `get_ontology` returns.
  *
  * - Filters out `type === "*"` and `is_deleted` schema entries.
- * - Lowercases the per-entry `domain` so it matches `graph_search`'s `domains` param.
+ * - Lowercases each schema entry's domain locally for grouping and `domains` derivation
+ *   (not emitted per entry — domain is conveyed by the `node_types[<domain>]` key).
  * - Groups node types by domain; null-domain types land in the `"ungrouped"` bucket.
  * - `domains` list is the distinct, non-null, lowercased, sorted set.
  * - Edges are omitted by default (they dominate the payload); pass
@@ -188,32 +189,39 @@ export function buildOntologyPayload(
   const schemas: any[] = schemaData?.schemas ?? [];
   const rawEdges: any[] = schemaData?.edges ?? [];
 
-  // Build node type list
-  const nodeTypes: OntologyNodeType[] = schemas
+  // Build node type list; compute lowercased domain locally for grouping only (not emitted per entry)
+  type SchemaWithDomain = OntologyNodeType & { _domain: string | null };
+  const nodeTypes: SchemaWithDomain[] = schemas
     .filter((s: any) => s.type && s.type !== "*" && !s.is_deleted)
-    .map((s: any) => ({
-      type: s.type as string,
-      domain: s.domain ? (s.domain as string).toLowerCase() : null,
-      description: (s.description as string) ?? "",
-      ...(includeAttributes && {
-        attributes: (s.attributes ?? {}) as Record<string, string>,
-        inherited_attributes: (s.inherited_attributes ?? {}) as Record<string, string>,
-      }),
-    }));
+    .map((s: any) => {
+      const td = (s.type_description as string) ?? "";
+      const desc = (s.description as string) ?? "";
+      const description = td.trim() !== "" ? td : desc;
+      const _domain = s.domain ? (s.domain as string).toLowerCase() : null;
+      return {
+        type: s.type as string,
+        _domain,
+        description,
+        ...(includeAttributes && {
+          attributes: (s.attributes ?? {}) as Record<string, string>,
+          inherited_attributes: (s.inherited_attributes ?? {}) as Record<string, string>,
+        }),
+      };
+    });
 
   // Derive canonical domains list (distinct, non-null, sorted)
   const domainsSet = new Set<string>();
   for (const nt of nodeTypes) {
-    if (nt.domain !== null) domainsSet.add(nt.domain);
+    if (nt._domain !== null) domainsSet.add(nt._domain);
   }
   const domains = Array.from(domainsSet).sort();
 
-  // Group node types by domain (null → "ungrouped")
+  // Group node types by domain (null → "ungrouped"); strip the internal _domain field before emitting
   const grouped: Record<string, OntologyNodeType[]> = {};
-  for (const nt of nodeTypes) {
-    const key = nt.domain ?? "ungrouped";
+  for (const { _domain, ...entry } of nodeTypes) {
+    const key = _domain ?? "ungrouped";
     if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(nt);
+    grouped[key].push(entry as OntologyNodeType);
   }
 
   if (!includeEdges) {
@@ -1435,10 +1443,10 @@ export function registerJarvisTools(
   // this convention to agents so they can interpret wildcard edges correctly.
   allTools.get_ontology = tool({
     description:
-      "Fetch the ontology of the Jarvis knowledge graph: node types (with their domain) " +
+      "Fetch the ontology of the Jarvis knowledge graph: node types grouped by domain " +
       "and the canonical list of valid `domains`. " +
       "Call this once before graph_search to discover valid values for both the `type` and `domains` parameters. " +
-      "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`. " +
+      "Node types are grouped by domain key in `node_types[<domain>]`; types with no domain land in the `ungrouped` bucket and cannot be scoped with `domains`. " +
       "Relationship edges are omitted by default — graph_neighbors returns edge types live as you traverse. " +
       "Set `include_edges` to also get the full relationship map (source_type -> target_type triples). " +
       "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status). " +
@@ -1477,7 +1485,17 @@ export function registerJarvisTools(
       include_edges?: boolean;
       include_attributes?: boolean;
     }) => {
-      const url = `${jarvisUrl}/v2/schema`;
+      // Forward include_edges and include_attributes to jarvis unconditionally (always-set,
+      // mirroring the graph_search pattern). NOTE: jarvis-backend currently only parses
+      // `include_deleted`, `concise`, and `visible_only` on GET /v2/schema — a separate
+      // in-flight jarvis task will add support for these two params. The param names
+      // (`include_edges`, `include_attributes`) are a cross-repo contract with that task
+      // and must stay in sync with it. Client-side trimming in buildOntologyPayload
+      // remains the source of truth until jarvis honors these params.
+      const params = new URLSearchParams();
+      params.set("include_edges", String(include_edges));
+      params.set("include_attributes", String(include_attributes));
+      const url = `${jarvisUrl}/v2/schema?${params.toString()}`;
       console.log(
         `[get_ontology] fetching ${url} include_edges=${include_edges} include_attributes=${include_attributes}`
       );

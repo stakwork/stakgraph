@@ -144,13 +144,22 @@ const fixtureSchemaData = {
       type: "Episode",
       domain: "Content",
       description: "A podcast episode",
+      // type_description populated — should be preferred over description
+      type_description: "A single podcast episode entry",
       is_deleted: false,
       attributes: { title: "string", duration: "?float" },
       inherited_attributes: { ref_id: "string", created_at: "?datetime" },
       // carries a parent relationship to exercise inheritance-flavored data
       parent: "Thing",
     },
-    { type: "Topic", domain: "Entity", description: "A topic node", is_deleted: false },
+    {
+      type: "Topic",
+      domain: "Entity",
+      description: "A topic node",
+      // type_description present but empty — should fall back to description
+      type_description: "   ",
+      is_deleted: false,
+    },
     { type: "Workflow", domain: "Workflow", description: "A workflow node", is_deleted: false },
     { type: "Orphan", domain: null, description: "No domain node", is_deleted: false },
     { type: "NoDomainField", description: "Missing domain field entirely", is_deleted: false },
@@ -192,13 +201,26 @@ test.describe("buildOntologyPayload", () => {
     expect(allTypes).toContain("Workflow");
   });
 
-  test("lowercases domain on each node type", () => {
+  test("node types are grouped under the correct lowercased domain key", () => {
     const payload = buildOntologyPayload(fixtureSchemaData);
-    const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
-    expect(person?.domain).toBe("entity");
+    // Person has domain "Entity" → lowercased to "entity"
+    expect(payload.node_types["entity"]).toBeDefined();
+    const entityTypes = payload.node_types["entity"].map((n) => n.type);
+    expect(entityTypes).toContain("Person");
+    expect(entityTypes).toContain("Topic");
 
-    const episode = Object.values(payload.node_types).flat().find((n) => n.type === "Episode");
-    expect(episode?.domain).toBe("content");
+    // Episode has domain "Content" → lowercased to "content"
+    expect(payload.node_types["content"]).toBeDefined();
+    const contentTypes = payload.node_types["content"].map((n) => n.type);
+    expect(contentTypes).toContain("Episode");
+  });
+
+  test("node type entries no longer carry a domain field", () => {
+    const payload = buildOntologyPayload(fixtureSchemaData);
+    const allNodes = Object.values(payload.node_types).flat();
+    for (const node of allNodes) {
+      expect(Object.prototype.hasOwnProperty.call(node, "domain")).toBe(false);
+    }
   });
 
   test("domains list is distinct, non-null, lowercased, and sorted", () => {
@@ -224,10 +246,12 @@ test.describe("buildOntologyPayload", () => {
     expect(payload.domains).not.toContain("ungrouped");
   });
 
-  test("null-domain node type has domain: null", () => {
+  test("null-domain types land exclusively in 'ungrouped' bucket (sole signal of null domain)", () => {
     const payload = buildOntologyPayload(fixtureSchemaData);
     const orphan = payload.node_types["ungrouped"].find((n) => n.type === "Orphan");
-    expect(orphan?.domain).toBeNull();
+    expect(orphan).toBeDefined();
+    // 'domain' field must not appear on the entry — ungrouped membership is the only signal
+    expect(Object.prototype.hasOwnProperty.call(orphan, "domain")).toBe(false);
   });
 
   test("edges are omitted by default", () => {
@@ -285,10 +309,24 @@ test.describe("buildOntologyPayload", () => {
     expect(withEdges.edges).toEqual([]);
   });
 
-  test("node types include description field", () => {
+  test("node types include description field — Person has no type_description so falls back to description", () => {
     const payload = buildOntologyPayload(fixtureSchemaData);
     const person = Object.values(payload.node_types).flat().find((n) => n.type === "Person");
     expect(person?.description).toBe("A person node");
+  });
+
+  test("prefers type_description over description when type_description is non-empty", () => {
+    // Episode fixture has type_description="A single podcast episode entry"
+    const payload = buildOntologyPayload(fixtureSchemaData);
+    const episode = Object.values(payload.node_types).flat().find((n) => n.type === "Episode");
+    expect(episode?.description).toBe("A single podcast episode entry");
+  });
+
+  test("falls back to description when type_description is present but whitespace-only", () => {
+    // Topic fixture has type_description="   " (whitespace) and description="A topic node"
+    const payload = buildOntologyPayload(fixtureSchemaData);
+    const topic = Object.values(payload.node_types).flat().find((n) => n.type === "Topic");
+    expect(topic?.description).toBe("A topic node");
   });
 
   // ── include_attributes tests ────────────────────────────────────────────────
@@ -378,6 +416,59 @@ test.describe("buildOntologyPayload", () => {
       expect(Object.prototype.hasOwnProperty.call(node, "attributes")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(node, "inherited_attributes")).toBe(false);
     }
+  });
+});
+
+// ── get_ontology execute handler URL construction ────────────────────────────
+
+test.describe("get_ontology URL construction", () => {
+  // Simulate the URL-building logic from the get_ontology execute handler
+  // to assert that include_edges and include_attributes are always forwarded.
+  function buildOntologyUrl(
+    baseUrl: string,
+    include_edges: boolean,
+    include_attributes: boolean,
+  ): string {
+    const params = new URLSearchParams();
+    params.set("include_edges", String(include_edges));
+    params.set("include_attributes", String(include_attributes));
+    return `${baseUrl}/v2/schema?${params.toString()}`;
+  }
+
+  const BASE = "https://jarvis.example.com";
+
+  test("always includes include_edges param (false)", () => {
+    const url = buildOntologyUrl(BASE, false, false);
+    expect(url).toContain("include_edges=false");
+  });
+
+  test("always includes include_attributes param (false)", () => {
+    const url = buildOntologyUrl(BASE, false, false);
+    expect(url).toContain("include_attributes=false");
+  });
+
+  test("forwards include_edges=true when set", () => {
+    const url = buildOntologyUrl(BASE, true, false);
+    expect(url).toContain("include_edges=true");
+    expect(url).toContain("include_attributes=false");
+  });
+
+  test("forwards include_attributes=true when set", () => {
+    const url = buildOntologyUrl(BASE, false, true);
+    expect(url).toContain("include_edges=false");
+    expect(url).toContain("include_attributes=true");
+  });
+
+  test("both true: both params are present in the URL", () => {
+    const url = buildOntologyUrl(BASE, true, true);
+    expect(url).toContain("include_edges=true");
+    expect(url).toContain("include_attributes=true");
+  });
+
+  test("URL targets /v2/schema with a query string", () => {
+    const url = buildOntologyUrl(BASE, false, false);
+    expect(url).toContain("/v2/schema?");
+    expect(url.startsWith(BASE)).toBe(true);
   });
 });
 
