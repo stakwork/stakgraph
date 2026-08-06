@@ -201,6 +201,7 @@ export class GraphStorage extends Storage {
       const result = await session.run(`
         MATCH (c:Concept)
         WHERE c.embeddings IS NULL
+          AND c.id IS NOT NULL
           AND (
             (c.name IS NOT NULL AND c.name <> "") OR
             (c.description IS NOT NULL AND c.description <> "")
@@ -653,10 +654,12 @@ export class GraphStorage extends Storage {
       
       const result = await session.run(
         `
-        MATCH (f:Concept {id: $id})
+        MATCH (f:Concept)
+        WHERE f.id = $id OR f.node_key = $rawId OR f.ref_id = $rawId
         RETURN f
+        LIMIT 1
         `,
-        { id: fullId }
+        { id: fullId, rawId: id }
       );
 
       if (result.records.length === 0) {
@@ -1781,9 +1784,12 @@ export class GraphStorage extends Storage {
 
   private nodeToConcept(node: any): Concept {
     const props = node.properties;
-    
+
     return {
-      id: props.id,
+      // Concepts written by other clients (e.g. Jarvis /v2/nodes) may lack
+      // an id property — fall back to their node_key/ref_id so consumers
+      // always get a usable identifier.
+      id: props.id ?? props.node_key ?? props.Data_Bank ?? props.ref_id,
       repo: props.repo || undefined,
       ref_id: props.ref_id,
       name: props.name,
