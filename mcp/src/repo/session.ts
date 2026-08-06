@@ -69,6 +69,10 @@ export interface StepMeta {
   cumulativeOutput: number;
   toolCalls: string[];
   timestamp: string;
+  /** Session that produced this step; "none" for explore-path sub-calls. */
+  sessionId?: string;
+  /** Wall-clock ms from previous step boundary (or run start for step 0). */
+  elapsedMs?: number;
 }
 
 /**
