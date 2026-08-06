@@ -781,6 +781,11 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       (m) => m.role === "user" && !isContinuationNudge(m)
     ).length + (hasSystemTurn ? 2 : 1);
 
+  // Seed the per-step interval clock *after* cacheAttachments (a network
+  // download) completes, so step 0's elapsedMs excludes setup/network latency.
+  // This is intentionally separate from startTime which feeds total duration_ms.
+  let lastStepTime = Date.now();
+
   const agent = new ToolLoopAgent({
     model,
     // Transparent replay: no code-generated system prompt — the system turn
@@ -790,7 +795,10 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
-      logStep(sf.content);
+      const now = Date.now();
+      const elapsedMs = now - lastStepTime;
+      lastStepTime = now;
+      logStep(sf.content, sessionId ?? "none", elapsedMs);
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
@@ -810,6 +818,8 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
         timestamp: new Date().toISOString(),
+        sessionId,
+        elapsedMs,
       });
     },
     prepareStep: async ({ steps, messages }) => {
