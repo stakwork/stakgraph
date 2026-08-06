@@ -111,7 +111,8 @@ type ToolName =
   | "sheets_update_values"
   | "sheets_batch_update_values"
   | "sheets_get_values"
-  | "sheets_add_sheet";
+  | "sheets_add_sheet"
+  | "sheets_import_spreadsheet";
 
 /**
  * Object form of a per-tool config value. Lets a caller pass a description
@@ -230,7 +231,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
   "stakwork_run_step",
   "sheets_create_spreadsheet", "sheets_update_values", "sheets_batch_update_values",
-  "sheets_get_values", "sheets_add_sheet",
+  "sheets_get_values", "sheets_add_sheet", "sheets_import_spreadsheet",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -388,6 +389,7 @@ Rules:
   sheets_batch_update_values: '',
   sheets_get_values: '',
   sheets_add_sheet: '',
+  sheets_import_spreadsheet: '',
 };
 
 export async function get_tools(
