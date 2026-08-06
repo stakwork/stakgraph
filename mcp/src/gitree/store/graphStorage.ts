@@ -21,6 +21,36 @@ function numberOrUndefined(value: any): number | undefined {
   return value?.toNumber ? value.toNumber() : value;
 }
 
+const EPOCH_MILLIS_THRESHOLD = 1e12;
+
+// Nodes written by older/alternate pipelines store dates as epoch seconds,
+// epoch millis, numeric strings, or ISO strings — and some lack the property
+// entirely. Always return a valid Date so downstream toISOString() can't throw.
+function safeDate(value: any): Date {
+  const fallback = new Date(0);
+  if (value == null) return fallback;
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? fallback : value;
+  }
+  const raw = value?.toNumber ? value.toNumber() : value;
+  let ms: number;
+  if (typeof raw === "number") {
+    ms = raw > EPOCH_MILLIS_THRESHOLD ? raw : raw * 1000;
+  } else if (typeof raw === "string" && raw.trim() !== "") {
+    const num = Number(raw);
+    if (!isNaN(num)) {
+      ms = num > EPOCH_MILLIS_THRESHOLD ? num : num * 1000;
+    } else {
+      ms = Date.parse(raw);
+    }
+  } else {
+    // Neo4j temporal types (DateTime/Date) stringify to ISO
+    ms = Date.parse(String(raw));
+  }
+  const date = new Date(ms);
+  return isNaN(date.getTime()) ? fallback : date;
+}
+
 function usageParams(usage?: Usage) {
   const normalized = usage ? normalizeUsage(usage) : undefined;
   return {
@@ -171,6 +201,7 @@ export class GraphStorage extends Storage {
       const result = await session.run(`
         MATCH (c:Concept)
         WHERE c.embeddings IS NULL
+          AND c.id IS NOT NULL
           AND (
             (c.name IS NOT NULL AND c.name <> "") OR
             (c.description IS NOT NULL AND c.description <> "")
@@ -623,10 +654,12 @@ export class GraphStorage extends Storage {
       
       const result = await session.run(
         `
-        MATCH (f:Concept {id: $id})
+        MATCH (f:Concept)
+        WHERE f.id = $id OR f.node_key = $rawId OR f.ref_id = $rawId
         RETURN f
+        LIMIT 1
         `,
-        { id: fullId }
+        { id: fullId, rawId: id }
       );
 
       if (result.records.length === 0) {
@@ -653,9 +686,18 @@ export class GraphStorage extends Storage {
         { repo: repo || null }
       );
 
-      return result.records.map((record) =>
-        this.nodeToConcept(record.get("f"))
-      );
+      return result.records.flatMap((record) => {
+        const node = record.get("f");
+        try {
+          return [this.nodeToConcept(node)];
+        } catch (error) {
+          console.warn(
+            `Skipping malformed Concept node ${node?.properties?.id}:`,
+            error
+          );
+          return [];
+        }
+      });
     } finally {
       await session.close();
     }
@@ -1742,21 +1784,24 @@ export class GraphStorage extends Storage {
 
   private nodeToConcept(node: any): Concept {
     const props = node.properties;
-    
+
     return {
-      id: props.id,
+      // Concepts written by other clients (e.g. Jarvis /v2/nodes) may lack
+      // an id property — fall back to their node_key/ref_id so consumers
+      // always get a usable identifier.
+      id: props.id ?? props.node_key ?? props.Data_Bank ?? props.ref_id,
       repo: props.repo || undefined,
       ref_id: props.ref_id,
       name: props.name,
       description: props.description,
       prNumbers: props.prNumbers || [],
       commitShas: props.commitShas || [],
-      createdAt: new Date(numberOrUndefined(props.date)! * 1000),
-      lastUpdated: new Date(numberOrUndefined(props.date)! * 1000),
+      createdAt: safeDate(props.date),
+      lastUpdated: safeDate(props.date),
       documentation: props.docs || undefined,
       cluesCount: numberOrUndefined(props.cluesCount),
       cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
-        ? new Date(numberOrUndefined(props.cluesLastAnalyzedAt)! * 1000)
+        ? safeDate(props.cluesLastAnalyzedAt)
         : undefined,
       usage: usageFromProps(props),
       embedding: props.embeddings || undefined,
@@ -1772,7 +1817,7 @@ export class GraphStorage extends Storage {
       repo: props.repo || undefined,
       title: props.title,
       summary: props.summary,
-      mergedAt: new Date(numberOrUndefined(props.date)! * 1000),
+      mergedAt: safeDate(props.date),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -1791,7 +1836,7 @@ export class GraphStorage extends Storage {
       message: props.message,
       summary: props.summary,
       author: props.author,
-      committedAt: new Date(numberOrUndefined(props.date)! * 1000),
+      committedAt: safeDate(props.date),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -1819,8 +1864,8 @@ export class GraphStorage extends Storage {
       relatedConcepts: props.relatedConcepts || [],
       relatedClues: props.relatedClues || [],
       dependsOn: props.dependsOn || [],
-      createdAt: new Date(numberOrUndefined(props.createdAt)! * 1000),
-      updatedAt: new Date(numberOrUndefined(props.updatedAt)! * 1000),
+      createdAt: safeDate(props.createdAt),
+      updatedAt: safeDate(props.updatedAt),
     };
   }
 
