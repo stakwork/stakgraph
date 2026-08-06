@@ -5,7 +5,10 @@ import {
   validateTripletSide,
   extractNodeRefId,
   extractEdgeRefId,
+  buildNodeDedupKey,
+  matchEdgeResults,
 } from "../toolsJarvis.js";
+import type { ResolvedTriplet } from "../toolsJarvis.js";
 
 // ── graph_search URL construction helpers ────────────────────────────────────
 // Simulate the URL-building logic from graph_search in toolsJarvis.ts so we
@@ -507,5 +510,390 @@ test.describe("extractEdgeRefId", () => {
     expect(extractEdgeRefId({ status: "Error", status_messages: ["boom"] })).toBeUndefined();
     expect(extractEdgeRefId({ edges: [] })).toBeUndefined();
     expect(extractEdgeRefId(undefined)).toBeUndefined();
+  });
+});
+
+// ── create_batch_triplet pure helpers ────────────────────────────────────────
+
+test.describe("buildNodeDedupKey", () => {
+  test("identical node_type + node_data produce the same key", () => {
+    const a = buildNodeDedupKey("Person", { name: "Alice", age: 30 });
+    const b = buildNodeDedupKey("Person", { name: "Alice", age: 30 });
+    expect(a).toBe(b);
+  });
+
+  test("key order in node_data does not matter (canonical JSON)", () => {
+    const a = buildNodeDedupKey("Person", { age: 30, name: "Alice" });
+    const b = buildNodeDedupKey("Person", { name: "Alice", age: 30 });
+    expect(a).toBe(b);
+  });
+
+  test("nested key order is also normalised", () => {
+    const a = buildNodeDedupKey("Org", { meta: { z: 1, a: 2 } });
+    const b = buildNodeDedupKey("Org", { meta: { a: 2, z: 1 } });
+    expect(a).toBe(b);
+  });
+
+  test("different node_data produces different keys", () => {
+    const a = buildNodeDedupKey("Person", { name: "Alice" });
+    const b = buildNodeDedupKey("Person", { name: "Bob" });
+    expect(a).not.toBe(b);
+  });
+
+  test("different node_type produces different keys even with same data", () => {
+    const a = buildNodeDedupKey("Person", { name: "Alice" });
+    const b = buildNodeDedupKey("Organization", { name: "Alice" });
+    expect(a).not.toBe(b);
+  });
+
+  test("array values are preserved (arrays are not re-sorted)", () => {
+    const a = buildNodeDedupKey("Skill", { tags: ["a", "b"] });
+    const b = buildNodeDedupKey("Skill", { tags: ["b", "a"] });
+    // Arrays are NOT sorted — they are order-sensitive
+    expect(a).not.toBe(b);
+  });
+});
+
+// ── matchEdgeResults ─────────────────────────────────────────────────────────
+
+function makeTriplet(
+  index: number,
+  source_ref_id: string,
+  target_ref_id: string,
+  edge_type: string,
+  overrides: Partial<ResolvedTriplet> = {}
+): ResolvedTriplet {
+  return {
+    index,
+    source_ref_id,
+    target_ref_id,
+    edge_type,
+    create_schema_if_missing: false,
+    ...overrides,
+  };
+}
+
+test.describe("matchEdgeResults", () => {
+  test("matches a single returned edge to its triplet by (src, tgt, edge_type)", () => {
+    const triplets = [makeTriplet(0, "src-1", "tgt-1", "KNOWS")];
+    const returned = [{ ref_id: "edge-1", source: "src-1", target: "tgt-1", edge_type: "KNOWS" }];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("edge-1");
+    expect(unmatched).toHaveLength(0);
+  });
+
+  test("leaves a genuinely unmatched triplet in unmatched", () => {
+    const triplets = [makeTriplet(0, "src-1", "tgt-1", "KNOWS")];
+    const returned = [{ ref_id: "edge-X", source: "src-2", target: "tgt-2", edge_type: "KNOWS" }];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.size).toBe(0);
+    expect(unmatched).toHaveLength(1);
+    expect(unmatched[0].index).toBe(0);
+  });
+
+  test("consume-once in input order disambiguates two triplets with the same (src, tgt, edge_type)", () => {
+    // Both triplets share the same triple but differ in edge_data.
+    // Bulk response returns two edges with the same key.
+    const triplets = [
+      makeTriplet(0, "src-1", "tgt-1", "CITES", { edge_data: { note: "first" } }),
+      makeTriplet(1, "src-1", "tgt-1", "CITES", { edge_data: { note: "second" } }),
+    ];
+    const returned = [
+      { ref_id: "edge-A", source: "src-1", target: "tgt-1", edge_type: "CITES" },
+      { ref_id: "edge-B", source: "src-1", target: "tgt-1", edge_type: "CITES" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    // Both matched; edge-A goes to index 0 (first in input order), edge-B to index 1
+    expect(matched.get(0)).toBe("edge-A");
+    expect(matched.get(1)).toBe("edge-B");
+    expect(unmatched).toHaveLength(0);
+  });
+
+  test("one returned edge for two triplets with same key → first matched, second unmatched", () => {
+    const triplets = [
+      makeTriplet(0, "src-1", "tgt-1", "CITES"),
+      makeTriplet(1, "src-1", "tgt-1", "CITES"),
+    ];
+    const returned = [
+      { ref_id: "edge-A", source: "src-1", target: "tgt-1", edge_type: "CITES" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("edge-A");
+    expect(matched.has(1)).toBe(false);
+    expect(unmatched).toHaveLength(1);
+    expect(unmatched[0].index).toBe(1);
+  });
+
+  test("handles empty returned edges (all unmatched)", () => {
+    const triplets = [
+      makeTriplet(0, "src-1", "tgt-1", "KNOWS"),
+      makeTriplet(1, "src-2", "tgt-2", "LOVES"),
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, []);
+    expect(matched.size).toBe(0);
+    expect(unmatched).toHaveLength(2);
+  });
+
+  test("handles empty triplets (nothing to match)", () => {
+    const returned = [
+      { ref_id: "edge-Z", source: "src-1", target: "tgt-1", edge_type: "KNOWS" },
+    ];
+    const { matched, unmatched } = matchEdgeResults([], returned);
+    expect(matched.size).toBe(0);
+    expect(unmatched).toHaveLength(0);
+  });
+
+  test("skips returned edges with missing ref_id", () => {
+    const triplets = [makeTriplet(0, "s", "t", "KNOWS")];
+    const returned = [
+      { ref_id: "", source: "s", target: "t", edge_type: "KNOWS" },
+    ] as any[];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.size).toBe(0);
+    expect(unmatched).toHaveLength(1);
+  });
+
+  test("multiple distinct triplets each match their own returned edge", () => {
+    const triplets = [
+      makeTriplet(0, "a", "b", "KNOWS"),
+      makeTriplet(1, "c", "d", "LOVES"),
+      makeTriplet(2, "e", "f", "HATES"),
+    ];
+    const returned = [
+      { ref_id: "e1", source: "a", target: "b", edge_type: "KNOWS" },
+      { ref_id: "e2", source: "c", target: "d", edge_type: "LOVES" },
+      { ref_id: "e3", source: "e", target: "f", edge_type: "HATES" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("e1");
+    expect(matched.get(1)).toBe("e2");
+    expect(matched.get(2)).toBe("e3");
+    expect(unmatched).toHaveLength(0);
+  });
+});
+
+// ── create_batch_triplet result assembly (pure logic simulation) ─────────────
+// We exercise the pure helpers (buildNodeDedupKey, matchEdgeResults,
+// validateTripletSide, extractNodeRefId, extractEdgeRefId) to simulate the
+// overall batch behaviour without hitting the network.
+
+test.describe("create_batch_triplet result assembly (simulated)", () => {
+  // ── helpers re-used across tests ──────────────────────────────────────────
+  function simulateBatch(
+    triplets: Array<{
+      source_ref_id?: string;
+      source_type?: string;
+      source_data?: Record<string, any>;
+      target_ref_id?: string;
+      target_type?: string;
+      target_data?: Record<string, any>;
+      edge_type: string;
+      edge_data?: Record<string, any>;
+      weight?: number;
+      create_schema_if_missing?: boolean;
+    }>,
+    // pre-resolved node map: dedupKey → ref_id
+    nodeMap: Map<string, string>,
+    // simulated bulk edge response
+    bulkEdgesResponse: Array<{
+      ref_id: string;
+      source?: string;
+      target?: string;
+      edge_type?: string;
+    }>,
+    // simulated fallback responses per unmatched triplet index (index → edgeRefId | null)
+    fallbackMap: Map<number, string | null> = new Map(),
+  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type: string; error?: string }> {
+    const failures: Array<string | null> = triplets.map(() => null);
+
+    // Phase 0: validation
+    for (let i = 0; i < triplets.length; i++) {
+      const t = triplets[i];
+      const err =
+        validateTripletSide("source", t.source_ref_id, t.source_type, t.source_data) ??
+        validateTripletSide("target", t.target_ref_id, t.target_type, t.target_data);
+      if (err) failures[i] = `invalid input — ${err}`;
+    }
+
+    // Phase 1: resolve ref_ids
+    const sourceRefs: Array<string | null> = triplets.map(() => null);
+    const targetRefs: Array<string | null> = triplets.map(() => null);
+
+    for (let i = 0; i < triplets.length; i++) {
+      if (failures[i]) continue;
+      const t = triplets[i];
+
+      // source
+      const srcHasRef = typeof t.source_ref_id === "string" && t.source_ref_id.length > 0;
+      if (srcHasRef) {
+        sourceRefs[i] = t.source_ref_id!;
+      } else {
+        const key = buildNodeDedupKey(t.source_type!, t.source_data!);
+        const r = nodeMap.get(key);
+        if (!r) { failures[i] = "source node resolution failed"; continue; }
+        sourceRefs[i] = r;
+      }
+
+      // target
+      const tgtHasRef = typeof t.target_ref_id === "string" && t.target_ref_id.length > 0;
+      if (tgtHasRef) {
+        targetRefs[i] = t.target_ref_id!;
+      } else {
+        const key = buildNodeDedupKey(t.target_type!, t.target_data!);
+        const r = nodeMap.get(key);
+        if (!r) { failures[i] = "target node resolution failed"; continue; }
+        targetRefs[i] = r;
+      }
+    }
+
+    // Phase 2: match edges
+    const resolvedTriplets: ResolvedTriplet[] = [];
+    for (let i = 0; i < triplets.length; i++) {
+      if (failures[i] || !sourceRefs[i] || !targetRefs[i]) continue;
+      const t = triplets[i];
+      resolvedTriplets.push({
+        index: i,
+        source_ref_id: sourceRefs[i]!,
+        target_ref_id: targetRefs[i]!,
+        edge_type: t.edge_type,
+        edge_data: t.edge_data,
+        weight: t.weight,
+        create_schema_if_missing: t.create_schema_if_missing ?? false,
+      });
+    }
+
+    const edgeResults = new Map<number, string>();
+    const { matched, unmatched } = matchEdgeResults(resolvedTriplets, bulkEdgesResponse);
+    for (const [idx, ref] of matched) edgeResults.set(idx, ref);
+
+    for (const rt of unmatched) {
+      const fallbackRef = fallbackMap.get(rt.index) ?? null;
+      if (fallbackRef) {
+        edgeResults.set(rt.index, fallbackRef);
+      } else {
+        failures[rt.index] = "edge write failed";
+      }
+    }
+
+    // Phase 3: assemble
+    return triplets.map((t, i) => {
+      if (failures[i]) {
+        return { status: "Error", index: i, edge_type: t.edge_type, error: failures[i] };
+      }
+      const edgeRef = edgeResults.get(i);
+      if (!edgeRef) {
+        return { status: "Error", index: i, edge_type: t.edge_type, error: "edge ref_id could not be recovered" };
+      }
+      return {
+        status: "Success",
+        source_ref_id: sourceRefs[i]!,
+        target_ref_id: targetRefs[i]!,
+        edge_ref_id: edgeRef,
+        edge_type: t.edge_type,
+      };
+    });
+  }
+
+  test("output ordering matches input ordering", () => {
+    const nodeMap = new Map([
+      [buildNodeDedupKey("Person", { name: "Alice" }), "node-alice"],
+      [buildNodeDedupKey("Person", { name: "Bob" }), "node-bob"],
+    ]);
+    const triplets = [
+      { source_type: "Person", source_data: { name: "Alice" }, target_type: "Person", target_data: { name: "Bob" }, edge_type: "KNOWS" },
+      { source_ref_id: "node-alice", target_ref_id: "node-bob", edge_type: "LOVES" },
+    ];
+    const bulk = [
+      { ref_id: "e1", source: "node-alice", target: "node-bob", edge_type: "KNOWS" },
+      { ref_id: "e2", source: "node-alice", target: "node-bob", edge_type: "LOVES" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results[0].status).toBe("Success");
+    expect(results[0].edge_type).toBe("KNOWS");
+    expect(results[1].status).toBe("Success");
+    expect(results[1].edge_type).toBe("LOVES");
+  });
+
+  test("mixes ref_id sides and inline node_type+node_data sides correctly", () => {
+    const nodeMap = new Map([
+      [buildNodeDedupKey("Org", { name: "Acme" }), "node-acme"],
+    ]);
+    const triplets = [
+      { source_ref_id: "existing-person", target_type: "Org", target_data: { name: "Acme" }, edge_type: "WORKS_AT" },
+    ];
+    const bulk = [
+      { ref_id: "edge-works", source: "existing-person", target: "node-acme", edge_type: "WORKS_AT" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results[0].status).toBe("Success");
+    expect(results[0].source_ref_id).toBe("existing-person");
+    expect(results[0].target_ref_id).toBe("node-acme");
+    expect(results[0].edge_ref_id).toBe("edge-works");
+  });
+
+  test("one invalid triplet produces a failure entry without affecting other items", () => {
+    const nodeMap = new Map([
+      [buildNodeDedupKey("Person", { name: "Alice" }), "node-alice"],
+      [buildNodeDedupKey("Person", { name: "Bob" }), "node-bob"],
+    ]);
+    const triplets = [
+      // valid
+      { source_ref_id: "node-alice", target_ref_id: "node-bob", edge_type: "KNOWS" },
+      // INVALID — no source provided
+      { target_ref_id: "node-bob", edge_type: "KNOWS" } as any,
+      // valid
+      { source_ref_id: "node-alice", target_ref_id: "node-bob", edge_type: "LOVES" },
+    ];
+    const bulk = [
+      { ref_id: "e1", source: "node-alice", target: "node-bob", edge_type: "KNOWS" },
+      { ref_id: "e2", source: "node-alice", target: "node-bob", edge_type: "LOVES" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results[0].status).toBe("Success");
+    expect(results[1].status).toBe("Error");
+    expect(results[1].error).toContain("invalid input");
+    expect(results[2].status).toBe("Success");
+  });
+
+  test("idempotent-merge (edge absent from bulk response) is Success via fallback, not failure", () => {
+    const triplets = [
+      { source_ref_id: "node-a", target_ref_id: "node-b", edge_type: "KNOWS" },
+    ];
+    // Bulk response omits the edge (it was a Warning/duplicate)
+    const bulk: any[] = [];
+    // Fallback recovers the ref_id (simulates extractEdgeRefId from data.ref_id)
+    const fallback = new Map([[0, "edge-existing"]]);
+    const results = simulateBatch(triplets, new Map(), bulk, fallback);
+    expect(results[0].status).toBe("Success");
+    expect(results[0].edge_ref_id).toBe("edge-existing");
+  });
+
+  test("hard failure when both bulk and fallback fail to return a ref_id", () => {
+    const triplets = [
+      { source_ref_id: "node-a", target_ref_id: "node-b", edge_type: "KNOWS" },
+    ];
+    const bulk: any[] = [];
+    // No fallback entry → failure
+    const results = simulateBatch(triplets, new Map(), bulk);
+    expect(results[0].status).toBe("Error");
+  });
+
+  test("duplicate inline sides across the batch dedup to the same resolved ref_id", () => {
+    // Two triplets share the same inline source side — should resolve to the same node.
+    const aliceKey = buildNodeDedupKey("Person", { name: "Alice" });
+    const nodeMap = new Map([[aliceKey, "node-alice"]]);
+    const triplets = [
+      { source_type: "Person", source_data: { name: "Alice" }, target_ref_id: "node-b", edge_type: "KNOWS" },
+      { source_type: "Person", source_data: { name: "Alice" }, target_ref_id: "node-c", edge_type: "LOVES" },
+    ];
+    const bulk = [
+      { ref_id: "e1", source: "node-alice", target: "node-b", edge_type: "KNOWS" },
+      { ref_id: "e2", source: "node-alice", target: "node-c", edge_type: "LOVES" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results[0].source_ref_id).toBe("node-alice");
+    expect(results[1].source_ref_id).toBe("node-alice");
+    expect(results[0].status).toBe("Success");
+    expect(results[1].status).toBe("Success");
   });
 });
