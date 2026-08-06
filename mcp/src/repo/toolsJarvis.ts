@@ -1447,6 +1447,7 @@ export function registerJarvisTools(
       "and the canonical list of valid `domains`. " +
       "Call this once before graph_search to discover valid values for both the `type` and `domains` parameters. " +
       "Node types are grouped by domain key in `node_types[<domain>]`; types with no domain land in the `ungrouped` bucket and cannot be scoped with `domains`. " +
+      "Pass `domains` to filter results to one or more specific domains (comma-separated, e.g. 'Legal,Entity'); omit to receive all domains. " +
       "Relationship edges are omitted by default — graph_neighbors returns edge types live as you traverse. " +
       "Set `include_edges` to also get the full relationship map (source_type -> target_type triples). " +
       "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status). " +
@@ -1457,6 +1458,14 @@ export function registerJarvisTools(
       "visibility filtering (get_all_schemas in jarvis-backend filters edges to those whose source/target are " +
       "in visible_types, silently dropping wildcards), wildcard edges are omitted rather than passed through.",
     inputSchema: z.object({
+      domains: z
+        .string()
+        .optional()
+        .describe(
+          "Comma-separated list of domains to filter results to (e.g. 'Legal,Entity'). " +
+          "Omit to receive node types from all domains. " +
+          "Values are matched case-insensitively against the domain grouping keys returned by this tool."
+        ),
       include_edges: z
         .boolean()
         .optional()
@@ -1479,9 +1488,11 @@ export function registerJarvisTools(
         ),
     }),
     execute: async ({
+      domains,
       include_edges = false,
       include_attributes = false,
     }: {
+      domains?: string;
       include_edges?: boolean;
       include_attributes?: boolean;
     }) => {
@@ -1495,9 +1506,12 @@ export function registerJarvisTools(
       const params = new URLSearchParams();
       params.set("include_edges", String(include_edges));
       params.set("include_attributes", String(include_attributes));
+      if (domains && domains.trim() !== "") {
+        params.set("domains", domains.trim());
+      }
       const url = `${jarvisUrl}/v2/schema?${params.toString()}`;
       console.log(
-        `[get_ontology] fetching ${url} include_edges=${include_edges} include_attributes=${include_attributes}`
+        `[get_ontology] fetching ${url} domains=${domains ?? ""} include_edges=${include_edges} include_attributes=${include_attributes}`
       );
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);
