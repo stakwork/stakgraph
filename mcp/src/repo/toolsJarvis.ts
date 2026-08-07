@@ -333,7 +333,7 @@ export interface JarvisToolsOptions {
   /**
    * Comma-separated ontology domains to scope `get_ontology` to when the model
    * omits the `domains` argument (e.g. "Legal,Entity,Content"). Set from the
-   * `ontology_domains` request field so a legal-only session never pays for the
+   * `ontologyDomains` request field so a legal-only session never pays for the
    * CodeArtifact and Workflow halves of the ontology.
    *
    * Omit to send no `domains` to Jarvis at all, leaving every domain available.
@@ -1649,7 +1649,8 @@ export function registerJarvisTools(
       //
       // `domains` IS honoured by jarvis today, and it filters both `schemas` and
       // `edges`. An explicit model-supplied value always wins; otherwise we fall
-      // back to the session's skill-derived scope (options.defaultDomains).
+      // back to the caller's request-level scope (options.defaultDomains). With
+      // neither set, no `domains` param is sent and every domain comes back.
       const effectiveDomains =
         domains && domains.trim() !== ""
           ? domains.trim()
