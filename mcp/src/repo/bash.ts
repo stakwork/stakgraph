@@ -53,14 +53,14 @@ function execRipgrepCommandDirect(
         clearTimeout(timeout);
 
         if (code === 0) {
-          if (stdout.length > 10000) {
-            const truncated =
-              stdout.substring(0, 10000) +
-              "\n\n[... output truncated to 10,000 characters ...]";
-            resolve(truncated);
-          } else {
-            resolve(stdout);
-          }
+          // if (stdout.length > 10000) {
+          //   const truncated =
+          //     stdout.substring(0, 10000) +
+          //     "\n\n[... output truncated to 10,000 characters ...]";
+          //   resolve(truncated);
+          // } else {
+          resolve(stdout);
+          // }
         } else if (code === 1) {
           resolve("No matches found");
         } else {
@@ -132,13 +132,12 @@ function execShellCommand(
         resolved = true;
         clearTimeout(timeout);
 
-        // Truncate if needed
         let output = stdout;
-        if (output.length > 10000) {
-          output =
-            output.substring(0, 10000) +
-            "\n\n[... output truncated to 10,000 characters ...]";
-        }
+        // if (output.length > 10000) {
+        //   output =
+        //     output.substring(0, 10000) +
+        //     "\n\n[... output truncated to 10,000 characters ...]";
+        // }
 
         if (code === 0) {
           resolve(output);
@@ -313,13 +312,12 @@ export async function fulltextSearch(
       )
       .join("\n");
 
-    // Limit the result to 10,000 characters to prevent overwhelming output
-    if (output.length > 10000) {
-      return (
-        output.substring(0, 10000) +
-        "\n\n[... output truncated to 10,000 characters ...]"
-      );
-    }
+    // if (output.length > 10000) {
+    //   return (
+    //     output.substring(0, 10000) +
+    //     "\n\n[... output truncated to 10,000 characters ...]"
+    //   );
+    // }
 
     return output || `No matches found for "${query}"`;
   } catch (error: any) {
