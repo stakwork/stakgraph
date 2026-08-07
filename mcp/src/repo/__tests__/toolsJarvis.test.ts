@@ -7,6 +7,8 @@ import {
   extractEdgeRefId,
   buildNodeDedupKey,
   matchEdgeResults,
+  createHandleTable,
+  findHandleInNodeData,
 } from "../toolsJarvis.js";
 import type { ResolvedTriplet } from "../toolsJarvis.js";
 
@@ -601,6 +603,138 @@ test.describe("extractEdgeRefId", () => {
     expect(extractEdgeRefId({ status: "Error", status_messages: ["boom"] })).toBeUndefined();
     expect(extractEdgeRefId({ edges: [] })).toBeUndefined();
     expect(extractEdgeRefId(undefined)).toBeUndefined();
+  });
+});
+
+// ── node handles ─────────────────────────────────────────────────────────────
+
+test.describe("createHandleTable", () => {
+  test("mint is idempotent per ref_id and sequential across nodes", () => {
+    const h = createHandleTable();
+    const a = h.mint("a0f45762-3600-4fb5-bce1-795b9764a012");
+    const b = h.mint("5daae44b-1fb6-4d8b-857f-c0197d1726c5");
+    expect(a).toBe("@n1");
+    expect(b).toBe("@n2");
+    expect(h.mint("a0f45762-3600-4fb5-bce1-795b9764a012")).toBe("@n1");
+    expect(h.size()).toBe(2);
+  });
+
+  test("resolve maps a handle back to its ref_id", () => {
+    const h = createHandleTable();
+    const handle = h.mint("a0f45762-3600-4fb5-bce1-795b9764a012");
+    expect(h.resolve(handle)).toBe("a0f45762-3600-4fb5-bce1-795b9764a012");
+  });
+
+  test("non-handles pass through untouched", () => {
+    const h = createHandleTable();
+    // A raw UUID must keep working as input — the agent may hold one from
+    // session history, a sub-agent prompt, or a previous process.
+    expect(h.resolve("a0f45762-3600-4fb5-bce1-795b9764a012")).toBe(
+      "a0f45762-3600-4fb5-bce1-795b9764a012",
+    );
+    expect(h.resolve("not-a-handle")).toBe("not-a-handle");
+    // Near-misses must not be treated as handles.
+    expect(h.resolve("@node7")).toBe("@node7");
+    expect(h.resolve("n7")).toBe("n7");
+  });
+
+  test("unknown handle throws and names the known ones", () => {
+    const h = createHandleTable();
+    h.mint("a0f45762-3600-4fb5-bce1-795b9764a012");
+    let msg = "";
+    try {
+      h.resolve("@n99");
+    } catch (e: any) {
+      msg = e.message;
+    }
+    expect(msg).toContain("@n99");
+    expect(msg).toContain("@n1");
+  });
+
+  test("tables are independent — handles never cross runs", () => {
+    const a = createHandleTable();
+    const b = createHandleTable();
+    a.mint("ref-from-run-a");
+    b.mint("ref-from-run-b");
+    // Both mint @n1, but each resolves to its OWN node. Sharing a table across
+    // runs would silently resolve one document's handle into another's node.
+    expect(a.resolve("@n1")).toBe("ref-from-run-a");
+    expect(b.resolve("@n1")).toBe("ref-from-run-b");
+  });
+
+  test("rewrite replaces handles in free text and leaves unknowns alone", () => {
+    const h = createHandleTable();
+    h.mint("a0f45762-3600-4fb5-bce1-795b9764a012");
+    const out = h.rewrite("Look at @n1 and also @n88 please");
+    expect(out).toContain("a0f45762-3600-4fb5-bce1-795b9764a012");
+    // Unknown handles are left verbatim rather than throwing — rewrite runs on
+    // persisted messages and sub-agent prompts, where failing hard is worse.
+    expect(out).toContain("@n88");
+  });
+
+  test("rewrite is a no-op on text with no handles", () => {
+    const h = createHandleTable();
+    h.mint("some-ref");
+    expect(h.rewrite("plain text, no ids")).toBe("plain text, no ids");
+  });
+});
+
+test.describe("handle round-trip (mint on output, resolve on input)", () => {
+  test("a handle minted from a result resolves back to the same ref_id", () => {
+    const h = createHandleTable();
+    const REAL = "a0f45762-3600-4fb5-bce1-795b9764a012";
+    // graph_search / graph_get / graph_neighbors emit the handle...
+    const emitted = h.mint(REAL);
+    // ...and create_triplet / create_batch_triplet accept it back.
+    expect(h.resolve(emitted)).toBe(REAL);
+  });
+
+  test("the same node keeps one handle across every tool that surfaces it", () => {
+    const h = createHandleTable();
+    const REAL = "a0f45762-3600-4fb5-bce1-795b9764a012";
+    const fromSearch = h.mint(REAL);
+    const fromGet = h.mint(REAL);
+    const fromNeighbors = h.mint(REAL);
+    expect(fromGet).toBe(fromSearch);
+    expect(fromNeighbors).toBe(fromSearch);
+    expect(h.size()).toBe(1);
+  });
+
+  test("a raw ref_id the agent got elsewhere still works as input", () => {
+    const h = createHandleTable();
+    // e.g. carried over from persisted session history, which stores real ids.
+    const REAL = "febd12c1-0986-4842-bcce-c57e556b80fb";
+    expect(h.resolve(REAL)).toBe(REAL);
+  });
+
+  test("sub-agent prompts get real ref_ids, since the child's table is separate", () => {
+    const parent = createHandleTable();
+    const REAL = "a0f45762-3600-4fb5-bce1-795b9764a012";
+    const handle = parent.mint(REAL);
+    const prompt = parent.rewrite(`Summarise ${handle} and its neighbours`);
+    expect(prompt).toContain(REAL);
+    expect(prompt).not.toContain(handle);
+    // The child mints independently — its @n1 is a different node entirely.
+    const child = createHandleTable();
+    expect(child.mint("some-other-ref")).toBe("@n1");
+  });
+});
+
+test.describe("findHandleInNodeData", () => {
+  test("rejects a handle used as a property value", () => {
+    const err = findHandleInNodeData("target", { name: "Acme", owner: "@n7" });
+    expect(err).toContain("target_data.owner");
+    expect(err).toContain("@n7");
+  });
+
+  test("allows normal values, including strings that merely contain @n", () => {
+    expect(findHandleInNodeData("source", { name: "Acme", note: "see @note7" })).toBeNull();
+    expect(findHandleInNodeData("source", { name: "Acme" })).toBeNull();
+    expect(findHandleInNodeData("source", undefined)).toBeNull();
+  });
+
+  test("trims before matching so ' @n7 ' is still caught", () => {
+    expect(findHandleInNodeData("target", { x: "  @n7  " })).toContain("target_data.x");
   });
 });
 

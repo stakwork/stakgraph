@@ -312,7 +312,7 @@ const DEFAULT_SUBAGENT_DESCRIPTION =
   "The child has its own copy of the graph tools (get_ontology, get_ontology_type, graph_search, graph_get, graph_neighbors) " +
   "and runs an independent exploration loop, returning a synthesized text summary of its findings. " +
   "Use this to parallelize or delegate: after you locate a few key nodes, fan out one sub-agent per " +
-  "node/subtopic with a specific, self-contained prompt (include the relevant ref_ids and exactly what " +
+  "node/subtopic with a specific, self-contained prompt (include the relevant node ids and exactly what " +
   "to find), then collate their answers. Each prompt must stand alone — the child does not see this " +
   "conversation. Prefer a handful of targeted sub-agents over one broad one.";
 
@@ -347,6 +347,7 @@ function registerGraphSubAgentTool(
   allTools: Record<string, Tool<any, any>>,
   sub: JarvisSubAgentConfig,
   depth: number,
+  handles: HandleTable,
 ): void {
   allTools.graph_sub_agent = tool({
     description: sub.description ?? DEFAULT_SUBAGENT_DESCRIPTION,
@@ -359,7 +360,11 @@ function registerGraphSubAgentTool(
           "The child cannot see this conversation.",
         ),
     }),
-    execute: async ({ prompt }: { prompt: string }) => {
+    execute: async ({ prompt: promptIn }: { prompt: string }) => {
+      // The child builds its OWN handle table, so the parent's @nN mean nothing
+      // to it — rewrite them to real ref_ids before handing the prompt over.
+      // Unknown handles are left verbatim rather than failing the spawn.
+      const prompt = handles.rewrite(promptIn);
       const childTools: Record<string, Tool<any, any>> = {};
       // Recurse with depth+1 so nested sub-agents stop at maxDepth.
       registerJarvisTools(childTools, {
@@ -729,6 +734,99 @@ export function buildNodeDedupKey(
 }
 
 /**
+ * Matches a node handle: `@n` followed by digits. Chosen because it is
+ * unmistakable in a payload (no real ref_id looks like this), greppable, and
+ * free — `"@n7"` and `"@n148"` both tokenize to 4 tokens, the same as `"n7"`,
+ * against 23 for a UUID.
+ */
+export const HANDLE_RE = /^@n\d+$/;
+
+/** Global form, for scanning free text (sub-agent prompts, persisted messages). */
+export const HANDLE_RE_G = /@n\d+/g;
+
+/**
+ * Per-run table mapping node ref_ids to short handles.
+ *
+ * A UUID costs 23 tokens every time the model writes it; a handle costs 4.
+ * Measured across four production traces: 2,309 ref_id occurrences in tool
+ * arguments (36.6% of all `create_batch_triplet` argument tokens) over 559
+ * distinct nodes — a reuse factor of 3-5.4x.
+ *
+ * MUST be per-agent-run, never process-wide: handles name run-local state, and
+ * sharing them across runs would silently resolve one document's handle into
+ * another document's node. (`get_tools` is called from `prepareAgent` per
+ * request, so a closure created there is correctly scoped.)
+ */
+export interface HandleTable {
+  /** Idempotent: the same ref_id always yields the same handle within a run. */
+  mint(refId: string): string;
+  /** Handle -> ref_id. Non-handles pass through unchanged. Throws on unknown handles. */
+  resolve(value: string): string;
+  /** Replace every handle in free text with its ref_id. Unknown handles are left as-is. */
+  rewrite(text: string): string;
+  /** Declared handles, for error messages and tests. */
+  known(): string[];
+  size(): number;
+}
+
+export function createHandleTable(): HandleTable {
+  const toHandle = new Map<string, string>();
+  const toRef = new Map<string, string>();
+  let seq = 0;
+  return {
+    mint(refId: string): string {
+      if (!refId) return refId;
+      let h = toHandle.get(refId);
+      if (!h) {
+        h = `@n${++seq}`;
+        toHandle.set(refId, h);
+        toRef.set(h, refId);
+      }
+      return h;
+    },
+    resolve(value: string): string {
+      if (typeof value !== "string" || !HANDLE_RE.test(value)) return value;
+      const ref = toRef.get(value);
+      if (!ref) {
+        const known = toRef.size
+          ? [...toRef.keys()].slice(0, 20).join(", ") +
+            (toRef.size > 20 ? `, … (${toRef.size} total)` : "")
+          : "(none yet)";
+        throw new Error(
+          `unknown handle '${value}'. Handles come from graph_search / graph_get / ` +
+          `graph_neighbors / create_batch_triplet results in THIS session. Known: ${known}`,
+        );
+      }
+      return ref;
+    },
+    rewrite(text: string): string {
+      if (typeof text !== "string" || !text.includes("@n")) return text;
+      return text.replace(HANDLE_RE_G, (m) => toRef.get(m) ?? m);
+    },
+    known: () => [...toRef.keys()],
+    size: () => toRef.size,
+  };
+}
+
+/**
+ * Guard: a handle must never be persisted as node data. If the model puts one
+ * in a property value it becomes untraceable garbage in the graph. Returns an
+ * error message naming the offending key, or null when clean.
+ */
+export function findHandleInNodeData(
+  side: "source" | "target",
+  nodeData?: Record<string, any>,
+): string | null {
+  if (!nodeData) return null;
+  for (const [k, v] of Object.entries(nodeData)) {
+    if (typeof v === "string" && HANDLE_RE.test(v.trim())) {
+      return `${side}_data.${k} is a handle ('${v}'). Handles address nodes, they are not values — put the real value here, or use ${side}_ref_id to reference an existing node.`;
+    }
+  }
+  return null;
+}
+
+/**
  * Resolved triplet for the edge pass — all three fields are guaranteed
  * non-empty when the triplet reaches this stage.
  */
@@ -818,6 +916,7 @@ function registerGraphWriteTools(
   allTools: Record<string, Tool<any, any>>,
   jarvisUrl: string,
   jarvisHeaders: Record<string, string>,
+  handles: HandleTable,
 ): void {
   allTools.create_triplet = tool({
     description:
@@ -839,7 +938,8 @@ function registerGraphWriteTools(
         .string()
         .optional()
         .describe(
-          "ref_id of an EXISTING source node (from graph_search/graph_get). Preferred over inline creation.",
+          "ref_id of an EXISTING source node (from graph_search/graph_get). Preferred over inline creation. " +
+          "Accepts the short id (@nN) returned by graph_search/graph_get/graph_neighbors, or a full ref_id.",
         ),
       source_type: z
         .string()
@@ -859,7 +959,8 @@ function registerGraphWriteTools(
         .string()
         .optional()
         .describe(
-          "ref_id of an EXISTING target node (from graph_search/graph_get). Preferred over inline creation.",
+          "ref_id of an EXISTING target node (from graph_search/graph_get). Preferred over inline creation. " +
+          "Accepts the short id (@nN) returned by graph_search/graph_get/graph_neighbors, or a full ref_id.",
         ),
       target_type: z
         .string()
@@ -934,6 +1035,10 @@ function registerGraphWriteTools(
       for (const err of [
         validateTripletSide("source", source_ref_id, source_type, source_data),
         validateTripletSide("target", target_ref_id, target_type, target_data),
+        // A handle addresses a node; it is never a property value. Persisting
+        // one would put untraceable garbage in the graph.
+        findHandleInNodeData("source", source_data),
+        findHandleInNodeData("target", target_data),
       ]) {
         if (err) return `create_triplet invalid input — ${err}`;
       }
@@ -951,7 +1056,8 @@ function registerGraphWriteTools(
         nodeType?: string,
         nodeData?: Record<string, any>,
       ): Promise<string> => {
-        if (refId) return refId;
+        // A handle resolves to a real ref_id; a raw ref_id passes through.
+        if (refId) return handles.resolve(refId);
         const params = new URLSearchParams();
         appendNamespace(params, namespace);
         const qs = params.toString();
@@ -1006,8 +1112,10 @@ function registerGraphWriteTools(
         return JSON.stringify({
           // "Warning" here means the edge already existed (idempotent merge).
           status: body?.status ?? "Success",
-          source_ref_id: sourceRef,
-          target_ref_id: targetRef,
+          // Same currency as create_batch_triplet and the read tools, so the
+          // agent never holds two different ids for one node.
+          source_ref_id: handles.mint(sourceRef),
+          target_ref_id: handles.mint(targetRef),
           edge_ref_id: edgeRef,
           edge_type,
           ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
@@ -1044,7 +1152,8 @@ function registerGraphWriteTools(
               .string()
               .optional()
               .describe(
-                "ref_id of an EXISTING source node. Preferred over inline creation.",
+                "ref_id of an EXISTING source node. Preferred over inline creation. " +
+                "Accepts the short id (@nN) returned by graph_search/graph_get/graph_neighbors, or a full ref_id.",
               ),
             source_type: z
               .string()
@@ -1062,7 +1171,8 @@ function registerGraphWriteTools(
               .string()
               .optional()
               .describe(
-                "ref_id of an EXISTING target node. Preferred over inline creation.",
+                "ref_id of an EXISTING target node. Preferred over inline creation. " +
+                "Accepts the short id (@nN) returned by graph_search/graph_get/graph_neighbors, or a full ref_id.",
               ),
             target_type: z
               .string()
@@ -1157,8 +1267,33 @@ function registerGraphWriteTools(
           t.target_type,
           t.target_data,
         );
-        const err = srcErr ?? tgtErr;
+        // A handle addresses a node; it is never a property value. Persisting
+        // one would put untraceable garbage in the graph.
+        const err =
+          srcErr ??
+          tgtErr ??
+          findHandleInNodeData("source", t.source_data) ??
+          findHandleInNodeData("target", t.target_data);
         if (err) failures[i] = `invalid input — ${err}`;
+      }
+
+      // Resolve handles on every ref_id side up front, so the dedup keys and the
+      // edge pass below all work in real ref_ids. A raw ref_id passes through;
+      // an unknown handle fails just that item, not the batch.
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i]) continue;
+        const t = triplets[i];
+        for (const side of ["source", "target"] as const) {
+          const key = `${side}_ref_id` as "source_ref_id" | "target_ref_id";
+          const raw = t[key];
+          if (typeof raw !== "string" || raw.length === 0) continue;
+          try {
+            t[key] = handles.resolve(raw);
+          } catch (e: any) {
+            failures[i] = `invalid input — ${side}: ${e?.message ?? String(e)}`;
+            break;
+          }
+        }
       }
 
       // ── Phase 1: dedup + resolve inline node sides ───────────────────────
@@ -1394,8 +1529,8 @@ function registerGraphWriteTools(
         // and the volume is negligible.
         return {
           status: "Success",
-          source_ref_id: sourceRefs[i]!,
-          target_ref_id: targetRefs[i]!,
+          source_ref_id: handles.mint(sourceRefs[i]!),
+          target_ref_id: handles.mint(targetRefs[i]!),
           ...(return_edge_ids ? { edge_ref_id: edgeRef } : {}),
         };
       });
@@ -1450,6 +1585,17 @@ export function registerJarvisTools(
     "Content-Type": "application/json",
     "X-Api-Token": process.env.API_TOKEN ?? "",
   };
+
+  // Per-run handle table. `registerJarvisTools` is reached via get_tools ->
+  // prepareAgent, which both agent entry points call fresh per request, so this
+  // closure is correctly scoped to one run. It must NEVER become process-wide:
+  // handles name run-local state, and a shared table would resolve one
+  // document's handle into another document's node.
+  //
+  // Every tool that surfaces a node returns `@nN` in place of the raw ref_id
+  // (23 tokens -> 4) and accepts either form back. Jarvis only ever sees real
+  // ref_ids — resolution happens here, at the tool boundary.
+  const handles = createHandleTable();
 
   // Wildcard sentinel: jarvis-backend uses a real Schema node with type="*" to
   // mean "this edge type applies to any node type on that side." This sentinel
@@ -1687,7 +1833,9 @@ export function registerJarvisTools(
         const nodes: any[] = Array.isArray(data) ? data : (data.nodes ?? []);
         return JSON.stringify(
           nodes.map((n: any) => ({
-            ref_id: n.ref_id ?? n.properties?.ref_id,
+            // Short handle in place of the raw ref_id. `name`/`node_type` below
+            // still identify the node, so nothing is lost by not showing a UUID.
+            ref_id: handles.mint(n.ref_id ?? n.properties?.ref_id),
             name:
               n.properties?.name ??
               n.properties?.workflow_name ??
@@ -1727,7 +1875,7 @@ export function registerJarvisTools(
       "`edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
       "which relationship types you can traverse next with graph_neighbors.",
     inputSchema: z.object({
-      ref_id: z.string().describe("The ref_id of the node to resolve."),
+      ref_id: z.string().describe("The node to resolve. Accepts the short id (@nN) returned by graph_search/graph_get/graph_neighbors, or a full ref_id."),
       namespace: z
         .string()
         .optional()
@@ -1737,12 +1885,19 @@ export function registerJarvisTools(
         ),
     }),
     execute: async ({
-      ref_id,
+      ref_id: refIdIn,
       namespace,
     }: {
       ref_id: string;
       namespace?: string;
     }) => {
+      // Accepts a handle (@nN) or a raw ref_id; raw ids pass through untouched.
+      let ref_id: string;
+      try {
+        ref_id = handles.resolve(refIdIn);
+      } catch (err: any) {
+        return `graph_get: ${err?.message ?? String(err)}`;
+      }
       // limit=1 keeps Jarvis from materializing the node's whole neighborhood
       // (which can OOM Neo4j for hub nodes) — we only read the node itself.
       const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
@@ -1783,7 +1938,7 @@ export function registerJarvisTools(
         }
 
         return JSON.stringify({
-          ref_id: raw.ref_id,
+          ref_id: handles.mint(raw.ref_id),
           node_type: raw.node_type,
           name: deriveNodeName(raw, properties),
           properties: raw.properties,
@@ -1804,7 +1959,12 @@ export function registerJarvisTools(
       "Optionally filter by edge_type and/or node_type. " +
       "Use this to traverse relationships between people, topics, episodes, code, etc.",
     inputSchema: z.object({
-      ref_id: z.string().describe("The ref_id of the node to expand."),
+      ref_id: z
+        .string()
+        .describe(
+          "The node to expand. Accepts the short id (@nN) returned by " +
+          "graph_search/graph_get/graph_neighbors, or a full ref_id.",
+        ),
       edge_type: z
         .array(z.string())
         .optional()
@@ -1822,7 +1982,7 @@ export function registerJarvisTools(
         ),
     }),
     execute: async ({
-      ref_id,
+      ref_id: refIdIn,
       edge_type,
       node_type,
       namespace,
@@ -1832,6 +1992,13 @@ export function registerJarvisTools(
       node_type?: string[];
       namespace?: string;
     }) => {
+      // Accepts a handle (@nN) or a raw ref_id; raw ids pass through untouched.
+      let ref_id: string;
+      try {
+        ref_id = handles.resolve(refIdIn);
+      } catch (err: any) {
+        return `graph_neighbors: ${err?.message ?? String(err)}`;
+      }
       // `limit` bounds the Cypher traversal so a hub node doesn't OOM Neo4j.
       // `sort_by=importance` orders edges before LIMIT so the cap keeps the most
       // important neighbors. `canonicalize=false` matches the real Neo4j label.
@@ -1894,7 +2061,7 @@ export function registerJarvisTools(
           const detail = nodeMap.get(neighborRefId);
           const importance = edge.properties?.importance as number | undefined;
           neighbors.push({
-            ref_id: neighborRefId,
+            ref_id: handles.mint(neighborRefId),
             node_type: detail?.node_type ?? "unknown",
             name: detail?.name ?? "",
             edge_type: edge.edge_type,
@@ -1926,7 +2093,7 @@ export function registerJarvisTools(
     const depth = sub.depth ?? 0;
     const maxDepth = sub.maxDepth ?? DEFAULT_SUBAGENT_MAX_DEPTH;
     if (depth < maxDepth) {
-      registerGraphSubAgentTool(allTools, sub, depth);
+      registerGraphSubAgentTool(allTools, sub, depth, handles);
     }
   }
 
@@ -1939,7 +2106,7 @@ export function registerJarvisTools(
   // Graph data-write tool — opt-in via toolsConfig.create_triplet. Off by
   // default so the standard posture stays read-only.
   if (options.graphWrite) {
-    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders);
+    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders, handles);
   }
 }
 
