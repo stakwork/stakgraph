@@ -139,7 +139,11 @@ function parseAgentBody(req: Request) {
   const apiKey = req.body.apiKey as string | undefined;
   const baseUrl = req.body.baseUrl as string | undefined;
   const logs = req.body.logs as boolean | undefined;
-  const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
+  // Coerce, don't cast: external clients send numeric ids as JSON numbers
+  // (e.g. {"sessionId": 151395375}). A bare `as string` is compile-time only,
+  // so the number reached Neo4j and MERGE stored node_key as a Float — which
+  // then never matched the string id used on lookup.
+  const sessionId = String(req.body.sessionId ?? "") || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const mcpServers = (req.body.mcpServers as McpServer[] | undefined)?.map((s) => ({
     ...s,

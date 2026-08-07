@@ -105,7 +105,9 @@ export function createSession(
   repo?: string,
   parentSessionId?: string,
 ): string {
-  const sessionId = id || randomUUID();
+  // Defense in depth against non-string ids from callers that skipped the
+  // route-level coercion — a numeric id poisons the Neo4j node_key type.
+  const sessionId = String(id ?? "") || randomUUID();
   sessionMeta.set(sessionId, {
     source: source || "unknown",
     start_time: new Date().toISOString(),
@@ -126,7 +128,7 @@ export function createSession(
  * Append end-of-session metadata (timing, model, token usage).
  */
 export async function appendSessionEnd(
-  sessionId: string,
+  rawSessionId: string,
   opts: {
     end_time: string;
     model?: string;
@@ -137,6 +139,9 @@ export async function appendSessionEnd(
     error_message?: string;
   },
 ): Promise<void> {
+  // Must match the coercion in createSession(): the sessionMeta key and the
+  // Neo4j node_key are both string-typed, and Cypher equality is type-strict.
+  const sessionId = String(rawSessionId ?? "");
   console.log(`[session] end session_id=${sessionId} model=${opts.model ?? ""} status=${opts.status ?? "success"} tokens=${opts.token_usage?.total ?? 0} duration_ms=${opts.duration_ms ?? 0}`);
 
   const stored = sessionMeta.get(sessionId);

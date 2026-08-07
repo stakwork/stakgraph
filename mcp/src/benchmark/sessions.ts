@@ -19,22 +19,38 @@ import { addUsage, emptyUsage, normalizeUsage } from "../aieo/src/usage.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
+/**
+ * Usage/timing recovered from the `.meta.jsonl` sidecar, for sessions with no
+ * readable Neo4j node. The sidecar holds provider-reported per-step usage, so
+ * this is real data — not an estimate. Shared by the list and detail endpoints
+ * so the two can't drift (they did: the detail endpoint used to hardcode zeros
+ * here, silently zeroing every session whose node lookup missed).
+ */
+function deriveFromStepMeta(id: string, mtime: Date) {
+  const steps = loadStepMeta(id);
+  if (steps.length === 0) {
+    return {
+      usage: emptyUsage(),
+      duration_ms: 0,
+      timestamp: mtime.toISOString(),
+    };
+  }
+  return {
+    usage: addUsage(...steps.map((step) => normalizeUsage(step.usage))),
+    duration_ms:
+      new Date(steps[steps.length - 1].timestamp).getTime() -
+      new Date(steps[0].timestamp).getTime(),
+    timestamp: steps[0].timestamp,
+  };
+}
+
 function buildOrphanRun(dir: string, file: string) {
   const id = file.replace(/\.jsonl$/, "");
   const fullPath = path.join(dir, file);
   const stat = statSync(fullPath);
   const { userPromptPreview, answerPreview, toolSequence, toolCallCount, messageCount } =
     parseSessionMessages(fullPath);
-  const steps = loadStepMeta(id);
-  let usage = emptyUsage();
-  let duration_ms = 0;
-  if (steps.length > 0) {
-    usage = addUsage(...steps.map((step) => normalizeUsage(step.usage)));
-    const first = steps[0];
-    const last = steps[steps.length - 1];
-    duration_ms =
-      new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime();
-  }
+  const { usage, duration_ms, timestamp } = deriveFromStepMeta(id, stat.mtime);
   return {
     id,
     // Sub-agent sessions are named `<parent>-sub-<hex>`; recover the link
@@ -44,7 +60,7 @@ function buildOrphanRun(dir: string, file: string) {
     provider: "",
     model: "",
     repo: "",
-    timestamp: steps.length > 0 ? steps[0].timestamp : stat.mtime.toISOString(),
+    timestamp,
     duration_ms,
     token_usage: {
       input: usage.input,
@@ -413,6 +429,10 @@ async function buildFullSession(
   if (!hasFile) return null;
 
   const stat = statSync(filePath);
+  // No Neo4j node — recover usage/timing from the step-meta sidecar rather
+  // than reporting zeros. cost_usd stays 0: pricing needs the model/provider,
+  // which only the node carries.
+  const { usage, duration_ms, timestamp } = deriveFromStepMeta(id, stat.mtime);
   return {
     id,
     parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
@@ -420,14 +440,14 @@ async function buildFullSession(
     repo: "",
     provider: "",
     model: "",
-    timestamp: stat.mtime.toISOString(),
-    duration_ms: 0,
+    timestamp,
+    duration_ms,
     token_usage: {
-      input: 0,
-      cache_read: 0,
-      cache_write: 0,
-      output: 0,
-      total: 0,
+      input: usage.input,
+      cache_read: usage.cache_read,
+      cache_write: usage.cache_write,
+      output: usage.output,
+      total: usage.total,
     },
     cost_usd: 0,
     status: "success",
