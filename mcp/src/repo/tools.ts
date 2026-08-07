@@ -940,7 +940,7 @@ export async function get_tools(
     ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
     // Opt-in graph data-write tool (assert source -[edge]-> target triplets).
     graphWrite: toolConfigEnabled(toolsConfig?.create_triplet),
-    // Scope get_ontology to the caller's `ontology_domains`, unless the model
+    // Scope get_ontology to the caller's `ontologyDomains`, unless the model
     // asks for specific `domains` itself. Unset => no filter, all domains.
     defaultDomains: ontologyDomains,
   });

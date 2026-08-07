@@ -158,8 +158,8 @@ function parseAgentBody(req: Request) {
   // Comma-separated Jarvis ontology domains scoping get_ontology by default
   // (e.g. "Legal,Entity,Content"). Omit to leave every domain available.
   const ontologyDomains =
-    typeof req.body.ontology_domains === "string" && req.body.ontology_domains.trim()
-      ? (req.body.ontology_domains as string).trim()
+    typeof req.body.ontologyDomains === "string" && req.body.ontologyDomains.trim()
+      ? (req.body.ontologyDomains as string).trim()
       : undefined;
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
