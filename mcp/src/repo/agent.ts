@@ -578,6 +578,10 @@ async function prepareAgent(
     opts.googleSheets,
     skills,
     opts.ontologyDomains,
+    // Parent session id for graph_sub_agent child-session linkage. The
+    // resolved sessionId (set below) is always inputSessionId when defined,
+    // so passing it here is safe even though tools are built first.
+    transparent ? undefined : inputSessionId,
   );
 
   // Load and merge MCP server tools if configured.

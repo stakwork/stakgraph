@@ -37,6 +37,9 @@ function buildOrphanRun(dir: string, file: string) {
   }
   return {
     id,
+    // Sub-agent sessions are named `<parent>-sub-<hex>`; recover the link
+    // even when the Neo4j node is missing.
+    parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
     provider: "",
     model: "",
@@ -209,6 +212,7 @@ export async function list_sessions(_req: Request, res: Response) {
         const mod = String(s.model ?? "");
         return {
           id,
+          parent_session_id: String(s.parent_session_id ?? ""),
           source: String(s.source ?? "unknown"),
           repo: String(s.repo ?? ""),
           provider: prov,
@@ -328,6 +332,7 @@ export async function get_session(req: Request, res: Response) {
         const mod = String(s.model ?? "");
         res.json({
           id,
+          parent_session_id: String(s.parent_session_id ?? ""),
           source: String(s.source ?? "unknown"),
             repo: String(s.repo ?? ""),
           provider: prov,
@@ -359,6 +364,7 @@ export async function get_session(req: Request, res: Response) {
   const stat = statSync(filePath);
   res.json({
     id,
+    parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
       repo: "",
     provider: "",

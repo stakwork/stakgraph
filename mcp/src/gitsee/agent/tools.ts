@@ -54,19 +54,18 @@ function execCommand(
     process.stdout.on("data", (data) => {
       stdout += data.toString();
 
-      // Safety check: if output gets too large, kill process and resolve
-      if (stdout.length > 10000) {
-        process.kill("SIGKILL");
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          const truncated =
-            stdout.substring(0, 10000) +
-            "\n\n[... output truncated due to size limit ...]";
-          resolve(truncated);
-        }
-        return;
-      }
+      // if (stdout.length > 10000) {
+      //   process.kill("SIGKILL");
+      //   if (!resolved) {
+      //     resolved = true;
+      //     clearTimeout(timeout);
+      //     const truncated =
+      //       stdout.substring(0, 10000) +
+      //       "\n\n[... output truncated due to size limit ...]";
+      //     resolve(truncated);
+      //   }
+      //   return;
+      // }
     });
 
     process.stderr.on("data", (data) => {
@@ -79,14 +78,14 @@ function execCommand(
         clearTimeout(timeout);
 
         if (code === 0) {
-          if (stdout.length > 10000) {
-            const truncated =
-              stdout.substring(0, 10000) +
-              "\n\n[... output truncated to 10,000 characters ...]";
-            resolve(truncated);
-          } else {
-            resolve(stdout);
-          }
+          // if (stdout.length > 10000) {
+          //   const truncated =
+          //     stdout.substring(0, 10000) +
+          //     "\n\n[... output truncated to 10,000 characters ...]";
+          //   resolve(truncated);
+          // } else {
+          resolve(stdout);
+          // }
         } else if (code === 1) {
           // ripgrep returns exit code 1 when no matches found
           resolve("No matches found");
@@ -205,13 +204,12 @@ export async function fulltextSearch(
       .map(([file, lines]) => `${lines.length}\t${file} (lines: ${lines.join(', ')})`)
       .join('\n');
     
-    // Limit the result to 10,000 characters to prevent overwhelming output
-    if (output.length > 10000) {
-      return (
-        output.substring(0, 10000) +
-        "\n\n[... output truncated to 10,000 characters ...]"
-      );
-    }
+    // if (output.length > 10000) {
+    //   return (
+    //     output.substring(0, 10000) +
+    //     "\n\n[... output truncated to 10,000 characters ...]"
+    //   );
+    // }
 
     return output;
   } catch (error: any) {

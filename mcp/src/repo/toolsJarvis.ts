@@ -1,6 +1,7 @@
 import { tool, Tool, ToolLoopAgent, stepCountIs } from "ai";
 import { z } from "zod";
 import axios from "axios";
+import { randomUUID } from "crypto";
 import {
   getModelDetails,
   getProviderOptions,
@@ -9,7 +10,21 @@ import {
 import {
   extractFinalAnswer,
   createHasEndMarkerCondition,
+  extractMessagesFromSteps,
+  logStep,
 } from "./utils.js";
+import {
+  createSession,
+  appendMessages,
+  appendStepMeta,
+  appendSessionEnd,
+  type StepMeta,
+} from "./session.js";
+import {
+  addUsage,
+  normalizeUsage,
+  withProviderCacheUsage,
+} from "../aieo/src/usage.js";
 
 function appendNamespace(params: URLSearchParams, namespace?: string): void {
   if (namespace && namespace.length > 0) {
@@ -277,6 +292,16 @@ export interface JarvisSubAgentConfig {
   baseUrl?: string;
   headers?: Record<string, string>;
   /**
+   * Session id of the agent that owns this tool. When set, each sub-agent run
+   * is persisted as a first-class session (`<parentSessionId>-sub-<rand>`)
+   * with a `parent_session_id` link, so it shows up in /sessions like any
+   * other run. When unset (parent runs without session persistence),
+   * sub-agent runs are not persisted either.
+   */
+  parentSessionId?: string;
+  /** Repo label stamped on persisted sub-agent sessions. */
+  repo?: string;
+  /**
    * Current recursion depth. Internal — callers should leave this unset (0);
    * it is incremented automatically as sub-agents spawn sub-agents.
    */
@@ -374,38 +399,121 @@ function registerGraphSubAgentTool(
     }),
     execute: async ({ prompt }: { prompt: string }) => {
       const childTools: Record<string, Tool<any, any>> = {};
+      // Persist the child run as its own session (linked to the parent) only
+      // when the parent itself is session-backed. Grandchildren link to the
+      // child, giving a full chain back to the top-level session.
+      const childSessionId = sub.parentSessionId
+        ? `${sub.parentSessionId}-sub-${randomUUID().slice(0, 8)}`
+        : undefined;
       // Recurse with depth+1 so nested sub-agents stop at maxDepth.
       registerJarvisTools(childTools, {
-        subAgent: { ...sub, depth: depth + 1 },
+        subAgent: { ...sub, depth: depth + 1, parentSessionId: childSessionId },
         // Children inherit the parent's ontology scope; otherwise a sub-agent's
         // get_ontology would pull the full unfiltered payload back in.
         defaultDomains,
       });
 
+      if (childSessionId) {
+        createSession(
+          childSessionId,
+          GRAPH_SUBAGENT_SYSTEM,
+          "graph_sub_agent",
+          sub.repo,
+          sub.parentSessionId,
+        );
+      }
+
+      const startTime = Date.now();
+      let lastStepTime = startTime;
+      const stepMetas: StepMeta[] = [];
+      let cumInput = 0;
+      let cumOutput = 0;
+      let modelId = "";
+      let provider: string | undefined;
+
+      const endSession = async (
+        status: "success" | "error",
+        errorMessage?: string,
+      ) => {
+        if (!childSessionId) return;
+        appendStepMeta(childSessionId, stepMetas);
+        await appendSessionEnd(childSessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status,
+          error_message: errorMessage,
+          token_usage:
+            stepMetas.length > 0
+              ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+              : undefined,
+        });
+      };
+
       try {
-        const { model, provider, modelId } = getModelDetails(
+        const details = getModelDetails(
           sub.modelName,
           sub.apiKey,
           sub.baseUrl,
           sub.headers,
         );
+        const model = details.model;
+        provider = details.provider;
+        modelId = details.modelId;
         const maxSteps = sub.maxSteps ?? DEFAULT_SUBAGENT_MAX_STEPS;
         const hasEndMarker = createHasEndMarkerCondition<typeof childTools>();
         const agent = new ToolLoopAgent({
           model,
           instructions: GRAPH_SUBAGENT_SYSTEM,
           tools: childTools,
-          providerOptions: getProviderOptions(provider, undefined, modelId) as any,
+          providerOptions: getProviderOptions(details.provider, undefined, modelId) as any,
           stopWhen: maxSteps > 0 ? [hasEndMarker, stepCountIs(maxSteps)] : hasEndMarker,
           stopSequences: ["[END_OF_ANSWER]"],
+          onStepFinish: (sf) => {
+            if (!childSessionId) return;
+            const now = Date.now();
+            const elapsedMs = now - lastStepTime;
+            lastStepTime = now;
+            logStep(sf.content, childSessionId, elapsedMs);
+            const u = withProviderCacheUsage(
+              normalizeUsage(sf.usage),
+              sf.providerMetadata as Record<string, any> | undefined,
+            );
+            cumInput += u.inputTokens ?? 0;
+            cumOutput += u.outputTokens ?? 0;
+            stepMetas.push({
+              step: stepMetas.length,
+              turn: 1,
+              finishReason: sf.finishReason,
+              rawFinishReason: sf.rawFinishReason,
+              usage: u,
+              cumulativeInput: cumInput,
+              cumulativeOutput: cumOutput,
+              toolCalls: (sf.toolCalls ?? []).map(
+                (tc: { toolName: string }) => tc.toolName,
+              ),
+              timestamp: new Date().toISOString(),
+              sessionId: childSessionId,
+              elapsedMs,
+            });
+          },
         });
         console.log(
-          `[graph_sub_agent] depth=${depth + 1} spawning child: ${prompt.slice(0, 200)}`,
+          `[graph_sub_agent] depth=${depth + 1}${childSessionId ? ` session=${childSessionId}` : ""} spawning child: ${prompt.slice(0, 200)}`,
         );
         const result = await agent.generate({ prompt });
+        if (childSessionId) {
+          appendMessages(
+            childSessionId,
+            extractMessagesFromSteps({ role: "user", content: prompt }, result.steps),
+          );
+        }
+        await endSession("success");
         const final = extractFinalAnswer(result.steps);
         return final.answer || "Sub-agent returned no findings.";
       } catch (err: any) {
+        await endSession("error", err?.message ?? String(err));
         return `graph_sub_agent failed: ${err?.message ?? String(err)}`;
       }
     },
