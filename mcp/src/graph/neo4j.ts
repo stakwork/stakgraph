@@ -1677,6 +1677,20 @@ class Db {
     }
   }
 
+  async list_descendant_agent_sessions(session_id: string): Promise<any[]> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.LIST_DESCENDANT_AGENT_SESSIONS_QUERY, {
+        session_id,
+      });
+      return result.records.map((r) => ({
+        ...r.get("n").properties,
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
   async get_agent_session(session_id: string): Promise<any | null> {
     const neo4jSession = this.resilientSession();
     try {

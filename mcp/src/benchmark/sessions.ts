@@ -174,6 +174,116 @@ function calcCost(
   }
 }
 
+// Summary row for an AgentSession Neo4j node — the shape used by the
+// /sessions list and by the `children` field on the detail endpoint.
+function buildRunFromNode(s: any, dir: string) {
+  const id = String(s.node_key ?? s.name ?? "");
+  const filePath = path.join(dir, `${id}.jsonl`);
+  const {
+    userPromptPreview,
+    answerPreview,
+    toolSequence,
+    toolCallCount,
+    messageCount,
+  } = existsSync(filePath)
+    ? parseSessionMessages(filePath)
+    : {
+        userPromptPreview: "",
+        answerPreview: "",
+        toolSequence: [],
+        // No local transcript file for this node (e.g. sessions written by
+        // hive's agent-logs webhook) — fall back to the counts it sent
+        // directly on the AgentSession node.
+        toolCallCount: toNum(s.tool_call_count),
+        messageCount: toNum(s.message_count),
+      };
+  const startTimeMs = toNum(s.start_time);
+  const input = toNum(s.input_tokens);
+  const cache_read = toNum(s.cache_read_tokens);
+  const cache_write = toNum(s.cache_write_tokens);
+  const output = toNum(s.output_tokens);
+  const total = toNum(s.total_tokens);
+  const prov = String(s.provider ?? "");
+  const mod = String(s.model ?? "");
+  return {
+    id,
+    parent_session_id: String(s.parent_session_id ?? ""),
+    source: String(s.source ?? "unknown"),
+    repo: String(s.repo ?? ""),
+    provider: prov,
+    model: mod,
+    timestamp: startTimeMs
+      ? new Date(startTimeMs).toISOString()
+      : new Date().toISOString(),
+    duration_ms: toNum(s.duration_ms),
+    token_usage: { input, cache_read, cache_write, output, total },
+    // Heuristic (text-length) estimate from hive's agent-logs webhook —
+    // kept out of token_usage/cost_usd since it isn't provider-reported.
+    estimated_tokens: toNum(s.estimated_tokens),
+    cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+    status: String(s.status ?? "success"),
+    error_message: String(s.error_message ?? ""),
+    tool_sequence: toolSequence,
+    tool_call_count: toolCallCount,
+    message_count: messageCount,
+    user_prompt_preview: userPromptPreview,
+    answer_preview: answerPreview,
+  };
+}
+
+/** True for primary conversation JSONL files (skips every sidecar variant). */
+function isSessionFile(file: string): boolean {
+  return (
+    file.endsWith(".jsonl") &&
+    !file.endsWith(".meta.jsonl") &&
+    !file.endsWith(".provenance.jsonl") &&
+    !file.endsWith(".annotations.jsonl")
+  );
+}
+
+/**
+ * Summary rows for every descendant of a session, any depth, sorted oldest
+ * first. Merges Neo4j nodes (name-prefix + parent_session_id match) with
+ * orphan `<id>-sub-*` transcript files that have no node.
+ */
+async function collectDescendantRuns(dir: string, id: string) {
+  const byId = new Map<string, ReturnType<typeof buildRunFromNode>>();
+  if (db) {
+    try {
+      for (const s of await db.list_descendant_agent_sessions(id)) {
+        const run = buildRunFromNode(s, dir);
+        if (run.id) byId.set(run.id, run);
+      }
+    } catch (e) {
+      console.error("[sessions] Neo4j descendant query failed:", e);
+    }
+  }
+  if (existsSync(dir)) {
+    for (const file of readdirSync(dir)) {
+      if (!isSessionFile(file)) continue;
+      const fid = file.replace(/\.jsonl$/, "");
+      if (!fid.startsWith(`${id}-sub-`) || byId.has(fid)) continue;
+      byId.set(fid, buildOrphanRun(dir, file));
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp),
+  );
+}
+
+/** Stamp each run with the number of direct children present in `runs`. */
+function withChildCounts<T extends { id: string; parent_session_id: string }>(
+  runs: T[],
+): (T & { child_count: number })[] {
+  const counts = new Map<string, number>();
+  for (const r of runs) {
+    if (r.parent_session_id) {
+      counts.set(r.parent_session_id, (counts.get(r.parent_session_id) ?? 0) + 1);
+    }
+  }
+  return runs.map((r) => ({ ...r, child_count: counts.get(r.id) ?? 0 }));
+}
+
 export async function list_sessions(_req: Request, res: Response) {
   const dir = sessionsDir();
 
@@ -181,27 +291,87 @@ export async function list_sessions(_req: Request, res: Response) {
   if (db) {
     try {
       const sessions = await db.list_agent_sessions();
-      const runs = sessions.map((s) => {
-        const id = String(s.node_key ?? s.name ?? "");
-        const filePath = path.join(dir, `${id}.jsonl`);
-        const {
-          userPromptPreview,
-          answerPreview,
-          toolSequence,
-          toolCallCount,
-          messageCount,
-        } = existsSync(filePath)
-          ? parseSessionMessages(filePath)
-          : {
-              userPromptPreview: "",
-              answerPreview: "",
-              toolSequence: [],
-              // No local transcript file for this node (e.g. sessions written by
-              // hive's agent-logs webhook) — fall back to the counts it sent
-              // directly on the AgentSession node.
-              toolCallCount: toNum(s.tool_call_count),
-              messageCount: toNum(s.message_count),
-            };
+      const runs = sessions.map((s) => buildRunFromNode(s, dir));
+      const neo4jIds = new Set(runs.map((r) => r.id));
+      const isGhost = (r: (typeof runs)[number]) =>
+        r.source === "unknown" &&
+        r.token_usage.total === 0 &&
+        r.duration_ms === 0;
+      const liveRuns = runs.filter((r) => !isGhost(r));
+      if (existsSync(dir)) {
+        for (const file of readdirSync(dir)) {
+          if (!isSessionFile(file)) continue;
+          const id = file.replace(/\.jsonl$/, "");
+          if (neo4jIds.has(id)) continue;
+          liveRuns.push(buildOrphanRun(dir, file));
+        }
+      }
+      liveRuns.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      res.json(withChildCounts(liveRuns));
+      return;
+    } catch (e) {
+      console.error("[sessions] Neo4j query failed, falling back to JSONL:", e);
+    }
+  }
+
+  // Fallback: JSONL-only (no Neo4j)
+  if (!existsSync(dir)) {
+    res.json([]);
+    return;
+  }
+
+  const files = readdirSync(dir).filter(isSessionFile);
+
+  const runs = files.map((file) => buildOrphanRun(dir, file));
+
+  runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  res.json(withChildCounts(runs));
+}
+
+/**
+ * Full session object (metadata + trace + sidecars) for the detail endpoint
+ * and for `?recursive=true` descendants. Returns null when the session exists
+ * nowhere (no transcript file AND no Neo4j node). A node without a local
+ * transcript (e.g. hive's agent-logs webhook) resolves with an empty trace
+ * instead of failing.
+ */
+async function buildFullSession(
+  dir: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const filePath = path.join(dir, `${id}.jsonl`);
+  const hasFile = existsSync(filePath);
+
+  let trace: unknown[] = [];
+  let userPromptPreview = "";
+  let answerPreview = "";
+  let toolSequence: string[] = [];
+  let toolCallCount = 0;
+  if (hasFile) {
+    const content = readFileSync(filePath, "utf-8");
+    trace = content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    ({ userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+      parseSessionMessages(filePath));
+  }
+
+  const step_meta = loadStepMeta(id);
+  const search_provenance = loadSearchProvenance(id);
+  const annotations = loadAnnotations(id);
+
+  if (db) {
+    try {
+      const s = await db.get_agent_session(id);
+      if (s) {
         const startTimeMs = toNum(s.start_time);
         const input = toNum(s.input_tokens);
         const cache_read = toNum(s.cache_read_tokens);
@@ -222,126 +392,6 @@ export async function list_sessions(_req: Request, res: Response) {
             : new Date().toISOString(),
           duration_ms: toNum(s.duration_ms),
           token_usage: { input, cache_read, cache_write, output, total },
-          // Heuristic (text-length) estimate from hive's agent-logs webhook —
-          // kept out of token_usage/cost_usd since it isn't provider-reported.
-          estimated_tokens: toNum(s.estimated_tokens),
-          cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
-          status: String(s.status ?? "success"),
-          error_message: String(s.error_message ?? ""),
-          tool_sequence: toolSequence,
-          tool_call_count: toolCallCount,
-          message_count: messageCount,
-          user_prompt_preview: userPromptPreview,
-          answer_preview: answerPreview,
-        };
-      });
-      const neo4jIds = new Set(runs.map((r) => r.id));
-      const isGhost = (r: (typeof runs)[number]) =>
-        r.source === "unknown" &&
-        r.token_usage.total === 0 &&
-        r.duration_ms === 0;
-      const liveRuns = runs.filter((r) => !isGhost(r));
-      if (existsSync(dir)) {
-        for (const file of readdirSync(dir)) {
-          if (
-            !file.endsWith(".jsonl") ||
-            file.endsWith(".meta.jsonl") ||
-            file.endsWith(".provenance.jsonl") ||
-            file.endsWith(".annotations.jsonl")
-          )
-            continue;
-          const id = file.replace(/\.jsonl$/, "");
-          if (neo4jIds.has(id)) continue;
-          liveRuns.push(buildOrphanRun(dir, file));
-        }
-      }
-      liveRuns.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-      res.json(liveRuns);
-      return;
-    } catch (e) {
-      console.error("[sessions] Neo4j query failed, falling back to JSONL:", e);
-    }
-  }
-
-  // Fallback: JSONL-only (no Neo4j)
-  if (!existsSync(dir)) {
-    res.json([]);
-    return;
-  }
-
-  const files = readdirSync(dir).filter(
-    (f) =>
-      f.endsWith(".jsonl") &&
-      !f.endsWith(".meta.jsonl") &&
-      !f.endsWith(".provenance.jsonl") &&
-      !f.endsWith(".annotations.jsonl"),
-  );
-
-  const runs = files.map((file) => buildOrphanRun(dir, file));
-
-  runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  res.json(runs);
-}
-
-export async function get_session(req: Request, res: Response) {
-  const id = String(req.params.id);
-  if (!id || id.includes("..") || id.includes("/")) {
-    res.status(400).json({ error: "Invalid session id" });
-    return;
-  }
-
-  const dir = sessionsDir();
-  const filePath = path.join(dir, `${id}.jsonl`);
-  if (!existsSync(filePath)) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
-
-  // Read trace from JSONL
-  const content = readFileSync(filePath, "utf-8");
-  const trace = content
-    .split("\n")
-    .filter((l) => l.trim())
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
-    parseSessionMessages(filePath);
-
-  const step_meta = loadStepMeta(id);
-  const search_provenance = loadSearchProvenance(id);
-  const annotations = loadAnnotations(id);
-
-  if (db) {
-    try {
-      const s = await db.get_agent_session(id);
-      if (s) {
-        const startTimeMs = toNum(s.start_time);
-        const input = toNum(s.input_tokens);
-        const cache_read = toNum(s.cache_read_tokens);
-        const cache_write = toNum(s.cache_write_tokens);
-        const output = toNum(s.output_tokens);
-        const total = toNum(s.total_tokens);
-        const prov = String(s.provider ?? "");
-        const mod = String(s.model ?? "");
-        res.json({
-          id,
-          parent_session_id: String(s.parent_session_id ?? ""),
-          source: String(s.source ?? "unknown"),
-            repo: String(s.repo ?? ""),
-          provider: prov,
-          model: mod,
-          timestamp: startTimeMs
-            ? new Date(startTimeMs).toISOString()
-            : new Date().toISOString(),
-          duration_ms: toNum(s.duration_ms),
-          token_usage: { input, cache_read, cache_write, output, total },
           cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
           status: String(s.status ?? "success"),
           error_message: String(s.error_message ?? ""),
@@ -353,20 +403,21 @@ export async function get_session(req: Request, res: Response) {
           search_provenance,
           annotations,
           trace,
-        });
-        return;
+        };
       }
     } catch (e) {
       console.error("[sessions] Neo4j get_session failed, falling back:", e);
     }
   }
 
+  if (!hasFile) return null;
+
   const stat = statSync(filePath);
-  res.json({
+  return {
     id,
     parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
-      repo: "",
+    repo: "",
     provider: "",
     model: "",
     timestamp: stat.mtime.toISOString(),
@@ -389,7 +440,38 @@ export async function get_session(req: Request, res: Response) {
     search_provenance,
     annotations,
     trace,
-  });
+  };
+}
+
+export async function get_session(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!id || id.includes("..") || id.includes("/")) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+
+  const dir = sessionsDir();
+  const session = await buildFullSession(dir, id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  // Sub-agent runs spawned by this session (see graph_sub_agent). `children`
+  // is always present as summary rows; `?recursive=true` additionally inlines
+  // every descendant (any depth) as a full session object, flat — each carries
+  // its own parent_session_id so callers can rebuild the tree.
+  const descendants = await collectDescendantRuns(dir, id);
+  session.children = descendants.filter((r) => r.parent_session_id === id);
+
+  const recursive = ["true", "1"].includes(String(req.query.recursive ?? ""));
+  if (recursive && descendants.length > 0) {
+    session.descendants = (
+      await Promise.all(descendants.map((d) => buildFullSession(dir, d.id)))
+    ).filter(Boolean);
+  }
+
+  res.json(session);
 }
 
 export async function add_annotation(req: Request, res: Response) {
