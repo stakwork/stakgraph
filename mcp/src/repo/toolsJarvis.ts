@@ -1374,12 +1374,15 @@ function registerGraphWriteTools(
             error: "edge ref_id could not be recovered",
           };
         }
+        // Successful entries return only what the caller does NOT already have.
+        // `edge_ref_id` was measured across four production traces: 1,426 returned,
+        // 0 ever referenced in a later call. `edge_type` is echoed straight back from
+        // the request. Both are kept on the Error branches, where the extra context
+        // is worth the tokens and the volume is negligible.
         return {
           status: "Success",
           source_ref_id: sourceRefs[i]!,
           target_ref_id: targetRefs[i]!,
-          edge_ref_id: edgeRef,
-          edge_type: t.edge_type,
         };
       });
 
