@@ -185,7 +185,7 @@ export async function graph_agent(req: Request, res: Response) {
           await finalizeSession();
           unregisterAbortController(request_id);
           if (body.sessionId !== request_id) {
-            unregisterAbortController(body.sessionId);
+            unregisterAbortController(body.sessionId, abortController);
           }
           endTracking(opId);
         });
@@ -195,7 +195,7 @@ export async function graph_agent(req: Request, res: Response) {
       console.error("[graph_agent] Stream setup error:", error);
       unregisterAbortController(request_id);
       if (body.sessionId !== request_id) {
-        unregisterAbortController(body.sessionId);
+        unregisterAbortController(body.sessionId, abortController);
       }
       endTracking(opId);
       if (!res.headersSent) {
@@ -283,7 +283,7 @@ export async function graph_agent(req: Request, res: Response) {
       .finally(() => {
         unregisterAbortController(request_id);
         if (body.sessionId && body.sessionId !== request_id) {
-          unregisterAbortController(body.sessionId);
+          unregisterAbortController(body.sessionId, abortController);
         }
         endTracking(opId);
       });
@@ -299,7 +299,7 @@ export async function graph_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     unregisterAbortController(request_id);
     if (body.sessionId && body.sessionId !== request_id) {
-      unregisterAbortController(body.sessionId);
+      unregisterAbortController(body.sessionId, abortController);
     }
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);
