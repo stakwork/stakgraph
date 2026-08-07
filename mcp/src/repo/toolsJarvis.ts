@@ -263,6 +263,43 @@ export function buildOntologyPayload(
   return { domains, node_types: grouped, edges };
 }
 
+/**
+ * Fields of a single `/v2/schema/<type>` response that `get_ontology_type`
+ * forwards to the model. Everything else the endpoint returns is either UI
+ * chrome (icon, shape, primary_color, secondary_color), a key the agent never
+ * addresses a node by (ref_id, node_key, title_key, description_key, index),
+ * or already available from `get_ontology` (type, domain, parent, description,
+ * type_description) — together ~65% of the response.
+ *
+ * `inherited_attributes` is dropped too: on THIS endpoint `attributes` is the
+ * complete own+inherited set and `inherited_attributes` is an overlapping
+ * read-only view of the inherited subset, so it is pure duplication (verified
+ * as a strict subset across every observed response).
+ *
+ * WARNING: the bulk `/v2/schema` endpoint behind `get_ontology` does NOT share
+ * this shape — there the two buckets are non-overlapping (`attributes` is
+ * own-only), so applying the same trim in buildOntologyPayload would silently
+ * drop every inherited field. See the note above OntologyNodeType.
+ */
+export const ONTOLOGY_TYPE_FIELDS = ["attributes"] as const;
+
+/**
+ * Pure transform: trim a raw `/v2/schema/<type>` response down to the attribute
+ * schema the model actually reasons about.
+ *
+ * If NEITHER field is present the raw object is returned untouched, so an
+ * unexpected response shape stays debuggable rather than being flattened into
+ * `{}` — which the model would read as "this type has no attributes" and act on.
+ */
+export function buildOntologyTypePayload(data: any): any {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const kept: Record<string, any> = {};
+  for (const f of ONTOLOGY_TYPE_FIELDS) {
+    if (data[f] !== undefined) kept[f] = data[f];
+  }
+  return Object.keys(kept).length > 0 ? kept : data;
+}
+
 /** Default recursion depth for nested `graph_sub_agent` spawning. */
 const DEFAULT_SUBAGENT_MAX_DEPTH = 2;
 
@@ -1680,15 +1717,13 @@ export function registerJarvisTools(
 
   allTools.get_ontology_type = tool({
     description:
-      "Fetch the full schema for a SINGLE ontology node type: its core fields " +
-      "(parent, domain, description, etc.) plus `attributes` and `inherited_attributes`. " +
+      "Fetch the attribute schema for a SINGLE ontology node type. Returns exactly " +
+      "one field — `attributes` — and nothing else; for a type's domain, parent or " +
+      "description, use get_ontology. " +
       "Each attribute value is a type string (e.g. 'string', 'int'); a `?` prefix " +
       "(e.g. '?string') means the attribute is OPTIONAL, no prefix means REQUIRED. " +
-      "`attributes` already includes both the type's own attributes AND everything " +
-      "inherited from parent types (kept together for backward compatibility); " +
-      "`inherited_attributes` is a separate, redundant view containing only the " +
-      "inherited subset — use it if you specifically need to distinguish inherited " +
-      "vs. own fields, otherwise `attributes` alone is complete. " +
+      "`attributes` is complete: it already includes both the type's own attributes " +
+      "AND everything inherited from parent types, so it is the only field you need. " +
       "Lookup is case-insensitive for every type EXCEPT the root type 'Thing', which " +
       "must be passed with exact casing. You may also pass a schema ref_id instead " +
       "of a type name — the lookup falls back to ref_id resolution automatically. " +
@@ -1711,7 +1746,7 @@ export function registerJarvisTools(
           return `HTTP ${resp.status}: ${text}`;
         }
         const data = (await resp.json()) as any;
-        return JSON.stringify(data);
+        return JSON.stringify(buildOntologyTypePayload(data));
       } catch (err: any) {
         return `get_ontology_type failed: ${err?.message ?? String(err)}`;
       }
