@@ -794,7 +794,9 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
     }>,
     // simulated fallback responses per unmatched triplet index (index → edgeRefId | null)
     fallbackMap: Map<number, string | null> = new Map(),
-  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type: string; error?: string }> {
+    // mirrors the tool's opt-in `return_edge_ids` param (default off)
+    returnEdgeIds = false,
+  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type?: string; error?: string }> {
     const failures: Array<string | null> = triplets.map(() => null);
 
     // Phase 0: validation
@@ -875,12 +877,15 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
       if (!edgeRef) {
         return { status: "Error", index: i, edge_type: t.edge_type, error: "edge ref_id could not be recovered" };
       }
+      // Mirrors production: successful entries omit edge_type always, and omit
+      // edge_ref_id unless returnEdgeIds is set. A recovered edgeRef is still
+      // required — without it the branch above returns status "Error", so
+      // asserting "Success" proves recovery worked either way.
       return {
         status: "Success",
         source_ref_id: sourceRefs[i]!,
         target_ref_id: targetRefs[i]!,
-        edge_ref_id: edgeRef,
-        edge_type: t.edge_type,
+        ...(returnEdgeIds ? { edge_ref_id: edgeRef } : {}),
       };
     });
   }
@@ -919,7 +924,26 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
     expect(results[0].status).toBe("Success");
     expect(results[0].source_ref_id).toBe("existing-person");
     expect(results[0].target_ref_id).toBe("node-acme");
-    expect(results[0].edge_ref_id).toBe("edge-works");
+    // edge_ref_id is opt-in; by default "Success" alone implies it was recovered.
+    expect(results[0].edge_ref_id).toBeUndefined();
+  });
+
+  test("edge_ref_id is returned when return_edge_ids is enabled", () => {
+    const nodeMap = new Map([[buildNodeDedupKey("Organization", { name: "Acme" }), "node-acme"]]);
+    const triplets = [
+      { source_ref_id: "existing-person", target_type: "Organization", target_data: { name: "Acme" }, edge_type: "WORKS_AT" },
+    ];
+    const bulk = [{ ref_id: "edge-works", source: "existing-person", target: "node-acme", edge_type: "WORKS_AT" }];
+
+    const off = simulateBatch(triplets, nodeMap, bulk);
+    const on = simulateBatch(triplets, nodeMap, bulk, new Map(), true);
+
+    expect(off[0].edge_ref_id).toBeUndefined();
+    expect(on[0].edge_ref_id).toBe("edge-works");
+    // The flag must change nothing else about the entry.
+    expect(on[0].status).toBe(off[0].status);
+    expect(on[0].source_ref_id).toBe(off[0].source_ref_id);
+    expect(on[0].target_ref_id).toBe(off[0].target_ref_id);
   });
 
   test("one invalid triplet produces a failure entry without affecting other items", () => {
@@ -955,8 +979,10 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
     // Fallback recovers the ref_id (simulates extractEdgeRefId from data.ref_id)
     const fallback = new Map([[0, "edge-existing"]]);
     const results = simulateBatch(triplets, new Map(), bulk, fallback);
+    // "Success" is only reachable when the fallback recovered an edge ref_id —
+    // a null recovery falls through to the "edge ref_id could not be recovered" Error.
     expect(results[0].status).toBe("Success");
-    expect(results[0].edge_ref_id).toBe("edge-existing");
+    expect(results[0].edge_ref_id).toBeUndefined();
   });
 
   test("hard failure when both bulk and fallback fail to return a ref_id", () => {
