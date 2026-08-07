@@ -344,6 +344,19 @@ export const GET_AGENT_SESSION_QUERY = `
 MATCH (n:AgentSession {node_key: $session_id}) RETURN n
 `;
 
+// All descendants of a session, any depth. Sub-agent ids embed their full
+// ancestry (`<parent>-sub-<hex>`, `<parent>-sub-<hex>-sub-<hex>`, ...) so a
+// name-prefix match returns the whole subtree in one query; the
+// parent_session_id clause additionally catches direct children written by
+// other sources that link a parent without following the naming scheme.
+export const LIST_DESCENDANT_AGENT_SESSIONS_QUERY = `
+MATCH (n:AgentSession)
+WHERE n.node_key STARTS WITH ($session_id + '-sub-')
+   OR n.parent_session_id = $session_id
+RETURN n
+ORDER BY n.start_time ASC
+`;
+
 export const GET_SESSION_STATS_QUERY = `
 MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
