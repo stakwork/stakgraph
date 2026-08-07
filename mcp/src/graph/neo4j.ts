@@ -1638,6 +1638,7 @@ class Db {
 
   async upsert_agent_session(params: {
     session_id: string;
+    parent_session_id: string;
     source: string;
     repo: string;
     model: string;
