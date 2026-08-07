@@ -155,6 +155,12 @@ function parseAgentBody(req: Request) {
     req.body.mode === "workflow" ? "workflow" as const :
     undefined;
   const skills = req.body.skills as SkillsConfig | undefined;
+  // Comma-separated Jarvis ontology domains scoping get_ontology by default
+  // (e.g. "Legal,Entity,Content"). Omit to leave every domain available.
+  const ontologyDomains =
+    typeof req.body.ontology_domains === "string" && req.body.ontology_domains.trim()
+      ? (req.body.ontology_domains as string).trim()
+      : undefined;
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
   const ggnn = req.body.ggnn as GgnnConfig | undefined;
@@ -203,7 +209,7 @@ function parseAgentBody(req: Request) {
   return {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
-    systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
+    systemOverride, mode, skills, ontologyDomains, subAgents, ggnn, stream, repoList, maxTurns, headers,
     ignoreRepoInfo, attachments, _metadata, webhookUrl,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,

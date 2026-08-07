@@ -305,6 +305,18 @@ export interface JarvisToolsOptions {
    * (schema writes). Opt-in and off by default.
    */
   graphWrite?: boolean;
+  /**
+   * Comma-separated ontology domains to scope `get_ontology` to when the model
+   * omits the `domains` argument (e.g. "Legal,Entity,Content"). Set from the
+   * `ontology_domains` request field so a legal-only session never pays for the
+   * CodeArtifact and Workflow halves of the ontology.
+   *
+   * Omit to send no `domains` to Jarvis at all, leaving every domain available.
+   * A model-supplied `domains` always wins over this default. Jarvis
+   * `/v2/schema` applies the filter to BOTH `schemas` and `edges`, so this
+   * trims the edge list too (edges are ~80% of the payload).
+   */
+  defaultDomains?: string;
 }
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
@@ -347,6 +359,7 @@ function registerGraphSubAgentTool(
   allTools: Record<string, Tool<any, any>>,
   sub: JarvisSubAgentConfig,
   depth: number,
+  defaultDomains?: string,
 ): void {
   allTools.graph_sub_agent = tool({
     description: sub.description ?? DEFAULT_SUBAGENT_DESCRIPTION,
@@ -364,6 +377,9 @@ function registerGraphSubAgentTool(
       // Recurse with depth+1 so nested sub-agents stop at maxDepth.
       registerJarvisTools(childTools, {
         subAgent: { ...sub, depth: depth + 1 },
+        // Children inherit the parent's ontology scope; otherwise a sub-agent's
+        // get_ontology would pull the full unfiltered payload back in.
+        defaultDomains,
       });
 
       try {
@@ -1446,6 +1462,8 @@ export function registerJarvisTools(
     return;
   }
 
+  const { defaultDomains } = options;
+
   const jarvisHeaders = {
     "Content-Type": "application/json",
     "X-Api-Token": process.env.API_TOKEN ?? "",
@@ -1520,15 +1538,23 @@ export function registerJarvisTools(
       // (`include_edges`, `include_attributes`) are a cross-repo contract with that task
       // and must stay in sync with it. Client-side trimming in buildOntologyPayload
       // remains the source of truth until jarvis honors these params.
+      //
+      // `domains` IS honoured by jarvis today, and it filters both `schemas` and
+      // `edges`. An explicit model-supplied value always wins; otherwise we fall
+      // back to the session's skill-derived scope (options.defaultDomains).
+      const effectiveDomains =
+        domains && domains.trim() !== ""
+          ? domains.trim()
+          : (defaultDomains ?? "").trim();
       const params = new URLSearchParams();
       params.set("include_edges", String(include_edges));
       params.set("include_attributes", String(include_attributes));
-      if (domains && domains.trim() !== "") {
-        params.set("domains", domains.trim());
+      if (effectiveDomains !== "") {
+        params.set("domains", effectiveDomains);
       }
       const url = `${jarvisUrl}/v2/schema?${params.toString()}`;
       console.log(
-        `[get_ontology] fetching ${url} domains=${domains ?? ""} include_edges=${include_edges} include_attributes=${include_attributes}`
+        `[get_ontology] fetching ${url} domains=${effectiveDomains}${domains ? "" : " (default)"} include_edges=${include_edges} include_attributes=${include_attributes}`
       );
       try {
         const resp = await jarvisFetch(url, jarvisHeaders);
@@ -1926,7 +1952,7 @@ export function registerJarvisTools(
     const depth = sub.depth ?? 0;
     const maxDepth = sub.maxDepth ?? DEFAULT_SUBAGENT_MAX_DEPTH;
     if (depth < maxDepth) {
-      registerGraphSubAgentTool(allTools, sub, depth);
+      registerGraphSubAgentTool(allTools, sub, depth, defaultDomains);
     }
   }
 
