@@ -794,7 +794,9 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
     }>,
     // simulated fallback responses per unmatched triplet index (index → edgeRefId | null)
     fallbackMap: Map<number, string | null> = new Map(),
-  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type: string; error?: string }> {
+    // mirrors the tool's opt-in `return_edge_ids` param (default off)
+    returnEdgeIds = false,
+  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type?: string; error?: string }> {
     const failures: Array<string | null> = triplets.map(() => null);
 
     // Phase 0: validation

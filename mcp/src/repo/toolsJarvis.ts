@@ -1105,6 +1105,17 @@ function registerGraphWriteTools(
           "Jarvis namespace (data partition) for inline node creation. Applies to all items. " +
           "Not an access-control boundary.",
         ),
+      return_edge_ids: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Include `edge_ref_id` on each successful result. OFF by default and rarely needed — " +
+          "the ref_ids of the NODES you created are always returned, and those are what you use " +
+          "to build further triplets. Enable ONLY if you will address specific edges by ref_id " +
+          "later in this session (e.g. to update or delete an individual edge). Leaving it off " +
+          "keeps results small, which matters because every tool result stays in context.",
+        ),
     }),
     execute: async (input: {
       triplets: Array<{
@@ -1120,8 +1131,9 @@ function registerGraphWriteTools(
         create_schema_if_missing?: boolean;
       }>;
       namespace?: string;
+      return_edge_ids?: boolean;
     }) => {
-      const { triplets, namespace } = input;
+      const { triplets, namespace, return_edge_ids = false } = input;
       console.log(
         `[create_batch_triplet] count=${triplets.length} namespace=${namespace ?? "-"}`,
       );
@@ -1376,13 +1388,15 @@ function registerGraphWriteTools(
         }
         // Successful entries return only what the caller does NOT already have.
         // `edge_ref_id` was measured across four production traces: 1,426 returned,
-        // 0 ever referenced in a later call. `edge_type` is echoed straight back from
-        // the request. Both are kept on the Error branches, where the extra context
-        // is worth the tokens and the volume is negligible.
+        // 0 ever referenced in a later call — so it is opt-in via `return_edge_ids`.
+        // `edge_type` is echoed straight back from the request and is always dropped.
+        // Both are kept on the Error branches, where the context is worth the tokens
+        // and the volume is negligible.
         return {
           status: "Success",
           source_ref_id: sourceRefs[i]!,
           target_ref_id: targetRefs[i]!,
+          ...(return_edge_ids ? { edge_ref_id: edgeRef } : {}),
         };
       });
 
