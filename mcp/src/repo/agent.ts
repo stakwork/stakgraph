@@ -434,6 +434,9 @@ export interface GetContextOptions {
   repos?: string[];
   // Skills support
   skills?: SkillsConfig;
+  // Comma-separated Jarvis ontology domains (e.g. "Legal,Entity,Content") used
+  // as the default scope for get_ontology. Unset => every domain is returned.
+  ontologyDomains?: string;
   // Sub-agents: remote agent instances this agent can delegate to
   subAgents?: SubAgent[];
   // GGNN integration
@@ -574,6 +577,7 @@ async function prepareAgent(
     opts.stakwork,
     opts.googleSheets,
     skills,
+    opts.ontologyDomains,
     // Parent session id for graph_sub_agent child-session linkage. The
     // resolved sessionId (set below) is always inputSessionId when defined,
     // so passing it here is safe even though tools are built first.
@@ -745,6 +749,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         subAgents: opts.subAgents?.map(({ apiToken, ...rest }) => rest),
         ggnn: opts.ggnn,
         skills: opts.skills,
+        ontologyDomains: opts.ontologyDomains,
         commitList: opts.commitList,
         ignoreRepoInfo: opts.ignoreRepoInfo,
       });

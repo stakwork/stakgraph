@@ -407,6 +407,7 @@ export async function get_tools(
   stakwork?: StakworkToolsOptions,
   googleSheets?: GoogleSheetsToolsOptions,
   skills?: SkillsConfig,
+  ontologyDomains?: string,
   sessionId?: string,
 ) {
   const repoArr = repoPath.split("/");
@@ -939,6 +940,9 @@ export async function get_tools(
     ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
     // Opt-in graph data-write tool (assert source -[edge]-> target triplets).
     graphWrite: toolConfigEnabled(toolsConfig?.create_triplet),
+    // Scope get_ontology to the caller's `ontology_domains`, unless the model
+    // asks for specific `domains` itself. Unset => no filter, all domains.
+    defaultDomains: ontologyDomains,
   });
 
   // Register Stakwork run-research tools (read-only, gated on the caller
