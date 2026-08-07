@@ -150,15 +150,18 @@ export function registerAbortController(
   key: string,
   controller?: AbortController,
 ): AbortController {
-  // If a stale controller exists for this key, abort it first (only when
-  // we're creating a fresh one — aliasing should not abort an existing run).
-  if (!controller) {
-    const existing = abortControllers.get(key);
-    if (existing && !existing.signal.aborted) {
-      try { existing.abort(); } catch (_) {}
-    }
-  }
   const ctl = controller ?? new AbortController();
+  // Abort whatever else held this key. The guard is controller *identity*, not
+  // "were we passed one": re-registering the same controller (the sessionId
+  // alias of a run already keyed by request_id) must not abort the run it
+  // belongs to, but a genuinely different run on the same sessionId must be
+  // stopped. Without this, a caller retrying a session while the original was
+  // still alive left both runs appending to the same transcript.
+  const existing = abortControllers.get(key);
+  if (existing && existing !== ctl && !existing.signal.aborted) {
+    console.log(`[events] Aborting superseded run for key ${key}`);
+    try { existing.abort(); } catch (_) {}
+  }
   abortControllers.set(key, ctl);
   return ctl;
 }
@@ -167,7 +170,17 @@ export function getAbortController(key: string): AbortController | undefined {
   return abortControllers.get(key);
 }
 
-export function unregisterAbortController(key: string): void {
+/**
+ * Remove a key from the registry. Pass the controller you registered so a
+ * superseded run's cleanup can't evict the entry belonging to the run that
+ * replaced it — that would silently make /repo/agent/abort a no-op for the
+ * live run. Omitting it deletes unconditionally (legacy behavior).
+ */
+export function unregisterAbortController(
+  key: string,
+  controller?: AbortController,
+): void {
+  if (controller && abortControllers.get(key) !== controller) return;
   abortControllers.delete(key);
 }
 

@@ -244,7 +244,11 @@ function normalizeHeaders(input: unknown): Record<string, string> | undefined {
  */
 type TerminalWebhookPayload =
   | { request_id: string; status: "completed"; result: unknown }
-  | { request_id: string; status: "failed"; error: unknown };
+  // `retryable` is required on the failed variant so every caller gets an
+  // explicit signal: true only for infrastructure failures (a restart
+  // orphaning an in-flight run), where re-submitting the same request resumes
+  // from the last completed turn. Agent errors and aborts are false.
+  | { request_id: string; status: "failed"; error: unknown; retryable: boolean };
 
 const WEBHOOK_RETRY_DELAYS_MS = [0, 5_000, 30_000];
 const WEBHOOK_TIMEOUT_MS = 15_000;
@@ -305,6 +309,7 @@ export function sweepOrphanedRuns(): void {
         request_id: orphan.request_id,
         status: "failed",
         error: orphan.error,
+        retryable: orphan.retryable,
       });
     }
   }
@@ -466,14 +471,14 @@ export async function repo_agent(req: Request, res: Response) {
         .finally(async () => {
           res.off("close", onClientClose);
           await finalizeSession();
-          unregisterAbortController(body.sessionId);
+          unregisterAbortController(body.sessionId, abortController);
           endTracking(opId);
         });
 
       return;
     } catch (error: any) {
       console.error("[repo_agent] Stream setup error:", error);
-      unregisterAbortController(body.sessionId);
+      unregisterAbortController(body.sessionId, abortController);
       endTracking(opId);
       if (!res.headersSent) {
         res.status(500).json({ error: error.message || "Internal server error" });
@@ -604,13 +609,14 @@ export async function repo_agent(req: Request, res: Response) {
             request_id,
             status: "failed",
             error: errorMessage,
+            retryable: false,
           });
         }
       })
       .finally(() => {
         unregisterAbortController(request_id);
         if (body.sessionId && body.sessionId !== request_id) {
-          unregisterAbortController(body.sessionId);
+          unregisterAbortController(body.sessionId, abortController);
         }
         endTracking(opId);
       });
@@ -621,7 +627,7 @@ export async function repo_agent(req: Request, res: Response) {
     console.error("Error in repo_agent", error);
     unregisterAbortController(request_id);
     if (body.sessionId && body.sessionId !== request_id) {
-      unregisterAbortController(body.sessionId);
+      unregisterAbortController(body.sessionId, abortController);
     }
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);

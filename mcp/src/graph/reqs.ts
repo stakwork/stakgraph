@@ -29,6 +29,11 @@ interface Request {
   result?: any;
   error?: any;
   progress?: any;
+  // Whether re-submitting the same request is expected to help. True only for
+  // infrastructure failures (a restart orphaning an in-flight run), never for
+  // agent errors or user aborts. Callers key their retry policy off this
+  // instead of string-matching the error text.
+  retryable?: boolean;
   // Caller's terminal callback, persisted so the startup sweep can still
   // notify the receiver about runs orphaned by a process restart.
   webhookUrl?: string;
@@ -95,6 +100,9 @@ export function startReq(webhookUrl?: string): string {
 export interface OrphanedReq {
   request_id: string;
   error: string;
+  /** Always true — a restart-orphaned run lost no durable state, so a
+   * re-submit of the same request picks up from the last completed turn. */
+  retryable: true;
   webhookUrl?: string;
 }
 
@@ -140,10 +148,11 @@ export function sweepOrphanedReqs(): OrphanedReq[] {
     if (!data) continue;
 
     if (data.status === "pending") {
-      failReq(id, RESTART_ORPHAN_ERROR);
+      failReq(id, RESTART_ORPHAN_ERROR, true);
       orphaned.push({
         request_id: id,
         error: RESTART_ORPHAN_ERROR,
+        retryable: true,
         ...(data.webhookUrl && { webhookUrl: data.webhookUrl }),
       });
     }
@@ -178,14 +187,16 @@ export function finishReq(id: string, result: any) {
   writeToDisk(id, { status: "completed", result });
 }
 
-export function failReq(id: string, error: any) {
+export function failReq(id: string, error: any, retryable = false) {
   if (META[id]) META[id].status = "failed";
   // Serialize error safely — Error objects don't JSON.stringify well
   const serializedError =
     error instanceof Error
       ? { message: error.message, stack: error.stack }
       : error;
-  writeToDisk(id, { status: "failed", error: serializedError });
+  // Always written (not just when true) so a caller reading /progress never
+  // has to distinguish "not retryable" from "this build predates the field".
+  writeToDisk(id, { status: "failed", error: serializedError, retryable });
 }
 
 export function updateReq(id: string, progress: any) {

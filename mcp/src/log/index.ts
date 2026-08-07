@@ -222,7 +222,7 @@ export async function logs_agent(req: Request, res: Response) {
       .finally(() => {
         unregisterAbortController(request_id);
         if (sessionId && sessionId !== request_id) {
-          unregisterAbortController(sessionId);
+          unregisterAbortController(sessionId, abortController);
         }
         endTracking(opId);
         // Clean up logs directory for non-session runs
@@ -237,7 +237,7 @@ export async function logs_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     unregisterAbortController(request_id);
     if (sessionId && sessionId !== request_id) {
-      unregisterAbortController(sessionId);
+      unregisterAbortController(sessionId, abortController);
     }
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);
