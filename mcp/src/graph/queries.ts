@@ -319,7 +319,8 @@ ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace 
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'success', n.error_message = ''
-SET n.end_time = toInteger($end_time),
+SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+    n.end_time = toInteger($end_time),
     n.repo = $repo,
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
     n.cache_read_tokens = coalesce(n.cache_read_tokens, 0) + toInteger($cache_read_tokens),

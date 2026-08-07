@@ -407,6 +407,7 @@ export async function get_tools(
   stakwork?: StakworkToolsOptions,
   googleSheets?: GoogleSheetsToolsOptions,
   skills?: SkillsConfig,
+  sessionId?: string,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -925,6 +926,13 @@ export async function get_tools(
             : undefined,
           modelName,
           apiKey,
+          // Links each sub-agent run back to the owning session so it appears
+          // as its own inspectable session in /sessions.
+          parentSessionId: sessionId,
+          repo:
+            repos && repos.length > 0
+              ? repos.join(", ")
+              : repoPath.replace(/\/+$/, "").split("/").slice(-2).join("/"),
         }
       : undefined,
     // Opt-in ontology write tools (create/update/delete node & edge types).
