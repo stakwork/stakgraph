@@ -54,6 +54,8 @@ export interface SessionInitConfig {
   subAgents?: { [key: string]: any }[];     // secrets (apiToken) redacted
   ggnn?: { [key: string]: any };
   skills?: { [key: string]: any };
+  /** Comma-separated ontology domains scoping get_ontology (e.g. "Legal,Entity,Content"). */
+  ontologyDomains?: string;
   commitList?: string[];
   ignoreRepoInfo?: boolean;
 }
