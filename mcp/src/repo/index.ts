@@ -12,7 +12,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
-import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, sessionExists } from "./session.js";
+import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, loadReflection, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
@@ -196,6 +196,7 @@ function parseAgentBody(req: Request) {
       )
     : undefined;
   const _metadata = req.body._metadata as unknown;
+  const reflect = normalizeReflect(req.body.reflect);
   // Optional terminal-result callback (non-streaming path only). When set,
   // the run's terminal payload — the same shape GET /progress serves, plus
   // request_id — is POSTed to this URL on completion/failure, so callers
@@ -214,10 +215,25 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, mode, skills, ontologyDomains, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments, _metadata, webhookUrl,
+    ignoreRepoInfo, attachments, _metadata, webhookUrl, reflect,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,
   };
+}
+
+/**
+ * Coerce a request-body `reflect` value. Accepts `true` or `{ prompt }`;
+ * anything else (including `false`) turns reflection off. The prompt override
+ * replaces the instruction text only — the list of concepts the run read is
+ * appended by the server either way.
+ */
+function normalizeReflect(input: unknown): boolean | { prompt?: string } | undefined {
+  if (input === true) return true;
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    const prompt = (input as { prompt?: unknown }).prompt;
+    return typeof prompt === "string" && prompt.trim() ? { prompt: prompt.trim() } : true;
+  }
+  return undefined;
 }
 
 /**
@@ -421,6 +437,7 @@ export async function repo_agent(req: Request, res: Response) {
           _metadata: body._metadata,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
+          reflect: body.reflect,
         },
       );
 
@@ -547,6 +564,7 @@ export async function repo_agent(req: Request, res: Response) {
           _metadata: body._metadata,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
+          reflect: body.reflect,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
@@ -692,7 +710,10 @@ export async function get_agent_session(req: Request, res: Response) {
     const messages = loadSession(sessionId);
     const config = loadSessionConfig(sessionId);
     const _metadata = loadSessionMetadata(sessionId);
-    res.json({ sessionId, messages, config, _metadata });
+    // Null when the session read no concepts (or predates the sidecar);
+    // `config.reflect` says whether a ranking was ever asked for.
+    const reflection = loadReflection(sessionId);
+    res.json({ sessionId, messages, config, _metadata, reflection });
   } catch (e) {
     console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });

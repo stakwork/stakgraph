@@ -58,6 +58,12 @@ export interface SessionInitConfig {
   ontologyDomains?: string;
   commitList?: string[];
   ignoreRepoInfo?: boolean;
+  /**
+   * Whether the post-run concept reflection was requested, and any prompt
+   * override. Recorded so an absent reflection sidecar can be read correctly:
+   * with `reflect` on, no file means the run read no concepts.
+   */
+  reflect?: boolean | { prompt?: string };
 }
 
 export interface StepMeta {
@@ -251,6 +257,10 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(metadataPath)) {
     unlinkSync(metadataPath);
   }
+  const reflectionPath = getReflectionFile(sessionId);
+  if (existsSync(reflectionPath)) {
+    unlinkSync(reflectionPath);
+  }
   deleteAttachments(sessionId);
 }
 
@@ -406,6 +416,119 @@ export function loadSearchProvenance(
   } catch {
     return [];
   }
+}
+
+// ── Concept reflection ───────────────────────────────────────────────
+// Which gitree Concepts a session actually read, and (when `reflect` is on)
+// the agent's own ranking of how load-bearing each one was. Cumulative over
+// the whole session rather than per-run: the reflect call sees the entire
+// transcript, so its latest ranking supersedes the previous one.
+
+export interface ReflectedConcept {
+  id?: string;
+  ref_id?: string;
+  repo?: string;
+  name?: string;
+  /** 1 = most load-bearing. null when this concept was read but not ranked. */
+  rank: number | null;
+  /** One line on which turn used it and what it changed. */
+  evidence?: string;
+  /**
+   * What this concept claims vs. what the agent found in the source, when the
+   * two disagreed. A review flag, not grounds for automatic invalidation —
+   * the agent may have misread, or the concept may be accurate about an older
+   * state of the repo.
+   */
+  contradicts?: string;
+}
+
+export interface SessionReflection {
+  session_id: string;
+  updated_at: string;
+  concepts: ReflectedConcept[];
+  /** Something the agent had to work out from source that no concept covered. */
+  gap?: string | null;
+  /** Raw model output, kept only when it didn't parse into the shape above. */
+  raw?: string;
+}
+
+function getReflectionFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.reflection.json`);
+}
+
+export function loadReflection(sessionId: string): SessionReflection | null {
+  const filePath = getReflectionFile(sessionId);
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8")) as SessionReflection;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge this run's concepts into the session's reflection sidecar.
+ *
+ * Union by identity (`ref_id`, falling back to `id`). An incoming entry only
+ * overwrites `rank`/`evidence`/`contradicts` when it actually carries them, so
+ * a failed reflect call adds its newly-read concepts without clobbering the
+ * ranking from a previous turn that succeeded.
+ */
+export function mergeReflection(
+  sessionId: string,
+  incoming: {
+    concepts: ReflectedConcept[];
+    gap?: string | null;
+    raw?: string;
+  },
+): SessionReflection {
+  const existing = loadReflection(sessionId);
+  const byKey = new Map<string, ReflectedConcept>();
+  // ref_id leads: it is the only identifier every Concept node carries (see
+  // conceptKey in concepts.ts). An id-first key double-counts a concept that
+  // was recorded ref_id-only on one turn and id+ref_id on another.
+  const keyOf = (c: ReflectedConcept) => c.ref_id ?? c.id ?? c.name ?? "";
+
+  for (const c of existing?.concepts ?? []) byKey.set(keyOf(c), c);
+  for (const c of incoming.concepts) {
+    const key = keyOf(c);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, c);
+      continue;
+    }
+    byKey.set(key, {
+      ...prev,
+      ...c,
+      rank: c.rank ?? prev.rank,
+      evidence: c.evidence ?? prev.evidence,
+      contradicts: c.contradicts ?? prev.contradicts,
+    });
+  }
+
+  const concepts = [...byKey.values()].sort((a, b) => {
+    if (a.rank === b.rank) return (a.name ?? "").localeCompare(b.name ?? "");
+    if (a.rank === null) return 1;
+    if (b.rank === null) return -1;
+    return a.rank - b.rank;
+  });
+
+  const reflection: SessionReflection = {
+    session_id: sessionId,
+    updated_at: new Date().toISOString(),
+    concepts,
+    gap: incoming.gap ?? existing?.gap ?? null,
+  };
+  if (incoming.raw) reflection.raw = incoming.raw;
+
+  writeFileSync(getReflectionFile(sessionId), JSON.stringify(reflection, null, 2));
+  return reflection;
 }
 
 export type AnnotationMarker =
@@ -566,6 +689,8 @@ export function pruneExpiredSessions(): number {
         if (existsSync(annPath)) unlinkSync(annPath);
         const configPath = filePath.replace(/\.jsonl$/, ".config.json");
         if (existsSync(configPath)) unlinkSync(configPath);
+        const reflectionPath = filePath.replace(/\.jsonl$/, ".reflection.json");
+        if (existsSync(reflectionPath)) unlinkSync(reflectionPath);
         deleteAttachments(sessionId);
         pruned++;
       }
