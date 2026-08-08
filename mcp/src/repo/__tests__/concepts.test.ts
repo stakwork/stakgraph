@@ -316,6 +316,20 @@ test.describe("the reflection sidecar", () => {
     expect(saved?.concepts[0].evidence).toBe("second pass");
   });
 
+  test("returns what it wrote, so the run result can carry it", async () => {
+    // ContextResult.reflection (and the /progress terminal payload) is this
+    // return value — a void merge would silently ship `undefined` to callers.
+    const { mergeReflection } = await import("../session.js");
+    const sessionId = `sess-${randomUUID()}`;
+    const returned = mergeReflection(sessionId, {
+      concepts: [{ ref_id: "ref-abc", name: "auth", rank: 1 }],
+      gap: null,
+    });
+    expect(returned.session_id).toBe(sessionId);
+    expect(returned.concepts).toHaveLength(1);
+    expect(returned.concepts[0].rank).toBe(1);
+  });
+
   test("no sidecar for a session that read nothing", async () => {
     const { loadReflection } = await import("../session.js");
     expect(loadReflection(`sess-${randomUUID()}`)).toBeNull();

@@ -65,6 +65,7 @@ import {
   mergeReflection,
   SessionConfig,
   StepMeta,
+  type SessionReflection,
 } from "./session.js";
 import { McpServer, getMcpTools, McpToolsResult } from "./mcpServers.js";
 import type { GoogleSheetsToolsOptions } from "./toolsGoogleSheets.js";
@@ -970,9 +971,9 @@ async function reflectOnConcepts(
   prepared: PreparedAgent,
   opts: GetContextOptions,
   messages: ModelMessage[],
-): Promise<void> {
+): Promise<SessionReflection | undefined> {
   const { sessionId, conceptCollector } = prepared;
-  if (!sessionId || conceptCollector.reads.length === 0) return;
+  if (!sessionId || conceptCollector.reads.length === 0) return undefined;
 
   // A single repo scopes the id lookup; with several in play, resolve against
   // every concept the graph holds.
@@ -982,9 +983,9 @@ async function reflectOnConcepts(
     concepts = await normalizeConceptReads(conceptCollector.reads, repo);
   } catch (e) {
     console.error("[concepts] could not normalize concept reads:", e);
-    return;
+    return undefined;
   }
-  if (concepts.length === 0) return;
+  if (concepts.length === 0) return undefined;
 
   const unranked = concepts.map((c) => ({
     id: c.id,
@@ -993,15 +994,16 @@ async function reflectOnConcepts(
     name: c.name,
     rank: null,
   }));
-
-  if (!reflectEnabled(opts.reflect)) {
+  const recordReadsOnly = (): SessionReflection | undefined => {
     try {
-      mergeReflection(sessionId, { concepts: unranked });
+      return mergeReflection(sessionId, { concepts: unranked });
     } catch (e) {
       console.error("[concepts] could not record concept reads:", e);
+      return undefined;
     }
-    return;
-  }
+  };
+
+  if (!reflectEnabled(opts.reflect)) return recordReadsOnly();
 
   try {
     console.log(`===> reflecting on ${concepts.length} concept(s) for session ${sessionId}`);
@@ -1015,15 +1017,11 @@ async function reflectOnConcepts(
       concepts,
       promptOverride: reflectPromptOverride(opts.reflect),
     });
-    mergeReflection(sessionId, result);
+    return mergeReflection(sessionId, result);
   } catch (e) {
     console.error("[concepts] reflection failed:", e);
     // The ranking is the optional half — keep the read record regardless.
-    try {
-      mergeReflection(sessionId, { concepts: unranked });
-    } catch (inner) {
-      console.error("[concepts] could not record concept reads:", inner);
-    }
+    return recordReadsOnly();
   }
 }
 
@@ -1139,6 +1137,7 @@ export async function get_context(
   let streamTotalUsage: LanguageModelUsage | undefined;
   // The exact conversation the model last saw, for the post-run reflect pass.
   let modelFacingMessages: ModelMessage[] = [];
+  let reflection: SessionReflection | undefined;
   // Each segment pairs the user-facing message that started it (the real user
   // message, then continuation nudges) with the steps it produced, so session
   // persistence can interleave them faithfully. priorMessages holds messages
@@ -1347,7 +1346,7 @@ export async function get_context(
       status: "success",
       token_usage: usage,
     });
-    await reflectOnConcepts(prepared, opts, modelFacingMessages);
+    reflection = await reflectOnConcepts(prepared, opts, modelFacingMessages);
   }
 
   const final = extractFinalAnswer(steps);
@@ -1380,6 +1379,7 @@ export async function get_context(
     },
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
+    reflection,
   };
 }
 

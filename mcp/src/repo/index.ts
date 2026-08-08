@@ -580,6 +580,10 @@ export async function repo_agent(req: Request, res: Response) {
           usage: result.usage,
           logs: result.logs,
           sessionId: result.sessionId,
+          // Present when the run read any Concepts. The run is held open for
+          // the reflect call, so deliver its result here rather than making
+          // the caller follow up with GET /repo/agent/session for it.
+          reflection: result.reflection,
         };
         asyncReqs.finishReq(request_id, terminalResult);
         // Post-completion side effects are isolated: if one throws it must
