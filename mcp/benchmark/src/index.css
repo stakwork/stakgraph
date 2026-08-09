@@ -39,6 +39,17 @@ body {
   opacity: 1;
 }
 
+/* The one interactive chip in the session-signal row — it has to read as a
+   button next to neighbours that are inert text. */
+.concepts-pill {
+  transition: background-color 0.12s, border-color 0.12s;
+}
+
+.concepts-pill:hover {
+  background-color: rgba(109, 40, 217, 0.4) !important;
+  border-color: #a78bfa !important;
+}
+
 .markdown-block > :first-child {
   margin-top: 0;
 }

@@ -117,10 +117,10 @@ export function SessionDetail({
   showSessionAnnotationForm,
   setShowSessionAnnotationForm,
 }: SessionDetailProps) {
-  // Open by default so the concept list is scannable the moment a session
-  // loads; the pill collapses it. Re-opens when you switch sessions.
-  const [conceptsOpen, setConceptsOpen] = useState(true);
-  useEffect(() => setConceptsOpen(true), [selected?.id]);
+  // Closed by default — the pill is the resting state, the list is opt-in.
+  // Collapses again when you switch sessions.
+  const [conceptsOpen, setConceptsOpen] = useState(false);
+  useEffect(() => setConceptsOpen(false), [selected?.id]);
   const concepts = selected?.reflection?.concepts ?? [];
 
   return (
@@ -199,13 +199,6 @@ export function SessionDetail({
                     label="calls"
                     value={String(selected.tool_call_count)}
                   />
-                  {concepts.length > 0 && (
-                    <ConceptsPill
-                      count={concepts.length}
-                      open={conceptsOpen}
-                      onToggle={() => setConceptsOpen((v) => !v)}
-                    />
-                  )}
                 </div>
               </div>
               <div
@@ -247,18 +240,27 @@ export function SessionDetail({
                 )}
               </div>
             </div>
-            {(diagnostics.counts.oversized > 0 ||
+            {(concepts.length > 0 ||
+              diagnostics.counts.oversized > 0 ||
               diagnostics.counts.fallback > 0 ||
               diagnostics.counts.repeat > 0 ||
               diagnostics.counts.empty > 0) && (
               <div
                 style={{
                   display: "flex",
+                  alignItems: "center",
                   gap: "8px",
                   flexWrap: "wrap",
                   marginTop: "8px",
                 }}
               >
+                {concepts.length > 0 && (
+                  <ConceptsPill
+                    count={concepts.length}
+                    open={conceptsOpen}
+                    onToggle={() => setConceptsOpen((v) => !v)}
+                  />
+                )}
                 {(
                   [
                     {
