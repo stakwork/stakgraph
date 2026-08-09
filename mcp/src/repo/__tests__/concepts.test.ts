@@ -316,6 +316,61 @@ test.describe("the reflection sidecar", () => {
     expect(saved?.concepts[0].evidence).toBe("second pass");
   });
 
+  test("read order is assigned with no model involved", async () => {
+    const { mergeReflection, loadReflection } = await import("../session.js");
+    const sessionId = `sess-${randomUUID()}`;
+
+    // What a run without `reflect` produces: reads, no ranks.
+    mergeReflection(sessionId, {
+      concepts: [
+        { ref_id: "ref-a", name: "first", rank: null },
+        { ref_id: "ref-b", name: "second", rank: null },
+      ],
+    });
+
+    const saved = loadReflection(sessionId);
+    expect(saved?.concepts.map((c) => c.read_order)).toEqual([1, 2]);
+    expect(saved?.concepts.every((c) => c.rank === null)).toBe(true);
+  });
+
+  test("later turns append without renumbering earlier reads", async () => {
+    const { mergeReflection, loadReflection } = await import("../session.js");
+    const sessionId = `sess-${randomUUID()}`;
+
+    mergeReflection(sessionId, { concepts: [{ ref_id: "ref-a", rank: null }] });
+    mergeReflection(sessionId, {
+      concepts: [
+        { ref_id: "ref-a", rank: null }, // re-read: keeps its position
+        { ref_id: "ref-b", rank: null },
+      ],
+    });
+
+    const saved = loadReflection(sessionId);
+    const byRef = Object.fromEntries((saved?.concepts ?? []).map((c) => [c.ref_id, c]));
+    expect(byRef["ref-a"].read_order).toBe(1);
+    expect(byRef["ref-b"].read_order).toBe(2);
+  });
+
+  test("a reflect-off turn doesn't disturb ranks an earlier reflect produced", async () => {
+    const { mergeReflection, loadReflection } = await import("../session.js");
+    const sessionId = `sess-${randomUUID()}`;
+
+    mergeReflection(sessionId, {
+      concepts: [
+        { ref_id: "ref-a", rank: 2, evidence: "some help" },
+        { ref_id: "ref-b", rank: 1, evidence: "decisive" },
+      ],
+    });
+    mergeReflection(sessionId, { concepts: [{ ref_id: "ref-c", rank: null }] });
+
+    const saved = loadReflection(sessionId);
+    // Judged concepts stay ordered by rank; the new read falls in behind them.
+    expect(saved?.concepts.map((c) => c.ref_id)).toEqual(["ref-b", "ref-a", "ref-c"]);
+    expect(saved?.concepts[0].rank).toBe(1);
+    expect(saved?.concepts[2].rank).toBeNull();
+    expect(saved?.concepts[2].read_order).toBe(3);
+  });
+
   test("returns what it wrote, so the run result can carry it", async () => {
     // ContextResult.reflection (and the /progress terminal payload) is this
     // return value — a void merge would silently ship `undefined` to callers.

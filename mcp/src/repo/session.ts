@@ -419,17 +419,34 @@ export function loadSearchProvenance(
 }
 
 // ── Concept reflection ───────────────────────────────────────────────
-// Which gitree Concepts a session actually read, and (when `reflect` is on)
-// the agent's own ranking of how load-bearing each one was. Cumulative over
-// the whole session rather than per-run: the reflect call sees the entire
-// transcript, so its latest ranking supersedes the previous one.
+// Which gitree Concepts a session actually read, in the order it read them.
+// That much is recorded for every session with no model involved and no flag
+// to set. `reflect` adds a second layer on top: the agent's own ranking of
+// how load-bearing each one turned out to be.
+//
+// Cumulative over the whole session rather than per-run — the reflect call
+// sees the entire transcript, so its latest ranking supersedes the previous
+// one, while read order is assigned once and left alone.
 
 export interface ReflectedConcept {
   id?: string;
   ref_id?: string;
   repo?: string;
   name?: string;
-  /** 1 = most load-bearing. null when this concept was read but not ranked. */
+  /**
+   * 1-based order this concept was first read in the session. Always set, with
+   * no model involved — reading a concept is enough to earn an entry.
+   * Assigned once and never revised, so it stays stable as later turns append.
+   */
+  read_order?: number;
+  /**
+   * How load-bearing the concept was, 1 = most. Only ever set by the `reflect`
+   * pass; null means nothing has judged it, not that it was useless.
+   *
+   * Deliberately distinct from `read_order`: one field carrying "read first"
+   * on some sessions and "mattered most" on others can't be aggregated, since
+   * a consumer can't tell which meaning it has.
+   */
   rank: number | null;
   /** One line on which turn used it and what it changed. */
   evidence?: string;
@@ -477,8 +494,10 @@ export function loadReflection(sessionId: string): SessionReflection | null {
  *
  * Union by identity (`ref_id`, falling back to `id`). An incoming entry only
  * overwrites `rank`/`evidence`/`contradicts` when it actually carries them, so
- * a failed reflect call adds its newly-read concepts without clobbering the
- * ranking from a previous turn that succeeded.
+ * a failed reflect call — or a turn that ran without `reflect` at all — adds
+ * its newly-read concepts without clobbering the ranking from a previous turn
+ * that succeeded. New concepts get the next `read_order`; existing ones keep
+ * the one they already have.
  */
 export function mergeReflection(
   sessionId: string,
@@ -506,17 +525,32 @@ export function mergeReflection(
     byKey.set(key, {
       ...prev,
       ...c,
+      // First read wins: a concept re-read on a later turn keeps its position.
+      read_order: prev.read_order ?? c.read_order,
       rank: c.rank ?? prev.rank,
       evidence: c.evidence ?? prev.evidence,
       contradicts: c.contradicts ?? prev.contradicts,
     });
   }
 
+  // Stamp read order on anything that doesn't have it yet, continuing from the
+  // highest already assigned. Map iteration is existing-then-incoming, so a
+  // concept keeps the position it first got no matter how many turns follow.
+  let nextOrder = 1;
+  for (const c of byKey.values()) {
+    if (typeof c.read_order === "number") nextOrder = Math.max(nextOrder, c.read_order + 1);
+  }
+  for (const c of byKey.values()) {
+    if (typeof c.read_order !== "number") c.read_order = nextOrder++;
+  }
+
+  // Judged concepts first, most load-bearing at the top; everything else falls
+  // back to the order it was read in.
   const concepts = [...byKey.values()].sort((a, b) => {
-    if (a.rank === b.rank) return (a.name ?? "").localeCompare(b.name ?? "");
-    if (a.rank === null) return 1;
-    if (b.rank === null) return -1;
-    return a.rank - b.rank;
+    if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
+    if (a.rank === null && b.rank !== null) return 1;
+    if (a.rank !== null && b.rank === null) return -1;
+    return (a.read_order ?? 0) - (b.read_order ?? 0);
   });
 
   const reflection: SessionReflection = {
