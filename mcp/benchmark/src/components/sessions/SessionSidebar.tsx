@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { shortId } from "../ui";
 import { SourceBadge } from "./SessionBadges";
@@ -7,28 +8,31 @@ import type { ProductionRun } from "../../types";
 
 interface SessionSidebarProps {
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   runs: ProductionRun[];
-  filteredRuns: ProductionRun[];
   selected: ProductionRun | null;
   repoSearch: string;
   sourceFilter: string;
-  rangeFilter: "24h" | "7d" | "30d" | "all";
+  rangeFilter: "24h" | "7d" | "30d" | "3m" | "1y" | "all";
   dayFilter: string;
   repoOptions: string[];
   sourceOptions: string[];
   load: () => void;
+  loadMore: () => void;
   loadDetail: (run: ProductionRun) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
-  setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
+  setRangeFilter: (v: "24h" | "7d" | "30d" | "3m" | "1y" | "all") => void;
   setDayFilter: (v: string) => void;
   clearFilters: () => void;
 }
 
 export function SessionSidebar({
   loading,
+  loadingMore,
+  hasMore,
   runs,
-  filteredRuns,
   selected,
   repoSearch,
   sourceFilter,
@@ -37,6 +41,7 @@ export function SessionSidebar({
   repoOptions,
   sourceOptions,
   load,
+  loadMore,
   loadDetail,
   setRepoSearch,
   setSourceFilter,
@@ -47,6 +52,26 @@ export function SessionSidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const fromAnalytics = (location.state as any)?.from === "analytics";
+
+  // IntersectionObserver sentinel at the bottom of the list
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMoreRef.current();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const inputStyle: React.CSSProperties = {
     fontSize: "12px",
@@ -83,6 +108,9 @@ export function SessionSidebar({
     border: "1px solid #78350f",
     whiteSpace: "nowrap" as const,
   };
+
+  const hasActiveFilter =
+    repoSearch || sourceFilter !== "all" || rangeFilter !== "all" || dayFilter;
 
   return (
     <div
@@ -137,8 +165,6 @@ export function SessionSidebar({
 
       {loading ? (
         <p style={muted}>{"Loading\u2026"}</p>
-      ) : runs.length === 0 ? (
-        <p style={muted}>No sessions yet.</p>
       ) : (
         <>
           <div
@@ -173,7 +199,7 @@ export function SessionSidebar({
               value={rangeFilter}
               onChange={(e) => {
                 setRangeFilter(
-                  e.target.value as "24h" | "7d" | "30d" | "all",
+                  e.target.value as "24h" | "7d" | "30d" | "3m" | "1y" | "all",
                 );
                 setDayFilter("");
               }}
@@ -183,42 +209,39 @@ export function SessionSidebar({
               <option value="24h">Last 24h</option>
               <option value="7d">Last 7d</option>
               <option value="30d">Last 30d</option>
+              <option value="3m">Last 3 months</option>
+              <option value="1y">Last year</option>
             </select>
             <datalist id="repo-options">
               {repoOptions.map((r) => (
                 <option key={r} value={r} />
               ))}
             </datalist>
-            {(repoSearch ||
-              sourceFilter !== "all" ||
-              rangeFilter !== "all" ||
-              dayFilter) && (
-              <>
-                <p style={{ ...muted, textAlign: "center" }}>
-                  {dayFilter ? `Day ${dayFilter} · ` : ""}
-                  {filteredRuns.length} / {runs.length} sessions
-                </p>
-                <button onClick={clearFilters} style={btnStyle}>
-                  Clear filters
-                </button>
-              </>
+            {/* Loaded-count indicator */}
+            <p style={{ ...muted, textAlign: "center" }}>
+              {runs.length} loaded{hasMore ? " · more available" : ""}
+            </p>
+            {hasActiveFilter && (
+              <button onClick={clearFilters} style={btnStyle}>
+                Clear filters
+              </button>
             )}
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-              overflowY: "auto",
-              flex: 1,
-              minHeight: 0,
-            }}
-          >
-            {filteredRuns.length === 0 ? (
-              <p style={muted}>No sessions match the filter.</p>
-            ) : (
-              filteredRuns.map((run) => (
+          {runs.length === 0 ? (
+            <p style={muted}>No sessions match the filter.</p>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+                overflowY: "auto",
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
+              {runs.map((run) => (
                 <button
                   key={run.id}
                   onClick={() => void loadDetail(run)}
@@ -319,9 +342,24 @@ export function SessionSidebar({
                     </p>
                   )}
                 </button>
-              ))
-            )}
-          </div>
+              ))}
+
+              {/* Infinite scroll sentinel */}
+              <div ref={sentinelRef} style={{ height: "1px" }} />
+
+              {/* Loading footer */}
+              {loadingMore && (
+                <p style={{ ...muted, textAlign: "center", padding: "8px 0" }}>
+                  {"Loading\u2026"}
+                </p>
+              )}
+              {!hasMore && runs.length > 0 && (
+                <p style={{ ...muted, textAlign: "center", padding: "8px 0" }}>
+                  All sessions loaded
+                </p>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

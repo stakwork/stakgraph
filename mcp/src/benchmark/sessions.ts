@@ -301,48 +301,116 @@ function withChildCounts<T extends { id: string; parent_session_id: string }>(
   return runs.map((r) => ({ ...r, child_count: counts.get(r.id) ?? 0 }));
 }
 
-export async function list_sessions(_req: Request, res: Response) {
+const MAX_LIMIT = 500;
+const MAX_OFFSET = 100_000;
+
+/**
+ * Parse a YYYY-MM-DD string to the start of that UTC day in epoch ms.
+ * Returns null if the string is not a valid date.
+ */
+function dayToUtcMs(day: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const ts = Date.parse(`${day}T00:00:00.000Z`);
+  return isNaN(ts) ? null : ts;
+}
+
+/**
+ * Parse a range string (24h/7d/30d/3m/1y) to epoch ms start from now.
+ */
+function rangeToSinceMs(range: string): number | null {
+  const now = Date.now();
+  switch (range) {
+    case "24h": return now - 24 * 60 * 60 * 1000;
+    case "7d":  return now - 7 * 24 * 60 * 60 * 1000;
+    case "30d": return now - 30 * 24 * 60 * 60 * 1000;
+    case "3m":  return now - 90 * 24 * 60 * 60 * 1000;
+    case "1y":  return now - 365 * 24 * 60 * 60 * 1000;
+    default:    return null;
+  }
+}
+
+export async function list_sessions(req: Request, res: Response) {
   const dir = sessionsDir();
 
-  // Try Neo4j first
+  // Parse and clamp pagination params (DoS guard)
+  const rawLimit = parseInt(String(req.query.limit ?? "100"), 10);
+  const rawOffset = parseInt(String(req.query.offset ?? "0"), 10);
+  const limit = Math.min(isNaN(rawLimit) || rawLimit < 1 ? 100 : rawLimit, MAX_LIMIT);
+  const offset = Math.max(0, Math.min(isNaN(rawOffset) ? 0 : rawOffset, MAX_OFFSET));
+
+  // Parse filter params
+  const sourceParam = req.query.source ? String(req.query.source) : null;
+  const repoParam = req.query.repo ? String(req.query.repo) : null;
+  const rangeParam = req.query.range ? String(req.query.range) : null;
+  const dayParam = req.query.day ? String(req.query.day) : null;
+
+  // Derive since/until from range or day, in UTC epoch milliseconds
+  let since: number | null = null;
+  let until: number | null = null;
+  if (dayParam) {
+    since = dayToUtcMs(dayParam);
+    if (since !== null) until = since + 24 * 60 * 60 * 1000;
+  } else if (rangeParam) {
+    since = rangeToSinceMs(rangeParam);
+  }
+
+  // Try Neo4j first — paging is driven entirely by the query; no per-page
+  // orphan disk-merge on the Neo4j-up path (correct paging can't span DB +
+  // arbitrary disk files).
   if (db) {
     try {
-      const sessions = await db.list_agent_sessions();
-      const runs = sessions.map((s) => buildRunFromNode(s, dir));
-      const neo4jIds = new Set(runs.map((r) => r.id));
-      const isGhost = (r: (typeof runs)[number]) =>
-        r.source === "unknown" &&
-        r.token_usage.total === 0 &&
-        r.duration_ms === 0;
-      const liveRuns = runs.filter((r) => !isGhost(r));
-      if (existsSync(dir)) {
-        for (const file of readdirSync(dir)) {
-          if (!isSessionFile(file)) continue;
-          const id = file.replace(/\.jsonl$/, "");
-          if (neo4jIds.has(id)) continue;
-          liveRuns.push(buildOrphanRun(dir, file));
-        }
-      }
-      liveRuns.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-      res.json(withChildCounts(liveRuns));
+      const sessions = await db.list_agent_sessions({
+        limit,
+        offset,
+        source: sourceParam,
+        repo: repoParam,
+        since,
+        until,
+      });
+      // child_count is already computed page-independently in the Cypher query
+      const runs = sessions.map((s) => {
+        const run = buildRunFromNode(s, dir);
+        return { ...run, child_count: s.child_count ?? 0 };
+      });
+      res.json(runs);
       return;
     } catch (e) {
       console.error("[sessions] Neo4j query failed, falling back to JSONL:", e);
     }
   }
 
-  // Fallback: JSONL-only (no Neo4j)
+  // Fallback: JSONL-only (no Neo4j) — filter+sort+slice for stable paging
   if (!existsSync(dir)) {
     res.json([]);
     return;
   }
 
   const files = readdirSync(dir).filter(isSessionFile);
+  let runs = files.map((file) => buildOrphanRun(dir, file));
 
-  const runs = files.map((file) => buildOrphanRun(dir, file));
+  // Apply filters in the fallback path
+  if (sourceParam) runs = runs.filter((r) => r.source === sourceParam);
+  if (repoParam) runs = runs.filter((r) => r.repo.toLowerCase().includes(repoParam.toLowerCase()));
+  if (since !== null) runs = runs.filter((r) => new Date(r.timestamp).getTime() >= since!);
+  if (until !== null) runs = runs.filter((r) => new Date(r.timestamp).getTime() < until!);
 
   runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  res.json(withChildCounts(runs));
+  const page = runs.slice(offset, offset + limit);
+  res.json(withChildCounts(page));
+}
+
+export async function list_session_facets(_req: Request, res: Response) {
+  if (!db) {
+    res.json({ repos: [], sources: [] });
+    return;
+  }
+  try {
+    const facets = await db.list_session_facets();
+    res.json(facets);
+  } catch (e) {
+    console.error("[sessions] facets query failed:", e);
+    res.status(500).json({ error: "Failed to fetch facets" });
+  }
 }
 
 /**

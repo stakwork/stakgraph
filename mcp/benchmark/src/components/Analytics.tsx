@@ -122,10 +122,14 @@ export function Analytics() {
     textAlign: "left",
   };
 
+  // Analytics needs the full dataset — use an explicit high limit so the
+  // viewer default (PAGE_LIMIT=100) never silently truncates aggregations.
+  const ANALYTICS_LIMIT = 5000;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRuns(await api.sessions.list());
+      setRuns(await api.sessions.list({ limit: ANALYTICS_LIMIT, offset: 0 }));
     } catch (e: any) {
       toast.error(e.message);
     } finally {
