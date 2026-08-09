@@ -22,6 +22,11 @@ function conceptKey(c: ReflectedConcept, i: number): string {
   return c.ref_id ?? c.id ?? c.name ?? String(i);
 }
 
+/**
+ * Sits first in the session-signal row, alongside `flagged` / `oversized` /
+ * `repeats`. Those are inert text, so this one has to carry enough weight —
+ * filled violet, a caret, a hover state — to read as the button it is.
+ */
 export function ConceptsPill({
   count,
   open,
@@ -34,35 +39,27 @@ export function ConceptsPill({
   return (
     <button
       onClick={onToggle}
-      title={open ? "Hide concepts" : "Show concepts read"}
+      className="concepts-pill"
+      title={open ? "Hide concepts read" : "Show the concepts this session read"}
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: "6px",
         fontSize: "11px",
-        padding: "4px 10px",
-        borderRadius: "9999px",
-        border: `1px solid ${open ? "#4c1d95" : "#27272a"}`,
-        backgroundColor: open ? "rgba(76,29,149,0.18)" : "#18181b",
-        color: "#ededed",
+        fontWeight: 600,
+        padding: "3px 10px",
+        borderRadius: "6px",
+        border: `1px solid ${open ? "#a78bfa" : "#6d28d9"}`,
+        backgroundColor: open ? "rgba(109,40,217,0.4)" : "rgba(109,40,217,0.28)",
+        color: "#ddd6fe",
         cursor: "pointer",
         fontFamily: "inherit",
       }}
     >
-      <span
-        style={{
-          color: "#71717a",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          fontSize: "10px",
-        }}
-      >
-        concepts
+      <span>
+        {count} concept{count === 1 ? "" : "s"}
       </span>
-      <span>{count}</span>
-      <span style={{ fontSize: "9px", color: "#71717a" }}>
-        {open ? "▴" : "▾"}
-      </span>
+      <span style={{ fontSize: "9px" }}>{open ? "▴" : "▾"}</span>
     </button>
   );
 }
