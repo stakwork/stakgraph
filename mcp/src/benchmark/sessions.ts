@@ -6,6 +6,7 @@ import {
   loadStepMeta,
   loadSearchProvenance,
   loadAnnotations,
+  loadReflection,
   appendAnnotation,
   type Annotation,
   type AnnotationMarker,
@@ -383,6 +384,9 @@ async function buildFullSession(
   const step_meta = loadStepMeta(id);
   const search_provenance = loadSearchProvenance(id);
   const annotations = loadAnnotations(id);
+  // Which gitree Concepts this session read, in read order, plus the agent's
+  // ranking when the run asked for one. Null for sessions that read none.
+  const reflection = loadReflection(id);
 
   if (db) {
     try {
@@ -418,6 +422,7 @@ async function buildFullSession(
           step_meta,
           search_provenance,
           annotations,
+          reflection,
           trace,
         };
       }
@@ -459,6 +464,7 @@ async function buildFullSession(
     step_meta,
     search_provenance,
     annotations,
+    reflection,
     trace,
   };
 }

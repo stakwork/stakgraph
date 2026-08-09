@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { CopyableBlock, shortId } from "../ui";
 import { MetaPill, SourceBadge } from "./SessionBadges";
+import { ConceptsPill, ConceptsPanel } from "./SessionConcepts";
 import { TurnCard } from "./TurnCard";
 import { EntryRow } from "./EntryRow";
 import { AnnotationBadge, AnnotationForm } from "../Annotations";
@@ -115,6 +117,12 @@ export function SessionDetail({
   showSessionAnnotationForm,
   setShowSessionAnnotationForm,
 }: SessionDetailProps) {
+  // Open by default so the concept list is scannable the moment a session
+  // loads; the pill collapses it. Re-opens when you switch sessions.
+  const [conceptsOpen, setConceptsOpen] = useState(true);
+  useEffect(() => setConceptsOpen(true), [selected?.id]);
+  const concepts = selected?.reflection?.concepts ?? [];
+
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto" }}>
       {selected ? (
@@ -191,6 +199,13 @@ export function SessionDetail({
                     label="calls"
                     value={String(selected.tool_call_count)}
                   />
+                  {concepts.length > 0 && (
+                    <ConceptsPill
+                      count={concepts.length}
+                      open={conceptsOpen}
+                      onToggle={() => setConceptsOpen((v) => !v)}
+                    />
+                  )}
                 </div>
               </div>
               <div
@@ -287,6 +302,9 @@ export function SessionDetail({
                     </span>
                   ))}
               </div>
+            )}
+            {conceptsOpen && selected.reflection && concepts.length > 0 && (
+              <ConceptsPanel reflection={selected.reflection} />
             )}
             <div
               style={{
