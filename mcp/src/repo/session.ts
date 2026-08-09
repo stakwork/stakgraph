@@ -739,6 +739,58 @@ export function pruneExpiredSessions(): number {
 }
 
 /**
+ * Every primary conversation file on disk, with its id and last-write time.
+ *
+ * Shares the sidecar exclusion list with pruneExpiredSessions — `.jsonl` alone
+ * doesn't identify a conversation, since the meta/provenance/annotation/
+ * attachment sidecars use the same extension.
+ */
+export function listSessionFiles(): {
+  sessionId: string;
+  filePath: string;
+  mtimeMs: number;
+}[] {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) return [];
+
+  const out: { sessionId: string; filePath: string; mtimeMs: number }[] = [];
+  for (const file of readdirSync(sessionDir)) {
+    if (
+      !file.endsWith(".jsonl") ||
+      file.endsWith(".meta.jsonl") ||
+      file.endsWith(".provenance.jsonl") ||
+      file.endsWith(".annotations.jsonl") ||
+      file.endsWith(".attachments.jsonl")
+    )
+      continue;
+    const filePath = path.join(sessionDir, file);
+    try {
+      out.push({
+        sessionId: file.replace(/\.jsonl$/, ""),
+        filePath,
+        mtimeMs: statSync(filePath).mtimeMs,
+      });
+    } catch {
+      // ignore files that vanish or can't be stat'd mid-scan
+    }
+  }
+  return out;
+}
+
+/** Path to a marker file in the sessions dir, used by one-off backfills. */
+export function sessionsDirFile(name: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, name);
+}
+
+/**
  * Truncate a tool result for storage efficiency.
  * The model already processed this data, so we can store references instead of full content.
  */

@@ -17,7 +17,21 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-import {
+import type { ConceptCollector } from "../concepts.js";
+
+// session.ts reads SESSIONS_DIR once at module load, so it must be set before
+// anything that reaches session.ts is imported, and stay fixed for the
+// lifetime of the process.
+const tmpSessionsDir = path.join(os.tmpdir(), `test-concepts-${randomUUID()}`);
+fs.mkdirSync(tmpSessionsDir, { recursive: true });
+process.env.SESSIONS_DIR = tmpSessionsDir;
+process.env.NO_DB = "true";
+
+// Imported here, not at the top: concepts.ts reaches session.ts through
+// utils.ts, so a static import would bind SESSIONS_DIR to the real .sessions
+// directory before the override above ran — and these tests would write their
+// fixtures into it. (Type-only imports are erased, so they're safe up top.)
+const {
   conceptReadFrom,
   withConceptCollection,
   mergeConceptReads,
@@ -26,15 +40,7 @@ import {
   buildReflectTurn,
   reflectEnabled,
   reflectPromptOverride,
-  type ConceptCollector,
-} from "../concepts.js";
-
-// session.ts reads SESSIONS_DIR once at module load, so it must be set before
-// the dynamic import below and stay fixed for the lifetime of the process.
-const tmpSessionsDir = path.join(os.tmpdir(), `test-concepts-${randomUUID()}`);
-fs.mkdirSync(tmpSessionsDir, { recursive: true });
-process.env.SESSIONS_DIR = tmpSessionsDir;
-process.env.NO_DB = "true";
+} = await import("../concepts.js");
 
 /** A graph_get result for a Concept node, as the tool actually returns it. */
 function graphGetConcept(overrides: Record<string, any> = {}) {
