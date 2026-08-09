@@ -19,6 +19,15 @@ import {
   withProviderCacheUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, redactToolsConfig } from "./tools.js";
+import {
+  withConceptCollection,
+  normalizeConceptReads,
+  runReflection,
+  reflectEnabled,
+  reflectPromptOverride,
+  type ConceptCollector,
+  type ReflectConfig,
+} from "./concepts.js";
 import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
@@ -53,8 +62,10 @@ import {
   sessionExists,
   saveSessionConfig,
   saveSessionMetadata,
+  mergeReflection,
   SessionConfig,
   StepMeta,
+  type SessionReflection,
 } from "./session.js";
 import { McpServer, getMcpTools, McpToolsResult } from "./mcpServers.js";
 import type { GoogleSheetsToolsOptions } from "./toolsGoogleSheets.js";
@@ -469,6 +480,12 @@ export interface GetContextOptions {
   commitList?: string[];
   // Skip prepending repo info to the first prompt (handler-level; recorded in config)
   ignoreRepoInfo?: boolean;
+  // Concept reflection. Concepts a run READ are always recorded to the
+  // session's reflection sidecar; this opt-in additionally asks the agent,
+  // once the run is over, to rank them by how load-bearing they were.
+  // `{ prompt }` overrides the instruction text — the list of concepts read
+  // is appended by us either way, since a caller can't know what was read.
+  reflect?: ReflectConfig;
   // Replay mode: `prompt` is a full ModelMessage[] (including the system turn)
   // that is run verbatim. No system prompt is generated, no enrichment blocks
   // are appended, no session history is loaded, no attachments are resolved,
@@ -497,8 +514,13 @@ interface PreparedAgent {
   // the escape hatch offered in the continuation nudge.
   askQuestionsEnabled: boolean;
   provenanceCollector: ProvenanceCollector;
+  conceptCollector: ConceptCollector;
   abortSignal: AbortSignal | undefined;
   mcpClients: McpToolsResult["clients"];
+  // The run's system prompt and tool set, kept so the reflect pass can re-send
+  // them byte-identical and hit the provider's prompt cache.
+  instructions: string | undefined;
+  tools: ToolSet;
 }
 
 /**
@@ -596,6 +618,13 @@ async function prepareAgent(
     // Detect any "*_org_agent" tools (e.g. stakwork_org_agent, evanfeenstra_org_agent)
     orgAgentToolNames = Object.keys(mcpResult.tools).filter(name => /_org_agent$/i.test(name));
   }
+
+  // Record every gitree Concept whose body a tool hands back. Wrapping the
+  // assembled tool set here (rather than threading a collector through
+  // get_tools' argument list) keeps the concern in one place; the wrapper
+  // preserves each tool's description, which the session config reads below.
+  const conceptCollector: ConceptCollector = { reads: [] };
+  tools = withConceptCollection(tools, conceptCollector) as typeof tools;
 
   let instructions = systemOverride
     ? `${systemOverride}\n\n${SYSTEM_PROMPT_END(false)}`
@@ -752,6 +781,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         ontologyDomains: opts.ontologyDomains,
         commitList: opts.commitList,
         ignoreRepoInfo: opts.ignoreRepoInfo,
+        reflect: opts.reflect,
       });
       hasSystemTurn = true;
     }
@@ -910,9 +940,89 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     messagesRef,
     askQuestionsEnabled,
     provenanceCollector,
+    conceptCollector,
     abortSignal: opts.abortSignal,
     mcpClients,
+    instructions: transparent ? undefined : instructions,
+    tools,
   };
+}
+
+/**
+ * Record which gitree Concepts this run read, and — when `reflect` is on —
+ * ask the agent to rank them.
+ *
+ * Called after the session has been persisted, so it is the last thing a run
+ * does. Two properties it must keep:
+ *
+ *  - The deterministic half survives the model half. The read list is written
+ *    whether or not `reflect` is set and whether or not the reflect call
+ *    succeeds; a failed call leaves any ranking from a previous turn intact.
+ *  - It never fails the run. The answer has already been produced (and in the
+ *    streaming path, already delivered), so every error here is logged and
+ *    swallowed.
+ *
+ * `messages` must be the MODEL-facing transcript, not the stored one: with
+ * `truncateToolResults` on, the persisted copy is lossy, and any divergence
+ * from what was actually sent costs the prompt-cache hit that makes replaying
+ * the transcript affordable.
+ */
+async function reflectOnConcepts(
+  prepared: PreparedAgent,
+  opts: GetContextOptions,
+  messages: ModelMessage[],
+): Promise<SessionReflection | undefined> {
+  const { sessionId, conceptCollector } = prepared;
+  if (!sessionId || conceptCollector.reads.length === 0) return undefined;
+
+  // A single repo scopes the id lookup; with several in play, resolve against
+  // every concept the graph holds.
+  const repo = opts.repos?.length === 1 ? opts.repos[0] : undefined;
+  let concepts: Awaited<ReturnType<typeof normalizeConceptReads>>;
+  try {
+    concepts = await normalizeConceptReads(conceptCollector.reads, repo);
+  } catch (e) {
+    console.error("[concepts] could not normalize concept reads:", e);
+    return undefined;
+  }
+  if (concepts.length === 0) return undefined;
+
+  const unranked = concepts.map((c) => ({
+    id: c.id,
+    ref_id: c.ref_id,
+    repo: c.repo,
+    name: c.name,
+    rank: null,
+  }));
+  const recordReadsOnly = (): SessionReflection | undefined => {
+    try {
+      return mergeReflection(sessionId, { concepts: unranked });
+    } catch (e) {
+      console.error("[concepts] could not record concept reads:", e);
+      return undefined;
+    }
+  };
+
+  if (!reflectEnabled(opts.reflect)) return recordReadsOnly();
+
+  try {
+    console.log(`===> reflecting on ${concepts.length} concept(s) for session ${sessionId}`);
+    const result = await runReflection({
+      model: prepared.model,
+      modelId: prepared.modelId,
+      provider: prepared.provider,
+      system: prepared.instructions,
+      tools: prepared.tools as Record<string, any>,
+      messages,
+      concepts,
+      promptOverride: reflectPromptOverride(opts.reflect),
+    });
+    return mergeReflection(sessionId, result);
+  } catch (e) {
+    console.error("[concepts] reflection failed:", e);
+    // The ranking is the optional half — keep the read record regardless.
+    return recordReadsOnly();
+  }
 }
 
 /**
@@ -1025,6 +1135,9 @@ export async function get_context(
 
   let steps: Awaited<ReturnType<typeof agent.generate>>["steps"] = [];
   let streamTotalUsage: LanguageModelUsage | undefined;
+  // The exact conversation the model last saw, for the post-run reflect pass.
+  let modelFacingMessages: ModelMessage[] = [];
+  let reflection: SessionReflection | undefined;
   // Each segment pairs the user-facing message that started it (the real user
   // message, then continuation nudges) with the steps it produced, so session
   // persistence can interleave them faithfully. priorMessages holds messages
@@ -1166,6 +1279,12 @@ export async function get_context(
     }
 
     steps = segments.flatMap((s) => s.steps);
+    // The final call's own messages plus what it generated — byte-identical to
+    // what the provider cached, unlike the (possibly truncated) stored copy.
+    modelFacingMessages = [
+      ...sent,
+      ...(((await run.streamResult.response)?.messages ?? []) as ModelMessage[]),
+    ];
   } catch (err) {
     const aborted = isAbortError(err);
     // Surface the API's error detail: some failures (e.g. 400s) carry only a
@@ -1227,6 +1346,7 @@ export async function get_context(
       status: "success",
       token_usage: usage,
     });
+    reflection = await reflectOnConcepts(prepared, opts, modelFacingMessages);
   }
 
   const final = extractFinalAnswer(steps);
@@ -1259,6 +1379,7 @@ export async function get_context(
     },
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
+    reflection,
   };
 }
 
@@ -1322,6 +1443,20 @@ export async function stream_context(
           status: "success",
           token_usage: stepUsage,
         });
+        // The stream is already consumed and the answer already delivered, so
+        // the reflect call costs the caller no latency — and the provider's
+        // cache of this transcript is still warm. Kept in its own try so a
+        // failure here is never reported as a session-persistence failure.
+        try {
+          const responseMessages =
+            ((await (streamResult as any).response)?.messages ?? []) as ModelMessage[];
+          await reflectOnConcepts(prepared, opts, [
+            ...initialModelMessages(prepared),
+            ...responseMessages,
+          ]);
+        } catch (e) {
+          console.error("[concepts] could not assemble transcript for reflection:", e);
+        }
       } catch (e) {
         const aborted = isAbortError(e);
         enrichErrorMessage(e);

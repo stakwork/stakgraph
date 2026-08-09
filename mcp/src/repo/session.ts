@@ -58,6 +58,12 @@ export interface SessionInitConfig {
   ontologyDomains?: string;
   commitList?: string[];
   ignoreRepoInfo?: boolean;
+  /**
+   * Whether the post-run concept reflection was requested, and any prompt
+   * override. Recorded so an absent reflection sidecar can be read correctly:
+   * with `reflect` on, no file means the run read no concepts.
+   */
+  reflect?: boolean | { prompt?: string };
 }
 
 export interface StepMeta {
@@ -251,6 +257,10 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(metadataPath)) {
     unlinkSync(metadataPath);
   }
+  const reflectionPath = getReflectionFile(sessionId);
+  if (existsSync(reflectionPath)) {
+    unlinkSync(reflectionPath);
+  }
   deleteAttachments(sessionId);
 }
 
@@ -406,6 +416,153 @@ export function loadSearchProvenance(
   } catch {
     return [];
   }
+}
+
+// ── Concept reflection ───────────────────────────────────────────────
+// Which gitree Concepts a session actually read, in the order it read them.
+// That much is recorded for every session with no model involved and no flag
+// to set. `reflect` adds a second layer on top: the agent's own ranking of
+// how load-bearing each one turned out to be.
+//
+// Cumulative over the whole session rather than per-run — the reflect call
+// sees the entire transcript, so its latest ranking supersedes the previous
+// one, while read order is assigned once and left alone.
+
+export interface ReflectedConcept {
+  id?: string;
+  ref_id?: string;
+  repo?: string;
+  name?: string;
+  /**
+   * 1-based order this concept was first read in the session. Always set, with
+   * no model involved — reading a concept is enough to earn an entry.
+   * Assigned once and never revised, so it stays stable as later turns append.
+   */
+  read_order?: number;
+  /**
+   * How load-bearing the concept was, 1 = most. Only ever set by the `reflect`
+   * pass; null means nothing has judged it, not that it was useless.
+   *
+   * Deliberately distinct from `read_order`: one field carrying "read first"
+   * on some sessions and "mattered most" on others can't be aggregated, since
+   * a consumer can't tell which meaning it has.
+   */
+  rank: number | null;
+  /** One line on which turn used it and what it changed. */
+  evidence?: string;
+  /**
+   * What this concept claims vs. what the agent found in the source, when the
+   * two disagreed. A review flag, not grounds for automatic invalidation —
+   * the agent may have misread, or the concept may be accurate about an older
+   * state of the repo.
+   */
+  contradicts?: string;
+}
+
+export interface SessionReflection {
+  session_id: string;
+  updated_at: string;
+  concepts: ReflectedConcept[];
+  /** Something the agent had to work out from source that no concept covered. */
+  gap?: string | null;
+  /** Raw model output, kept only when it didn't parse into the shape above. */
+  raw?: string;
+}
+
+function getReflectionFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.reflection.json`);
+}
+
+export function loadReflection(sessionId: string): SessionReflection | null {
+  const filePath = getReflectionFile(sessionId);
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8")) as SessionReflection;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge this run's concepts into the session's reflection sidecar.
+ *
+ * Union by identity (`ref_id`, falling back to `id`). An incoming entry only
+ * overwrites `rank`/`evidence`/`contradicts` when it actually carries them, so
+ * a failed reflect call — or a turn that ran without `reflect` at all — adds
+ * its newly-read concepts without clobbering the ranking from a previous turn
+ * that succeeded. New concepts get the next `read_order`; existing ones keep
+ * the one they already have.
+ */
+export function mergeReflection(
+  sessionId: string,
+  incoming: {
+    concepts: ReflectedConcept[];
+    gap?: string | null;
+    raw?: string;
+  },
+): SessionReflection {
+  const existing = loadReflection(sessionId);
+  const byKey = new Map<string, ReflectedConcept>();
+  // ref_id leads: it is the only identifier every Concept node carries (see
+  // conceptKey in concepts.ts). An id-first key double-counts a concept that
+  // was recorded ref_id-only on one turn and id+ref_id on another.
+  const keyOf = (c: ReflectedConcept) => c.ref_id ?? c.id ?? c.name ?? "";
+
+  for (const c of existing?.concepts ?? []) byKey.set(keyOf(c), c);
+  for (const c of incoming.concepts) {
+    const key = keyOf(c);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, c);
+      continue;
+    }
+    byKey.set(key, {
+      ...prev,
+      ...c,
+      // First read wins: a concept re-read on a later turn keeps its position.
+      read_order: prev.read_order ?? c.read_order,
+      rank: c.rank ?? prev.rank,
+      evidence: c.evidence ?? prev.evidence,
+      contradicts: c.contradicts ?? prev.contradicts,
+    });
+  }
+
+  // Stamp read order on anything that doesn't have it yet, continuing from the
+  // highest already assigned. Map iteration is existing-then-incoming, so a
+  // concept keeps the position it first got no matter how many turns follow.
+  let nextOrder = 1;
+  for (const c of byKey.values()) {
+    if (typeof c.read_order === "number") nextOrder = Math.max(nextOrder, c.read_order + 1);
+  }
+  for (const c of byKey.values()) {
+    if (typeof c.read_order !== "number") c.read_order = nextOrder++;
+  }
+
+  // Judged concepts first, most load-bearing at the top; everything else falls
+  // back to the order it was read in.
+  const concepts = [...byKey.values()].sort((a, b) => {
+    if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
+    if (a.rank === null && b.rank !== null) return 1;
+    if (a.rank !== null && b.rank === null) return -1;
+    return (a.read_order ?? 0) - (b.read_order ?? 0);
+  });
+
+  const reflection: SessionReflection = {
+    session_id: sessionId,
+    updated_at: new Date().toISOString(),
+    concepts,
+    gap: incoming.gap ?? existing?.gap ?? null,
+  };
+  if (incoming.raw) reflection.raw = incoming.raw;
+
+  writeFileSync(getReflectionFile(sessionId), JSON.stringify(reflection, null, 2));
+  return reflection;
 }
 
 export type AnnotationMarker =
@@ -566,6 +723,8 @@ export function pruneExpiredSessions(): number {
         if (existsSync(annPath)) unlinkSync(annPath);
         const configPath = filePath.replace(/\.jsonl$/, ".config.json");
         if (existsSync(configPath)) unlinkSync(configPath);
+        const reflectionPath = filePath.replace(/\.jsonl$/, ".reflection.json");
+        if (existsSync(reflectionPath)) unlinkSync(reflectionPath);
         deleteAttachments(sessionId);
         pruned++;
       }
@@ -577,6 +736,58 @@ export function pruneExpiredSessions(): number {
     console.log(`[sessions] pruned ${pruned} expired session(s)`);
   }
   return pruned;
+}
+
+/**
+ * Every primary conversation file on disk, with its id and last-write time.
+ *
+ * Shares the sidecar exclusion list with pruneExpiredSessions — `.jsonl` alone
+ * doesn't identify a conversation, since the meta/provenance/annotation/
+ * attachment sidecars use the same extension.
+ */
+export function listSessionFiles(): {
+  sessionId: string;
+  filePath: string;
+  mtimeMs: number;
+}[] {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) return [];
+
+  const out: { sessionId: string; filePath: string; mtimeMs: number }[] = [];
+  for (const file of readdirSync(sessionDir)) {
+    if (
+      !file.endsWith(".jsonl") ||
+      file.endsWith(".meta.jsonl") ||
+      file.endsWith(".provenance.jsonl") ||
+      file.endsWith(".annotations.jsonl") ||
+      file.endsWith(".attachments.jsonl")
+    )
+      continue;
+    const filePath = path.join(sessionDir, file);
+    try {
+      out.push({
+        sessionId: file.replace(/\.jsonl$/, ""),
+        filePath,
+        mtimeMs: statSync(filePath).mtimeMs,
+      });
+    } catch {
+      // ignore files that vanish or can't be stat'd mid-scan
+    }
+  }
+  return out;
+}
+
+/** Path to a marker file in the sessions dir, used by one-off backfills. */
+export function sessionsDirFile(name: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, name);
 }
 
 /**

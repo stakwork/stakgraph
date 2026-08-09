@@ -42,6 +42,7 @@ import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import * as ga from "./graph_agent/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
+import { backfillConceptReads } from "./repo/conceptBackfill.js";
 import { pruneExpiredArtifacts } from "./repo/artifacts.js";
 import {
   getBus,
@@ -364,6 +365,14 @@ app.listen(port, host, () => {
 
   // Mark requests orphaned by the restart as failed and fire their webhooks
   rr.sweepOrphanedRuns();
+
+  // Recover which Concepts recent sessions read, for runs that predate
+  // collection. Marker-guarded, so this is a single small file read once the
+  // sweep has completed. Never awaited — a backfill must not delay boot, and
+  // it needs Neo4j, which may not be up yet (it retries on the next boot).
+  void backfillConceptReads().catch((e) =>
+    console.error("[concept-backfill] failed:", e),
+  );
 });
 
 //
