@@ -3,7 +3,7 @@ export interface Node {
   node_data: NodeData;
 }
 
-export type BoltInt = number | { low: number; hight: number };
+export type BoltInt = number | { low: number; high: number };
 
 export interface Neo4jNode {
   identity?: BoltInt; // built-in on some queries
@@ -330,12 +330,9 @@ export function normalizeNodeType(label: string): NodeType | undefined {
 }
 
 export function toNum(bi: BoltInt): number {
-  if (typeof bi === "object") {
-    if (bi.low) {
-      return bi.low;
-    }
-  } else {
-    return bi;
+  if (typeof bi === "number") return bi;
+  if (bi && typeof bi.low === "number") {
+    return (bi.high ?? 0) * 2 ** 32 + (bi.low >>> 0);
   }
   return 0;
 }
