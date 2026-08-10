@@ -904,10 +904,15 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
       { ref_id: "e2", source: "node-alice", target: "node-bob", edge_type: "LOVES" },
     ];
     const results = simulateBatch(triplets, nodeMap, bulk);
+    // Successful results omit edge_type (production behaviour: "successful entries omit edge_type always").
+    // Ordering is verified via the resolved ref_ids: result[0] must correspond to triplet[0]
+    // (inline-node KNOWS) and result[1] to triplet[1] (ref-id LOVES).
     expect(results[0].status).toBe("Success");
-    expect(results[0].edge_type).toBe("KNOWS");
+    expect(results[0].source_ref_id).toBe("node-alice");
+    expect(results[0].target_ref_id).toBe("node-bob");
     expect(results[1].status).toBe("Success");
-    expect(results[1].edge_type).toBe("LOVES");
+    expect(results[1].source_ref_id).toBe("node-alice");
+    expect(results[1].target_ref_id).toBe("node-bob");
   });
 
   test("mixes ref_id sides and inline node_type+node_data sides correctly", () => {

@@ -1665,13 +1665,43 @@ class Db {
     }
   }
 
-  async list_agent_sessions(): Promise<any[]> {
+  async list_agent_sessions(opts: {
+    limit?: number;
+    offset?: number;
+    source?: string | null;
+    repo?: string | null;
+    since?: number | null;
+    until?: number | null;
+  } = {}): Promise<Array<any & { child_count: number }>> {
+    const { limit = 100, offset = 0, source = null, repo = null, since = null, until = null } = opts;
     const session = this.resilientSession();
     try {
-      const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY);
+      const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY, {
+        limit: neo4j.int(limit),
+        offset: neo4j.int(offset),
+        source: source ?? null,
+        repo: repo ?? null,
+        since: since != null ? neo4j.int(since) : null,
+        until: until != null ? neo4j.int(until) : null,
+      });
       return result.records.map((r) => ({
         ...r.get("n").properties,
+        child_count: r.get("child_count").toNumber?.() ?? Number(r.get("child_count")),
       }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async list_session_facets(): Promise<{ repos: string[]; sources: string[] }> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.LIST_SESSION_FACETS_QUERY);
+      if (!result.records.length) return { repos: [], sources: [] };
+      const rec = result.records[0];
+      const repos = (rec.get("repos") as string[]).filter(Boolean).sort();
+      const sources = (rec.get("sources") as string[]).filter(Boolean).sort();
+      return { repos, sources };
     } finally {
       await session.close();
     }

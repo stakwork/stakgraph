@@ -122,10 +122,40 @@ export function Analytics() {
     textAlign: "left",
   };
 
+  // Analytics needs the full dataset. The server clamps limit to its
+  // MAX_LIMIT (500), so page through until a short page comes back rather
+  // than requesting one big limit that would be silently truncated.
+  const ANALYTICS_PAGE = 500;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRuns(await api.sessions.list());
+      const all: ProductionRun[] = [];
+      const seen = new Set<string>();
+      let offset = 0;
+      for (;;) {
+        const page = await api.sessions.list({
+          limit: ANALYTICS_PAGE,
+          offset,
+        });
+        // Stop on an empty page (not a short one) so a server that clamps
+        // limit below ANALYTICS_PAGE still gets fully paged through.
+        if (page.length === 0) break;
+        // De-dup by id in case sessions arrive between page fetches. Also
+        // stop if a page yields nothing new — the server clamps offset at
+        // MAX_OFFSET, which would otherwise repeat the same page forever.
+        let fresh = 0;
+        for (const run of page) {
+          if (!seen.has(run.id)) {
+            seen.add(run.id);
+            all.push(run);
+            fresh++;
+          }
+        }
+        if (fresh === 0) break;
+        offset += page.length;
+      }
+      setRuns(all);
     } catch (e: any) {
       toast.error(e.message);
     } finally {

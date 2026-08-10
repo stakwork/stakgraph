@@ -196,7 +196,7 @@ test.describe("numeric session ids", () => {
     await get_session({ params: { id }, query: {} } as any, detail.res);
 
     const list = mockRes();
-    await list_sessions({} as any, list.res);
+    await list_sessions({ query: {} } as any, list.res);
     const row = (list.captured.body as any[]).find((r) => r.id === id);
 
     // The original bug was precisely this disagreement: list reported the real

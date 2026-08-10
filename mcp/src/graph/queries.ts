@@ -336,8 +336,23 @@ RETURN n
 export const LIST_AGENT_SESSIONS_QUERY = `
 MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
-RETURN n
+  AND ($source IS NULL OR n.source = $source)
+  AND ($repo IS NULL OR toLower(n.repo) CONTAINS toLower($repo))
+  AND ($since IS NULL OR n.start_time >= toInteger($since))
+  AND ($until IS NULL OR n.start_time < toInteger($until))
+  AND NOT (n.source = 'unknown' AND n.total_tokens = 0 AND n.duration_ms = 0)
+OPTIONAL MATCH (c:AgentSession)
+WHERE c.parent_session_id = n.node_key
+WITH n, count(c) AS child_count
+RETURN n, child_count
 ORDER BY n.start_time DESC
+SKIP toInteger($offset) LIMIT toInteger($limit)
+`;
+
+export const LIST_SESSION_FACETS_QUERY = `
+MATCH (n:AgentSession)
+WHERE n.file = 'session://generated'
+RETURN collect(DISTINCT n.repo) AS repos, collect(DISTINCT n.source) AS sources
 `;
 
 export const GET_AGENT_SESSION_QUERY = `

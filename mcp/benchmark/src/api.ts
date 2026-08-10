@@ -44,9 +44,29 @@ async function authedReq<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface SessionListParams {
+  limit?: number;
+  offset?: number;
+  source?: string;
+  repo?: string;
+  range?: string;
+  day?: string;
+}
+
 export const api = {
   sessions: {
-    list: () => req<ProductionRun[]>("/sessions"),
+    list: (params?: SessionListParams) => {
+      const qs = new URLSearchParams();
+      if (params?.limit != null) qs.set("limit", String(params.limit));
+      if (params?.offset != null) qs.set("offset", String(params.offset));
+      if (params?.source && params.source !== "all") qs.set("source", params.source);
+      if (params?.repo) qs.set("repo", params.repo);
+      if (params?.range && params.range !== "all") qs.set("range", params.range);
+      if (params?.day) qs.set("day", params.day);
+      const query = qs.toString();
+      return req<ProductionRun[]>(`/sessions${query ? `?${query}` : ""}`);
+    },
+    facets: () => req<{ repos: string[]; sources: string[] }>("/sessions/facets"),
     get: (id: string) => req<ProductionRun>(`/sessions/${id}`),
     annotate: (
       id: string,
