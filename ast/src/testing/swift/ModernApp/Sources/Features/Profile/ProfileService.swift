@@ -5,6 +5,8 @@ import Foundation
 // @ast node: Function "fetchProfile"
 // @ast edge: Calls -> Function "fetch" "APIClient.swift"
 // @ast node: Function "updateStatus"
+// @ast node: Var "apiClient"
+// @ast node: Var "cache"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofileserviceswift-0"
 
 actor ProfileService {

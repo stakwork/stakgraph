@@ -1,12 +1,14 @@
-use super::utils::trim_quotes;
+use super::super::queries::consts::{CLASS_DEFINITION, CLASS_NAME};
+use super::utils::{clean_class_name, trim_quotes};
 use crate::builder::utils::log_stage_timing;
 use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
+use std::collections::HashSet;
 use std::time::Instant;
 use streaming_iterator::StreamingIterator;
 use tracing::warn;
-use tree_sitter::Node as TreeNode;
+use tree_sitter::{Node as TreeNode, QueryMatch};
 impl Lang {
     pub fn collect<G: Graph>(
         &self,
@@ -40,6 +42,25 @@ impl Lang {
         Ok(res)
     }
 
+    fn class_match_name_and_kind(
+        &self,
+        q: &Query,
+        m: &QueryMatch,
+        code: &str,
+    ) -> Result<(Option<String>, Option<String>)> {
+        let mut name: Option<String> = None;
+        let mut kind: Option<String> = None;
+        Self::loop_captures(q, m, code, |body, node, o| {
+            if o == CLASS_NAME {
+                name = Some(clean_class_name(&body));
+            } else if o == CLASS_DEFINITION {
+                kind = self.lang.class_declaration_kind(node, code);
+            }
+            Ok(())
+        })?;
+        Ok((name, kind))
+    }
+
     pub fn collect_classes<G: Graph>(
         &self,
         q: &Query,
@@ -48,10 +69,35 @@ impl Lang {
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
         let tree = self.parse(code, &NodeType::Class)?;
+
+        // Avoid a redundant node for e.g. Swift's `extension Foo { ... }` when `Foo` is
+        // already declared elsewhere in the same file.
+        let mut names_with_primary_decl: HashSet<String> = HashSet::new();
+        {
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
+            while let Some(m) = matches.next() {
+                let (name, kind) = self.class_match_name_and_kind(q, m, code)?;
+                if let Some(name) = name {
+                    if kind.as_deref() != Some("extension") {
+                        names_with_primary_decl.insert(name);
+                    }
+                }
+            }
+        }
+
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
+            let (name, kind) = Self::class_match_name_and_kind(self, q, m, code)?;
+            if kind.as_deref() == Some("extension") {
+                if let Some(name) = &name {
+                    if names_with_primary_decl.contains(name) {
+                        continue;
+                    }
+                }
+            }
             if let Some((cls, edges)) =
                 self.format_class_with_associations(m, code, file, q, graph)?
             {
