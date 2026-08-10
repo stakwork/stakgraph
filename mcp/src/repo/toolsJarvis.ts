@@ -18,8 +18,14 @@ import {
   appendMessages,
   appendStepMeta,
   appendSessionEnd,
+  mergeReflection,
   type StepMeta,
 } from "./session.js";
+import {
+  withConceptCollection,
+  normalizeConceptReads,
+  type ConceptCollector,
+} from "./concepts.js";
 import {
   addUsage,
   normalizeUsage,
@@ -450,6 +456,12 @@ function registerGraphSubAgentTool(
         defaultDomains,
       });
 
+      // Record every Concept whose body a child tool hands back, exactly like
+      // the top-level run in agent.ts. Reads persist deterministically in
+      // endSession; sub-agents never get a reflect/ranking pass.
+      const conceptCollector: ConceptCollector = { reads: [] };
+      const runTools = withConceptCollection(childTools, conceptCollector);
+
       if (childSessionId) {
         createSession(
           childSessionId,
@@ -473,6 +485,29 @@ function registerGraphSubAgentTool(
         errorMessage?: string,
       ) => {
         if (!childSessionId) return;
+        // Best-effort, like reflectOnConcepts' read-only path: a failure here
+        // must never eat the child's answer or its session-end record.
+        if (conceptCollector.reads.length > 0) {
+          try {
+            const concepts = await normalizeConceptReads(
+              conceptCollector.reads,
+              sub.repo,
+            );
+            if (concepts.length > 0) {
+              mergeReflection(childSessionId, {
+                concepts: concepts.map((c) => ({
+                  id: c.id,
+                  ref_id: c.ref_id,
+                  repo: c.repo,
+                  name: c.name,
+                  rank: null,
+                })),
+              });
+            }
+          } catch (e) {
+            console.error("[concepts] could not record sub-agent concept reads:", e);
+          }
+        }
         appendStepMeta(childSessionId, stepMetas);
         await appendSessionEnd(childSessionId, {
           end_time: new Date().toISOString(),
@@ -499,11 +534,11 @@ function registerGraphSubAgentTool(
         provider = details.provider;
         modelId = details.modelId;
         const maxSteps = sub.maxSteps ?? DEFAULT_SUBAGENT_MAX_STEPS;
-        const hasEndMarker = createHasEndMarkerCondition<typeof childTools>();
+        const hasEndMarker = createHasEndMarkerCondition<typeof runTools>();
         const agent = new ToolLoopAgent({
           model,
           instructions: GRAPH_SUBAGENT_SYSTEM,
-          tools: childTools,
+          tools: runTools,
           providerOptions: getProviderOptions(details.provider, undefined, modelId) as any,
           stopWhen: maxSteps > 0 ? [hasEndMarker, stepCountIs(maxSteps)] : hasEndMarker,
           stopSequences: ["[END_OF_ANSWER]"],
