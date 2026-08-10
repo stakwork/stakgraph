@@ -117,6 +117,13 @@ impl Stack for Php {
                 (trait_declaration
                     name: (name) @{CLASS_NAME}
                 ) @{CLASS_DEFINITION}
+
+                (enum_declaration
+                    name: (name) @{CLASS_NAME}
+                    (class_interface_clause
+                        (name) @{INCLUDED_MODULES}
+                    )?
+                ) @{CLASS_DEFINITION}
             ]"#
         )
     }
@@ -438,7 +445,7 @@ impl Stack for Php {
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while let Some(current) = parent {
-            if current.kind() == "class_declaration" {
+            if current.kind() == "class_declaration" || current.kind() == "enum_declaration" {
                 break;
             }
             parent = current.parent();
