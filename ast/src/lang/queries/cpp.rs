@@ -117,14 +117,12 @@ impl Stack for Cpp {
     fn class_definition_query(&self) -> String {
         format!(
             r#"
-            (translation_unit
-                (class_specifier
-                    name: (type_identifier)@{CLASS_NAME}
-                    (base_class_clause
-                        (type_identifier)@{CLASS_PARENT}
-                    )?
-                )@{CLASS_DEFINITION}
-            )
+            (class_specifier
+                name: (type_identifier)@{CLASS_NAME}
+                (base_class_clause
+                    (type_identifier)@{CLASS_PARENT}
+                )?
+            )@{CLASS_DEFINITION}
             "#
         )
     }
