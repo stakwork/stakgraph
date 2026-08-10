@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { shortId } from "../ui";
 import { SourceBadge } from "./SessionBadges";
@@ -53,25 +53,31 @@ export function SessionSidebar({
   const location = useLocation();
   const fromAnalytics = (location.state as any)?.from === "analytics";
 
-  // IntersectionObserver sentinel at the bottom of the list
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // IntersectionObserver sentinel at the bottom of the list. The sentinel
+  // unmounts while `loading` is true (and remounts as a new DOM node after
+  // every reload), so attach via a callback ref rather than a mount-once
+  // effect — the observer follows the current sentinel element.
+  const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef(loadMore);
   loadMoreRef.current = loadMore;
 
-  useEffect(() => {
-    const el = sentinelRef.current;
+  const sentinelRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries.some((e) => e.isIntersecting)) {
           loadMoreRef.current();
         }
       },
       { threshold: 0.1 },
     );
     observer.observe(el);
-    return () => observer.disconnect();
+    observerRef.current = observer;
   }, []);
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
 
   const inputStyle: React.CSSProperties = {
     fontSize: "12px",

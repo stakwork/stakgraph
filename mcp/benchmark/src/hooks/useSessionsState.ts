@@ -150,7 +150,7 @@ export function useSessionsState(): SessionsState {
    * Uses a generation counter to discard responses from stale requests.
    */
   const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore) return;
     const gen = genRef.current;
     setLoadingMore(true);
     try {
@@ -178,7 +178,7 @@ export function useSessionsState(): SessionsState {
     } finally {
       if (gen === genRef.current) setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, offset, sourceFilter, debouncedRepo, rangeFilter, dayFilter]);
+  }, [loading, loadingMore, hasMore, offset, sourceFilter, debouncedRepo, rangeFilter, dayFilter]);
 
   // Reload page-1 whenever filters change
   useEffect(() => {
