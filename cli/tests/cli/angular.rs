@@ -34,8 +34,8 @@ fn parse_stats_angular_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             1"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             13"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Class                5"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             14"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                6"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             4"), "stdout: {}", out.stdout);
 }
 
