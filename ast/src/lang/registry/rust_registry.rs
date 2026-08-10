@@ -16,6 +16,8 @@ pub struct RustRegistry {
     methods_idx: HashMap<(String, String), String>,
     /// struct_name → { field_name → base_type }
     struct_fields: HashMap<String, HashMap<String, String>>,
+    /// func_name → base_return_type for top-level free functions
+    fn_returns: HashMap<String, String>,
     /// dir → { fn_name → NodeKeys } for free functions in the same crate directory
     pkg_fns: HashMap<String, HashMap<String, NodeKeys>>,
     /// (file, row, col) → pre-resolved target NodeKeys
@@ -27,6 +29,7 @@ impl RustRegistry {
         let mut reg = RustRegistry {
             methods_idx: HashMap::new(),
             struct_fields: HashMap::new(),
+            fn_returns: HashMap::new(),
             pkg_fns: HashMap::new(),
             resolved: HashMap::new(),
         };
@@ -57,7 +60,7 @@ impl RustRegistry {
             }
         }
 
-        // Pass 1.5: extract struct field types from source.
+        // Pass 1.5: extract struct field types and free-function return types from source.
         for (file, source) in filez {
             if !file.ends_with(".rs") {
                 continue;
@@ -68,6 +71,10 @@ impl RustRegistry {
                     .entry(struct_name)
                     .or_default()
                     .extend(field_map);
+            }
+            let fns = rust_resolver::extract_fn_returns(source);
+            for (fname, ret) in fns {
+                reg.fn_returns.entry(fname).or_insert(ret);
             }
         }
 
@@ -80,6 +87,7 @@ impl RustRegistry {
                     source,
                     file,
                     &reg.struct_fields,
+                    &reg.fn_returns,
                     &reg.pkg_fns,
                     graph,
                 )

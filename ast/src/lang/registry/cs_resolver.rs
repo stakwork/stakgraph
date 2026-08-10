@@ -271,8 +271,18 @@ fn eval_expr_type(
     source: &[u8],
 ) -> Option<String> {
     match node.kind() {
-        // Bare identifier: local var, parameter, or field seeded from class scope
-        "identifier" => scope_lookup(scope, node.utf8_text(source).ok()?).map(str::to_string),
+        // Bare identifier: local var, parameter, or field seeded from class scope.
+        // Uppercase identifiers not in scope are treated as class names (static receiver).
+        "identifier" => {
+            let name = node.utf8_text(source).ok()?;
+            scope_lookup(scope, name).map(str::to_string).or_else(|| {
+                if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                    Some(name.to_string())
+                } else {
+                    None
+                }
+            })
+        }
 
         // `this` keyword → current class type from scope
         "this" => scope_lookup(scope, "this").map(str::to_string),

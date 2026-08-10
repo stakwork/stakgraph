@@ -253,6 +253,56 @@ fn walk_for_class_fields(
     }
 }
 
+// ── Free-function return type extraction ──────────────────────────────────────
+
+pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Some(mut parser) = make_parser() else {
+        return out;
+    };
+    let Some(tree) = parser.parse(source, None) else {
+        return out;
+    };
+    let src = source.as_bytes();
+    let root = tree.root_node();
+    for i in 0..root.named_child_count() {
+        let Some(node) = root.named_child(i) else {
+            continue;
+        };
+        if node.kind() != "function_declaration" {
+            continue;
+        }
+        let Some(name_node) = (0..node.named_child_count())
+            .filter_map(|j| node.named_child(j))
+            .find(|n| n.kind() == "simple_identifier")
+        else {
+            continue;
+        };
+        let Ok(func_name) = name_node.utf8_text(src) else {
+            continue;
+        };
+        const SKIP_KINDS: &[&str] = &[
+            "modifiers",
+            "simple_identifier",
+            "function_value_parameters",
+            "function_body",
+            "type_constraints",
+            "type_parameters",
+            "type_modifiers",
+            "receiver_type",
+        ];
+        let ret_type = (0..node.named_child_count())
+            .filter_map(|j| node.named_child(j))
+            .find(|n| !SKIP_KINDS.contains(&n.kind()))
+            .and_then(|n| strip_kotlin_type(n, src))
+            .filter(|t| !SKIP_TYPES.contains(&t.as_str()));
+        if let Some(rt) = ret_type {
+            out.entry(func_name.to_string()).or_insert(rt);
+        }
+    }
+    out
+}
+
 // ── Method return type extraction ──────────────────────────────────────────────
 
 pub fn extract_method_return_types(source: &str) -> HashMap<(String, String), String> {
@@ -372,6 +422,7 @@ fn eval_expr_type(
     scope: &Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     node: Node,
     source: &[u8],
 ) -> Option<String> {
@@ -392,7 +443,7 @@ fn eval_expr_type(
                 .named_child(0)
                 .filter(|n| n.kind() == "simple_identifier")
                 .and_then(|n| n.utf8_text(source).ok())?;
-            let recv_type = eval_expr_type(scope, class_fields, method_returns, recv, source)?;
+            let recv_type = eval_expr_type(scope, class_fields, method_returns, fn_returns, recv, source)?;
             class_fields.get(&recv_type)?.get(prop).cloned()
         }
 
@@ -400,12 +451,13 @@ fn eval_expr_type(
             let first = node.named_child(0)?;
             match first.kind() {
                 // ClassName(...)  →  constructor call: type = class name
+                // factoryFn()    →  free function return type from fn_returns
                 "simple_identifier" => {
                     let name = first.utf8_text(source).ok()?;
                     if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
                         Some(name.to_string())
                     } else {
-                        None
+                        fn_returns.get(name).cloned()
                     }
                 }
                 // obj.method(...)  →  return type of method
@@ -419,7 +471,7 @@ fn eval_expr_type(
                         .filter(|n| n.kind() == "simple_identifier")
                         .and_then(|n| n.utf8_text(source).ok())?;
                     let recv_type =
-                        eval_expr_type(scope, class_fields, method_returns, recv, source)?;
+                        eval_expr_type(scope, class_fields, method_returns, fn_returns, recv, source)?;
                     method_returns
                         .get(&(recv_type, method_name.to_string()))
                         .cloned()
@@ -473,6 +525,7 @@ fn walk_node<G: Graph>(
     scope: &mut Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     dir_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
@@ -499,7 +552,7 @@ fn walk_node<G: Graph>(
                     if let Some(child) = body.named_child(i) {
                         walk_node(
                             child, source, scope, class_fields, method_returns,
-                            dir_fns, graph, out, file,
+                            fn_returns, dir_fns, graph, out, file,
                         );
                     }
                 }
@@ -522,7 +575,7 @@ fn walk_node<G: Graph>(
             {
                 walk_node(
                     body, source, scope, class_fields, method_returns,
-                    dir_fns, graph, out, file,
+                    fn_returns, dir_fns, graph, out, file,
                 );
             }
             scope_pop(scope);
@@ -563,7 +616,7 @@ fn walk_node<G: Graph>(
                     });
 
                 let inferred = init.and_then(|n| {
-                    eval_expr_type(scope, class_fields, method_returns, n, source)
+                    eval_expr_type(scope, class_fields, method_returns, fn_returns, n, source)
                 });
 
                 let bound = explicit.or(inferred);
@@ -576,11 +629,11 @@ fn walk_node<G: Graph>(
                 if let Some(init_node) = init {
                     walk_node(
                         init_node, source, scope, class_fields, method_returns,
-                        dir_fns, graph, out, file,
+                        fn_returns, dir_fns, graph, out, file,
                     );
                 }
             } else {
-                recurse(node, source, scope, class_fields, method_returns, dir_fns, graph, out, file);
+                recurse(node, source, scope, class_fields, method_returns, fn_returns, dir_fns, graph, out, file);
             }
         }
 
@@ -602,7 +655,7 @@ fn walk_node<G: Graph>(
                             {
                                 if let Ok(method_name) = method_name_node.utf8_text(source) {
                                     if let Some(recv_type) = eval_expr_type(
-                                        scope, class_fields, method_returns, recv_node, source,
+                                        scope, class_fields, method_returns, fn_returns, recv_node, source,
                                     ) {
                                         if let Some(target) =
                                             find_method_in_class(graph, &recv_type, method_name)
@@ -637,11 +690,11 @@ fn walk_node<G: Graph>(
                 }
             }
             // Recurse into all children to process nested calls (args, trailing lambdas, etc.)
-            recurse(node, source, scope, class_fields, method_returns, dir_fns, graph, out, file);
+            recurse(node, source, scope, class_fields, method_returns, fn_returns, dir_fns, graph, out, file);
         }
 
         _ => {
-            recurse(node, source, scope, class_fields, method_returns, dir_fns, graph, out, file);
+            recurse(node, source, scope, class_fields, method_returns, fn_returns, dir_fns, graph, out, file);
         }
     }
 }
@@ -652,6 +705,7 @@ fn recurse<G: Graph>(
     scope: &mut Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     dir_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
@@ -661,7 +715,7 @@ fn recurse<G: Graph>(
         if let Some(child) = node.named_child(i) {
             walk_node(
                 child, source, scope, class_fields, method_returns,
-                dir_fns, graph, out, file,
+                fn_returns, dir_fns, graph, out, file,
             );
         }
     }
@@ -674,6 +728,7 @@ pub fn resolve_file_calls<G: Graph>(
     file: &str,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     dir_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
 ) -> HashMap<(usize, usize), NodeKeys> {
@@ -692,6 +747,7 @@ pub fn resolve_file_calls<G: Graph>(
         &mut scope,
         class_fields,
         method_returns,
+        fn_returns,
         dir_fns,
         graph,
         &mut out,

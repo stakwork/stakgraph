@@ -242,6 +242,44 @@ fn recurse_fields(
     }
 }
 
+// ── Free-function return type extraction ──────────────────────────────────────
+
+/// Extract top-level function return types from PHP source.
+/// Returns { func_name → base_return_type }. Class methods are excluded.
+pub fn extract_fn_returns(source: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Some(mut parser) = make_parser() else {
+        return out;
+    };
+    let Some(tree) = parser.parse(source, None) else {
+        return out;
+    };
+    let src = source.as_bytes();
+    let root = tree.root_node();
+    for i in 0..root.named_child_count() {
+        let Some(node) = root.named_child(i) else {
+            continue;
+        };
+        if node.kind() != "function_definition" {
+            continue;
+        }
+        let Some(name_node) = node.child_by_field_name("name") else {
+            continue;
+        };
+        let Ok(func_name) = name_node.utf8_text(src) else {
+            continue;
+        };
+        let Some(ret_wrapper) = node.child_by_field_name("return_type") else {
+            continue;
+        };
+        let type_node = ret_wrapper.named_child(0).unwrap_or(ret_wrapper);
+        if let Some(ret_type) = strip_php_type(type_node, src) {
+            out.entry(func_name.to_string()).or_insert(ret_type);
+        }
+    }
+    out
+}
+
 // ── Method return type extraction ──────────────────────────────────────────────
 
 pub fn extract_method_return_types(source: &str) -> HashMap<(String, String), String> {
@@ -369,6 +407,7 @@ fn eval_expr_type(
     scope: &Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     node: Node,
     src: &[u8],
 ) -> Option<String> {
@@ -385,6 +424,7 @@ fn eval_expr_type(
                 scope,
                 class_fields,
                 method_returns,
+                fn_returns,
                 node.child_by_field_name("object")?,
                 src,
             )?;
@@ -398,6 +438,7 @@ fn eval_expr_type(
                 scope,
                 class_fields,
                 method_returns,
+                fn_returns,
                 node.child_by_field_name("object")?,
                 src,
             )?;
@@ -426,6 +467,19 @@ fn eval_expr_type(
             method_returns
                 .get(&(class_name.to_string(), method_name.to_string()))
                 .cloned()
+        }
+
+        // free_function() — return type via fn_returns
+        "function_call_expression" => {
+            let func_node = node
+                .child_by_field_name("function")
+                .or_else(|| node.named_child(0))?;
+            if func_node.kind() == "name" {
+                let func_name = func_node.utf8_text(src).ok()?;
+                fn_returns.get(func_name).cloned()
+            } else {
+                None
+            }
         }
 
         _ => None,
@@ -464,6 +518,7 @@ fn walk_node<G: Graph>(
     scope: &mut Scope,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     dir_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
     out: &mut HashMap<(usize, usize), NodeKeys>,
@@ -493,6 +548,7 @@ fn walk_node<G: Graph>(
                             scope,
                             class_fields,
                             method_returns,
+                            fn_returns,
                             dir_fns,
                             graph,
                             out,
@@ -516,6 +572,7 @@ fn walk_node<G: Graph>(
                     scope,
                     class_fields,
                     method_returns,
+                    fn_returns,
                     dir_fns,
                     graph,
                     out,
@@ -533,7 +590,7 @@ fn walk_node<G: Graph>(
                 if left.kind() == "variable_name" {
                     if let Ok(var_name) = left.utf8_text(src) {
                         if let Some(t) =
-                            eval_expr_type(scope, class_fields, method_returns, right, src)
+                            eval_expr_type(scope, class_fields, method_returns, fn_returns, right, src)
                         {
                             scope_bind(scope, var_name, &t);
                         }
@@ -545,6 +602,7 @@ fn walk_node<G: Graph>(
                     scope,
                     class_fields,
                     method_returns,
+                    fn_returns,
                     dir_fns,
                     graph,
                     out,
@@ -559,7 +617,7 @@ fn walk_node<G: Graph>(
             let name_node = node.child_by_field_name("name");
             if let (Some(obj_node), Some(name_node)) = (obj_node, name_node) {
                 let obj_type =
-                    eval_expr_type(scope, class_fields, method_returns, obj_node, src);
+                    eval_expr_type(scope, class_fields, method_returns, fn_returns, obj_node, src);
                 let method_name = name_node.utf8_text(src).ok();
                 if let (Some(obj_type), Some(method_name)) = (obj_type, method_name) {
                     let pos = {
@@ -578,6 +636,7 @@ fn walk_node<G: Graph>(
                     scope,
                     class_fields,
                     method_returns,
+                    fn_returns,
                     dir_fns,
                     graph,
                     out,
@@ -614,6 +673,7 @@ fn walk_node<G: Graph>(
                     scope,
                     class_fields,
                     method_returns,
+                    fn_returns,
                     dir_fns,
                     graph,
                     out,
@@ -631,6 +691,7 @@ fn walk_node<G: Graph>(
                     scope,
                     class_fields,
                     method_returns,
+                    fn_returns,
                     dir_fns,
                     graph,
                     out,
@@ -667,6 +728,7 @@ fn walk_node<G: Graph>(
                     scope,
                     class_fields,
                     method_returns,
+                    fn_returns,
                     dir_fns,
                     graph,
                     out,
@@ -684,6 +746,7 @@ fn walk_node<G: Graph>(
                         scope,
                         class_fields,
                         method_returns,
+                        fn_returns,
                         dir_fns,
                         graph,
                         out,
@@ -702,6 +765,7 @@ pub fn resolve_file_calls<G: Graph>(
     file: &str,
     class_fields: &HashMap<String, HashMap<String, String>>,
     method_returns: &HashMap<(String, String), String>,
+    fn_returns: &HashMap<String, String>,
     dir_fns: &HashMap<String, HashMap<String, NodeKeys>>,
     graph: &G,
 ) -> HashMap<(usize, usize), NodeKeys> {
@@ -720,6 +784,7 @@ pub fn resolve_file_calls<G: Graph>(
         &mut scope,
         class_fields,
         method_returns,
+        fn_returns,
         dir_fns,
         graph,
         &mut out,
