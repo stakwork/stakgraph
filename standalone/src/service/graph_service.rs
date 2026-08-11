@@ -6,10 +6,11 @@ use crate::utils::{
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
 use ast::repo::{check_revs_files, clone_repo, Repo};
 use axum::{extract::State, Json};
+use lsp::git::CloneOpts;
 use lsp::{git::get_commit_hash, git::validate_git_credentials, strip_tmp};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::info;
+use tracing::{info, warn};
 
 #[axum::debug_handler]
 pub async fn ingest(
@@ -17,7 +18,7 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (repo_paths, repo_urls, username, pat, commit, branch) = resolve_repo(&body)?;
+    let (repo_paths, repo_urls, username, pat, commit, branch, clone_opts) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
     let docs_param = body.docs.clone();
     let mocks_param = body.mocks.clone();
@@ -54,6 +55,7 @@ pub async fn ingest(
             commit.as_deref(),
             branch.as_deref(),
             use_lsp,
+            &clone_opts,
         )
         .await
         .map_err(|e| {
@@ -210,7 +212,8 @@ pub async fn sync(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
-    let (repo_paths, repo_urls, username, pat, _, branch) = resolve_repo(&body)?;
+    let (repo_paths, repo_urls, username, pat, _, branch, caller_clone_opts) =
+        resolve_repo(&body)?;
 
     if repo_urls.len() > 1 {
         return Err(WebError(shared::Error::validation(
@@ -236,6 +239,24 @@ pub async fn sync(
     let repo_path = &final_repo_path;
     let repo_url = &final_repo_url;
 
+    // On sync, depth is explicitly ignored — shallow clones break incremental
+    // diffing (get_commit_hash → check_revs_files) by making stored hashes
+    // unreachable, silently degrading into a full re-index.  Filter is safe
+    // and is passed through unchanged.
+    let sync_clone_opts = if caller_clone_opts.depth.is_some() {
+        warn!(
+            "[sync] depth={:?} supplied but ignored on sync path; \
+             only filter={:?} will be applied",
+            caller_clone_opts.depth, caller_clone_opts.filter
+        );
+        lsp::git::CloneOpts {
+            depth: None,
+            filter: caller_clone_opts.filter.clone(),
+        }
+    } else {
+        caller_clone_opts.clone()
+    };
+
     clone_repo(
         &repo_url,
         &repo_path,
@@ -243,6 +264,7 @@ pub async fn sync(
         pat.clone(),
         None,
         branch.as_deref(),
+        &sync_clone_opts,
     )
     .await?;
 

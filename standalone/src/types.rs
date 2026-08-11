@@ -45,6 +45,8 @@ pub struct ProcessBody {
     pub mocks: Option<String>,
     pub embeddings: Option<String>,
     pub embeddings_limit: Option<f32>,
+    pub depth: Option<u32>,
+    pub filter: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {
