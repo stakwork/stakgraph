@@ -1,5 +1,6 @@
 import { ModelMessage } from "ai";
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import { db } from "../graph/neo4j.js";
 import { listConcepts } from "../gitree/service.js";
 import {
   listSessionFiles,
@@ -202,4 +203,73 @@ export async function backfillConceptReads(
     `[concept-backfill] wrote ${written} sidecar(s) covering ${conceptCount} concept read(s)`,
   );
   return { scanned: sessions.length, written, concepts: conceptCount };
+}
+
+const EDGE_MARKER = ".concept-edge-backfill.json";
+
+/**
+ * One-off mirror of existing reflection sidecars into READ_CONCEPT edges.
+ *
+ * Edge syncing shipped after reflection collection had already been running,
+ * so sessions that reflected before it never got edges: the live sync fires
+ * only from mergeReflection and appendSessionEnd, and backfillConceptReads
+ * skips any session that already has a sidecar. This sweep reads each
+ * existing sidecar and issues the same idempotent MERGEs the live path does —
+ * no deletions, no model calls, and no data-quality downgrade (unlike
+ * regenerating sidecars, which would lose the ranked half forever).
+ *
+ * Sequential on purpose, one query per session, so boot doesn't flood the
+ * driver pool. A sweep with any db failure leaves the marker unwritten and
+ * retries next boot; sessions whose AgentSession node is missing simply link
+ * nothing (the Cypher MATCHes the session node) and are not failures.
+ */
+export async function backfillConceptEdges(): Promise<{
+  scanned: number;
+  synced: number;
+  failed: number;
+}> {
+  if (!db || existsSync(sessionsDirFile(EDGE_MARKER))) {
+    return { scanned: 0, synced: 0, failed: 0 };
+  }
+
+  const sessions = listSessionFiles();
+  let synced = 0;
+  let failed = 0;
+  for (const session of sessions) {
+    const reflection = loadReflection(session.sessionId);
+    if (!reflection) continue;
+    const linkable = reflection.concepts.filter((c) => c.ref_id || c.id);
+    if (linkable.length === 0) continue;
+    try {
+      await db.upsert_session_concept_edges(session.sessionId, linkable);
+      synced++;
+    } catch (e) {
+      failed++;
+      console.error(
+        `[concept-edge-backfill] session ${session.sessionId} failed:`,
+        e,
+      );
+    }
+  }
+
+  if (failed === 0) {
+    try {
+      writeFileSync(
+        sessionsDirFile(EDGE_MARKER),
+        JSON.stringify(
+          { completed_at: new Date().toISOString(), synced },
+          null,
+          2,
+        ),
+      );
+    } catch (e) {
+      console.error("[concept-edge-backfill] could not write marker:", e);
+    }
+  }
+  if (synced > 0 || failed > 0) {
+    console.log(
+      `[concept-edge-backfill] synced ${synced} session(s), ${failed} failure(s)`,
+    );
+  }
+  return { scanned: sessions.length, synced, failed };
 }

@@ -124,6 +124,11 @@ export class GraphStorage extends Storage {
         await session.run(
           "CREATE INDEX concept_id_index IF NOT EXISTS FOR (f:Concept) ON (f.id)"
         );
+        // READ_CONCEPT edge syncing resolves concepts by ref_id (the
+        // Data_Bank ref_id index doesn't apply to a :Concept-label match)
+        await session.run(
+          "CREATE INDEX concept_ref_id_index IF NOT EXISTS FOR (f:Concept) ON (f.ref_id)"
+        );
         await session.run(
           "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
         );
