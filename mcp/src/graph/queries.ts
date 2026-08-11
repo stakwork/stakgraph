@@ -382,6 +382,32 @@ WHERE n.file = 'session://generated'
 RETURN n
 `;
 
+// Index a session's concept reflection as edges. The reflection sidecar file
+// is the source of truth; these edges mirror its fully-merged state on every
+// sync, so plain SET (not coalesce) is correct here — a null rank clears the
+// edge property exactly as the sidecar says. Matching prefers the graph ref_id
+// and falls back to the gitree id; a concept regenerated under a new ref_id
+// simply stops matching (the sidecar still holds the record), and the MATCH on
+// the session node (never MERGE — see the guard in appendSessionEnd) makes the
+// whole write a no-op until the AgentSession node exists.
+export const UPSERT_SESSION_CONCEPT_EDGES_QUERY = `
+MATCH (s:AgentSession {node_key: $session_id})
+UNWIND $concepts AS con
+OPTIONAL MATCH (c:Concept)
+WHERE (con.ref_id IS NOT NULL AND c.ref_id = con.ref_id)
+   OR (con.id IS NOT NULL AND c.id = con.id)
+WITH s, con, collect(c) AS matches
+WITH s, con,
+     head([m IN matches WHERE con.ref_id IS NOT NULL AND m.ref_id = con.ref_id] + matches) AS c
+WHERE c IS NOT NULL
+MERGE (s)-[r:READ_CONCEPT]->(c)
+SET r.read_order = toInteger(con.read_order),
+    r.rank = toInteger(con.rank),
+    r.evidence = con.evidence,
+    r.contradicts = con.contradicts
+RETURN count(r) AS linked
+`;
+
 export const CREATE_SIBLING_EDGE_QUERY = `
 MATCH (a:Hint {ref_id: $source_ref_id})
 MATCH (b:Hint {ref_id: $target_ref_id})
