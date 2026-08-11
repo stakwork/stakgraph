@@ -1665,6 +1665,44 @@ class Db {
     }
   }
 
+  /**
+   * Mirror a session's reflection sidecar into the graph as
+   * (AgentSession)-[:READ_CONCEPT]->(Concept) edges. Idempotent, and a no-op
+   * for sessions whose AgentSession node doesn't exist yet — so it is safe to
+   * call from either side of the session-node upsert. Returns how many
+   * concepts were linked (unmatched ones are skipped, not errors).
+   */
+  async upsert_session_concept_edges(
+    session_id: string,
+    concepts: Array<{
+      id?: string;
+      ref_id?: string;
+      read_order?: number;
+      rank?: number | null;
+      evidence?: string;
+      contradicts?: string;
+    }>,
+  ): Promise<number> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.UPSERT_SESSION_CONCEPT_EDGES_QUERY, {
+        session_id,
+        concepts: concepts.map((c) => ({
+          id: c.id ?? null,
+          ref_id: c.ref_id ?? null,
+          read_order: c.read_order ?? null,
+          rank: c.rank ?? null,
+          evidence: c.evidence ?? null,
+          contradicts: c.contradicts ?? null,
+        })),
+      });
+      const linked = result.records[0]?.get("linked");
+      return linked?.toNumber?.() ?? Number(linked) ?? 0;
+    } finally {
+      await session.close();
+    }
+  }
+
   async list_agent_sessions(opts: {
     limit?: number;
     offset?: number;

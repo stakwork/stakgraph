@@ -178,6 +178,11 @@ export async function appendSessionEnd(
       error_message: opts.error_message || "",
     })
     .catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
+  // Now that the AgentSession node exists, index any reflection that was
+  // merged before it did (sub-agent runs reflect before appendSessionEnd —
+  // see toolsJarvis — and earlier turns' syncs no-oped without the node).
+  const reflection = loadReflection(sessionId);
+  if (reflection) syncReflectionEdges(sessionId, reflection.concepts);
 }
 
 /**
@@ -562,7 +567,30 @@ export function mergeReflection(
   if (incoming.raw) reflection.raw = incoming.raw;
 
   writeFileSync(getReflectionFile(sessionId), JSON.stringify(reflection, null, 2));
+  syncReflectionEdges(sessionId, reflection.concepts);
   return reflection;
+}
+
+/**
+ * Fire-and-forget mirror of a session's reflection into the graph as
+ * (AgentSession)-[:READ_CONCEPT]->(Concept) edges, so concept usage is
+ * queryable (and outlives the 30-day sidecar pruning, which the node does).
+ * The sidecar file remains the source of truth: edges are an index over it,
+ * and every failure mode — db down, AgentSession node not created yet,
+ * concept regenerated under a new ref_id, concept recorded name-only — is
+ * silently absorbed rather than propagated. Runs from mergeReflection (node
+ * already exists on the main agent path) and again from appendSessionEnd
+ * (catches reflections merged before the node existed).
+ */
+export function syncReflectionEdges(
+  sessionId: string,
+  concepts: ReflectedConcept[],
+): void {
+  const linkable = concepts.filter((c) => c.ref_id || c.id);
+  if (linkable.length === 0) return;
+  db
+    ?.upsert_session_concept_edges(sessionId, linkable)
+    .catch((e) => console.error("[concepts] READ_CONCEPT edge sync failed:", e));
 }
 
 export type AnnotationMarker =
