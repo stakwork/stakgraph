@@ -17,12 +17,14 @@ fn test_resolve_single_repo_url() {
         mocks: None,
         embeddings: None,
         embeddings_limit: None,
+        depth: None,
+        filter: None,
     };
 
     let result = resolve_repo(&body);
     assert!(result.is_ok());
 
-    let (paths, urls, _, _, _, _) = result.unwrap();
+    let (paths, urls, _, _, _, _, _) = result.unwrap();
     assert_eq!(paths.len(), 1);
     assert_eq!(urls.len(), 1);
     assert_eq!(urls[0], "https://github.com/fayekelmith/test-simple-api");
@@ -48,12 +50,14 @@ fn test_resolve_multi_repo_urls() {
         mocks: None,
         embeddings: None,
         embeddings_limit: None,
+        depth: None,
+        filter: None,
     };
 
     let result = resolve_repo(&body);
     assert!(result.is_ok());
 
-    let (paths, urls, _, _, _, _) = result.unwrap();
+    let (paths, urls, _, _, _, _, _) = result.unwrap();
     assert_eq!(paths.len(), 2);
     assert_eq!(urls.len(), 2);
     assert_eq!(urls[0], "https://github.com/fayekelmith/test-simple-api");
@@ -81,12 +85,14 @@ fn test_resolve_multi_repo_urls_with_spaces() {
         mocks: None,
         embeddings: None,
         embeddings_limit: None,
+        depth: None,
+        filter: None,
     };
 
     let result = resolve_repo(&body);
     assert!(result.is_ok());
 
-    let (paths, urls, _, _, _, _) = result.unwrap();
+    let (paths, urls, _, _, _, _, _) = result.unwrap();
     assert_eq!(paths.len(), 2);
     assert_eq!(urls.len(), 2);
     // Verify trimming works
@@ -110,12 +116,14 @@ fn test_resolve_repo_path_returns_single_element_vectors() {
         mocks: None,
         embeddings: None,
         embeddings_limit: None,
+        depth: None,
+        filter: None,
     };
 
     let result = resolve_repo(&body);
     assert!(result.is_ok());
 
-    let (paths, urls, _, _, _, _) = result.unwrap();
+    let (paths, urls, _, _, _, _, _) = result.unwrap();
     assert_eq!(paths.len(), 1);
     assert_eq!(urls.len(), 1);
     assert_eq!(paths[0], "/local/path/to/repo");
@@ -175,6 +183,8 @@ fn test_resolve_empty_repo_url() {
         mocks: None,
         embeddings: None,
         embeddings_limit: None,
+        depth: None,
+        filter: None,
     };
 
     let result = resolve_repo(&body);

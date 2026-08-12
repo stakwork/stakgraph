@@ -1,6 +1,7 @@
 use crate::types::ProcessBody;
 use ast::lang::NodeType;
 use ast::repo::Repo;
+use lsp::git::CloneOpts;
 use reqwest::Client;
 use shared::Result;
 use std::str::FromStr;
@@ -299,6 +300,7 @@ pub fn resolve_repo(
     Option<String>,
     Option<String>,
     Option<String>,
+    CloneOpts,
 )> {
     let repo_path = body
         .repo_path
@@ -309,6 +311,15 @@ pub fn resolve_repo(
     let pat = body.pat.clone().or_else(|| env_not_empty("PAT"));
     let commit = body.commit.clone();
     let branch = body.branch.clone();
+
+    // Validate depth: 0 is explicitly rejected.
+    if body.depth == Some(0) {
+        return Err(shared::Error::validation("depth must be >= 1"));
+    }
+    let clone_opts = CloneOpts {
+        depth: body.depth,
+        filter: body.filter.clone(),
+    };
 
     if repo_path.is_none() && repo_url.is_none() {
         return Err(shared::Error::validation(
@@ -324,6 +335,7 @@ pub fn resolve_repo(
             pat,
             commit,
             branch,
+            clone_opts,
         ))
     } else {
         let url_string = repo_url.ok_or_else(|| {
@@ -343,6 +355,60 @@ pub fn resolve_repo(
             paths.push(tmp_path);
         }
 
-        Ok((paths, urls, username, pat, commit, branch))
+        Ok((paths, urls, username, pat, commit, branch, clone_opts))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::ProcessBody;
+
+    fn base_body() -> ProcessBody {
+        ProcessBody {
+            repo_url: Some("https://github.com/example/repo.git".to_string()),
+            repo_path: None,
+            username: None,
+            pat: None,
+            use_lsp: None,
+            commit: None,
+            branch: None,
+            callback_url: None,
+            realtime: None,
+            docs: None,
+            mocks: None,
+            embeddings: None,
+            embeddings_limit: None,
+            depth: None,
+            filter: None,
+        }
+    }
+
+    #[test]
+    fn resolve_repo_rejects_depth_zero() {
+        let mut body = base_body();
+        body.depth = Some(0);
+        let result = resolve_repo(&body);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("depth must be >= 1"), "got: {}", err);
+    }
+
+    #[test]
+    fn resolve_repo_default_clone_opts() {
+        let body = base_body();
+        let (_, _, _, _, _, _, opts) = resolve_repo(&body).expect("should succeed");
+        assert_eq!(opts.depth, None);
+        assert_eq!(opts.filter, None);
+    }
+
+    #[test]
+    fn resolve_repo_passes_depth_and_filter() {
+        let mut body = base_body();
+        body.depth = Some(5);
+        body.filter = Some("blob:limit=1m".to_string());
+        let (_, _, _, _, _, _, opts) = resolve_repo(&body).expect("should succeed");
+        assert_eq!(opts.depth, Some(5));
+        assert_eq!(opts.filter.as_deref(), Some("blob:limit=1m"));
     }
 }

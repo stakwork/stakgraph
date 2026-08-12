@@ -40,6 +40,8 @@ fn body(repo_url: &str, branch: Option<&str>) -> ProcessBody {
         mocks: None,
         embeddings: None,
         embeddings_limit: None,
+        depth: None,
+        filter: None,
     }
 }
 

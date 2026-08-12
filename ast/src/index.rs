@@ -1,6 +1,7 @@
 use ast::lang::Graph;
 use ast::repo::Repo;
 use ast::utils::{logger, print_json};
+use lsp::git::CloneOpts;
 use shared::{Context, Error, Result};
 use std::env;
 
@@ -58,6 +59,7 @@ async fn main() -> Result<()> {
             None,
             None,
             use_lsp,
+            &CloneOpts::default(),
         )
         .await?
     };
