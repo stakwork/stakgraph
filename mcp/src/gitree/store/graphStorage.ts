@@ -1,5 +1,5 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
-import { createNeo4jDriver, ResilientSession } from "../../utils/neo4jRetry.js";
+import neo4j from "neo4j-driver";
+import { ResilientSession, sharedResilientSession } from "../../utils/neo4jRetry.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
@@ -92,28 +92,27 @@ function usageFromProps(props: any): Usage | undefined {
   });
 }
 
+// Index creation and the migrations/backfills below are process-wide, one-time
+// work, but every request builds its own GraphStorage. Memoize across
+// instances so the schema pass runs once per process instead of once per
+// request. Cleared on failure so a Neo4j blip can't poison the process.
+let initializePromise: Promise<void> | null = null;
+
 /**
  * Neo4j graph-based storage implementation for concepts and PRs
  */
 export class GraphStorage extends Storage {
-  private driver: Driver;
-
-  constructor() {
-    super();
-    this.driver = createNeo4jDriver();
-    const host = process.env.NEO4J_HOST || "localhost:7687";
-    const user = process.env.NEO4J_USER || "neo4j";
-    console.log("===> GraphStorage connecting to", `bolt://${host}`, user);
-  }
-
+  // Handlers construct a GraphStorage per request, so this type must stay
+  // cheap: no per-instance driver, just sessions off the process-wide pool.
   private resilientSession(): ResilientSession {
-    return new ResilientSession(() => this.driver, (d) => { this.driver = d; });
+    return sharedResilientSession();
   }
 
   /**
-   * Initialize indexes for better query performance
+   * Create indexes and run migrations. Idempotent and shared across every
+   * instance — see `initialize()`.
    */
-  async initialize(): Promise<void> {
+  private async runInitialize(): Promise<void> {
     // Rename legacy :Feature labels/properties to :Concept BEFORE anything else,
     // so index creation and the multi-repo migration operate on the new schema.
     await this.migrateFeatureToConcept();
@@ -191,6 +190,22 @@ export class GraphStorage extends Storage {
 
     // Backfill embeddings for concepts created before semantic search existed.
     await this.backfillConceptEmbeddings();
+  }
+
+  /**
+   * Initialize indexes for better query performance.
+   *
+   * Safe to call from every handler: the underlying work runs once per
+   * process, and later callers await the same promise.
+   */
+  async initialize(): Promise<void> {
+    if (!initializePromise) {
+      initializePromise = this.runInitialize().catch((error) => {
+        initializePromise = null; // allow a retry on the next request
+        throw error;
+      });
+    }
+    return initializePromise;
   }
 
   /**
@@ -505,11 +520,11 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Close the Neo4j driver connection
+   * No-op. The Neo4j driver is process-wide and shared with every other
+   * in-flight request, so a finished request must not close it. Use
+   * `closeSharedNeo4jDriver()` at process shutdown instead.
    */
-  async close(): Promise<void> {
-    await this.driver.close();
-  }
+  async close(): Promise<void> {}
 
   // Concepts
 

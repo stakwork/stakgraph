@@ -48,7 +48,8 @@ export async function withNeo4jRetry<T>(
   let attempt = 0;
 
   while (true) {
-    const session = getDriver().session();
+    const driver = getDriver();
+    const session = driver.session();
     try {
       const result = await op(session);
       return result;
@@ -65,13 +66,18 @@ export async function withNeo4jRetry<T>(
         `[neo4j-retry] transient error on '${label}' (attempt ${attempt + 1}/${maxAttempts}), retrying in ${backoffMs}ms: ${err?.message || err}`
       );
 
-      // Recreate the driver to clear stale routing/connection state
-      try {
-        await getDriver().close();
-      } catch (_) {
-        // ignore close errors
+      // Recreate the driver to clear stale routing/connection state. The
+      // driver is shared process-wide, so guard on identity: a concurrent
+      // retry may already have swapped in a fresh one, and closing that would
+      // yank the pool out from under every other in-flight request.
+      if (getDriver() === driver) {
+        try {
+          await driver.close();
+        } catch (_) {
+          // ignore close errors
+        }
+        setDriver(createNeo4jDriver());
       }
-      setDriver(createNeo4jDriver());
 
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       attempt++;
@@ -97,4 +103,48 @@ export class ResilientSession {
   }
 
   async close(): Promise<void> {}
+}
+
+/**
+ * Process-wide Neo4j driver.
+ *
+ * A driver *is* the connection pool — sockets, keepalive timers, and auth
+ * state — and is designed to be created once per process and shared, with
+ * cheap per-operation sessions layered on top. Constructing one per request
+ * leaks a whole pool per request (nothing closes them) and pays a fresh TCP +
+ * Bolt handshake before every query, so always go through this accessor.
+ */
+let sharedDriver: Driver | null = null;
+
+export function getSharedNeo4jDriver(): Driver {
+  if (!sharedDriver) {
+    sharedDriver = createNeo4jDriver();
+    const host = process.env.NEO4J_HOST || "localhost:7687";
+    const user = process.env.NEO4J_USER || "neo4j";
+    console.log("===> Neo4j driver connecting to", `bolt://${host}`, user);
+  }
+  return sharedDriver;
+}
+
+/** Swap in a replacement driver. Used by the transient-retry reconnect path. */
+export function setSharedNeo4jDriver(driver: Driver): void {
+  sharedDriver = driver;
+}
+
+/** A retrying session bound to the shared driver. */
+export function sharedResilientSession(): ResilientSession {
+  return new ResilientSession(getSharedNeo4jDriver, setSharedNeo4jDriver);
+}
+
+/**
+ * Close the shared driver. For process shutdown only — callers that merely
+ * finished a request must NOT call this, since the pool is shared with every
+ * other in-flight request.
+ */
+export async function closeSharedNeo4jDriver(): Promise<void> {
+  const driver = sharedDriver;
+  sharedDriver = null;
+  if (driver) {
+    await driver.close();
+  }
 }

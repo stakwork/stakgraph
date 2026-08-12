@@ -1,8 +1,11 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
+import neo4j, { Session } from "neo4j-driver";
 import {
-  createNeo4jDriver,
   withNeo4jRetry,
   ResilientSession,
+  sharedResilientSession,
+  getSharedNeo4jDriver,
+  setSharedNeo4jDriver,
+  closeSharedNeo4jDriver,
 } from "../utils/neo4jRetry.js";
 import fs from "fs";
 import readline from "readline";
@@ -67,22 +70,10 @@ if (!no_db) {
 }
 
 class Db {
-  private driver: Driver;
-
-  constructor() {
-    this.driver = createNeo4jDriver();
-    const host = process.env.NEO4J_HOST || "localhost:7687";
-    const user = process.env.NEO4J_USER || "neo4j";
-    console.log("===> connecting to", `bolt://${host}`, user);
-  }
-
+  // Shares the process-wide driver with the gitree/lab storages, so the
+  // server holds exactly one Neo4j connection pool.
   private resilientSession(): ResilientSession {
-    return new ResilientSession(
-      () => this.driver,
-      (d) => {
-        this.driver = d;
-      },
-    );
+    return sharedResilientSession();
   }
 
   async get_pkg_files(): Promise<Neo4jNode[]> {
@@ -384,10 +375,8 @@ class Db {
   async build_graph_from_files(node_file: string, edge_file: string) {
     try {
       await withNeo4jRetry(
-        () => this.driver,
-        (d) => {
-          this.driver = d;
-        },
+        getSharedNeo4jDriver,
+        setSharedNeo4jDriver,
         async (session) => {
           console.log("Processing nodes...", node_file);
           await process_file(session, node_file, (data) =>
@@ -1794,8 +1783,9 @@ class Db {
     }
   }
 
+  /** For process shutdown only — the driver is shared process-wide. */
   async close() {
-    await this.driver.close();
+    await closeSharedNeo4jDriver();
     console.log("===> driver closed");
   }
 }
