@@ -284,8 +284,35 @@ function lookupApiKeyForProvider(
   }
 }
 
+// OpenRouter issues keys as `sk-or-v1-...`. Anything else — a placeholder like
+// "test", a key pasted from another provider — is rejected before OpenRouter
+// even looks it up, with the misleading `401 Missing Authentication header`
+// (the header is sent; it just isn't a parseable OpenRouter key). Recognizing
+// the shape lets us treat such a value as "no key" and fall back to a provider
+// we can actually reach, instead of 401ing once per node.
+const OPENROUTER_KEY_PREFIX = "sk-or-";
+
+/**
+ * Whether a key can plausibly authenticate against `provider`.
+ *
+ * Shape checks apply only to keys we send to the provider directly. Behind an
+ * LLM gateway the token is the gateway's, not the provider's, so any non-blank
+ * value is accepted there.
+ */
+export function isUsableApiKey(
+  provider: Provider | string,
+  key?: string | null,
+): boolean {
+  const apiKey = normalizeApiKey(key);
+  if (!apiKey) return false;
+  if (provider === "openrouter" && !LLM_GATEWAY_URL) {
+    return apiKey.startsWith(OPENROUTER_KEY_PREFIX);
+  }
+  return true;
+}
+
 export function hasApiKeyForProvider(provider: Provider | string): boolean {
-  return !!lookupApiKeyForProvider(provider);
+  return isUsableApiKey(provider, lookupApiKeyForProvider(provider));
 }
 
 export function getApiKeyForProvider(provider: Provider | string): string {
@@ -293,7 +320,33 @@ export function getApiKeyForProvider(provider: Provider | string): string {
   if (!apiKey) {
     throw new Error(`API key not found for provider: ${provider}`);
   }
+  if (!isUsableApiKey(provider, apiKey)) {
+    throw new Error(
+      `API key for provider ${provider} is not a valid ${provider} key ` +
+        `(got "${apiKey.slice(0, 8)}...", expected a key starting with "${OPENROUTER_KEY_PREFIX}"). ` +
+        `Set a real key or unset the variable to fall back to another provider.`,
+    );
+  }
   return apiKey;
+}
+
+/**
+ * Return `modelName` only if its provider has a usable key, otherwise
+ * `undefined` so the caller falls back to the env default provider.
+ *
+ * For hardcoded default models (descriptions, learnings) that name a provider
+ * the deployment may not have credentials for.
+ */
+export function usableModelOrDefault(
+  modelName?: string,
+): string | undefined {
+  if (!modelName) return undefined;
+  const provider = getProviderForModel(modelName);
+  if (hasApiKeyForProvider(provider)) return modelName;
+  console.log(
+    `[provider] no usable ${provider} key; ignoring default model ${modelName} and falling back to the env default provider`,
+  );
+  return undefined;
 }
 
 export interface GetModelOptions {
