@@ -33,6 +33,7 @@ async fn test_graph_consistency() {
         None,
         None,
         use_lsp,
+        &lsp::git::CloneOpts::default(),
     )
     .await
     .unwrap();

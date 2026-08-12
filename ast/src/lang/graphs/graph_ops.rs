@@ -11,6 +11,7 @@ use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier};
 use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo, StatusUpdate};
+use lsp::git::CloneOpts;
 use lsp::strip_tmp;
 use std::path::PathBuf;
 
@@ -230,6 +231,7 @@ impl GraphOps {
                 commit,
                 branch,
                 use_lsp,
+                &CloneOpts::default(),
             )
             .await?;
 
@@ -303,6 +305,7 @@ impl GraphOps {
             commit,
             branch,
             use_lsp,
+            &CloneOpts::default(),
         )
         .await?;
 

@@ -10,7 +10,7 @@ use crate::workspace::{detect_workspaces, PackageInfo};
 use git_url_parse::GitUrl;
 use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
-use lsp::{git::git_clone, spawn_analyzer, strip_tmp, CmdSender};
+use lsp::{git::git_clone, git::CloneOpts, spawn_analyzer, strip_tmp, CmdSender};
 use shared::{Context, Error, Result};
 use std::path::Path;
 use std::str::FromStr;
@@ -29,6 +29,7 @@ pub async fn clone_repo(
     pat: Option<String>,
     commit: Option<&str>,
     branch: Option<&str>,
+    opts: &CloneOpts,
 ) -> Result<()> {
     // check if the path exists
     if fs::metadata(path).is_ok() {
@@ -42,12 +43,12 @@ pub async fn clone_repo(
                     path, err
                 );
             }
-            git_clone(url, path, username, pat, commit, branch).await?;
+            git_clone(url, path, username, pat, commit, branch, opts).await?;
         } else {
             info!("=> Skipping reclone for {:?}", path);
         }
     } else {
-        git_clone(url, path, username, pat, commit, branch).await?;
+        git_clone(url, path, username, pat, commit, branch, opts).await?;
     }
     Ok(())
 }
@@ -320,6 +321,12 @@ impl Repo {
         commit: Option<&str>,
         branch: Option<&str>,
         use_lsp: Option<bool>,
+        // NOTE: a single CloneOpts applies uniformly to all repos in a
+        // comma-separated multi-repo ingest.  Per-repo opt control is an
+        // accepted limitation; the per-repo commit-fetch fallback in
+        // git_clone still handles the case where an individual repo's
+        // requested revision needs more history than the shared depth provides.
+        opts: &CloneOpts,
     ) -> Result<Repos> {
         let urls = urls
             .split(',')
@@ -346,7 +353,7 @@ impl Repo {
             })?;
             let root = format!("/tmp/{}", gurl.fullname);
             info!("Cloning repo to {:?} with branch {}...", &root, branch.unwrap_or("default"));
-            clone_repo(url, &root, username.clone(), pat.clone(), commit, branch).await?;
+            clone_repo(url, &root, username.clone(), pat.clone(), commit, branch, opts).await?;
             // Extract the revs for this specific repository
             let repo_revs = if revs_per_repo > 0 {
                 revs[i * revs_per_repo..(i + 1) * revs_per_repo].to_vec()
@@ -528,7 +535,7 @@ impl Repo {
         let gurl = GitUrl::parse(url)?;
         let root = format!("/tmp/{}", gurl.fullname);
         info!("Cloning to {:?}... lsp: {}", &root, lsp);
-        clone_repo(url, &root, username, pat, None, branch).await?;
+        clone_repo(url, &root, username, pat, None, branch, &CloneOpts::default()).await?;
         // if let Some(new_files) = check_revs(&root, revs) {
         //     files_filter = new_files;
         // }

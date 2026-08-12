@@ -133,6 +133,7 @@ async fn start_inner() -> Result<Response> {
                 None,
                 None,
                 use_lsp,
+                &lsp::git::CloneOpts::default(),
             )
             .await?;
             repos.build_graphs_local().await?
