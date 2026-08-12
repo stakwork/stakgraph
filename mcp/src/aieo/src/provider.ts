@@ -249,20 +249,36 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
   }
 }
 
+/**
+ * Treat blank/whitespace-only keys as absent.
+ *
+ * A truthy-but-blank key (a request body with `apiKey: " "`, an env var set to
+ * an empty-ish value) otherwise sails past every `!!key` check and reaches the
+ * provider SDK, which happily builds `Authorization: Bearer ` and gets a
+ * confusing 401 ("Missing Authentication header" from OpenRouter) on every
+ * single call instead of failing fast. Also trims stray whitespace so a key
+ * pasted with a trailing space still authenticates.
+ */
+export function normalizeApiKey(key?: string | null): string | undefined {
+  if (typeof key !== "string") return undefined;
+  const trimmed = key.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function lookupApiKeyForProvider(
   provider: Provider | string,
 ): string | undefined {
   switch (provider) {
     case "anthropic":
-      return process.env.ANTHROPIC_API_KEY;
+      return normalizeApiKey(process.env.ANTHROPIC_API_KEY);
     case "google":
-      return process.env.GOOGLE_API_KEY;
+      return normalizeApiKey(process.env.GOOGLE_API_KEY);
     case "openai":
-      return process.env.OPENAI_API_KEY;
+      return normalizeApiKey(process.env.OPENAI_API_KEY);
     case "openrouter":
-      return process.env.OPENROUTER_API_KEY;
+      return normalizeApiKey(process.env.OPENROUTER_API_KEY);
     case "claude_code":
-      return process.env.CLAUDE_CODE_API_KEY;
+      return normalizeApiKey(process.env.CLAUDE_CODE_API_KEY);
     default:
       return undefined;
   }
@@ -319,11 +335,12 @@ export function getModelDetails(
   headers?: Record<string, string>,
 ): ModelDetails {
   const provider = getProviderForModel(modelName);
-  const apiKey = apiKeyIn || getApiKeyForProvider(provider);
+  const callerKey = normalizeApiKey(apiKeyIn);
+  const apiKey = callerKey || getApiKeyForProvider(provider);
   console.log("===> getModelDetails", {
     provider,
     modelName: modelName || "(default)",
-    keySource: apiKeyIn ? "request body" : "env var",
+    keySource: callerKey ? "request body" : "env var",
     apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
     baseUrl: baseUrl || "(default)",
     headerKeys: headers ? Object.keys(headers) : [],
@@ -365,8 +382,8 @@ export function getModel(
   if (typeof opts === "string") {
     opts = { apiKey: opts };
   }
-  const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
-  
+  const apiKey = normalizeApiKey(opts?.apiKey) || getApiKeyForProvider(provider);
+
   // Handle slash format: extract modelId from "provider/model" or "provider/org/model"
   let modelId: string;
   if (opts?.modelName && opts.modelName.includes("/")) {
@@ -720,11 +737,12 @@ export function resolveLLMConfig(opts?: {
       (process.env.LLM_PROVIDER as Provider | undefined) ||
       getProviderForModel();
 
-  console.log(
-    `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light}`,
-  );
+  const callerKey = normalizeApiKey(opts?.apiKey);
+  const apiKey = callerKey || getApiKeyForProvider(provider);
 
-  const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
+  console.log(
+    `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light} keySource=${callerKey ? "request body" : "env var"} apiKeyPrefix=${apiKey.slice(0, 8)}...`,
+  );
 
   let effectiveModelName = modelName;
   if (!effectiveModelName && opts?.light) {

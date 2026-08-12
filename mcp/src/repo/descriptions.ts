@@ -8,6 +8,7 @@ import {
   emptyUsage,
   getProviderOptions,
   hasApiKeyForProvider,
+  normalizeApiKey,
   normalizeUsage,
   resolveLLMConfig,
   withLegacyUsage,
@@ -65,7 +66,10 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const repo_url = req.body.repo_url as string | undefined;
   const file_paths = (req.body.file_paths || []) as string[];
   const do_embed = req.body.embed !== false && req.body.embed !== "false";
-  const reqApiKey = req.body.apiKey as string | undefined;
+  // Blank/whitespace-only keys count as "not supplied": a truthy-but-blank key
+  // would both pick the openrouter model below and shadow a working env key,
+  // sending `Authorization: Bearer ` on every node (401 per node).
+  const reqApiKey = normalizeApiKey(req.body.apiKey);
   // Only default to the openrouter model when a key for it is available;
   // otherwise leave the model unset so resolveLLMConfig picks the env
   // default provider (with its light model).
@@ -111,7 +115,15 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     }
   }
 
-  const llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey, light: true });
+  // Resolve the LLM up front so a missing/blank key is one clear 400 instead of
+  // a 401 on every node in the batch.
+  let llm;
+  try {
+    llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey, light: true });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || String(error) });
+    return;
+  }
 
   console.log(
     `[describe_nodes] Starting job. Provider: ${llm.provider}, Model: ${llm.modelName || "(default)"}, Cost limit: $${cost_limit}, Batch size: ${batch_size}, Concurrency: ${concurrency}${repo_paths ? `, Repos: ${repo_paths.join(", ")}` : ""}${file_paths.length > 0 ? `, Files: ${file_paths.length}` : ""}`,
