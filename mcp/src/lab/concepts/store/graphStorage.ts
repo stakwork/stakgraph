@@ -1,5 +1,5 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
-import { createNeo4jDriver, ResilientSession } from "../../../utils/neo4jRetry.js";
+import neo4j from "neo4j-driver";
+import { ResilientSession, sharedResilientSession } from "../../../utils/neo4jRetry.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
@@ -61,28 +61,25 @@ function usageFromProps(props: any): Usage | undefined {
   });
 }
 
+// Index creation is process-wide, one-time work, but callers build a
+// GraphStorage per operation. Memoize across instances so it runs once per
+// process. Cleared on failure so a Neo4j blip can't poison the process.
+let initializePromise: Promise<void> | null = null;
+
 /**
  * Neo4j graph-based storage implementation for features and PRs
  */
 export class GraphStorage extends Storage {
-  private driver: Driver;
-
-  constructor() {
-    super();
-    this.driver = createNeo4jDriver();
-    const host = process.env.NEO4J_HOST || "localhost:7687";
-    const user = process.env.NEO4J_USER || "neo4j";
-    console.log("===> GraphStorage connecting to", `bolt://${host}`, user);
-  }
-
+  // No per-instance driver: sessions come off the process-wide pool.
   private resilientSession(): ResilientSession {
-    return new ResilientSession(() => this.driver, (d) => { this.driver = d; });
+    return sharedResilientSession();
   }
 
   /**
-   * Initialize indexes for better query performance
+   * Create indexes. Idempotent and shared across instances — see
+   * `initialize()`.
    */
-  async initialize(): Promise<void> {
+  private async runInitialize(): Promise<void> {
     const session = this.resilientSession();
     try {
         // Create indexes on id/number/sha for fast lookups
@@ -136,11 +133,27 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Close the Neo4j driver connection
+   * Initialize indexes for better query performance.
+   *
+   * Safe to call from every caller: the underlying work runs once per
+   * process, and later callers await the same promise.
    */
-  async close(): Promise<void> {
-    await this.driver.close();
+  async initialize(): Promise<void> {
+    if (!initializePromise) {
+      initializePromise = this.runInitialize().catch((error) => {
+        initializePromise = null; // allow a retry on the next call
+        throw error;
+      });
+    }
+    return initializePromise;
   }
+
+  /**
+   * No-op. The Neo4j driver is process-wide and shared with every other
+   * in-flight caller, so a finished operation must not close it. Use
+   * `closeSharedNeo4jDriver()` at process shutdown instead.
+   */
+  async close(): Promise<void> {}
 
   // Concepts
 
