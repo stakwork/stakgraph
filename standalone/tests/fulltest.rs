@@ -899,6 +899,7 @@ async fn fulltest() {
         Some(COMMIT),
         None,
         Some(use_lsp),
+        &lsp::git::CloneOpts::default(),
     )
     .await
     .unwrap();

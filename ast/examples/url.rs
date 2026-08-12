@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
         .unwrap_or_default();
 
     let repos =
-        Repo::new_clone_multi_detect(&url, None, None, Vec::new(), revs, None, None, use_lsp)
+        Repo::new_clone_multi_detect(&url, None, None, Vec::new(), revs, None, None, use_lsp, &lsp::git::CloneOpts::default())
             .await?;
     let graph = repos.build_graphs().await?;
 
