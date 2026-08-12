@@ -6,7 +6,6 @@ use crate::utils::{
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
 use ast::repo::{check_revs_files, clone_repo, Repo};
 use axum::{extract::State, Json};
-use lsp::git::CloneOpts;
 use lsp::{git::get_commit_hash, git::validate_git_credentials, strip_tmp};
 use std::sync::Arc;
 use std::time::Instant;
