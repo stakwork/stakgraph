@@ -56,6 +56,7 @@ async fn graph_streaming_consistency() {
         None,
         None,
         Some(false),
+        &lsp::git::CloneOpts::default(),
     )
     .await
     .unwrap();
@@ -73,6 +74,7 @@ async fn graph_streaming_consistency() {
         None,
         None,
         Some(false),
+        &lsp::git::CloneOpts::default(),
     )
     .await
     .unwrap();
