@@ -40,14 +40,22 @@ interface Request {
 }
 
 function ensureDir(): string {
-  const dir = path.join(process.cwd(), REQS_DIR);
+  const dir = path.isAbsolute(REQS_DIR)
+    ? REQS_DIR
+    : path.join(process.cwd(), REQS_DIR);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   return dir;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function reqFile(id: string): string {
+  if (!UUID_RE.test(id)) {
+    throw new Error(`Invalid request id: ${id}`);
+  }
   return path.join(ensureDir(), `${id}.json`);
 }
 
