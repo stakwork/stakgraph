@@ -115,6 +115,7 @@ export interface OrphanedReq {
 }
 
 const RESTART_ORPHAN_ERROR = "server restarted while request was in-flight";
+export const SHUTDOWN_ORPHAN_ERROR = "server shut down while request was in-flight";
 
 /**
  * Startup reconciliation for the on-disk request store. The in-memory META /
@@ -181,6 +182,38 @@ export function sweepOrphanedReqs(): OrphanedReq[] {
   if (orphaned.length > 0) {
     console.log(
       `[reqs] Startup sweep marked ${orphaned.length} orphaned pending request(s) as failed`,
+    );
+  }
+  return orphaned;
+}
+
+/**
+ * Shutdown reconciliation: flip every still-pending in-flight request to
+ * `failed` / `retryable:true` and return the descriptors so the caller can
+ * deliver their terminal webhooks before the process exits.
+ *
+ * Reads `webhookUrl` from disk (exactly as `sweepOrphanedReqs` does) because
+ * `ReqMeta` carries only `{ status }` in memory. Calling `failReq` writes
+ * `status:"failed"` to disk, so the next boot's `sweepOrphanedReqs` (which
+ * only re-fires on `status === "pending"`) skips these records — preserving
+ * cross-boot idempotency (no double webhook across a restart).
+ */
+export function failPendingReqs(errorMsg: string): OrphanedReq[] {
+  const orphaned: OrphanedReq[] = [];
+  for (const [id, meta] of Object.entries(META)) {
+    if (meta.status !== "pending") continue;
+    const data = readFromDisk(id);
+    failReq(id, errorMsg, true);
+    orphaned.push({
+      request_id: id,
+      error: errorMsg,
+      retryable: true,
+      ...(data?.webhookUrl && { webhookUrl: data.webhookUrl }),
+    });
+  }
+  if (orphaned.length > 0) {
+    console.log(
+      `[reqs] Shutdown sweep marked ${orphaned.length} pending request(s) as failed`,
     );
   }
   return orphaned;

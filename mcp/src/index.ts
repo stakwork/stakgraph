@@ -350,7 +350,48 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 const port = parseInt(process.env.PORT || "3355", 10);
 const host = process.env.HOST || "0.0.0.0";
-app.listen(port, host, () => {
+
+// How long to wait for in-flight webhook deliveries before giving up and
+// exiting. Default leaves ~2s of headroom inside Docker's 10s stop grace.
+const DRAIN_DEADLINE_MS = parseInt(
+  process.env.DRAIN_DEADLINE_MS || "8000",
+  10,
+);
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Re-entrancy guard: a SIGINT arriving after SIGTERM must not start a second
+// drain (which would try to flip already-failed records again).
+let shutdownInProgress = false;
+
+async function gracefulShutdown(sig: string): Promise<void> {
+  if (shutdownInProgress) {
+    console.log(`[shutdown] ${sig} received but shutdown already in progress — ignoring`);
+    return;
+  }
+  shutdownInProgress = true;
+  console.log(`[shutdown] ${sig} received — starting graceful shutdown (deadline ${DRAIN_DEADLINE_MS}ms)`);
+
+  // Stop accepting new connections; existing keep-alive sockets stay open
+  // until they naturally close or the process exits.
+  server.close();
+
+  const drained = rr.drainForShutdown();
+  const deadline = delay(DRAIN_DEADLINE_MS).then(() => "deadline");
+
+  const winner = await Promise.race([drained.then(() => "drained"), deadline]);
+  if (winner === "deadline") {
+    console.warn(
+      `[shutdown] Drain deadline hit after ${DRAIN_DEADLINE_MS}ms — exiting before all webhooks delivered`,
+    );
+  } else {
+    console.log("[shutdown] Drain complete — exiting cleanly");
+  }
+
+  process.exit(0);
+}
+
+const server = app.listen(port, host, () => {
   console.log(`Server started at http://${host}:${port}`);
 
   loadModelPricing();
@@ -378,5 +419,8 @@ app.listen(port, host, () => {
     .then(() => backfillConceptEdges())
     .catch((e) => console.error("[concept-edge-backfill] failed:", e));
 });
+
+process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
 
 //

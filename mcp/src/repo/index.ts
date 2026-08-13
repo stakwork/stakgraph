@@ -9,6 +9,7 @@ import { ModelMessage } from "ai";
 import { randomUUID } from "crypto";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
+import { SHUTDOWN_ORPHAN_ERROR } from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
@@ -267,6 +268,16 @@ type TerminalWebhookPayload =
   // from the last completed turn. Agent errors and aborts are false.
   | { request_id: string; status: "failed"; error: unknown; retryable: boolean };
 
+// Module-level shutdown guard. Set by drainForShutdown() before it begins
+// flipping pending records and delivering webhooks. Gates the three terminal
+// side-effect sites in the repo_agent background chain so that a still-running
+// chain reaching .then/.catch after the drain does NOT emit a second webhook or
+// overwrite the failed/retryable:true disk record.
+let shuttingDown = false;
+export function setShuttingDown(): void {
+  shuttingDown = true;
+}
+
 const WEBHOOK_RETRY_DELAYS_MS = [0, 5_000, 30_000];
 const WEBHOOK_TIMEOUT_MS = 15_000;
 
@@ -314,22 +325,84 @@ async function postTerminalWebhook(
 }
 
 /**
+ * Single-attempt webhook delivery for graceful shutdown. Does NOT use the
+ * WEBHOOK_RETRY_DELAYS_MS ladder (which can exceed 35s — far past the ~10s
+ * Docker stop grace window). One fetch with a 3s timeout; never throws.
+ */
+async function postTerminalWebhookOnce(
+  url: string,
+  payload: TerminalWebhookPayload,
+  timeoutMs = 3000,
+): Promise<void> {
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (resp.ok) {
+      console.log(
+        `[repo_agent] Shutdown webhook delivered (${payload.status}) for ${payload.request_id}`,
+      );
+    } else {
+      console.error(
+        `[repo_agent] Shutdown webhook got ${resp.status} for ${payload.request_id}`,
+      );
+    }
+  } catch (e: any) {
+    console.error(
+      `[repo_agent] Shutdown webhook failed for ${payload.request_id}:`,
+      e?.message || e,
+    );
+  }
+}
+
+/**
+ * Deliver terminal webhooks for orphaned runs, parameterised by delivery fn.
+ * Boot uses `postTerminalWebhook` (full retry ladder); shutdown uses
+ * `postTerminalWebhookOnce` (single attempt, 3s timeout).
+ */
+function notifyOrphans(
+  orphans: asyncReqs.OrphanedReq[],
+  deliver: (url: string, payload: TerminalWebhookPayload) => Promise<void>,
+): Promise<PromiseSettledResult<void>[]> {
+  const deliveries = orphans
+    .filter((o) => o.webhookUrl)
+    .map((orphan) =>
+      deliver(orphan.webhookUrl!, {
+        request_id: orphan.request_id,
+        status: "failed",
+        error: orphan.error,
+        retryable: orphan.retryable,
+      }),
+    );
+  return Promise.allSettled(deliveries);
+}
+
+/**
  * Startup reconciliation: mark runs orphaned by a process restart as failed
  * (their driving work died with the old process) and deliver the terminal
  * webhook for any that registered a webhookUrl, so callers waiting on a
  * callback instead of polling still hear about the failure.
  */
 export function sweepOrphanedRuns(): void {
-  for (const orphan of asyncReqs.sweepOrphanedReqs()) {
-    if (orphan.webhookUrl) {
-      void postTerminalWebhook(orphan.webhookUrl, {
-        request_id: orphan.request_id,
-        status: "failed",
-        error: orphan.error,
-        retryable: orphan.retryable,
-      });
-    }
-  }
+  void notifyOrphans(asyncReqs.sweepOrphanedReqs(), postTerminalWebhook);
+}
+
+/**
+ * Graceful-shutdown drain. Sets the `shuttingDown` guard (preventing
+ * still-running background chains from firing a second terminal webhook),
+ * flips all pending requests to failed/retryable:true on disk, and delivers
+ * their webhooks in parallel with a single 3s attempt each.
+ *
+ * Called from the signal handler in index.ts; raced against a deadline there.
+ * Never throws.
+ */
+export async function drainForShutdown(): Promise<void> {
+  setShuttingDown();
+  const orphans = asyncReqs.failPendingReqs(SHUTDOWN_ORPHAN_ERROR);
+  await notifyOrphans(orphans, postTerminalWebhookOnce);
 }
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
@@ -579,6 +652,9 @@ export async function repo_agent(req: Request, res: Response) {
         });
       })
       .then((result) => {
+        // Guard: if drainForShutdown() has already flipped this record and
+        // delivered a failed/retryable:true webhook, do not overwrite.
+        if (shuttingDown) return;
         const terminalResult = {
           success: true,
           final_answer: result.final,
@@ -614,6 +690,10 @@ export async function repo_agent(req: Request, res: Response) {
         }
       })
       .catch((error) => {
+        // Guard: drainForShutdown() is the sole owner of terminal state during
+        // shutdown — skip both the disk write and webhook so the caller gets
+        // exactly one webhook (failed/retryable:true from the drain).
+        if (shuttingDown) return;
         const aborted = abortController.signal.aborted;
         // Persisted to `.reqs/<id>.json` and POSTed to the caller's webhook.
         const errorMessage = aborted
@@ -653,7 +733,10 @@ export async function repo_agent(req: Request, res: Response) {
     res.json({ request_id, status: "pending", sessionId: body.sessionId, ...(events_token && { events_token }) });
   } catch (error) {
     console.log("===> error");
-    asyncReqs.failReq(request_id, error);
+    // Guard: skip terminal disk write + webhook during shutdown; drain owns them.
+    if (!shuttingDown) {
+      asyncReqs.failReq(request_id, error);
+    }
     console.error("Error in repo_agent", error);
     unregisterAbortController(request_id);
     if (body.sessionId && body.sessionId !== request_id) {
