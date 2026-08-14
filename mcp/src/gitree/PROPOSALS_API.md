@@ -75,6 +75,10 @@ Body: `{ decidedBy?: string, reason?: string }`. No graph side effects. Same 404
 
 Decided proposals are kept in the graph (audit trail) — the list endpoint with `status=accepted|rejected` is a per-concept change history via their `conceptId`/`createdConceptId`.
 
+## Agent tools (producer side)
+
+Swarm agents can file and inspect proposals without HTTP: `propose_concept_change` and `list_concept_proposals` in `repo/tools.ts` (opt-in via tools config, like `create_triplet`). They call the same `createProposal`/`listProposals` service functions as the endpoints, with `source: "agent"`. Agents never get accept/reject — deciding is human-only.
+
 ## Hive integration notes
 
 - Follow the existing thin-proxy pattern of `src/app/api/learnings/concepts/*` (swarm URL + `x-api-token` via `getSwarmConfig`, `requireReadAccess` for GET, `requireMemberAccess` for accept/reject).

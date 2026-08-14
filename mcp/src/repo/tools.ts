@@ -17,7 +17,14 @@ import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "../aieo
 import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";
-import { listConcepts, getConceptDocumentation } from "../gitree/service.js";
+import {
+  listConcepts,
+  getConceptDocumentation,
+  createProposal,
+  listProposals,
+  HttpError,
+} from "../gitree/service.js";
+import { GraphStorage as GitreeGraphStorage } from "../gitree/store/index.js";
 import { scanSkills, listPack, loadSkill, type IndexEntry } from "./skills.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
@@ -87,6 +94,8 @@ type ToolName =
   | "list_concepts"
   | "learn_concept"
   | "learn_concepts"
+  | "propose_concept_change"
+  | "list_concept_proposals"
   | "list_skills"
   | "load_skill"
   | "list_workflows"
@@ -223,7 +232,8 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "repo_overview", "file_summary", "recent_commits", "recent_contributions",
   "fulltext_search", "web_search", "bash", "final_answer",
   "ask_clarifying_questions", "list_concepts", "learn_concept",
-  "learn_concepts", "list_skills", "load_skill",
+  "learn_concepts", "propose_concept_change", "list_concept_proposals",
+  "list_skills", "load_skill",
   "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
   "graph_sub_agent", "ontology_edit", "create_triplet",
@@ -326,6 +336,10 @@ Rules:
   learn_concept:
     "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
   learn_concepts: '', // this is just for naming, to enable the above 2.
+  propose_concept_change:
+    "Propose a change to the Concept knowledge base: create a new concept, update or delete an existing one, or merge two duplicate concepts. The change is NOT applied — it goes into a review queue where a human accepts or rejects it, with a diff of the documentation. For update/merge, first read the current docs with learn_concept and submit the FULL revised documentation (it replaces the whole body). Always give a rationale — the reviewer sees it. Check list_concept_proposals first so you don't file a duplicate of a proposal that is already pending.",
+  list_concept_proposals:
+    "List proposed changes to the Concept knowledge base (pending review by default). Use this before propose_concept_change to avoid filing a duplicate of a proposal that is already awaiting review.",
   list_skills:
     "List available skills. Called with no argument, returns every skill and skill pack installed — including packs not listed in your system prompt. Pass `pack` to expand one pack into its individual skills with their descriptions. This returns names and descriptions only; use load_skill to read a skill's actual instructions.",
   load_skill:
@@ -1418,6 +1432,123 @@ export async function get_tools(
           } catch (e) {
             console.error("Error getting concept:", e);
             return "Could not retrieve concept";
+          }
+        },
+      });
+    }
+    // concept proposals (human-reviewed writes; propose tool is opt-in)
+    if (
+      toolConfigEnabled(toolsConfig.propose_concept_change) ||
+      toolConfigEnabled(toolsConfig.list_concept_proposals)
+    ) {
+      allTools.list_concept_proposals = tool({
+        description: defaultDescriptions.list_concept_proposals,
+        inputSchema: z.object({
+          status: z
+            .enum(["pending", "accepted", "rejected"])
+            .optional()
+            .default("pending")
+            .describe("Filter by proposal status (default: pending)"),
+        }),
+        execute: async ({ status }) => {
+          try {
+            const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
+            const proposals = await listProposals(repo, status);
+            return {
+              proposals: proposals.map((p) => ({
+                id: p.id,
+                action: p.action,
+                status: p.status,
+                conceptId: p.conceptId,
+                mergeIntoConceptId: p.mergeIntoConceptId,
+                name: p.name,
+                rationale: p.rationale,
+                source: p.source,
+                createdAt: p.createdAt,
+              })),
+              count: proposals.length,
+              repo,
+            };
+          } catch (e) {
+            console.error("Error listing concept proposals:", e);
+            return "Could not retrieve concept proposals";
+          }
+        },
+      });
+    }
+    if (toolConfigEnabled(toolsConfig.propose_concept_change)) {
+      allTools.propose_concept_change = tool({
+        description: defaultDescriptions.propose_concept_change,
+        inputSchema: z.object({
+          action: z
+            .enum(["create", "update", "delete", "merge"])
+            .describe(
+              "create a new concept, update or delete an existing one, or merge concept_id into merge_into_concept_id"
+            ),
+          concept_id: z
+            .string()
+            .optional()
+            .describe(
+              "Target concept id (required for update/delete; for merge, the concept that will be absorbed and deleted). Use ids from list_concepts — never fabricate."
+            ),
+          merge_into_concept_id: z
+            .string()
+            .optional()
+            .describe("merge only: the surviving concept's id"),
+          name: z
+            .string()
+            .optional()
+            .describe("create only: human-readable name for the new concept"),
+          description: z
+            .string()
+            .optional()
+            .describe("Optional one-line description (new or replacement)"),
+          documentation: z
+            .string()
+            .optional()
+            .describe(
+              "Full markdown documentation (required for create/update/merge). Replaces the entire body — for updates, start from learn_concept's current docs."
+            ),
+          rationale: z
+            .string()
+            .describe(
+              "Why this change should be made — shown to the human reviewer"
+            ),
+          pr_numbers: z
+            .array(z.number())
+            .optional()
+            .describe("PR numbers that motivated this proposal (evidence)"),
+        }),
+        execute: async (input) => {
+          try {
+            const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
+            const storage = new GitreeGraphStorage();
+            await storage.initialize();
+            const proposal = await createProposal(storage, {
+              action: input.action,
+              repo,
+              conceptId: input.concept_id,
+              mergeIntoConceptId: input.merge_into_concept_id,
+              name: input.name,
+              description: input.description,
+              documentation: input.documentation,
+              rationale: input.rationale,
+              source: "agent",
+              prNumbers: input.pr_numbers,
+            });
+            return {
+              status: "pending_review",
+              proposalId: proposal.id,
+              action: proposal.action,
+              message:
+                "Proposal filed. It will only take effect if a human reviewer accepts it.",
+            };
+          } catch (e: any) {
+            if (e instanceof HttpError) {
+              return { error: e.message, ...(e.extra || {}) };
+            }
+            console.error("Error proposing concept change:", e);
+            return { error: e?.message || "Could not create proposal" };
           }
         },
       });
