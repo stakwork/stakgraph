@@ -4,6 +4,8 @@ import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
   Concept,
+  ConceptProposal,
+  ConceptProposalStatus,
   PRRecord,
   CommitRecord,
   Clue,
@@ -172,6 +174,15 @@ export class GraphStorage extends Storage {
         );
         await session.run(
           "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
+        );
+        await session.run(
+          "CREATE INDEX concept_proposal_id_index IF NOT EXISTS FOR (p:ConceptProposal) ON (p.id)"
+        );
+        await session.run(
+          "CREATE INDEX concept_proposal_repo_index IF NOT EXISTS FOR (p:ConceptProposal) ON (p.repo)"
+        );
+        await session.run(
+          "CREATE INDEX concept_proposal_status_index IF NOT EXISTS FOR (p:ConceptProposal) ON (p.status)"
         );
         await session.run(
           "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
@@ -2587,5 +2598,277 @@ export class GraphStorage extends Storage {
     } finally {
       await session.close();
     }
+  }
+
+  // Concept Proposals
+
+  async saveProposal(proposal: ConceptProposal): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      await session.run(
+        `
+        MERGE (p:${Data_Bank}:ConceptProposal {id: $id})
+        SET p.action = $action,
+            p.status = $status,
+            p.repo = $repo,
+            p.conceptId = $conceptId,
+            p.mergeIntoConceptId = $mergeIntoConceptId,
+            p.name = $name,
+            p.description = $description,
+            p.documentation = $documentation,
+            p.parent = $parent,
+            p.baseDocs = $baseDocs,
+            p.absorbedDocs = $absorbedDocs,
+            p.rationale = $rationale,
+            p.source = $source,
+            p.prNumbers = $prNumbers,
+            p.sessionIds = $sessionIds,
+            p.namespace = $namespace,
+            p.Data_Bank = $dataBankName,
+            p.ref_id = COALESCE(p.ref_id, $refId),
+            p.createdAt = COALESCE(p.createdAt, $createdAt),
+            p.date_added_to_graph = COALESCE(p.date_added_to_graph, $now)
+        RETURN p
+        `,
+        {
+          id: proposal.id,
+          action: proposal.action,
+          status: proposal.status,
+          repo: proposal.repo || null,
+          conceptId: proposal.conceptId || null,
+          mergeIntoConceptId: proposal.mergeIntoConceptId || null,
+          name: proposal.name || null,
+          description: proposal.description ?? null,
+          documentation: proposal.documentation ?? null,
+          parent: proposal.parent || null,
+          baseDocs: proposal.baseDocs ?? null,
+          absorbedDocs: proposal.absorbedDocs ?? null,
+          rationale: proposal.rationale || null,
+          source: proposal.source || null,
+          prNumbers: proposal.prNumbers || [],
+          sessionIds: proposal.sessionIds || [],
+          namespace: "default",
+          dataBankName: proposal.id,
+          refId: uuidv4(),
+          createdAt: Math.floor(proposal.createdAt.getTime() / 1000),
+          now,
+        }
+      );
+
+      // TARGETS edges to the concept(s) this proposal wants to change. For
+      // merge, both targets get an edge with a role so the UI can tell which
+      // concept survives.
+      const targets: Array<{ conceptId: string; role: string | null }> = [];
+      if (proposal.conceptId) {
+        targets.push({
+          conceptId: proposal.conceptId,
+          role: proposal.action === "merge" ? "absorb" : null,
+        });
+      }
+      if (proposal.mergeIntoConceptId) {
+        targets.push({ conceptId: proposal.mergeIntoConceptId, role: "into" });
+      }
+      for (const target of targets) {
+        await session.run(
+          `
+          MATCH (p:ConceptProposal {id: $id})
+          MATCH (c:Concept {id: $conceptId})
+          MERGE (p)-[r:TARGETS]->(c)
+          ON CREATE SET r.ref_id = randomUUID()
+          SET r.role = $role
+          `,
+          { id: proposal.id, conceptId: target.conceptId, role: target.role }
+        );
+      }
+
+      // EVIDENCE edges to the PRs that motivated this proposal (same matching
+      // pattern as the TOUCHES edges in saveConcept).
+      if (proposal.prNumbers && proposal.prNumbers.length > 0 && proposal.repo) {
+        await session.run(
+          `
+          MATCH (p:ConceptProposal {id: $id})
+          UNWIND $prNumbers as prNumber
+          MATCH (pr:PullRequest)
+          WHERE (pr.repo = $repo AND pr.number = prNumber) OR pr.id = $repo + '/pr-' + toString(prNumber)
+          MERGE (p)-[r:EVIDENCE]->(pr)
+          ON CREATE SET r.ref_id = randomUUID()
+          `,
+          {
+            id: proposal.id,
+            prNumbers: proposal.prNumbers,
+            repo: proposal.repo,
+          }
+        );
+      }
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getProposal(id: string): Promise<ConceptProposal | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal)
+        WHERE p.id = $id OR p.ref_id = $id
+        RETURN p
+        LIMIT 1
+        `,
+        { id }
+      );
+      if (result.records.length === 0) return null;
+      return this.nodeToProposal(result.records[0].get("p"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllProposals(
+    repo?: string,
+    status?: ConceptProposalStatus
+  ): Promise<ConceptProposal[]> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal)
+        WHERE ($repo IS NULL OR p.repo = $repo)
+          AND ($status IS NULL OR p.status = $status)
+        RETURN p
+        ORDER BY p.createdAt DESC
+        `,
+        { repo: repo || null, status: status || null }
+      );
+      return result.records.flatMap((record) => {
+        const node = record.get("p");
+        try {
+          return [this.nodeToProposal(node)];
+        } catch (error) {
+          console.warn(
+            `Skipping malformed ConceptProposal node ${node?.properties?.id}:`,
+            error
+          );
+          return [];
+        }
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Atomically move a pending proposal to a decided status. Returns false if
+   * the proposal was not in "pending" (already decided by a concurrent
+   * request) — callers use this as a claim so a proposal can never be
+   * applied twice.
+   */
+  async claimProposal(
+    id: string,
+    status: "accepted" | "rejected",
+    decidedBy?: string,
+    decisionReason?: string
+  ): Promise<boolean> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id, status: 'pending'})
+        SET p.status = $status,
+            p.decidedBy = $decidedBy,
+            p.decisionReason = $decisionReason,
+            p.decidedAt = $decidedAt
+        RETURN p
+        `,
+        {
+          id,
+          status,
+          decidedBy: decidedBy || null,
+          decisionReason: decisionReason || null,
+          decidedAt: Math.floor(Date.now() / 1000),
+        }
+      );
+      return result.records.length > 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Roll a claimed proposal back to pending — used when applying an accepted
+   * proposal fails (stale base, target vanished) so the reviewer can retry.
+   */
+  async releaseProposalClaim(id: string): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        SET p.status = 'pending',
+            p.decidedBy = null,
+            p.decisionReason = null,
+            p.decidedAt = null
+        `,
+        { id }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Record the concept minted by an accepted "create" proposal, and link the
+   * proposal to it so the decided proposal doubles as change history.
+   */
+  async setProposalCreatedConcept(
+    id: string,
+    conceptId: string
+  ): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        SET p.createdConceptId = $conceptId
+        WITH p
+        MATCH (c:Concept {id: $conceptId})
+        MERGE (p)-[r:TARGETS]->(c)
+        ON CREATE SET r.ref_id = randomUUID()
+        `,
+        { id, conceptId }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  private nodeToProposal(node: any): ConceptProposal {
+    const props = node.properties;
+    return {
+      id: props.id,
+      action: props.action,
+      status: props.status,
+      repo: props.repo || undefined,
+      conceptId: props.conceptId || undefined,
+      mergeIntoConceptId: props.mergeIntoConceptId || undefined,
+      name: props.name || undefined,
+      description: props.description ?? undefined,
+      documentation: props.documentation ?? undefined,
+      parent: props.parent || undefined,
+      baseDocs: props.baseDocs ?? undefined,
+      absorbedDocs: props.absorbedDocs ?? undefined,
+      rationale: props.rationale || undefined,
+      source: props.source || undefined,
+      prNumbers: (props.prNumbers || []).map((n: any) =>
+        n?.toNumber ? n.toNumber() : n
+      ),
+      sessionIds: props.sessionIds || [],
+      decidedBy: props.decidedBy || undefined,
+      decisionReason: props.decisionReason || undefined,
+      decidedAt: props.decidedAt != null ? safeDate(props.decidedAt) : undefined,
+      createdConceptId: props.createdConceptId || undefined,
+      createdAt: safeDate(props.createdAt),
+    };
   }
 }
