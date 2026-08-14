@@ -23,6 +23,7 @@ import * as r from "./graph/routes.js";
 import * as l from "./graph/learnings.js";
 import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
+import * as gitreeProposals from "./gitree/proposals.js";
 import { mountLab } from "./lab/mount.js";
 import { loadModelPricing } from "./aieo/src/index.js";
 import path from "path";
@@ -301,6 +302,20 @@ app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
 app.post("/gitree/search-concepts", gitree.gitree_search_concepts);
 app.post("/gitree/provenance", gitree.gitree_provenance);
+
+// Concept proposals — pending create/update/delete/merge changes to Concepts,
+// reviewed by a human before they land
+app.post("/gitree/proposals", gitreeProposals.gitree_create_proposal);
+app.get("/gitree/proposals", gitreeProposals.gitree_list_proposals);
+app.get("/gitree/proposals/:id", gitreeProposals.gitree_get_proposal);
+app.post(
+  "/gitree/proposals/:id/accept",
+  gitreeProposals.gitree_accept_proposal,
+);
+app.post(
+  "/gitree/proposals/:id/reject",
+  gitreeProposals.gitree_reject_proposal,
+);
 
 // Legacy `/gitree/features*` aliases (deprecated) — kept so existing API
 // consumers keep working after the Feature->Concept rename. Remove once all

@@ -99,130 +99,50 @@ function makeRes() {
   return res;
 }
 
-/**
- * Monkey-patch GraphStorage constructor so the handler picks up our mock.
- * Routes.ts does `new GraphStorage()` directly; we intercept via module-level
- * dynamic import swapping isn't available in node:test without an ESM mocking
- * library — so we use the established pattern of injecting via the module's
- * imported symbol by temporarily replacing it in the module cache.
- *
- * Since tsx/ESM doesn't allow reassigning named exports directly, we instead
- * test through the handler function but pass a mockStorage instance by
- * re-exporting a thin adapter that accepts an injected storage.
- *
- * Simpler approach: extract handler logic into a helper that accepts storage.
- * Since we can't do that without changing prod code, we test via a local
- * re-implementation that calls the same logic path but with injectable storage.
- * This keeps tests honest without requiring prod refactors.
- *
- * Concretely: we call the handler directly after temporarily replacing
- * `GraphStorage` in the routes module's closure by patching global module state.
- * This is idiomatic in ESM test environments where esmock isn't used.
- *
- * For test isolation we instead use a lightweight approach: create a thin
- * wrapper that exercises the same code paths but via the exported handler
- * with a mock backing. We accomplish this via a local testable reimplementation
- * of the handler logic that reads from the same code but accepts injectable
- * storage — which keeps test coverage meaningful without E2E infra.
- */
+// ─── Handler adapter ─────────────────────────────────────────────────────────
+// Calls the real shared service logic (also used by the route handler and by
+// accepted "create" concept-proposals) with an injected mock storage, mapping
+// the result/HttpError to the same {status, body} shape the route produces.
 
-// ─── Handler logic reimplementation (mirrors routes.ts exactly) ─────────────
-
-import { generateSlug, makeRepoId } from "../store/utils.js";
+import { createConceptDirect, HttpError } from "../service.js";
 
 async function callHandlerWithStorage(
   storage: any,
   body: Record<string, any>
 ): Promise<{ status: number; body: any }> {
-  const { name, documentation, description, repo, parent } = body;
-
-  if (!name || typeof name !== "string" || !name.trim()) {
-    return { status: 400, body: { error: "name is required" } };
-  }
-  if (typeof documentation !== "string") {
-    return { status: 400, body: { error: "documentation is required and must be a string" } };
-  }
-
-  const slug = generateSlug(name);
-  if (!slug) {
-    return { status: 400, body: { error: "name must contain alphanumeric characters" } };
-  }
-
-  const repoId = typeof repo === "string" && repo.trim() ? repo.trim() : undefined;
-  const conceptId = repoId ? makeRepoId(repoId, slug) : slug;
-  const parentId =
-    typeof parent === "string" && parent.trim() ? parent.trim() : undefined;
-
   await storage.initialize();
-
-  const existing = await storage.getConcept(conceptId, repoId);
-  if (existing) {
+  try {
+    const { concept, parentId } = await createConceptDirect(storage, {
+      name: body.name,
+      documentation: body.documentation,
+      description: body.description,
+      repo: body.repo,
+      parent: body.parent,
+    });
     return {
-      status: 409,
-      body: { error: `Concept ${conceptId} already exists`, conceptId },
-    };
-  }
-
-  let parentConcept: Concept | null = null;
-  if (parentId) {
-    parentConcept = await storage.getConcept(parentId, repoId);
-    if (!parentConcept) {
-      return { status: 400, body: { error: `Parent concept ${parentId} not found` } };
-    }
-    if (parentConcept.id === conceptId) {
-      return { status: 400, body: { error: "A concept cannot be its own parent" } };
-    }
-  }
-
-  const now = new Date();
-  const concept: Concept = {
-    id: conceptId,
-    repo: repoId,
-    name: name.trim(),
-    description: typeof description === "string" ? description : "",
-    prNumbers: [],
-    commitShas: [],
-    createdAt: now,
-    lastUpdated: now,
-    documentation,
-  };
-
-  await storage.saveConcept(concept);
-  await storage.saveDocumentation(conceptId, documentation);
-
-  if (parentId && parentConcept) {
-    try {
-      await storage.linkConceptParent(parentConcept.id, conceptId);
-    } catch (linkErr: any) {
-      try {
-        await storage.deleteConcept(conceptId, repoId);
-      } catch (rollbackErr: any) {
-        // log but don't mask original error
-      }
-      return {
-        status: 500,
-        body: {
-          error: `Concept created but parent link failed; rolled back: ${linkErr.message}`,
+      status: 200,
+      body: {
+        status: "success",
+        message: `Created concept ${concept.id}`,
+        concept: {
+          id: concept.id,
+          repo: concept.repo,
+          name: concept.name,
+          description: concept.description,
+          documentation: concept.documentation,
+          ...(parentId ? { parent: parentId } : {}),
         },
+      },
+    };
+  } catch (error: any) {
+    if (error instanceof HttpError) {
+      return {
+        status: error.statusCode,
+        body: { error: error.message, ...(error.extra || {}) },
       };
     }
+    throw error;
   }
-
-  return {
-    status: 200,
-    body: {
-      status: "success",
-      message: `Created concept ${conceptId}`,
-      concept: {
-        id: concept.id,
-        repo: concept.repo,
-        name: concept.name,
-        description: concept.description,
-        documentation: concept.documentation,
-        ...(parentConcept ? { parent: parentConcept.id } : {}),
-      },
-    },
-  };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
