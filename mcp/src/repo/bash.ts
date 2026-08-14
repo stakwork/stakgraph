@@ -335,6 +335,22 @@ export async function fulltextSearch(
 
 // testFulltextSearch();
 
+/**
+ * Linux caps a single argv entry at MAX_ARG_STRLEN (32 * 4096 = 131072 bytes),
+ * and `shell: true` hands the whole command to /bin/sh as one such entry — so an
+ * oversized command dies with an opaque `spawn E2BIG` having executed nothing.
+ * Guard below the real ceiling so the model gets a message it can act on instead
+ * of a failure it has to reverse-engineer (it has already paid to generate the
+ * command by this point; the least we can do is make the retry cheap).
+ */
+const MAX_COMMAND_BYTES = 120_000;
+
+const OVERSIZE_HINT =
+  "Nothing was executed — no file was written and no side effect occurred. " +
+  "Split the work across several commands: `cat > file` for the first chunk, " +
+  "`cat >> file` for each one after, keeping every command under ~40KB. " +
+  "Do not retry this command as-is; it will fail identically.";
+
 // Execute arbitrary bash command
 export async function executeBashCommand(
   command: string,
@@ -350,10 +366,28 @@ export async function executeBashCommand(
     return "Repository not cloned yet";
   }
 
+  // Byte length, not string length: the OS limit is on bytes, and prose with
+  // em-dashes / smart quotes runs well over one byte per character.
+  const commandBytes = Buffer.byteLength(command, "utf8");
+  if (commandBytes > MAX_COMMAND_BYTES) {
+    return (
+      `Command rejected: ${commandBytes} bytes exceeds the ${MAX_COMMAND_BYTES}-byte ` +
+      `limit for a single bash command (the OS hard limit is 131072). ${OVERSIZE_HINT}`
+    );
+  }
+
   try {
     const result = await execShellCommand(command, repoPath, timeoutMs, env);
     return result;
   } catch (error: any) {
+    // Backstop: the guard above should catch this first, but the true ceiling
+    // varies with the environment block, which counts toward the same budget.
+    if (error?.code === "E2BIG" || /\bE2BIG\b/.test(error?.message ?? "")) {
+      return (
+        `Error executing command: too long for the OS to execute ` +
+        `(${commandBytes} bytes, E2BIG). ${OVERSIZE_HINT}`
+      );
+    }
     return `Error executing command: ${error.message}`;
   }
 }
