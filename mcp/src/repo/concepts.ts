@@ -58,7 +58,7 @@ export interface ConceptCollector {
  * without the documentation, and `list_concepts` returns the whole catalog, so
  * appearing in one says nothing about what the agent chose to read.
  */
-const CONCEPT_READ_TOOLS = ["learn_concept", "graph_get"];
+const CONCEPT_READ_TOOLS = ["learn_concept", "graph_get", "graph_get_batched"];
 
 function parseMaybeJson(result: unknown): any {
   if (typeof result === "string") {
@@ -112,6 +112,29 @@ export function conceptReadFrom(
 }
 
 /**
+ * Every Concept read in one tool result.
+ *
+ * `graph_get` resolves one node, so it yields at most one read. Batched tools
+ * return `{ nodes: [...] }`, and each entry is scored on its own — without this
+ * the batched form would record nothing at all, since the envelope carries no
+ * `node_type` of its own.
+ */
+export function conceptReadsFrom(
+  toolName: string,
+  input: any,
+  result: unknown,
+): ConceptRead[] {
+  const parsed = parseMaybeJson(result);
+  if (parsed && typeof parsed === "object" && Array.isArray(parsed.nodes)) {
+    return parsed.nodes
+      .map((node: unknown) => conceptReadFrom(toolName, input, node))
+      .filter((r: ConceptRead | null): r is ConceptRead => r !== null);
+  }
+  const one = conceptReadFrom(toolName, input, result);
+  return one ? [one] : [];
+}
+
+/**
  * Wrap the concept-reading tools so every read is recorded as it happens.
  *
  * Returns a new tool map — the originals are not mutated. Collection is
@@ -132,8 +155,7 @@ export function withConceptCollection(
       execute: async (input: any, options: any) => {
         const result = await execute(input, options);
         try {
-          const read = conceptReadFrom(name, input, result);
-          if (read) collector.reads.push(read);
+          collector.reads.push(...conceptReadsFrom(name, input, result));
         } catch (e) {
           console.error(`[concepts] failed to record ${name} read:`, e);
         }

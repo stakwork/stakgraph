@@ -2,6 +2,8 @@ import { tool, Tool, ToolLoopAgent, stepCountIs } from "ai";
 import { z } from "zod";
 import axios from "axios";
 import { randomUUID } from "crypto";
+import PQueueModule from "p-queue";
+const PQueue = (PQueueModule as any).default ?? PQueueModule;
 import {
   getModelDetails,
   getProviderOptions,
@@ -78,6 +80,20 @@ async function jarvisMutate(
 
 /** Max neighbors returned in a single hop — keeps tool output within budget. */
 const KG_NEIGHBOR_CAP = 50;
+
+/**
+ * Max ref_ids honoured by one `graph_get_batched` call. Anything beyond this is
+ * reported back as `omitted_ref_ids` rather than dropped silently, so the agent
+ * can issue a follow-up call for the remainder instead of inferring the gap.
+ */
+const KG_BATCH_GET_MAX = 50;
+
+/**
+ * In-flight node fetches per batched call. Each ref_id costs two Jarvis
+ * requests (the node + its connection-counts), so this is ~2x this many
+ * sockets against Jarvis at once.
+ */
+const KG_BATCH_GET_CONCURRENCY = 8;
 
 /** Max length of a derived label so a single row doesn't flood the context. */
 const LABEL_MAX = 160;
@@ -389,12 +405,14 @@ export interface JarvisToolsOptions {
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
   "Spawn a focused child agent to explore the Jarvis knowledge graph and report back. " +
-  "The child has its own copy of the graph tools (get_ontology, get_ontology_type, graph_search, graph_get, graph_neighbors) " +
+  "The child has its own copy of the graph tools (get_ontology, get_ontology_type, graph_search, graph_get, graph_get_batched, graph_neighbors) " +
   "and runs an independent exploration loop, returning a synthesized text summary of its findings. " +
   "Use this to parallelize or delegate: after you locate a few key nodes, fan out one sub-agent per " +
   "node/subtopic with a specific, self-contained prompt (include the relevant ref_ids and exactly what " +
   "to find), then collate their answers. Each prompt must stand alone — the child does not see this " +
-  "conversation. Prefer a handful of targeted sub-agents over one broad one.";
+  "conversation. Prefer a handful of targeted sub-agents over one broad one. " +
+  "Do NOT spawn sub-agents merely to fetch a list of ref_ids — that is what graph_get_batched is for. " +
+  "Delegate reasoning and open-ended search, not bulk retrieval.";
 
 /** System prompt for a spawned graph exploration sub-agent. */
 const GRAPH_SUBAGENT_SYSTEM = `You are a focused knowledge-graph exploration sub-agent. A parent agent has delegated a specific exploration task to you. Answer ONLY the task you were given — do not expand scope.
@@ -403,6 +421,7 @@ You traverse a knowledge graph of interconnected entities (people, topics, episo
 - \`get_ontology\` — list node types (grouped by domain) and valid \`domains\`. Call FIRST if you don't already know the relevant types.
 - \`get_ontology_type\` — fetch the full schema for a single node type (attributes + required/optional). Use when you need field-level detail for one type instead of the whole ontology.
 - \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`, and \`namespace\` (data partition) when one applies.
+- \`graph_get_batched\` — resolve up to ${KG_BATCH_GET_MAX} ref_ids in ONE call. Always use this instead of calling \`graph_get\` repeatedly.
 - \`graph_neighbors\` — nodes one hop away, with \`edge_type\` and \`direction\`. This is how you follow relationships.
 - \`graph_get\` — resolve a single ref_id to its full content.
 - \`graph_sub_agent\` (only if available) — delegate an even more focused subtask to a further child agent.
@@ -1924,13 +1943,80 @@ export function registerJarvisTools(
     },
   });
 
+  /**
+   * Resolve one ref_id to the node shape both `graph_get` and
+   * `graph_get_batched` return. Yields a discriminated result rather than
+   * throwing or returning a string, so the batched caller can report a
+   * per-node failure without sinking the whole call.
+   */
+  async function fetchGraphNode(
+    ref_id: string,
+    namespace?: string,
+  ): Promise<
+    | { ok: true; node: Record<string, any> }
+    | { ok: false; error: string }
+  > {
+    // limit=1 keeps Jarvis from materializing the node's whole neighborhood
+    // (which can OOM Neo4j for hub nodes) — we only read the node itself.
+    const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
+    try {
+      const resp = await jarvisFetch(url, jarvisHeaders);
+      if (!resp.ok) {
+        const text = await resp.text();
+        return { ok: false, error: `HTTP ${resp.status}: ${text}` };
+      }
+      const data = (await resp.json()) as any;
+      // Deployed Jarvis wraps the node in `{ nodes, edges, status }`; some
+      // builds return the node directly. Handle both shapes.
+      const raw = Array.isArray(data?.nodes)
+        ? data.nodes.find((n: any) => n.ref_id === ref_id) ?? data.nodes[0]
+        : data;
+      if (!raw || !raw.ref_id) return { ok: false, error: `node not found: ${ref_id}` };
+      const properties = (raw.properties ?? {}) as Record<string, any>;
+
+      // Fetch edge-type connectivity from the dedicated aggregation endpoint
+      // (cheap: counts only, no neighbor materialization). Collapse the
+      // (edge_type, target_type) breakdown into a {EDGE_TYPE: count} map so
+      // graph_get and graph_search present connectivity identically. Best
+      // effort — never fail the whole call if this lookup errors.
+      let edges: Record<string, number> = {};
+      try {
+        const ccParams = new URLSearchParams();
+        appendNamespace(ccParams, namespace);
+        const ccQuery = ccParams.toString();
+        const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
+        const ccResp = await jarvisFetch(ccUrl, jarvisHeaders);
+        if (ccResp.ok) {
+          const ccData = (await ccResp.json()) as any;
+          edges = collapseConnectionCounts(ccData?.counts ?? []);
+        }
+      } catch {
+        // ignore — edges stays {}
+      }
+
+      return {
+        ok: true,
+        node: {
+          ref_id: raw.ref_id,
+          node_type: raw.node_type,
+          name: deriveNodeName(raw, properties),
+          properties: raw.properties,
+          edges,
+        },
+      };
+    } catch (err: any) {
+      return { ok: false, error: `graph_get failed: ${err?.message ?? String(err)}` };
+    }
+  }
+
   allTools.graph_get = tool({
     description:
       "Resolve a single node in the Jarvis knowledge graph to its full content by ref_id. " +
       "Use the ref_id from graph_search or graph_neighbors results. " +
       "Returns the node's ref_id, node_type, derived name, properties, and an " +
       "`edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
-      "which relationship types you can traverse next with graph_neighbors.",
+      "which relationship types you can traverse next with graph_neighbors. " +
+      "To resolve several ref_ids at once, use graph_get_batched instead.",
     inputSchema: z.object({
       ref_id: z.string().describe("The ref_id of the node to resolve."),
       namespace: z
@@ -1948,55 +2034,81 @@ export function registerJarvisTools(
       ref_id: string;
       namespace?: string;
     }) => {
-      // limit=1 keeps Jarvis from materializing the node's whole neighborhood
-      // (which can OOM Neo4j for hub nodes) — we only read the node itself.
-      const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
-      console.log(`[graph_get] fetching ${url}`);
-      try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
-        if (!resp.ok) {
-          const text = await resp.text();
-          return `HTTP ${resp.status}: ${text}`;
-        }
-        const data = (await resp.json()) as any;
-        // Deployed Jarvis wraps the node in `{ nodes, edges, status }`; some
-        // builds return the node directly. Handle both shapes.
-        const raw = Array.isArray(data?.nodes)
-          ? data.nodes.find((n: any) => n.ref_id === ref_id) ?? data.nodes[0]
-          : data;
-        if (!raw || !raw.ref_id) return `node not found: ${ref_id}`;
-        const properties = (raw.properties ?? {}) as Record<string, any>;
+      console.log(`[graph_get] fetching ${ref_id}`);
+      const res = await fetchGraphNode(ref_id, namespace);
+      return res.ok ? JSON.stringify(res.node) : res.error;
+    },
+  });
 
-        // Fetch edge-type connectivity from the dedicated aggregation endpoint
-        // (cheap: counts only, no neighbor materialization). Collapse the
-        // (edge_type, target_type) breakdown into a {EDGE_TYPE: count} map so
-        // graph_get and graph_search present connectivity identically. Best
-        // effort — never fail the whole call if this lookup errors.
-        let edges: Record<string, number> = {};
-        try {
-          const ccParams = new URLSearchParams();
-          appendNamespace(ccParams, namespace);
-          const ccQuery = ccParams.toString();
-          const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
-          const ccResp = await jarvisFetch(ccUrl, jarvisHeaders);
-          if (ccResp.ok) {
-            const ccData = (await ccResp.json()) as any;
-            edges = collapseConnectionCounts(ccData?.counts ?? []);
-          }
-        } catch {
-          // ignore — edges stays {}
-        }
-
+  allTools.graph_get_batched = tool({
+    description:
+      `Resolve up to ${KG_BATCH_GET_MAX} nodes in one call by ref_id — the batched form of graph_get. ` +
+      "ALWAYS prefer this over calling graph_get in a loop, and over delegating a list of " +
+      "ref_ids to sub-agents: it fetches them concurrently in a single tool call. " +
+      "Returns `{ requested, returned, truncated, omitted_ref_ids, nodes }`, where each entry in " +
+      "`nodes` is either the full node (ref_id, node_type, name, properties, edges) or " +
+      "`{ ref_id, error }` if that one could not be resolved — one bad ref_id never fails the rest. " +
+      `If you pass more than ${KG_BATCH_GET_MAX} ref_ids, the excess comes back in ` +
+      "`omitted_ref_ids` and `truncated` is true; call again with those to finish the job.",
+    inputSchema: z.object({
+      ref_ids: z
+        .array(z.string())
+        .min(1)
+        .describe(
+          `The ref_ids to resolve, in the order you want them back. Up to ${KG_BATCH_GET_MAX} per call.`,
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Scope edge-count computation to a Jarvis namespace (data partition). " +
+          "Only affects each node's `edges` map. Not an access-control boundary."
+        ),
+    }),
+    execute: async ({
+      ref_ids,
+      namespace,
+    }: {
+      ref_ids: string[];
+      namespace?: string;
+    }) => {
+      // Dedupe while preserving the caller's ordering — a repeated ref_id is a
+      // wasted round trip, not a second entry.
+      const unique = Array.from(new Set(ref_ids.filter((r) => r && r.trim())));
+      if (unique.length === 0) {
         return JSON.stringify({
-          ref_id: raw.ref_id,
-          node_type: raw.node_type,
-          name: deriveNodeName(raw, properties),
-          properties: raw.properties,
-          edges,
+          requested: ref_ids.length,
+          returned: 0,
+          truncated: false,
+          omitted_ref_ids: [],
+          nodes: [],
+          note: "no usable ref_ids supplied",
         });
-      } catch (err: any) {
-        return `graph_get failed: ${err?.message ?? String(err)}`;
       }
+
+      const selected = unique.slice(0, KG_BATCH_GET_MAX);
+      const omitted = unique.slice(KG_BATCH_GET_MAX);
+      console.log(
+        `[graph_get_batched] resolving ${selected.length} ref_ids (requested ${ref_ids.length}, omitted ${omitted.length}) namespace=${namespace ?? "*"}`,
+      );
+
+      const queue = new PQueue({ concurrency: KG_BATCH_GET_CONCURRENCY });
+      const nodes = await Promise.all(
+        selected.map((ref_id) =>
+          queue.add(async () => {
+            const res = await fetchGraphNode(ref_id, namespace);
+            return res.ok ? res.node : { ref_id, error: res.error };
+          }),
+        ),
+      );
+
+      return JSON.stringify({
+        requested: ref_ids.length,
+        returned: nodes.length,
+        truncated: omitted.length > 0,
+        omitted_ref_ids: omitted,
+        nodes,
+      });
     },
   });
 
@@ -2120,7 +2232,7 @@ export function registerJarvisTools(
   });
 
   console.log(
-    "===> registered graph_search + get_ontology + get_ontology_type + graph_get + graph_neighbors tools",
+    "===> registered graph_search + get_ontology + get_ontology_type + graph_get + graph_get_batched + graph_neighbors tools",
   );
 
   // Recursive sub-agent tool, gated by config + depth so children can't spawn
