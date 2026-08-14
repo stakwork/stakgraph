@@ -1,22 +1,13 @@
 import { Request, Response } from "express";
-import { randomUUID } from "crypto";
 import { GraphStorage } from "./store/index.js";
+import { Concept, ConceptProposal, ConceptProposalStatus } from "./types.js";
 import {
-  Concept,
-  ConceptProposal,
-  ConceptProposalAction,
-  ConceptProposalStatus,
-} from "./types.js";
-import { generateSlug, makeRepoId } from "./store/utils.js";
-import { createConceptDirect, HttpError } from "./service.js";
+  createConceptDirect,
+  createProposal,
+  requireConcept,
+  HttpError,
+} from "./service.js";
 import { parseRepoParam } from "./routes.js";
-
-const VALID_ACTIONS: ConceptProposalAction[] = [
-  "create",
-  "update",
-  "delete",
-  "merge",
-];
 
 const VALID_STATUSES: ConceptProposalStatus[] = [
   "pending",
@@ -37,18 +28,6 @@ function sendError(res: Response, error: any, fallback: string) {
 
 function optionalString(value: any): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-async function requireConcept(
-  storage: GraphStorage,
-  conceptId: string,
-  repo?: string
-): Promise<Concept> {
-  const concept = await storage.getConcept(conceptId, repo);
-  if (!concept) {
-    throw new HttpError(404, `Concept ${conceptId} not found`);
-  }
-  return concept;
 }
 
 // A pending proposal's target may drift while it sits in the queue (another
@@ -82,134 +61,14 @@ function unionArray<T>(a: T[], b: T[]): T[] {
 export async function gitree_create_proposal(req: Request, res: Response) {
   console.log("===> gitree_create_proposal", req.path, req.method);
   try {
-    const body = req.body || {};
-    const action = body.action as ConceptProposalAction;
-    if (!VALID_ACTIONS.includes(action)) {
-      res.status(400).json({
-        error: `action must be one of: ${VALID_ACTIONS.join(", ")}`,
-      });
-      return;
-    }
-
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const proposal: ConceptProposal = {
-      id: randomUUID(),
-      action,
-      status: "pending",
-      repo: optionalString(body.repo),
-      rationale: optionalString(body.rationale),
-      source: optionalString(body.source),
-      prNumbers: Array.isArray(body.prNumbers)
-        ? body.prNumbers.filter((n: any) => Number.isFinite(n)).map(Number)
-        : undefined,
-      sessionIds: Array.isArray(body.sessionIds)
-        ? body.sessionIds.filter((s: any) => typeof s === "string")
-        : undefined,
-      createdAt: new Date(),
-    };
+    const proposal = await createProposal(storage, req.body || {});
 
-    if (action === "create") {
-      const name = optionalString(body.name);
-      if (!name) {
-        throw new HttpError(400, "name is required for a create proposal");
-      }
-      if (typeof body.documentation !== "string") {
-        throw new HttpError(
-          400,
-          "documentation is required and must be a string"
-        );
-      }
-      const slug = generateSlug(name);
-      if (!slug) {
-        throw new HttpError(400, "name must contain alphanumeric characters");
-      }
-      // Early feedback only — existence is re-checked authoritatively at
-      // accept time, since concepts can appear while the proposal is pending.
-      const targetId = proposal.repo ? makeRepoId(proposal.repo, slug) : slug;
-      const existing = await storage.getConcept(targetId, proposal.repo);
-      if (existing) {
-        throw new HttpError(409, `Concept ${targetId} already exists`, {
-          conceptId: targetId,
-        });
-      }
-      const parent = optionalString(body.parent);
-      if (parent) {
-        const parentConcept = await storage.getConcept(parent, proposal.repo);
-        if (!parentConcept) {
-          throw new HttpError(400, `Parent concept ${parent} not found`);
-        }
-        proposal.parent = parentConcept.id;
-      }
-      proposal.name = name;
-      proposal.description = optionalString(body.description);
-      proposal.documentation = body.documentation;
-    } else if (action === "update") {
-      const conceptId = optionalString(body.conceptId);
-      if (!conceptId) {
-        throw new HttpError(
-          400,
-          "conceptId is required for an update proposal"
-        );
-      }
-      if (typeof body.documentation !== "string") {
-        throw new HttpError(
-          400,
-          "documentation is required and must be a string"
-        );
-      }
-      const concept = await requireConcept(storage, conceptId, proposal.repo);
-      proposal.conceptId = concept.id;
-      proposal.repo = proposal.repo || concept.repo;
-      proposal.baseDocs = concept.documentation ?? "";
-      proposal.documentation = body.documentation;
-      proposal.description = optionalString(body.description);
-    } else if (action === "delete") {
-      const conceptId = optionalString(body.conceptId);
-      if (!conceptId) {
-        throw new HttpError(400, "conceptId is required for a delete proposal");
-      }
-      const concept = await requireConcept(storage, conceptId, proposal.repo);
-      proposal.conceptId = concept.id;
-      proposal.repo = proposal.repo || concept.repo;
-      proposal.baseDocs = concept.documentation ?? "";
-    } else {
-      // merge: conceptId is absorbed into mergeIntoConceptId
-      const conceptId = optionalString(body.conceptId);
-      const mergeIntoConceptId = optionalString(body.mergeIntoConceptId);
-      if (!conceptId || !mergeIntoConceptId) {
-        throw new HttpError(
-          400,
-          "conceptId (absorbed) and mergeIntoConceptId (surviving) are required for a merge proposal"
-        );
-      }
-      if (typeof body.documentation !== "string") {
-        throw new HttpError(
-          400,
-          "documentation (the merged docs for the surviving concept) is required and must be a string"
-        );
-      }
-      const absorbed = await requireConcept(storage, conceptId, proposal.repo);
-      const into = await requireConcept(
-        storage,
-        mergeIntoConceptId,
-        proposal.repo
-      );
-      if (absorbed.id === into.id) {
-        throw new HttpError(400, "A concept cannot be merged into itself");
-      }
-      proposal.conceptId = absorbed.id;
-      proposal.mergeIntoConceptId = into.id;
-      proposal.repo = proposal.repo || into.repo;
-      proposal.baseDocs = into.documentation ?? "";
-      proposal.absorbedDocs = absorbed.documentation ?? "";
-      proposal.documentation = body.documentation;
-      proposal.description = optionalString(body.description);
-    }
-
-    await storage.saveProposal(proposal);
-    console.log(`✅ Concept proposal created: ${proposal.id} (${action})`);
+    console.log(
+      `✅ Concept proposal created: ${proposal.id} (${proposal.action})`
+    );
     res.json({ status: "success", proposal });
   } catch (error: any) {
     sendError(res, error, "Failed to create proposal");
