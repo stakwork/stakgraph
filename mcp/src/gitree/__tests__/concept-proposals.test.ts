@@ -16,7 +16,7 @@
  */
 import { test, expect } from "../../testkit.js";
 import { applyProposal } from "../proposals.js";
-import { HttpError } from "../service.js";
+import { createProposal, HttpError } from "../service.js";
 import type { Concept, ConceptProposal } from "../types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -54,11 +54,16 @@ function makeStorage(seed: Concept[] = []) {
   for (const concept of seed) store[concept.id] = concept;
   const savedDocs: Array<{ conceptId: string; documentation: string }> = [];
   const savedConcepts: Concept[] = [];
+  const savedProposals: ConceptProposal[] = [];
 
   const storage: any = {
     _store: store,
     _savedDocs: savedDocs,
     _savedConcepts: savedConcepts,
+    _savedProposals: savedProposals,
+    saveProposal: async (proposal: ConceptProposal) => {
+      savedProposals.push(proposal);
+    },
     initialize: async () => {},
     getConcept: async (id: string, repo?: string) => {
       const fullId = repo && !id.includes("/") ? `${repo}/${id}` : id;
@@ -94,6 +99,128 @@ async function expectHttpError(
   }
   throw new Error(`Expected HttpError ${statusCode}, but nothing was thrown`);
 }
+
+// ─── createProposal (propose-time validation + snapshots) ───────────────────
+
+test.describe("createProposal", () => {
+  test("update: snapshots the target's current docs as baseDocs", async () => {
+    const storage = makeStorage([
+      makeConcept({
+        id: "owner/repo/auth",
+        name: "Auth",
+        repo: "owner/repo",
+        documentation: "current docs",
+      }),
+    ]);
+
+    const proposal = await createProposal(storage, {
+      action: "update",
+      conceptId: "owner/repo/auth",
+      documentation: "proposed docs",
+      rationale: "docs are stale",
+    });
+
+    expect(proposal.status).toBe("pending");
+    expect(proposal.baseDocs).toBe("current docs");
+    expect(proposal.repo).toBe("owner/repo");
+    expect(storage._savedProposals.length).toBe(1);
+    // nothing written to the concept itself
+    expect(storage._store["owner/repo/auth"].documentation).toBe(
+      "current docs"
+    );
+  });
+
+  test("merge: snapshots both the surviving and absorbed docs", async () => {
+    const storage = makeStorage([
+      makeConcept({
+        id: "owner/repo/auth",
+        name: "Auth",
+        repo: "owner/repo",
+        documentation: "auth docs",
+      }),
+      makeConcept({
+        id: "owner/repo/login",
+        name: "Login",
+        repo: "owner/repo",
+        documentation: "login docs",
+      }),
+    ]);
+
+    const proposal = await createProposal(storage, {
+      action: "merge",
+      conceptId: "owner/repo/login",
+      mergeIntoConceptId: "owner/repo/auth",
+      documentation: "merged docs",
+    });
+
+    expect(proposal.baseDocs).toBe("auth docs");
+    expect(proposal.absorbedDocs).toBe("login docs");
+  });
+
+  test("rejects an invalid action with 400", async () => {
+    const storage = makeStorage([]);
+    await expectHttpError(
+      () => createProposal(storage, { action: "rename" as any }),
+      400
+    );
+    expect(storage._savedProposals.length).toBe(0);
+  });
+
+  test("update against a missing concept 404s without saving", async () => {
+    const storage = makeStorage([]);
+    await expectHttpError(
+      () =>
+        createProposal(storage, {
+          action: "update",
+          conceptId: "owner/repo/nope",
+          documentation: "docs",
+        }),
+      404
+    );
+    expect(storage._savedProposals.length).toBe(0);
+  });
+
+  test("create 409s early when the concept already exists", async () => {
+    const storage = makeStorage([
+      makeConcept({
+        id: "owner/repo/auth",
+        name: "Auth",
+        repo: "owner/repo",
+      }),
+    ]);
+    await expectHttpError(
+      () =>
+        createProposal(storage, {
+          action: "create",
+          repo: "owner/repo",
+          name: "Auth",
+          documentation: "docs",
+        }),
+      409
+    );
+    expect(storage._savedProposals.length).toBe(0);
+  });
+
+  test("merge into itself is rejected", async () => {
+    const storage = makeStorage([
+      makeConcept({
+        id: "owner/repo/auth",
+        name: "Auth",
+        repo: "owner/repo",
+      }),
+    ]);
+    await expectHttpError(
+      () =>
+        createProposal(storage, {
+          action: "merge",
+          conceptId: "owner/repo/auth",
+          mergeIntoConceptId: "owner/repo/auth",
+          documentation: "docs",
+        }),
+      400
+    );
+  });
+});
 
 // ─── update ─────────────────────────────────────────────────────────────────
 
