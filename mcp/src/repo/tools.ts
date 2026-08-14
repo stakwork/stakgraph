@@ -248,7 +248,12 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   fulltext_search:
     "Search the entire codebase for a specific term, using ripgrep (rg). Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
   web_search: "Search the web for information",
-  bash: "Execute bash commands",
+  bash:
+    "Execute a bash command in the working directory. " +
+    "Keep the whole command under ~40KB (roughly 6,000 words of text). A single command over " +
+    "~128KB is rejected by the OS with `spawn E2BIG` before it runs — nothing executes and " +
+    "everything you generated for it is lost. When writing a large file, split it across " +
+    "several commands: `cat > file` for the first chunk, `cat >> file` for each one after.",
   final_answer: `Provide the final answer to the user. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
 CRITICAL: Put your ENTIRE response inside the 'answer' parameter as a well-formatted string. Do NOT call this tool with an empty object or without the answer field.
 
@@ -352,9 +357,14 @@ Rules:
     "Generate a Word (.docx) document from Markdown using Pandoc. " +
     "Input: { markdown?: string; markdownPath?: string; template?: string } — provide exactly one " +
     "of 'markdown' (inline content) or 'markdownPath' (path to a .md file; relative paths resolve " +
-    "against the repo directory). For anything longer than a couple of pages, ALWAYS use markdownPath: " +
-    "write the document to a .md file incrementally with bash (several appends), then convert it — " +
-    "a large inline 'markdown' argument must fit in a single message and will be cut off. " +
+    "against the repo directory). " +
+    "For anything longer than a couple of pages, ALWAYS use markdownPath: a large inline 'markdown' " +
+    "argument has to fit in one message and will be cut off. " +
+    "Build the .md file with a series of bash writes — `cat > file` for the first chunk, `cat >> file` " +
+    "for each one after — keeping every command under the ~40KB bash limit, then convert it. That " +
+    "applies to the FIRST write exactly as much as to the appends; do not emit a whole document in " +
+    "one call. The byte count `wc -c` returns is the file's cumulative size, not the size of your " +
+    "last command — a growing file is fine, an oversized single command is not. " +
     "'template' is an optional bundled reference-doc name for styling. Writes the file to the durable " +
     "artifacts directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
     "On failure returns a non-fatal 'generate_docx failed: ...' string.",
