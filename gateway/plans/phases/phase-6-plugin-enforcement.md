@@ -1,5 +1,30 @@
 # Phase 6 — Plugin Enforcement: Redis Schema, Hot-Path Ops, Failure Modes
 
+> **Status (write side landed):** The PostLLMHook accumulator
+> pipeline is implemented — `gateway/internal/auth/accumulator.go`
+> writes `cost:run` / `steps:run` per chain layer (each with its own
+> layer-exp TTL), `cost:ua` when the UA carries a budget,
+> `cost:agent:<name>:<bucket>` for configured agents, and
+> `tools:run` history (non-streaming responses only for now).
+> Streaming requests account on the final usage-bearing chunk in
+> `hooks/stream_chunk.go`; `pluginctx.MarkAccounted` guards
+> double-counting. Bucket keys come from `gateway/internal/duration`
+> (shared with the adminapi budget endpoint, so reader and writer
+> can't drift). Cost source: provider-computed `Usage.Cost` when
+> present, else the `model_pricing` config table (operator
+> override), else `gateway/internal/pricing` — bifrost's own
+> published datasheet (`getbifrost.ai/datasheet`, override with
+> `BIFROST_PLUGIN_PRICING_URL`, `off` to disable), fetched at boot,
+> refreshed every 24h, persisted to the data volume for restarts
+> during outages. It is the same file bifrost prices logs.db rows
+> from, so enforcement dollars and reported dollars agree. (Bifrost
+> core exposes no pricing manager to plugins — the canonical
+> logs.db cost is computed by the framework after our hook.)
+> The verifier now surfaces `Claims.UAIAT` / `UAExp` / `Chain` for
+> this. Still open: the PreLLMHook cost/step cap walk and its 402s,
+> tool-loop detection, kill switches + admin routes, and the
+> `/_plugin/config/*` override layer.
+>
 > **Status (phase 11 cutover):** Redis bucket keys and hot-path
 > flow are unchanged from the description below. Phase 11
 > (`phase-11-symmetric-recursive-authorization.md`) adds one
