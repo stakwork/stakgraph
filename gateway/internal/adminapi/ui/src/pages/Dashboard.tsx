@@ -17,7 +17,8 @@ import {
   useSpendByAgent,
   useSpendByUser,
 } from "../api/queries";
-import type { AgentSpend, UserSpend, Window } from "../api/types";
+import type { AgentSpend, UserSpend } from "../api/types";
+import type { Window } from "../api/manual";
 import { windowToSeconds } from "../api/window";
 
 // LLM call costs can be fractions of a cent; clamping to 2 decimals

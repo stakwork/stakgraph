@@ -35,7 +35,8 @@ import {
   useTrustOrg,
   useTrustStatus,
 } from "../api/queries";
-import type { AgentUserSpend, TrustOrg, Window } from "../api/types";
+import type { AgentUserSpend } from "../api/types";
+import type { TrustOrg, Window } from "../api/manual";
 import { WindowPicker } from "../components/controls/WindowPicker";
 
 import { canvasTheme, PROVIDER_DISPLAY, providerIcon } from "./canvasTheme";

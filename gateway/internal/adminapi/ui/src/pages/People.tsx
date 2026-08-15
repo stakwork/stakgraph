@@ -14,7 +14,8 @@ import { WindowPicker } from "../components/controls/WindowPicker";
 import { UserIcon } from "../components/icons";
 import { getErrorMessage } from "../api/client";
 import { useSpendByUser } from "../api/queries";
-import type { UserSpend, Window } from "../api/types";
+import type { UserSpend } from "../api/types";
+import type { Window } from "../api/manual";
 
 const fmtUSD = (v: number) => {
   if (v === 0) return "$0.00";

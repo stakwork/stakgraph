@@ -3,7 +3,7 @@
 // set stays consistent (and stays in lockstep with the Go-side
 // parseWindow whitelist).
 
-import type { Window } from "../../api/types";
+import type { Window } from "../../api/manual";
 
 const OPTIONS: Window[] = ["1h", "24h", "7d", "30d"];
 
