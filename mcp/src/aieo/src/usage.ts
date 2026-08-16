@@ -24,6 +24,9 @@ type RawUsage = {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
   };
+  // OpenAI-compatible providers (xAI/Grok, OpenAI chat) surface cached prompt
+  // tokens as a flat `cachedInputTokens` instead of inputTokenDetails.
+  cachedInputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
 };
@@ -57,7 +60,8 @@ export function normalizeUsage(raw?: RawUsage | null): AiUsageWithLegacy {
   const cache_read =
     raw?.cache_read !== undefined
       ? tokenCount(raw.cache_read)
-      : tokenCount(raw?.inputTokenDetails?.cacheReadTokens);
+      : tokenCount(raw?.inputTokenDetails?.cacheReadTokens) ||
+        tokenCount(raw?.cachedInputTokens);
   const cache_write =
     raw?.cache_write !== undefined
       ? tokenCount(raw.cache_write)

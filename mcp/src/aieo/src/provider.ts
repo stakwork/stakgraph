@@ -4,11 +4,12 @@ import {
   GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { createXai } from "@ai-sdk/xai";
 import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
 import { createOpenRouter, OpenRouterChatSettings } from "@openrouter/ai-sdk-provider";
 
-export type Provider = "anthropic" | "google" | "openai" | "openrouter";
+export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai";
 
 /**
  * Optional LLM gateway URL (e.g. Bifrost: https://github.com/maximhq/bifrost,
@@ -25,12 +26,15 @@ const LLM_GATEWAY_URL = process.env.LLM_GATEWAY_URL?.replace(/\/$/, "");
  * NOTE: OpenRouter has no dedicated Bifrost route and rides the OpenAI
  * path. If you spawn an agent in a way where the runtime would override
  * the model to an OpenRouter model, you want the OpenAI suffix here too.
+ * xAI likewise rides the OpenAI-compat path (model id prefixed `xai/`
+ * in getModel), since Bifrost has no dedicated Grok route.
  */
 export const GATEWAY_PATHS: Record<Provider, string> = {
   anthropic: "/anthropic/v1",
   google: "/genai/v1beta",
   openai: "/openai/v1",
   openrouter: "/openai/v1",
+  xai: "/openai/v1",
 };
 
 export function getGatewayBaseURL(provider: Provider): string | undefined {
@@ -138,10 +142,11 @@ export const PROVIDERS: Provider[] = [
   "google",
   "openai",
   "openrouter",
+  "xai",
 ];
 
 // shortcuts to latest models
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "grok";
 
 type ModelId = string;
 
@@ -159,7 +164,10 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   },
   openrouter: {
     kimi: "moonshotai/kimi-k2.6"
-  }
+  },
+  xai: {
+    grok: "grok-4",
+  },
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
@@ -167,6 +175,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   google: MODELS.google.gemini!,
   openai: MODELS.openai.gpt!,
   openrouter: MODELS.openrouter.kimi!,
+  xai: MODELS.xai.grok!,
 };
 
 // Light/cheap models for batch operations (descriptions, learnings, etc.)
@@ -175,6 +184,7 @@ const LIGHT_MODELS: Record<Provider, string> = {
   google: "gemini-2.0-flash",
   openai: "gpt-4.1-mini",
   openrouter: "moonshotai/kimi-k2.6",
+  xai: "grok-4-fast-non-reasoning",
 };
 
 export function getLightModelForProvider(provider: Provider): string {
@@ -227,6 +237,8 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "google";
     case "gpt":
       return "openai";
+    case "grok":
+      return "xai";
     // Full model IDs
     case "claude-sonnet-5":
     case "claude-opus-4-6":
@@ -239,6 +251,13 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
     case "gpt-4.1-mini":
       return "openai";
     default:
+      // Any bare Grok model id (grok-4, grok-4-fast-non-reasoning,
+      // grok-code-fast-1, ...) goes to xAI. OpenRouter-hosted Grok is
+      // namespaced ("openrouter/x-ai/grok-4") and handled by the prefix
+      // parse above, so this only catches direct-API ids.
+      if (typeof modelName === "string" && modelName.toLowerCase().startsWith("grok")) {
+        return "xai";
+      }
       if (
         process.env.LLM_PROVIDER &&
         PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)
@@ -277,6 +296,8 @@ function lookupApiKeyForProvider(
       return normalizeApiKey(process.env.OPENAI_API_KEY);
     case "openrouter":
       return normalizeApiKey(process.env.OPENROUTER_API_KEY);
+    case "xai":
+      return normalizeApiKey(process.env.XAI_API_KEY);
     case "claude_code":
       return normalizeApiKey(process.env.CLAUDE_CODE_API_KEY);
     default:
@@ -401,6 +422,7 @@ export function getModel(
       "gemini",
       "gpt",
       "kimi",
+      "grok",
     ];
     if (knownShortcuts.includes(opts.modelName)) {
       modelId = getModelForProvider(provider, opts.modelName as ModelName);
@@ -500,6 +522,27 @@ export function getModel(
       };
       return openrouter(modelId, settings);
     }
+    case "xai": {
+      // Gatewayed Grok rides the OpenAI-compat route (GATEWAY_PATHS.xai is
+      // /openai/v1) with an `xai/`-prefixed model id, mirroring the google
+      // branch above. Direct calls use the official xAI provider, which maps
+      // usage (incl. cached prompt tokens) and hits https://api.x.ai/v1.
+      // Grok prompt caching is automatic prefix caching — nothing to set here;
+      // just keep the request prefix byte-stable across steps.
+      if (baseURL) {
+        const xaiCompat = createOpenAI({
+          apiKey,
+          baseURL,
+          ...(extraHeaders && { headers: extraHeaders }),
+        });
+        return xaiCompat.chat(`xai/${modelId}`);
+      }
+      const xai = createXai({
+        apiKey,
+        ...(extraHeaders && { headers: extraHeaders }),
+      });
+      return xai(modelId);
+    }
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -547,6 +590,18 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "moonshotai/kimi-k2.5": 262_144,
   "moonshotai/kimi-k2-thinking": 262_144,
   "moonshotai/kimi-k2": 131_072,
+  // xAI (and the same models via OpenRouter as x-ai/...). Getting these
+  // right matters beyond display: contextLimit drives truncateOldToolResults,
+  // and premature truncation rewrites old messages — which invalidates Grok's
+  // automatic prefix cache on every subsequent step.
+  "grok-4": 256_000,
+  "grok-4-fast": 2_000_000,
+  "grok-4-fast-reasoning": 2_000_000,
+  "grok-4-fast-non-reasoning": 2_000_000,
+  "grok-code-fast-1": 256_000,
+  "x-ai/grok-4": 256_000,
+  "x-ai/grok-4-fast": 2_000_000,
+  "x-ai/grok-code-fast-1": 256_000,
 };
 
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
@@ -554,6 +609,7 @@ const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
   google: 1_000_000,
   openai: 128_000,
   openrouter: 128_000,
+  xai: 256_000,
 };
 
 // Conservative fallback if both model and provider lookups miss
@@ -584,6 +640,15 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
   openrouter: {
     inputTokenPrice: 0.6,
     outputTokenPrice: 3.0,
+  },
+  // grok-4 rates. cacheReadPrice matters: computeSessionCost bills cache
+  // reads at full input price when it's absent, and Grok discounts cached
+  // prompt tokens 4x. (Grok has no cache-write charge — writes are billed
+  // as ordinary input, so no cacheWritePrice here.)
+  xai: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+    cacheReadPrice: 0.75,
   },
 };
 
@@ -700,6 +765,12 @@ export function getProviderOptions(
     case "openrouter":
       return {
         openrouter: { usage: { include: true } } satisfies OpenRouterChatSettings,
+      };
+    case "xai":
+      // Grok prompt caching is automatic (prefix-based, no breakpoints), so
+      // there is no cacheControl analog to send.
+      return {
+        xai: {},
       };
     default:
       throw new Error(`Unsupported provider: ${provider}`);
