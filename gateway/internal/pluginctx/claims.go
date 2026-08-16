@@ -14,6 +14,7 @@ const (
 	keyVerifiedClaims schemas.BifrostContextKey = "stakgraph-gateway/verified-claims"
 	keyLeafRunID      schemas.BifrostContextKey = "stakgraph-gateway/leaf-run-id"
 	keyLeafAgent      schemas.BifrostContextKey = "stakgraph-gateway/leaf-agent"
+	keyAccounted      schemas.BifrostContextKey = "stakgraph-gateway/usage-accounted"
 )
 
 // SetRawMacaroon stashes the raw x-macaroon header value extracted
@@ -78,4 +79,19 @@ func LeafAgent(ctx *schemas.BifrostContext) string {
 		return v
 	}
 	return ""
+}
+
+// MarkAccounted claims this request's single phase-6 accounting
+// slot. Returns true exactly once per request; false on every later
+// call. Guards against double-counting when more than one hook site
+// could plausibly account the same call — PostLLMHook vs the
+// final stream chunk, an error surfaced in both, or a provider that
+// emits usage on more than one chunk. Hooks for one request run
+// sequentially, so a plain read-then-write is race-free here.
+func MarkAccounted(ctx *schemas.BifrostContext) bool {
+	if v, ok := ctx.Value(keyAccounted).(bool); ok && v {
+		return false
+	}
+	ctx.SetValue(keyAccounted, true)
+	return true
 }
