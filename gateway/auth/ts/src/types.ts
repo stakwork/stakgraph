@@ -206,6 +206,21 @@ export interface EffectiveCaveats {
   exp: string;
 }
 
+/**
+ * One budgeted layer of the verified chain: the invocation first,
+ * then each attenuation in order. Phase-6 enforcement walks this for
+ * the per-run accumulators (`cost:run:<run_id>` per layer) and the
+ * cap walk (each layer's spend vs its own `max_cost_usd`). The last
+ * element's `run_id` always equals `Claims.run_id` (the leaf).
+ */
+export interface ChainLayer {
+  run_id: string;
+  max_cost_usd: number;
+  max_steps: number;
+  /** The layer's own expiry (RFC 3339) — TTL axis for its Redis keys. */
+  exp: string;
+}
+
 export interface Claims {
   org_id: string;
   user_id: string;
@@ -228,6 +243,12 @@ export interface Claims {
    * is a design choice, not missing data.
    */
   ua_budget: Budget | null;
+  /** `user_authorization.iat` — the revoke_user_before comparison axis. */
+  ua_iat: string;
+  /** `user_authorization.exp` — TTL axis for the `cost:ua` accumulator. */
+  ua_exp: string;
+  /** Budgeted layers, outermost first: invocation, then attenuations. */
+  chain: ChainLayer[];
   /**
    * Sorted list of realm-ids the verified chain authorizes spend
    * on. Derived from `effective_caveats.budget.realm_budgets` —

@@ -200,6 +200,22 @@ type EffectiveCaveats struct {
 	Exp        string
 }
 
+// ChainLayer is one budgeted layer of the verified macaroon chain:
+// the invocation first, then each attenuation in order. Phase-6
+// enforcement walks this to accumulate per-run cost/steps
+// (PostLLMHook writes cost:run:<RunID> for every layer) and to cap
+// each layer's spend against its own MaxCostUSD (PreLLMHook cap
+// walk). Exp is the layer's own expiry, RFC 3339 — the TTL axis for
+// that layer's Redis keys.
+//
+// The last element's RunID always equals Claims.RunID (the leaf).
+type ChainLayer struct {
+	RunID      string
+	MaxCostUSD float64
+	MaxSteps   int
+	Exp        string
+}
+
 // Claims is the verified output of Verify. Adapters stamp this on
 // their plugin context for downstream hooks.
 //
@@ -209,7 +225,9 @@ type EffectiveCaveats struct {
 // attenuation processing. UABudget is nil when the UA carried no
 // budget — adapters MUST treat nil as "no UA-level cap" rather than
 // substituting defaults; absent budget is a design choice, not
-// missing data.
+// missing data. UAIAT/UAExp carry the UA's own validity window:
+// UAIAT is the comparison axis for revoke_user_before enforcement,
+// UAExp the TTL axis for the cost:ua accumulator.
 //
 // Phase 11:
 //   - Realm (the singular invocation realm) is gone.
@@ -226,9 +244,12 @@ type Claims struct {
 	AgentName        string // last element of the final agents list
 	RunID            string // innermost attenuation's run_id, or invocation's if none
 	EffectiveCaveats EffectiveCaveats
-	UANonce          string   // ua.nonce; key for cost:ua:<nonce>
-	UABudget         *Budget  // nil if UA carried no budget
-	PermittedRealms  []string // sorted keys of EffectiveCaveats.Budget.RealmBudgets, or nil
-	Nonces           []string // [ua.nonce, inv.nonce, atts[*].caveats.nonce]
-	IAT              string   // invocation.iat
+	UANonce          string       // ua.nonce; key for cost:ua:<nonce>
+	UABudget         *Budget      // nil if UA carried no budget
+	UAIAT            string       // ua.iat; revoke_user_before comparison axis
+	UAExp            string       // ua.exp; TTL axis for cost:ua:<nonce>
+	Chain            []ChainLayer // invocation first, then attenuations in order; last is the leaf
+	PermittedRealms  []string     // sorted keys of EffectiveCaveats.Budget.RealmBudgets, or nil
+	Nonces           []string     // [ua.nonce, inv.nonce, atts[*].caveats.nonce]
+	IAT              string       // invocation.iat
 }
