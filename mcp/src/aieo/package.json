@@ -15,7 +15,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "try": "ts-node ./src/test/try.ts",
     "try-anthropic": "ts-node ./src/test/try-anthropic.ts",
-    "try-kimi": "ts-node ./src/test/try-kimi.ts"
+    "try-kimi": "ts-node ./src/test/try-kimi.ts",
+    "try-grok": "tsx ./src/test/try-grok.ts"
   },
   "keywords": [
     "llm",
@@ -28,6 +29,7 @@
     "@ai-sdk/anthropic": "3.0.105",
     "@ai-sdk/google": "3.0.67",
     "@ai-sdk/openai": "3.0.61",
+    "@ai-sdk/xai": "3.0.88",
     "@openrouter/ai-sdk-provider": "2.10.0",
     "ai": "6.0.175",
     "zod": "4.3.6"
