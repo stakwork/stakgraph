@@ -67,6 +67,7 @@ import {
   StepMeta,
   type SessionReflection,
 } from "./session.js";
+import { emitUserTurn, emitStepTurns } from "./turns.js";
 import { McpServer, getMcpTools, McpToolsResult } from "./mcpServers.js";
 import type { GoogleSheetsToolsOptions } from "./toolsGoogleSheets.js";
 import {
@@ -841,6 +842,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       const elapsedMs = now - lastStepTime;
       lastStepTime = now;
       logStep(sf.content, sessionId ?? "none", elapsedMs);
+      if (sessionId) emitStepTurns(sessionId, opts.source, sf.content);
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
@@ -925,6 +927,11 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     userMessage = { role: "user", content: userMessageContent as string };
     storageUserMessage = userMessage;
   }
+
+  // Mirror this run's user turn into the graph before the loop starts, so
+  // the chain grows in real time from turn 0. Uses the storage copy —
+  // attachment placeholders, not image bytes.
+  if (sessionId) emitUserTurn(sessionId, opts.source, storageUserMessage);
 
   return {
     agent,

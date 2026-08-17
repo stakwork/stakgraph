@@ -1625,6 +1625,92 @@ class Db {
     }
   }
 
+  /**
+   * Create the AgentSession node at session START (status 'running') so the
+   * turn chain has a HAS_TURN anchor from the first step and in-flight
+   * sessions are watchable. Also creates the (parent)-[:SPAWNED]->(child)
+   * edge when a parent session id is given. upsert_agent_session finalizes
+   * the same node at session end.
+   */
+  async create_agent_session_stub(params: {
+    session_id: string;
+    parent_session_id: string;
+    source: string;
+    repo: string;
+    start_time: number;
+  }): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.CREATE_AGENT_SESSION_STUB_QUERY, {
+        ...params,
+        ts: Date.now() / 1000,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Write a batch of Turn nodes for a session, chaining each to its
+   * predecessor with NEXT and anchoring turn 0 to the AgentSession with
+   * HAS_TURN. Idempotent: node_keys are deterministic, so re-emitting a
+   * turn updates it in place.
+   */
+  async upsert_turns(
+    session_id: string,
+    turns: Array<{
+      node_key: string;
+      prev_node_key: string | null;
+      turn_id: string;
+      turn_type: string;
+      order: number;
+      content: string;
+      tool: string | null;
+    }>,
+  ): Promise<void> {
+    if (turns.length === 0) return;
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.UPSERT_TURNS_QUERY, {
+        session_id,
+        turns,
+        ts: Date.now() / 1000,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Link tool_result Turns to the Concepts they read, as they happen.
+   * Unmatched concepts are skipped, not errors — same posture as the
+   * session-level edge sync.
+   */
+  async upsert_turn_concept_edges(
+    links: Array<{ turn_node_key: string; ref_id: string | null; id: string | null }>,
+  ): Promise<void> {
+    if (links.length === 0) return;
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.UPSERT_TURN_CONCEPT_EDGES_QUERY, { links });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Retype a run's final reasoning Turn to 'response' (matching the
+   * post-hoc workflow, which retypes the last assistant text turn).
+   */
+  async finalize_turn_response(node_key: string): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.FINALIZE_TURN_RESPONSE_QUERY, { node_key });
+    } finally {
+      await session.close();
+    }
+  }
+
   async upsert_agent_session(params: {
     session_id: string;
     parent_session_id: string;
