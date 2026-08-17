@@ -346,6 +346,12 @@ export async function list_sessions(req: Request, res: Response) {
   // Parse filter params
   const sourceParam = req.query.source ? String(req.query.source) : null;
   const repoParam = req.query.repo ? String(req.query.repo) : null;
+  // Substring match on the caller-assigned agent_name. Orchestrators embed
+  // the run id in agent names ("repair-agent-147813394"), so this is how a
+  // UI fetches every session of one benchmark run.
+  const agentNameParam = req.query.agent_name_contains
+    ? String(req.query.agent_name_contains)
+    : null;
   const rangeParam = req.query.range ? String(req.query.range) : null;
   const dayParam = req.query.day ? String(req.query.day) : null;
 
@@ -369,6 +375,7 @@ export async function list_sessions(req: Request, res: Response) {
         offset,
         source: sourceParam,
         repo: repoParam,
+        agent_name_contains: agentNameParam,
         since,
         until,
       });

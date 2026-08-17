@@ -1844,10 +1844,19 @@ class Db {
     offset?: number;
     source?: string | null;
     repo?: string | null;
+    agent_name_contains?: string | null;
     since?: number | null;
     until?: number | null;
   } = {}): Promise<Array<any & { child_count: number }>> {
-    const { limit = 100, offset = 0, source = null, repo = null, since = null, until = null } = opts;
+    const {
+      limit = 100,
+      offset = 0,
+      source = null,
+      repo = null,
+      agent_name_contains = null,
+      since = null,
+      until = null,
+    } = opts;
     const session = this.resilientSession();
     try {
       const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY, {
@@ -1855,6 +1864,7 @@ class Db {
         offset: neo4j.int(offset),
         source: source ?? null,
         repo: repo ?? null,
+        agent_name_contains: agent_name_contains ?? null,
         since: since != null ? neo4j.int(since) : null,
         until: until != null ? neo4j.int(until) : null,
       });

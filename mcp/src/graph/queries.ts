@@ -452,6 +452,7 @@ MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
   AND ($source IS NULL OR n.source = $source)
   AND ($repo IS NULL OR toLower(n.repo) CONTAINS toLower($repo))
+  AND ($agent_name_contains IS NULL OR toLower(coalesce(n.agent_name, '')) CONTAINS toLower($agent_name_contains))
   AND ($since IS NULL OR n.start_time >= toInteger($since))
   AND ($until IS NULL OR n.start_time < toInteger($until))
   AND NOT (n.source = 'unknown' AND n.total_tokens = 0 AND n.duration_ms = 0)
