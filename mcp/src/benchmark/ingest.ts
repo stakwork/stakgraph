@@ -196,9 +196,27 @@ export async function append_turns(req: Request, res: Response) {
           repo: c.repo ?? null,
         })),
       );
-      const concepts_linked =
-        links.length > 0 ? await db!.upsert_turn_concept_edges(links) : 0;
-      return { turns, written, concepts_submitted: links.length, concepts_linked };
+      // Concept links are best-effort, exactly as in the live emitter: the
+      // turns already landed, so failing the request here would tell the
+      // caller to retry a batch that is now in the graph — and since order
+      // comes from the chain head, that retry would duplicate it.
+      let concepts_linked = 0;
+      let concepts_error: string | undefined;
+      if (links.length > 0) {
+        try {
+          concepts_linked = await db!.upsert_turn_concept_edges(links);
+        } catch (e) {
+          console.error("[ingest] concept edge write failed:", e);
+          concepts_error = "concept links failed to write; the turns landed";
+        }
+      }
+      return {
+        turns,
+        written,
+        concepts_submitted: links.length,
+        concepts_linked,
+        concepts_error,
+      };
     });
 
     if (!result) {
@@ -217,6 +235,7 @@ export async function append_turns(req: Request, res: Response) {
       // linked gap is the caller's signal that its identifiers are wrong.
       concepts_submitted: result.concepts_submitted,
       concepts_linked: result.concepts_linked,
+      ...(result.concepts_error ? { warning: result.concepts_error } : {}),
       turns: result.turns.map((t) => ({
         order: t.order,
         turn_id: t.turn_id,

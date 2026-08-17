@@ -25,7 +25,7 @@ All bodies are JSON. All writes are idempotent unless noted.
 POST /api/sessions
 {
   "session_id": "hive-run-8f21",   // required; your id, becomes the node key
-  "source": "hive",                 // shows up as the session's source facet
+  "source": "hive",                 // the session's source facet; defaults to "external"
   "repo": "stakwork/hive",          // optional
   "agent_name": "planner",          // optional; free-form label for grouping runs
   "parent_session_id": "...",       // optional; creates (parent)-[:SPAWNED]->(this)
@@ -121,6 +121,7 @@ POST /api/sessions/:id/end
   "error_message": "",              // optional
   "model": "claude-opus-5",         // optional; provider is derived when omitted
   "provider": "anthropic",          // optional
+  "repo": "stakwork/hive",          // optional; keeps what /sessions recorded when omitted
   "end_time": 1755400123000,        // optional epoch ms, defaults to now
   "duration_ms": 123000,            // optional, defaults to end_time - start_time
   "usage": { "input_tokens": 0, "output_tokens": 0,
@@ -153,7 +154,7 @@ POST /api/sessions/:id/concepts
 Identifiers resolve exactly as in [Identifying concepts](#identifying-concepts).
 
 Full-state mirror, not a merge: every call overwrites the edge properties, and a `null`
-`rank` clears it. Send the complete list each time.
+`rank` clears it. Send the complete list each time — up to 1000 concepts per call.
 
 ## Reading it back
 
@@ -169,10 +170,20 @@ GET /api/sessions?source=hive                          # list runs
 
 | code | meaning |
 |---|---|
-| 400 | malformed body (bad `turn_type`, empty batch, batch > 500, `start_order` < 0, bad session id) |
+| 400 | malformed body (bad `turn_type` or `status`, empty batch, batch > 500, > 1000 concepts, `start_order` < 0, bad session id) |
 | 401 | missing/invalid API token |
 | 404 | session node doesn't exist — `POST /api/sessions` first |
+| 500 | the graph write failed |
 | 503 | graph unavailable |
+
+**Retries.** `/sessions` and `/sessions/:id/turns` are safe to retry verbatim: a `500`
+from `/turns` means the batch itself didn't land (one atomic statement), and a failure
+to attach concept links doesn't fail the request — it returns `201` with a `warning`
+and `concepts_linked: 0`, because the turns are already in the graph and re-posting
+them would number a second copy from the new chain head.
+
+`/end` is the exception: token counts accumulate, so on a `500` the totals may already
+have landed. Retry it with `usage` omitted.
 
 ## Minimal flow
 
