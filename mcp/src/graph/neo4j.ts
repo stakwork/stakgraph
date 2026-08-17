@@ -1148,6 +1148,10 @@ class Db {
       await session.run(
         "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)",
       );
+      // Turn.session_id backs the polling endpoint's flat per-session lookup.
+      await session.run(
+        "CREATE INDEX turn_session_id_index IF NOT EXISTS FOR (n:Turn) ON (n.session_id)",
+      );
     } finally {
       if (session) {
         await session.close();
@@ -1702,6 +1706,52 @@ class Db {
     const session = this.resilientSession();
     try {
       await session.run(Q.UPSERT_TURN_CONCEPT_EDGES_QUERY, { links });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * A session's turns after a cursor, in order, each with the Concepts it
+   * read. `after: -1` returns the chain from the start.
+   */
+  async get_session_turns(
+    session_id: string,
+    after: number,
+    limit: number,
+  ): Promise<
+    Array<{
+      order: number;
+      turn_id: string;
+      turn_type: string;
+      tool: string | null;
+      tool_call_id: string | null;
+      content: string;
+      timestamp: number | null;
+      concepts: Array<{ ref_id?: string; id?: string; name?: string }>;
+    }>
+  > {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.GET_SESSION_TURNS_QUERY, {
+        session_id,
+        after: neo4j.int(after),
+        limit: neo4j.int(limit),
+      });
+      return result.records.map((rec) => {
+        const t = rec.get("t").properties;
+        const ts = toNum(t.timestamp);
+        return {
+          order: toNum(t.order),
+          turn_id: String(t.turn_id ?? ""),
+          turn_type: String(t.turn_type ?? ""),
+          tool: t.tool != null ? String(t.tool) : null,
+          tool_call_id: t.tool_call_id != null ? String(t.tool_call_id) : null,
+          content: String(t.content ?? ""),
+          timestamp: ts > 0 ? ts : null,
+          concepts: rec.get("concepts") ?? [],
+        };
+      });
     } finally {
       await session.close();
     }

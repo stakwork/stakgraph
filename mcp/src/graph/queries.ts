@@ -370,6 +370,7 @@ UNWIND $turns AS t
 MERGE (n:Turn:${Data_Bank} {node_key: t.node_key})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default'
 SET n:Node,
+    n.session_id = $session_id,
     n.turn_id = t.turn_id,
     n.turn_type = t.turn_type,
     n.order = toInteger(t.order),
@@ -424,6 +425,22 @@ MATCH (n:Turn {node_key: $node_key})
 WHERE n.turn_type = 'reasoning'
 SET n.turn_type = 'response'
 RETURN count(n) AS updated
+`;
+
+// Polling workhorse for the live-session UI: everything after a cursor, in
+// order, with the Concepts each turn read. A flat indexed lookup on
+// Turn.session_id rather than a HAS_TURN/NEXT traversal — cheaper on every
+// poll and robust to chain gaps. Only turns our emitters wrote carry
+// session_id; the legacy workflow's orphan chains (never session-anchored
+// anyway) are invisible here by construction.
+export const GET_SESSION_TURNS_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+WHERE toInteger(t.order) > toInteger($after)
+OPTIONAL MATCH (t)-[:READ_CONCEPT]->(c:Concept)
+WITH t, [x IN collect(c) WHERE x IS NOT NULL | {ref_id: x.ref_id, id: x.id, name: x.name}] AS concepts
+RETURN t, concepts
+ORDER BY toInteger(t.order) ASC
+LIMIT toInteger($limit)
 `;
 
 export const LIST_AGENT_SESSIONS_QUERY = `

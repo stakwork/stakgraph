@@ -18,6 +18,85 @@ fs.mkdirSync(tmpSessionsDir, { recursive: true });
 process.env.SESSIONS_DIR = tmpSessionsDir;
 process.env.NO_DB = "true";
 
+/** Minimal express Response double capturing the JSON body and status. */
+function mockRes() {
+  const captured: { status: number; body: any } = { status: 200, body: null };
+  const res: any = {
+    status(code: number) {
+      captured.status = code;
+      return res;
+    },
+    json(body: any) {
+      captured.body = body;
+      return res;
+    },
+  };
+  return { res, captured };
+}
+
+test.describe("GET /api/sessions/:id/turns", () => {
+  test("cursor semantics via the transcript fallback (NO_DB)", async () => {
+    const { createSession, appendMessages, saveSessionConfig } = await import(
+      "../session.js"
+    );
+    const { get_session_turns } = await import("../../benchmark/sessions.js");
+
+    const id = createSession(`turns-ep-${randomUUID().slice(0, 8)}`);
+    saveSessionConfig(id, { source: "repo_agent", temperature: 0 } as any);
+    appendMessages(id, [
+      { role: "user", content: "list the files" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Listing now." },
+          { type: "tool-call", toolCallId: "c1", toolName: "bash", input: { command: "ls" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "c1", toolName: "bash", output: { type: "text", value: "a.ts b.ts" } },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Two files." }] },
+    ] as any);
+
+    // History load: everything from the start.
+    const full = mockRes();
+    await get_session_turns({ params: { id }, query: {} } as any, full.res);
+    expect(full.captured.status).toBe(200);
+    expect(full.captured.body.turn_count).toBe(5);
+    expect(full.captured.body.status).toBe("unknown"); // no graph under NO_DB
+    expect(full.captured.body.turns.map((t: any) => t.turn_type)).toEqual([
+      "user_input",
+      "reasoning",
+      "tool_call",
+      "tool_result",
+      "response",
+    ]);
+    // Agent label came from the config sidecar, like live emission would.
+    expect(full.captured.body.turns[0].turn_id).toBe(`repo_agent-${id}-turn-0`);
+
+    // Poll: only what's after the cursor.
+    const delta = mockRes();
+    await get_session_turns(
+      { params: { id }, query: { after: "2" } } as any,
+      delta.res,
+    );
+    expect(delta.captured.body.turns.map((t: any) => t.order)).toEqual([3, 4]);
+  });
+
+  test("404 for a session that exists nowhere", async () => {
+    const { get_session_turns } = await import("../../benchmark/sessions.js");
+    const { res, captured } = mockRes();
+    await get_session_turns(
+      { params: { id: "no-such-session" }, query: {} } as any,
+      res,
+    );
+    expect(captured.status).toBe(404);
+  });
+});
+
 test.describe("turn backfill", () => {
   test("no-ops without a db and writes no marker", async () => {
     const { backfillTurns } = await import("../turnBackfill.js");
