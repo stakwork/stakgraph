@@ -141,7 +141,7 @@ test.describe("turn emission", () => {
     ]);
 
     const result = turns.find((t) => t.turn_type === "tool_result")!;
-    expect(result.concepts).toEqual([{ ref_id: "abc-123", id: "gitree-9" }]);
+    expect(result.concepts).toEqual([{ ref_id: "abc-123", id: "gitree-9", repo: null }]);
     // Non-concept turns carry none.
     expect(turns.find((t) => t.turn_type === "tool_call")!.concepts).toEqual([]);
   });
@@ -256,7 +256,8 @@ test.describe("turn emission", () => {
 
     const turns = turnsFromTranscript("s2", "hive", messages);
     expect(turns.map((t) => t.turn_type)).toEqual(["user_input", "tool_call", "tool_result"]);
-    expect(turns[2].concepts).toEqual([{ ref_id: "r-1", id: "g-1" }]);
+    // `repo` rides along so a bare gitree id can still resolve to a node.
+    expect(turns[2].concepts).toEqual([{ ref_id: "r-1", id: "g-1", repo: null }]);
   });
 
   test("markTranscriptEmitted leaves the cursor a live resume continues from", async () => {

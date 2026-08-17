@@ -315,7 +315,7 @@ MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
   n.source = $source, n.repo = $repo, n.model = $model, n.provider = $provider,
-  n.agent_name = $agent_name,
+  n.agent_name = $agent_name, n.spawn_tool_call_id = $spawn_tool_call_id,
   n.start_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
@@ -324,6 +324,7 @@ SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.pare
     n.model = CASE WHEN $model = '' THEN coalesce(n.model, '') ELSE $model END,
     n.provider = CASE WHEN $provider = '' THEN coalesce(n.provider, '') ELSE $provider END,
     n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
+    n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END,
     n.end_time = toInteger($end_time),
     n.repo = $repo,
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
@@ -347,13 +348,14 @@ MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
   n.source = $source, n.repo = $repo, n.model = '', n.provider = '',
-  n.agent_name = $agent_name,
+  n.agent_name = $agent_name, n.spawn_tool_call_id = $spawn_tool_call_id,
   n.start_time = toInteger($start_time), n.end_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'running', n.error_message = ''
 SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
-    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END
+    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
+    n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END
 WITH n
 OPTIONAL MATCH (p:AgentSession {node_key: $parent_session_id})
 FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | MERGE (p)-[:SPAWNED]->(n))
@@ -401,23 +403,71 @@ SET s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
 RETURN written
 `;
 
+// How a caller's concept identifier is resolved to a Concept node.
+//
+// Mirrors GraphStorage.getConcept — the resolution every gitree read already
+// goes through (`f.id = <repo-prefixed id> OR f.node_key OR f.ref_id`), so an
+// identifier that reached a Concept's body can also reach its edge. That
+// matters most for out-of-process callers: `GET /gitree/concepts/:id` returns
+// no ref_id, so an external agent (hive) only ever holds the gitree id it
+// read with — which may be a bare slug, a node_key, or a ref_id, all of which
+// that endpoint accepts. Under a strict `c.id = link.id` match those reads
+// silently produced no edge.
+//
+// Preference order is strictest-first (exact ref_id, then exact id, then the
+// looser forms) so a widened match can never outrank an exact one.
+const CONCEPT_LINK_MATCH = `
+WHERE (link.ref_id IS NOT NULL AND c.ref_id = link.ref_id)
+   OR (link.id IS NOT NULL AND (
+         c.id = link.id
+         OR c.node_key = link.id
+         OR c.ref_id = link.id
+         OR (link.repo IS NOT NULL AND c.id = link.repo + '/' + link.id)))
+`;
+const CONCEPT_LINK_PICK = `
+head([m IN matches WHERE link.ref_id IS NOT NULL AND m.ref_id = link.ref_id]
+   + [m IN matches WHERE link.id IS NOT NULL AND m.id = link.id]
+   + matches)
+`;
+
 // Live per-turn provenance: WHICH moment of the session read a Concept.
 // Complements the session-level ranked rollup (UPSERT_SESSION_CONCEPT_EDGES_
-// QUERY) — same concept matching (ref_id leads, gitree id as fallback), but
-// no judgment props: the turn edge records the fact, the session edge the
-// reflection's verdict.
+// QUERY) — same concept matching, but no judgment props: the turn edge
+// records the fact, the session edge the reflection's verdict.
 export const UPSERT_TURN_CONCEPT_EDGES_QUERY = `
 UNWIND $links AS link
 MATCH (t:Turn {node_key: link.turn_node_key})
 OPTIONAL MATCH (c:Concept)
-WHERE (link.ref_id IS NOT NULL AND c.ref_id = link.ref_id)
-   OR (link.id IS NOT NULL AND c.id = link.id)
+${CONCEPT_LINK_MATCH}
 WITH t, link, collect(c) AS matches
-WITH t, head([m IN matches WHERE link.ref_id IS NOT NULL AND m.ref_id = link.ref_id] + matches) AS c
+WITH t, ${CONCEPT_LINK_PICK} AS c
 WHERE c IS NOT NULL
 MERGE (t)-[r:READ_CONCEPT]->(c)
 ON CREATE SET r.weight = 1
 RETURN count(r) AS linked
+`;
+
+// Highest-order Turn of a session — the chain head. External ingest reads it
+// to place the next batch (and to recover the agent label from turn_id), so
+// the graph itself is the order cursor for out-of-process agents: no sidecar,
+// no server-side session state, and a caller that crashes mid-run resumes
+// exactly where it stopped.
+export const GET_TURN_CHAIN_HEAD_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+RETURN t.turn_id AS turn_id, toInteger(t.order) AS max_order
+ORDER BY toInteger(t.order) DESC
+LIMIT 1
+`;
+
+// finalizeTurns' counterpart for sessions with no in-process emitter state:
+// find this session's last 'reasoning' turn in the graph and retype it, so an
+// ingested chain ends in a 'response' like every other one.
+export const FINALIZE_LAST_REASONING_TURN_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+WHERE t.turn_type = 'reasoning'
+WITH t ORDER BY toInteger(t.order) DESC LIMIT 1
+SET t.turn_type = 'response'
+RETURN t.node_key AS node_key
 `;
 
 // The backfill workflow retypes the last assistant text turn from 'reasoning'
@@ -563,26 +613,24 @@ RETURN n
 // Index a session's concept reflection as edges. The reflection sidecar file
 // is the source of truth; these edges mirror its fully-merged state on every
 // sync, so plain SET (not coalesce) is correct here — a null rank clears the
-// edge property exactly as the sidecar says. Matching prefers the graph ref_id
-// and falls back to the gitree id; a concept regenerated under a new ref_id
+// edge property exactly as the sidecar says. Matching is CONCEPT_LINK_MATCH,
+// shared with the per-turn edges; a concept regenerated under a new ref_id
 // simply stops matching (the sidecar still holds the record), and the MATCH on
 // the session node (never MERGE — see the guard in appendSessionEnd) makes the
 // whole write a no-op until the AgentSession node exists.
 export const UPSERT_SESSION_CONCEPT_EDGES_QUERY = `
 MATCH (s:AgentSession {node_key: $session_id})
-UNWIND $concepts AS con
+UNWIND $concepts AS link
 OPTIONAL MATCH (c:Concept)
-WHERE (con.ref_id IS NOT NULL AND c.ref_id = con.ref_id)
-   OR (con.id IS NOT NULL AND c.id = con.id)
-WITH s, con, collect(c) AS matches
-WITH s, con,
-     head([m IN matches WHERE con.ref_id IS NOT NULL AND m.ref_id = con.ref_id] + matches) AS c
+${CONCEPT_LINK_MATCH}
+WITH s, link, collect(c) AS matches
+WITH s, link, ${CONCEPT_LINK_PICK} AS c
 WHERE c IS NOT NULL
 MERGE (s)-[r:READ_CONCEPT]->(c)
-SET r.read_order = toInteger(con.read_order),
-    r.rank = toInteger(con.rank),
-    r.evidence = con.evidence,
-    r.contradicts = con.contradicts
+SET r.read_order = toInteger(link.read_order),
+    r.rank = toInteger(link.rank),
+    r.evidence = link.evidence,
+    r.contradicts = link.contradicts
 RETURN count(r) AS linked
 `;
 

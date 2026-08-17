@@ -64,6 +64,7 @@ function buildOrphanRun(dir: string, file: string) {
     parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
     agent_name: "",
+    spawn_tool_call_id: "",
     provider: "",
     model: "",
     repo: "",
@@ -228,6 +229,9 @@ function buildRunFromNode(s: any, dir: string) {
     parent_session_id: String(s.parent_session_id ?? ""),
     source: String(s.source ?? "unknown"),
     agent_name: String(s.agent_name ?? ""),
+    // Sub-agents only: the parent tool call that spawned this run. Joins to
+    // the Turn in the parent's chain carrying the same tool_call_id.
+    spawn_tool_call_id: String(s.spawn_tool_call_id ?? ""),
     repo: String(s.repo ?? ""),
     provider: prov,
     model: mod,
@@ -485,6 +489,7 @@ async function buildFullSession(
           parent_session_id: String(s.parent_session_id ?? ""),
           source: String(s.source ?? "unknown"),
           agent_name: String(s.agent_name ?? ""),
+          spawn_tool_call_id: String(s.spawn_tool_call_id ?? ""),
           repo: String(s.repo ?? ""),
           provider: prov,
           model: mod,

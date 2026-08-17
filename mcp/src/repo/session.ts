@@ -27,6 +27,7 @@ const sessionMeta = new Map<
     repo?: string;
     parent_session_id?: string;
     agent_name?: string;
+    spawn_tool_call_id?: string;
   }
 >();
 
@@ -120,6 +121,13 @@ export function createSession(
   repo?: string,
   parentSessionId?: string,
   agentName?: string,
+  /**
+   * For sub-agent sessions: the id of the parent's tool call that spawned
+   * this run. Pins the child to the exact Turn in the parent's chain (Turn
+   * nodes carry `tool_call_id`), which a prompt-text match can only
+   * approximate — two sub-agents can be handed identical prompts.
+   */
+  spawnToolCallId?: string,
 ): string {
   // Defense in depth against non-string ids from callers that skipped the
   // route-level coercion — a numeric id poisons the Neo4j node_key type.
@@ -130,6 +138,7 @@ export function createSession(
     repo,
     parent_session_id: parentSessionId,
     agent_name: agentName,
+    spawn_tool_call_id: spawnToolCallId,
   });
   // Stub the AgentSession node now (status 'running') rather than waiting for
   // appendSessionEnd: live turn chains need a HAS_TURN anchor, sub-agents get
@@ -142,6 +151,7 @@ export function createSession(
       source: source || "unknown",
       repo: repo || "",
       agent_name: agentName || "",
+      spawn_tool_call_id: spawnToolCallId || "",
       start_time: Date.now(),
     })
     .catch((e) => console.error("[sessions] Neo4j stub creation failed:", e));
@@ -190,6 +200,7 @@ export async function appendSessionEnd(
       source: stored.source,
       repo: stored.repo || "",
       agent_name: stored.agent_name || "",
+      spawn_tool_call_id: stored.spawn_tool_call_id || "",
       model: opts.model || "",
       provider: resolvedProvider,
       start_time,
