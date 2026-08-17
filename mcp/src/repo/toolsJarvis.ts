@@ -384,10 +384,12 @@ export interface JarvisToolsOptions {
    */
   ontologyEdit?: boolean;
   /**
-   * When true, registers the `create_triplet` graph DATA write tool, which
-   * asserts source -[edge]-> target instance facts (creating/merging nodes as
-   * needed) via Jarvis `/v2/nodes` + `/v2/edges`. Distinct from `ontologyEdit`
-   * (schema writes). Opt-in and off by default.
+   * When true, registers the graph DATA write tools: `create_triplet` /
+   * `create_batch_triplet` (assert source -[edge]-> target instance facts,
+   * creating/merging nodes as needed), `create_node` (create/merge a single
+   * node without an edge) and `edit_node` (partial-update an existing node by
+   * ref_id) — all via Jarvis `/v2/nodes` + `/v2/edges`. Distinct from
+   * `ontologyEdit` (schema writes). Opt-in and off by default.
    */
   graphWrite?: boolean;
   /**
@@ -1035,8 +1037,10 @@ export function extractEdgeRefId(body: any): string | undefined {
 }
 
 /**
- * Register the graph DATA write tool (`create_triplet`): assert a fact as
- * source -[edge]-> target instance data (not schema). Gated by
+ * Register the graph DATA write tools: `create_triplet`/`create_batch_triplet`
+ * (assert a fact as source -[edge]-> target instance data, not schema),
+ * `create_node` (create/merge one node without an edge) and `edit_node`
+ * (partial-update an existing node by ref_id). Gated by
  * `JarvisToolsOptions.graphWrite`.
  *
  * Inline nodes are pre-created via `POST /v2/nodes` and the edge is then
@@ -1650,7 +1654,200 @@ function registerGraphWriteTools(
     },
   });
 
-  console.log("===> registered graph write tool: create_triplet + create_batch_triplet");
+  // ── create_node ───────────────────────────────────────────────────────────
+  allTools.create_node = tool({
+    description:
+      "Create (or merge) a SINGLE node in the Jarvis knowledge graph as DATA, with no edge " +
+      "(to assert a relationship at the same time, use create_triplet instead). Writes live to the graph. " +
+      "REUSE existing nodes: graph_search first, and only create when the entity genuinely doesn't exist yet — " +
+      "duplicate nodes fragment the graph. The node type must already exist in the ontology " +
+      "(check with get_ontology; get_ontology_type shows its attributes and which are required). " +
+      "Create-or-merge semantics: if a node with the same identity key already exists, its ref_id is " +
+      "returned (reported as a Warning) instead of creating a duplicate — so re-running is safe.",
+    inputSchema: z.object({
+      node_type: z
+        .string()
+        .describe(
+          "Node type (must exist in the ontology — see get_ontology). " +
+          "Never pass the wildcard sentinel \"*\".",
+        ),
+      node_data: z
+        .record(z.string(), z.any())
+        .describe(
+          'Properties for the node, e.g. {"name": "Alice"}. ' +
+          "Must satisfy the type's schema, including its node_key attribute.",
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) to create the node in. Not an access-control boundary.",
+        ),
+    }),
+    execute: async (input: {
+      node_type: string;
+      node_data: Record<string, any>;
+      namespace?: string;
+    }) => {
+      const { node_type, node_data, namespace } = input;
+      console.log(`[create_node] type=${node_type} namespace=${namespace ?? "-"}`);
+      try {
+        const params = new URLSearchParams();
+        appendNamespace(params, namespace);
+        const qs = params.toString();
+        const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
+        const res = await jarvisMutate("post", url, jarvisHeaders, {
+          node_type,
+          node_data,
+        });
+        let body: any;
+        try {
+          body = JSON.parse(res.text);
+        } catch {
+          // non-JSON body — fall through to the error below
+        }
+        const refId = extractNodeRefId(body);
+        if (!refId) {
+          return `create_node failed — HTTP ${res.status}: ${res.text}`;
+        }
+        return JSON.stringify({
+          // "Warning" here means the node already existed (idempotent merge).
+          status: body?.status ?? "Success",
+          ref_id: refId,
+          node_type,
+          ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
+            ? { messages: body.status_messages }
+            : {}),
+        });
+      } catch (err: any) {
+        return `create_node failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  // ── edit_node ─────────────────────────────────────────────────────────────
+  allTools.edit_node = tool({
+    description:
+      "Update an EXISTING node in the Jarvis knowledge graph by ref_id (writes live to the graph). " +
+      "PARTIAL update: properties in node_data are merged over the node's current properties " +
+      "(validated against the type's schema) — properties you omit are left untouched. " +
+      "Use properties_to_be_deleted to remove properties entirely. " +
+      "Get the ref_id from graph_search, and inspect the node with graph_get first so you know its " +
+      "current state before changing it. " +
+      "Pass node_type ONLY to change the node's type (with type_to_be_deleted listing the old type " +
+      "label(s) to remove); omit both for normal property edits. " +
+      "If the update would change the node's identity key to collide with another node, the write " +
+      "fails with 'Node already exists in the graph'.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the node to update (from graph_search/graph_get)."),
+      node_data: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe(
+          'Properties to set/overwrite, e.g. {"description": "..."}. Merged over the node\'s ' +
+          "existing properties — omitted properties are untouched. Must satisfy the type's schema.",
+        ),
+      properties_to_be_deleted: z
+        .array(z.string())
+        .optional()
+        .describe("Property names to REMOVE from the node."),
+      node_type: z
+        .string()
+        .optional()
+        .describe(
+          "New node type — pass ONLY when changing the node's type (must exist in the ontology). " +
+          "Omit for property-only edits; the current type is inferred.",
+        ),
+      type_to_be_deleted: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "When changing the node's type: the old type label(s) to remove from the node.",
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) the node lives in. Not an access-control boundary.",
+        ),
+    }),
+    execute: async (input: {
+      ref_id: string;
+      node_data?: Record<string, any>;
+      properties_to_be_deleted?: string[];
+      node_type?: string;
+      type_to_be_deleted?: string[];
+      namespace?: string;
+    }) => {
+      const {
+        ref_id,
+        node_data,
+        properties_to_be_deleted,
+        node_type,
+        type_to_be_deleted,
+        namespace,
+      } = input;
+
+      const hasSet = node_data && Object.keys(node_data).length > 0;
+      const hasDelete = properties_to_be_deleted && properties_to_be_deleted.length > 0;
+      if (!hasSet && !hasDelete && !node_type) {
+        return (
+          "edit_node invalid input — pass at least one change: node_data (properties to set), " +
+          "properties_to_be_deleted, or node_type"
+        );
+      }
+
+      console.log(
+        `[edit_node] ref_id=${ref_id} set=${Object.keys(node_data ?? {}).length} ` +
+        `delete=${properties_to_be_deleted?.length ?? 0} namespace=${namespace ?? "-"}`,
+      );
+      try {
+        const params = new URLSearchParams();
+        appendNamespace(params, namespace);
+        const qs = params.toString();
+        const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}${qs ? `?${qs}` : ""}`;
+        // Always send node_data (even empty) — its presence selects Jarvis's
+        // modern schema-validated update path over the legacy flat-property one.
+        const res = await jarvisMutate("post", url, jarvisHeaders, {
+          node_data: node_data ?? {},
+          ...(hasDelete ? { properties_to_be_deleted } : {}),
+          ...(node_type ? { node_type } : {}),
+          ...(type_to_be_deleted && type_to_be_deleted.length > 0
+            ? { type_to_be_deleted }
+            : {}),
+        });
+        let body: any;
+        try {
+          body = JSON.parse(res.text);
+        } catch {
+          // non-JSON body — fall through to the error below
+        }
+        // Jarvis returns HTTP 200 with {status: "fail", message} on some write
+        // failures (e.g. node_key collision), so res.ok alone is not enough.
+        const succeeded = res.ok && body?.status === "success";
+        if (!succeeded) {
+          const detail = body?.message ?? body?.errorCode ?? res.text;
+          return `edit_node failed — HTTP ${res.status}: ${detail}`;
+        }
+        // Compact confirmation — deliberately NOT the full updated node, whose
+        // properties include bulky derived fields (Data_Bank search text etc.).
+        // The agent can graph_get the node if it needs to verify contents.
+        return JSON.stringify({
+          status: "Success",
+          ref_id,
+          ...(hasSet ? { updated: Object.keys(node_data!) } : {}),
+          ...(hasDelete ? { deleted: properties_to_be_deleted } : {}),
+          ...(node_type ? { node_type } : {}),
+        });
+      } catch (err: any) {
+        return `edit_node failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  console.log(
+    "===> registered graph write tools: create_triplet + create_batch_triplet + create_node + edit_node",
+  );
 }
 
 /**

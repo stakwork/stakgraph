@@ -109,6 +109,8 @@ type ToolName =
   | "graph_sub_agent"
   | "ontology_edit"
   | "create_triplet"
+  | "create_node"
+  | "edit_node"
   | "logs_agent"
   | "str_replace_based_edit_tool"
   | "apply_patch"
@@ -211,6 +213,20 @@ export function isToolConfigObject(v: unknown): v is ToolConfigObject {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Whether the graph DATA write tool family (create_triplet,
+ * create_batch_triplet, create_node, edit_node) is enabled. Any one of the
+ * family's toolsConfig keys turns on the whole family — they share one
+ * registration gate.
+ */
+export function graphWriteEnabled(toolsConfig?: ToolsConfig): boolean {
+  return (
+    toolConfigEnabled(toolsConfig?.create_triplet) ||
+    toolConfigEnabled(toolsConfig?.create_node) ||
+    toolConfigEnabled(toolsConfig?.edit_node)
+  );
+}
+
 /** Whether a tool-config value should count as "on" (for opt-in tools). */
 export function toolConfigEnabled(v: ToolConfigValue | undefined): boolean {
   if (v === undefined || v === null) return false;
@@ -236,7 +252,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "list_skills", "load_skill",
   "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
-  "graph_sub_agent", "ontology_edit", "create_triplet",
+  "graph_sub_agent", "ontology_edit", "create_triplet", "create_node", "edit_node",
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
   "stakwork_run_step",
@@ -356,7 +372,9 @@ Rules:
   jarvis: '', // deprecated: Jarvis tools now auto-register whenever JARVIS_URL is set.
   graph_sub_agent: '', // default lives in toolsJarvis.ts; string value here overrides it.
   ontology_edit: '', // group gate: registers the ontology write tools (defaults live in toolsJarvis.ts).
-  create_triplet: '', // gate: registers the graph data-write tool (default lives in toolsJarvis.ts).
+  create_triplet: '', // gate: registers the graph data-write tools (defaults live in toolsJarvis.ts). Any one of create_triplet/create_node/edit_node enables the whole family.
+  create_node: '', // gate: same graph data-write family as create_triplet.
+  edit_node: '', // gate: same graph data-write family as create_triplet.
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
   str_replace_based_edit_tool:
@@ -962,8 +980,9 @@ export async function get_tools(
       : undefined,
     // Opt-in ontology write tools (create/update/delete node & edge types).
     ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
-    // Opt-in graph data-write tool (assert source -[edge]-> target triplets).
-    graphWrite: toolConfigEnabled(toolsConfig?.create_triplet),
+    // Opt-in graph data-write tools (triplets + generic node create/edit).
+    // Any one of the family's keys enables all of them.
+    graphWrite: graphWriteEnabled(toolsConfig),
     // Scope get_ontology to the caller's `ontologyDomains`, unless the model
     // asks for specific `domains` itself. Unset => no filter, all domains.
     defaultDomains: ontologyDomains,
