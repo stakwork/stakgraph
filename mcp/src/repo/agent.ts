@@ -468,6 +468,11 @@ export interface GetContextOptions {
   onStepEvent?: (content: any[]) => void;
   // Source label persisted to the session file
   source?: string;
+  // Caller-assigned agent identity (e.g. "repair-agent-147813394"): stamped
+  // on the AgentSession node as agent_name and used as the turn_id label so
+  // a workflow's many agents are distinguishable in the graph. Orchestrators
+  // embed the run id in the name, which groups a run's sessions.
+  agentName?: string;
   // Write messages to the session but don't load prior messages as context
   isolatedContext?: boolean;
   // Abort signal for cancelling in-flight requests
@@ -754,10 +759,18 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
       previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
     } else {
-      sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
+      sessionId = createNewSession(
+        inputSessionId,
+        instructions,
+        opts.source,
+        repoLabel,
+        undefined,
+        opts.agentName,
+      );
       saveSessionConfig(sessionId, {
         model: modelId,
         provider,
+        agentName: opts.agentName,
         systemOverride: opts.systemOverride,
         mode: opts.mode,
         // Redacted: toolsConfig may carry google_sheets service-account creds
@@ -842,7 +855,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       const elapsedMs = now - lastStepTime;
       lastStepTime = now;
       logStep(sf.content, sessionId ?? "none", elapsedMs);
-      if (sessionId) emitStepTurns(sessionId, opts.source, sf.content);
+      if (sessionId) emitStepTurns(sessionId, opts.agentName || opts.source, sf.content);
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
@@ -930,8 +943,10 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
 
   // Mirror this run's user turn into the graph before the loop starts, so
   // the chain grows in real time from turn 0. Uses the storage copy —
-  // attachment placeholders, not image bytes.
-  if (sessionId) emitUserTurn(sessionId, opts.source, storageUserMessage);
+  // attachment placeholders, not image bytes. The agent label prefers the
+  // caller-assigned agentName ("repair-agent-<runid>"), falling back to the
+  // spawn source; either way it's fixed by the session's first emission.
+  if (sessionId) emitUserTurn(sessionId, opts.agentName || opts.source, storageUserMessage);
 
   return {
     agent,

@@ -1641,6 +1641,7 @@ class Db {
     parent_session_id: string;
     source: string;
     repo: string;
+    agent_name: string;
     start_time: number;
   }): Promise<void> {
     const session = this.resilientSession();
@@ -1775,6 +1776,7 @@ class Db {
     parent_session_id: string;
     source: string;
     repo: string;
+    agent_name: string;
     model: string;
     provider: string;
     start_time: number;

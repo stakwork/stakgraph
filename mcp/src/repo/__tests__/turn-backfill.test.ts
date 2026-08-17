@@ -107,12 +107,21 @@ test.describe("turn backfill", () => {
     ).toBe(false);
   });
 
-  test("agent label: config source, then -sub- pattern, then fallback", async () => {
+  test("agent label: agentName, then source, then -sub- pattern, then fallback", async () => {
     const { backfillAgentLabel } = await import("../turnBackfill.js");
     const { createSession, saveSessionConfig } = await import("../session.js");
 
-    // Top-level session with a config sidecar recording its source — the
-    // same value the live emitter stamps into turn_ids.
+    // Caller-assigned identity wins — it's what the live emitter labels
+    // turn_ids with when the workflow passes agentName.
+    const named = createSession(`named-${randomUUID().slice(0, 8)}`);
+    saveSessionConfig(named, {
+      agentName: "repair-agent-147813394",
+      source: "repo_agent",
+      temperature: 0,
+    } as any);
+    expect(backfillAgentLabel(named)).toBe("repair-agent-147813394");
+
+    // Without agentName, the recorded source — the live fallback.
     const top = createSession(`top-${randomUUID().slice(0, 8)}`);
     saveSessionConfig(top, { source: "repo_agent", temperature: 0 } as any);
     expect(backfillAgentLabel(top)).toBe("repo_agent");

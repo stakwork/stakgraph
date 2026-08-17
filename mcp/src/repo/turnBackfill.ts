@@ -77,13 +77,14 @@ function writeMarker(through_mtime: number): void {
 
 /**
  * The agent label for a session's turn_ids, matching what the live path
- * would have used: the source recorded in the config sidecar for top-level
- * runs, the literal "graph_sub_agent" for child sessions (which never get a
- * config sidecar), "agent" as the last resort — the same fallback the live
- * emitter applies when a run has no source.
+ * would have used: the caller-assigned agentName when the config sidecar
+ * recorded one, else the recorded source, the literal "graph_sub_agent" for
+ * child sessions (which never get a config sidecar), and "agent" as the
+ * last resort — the same precedence the live emitter applies.
  */
 export function backfillAgentLabel(sessionId: string): string {
   const config = loadSessionConfig(sessionId);
+  if (config?.agentName) return config.agentName;
   if (config?.source) return config.source;
   if (sessionId.includes("-sub-")) return "graph_sub_agent";
   return "agent";
