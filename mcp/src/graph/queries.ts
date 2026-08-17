@@ -464,6 +464,69 @@ ORDER BY n.start_time DESC
 SKIP toInteger($offset) LIMIT toInteger($limit)
 `;
 
+// One AgentSession node per session id. `node_key` has only an index, and
+// MERGE is not atomic across concurrent transactions without a constraint —
+// so a retried write that had actually committed (or two racing writes for
+// the same session) could leave two nodes with the same key, which then show
+// up as duplicate sessions and duplicate HAS_TURN anchors.
+export const AGENT_SESSION_KEY_CONSTRAINT_QUERY = `
+CREATE CONSTRAINT agent_session_key_unique IF NOT EXISTS
+FOR (n:AgentSession) REQUIRE n.node_key IS UNIQUE
+`;
+
+// Fold pre-existing duplicate AgentSession nodes into one, so the uniqueness
+// constraint above can be created. Runs only when that creation fails.
+//
+// The survivor is the node with the most relationships (duplicates are
+// otherwise identical — same start_time, same totals — since they come from
+// one logical write landing twice). Every edge type this codebase creates on
+// an AgentSession is re-pointed to the survivor with its properties intact
+// before the duplicate is removed, so no anchor, spawn link, or concept
+// edge is lost. MERGE makes re-pointing idempotent: an edge the survivor
+// already has is left alone.
+export const DEDUPE_AGENT_SESSIONS_QUERY = `
+MATCH (s:AgentSession)
+WITH s.node_key AS key, collect(s) AS nodes
+WHERE size(nodes) > 1
+UNWIND nodes AS n
+WITH key, n, size([(n)--() | 1]) AS deg
+ORDER BY deg DESC
+WITH key, collect(n) AS ranked
+WITH head(ranked) AS keeper, tail(ranked) AS dupes
+UNWIND dupes AS d
+CALL {
+  WITH keeper, d
+  MATCH (d)-[r:HAS_TURN]->(t)
+  MERGE (keeper)-[k:HAS_TURN]->(t)
+  SET k += properties(r)
+  RETURN count(*) AS moved_turns
+}
+CALL {
+  WITH keeper, d
+  MATCH (d)-[r:READ_CONCEPT]->(c)
+  MERGE (keeper)-[k:READ_CONCEPT]->(c)
+  SET k += properties(r)
+  RETURN count(*) AS moved_concepts
+}
+CALL {
+  WITH keeper, d
+  MATCH (d)-[r:SPAWNED]->(child)
+  MERGE (keeper)-[k:SPAWNED]->(child)
+  SET k += properties(r)
+  RETURN count(*) AS moved_children
+}
+CALL {
+  WITH keeper, d
+  MATCH (p)-[r:SPAWNED]->(d)
+  MERGE (p)-[k:SPAWNED]->(keeper)
+  SET k += properties(r)
+  RETURN count(*) AS moved_parents
+}
+WITH DISTINCT d
+DETACH DELETE d
+RETURN count(*) AS removed
+`;
+
 export const LIST_SESSION_FACETS_QUERY = `
 MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
