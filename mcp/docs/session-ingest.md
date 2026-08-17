@@ -53,6 +53,7 @@ POST /api/sessions/:id/turns
   ]
 }
 → 201 { "session_id": …, "written": 4, "next_order": 4,
+        "concepts_submitted": 1, "concepts_linked": 1,
         "turns": [{ "order": 0, "turn_id": "hive-…-turn-0", "node_key": "turn-…", "turn_type": "user_input" }, …] }
 ```
 
@@ -62,8 +63,10 @@ POST /api/sessions/:id/turns
   Pass `start_order` to pin it yourself (re-posting an order overwrites that turn).
 - One writer per session at a time. If you must post concurrently, pin `start_order`.
 - `timestamp` (epoch ms) is optional per turn; defaults to server receipt time.
-- `concepts` is optional per turn: `[{ "ref_id": … } | { "id": … }]` — gitree Concept
-  graph ref_id (preferred) or gitree id. Unmatched entries are skipped, not errors.
+- `concepts` is optional per turn — which gitree Concepts this turn read. See
+  [Identifying concepts](#identifying-concepts). Unmatched entries are skipped rather
+  than failing the batch; the response's `concepts_linked` vs `concepts_submitted` is
+  how you notice.
 - Max 500 turns per batch. Post one batch per agent step for a live feed.
 
 ### Mapping ai-sdk steps to turns
@@ -84,6 +87,30 @@ it to `response`.
 `tool_result` content is stored as `{"type":"text","value":<content>}` (or `"json"` for
 objects) truncated to 100 chars — parity with in-process sessions, and it keeps large
 payloads out of the graph. Other content is capped at 100k chars.
+
+### Identifying concepts
+
+Send whichever identifier the tool you read with actually gave you — the match mirrors
+gitree's own concept lookup, so anything that reached the concept's body also reaches
+its edge:
+
+| you have | send | where it comes from |
+|---|---|---|
+| graph `ref_id` | `{ "ref_id": "…" }` | `list_concepts` / `search-concepts` (both return `ref_id`) |
+| full gitree id | `{ "id": "owner/repo/slug" }` | `list_concepts`, and the id you pass to `learn_concept` |
+| bare slug | `{ "id": "slug", "repo": "owner/repo" }` | ids without a repo prefix — `repo` is what resolves them |
+| node_key | `{ "id": "…" }` | accepted as-is |
+
+`ref_id` wins when both are present. Note `GET /gitree/concepts/:id` returns **no**
+`ref_id` — an agent whose only concept read was `learn_concept` /
+`read_concept_documentation` holds just the id it asked with, so send that (plus `repo`
+if it was unprefixed). If you want the ranking layer too, capture `ref_id` from
+`list_concepts` while you have it.
+
+Record the concept on the **`tool_result`** turn that returned its body — the turn edge
+marks the moment it was read. Tools that only list names and descriptions
+(`list_concepts`, `read_concepts_for_repo`, search) are not reads; recording them makes
+every concept in the catalog look load-bearing.
 
 ## 3. End the session
 
@@ -116,11 +143,14 @@ load-bearing it was*.
 ```
 POST /api/sessions/:id/concepts
 { "concepts": [
-    { "ref_id": "…", "read_order": 0, "rank": 1,
+    { "ref_id": "…", "id": "owner/repo/slug", "repo": "owner/repo",
+      "read_order": 0, "rank": 1,
       "evidence": "why it mattered", "contradicts": "what it got wrong" }
 ] }
 → 200 { "session_id": …, "linked": 1, "submitted": 1 }
 ```
+
+Identifiers resolve exactly as in [Identifying concepts](#identifying-concepts).
 
 Full-state mirror, not a merge: every call overwrites the edge properties, and a `null`
 `rank` clears it. Send the complete list each time.

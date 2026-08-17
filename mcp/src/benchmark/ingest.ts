@@ -193,10 +193,12 @@ export async function append_turns(req: Request, res: Response) {
           turn_node_key: t.node_key,
           ref_id: c.ref_id,
           id: c.id,
+          repo: c.repo ?? null,
         })),
       );
-      if (links.length > 0) await db!.upsert_turn_concept_edges(links);
-      return { turns, written };
+      const concepts_linked =
+        links.length > 0 ? await db!.upsert_turn_concept_edges(links) : 0;
+      return { turns, written, concepts_submitted: links.length, concepts_linked };
     });
 
     if (!result) {
@@ -210,6 +212,11 @@ export async function append_turns(req: Request, res: Response) {
       session_id: id,
       written: result.written,
       next_order: last.order + 1,
+      // Concept links that resolved to a node. Unmatched ids are skipped
+      // rather than failing the batch, so surface the count — a submitted >
+      // linked gap is the caller's signal that its identifiers are wrong.
+      concepts_submitted: result.concepts_submitted,
+      concepts_linked: result.concepts_linked,
       turns: result.turns.map((t) => ({
         order: t.order,
         turn_id: t.turn_id,
@@ -325,6 +332,7 @@ export async function link_session_concepts(req: Request, res: Response) {
   const concepts = raw.map((c: any) => ({
     id: str(c?.id) || undefined,
     ref_id: str(c?.ref_id) || undefined,
+    repo: str(c?.repo, 512) || undefined,
     read_order: int(c?.read_order) ?? undefined,
     rank: int(c?.rank),
     evidence: str(c?.evidence, 2000) || undefined,

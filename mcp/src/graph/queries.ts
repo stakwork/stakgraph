@@ -403,19 +403,44 @@ SET s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
 RETURN written
 `;
 
+// How a caller's concept identifier is resolved to a Concept node.
+//
+// Mirrors GraphStorage.getConcept — the resolution every gitree read already
+// goes through (`f.id = <repo-prefixed id> OR f.node_key OR f.ref_id`), so an
+// identifier that reached a Concept's body can also reach its edge. That
+// matters most for out-of-process callers: `GET /gitree/concepts/:id` returns
+// no ref_id, so an external agent (hive) only ever holds the gitree id it
+// read with — which may be a bare slug, a node_key, or a ref_id, all of which
+// that endpoint accepts. Under a strict `c.id = link.id` match those reads
+// silently produced no edge.
+//
+// Preference order is strictest-first (exact ref_id, then exact id, then the
+// looser forms) so a widened match can never outrank an exact one.
+const CONCEPT_LINK_MATCH = `
+WHERE (link.ref_id IS NOT NULL AND c.ref_id = link.ref_id)
+   OR (link.id IS NOT NULL AND (
+         c.id = link.id
+         OR c.node_key = link.id
+         OR c.ref_id = link.id
+         OR (link.repo IS NOT NULL AND c.id = link.repo + '/' + link.id)))
+`;
+const CONCEPT_LINK_PICK = `
+head([m IN matches WHERE link.ref_id IS NOT NULL AND m.ref_id = link.ref_id]
+   + [m IN matches WHERE link.id IS NOT NULL AND m.id = link.id]
+   + matches)
+`;
+
 // Live per-turn provenance: WHICH moment of the session read a Concept.
 // Complements the session-level ranked rollup (UPSERT_SESSION_CONCEPT_EDGES_
-// QUERY) — same concept matching (ref_id leads, gitree id as fallback), but
-// no judgment props: the turn edge records the fact, the session edge the
-// reflection's verdict.
+// QUERY) — same concept matching, but no judgment props: the turn edge
+// records the fact, the session edge the reflection's verdict.
 export const UPSERT_TURN_CONCEPT_EDGES_QUERY = `
 UNWIND $links AS link
 MATCH (t:Turn {node_key: link.turn_node_key})
 OPTIONAL MATCH (c:Concept)
-WHERE (link.ref_id IS NOT NULL AND c.ref_id = link.ref_id)
-   OR (link.id IS NOT NULL AND c.id = link.id)
+${CONCEPT_LINK_MATCH}
 WITH t, link, collect(c) AS matches
-WITH t, head([m IN matches WHERE link.ref_id IS NOT NULL AND m.ref_id = link.ref_id] + matches) AS c
+WITH t, ${CONCEPT_LINK_PICK} AS c
 WHERE c IS NOT NULL
 MERGE (t)-[r:READ_CONCEPT]->(c)
 ON CREATE SET r.weight = 1
@@ -588,26 +613,24 @@ RETURN n
 // Index a session's concept reflection as edges. The reflection sidecar file
 // is the source of truth; these edges mirror its fully-merged state on every
 // sync, so plain SET (not coalesce) is correct here — a null rank clears the
-// edge property exactly as the sidecar says. Matching prefers the graph ref_id
-// and falls back to the gitree id; a concept regenerated under a new ref_id
+// edge property exactly as the sidecar says. Matching is CONCEPT_LINK_MATCH,
+// shared with the per-turn edges; a concept regenerated under a new ref_id
 // simply stops matching (the sidecar still holds the record), and the MATCH on
 // the session node (never MERGE — see the guard in appendSessionEnd) makes the
 // whole write a no-op until the AgentSession node exists.
 export const UPSERT_SESSION_CONCEPT_EDGES_QUERY = `
 MATCH (s:AgentSession {node_key: $session_id})
-UNWIND $concepts AS con
+UNWIND $concepts AS link
 OPTIONAL MATCH (c:Concept)
-WHERE (con.ref_id IS NOT NULL AND c.ref_id = con.ref_id)
-   OR (con.id IS NOT NULL AND c.id = con.id)
-WITH s, con, collect(c) AS matches
-WITH s, con,
-     head([m IN matches WHERE con.ref_id IS NOT NULL AND m.ref_id = con.ref_id] + matches) AS c
+${CONCEPT_LINK_MATCH}
+WITH s, link, collect(c) AS matches
+WITH s, link, ${CONCEPT_LINK_PICK} AS c
 WHERE c IS NOT NULL
 MERGE (s)-[r:READ_CONCEPT]->(c)
-SET r.read_order = toInteger(con.read_order),
-    r.rank = toInteger(con.rank),
-    r.evidence = con.evidence,
-    r.contradicts = con.contradicts
+SET r.read_order = toInteger(link.read_order),
+    r.rank = toInteger(link.rank),
+    r.evidence = link.evidence,
+    r.contradicts = link.contradicts
 RETURN count(r) AS linked
 `;
 

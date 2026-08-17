@@ -1742,12 +1742,22 @@ class Db {
    * session-level edge sync.
    */
   async upsert_turn_concept_edges(
-    links: Array<{ turn_node_key: string; ref_id: string | null; id: string | null }>,
-  ): Promise<void> {
-    if (links.length === 0) return;
+    links: Array<{
+      turn_node_key: string;
+      ref_id: string | null;
+      id: string | null;
+      /** Repo of a bare (unprefixed) gitree id, so `repo/id` also resolves. */
+      repo?: string | null;
+    }>,
+  ): Promise<number> {
+    if (links.length === 0) return 0;
     const session = this.resilientSession();
     try {
-      await session.run(Q.UPSERT_TURN_CONCEPT_EDGES_QUERY, { links });
+      const result = await session.run(Q.UPSERT_TURN_CONCEPT_EDGES_QUERY, {
+        links: links.map((l) => ({ repo: null, ...l })),
+      });
+      const linked = result.records[0]?.get("linked");
+      return linked?.toNumber?.() ?? Number(linked ?? 0);
     } finally {
       await session.close();
     }
@@ -1898,6 +1908,8 @@ class Db {
     concepts: Array<{
       id?: string;
       ref_id?: string;
+      /** Repo of a bare (unprefixed) gitree id, so `repo/id` also resolves. */
+      repo?: string;
       read_order?: number;
       rank?: number | null;
       evidence?: string;
@@ -1911,6 +1923,7 @@ class Db {
         concepts: concepts.map((c) => ({
           id: c.id ?? null,
           ref_id: c.ref_id ?? null,
+          repo: c.repo ?? null,
           read_order: c.read_order ?? null,
           rank: c.rank ?? null,
           evidence: c.evidence ?? null,

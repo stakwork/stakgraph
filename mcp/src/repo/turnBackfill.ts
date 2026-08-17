@@ -108,6 +108,7 @@ async function writeChain(
         turn_node_key: t.node_key,
         ref_id: c.ref_id,
         id: c.id,
+        repo: c.repo ?? null,
       })),
     );
     if (links.length > 0) await db!.upsert_turn_concept_edges(links);

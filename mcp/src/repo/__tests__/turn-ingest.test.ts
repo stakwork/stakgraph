@@ -119,8 +119,22 @@ test.describe("buildExternalTurns", () => {
       },
     ]);
     expect(turn.concepts).toEqual([
-      { ref_id: "r1", id: null },
-      { ref_id: null, id: "c2" },
+      { ref_id: "r1", id: null, repo: null },
+      { ref_id: null, id: "c2", repo: null },
+    ]);
+  });
+
+  test("a concept's repo rides along, so a bare gitree id can still resolve", async () => {
+    const { buildExternalTurns } = await import("../turns.js");
+    const [turn] = buildExternalTurns("s1", "hive", 0, [
+      {
+        turn_type: "tool_result",
+        content: "ok",
+        concepts: [{ id: "auth-flow", repo: "stakwork/hive" }],
+      },
+    ]);
+    expect(turn.concepts).toEqual([
+      { ref_id: null, id: "auth-flow", repo: "stakwork/hive" },
     ]);
   });
 });

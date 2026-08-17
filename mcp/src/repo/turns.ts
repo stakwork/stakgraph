@@ -55,6 +55,19 @@ interface TurnState extends TurnStateFile {
   queue: Promise<void>;
 }
 
+/**
+ * A Concept a turn read, as the identifiers the reader actually held.
+ *
+ * `repo` is carried so a BARE gitree id (`auth-flow` rather than
+ * `owner/repo/auth-flow`) still resolves: gitree's own reads accept both
+ * forms, so the edge match has to as well — see CONCEPT_LINK_MATCH.
+ */
+export interface ConceptLink {
+  ref_id: string | null;
+  id: string | null;
+  repo?: string | null;
+}
+
 export interface EmittedTurn {
   node_key: string;
   prev_node_key: string | null;
@@ -71,7 +84,7 @@ export interface EmittedTurn {
    * then leaves the property off entirely, which is more honest than a fake.
    */
   timestamp: number | null;
-  concepts: Array<{ ref_id: string | null; id: string | null }>;
+  concepts: ConceptLink[];
 }
 
 const states = new Map<string, TurnState>();
@@ -188,7 +201,7 @@ function buildTurn(
   turn_type: string,
   content: string,
   tool: string | null,
-  concepts: Array<{ ref_id: string | null; id: string | null }> = [],
+  concepts: ConceptLink[] = [],
   toolCallId?: string,
 ): EmittedTurn {
   const order = state.next_order++;
@@ -221,14 +234,15 @@ function scheduleWrite(
       turn_node_key: t.node_key,
       ref_id: c.ref_id,
       id: c.id,
+      repo: c.repo ?? null,
     })),
   );
   const batch = turns.map(({ concepts: _concepts, ...t }) => t);
   state.queue = state.queue
     .then(() => db!.upsert_turns(sessionId, batch))
-    .then(() =>
-      links.length > 0 ? db!.upsert_turn_concept_edges(links) : undefined,
-    )
+    .then(async () => {
+      if (links.length > 0) await db!.upsert_turn_concept_edges(links);
+    })
     .catch((e) => console.error("[turns] Neo4j turn write failed:", e));
 }
 
@@ -316,11 +330,11 @@ export function emitStepTurns(
         ? state.pendingToolInputs.get(part.toolCallId)
         : undefined;
       if (part.toolCallId) state.pendingToolInputs.delete(part.toolCallId);
-      let concepts: Array<{ ref_id: string | null; id: string | null }> = [];
+      let concepts: ConceptLink[] = [];
       try {
         concepts = conceptReadsFrom(toolName, input, toolResultValue(part.output))
           .filter((r) => r.ref_id || r.id)
-          .map((r) => ({ ref_id: r.ref_id ?? null, id: r.id ?? null }));
+          .map((r) => ({ ref_id: r.ref_id ?? null, id: r.id ?? null, repo: r.repo ?? null }));
       } catch {
         // concept detection is best-effort; the turn itself still lands
       }
@@ -411,7 +425,7 @@ export function turnsFromTranscript(
     content: string,
     tool: string | null,
     toolCallId?: string,
-    concepts: Array<{ ref_id: string | null; id: string | null }> = [],
+    concepts: ConceptLink[] = [],
   ) => {
     const order = turns.length;
     const id = turnId(agent, sessionId, order);
@@ -463,11 +477,11 @@ export function turnsFromTranscript(
         const toolName = part.toolName ?? "unknown";
         const input = part.toolCallId ? pendingInputs.get(part.toolCallId) : undefined;
         if (part.toolCallId) pendingInputs.delete(part.toolCallId);
-        let concepts: Array<{ ref_id: string | null; id: string | null }> = [];
+        let concepts: ConceptLink[] = [];
         try {
           concepts = conceptReadsFrom(toolName, input, toolResultValue(part.output))
             .filter((r) => r.ref_id || r.id)
-            .map((r) => ({ ref_id: r.ref_id ?? null, id: r.id ?? null }));
+            .map((r) => ({ ref_id: r.ref_id ?? null, id: r.id ?? null, repo: r.repo ?? null }));
         } catch {
           // best-effort, like the live path
         }
@@ -541,7 +555,7 @@ export interface ExternalTurnInput {
   tool?: string | null;
   tool_call_id?: string | null;
   timestamp?: number | null;
-  concepts?: Array<{ ref_id?: string | null; id?: string | null }>;
+  concepts?: Array<{ ref_id?: string | null; id?: string | null; repo?: string | null }>;
 }
 
 /**
@@ -591,7 +605,11 @@ export function buildExternalTurns(
         ? Math.trunc(Number(part.timestamp))
         : Date.now(),
       concepts: (part.concepts ?? [])
-        .map((c) => ({ ref_id: c?.ref_id ?? null, id: c?.id ?? null }))
+        .map((c) => ({
+          ref_id: c?.ref_id ?? null,
+          id: c?.id ?? null,
+          repo: c?.repo ?? null,
+        }))
         .filter((c) => c.ref_id || c.id),
     };
   });
