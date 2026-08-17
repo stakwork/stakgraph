@@ -15,12 +15,19 @@ import path from "path";
 import { db } from "../graph/neo4j.js";
 import { getProviderForModel } from "../aieo/src/provider.js";
 import { AiUsage, AiUsageWithLegacy } from "../aieo/src/usage.js";
+import { finalizeTurns, deleteTurnState } from "./turns.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
 const sessionMeta = new Map<
   string,
-  { source: string; start_time: string; repo?: string; parent_session_id?: string }
+  {
+    source: string;
+    start_time: string;
+    repo?: string;
+    parent_session_id?: string;
+    agent_name?: string;
+  }
 >();
 
 export interface Session {
@@ -37,6 +44,8 @@ export interface SessionConfig {
 export interface SessionInitConfig {
   model?: string;
   provider?: string;
+  /** Caller-assigned agent identity (e.g. "repair-agent-147813394"). */
+  agentName?: string;
   systemOverride?: string;
   mode?: "graph" | "workflow";
   toolsConfig?: { [key: string]: any };
@@ -110,6 +119,7 @@ export function createSession(
   source?: string,
   repo?: string,
   parentSessionId?: string,
+  agentName?: string,
 ): string {
   // Defense in depth against non-string ids from callers that skipped the
   // route-level coercion — a numeric id poisons the Neo4j node_key type.
@@ -119,7 +129,22 @@ export function createSession(
     start_time: new Date().toISOString(),
     repo,
     parent_session_id: parentSessionId,
+    agent_name: agentName,
   });
+  // Stub the AgentSession node now (status 'running') rather than waiting for
+  // appendSessionEnd: live turn chains need a HAS_TURN anchor, sub-agents get
+  // their SPAWNED edge while still running, and in-flight sessions become
+  // watchable. Fire-and-forget — the graph is an index, not the record.
+  db
+    ?.create_agent_session_stub({
+      session_id: sessionId,
+      parent_session_id: parentSessionId || "",
+      source: source || "unknown",
+      repo: repo || "",
+      agent_name: agentName || "",
+      start_time: Date.now(),
+    })
+    .catch((e) => console.error("[sessions] Neo4j stub creation failed:", e));
   const filePath = getSessionFile(sessionId);
   if (system) {
     const systemMsg: ModelMessage = { role: "system", content: system };
@@ -164,6 +189,7 @@ export async function appendSessionEnd(
       parent_session_id: stored.parent_session_id || "",
       source: stored.source,
       repo: stored.repo || "",
+      agent_name: stored.agent_name || "",
       model: opts.model || "",
       provider: resolvedProvider,
       start_time,
@@ -178,6 +204,9 @@ export async function appendSessionEnd(
       error_message: opts.error_message || "",
     })
     .catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
+  // Retype this run's final reasoning Turn to 'response' now that the run is
+  // over and "final" is knowable.
+  finalizeTurns(sessionId);
   // Now that the AgentSession node exists, index any reflection that was
   // merged before it did (sub-agent runs reflect before appendSessionEnd —
   // see toolsJarvis — and earlier turns' syncs no-oped without the node).
@@ -266,6 +295,7 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(reflectionPath)) {
     unlinkSync(reflectionPath);
   }
+  deleteTurnState(sessionId);
   deleteAttachments(sessionId);
 }
 
@@ -753,6 +783,7 @@ export function pruneExpiredSessions(): number {
         if (existsSync(configPath)) unlinkSync(configPath);
         const reflectionPath = filePath.replace(/\.jsonl$/, ".reflection.json");
         if (existsSync(reflectionPath)) unlinkSync(reflectionPath);
+        deleteTurnState(sessionId);
         deleteAttachments(sessionId);
         pruned++;
       }

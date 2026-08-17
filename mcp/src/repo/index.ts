@@ -198,6 +198,15 @@ function parseAgentBody(req: Request) {
       )
     : undefined;
   const _metadata = req.body._metadata as unknown;
+  // Caller-assigned agent identity (e.g. "repair-agent-147813394"). Stamped
+  // on the AgentSession node and used as the turn_id label, so a workflow
+  // running many agents through this endpoint can tell them apart in the
+  // graph. Orchestrators embed the run id in the name, which is what groups
+  // a run's sessions together.
+  const agentName =
+    typeof req.body.agentName === "string" && req.body.agentName.trim()
+      ? req.body.agentName.trim()
+      : undefined;
   const reflect = normalizeReflect(req.body.reflect);
   // Optional terminal-result callback (non-streaming path only). When set,
   // the run's terminal payload — the same shape GET /progress serves, plus
@@ -217,7 +226,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, mode, skills, ontologyDomains, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments, _metadata, webhookUrl, reflect,
+    ignoreRepoInfo, attachments, _metadata, agentName, webhookUrl, reflect,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,
   };
@@ -510,6 +519,7 @@ export async function repo_agent(req: Request, res: Response) {
           headers: body.headers,
           attachments: body.attachments,
           _metadata: body._metadata,
+          agentName: body.agentName,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
           reflect: body.reflect,
@@ -642,6 +652,7 @@ export async function repo_agent(req: Request, res: Response) {
           headers: body.headers,
           attachments: body.attachments,
           _metadata: body._metadata,
+          agentName: body.agentName,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
           reflect: body.reflect,

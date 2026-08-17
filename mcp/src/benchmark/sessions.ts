@@ -9,9 +9,13 @@ import {
   loadAnnotations,
   loadReflection,
   appendAnnotation,
+  loadSession,
+  sessionExists,
   type Annotation,
   type AnnotationMarker,
 } from "../repo/session.js";
+import { turnsFromTranscript } from "../repo/turns.js";
+import { backfillAgentLabel } from "../repo/turnBackfill.js";
 import {
   getProviderForModel,
   computeSessionCost,
@@ -59,6 +63,7 @@ function buildOrphanRun(dir: string, file: string) {
     // even when the Neo4j node is missing.
     parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
+    agent_name: "",
     provider: "",
     model: "",
     repo: "",
@@ -74,6 +79,8 @@ function buildOrphanRun(dir: string, file: string) {
     cost_usd: 0,
     status: "success",
     error_message: "",
+    turn_count: 0,
+    last_turn_at: null as number | null,
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
     message_count: messageCount,
@@ -220,6 +227,7 @@ function buildRunFromNode(s: any, dir: string) {
     id,
     parent_session_id: String(s.parent_session_id ?? ""),
     source: String(s.source ?? "unknown"),
+    agent_name: String(s.agent_name ?? ""),
     repo: String(s.repo ?? ""),
     provider: prov,
     model: mod,
@@ -234,6 +242,9 @@ function buildRunFromNode(s: any, dir: string) {
     cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
     status: String(s.status ?? "success"),
     error_message: String(s.error_message ?? ""),
+    // Version counter for polling UIs: unchanged turn_count means nothing new.
+    turn_count: toNum(s.turn_count),
+    last_turn_at: toNum(s.last_turn_at) || null,
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
     message_count: messageCount,
@@ -335,6 +346,12 @@ export async function list_sessions(req: Request, res: Response) {
   // Parse filter params
   const sourceParam = req.query.source ? String(req.query.source) : null;
   const repoParam = req.query.repo ? String(req.query.repo) : null;
+  // Substring match on the caller-assigned agent_name. Orchestrators embed
+  // the run id in agent names ("repair-agent-147813394"), so this is how a
+  // UI fetches every session of one benchmark run.
+  const agentNameParam = req.query.agent_name_contains
+    ? String(req.query.agent_name_contains)
+    : null;
   const rangeParam = req.query.range ? String(req.query.range) : null;
   const dayParam = req.query.day ? String(req.query.day) : null;
 
@@ -358,6 +375,7 @@ export async function list_sessions(req: Request, res: Response) {
         offset,
         source: sourceParam,
         repo: repoParam,
+        agent_name_contains: agentNameParam,
         since,
         until,
       });
@@ -466,6 +484,7 @@ async function buildFullSession(
           id,
           parent_session_id: String(s.parent_session_id ?? ""),
           source: String(s.source ?? "unknown"),
+          agent_name: String(s.agent_name ?? ""),
           repo: String(s.repo ?? ""),
           provider: prov,
           model: mod,
@@ -477,6 +496,8 @@ async function buildFullSession(
           cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
           status: String(s.status ?? "success"),
           error_message: String(s.error_message ?? ""),
+          turn_count: toNum(s.turn_count),
+          last_turn_at: toNum(s.last_turn_at) || null,
           tool_sequence: toolSequence,
           tool_call_count: toolCallCount,
           user_prompt_preview: userPromptPreview,
@@ -529,6 +550,75 @@ async function buildFullSession(
     reflection,
     trace,
   };
+}
+
+/**
+ * Polling endpoint for the live-session UI: a session's Turn chain after a
+ * cursor, plus enough session state to know when to stop polling.
+ *
+ *   GET /api/sessions/:id/turns?after=<order>&limit=<n>
+ *
+ * Protocol: first call with after=-1 (default) loads history; subsequent
+ * calls pass the highest `order` seen and receive only what's new; a
+ * `status` other than 'running' means the session is done and polling can
+ * stop. Clients dedupe by `order`, so overlap is always harmless.
+ *
+ * Graph-first with a transcript fallback: when Neo4j is unavailable (or the
+ * chain hasn't landed yet) the same classifier that feeds live emission and
+ * the backfill re-derives turns from the stored JSONL — identical orders and
+ * types, though concept links then carry no resolved names and `status` is
+ * 'unknown'.
+ */
+export async function get_session_turns(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!id || id.includes("..") || id.includes("/")) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+  const afterRaw = Number(req.query.after);
+  const after = Number.isFinite(afterRaw) ? Math.trunc(afterRaw) : -1;
+  const limitRaw = Number(req.query.limit);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 2000)
+    : 1000;
+
+  if (db) {
+    try {
+      const [node, turns] = await Promise.all([
+        db.get_agent_session(id),
+        db.get_session_turns(id, after, limit),
+      ]);
+      if (node || turns.length > 0) {
+        res.json({
+          session_id: id,
+          status: String(node?.status ?? "unknown"),
+          turn_count: toNum(node?.turn_count),
+          last_turn_at: toNum(node?.last_turn_at) || null,
+          turns,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("[sessions] Neo4j get_session_turns failed, falling back:", e);
+    }
+  }
+
+  if (!sessionExists(id)) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  const all = turnsFromTranscript(id, backfillAgentLabel(id), loadSession(id));
+  const turns = all
+    .filter((t) => t.order > after)
+    .slice(0, limit)
+    .map(({ node_key: _nk, prev_node_key: _pk, ...t }) => t);
+  res.json({
+    session_id: id,
+    status: "unknown",
+    turn_count: all.length,
+    last_turn_at: null,
+    turns,
+  });
 }
 
 export async function get_session(req: Request, res: Response) {

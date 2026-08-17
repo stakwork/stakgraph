@@ -24,6 +24,7 @@ import {
   mergeReflection,
   type StepMeta,
 } from "./session.js";
+import { emitUserTurn, emitStepTurns } from "./turns.js";
 import {
   withConceptCollection,
   normalizeConceptReads,
@@ -492,6 +493,10 @@ function registerGraphSubAgentTool(
           sub.repo,
           sub.parentSessionId,
         );
+        emitUserTurn(childSessionId, "graph_sub_agent", {
+          role: "user",
+          content: prompt,
+        });
       }
 
       const startTime = Date.now();
@@ -570,6 +575,7 @@ function registerGraphSubAgentTool(
             const elapsedMs = now - lastStepTime;
             lastStepTime = now;
             logStep(sf.content, childSessionId, elapsedMs);
+            emitStepTurns(childSessionId, "graph_sub_agent", sf.content);
             const u = withProviderCacheUsage(
               normalizeUsage(sf.usage),
               sf.providerMetadata as Record<string, any> | undefined,
