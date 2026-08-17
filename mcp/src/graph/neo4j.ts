@@ -1152,12 +1152,52 @@ class Db {
       await session.run(
         "CREATE INDEX turn_session_id_index IF NOT EXISTS FOR (n:Turn) ON (n.session_id)",
       );
+      await this.ensureAgentSessionUnique(session);
     } finally {
       if (session) {
         await session.close();
       }
     }
   }
+
+  /**
+   * Guarantee one AgentSession node per session id.
+   *
+   * Constraint creation fails outright when existing data violates it, so a
+   * failure here is the signal that duplicates are present: fold them (see
+   * DEDUPE_AGENT_SESSIONS_QUERY — edges are re-pointed, nothing is orphaned)
+   * and retry once. Doing the dedupe only on that failure means the
+   * destructive half never runs on a healthy graph, and never again once the
+   * constraint exists to prevent new duplicates.
+   *
+   * Never throws: a graph that can't take the constraint is a graph that
+   * keeps working exactly as it did before, and index setup must not be able
+   * to stop the service from booting.
+   */
+  private async ensureAgentSessionUnique(session: ResilientSession): Promise<void> {
+    try {
+      await session.run(Q.AGENT_SESSION_KEY_CONSTRAINT_QUERY);
+      return;
+    } catch (e) {
+      console.warn(
+        "[neo4j] AgentSession uniqueness constraint rejected (duplicate node_keys present); deduping…",
+      );
+    }
+    try {
+      const result = await session.run(Q.DEDUPE_AGENT_SESSIONS_QUERY);
+      const removed = result.records[0]?.get("removed");
+      const n = removed?.toNumber?.() ?? Number(removed ?? 0);
+      console.log(`[neo4j] removed ${n} duplicate AgentSession node(s)`);
+      await session.run(Q.AGENT_SESSION_KEY_CONSTRAINT_QUERY);
+      console.log("[neo4j] AgentSession uniqueness constraint created");
+    } catch (e) {
+      console.error(
+        "[neo4j] could not create the AgentSession uniqueness constraint:",
+        e,
+      );
+    }
+  }
+
   async get_rules_files(): Promise<Neo4jNode[]> {
     const session = this.resilientSession();
     try {
