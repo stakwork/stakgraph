@@ -45,10 +45,20 @@ Each row (only relevant fields shown):
   the run** = rows returned by this filter (children have `agent_name: ""`,
   `source: "graph_sub_agent"` and are NOT matched by the filter). Order them by
   `timestamp` ascending — that is the agent chain.
-- **Open question for the builder to confirm with one real run**: whether the
-  workflow embeds the Stakwork **projectId** (`StakworkRun.projectId`, the number in
-  names like `repair-agent-147813394`) or the hive cuid. The proxy route should look
-  up the run row server-side and try `projectId` first.
+- **Resolved**: the workflow names agents `<role>-agent-<runNumber>`, where the
+  number is the **run's Stakwork project id** — shared by every agent of the run
+  (`drafter-agent-150409138` and `aggregator-agent-150409138` are one run). That is
+  `StakworkRun.projectId` in hive's `stakwork_runs` table, so the proxy resolves
+  `runId (cuid) → projectId → agent_name_contains=<projectId>`.
+- **Do not** try to derive membership from session ids: each `/repo/agent` call gets
+  its own Stakwork project id as its `sessionId`, allocated from the same counter as
+  the run's but never equal to it (verified — run `152403155` sits numerically
+  between sessions `152399211` and `152408780` and is not itself a session).
+- **Runs before ~2026-08-17 have no `agent_name`** (the field shipped then), so they
+  cannot be grouped and won't appear in the run view. Their individual sessions are
+  fully rendered — the backfill gave all 2,859 of them anchored turn chains — so a
+  per-session view of history works; only run-level stacking is unavailable. This
+  resolves itself as new runs accumulate; do not build inference to recover it.
 
 ### 1b. Sub-agent tree of one session
 
@@ -102,8 +112,12 @@ GET :3355/api/sessions/:id/turns?after=<order>&limit=1000
 
 1. Poll **1a** (the run's session list) on the legal section's standard cadence.
 2. Diff `turn_count` per session against what's rendered. Unchanged ⇒ skip.
-3. For each changed session (in a sequential pipeline that is ~1–2 at a time),
-   fetch **1c** with its cursor.
+3. For each changed session, fetch **1c** with its cursor. **Agents run in
+   parallel batches**, not one at a time — observed in prod: four sessions with
+   consecutive ids starting within 220ms of each other, and three more in
+   another batch within 260ms. So expect several concurrent `running` sessions;
+   cost per poll cycle is proportional to *concurrently active* agents, not to
+   the run's total agent count.
 4. New sessions appearing in the list ⇒ new agents starting (render immediately —
    the AgentSession node exists from run start with `status: 'running'`).
 5. Whole run is finished when no session has `status === 'running'` (plus the
@@ -152,8 +166,16 @@ The mockup renders "story rows", not raw turns. The fold from a turn array to ro
 The mockup is one session. The run page stacks the cascades: one **top-level
 section per agent** (ordered by `timestamp`), each headed by its `agent_name`,
 status badge, token/turn counts, with its cascade below (children nested inside).
-Between consecutive agents draw the lane-0 spine continuing with the dashed
-"hand-off" style the mockup uses between same-lane segments. A run-level summary
+
+**A run is not a straight line.** Prod shows agents launching in parallel
+batches (4 sessions within 220ms, consecutive session ids), so the run structure
+is: batch → batch → batch, with several agents inside a batch. Group top-level
+sessions whose `timestamp` falls within a small window (~2s) into one batch and
+render them as siblings — a shared fork from the run spine, their sections
+side by side or stacked under a "N agents in parallel" header — then use the
+dashed hand-off spine *between* batches. Rendering a parallel batch as a
+sequential chain would misrepresent the run's actual shape, which is the whole
+point of the visualization. A run-level summary
 strip on top: N agents, M sub-agents, K concepts touched (union of chips),
 total tokens. Optionally a right-hand run-wide concept rail aggregating every
 chip with counts (a concept read by 4 agents shows ×4) — v2 if time-boxed.
