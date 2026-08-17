@@ -13,6 +13,7 @@ import {
   extractFinalAnswer,
   createHasEndMarkerCondition,
   extractMessagesFromSteps,
+  hitStepCap,
   logStep,
 } from "./utils.js";
 import {
@@ -602,7 +603,22 @@ function registerGraphSubAgentTool(
         }
         await endSession("success");
         const final = extractFinalAnswer(result.steps);
-        return final.answer || "Sub-agent returned no findings.";
+        const answer = final.answer || "Sub-agent returned no findings.";
+        // A child cut off by the step cap never reaches its synthesis turn, so
+        // `answer` here is intermediate working notes that read exactly like a
+        // finished report. Say so, or the parent folds partial coverage into its
+        // findings as though it were complete.
+        if (!hitStepCap(result.steps, maxSteps)) return answer;
+        console.warn(
+          `[graph_sub_agent] PARTIAL: ${childSessionId ?? "child"} hit the ${maxSteps}-step cap mid-investigation`,
+        );
+        return (
+          `[PARTIAL — this sub-agent hit its ${maxSteps}-step limit mid-investigation and never ` +
+          `reached a synthesis step. What follows is its intermediate working notes, NOT a ` +
+          `complete answer: coverage is incomplete and nothing below should be treated as ` +
+          `exhaustive or as a negative finding. Re-delegate a narrower subtask if you need ` +
+          `full coverage of this area.]\n\n${answer}`
+        );
       } catch (err: any) {
         await endSession("error", err?.message ?? String(err));
         return `graph_sub_agent failed: ${err?.message ?? String(err)}`;
