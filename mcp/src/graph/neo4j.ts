@@ -1666,6 +1666,8 @@ class Db {
       order: number;
       content: string;
       tool: string | null;
+      tool_call_id: string | null;
+      timestamp: number;
     }>,
   ): Promise<void> {
     if (turns.length === 0) return;

@@ -97,7 +97,12 @@ test.describe("turn emission", () => {
 
     expect(turns[0].tool).toBe("bash");
     expect(turns[0].content).toBe('{"command":"ls"}');
+    // Call/result pairing survives reordering via tool_call_id.
+    expect(turns[0].tool_call_id).toBe("c1");
+    expect(turns[2].tool_call_id).toBe("c1");
+    expect(turns[0].timestamp).toBeGreaterThan(0);
     expect(turns[1].tool).toBe(null);
+    expect(turns[1].tool_call_id).toBe(null);
     // Tool result: output wrapper stringified, truncated at 100 + "...".
     expect(turns[2].tool).toBe("bash");
     expect(turns[2].content.length).toBe(103);

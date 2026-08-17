@@ -63,6 +63,10 @@ export interface EmittedTurn {
   order: number;
   content: string;
   tool: string | null;
+  /** Pairs tool_call and tool_result turns even when calls run in parallel. */
+  tool_call_id: string | null;
+  /** Epoch ms at emission — when this moment of the session happened. */
+  timestamp: number;
   concepts: Array<{ ref_id: string | null; id: string | null }>;
 }
 
@@ -181,6 +185,7 @@ function buildTurn(
   content: string,
   tool: string | null,
   concepts: Array<{ ref_id: string | null; id: string | null }> = [],
+  toolCallId?: string,
 ): EmittedTurn {
   const order = state.next_order++;
   const id = turnId(state.agent, sessionId, order);
@@ -194,6 +199,8 @@ function buildTurn(
     order,
     content,
     tool,
+    tool_call_id: toolCallId ?? null,
+    timestamp: Date.now(),
     concepts,
   };
 }
@@ -292,6 +299,8 @@ export function emitStepTurns(
             "tool_call",
             inputJson,
             part.toolName ?? "unknown",
+            [],
+            part.toolCallId,
           ),
         );
       }
@@ -319,6 +328,7 @@ export function emitStepTurns(
           toolResultContent(part.output),
           toolName,
           concepts,
+          part.toolCallId,
         ),
       );
     }

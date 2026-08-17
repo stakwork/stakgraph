@@ -374,7 +374,9 @@ SET n:Node,
     n.turn_type = t.turn_type,
     n.order = toInteger(t.order),
     n.content = t.content,
-    n.tool = t.tool
+    n.tool = t.tool,
+    n.tool_call_id = t.tool_call_id,
+    n.timestamp = toInteger(t.timestamp)
 FOREACH (_ IN CASE WHEN t.prev_node_key IS NULL THEN [] ELSE [1] END |
   MERGE (p:Turn:${Data_Bank} {node_key: t.prev_node_key})
   MERGE (p)-[pr:NEXT]->(n)
