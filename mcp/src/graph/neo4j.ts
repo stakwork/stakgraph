@@ -1148,6 +1148,10 @@ class Db {
       await session.run(
         "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)",
       );
+      // Turn.session_id backs the polling endpoint's flat per-session lookup.
+      await session.run(
+        "CREATE INDEX turn_session_id_index IF NOT EXISTS FOR (n:Turn) ON (n.session_id)",
+      );
     } finally {
       if (session) {
         await session.close();
@@ -1625,11 +1629,154 @@ class Db {
     }
   }
 
+  /**
+   * Create the AgentSession node at session START (status 'running') so the
+   * turn chain has a HAS_TURN anchor from the first step and in-flight
+   * sessions are watchable. Also creates the (parent)-[:SPAWNED]->(child)
+   * edge when a parent session id is given. upsert_agent_session finalizes
+   * the same node at session end.
+   */
+  async create_agent_session_stub(params: {
+    session_id: string;
+    parent_session_id: string;
+    source: string;
+    repo: string;
+    agent_name: string;
+    start_time: number;
+  }): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.CREATE_AGENT_SESSION_STUB_QUERY, {
+        ...params,
+        ts: Date.now() / 1000,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Write a batch of Turn nodes for a session, chaining each to its
+   * predecessor with NEXT and anchoring turn 0 to the AgentSession with
+   * HAS_TURN. Idempotent: node_keys are deterministic, so re-emitting a
+   * turn updates it in place. Also bumps turn_count / last_turn_at on the
+   * session node in the same query.
+   *
+   * Returns how many turns were written. 0 with a non-empty batch means the
+   * AgentSession node doesn't exist — the query anchors on it, so chains are
+   * never written orphaned.
+   */
+  async upsert_turns(
+    session_id: string,
+    turns: Array<{
+      node_key: string;
+      prev_node_key: string | null;
+      turn_id: string;
+      turn_type: string;
+      order: number;
+      content: string;
+      tool: string | null;
+      tool_call_id: string | null;
+      timestamp: number | null;
+    }>,
+  ): Promise<number> {
+    if (turns.length === 0) return 0;
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.UPSERT_TURNS_QUERY, {
+        session_id,
+        turns,
+        ts: Date.now() / 1000,
+      });
+      const written = result.records[0]?.get("written");
+      return written?.toNumber?.() ?? Number(written ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Link tool_result Turns to the Concepts they read, as they happen.
+   * Unmatched concepts are skipped, not errors — same posture as the
+   * session-level edge sync.
+   */
+  async upsert_turn_concept_edges(
+    links: Array<{ turn_node_key: string; ref_id: string | null; id: string | null }>,
+  ): Promise<void> {
+    if (links.length === 0) return;
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.UPSERT_TURN_CONCEPT_EDGES_QUERY, { links });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * A session's turns after a cursor, in order, each with the Concepts it
+   * read. `after: -1` returns the chain from the start.
+   */
+  async get_session_turns(
+    session_id: string,
+    after: number,
+    limit: number,
+  ): Promise<
+    Array<{
+      order: number;
+      turn_id: string;
+      turn_type: string;
+      tool: string | null;
+      tool_call_id: string | null;
+      content: string;
+      timestamp: number | null;
+      concepts: Array<{ ref_id?: string; id?: string; name?: string }>;
+    }>
+  > {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.GET_SESSION_TURNS_QUERY, {
+        session_id,
+        after: neo4j.int(after),
+        limit: neo4j.int(limit),
+      });
+      return result.records.map((rec) => {
+        const t = rec.get("t").properties;
+        const ts = toNum(t.timestamp);
+        return {
+          order: toNum(t.order),
+          turn_id: String(t.turn_id ?? ""),
+          turn_type: String(t.turn_type ?? ""),
+          tool: t.tool != null ? String(t.tool) : null,
+          tool_call_id: t.tool_call_id != null ? String(t.tool_call_id) : null,
+          content: String(t.content ?? ""),
+          timestamp: ts > 0 ? ts : null,
+          concepts: rec.get("concepts") ?? [],
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Retype a run's final reasoning Turn to 'response' (matching the
+   * post-hoc workflow, which retypes the last assistant text turn).
+   */
+  async finalize_turn_response(node_key: string): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.FINALIZE_TURN_RESPONSE_QUERY, { node_key });
+    } finally {
+      await session.close();
+    }
+  }
+
   async upsert_agent_session(params: {
     session_id: string;
     parent_session_id: string;
     source: string;
     repo: string;
+    agent_name: string;
     model: string;
     provider: string;
     start_time: number;
@@ -1697,10 +1844,19 @@ class Db {
     offset?: number;
     source?: string | null;
     repo?: string | null;
+    agent_name_contains?: string | null;
     since?: number | null;
     until?: number | null;
   } = {}): Promise<Array<any & { child_count: number }>> {
-    const { limit = 100, offset = 0, source = null, repo = null, since = null, until = null } = opts;
+    const {
+      limit = 100,
+      offset = 0,
+      source = null,
+      repo = null,
+      agent_name_contains = null,
+      since = null,
+      until = null,
+    } = opts;
     const session = this.resilientSession();
     try {
       const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY, {
@@ -1708,6 +1864,7 @@ class Db {
         offset: neo4j.int(offset),
         source: source ?? null,
         repo: repo ?? null,
+        agent_name_contains: agent_name_contains ?? null,
         since: since != null ? neo4j.int(since) : null,
         until: until != null ? neo4j.int(until) : null,
       });

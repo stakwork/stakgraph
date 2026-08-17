@@ -315,11 +315,15 @@ MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
   n.source = $source, n.repo = $repo, n.model = $model, n.provider = $provider,
+  n.agent_name = $agent_name,
   n.start_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'success', n.error_message = ''
 SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+    n.model = CASE WHEN $model = '' THEN coalesce(n.model, '') ELSE $model END,
+    n.provider = CASE WHEN $provider = '' THEN coalesce(n.provider, '') ELSE $provider END,
+    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
     n.end_time = toInteger($end_time),
     n.repo = $repo,
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
@@ -333,11 +337,122 @@ SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.pare
 RETURN n
 `;
 
+// Stub created at createSession() time (not session end) so the node exists
+// while the run is live: turn chains have a HAS_TURN anchor from the first
+// step, and in-flight sessions are visible with status 'running'.
+// UPSERT_AGENT_SESSION_QUERY finalizes the same node at session end — its
+// ON CREATE branch simply never fires when the stub got there first.
+export const CREATE_AGENT_SESSION_STUB_QUERY = `
+MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
+  n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
+  n.source = $source, n.repo = $repo, n.model = '', n.provider = '',
+  n.agent_name = $agent_name,
+  n.start_time = toInteger($start_time), n.end_time = toInteger($start_time),
+  n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
+  n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
+  n.status = 'running', n.error_message = ''
+SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END
+WITH n
+OPTIONAL MATCH (p:AgentSession {node_key: $parent_session_id})
+FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | MERGE (p)-[:SPAWNED]->(n))
+RETURN n
+`;
+
+// Turn nodes mirror the shape of the post-hoc build_trace_edges workflow so
+// live-emitted chains and backfilled ones are indistinguishable: labels
+// :Data_Bank:Turn:Node, node_key 'turn-' + sanitized turn_id, and a
+// NEXT-linked chain anchored to the AgentSession by HAS_TURN on turn 0.
+// Both NEXT endpoints are MERGEd by node_key (deterministic), so a batch
+// whose predecessor write was lost re-creates the link instead of leaving
+// the chain permanently split. SET n.tool = t.tool relies on null-SET
+// removing the property: non-tool turns carry no 'tool' key, like prod.
+export const UPSERT_TURNS_QUERY = `
+MATCH (s:AgentSession {node_key: $session_id})
+UNWIND $turns AS t
+MERGE (n:Turn:${Data_Bank} {node_key: t.node_key})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default'
+SET n:Node,
+    n.session_id = $session_id,
+    n.turn_id = t.turn_id,
+    n.turn_type = t.turn_type,
+    n.order = toInteger(t.order),
+    n.content = t.content,
+    n.tool = t.tool,
+    n.tool_call_id = t.tool_call_id,
+    n.timestamp = toInteger(t.timestamp)
+FOREACH (_ IN CASE WHEN t.prev_node_key IS NULL THEN [] ELSE [1] END |
+  MERGE (p:Turn:${Data_Bank} {node_key: t.prev_node_key})
+  MERGE (p)-[pr:NEXT]->(n)
+  SET pr.weight = 1
+)
+FOREACH (_ IN CASE WHEN toInteger(t.order) = 0 THEN [1] ELSE [] END |
+  MERGE (s)-[h:HAS_TURN]->(n)
+  SET h.weight = 1
+)
+WITH s, n, t
+WITH s, count(n) AS written,
+     max(toInteger(t.order)) AS max_order,
+     max(toInteger(t.timestamp)) AS last_ts
+SET s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
+                        THEN max_order + 1 ELSE s.turn_count END,
+    s.last_turn_at = coalesce(last_ts, s.last_turn_at)
+RETURN written
+`;
+
+// Live per-turn provenance: WHICH moment of the session read a Concept.
+// Complements the session-level ranked rollup (UPSERT_SESSION_CONCEPT_EDGES_
+// QUERY) — same concept matching (ref_id leads, gitree id as fallback), but
+// no judgment props: the turn edge records the fact, the session edge the
+// reflection's verdict.
+export const UPSERT_TURN_CONCEPT_EDGES_QUERY = `
+UNWIND $links AS link
+MATCH (t:Turn {node_key: link.turn_node_key})
+OPTIONAL MATCH (c:Concept)
+WHERE (link.ref_id IS NOT NULL AND c.ref_id = link.ref_id)
+   OR (link.id IS NOT NULL AND c.id = link.id)
+WITH t, link, collect(c) AS matches
+WITH t, head([m IN matches WHERE link.ref_id IS NOT NULL AND m.ref_id = link.ref_id] + matches) AS c
+WHERE c IS NOT NULL
+MERGE (t)-[r:READ_CONCEPT]->(c)
+ON CREATE SET r.weight = 1
+RETURN count(r) AS linked
+`;
+
+// The backfill workflow retypes the last assistant text turn from 'reasoning'
+// to 'response'. Live emission can't know a turn is last until the run ends,
+// so this runs from session end against the exact node the emitter tracked.
+// The WHERE guard makes it idempotent and refuses to clobber other types.
+export const FINALIZE_TURN_RESPONSE_QUERY = `
+MATCH (n:Turn {node_key: $node_key})
+WHERE n.turn_type = 'reasoning'
+SET n.turn_type = 'response'
+RETURN count(n) AS updated
+`;
+
+// Polling workhorse for the live-session UI: everything after a cursor, in
+// order, with the Concepts each turn read. A flat indexed lookup on
+// Turn.session_id rather than a HAS_TURN/NEXT traversal — cheaper on every
+// poll and robust to chain gaps. Only turns our emitters wrote carry
+// session_id; the legacy workflow's orphan chains (never session-anchored
+// anyway) are invisible here by construction.
+export const GET_SESSION_TURNS_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+WHERE toInteger(t.order) > toInteger($after)
+OPTIONAL MATCH (t)-[:READ_CONCEPT]->(c:Concept)
+WITH t, [x IN collect(c) WHERE x IS NOT NULL | {ref_id: x.ref_id, id: x.id, name: x.name}] AS concepts
+RETURN t, concepts
+ORDER BY toInteger(t.order) ASC
+LIMIT toInteger($limit)
+`;
+
 export const LIST_AGENT_SESSIONS_QUERY = `
 MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
   AND ($source IS NULL OR n.source = $source)
   AND ($repo IS NULL OR toLower(n.repo) CONTAINS toLower($repo))
+  AND ($agent_name_contains IS NULL OR toLower(coalesce(n.agent_name, '')) CONTAINS toLower($agent_name_contains))
   AND ($since IS NULL OR n.start_time >= toInteger($since))
   AND ($until IS NULL OR n.start_time < toInteger($until))
   AND NOT (n.source = 'unknown' AND n.total_tokens = 0 AND n.duration_ms = 0)
