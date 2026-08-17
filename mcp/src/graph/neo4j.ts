@@ -1682,6 +1682,7 @@ class Db {
     source: string;
     repo: string;
     agent_name: string;
+    spawn_tool_call_id: string;
     start_time: number;
   }): Promise<void> {
     const session = this.resilientSession();
@@ -1817,6 +1818,7 @@ class Db {
     source: string;
     repo: string;
     agent_name: string;
+    spawn_tool_call_id: string;
     model: string;
     provider: string;
     start_time: number;

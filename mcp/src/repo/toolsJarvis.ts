@@ -463,7 +463,7 @@ function registerGraphSubAgentTool(
           "The child cannot see this conversation.",
         ),
     }),
-    execute: async ({ prompt }: { prompt: string }) => {
+    execute: async ({ prompt }: { prompt: string }, options?: { toolCallId?: string }) => {
       const childTools: Record<string, Tool<any, any>> = {};
       // Persist the child run as its own session (linked to the parent) only
       // when the parent itself is session-backed. Grandchildren link to the
@@ -486,12 +486,19 @@ function registerGraphSubAgentTool(
       const runTools = withConceptCollection(childTools, conceptCollector);
 
       if (childSessionId) {
+        // The toolCallId is the exact link back to the parent's Turn chain:
+        // the parent's `graph_sub_agent` tool_call turn carries the same id.
+        // It must be captured here because that Turn does not exist yet — a
+        // step's turns are emitted when the step finishes, which is after
+        // this child has already run to completion.
         createSession(
           childSessionId,
           GRAPH_SUBAGENT_SYSTEM,
           "graph_sub_agent",
           sub.repo,
           sub.parentSessionId,
+          undefined,
+          options?.toolCallId,
         );
         emitUserTurn(childSessionId, "graph_sub_agent", {
           role: "user",
