@@ -59,7 +59,13 @@ GET :3355/api/sessions/:id?recursive=true  → adds `descendants: [...]` (flat, 
 ```
 
 Children are also discoverable purely by id shape: `<parent>-sub-<8hex>` nests
-arbitrarily (`X-sub-a1b2c3d4-sub-e5f6a7b8`).
+arbitrarily (`X-sub-a1b2c3d4-sub-e5f6a7b8`), and each child carries
+`parent_session_id` plus a `(parent)-[:SPAWNED]->(child)` edge in the graph.
+
+Each child also carries **`spawn_tool_call_id`** — the id of the parent tool call
+that spawned it, matching `tool_call_id` on the parent's `graph_sub_agent`
+`tool_call` turn. That is the exact fork point in the parent's chain (see §2).
+Empty on sessions that predate the field.
 
 ### 1c. The turn chain of one session (the polling workhorse)
 
@@ -134,10 +140,12 @@ The mockup renders "story rows", not raw turns. The fold from a turn array to ro
   - Expanding a pill = rendering the turns already in memory (the fold keeps them);
     no extra fetch needed since 1c returns full pages of 1000.
 - **sub-agent fork row** ← a `tool_call` turn with `tool === "graph_sub_agent"`.
-  Join to the child session: the tool_call `content` JSON has `prompt`, and the
-  child's turn 0 (`user_input`) has the same text; fallback join by start-time
-  order among unmatched children. The matching `tool_result` (same `tool_call_id`)
-  is the **merge point** where the child's lane curves back.
+  Join to the child session on **`child.spawn_tool_call_id === turn.tool_call_id`**
+  — exact, and the reason that field exists (a prompt-text match can't separate
+  two sub-agents handed identical prompts, which a fan-out makes likely). Fall
+  back to prompt text only for sessions predating the field. The matching
+  `tool_result` (same `tool_call_id`) is the **merge point** where the child's
+  lane curves back.
   - The child session's own rows render on the next lane (depth = number of
     `-sub-` segments in its id), between fork and merge, exactly as the mockup
     draws lanes 1 and 2. Clicking the agent header reveals its turn-0 prompt

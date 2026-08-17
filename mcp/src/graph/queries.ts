@@ -315,7 +315,7 @@ MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
   n.source = $source, n.repo = $repo, n.model = $model, n.provider = $provider,
-  n.agent_name = $agent_name,
+  n.agent_name = $agent_name, n.spawn_tool_call_id = $spawn_tool_call_id,
   n.start_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
@@ -324,6 +324,7 @@ SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.pare
     n.model = CASE WHEN $model = '' THEN coalesce(n.model, '') ELSE $model END,
     n.provider = CASE WHEN $provider = '' THEN coalesce(n.provider, '') ELSE $provider END,
     n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
+    n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END,
     n.end_time = toInteger($end_time),
     n.repo = $repo,
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
@@ -347,13 +348,14 @@ MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
   n.source = $source, n.repo = $repo, n.model = '', n.provider = '',
-  n.agent_name = $agent_name,
+  n.agent_name = $agent_name, n.spawn_tool_call_id = $spawn_tool_call_id,
   n.start_time = toInteger($start_time), n.end_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'running', n.error_message = ''
 SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
-    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END
+    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
+    n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END
 WITH n
 OPTIONAL MATCH (p:AgentSession {node_key: $parent_session_id})
 FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | MERGE (p)-[:SPAWNED]->(n))
