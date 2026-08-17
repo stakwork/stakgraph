@@ -1800,6 +1800,49 @@ class Db {
   }
 
   /**
+   * The session's highest-order Turn, or null when it has none yet. The
+   * order cursor for out-of-process agents posting turns over HTTP.
+   */
+  async get_turn_chain_head(
+    session_id: string,
+  ): Promise<{ turn_id: string; max_order: number } | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.GET_TURN_CHAIN_HEAD_QUERY, {
+        session_id,
+      });
+      const rec = result.records[0];
+      if (!rec) return null;
+      return {
+        turn_id: String(rec.get("turn_id") ?? ""),
+        max_order: toNum(rec.get("max_order")),
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Retype the session's last 'reasoning' Turn to 'response'. Same effect as
+   * finalize_turn_response, for callers with no emitter state to name the
+   * node. Returns the retyped node_key, or null when there was none.
+   */
+  async finalize_last_reasoning_turn(
+    session_id: string,
+  ): Promise<string | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.FINALIZE_LAST_REASONING_TURN_QUERY, {
+        session_id,
+      });
+      const nodeKey = result.records[0]?.get("node_key");
+      return nodeKey ? String(nodeKey) : null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Retype a run's final reasoning Turn to 'response' (matching the
    * post-hoc workflow, which retypes the last assistant text turn).
    */

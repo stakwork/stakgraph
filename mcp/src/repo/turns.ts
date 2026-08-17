@@ -514,6 +514,89 @@ export function markTranscriptEmitted(
   persistState(sessionId, state);
 }
 
+// ── External ingest ─────────────────────────────────────────────────
+// Same chain, built for agents that run in another process (hive's ai-sdk
+// agents) and post their turns over HTTP. Pure, like turnsFromTranscript:
+// no state map, no sidecar — an external session has no local transcript to
+// resume from, so the caller (or the graph itself) owns the order cursor and
+// the agent label. Everything else is byte-identical to the live path, so
+// ingested chains are indistinguishable from in-process ones.
+
+/** Turn types the ingest API accepts (the shapes the classifiers produce). */
+export const EXTERNAL_TURN_TYPES = [
+  "user_input",
+  "reasoning",
+  "tool_call",
+  "tool_result",
+  "response",
+] as const;
+
+/** Ceiling on non-tool_result content, so one runaway turn can't bloat the DB. */
+const MAX_CONTENT_CHARS = 100_000;
+
+export interface ExternalTurnInput {
+  turn_type: string;
+  /** String for every type; tool_result also accepts the raw output object. */
+  content?: unknown;
+  tool?: string | null;
+  tool_call_id?: string | null;
+  timestamp?: number | null;
+  concepts?: Array<{ ref_id?: string | null; id?: string | null }>;
+}
+
+/**
+ * Recover the agent label from an existing turn_id, so a caller that omits
+ * `agent` on a later batch continues the chain it started rather than
+ * forking a parallel one under a different label.
+ */
+export function agentFromTurnId(
+  turn_id: string,
+  sessionId: string,
+): string | null {
+  const marker = `-${sessionId}-turn-`;
+  const idx = turn_id.lastIndexOf(marker);
+  return idx > 0 ? turn_id.slice(0, idx) : null;
+}
+
+/**
+ * Build a Turn batch from externally-supplied parts, numbered from
+ * `startOrder`. tool_result content goes through the same `{type, value}`
+ * wrap + 100-char truncation the live emitter applies, so a hive tool result
+ * and a local one look the same in the graph.
+ */
+export function buildExternalTurns(
+  sessionId: string,
+  agent: string,
+  startOrder: number,
+  parts: ExternalTurnInput[],
+): EmittedTurn[] {
+  return parts.map((part, i) => {
+    const order = startOrder + i;
+    const id = turnId(agent, sessionId, order);
+    const content =
+      part.turn_type === "tool_result"
+        ? toolResultContent(part.content)
+        : String(part.content ?? "").slice(0, MAX_CONTENT_CHARS);
+    return {
+      node_key: turnNodeKey(id),
+      prev_node_key:
+        order === 0 ? null : turnNodeKey(turnId(agent, sessionId, order - 1)),
+      turn_id: id,
+      turn_type: part.turn_type,
+      order,
+      content,
+      tool: part.tool ? String(part.tool) : null,
+      tool_call_id: part.tool_call_id ? String(part.tool_call_id) : null,
+      timestamp: Number.isFinite(Number(part.timestamp))
+        ? Math.trunc(Number(part.timestamp))
+        : Date.now(),
+      concepts: (part.concepts ?? [])
+        .map((c) => ({ ref_id: c?.ref_id ?? null, id: c?.id ?? null }))
+        .filter((c) => c.ref_id || c.id),
+    };
+  });
+}
+
 /** Drop the sidecar + in-memory state; called when a session is deleted. */
 export function deleteTurnState(sessionId: string): void {
   states.delete(sessionId);

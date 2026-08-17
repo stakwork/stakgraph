@@ -422,6 +422,29 @@ ON CREATE SET r.weight = 1
 RETURN count(r) AS linked
 `;
 
+// Highest-order Turn of a session — the chain head. External ingest reads it
+// to place the next batch (and to recover the agent label from turn_id), so
+// the graph itself is the order cursor for out-of-process agents: no sidecar,
+// no server-side session state, and a caller that crashes mid-run resumes
+// exactly where it stopped.
+export const GET_TURN_CHAIN_HEAD_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+RETURN t.turn_id AS turn_id, toInteger(t.order) AS max_order
+ORDER BY toInteger(t.order) DESC
+LIMIT 1
+`;
+
+// finalizeTurns' counterpart for sessions with no in-process emitter state:
+// find this session's last 'reasoning' turn in the graph and retype it, so an
+// ingested chain ends in a 'response' like every other one.
+export const FINALIZE_LAST_REASONING_TURN_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+WHERE t.turn_type = 'reasoning'
+WITH t ORDER BY toInteger(t.order) DESC LIMIT 1
+SET t.turn_type = 'response'
+RETURN t.node_key AS node_key
+`;
+
 // The backfill workflow retypes the last assistant text turn from 'reasoning'
 // to 'response'. Live emission can't know a turn is last until the run ends,
 // so this runs from session end against the exact node the emitter tracked.
