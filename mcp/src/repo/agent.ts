@@ -18,7 +18,7 @@ import {
   normalizeUsage,
   withProviderCacheUsage,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, redactToolsConfig } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, graphWriteEnabled, redactToolsConfig } from "./tools.js";
 import {
   withConceptCollection,
   normalizeConceptReads,
@@ -226,20 +226,23 @@ Other rules:
  * (search-then-write) instead of minting duplicates.
  */
 const GRAPH_WRITE_GUIDANCE = `
-### Graph Writes (create_triplet — enabled)
-You can assert facts into the graph as DATA: source node -[edge]-> target node. Writes apply live to the graph immediately.
-- **Reuse before you create.** For each side of the triplet, \`graph_search\` for the entity first and pass its \`ref_id\`. Only create a node inline (\`*_type\` + \`*_data\`) when the entity genuinely does not exist yet — duplicate nodes fragment the graph.
+### Graph Writes (enabled)
+You can write DATA into the graph (instances, not schema). Writes apply live to the graph immediately.
+- \`create_triplet\` / \`create_batch_triplet\` — assert facts as source node -[edge]-> target node.
+- \`create_node\` — create (or merge) a single node with no edge. Prefer \`create_triplet\` when the new node should be connected to something — free-floating nodes are rarely useful.
+- \`edit_node\` — partial-update an existing node by ref_id: \`node_data\` merges over current properties, \`properties_to_be_deleted\` removes them. Inspect the node with \`graph_get\` before editing it.
+- **Reuse before you create.** \`graph_search\` for the entity first and pass its \`ref_id\`. Only create a node (inline \`*_type\` + \`*_data\`, or \`create_node\`) when the entity genuinely does not exist yet — duplicate nodes fragment the graph.
 - Node types and the edge type must exist in the ontology — verify with \`get_ontology\` (\`include_edges: true\` to see valid relationships). \`create_schema_if_missing\` auto-creates a missing edge schema; use it sparingly, and never to paper over a typo in \`edge_type\`.
 - Pass \`namespace\` when writing into a specific data partition.
-- Writes are create-or-merge: re-asserting an existing triplet is safe and returns the existing ref_ids (reported as a Warning).
-- After a write, report exactly what was created (source, edge, target ref_ids).
+- Creates are create-or-merge: re-asserting an existing triplet or node is safe and returns the existing ref_ids (reported as a Warning).
+- After a write, report exactly what was created or changed (ref_ids, properties).
 `;
 
 function GRAPH_SYSTEM(toolsConfig?: ToolsConfig) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
-  const graphWrite = toolConfigEnabled(toolsConfig?.create_triplet);
+  const graphWrite = graphWriteEnabled(toolsConfig);
 
   return `${getCurrentDateSnippet()}
 
@@ -275,7 +278,7 @@ function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
-  const graphWrite = toolConfigEnabled(toolsConfig?.create_triplet);
+  const graphWrite = graphWriteEnabled(toolsConfig);
   const runStepEnabled = Boolean(hasRunTools) && toolConfigEnabled(toolsConfig?.stakwork_run_step);
 
   const runStepGuidance = runStepEnabled
