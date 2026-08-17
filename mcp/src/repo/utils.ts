@@ -95,6 +95,26 @@ export function createHasEndMarkerCondition<
  * ends with raw "end_turn". OpenAI-compatible providers report a plain "stop"
  * either way, so their stalls are not detectable this way and are left alone.
  */
+/**
+ * True when the step cap ended a run mid-work, rather than the model finishing.
+ *
+ * The exact complement of `needsContinuation`, which returns false as soon as
+ * the last step holds tool calls — a loop stopped by stopWhen is not a model
+ * stall, so that function correctly ignores it. But it IS an incomplete result:
+ * the loop was cut off before the model ever reached a synthesis turn, so the
+ * only text present is intermediate narration. `extractFinalAnswer` will still
+ * return that narration (via its text-after-last-tool fallback), and it reads
+ * exactly like a finished answer unless the caller is told otherwise.
+ */
+export function hitStepCap(
+  steps: StepResult<ToolSet>[],
+  maxSteps: number,
+): boolean {
+  if (maxSteps <= 0 || steps.length < maxSteps) return false;
+  const last = steps[steps.length - 1];
+  return (last?.toolCalls?.length ?? 0) > 0;
+}
+
 export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
   const last = steps[steps.length - 1];
   if (!last) return false;
