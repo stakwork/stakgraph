@@ -182,6 +182,101 @@ test.describe("turn emission", () => {
     expect(turns[0].concepts).toEqual([]);
   });
 
+  test("turnsFromTranscript matches the build_trace_edges.py example", async () => {
+    const { turnsFromTranscript } = await import("../turns.js");
+    // The worked example from the backfill script's own docstring.
+    const messages: any[] = [
+      { role: "system", content: "You are an agent." },
+      { role: "user", content: [{ type: "text", text: "Add new schema to the WFA ontology" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I'll search for the schema library..." },
+          { type: "tool-call", toolCallId: "call_1", toolName: "stakgraph_search", input: { query: "get_wfa_schema_library" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "call_1", toolName: "stakgraph_search", output: { type: "text", value: "Found function at ref_id c4561197" } },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Done. Added the new schemas." }] },
+    ];
+
+    const turns = turnsFromTranscript("s1", "coding", messages);
+
+    // System message skipped (prod's 1,537 useless 'unknown' turns came from
+    // classifying it); everything else lands in transcript order.
+    expect(turns.map((t) => t.turn_type)).toEqual([
+      "user_input",
+      "reasoning",
+      "tool_call",
+      "tool_result",
+      "response", // last reasoning retyped, like the python
+    ]);
+    expect(turns.map((t) => t.order)).toEqual([0, 1, 2, 3, 4]);
+    expect(turns[0].turn_id).toBe("coding-s1-turn-0");
+    expect(turns[0].prev_node_key).toBe(null);
+    expect(turns[2].tool).toBe("stakgraph_search");
+    expect(turns[3].tool).toBe("stakgraph_search");
+    expect(turns[3].tool_call_id).toBe("call_1");
+    // Backfilled turns carry no fabricated time.
+    expect(turns.every((t) => t.timestamp === null)).toBe(true);
+  });
+
+  test("turnsFromTranscript skips continuation nudges and detects concepts", async () => {
+    const { turnsFromTranscript } = await import("../turns.js");
+    const messages: any[] = [
+      { role: "user", content: "go" },
+      {
+        role: "user",
+        content: "keep going",
+        providerOptions: { stakgraph: { continuationNudge: true } },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "c9", toolName: "graph_get", input: { ref_id: "r-1" } }],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c9",
+            toolName: "graph_get",
+            output: {
+              type: "json",
+              value: { node_type: "Concept", ref_id: "r-1", name: "auth", properties: { id: "g-1" } },
+            },
+          },
+        ],
+      },
+    ];
+
+    const turns = turnsFromTranscript("s2", "hive", messages);
+    expect(turns.map((t) => t.turn_type)).toEqual(["user_input", "tool_call", "tool_result"]);
+    expect(turns[2].concepts).toEqual([{ ref_id: "r-1", id: "g-1" }]);
+  });
+
+  test("markTranscriptEmitted leaves the cursor a live resume continues from", async () => {
+    const { markTranscriptEmitted, hasTurnCursor, emitUserTurn } = await import("../turns.js");
+    const sid = `sess-${randomUUID().slice(0, 8)}`;
+
+    expect(hasTurnCursor(sid)).toBe(false);
+    markTranscriptEmitted(sid, "coding", 5);
+    expect(hasTurnCursor(sid)).toBe(true);
+    expect(sidecar(sid)).toEqual({
+      agent: "coding",
+      next_order: 5,
+      last_reasoning_order: null,
+    });
+
+    // A live run on the backfilled session picks up where the transcript ended.
+    const turns = emitUserTurn(sid, "ignored", { role: "user", content: "again" });
+    expect(turns[0].turn_id).toBe(`coding-${sid}-turn-5`);
+  });
+
   test("deleteTurnState removes the sidecar", async () => {
     const { emitUserTurn, deleteTurnState } = await import("../turns.js");
     const sid = `sess-${randomUUID().slice(0, 8)}`;

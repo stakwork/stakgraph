@@ -65,8 +65,12 @@ export interface EmittedTurn {
   tool: string | null;
   /** Pairs tool_call and tool_result turns even when calls run in parallel. */
   tool_call_id: string | null;
-  /** Epoch ms at emission — when this moment of the session happened. */
-  timestamp: number;
+  /**
+   * Epoch ms at emission — when this moment of the session happened. Null for
+   * backfilled turns (the transcript records no per-message time); the query
+   * then leaves the property off entirely, which is more honest than a fake.
+   */
+  timestamp: number | null;
   concepts: Array<{ ref_id: string | null; id: string | null }>;
 }
 
@@ -371,6 +375,143 @@ export function finalizeTurns(sessionId: string): string | null {
     console.error("[turns] finalizeTurns failed:", e);
     return null;
   }
+}
+
+// ── Transcript classification (backfill) ────────────────────────────
+// The live emitters above classify step content as it happens; this is the
+// same classification applied to a PERSISTED transcript, for sessions that
+// ran before live emission existed. Pure: no state map, no sidecar, no
+// writes — the caller owns persistence. Matches build_trace_edges.py where
+// it matters (one turn per content part, last reasoning retyped to
+// response) and the live emitter where they deliberately deviate (system
+// messages and continuation nudges skipped, real tool names kept).
+
+/** True for the nudge user messages the live path never emits. */
+function isNudgeMessage(message: ModelMessage): boolean {
+  const tag = (message as any).providerOptions?.stakgraph;
+  return Boolean(tag?.continuationNudge || tag?.timeNudge);
+}
+
+/**
+ * Classify a full stored transcript into the Turn chain it would have
+ * produced had live emission been running. Timestamps are null — the
+ * transcript records no per-message time.
+ */
+export function turnsFromTranscript(
+  sessionId: string,
+  agent: string,
+  messages: ModelMessage[],
+): EmittedTurn[] {
+  const turns: EmittedTurn[] = [];
+  const pendingInputs = new Map<string, unknown>();
+  let lastReasoningIdx = -1;
+
+  const push = (
+    turn_type: string,
+    content: string,
+    tool: string | null,
+    toolCallId?: string,
+    concepts: Array<{ ref_id: string | null; id: string | null }> = [],
+  ) => {
+    const order = turns.length;
+    const id = turnId(agent, sessionId, order);
+    if (turn_type === "reasoning") lastReasoningIdx = order;
+    turns.push({
+      node_key: turnNodeKey(id),
+      prev_node_key:
+        order === 0 ? null : turnNodeKey(turnId(agent, sessionId, order - 1)),
+      turn_id: id,
+      turn_type,
+      order,
+      content,
+      tool,
+      tool_call_id: toolCallId ?? null,
+      timestamp: null,
+      concepts,
+    });
+  };
+
+  for (const message of messages) {
+    if (message.role === "system") continue;
+    if (message.role === "user" && isNudgeMessage(message)) continue;
+    const parts =
+      typeof message.content === "string"
+        ? [{ type: "text", text: message.content }]
+        : (message.content as Array<any>);
+    if (!Array.isArray(parts)) continue;
+
+    for (const part of parts) {
+      if (message.role === "user") {
+        if (part?.type === "text" && part.text) {
+          push("user_input", part.text, null);
+        }
+      } else if (message.role === "assistant") {
+        if (part?.type === "text" && part.text) {
+          push("reasoning", part.text, null);
+        } else if (part?.type === "tool-call") {
+          if (part.toolCallId) pendingInputs.set(part.toolCallId, part.input);
+          let inputJson: string;
+          try {
+            inputJson = JSON.stringify(part.input ?? "") ?? '""';
+          } catch {
+            inputJson = '""';
+          }
+          push("tool_call", inputJson, part.toolName ?? "unknown", part.toolCallId);
+        }
+      } else if (message.role === "tool") {
+        if (part?.type !== "tool-result") continue;
+        const toolName = part.toolName ?? "unknown";
+        const input = part.toolCallId ? pendingInputs.get(part.toolCallId) : undefined;
+        if (part.toolCallId) pendingInputs.delete(part.toolCallId);
+        let concepts: Array<{ ref_id: string | null; id: string | null }> = [];
+        try {
+          concepts = conceptReadsFrom(toolName, input, toolResultValue(part.output))
+            .filter((r) => r.ref_id || r.id)
+            .map((r) => ({ ref_id: r.ref_id ?? null, id: r.id ?? null }));
+        } catch {
+          // best-effort, like the live path
+        }
+        push(
+          "tool_result",
+          toolResultContent(part.output),
+          toolName,
+          part.toolCallId,
+          concepts,
+        );
+      }
+    }
+  }
+
+  // The whole transcript is in hand, so the retype is a pre-write edit
+  // rather than a finalize query: last reasoning turn becomes the response,
+  // exactly like build_trace_edges.py.
+  if (lastReasoningIdx >= 0) turns[lastReasoningIdx].turn_type = "response";
+
+  return turns;
+}
+
+/** True when a session already has a turn cursor (live emission ran). */
+export function hasTurnCursor(sessionId: string): boolean {
+  return states.has(sessionId) || existsSync(stateFilePath(sessionId));
+}
+
+/**
+ * Record that a session's transcript has been emitted through order
+ * `nextOrder`. Writes the same cursor sidecar the live path maintains, so a
+ * later live run on this session continues the chain instead of colliding —
+ * and so the backfill skips it on any future sweep. last_reasoning_order is
+ * null because turnsFromTranscript already retyped the response pre-write.
+ */
+export function markTranscriptEmitted(
+  sessionId: string,
+  agent: string,
+  nextOrder: number,
+): void {
+  const state = getState(sessionId, agent);
+  state.agent = state.agent || agent;
+  state.next_order = Math.max(state.next_order, nextOrder);
+  state.last_reasoning_order = null;
+  persistState(sessionId, state);
 }
 
 /** Drop the sidecar + in-memory state; called when a session is deleted. */

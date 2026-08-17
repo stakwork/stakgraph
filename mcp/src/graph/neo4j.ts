@@ -1654,7 +1654,12 @@ class Db {
    * Write a batch of Turn nodes for a session, chaining each to its
    * predecessor with NEXT and anchoring turn 0 to the AgentSession with
    * HAS_TURN. Idempotent: node_keys are deterministic, so re-emitting a
-   * turn updates it in place.
+   * turn updates it in place. Also bumps turn_count / last_turn_at on the
+   * session node in the same query.
+   *
+   * Returns how many turns were written. 0 with a non-empty batch means the
+   * AgentSession node doesn't exist — the query anchors on it, so chains are
+   * never written orphaned.
    */
   async upsert_turns(
     session_id: string,
@@ -1667,17 +1672,19 @@ class Db {
       content: string;
       tool: string | null;
       tool_call_id: string | null;
-      timestamp: number;
+      timestamp: number | null;
     }>,
-  ): Promise<void> {
-    if (turns.length === 0) return;
+  ): Promise<number> {
+    if (turns.length === 0) return 0;
     const session = this.resilientSession();
     try {
-      await session.run(Q.UPSERT_TURNS_QUERY, {
+      const result = await session.run(Q.UPSERT_TURNS_QUERY, {
         session_id,
         turns,
         ts: Date.now() / 1000,
       });
+      const written = result.records[0]?.get("written");
+      return written?.toNumber?.() ?? Number(written ?? 0);
     } finally {
       await session.close();
     }

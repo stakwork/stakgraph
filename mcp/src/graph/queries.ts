@@ -386,7 +386,14 @@ FOREACH (_ IN CASE WHEN toInteger(t.order) = 0 THEN [1] ELSE [] END |
   MERGE (s)-[h:HAS_TURN]->(n)
   SET h.weight = 1
 )
-RETURN count(n) AS written
+WITH s, n, t
+WITH s, count(n) AS written,
+     max(toInteger(t.order)) AS max_order,
+     max(toInteger(t.timestamp)) AS last_ts
+SET s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
+                        THEN max_order + 1 ELSE s.turn_count END,
+    s.last_turn_at = coalesce(last_ts, s.last_turn_at)
+RETURN written
 `;
 
 // Live per-turn provenance: WHICH moment of the session read a Concept.

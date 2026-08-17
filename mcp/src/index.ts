@@ -44,6 +44,7 @@ import { logs_agent } from "./log/index.js";
 import * as ga from "./graph_agent/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
 import { backfillConceptReads, backfillConceptEdges } from "./repo/conceptBackfill.js";
+import { backfillTurns } from "./repo/turnBackfill.js";
 import { pruneExpiredArtifacts } from "./repo/artifacts.js";
 import {
   getBus,
@@ -433,6 +434,13 @@ const server = app.listen(port, host, () => {
     // mergeReflection; this catches sidecars that predate edge syncing.
     .then(() => backfillConceptEdges())
     .catch((e) => console.error("[concept-edge-backfill] failed:", e));
+
+  // Backfill Turn chains for sessions that ran before live emission. Same
+  // posture as the concept backfills: marker-guarded, never awaited, retried
+  // next boot if Neo4j wasn't up.
+  void backfillTurns().catch((e) =>
+    console.error("[turn-backfill] failed:", e),
+  );
 });
 
 process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
