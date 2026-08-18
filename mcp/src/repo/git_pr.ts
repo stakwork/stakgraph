@@ -612,12 +612,23 @@ async function _acquireWorktree(
 // ---------------------------------------------------------------------------
 
 /**
- * Remove the worktree and run directory.  Safe to call twice or when the
- * worktree was already removed.
+ * Remove this repo's worktree and its run-scoped files.  Safe to call twice
+ * or when the worktree was already removed.
+ *
+ * A single runId may host multiple repos at
+ * /tmp/.swarm-work/<runId>/<owner>/<repo>, all sharing the run's `.home`.
+ * We therefore only remove THIS repo's worktree directory (and its now-empty
+ * owner dir), and delete the shared run directory — including `.home` — only
+ * once no other repo remains under it.  Nuking the whole run dir here would
+ * destroy sibling repos' worktrees out from under their git metadata.
  */
 export async function releaseWorktree(handle: WorktreeHandle): Promise<void> {
   if (handle._released) return;
   handle._released = true;
+
+  // Drop this run's landed-result entry — the run is over, so the
+  // already_landed guard no longer needs it and its diff can be freed.
+  landedResults.delete(handle.runId);
 
   // Kill any tracked child processes
   for (const child of handle._children) {
@@ -647,9 +658,32 @@ export async function releaseWorktree(handle: WorktreeHandle): Promise<void> {
     }).catch(() => {});
   }
 
-  // rm -rf the per-run directory
   const runDir = path.join(SWARM_WORK_ROOT, handle.runId);
-  fs.rmSync(runDir, { recursive: true, force: true });
+
+  // Remove only this repo's worktree dir (git usually removed it already) and
+  // then prune its now-empty owner dir.
+  fs.rmSync(handle.worktreePath, { recursive: true, force: true });
+  const ownerDir = path.dirname(handle.worktreePath);
+  // Only prune the owner dir when it lives under this run dir (guards against
+  // pathological owner values collapsing the path elsewhere).
+  if (path.dirname(ownerDir) === runDir) {
+    try {
+      if (fs.readdirSync(ownerDir).length === 0) fs.rmdirSync(ownerDir);
+    } catch { /* non-empty or already gone — leave it */ }
+  }
+
+  // Delete the shared run dir (including `.home`) only if no sibling repo
+  // remains — i.e. nothing left but the `.home` scratch dir.
+  try {
+    const remaining = fs
+      .readdirSync(runDir)
+      .filter((entry) => entry !== ".home");
+    if (remaining.length === 0) {
+      fs.rmSync(runDir, { recursive: true, force: true });
+    }
+  } catch {
+    // runDir already gone — nothing to do.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -700,8 +734,25 @@ export type LandChangeFailure = {
 
 export type LandChangeResult = LandChangeSuccess | LandChangeFailure;
 
-// Per-run already-landed tracking (keyed by runId)
+// Per-run already-landed tracking (keyed by runId).
+//
+// Entries are normally evicted by releaseWorktree when a run finishes. The
+// size cap is a backstop against runs that store a result but never release
+// (crash, early return): the Map preserves insertion order, so exceeding the
+// cap evicts the oldest entries first. Without this, every landed run would
+// retain its full diff (up to DEFAULT_MAX_BYTES) for the process lifetime.
 const landedResults = new Map<string, LandChangeResult>();
+const MAX_LANDED_RESULTS = 512;
+
+/** Record a run's result, evicting the oldest entries past the cap. */
+function recordLandedResult(runId: string, result: LandChangeResult): void {
+  landedResults.set(runId, result);
+  while (landedResults.size > MAX_LANDED_RESULTS) {
+    const oldest = landedResults.keys().next().value;
+    if (oldest === undefined) break;
+    landedResults.delete(oldest);
+  }
+}
 
 const DEFAULT_MAX_FILES = 200;
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -736,7 +787,7 @@ export async function landChange(
         /^Authorization: Basic /, ""
       )),
     };
-    landedResults.set(handle.runId, result);
+    recordLandedResult(handle.runId, result);
     return result;
   };
 
@@ -898,7 +949,7 @@ export async function landChange(
       diff: fullDiff,
       error: redactCredentials(errMsg),
     };
-    landedResults.set(handle.runId, result);
+    recordLandedResult(handle.runId, result);
     return result;
   }
 
@@ -912,7 +963,7 @@ export async function landChange(
     diff: fullDiff,
     filesChanged: stagedFiles.length,
   };
-  landedResults.set(handle.runId, success);
+  recordLandedResult(handle.runId, success);
   return success;
 }
 

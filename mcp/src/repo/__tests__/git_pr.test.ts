@@ -576,6 +576,57 @@ describe("acquireWorktree / releaseWorktree", () => {
       assert.ok(!fs.existsSync(worktreePath), "worktree dir should be removed");
     }
   });
+
+  it("releasing one repo in a multi-repo run leaves sibling repos intact", async () => {
+    // Two repos under the SAME runId, each backed by its own base clone
+    // (real runs give each repo a distinct /tmp/<owner>/<repo> checkout).
+    const runId = randomUUID();
+    const secondClone = path.join(testRootDir, "base-clone-2-" + runId.slice(0, 8));
+    execSync(`git clone --single-branch "${bareRepoDir}" "${secondClone}"`, {
+      env: localEnv() as NodeJS.ProcessEnv,
+      stdio: "ignore",
+    });
+
+    const client = makeStubClient({ defaultBranch: "main" });
+    const acquire = (baseDir: string, repo: string) =>
+      acquireWorktree({
+        baseDir,
+        owner: "owner",
+        repo,
+        runId,
+        pat: TEST_PAT,
+        githubClient: client,
+        commit: baseSha,
+        base: "main",
+      });
+
+    const rA = await acquire(baseCloneDir, "repoA");
+    const rB = await acquire(secondClone, "repoB");
+
+    try {
+      assert.ok(rA.ok, `repoA acquire failed: ${!rA.ok ? (rA as any).error : ""}`);
+      assert.ok(rB.ok, `repoB acquire failed: ${!rB.ok ? (rB as any).error : ""}`);
+      if (!rA.ok || !rB.ok) return;
+
+      const runHome = rA.handle.runHome; // shared: /tmp/.swarm-work/<runId>/.home
+      assert.ok(fs.existsSync(runHome), "shared runHome should exist");
+
+      // Release repoA — must NOT touch repoB's worktree or the shared runHome.
+      await releaseWorktree(rA.handle);
+      assert.ok(!fs.existsSync(rA.handle.worktreePath), "repoA worktree should be gone");
+      assert.ok(fs.existsSync(rB.handle.worktreePath), "repoB worktree must survive repoA release");
+      assert.ok(fs.existsSync(runHome), "shared runHome must survive repoA release");
+
+      // Release repoB — now the last repo, so the whole run dir goes.
+      await releaseWorktree(rB.handle);
+      assert.ok(!fs.existsSync(rB.handle.worktreePath), "repoB worktree should be gone");
+      const runDir = path.dirname(runHome);
+      assert.ok(!fs.existsSync(runDir), "run dir should be removed after last repo released");
+    } finally {
+      if (rA.ok) await releaseWorktree(rA.handle).catch(() => {});
+      if (rB.ok) await releaseWorktree(rB.handle).catch(() => {});
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
