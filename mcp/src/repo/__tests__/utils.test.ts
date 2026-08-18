@@ -76,6 +76,104 @@ test.describe("redactCredentials", () => {
       "contact dev@example.com"
     );
   });
+
+  // New extended patterns -------------------------------------------------------
+
+  test("strips bare ghp_ token appearing mid-string", () => {
+    const out = redactCredentials("stderr: ghp_AbCdEfGhIjKlMnOpQ123 was rejected");
+    expect(out).not.toContain("ghp_AbCdEfGhIjKlMnOpQ123");
+    expect(out).toContain("[REDACTED]");
+    expect(out).toContain("stderr:");
+    expect(out).toContain("was rejected");
+  });
+
+  test("strips bare gho_ token", () => {
+    const out = redactCredentials("token: gho_TestToken9999");
+    expect(out).not.toContain("gho_TestToken9999");
+    expect(out).toContain("[REDACTED]");
+  });
+
+  test("strips bare ghu_ token", () => {
+    const out = redactCredentials("error using ghu_UserToken0001 for auth");
+    expect(out).not.toContain("ghu_UserToken0001");
+  });
+
+  test("strips bare ghs_ token", () => {
+    const out = redactCredentials("ghs_ServerToken1234abcd");
+    expect(out).not.toContain("ghs_ServerToken1234abcd");
+  });
+
+  test("strips bare ghr_ token", () => {
+    const out = redactCredentials("refresh ghr_RefreshToken5678");
+    expect(out).not.toContain("ghr_RefreshToken5678");
+  });
+
+  test("strips bare github_pat_ token", () => {
+    const out = redactCredentials("github_pat_LongPatToken_ABCDEF123456");
+    expect(out).not.toContain("github_pat_LongPatToken_ABCDEF123456");
+    expect(out).toContain("[REDACTED]");
+  });
+
+  test("strips bare token appearing multiple times", () => {
+    const out = redactCredentials(
+      "first ghp_MULTI123 then again ghp_MULTI123 in output"
+    );
+    expect(out).not.toContain("ghp_MULTI123");
+    // Both occurrences replaced
+    expect(out.split("[REDACTED]").length - 1).toBe(2);
+  });
+
+  test("strips Authorization: Basic header value", () => {
+    const b64 = Buffer.from("x-access-token:ghp_secret123").toString("base64");
+    const out = redactCredentials(`Authorization: Basic ${b64}`);
+    expect(out).not.toContain(b64);
+    expect(out).not.toContain("ghp_secret123");
+    expect(out).toContain("[REDACTED]");
+  });
+
+  test("strips Authorization: token header value (case-insensitive)", () => {
+    const out = redactCredentials("authorization: token ghp_TokenValue1234");
+    expect(out).not.toContain("ghp_TokenValue1234");
+    expect(out).toContain("[REDACTED]");
+  });
+
+  test("strips Authorization: Bearer header value", () => {
+    const out = redactCredentials("Authorization: Bearer myBearerToken99");
+    expect(out).not.toContain("myBearerToken99");
+    expect(out).toContain("[REDACTED]");
+  });
+
+  test("strips literal pat when supplied as second argument", () => {
+    const pat = "my-unusual-token-that-matches-no-pattern";
+    const out = redactCredentials(`error: ${pat} was rejected by server`, pat);
+    expect(out).not.toContain(pat);
+    expect(out).toContain("[REDACTED]");
+    expect(out).toContain("error:");
+  });
+
+  test("strips literal pat appearing multiple times", () => {
+    const pat = "tok_special_ABCDEF";
+    const out = redactCredentials(`used ${pat} here and ${pat} again`, pat);
+    expect(out).not.toContain(pat);
+    expect(out.split("[REDACTED]").length - 1).toBe(2);
+  });
+
+  test("surrounding text is preserved when redacting bare token", () => {
+    const out = redactCredentials("git: error: remote rejected (ghp_SECRET1234ABCD) — permission denied");
+    expect(out).not.toContain("ghp_SECRET1234ABCD");
+    expect(out).toContain("git: error: remote rejected");
+    expect(out).toContain("permission denied");
+  });
+
+  test("redacts embedded-credential URL alongside bare token", () => {
+    const out = redactCredentials(
+      "clone https://user:ghp_Token123@github.com/o/r.git failed, token=ghp_Token123"
+    );
+    expect(out).not.toContain("ghp_Token123");
+    expect(out).not.toContain("user:");
+    // URL part redacted with ***@
+    expect(out).toContain("***@");
+  });
 });
 
 test.describe("deepParseJsonStrings", () => {
