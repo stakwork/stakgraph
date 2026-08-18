@@ -451,6 +451,7 @@ export async function get_tools(
   skills?: SkillsConfig,
   ontologyDomains?: string,
   sessionId?: string,
+  abortSignal?: AbortSignal,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -986,6 +987,9 @@ export async function get_tools(
     // Scope get_ontology to the caller's `ontologyDomains`, unless the model
     // asks for specific `domains` itself. Unset => no filter, all domains.
     defaultDomains: ontologyDomains,
+    // Thread the run's AbortSignal so Jarvis HTTP calls can be cancelled when
+    // the busy safety-timeout or /repo/agent/abort fires.
+    abortSignal,
   });
 
   // Register Stakwork run-research tools (read-only, gated on the caller
