@@ -40,13 +40,29 @@ import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
 import { relevant_node_types } from "../graph/types.js";
+import {
+  landChange,
+  type LandChangeResult,
+  type WorktreeHandle,
+  type AgentIdentity,
+  type GitHubClient,
+} from "./git_pr.js";
 
 /**
  * Allowed write roots for the text-editor tool. The tool sandbox refuses any
  * path outside these (see resolveInCwd in textEdit.ts): the cloned repo, the
  * OS temp dir (scratch), and — when configured — the durable artifacts dir.
+ *
+ * When `strict` is true (create_pr path), the OS temp dir is omitted so
+ * str_replace_based_edit_tool / apply_patch cannot write into the shared
+ * /tmp/<owner>/<repo> checkout when a worktree is active.
  */
-export function editorRoots(repoPath: string): string[] {
+export function editorRoots(repoPath: string, strict?: boolean): string[] {
+  if (strict) {
+    const roots = [repoPath];
+    if (AGENT_ARTIFACTS_DIR) roots.push(AGENT_ARTIFACTS_DIR);
+    return roots;
+  }
   const roots = [repoPath, os.tmpdir()];
   if (AGENT_ARTIFACTS_DIR) roots.push(AGENT_ARTIFACTS_DIR);
   return roots;
@@ -61,6 +77,10 @@ export interface ProvenanceEntry {
 
 export interface ProvenanceCollector {
   entries: ProvenanceEntry[];
+}
+
+export interface PrCollector {
+  result: LandChangeResult | undefined;
 }
 
 export interface GgnnTool {
@@ -79,6 +99,20 @@ export interface GgnnConfig {
 
 export interface MessagesRef {
   current: ModelMessage[];
+}
+
+export interface GetToolsOptions {
+  /** create_pr path: collector that receives the landChange result */
+  prCollector?: PrCollector;
+  /** create_pr path: worktree + identity handle for landChange */
+  prMode?: {
+    handle: WorktreeHandle;
+    identity: AgentIdentity;
+    env: NodeJS.ProcessEnv;
+    githubClient: GitHubClient;
+  };
+  /** create_pr path: base checkout path (shared clone) to reject in bash commands */
+  baseCheckoutPath?: string;
 }
 
 type ToolName =
@@ -123,7 +157,8 @@ type ToolName =
   | "sheets_batch_update_values"
   | "sheets_get_values"
   | "sheets_add_sheet"
-  | "sheets_import_spreadsheet";
+  | "sheets_import_spreadsheet"
+  | "create_pr";
 
 /**
  * Object form of a per-tool config value. Lets a caller pass a description
@@ -258,6 +293,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "stakwork_run_step",
   "sheets_create_spreadsheet", "sheets_update_values", "sheets_batch_update_values",
   "sheets_get_values", "sheets_add_sheet", "sheets_import_spreadsheet",
+  "create_pr",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -432,6 +468,13 @@ Rules:
   sheets_get_values: '',
   sheets_add_sheet: '',
   sheets_import_spreadsheet: '',
+  // Gated inside toolsConfig branch only — never added to allTools unconditionally.
+  create_pr:
+    "Commit all staged changes and open a pull request on GitHub. " +
+    "Input: { title: string, body: string }. " +
+    "Returns the PR URL, branch, diff, and files-changed count on success, " +
+    "or a classified failure mode with diff on error. " +
+    "Call this at the end of your work when all file edits are complete.",
 };
 
 export async function get_tools(
@@ -452,6 +495,7 @@ export async function get_tools(
   ontologyDomains?: string,
   sessionId?: string,
   abortSignal?: AbortSignal,
+  options?: GetToolsOptions,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -652,6 +696,12 @@ export async function get_tools(
         command: z.string().describe("The bash command to execute"),
       }),
       execute: async ({ command }: { command: string }) => {
+        // Bash confinement (create_pr path): reject commands referencing the
+        // shared checkout — a guard, not a sandbox; base-dirty detection is
+        // the backstop for anything that slips through.
+        if (options?.baseCheckoutPath && command.includes(options.baseCheckoutPath)) {
+          return `bash command rejected: references the shared checkout '${options.baseCheckoutPath}'. Work inside the worktree instead.`;
+        }
         try {
           return await executeBashCommand(command, repoPath, 60000, ghEnv);
         } catch (e) {
@@ -667,6 +717,12 @@ export async function get_tools(
         command: z.string().describe("The bash command to execute"),
       }),
       execute: async ({ command }: { command: string }) => {
+        // Bash confinement (create_pr path): reject commands referencing the
+        // shared checkout — a guard, not a sandbox; base-dirty detection is
+        // the backstop for anything that slips through.
+        if (options?.baseCheckoutPath && command.includes(options.baseCheckoutPath)) {
+          return `bash command rejected: references the shared checkout '${options.baseCheckoutPath}'. Work inside the worktree instead.`;
+        }
         try {
           return await executeBashCommand(command, repoPath, 60000, ghEnv);
         } catch (e) {
@@ -1283,7 +1339,7 @@ export async function get_tools(
         const baseURL = getGatewayBaseURL("anthropic");
         const ant = createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
         allTools.str_replace_based_edit_tool = ant.tools.textEditor_20250728({
-          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath)),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, Boolean(options?.prMode))),
         }) as any as Tool<any, any>;
       } else {
         // Generic fallback for OpenAI / other providers
@@ -1301,7 +1357,7 @@ export async function get_tools(
             insert_text: z.string().optional(),
             view_range: z.array(z.number().int()).length(2).optional(),
           }),
-          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath)),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, Boolean(options?.prMode))),
         });
       }
     }
@@ -1330,6 +1386,61 @@ export async function get_tools(
             try {
               unlinkSync(tmp);
             } catch {}
+          }
+        },
+      });
+    }
+    // create_pr — opt-in write path: stage, scan, commit, push, open PR.
+    // Gated strictly inside the toolsConfig branch so flagless callers never
+    // see it (the "if (!toolsConfig) return allTools" early-return above means
+    // unconditional registrations in allTools would leak to every caller).
+    if (toolConfigEnabled(toolsConfig.create_pr)) {
+      const prOpts = options?.prMode;
+      const prColl = options?.prCollector;
+      allTools.create_pr = tool({
+        description:
+          toolConfigDescription(toolsConfig.create_pr) ??
+          defaultDescriptions.create_pr,
+        // No branch_hint: the branch is created (and named) at acquireWorktree
+        // time, before the model runs, so a hint here could never take effect.
+        inputSchema: z.object({
+          title: z.string().describe("PR title"),
+          body: z.string().describe("PR body / description"),
+        }),
+        execute: async ({
+          title,
+          body,
+        }: {
+          title: string;
+          body: string;
+        }) => {
+          if (!prOpts) {
+            return "create_pr is not available: no worktree handle was resolved for this run";
+          }
+          const result = await landChange({
+            handle: prOpts.handle,
+            identity: prOpts.identity,
+            env: prOpts.env,
+            githubClient: prOpts.githubClient,
+            title,
+            body,
+          });
+          if (prColl) {
+            prColl.result = result;
+          }
+          if (result.ok) {
+            return (
+              `PR created successfully!\n` +
+              `URL: ${result.url}\n` +
+              `Branch: ${result.branch}\n` +
+              `Files changed: ${result.filesChanged}\n\n` +
+              `Diff (first 4000 chars):\n${result.diff.slice(0, 4000)}`
+            );
+          } else {
+            return (
+              `PR creation failed (${result.failure}): ${result.error}\n\n` +
+              `Diff (first 4000 chars):\n${result.diff.slice(0, 4000)}`
+            );
           }
         },
       });
@@ -1626,7 +1737,14 @@ export function normalizeToolsConfig(
     let i = 0;
     while (i < tokens.length) {
       const key = tokens[i];
-      if (!TOOL_NAMES.has(key)) { i++; continue; }
+      if (!TOOL_NAMES.has(key)) {
+        // Skip family-config extra keys silently; warn on truly unknown keys
+        if (!(TOOLS_CONFIG_EXTRA_KEYS as string[]).includes(key)) {
+          console.warn(`[normalizeToolsConfig] Unknown toolsConfig key dropped: "${key}"`);
+        }
+        i++;
+        continue;
+      }
       const next = tokens[i + 1];
       if (next === "true") {
         (config as any)[key] = true;
