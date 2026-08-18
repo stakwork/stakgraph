@@ -119,7 +119,13 @@ export async function callRemoteAgent(
   const body: Record<string, unknown> = { prompt };
   if (subAgent.repoUrl) body.repo_url = subAgent.repoUrl;
   if (subAgent.model) body.model = subAgent.model;
-  if (subAgent.toolsConfig) body.toolsConfig = subAgent.toolsConfig;
+  if (subAgent.toolsConfig) {
+    // Strip create_pr from forwarded toolsConfig: pat is never forwarded, so
+    // a forwarded create_pr would run under the remote container's ambient
+    // identity rather than the requesting user's PAT.
+    const { create_pr: _stripped, ...safeConfig } = subAgent.toolsConfig as any;
+    if (Object.keys(safeConfig).length > 0) body.toolsConfig = safeConfig;
+  }
 
   console.log(
     `[sub-agent:${subAgent.name}] POST ${agentUrl} (timeout: ${timeoutSeconds}s)`
