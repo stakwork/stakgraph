@@ -329,6 +329,118 @@ export interface GetModelOptions {
    * to the LLM endpoint. Useful for gateway auth, tenant IDs, etc.
    */
   headers?: Record<string, string>;
+  /**
+   * AbortSignal from the run's AbortController. When fired (busy timeout /
+   * `/repo/agent/abort`), in-flight model calls and streams are cancelled.
+   * Stays armed for the entire request/stream lifetime.
+   */
+  abortSignal?: AbortSignal;
+  /**
+   * Per-request timeout in milliseconds for the connect / first-response
+   * phase only. Once the provider replies with headers the timer is disarmed,
+   * so a slow-but-progressing stream is never killed. Defaults to the
+   * `LLM_HTTP_TIMEOUT_MS` env var when not supplied.
+   */
+  timeoutMs?: number;
+}
+
+/**
+ * Default first-response timeout: how long we wait for the provider to reply
+ * with HTTP headers before giving up. The timer is disarmed once headers
+ * arrive, so only the connect/stall phase is bounded — not the stream body.
+ *
+ * 120 s is generous enough for slow gateways but still well below the 2-hour
+ * busy watchdog. Ops can tune via `LLM_HTTP_TIMEOUT_MS`.
+ */
+const DEFAULT_LLM_HTTP_TIMEOUT_MS =
+  parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 120_000;
+
+/**
+ * Combine any number of AbortSignals (skipping null/undefined) without
+ * requiring `AbortSignal.any` (Node ≥20.3). Returns a signal that aborts when
+ * any input fires. Gracefully handles an already-aborted input.
+ */
+function combineSignals(
+  signals: Array<AbortSignal | null | undefined>,
+): AbortSignal | undefined {
+  const live = signals.filter((s): s is AbortSignal => !!s);
+  if (live.length === 0) return undefined;
+  if (live.length === 1) return live[0];
+  // Use native AbortSignal.any when available (Node ≥20.3).
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(live);
+  }
+  // Manual fallback for older Node 20.x runners.
+  const ctrl = new AbortController();
+  if (live.some((s) => s.aborted)) { ctrl.abort(); return ctrl.signal; }
+  const abort = () => { try { ctrl.abort(); } catch (_) {} };
+  for (const s of live) s.addEventListener("abort", abort, { once: true });
+  return ctrl.signal;
+}
+
+/**
+ * Build a `fetch`-compatible wrapper that:
+ * 1. Gates the *connect / first-response* phase with a per-request timeout.
+ * 2. Disarms the timeout once the provider replies with HTTP headers, so a
+ *    slow-but-progressing stream body is never cut mid-flight.
+ * 3. Keeps the caller's `runSignal` armed for the full request/stream so a
+ *    genuine parent abort (busy timeout / `/repo/agent/abort`) still tears
+ *    down an in-flight stream. The AI SDK's own per-request `init.signal`
+ *    (from `streamText`/`generateText` abortSignal and internal teardown) is
+ *    preserved by folding it into the combined signal rather than overwriting.
+ * 4. Logs and re-throws on timeout (`ETIMEDOUT`) or abort (`AbortError`) with
+ *    a clear reason string so callers can surface the right error to the agent.
+ *
+ * @param timeoutMs  Milliseconds to wait for headers before aborting.
+ * @param runSignal  The per-run AbortSignal (may be undefined).
+ */
+function buildTimeoutFetch(
+  timeoutMs: number,
+  runSignal?: AbortSignal,
+): typeof fetch {
+  return async (input, init) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    const startMs = Date.now();
+
+    // ── timeout controller — only guards the connect/first-response phase ──
+    const timeoutCtrl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+      timeoutCtrl.abort();
+    }, timeoutMs);
+
+    const clearTimer = () => {
+      if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+    };
+
+    // Combine the per-request timeout signal, the run signal (if any), and
+    // the AI SDK's own per-request signal (if any) — overwriting init.signal
+    // would silently detach SDK-initiated cancellations from the socket.
+    const sdkSignal = init?.signal;
+    const combinedSignal = combineSignals([
+      sdkSignal,
+      runSignal,
+      timeoutCtrl.signal,
+    ]);
+
+    try {
+      const response = await fetch(input, { ...init, signal: combinedSignal });
+      // Headers received — disarm the timeout so the streaming body is never killed by it.
+      clearTimer();
+      return response;
+    } catch (err: any) {
+      clearTimer();
+      const elapsedMs = Date.now() - startMs;
+      // Classify: the timeout timer fired, and neither the run signal nor the
+      // SDK's own signal was the cause.
+      const isTimeout =
+        timeoutCtrl.signal.aborted && !runSignal?.aborted && !sdkSignal?.aborted;
+      const reason = isTimeout ? "timeout" : "aborted";
+      console.warn(
+        `[llm-fetch] ${reason} after ${elapsedMs}ms: ${url} — ${err?.message ?? String(err)}`,
+      );
+      throw err;
+    }
+  };
 }
 
 function getModelForProvider(provider: Provider, modelName: ModelName): string {
@@ -354,6 +466,8 @@ export function getModelDetails(
   apiKeyIn?: string,
   baseUrl?: string,
   headers?: Record<string, string>,
+  abortSignal?: AbortSignal,
+  timeoutMs?: number,
 ): ModelDetails {
   const provider = getProviderForModel(modelName);
   const callerKey = normalizeApiKey(apiKeyIn);
@@ -365,12 +479,16 @@ export function getModelDetails(
     apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
     baseUrl: baseUrl || "(default)",
     headerKeys: headers ? Object.keys(headers) : [],
+    hasAbortSignal: !!abortSignal,
+    timeoutMs: timeoutMs ?? DEFAULT_LLM_HTTP_TIMEOUT_MS,
   });
   const model = getModel(provider, {
     modelName,
     apiKey,
     baseUrl,
     headers,
+    abortSignal,
+    timeoutMs,
   });
   // Resolve the actual modelId to look up context limit
   let modelId: string;
@@ -454,12 +572,22 @@ export function getModel(
   if (extraHeaders) {
     console.log(`[headers] attaching ${Object.keys(extraHeaders).length} custom header(s) to ${provider} client`);
   }
+
+  // Build the timeout/abort-aware fetch wrapper. When neither abortSignal nor
+  // timeoutMs is provided (e.g. callers that don't pass them), the default
+  // LLM_HTTP_TIMEOUT_MS still applies so stalled connections are bounded.
+  const timeoutFetch = buildTimeoutFetch(
+    opts?.timeoutMs ?? DEFAULT_LLM_HTTP_TIMEOUT_MS,
+    opts?.abortSignal,
+  );
+
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return anthropic(modelId);
     case "google": {
@@ -483,12 +611,14 @@ export function getModel(
           apiKey,
           baseURL: openaiCompatBase,
           ...(extraHeaders && { headers: extraHeaders }),
+          fetch: timeoutFetch,
         });
         return googleCompat.chat(`gemini/${modelId}`);
       }
       const google = createGoogleGenerativeAI({
         apiKey,
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return google(modelId);
     }
@@ -497,6 +627,7 @@ export function getModel(
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return openai(modelId);
     case "openrouter": {
@@ -504,6 +635,7 @@ export function getModel(
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       // Kimi models are served by many OpenRouter hosts (Fireworks, Together,
       // Chutes, ...) but only Moonshot's own endpoint has automatic prompt
@@ -534,12 +666,14 @@ export function getModel(
           apiKey,
           baseURL,
           ...(extraHeaders && { headers: extraHeaders }),
+          fetch: timeoutFetch,
         });
         return xaiCompat.chat(`xai/${modelId}`);
       }
       const xai = createXai({
         apiKey,
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return xai(modelId);
     }
