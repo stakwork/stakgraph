@@ -11,7 +11,7 @@ import {
 import path from "path";
 
 const REQS_DIR = process.env.REQS_DIR || ".reqs";
-const MAX_REQS = 100;
+const MAX_REQS = parseInt(process.env.MAX_REQS ?? "", 10) || 100;
 
 type Status = "pending" | "completed" | "failed";
 
@@ -85,16 +85,49 @@ function deleteFromDisk(id: string): void {
   } catch (_) {}
 }
 
+/**
+ * Evict the oldest terminal (completed/failed) entry from the registry.
+ *
+ * Scans REQ_ORDER in insertion order for the first entry whose status is not
+ * "pending", splices it out (O(n) — acceptable at realistic cap sizes), removes
+ * its META entry, and deletes its on-disk file.
+ *
+ * If every registered entry is still pending, no eviction occurs — the registry
+ * is allowed to grow past MAX_REQS rather than drop a live run. An escalating
+ * console.error alarm is emitted so operators know to raise MAX_REQS.
+ */
+function evictOldestCompleted(): void {
+  const idx = REQ_ORDER.findIndex(
+    (id) => META[id] && META[id].status !== "pending"
+  );
+
+  if (idx === -1) {
+    // All entries are still live — alarm and do not evict
+    console.error(
+      `[reqs] ALARM: registry is at/over cap (${REQ_ORDER.length} entries) ` +
+        `but every entry is still pending. No eviction performed. ` +
+        `Raise MAX_REQS (currently ${MAX_REQS}) for this deployment's concurrency.`
+    );
+    return;
+  }
+
+  const evictedId = REQ_ORDER[idx];
+  const evictedStatus = META[evictedId]?.status;
+  REQ_ORDER.splice(idx, 1);
+  delete META[evictedId];
+  deleteFromDisk(evictedId);
+  console.log(
+    `[reqs] Evicted oldest terminal entry ${evictedId} (status: ${evictedStatus}) ` +
+      `to stay within cap of ${MAX_REQS}.`
+  );
+}
+
 export function startReq(webhookUrl?: string): string {
   const key = uuid.v4();
 
-  // Evict oldest if at limit
+  // Evict oldest terminal entry if at limit (never evicts a pending run)
   if (REQ_ORDER.length >= MAX_REQS) {
-    const oldestKey = REQ_ORDER.shift();
-    if (oldestKey) {
-      delete META[oldestKey];
-      deleteFromDisk(oldestKey);
-    }
+    evictOldestCompleted();
   }
 
   META[key] = { status: "pending" };
@@ -168,11 +201,7 @@ export function sweepOrphanedReqs(): OrphanedReq[] {
 
     if (!META[id]) {
       if (REQ_ORDER.length >= MAX_REQS) {
-        const oldestKey = REQ_ORDER.shift();
-        if (oldestKey) {
-          delete META[oldestKey];
-          deleteFromDisk(oldestKey);
-        }
+        evictOldestCompleted();
       }
       META[id] = { status: data.status === "pending" ? "failed" : data.status };
       REQ_ORDER.push(id);
