@@ -37,6 +37,7 @@ import {
 } from "./git_pr.js";
 import { withRepoLock } from "./repo_lock.js";
 import fs from "fs";
+import { spawnSync } from "child_process";
 import { toolConfigEnabled } from "./tools.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
@@ -417,9 +418,16 @@ export function sweepOrphanedRuns(): void {
  * Mirrors `sweepOrphanedRuns` — called once at process start so future
  * `git worktree add` calls on any base repo are not poisoned by dangling
  * .git/worktrees entries from the previous process.
+ *
+ * The roots are parameterized for tests only (test files run in parallel
+ * processes, so a test sweeping the real roots races concurrent worktree
+ * tests — and wipes live state on a dev machine). Production callers use
+ * the defaults.
  */
-export function sweepOrphanedWorktrees(): void {
-  const swarmRoot = "/tmp/.swarm-work";
+export function sweepOrphanedWorktrees(
+  swarmRoot = "/tmp/.swarm-work",
+  reposRoot = "/tmp"
+): void {
   // Remove all per-run worktree directories.
   try {
     if (fs.existsSync(swarmRoot)) {
@@ -438,19 +446,19 @@ export function sweepOrphanedWorktrees(): void {
     console.warn("[sweepOrphanedWorktrees] Failed to scan swarm-work root:", e?.message);
   }
 
-  // Prune stale git worktree registrations on every base repo under /tmp.
+  // Prune stale git worktree registrations on every base repo under
+  // <reposRoot>/<owner>/<repo>.
   try {
-    const tmpEntries = fs.readdirSync("/tmp");
+    const tmpEntries = fs.readdirSync(reposRoot);
     for (const ownerEntry of tmpEntries) {
       if (ownerEntry.startsWith(".")) continue;
-      const ownerPath = path.join("/tmp", ownerEntry);
+      const ownerPath = path.join(reposRoot, ownerEntry);
       try {
         const repoEntries = fs.readdirSync(ownerPath);
         for (const repoEntry of repoEntries) {
           const repoPath = path.join(ownerPath, repoEntry);
           const gitDir = path.join(repoPath, ".git");
           if (!fs.existsSync(gitDir)) continue;
-          const { spawnSync } = require("child_process");
           const result = spawnSync("git", ["worktree", "prune"], {
             cwd: repoPath,
             shell: false,
@@ -465,7 +473,7 @@ export function sweepOrphanedWorktrees(): void {
       }
     }
   } catch (e: any) {
-    console.warn("[sweepOrphanedWorktrees] Failed to scan /tmp for repos:", e?.message);
+    console.warn(`[sweepOrphanedWorktrees] Failed to scan ${reposRoot} for repos:`, e?.message);
   }
 }
 
@@ -1160,12 +1168,7 @@ export async function get_agent_file(req: Request, res: Response) {
 
   let resolved: string;
   try {
-    // Exclude /tmp/.swarm-work — worktrees must not be readable by guessing/
-    // replaying a runId through this handler.
-    const fileRoots = editorRoots("/tmp").filter(
-      (r) => !r.startsWith("/tmp/.swarm-work")
-    );
-    resolved = resolveInCwd(filePath, fileRoots);
+    resolved = resolveInCwd(filePath, editorRoots("/tmp"));
   } catch {
     res.status(403).json({ error: "Path outside allowed roots" });
     return;
@@ -1176,5 +1179,33 @@ export async function get_agent_file(req: Request, res: Response) {
     return;
   }
 
-  res.sendFile(resolved);
+  // Deny /tmp/.swarm-work explicitly — the "/tmp" root above admits every
+  // path beneath it, so worktrees (in-progress PR changes) would otherwise be
+  // readable by guessing/replaying a runId through this handler. Both sides
+  // are canonicalized (resolveInCwd does not follow symlinks, and /tmp itself
+  // is a symlink on macOS), so a symlink elsewhere under /tmp cannot alias
+  // into the worktree root.
+  const swarmRoot = "/tmp/.swarm-work";
+  let swarmRootReal = swarmRoot;
+  try {
+    swarmRootReal = fs.realpathSync(swarmRoot);
+  } catch {
+    // swarm root doesn't exist — no worktrees to protect, literal check still applies
+  }
+  let real: string;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+  const underSwarm = (p: string) =>
+    p === swarmRoot || p.startsWith(swarmRoot + path.sep) ||
+    p === swarmRootReal || p.startsWith(swarmRootReal + path.sep);
+  if (underSwarm(resolved) || underSwarm(real)) {
+    res.status(403).json({ error: "Path outside allowed roots" });
+    return;
+  }
+
+  res.sendFile(real);
 }

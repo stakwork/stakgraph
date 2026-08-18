@@ -471,7 +471,7 @@ Rules:
   // Gated inside toolsConfig branch only — never added to allTools unconditionally.
   create_pr:
     "Commit all staged changes and open a pull request on GitHub. " +
-    "Input: { title: string, body: string, branch_hint?: string }. " +
+    "Input: { title: string, body: string }. " +
     "Returns the PR URL, branch, diff, and files-changed count on success, " +
     "or a classified failure mode with diff on error. " +
     "Call this at the end of your work when all file edits are complete.",
@@ -1401,15 +1401,11 @@ export async function get_tools(
         description:
           toolConfigDescription(toolsConfig.create_pr) ??
           defaultDescriptions.create_pr,
+        // No branch_hint: the branch is created (and named) at acquireWorktree
+        // time, before the model runs, so a hint here could never take effect.
         inputSchema: z.object({
           title: z.string().describe("PR title"),
           body: z.string().describe("PR body / description"),
-          branch_hint: z
-            .string()
-            .optional()
-            .describe(
-              "Optional branch name hint (alphanumeric, dots, dashes, underscores, max 60 chars)"
-            ),
         }),
         execute: async ({
           title,
@@ -1417,7 +1413,6 @@ export async function get_tools(
         }: {
           title: string;
           body: string;
-          branch_hint?: string;
         }) => {
           if (!prOpts) {
             return "create_pr is not available: no worktree handle was resolved for this run";

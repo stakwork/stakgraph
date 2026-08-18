@@ -291,7 +291,7 @@ describe("get_tools default-off regression", () => {
 // ---------------------------------------------------------------------------
 
 describe("create_pr tool schema", () => {
-  it("input schema has only title, body, and optional branch_hint (no pat/credential fields)", async () => {
+  it("input schema has only title and body (no branch_hint, no pat/credential fields)", async () => {
     const prColl: PrCollector = { result: undefined };
     const fakeHandle = {
       worktreePath: "/fake",
@@ -343,6 +343,9 @@ describe("create_pr tool schema", () => {
     assert.ok(!schemaStr.includes('"pat"'), "schema must not contain pat field");
     assert.ok(!schemaStr.includes('"token"'), "schema must not contain token field");
     assert.ok(!schemaStr.includes('"github_token"'), "schema must not contain github_token field");
+    // branch_hint was removed: the branch is created at acquireWorktree time,
+    // before the model runs, so a hint here could never take effect.
+    assert.ok(!schemaStr.includes("branch_hint"), "schema must not advertise branch_hint");
   });
 });
 
@@ -437,31 +440,42 @@ describe("subagent create_pr stripping", () => {
 // ---------------------------------------------------------------------------
 
 describe("sweepOrphanedWorktrees", () => {
-  it("removes stale directories under /tmp/.swarm-work", async () => {
-    // Seed a fake stale run directory
+  it("removes stale directories under the swarm-work root", async () => {
+    // Use a private root: test files run in parallel processes, so sweeping
+    // the real /tmp/.swarm-work would delete live worktrees belonging to
+    // concurrently running git_pr tests (and wipe real state on a dev box).
+    const swarmRoot = tmpDir();
     const staleRunId = randomUUID();
-    const staleDir = path.join("/tmp/.swarm-work", staleRunId);
+    const staleDir = path.join(swarmRoot, staleRunId);
     fs.mkdirSync(staleDir, { recursive: true });
     fs.writeFileSync(path.join(staleDir, "stale.txt"), "stale data");
 
     assert.ok(fs.existsSync(staleDir), "stale dir should exist before sweep");
 
-    sweepOrphanedWorktrees();
-
-    assert.ok(!fs.existsSync(staleDir), "stale dir should be removed after sweep");
+    try {
+      sweepOrphanedWorktrees(swarmRoot, tmpDir());
+      assert.ok(!fs.existsSync(staleDir), "stale dir should be removed after sweep");
+    } finally {
+      fs.rmSync(swarmRoot, { recursive: true, force: true });
+    }
   });
 
   it("prunes stale git worktree registrations from base repos", async () => {
-    // Create a bare repo and clone it, then add a stale worktree registration
-    const sweepTestDir = tmpDir();
-    const sweepBareDir = path.join(sweepTestDir, "bare.git");
-    const sweepCloneDir = path.join(sweepTestDir, "clone");
+    // The sweep scans <reposRoot>/<owner>/<repo>, so the fixture clone must
+    // sit exactly two levels below the reposRoot passed in — a fixture the
+    // sweep never visits makes the test vacuous.
+    const scratchRoot = tmpDir();
+    const reposRoot = path.join(scratchRoot, "repos");
+    const ownerDir = path.join(reposRoot, "owner1");
+    const sweepBareDir = path.join(scratchRoot, "bare.git");
+    const sweepCloneDir = path.join(ownerDir, "clone");
+    fs.mkdirSync(ownerDir, { recursive: true });
 
     fs.mkdirSync(sweepBareDir, { recursive: true });
     execSync("git init --bare .", { cwd: sweepBareDir, stdio: "ignore" });
 
     // Seed bare with a commit via scratch
-    const sweepScratch = path.join(sweepTestDir, "scratch");
+    const sweepScratch = path.join(scratchRoot, "scratch");
     fs.mkdirSync(sweepScratch, { recursive: true });
     const env = localEnv();
     execSync("git init -b main .", { cwd: sweepScratch, env, stdio: "ignore" });
@@ -476,32 +490,35 @@ describe("sweepOrphanedWorktrees", () => {
       stdio: "ignore",
     });
 
-    // Create a worktree and immediately remove the directory without deregistering
-    const orphanPath = path.join(sweepTestDir, "orphan-worktree");
-    fs.mkdirSync(orphanPath, { recursive: true });
     try {
+      // Create a worktree and immediately remove the directory without
+      // deregistering (simulates SIGKILL mid-run)
+      const orphanPath = path.join(scratchRoot, "orphan-worktree");
       execSync(`git worktree add --detach "${orphanPath}" HEAD`, {
         cwd: sweepCloneDir,
         env,
         stdio: "ignore",
       });
-    } catch {
-      // ignore if worktree add fails in constrained env
+      const wtMetaDir = path.join(sweepCloneDir, ".git", "worktrees");
+      assert.ok(
+        fs.readdirSync(wtMetaDir).length > 0,
+        "worktree registration should exist before sweep"
+      );
+      fs.rmSync(orphanPath, { recursive: true, force: true });
+
+      sweepOrphanedWorktrees(path.join(scratchRoot, "swarm-work"), reposRoot);
+
+      // The stale registration must actually be gone — `git worktree list`
+      // succeeds even with dangling registrations, so it proves nothing.
+      const remaining = fs.existsSync(wtMetaDir) ? fs.readdirSync(wtMetaDir) : [];
+      assert.equal(
+        remaining.length,
+        0,
+        `stale worktree registrations should be pruned, found: ${remaining.join(", ")}`
+      );
+    } finally {
+      fs.rmSync(scratchRoot, { recursive: true, force: true });
     }
-    // Delete the worktree dir without pruning (simulates SIGKILL)
-    fs.rmSync(orphanPath, { recursive: true, force: true });
-
-    // sweepOrphanedWorktrees should prune it
-    sweepOrphanedWorktrees();
-
-    // After sweep, git worktree list should not error (prune ran)
-    try {
-      execSync("git worktree list", { cwd: sweepCloneDir, env, stdio: "pipe" });
-    } catch (e: any) {
-      assert.fail(`git worktree list failed after sweep: ${e?.message}`);
-    }
-
-    fs.rmSync(sweepTestDir, { recursive: true, force: true });
   });
 });
 
@@ -522,16 +539,16 @@ describe("path safety", () => {
       githubClient: makeStubClient({}),
       commit: baseSha,
     });
-    // The function should return base_repo_vanished (containment failure)
-    // or succeed only if the path is actually safe.
-    // With malicious runId like "../../etc", path.resolve normalizes it to an absolute
-    // path outside the expected parent, so it should fail.
-    if (result.ok) {
-      // Clean up if somehow succeeded
-      await releaseWorktree(result.handle).catch(() => {});
+    // The traversal must be rejected as a structured failure — before any
+    // filesystem side effect (the old guard anchored against a parent derived
+    // from the tainted runId, letting "../../etc" cancel out and reach
+    // mkdirSync("/etc/.home")).
+    assert.ok(!result.ok, "malicious runId must be rejected");
+    if (!result.ok) {
+      assert.equal(result.failure, "base_repo_vanished");
+      assert.match(result.error, /Path traversal rejected/);
     }
-    // The test verifies the function does not blindly construct dangerous paths
-    // A safe runId should succeed, so verify a safe one works:
+    // A safe runId should still succeed:
     const safeRunId = randomUUID();
     const safeResult = await acquireWorktree({
       baseDir: baseCloneDir,
