@@ -479,12 +479,6 @@ export interface JarvisSubAgentConfig {
    * it is incremented automatically as sub-agents spawn sub-agents.
    */
   depth?: number;
-  /**
-   * Per-run AbortSignal from the parent agent's AbortController. Threaded into
-   * the child `getModelDetails` call and into grandchild tool registrations so
-   * aborting the parent run cancels in-flight sub-agent model calls too.
-   */
-  abortSignal?: AbortSignal;
 }
 
 export interface JarvisToolsOptions {
@@ -693,12 +687,16 @@ function registerGraphSubAgentTool(
       };
 
       try {
+        // parentAbortSignal is the run's AbortSignal (threaded via
+        // JarvisToolsOptions.abortSignal, including through recursive
+        // grandchild registrations) — aborting the parent run cancels
+        // in-flight sub-agent model calls too.
         const details = getModelDetails(
           sub.modelName,
           sub.apiKey,
           sub.baseUrl,
           sub.headers,
-          sub.abortSignal,
+          parentAbortSignal,
         );
         const model = details.model;
         provider = details.provider;

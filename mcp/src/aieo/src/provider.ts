@@ -356,21 +356,25 @@ const DEFAULT_LLM_HTTP_TIMEOUT_MS =
   parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 120_000;
 
 /**
- * Combine two AbortSignals without requiring `AbortSignal.any` (Node ≥20.3).
- * Returns a new signal that aborts when either input fires. Gracefully handles
- * an already-aborted input.
+ * Combine any number of AbortSignals (skipping null/undefined) without
+ * requiring `AbortSignal.any` (Node ≥20.3). Returns a signal that aborts when
+ * any input fires. Gracefully handles an already-aborted input.
  */
-function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+function combineSignals(
+  signals: Array<AbortSignal | null | undefined>,
+): AbortSignal | undefined {
+  const live = signals.filter((s): s is AbortSignal => !!s);
+  if (live.length === 0) return undefined;
+  if (live.length === 1) return live[0];
   // Use native AbortSignal.any when available (Node ≥20.3).
   if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any([a, b]);
+    return AbortSignal.any(live);
   }
   // Manual fallback for older Node 20.x runners.
   const ctrl = new AbortController();
-  if (a.aborted || b.aborted) { ctrl.abort(); return ctrl.signal; }
+  if (live.some((s) => s.aborted)) { ctrl.abort(); return ctrl.signal; }
   const abort = () => { try { ctrl.abort(); } catch (_) {} };
-  a.addEventListener("abort", abort, { once: true });
-  b.addEventListener("abort", abort, { once: true });
+  for (const s of live) s.addEventListener("abort", abort, { once: true });
   return ctrl.signal;
 }
 
@@ -381,7 +385,9 @@ function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
  *    slow-but-progressing stream body is never cut mid-flight.
  * 3. Keeps the caller's `runSignal` armed for the full request/stream so a
  *    genuine parent abort (busy timeout / `/repo/agent/abort`) still tears
- *    down an in-flight stream.
+ *    down an in-flight stream. The AI SDK's own per-request `init.signal`
+ *    (from `streamText`/`generateText` abortSignal and internal teardown) is
+ *    preserved by folding it into the combined signal rather than overwriting.
  * 4. Logs and re-throws on timeout (`ETIMEDOUT`) or abort (`AbortError`) with
  *    a clear reason string so callers can surface the right error to the agent.
  *
@@ -406,10 +412,15 @@ function buildTimeoutFetch(
       if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
     };
 
-    // Combine the per-request timeout signal with the run signal (if any).
-    const combinedSignal = runSignal
-      ? combineSignals(runSignal, timeoutCtrl.signal)
-      : timeoutCtrl.signal;
+    // Combine the per-request timeout signal, the run signal (if any), and
+    // the AI SDK's own per-request signal (if any) — overwriting init.signal
+    // would silently detach SDK-initiated cancellations from the socket.
+    const sdkSignal = init?.signal;
+    const combinedSignal = combineSignals([
+      sdkSignal,
+      runSignal,
+      timeoutCtrl.signal,
+    ]);
 
     try {
       const response = await fetch(input, { ...init, signal: combinedSignal });
@@ -419,10 +430,10 @@ function buildTimeoutFetch(
     } catch (err: any) {
       clearTimer();
       const elapsedMs = Date.now() - startMs;
-      // Determine whether the timeout timer fired or the run signal fired.
-      // The timeout controller aborts with no reason; the run signal may have
-      // an explicit reason or may be checked via `runSignal.aborted`.
-      const isTimeout = timeoutCtrl.signal.aborted && !(runSignal?.aborted);
+      // Classify: the timeout timer fired, and neither the run signal nor the
+      // SDK's own signal was the cause.
+      const isTimeout =
+        timeoutCtrl.signal.aborted && !runSignal?.aborted && !sdkSignal?.aborted;
       const reason = isTimeout ? "timeout" : "aborted";
       console.warn(
         `[llm-fetch] ${reason} after ${elapsedMs}ms: ${url} — ${err?.message ?? String(err)}`,
