@@ -613,6 +613,8 @@ async function prepareAgent(
     // resolved sessionId (set below) is always inputSessionId when defined,
     // so passing it here is safe even though tools are built first.
     transparent ? undefined : inputSessionId,
+    // Thread the run's AbortSignal so Jarvis HTTP calls honour abort/timeout.
+    opts.abortSignal,
   );
 
   // Load and merge MCP server tools if configured.

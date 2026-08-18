@@ -42,42 +42,154 @@ function appendNamespace(params: URLSearchParams, namespace?: string): void {
   }
 }
 
-async function jarvisFetch(url: string, headers: Record<string, string>) {
-  const resp = await axios.get(url, { headers, validateStatus: () => true, responseType: "text" });
-  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
-  return {
-    ok: resp.status >= 200 && resp.status < 300,
-    status: resp.status,
-    text: async () => text,
-    json: async () => JSON.parse(text) as unknown,
-  };
+/**
+ * Default Jarvis HTTP request timeout in milliseconds.
+ * Override with the JARVIS_HTTP_TIMEOUT_MS environment variable.
+ */
+const DEFAULT_JARVIS_TIMEOUT_MS = 30_000;
+
+function getJarvisTimeoutMs(): number {
+  const raw = process.env.JARVIS_HTTP_TIMEOUT_MS;
+  if (raw) {
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_JARVIS_TIMEOUT_MS;
+}
+
+/** Options shared by jarvisFetch and jarvisMutate. */
+interface JarvisRequestOpts {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Classify an axios error as "timeout" (ECONNABORTED — the axios timeout
+ * deadline fired) or "aborted" (ERR_CANCELED — an AbortSignal fired).
+ * Returns null when the error is neither.
+ */
+function classifyAxiosError(err: any): "timeout" | "aborted" | null {
+  if (!err) return null;
+  const code = err?.code ?? "";
+  if (code === "ECONNABORTED") return "timeout";
+  if (code === "ERR_CANCELED") return "aborted";
+  // Fallback: inspect the message for signal-abort strings.
+  if (typeof err?.message === "string" && err.message.includes("canceled")) return "aborted";
+  return null;
+}
+
+async function jarvisFetch(
+  url: string,
+  headers: Record<string, string>,
+  opts?: JarvisRequestOpts,
+) {
+  const timeoutMs = opts?.timeoutMs ?? getJarvisTimeoutMs();
+  const signal = opts?.signal;
+
+  // Short-circuit immediately if the signal is already aborted.
+  if (signal?.aborted) {
+    throw Object.assign(new Error("Jarvis request aborted before start"), { code: "ERR_CANCELED" });
+  }
+
+  const startTime = Date.now();
+  try {
+    const resp = await axios.get(url, {
+      headers,
+      validateStatus: () => true,
+      responseType: "text",
+      timeout: timeoutMs,
+      signal: signal as any,
+    });
+    const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+    return {
+      ok: resp.status >= 200 && resp.status < 300,
+      status: resp.status,
+      text: async () => text,
+      json: async () => JSON.parse(text) as unknown,
+    };
+  } catch (err: any) {
+    const kind = classifyAxiosError(err);
+    const elapsed = Date.now() - startTime;
+    if (kind === "timeout") {
+      console.warn(`[jarvis] timeout after ${elapsed}ms: GET ${url}`);
+      throw Object.assign(new Error(`Jarvis request timed out after ${elapsed}ms: ${url}`), { code: "ECONNABORTED" });
+    }
+    if (kind === "aborted") {
+      console.warn(`[jarvis] aborted after ${elapsed}ms: GET ${url}`);
+      throw Object.assign(new Error(`Jarvis request aborted after ${elapsed}ms: ${url}`), { code: "ERR_CANCELED" });
+    }
+    throw err;
+  }
 }
 
 /**
  * Perform a write (POST/PUT/DELETE) against Jarvis. Mirrors `jarvisFetch` but
  * for mutations. Never throws on non-2xx (validateStatus) so the tool can
  * surface Jarvis's `errorCode`/`message` body back to the agent verbatim.
+ *
+ * IMPORTANT: Because Jarvis (Flask/gunicorn) has no cooperative cancellation,
+ * a timeout or abort may occur AFTER the write has already been applied
+ * server-side. Callers must treat such failures as "possibly-applied" and
+ * keep any retry logic idempotent (Jarvis uses MERGE semantics).
  */
 async function jarvisMutate(
   method: "post" | "put" | "delete",
   url: string,
   headers: Record<string, string>,
   body?: unknown,
+  opts?: JarvisRequestOpts,
 ) {
-  const resp = await axios.request({
-    method,
-    url,
-    headers,
-    data: body,
-    validateStatus: () => true,
-    responseType: "text",
-  });
-  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
-  return {
-    ok: resp.status >= 200 && resp.status < 300,
-    status: resp.status,
-    text,
-  };
+  const timeoutMs = opts?.timeoutMs ?? getJarvisTimeoutMs();
+  const signal = opts?.signal;
+
+  // Short-circuit immediately if the signal is already aborted.
+  if (signal?.aborted) {
+    throw Object.assign(new Error("Jarvis mutation aborted before start"), { code: "ERR_CANCELED" });
+  }
+
+  const startTime = Date.now();
+  try {
+    const resp = await axios.request({
+      method,
+      url,
+      headers,
+      data: body,
+      validateStatus: () => true,
+      responseType: "text",
+      timeout: timeoutMs,
+      signal: signal as any,
+    });
+    const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+    return {
+      ok: resp.status >= 200 && resp.status < 300,
+      status: resp.status,
+      text,
+    };
+  } catch (err: any) {
+    const kind = classifyAxiosError(err);
+    const elapsed = Date.now() - startTime;
+    if (kind === "timeout") {
+      console.warn(`[jarvis] mutation possibly-applied — timeout after ${elapsed}ms: ${method.toUpperCase()} ${url}`);
+      throw Object.assign(
+        new Error(
+          `Jarvis mutation possibly already applied — request timed out after ${elapsed}ms. ` +
+          `Retries are safe (idempotent MERGE). URL: ${url}`,
+        ),
+        { code: "ECONNABORTED" },
+      );
+    }
+    if (kind === "aborted") {
+      console.warn(`[jarvis] mutation possibly-applied — aborted after ${elapsed}ms: ${method.toUpperCase()} ${url}`);
+      throw Object.assign(
+        new Error(
+          `Jarvis mutation possibly already applied — request was aborted after ${elapsed}ms. ` +
+          `Retries are safe (idempotent MERGE). URL: ${url}`,
+        ),
+        { code: "ERR_CANCELED" },
+      );
+    }
+    throw err;
+  }
 }
 
 /** Max neighbors returned in a single hop — keeps tool output within budget. */
@@ -405,6 +517,17 @@ export interface JarvisToolsOptions {
    * trims the edge list too (edges are ~80% of the payload).
    */
   defaultDomains?: string;
+  /**
+   * The run's AbortSignal (from the per-run AbortController). When set, every
+   * Jarvis HTTP call (reads and writes) will be cancelled when this signal
+   * fires — e.g. via the [busy] safety-timeout or /repo/agent/abort endpoint.
+   */
+  abortSignal?: AbortSignal;
+  /**
+   * Per-request Jarvis HTTP timeout in milliseconds. Overrides the
+   * JARVIS_HTTP_TIMEOUT_MS environment variable for this registration.
+   */
+  timeoutMs?: number;
 }
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
@@ -451,6 +574,8 @@ function registerGraphSubAgentTool(
   sub: JarvisSubAgentConfig,
   depth: number,
   defaultDomains?: string,
+  parentAbortSignal?: AbortSignal,
+  parentTimeoutMs?: number,
 ): void {
   allTools.graph_sub_agent = tool({
     description: sub.description ?? DEFAULT_SUBAGENT_DESCRIPTION,
@@ -477,6 +602,10 @@ function registerGraphSubAgentTool(
         // Children inherit the parent's ontology scope; otherwise a sub-agent's
         // get_ontology would pull the full unfiltered payload back in.
         defaultDomains,
+        // Thread the parent's abort signal so aborting the parent also cancels
+        // any in-flight Jarvis calls made by this child agent.
+        abortSignal: parentAbortSignal,
+        timeoutMs: parentTimeoutMs,
       });
 
       // Record every Concept whose body a child tool hands back, exactly like
@@ -675,6 +804,7 @@ function registerOntologyWriteTools(
   allTools: Record<string, Tool<any, any>>,
   jarvisUrl: string,
   jarvisHeaders: Record<string, string>,
+  reqOpts?: JarvisRequestOpts,
 ): void {
   const schemaUrl = `${jarvisUrl}/v2/schema`;
 
@@ -719,7 +849,7 @@ function registerOntologyWriteTools(
     }) => {
       console.log(`[ontology_create_type] type=${input.type} parent=${input.parent}`);
       try {
-        const res = await jarvisMutate("post", schemaUrl, jarvisHeaders, input);
+        const res = await jarvisMutate("post", schemaUrl, jarvisHeaders, input, reqOpts);
         return formatMutationResult(`create node type '${input.type}'`, res);
       } catch (err: any) {
         return `ontology_create_type failed: ${err?.message ?? String(err)}`;
@@ -756,7 +886,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_update_type] ref_id=${ref_id}`);
       try {
         const url = `${schemaUrl}/${encodeURIComponent(ref_id)}`;
-        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        const res = await jarvisMutate("put", url, jarvisHeaders, body, reqOpts);
         return formatMutationResult(`update node type ${ref_id}`, res);
       } catch (err: any) {
         return `ontology_update_type failed: ${err?.message ?? String(err)}`;
@@ -778,7 +908,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_delete_type] ${ref_id_or_type}`);
       try {
         const url = `${schemaUrl}/${encodeURIComponent(ref_id_or_type)}`;
-        const res = await jarvisMutate("delete", url, jarvisHeaders);
+        const res = await jarvisMutate("delete", url, jarvisHeaders, undefined, reqOpts);
         return formatMutationResult(`delete node type '${ref_id_or_type}'`, res);
       } catch (err: any) {
         return `ontology_delete_type failed: ${err?.message ?? String(err)}`;
@@ -824,7 +954,7 @@ function registerOntologyWriteTools(
       );
       try {
         const url = `${schemaUrl}/edge`;
-        const res = await jarvisMutate("post", url, jarvisHeaders, input);
+        const res = await jarvisMutate("post", url, jarvisHeaders, input, reqOpts);
         return formatMutationResult(
           `create edge '${input.source}-[${input.edge_type}]->${input.target}'`,
           res,
@@ -862,7 +992,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_update_edge] ref_id=${ref_id}`);
       try {
         const url = `${schemaUrl}/edge/${encodeURIComponent(ref_id)}`;
-        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        const res = await jarvisMutate("put", url, jarvisHeaders, body, reqOpts);
         return formatMutationResult(`update edge ${ref_id}`, res);
       } catch (err: any) {
         return `ontology_update_edge failed: ${err?.message ?? String(err)}`;
@@ -881,7 +1011,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_delete_edge] ref_id=${ref_id}`);
       try {
         const url = `${schemaUrl}/edge/${encodeURIComponent(ref_id)}`;
-        const res = await jarvisMutate("delete", url, jarvisHeaders);
+        const res = await jarvisMutate("delete", url, jarvisHeaders, undefined, reqOpts);
         return formatMutationResult(`delete edge ${ref_id}`, res);
       } catch (err: any) {
         return `ontology_delete_edge failed: ${err?.message ?? String(err)}`;
@@ -910,7 +1040,7 @@ function registerOntologyWriteTools(
       );
       try {
         const url = `${schemaUrl}/${encodeURIComponent(ref_id)}/attribute`;
-        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        const res = await jarvisMutate("put", url, jarvisHeaders, body, reqOpts);
         return formatMutationResult(
           `rename attribute '${input.current_attribute}'→'${input.new_attribute}' on ${ref_id}`,
           res,
@@ -1066,6 +1196,7 @@ function registerGraphWriteTools(
   allTools: Record<string, Tool<any, any>>,
   jarvisUrl: string,
   jarvisHeaders: Record<string, string>,
+  reqOpts?: JarvisRequestOpts,
 ): void {
   allTools.create_triplet = tool({
     description:
@@ -1207,7 +1338,7 @@ function registerGraphWriteTools(
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type: nodeType,
           node_data: nodeData,
-        });
+        }, reqOpts);
         let body: any;
         try {
           body = JSON.parse(res.text);
@@ -1237,7 +1368,7 @@ function registerGraphWriteTools(
           source: { ref_id: sourceRef },
           target: { ref_id: targetRef },
           create_schema_if_missing,
-        });
+        }, reqOpts);
         let body: any;
         try {
           body = JSON.parse(res.text);
@@ -1445,7 +1576,7 @@ function registerGraphWriteTools(
           const res = await jarvisMutate("post", url, jarvisHeaders, {
             node_type: nodeType,
             node_data: nodeData,
-          });
+          }, reqOpts);
           let body: any;
           try {
             body = JSON.parse(res.text);
@@ -1554,7 +1685,7 @@ function registerGraphWriteTools(
 
         let bulkBody: any;
         try {
-          const bulkRes = await jarvisMutate("post", edgeUrl, jarvisHeaders, edgeList);
+          const bulkRes = await jarvisMutate("post", edgeUrl, jarvisHeaders, edgeList, reqOpts);
           try {
             bulkBody = JSON.parse(bulkRes.text);
           } catch {
@@ -1594,7 +1725,7 @@ function registerGraphWriteTools(
               source: { ref_id: rt.source_ref_id },
               target: { ref_id: rt.target_ref_id },
               create_schema_if_missing: rt.create_schema_if_missing,
-            });
+            }, reqOpts);
             let body: any;
             try {
               body = JSON.parse(res.text);
@@ -1712,7 +1843,7 @@ function registerGraphWriteTools(
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type,
           node_data,
-        });
+        }, reqOpts);
         let body: any;
         try {
           body = JSON.parse(res.text);
@@ -1828,7 +1959,7 @@ function registerGraphWriteTools(
           ...(type_to_be_deleted && type_to_be_deleted.length > 0
             ? { type_to_be_deleted }
             : {}),
-        });
+        }, reqOpts);
         let body: any;
         try {
           body = JSON.parse(res.text);
@@ -1888,6 +2019,12 @@ export function registerJarvisTools(
   }
 
   const { defaultDomains } = options;
+
+  // Build request-level opts once and pass to every jarvisFetch/jarvisMutate call.
+  const reqOpts: JarvisRequestOpts = {
+    signal: options.abortSignal,
+    timeoutMs: options.timeoutMs,
+  };
 
   const jarvisHeaders = {
     "Content-Type": "application/json",
@@ -1983,7 +2120,7 @@ export function registerJarvisTools(
         `[get_ontology] fetching ${url} domains=${effectiveDomains}${domains ? "" : " (default)"} include_edges=${include_edges} include_attributes=${include_attributes}`
       );
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -2021,7 +2158,7 @@ export function registerJarvisTools(
       const url = `${jarvisUrl}/v2/schema/${encodeURIComponent(type)}`;
       console.log(`[get_ontology_type] fetching ${url}`);
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -2128,7 +2265,7 @@ export function registerJarvisTools(
         `[graph_search] q=${q ?? "-"} input_q=${input_q ?? "-"} output_q=${output_q ?? "-"} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit} namespace=${namespace ?? "*"}`,
       );
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -2178,15 +2315,20 @@ export function registerJarvisTools(
   async function fetchGraphNode(
     ref_id: string,
     namespace?: string,
+    nodeReqOpts?: JarvisRequestOpts,
   ): Promise<
     | { ok: true; node: Record<string, any> }
     | { ok: false; error: string }
   > {
+    // Short-circuit immediately if the signal is already aborted.
+    if (nodeReqOpts?.signal?.aborted) {
+      return { ok: false, error: "graph_get aborted before start" };
+    }
     // limit=1 keeps Jarvis from materializing the node's whole neighborhood
     // (which can OOM Neo4j for hub nodes) — we only read the node itself.
     const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
     try {
-      const resp = await jarvisFetch(url, jarvisHeaders);
+      const resp = await jarvisFetch(url, jarvisHeaders, nodeReqOpts);
       if (!resp.ok) {
         const text = await resp.text();
         return { ok: false, error: `HTTP ${resp.status}: ${text}` };
@@ -2205,19 +2347,26 @@ export function registerJarvisTools(
       // (edge_type, target_type) breakdown into a {EDGE_TYPE: count} map so
       // graph_get and graph_search present connectivity identically. Best
       // effort — never fail the whole call if this lookup errors.
+      // EXCEPTION: if the error is an abort/timeout, rethrow so the caller
+      // sees a genuine cancellation rather than silently returning edges:{}.
       let edges: Record<string, number> = {};
       try {
         const ccParams = new URLSearchParams();
         appendNamespace(ccParams, namespace);
         const ccQuery = ccParams.toString();
         const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
-        const ccResp = await jarvisFetch(ccUrl, jarvisHeaders);
+        const ccResp = await jarvisFetch(ccUrl, jarvisHeaders, nodeReqOpts);
         if (ccResp.ok) {
           const ccData = (await ccResp.json()) as any;
           edges = collapseConnectionCounts(ccData?.counts ?? []);
         }
-      } catch {
-        // ignore — edges stays {}
+      } catch (ccErr: any) {
+        // Rethrow abort/timeout so cancellation is not silently absorbed.
+        const kind = classifyAxiosError(ccErr);
+        if (kind === "timeout" || kind === "aborted" || nodeReqOpts?.signal?.aborted) {
+          throw ccErr;
+        }
+        // Genuine non-cancellation edge-fetch failure — best effort, edges stays {}
       }
 
       return {
@@ -2261,7 +2410,7 @@ export function registerJarvisTools(
       namespace?: string;
     }) => {
       console.log(`[graph_get] fetching ${ref_id}`);
-      const res = await fetchGraphNode(ref_id, namespace);
+      const res = await fetchGraphNode(ref_id, namespace, reqOpts);
       return res.ok ? JSON.stringify(res.node) : res.error;
     },
   });
@@ -2318,11 +2467,24 @@ export function registerJarvisTools(
         `[graph_get_batched] resolving ${selected.length} ref_ids (requested ${ref_ids.length}, omitted ${omitted.length}) namespace=${namespace ?? "*"}`,
       );
 
+      const batchSignal = reqOpts?.signal;
       const queue = new PQueue({ concurrency: KG_BATCH_GET_CONCURRENCY });
+
+      // When the run's signal fires: drop queued-but-unstarted tasks immediately,
+      // then let already-in-flight fetchGraphNode calls cancel via their own signal.
+      if (batchSignal) {
+        batchSignal.addEventListener("abort", () => { queue.clear(); }, { once: true });
+      }
+
       const nodes = await Promise.all(
         selected.map((ref_id) =>
           queue.add(async () => {
-            const res = await fetchGraphNode(ref_id, namespace);
+            // Per-task guard: if the signal already fired while this task was queued,
+            // skip the network call and return a consistent aborted-error shape.
+            if (batchSignal?.aborted) {
+              return { ref_id, error: "graph_get_batched aborted" };
+            }
+            const res = await fetchGraphNode(ref_id, namespace, reqOpts);
             return res.ok ? res.node : { ref_id, error: res.error };
           }),
         ),
@@ -2399,7 +2561,7 @@ export function registerJarvisTools(
         `[graph_neighbors] ref_id=${ref_id} edge_type=${edge_type?.join(",") ?? "*"} node_type=${node_type?.join(",") ?? "*"}`,
       );
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -2469,20 +2631,20 @@ export function registerJarvisTools(
     const depth = sub.depth ?? 0;
     const maxDepth = sub.maxDepth ?? DEFAULT_SUBAGENT_MAX_DEPTH;
     if (depth < maxDepth) {
-      registerGraphSubAgentTool(allTools, sub, depth, defaultDomains);
+      registerGraphSubAgentTool(allTools, sub, depth, defaultDomains, options.abortSignal, options.timeoutMs);
     }
   }
 
   // Ontology write tools — opt-in via toolsConfig.ontology_edit. Off by default
   // so the standard posture stays read-only.
   if (options.ontologyEdit) {
-    registerOntologyWriteTools(allTools, jarvisUrl, jarvisHeaders);
+    registerOntologyWriteTools(allTools, jarvisUrl, jarvisHeaders, reqOpts);
   }
 
   // Graph data-write tool — opt-in via toolsConfig.create_triplet. Off by
   // default so the standard posture stays read-only.
   if (options.graphWrite) {
-    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders);
+    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders, reqOpts);
   }
 }
 
