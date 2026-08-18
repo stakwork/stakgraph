@@ -114,13 +114,15 @@ export async function graph_agent(req: Request, res: Response) {
 
   // ── Streaming path: direct SSE response ─────────────────────────────
   if (body.stream) {
-    const opId = startTracking("graph_agent_stream");
     const request_id = randomUUID();
+    // Create abort controller BEFORE startTracking so busy.ts can abort the
+    // run when BUSY_TIMEOUT_MINUTES expires (mirrors repo/index.ts pattern).
     const abortController = registerAbortController(request_id);
     // Also register under sessionId so abort works with either key
     if (body.sessionId !== request_id) {
       registerAbortController(body.sessionId, abortController);
     }
+    const opId = startTracking("graph_agent_stream", abortController);
 
     try {
       const { streamResult, finalizeSession } = await stream_context({
@@ -207,14 +209,16 @@ export async function graph_agent(req: Request, res: Response) {
 
   // ── Non-streaming path: async job with event bus ─────────────────────
   const request_id = asyncReqs.startReq();
-  const opId = startTracking("graph_agent");
 
   const bus = createBus(request_id);
 
+  // Create abort controller BEFORE startTracking so busy.ts can abort the
+  // run when BUSY_TIMEOUT_MINUTES expires (mirrors repo/index.ts pattern).
   const abortController = registerAbortController(request_id);
   if (body.sessionId && body.sessionId !== request_id) {
     registerAbortController(body.sessionId, abortController);
   }
+  const opId = startTracking("graph_agent", abortController);
 
   let events_token: string | undefined;
   try {
