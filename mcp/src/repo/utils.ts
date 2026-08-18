@@ -61,9 +61,42 @@ export function maxOutputTokensFor(provider?: string): number {
  * `cloneRepo` inlines the caller's PAT into the clone URL, and git echoes the
  * whole remote back in its stderr on failure — which reaches the HTTP
  * response, the `.reqs/*.json` files, `GET /progress`, and the webhook.
+ *
+ * Extended to also strip:
+ *   - Bare GitHub token patterns (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_)
+ *   - Authorization header values (Basic <b64> and token <t>)
+ *   - A literal `pat` string when supplied as a second argument
  */
-export function redactCredentials(text: string): string {
-  return text.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s/@]*@/g, "$1***@");
+export function redactCredentials(text: string, pat?: string): string {
+  let out = text;
+
+  // 1. URL-embedded userinfo: https://user:token@host or https://token@host
+  out = out.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s/@]*@/g, "$1***@");
+
+  // 2. Bare GitHub personal access tokens (various prefix families)
+  //    Match the prefix followed by alphanumeric/underscore chars.
+  out = out.replace(
+    /\b(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]+/g,
+    "[REDACTED]"
+  );
+
+  // 3. Authorization header values:
+  //    "Authorization: Basic <base64>" and "Authorization: token <tok>"
+  //    (case-insensitive header name; value runs to end of token / whitespace)
+  out = out.replace(
+    /\bauthorization:\s*(basic|token|bearer)\s+[^\s,;"']+/gi,
+    "authorization: [REDACTED]"
+  );
+
+  // 4. Literal PAT substring — catches raw tokens that slip through pattern matching
+  //    (e.g. a token with an unusual prefix echoed verbatim by git stderr)
+  if (pat && pat.length >= 4) {
+    // Escape the literal string for use in a regexp
+    const escaped = pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(escaped, "g"), "[REDACTED]");
+  }
+
+  return out;
 }
 
 export function createHasEndMarkerCondition<
