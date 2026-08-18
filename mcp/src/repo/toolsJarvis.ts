@@ -46,7 +46,7 @@ function appendNamespace(params: URLSearchParams, namespace?: string): void {
  * Default Jarvis HTTP request timeout in milliseconds.
  * Override with the JARVIS_HTTP_TIMEOUT_MS environment variable.
  */
-const DEFAULT_JARVIS_TIMEOUT_MS = 30_000;
+const DEFAULT_JARVIS_TIMEOUT_MS = 180_000;
 
 function getJarvisTimeoutMs(): number {
   const raw = process.env.JARVIS_HTTP_TIMEOUT_MS;
