@@ -423,6 +423,10 @@ const server = app.listen(port, host, () => {
   // Mark requests orphaned by the restart as failed and fire their webhooks
   rr.sweepOrphanedRuns();
 
+  // Remove worktree dirs orphaned by the restart and prune stale git
+  // worktree registrations so future `git worktree add` calls aren't poisoned
+  rr.sweepOrphanedWorktrees();
+
   // Recover which Concepts recent sessions read, for runs that predate
   // collection. Marker-guarded, so this is a single small file read once the
   // sweep has completed. Never awaited — a backfill must not delay boot, and

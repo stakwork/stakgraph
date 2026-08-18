@@ -430,6 +430,17 @@ export interface GetContextOptions {
   apiKey?: string;
   baseUrl?: string;
   pat?: string | undefined;
+  /** GitHub username claimed by the caller (verified against PAT in create_pr mode) */
+  username?: string;
+  /** Base branch for create_pr worktree (resolved from GitHub API if omitted) */
+  base?: string;
+  /** Resolved worktree + identity for create_pr runs; undefined on standard runs */
+  prMode?: {
+    handle: import("./git_pr.js").WorktreeHandle;
+    identity: import("./git_pr.js").AgentIdentity;
+    env: NodeJS.ProcessEnv;
+    githubClient: import("./git_pr.js").GitHubClient;
+  };
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
   // Selects the base system prompt persona. "graph" uses a generalized
@@ -523,6 +534,7 @@ interface PreparedAgent {
   // the escape hatch offered in the continuation nudge.
   askQuestionsEnabled: boolean;
   provenanceCollector: ProvenanceCollector;
+  prCollector: import("./tools.js").PrCollector;
   conceptCollector: ConceptCollector;
   abortSignal: AbortSignal | undefined;
   mcpClients: McpToolsResult["clients"];
@@ -593,6 +605,7 @@ async function prepareAgent(
 
   const messagesRef: MessagesRef = { current: [] };
   const provenanceCollector: ProvenanceCollector = { entries: [] };
+  const prCollector: import("./tools.js").PrCollector = { result: undefined };
   let tools = await get_tools(
     repoPath,
     apiKey,
@@ -615,6 +628,14 @@ async function prepareAgent(
     transparent ? undefined : inputSessionId,
     // Thread the run's AbortSignal so Jarvis HTTP calls honour abort/timeout.
     opts.abortSignal,
+    // create_pr path: worktree handle, collector, and base checkout guard.
+    opts.prMode
+      ? {
+          prCollector,
+          prMode: opts.prMode,
+          baseCheckoutPath: `/tmp/${opts.prMode.handle.owner}/${opts.prMode.handle.repo}`,
+        }
+      : undefined,
   );
 
   // Load and merge MCP server tools if configured.
@@ -967,6 +988,7 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     messagesRef,
     askQuestionsEnabled,
     provenanceCollector,
+    prCollector,
     conceptCollector,
     abortSignal: opts.abortSignal,
     mcpClients,
@@ -1407,6 +1429,7 @@ export async function get_context(
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
     reflection,
+    pr: prepared.prCollector.result,
   };
 }
 
@@ -1435,6 +1458,7 @@ export async function stream_context(
 
   return {
     streamResult,
+    prCollector: prepared.prCollector,
     async closeMcpClients() {
       // Close all MCP clients (HTTP and stdio) after the stream is consumed.
       // Each close is wrapped individually so one failure doesn't block the others.

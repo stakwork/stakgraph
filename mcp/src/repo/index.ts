@@ -27,6 +27,18 @@ import {
   abortRequest,
 } from "./events.js";
 import { db } from "../graph/neo4j.js";
+import {
+  acquireWorktree,
+  releaseWorktree,
+  resolveIdentity,
+  gitEnv,
+  OctokitGitHubClient,
+  type WorktreeHandle,
+} from "./git_pr.js";
+import { withRepoLock } from "./repo_lock.js";
+import fs from "fs";
+import { spawnSync } from "child_process";
+import { toolConfigEnabled } from "./tools.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
@@ -400,6 +412,72 @@ export function sweepOrphanedRuns(): void {
 }
 
 /**
+ * Boot-time reconciliation: remove orphaned worktree directories and prune
+ * stale git worktree registrations left behind by a SIGKILL / OOM / crash.
+ *
+ * Mirrors `sweepOrphanedRuns` — called once at process start so future
+ * `git worktree add` calls on any base repo are not poisoned by dangling
+ * .git/worktrees entries from the previous process.
+ *
+ * The roots are parameterized for tests only (test files run in parallel
+ * processes, so a test sweeping the real roots races concurrent worktree
+ * tests — and wipes live state on a dev machine). Production callers use
+ * the defaults.
+ */
+export function sweepOrphanedWorktrees(
+  swarmRoot = "/tmp/.swarm-work",
+  reposRoot = "/tmp"
+): void {
+  // Remove all per-run worktree directories.
+  try {
+    if (fs.existsSync(swarmRoot)) {
+      const entries = fs.readdirSync(swarmRoot);
+      for (const entry of entries) {
+        const fullPath = path.join(swarmRoot, entry);
+        try {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+          console.log(`[sweepOrphanedWorktrees] Removed stale worktree dir: ${fullPath}`);
+        } catch (e: any) {
+          console.warn(`[sweepOrphanedWorktrees] Failed to remove ${fullPath}:`, e?.message);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn("[sweepOrphanedWorktrees] Failed to scan swarm-work root:", e?.message);
+  }
+
+  // Prune stale git worktree registrations on every base repo under
+  // <reposRoot>/<owner>/<repo>.
+  try {
+    const tmpEntries = fs.readdirSync(reposRoot);
+    for (const ownerEntry of tmpEntries) {
+      if (ownerEntry.startsWith(".")) continue;
+      const ownerPath = path.join(reposRoot, ownerEntry);
+      try {
+        const repoEntries = fs.readdirSync(ownerPath);
+        for (const repoEntry of repoEntries) {
+          const repoPath = path.join(ownerPath, repoEntry);
+          const gitDir = path.join(repoPath, ".git");
+          if (!fs.existsSync(gitDir)) continue;
+          const result = spawnSync("git", ["worktree", "prune"], {
+            cwd: repoPath,
+            shell: false,
+            env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: "/tmp", GIT_TERMINAL_PROMPT: "0" },
+          });
+          if (result.status === 0) {
+            console.log(`[sweepOrphanedWorktrees] Pruned worktrees for ${repoPath}`);
+          }
+        }
+      } catch {
+        // ignore per-entry errors
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[sweepOrphanedWorktrees] Failed to scan ${reposRoot} for repos:`, e?.message);
+  }
+}
+
+/**
  * Graceful-shutdown drain. Sets the `shuttingDown` guard (preventing
  * still-running background chains from firing a second terminal webhook),
  * flips all pending requests to failed/retryable:true on disk, and delivers
@@ -413,6 +491,33 @@ export async function drainForShutdown(): Promise<void> {
   const orphans = asyncReqs.failPendingReqs(SHUTDOWN_ORPHAN_ERROR);
   await notifyOrphans(orphans, postTerminalWebhookOnce);
 }
+
+// In-process per-identity + per-owner/repo rate limit for PR landings.
+// 10 PRs/hour per login+repo combination. Per-container only — not a substitute
+// for a gateway-level limit. Resets on process restart.
+const PR_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const PR_RATE_MAX = 10;
+const prRateCounts = new Map<string, { count: number; windowStart: number }>();
+
+/**
+ * Returns true if the landing is within the rate limit (and records it).
+ * Returns false if the limit has been exceeded.
+ */
+function checkPrRateLimit(login: string, owner: string, repo: string): boolean {
+  const key = `${login}:${owner}/${repo}`;
+  const now = Date.now();
+  const entry = prRateCounts.get(key);
+  if (!entry || now - entry.windowStart > PR_RATE_WINDOW_MS) {
+    prRateCounts.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= PR_RATE_MAX) return false;
+  entry.count++;
+  return true;
+}
+
+// Active worktree handles keyed by runId — used for teardown on shutdown.
+const activeWorktrees = new Map<string, WorktreeHandle>();
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
 export async function repo_agent(req: Request, res: Response) {
@@ -456,7 +561,75 @@ export async function repo_agent(req: Request, res: Response) {
     ),
   });
 
+  // Generate a per-run UUID once, used for both the streaming and non-streaming
+  // paths. Do NOT reuse sessionId (caller-controlled, reused across turns) or
+  // request_id (only exists on the non-streaming path).
+  const runId = randomUUID();
+
   const body = parseAgentBody(req);
+
+  // ── create_pr admission checks ────────────────────────────────────────
+  // All checks happen here — before any git/GitHub call — to fail loudly
+  // rather than deep inside the git pipeline.
+  let prResolvedIdentity: Awaited<ReturnType<typeof resolveIdentity>> | undefined;
+  let prOwner = "";
+  let prRepo = "";
+  let prWorktreeHandle: WorktreeHandle | undefined;
+
+  if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+    // 1. Auth bypass guard: authMiddleware returns next() when API_TOKEN is unset.
+    //    A git write path must never be reachable via that bypass.
+    if (!process.env.API_TOKEN) {
+      res.status(401).json({ error: "create_pr requires API_TOKEN to be configured" });
+      return;
+    }
+    // 2. PAT required: without a PAT we cannot authenticate as the user.
+    if (!body.pat || body.pat.trim().length === 0) {
+      res.status(400).json({ error: "create_pr requires a non-empty pat" });
+      return;
+    }
+    // 3. Exactly one explicit repo_url: never fall back to the graph repo list.
+    if (body.repoList.length !== 1) {
+      res.status(400).json({
+        error: "create_pr requires exactly one explicit repo_url (no comma-separated list, no omission)",
+      });
+      return;
+    }
+    const repoParts = body.repoList[0].split("/");
+    if (repoParts.length < 2) {
+      res.status(400).json({ error: "create_pr: repo_url must be in owner/repo form" });
+      return;
+    }
+    prOwner = repoParts[repoParts.length - 2];
+    prRepo = repoParts[repoParts.length - 1];
+
+    // 4. Identity resolution: the token's own login is authoritative.
+    const githubClient = new OctokitGitHubClient(body.pat);
+    try {
+      const identityResult = await resolveIdentity(githubClient, body.pat, body.username);
+      if (!identityResult.ok) {
+        res.status(400).json({ error: identityResult.error, failure: identityResult.failure });
+        return;
+      }
+      prResolvedIdentity = identityResult;
+
+      // 5. Push permission check.
+      const repoData = await githubClient.repos.get({ owner: prOwner, repo: prRepo });
+      if (!repoData.data.permissions?.push) {
+        res.status(403).json({ error: "no_push_permission: PAT does not have push access to this repo", failure: "no_push_permission" });
+        return;
+      }
+
+      // 6. Rate limit check (per-container; not a substitute for a gateway limit).
+      if (!checkPrRateLimit(identityResult.identity.login, prOwner, prRepo)) {
+        res.status(429).json({ error: "rate_limited: too many PRs landed in this hour", failure: "rate_limited" });
+        return;
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: redactCredentials(`create_pr admission failed: ${e?.message || e}`, body.pat) });
+      return;
+    }
+  }
 
   // Transparent replay: `messages` is a full transcript run verbatim. It takes
   // the place of `prompt` and disables all enrichment/history/persistence.
@@ -486,15 +659,49 @@ export async function repo_agent(req: Request, res: Response) {
       ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commitList, abortController.signal)
       : Promise.resolve(resolveRepoDir(effectiveRepos));
     try {
-      const repoDir = await repoDirPromise;
+      let repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
-      const { streamResult, finalizeSession, closeMcpClients } = await stream_context(
+      // create_pr path: acquire a per-run worktree and use it as the agent's
+      // working directory so all file edits are isolated from the shared clone.
+      let streamPrMode: Parameters<typeof stream_context>[2]["prMode"] | undefined;
+      if (toolConfigEnabled(body.toolsConfig?.create_pr) && prResolvedIdentity?.ok) {
+        const identity = prResolvedIdentity.identity;
+        const githubClient = new OctokitGitHubClient(body.pat!);
+        const baseDir = repoDir;
+        const worktreeResult = await acquireWorktree({
+          baseDir,
+          owner: prOwner,
+          repo: prRepo,
+          runId,
+          pat: body.pat!,
+          githubClient,
+          signal: abortController.signal,
+        });
+        if (!worktreeResult.ok) {
+          endTracking(opId);
+          unregisterAbortController(body.sessionId, abortController);
+          res.status(500).json({ error: worktreeResult.error, failure: worktreeResult.failure });
+          return;
+        }
+        prWorktreeHandle = worktreeResult.handle;
+        activeWorktrees.set(runId, prWorktreeHandle);
+        repoDir = worktreeResult.handle.worktreePath;
+        streamPrMode = {
+          handle: worktreeResult.handle,
+          identity,
+          env: gitEnv(identity, body.pat!, worktreeResult.handle.runHome),
+          githubClient,
+        };
+      }
+
+      const { streamResult, prCollector, finalizeSession, closeMcpClients } = await stream_context(
         promptInput,
         repoDir,
         {
           transparent,
           pat: body.pat,
+          username: body.username,
           toolsConfig: body.toolsConfig,
           schema: body.schema,
           modelName: body.modelName,
@@ -523,6 +730,7 @@ export async function repo_agent(req: Request, res: Response) {
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
           reflect: body.reflect,
+          prMode: streamPrMode,
         },
       );
 
@@ -539,6 +747,13 @@ export async function repo_agent(req: Request, res: Response) {
       const reader = streamResponse.body?.getReader();
       if (!reader) {
         res.status(500).json({ error: "No stream body" });
+        // Teardown: release worktree even on this early return path
+        if (prWorktreeHandle) {
+          activeWorktrees.delete(runId);
+          releaseWorktree(prWorktreeHandle).catch((e) =>
+            console.error("[repo_agent] releaseWorktree (no-reader) failed:", e)
+          );
+        }
         endTracking(opId);
         return;
       }
@@ -575,6 +790,13 @@ export async function repo_agent(req: Request, res: Response) {
           await finalizeSession();
           // After finalizeSession: it awaits streamResult.steps/.usage.
           await closeMcpClients();
+          // Teardown: release worktree on all pump exits (success + error).
+          if (prWorktreeHandle) {
+            activeWorktrees.delete(runId);
+            await releaseWorktree(prWorktreeHandle).catch((e) =>
+              console.error("[repo_agent] releaseWorktree (pump.finally) failed:", e)
+            );
+          }
           unregisterAbortController(body.sessionId, abortController);
           endTracking(opId);
         });
@@ -582,6 +804,13 @@ export async function repo_agent(req: Request, res: Response) {
       return;
     } catch (error: any) {
       console.error("[repo_agent] Stream setup error:", error);
+      // Teardown: release worktree when stream_context throws during setup.
+      if (prWorktreeHandle) {
+        activeWorktrees.delete(runId);
+        releaseWorktree(prWorktreeHandle).catch((e) =>
+          console.error("[repo_agent] releaseWorktree (stream-catch) failed:", e)
+        );
+      }
       unregisterAbortController(body.sessionId, abortController);
       endTracking(opId);
       if (!res.headersSent) {
@@ -612,6 +841,8 @@ export async function repo_agent(req: Request, res: Response) {
   const repoDirPromise = body.repoUrl
     ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commitList, abortController.signal)
     : Promise.resolve(resolveRepoDir(effectiveRepos));
+  // Track non-streaming worktree handle for teardown in .finally().
+  let nonStreamWorktreeHandle: WorktreeHandle | undefined;
 
   // Generate a short-lived JWT scoped to this request_id (only if API_TOKEN is set)
   let events_token: string | undefined;
@@ -623,12 +854,41 @@ export async function repo_agent(req: Request, res: Response) {
 
   try {
     repoDirPromise
-      .then((repoDir) => {
+      .then(async (repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(promptInput, repoDir, {
+        // create_pr path: acquire worktree for the non-streaming agent run.
+        let effectiveRepoDir = repoDir;
+        let nonStreamPrMode: Parameters<typeof get_context>[2]["prMode"] | undefined;
+        if (toolConfigEnabled(body.toolsConfig?.create_pr) && prResolvedIdentity?.ok) {
+          const identity = prResolvedIdentity.identity;
+          const githubClient = new OctokitGitHubClient(body.pat!);
+          const wResult = await acquireWorktree({
+            baseDir: repoDir,
+            owner: prOwner,
+            repo: prRepo,
+            runId,
+            pat: body.pat!,
+            githubClient,
+            signal: abortController.signal,
+          });
+          if (!wResult.ok) throw new Error(`${wResult.failure}: ${wResult.error}`);
+          nonStreamWorktreeHandle = wResult.handle;
+          prWorktreeHandle = wResult.handle;
+          activeWorktrees.set(runId, wResult.handle);
+          effectiveRepoDir = wResult.handle.worktreePath;
+          nonStreamPrMode = {
+            handle: wResult.handle,
+            identity,
+            env: gitEnv(identity, body.pat!, wResult.handle.runHome),
+            githubClient,
+          };
+        }
+        return get_context(promptInput, effectiveRepoDir, {
           transparent,
           pat: body.pat,
+          username: body.username,
           toolsConfig: body.toolsConfig,
+          prMode: nonStreamPrMode,
           schema: body.schema,
           modelName: body.modelName,
           apiKey: body.apiKey,
@@ -678,6 +938,8 @@ export async function repo_agent(req: Request, res: Response) {
           // the reflect call, so deliver its result here rather than making
           // the caller follow up with GET /repo/agent/session for it.
           reflection: result.reflection,
+          // Present when create_pr was enabled; structured result from landChange().
+          pr: result.pr,
         };
         asyncReqs.finishReq(request_id, terminalResult);
         // Post-completion side effects are isolated: if one throws it must
@@ -686,7 +948,7 @@ export async function repo_agent(req: Request, res: Response) {
         try {
           bus.emit({
             type: "done",
-            result: { final_answer: result.final, usage: result.usage },
+            result: { final_answer: result.final, usage: result.usage, pr: result.pr },
             timestamp: new Date().toISOString(),
           });
         } catch (e) {
@@ -734,7 +996,14 @@ export async function repo_agent(req: Request, res: Response) {
           });
         }
       })
-      .finally(() => {
+      .finally(async () => {
+        // Teardown: release worktree on all non-streaming exits.
+        if (nonStreamWorktreeHandle) {
+          activeWorktrees.delete(runId);
+          await releaseWorktree(nonStreamWorktreeHandle).catch((e) =>
+            console.error("[repo_agent] releaseWorktree (non-stream.finally) failed:", e)
+          );
+        }
         unregisterAbortController(request_id);
         if (body.sessionId && body.sessionId !== request_id) {
           unregisterAbortController(body.sessionId, abortController);
@@ -910,5 +1179,33 @@ export async function get_agent_file(req: Request, res: Response) {
     return;
   }
 
-  res.sendFile(resolved);
+  // Deny /tmp/.swarm-work explicitly — the "/tmp" root above admits every
+  // path beneath it, so worktrees (in-progress PR changes) would otherwise be
+  // readable by guessing/replaying a runId through this handler. Both sides
+  // are canonicalized (resolveInCwd does not follow symlinks, and /tmp itself
+  // is a symlink on macOS), so a symlink elsewhere under /tmp cannot alias
+  // into the worktree root.
+  const swarmRoot = "/tmp/.swarm-work";
+  let swarmRootReal = swarmRoot;
+  try {
+    swarmRootReal = fs.realpathSync(swarmRoot);
+  } catch {
+    // swarm root doesn't exist — no worktrees to protect, literal check still applies
+  }
+  let real: string;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+  const underSwarm = (p: string) =>
+    p === swarmRoot || p.startsWith(swarmRoot + path.sep) ||
+    p === swarmRootReal || p.startsWith(swarmRootReal + path.sep);
+  if (underSwarm(resolved) || underSwarm(real)) {
+    res.status(403).json({ error: "Path outside allowed roots" });
+    return;
+  }
+
+  res.sendFile(real);
 }

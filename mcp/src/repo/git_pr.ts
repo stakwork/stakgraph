@@ -406,14 +406,15 @@ async function _acquireWorktree(
 ): Promise<AcquireWorktreeResult> {
   const { baseDir, owner, repo, runId, pat, githubClient, base, commit, signal } = opts;
 
-  // Path traversal guard
+  // Path traversal guard. The resolved path must be exactly three segments
+  // below SWARM_WORK_ROOT (<runId>/<owner>/<repo>) — anchoring against the
+  // static root, never against a parent derived from the (tainted) runId,
+  // since a traversal in runId would shift both sides in lockstep and pass.
   const worktreePath = path.resolve(
     path.join(SWARM_WORK_ROOT, runId, owner, repo)
   );
-  const expectedParent = path.resolve(path.join(SWARM_WORK_ROOT, runId));
-  // Must be exactly two segments below the runId dir
-  const rel = path.relative(expectedParent, worktreePath);
-  if (rel.startsWith("..") || rel.split(path.sep).length !== 2) {
+  const rel = path.relative(path.resolve(SWARM_WORK_ROOT), worktreePath);
+  if (rel.startsWith("..") || rel.split(path.sep).length !== 3) {
     return {
       ok: false,
       failure: "base_repo_vanished",
