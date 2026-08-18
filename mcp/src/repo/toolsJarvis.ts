@@ -687,11 +687,16 @@ function registerGraphSubAgentTool(
       };
 
       try {
+        // parentAbortSignal is the run's AbortSignal (threaded via
+        // JarvisToolsOptions.abortSignal, including through recursive
+        // grandchild registrations) — aborting the parent run cancels
+        // in-flight sub-agent model calls too.
         const details = getModelDetails(
           sub.modelName,
           sub.apiKey,
           sub.baseUrl,
           sub.headers,
+          parentAbortSignal,
         );
         const model = details.model;
         provider = details.provider;

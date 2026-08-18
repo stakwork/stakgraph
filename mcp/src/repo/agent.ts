@@ -588,7 +588,7 @@ async function prepareAgent(
   // code-generated system prompt, enrichment, session history, attachments,
   // or persistence. The system turn must live inside the messages array.
   const transparent = opts.transparent === true;
-  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers);
+  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers, opts.abortSignal);
   console.log("===> model", modelId, "provider", provider, "contextLimit", contextLimit);
 
   const messagesRef: MessagesRef = { current: [] };
