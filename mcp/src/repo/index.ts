@@ -29,9 +29,11 @@ import {
 import { db } from "../graph/neo4j.js";
 import {
   acquireWorktree,
+  acquireEphemeralWorktree,
   releaseWorktree,
   resolveIdentity,
   gitEnv,
+  branchName,
   OctokitGitHubClient,
   type WorktreeHandle,
 } from "./git_pr.js";
@@ -87,6 +89,28 @@ function resolveRepoDir(repoList: string[]): string {
     }
   }
   return "/tmp";
+}
+
+/**
+ * Confined-run variant of prependRepoInfo. The standard block advertises the
+ * shared clones under /tmp/{owner}/{repo} — exactly where a confined run must
+ * NOT work (the bash guard rejects any command referencing that path). Live
+ * testing showed the model dutifully cd-ing into the shared checkout for every
+ * command because the preamble told it to. This block points it at its
+ * worktree cwd instead.
+ */
+function prependWorktreeInfo(prompt: any, repo: string): any {
+  const info =
+    `You are working in an isolated git worktree checkout of ${repo}. ` +
+    `It is your current working directory — use relative paths for every file and git operation. ` +
+    `Do NOT cd into or reference /tmp/${repo} (the shared checkout); commands referencing it are rejected.\n\n`;
+  if (typeof prompt === "string") return info + prompt;
+  if (Array.isArray(prompt)) {
+    return prompt.map((msg: any, i: number) =>
+      i === 0 && msg.role === "user" ? { ...msg, content: info + msg.content } : msg,
+    );
+  }
+  return prompt;
 }
 
 function prependRepoInfo(prompt: any, clonedRepos: string[], graphRepos: string[]): any {
@@ -228,6 +252,11 @@ function parseAgentBody(req: Request) {
     typeof req.body.webhookUrl === "string" && req.body.webhookUrl.trim()
       ? req.body.webhookUrl.trim()
       : undefined;
+  // Run the agent in a throwaway detached worktree of the (single) repo and
+  // discard everything on completion. For read-only preview runs that apply a
+  // diff locally: the shared checkout stays clean, and the run gets the same
+  // bash/editor confinement as a create_pr run (no git writes, no tokens).
+  const ephemeral = req.body.ephemeral === true;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -238,7 +267,7 @@ function parseAgentBody(req: Request) {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
     systemOverride, mode, skills, ontologyDomains, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments, _metadata, agentName, webhookUrl, reflect,
+    ignoreRepoInfo, attachments, _metadata, agentName, webhookUrl, reflect, ephemeral,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,
   };
@@ -576,6 +605,20 @@ export async function repo_agent(req: Request, res: Response) {
   let prRepo = "";
   let prWorktreeHandle: WorktreeHandle | undefined;
 
+  // ── ephemeral admission checks ────────────────────────────────────────
+  if (body.ephemeral) {
+    // create_pr manages its own worktree; combining the two is ambiguous.
+    if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+      res.status(400).json({ error: "ephemeral cannot be combined with toolsConfig.create_pr" });
+      return;
+    }
+    // The worktree is created from one base checkout — no multi-repo runs.
+    if (body.repoList.length !== 1) {
+      res.status(400).json({ error: "ephemeral requires exactly one explicit repo_url" });
+      return;
+    }
+  }
+
   if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
     // 1. Auth bypass guard: authMiddleware returns next() when API_TOKEN is unset.
     //    A git write path must never be reachable via that bypass.
@@ -645,11 +688,16 @@ export async function repo_agent(req: Request, res: Response) {
   // Only prepend repo info on the first message of a session (or when there's no session).
   // In transparent mode the replayed messages are sent verbatim — no repo info.
   const isExistingSession = body.sessionId && sessionExists(body.sessionId);
+  // Confined runs (create_pr or ephemeral) work in a per-run worktree — the
+  // standard repo-info block would misdirect them to the shared checkout.
+  const confinedRun = body.ephemeral || toolConfigEnabled(body.toolsConfig?.create_pr);
   const promptInput: string | ModelMessage[] = transparent
     ? body.messages!
-    : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph" || body.mode === "workflow")
-      ? body.prompt
-      : prependRepoInfo(body.prompt, body.repoList, graphRepos);
+    : confinedRun && body.repoList.length === 1
+      ? prependWorktreeInfo(body.prompt, body.repoList[0])
+      : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph" || body.mode === "workflow")
+        ? body.prompt
+        : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   // ── Streaming path: direct SSE response ──────────────────────────────
   if (body.stream) {
     // Register abort controller keyed by sessionId so a separate request can cancel it
@@ -665,7 +713,19 @@ export async function repo_agent(req: Request, res: Response) {
       // create_pr path: acquire a per-run worktree and use it as the agent's
       // working directory so all file edits are isolated from the shared clone.
       let streamPrMode: Parameters<typeof stream_context>[2]["prMode"] | undefined;
-      if (toolConfigEnabled(body.toolsConfig?.create_pr) && prResolvedIdentity?.ok) {
+      let streamEphemeral: Parameters<typeof stream_context>[2]["ephemeral"] | undefined;
+      if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+        // Fail closed: admission sets prResolvedIdentity for every create_pr
+        // run, so its absence here means the run would otherwise proceed
+        // unconfined in the shared checkout with a live push token. Refuse.
+        if (!prResolvedIdentity?.ok) {
+          endTracking(opId);
+          unregisterAbortController(body.sessionId, abortController);
+          res.status(500).json({
+            error: "create_pr was requested but identity resolution did not complete — refusing unconfined run",
+          });
+          return;
+        }
         const identity = prResolvedIdentity.identity;
         const githubClient = new OctokitGitHubClient(body.pat!);
         const baseDir = repoDir;
@@ -687,12 +747,38 @@ export async function repo_agent(req: Request, res: Response) {
         prWorktreeHandle = worktreeResult.handle;
         activeWorktrees.set(runId, prWorktreeHandle);
         repoDir = worktreeResult.handle.worktreePath;
+        console.log(
+          `[repo_agent] prMode armed (stream): runId=${runId} worktree=${prWorktreeHandle.worktreePath} branch=${prWorktreeHandle.branch}`,
+        );
         streamPrMode = {
           handle: worktreeResult.handle,
           identity,
           env: gitEnv(identity, body.pat!, worktreeResult.handle.runHome),
           githubClient,
         };
+      } else if (body.ephemeral) {
+        const baseDir = repoDir;
+        const parts = baseDir.split(path.sep).filter(Boolean);
+        const ephResult = await acquireEphemeralWorktree({
+          baseDir,
+          owner: parts[parts.length - 2] ?? "repo",
+          repo: parts[parts.length - 1] ?? "repo",
+          runId,
+          signal: abortController.signal,
+        });
+        if (!ephResult.ok) {
+          endTracking(opId);
+          unregisterAbortController(body.sessionId, abortController);
+          res.status(500).json({ error: ephResult.error, failure: ephResult.failure });
+          return;
+        }
+        prWorktreeHandle = ephResult.handle;
+        activeWorktrees.set(runId, prWorktreeHandle);
+        repoDir = ephResult.handle.worktreePath;
+        console.log(
+          `[repo_agent] ephemeral worktree armed (stream): runId=${runId} worktree=${repoDir} base=${baseDir}`,
+        );
+        streamEphemeral = { baseCheckoutPath: baseDir };
       }
 
       const { streamResult, prCollector, finalizeSession, closeMcpClients } = await stream_context(
@@ -731,6 +817,7 @@ export async function repo_agent(req: Request, res: Response) {
           ignoreRepoInfo: body.ignoreRepoInfo,
           reflect: body.reflect,
           prMode: streamPrMode,
+          ephemeral: streamEphemeral,
         },
       );
 
@@ -859,7 +946,16 @@ export async function repo_agent(req: Request, res: Response) {
         // create_pr path: acquire worktree for the non-streaming agent run.
         let effectiveRepoDir = repoDir;
         let nonStreamPrMode: Parameters<typeof get_context>[2]["prMode"] | undefined;
-        if (toolConfigEnabled(body.toolsConfig?.create_pr) && prResolvedIdentity?.ok) {
+        let nonStreamEphemeral: Parameters<typeof get_context>[2]["ephemeral"] | undefined;
+        if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+          // Fail closed: never degrade a create_pr run into an unconfined
+          // shared-checkout run (admission guarantees prResolvedIdentity; if
+          // that invariant ever breaks, the run must error, not proceed).
+          if (!prResolvedIdentity?.ok) {
+            throw new Error(
+              "create_pr was requested but identity resolution did not complete — refusing unconfined run",
+            );
+          }
           const identity = prResolvedIdentity.identity;
           const githubClient = new OctokitGitHubClient(body.pat!);
           const wResult = await acquireWorktree({
@@ -876,12 +972,32 @@ export async function repo_agent(req: Request, res: Response) {
           prWorktreeHandle = wResult.handle;
           activeWorktrees.set(runId, wResult.handle);
           effectiveRepoDir = wResult.handle.worktreePath;
+          console.log(
+            `[repo_agent] prMode armed: request_id=${request_id} runId=${runId} worktree=${effectiveRepoDir} branch=${wResult.handle.branch}`,
+          );
           nonStreamPrMode = {
             handle: wResult.handle,
             identity,
             env: gitEnv(identity, body.pat!, wResult.handle.runHome),
             githubClient,
           };
+        } else if (body.ephemeral) {
+          const parts = repoDir.split(path.sep).filter(Boolean);
+          const ephResult = await acquireEphemeralWorktree({
+            baseDir: repoDir,
+            owner: parts[parts.length - 2] ?? "repo",
+            repo: parts[parts.length - 1] ?? "repo",
+            runId,
+            signal: abortController.signal,
+          });
+          if (!ephResult.ok) throw new Error(`${ephResult.failure}: ${ephResult.error}`);
+          nonStreamWorktreeHandle = ephResult.handle;
+          activeWorktrees.set(runId, ephResult.handle);
+          effectiveRepoDir = ephResult.handle.worktreePath;
+          console.log(
+            `[repo_agent] ephemeral worktree armed: request_id=${request_id} runId=${runId} worktree=${effectiveRepoDir} base=${repoDir}`,
+          );
+          nonStreamEphemeral = { baseCheckoutPath: repoDir };
         }
         return get_context(promptInput, effectiveRepoDir, {
           transparent,
@@ -889,6 +1005,7 @@ export async function repo_agent(req: Request, res: Response) {
           username: body.username,
           toolsConfig: body.toolsConfig,
           prMode: nonStreamPrMode,
+          ephemeral: nonStreamEphemeral,
           schema: body.schema,
           modelName: body.modelName,
           apiKey: body.apiKey,
@@ -1010,7 +1127,19 @@ export async function repo_agent(req: Request, res: Response) {
         }
         endTracking(opId);
       });
-    res.json({ request_id, status: "pending", sessionId: body.sessionId, ...(events_token && { events_token }) });
+    res.json({
+      request_id,
+      status: "pending",
+      sessionId: body.sessionId,
+      ...(events_token && { events_token }),
+      // create_pr runs: the exact branch landChange will push, deterministic
+      // from the per-run runId. Returned because request_id is NOT the runId —
+      // a caller cannot derive the branch itself, and GitHub's `head` filter
+      // is an exact match, so reconciliation needs the real name.
+      ...(toolConfigEnabled(body.toolsConfig?.create_pr) && {
+        pr_branch: branchName(runId, "swarm-change"),
+      }),
+    });
   } catch (error) {
     console.log("===> error");
     // Guard: skip terminal disk write + webhook during shutdown; drain owns them.
