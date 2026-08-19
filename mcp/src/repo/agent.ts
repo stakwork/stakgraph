@@ -441,6 +441,14 @@ export interface GetContextOptions {
     env: NodeJS.ProcessEnv;
     githubClient: import("./git_pr.js").GitHubClient;
   };
+  /**
+   * Ephemeral throwaway-worktree run (read-only preview isolation). Arms the
+   * same bash/editor confinement as prMode — no git write commands, no ambient
+   * GitHub tokens — with `baseCheckoutPath` (the shared clone) rejected in
+   * bash commands. The caller acquires/releases the worktree; repoPath must
+   * already point inside it.
+   */
+  ephemeral?: { baseCheckoutPath: string };
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
   // Selects the base system prompt persona. "graph" uses a generalized
@@ -573,6 +581,30 @@ function isAbortError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Terminal `pr` field for a run. When create_pr was enabled, an absent
+ * collector result becomes an explicit `create_pr_not_called` sentinel, so a
+ * receiver can distinguish "the tool never ran" from a malformed payload —
+ * exactly the confusion the 2026-08-19 incident presented as.
+ */
+export function terminalPrResult(
+  collectorResult: import("./git_pr.js").LandChangeResult | undefined,
+  toolsConfig: ToolsConfig | undefined,
+  prMode: GetContextOptions["prMode"],
+): import("./git_pr.js").LandChangeResult | undefined {
+  if (collectorResult) return collectorResult;
+  if (!toolConfigEnabled(toolsConfig?.create_pr)) return undefined;
+  const branchNote = prMode?.handle?.branch
+    ? ` The run's worktree branch '${prMode.handle.branch}' was never pushed.`
+    : "";
+  return {
+    ok: false,
+    failure: "create_pr_not_called",
+    diff: "",
+    error: `The run completed without invoking the create_pr tool; this run opened no PR.${branchNote}`,
+  };
+}
+
 async function prepareAgent(
   prompt: string | ModelMessage[],
   repoPath: string,
@@ -603,6 +635,16 @@ async function prepareAgent(
   const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers, opts.abortSignal);
   console.log("===> model", modelId, "provider", provider, "contextLimit", contextLimit);
 
+  // Fail closed: a run that asked for create_pr but has no armed worktree
+  // must error, never degrade into an unconfined shared-checkout run with a
+  // live push token (see the 2026-08-19 incident: an agent hand-rolled a PR
+  // with bash + gh because nothing was confined and create_pr had no handle).
+  if (toolConfigEnabled(toolsConfig?.create_pr) && !opts.prMode) {
+    throw new Error(
+      "create_pr was requested but no worktree/identity was armed for this run — refusing to run unconfined",
+    );
+  }
+
   const messagesRef: MessagesRef = { current: [] };
   const provenanceCollector: ProvenanceCollector = { entries: [] };
   const prCollector: import("./tools.js").PrCollector = { result: undefined };
@@ -629,13 +671,19 @@ async function prepareAgent(
     // Thread the run's AbortSignal so Jarvis HTTP calls honour abort/timeout.
     opts.abortSignal,
     // create_pr path: worktree handle, collector, and base checkout guard.
+    // Ephemeral path: confinement only — same guards, no create_pr tool.
     opts.prMode
       ? {
           prCollector,
           prMode: opts.prMode,
           baseCheckoutPath: `/tmp/${opts.prMode.handle.owner}/${opts.prMode.handle.repo}`,
         }
-      : undefined,
+      : opts.ephemeral
+        ? {
+            ephemeral: true,
+            baseCheckoutPath: opts.ephemeral.baseCheckoutPath,
+          }
+        : undefined,
   );
 
   // Load and merge MCP server tools if configured.
@@ -1429,7 +1477,7 @@ export async function get_context(
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
     reflection,
-    pr: prepared.prCollector.result,
+    pr: terminalPrResult(prepared.prCollector.result, opts.toolsConfig, opts.prMode),
   };
 }
 

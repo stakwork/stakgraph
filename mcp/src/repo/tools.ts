@@ -113,6 +113,58 @@ export interface GetToolsOptions {
   };
   /** create_pr path: base checkout path (shared clone) to reject in bash commands */
   baseCheckoutPath?: string;
+  /**
+   * Ephemeral (throwaway-worktree) run: arms the same bash/editor confinement
+   * as prMode — no git write commands, no ambient GitHub tokens, strict editor
+   * roots — without a create_pr tool. Used by read-only preview runs.
+   */
+  ephemeral?: boolean;
+}
+
+/** Whether this run is confined to a per-run worktree (PR run or ephemeral preview). */
+function confinedRun(options?: GetToolsOptions): boolean {
+  return Boolean(options?.prMode || options?.ephemeral);
+}
+
+/**
+ * Bash confinement for worktree-confined runs. Returns a rejection message,
+ * or undefined when the command is allowed.
+ *
+ * A guard, not a sandbox — the backstops are the withheld GitHub tokens and,
+ * on the create_pr path, base-dirty detection. `git push` must be blocked even
+ * with tokens withheld because the shared clone's origin URL embeds the PAT
+ * (clone.ts inlines credentials), and a worktree shares the base repo's
+ * remote config.
+ */
+export function confinedBashRejection(
+  command: string,
+  options?: GetToolsOptions,
+): string | undefined {
+  if (options?.baseCheckoutPath && command.includes(options.baseCheckoutPath)) {
+    return (
+      `bash command rejected: references the shared checkout '${options.baseCheckoutPath}'. ` +
+      `Your current working directory is an isolated worktree of the same repo — rerun the command there using relative paths.`
+    );
+  }
+  if (!confinedRun(options)) return undefined;
+  // [regex, label]: the char class stops at command separators so a match
+  // never spans two piped/chained commands ("git log | grep push" is fine —
+  // each chained command gets its own `\bgit\b … \bpush\b` evaluation).
+  const blocked: Array<[RegExp, string]> = [
+    [/\bgit\b[^\n|;&]*\bpush\b/, "git push"],
+    [/\bgit\b[^\n|;&]*\bcommit\b/, "git commit"],
+    [/\bgit\b[^\n|;&]*\bremote\b/, "git remote"],
+    [/\bgh\s+(pr|api|repo|release)\b/, "gh write commands"],
+  ];
+  for (const [re, label] of blocked) {
+    if (re.test(command)) {
+      const hint = options?.prMode
+        ? "Commit/push/PR creation happen exclusively through the create_pr tool."
+        : "This is a read-only preview run — no remote writes.";
+      return `bash command rejected: ${label} is not allowed on this run. ${hint}`;
+    }
+  }
+  return undefined;
 }
 
 type ToolName =
@@ -683,9 +735,30 @@ export async function get_tools(
 
   // Per-request GitHub auth for the `gh` CLI (and any tool reading GH_TOKEN).
   // Scoped to this request's PAT so `gh` acts as the requesting user.
-  const ghEnv: NodeJS.ProcessEnv | undefined = pat
-    ? { GH_TOKEN: pat, GITHUB_TOKEN: pat }
-    : undefined;
+  //
+  // Confined runs (create_pr worktree or ephemeral preview) get the tokens
+  // BLANKED instead: executeBashCommand spreads process.env under this
+  // overlay, so an empty string is the only way to also mask any ambient
+  // container token. On the create_pr path landChange() supplies its own
+  // credentialed env via gitEnv() — bash never needs a push token.
+  const ghEnv: NodeJS.ProcessEnv | undefined = confinedRun(options)
+    ? { GH_TOKEN: "", GITHUB_TOKEN: "" }
+    : pat
+      ? { GH_TOKEN: pat, GITHUB_TOKEN: pat }
+      : undefined;
+
+  const executeGuardedBash = async ({ command }: { command: string }) => {
+    const rejection = confinedBashRejection(command, options);
+    if (rejection) {
+      console.log(`[bash-guard] rejected: ${command.slice(0, 200)}`);
+      return rejection;
+    }
+    try {
+      return await executeBashCommand(command, repoPath, 60000, ghEnv);
+    } catch (e) {
+      return `Command execution failed: ${e}`;
+    }
+  };
 
   // Always register bash tool — Anthropic uses native provider tool, others use executeBashCommand
   if (bash_tool) {
@@ -695,19 +768,7 @@ export async function get_tools(
       inputSchema: z.object({
         command: z.string().describe("The bash command to execute"),
       }),
-      execute: async ({ command }: { command: string }) => {
-        // Bash confinement (create_pr path): reject commands referencing the
-        // shared checkout — a guard, not a sandbox; base-dirty detection is
-        // the backstop for anything that slips through.
-        if (options?.baseCheckoutPath && command.includes(options.baseCheckoutPath)) {
-          return `bash command rejected: references the shared checkout '${options.baseCheckoutPath}'. Work inside the worktree instead.`;
-        }
-        try {
-          return await executeBashCommand(command, repoPath, 60000, ghEnv);
-        } catch (e) {
-          return `Command execution failed: ${e}`;
-        }
-      },
+      execute: executeGuardedBash,
     });
   } else {
     // Non-Anthropic: use executeBashCommand directly
@@ -716,19 +777,7 @@ export async function get_tools(
       inputSchema: z.object({
         command: z.string().describe("The bash command to execute"),
       }),
-      execute: async ({ command }: { command: string }) => {
-        // Bash confinement (create_pr path): reject commands referencing the
-        // shared checkout — a guard, not a sandbox; base-dirty detection is
-        // the backstop for anything that slips through.
-        if (options?.baseCheckoutPath && command.includes(options.baseCheckoutPath)) {
-          return `bash command rejected: references the shared checkout '${options.baseCheckoutPath}'. Work inside the worktree instead.`;
-        }
-        try {
-          return await executeBashCommand(command, repoPath, 60000, ghEnv);
-        } catch (e) {
-          return `Command execution failed: ${e}`;
-        }
-      },
+      execute: executeGuardedBash,
     });
   }
 
@@ -1339,7 +1388,7 @@ export async function get_tools(
         const baseURL = getGatewayBaseURL("anthropic");
         const ant = createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
         allTools.str_replace_based_edit_tool = ant.tools.textEditor_20250728({
-          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, Boolean(options?.prMode))),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, confinedRun(options))),
         }) as any as Tool<any, any>;
       } else {
         // Generic fallback for OpenAI / other providers
@@ -1357,7 +1406,7 @@ export async function get_tools(
             insert_text: z.string().optional(),
             view_range: z.array(z.number().int()).length(2).optional(),
           }),
-          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, Boolean(options?.prMode))),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, confinedRun(options))),
         });
       }
     }
@@ -1415,8 +1464,12 @@ export async function get_tools(
           body: string;
         }) => {
           if (!prOpts) {
+            console.error("[create_pr] invoked with no worktree handle — refusing");
             return "create_pr is not available: no worktree handle was resolved for this run";
           }
+          console.log(
+            `[create_pr] invoked: runId=${prOpts.handle.runId} branch=${prOpts.handle.branch} title=${JSON.stringify(title.slice(0, 120))}`,
+          );
           const result = await landChange({
             handle: prOpts.handle,
             identity: prOpts.identity,
@@ -1428,6 +1481,11 @@ export async function get_tools(
           if (prColl) {
             prColl.result = result;
           }
+          console.log(
+            result.ok
+              ? `[create_pr] landed: ${result.url} (${result.filesChanged} files)`
+              : `[create_pr] failed: ${result.failure} — ${result.error.slice(0, 300)}`,
+          );
           if (result.ok) {
             return (
               `PR created successfully!\n` +
