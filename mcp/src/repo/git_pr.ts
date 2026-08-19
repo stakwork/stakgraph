@@ -609,6 +609,119 @@ async function _acquireWorktree(
 }
 
 // ---------------------------------------------------------------------------
+// acquireEphemeralWorktree — throwaway isolation for read-only preview runs
+// ---------------------------------------------------------------------------
+
+export interface AcquireEphemeralWorktreeOpts {
+  baseDir: string;
+  owner: string;
+  repo: string;
+  runId: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Acquire a throwaway detached worktree at the base checkout's current HEAD.
+ * No fetch, no identity, no branch, no credentials — purely local isolation so
+ * a run can apply and inspect changes without dirtying the shared checkout.
+ * Released with the same releaseWorktree as PR worktrees; everything the run
+ * wrote is discarded.
+ */
+export async function acquireEphemeralWorktree(
+  opts: AcquireEphemeralWorktreeOpts
+): Promise<AcquireWorktreeResult> {
+  return withRepoLock(opts.baseDir, () => _acquireEphemeralWorktree(opts));
+}
+
+async function _acquireEphemeralWorktree(
+  opts: AcquireEphemeralWorktreeOpts
+): Promise<AcquireWorktreeResult> {
+  const { baseDir, owner, repo, runId, signal } = opts;
+
+  // Same traversal guard as _acquireWorktree: anchor against the static root.
+  const worktreePath = path.resolve(
+    path.join(SWARM_WORK_ROOT, runId, owner, repo)
+  );
+  const rel = path.relative(path.resolve(SWARM_WORK_ROOT), worktreePath);
+  if (rel.startsWith("..") || rel.split(path.sep).length !== 3) {
+    return {
+      ok: false,
+      failure: "base_repo_vanished",
+      error: `Path traversal rejected: ${worktreePath}`,
+    };
+  }
+
+  if (!fs.existsSync(path.join(baseDir, ".git"))) {
+    return {
+      ok: false,
+      failure: "base_repo_vanished",
+      error: `Not a git repository (no .git): ${baseDir}`,
+    };
+  }
+
+  const localEnv: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: os.tmpdir(),
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "",
+  };
+
+  const shaRes = await runGit(["rev-parse", "HEAD"], {
+    cwd: baseDir,
+    env: localEnv,
+    timeoutMs: 10_000,
+    signal,
+  });
+  if (shaRes.code !== 0) {
+    return {
+      ok: false,
+      failure: "base_repo_vanished",
+      error: `Cannot resolve HEAD in ${baseDir}: ${shaRes.stderr}`,
+    };
+  }
+  const baseSha = shaRes.stdout.trim();
+
+  const runHome = path.join(SWARM_WORK_ROOT, runId, ".home");
+  fs.mkdirSync(runHome, { mode: 0o700, recursive: true });
+
+  fs.mkdirSync(worktreePath, { mode: 0o700, recursive: true });
+  try {
+    fs.rmdirSync(worktreePath);
+  } catch {
+    // non-empty or doesn't exist — git will fail with its own message
+  }
+
+  const worktreeRes = await runGit(
+    ["worktree", "add", "--detach", worktreePath, baseSha],
+    { cwd: baseDir, env: localEnv, timeoutMs: 30_000, signal }
+  );
+  if (worktreeRes.code !== 0) {
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+    return {
+      ok: false,
+      failure: "base_repo_vanished",
+      error: `git worktree add failed: ${worktreeRes.stderr}`,
+    };
+  }
+  try { fs.chmodSync(worktreePath, 0o700); } catch { /* best-effort */ }
+
+  const handle: WorktreeHandle = {
+    worktreePath,
+    baseDir,
+    baseSha,
+    baseName: "",
+    branch: "",
+    owner,
+    repo,
+    runId,
+    runHome,
+    _children: new Set(),
+    _released: false,
+  };
+  return { ok: true, handle };
+}
+
+// ---------------------------------------------------------------------------
 // releaseWorktree — idempotent cleanup
 // ---------------------------------------------------------------------------
 
@@ -657,6 +770,19 @@ export async function releaseWorktree(handle: WorktreeHandle): Promise<void> {
       env: localEnv,
       timeoutMs: 10_000,
     }).catch(() => {});
+
+    // Delete the run's branch ref — it was created in the worktree but lives
+    // in the base repo's shared refs, so without this every PR run leaves a
+    // swarm/swarm-change-* branch behind. Must come after worktree remove
+    // (git refuses to delete a branch checked out anywhere). Ephemeral
+    // worktrees are detached (branch === "").
+    if (handle.branch) {
+      await runGit(["branch", "-D", handle.branch], {
+        cwd: handle.baseDir,
+        env: localEnv,
+        timeoutMs: 10_000,
+      }).catch(() => {});
+    }
   }
 
   const runDir = path.join(SWARM_WORK_ROOT, handle.runId);
@@ -728,7 +854,12 @@ export type LandChangeFailure = {
     | "identity_mismatch"
     | "no_push_permission"
     | "aborted"
-    | "already_landed";
+    | "already_landed"
+    // Sentinel emitted by the run terminal (never by landChange itself): the
+    // run had create_pr enabled but finished without ever invoking the tool.
+    // Its presence makes "tool not called" distinguishable from a malformed
+    // payload on the receiving side.
+    | "create_pr_not_called";
   diff: string;
   error: string;
 };
