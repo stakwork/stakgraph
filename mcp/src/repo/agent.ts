@@ -1391,6 +1391,14 @@ export async function get_context(
     enrichErrorMessage(err);
     if (sessionId) {
       const endTime = new Date();
+      // Mirror the success path's token_usage computation so a failed run still
+      // records however many tokens were spent before the throw. Falls back to
+      // streamTotalUsage when no step-metas were recorded (normalizeUsage
+      // tolerates undefined), matching the success path below.
+      const errorUsage =
+        stepMetas.length > 0
+          ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+          : normalizeUsage(streamTotalUsage);
       await appendSessionEnd(sessionId, {
         end_time: endTime.toISOString(),
         model: modelId,
@@ -1398,6 +1406,7 @@ export async function get_context(
         duration_ms: endTime.getTime() - startTime,
         status: aborted ? "aborted" : "error",
         error_message: err instanceof Error ? err.message : String(err),
+        token_usage: errorUsage,
       });
     }
     throw err;
@@ -1564,6 +1573,14 @@ export async function stream_context(
         } else {
           console.error("[stream_context] Failed to finalize session:", e);
         }
+        // Mirror the success path's token_usage computation: prefer step-metas
+        // (accumulated during the run) over the stream's own usage (which may
+        // itself have thrown and is therefore unavailable in this scope).
+        // normalizeUsage tolerates undefined, so the no-step-meta fallback is safe.
+        const errorUsage =
+          stepMetas.length > 0
+            ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+            : normalizeUsage(undefined);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
@@ -1571,6 +1588,7 @@ export async function stream_context(
           duration_ms: Date.now() - startTime,
           status: aborted ? "aborted" : "error",
           error_message: e instanceof Error ? e.message : String(e),
+          token_usage: errorUsage,
         }).catch(() => {});
       }
     },
