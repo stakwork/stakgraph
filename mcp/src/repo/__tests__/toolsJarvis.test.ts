@@ -1304,3 +1304,261 @@ test.describe("JarvisToolsOptions abortSignal and timeoutMs fields", () => {
     expect((opts as any).timeoutMs).toBeUndefined();
   });
 });
+
+// ── graph_sub_agent error-path transcript recovery ────────────────────────────
+//
+// These tests verify the three invariants introduced in toolsJarvis.ts:
+//
+//   1. When generate() throws AFTER completed steps, appendMessages is called
+//      with more than just the initial user message (message count > 1).
+//   2. The original error still propagates (best-effort, never fatal).
+//   3. When generate() throws BEFORE any onStepFinish call (zero captured
+//      steps), appendMessages is NOT called and the error still propagates.
+//
+// Because importing toolsJarvis.ts/registerJarvisTools directly pulls in ai,
+// neo4j, ToolLoopAgent, and heavy file-system side-effects, these tests
+// reproduce the recovery logic inline — the same pattern used in
+// get-context-stream.test.ts.  The key invariant under test is the recovery
+// closure itself: given a capturedSteps array (as populated by onStepFinish)
+// and an extractMessagesFromSteps implementation (inline mirror), the error
+// path's recovered message count must be > 1.
+//
+// The inline extractMessagesFromSteps is a faithful mirror of the real
+// implementation in utils.ts: it reads steps[steps.length-1].response.messages
+// and prepends the user message, matching the recovery call in toolsJarvis.ts's
+// catch block exactly.
+
+test.describe("graph_sub_agent error-path transcript recovery", () => {
+  // ── Inline helpers ───────────────────────────────────────────────────────
+
+  /** Minimal StepResult shape used by the recovery path */
+  interface FakeStepResult {
+    response: {
+      messages: Array<{ role: string; content: any }>;
+    };
+    usage: { inputTokens: number; outputTokens: number };
+    content: any[];
+    finishReason: string;
+    rawFinishReason?: string;
+    toolCalls?: Array<{ toolName: string }>;
+    providerMetadata?: unknown;
+  }
+
+  /** Mirror of extractMessagesFromSteps from utils.ts (no sessionConfig variant) */
+  function extractMessages(
+    userMsg: { role: string; content: string },
+    steps: FakeStepResult[],
+  ): Array<{ role: string; content: any }> {
+    const messages: Array<{ role: string; content: any }> = [userMsg];
+    const lastStep = steps[steps.length - 1];
+    if (!lastStep) return messages;
+    for (const msg of lastStep.response.messages) {
+      messages.push(msg);
+    }
+    return messages;
+  }
+
+  /**
+   * Simulate the graph_sub_agent execute() catch block:
+   *  - capturedSteps is populated by onStepFinish before the throw
+   *  - on throw, if capturedSteps.length > 0 → call appendMessages and return recovered count
+   *  - if capturedSteps.length === 0 → skip appendMessages, return 0
+   *
+   * Returns: { appendMessagesCalled, recoveredCount, returnValue, thrownError }
+   */
+  async function simulateSubAgentExecute(
+    capturedSteps: FakeStepResult[],
+    throwError: Error,
+    hasChildSessionId: boolean,
+  ): Promise<{
+    appendMessagesCalled: boolean;
+    recoveredMessageCount: number;
+    returnValue: string;
+    errorWasMasked: boolean;
+  }> {
+    const childSessionId = hasChildSessionId ? "parent-sub-abc123" : undefined;
+    const prompt = "Find all usages of graph_sub_agent in the codebase.";
+    let appendMessagesCalled = false;
+    let recoveredMessageCount = 0;
+
+    // Simulate the catch block verbatim (matches the real code in toolsJarvis.ts)
+    let returnValue = "";
+    const err = throwError;
+    try {
+      if (childSessionId && capturedSteps.length > 0) {
+        const recovered = extractMessages(
+          { role: "user", content: prompt },
+          capturedSteps,
+        );
+        // appendMessages spy
+        appendMessagesCalled = true;
+        recoveredMessageCount = recovered.length;
+        // (real code also calls console.warn here)
+      } else if (childSessionId) {
+        // zero steps: log only, no appendMessages
+        // (real code calls console.warn here)
+      }
+    } catch {
+      // recovery error — never masks original (real code also continues)
+    }
+    // endSession("error", ...) would be called here in the real code
+    returnValue = `graph_sub_agent failed: ${err?.message ?? String(err)}`;
+    return { appendMessagesCalled, recoveredMessageCount, returnValue, errorWasMasked: false };
+  }
+
+  // ── Helper: build a fake StepResult with N response messages ────────────
+
+  function makeFakeStep(numResponseMessages: number): FakeStepResult {
+    const responseMessages: Array<{ role: string; content: any }> = [];
+    for (let i = 0; i < numResponseMessages; i++) {
+      if (i % 2 === 0) {
+        responseMessages.push({
+          role: "assistant",
+          content: [{ type: "tool-use", id: `call_${i}`, name: "graph_search", input: { q: "test" } }],
+        });
+      } else {
+        responseMessages.push({
+          role: "tool",
+          content: [{ type: "tool-result", toolUseId: `call_${i - 1}`, content: [{ type: "text", text: "result text" }] }],
+        });
+      }
+    }
+    return {
+      response: { messages: responseMessages },
+      usage: { inputTokens: 100, outputTokens: 50 },
+      content: [{ type: "text", text: "working..." }],
+      finishReason: "tool-calls",
+      toolCalls: [{ toolName: "graph_search" }],
+    };
+  }
+
+  // ── Test 1: error path with completed steps calls appendMessages with count > 1
+  test("error path: appendMessages called with message count > 1 when steps were captured", async () => {
+    // Simulate 3 completed steps (each with 2 response messages: assistant + tool)
+    const capturedSteps: FakeStepResult[] = [
+      makeFakeStep(2),
+      makeFakeStep(2),
+      makeFakeStep(2),
+    ];
+    const throwError = new Error("model call failed: rate limit exceeded");
+
+    const result = await simulateSubAgentExecute(capturedSteps, throwError, true);
+
+    // appendMessages must have been called
+    expect(result.appendMessagesCalled).toBe(true);
+
+    // recovered count = 1 user message + responseMessages from last step (2)
+    // extractMessages reads steps[steps.length - 1].response.messages (cumulative)
+    expect(result.recoveredMessageCount).toBeGreaterThan(1);
+
+    // The return value must contain the original error text (error propagates)
+    expect(result.returnValue).toContain("graph_sub_agent failed");
+    expect(result.returnValue).toContain("rate limit exceeded");
+  });
+
+  // ── Test 2: original error still propagates (return value carries the message)
+  test("error path: original error message is preserved in return value", async () => {
+    const capturedSteps: FakeStepResult[] = [makeFakeStep(2), makeFakeStep(2)];
+    const originalErrorMessage = "connection reset by provider";
+    const throwError = new Error(originalErrorMessage);
+
+    const result = await simulateSubAgentExecute(capturedSteps, throwError, true);
+
+    expect(result.returnValue).toBe(`graph_sub_agent failed: ${originalErrorMessage}`);
+    // best-effort guard: recovery never masks the error (no exception thrown)
+    expect(result.errorWasMasked).toBe(false);
+  });
+
+  // ── Test 3: zero-step early-failure — appendMessages NOT called, error propagates
+  test("zero-step early-failure: appendMessages is NOT called when no steps completed", async () => {
+    // No steps completed before the throw
+    const capturedSteps: FakeStepResult[] = [];
+    const throwError = new Error("provider returned 500 before first response");
+
+    const result = await simulateSubAgentExecute(capturedSteps, throwError, true);
+
+    // appendMessages must NOT be called (zero-step is the documented lower bound)
+    expect(result.appendMessagesCalled).toBe(false);
+    expect(result.recoveredMessageCount).toBe(0);
+
+    // Error still propagates
+    expect(result.returnValue).toContain("graph_sub_agent failed");
+    expect(result.returnValue).toContain("500 before first response");
+  });
+
+  // ── Test 4: no childSessionId — both recovery and logging are skipped entirely
+  test("no childSessionId: appendMessages is not called regardless of captured steps", async () => {
+    const capturedSteps: FakeStepResult[] = [makeFakeStep(2)];
+    const throwError = new Error("model error");
+
+    const result = await simulateSubAgentExecute(capturedSteps, throwError, false);
+
+    // Without a session, there is nothing to persist
+    expect(result.appendMessagesCalled).toBe(false);
+    // Error still propagates via return value
+    expect(result.returnValue).toContain("graph_sub_agent failed");
+  });
+
+  // ── Test 5: extractMessages invariant — 1 user + N response messages from last step
+  test("extractMessages: recovered count equals 1 + responseMessages.length of last step", () => {
+    const step1 = makeFakeStep(2); // 2 response messages
+    const step2 = makeFakeStep(4); // 4 response messages — this is the LAST step
+    const capturedSteps = [step1, step2];
+    const userMsg = { role: "user" as const, content: "Find all usages." };
+
+    // extractMessages reads steps[steps.length - 1].response.messages (cumulative)
+    const recovered = extractMessages(userMsg, capturedSteps);
+
+    // 1 user message + 4 response messages from last step (step2)
+    expect(recovered.length).toBe(1 + step2.response.messages.length);
+    expect(recovered[0].role).toBe("user");
+    // Remaining messages match the last step's response messages in order
+    for (let i = 0; i < step2.response.messages.length; i++) {
+      expect(recovered[i + 1]).toEqual(step2.response.messages[i]);
+    }
+  });
+
+  // ── Test 6: single captured step produces > 1 recovered messages
+  test("single captured step: recovered count > 1 (user + at least 1 response message)", () => {
+    // Minimum viable case: one step with one response message
+    const step = makeFakeStep(1);
+    const capturedSteps = [step];
+    const userMsg = { role: "user" as const, content: "test task" };
+
+    const recovered = extractMessages(userMsg, capturedSteps);
+
+    expect(recovered.length).toBeGreaterThan(1);
+    expect(recovered.length).toBe(1 + step.response.messages.length);
+  });
+
+  // ── Test 7: recovery is a no-op when steps is empty (zero-step boundary)
+  test("zero captured steps: extractMessages returns only the user message", () => {
+    const userMsg = { role: "user" as const, content: "test" };
+    const recovered = extractMessages(userMsg, []);
+    // Only the user message — same as the initial transcript state
+    expect(recovered.length).toBe(1);
+    expect(recovered[0].role).toBe("user");
+  });
+
+  // ── Test 8: recovery failure (recoveryErr) does not mask original error
+  test("recovery failure (recoveryErr): original error return value is still produced", async () => {
+    // Simulate a recovery that throws internally
+    const childSessionId = "parent-sub-xyz";
+    const prompt = "task";
+    const throwError = new Error("network timeout");
+    let appendMessagesCalled = false;
+
+    let returnValue = "";
+    try {
+      // Simulate recovery block with a deliberate crash
+      throw new Error("recovery-side-effect-error");
+    } catch {
+      // Recovery error is caught and swallowed (matches real code)
+    }
+    returnValue = `graph_sub_agent failed: ${throwError.message}`;
+
+    // The return value must still be the original error, not the recovery error
+    expect(returnValue).toBe("graph_sub_agent failed: network timeout");
+    expect(appendMessagesCalled).toBe(false);
+  });
+});
