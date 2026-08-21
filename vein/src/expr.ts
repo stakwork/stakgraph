@@ -6,7 +6,12 @@
  *  - Literals: numbers, strings ('...' or "..."), true, false, null
  *  - Operators: === !== == != < <= > >= && || ! + - * / %
  *  - Ternary: a ? b : c
- *  - No function calls in v1.
+ *  - Array methods (whitelist): map, filter, find, join, includes, slice —
+ *    with single-param arrow lambdas, e.g. {{ search.map(n => n.ref_id) }}.
+ *    Expression bodies only (no statements, no user-defined functions), so
+ *    every expression still terminates by construction. The whitelist exists
+ *    because the language's primary AUTHORS are LLM agents, whose first
+ *    attempt is always the JS idiom — grow it only when a real agent misses.
  */
 
 export class TemplateError extends Error {
@@ -31,6 +36,8 @@ type TokenType =
   | "question"
   | "colon"
   | "not"
+  | "comma"
+  | "arrow"
   | "eof";
 
 interface Token {
@@ -96,6 +103,14 @@ function tokenize(input: string): Token[] {
       continue;
     }
 
+    // Arrow (lambda) — before the operator loop so '=' never reaches the
+    // unexpected-character error.
+    if (input.slice(i, i + 2) === "=>") {
+      tokens.push({ type: "arrow", value: "=>" });
+      i += 2;
+      continue;
+    }
+
     // Multi-char operators
     let matched = false;
     for (const op of OPERATORS) {
@@ -133,6 +148,9 @@ function tokenize(input: string): Token[] {
     } else if (ch === "!") {
       tokens.push({ type: "not", value: "!" });
       i++;
+    } else if (ch === ",") {
+      tokens.push({ type: "comma", value: "," });
+      i++;
     } else if (/[a-zA-Z_$]/.test(ch)) {
       let ident = "";
       while (i < input.length && /[a-zA-Z0-9_$]/.test(input[i]!)) {
@@ -147,6 +165,68 @@ function tokenize(input: string): Token[] {
 
   tokens.push({ type: "eof", value: "" });
   return tokens;
+}
+
+// ── Array methods (whitelist) ──────────────────────────────────────────────
+
+const ARRAY_METHODS = ["map", "filter", "find", "join", "includes", "slice"] as const;
+
+/** The teaching suffix: every method error states the supported surface, so
+ *  an agent that steps outside it can self-correct from the error alone. */
+const METHODS_HINT =
+  `supported on arrays: ${ARRAY_METHODS.join(", ")} ` +
+  `(single-param arrow lambdas only, e.g. items.map(x => x.ref_id))`;
+
+function callMethod(obj: unknown, method: string, args: unknown[]): unknown {
+  if (obj === null || obj === undefined) {
+    throw new TemplateError(`Cannot call method '${method}' of ${obj}`);
+  }
+  if (!Array.isArray(obj)) {
+    throw new TemplateError(
+      `Cannot call '${method}' on ${typeof obj} — methods are ${METHODS_HINT}`,
+    );
+  }
+  const lambdaArg = (): ((el: unknown) => unknown) => {
+    const f = args[0];
+    if (typeof f !== "function") {
+      throw new TemplateError(
+        `${method}() requires a lambda argument, e.g. items.${method}(x => x.name)`,
+      );
+    }
+    return f as (el: unknown) => unknown;
+  };
+  const plainArgs = (): unknown[] => {
+    if (args.some((a) => typeof a === "function")) {
+      throw new TemplateError(`${method}() does not take a lambda argument`);
+    }
+    return args;
+  };
+  switch (method) {
+    case "map": {
+      const f = lambdaArg();
+      return obj.map((el) => f(el));
+    }
+    case "filter": {
+      const f = lambdaArg();
+      return obj.filter((el) => Boolean(f(el)));
+    }
+    case "find": {
+      const f = lambdaArg();
+      return obj.find((el) => Boolean(f(el)));
+    }
+    case "join": {
+      const [sep] = plainArgs();
+      return obj.join(sep === undefined ? "," : String(sep));
+    }
+    case "includes":
+      return obj.includes(plainArgs()[0]);
+    case "slice": {
+      const [a, b] = plainArgs();
+      return obj.slice(a as number | undefined, b as number | undefined);
+    }
+    default:
+      throw new TemplateError(`Unknown method '${method}' — ${METHODS_HINT}`);
+  }
 }
 
 // ── Parser (recursive descent, evaluates in one pass) ─────────────────────
@@ -296,6 +376,54 @@ function parse(
     return parseAccess();
   }
 
+  function peekAhead(): Token {
+    return tokens[pos + 1] ?? { type: "eof", value: "" };
+  }
+
+  /** Capture a lambda body's tokens (to the depth-0 `,` or `)` that ends the
+   *  argument) WITHOUT evaluating them — the parameter isn't bound yet.
+   *  Returns a closure that re-parses the slice per element with the
+   *  parameter bound in a child scope (shadowing any outer binding). */
+  function parseLambda(): (el: unknown) => unknown {
+    const param = expect("ident").value;
+    expect("arrow");
+    const body: Token[] = [];
+    let depth = 0;
+    while (true) {
+      const t = peek();
+      if (t.type === "eof") {
+        throw new TemplateError(`Unterminated lambda body for parameter '${param}'`);
+      }
+      if (depth === 0 && (t.type === "comma" || t.type === "rparen")) break;
+      if (t.type === "lparen" || t.type === "lbracket") depth++;
+      if (t.type === "rparen" || t.type === "rbracket") depth--;
+      body.push(advance());
+    }
+    if (body.length === 0) {
+      throw new TemplateError(`Empty lambda body for parameter '${param}'`);
+    }
+    const bodyTokens: Token[] = [...body, { type: "eof", value: "" }];
+    return (el: unknown) => parse(bodyTokens, { ...scope, [param]: el });
+  }
+
+  /** Parse a call's arguments: each is a single-param arrow lambda
+   *  (`x => expr`) or an ordinary expression. */
+  function parseCallArgs(): unknown[] {
+    expect("lparen");
+    const args: unknown[] = [];
+    while (peek().type !== "rparen") {
+      if (peek().type === "ident" && peekAhead().type === "arrow") {
+        args.push(parseLambda());
+      } else {
+        args.push(parseTernary());
+      }
+      if (peek().type === "comma") advance();
+      else break;
+    }
+    expect("rparen");
+    return args;
+  }
+
   function parseAccess(): unknown {
     let obj = parsePrimary();
 
@@ -303,6 +431,10 @@ function parse(
       if (peek().type === "dot") {
         advance();
         const prop = expect("ident").value;
+        if (peek().type === "lparen") {
+          obj = callMethod(obj, prop, parseCallArgs());
+          continue;
+        }
         if (obj === null || obj === undefined) {
           throw new TemplateError(
             `Cannot access property '${prop}' of ${obj}`,

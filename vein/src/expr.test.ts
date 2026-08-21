@@ -523,3 +523,114 @@ describe("resolveConfig", () => {
     assert.deepEqual(result.body, { data: "done" });
   });
 });
+
+describe("array methods (whitelist + arrow lambdas)", () => {
+  const nodes = [
+    { ref_id: "r1", name: "Duty of Care", score: 0.9 },
+    { ref_id: "r2", name: "Negligence", score: 0.4 },
+    { ref_id: "r3", name: "Causation", score: 0.7 },
+  ];
+  const scope = { search: nodes, tags: ["legal", "tort"], input: { min: 0.5 } };
+
+  it("map plucks a field (the original agent failure)", () => {
+    assert.deepEqual(evaluateExpr('search.map(n => n.ref_id)', scope), ["r1", "r2", "r3"]);
+  });
+
+  it("filter with a comparison against outer scope", () => {
+    assert.deepEqual(
+      evaluateExpr('search.filter(n => n.score > input.min)', scope),
+      [nodes[0], nodes[2]],
+    );
+  });
+
+  it("find with equality", () => {
+    assert.deepEqual(
+      evaluateExpr('search.find(n => n.name === "Negligence")', scope),
+      nodes[1],
+    );
+  });
+
+  it("chains: filter then map then join", () => {
+    assert.equal(
+      evaluateExpr('search.filter(n => n.score > 0.5).map(n => n.name).join(", ")', scope),
+      "Duty of Care, Causation",
+    );
+  });
+
+  it("join defaults to comma; includes and slice take plain args", () => {
+    assert.equal(evaluateExpr("tags.join()", scope), "legal,tort");
+    assert.equal(evaluateExpr('tags.includes("legal")', scope), true);
+    assert.deepEqual(evaluateExpr("search.slice(0, 2).map(n => n.ref_id)", scope), ["r1", "r2"]);
+  });
+
+  it("lambda body may use ternary, nested access, and arithmetic", () => {
+    assert.deepEqual(
+      evaluateExpr('search.map(n => n.score > 0.5 ? n.name : "low")', scope),
+      ["Duty of Care", "low", "Causation"],
+    );
+    assert.deepEqual(evaluateExpr("search.map(n => n.score * 10)", scope), [9, 4, 7]);
+  });
+
+  it("nested lambdas: inner method call inside a lambda body", () => {
+    const s = { groups: [{ items: [{ v: 1 }, { v: 2 }] }, { items: [{ v: 3 }] }] };
+    assert.deepEqual(
+      evaluateExpr("groups.map(g => g.items.map(i => i.v))", s),
+      [[1, 2], [3]],
+    );
+  });
+
+  it("lambda param shadows an outer scope binding", () => {
+    const s = { n: "OUTER", search: nodes };
+    assert.deepEqual(evaluateExpr("search.map(n => n.ref_id)", s), ["r1", "r2", "r3"]);
+  });
+
+  it("unknown method error teaches the supported surface", () => {
+    assert.throws(
+      () => evaluateExpr("search.reduce(n => n)", scope),
+      /Unknown method 'reduce'.*map, filter, find, join, includes, slice.*arrow lambdas/s,
+    );
+  });
+
+  it("method on a non-array errors with the hint", () => {
+    assert.throws(
+      () => evaluateExpr("input.map(n => n)", scope),
+      /Cannot call 'map' on object — methods are supported on arrays/,
+    );
+  });
+
+  it("map without a lambda errors with an example", () => {
+    assert.throws(
+      () => evaluateExpr('search.map("ref_id")', scope),
+      /map\(\) requires a lambda argument.*items\.map\(x => x\.name\)/s,
+    );
+  });
+
+  it("method call on null/undefined errors clearly", () => {
+    assert.throws(
+      () => evaluateExpr("missing.map(n => n)", { missing: null }),
+      /Cannot call method 'map' of null/,
+    );
+  });
+
+  it("unterminated lambda body errors", () => {
+    assert.throws(() => evaluateExpr("search.map(n => ", scope), /Unterminated lambda body/);
+    assert.throws(() => evaluateExpr("search.map(n => )", scope), /Empty lambda body/);
+  });
+
+  it("property named like a method still resolves without a call", () => {
+    const s = { obj: { map: "a property, not a method" } };
+    assert.equal(evaluateExpr("obj.map", s), "a property, not a method");
+  });
+
+  it("works through resolveTemplate with type preservation", () => {
+    assert.deepEqual(
+      resolveTemplate("{{ search.map(n => n.ref_id) }}", scope),
+      ["r1", "r2", "r3"],
+    );
+    // embedded in a larger string → stringified
+    assert.equal(
+      resolveTemplate('ids: {{ search.map(n => n.ref_id).join("/") }}', scope),
+      "ids: r1/r2/r3",
+    );
+  });
+});

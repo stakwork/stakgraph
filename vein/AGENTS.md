@@ -27,7 +27,7 @@ vein/
 ├── tsconfig.json          # strict, Node16 module, types: ["node"]
 ├── src/
 │   ├── core.ts            # flow(), step(), defineStep(), services bag, all types
-│   ├── expr.ts            # {{ }} template evaluator (~460 LOC recursive descent)
+│   ├── expr.ts            # {{ }} template evaluator (recursive descent; whitelisted array methods + arrow lambdas)
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore + tailJsonl (shared append-only tail engine)
 │   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
