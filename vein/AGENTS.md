@@ -109,7 +109,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_SECRET_KEY`   | (unset)        | Encryption key for the secret store (AES-256-GCM). Unset → a default dev key + one-time warning (obfuscated, not secure). See "Secrets". |
 | `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
-| `VEIN_CHAT_MODEL`   | `claude-sonnet-4-20250514` | Anthropic model for the AI-builder chat agent |
+| `VEIN_CHAT_MODEL`   | `claude-sonnet-5` | Anthropic model for the AI-builder chat agent |
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 
 ## Auth

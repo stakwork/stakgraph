@@ -91,7 +91,7 @@ export interface VeinOptions<TServices = unknown> {
   chatMaxSteps?: number;
 
   /** Anthropic model id for the chat agent. Defaults to `VEIN_CHAT_MODEL` or
-   *  `claude-sonnet-4-20250514`. */
+   *  `claude-sonnet-5`. */
   chatModel?: string;
 
   /** Directory containing the built web UI (the `dist` folder). Defaults
@@ -309,7 +309,7 @@ export async function createVein<TServices = unknown>(
   const chatMaxSteps =
     opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 30);
   const chatModel =
-    opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-4-20250514";
+    opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-5";
   const webDist =
     opts.webDist ??
     resolve(dirname(fileURLToPath(import.meta.url)), "../web/dist");
