@@ -466,7 +466,7 @@ export function buildRegistryTools(
     out[toolNameFor(stepType)] = toolFactory({
       description: def.description ?? `Run the "${stepType}" step.`,
       inputSchema: def.input,
-      execute: async (input: unknown) => {
+      execute: async (input: unknown, options?: { veinToolPath?: string }) => {
         let parsed: unknown;
         try {
           parsed = def.input.parse(input ?? {});
@@ -474,9 +474,16 @@ export function buildRegistryTools(
           return `Error: invalid input for "${stepType}": ${(e as Error).message}`;
         }
         // Run the step with the agent's ctx (leaf tool-steps reach
-        // ctx.services etc.). The nesting/emit is added by wrapToolsWithEmit.
-        const childCtx: StepContext = ctx ??
+        // ctx.services etc.). The nesting/emit is added by wrapToolsWithEmit,
+        // which also threads this call's event path in via `veinToolPath` —
+        // adopting it as the child ctx path makes any events the step itself
+        // emits (e.g. a nested `agent` step's own tool calls) nest UNDER this
+        // call's span instead of appearing as flat siblings of it.
+        const base: StepContext = ctx ??
           ({ runId: "", path: "", scope: {}, input: undefined, emit: (async () => {}) as any, services: undefined });
+        const childCtx: StepContext = options?.veinToolPath
+          ? { ...base, path: options.veinToolPath }
+          : base;
         return def.run(parsed, childCtx);
       },
     });
@@ -512,7 +519,13 @@ export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext |
       const startedAt = Date.now();
       await emit({ type: "step.start", path, stepType: `tool:${name}`, input });
       try {
-        const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, opts);
+        // Thread this call's event path to the tool (registry tools adopt it
+        // as their child ctx path, so nested emits land under this span).
+        const optsWithPath =
+          typeof opts === "object" && opts !== null
+            ? { ...(opts as Record<string, unknown>), veinToolPath: path }
+            : { veinToolPath: path };
+        const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, optsWithPath);
         await emit({
           type: "step.end",
           path,

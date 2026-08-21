@@ -22,7 +22,8 @@ export default defineStep({
     "retriever fused into one ranked result set. " +
     "Each result includes an `edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
     "which relationship types you can traverse next with jarvis_graph_neighbors. " +
-    "Call jarvis_get_ontology first to discover valid values for the `type` parameter.",
+    "Call jarvis_get_ontology first to discover valid values for the `type` parameter. " +
+    "An EMPTY `edges` map is NOT proof the node has no relationships (edge-count computation can be unavailable on some deployments) — confirm with jarvis_graph_neighbors before concluding a node is unconnected. ",
   input: z.object({
     q: z
       .string()

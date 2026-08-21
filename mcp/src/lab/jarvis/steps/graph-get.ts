@@ -55,6 +55,7 @@ export default defineStep({
     "Returns the node's ref_id, node_type, derived name, properties, and an " +
     "`edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
     "which relationship types you can traverse next with jarvis_graph_neighbors. " +
+    "An EMPTY `edges` map is NOT proof the node has no relationships (edge-count computation can be unavailable on some deployments) — confirm with jarvis_graph_neighbors before concluding a node is unconnected. " +
     "To resolve several ref_ids at once, use jarvis_graph_get_batched instead.",
   input: z.object({
     ref_id: z.string().describe("The ref_id of the node to resolve."),

@@ -58,7 +58,8 @@ export default defineStep({
     "`nodes` is either the full node (ref_id, node_type, name, properties, edges) or " +
     "`{ ref_id, error }` if that one could not be resolved — one bad ref_id never fails the rest. " +
     `If you pass more than ${BATCH_MAX} ref_ids, the excess comes back in ` +
-    "`omitted_ref_ids` and `truncated` is true; call again with those to finish the job.",
+    "`omitted_ref_ids` and `truncated` is true; call again with those to finish the job. " +
+    "An EMPTY `edges` map is NOT proof the node has no relationships (edge-count computation can be unavailable on some deployments) — confirm with jarvis_graph_neighbors before concluding a node is unconnected. ",
   input: z.object({
     ref_ids: z
       .array(z.string())
