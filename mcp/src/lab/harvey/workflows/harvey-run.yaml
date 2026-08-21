@@ -47,6 +47,13 @@ steps:
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
       toolFilter: "{{ params.toolFilter }}"
+      # Extra tool grants for the producing agent (registry step types; globs
+      # ok). Default NONE — the closed-book baseline. Override per run to arm
+      # e.g. read-only knowledge-graph access:
+      #   ["jarvis/graph-search","jarvis/graph-get","jarvis/graph-get-batched",
+      #    "jarvis/graph-neighbors","jarvis/get-ontology","jarvis/get-ontology-type"]
+      # NEVER grant the jarvis write steps or harvey/evaluate here.
+      agentTools: "{{ params.agentTools }}"
 
   - id: grade
     type: harvey/evaluate
@@ -75,6 +82,9 @@ params:
   # provided documents. (Empty would mean ALL built-ins, including web_search.)
   toolFilter: ["bash", "str_replace_based_edit_tool", "repo_overview", "fulltext_search"]
   dual: false
+  # Producing agent's extra tool grants (see the produce step). Empty =
+  # closed-book baseline.
+  agentTools: []
   # 59-criterion tasks with parallel judges can take a while.
   evalTimeoutMs: 2400000
   system: |
