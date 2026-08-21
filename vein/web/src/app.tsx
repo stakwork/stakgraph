@@ -242,9 +242,26 @@ export function App() {
       setEvents([]);
       return;
     }
-    api.getRunEvents(selectedWf, selectedRun).then((evts) => {
-      setEvents(evts);
-    }).catch(console.error);
+    // TAIL the run rather than one-shot fetching its events: the SSE stream
+    // replays the full history, then follows live appends until the run
+    // completes — so selecting an IN-FLIGHT run (launched via curl, the chat
+    // agent, or another tab) updates the events panel in real time. For a
+    // completed run the stream drains and ends immediately (same behavior as
+    // the old fetch). Aborted on run-switch/unmount so pollers don't leak.
+    const ctrl = new AbortController();
+    const accumulated: api.RunEvent[] = [];
+    setEvents([]);
+    api.streamRun(selectedWf, selectedRun, (event) => {
+      if (ctrl.signal.aborted) return;
+      accumulated.push(event);
+      setEvents([...accumulated]);
+    }, ctrl.signal)
+      .then((result) => {
+        // A live-tailed run just finished → refresh the sidebar status.
+        if (result != null && !ctrl.signal.aborted) refreshRuns();
+      })
+      .catch(console.error);
+    return () => ctrl.abort();
   }, [selectedRun]);
 
   // Resolve the selected run's declared promotions (a winning value → a target

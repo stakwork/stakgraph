@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { coreRegistry } from "../registry.js";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
-import agent, { repoTree, textEdit, buildRegistryTools, wrapToolsWithEmit } from "./agent.js";
+import agent, { repoTree, textEdit, buildRegistryTools, expandAgentTools, wrapToolsWithEmit } from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
 // config-validation guards in run() that fire BEFORE any model call. The actual
@@ -98,6 +98,118 @@ describe("agentTools (buildRegistryTools — tools are steps)", () => {
     const tools = buildRegistryTools(["demo/echo"], registry, undefined, fakeTool);
     const out = await (tools["demo_echo"] as any).execute({ wrong: 1 });
     assert.match(String(out), /Error: invalid input for "demo\/echo"/);
+  });
+
+  describe("glob expansion (expandAgentTools)", () => {
+    const shoutStep = defineStep({
+      type: "demo/shout",
+      input: z.object({ msg: z.string() }),
+      output: z.string(),
+      async run(cfg) {
+        return cfg.msg.toUpperCase();
+      },
+    });
+    const otherStep = defineStep({
+      type: "other/thing",
+      input: z.object({}),
+      output: z.any(),
+      async run() {
+        return null;
+      },
+    });
+    const globReg = {
+      "demo/echo": echoStep,
+      "demo/shout": shoutStep,
+      "other/thing": otherStep,
+    } as StepRegistry;
+
+    it("expands a namespace glob to every matching step type, sorted", () => {
+      assert.deepEqual(expandAgentTools(["demo/*"], globReg), ["demo/echo", "demo/shout"]);
+    });
+
+    it("mixes globs and plain names, deduping (first occurrence wins)", () => {
+      assert.deepEqual(
+        expandAgentTools(["demo/echo", "demo/*", "other/thing"], globReg),
+        ["demo/echo", "demo/shout", "other/thing"],
+      );
+    });
+
+    it("a glob matching nothing expands to nothing (no throw)", () => {
+      assert.deepEqual(expandAgentTools(["nope/*"], globReg), []);
+    });
+
+    it("does not treat regex metacharacters in the pattern as regex", () => {
+      // "demo/e.ho" must NOT match "demo/echo" — dots are literal.
+      assert.deepEqual(
+        expandAgentTools(["demo/e.ho"], globReg),
+        ["demo/e.ho"], // passes through as a plain (unknown) name
+      );
+    });
+
+    it("buildRegistryTools consumes globs end-to-end", () => {
+      const tools = buildRegistryTools(["demo/*"], globReg, undefined, fakeTool);
+      assert.deepEqual(Object.keys(tools).sort(), ["demo_echo", "demo_shout"]);
+    });
+  });
+
+  it("exposes the agent step itself as a tool (sub-agent recursion seam)", () => {
+    const reg = coreRegistry();
+    const tools = buildRegistryTools(["agent"], reg, undefined, fakeTool);
+    assert.ok(tools["agent"], "the core agent step is grantable as an agentTool");
+    assert.equal((tools["agent"] as any).inputSchema, reg["agent"]!.input);
+  });
+
+  it("nests a registry step's own emits under the tool-call span (child ctx path)", async () => {
+    // A step that emits an event itself — stands in for a nested agent whose
+    // own tool calls emit at `${ctx.path}/NNN-<tool>`.
+    const emittingStep = defineStep({
+      type: "demo/emitter",
+      input: z.object({}),
+      output: z.any(),
+      async run(_cfg, sctx) {
+        await (sctx.emit as any)({ type: "step.start", path: `${sctx.path}/001-inner`, stepType: "tool:inner" });
+        return "ok";
+      },
+    });
+    const reg = { "demo/emitter": emittingStep } as StepRegistry;
+    const events: any[] = [];
+    const ctx = {
+      runId: "r1", path: "wf/parent-agent", scope: {}, input: undefined,
+      emit: async (e: any) => { events.push(e); }, services: undefined, registry: reg,
+    } as unknown as StepContext;
+
+    const tools = buildRegistryTools(["demo/emitter"], reg, ctx, (d: any) => d);
+    wrapToolsWithEmit(tools, ctx);
+    await (tools["demo_emitter"] as any).execute({}, {});
+
+    const paths = events.map((e) => e.path);
+    // outer span from wrapToolsWithEmit…
+    assert.ok(paths.includes("wf/parent-agent/001-demo_emitter"), `outer span missing: ${paths}`);
+    // …and the step's own emit nests UNDER it (not as a flat sibling).
+    assert.ok(
+      paths.includes("wf/parent-agent/001-demo_emitter/001-inner"),
+      `inner emit not nested: ${paths}`,
+    );
+  });
+
+  it("registry tool keeps the parent ctx path when called without wrap options", async () => {
+    const events: any[] = [];
+    const probeStep = defineStep({
+      type: "demo/probe",
+      input: z.object({}),
+      output: z.any(),
+      async run(_cfg, sctx) {
+        return sctx.path;
+      },
+    });
+    const reg = { "demo/probe": probeStep } as StepRegistry;
+    const ctx = {
+      runId: "r1", path: "wf/agent", scope: {}, input: undefined,
+      emit: async (e: any) => { events.push(e); }, services: undefined, registry: reg,
+    } as unknown as StepContext;
+    const tools = buildRegistryTools(["demo/probe"], reg, ctx, (d: any) => d);
+    // Unwrapped (no wrapToolsWithEmit): no veinToolPath → parent path unchanged.
+    assert.equal(await (tools["demo_probe"] as any).execute({}), "wf/agent");
   });
 });
 

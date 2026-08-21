@@ -297,6 +297,122 @@ entirely. Trigger:
 seeded/built): `src/lab/gitsee/smoke.ts` (steps direct, no server) and
 `smoke-eval.ts` (full `gitsee-eval` via a real lab vein).
 
+### `jarvis/` — knowledge-graph steps (NOT an experiment)
+
+Self-contained ports of the mcp repo-agent's Jarvis tools
+(`mcp/src/repo/toolsJarvis.ts`) as seeded vein steps — same endpoints, same
+schemas, same LLM-facing descriptions — so workflows (and agent steps) can
+read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
+`type: "Concept"` on search/neighbors), so no concept-specific steps exist.
+
+- **Reads:** `jarvis/get-ontology`, `jarvis/get-ontology-type`,
+  `jarvis/graph-search` (hybrid + field-scoped vector search),
+  `jarvis/graph-get`, `jarvis/graph-get-batched`, `jarvis/graph-neighbors`.
+- **Writes:** `jarvis/create-node`, `jarvis/edit-node`,
+  `jarvis/create-triplet`, `jarvis/create-batch-triplet`. The ontology CRUD
+  family is deliberately NOT ported (schema editing stays a human/setup
+  activity).
+- **Config is automatic:** each step resolves `JARVIS_URL` + `API_TOKEN`
+  (+ optional `JARVIS_HTTP_TIMEOUT_MS`) through `ctx.services.secrets`
+  (secret store → env fallback) and calls through `ctx.services.http` — so
+  runs are cassette-recordable and credentials are scrubbed from fixtures.
+  Steps are ALWAYS seeded; without `JARVIS_URL` they fail loudly per run
+  rather than silently missing.
+- **Granting to agents:** `agentTools: ["jarvis/*"]` (glob, vein-core
+  `expandAgentTools`) for everything, or list the read steps explicitly for a
+  read-only child. Sub-agents = grant `"agent"` itself and pass the child a
+  narrower `agentTools` list (recursion depth is whether the child gets
+  `"agent"` again).
+- **Self-contained duplication is deliberate:** each step file inlines its
+  small `jarvisCtx` preamble (seeded steps may only value-import `"vein"`);
+  the contract is documented once in `jarvis/steps/_shared.ts` — change it
+  there AND in every step.
+- **Smoke:** `npx tsx src/lab/jarvis/smoke.ts` — offline; seeds into a temp
+  workspace, verifies registry discovery, and runs every step against a fake
+  `ctx.services.http` Jarvis.
+
+### `sheets/` — Google Sheets steps (NOT an experiment)
+
+Self-contained ports of the mcp repo-agent's Google Sheets tools
+(`mcp/src/repo/toolsGoogleSheets.ts` — untouched; it stays the production
+repo-agent implementation) as seeded vein steps — same Sheets/Drive REST
+endpoints, same schemas, same LLM-facing descriptions — so workflows (and
+agent steps) can create spreadsheets and read/write cell values and live
+formulas.
+
+- **Steps:** `sheets/create-spreadsheet`, `sheets/update-values`,
+  `sheets/batch-update-values`, `sheets/get-values`, `sheets/add-sheet`,
+  `sheets/import-spreadsheet` (best-effort per-sheet import of an .xlsx or
+  native Sheet into a destination spreadsheet, with auto-conversion,
+  collision-suffixed tab names, and cross-sheet-formula warnings).
+- **Config resolution:** `cfg.serviceAccount` (explicit step config — parsed
+  JSON, JSON string, or base64 JSON) wins, else the
+  `GOOGLE_SERVICE_ACCOUNT_JSON` secret (secret store → env fallback); same
+  for `cfg.driveFolderId` / `GOOGLE_DRIVE_FOLDER_ID` (spreadsheets are
+  created inside that folder — share it with the service account's
+  client_email so humans can see agent-created sheets). Auth is a plain
+  service-account JWT flow: an RS256 assertion built with `node:crypto` (no
+  jsonwebtoken/axios deps), exchanged at the SA's `token_uri` for a bearer
+  token (scopes `spreadsheets` + `drive`), cached per step module with 60s
+  expiry slack. Everything goes through `ctx.services.http` +
+  `ctx.services.secrets`, so runs are cassette-recordable and credentials
+  are scrubbed from fixtures. Steps are ALWAYS seeded; without
+  `GOOGLE_SERVICE_ACCOUNT_JSON` they fail loudly per run rather than
+  silently missing. API errors come back as teaching strings (e.g. a 403 on
+  create names the folder and client_email to share it with), never throws
+  at the LLM.
+- **Granting to agents:** `agentTools: ["sheets/*"]` (glob, vein-core
+  `expandAgentTools`) for everything, or an explicit subset — e.g. a
+  read-only child gets just `sheets/get-values`.
+- **Self-contained duplication is deliberate:** each step file inlines its
+  `sheetsCtx` auth/request preamble (seeded steps may only value-import
+  `"vein"` + node builtins); the contract is documented once in
+  `sheets/steps/_shared.ts` — change it there AND in every step.
+- **Smoke:** `npx tsx src/lab/sheets/smoke.ts` — offline; seeds into a temp
+  workspace, verifies registry discovery, then runs every step against a
+  fake `ctx.services.http` Google (real RSA keypair so the JWT signature is
+  verified; covers token caching, bearer headers, round-trip shapes, the
+  loud missing-credentials error, and a teaching-error case). No live
+  Google call has been made yet — end-to-end verification with a real
+  service account is pending.
+
+### `harvey/` — Harvey LAB verification (the hardcoded grader)
+
+Runs the **actual** Harvey LAB legal-benchmark eval (the
+`/Users/…/harvey-labs` checkout's `uv run python -m evaluation.run_eval`) as
+a subprocess. Nothing is ported and nothing is editable: the grader lives in
+the in-code `harvey` **service** (`harvey/service.ts`, on the `LabServices`
+bag), NOT in a seeded step — the workflow-authoring agent must never be able
+to edit its own grader. The two seeded `harvey/*` steps are thin plumbing
+over `ctx.services.harvey.*`; editing them can only break plumbing.
+
+- **Integrity invariant** (enforced per grade, not per boot): the checkout
+  must be a CLEAN git tree, and when `HARVEY_LABS_REV` is set, HEAD must
+  match it — otherwise `evaluate` refuses. Untracked `results/` entries (our
+  own staged runs) are tolerated. Every result carries `benchmarkRev` (the
+  exact SHA) so scores are attributable to a benchmark version.
+- `harvey/get-task` — a task's title/instructions/deliverable names + input
+  documents listing, with the grading rubric (`criteria`) **stripped in the
+  service** — a producing agent must never see how it will be graded. Safe to
+  grant to producers.
+- `harvey/evaluate` — stages this run's artifact deliverables (subdir `from`,
+  default `output`, of `ctx.services.artifacts.dir(ctx.runId)`) into the
+  checkout's `results/vein-<runId>/output/`, runs the real eval (single judge
+  or `dual`), and returns the harness's own `scores.json` (all-pass scoring,
+  `criteria_results`, …) + `benchmarkRev` + `reportPath` (the harness's
+  `report.html`, kept in the checkout's `results/` as the run's record).
+  **GUARDRAIL: grant only to harness workflows — NEVER to the producing
+  agent's `agentTools`** (an agent that can query its own grader mid-task
+  trains against the rubric).
+- **Config (env):** `HARVEY_LABS_DIR` (checkout path; loud per-run error when
+  unset — same posture as jarvis), optional `HARVEY_LABS_REV` pin. The eval
+  subprocess inherits mcp's env (`ANTHROPIC_API_KEY`; plus `OPENAI_API_KEY`
+  for `dual`) and needs `uv` + `git` on PATH (+ pandoc per harvey-labs docs).
+- **Smoke:** `npx tsx src/lab/harvey/smoke.ts` — offline (real throwaway git
+  repo as a fake checkout, fake `uv` exec): integrity enforcement (dirty
+  tree / rev pin / missing dir), rubric stripping, artifact staging, CLI
+  args, step wiring.
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See

@@ -389,6 +389,46 @@ function toolNameFor(stepType: string): string {
   return stepType.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
+/** Compile a glob pattern (`*` = any run of characters) to an anchored RegExp. */
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (c) =>
+    c === "*" ? ".*" : `\\${c}`,
+  );
+  return new RegExp(`^${escaped}$`);
+}
+
+/**
+ * Expand `agentTools` entries against the registry: a name containing `*` is a
+ * glob over registry step types (e.g. `"jarvis/*"` → every jarvis step), so a
+ * whole namespace can be granted in one entry and new steps in it are picked
+ * up automatically. Plain names pass through untouched (unknown ones still
+ * warn in the tool-build loop). Duplicates collapse (first occurrence wins);
+ * glob matches are sorted for a stable tool order.
+ */
+export function expandAgentTools(names: string[], registry: StepRegistry): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    let matches: string[];
+    if (name.includes("*")) {
+      const re = globToRegExp(name);
+      matches = Object.keys(registry).filter((t) => re.test(t)).sort();
+      if (matches.length === 0) {
+        console.warn(`[agent] agentTools: pattern "${name}" matched no step types`);
+      }
+    } else {
+      matches = [name];
+    }
+    for (const m of matches) {
+      if (!seen.has(m)) {
+        seen.add(m);
+        out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
 /** Truncate a tool's I/O for the run-event log (the full thing lives in the
  *  model transcript; the event log only needs a readable preview). */
 function summarizeForEvent(v: unknown): string {
@@ -417,7 +457,7 @@ export function buildRegistryTools(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!names?.length || !registry) return out;
-  for (const stepType of names) {
+  for (const stepType of expandAgentTools(names, registry)) {
     const def = registry[stepType];
     if (!def) {
       console.warn(`[agent] agentTools: unknown step type "${stepType}" — skipping`);
@@ -426,7 +466,7 @@ export function buildRegistryTools(
     out[toolNameFor(stepType)] = toolFactory({
       description: def.description ?? `Run the "${stepType}" step.`,
       inputSchema: def.input,
-      execute: async (input: unknown) => {
+      execute: async (input: unknown, options?: { veinToolPath?: string }) => {
         let parsed: unknown;
         try {
           parsed = def.input.parse(input ?? {});
@@ -434,9 +474,16 @@ export function buildRegistryTools(
           return `Error: invalid input for "${stepType}": ${(e as Error).message}`;
         }
         // Run the step with the agent's ctx (leaf tool-steps reach
-        // ctx.services etc.). The nesting/emit is added by wrapToolsWithEmit.
-        const childCtx: StepContext = ctx ??
+        // ctx.services etc.). The nesting/emit is added by wrapToolsWithEmit,
+        // which also threads this call's event path in via `veinToolPath` —
+        // adopting it as the child ctx path makes any events the step itself
+        // emits (e.g. a nested `agent` step's own tool calls) nest UNDER this
+        // call's span instead of appearing as flat siblings of it.
+        const base: StepContext = ctx ??
           ({ runId: "", path: "", scope: {}, input: undefined, emit: (async () => {}) as any, services: undefined });
+        const childCtx: StepContext = options?.veinToolPath
+          ? { ...base, path: options.veinToolPath }
+          : base;
         return def.run(parsed, childCtx);
       },
     });
@@ -472,7 +519,13 @@ export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext |
       const startedAt = Date.now();
       await emit({ type: "step.start", path, stepType: `tool:${name}`, input });
       try {
-        const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, opts);
+        // Thread this call's event path to the tool (registry tools adopt it
+        // as their child ctx path, so nested emits land under this span).
+        const optsWithPath =
+          typeof opts === "object" && opts !== null
+            ? { ...(opts as Record<string, unknown>), veinToolPath: path }
+            : { veinToolPath: path };
+        const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, optsWithPath);
         await emit({
           type: "step.end",
           path,
@@ -513,7 +566,7 @@ export default defineStep({
       .array(z.string())
       .default([])
       .describe(
-        "registry step TYPES to expose as additional LLM tools (the 'tools are steps' model, e.g. ['gitsee/read-logs']). Each step's input schema becomes the tool schema and its run() is the executor, called with a nested ctx so every tool call emits a step.start/step.end run event (visible in the events panel). Merged ON TOP of the built-ins (not subject to toolFilter). Unknown types are skipped. Requires the runner-populated ctx.registry.",
+        "registry step TYPES to expose as additional LLM tools (the 'tools are steps' model, e.g. ['gitsee/read-logs']). Entries may be glob patterns over step types ('jarvis/*' grants the whole namespace; new steps in it are picked up automatically). Each step's input schema becomes the tool schema and its run() is the executor, called with a nested ctx so every tool call emits a step.start/step.end run event (visible in the events panel). Merged ON TOP of the built-ins (not subject to toolFilter). Unknown types are skipped. Requires the runner-populated ctx.registry.",
       ),
     model: z.string().optional(),
     provider: z.string().optional(),
@@ -527,7 +580,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, generateText } = await import("ai");
+    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, streamText } = await import("ai");
 
     const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
     const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
@@ -707,9 +760,26 @@ export default defineStep({
 
     const preamble = buildPreamble(cfg.cwd);
     const startTime = Date.now();
-    const res = await agent.generate({
+    // STREAM, don't generate: a long drafting turn (multi-minute, many
+    // thousands of output tokens) produces zero bytes on a non-streaming
+    // connection until it completes, and intermediaries sever it as idle —
+    // seen live as "other side closed" at ~3min, killing whole runs.
+    // Streaming keeps bytes flowing; we drain the stream and then await the
+    // aggregate fields, which have the same shapes generate() returned.
+    const streamRes = await agent.stream({
       prompt: preamble ? `${preamble}\n\n${cfg.prompt}` : cfg.prompt,
     });
+    let streamError: unknown;
+    await streamRes.consumeStream({ onError: (e: unknown) => { streamError = e; } });
+    if (streamError) throw streamError;
+    const res = {
+      steps: await streamRes.steps,
+      response: await streamRes.response,
+      totalUsage: await streamRes.totalUsage,
+      usage: undefined as unknown,
+      text: await streamRes.text,
+      output: useSchema ? await (streamRes as any).output : undefined,
+    };
 
     const steps = res.steps ?? [];
     // The full session is HUGE and the runner persists every step's output, so we
@@ -758,7 +828,9 @@ export default defineStep({
       if (!final) {
         console.warn("[agent] No final_answer tool call; forcing a final-answer turn.");
         try {
-          const forced = await generateText({
+          // Streamed for the same severed-connection reason as the main loop —
+          // this single turn emits the ENTIRE final answer.
+          const forced = streamText({
             model,
             ...(providerOptions ? { providerOptions } : {}),
             messages: [
@@ -769,10 +841,13 @@ export default defineStep({
               },
             ],
           });
-          const ft = (forced.text ?? "").trim();
+          let forcedError: unknown;
+          await forced.consumeStream({ onError: (e: unknown) => { forcedError = e; } });
+          if (forcedError) throw forcedError;
+          const ft = ((await forced.text) ?? "").trim();
           if (ft) {
             final = ft;
-            const fu = usageFromResult(forced.totalUsage ?? forced.usage);
+            const fu = usageFromResult(await forced.totalUsage);
             usage = addUsage(usage, fu);
             cost += computeCost(provider, fu);
           }

@@ -173,8 +173,15 @@ export async function streamRun(
   name: string,
   runId: string,
   onEvent?: (event: RunEvent) => void,
+  signal?: AbortSignal,
 ): Promise<any> {
-  const res = await fetch(`${BASE}/workflows/${name}/runs/${runId}/stream`);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/workflows/${name}/runs/${runId}/stream`, { signal });
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") return null;
+    throw e;
+  }
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
 
@@ -183,7 +190,14 @@ export async function streamRun(
   let result: any = null;
 
   while (true) {
-    const { done, value } = await reader.read();
+    let done: boolean, value: Uint8Array | undefined;
+    try {
+      ({ done, value } = await reader.read());
+    } catch (e) {
+      // Aborted mid-read (caller navigated away): return quietly.
+      if ((e as Error)?.name === "AbortError") return null;
+      throw e;
+    }
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
