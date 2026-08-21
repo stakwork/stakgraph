@@ -2,6 +2,7 @@ import { test, expect } from "../../testkit.js";
 import {
   buildOntologyPayload,
   collapseConnectionCounts,
+  sumConnectionCounts,
   validateTripletSide,
   extractNodeRefId,
   extractEdgeRefId,
@@ -502,6 +503,236 @@ test.describe("collapseConnectionCounts", () => {
       { edge_type: "HAS", target_type: "Tag", count: undefined as any },
     ]);
     expect(edges).toEqual({ HAS: 2 });
+  });
+});
+
+// ── sumConnectionCounts ──────────────────────────────────────────────────────
+
+const EXCLUDED = ["Hint", "Memory", "Clip", "Turn"];
+
+test.describe("sumConnectionCounts", () => {
+  const baseCounts = [
+    { edge_type: "CITES", target_type: "Episode", count: 5 },
+    { edge_type: "CITES", target_type: "File", count: 3 },
+    { edge_type: "MODIFIES", target_type: "Function", count: 7 },
+    { edge_type: "TAGGED", target_type: "Tag", count: 2 },
+    // excluded node types — must never be counted
+    { edge_type: "HAS_HINT", target_type: "Hint", count: 99 },
+    { edge_type: "HAS_MEMORY", target_type: "Memory", count: 99 },
+    { edge_type: "HAS_CLIP", target_type: "Clip", count: 99 },
+    { edge_type: "HAS_TURN", target_type: "Turn", count: 99 },
+  ];
+
+  test("no-filter: sums all rows excluding EXCLUDED_NODE_TYPES", () => {
+    const total = sumConnectionCounts(baseCounts);
+    // 5 + 3 + 7 + 2 = 17 (excluded rows not counted)
+    expect(total).toBe(17);
+  });
+
+  test("edge_type-only filter: keeps only matching edge_type rows", () => {
+    const total = sumConnectionCounts(baseCounts, ["CITES"]);
+    // 5 (Episode) + 3 (File) = 8
+    expect(total).toBe(8);
+  });
+
+  test("edge_type-only filter: multiple edge types via array membership", () => {
+    const total = sumConnectionCounts(baseCounts, ["CITES", "MODIFIES"]);
+    // 5 + 3 + 7 = 15
+    expect(total).toBe(15);
+  });
+
+  test("node_type-only filter: keeps only rows whose target_type matches", () => {
+    const total = sumConnectionCounts(baseCounts, [], ["Episode"]);
+    // only CITES→Episode = 5
+    expect(total).toBe(5);
+  });
+
+  test("combined filter: edge_type and node_type both applied", () => {
+    const total = sumConnectionCounts(baseCounts, ["CITES"], ["File"]);
+    // CITES→File = 3
+    expect(total).toBe(3);
+  });
+
+  test("combined filter with mismatched edge+node type returns 0", () => {
+    const total = sumConnectionCounts(baseCounts, ["MODIFIES"], ["Episode"]);
+    // MODIFIES→Episode doesn't exist
+    expect(total).toBe(0);
+  });
+
+  test("excluded node types are always skipped even with no other filters", () => {
+    const onlyExcluded = [
+      { edge_type: "HAS_HINT", target_type: "Hint", count: 10 },
+      { edge_type: "HAS_CLIP", target_type: "Clip", count: 20 },
+    ];
+    expect(sumConnectionCounts(onlyExcluded)).toBe(0);
+  });
+
+  test("excluded node types are skipped even when their edge_type matches the filter", () => {
+    const counts = [
+      { edge_type: "HAS_HINT", target_type: "Hint", count: 50 },
+      { edge_type: "HAS_HINT", target_type: "Episode", count: 4 },
+    ];
+    const total = sumConnectionCounts(counts, ["HAS_HINT"]);
+    // Hint row excluded; Episode row kept
+    expect(total).toBe(4);
+  });
+
+  test("rows without edge_type are skipped", () => {
+    const counts = [
+      { edge_type: "", target_type: "File", count: 9 } as any,
+      { target_type: "File", count: 9 } as any,
+      { edge_type: "CITES", target_type: "File", count: 3 },
+    ];
+    expect(sumConnectionCounts(counts)).toBe(3);
+  });
+
+  test("returns 0 for empty input", () => {
+    expect(sumConnectionCounts([])).toBe(0);
+    expect(sumConnectionCounts(undefined as any)).toBe(0);
+  });
+
+  test("parallel-edge inflation: total_edges can exceed deduped neighbor count", () => {
+    // Simulate a hub node that has 3 parallel CITES edges to the same target.
+    // /connection-counts reports the raw edge count (3); the dedup loop would
+    // produce only 1 neighbor. This confirms sumConnectionCounts is advisory.
+    const counts = [
+      { edge_type: "CITES", target_type: "Episode", count: 3 },
+    ];
+    const total = sumConnectionCounts(counts);
+    // 3 raw edges > 1 deduped neighbor — caller must not treat total as exact.
+    expect(total).toBe(3);
+  });
+
+  test("node_type filter: rows with missing target_type are excluded when node_type filter is active", () => {
+    const counts = [
+      { edge_type: "CITES", count: 5 }, // no target_type
+      { edge_type: "CITES", target_type: "Episode", count: 2 },
+    ];
+    // With node_type filter, rows missing target_type can't match → skipped
+    expect(sumConnectionCounts(counts, [], ["Episode"])).toBe(2);
+  });
+});
+
+// ── graph_neighbors execute guards ───────────────────────────────────────────
+// These tests exercise the two correctness guards introduced by the return
+// envelope change, without spinning up a real Jarvis server. We simulate the
+// execute logic using the same boundary conditions that would occur at runtime.
+
+const KG_NEIGHBOR_CAP = 50;
+
+/**
+ * Simulate the dedup + rawEdgeCount logic extracted from graph_neighbors.execute.
+ * Returns { returned, truncated, total_edges } so we can assert envelope shape.
+ *
+ * `ccCount` is the value that a /connection-counts fetch would return, or null
+ * to simulate a fetch failure.
+ */
+function simulateNeighborsExecute(
+  rawEdges: Array<{ source: string; target: string; edge_type: string }>,
+  ref_id: string,
+  ccCount: number | null,
+): { returned: number; truncated: boolean; total_edges: number | null } {
+  const rawEdgeCount = rawEdges.length;
+  const neighbors: any[] = [];
+  const seen = new Set<string>();
+  for (const edge of rawEdges) {
+    const direction = edge.source === ref_id ? "forward" : "reverse";
+    const neighborRefId = direction === "forward" ? edge.target : edge.source;
+    if (neighborRefId === ref_id) continue;
+    if (seen.has(neighborRefId)) continue;
+    seen.add(neighborRefId);
+    neighbors.push({ ref_id: neighborRefId, edge_type: edge.edge_type, direction });
+    if (neighbors.length >= KG_NEIGHBOR_CAP) break;
+  }
+
+  const truncated = rawEdgeCount >= KG_NEIGHBOR_CAP;
+
+  // Consistency guard: discard total_edges if smaller than returned.
+  let total_edges: number | null = ccCount;
+  if (total_edges !== null && total_edges < neighbors.length) {
+    total_edges = null;
+  }
+
+  return { returned: neighbors.length, truncated, total_edges };
+}
+
+test.describe("graph_neighbors execute guards", () => {
+  test("truncated: true when raw edge count >= cap even if deduped neighbors < cap (parallel edges)", () => {
+    // Build exactly KG_NEIGHBOR_CAP raw edges where many share the same target —
+    // parallel edges so deduped neighbor count is well below the cap.
+    const rawEdges: Array<{ source: string; target: string; edge_type: string }> = [];
+    // 10 unique targets, each reachable via 5 parallel edges = 50 raw edges total.
+    for (let i = 0; i < 10; i++) {
+      for (let j = 0; j < 5; j++) {
+        rawEdges.push({ source: "hub", target: `node-${i}`, edge_type: "CITES" });
+      }
+    }
+    // rawEdges.length === 50 === KG_NEIGHBOR_CAP
+    expect(rawEdges.length).toBe(KG_NEIGHBOR_CAP);
+
+    const result = simulateNeighborsExecute(rawEdges, "hub", 50);
+
+    // Deduped neighbors = 10, well below cap — the OLD check (neighbors.length >= cap)
+    // would have produced truncated: false (false negative). The fix gives true.
+    expect(result.returned).toBe(10);
+    expect(result.truncated).toBe(true); // key correctness assertion
+  });
+
+  test("truncated: false when raw edge count < cap", () => {
+    const rawEdges = [
+      { source: "hub", target: "node-1", edge_type: "CITES" },
+      { source: "hub", target: "node-2", edge_type: "CITES" },
+    ];
+    const result = simulateNeighborsExecute(rawEdges, "hub", 2);
+    expect(result.returned).toBe(2);
+    expect(result.truncated).toBe(false);
+  });
+
+  test("total_edges: null when consistency guard fires (computed total < neighbors.length)", () => {
+    // Simulate namespace-scoping mismatch: /connection-counts returns fewer
+    // edges than the number of neighbors we already have (impossible in reality
+    // but provably unreliable — must be discarded).
+    const rawEdges = Array.from({ length: 5 }, (_, i) => ({
+      source: "hub",
+      target: `node-${i}`,
+      edge_type: "CITES",
+    }));
+    // ccCount (1) < neighbors.length (5) → guard fires
+    const result = simulateNeighborsExecute(rawEdges, "hub", 1);
+    expect(result.returned).toBe(5);
+    expect(result.total_edges).toBeNull();
+  });
+
+  test("total_edges: null when connection-counts fetch fails", () => {
+    const rawEdges = [
+      { source: "hub", target: "node-1", edge_type: "CITES" },
+    ];
+    // null simulates a fetch error
+    const result = simulateNeighborsExecute(rawEdges, "hub", null);
+    expect(result.total_edges).toBeNull();
+  });
+
+  test("total_edges: returned as-is when >= neighbors.length", () => {
+    const rawEdges = Array.from({ length: 3 }, (_, i) => ({
+      source: "hub",
+      target: `node-${i}`,
+      edge_type: "CITES",
+    }));
+    // ccCount (10) >= neighbors.length (3) → guard does not fire
+    const result = simulateNeighborsExecute(rawEdges, "hub", 10);
+    expect(result.returned).toBe(3);
+    expect(result.total_edges).toBe(10);
+  });
+
+  test("total_edges: equal to neighbors.length is accepted (not discarded)", () => {
+    const rawEdges = Array.from({ length: 3 }, (_, i) => ({
+      source: "hub",
+      target: `node-${i}`,
+      edge_type: "CITES",
+    }));
+    // ccCount === neighbors.length: guard condition is strict <, so this passes.
+    const result = simulateNeighborsExecute(rawEdges, "hub", 3);
+    expect(result.total_edges).toBe(3);
   });
 });
 

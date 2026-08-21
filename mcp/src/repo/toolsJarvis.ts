@@ -242,6 +242,43 @@ export function collapseConnectionCounts(
 }
 
 /**
+ * Sum raw `/connection-counts` rows into a best-effort total edge count,
+ * respecting the same filters `graph_neighbors` applies during traversal.
+ *
+ * Filters are applied on the **raw** rows (not the collapsed map) because
+ * `node_type` maps to `target_type`, which `collapseConnectionCounts` discards.
+ *
+ * EXCLUDED_NODE_TYPES rows are always skipped so the sum aligns with the
+ * types the traversal can actually return (the traversal passes
+ * `exclude_node_type` server-side, but `/connection-counts` does not).
+ *
+ * Known imprecision: `/connection-counts` derives `target_type` via a
+ * canonicalising resolver, whereas `graph_neighbors` forwards `node_type` raw
+ * with `canonicalize=false`, so a `node_type`-filtered sum can under-match.
+ * Treat the result as advisory, never an exact reachable-neighbour count.
+ */
+export function sumConnectionCounts(
+  counts: Array<{ edge_type?: string; target_type?: string; count?: number }>,
+  edge_type?: string[],
+  node_type?: string[],
+): number {
+  let total = 0;
+  for (const c of counts ?? []) {
+    if (!c?.edge_type) continue;
+    // Skip internal / low-signal node types excluded by the traversal.
+    if (c.target_type && EXCLUDED_NODE_TYPES.includes(c.target_type)) continue;
+    // Apply edge_type filter (array membership).
+    if (edge_type && edge_type.length > 0 && !edge_type.includes(c.edge_type)) continue;
+    // Apply node_type filter against target_type (array membership).
+    if (node_type && node_type.length > 0) {
+      if (!c.target_type || !node_type.includes(c.target_type)) continue;
+    }
+    total += Number(c.count ?? 0);
+  }
+  return total;
+}
+
+/**
  * Jarvis nodes keep their human label under wildly different keys depending on
  * node type. Try a generous ordered list of candidates — short identifier-like
  * fields first, long descriptive fields as a truncated last resort. Returns ""
@@ -2563,7 +2600,17 @@ export function registerJarvisTools(
       "Each neighbor also includes an `edges` map ({EDGE_TYPE: count}) showing how " +
       "connected that neighbor is and which relationship types you can hop along next. " +
       "Optionally filter by edge_type and/or node_type. " +
-      "Use this to traverse relationships between people, topics, episodes, code, etc.",
+      "Use this to traverse relationships between people, topics, episodes, code, etc. " +
+      "Returns an envelope: { returned, truncated, total_edges, neighbors }. " +
+      "`truncated: true` means there are more neighbors than shown — narrow with " +
+      "edge_type/node_type filters (paging via skip coming later); at exactly the cap " +
+      "it may report true with no further page. " +
+      "`total_edges` is a best-effort edge count from the connection-counts endpoint: " +
+      "it may exceed `returned` (parallel edges collapse to one neighbor entry), or " +
+      "diverge from `returned` due to namespace scoping, excluded node types, and " +
+      "type-canonicalisation differences between the traversal and the counts endpoint. " +
+      "It is advisory — not an exact reachable-neighbour count — and is `null` when " +
+      "the fetch fails or the consistency guard rejects it (total < returned).",
     inputSchema: z.object({
       ref_id: z.string().describe("The ref_id of the node to expand."),
       edge_type: z
@@ -2641,6 +2688,14 @@ export function registerJarvisTools(
           }
         }
 
+        // Capture the raw edge count BEFORE dedup so we can detect truncation
+        // accurately. The server applies LIMIT to *edges*, then the loop below
+        // dedups parallel edges into `neighbors` via the `seen` set. Deriving
+        // `truncated` from `neighbors.length` would yield a false negative
+        // whenever parallel edges/self-loops shrink the deduped list below the
+        // cap on a page that was in fact truncated.
+        const rawEdgeCount = (data.edges ?? []).length;
+
         const neighbors: any[] = [];
         const seen = new Set<string>();
         for (const edge of data.edges ?? []) {
@@ -2668,7 +2723,39 @@ export function registerJarvisTools(
           if (neighbors.length >= KG_NEIGHBOR_CAP) break;
         }
 
-        return JSON.stringify(neighbors);
+        // Boundary is intentionally biased toward over-reporting: exactly
+        // KG_NEIGHBOR_CAP edges reports truncated: true (safe false positive).
+        // Disambiguating the exact boundary would require fetching cap+1.
+        const truncated = rawEdgeCount >= KG_NEIGHBOR_CAP;
+
+        // Best-effort total edge count from /connection-counts, mirroring the
+        // same namespace scoping as the traversal. Two Jarvis round-trips per
+        // call (same cost already accepted by graph_get_batched). Wrapped in
+        // try/catch so it never blocks or fails the primary neighbour result.
+        // Consistency guard: /connection-counts is namespace-scoped while the
+        // traversal is not, so total_edges can be smaller than returned — that
+        // is provably unreliable and must not be surfaced.
+        let total_edges: number | null = null;
+        try {
+          const ccParams = new URLSearchParams();
+          appendNamespace(ccParams, namespace);
+          const ccQuery = ccParams.toString();
+          const ccUrl =
+            `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts` +
+            (ccQuery ? `?${ccQuery}` : "");
+          const ccResp = await jarvisFetch(ccUrl, jarvisHeaders);
+          if (ccResp.ok) {
+            const ccData = (await ccResp.json()) as any;
+            const computed = sumConnectionCounts(ccData?.counts ?? [], edge_type, node_type);
+            // Guard: a total less than what we already returned is provably
+            // unreliable (namespace scoping mismatch) — discard it.
+            total_edges = computed >= neighbors.length ? computed : null;
+          }
+        } catch {
+          // ignore — total_edges stays null
+        }
+
+        return JSON.stringify({ returned: neighbors.length, truncated, total_edges, neighbors });
       } catch (err: any) {
         return `graph_neighbors failed: ${err?.message ?? String(err)}`;
       }
