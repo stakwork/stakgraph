@@ -34,7 +34,11 @@ steps:
       retry: { max: 1, delayMs: 15000 }
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.system }}"
+      # System prompt = the base persona/method + an OPTIONAL graph-guidance
+      # section (empty by default). Splitting them means the concepts arm of an
+      # A/B overrides ONLY graphGuidance (+ agentTools) — the base method stays
+      # byte-identical across arms.
+      system: "{{ params.system }}{{ params.graphGuidance }}"
       prompt: |
         {{ task.instructions }}
 
@@ -85,6 +89,37 @@ params:
   # Producing agent's extra tool grants (see the produce step). Empty =
   # closed-book baseline.
   agentTools: []
+  # Appended to the system prompt when knowledge-graph access is granted.
+  # Default: empty (closed-book baseline). Pair with the read-only jarvis
+  # grants in agentTools. Learned from the first prod-tree A/B: enter via the
+  # Practice Area roots and SCAN EVERY ROOT'S CHILDREN — root names are opaque
+  # (the relevant checklist may live under a generic-sounding root) and
+  # semantic search on the tree is weak.
+  graphGuidance: ""
+  # The CANONICAL graph-guidance text for the concepts arm — versioned here so
+  # the experiment surface is visible/diffable in the UI, never buried in a
+  # launch script. To run the concepts arm: read this value and pass it as the
+  # per-run `graphGuidance` override (plus the agentTools read grants). It is
+  # deliberately NOT active by default.
+  graphGuidanceConcepts: |
+
+    Knowledge graph (consult BEFORE drafting):
+    A Concept knowledge graph holds legal review METHODOLOGY, organized under
+    "Practice Area" root concepts with PARENT_OF children from general to very
+    specific. Semantic search is unreliable on this graph — enter via the
+    roots:
+    1. jarvis_graph_search q="Practice Area" type=Concept — list ALL roots.
+    2. jarvis_graph_neighbors on EVERY root, ALWAYS with node_type=["Concept"]
+       (other node types are session noise). Root NAMES are opaque — scan the
+       full children list of each root before deciding what is relevant; the
+       best checklist may hang under a generic-sounding root.
+    3. jarvis_graph_get_batched the relevant ref_ids and READ their
+       documentation.
+    Use what you load as a CHECKLIST: cross-checks to run (e.g. reconcile
+    every pair of related figures), doctrines to apply, and terms whose
+    ABSENCE to flag. Facts still come ONLY from the task documents — the
+    graph guides HOW you review, never WHAT the documents say. Spend at most
+    ~12 tool calls on the graph phase, then draft.
   # 59-criterion tasks with parallel judges can take a while.
   evalTimeoutMs: 2400000
   system: |
