@@ -70,6 +70,11 @@ params:
     Work ONLY from the documents provided in the task — do not invent facts,
     parties, dates, or terms, and do not use outside sources.
 
+    Your WORKING DIRECTORY is where ALL your writes go — always use relative
+    paths (./draft.md, ./output/<name>.docx). The task documents directory is
+    READ-ONLY and OUTSIDE your working directory: read from its absolute path,
+    but NEVER write there — writes outside the working directory are rejected.
+
     Method:
     1. Read EVERY input document fully before drafting (convert .docx with
        `pandoc <file> -t markdown`; .eml files are plain text). The client's
