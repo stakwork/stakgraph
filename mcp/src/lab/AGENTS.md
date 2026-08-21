@@ -331,6 +331,43 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
   workspace, verifies registry discovery, and runs every step against a fake
   `ctx.services.http` Jarvis.
 
+### `harvey/` — Harvey LAB verification (the hardcoded grader)
+
+Runs the **actual** Harvey LAB legal-benchmark eval (the
+`/Users/…/harvey-labs` checkout's `uv run python -m evaluation.run_eval`) as
+a subprocess. Nothing is ported and nothing is editable: the grader lives in
+the in-code `harvey` **service** (`harvey/service.ts`, on the `LabServices`
+bag), NOT in a seeded step — the workflow-authoring agent must never be able
+to edit its own grader. The two seeded `harvey/*` steps are thin plumbing
+over `ctx.services.harvey.*`; editing them can only break plumbing.
+
+- **Integrity invariant** (enforced per grade, not per boot): the checkout
+  must be a CLEAN git tree, and when `HARVEY_LABS_REV` is set, HEAD must
+  match it — otherwise `evaluate` refuses. Untracked `results/` entries (our
+  own staged runs) are tolerated. Every result carries `benchmarkRev` (the
+  exact SHA) so scores are attributable to a benchmark version.
+- `harvey/get-task` — a task's title/instructions/deliverable names + input
+  documents listing, with the grading rubric (`criteria`) **stripped in the
+  service** — a producing agent must never see how it will be graded. Safe to
+  grant to producers.
+- `harvey/evaluate` — stages this run's artifact deliverables (subdir `from`,
+  default `output`, of `ctx.services.artifacts.dir(ctx.runId)`) into the
+  checkout's `results/vein-<runId>/output/`, runs the real eval (single judge
+  or `dual`), and returns the harness's own `scores.json` (all-pass scoring,
+  `criteria_results`, …) + `benchmarkRev` + `reportPath` (the harness's
+  `report.html`, kept in the checkout's `results/` as the run's record).
+  **GUARDRAIL: grant only to harness workflows — NEVER to the producing
+  agent's `agentTools`** (an agent that can query its own grader mid-task
+  trains against the rubric).
+- **Config (env):** `HARVEY_LABS_DIR` (checkout path; loud per-run error when
+  unset — same posture as jarvis), optional `HARVEY_LABS_REV` pin. The eval
+  subprocess inherits mcp's env (`ANTHROPIC_API_KEY`; plus `OPENAI_API_KEY`
+  for `dual`) and needs `uv` + `git` on PATH (+ pandoc per harvey-labs docs).
+- **Smoke:** `npx tsx src/lab/harvey/smoke.ts` — offline (real throwaway git
+  repo as a fake checkout, fake `uv` exec): integrity enforcement (dirty
+  tree / rev pin / missing dir), rubric stripping, artifact staging, CLI
+  args, step wiring.
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See

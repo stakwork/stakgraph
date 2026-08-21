@@ -13,6 +13,8 @@ import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
+import { seedHarveySteps } from "./harvey/seed.js";
+import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 
 /**
@@ -42,6 +44,10 @@ export interface LabServices extends ConceptServices {
   /** Gitsee QA harness: per-run browser + stack session managers + vision judge,
    *  reached by the gitsee tool-steps via `ctx.services.gitsee.*`. */
   gitsee?: GitseeServices;
+  /** Harvey LAB verification: subprocess-runs the REAL legal-benchmark eval
+   *  from the pinned harvey-labs checkout (HARVEY_LABS_DIR). In-code on
+   *  purpose — the grader must stay outside the agent-editable surface. */
+  harvey?: HarveyServices;
   /** Generic per-run teardown hook called by the vein runner in a `finally`
    *  (success AND error). Disposes a run's gitsee browser + booted stack. */
   onRunEnd?(runId: string): Promise<void>;
@@ -92,6 +98,13 @@ export async function createLabVein(
     };
   }
 
+  // Harvey LAB grader — in-code, NOT seeded (see harvey/service.ts). Only
+  // added when absent, to respect a caller-provided bag. Construction is
+  // cheap; HARVEY_LABS_DIR is checked at call time (loud per-run error).
+  if (!services.harvey) {
+    services.harvey = buildHarveyServices();
+  }
+
   const workspacePath =
     opts.workspacePath ??
     process.env["VEIN_LAB_WORKSPACE"] ??
@@ -117,6 +130,9 @@ export async function createLabVein(
   // ctx.services.http with JARVIS_URL/API_TOKEN from ctx.services.secrets).
   // Grantable to agents via agentTools: ["jarvis/*"].
   await seedJarvisSteps(workspace);
+  // harvey verification steps (thin plumbing over services.harvey; grant
+  // harvey/evaluate only to harness workflows, never the producing agent).
+  await seedHarveySteps(workspace);
 
   const vein = await createVein<LabServices>({
     workspace,
