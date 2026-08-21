@@ -580,7 +580,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, generateText } = await import("ai");
+    const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, streamText } = await import("ai");
 
     const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
     const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
@@ -760,9 +760,26 @@ export default defineStep({
 
     const preamble = buildPreamble(cfg.cwd);
     const startTime = Date.now();
-    const res = await agent.generate({
+    // STREAM, don't generate: a long drafting turn (multi-minute, many
+    // thousands of output tokens) produces zero bytes on a non-streaming
+    // connection until it completes, and intermediaries sever it as idle —
+    // seen live as "other side closed" at ~3min, killing whole runs.
+    // Streaming keeps bytes flowing; we drain the stream and then await the
+    // aggregate fields, which have the same shapes generate() returned.
+    const streamRes = await agent.stream({
       prompt: preamble ? `${preamble}\n\n${cfg.prompt}` : cfg.prompt,
     });
+    let streamError: unknown;
+    await streamRes.consumeStream({ onError: (e: unknown) => { streamError = e; } });
+    if (streamError) throw streamError;
+    const res = {
+      steps: await streamRes.steps,
+      response: await streamRes.response,
+      totalUsage: await streamRes.totalUsage,
+      usage: undefined as unknown,
+      text: await streamRes.text,
+      output: useSchema ? await (streamRes as any).output : undefined,
+    };
 
     const steps = res.steps ?? [];
     // The full session is HUGE and the runner persists every step's output, so we
@@ -811,7 +828,9 @@ export default defineStep({
       if (!final) {
         console.warn("[agent] No final_answer tool call; forcing a final-answer turn.");
         try {
-          const forced = await generateText({
+          // Streamed for the same severed-connection reason as the main loop —
+          // this single turn emits the ENTIRE final answer.
+          const forced = streamText({
             model,
             ...(providerOptions ? { providerOptions } : {}),
             messages: [
@@ -822,10 +841,13 @@ export default defineStep({
               },
             ],
           });
-          const ft = (forced.text ?? "").trim();
+          let forcedError: unknown;
+          await forced.consumeStream({ onError: (e: unknown) => { forcedError = e; } });
+          if (forcedError) throw forcedError;
+          const ft = ((await forced.text) ?? "").trim();
           if (ft) {
             final = ft;
-            const fu = usageFromResult(forced.totalUsage ?? forced.usage);
+            const fu = usageFromResult(await forced.totalUsage);
             usage = addUsage(usage, fu);
             cost += computeCost(provider, fu);
           }

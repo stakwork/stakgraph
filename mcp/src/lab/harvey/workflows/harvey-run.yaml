@@ -27,8 +27,11 @@ steps:
     # A severed API connection mid-generation kills an otherwise-healthy run
     # (seen live: "other side closed" after the AI SDK's own 3 reconnects).
     # One workflow-level retry restarts the agent step fresh — worst case one
-    # duplicate read phase, vs. a dead 10-minute run.
-    retry: { max: 1, delayMs: 15000 }
+    # duplicate read phase, vs. a dead 10-minute run. NOTE: must nest under
+    # `options:` — the runner reads step.options.retry; a flat retry: key is
+    # silently ignored (learned the hard way).
+    options:
+      retry: { max: 1, delayMs: 15000 }
     config:
       cwd: "{{ dir.path }}"
       system: "{{ params.system }}"
@@ -50,7 +53,8 @@ steps:
     depends: produce
     # Same hardening: the judge pass is long (dozens of LLM calls); staging is
     # idempotent (same runId dir re-copied), so a retry is safe.
-    retry: { max: 1, delayMs: 15000 }
+    options:
+      retry: { max: 1, delayMs: 15000 }
     config:
       task: "{{ input.task }}"
       from: output
