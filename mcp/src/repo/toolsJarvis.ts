@@ -1,4 +1,4 @@
-import { tool, Tool, ToolLoopAgent, stepCountIs } from "ai";
+import { tool, Tool, ToolLoopAgent, stepCountIs, type StepResult, type ToolSet } from "ai";
 import { z } from "zod";
 import axios from "axios";
 import { randomUUID } from "crypto";
@@ -675,6 +675,23 @@ function registerGraphSubAgentTool(
       const startTime = Date.now();
       let lastStepTime = startTime;
       const stepMetas: StepMeta[] = [];
+      // Incremental capture of every finished StepResult for error-path transcript
+      // recovery. On throw, capturedSteps lets us reconstruct the transcript via
+      // extractMessagesFromSteps without waiting for agent.generate to resolve.
+      // Fidelity notes (all three are load-bearing — see the catch block):
+      //   (a) Only *completed* steps are captured; the in-flight step whose model
+      //       call throws mid-request is not represented in any StepResult, so
+      //       recovery reflects completed steps only, not the failing one.
+      //   (b) extractMessagesFromSteps reads steps[steps.length - 1].response.messages
+      //       which is cumulative within a single agent.generate call. This gives
+      //       full fidelity (verbatim tool-call inputs + reasoning). By contrast,
+      //       Turn-chain reconstruction caps every tool_result at
+      //       TOOL_RESULT_MAX_CHARS = 100 chars (turns.ts ~line 40), losing detail.
+      //   (c) Recovery is correct only because graph_sub_agent makes exactly ONE
+      //       agent.generate call per run. If continuation logic (multiple generate
+      //       calls, as in repo/agent.ts's get_context) is ever added here, the
+      //       last-step-only extraction would silently drop earlier segments.
+      const capturedSteps: StepResult<ToolSet>[] = [];
       let cumInput = 0;
       let cumOutput = 0;
       let modelId = "";
@@ -775,6 +792,9 @@ function registerGraphSubAgentTool(
               sessionId: childSessionId,
               elapsedMs,
             });
+            // Capture the full StepResult for error-path transcript recovery
+            // (see capturedSteps declaration above for fidelity tradeoffs).
+            capturedSteps.push(sf);
           },
         });
         console.log(
@@ -806,6 +826,37 @@ function registerGraphSubAgentTool(
           `full coverage of this area.]\n\n${answer}`
         );
       } catch (err: any) {
+        // Best-effort transcript recovery: persist whatever completed steps we
+        // captured before the throw, so the .jsonl is not left with only the
+        // initial user message. Wrapped in its own try/catch — a recovery
+        // failure must never mask the original error or prevent endSession.
+        // See capturedSteps declaration above for the three fidelity tradeoffs
+        // that make this safe without over-promising completeness.
+        try {
+          if (childSessionId && capturedSteps.length > 0) {
+            const recovered = extractMessagesFromSteps(
+              { role: "user", content: prompt },
+              capturedSteps,
+              // No sessionConfig/truncation arg — matches the success path at
+              // ~line 765 which also omits it, keeping recovery symmetric
+              // (full-fidelity, untruncated tool results).
+            );
+            appendMessages(childSessionId, recovered);
+            console.warn(
+              `[graph_sub_agent] recovered ${recovered.length} transcript messages for failed child ${childSessionId}`,
+            );
+          } else if (childSessionId) {
+            // Zero completed steps: nothing to reconstruct. This is the
+            // documented lower bound — the agent threw before any StepResult
+            // was emitted (e.g. model call failed before first response).
+            console.warn(
+              `[graph_sub_agent] failed child ${childSessionId} had no completed steps to recover; transcript contains only the initial user message`,
+            );
+          }
+        } catch (recoveryErr) {
+          // Recovery is best-effort: log and continue to endSession.
+          console.error("[graph_sub_agent] transcript recovery failed (non-fatal):", recoveryErr);
+        }
         await endSession("error", err?.message ?? String(err));
         return `graph_sub_agent failed: ${err?.message ?? String(err)}`;
       }

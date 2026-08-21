@@ -312,6 +312,14 @@ export async function get_context(opts: GraphAgentOptions): Promise<{
       `[graph_agent] graph_agent_run_end requestId=${prepared.requestId} sessionId=${sessionId ?? "none"} model=${modelId} duration=${duration}ms status=${aborted ? "aborted" : "error"}`,
     );
     if (sessionId) {
+      // Mirror the success path's token_usage computation so a failed run still
+      // records however many tokens were spent before the throw. Falls back to
+      // totalUsage when no step-metas were recorded (normalizeUsage tolerates
+      // undefined), matching the success path below.
+      const errorUsage =
+        stepMetas.length > 0
+          ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+          : normalizeUsage(totalUsage as any);
       await appendSessionEnd(sessionId, {
         end_time: new Date().toISOString(),
         model: modelId,
@@ -319,6 +327,7 @@ export async function get_context(opts: GraphAgentOptions): Promise<{
         duration_ms: duration,
         status: aborted ? "aborted" : "error",
         error_message: err instanceof Error ? err.message : String(err),
+        token_usage: errorUsage,
       });
     }
     throw err;
@@ -420,6 +429,14 @@ export async function stream_context(opts: GraphAgentOptions) {
         } else {
           console.error(`[graph_agent] Failed to finalize session:`, e);
         }
+        // Mirror the success path's token_usage computation: prefer step-metas
+        // (accumulated during the run) over the stream's own usage (which may
+        // itself have thrown and is therefore unavailable in this scope).
+        // normalizeUsage tolerates undefined, so the no-step-meta fallback is safe.
+        const errorUsage =
+          stepMetas.length > 0
+            ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+            : normalizeUsage(undefined);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
@@ -427,6 +444,7 @@ export async function stream_context(opts: GraphAgentOptions) {
           duration_ms: Date.now() - startTime,
           status: aborted ? "aborted" : "error",
           error_message: e instanceof Error ? e.message : String(e),
+          token_usage: errorUsage,
         }).catch(() => {});
         console.log(
           `[graph_agent] graph_agent_run_end (stream) requestId=${prepared.requestId} sessionId=${sessionId} model=${modelId} status=${aborted ? "aborted" : "error"}`,
