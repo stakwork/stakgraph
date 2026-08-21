@@ -313,13 +313,13 @@ export async function get_context(opts: GraphAgentOptions): Promise<{
     );
     if (sessionId) {
       // Mirror the success path's token_usage computation so a failed run still
-      // records however many tokens were spent before the throw. Falls back to
-      // totalUsage when no step-metas were recorded (normalizeUsage tolerates
-      // undefined), matching the success path below.
+      // records however many tokens were spent before the throw. The generate
+      // call threw, so there is no result.totalUsage here; with no step-metas
+      // recorded, fall back to empty usage (normalizeUsage tolerates undefined).
       const errorUsage =
         stepMetas.length > 0
           ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
-          : normalizeUsage(totalUsage as any);
+          : normalizeUsage(undefined);
       await appendSessionEnd(sessionId, {
         end_time: new Date().toISOString(),
         model: modelId,
