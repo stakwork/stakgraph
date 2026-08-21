@@ -7,9 +7,10 @@ import {
   computeSessionCost,
   emptyUsage,
   getProviderOptions,
-  hasApiKeyForProvider,
+  isUsableApiKey,
   normalizeApiKey,
   normalizeUsage,
+  usableModelOrDefault,
   resolveLLMConfig,
   withLegacyUsage,
 } from "../aieo/src/index.js";
@@ -70,14 +71,15 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   // would both pick the openrouter model below and shadow a working env key,
   // sending `Authorization: Bearer ` on every node (401 per node).
   const reqApiKey = normalizeApiKey(req.body.apiKey);
-  // Only default to the openrouter model when a key for it is available;
-  // otherwise leave the model unset so resolveLLMConfig picks the env
-  // default provider (with its light model).
+  // Only default to the openrouter model when a key that can actually reach
+  // openrouter is available; otherwise leave the model unset so
+  // resolveLLMConfig picks the env default provider (with its light model).
+  // An explicit `model` in the body is always honored.
   const reqModel =
     (req.body.model as string | undefined) ||
-    (reqApiKey || hasApiKeyForProvider("openrouter")
+    (isUsableApiKey("openrouter", reqApiKey)
       ? DESCRIBE_MODEL
-      : undefined);
+      : usableModelOrDefault(DESCRIBE_MODEL));
 
   if (isNaN(cost_limit) || cost_limit <= 0) {
     res
@@ -184,6 +186,10 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         cost: number;
       };
       const results: NodeResult[] = [];
+      // A rejected key fails identically for every node, so the job would
+      // otherwise churn through the whole graph and report success with 0
+      // descriptions written. Bail on the first auth failure instead.
+      let authFailure: string | undefined;
 
       await queue.addAll(
         nodes
@@ -229,11 +235,22 @@ ${content.slice(0, 2000)}`;
                 usage,
                 cost,
               });
-            } catch (e) {
+            } catch (e: any) {
+              const status = e?.statusCode ?? e?.cause?.statusCode;
+              if (status === 401 || status === 403) {
+                authFailure =
+                  authFailure ||
+                  `${llm.provider} rejected the API key (HTTP ${status}) for model ${llm.modelName || "(default)"}: ${e?.responseBody || e?.message}`;
+                queue.clear();
+              }
               console.error(`[describe_nodes] Error on node ${name}:`, e);
             }
           }),
       );
+
+      if (authFailure) {
+        throw new Error(authFailure);
+      }
 
       // Accumulate costs
       for (const r of results) {

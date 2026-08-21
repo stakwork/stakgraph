@@ -2,7 +2,11 @@ import { Request, Response } from "express";
 import { db } from "./neo4j.js";
 import { vectorizeQuery } from "../vector/index.js";
 import { generateObject, jsonSchema } from "ai";
-import { getProviderOptions, resolveLLMConfig } from "../aieo/src/provider.js";
+import {
+  getProviderOptions,
+  resolveLLMConfig,
+  usableModelOrDefault,
+} from "../aieo/src/provider.js";
 import { addUsage, normalizeUsage, withLegacyUsage } from "../aieo/src/index.js";
 
 // === Learning + Scope routes ===
@@ -91,7 +95,13 @@ export async function post_relevant_learnings(req: Request, res: Response) {
   }
 
   try {
-    const llm = resolveLLMConfig({ model: req.body.model || LEARNINGS_MODEL, apiKey: req.body.apiKey, light: true });
+    // Fall back to the env default provider when there's no usable openrouter
+    // key, rather than 401ing against the hardcoded openrouter default.
+    const llm = resolveLLMConfig({
+      model: req.body.model || usableModelOrDefault(LEARNINGS_MODEL),
+      apiKey: req.body.apiKey,
+      light: true,
+    });
     const model = llm.model;
     const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
