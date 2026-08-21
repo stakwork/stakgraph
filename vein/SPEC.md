@@ -343,7 +343,13 @@ Available bindings inside a step config:
 - Literals: numbers, strings (single or double quotes), `true`, `false`, `null`.
 - Operators: `=== !== == != < <= > >= && || !  + - * / %`.
 - Ternary: `a ? b : c`.
-- Function calls: **none** in v1.
+- Array methods (whitelist): `map`, `filter`, `find`, `join`, `includes`,
+  `slice` — with **single-param arrow lambdas** whose body is one expression
+  (`items.map(x => x.ref_id)`). No statements, no user-defined functions, no
+  other methods — every expression still terminates by construction. The
+  whitelist matches the JS idiom because workflow authors are usually LLM
+  agents; errors for anything outside it name the supported surface. Grow it
+  only when a real agent misses.
 
 Examples:
 
@@ -352,6 +358,8 @@ Examples:
 {{ poll.body.status === "complete" }}
 {{ fan.left.count + fan.right.count }}
 {{ items[0].name }}
+{{ search.map(n => n.ref_id) }}
+{{ prs.filter(p => p.merged).map(p => p.title).join(", ") }}
 ```
 
 ### 5.4 Resolution

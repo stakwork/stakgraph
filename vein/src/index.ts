@@ -99,11 +99,13 @@ export {
   computeCost,
 } from "./pricing.js";
 
-// Standard capabilities — the http + secrets services adapter steps build on.
+// Standard capabilities — the http + secrets + artifacts services adapter steps build on.
 export {
   standardServices,
   httpCapability,
   secretsCapability,
+  fileArtifactsCapability,
+  type ArtifactsCapability,
   type VeinCapabilities,
   type HttpCapability,
   type HttpRequestOptions,

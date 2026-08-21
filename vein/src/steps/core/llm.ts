@@ -6,7 +6,7 @@ const EXAMPLE = `- id: summarize
   config:
     prompt: "Summarize this: {{ fetch.body }}"
     provider: anthropic
-    model: claude-sonnet-4-20250514`;
+    model: claude-sonnet-5`;
 
 export default defineStep({
   type: "llm",
@@ -31,7 +31,7 @@ export default defineStep({
     switch (provider) {
       case "anthropic": {
         const { anthropic } = await import("@ai-sdk/anthropic");
-        aiModel = anthropic(model ?? "claude-sonnet-4-20250514");
+        aiModel = anthropic(model ?? "claude-sonnet-5");
         break;
       }
       case "openai": {

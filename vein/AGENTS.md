@@ -27,7 +27,7 @@ vein/
 ├── tsconfig.json          # strict, Node16 module, types: ["node"]
 ├── src/
 │   ├── core.ts            # flow(), step(), defineStep(), services bag, all types
-│   ├── expr.ts            # {{ }} template evaluator (~460 LOC recursive descent)
+│   ├── expr.ts            # {{ }} template evaluator (recursive descent; whitelisted array methods + arrow lambdas)
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore + tailJsonl (shared append-only tail engine)
 │   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
@@ -109,7 +109,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_SECRET_KEY`   | (unset)        | Encryption key for the secret store (AES-256-GCM). Unset → a default dev key + one-time warning (obfuscated, not secure). See "Secrets". |
 | `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
-| `VEIN_CHAT_MODEL`   | `claude-sonnet-4-20250514` | Anthropic model for the AI-builder chat agent |
+| `VEIN_CHAT_MODEL`   | `claude-sonnet-5` | Anthropic model for the AI-builder chat agent |
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 
 ## Auth
@@ -200,6 +200,28 @@ const token = cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
 - `github/fetch-pr` (`GITHUB_TOKEN`) and `gdrive/export-file`
   (`GOOGLE_ACCESS_TOKEN` or `GOOGLE_SERVICE_ACCOUNT_JSON`) are the reference
   examples.
+
+## Artifacts (per-run files)
+
+`ctx.services.artifacts` (`ArtifactsCapability`, `capabilities.ts`) is per-run
+file storage for the files a run produces that later steps — and humans —
+reference. Backed by `fileArtifactsCapability` rooted at
+`<workspace>/artifacts/<runId>/`, auto-injected by `createVein` (a consumer
+services bag can override it, same as `http`/`secrets`).
+
+- **Convention:** a step writes a file (`write(ctx.runId, relPath, content)`)
+  and puts the RELATIVE path in its output; downstream steps resolve it via
+  `read`/`dir`. Point an `agent` step's `cwd` at `dir(ctx.runId)` and the
+  built-in file tools (`str_replace_based_edit_tool`, `bash`) see the same
+  files — that's how agents in a workflow hand files to each other.
+- **Isolation:** paths are guarded per run — a relPath cannot escape its
+  run's directory (so one run can't reach another's files). Invalid runIds
+  (path separators, `..`) are rejected.
+- **Retention:** artifacts survive the run (they're part of its record);
+  `onRunEnd` does not touch them.
+- **HTTP:** `GET /artifacts/:runId` lists (recursive relative paths);
+  `GET /artifacts/:runId/<path>` serves the file (minimal content-type map).
+  Read-only — steps are the only writers.
 
 ## Key concepts
 
@@ -525,6 +547,11 @@ const token = cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
     `toolFilter`); unknown types are skipped. This is what lets mcp's `/lab`
     `gitsee-setup-and-run` drive a QA harness (boot/browser/observe/assess) as
     the core `agent` instead of a forked loop.
+    Entries may be **glob patterns** (`expandAgentTools`): `"jarvis/*"` grants
+    every registry step in that namespace (matches sorted, deduped; a pattern
+    matching nothing warns). `"agent"` itself is grantable — that's the
+    sub-agent primitive: recursion depth is controlled by whether the child's
+    own `agentTools` list includes `"agent"` again, not by a numeric cap.
   - **Every tool call emits a nested run event** (`wrapToolsWithEmit`, applied
     to built-ins AND `agentTools` with one shared counter): a
     `step.start`/`step.end` (or `step.error`) at `<agentPath>/NNN-<tool>` with

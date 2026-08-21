@@ -50,6 +50,7 @@ Rules:
 - Use {{ }} templates to reference previous step outputs or the workflow's input payload, e.g. {{ fetch.body.name }} or {{ input.url }} (where "input" is the object passed to run_workflow; you choose its shape).
 - ALWAYS WRAP TEMPLATE VALUES IN QUOTES. A YAML value that starts with "{{" is otherwise parsed as an object, not a string — e.g. \`pull_number: {{ input.pull_number }}\` silently becomes an object and the step fails with "expected number, received object". Write \`pull_number: "{{ input.pull_number }}"\`. A sole \`"{{ expr }}"\` still preserves the value's real type (a number stays a number) — so quoting does NOT turn a number into a string.
 - Use === for equality in expressions, not ==.
+- Arrays support a WHITELIST of methods with single-param arrow lambdas: map, filter, find, join, includes, slice — e.g. \`"{{ search.map(n => n.ref_id) }}"\` or \`"{{ prs.filter(p => p.merged).map(p => p.title).join(', ') }}"\`. Lambda bodies are single expressions (no statements); no other methods exist (no reduce/sort/flatMap).
 
 Branching (if):
 - The "if" step is a GATE. It evaluates "cond" and returns a boolean.
