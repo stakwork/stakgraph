@@ -192,6 +192,14 @@ async function simulateGetContextStream(
   } catch (err) {
     const aborted = isAbortError(err);
     const endTime = new Date();
+    // Mirror the success path's token_usage computation: prefer step-metas
+    // (accumulated during the run) over the stream's own usage (which may
+    // itself have thrown and is therefore unavailable in this scope).
+    // normalizeUsage tolerates undefined, so the no-step-meta fallback is safe.
+    const errorUsage =
+      stepMetas.length > 0
+        ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+        : normalizeUsage(undefined);
     appendToSession(sessionsDir, sessionId, {
       type: "session_end",
       session_id: sessionId,
@@ -201,6 +209,7 @@ async function simulateGetContextStream(
       duration_ms: endTime.getTime() - startTime,
       status: aborted ? "aborted" : "error",
       error_message: err instanceof Error ? err.message : String(err),
+      token_usage: errorUsage,
     });
     throw err;
   }
@@ -384,6 +393,49 @@ test.describe("get_context streaming (agent.generate → agent.stream)", () => {
     expect(endEntry!.model).toBe("claude-3-opus");
     expect(endEntry!.provider).toBe("anthropic");
     expect(typeof endEntry!.duration_ms).toBe("number");
+    // token_usage must be present on error path (Fix #2)
+    expect(endEntry!.token_usage).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // 3b. Error path with stepMetas — token_usage derived from accumulated steps
+  // -------------------------------------------------------------------------
+  test("error path with stepMetas: token_usage derives from stepMetas, not stream", async () => {
+    const sessionId = randomUUID();
+    const stepMeta1 = { usage: { inputTokens: 150, outputTokens: 75 } };
+    const stepMeta2 = { usage: { inputTokens: 250, outputTokens: 100 } };
+
+    const streamResultFactory = (): StreamResult => ({
+      steps: Promise.reject(new Error("rate limit")),
+      totalUsage: Promise.resolve({ inputTokens: 999, outputTokens: 999 }),
+      usage: Promise.resolve({ inputTokens: 999, outputTokens: 999 }),
+    });
+
+    let threw = false;
+    try {
+      await simulateGetContextStream(streamResultFactory, {
+        sessionsDir,
+        sessionId,
+        modelId: "claude-3-opus",
+        provider: "anthropic",
+        startTime: Date.now() - 200,
+        stepMetas: [stepMeta1, stepMeta2],
+      });
+    } catch {
+      threw = true;
+    }
+
+    expect(threw).toBe(true);
+
+    const entries = loadSessionEntries(sessionsDir, sessionId);
+    const endEntry = entries.find((e) => e.type === "session_end");
+    expect(endEntry).toBeDefined();
+    expect(endEntry!.status).toBe("error");
+    // addUsage path: 150+250=400 input, 75+100=175 output — NOT 999 from stream
+    const tokenUsage = endEntry!.token_usage as LanguageModelUsage;
+    expect(tokenUsage).toBeDefined();
+    expect(tokenUsage.inputTokens).toBe(400);
+    expect(tokenUsage.outputTokens).toBe(175);
   });
 
   // -------------------------------------------------------------------------
@@ -422,6 +474,8 @@ test.describe("get_context streaming (agent.generate → agent.stream)", () => {
     expect(endEntry!.status).toBe("aborted");
     expect(typeof endEntry!.error_message).toBe("string");
     expect((endEntry!.error_message as string).length).toBeGreaterThan(0);
+    // token_usage must be present on abort path (Fix #2)
+    expect(endEntry!.token_usage).toBeDefined();
   });
 
   // -------------------------------------------------------------------------
