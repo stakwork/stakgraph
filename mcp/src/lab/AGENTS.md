@@ -297,6 +297,40 @@ entirely. Trigger:
 seeded/built): `src/lab/gitsee/smoke.ts` (steps direct, no server) and
 `smoke-eval.ts` (full `gitsee-eval` via a real lab vein).
 
+### `jarvis/` — knowledge-graph steps (NOT an experiment)
+
+Self-contained ports of the mcp repo-agent's Jarvis tools
+(`mcp/src/repo/toolsJarvis.ts`) as seeded vein steps — same endpoints, same
+schemas, same LLM-facing descriptions — so workflows (and agent steps) can
+read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
+`type: "Concept"` on search/neighbors), so no concept-specific steps exist.
+
+- **Reads:** `jarvis/get-ontology`, `jarvis/get-ontology-type`,
+  `jarvis/graph-search` (hybrid + field-scoped vector search),
+  `jarvis/graph-get`, `jarvis/graph-get-batched`, `jarvis/graph-neighbors`.
+- **Writes:** `jarvis/create-node`, `jarvis/edit-node`,
+  `jarvis/create-triplet`, `jarvis/create-batch-triplet`. The ontology CRUD
+  family is deliberately NOT ported (schema editing stays a human/setup
+  activity).
+- **Config is automatic:** each step resolves `JARVIS_URL` + `API_TOKEN`
+  (+ optional `JARVIS_HTTP_TIMEOUT_MS`) through `ctx.services.secrets`
+  (secret store → env fallback) and calls through `ctx.services.http` — so
+  runs are cassette-recordable and credentials are scrubbed from fixtures.
+  Steps are ALWAYS seeded; without `JARVIS_URL` they fail loudly per run
+  rather than silently missing.
+- **Granting to agents:** `agentTools: ["jarvis/*"]` (glob, vein-core
+  `expandAgentTools`) for everything, or list the read steps explicitly for a
+  read-only child. Sub-agents = grant `"agent"` itself and pass the child a
+  narrower `agentTools` list (recursion depth is whether the child gets
+  `"agent"` again).
+- **Self-contained duplication is deliberate:** each step file inlines its
+  small `jarvisCtx` preamble (seeded steps may only value-import `"vein"`);
+  the contract is documented once in `jarvis/steps/_shared.ts` — change it
+  there AND in every step.
+- **Smoke:** `npx tsx src/lab/jarvis/smoke.ts` — offline; seeds into a temp
+  workspace, verifies registry discovery, and runs every step against a fake
+  `ctx.services.http` Jarvis.
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See

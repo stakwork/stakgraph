@@ -389,6 +389,46 @@ function toolNameFor(stepType: string): string {
   return stepType.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
+/** Compile a glob pattern (`*` = any run of characters) to an anchored RegExp. */
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (c) =>
+    c === "*" ? ".*" : `\\${c}`,
+  );
+  return new RegExp(`^${escaped}$`);
+}
+
+/**
+ * Expand `agentTools` entries against the registry: a name containing `*` is a
+ * glob over registry step types (e.g. `"jarvis/*"` → every jarvis step), so a
+ * whole namespace can be granted in one entry and new steps in it are picked
+ * up automatically. Plain names pass through untouched (unknown ones still
+ * warn in the tool-build loop). Duplicates collapse (first occurrence wins);
+ * glob matches are sorted for a stable tool order.
+ */
+export function expandAgentTools(names: string[], registry: StepRegistry): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    let matches: string[];
+    if (name.includes("*")) {
+      const re = globToRegExp(name);
+      matches = Object.keys(registry).filter((t) => re.test(t)).sort();
+      if (matches.length === 0) {
+        console.warn(`[agent] agentTools: pattern "${name}" matched no step types`);
+      }
+    } else {
+      matches = [name];
+    }
+    for (const m of matches) {
+      if (!seen.has(m)) {
+        seen.add(m);
+        out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
 /** Truncate a tool's I/O for the run-event log (the full thing lives in the
  *  model transcript; the event log only needs a readable preview). */
 function summarizeForEvent(v: unknown): string {
@@ -417,7 +457,7 @@ export function buildRegistryTools(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!names?.length || !registry) return out;
-  for (const stepType of names) {
+  for (const stepType of expandAgentTools(names, registry)) {
     const def = registry[stepType];
     if (!def) {
       console.warn(`[agent] agentTools: unknown step type "${stepType}" — skipping`);
@@ -513,7 +553,7 @@ export default defineStep({
       .array(z.string())
       .default([])
       .describe(
-        "registry step TYPES to expose as additional LLM tools (the 'tools are steps' model, e.g. ['gitsee/read-logs']). Each step's input schema becomes the tool schema and its run() is the executor, called with a nested ctx so every tool call emits a step.start/step.end run event (visible in the events panel). Merged ON TOP of the built-ins (not subject to toolFilter). Unknown types are skipped. Requires the runner-populated ctx.registry.",
+        "registry step TYPES to expose as additional LLM tools (the 'tools are steps' model, e.g. ['gitsee/read-logs']). Entries may be glob patterns over step types ('jarvis/*' grants the whole namespace; new steps in it are picked up automatically). Each step's input schema becomes the tool schema and its run() is the executor, called with a nested ctx so every tool call emits a step.start/step.end run event (visible in the events panel). Merged ON TOP of the built-ins (not subject to toolFilter). Unknown types are skipped. Requires the runner-populated ctx.registry.",
       ),
     model: z.string().optional(),
     provider: z.string().optional(),

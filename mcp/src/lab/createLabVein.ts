@@ -12,6 +12,7 @@ import {
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
+import { seedJarvisSteps } from "./jarvis/seed.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 
 /**
@@ -112,6 +113,10 @@ export async function createLabVein(
   // gitsee experiment: self-contained steps (no services bag needed).
   await seedGitseeWorkflows(workspace);
   await seedGitseeSteps(workspace);
+  // jarvis knowledge-graph steps (self-contained; reach Jarvis over
+  // ctx.services.http with JARVIS_URL/API_TOKEN from ctx.services.secrets).
+  // Grantable to agents via agentTools: ["jarvis/*"].
+  await seedJarvisSteps(workspace);
 
   const vein = await createVein<LabServices>({
     workspace,

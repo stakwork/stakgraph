@@ -23,7 +23,8 @@ import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
 import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import { requireApiKey, warnIfUnconfigured } from "./auth.js";
-import { standardServices } from "./capabilities.js";
+import { standardServices, fileArtifactsCapability } from "./capabilities.js";
+import type { ArtifactsCapability } from "./capabilities.js";
 import type { SecretStore } from "./secret-store.js";
 import {
   FileSecretStore,
@@ -290,8 +291,14 @@ export async function createVein<TServices = unknown>(
   // existing out of the box.
   const services = {
     ...(standardServices({ secretStore }) as unknown as Record<string, unknown>),
+    // Per-run artifact files, rooted in the workspace. A consumer bag can
+    // override with its own ArtifactsCapability (spread below wins).
+    artifacts: fileArtifactsCapability(join(workspace.path, "artifacts")),
     ...((opts.services ?? {}) as Record<string, unknown>),
   } as TServices;
+  const artifacts = (services as Record<string, unknown>)["artifacts"] as
+    | ArtifactsCapability
+    | undefined;
   const serveUi = opts.serveUi ?? true;
   const enableChat = opts.enableChat ?? true;
   const chatStore: ChatStore =
@@ -616,6 +623,38 @@ export async function createVein<TServices = unknown>(
       return c.json({ ok: true, workflow: name, active: body.version });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+  });
+
+  // ── Artifacts ────────────────────────────────────────────────────────────
+  // Files a run wrote via `ctx.services.artifacts` (keyed by runId alone —
+  // artifacts are run-scoped, not workflow-scoped). Read-only: steps are the
+  // only writers.
+
+  app.get("/artifacts/:runId", async (c) => {
+    if (!artifacts) return c.json({ error: "artifacts capability not available" }, 501);
+    const runId = c.req.param("runId");
+    try {
+      return c.json({ runId, files: await artifacts.list(runId) });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+
+  app.get("/artifacts/:runId/:path{.+}", async (c) => {
+    if (!artifacts) return c.json({ error: "artifacts capability not available" }, 501);
+    const runId = c.req.param("runId");
+    const relPath = c.req.param("path");
+    try {
+      const bytes = await artifacts.read(runId, relPath);
+      return c.body(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 200, {
+        "content-type": contentTypeFor(relPath),
+      });
+    } catch (err: any) {
+      if (err?.code === "ENOENT") {
+        return c.json({ error: `artifact not found: ${relPath}` }, 404);
+      }
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
   });
 
@@ -1169,4 +1208,24 @@ export async function createVein<TServices = unknown>(
     run,
     listen,
   };
+}
+
+/** Minimal content-type map for serving artifacts; octet-stream otherwise. */
+function contentTypeFor(path: string): string {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const map: Record<string, string> = {
+    json: "application/json",
+    txt: "text/plain; charset=utf-8",
+    md: "text/markdown; charset=utf-8",
+    csv: "text/csv; charset=utf-8",
+    html: "text/html; charset=utf-8",
+    yaml: "text/yaml; charset=utf-8",
+    yml: "text/yaml; charset=utf-8",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    svg: "image/svg+xml",
+    pdf: "application/pdf",
+  };
+  return map[ext] ?? "application/octet-stream";
 }

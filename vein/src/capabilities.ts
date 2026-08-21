@@ -17,6 +17,15 @@
  * their own typed services bag.
  */
 
+import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
+import {
+  dirname as pathDirname,
+  join as pathJoin,
+  relative as pathRelative,
+  resolve as pathResolve,
+  sep as pathSep,
+} from "node:path";
+
 // ── secrets ────────────────────────────────────────────────────────────────
 
 /** Credential access. The single boundary through which adapters read secrets
@@ -184,6 +193,84 @@ function looksLikeJson(text: string): boolean {
   return t.startsWith("{") || t.startsWith("[");
 }
 
+// ── artifacts ──────────────────────────────────────────────────────────────
+
+/**
+ * Per-run artifact storage — files a run produces that later steps (and
+ * humans, via `GET /artifacts/:runId/…`) reference. The convention: a step
+ * writes a file and puts its RELATIVE path in its output; downstream steps
+ * resolve it through this capability (or point an `agent` step's `cwd` at
+ * `dir(ctx.runId)` so the built-in file tools see the same files).
+ *
+ * Artifacts are retained after the run ends — they're part of the run's
+ * record, not scratch space (`onRunEnd` does not touch them).
+ */
+export interface ArtifactsCapability {
+  /** Absolute path of the run's artifact directory, created on demand. */
+  dir(runId: string): Promise<string>;
+  /** Write `content` at `relPath` under the run's dir (subdirectories are
+   *  created). Returns the absolute path of the written file. */
+  write(runId: string, relPath: string, content: string | Uint8Array): Promise<string>;
+  /** Read the file at `relPath` under the run's dir, as bytes.
+   *  (`Buffer.from(bytes).toString()` for text.) */
+  read(runId: string, relPath: string): Promise<Uint8Array>;
+  /** Relative paths of every file under the run's dir (recursive, sorted).
+   *  `[]` when the run has no artifacts. */
+  list(runId: string): Promise<string[]>;
+}
+
+/** Reject run ids / relative paths that could escape the RUN's directory
+ *  (one run must not reach another run's files). Returns the resolved
+ *  absolute path when safe. */
+function artifactPath(root: string, runId: string, relPath = ""): string {
+  if (!runId || /[/\\]|\.\./.test(runId)) {
+    throw new Error(`artifacts: invalid runId "${runId}"`);
+  }
+  const runDir = pathResolve(root, runId);
+  const abs = pathResolve(runDir, relPath);
+  if (abs !== runDir && !abs.startsWith(runDir + pathSep)) {
+    throw new Error(`artifacts: path escapes the artifact root: ${relPath}`);
+  }
+  return abs;
+}
+
+/** Filesystem-backed artifacts capability rooted at `root`
+ *  (`<root>/<runId>/<relPath>`). The default the standard server injects,
+ *  rooted at `<workspace>/artifacts`. */
+export function fileArtifactsCapability(root: string): ArtifactsCapability {
+  return {
+    async dir(runId) {
+      const d = artifactPath(root, runId);
+      await mkdir(d, { recursive: true });
+      return d;
+    },
+    async write(runId, relPath, content) {
+      const abs = artifactPath(root, runId, relPath);
+      await mkdir(pathDirname(abs), { recursive: true });
+      await writeFile(abs, content);
+      return abs;
+    },
+    async read(runId, relPath) {
+      const abs = artifactPath(root, runId, relPath);
+      return new Uint8Array(await readFile(abs));
+    },
+    async list(runId) {
+      const d = artifactPath(root, runId);
+      let entries;
+      try {
+        entries = await readdir(d, { recursive: true, withFileTypes: true });
+      } catch (err: any) {
+        if (err?.code === "ENOENT") return [];
+        throw err;
+      }
+      return entries
+        .filter((e) => e.isFile())
+        .map((e) => pathRelative(d, pathJoin(e.parentPath, e.name)))
+        .sort();
+    },
+  };
+}
+
 // ── standard bag ───────────────────────────────────────────────────────────
 
 /** The standard capability shape adapters rely on. Consumers extend this with
@@ -191,6 +278,9 @@ function looksLikeJson(text: string): boolean {
 export interface VeinCapabilities {
   http: HttpCapability;
   secrets: SecretsCapability;
+  /** Per-run artifact files. Present on the standard server (rooted in the
+   *  workspace); optional because a bare in-code bag may not carry one. */
+  artifacts?: ArtifactsCapability;
 }
 
 /** The default standard services bag: global-fetch http + secrets. Secrets are
