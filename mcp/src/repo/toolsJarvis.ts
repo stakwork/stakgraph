@@ -440,7 +440,7 @@ export function buildOntologyTypePayload(data: any): any {
 const DEFAULT_SUBAGENT_MAX_DEPTH = 2;
 
 /** Default tool-loop step cap for a single sub-agent run. */
-const DEFAULT_SUBAGENT_MAX_STEPS = 20;
+const DEFAULT_SUBAGENT_MAX_STEPS = 1000;
 
 /**
  * Config for the recursive `graph_sub_agent` tool. When present (see
