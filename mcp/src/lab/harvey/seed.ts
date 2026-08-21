@@ -22,6 +22,21 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+const SEED_WORKFLOWS = ["harvey-run"];
+
+export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<void> {
+  const dir = join(HERE, "workflows");
+  for (const name of SEED_WORKFLOWS) {
+    try {
+      const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, "harvey-seed");
+      if (changed) console.log(`[harvey] seeded workflow: ${name} @ ${version}`);
+    } catch (err) {
+      console.warn(`[harvey] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);
+    }
+  }
+}
+
 export async function seedHarveySteps(workspace: WorkspaceManager): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {

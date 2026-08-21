@@ -13,7 +13,8 @@ import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
-import { seedHarveySteps } from "./harvey/seed.js";
+import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
+import { seedArtifactSteps } from "./artifacts/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 
@@ -133,6 +134,9 @@ export async function createLabVein(
   // harvey verification steps (thin plumbing over services.harvey; grant
   // harvey/evaluate only to harness workflows, never the producing agent).
   await seedHarveySteps(workspace);
+  await seedHarveyWorkflows(workspace);
+  // generic artifact plumbing (artifacts/dir — bridge runId → path for cwd).
+  await seedArtifactSteps(workspace);
 
   const vein = await createVein<LabServices>({
     workspace,
