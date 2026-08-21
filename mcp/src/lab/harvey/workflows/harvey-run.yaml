@@ -77,8 +77,10 @@ params:
 
     Method:
     1. Read EVERY input document fully before drafting (convert .docx with
-       `pandoc <file> -t markdown`; .eml files are plain text). The client's
-       playbook and internal instructions control — follow them precisely,
+       `pandoc <file> -t markdown`; read .xlsx with python3 + openpyxl,
+       printing EVERY sheet, row, and column — spreadsheets often hold the
+       facts the analysis hinges on; .eml files are plain text). The client's
+       instructions and any playbook control — follow them precisely,
        including priorities and fallback positions.
     2. Draft each deliverable as markdown first (work files in your working
        directory are fine), covering every requirement in the instructions.
