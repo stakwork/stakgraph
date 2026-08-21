@@ -13,6 +13,7 @@ import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
+import { seedSheetsSteps } from "./sheets/seed.js";
 import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
@@ -131,6 +132,11 @@ export async function createLabVein(
   // ctx.services.http with JARVIS_URL/API_TOKEN from ctx.services.secrets).
   // Grantable to agents via agentTools: ["jarvis/*"].
   await seedJarvisSteps(workspace);
+  // google sheets steps (self-contained; reach the Sheets/Drive REST APIs
+  // over ctx.services.http with GOOGLE_SERVICE_ACCOUNT_JSON /
+  // GOOGLE_DRIVE_FOLDER_ID from ctx.services.secrets). Grantable to agents
+  // via agentTools: ["sheets/*"].
+  await seedSheetsSteps(workspace);
   // harvey verification steps (thin plumbing over services.harvey; grant
   // harvey/evaluate only to harness workflows, never the producing agent).
   await seedHarveySteps(workspace);

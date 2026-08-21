@@ -331,6 +331,51 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
   workspace, verifies registry discovery, and runs every step against a fake
   `ctx.services.http` Jarvis.
 
+### `sheets/` — Google Sheets steps (NOT an experiment)
+
+Self-contained ports of the mcp repo-agent's Google Sheets tools
+(`mcp/src/repo/toolsGoogleSheets.ts` — untouched; it stays the production
+repo-agent implementation) as seeded vein steps — same Sheets/Drive REST
+endpoints, same schemas, same LLM-facing descriptions — so workflows (and
+agent steps) can create spreadsheets and read/write cell values and live
+formulas.
+
+- **Steps:** `sheets/create-spreadsheet`, `sheets/update-values`,
+  `sheets/batch-update-values`, `sheets/get-values`, `sheets/add-sheet`,
+  `sheets/import-spreadsheet` (best-effort per-sheet import of an .xlsx or
+  native Sheet into a destination spreadsheet, with auto-conversion,
+  collision-suffixed tab names, and cross-sheet-formula warnings).
+- **Config resolution:** `cfg.serviceAccount` (explicit step config — parsed
+  JSON, JSON string, or base64 JSON) wins, else the
+  `GOOGLE_SERVICE_ACCOUNT_JSON` secret (secret store → env fallback); same
+  for `cfg.driveFolderId` / `GOOGLE_DRIVE_FOLDER_ID` (spreadsheets are
+  created inside that folder — share it with the service account's
+  client_email so humans can see agent-created sheets). Auth is a plain
+  service-account JWT flow: an RS256 assertion built with `node:crypto` (no
+  jsonwebtoken/axios deps), exchanged at the SA's `token_uri` for a bearer
+  token (scopes `spreadsheets` + `drive`), cached per step module with 60s
+  expiry slack. Everything goes through `ctx.services.http` +
+  `ctx.services.secrets`, so runs are cassette-recordable and credentials
+  are scrubbed from fixtures. Steps are ALWAYS seeded; without
+  `GOOGLE_SERVICE_ACCOUNT_JSON` they fail loudly per run rather than
+  silently missing. API errors come back as teaching strings (e.g. a 403 on
+  create names the folder and client_email to share it with), never throws
+  at the LLM.
+- **Granting to agents:** `agentTools: ["sheets/*"]` (glob, vein-core
+  `expandAgentTools`) for everything, or an explicit subset — e.g. a
+  read-only child gets just `sheets/get-values`.
+- **Self-contained duplication is deliberate:** each step file inlines its
+  `sheetsCtx` auth/request preamble (seeded steps may only value-import
+  `"vein"` + node builtins); the contract is documented once in
+  `sheets/steps/_shared.ts` — change it there AND in every step.
+- **Smoke:** `npx tsx src/lab/sheets/smoke.ts` — offline; seeds into a temp
+  workspace, verifies registry discovery, then runs every step against a
+  fake `ctx.services.http` Google (real RSA keypair so the JWT signature is
+  verified; covers token caching, bearer headers, round-trip shapes, the
+  loud missing-credentials error, and a teaching-error case). No live
+  Google call has been made yet — end-to-end verification with a real
+  service account is pending.
+
 ### `harvey/` — Harvey LAB verification (the hardcoded grader)
 
 Runs the **actual** Harvey LAB legal-benchmark eval (the
