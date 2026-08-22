@@ -1236,6 +1236,23 @@ body.is-resizing-flyout * {
   font-style: italic;
 }
 
+/* Server-initiated [run-notification] messages — a system notice, not a
+   human bubble: full-width, dashed outline, muted. */
+.chat-msg-notice {
+  align-self: stretch;
+  max-width: 100%;
+}
+.chat-msg-notice .chat-msg-text {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .chat-tool-calls {
   margin-bottom: var(--sp-2);
   display: flex;

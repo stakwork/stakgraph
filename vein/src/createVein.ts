@@ -33,6 +33,9 @@ import {
 } from "./secret-store.js";
 import { runSingleStep, cassettePath } from "./run-step.js";
 import type { CassetteMode } from "./cassette.js";
+// Static import is safe: notifier depends only on chat-store, never the AI
+// SDK (which stays lazy-loaded inside launchChatTurn).
+import { createChatNotifier, formatRunNotification } from "./ai/notifier.js";
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -93,6 +96,20 @@ export interface VeinOptions<TServices = unknown> {
   /** Anthropic model id for the chat agent. Defaults to `VEIN_CHAT_MODEL` or
    *  `claude-sonnet-5`. */
   chatModel?: string;
+
+  /** How long the chat agent's `run_workflow` tool waits before a still-
+   *  running workflow converts to a DETACHED run (the tool returns a
+   *  `{ status: "running", runId }` stub and the chat is woken with a
+   *  `[run-notification]` message when the run settles). Defaults to
+   *  `VEIN_CHAT_RUN_WAIT_MS` or 60000. */
+  chatRunWaitMs?: number;
+
+  /** Max consecutive notification-triggered chat turns since the last human
+   *  message before the chat PARKS (notifications still append to the
+   *  transcript, but no turn launches until a human replies) — the runaway
+   *  guard for autonomous launch→wake→relaunch loops. Defaults to
+   *  `VEIN_CHAT_MAX_AUTO_TURNS` or 10. */
+  chatMaxAutoTurns?: number;
 
   /** Directory containing the built web UI (the `dist` folder). Defaults
    *  to vein's own bundled UI resolved relative to this module, so it
@@ -310,6 +327,10 @@ export async function createVein<TServices = unknown>(
     opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 30);
   const chatModel =
     opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-5";
+  const chatRunWaitMs =
+    opts.chatRunWaitMs ?? Number(process.env["VEIN_CHAT_RUN_WAIT_MS"] ?? 60_000);
+  const chatMaxAutoTurns =
+    opts.chatMaxAutoTurns ?? Number(process.env["VEIN_CHAT_MAX_AUTO_TURNS"] ?? 10);
   const webDist =
     opts.webDist ??
     resolve(dirname(fileURLToPath(import.meta.url)), "../web/dist");
@@ -956,6 +977,18 @@ export async function createVein<TServices = unknown>(
   // working; reopen and reattach. See `chat-store.ts`.
 
   if (enableChat) {
+    // Wakes the chat when a detached `run_workflow` run settles: queues
+    // while a turn is live (drained into one wake-up turn), appends the
+    // `[run-notification]` message, and launches the next turn through the
+    // same launchChatTurn path a human message uses. `meta.autoTurns`
+    // (reset by POST /chat) caps consecutive machine-triggered turns.
+    const notifier = createChatNotifier({
+      chatStore,
+      maxAutoTurns: chatMaxAutoTurns,
+      startTurn: (chatId, turn, modelMessages) =>
+        launchChatTurn(chatId, turn, modelMessages),
+    });
+
     /**
      * Run one chat turn detached: build the agent, stream it server-side,
      * persist each fine-grained part to `events.jsonl`, then append the new
@@ -965,6 +998,9 @@ export async function createVein<TServices = unknown>(
      */
     function launchChatTurn(chatId: string, turn: number, modelMessages: any[]): void {
       void (async () => {
+        // Synchronous (before any await): run-notifications arriving during
+        // this turn must queue rather than launching a concurrent turn.
+        notifier.turnStarted(chatId);
         const emit = (e: Partial<ChatEvent> & { type: ChatEvent["type"] }) =>
           chatStore.appendEvent(chatId, {
             ts: new Date().toISOString(),
@@ -991,6 +1027,61 @@ export async function createVein<TServices = unknown>(
               registry = bundle.registry;
               stepSources = bundle.sources;
               return bundle.registry;
+            },
+            // Dispatch-mode run_workflow: a run that outlives the wait window
+            // converts to detached — track it like an HTTP-launched run and
+            // wake this chat with a [run-notification] when it settles.
+            detach: {
+              waitMs: chatRunWaitMs,
+              onDetach: ({
+                workflow,
+                runId,
+                startedAt,
+                promise,
+              }: {
+                workflow: string;
+                runId: string;
+                startedAt: number;
+                promise: Promise<RunResult>;
+              }) => {
+                const key = `${workflow}/${runId}`;
+                activeRuns.add(key);
+                promise
+                  .then(
+                    (res) =>
+                      notifier.deliver(
+                        chatId,
+                        formatRunNotification({
+                          workflow,
+                          runId,
+                          status: res.status,
+                          durationMs: Date.now() - startedAt,
+                          output: res.output,
+                          ...(res.error ? { error: res.error } : {}),
+                        }),
+                      ),
+                    // runWorkflow finalizes its own errors into a resolved
+                    // result; a rejection here is an unexpected throw (e.g.
+                    // store write failure) — still wake the chat with it.
+                    (err) =>
+                      notifier.deliver(
+                        chatId,
+                        formatRunNotification({
+                          workflow,
+                          runId,
+                          status: "error",
+                          durationMs: Date.now() - startedAt,
+                          error: {
+                            message: err instanceof Error ? err.message : String(err),
+                          },
+                        }),
+                      ),
+                  )
+                  .catch((err) =>
+                    console.error(`[chat ${chatId}] run-notification delivery failed:`, err),
+                  )
+                  .finally(() => activeRuns.delete(key));
+              },
             },
           };
 
@@ -1054,6 +1145,14 @@ export async function createVein<TServices = unknown>(
           console.error(`[chat ${chatId}] turn ${turn} failed:`, err);
           await emit({ type: "chat.error", error: { message } });
           await chatStore.setMeta(chatId, { status: "error" });
+        } finally {
+          // Drain run-notifications that queued during this turn — delivers
+          // them all in ONE follow-up turn (launched via startTurn above).
+          try {
+            await notifier.turnEnded(chatId);
+          } catch (err) {
+            console.error(`[chat ${chatId}] notification drain failed:`, err);
+          }
         }
       })();
     }
@@ -1084,7 +1183,9 @@ export async function createVein<TServices = unknown>(
       await chatStore.appendMessages(chatId, [userMsg]);
 
       const turn = (meta!.currentTurn ?? -1) + 1;
-      await chatStore.setMeta(chatId, { status: "live", currentTurn: turn });
+      // A human message resets the consecutive-auto-turn counter (the
+      // notification runaway guard) — see `ai/notifier.ts`.
+      await chatStore.setMeta(chatId, { status: "live", currentTurn: turn, autoTurns: 0 });
 
       // Lossless on disk (transcript); truncated copy re-fed to the model.
       const modelMessages = truncateToolMessages([...prior, userMsg]);

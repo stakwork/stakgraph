@@ -6,6 +6,7 @@ import { AiDeps } from "./prompts.js";
 import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
 import { runSingleStep, cassettePath } from "../run-step.js";
+import { generateRunId } from "../store.js";
 
 // The run-history read methods live on `FileRunStore`, not the base `RunStore`
 // interface (which is write-only: append/finalize). `MemoryRunStore` lacks them.
@@ -371,7 +372,8 @@ export function buildTools(deps: AiDeps) {
 
     run_workflow: tool({
       description:
-        "Run a published workflow with a given input and return the result. Use this to test workflows you just created. Returns status (success/error), output (on success), error details (on failure), and the runId.",
+        "Run a published workflow with a given input and return the result. Use this to test workflows you just created. Returns status (success/error), output (on success), error details (on failure), and the runId. " +
+        "Long runs AUTO-DETACH: if the run is still executing after the wait window, this returns { status: 'running', detached: true, runId } and the run continues in the background — when it finishes, a [run-notification] user message starts your next turn with the outcome. Do NOT poll get_run in a loop while waiting; finish your turn normally.",
       inputSchema: z.object({
         name: z.string().describe("Workflow name to run"),
         input: z
@@ -404,14 +406,47 @@ export function buildTools(deps: AiDeps) {
           };
         }
 
-        const result = await runWorkflow(flow, coerceJsonArg(input) ?? {}, deps.registry, {
+        // Generate the runId here (not in the runner) so the detached stub
+        // can report it before the run finishes.
+        const runId = generateRunId();
+        const startedAt = Date.now();
+        const promise = runWorkflow(flow, coerceJsonArg(input) ?? {}, deps.registry, {
+          runId,
           store: deps.store,
           workspace: deps.workspace,
           services: deps.services,
           params: coerceJsonArg(params) as Record<string, unknown> | undefined,
         });
 
-        return result;
+        // No detach seam (tests / non-chat embedders) → await as before.
+        const detach = deps.detach;
+        if (!detach) return promise;
+
+        // Dispatch mode: race the run against the wait window. Fast runs
+        // return synchronously (the quick inner-loop path); a run that
+        // outlives the window converts to detached — the host takes the
+        // pending promise and wakes the chat when it settles.
+        const pending = Symbol("pending");
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const winner = await Promise.race([
+          promise,
+          new Promise<typeof pending>((res) => {
+            timer = setTimeout(() => res(pending), detach.waitMs);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (winner !== pending) return winner;
+
+        detach.onDetach({ workflow: name, runId, startedAt, promise });
+        return {
+          status: "running",
+          detached: true,
+          runId,
+          workflow: name,
+          note:
+            `Run still executing after ${Math.round(detach.waitMs / 1000)}s — it continues detached in the background. ` +
+            "When it finishes, a [run-notification] message will start your next turn with the result. " +
+            "Do NOT poll get_run in a loop; finish this turn normally (note anything you'll need when the result arrives).",
+        };
       },
     }),
 
