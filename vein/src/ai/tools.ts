@@ -6,6 +6,7 @@ import { AiDeps } from "./prompts.js";
 import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
 import { runSingleStep, cassettePath } from "../run-step.js";
+import { generateRunId } from "../store.js";
 
 // The run-history read methods live on `FileRunStore`, not the base `RunStore`
 // interface (which is write-only: append/finalize). `MemoryRunStore` lacks them.
@@ -212,17 +213,28 @@ export function buildTools(deps: AiDeps) {
         "Create and publish a NEW workflow from YAML. If the name already " +
         "exists, a numeric suffix is appended (e.g. `send-email-2`). The " +
         "response includes the final name used. To publish a new version of " +
-        "an EXISTING workflow, use `edit_workflow` instead.",
+        "an EXISTING workflow, use `edit_workflow` instead. Pass `category` " +
+        "to group the workflow in the UI sidebar (e.g. an experiment or " +
+        "project name) — set it when the user asks for one or when the " +
+        "workflow clearly belongs to an existing category (see " +
+        "list_workflows for categories already in use).",
       inputSchema: z.object({
         name: z.string().describe("Workflow name (kebab-case)"),
         yaml: z.string().describe("Full workflow YAML"),
         description: z.string().optional(),
+        category: z
+          .string()
+          .optional()
+          .describe(
+            "Optional sidebar grouping label (kebab-case, e.g. an experiment name). Omit to leave uncategorized.",
+          ),
       }),
-      execute: async ({ name, yaml, description }) => {
+      execute: async ({ name, yaml, description, category }) => {
         const { name: finalName, version } = await deps.workspace.createWorkflow(
           name,
           yaml,
           description,
+          category,
         );
         // Rebuild registry in case the workflow references new patterns
         deps.registry = await deps.getRegistry();
@@ -250,8 +262,14 @@ export function buildTools(deps: AiDeps) {
         name: z.string().describe("Existing workflow name to edit"),
         yaml: z.string().describe("Full updated workflow YAML"),
         description: z.string().optional(),
+        category: z
+          .string()
+          .optional()
+          .describe(
+            "Optional sidebar grouping label. Only pass to CHANGE the category (to merely re-categorize without editing YAML, use set_workflow_category).",
+          ),
       }),
-      execute: async ({ name, yaml, description }) => {
+      execute: async ({ name, yaml, description, category }) => {
         const exists = (await deps.workspace.listWorkflows()).some(
           (w) => w.name === name,
         );
@@ -266,6 +284,7 @@ export function buildTools(deps: AiDeps) {
             name,
             yaml,
             description,
+            category,
           );
         } catch (err) {
           return { error: err instanceof Error ? err.message : String(err) };
@@ -277,6 +296,30 @@ export function buildTools(deps: AiDeps) {
           version: result.version,
           changed: result.changed,
         };
+      },
+    }),
+
+    set_workflow_category: tool({
+      description:
+        "Set or clear an existing workflow's sidebar category (the grouping " +
+        "label in the UI). Metadata-only: no new version is published and the " +
+        "workflow YAML is untouched. Use when the user asks to categorize, " +
+        "re-categorize, or group workflows. Check list_workflows first to " +
+        "reuse an existing category name where one fits.",
+      inputSchema: z.object({
+        name: z.string().describe("Existing workflow name"),
+        category: z
+          .string()
+          .nullable()
+          .describe("New category label, or null to clear it"),
+      }),
+      execute: async ({ name, category }) => {
+        try {
+          await deps.workspace.setWorkflowCategory(name, category);
+          return { ok: true, name, category };
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
       },
     }),
 
@@ -329,7 +372,8 @@ export function buildTools(deps: AiDeps) {
 
     run_workflow: tool({
       description:
-        "Run a published workflow with a given input and return the result. Use this to test workflows you just created. Returns status (success/error), output (on success), error details (on failure), and the runId.",
+        "Run a published workflow with a given input and return the result. Use this to test workflows you just created. Returns status (success/error), output (on success), error details (on failure), and the runId. " +
+        "Long runs AUTO-DETACH: if the run is still executing after the wait window, this returns { status: 'running', detached: true, runId } and the run continues in the background — when it finishes, a [run-notification] user message starts your next turn with the outcome. Do NOT poll get_run in a loop while waiting; finish your turn normally.",
       inputSchema: z.object({
         name: z.string().describe("Workflow name to run"),
         input: z
@@ -362,14 +406,47 @@ export function buildTools(deps: AiDeps) {
           };
         }
 
-        const result = await runWorkflow(flow, coerceJsonArg(input) ?? {}, deps.registry, {
+        // Generate the runId here (not in the runner) so the detached stub
+        // can report it before the run finishes.
+        const runId = generateRunId();
+        const startedAt = Date.now();
+        const promise = runWorkflow(flow, coerceJsonArg(input) ?? {}, deps.registry, {
+          runId,
           store: deps.store,
           workspace: deps.workspace,
           services: deps.services,
           params: coerceJsonArg(params) as Record<string, unknown> | undefined,
         });
 
-        return result;
+        // No detach seam (tests / non-chat embedders) → await as before.
+        const detach = deps.detach;
+        if (!detach) return promise;
+
+        // Dispatch mode: race the run against the wait window. Fast runs
+        // return synchronously (the quick inner-loop path); a run that
+        // outlives the window converts to detached — the host takes the
+        // pending promise and wakes the chat when it settles.
+        const pending = Symbol("pending");
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const winner = await Promise.race([
+          promise,
+          new Promise<typeof pending>((res) => {
+            timer = setTimeout(() => res(pending), detach.waitMs);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (winner !== pending) return winner;
+
+        detach.onDetach({ workflow: name, runId, startedAt, promise });
+        return {
+          status: "running",
+          detached: true,
+          runId,
+          workflow: name,
+          note:
+            `Run still executing after ${Math.round(detach.waitMs / 1000)}s — it continues detached in the background. ` +
+            "When it finishes, a [run-notification] message will start your next turn with the result. " +
+            "Do NOT poll get_run in a loop; finish this turn normally (note anything you'll need when the result arrives).",
+        };
       },
     }),
 

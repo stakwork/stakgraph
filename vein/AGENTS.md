@@ -111,6 +111,8 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
 | `VEIN_CHAT_MODEL`   | `claude-sonnet-5` | Anthropic model for the AI-builder chat agent |
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
+| `VEIN_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
+| `VEIN_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
 
 ## Auth
 
@@ -511,6 +513,32 @@ services bag can override it, same as `http`/`secrets`).
   per-turn agent loop. The browser (`web/src/api.ts`: `sendChat` +
   `streamChat` + `getChat`) persists the active `chatId` in
   localStorage and reattaches to a still-live turn on reopen.
+
+- **Dispatch-mode `run_workflow` + run notifications**
+  (`src/ai/notifier.ts`, `plans/dispatch-run-notifications.md`). The chat
+  agent's `run_workflow` tool races the run against a wait window
+  (`chatRunWaitMs`, env `VEIN_CHAT_RUN_WAIT_MS`, default 60s): a fast run
+  returns synchronously as before; a run that outlives the window converts
+  to DETACHED — the tool returns a `{ status: "running", detached: true,
+  runId }` stub (a well-formed tool RESULT, so `messages.jsonl` never has a
+  dangling tool call), the run is tracked in `activeRuns`, and when it
+  settles the notifier WAKES the chat: it appends a slim user-role
+  `[run-notification]` message (status, duration, truncated output — the
+  agent has `get_run` for the rest) and launches the next turn through the
+  same `launchChatTurn` path a human message uses. Notifications arriving
+  while a turn is live queue and drain into ONE wake-up turn (via
+  `launchChatTurn`'s `finally` → `notifier.turnEnded`). Liveness is an
+  in-process set (not `meta.status` — stale after a crash; pending
+  notifications die with the process, same crash posture as runs). Runaway
+  guard: `ChatMeta.autoTurns` counts consecutive machine-triggered turns
+  since the last human message (`POST /chat` resets it); at
+  `chatMaxAutoTurns` (env `VEIN_CHAT_MAX_AUTO_TURNS`, default 10) the chat
+  PARKS — notifications still append to the transcript but no turn
+  launches until a human replies. The seam is `AiDeps.detach` (absent →
+  the tool awaits to completion, unchanged for tests/embedders). The
+  flyout polls `GET /chat/:id` (~4s, idle+open only) to notice
+  server-initiated turns and renders `[run-notification]` messages as a
+  dashed notice, not a user bubble.
 
 - **`agent` core step** (`src/steps/core/agent.ts`). A general
   tool-using agent loop (AI SDK `ToolLoopAgent`) — distinct from the
