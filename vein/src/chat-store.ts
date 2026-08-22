@@ -47,6 +47,11 @@ export interface ChatMeta {
   updatedAt: string;
   /** Index of the most recently launched turn (0-based). */
   currentTurn: number;
+  /** Consecutive notification-triggered (non-human) turns since the last
+   *  human message. Incremented by the run notifier, reset to 0 by
+   *  `POST /chat`; at `VEIN_CHAT_MAX_AUTO_TURNS` the chat parks (see
+   *  `ai/notifier.ts`). */
+  autoTurns?: number;
 }
 
 export type ChatEventType =

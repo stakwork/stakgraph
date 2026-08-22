@@ -69,6 +69,8 @@ export async function seedConceptWorkflows(
       const { version, changed } = await workspace.publishWorkflowByContent(
         name,
         yaml,
+        undefined,
+        "concepts",
       );
       if (changed) console.log(`[concepts] seeded workflow: ${name} @ ${version}`);
     } catch (err) {

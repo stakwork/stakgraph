@@ -10,12 +10,21 @@ type ToolGroup = { name: string; calls: api.ToolCallInfo[] };
 
 type ChatEntry =
   | { kind: "user"; content: string }
+  | { kind: "notice"; content: string }
   | { kind: "text"; content: string }
   | { kind: "tool"; groups: ToolGroup[] };
 
 // Persist the active chat id so closing/reopening the flyout (or the whole
 // browser) reattaches to the same detached session.
 const CHAT_ID_KEY = "activeChatId";
+
+// Server-initiated wake-up messages (a detached run finished) are stored as
+// user-role messages with this prefix; render them as a notice, not a bubble.
+const NOTIFICATION_PREFIX = "[run-notification]";
+
+// While the flyout is open and idle, poll for server-initiated turns (a
+// detached run finishing starts a turn no client action triggered).
+const TURN_POLL_MS = 4000;
 
 // Coalesce consecutive same-name tool calls into groups.
 function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
@@ -65,7 +74,13 @@ function transcriptToEntries(messages: { role: string; content: unknown }[]): Ch
   for (const m of messages) {
     if (m.role === "user") {
       const text = extractText(m.content);
-      if (text) entries.push({ kind: "user", content: text });
+      if (text) {
+        entries.push(
+          text.startsWith(NOTIFICATION_PREFIX)
+            ? { kind: "notice", content: text }
+            : { kind: "user", content: text },
+        );
+      }
     } else if (m.role === "assistant") {
       if (typeof m.content === "string") {
         if (m.content) entries.push({ kind: "text", content: m.content });
@@ -104,6 +119,9 @@ export function ChatFlyout(props: {
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Highest turn this client has rendered/streamed — the poll below compares
+  // against it to notice server-initiated turns (run notifications).
+  const seenTurn = useRef(-1);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -175,6 +193,7 @@ export function ChatFlyout(props: {
     try {
       const { meta, messages } = await api.getChat(id);
       setEntries(transcriptToEntries(messages));
+      seenTurn.current = meta.currentTurn;
       if (meta.status === "live" && meta.currentTurn >= 0) {
         setLoading(true);
         await api.streamChat(id, meta.currentTurn, streamCallbacks());
@@ -193,12 +212,38 @@ export function ChatFlyout(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // While idle, watch for SERVER-INITIATED turns: when a detached run
+  // finishes, the server appends a [run-notification] message and launches a
+  // turn on its own — no client action to key off, so poll. On a new turn:
+  // re-render the transcript (it now holds the notification) and, if the
+  // turn is live, attach to its stream.
+  useEffect(() => {
+    if (!chatId || loading || showHistory) return;
+    const t = setInterval(async () => {
+      try {
+        const { meta, messages } = await api.getChat(chatId);
+        if (meta.currentTurn > seenTurn.current) {
+          seenTurn.current = meta.currentTurn;
+          setEntries(transcriptToEntries(messages));
+          if (meta.status === "live") {
+            setLoading(true);
+            await api.streamChat(chatId, meta.currentTurn, streamCallbacks());
+          }
+        }
+      } catch {
+        // Server briefly unreachable — keep polling.
+      }
+    }, TURN_POLL_MS);
+    return () => clearInterval(t);
+  }, [chatId, loading, showHistory, streamCallbacks]);
+
   const newChat = useCallback(() => {
     storage.remove(CHAT_ID_KEY);
     setChatId(null);
     setEntries([]);
     setExpanded({});
     setShowHistory(false);
+    seenTurn.current = -1;
   }, []);
 
   // Toggle the history list, fetching the latest sessions when opening.
@@ -229,6 +274,7 @@ export function ChatFlyout(props: {
         setChatId(id);
         storage.save(CHAT_ID_KEY, id);
       }
+      seenTurn.current = turn;
       await api.streamChat(id, turn, streamCallbacks());
     } catch {
       setEntries((prev) => [...prev, { kind: "text", content: "Error connecting to AI." }]);
@@ -290,6 +336,13 @@ export function ChatFlyout(props: {
           if (entry.kind === "user") {
             return (
               <div key={i} class="chat-msg chat-msg-user">
+                <div class="chat-msg-text">{entry.content}</div>
+              </div>
+            );
+          }
+          if (entry.kind === "notice") {
+            return (
+              <div key={i} class="chat-msg chat-msg-notice">
                 <div class="chat-msg-text">{entry.content}</div>
               </div>
             );

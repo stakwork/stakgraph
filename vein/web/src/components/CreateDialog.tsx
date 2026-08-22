@@ -22,9 +22,12 @@ steps:
 
 export function CreateDialog(props: {
   onClose: () => void;
-  onCreate: (name: string, yamlStr: string, description: string) => void;
+  onCreate: (name: string, yamlStr: string, description: string, category?: string) => void;
+  /** Existing categories, offered as suggestions. */
+  categories?: string[];
 }) {
   const [desc, setDesc] = useState("");
+  const [category, setCategory] = useState("");
   const [yamlStr, setYamlStr] = useState(EXAMPLE_YAML);
   const [error, setError] = useState("");
 
@@ -34,7 +37,7 @@ export function CreateDialog(props: {
       if (!data?.name) { setError("YAML must have a 'name' field"); return; }
       if (!data?.steps || !Array.isArray(data.steps)) { setError("YAML must have a 'steps' array"); return; }
       if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(data.name)) { setError("Name must be alphanumeric (hyphens/underscores ok)"); return; }
-      props.onCreate(data.name, yamlStr, desc);
+      props.onCreate(data.name, yamlStr, desc, category.trim() || undefined);
     } catch (e) {
       setError(`Invalid YAML: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -47,6 +50,19 @@ export function CreateDialog(props: {
         <div class="dialog-field">
           <label>Description</label>
           <input type="text" value={desc} onInput={(e) => setDesc((e.target as HTMLInputElement).value)} placeholder="What this workflow does" />
+        </div>
+        <div class="dialog-field">
+          <label>Category</label>
+          <input
+            type="text"
+            list="create-cat-suggestions"
+            value={category}
+            onInput={(e) => setCategory((e.target as HTMLInputElement).value)}
+            placeholder="Optional — groups the workflow in the sidebar"
+          />
+          <datalist id="create-cat-suggestions">
+            {(props.categories ?? []).map((c) => <option key={c} value={c} />)}
+          </datalist>
         </div>
         <div class="dialog-field">
           <label>Workflow (YAML)</label>

@@ -29,7 +29,7 @@ export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<
   for (const name of SEED_WORKFLOWS) {
     try {
       const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
-      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, "harvey-seed");
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, "harvey-seed", "harvey");
       if (changed) console.log(`[harvey] seeded workflow: ${name} @ ${version}`);
     } catch (err) {
       console.warn(`[harvey] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);

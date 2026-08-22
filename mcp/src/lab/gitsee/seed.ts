@@ -71,7 +71,7 @@ export async function seedGitseeWorkflows(workspace: WorkspaceManager): Promise<
   for (const name of SEED_WORKFLOWS) {
     try {
       const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
-      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml);
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, undefined, "gitsee");
       if (changed) console.log(`[gitsee] seeded workflow: ${name} @ ${version}`);
     } catch (err) {
       console.warn(
