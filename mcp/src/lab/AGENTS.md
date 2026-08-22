@@ -447,8 +447,12 @@ adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
   workflows. And chat is a detached background job (see `vein/AGENTS.md`):
   describe an eval, tell it to "try it and report back", close the browser, and
   the turn keeps running server-side (persisted to `chats/<id>/`). Reopen to
-  reattach. (Long optimizes still run inline inside one `run_workflow` call —
-  detached *workflow*-run mode for the tool is a later add.)
+  reattach. Long runs DISPATCH: a `run_workflow` still executing after
+  `VEIN_CHAT_RUN_WAIT_MS` (default 60s) auto-detaches — the tool returns
+  `{ status: "running", runId }`, the agent ends its turn, and when the run
+  finishes a `[run-notification]` message wakes the chat with the result
+  (capped at `VEIN_CHAT_MAX_AUTO_TURNS` consecutive machine-triggered turns;
+  a human reply resets the cap). See `vein/plans/dispatch-run-notifications.md`.
 - Needs **Neo4j** + `GITHUB_TOKEN` + an LLM key (e.g. `ANTHROPIC_API_KEY`).
 - Workflow YAML templates are seeded into the workspace
   (`VEIN_LAB_WORKSPACE`, default `./lab-workspace`) on first boot, then

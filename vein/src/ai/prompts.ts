@@ -1,4 +1,4 @@
-import type { StepRegistry } from "../core.js";
+import type { StepRegistry, RunResult } from "../core.js";
 import type { WorkspaceManager } from "../workspace.js";
 import type { RunStore } from "../store.js";
 import type { SecretInfo } from "../secret-store.js";
@@ -24,6 +24,22 @@ export interface AiDeps {
    *  authoring steps and tell the user which to add. Optional: the
    *  `list_secrets` tool degrades gracefully when absent. */
   secrets?: { list(): Promise<SecretInfo[]> };
+  /** Dispatch-mode `run_workflow` (see `plans/dispatch-run-notifications.md`).
+   *  When present, a run still executing after `waitMs` converts to detached:
+   *  the tool returns a `{ status: "running", runId }` stub immediately and
+   *  hands the pending promise to `onDetach` — the host (createVein's chat
+   *  block) tracks it and wakes the chat with a `[run-notification]` message
+   *  when it settles. Absent (tests / non-chat embedders) → the tool awaits
+   *  the run to completion, exactly as before. */
+  detach?: {
+    waitMs: number;
+    onDetach: (info: {
+      workflow: string;
+      runId: string;
+      startedAt: number;
+      promise: Promise<RunResult>;
+    }) => void;
+  };
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────
@@ -135,7 +151,9 @@ Tools:
 - run_step("<type>", config?, input?, params?, cassette?, cassetteName?): run ONE step in isolation and get its output — the inner loop for authoring an adapter, no workflow needed. After create_step, call run_step to test it. Use cassette:"record" for the first live run (captures external calls to a fixture, secrets scrubbed), then cassette:"replay" to iterate offline (deterministic, no rate limits, no side effects) while you edit_step.
 - list_workflows(): list existing workflows (name, active version, versions, description). Check this before creating a new workflow or referencing one in a subflow.
 - get_workflow("<name>", version?): read an existing workflow's full YAML + version metadata. Call before editing, referencing, or reusing a workflow you didn't just write.
-- create_workflow / edit_workflow: publish a NEW workflow, or a new VERSION of an existing one. edit_workflow is for STRUCTURAL changes (add/remove steps, rewire depends, promote a winning params default). To merely try a different prompt/threshold value, do NOT publish a version — pass params to run_workflow (those are runs, not versions).
+- create_workflow / edit_workflow: publish a NEW workflow, or a new VERSION of an existing one. edit_workflow is for STRUCTURAL changes (add/remove steps, rewire depends, promote a winning params default). To merely try a different prompt/threshold value, do NOT publish a version — pass params to run_workflow (those are runs, not versions). Both accept an optional category (a sidebar grouping label, e.g. an experiment name) — set it when the user asks or when the workflow clearly belongs with an existing group (list_workflows shows categories in use).
+- set_workflow_category("<name>", category|null): set or clear a workflow's sidebar category without publishing a version. Use for "categorize/group these workflows" requests.
+- run_workflow("<name>", input?, params?, version?): run a published workflow and return its result. LONG RUNS AUTO-DETACH: if the run is still executing after the wait window (~a minute), the call returns { status: "running", detached: true, runId } and the run continues in the background. When it finishes, a "[run-notification]" user message will automatically start your next turn with the outcome (several runs finishing while you work arrive batched in one message). Do NOT poll get_run in a loop while waiting — finish your turn normally, stating what you launched and what you plan to do when the result arrives.
 - list_runs("<name>", limit?): a workflow's past runs (newest first) with status/duration — for inspecting history or comparing experiment runs.
 - get_run("<name>", "<runId>", fullEvents?): one run's summary (input/output/error) + event log (slimmed by default; fullEvents:true for per-step payloads) — for debugging a failed run.
 
@@ -144,7 +162,7 @@ Workflow:
 2. Call get_step for EVERY step type you will use. Each has a description with the exact YAML config format — you MUST read it before writing. Do not guess config fields.
 3. If a needed step doesn't exist, author it with create_step (or edit_step to revise one), then it's available by its type. For a step that hits an external API, test it in isolation with run_step BEFORE wiring it into a workflow: run_step(type, config, cassette:"record") once to capture a fixture, then run_step(..., cassette:"replay") + edit_step to iterate offline until the output is right.
 4. Call create_workflow with the final YAML (or edit_workflow to publish a new version of an existing workflow — get_workflow to read it first).
-5. Call run_workflow with a sample input to test it — pass "input" as a JSON OBJECT (e.g. { "owner": "vercel", "repo": "next.js", "pull_number": 1 }), NOT a JSON string. Report the result (success/error, output, or which step failed) to the user.
+5. Call run_workflow with a sample input to test it — pass "input" as a JSON OBJECT (e.g. { "owner": "vercel", "repo": "next.js", "pull_number": 1 }), NOT a JSON string. Report the result (success/error, output, or which step failed) to the user. If the run auto-detaches (see run_workflow above), report the launch and end your turn — the [run-notification] will bring you back.
 6. To debug a failure or inspect prior behavior, use list_runs + get_run. To build on or reference existing workflows, use list_workflows + get_workflow first.
 
 Be concise. Don't over-explain.`;

@@ -523,3 +523,97 @@ describe("AI list_secrets tool", () => {
     assert.ok(res.error && /not available/.test(res.error));
   });
 });
+
+describe("run_workflow dispatch mode (auto-detach)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-ai-detach-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function setup(sleepMs: number) {
+    const sleeper = defineStep({
+      type: "sleeper",
+      description: "sleeps then returns",
+      input: z.object({ ms: z.number().default(0) }),
+      output: z.any(),
+      async run(cfg) {
+        await new Promise((r) => setTimeout(r, cfg.ms));
+        return { slept: cfg.ms };
+      },
+    });
+    const registry = await createRegistry([sleeper]);
+    const workspace = new WorkspaceManager(tempDir);
+    await workspace.createWorkflow("nap", {
+      steps: [{ id: "s", type: "sleeper", config: { ms: sleepMs } }],
+    });
+    return { workspace, registry };
+  }
+
+  it("fast runs return synchronously, exactly as without the detach seam", async () => {
+    const { workspace, registry } = await setup(0);
+    const detached: unknown[] = [];
+    const tools = buildTools({
+      workspace,
+      registry,
+      store: new MemoryRunStore(),
+      getRegistry: async () => registry,
+      detach: { waitMs: 2000, onDetach: (info: unknown) => detached.push(info) },
+    } as any) as any;
+
+    const res = await tools.run_workflow.execute({ name: "nap", input: {} });
+    assert.equal(res.status, "success");
+    assert.equal(typeof res.runId, "string");
+    assert.deepEqual(res.output, { slept: 0 });
+    assert.equal(detached.length, 0, "fast run must not detach");
+  });
+
+  it("a run outliving the wait window returns a detached stub and hands the promise to onDetach", async () => {
+    const { workspace, registry } = await setup(300);
+    const detached: any[] = [];
+    const tools = buildTools({
+      workspace,
+      registry,
+      store: new MemoryRunStore(),
+      getRegistry: async () => registry,
+      detach: { waitMs: 40, onDetach: (info: any) => detached.push(info) },
+    } as any) as any;
+
+    const stub = await tools.run_workflow.execute({ name: "nap", input: {} });
+    assert.equal(stub.status, "running");
+    assert.equal(stub.detached, true);
+    assert.equal(stub.workflow, "nap");
+    assert.equal(typeof stub.runId, "string");
+    assert.ok(/run-notification/.test(stub.note), "stub teaches the wake contract");
+
+    assert.equal(detached.length, 1);
+    assert.equal(detached[0].workflow, "nap");
+    assert.equal(detached[0].runId, stub.runId);
+    assert.equal(typeof detached[0].startedAt, "number");
+
+    // The handed-off promise settles with the real result, same runId.
+    const result = await detached[0].promise;
+    assert.equal(result.status, "success");
+    assert.equal(result.runId, stub.runId);
+    assert.deepEqual(result.output, { slept: 300 });
+  });
+
+  it("without the detach seam, even slow runs are awaited to completion", async () => {
+    const { workspace, registry } = await setup(150);
+    const tools = buildTools({
+      workspace,
+      registry,
+      store: new MemoryRunStore(),
+      getRegistry: async () => registry,
+    } as any) as any;
+
+    const res = await tools.run_workflow.execute({ name: "nap", input: {} });
+    assert.equal(res.status, "success");
+    assert.deepEqual(res.output, { slept: 150 });
+  });
+});

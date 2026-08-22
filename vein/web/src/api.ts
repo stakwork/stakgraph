@@ -39,6 +39,10 @@ export interface WorkflowEntry {
   activeVersion: string;
   versions: string[];
   description?: string;
+  /** Sidebar grouping label, if set. */
+  category?: string;
+  /** Start time (epoch ms) of the most recent run, if any. */
+  lastRunAt?: number;
 }
 
 export interface WorkflowMeta {
@@ -89,10 +93,18 @@ export const createWorkflowYaml = (
   name: string,
   yamlStr: string,
   description?: string,
+  category?: string,
 ) =>
   fetchJSON<CreateWorkflowResponse>(`/workflows`, {
     method: "POST",
-    body: JSON.stringify({ name, yaml: yamlStr, description }),
+    body: JSON.stringify({ name, yaml: yamlStr, description, category }),
+  });
+
+/** Set or clear a workflow's sidebar category (metadata-only, no new version). */
+export const setWorkflowCategory = (name: string, category: string | null) =>
+  fetchJSON<{ ok: boolean }>(`/workflows/${name}/category`, {
+    method: "PUT",
+    body: JSON.stringify({ category }),
   });
 
 /** Publish a new version of an existing workflow. */

@@ -95,6 +95,10 @@ export interface WorkflowVersionInfo {
 export interface WorkflowMetadata {
   active: string;
   versions: Record<string, WorkflowVersionInfo>;
+  /** Optional grouping label (e.g. an experiment name). Workflow-level, not
+   *  version-level: it survives publishes and can be changed at any time via
+   *  `setWorkflowCategory`. */
+  category?: string;
 }
 
 export interface StepVersionInfo {
@@ -132,6 +136,12 @@ export interface WorkflowListEntry {
   activeVersion: string;
   versions: string[];
   description?: string;
+  /** Grouping label, if the workflow has one (see WorkflowMetadata.category). */
+  category?: string;
+  /** Start time (epoch ms) of the most recent run, if any. Run ids are
+   *  millisecond timestamps (FileRunStore), so this is just the max entry
+   *  in the workflow's `runs/` dir — no run.json reads. */
+  lastRunAt?: number;
 }
 
 export interface StepListEntry {
@@ -166,16 +176,31 @@ export class WorkspaceManager {
       const meta = await this.readWorkflowMetadata(entry.name);
       if (meta) {
         const activeDesc = meta.versions[meta.active]?.description;
+        const lastRunAt = await this.lastRunAt(entry.name);
         results.push({
           name: entry.name,
           activeVersion: meta.active,
           versions: Object.keys(meta.versions),
           description: activeDesc,
+          ...(meta.category ? { category: meta.category } : {}),
+          ...(lastRunAt != null ? { lastRunAt } : {}),
         });
       }
     }
 
     return results;
+  }
+
+  /** Most recent run's start time (epoch ms), or null if never run. Run ids
+   *  are millisecond-timestamp dir names, so the max entry is the latest. */
+  private async lastRunAt(name: string): Promise<number | null> {
+    const entries = await safeReaddir(join(this.root, "workflows", name, "runs"));
+    let max: number | null = null;
+    for (const e of entries) {
+      const t = parseInt(e.name, 10);
+      if (!isNaN(t) && (max == null || t > max)) max = t;
+    }
+    return max;
   }
 
   /** Load the active version of a workflow. */
@@ -233,6 +258,7 @@ export class WorkspaceManager {
     name: string,
     content: { steps: any[]; params?: Record<string, unknown> } | string,
     description?: string,
+    category?: string,
   ): Promise<{ name: string; version: string }> {
     const workflowsDir = join(this.root, "workflows");
     let finalName = name;
@@ -252,16 +278,18 @@ export class WorkspaceManager {
       }
     }
 
-    await this.publishWorkflow(finalName, "v1", resolvedContent, description);
+    await this.publishWorkflow(finalName, "v1", resolvedContent, description, category);
     return { name: finalName, version: "v1" };
   }
 
-  /** Publish a new workflow version. Accepts steps array or raw YAML string. */
+  /** Publish a new workflow version. Accepts steps array or raw YAML string.
+   *  `category` (when provided) updates the workflow-level grouping label. */
   async publishWorkflow(
     name: string,
     version: string,
     content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
     description?: string,
+    category?: string,
   ): Promise<void> {
     const dir = join(this.root, "workflows", name);
     await mkdir(dir, { recursive: true });
@@ -296,9 +324,26 @@ export class WorkspaceManager {
       hash: contentHash(yamlStr),
     };
     meta.active = version;
+    if (category !== undefined) meta.category = category;
 
     await writeFile(
       join(dir, "_metadata.json"),
+      JSON.stringify(meta, null, 2),
+      "utf-8",
+    );
+  }
+
+  /**
+   * Set (or clear, with null/"") a workflow's grouping category. Metadata-only:
+   * no new version is published and the YAML content is untouched.
+   */
+  async setWorkflowCategory(name: string, category: string | null): Promise<void> {
+    const meta = await this.readWorkflowMetadata(name);
+    if (!meta) throw new Error(`Workflow "${name}" not found`);
+    if (category) meta.category = category;
+    else delete meta.category;
+    await writeFile(
+      join(this.root, "workflows", name, "_metadata.json"),
       JSON.stringify(meta, null, 2),
       "utf-8",
     );
@@ -371,11 +416,18 @@ export class WorkspaceManager {
     name: string,
     yamlStr: string,
     description?: string,
+    category?: string,
   ): Promise<{ version: string; changed: boolean }> {
     const hash = contentHash(yamlStr);
     const meta = await this.readWorkflowMetadata(name);
 
     if (meta) {
+      // Category is metadata-level, so reconcile it even when the content is
+      // a no-op — this is how seeders retrofit categories onto existing
+      // workspaces at boot.
+      if (category !== undefined && meta.category !== category) {
+        await this.setWorkflowCategory(name, category);
+      }
       const match = Object.entries(meta.versions).find(
         ([, info]) => info.hash === hash,
       );
@@ -388,7 +440,7 @@ export class WorkspaceManager {
     }
 
     const next = nextVersionLabel(meta ? Object.keys(meta.versions) : []);
-    await this.publishWorkflow(name, next, yamlStr, description);
+    await this.publishWorkflow(name, next, yamlStr, description, category);
     return { version: next, changed: true };
   }
 
