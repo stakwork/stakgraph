@@ -218,6 +218,108 @@ body.is-resizing-events * {
   color: var(--text-dim);
 }
 
+/* ─── sidebar category groups ────────────────────────────────── */
+
+.cat-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-4);
+  margin-top: var(--sp-1);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.cat-header:hover {
+  color: var(--text-muted);
+}
+.cat-caret {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform 100ms;
+}
+.cat-caret.is-open {
+  transform: rotate(90deg);
+}
+.cat-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-count {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+/* ─── topbar category chip + editor ──────────────────────────── */
+
+.cat-anchor {
+  position: relative;
+  display: inline-block;
+  margin-left: var(--sp-2);
+}
+.cat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.cat-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.cat-chip.is-empty {
+  color: var(--text-dim);
+  border-style: dashed;
+  opacity: 0;
+  transition: opacity 100ms;
+}
+.topbar-title:hover .cat-chip.is-empty,
+.cat-chip.is-empty:focus-visible {
+  opacity: 1;
+}
+.cat-popover {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  left: 0;
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3);
+  width: min(260px, 90vw);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.cat-popover input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-2);
+  color: var(--text);
+  font-size: 12px;
+}
+.cat-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
 /* ─── badges ─────────────────────────────────────────────────── */
 
 .badge {

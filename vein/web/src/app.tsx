@@ -9,7 +9,9 @@ import type { StepData, RunEventData } from "./flow-to-canvas";
 import "./styles/base.css";
 import "./styles/components.css";
 import { deepEqual, normalizeSteps, statusTone } from "./helpers";
+import { load as loadPref, save as savePref } from "./storage";
 import { ChatFlyout } from "./components/ChatFlyout";
+import { CategoryEditor } from "./components/CategoryEditor";
 import { CreateDialog } from "./components/CreateDialog";
 import { SecretsDialog } from "./components/SecretsDialog";
 import { AddStepDialog, StepTypeEntry } from "./components/AddStepDialog";
@@ -106,6 +108,51 @@ export function App() {
   }, [publishedSteps, localSteps, wfParams, localParams]);
 
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
+  const selectedEntry = workflows.find((w) => w.name === selectedWf);
+
+  // ── Sidebar grouping ─────────────────────────────────────────────────────
+  // Workflows grouped by category; groups (and workflows within them) are
+  // ordered by most-recent run so the active experiment floats to the top.
+  // Uncategorized workflows form a trailing group; headers only render when
+  // at least one workflow actually has a category.
+  const wfGroups = useMemo(() => {
+    const byCat = new Map<string, api.WorkflowEntry[]>();
+    for (const wf of workflows) {
+      const cat = wf.category ?? "";
+      const arr = byCat.get(cat) ?? [];
+      arr.push(wf);
+      byCat.set(cat, arr);
+    }
+    const byRecency = (a: api.WorkflowEntry, b: api.WorkflowEntry) =>
+      (b.lastRunAt ?? 0) - (a.lastRunAt ?? 0) || a.name.localeCompare(b.name);
+    const groups = [...byCat.entries()].map(([category, wfs]) => ({
+      category,
+      wfs: [...wfs].sort(byRecency),
+      latest: Math.max(0, ...wfs.map((w) => w.lastRunAt ?? 0)),
+    }));
+    groups.sort((a, b) => {
+      if (!a.category !== !b.category) return a.category ? -1 : 1; // uncategorized last
+      return b.latest - a.latest || a.category.localeCompare(b.category);
+    });
+    return groups;
+  }, [workflows]);
+  const showGroupHeaders = wfGroups.some((g) => g.category);
+  const categories = useMemo(
+    () => wfGroups.map((g) => g.category).filter(Boolean).sort(),
+    [wfGroups],
+  );
+
+  // Collapsed category groups, persisted across sessions.
+  const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>(
+    () => loadPref("collapsedCats", {}),
+  );
+  const toggleCat = useCallback((cat: string) => {
+    setCollapsedCats((prev) => {
+      const next = { ...prev, [cat]: !prev[cat] };
+      savePref("collapsedCats", next);
+      return next;
+    });
+  }, []);
 
   // Runs are already filtered by workflow (fetched per-workflow)
   const filteredRuns = runs;
@@ -257,8 +304,9 @@ export function App() {
       setEvents([...accumulated]);
     }, ctrl.signal)
       .then((result) => {
-        // A live-tailed run just finished → refresh the sidebar status.
-        if (result != null && !ctrl.signal.aborted) refreshRuns();
+        // A live-tailed run just finished → refresh the sidebar status
+        // (runs list + workflow ordering, which sorts by last run).
+        if (result != null && !ctrl.signal.aborted) { refreshRuns(); refreshWorkflows(); }
       })
       .catch(console.error);
     return () => ctrl.abort();
@@ -368,16 +416,18 @@ export function App() {
         if (!listedRunning) {
           listedRunning = true;
           refreshRuns(wf);
+          refreshWorkflows(); // re-sort the sidebar: this workflow just ran
         }
       });
 
       if (liveStreamRef.current) setSelectedRun(runId);
       await refreshRuns(wf);
+      await refreshWorkflows();
     } finally {
       liveStreamRef.current = false;
       setRunning(false);
     }
-  }, [selectedWf, localSteps, refreshRuns]);
+  }, [selectedWf, localSteps, refreshRuns, refreshWorkflows]);
 
   // Navigate into another workflow's run (from an Events-panel run-ref link).
   // Disarm any in-tab live stream first so it doesn't clobber the target run's
@@ -408,9 +458,9 @@ export function App() {
     }
   }, [selectedWf, localSteps, submitRun, localParams]);
 
-  const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string) => {
+  const handleCreate = useCallback(async (name: string, yamlStr: string, desc: string, category?: string) => {
     // Server auto-suffixes on collision; navigate to the resolved name.
-    const res = await api.createWorkflowYaml(name, yamlStr, desc || undefined);
+    const res = await api.createWorkflowYaml(name, yamlStr, desc || undefined, category || undefined);
     await refreshWorkflows();
     setSelectedWf(res.workflow);
     setShowCreate(false);
@@ -563,13 +613,28 @@ export function App() {
           </div>
           <div class="sidebar-scroll">
             {workflows.length === 0 && <div class="empty-sidebar">No workflows yet</div>}
-            {workflows.map((wf) => (
-              <div key={wf.name} class={`list-item ${selectedWf === wf.name ? "is-active" : ""}`}
-                onClick={() => { setSelectedWf(wf.name); setSelectedRun(null); setEvents([]); closeFlyout(); }}>
-                <span class="list-item-name">{wf.name}</span>
-                <span class="badge badge-accent">{wf.activeVersion}</span>
-              </div>
-            ))}
+            {wfGroups.map((g) => {
+              const catKey = g.category || "__uncategorized";
+              const collapsed = showGroupHeaders && !!collapsedCats[catKey];
+              return (
+                <div key={catKey}>
+                  {showGroupHeaders && (
+                    <div class="cat-header" onClick={() => toggleCat(catKey)}>
+                      <span class={`cat-caret${collapsed ? "" : " is-open"}`}>▸</span>
+                      <span class="cat-name">{g.category || "uncategorized"}</span>
+                      <span class="cat-count">{g.wfs.length}</span>
+                    </div>
+                  )}
+                  {!collapsed && g.wfs.map((wf) => (
+                    <div key={wf.name} class={`list-item ${selectedWf === wf.name ? "is-active" : ""}`}
+                      onClick={() => { setSelectedWf(wf.name); setSelectedRun(null); setEvents([]); closeFlyout(); }}>
+                      <span class="list-item-name">{wf.name}</span>
+                      <span class="badge badge-accent">{wf.activeVersion}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -601,6 +666,15 @@ export function App() {
       <div class="shell-topbar">
         <span class="topbar-title">
           {selectedWf ?? "Select a workflow"}
+          {selectedWf && (
+            <CategoryEditor
+              key={selectedWf}
+              workflow={selectedWf}
+              category={selectedEntry?.category}
+              categories={categories}
+              onSaved={refreshWorkflows}
+            />
+          )}
           {selectedRun && <span class="topbar-run">{selectedRun.slice(0, 10)}</span>}
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
@@ -700,7 +774,7 @@ export function App() {
       {events.length > 0 && <EventsPanel events={events} onOpenRun={openRun} />}
 
       {/* Create dialog */}
-      {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
+      {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} categories={categories} />}
       {showSecrets && <SecretsDialog onClose={() => setShowSecrets(false)} />}
 
       {/* Add step dialog */}

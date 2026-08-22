@@ -347,18 +347,20 @@ export async function createVein<TServices = unknown>(
       params?: Record<string, unknown>;
       yaml?: string;
       description?: string;
+      category?: string;
     }>();
 
     if (!body.name) return c.json({ error: "name is required" }, 400);
 
     let result;
     if (body.yaml) {
-      result = await workspace.createWorkflow(body.name, body.yaml, body.description);
+      result = await workspace.createWorkflow(body.name, body.yaml, body.description, body.category);
     } else if (body.steps) {
       result = await workspace.createWorkflow(
         body.name,
         { steps: body.steps, ...(body.params != null ? { params: body.params } : {}) },
         body.description,
+        body.category,
       );
     } else {
       return c.json({ error: "either steps or yaml is required" }, 400);
@@ -612,6 +614,19 @@ export async function createVein<TServices = unknown>(
     await rebuildRegistry();
 
     return c.json({ ok: true, workflow: name, version: body.version, active: body.version }, 201);
+  });
+
+  // Set or clear a workflow's grouping category. Metadata-only — no new
+  // version is published (unlike POST /workflows/:name).
+  app.put("/workflows/:name/category", async (c) => {
+    const name = c.req.param("name");
+    const body = await c.req.json<{ category?: string | null }>();
+    try {
+      await workspace.setWorkflowCategory(name, body.category ?? null);
+      return c.json({ ok: true, workflow: name, category: body.category ?? null });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
   });
 
   app.put("/workflows/:name/active", async (c) => {
