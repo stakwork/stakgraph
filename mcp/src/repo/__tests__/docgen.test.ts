@@ -6,7 +6,8 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import JSZip from "jszip";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -171,6 +172,20 @@ describe("runDocx — integration", { skip: !hasPandoc ? "pandoc not installed" 
     assert.match(missing, /generate_docx failed: could not read markdownPath/);
     const neither = await runDocx({});
     assert.match(neither, /generate_docx failed: provide either/);
+  });
+
+  it("applies the bundled 'court' template (bare name resolves to court.docx)", async () => {
+    const { runDocx } = await import("../docgen.js?t=court" + Date.now());
+    const result = await runDocx({ markdown: "# Motion\n\nBody text.", template: "court" });
+    assert.match(result, /Generated:.*\/repo\/agent\/file\?path=/, "result must contain download path");
+    const filePath = decodeURIComponent(result.match(/path=(.+)$/)![1]);
+    const zip = await JSZip.loadAsync(readFileSync(filePath));
+    const styles = await zip.file("word/styles.xml")!.async("string");
+    const doc = await zip.file("word/document.xml")!.async("string");
+    const theme = await zip.file("word/theme/theme1.xml")!.async("string");
+    assert.ok(theme.includes('typeface="Times New Roman"'), "theme fonts must be Times New Roman");
+    assert.ok(/w:line="480"/.test(styles), "body must be double-spaced");
+    assert.ok(/<w:pgMar[^/>]*w:top="1440"/.test(doc) && /<w:pgMar[^/>]*w:left="1440"/.test(doc), "margins must be 1 inch");
   });
 
   it("returns a non-fatal error string on invalid input (empty markdown is ok, pandoc error would be bad args)", async () => {
