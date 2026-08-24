@@ -485,7 +485,11 @@ Rules:
     "applies to the FIRST write exactly as much as to the appends; do not emit a whole document in " +
     "one call. The byte count `wc -c` returns is the file's cumulative size, not the size of your " +
     "last command — a growing file is fine, an oversized single command is not. " +
-    "'template' is an optional bundled reference-doc name for styling. Writes the file to the durable " +
+    "'template' is an optional bundled reference-doc name for styling. Pass template: 'court' for US " +
+    "court-filing format (Times New Roman 12pt throughout, double-spaced body, single-spaced footnotes, " +
+    "1-inch margins, Letter size) — ALWAYS use this for court filings instead of post-editing fonts, " +
+    "spacing, or margins in the .docx. Never modify docx XML internals via bash/python; regenerate " +
+    "from the .md with the right template instead. Writes the file to the durable " +
     "artifacts directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
     "On failure returns a non-fatal 'generate_docx failed: ...' string.",
   generate_xlsx:
@@ -1512,7 +1516,7 @@ export async function get_tools(
         inputSchema: z.object({
           markdown: z.string().optional().describe("Inline Markdown content to convert to .docx (small documents only)"),
           markdownPath: z.string().optional().describe("Path to a Markdown file to convert (preferred for large documents — build it incrementally with bash first); relative paths resolve against the repo directory"),
-          template: z.string().optional().describe("Optional bundled reference-doc template name for styling"),
+          template: z.string().optional().describe("Optional bundled reference-doc template name for styling. 'court' = US court-filing format (Times New Roman 12pt, double-spaced, 1-inch margins)"),
         }),
         execute: async (input) => runDocx(input, repoPath),
       });

@@ -6,7 +6,8 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import JSZip from "jszip";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -171,6 +172,20 @@ describe("runDocx — integration", { skip: !hasPandoc ? "pandoc not installed" 
     assert.match(missing, /generate_docx failed: could not read markdownPath/);
     const neither = await runDocx({});
     assert.match(neither, /generate_docx failed: provide either/);
+  });
+
+  it("applies the bundled 'court' template (bare name resolves to court.docx)", async () => {
+    const { runDocx } = await import("../docgen.js?t=court" + Date.now());
+    const result = await runDocx({ markdown: "# Motion\n\nBody text.", template: "court" });
+    assert.match(result, /Generated:.*\/repo\/agent\/file\?path=/, "result must contain download path");
+    const filePath = decodeURIComponent(result.match(/path=(.+)$/)![1]);
+    const zip = await JSZip.loadAsync(readFileSync(filePath));
+    const styles = await zip.file("word/styles.xml")!.async("string");
+    const doc = await zip.file("word/document.xml")!.async("string");
+    const theme = await zip.file("word/theme/theme1.xml")!.async("string");
+    assert.ok(theme.includes('typeface="Times New Roman"'), "theme fonts must be Times New Roman");
+    assert.ok(/w:line="480"/.test(styles), "body must be double-spaced");
+    assert.ok(/<w:pgMar[^/>]*w:top="1440"/.test(doc) && /<w:pgMar[^/>]*w:left="1440"/.test(doc), "margins must be 1 inch");
   });
 
   it("returns a non-fatal error string on invalid input (empty markdown is ok, pandoc error would be bad args)", async () => {
@@ -742,6 +757,22 @@ describe("injectParaIds — unit tests", () => {
     for (const id of ids) {
       assert.match(id, /^[0-9A-F]{8}$/, `ID "${id}" must be uppercase 8-hex digits`);
       assert.notStrictEqual(id, "00000000", "must never emit 00000000");
+    }
+  });
+
+  it("generates IDs within the OOXML-valid range (nonzero, high bit clear)", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    // 50 paragraphs × 2 IDs = 100 samples; under the old unmasked generator
+    // each had a ~50% chance of an out-of-range value, so all passing by luck
+    // is astronomically unlikely
+    const paras = Array(50).fill("<w:p/>").join("\n");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}</w:body></w:document>`;
+    const { xml: out } = injectParaIds(xml);
+    const ids = [...out.matchAll(/w14:(?:paraId|textId)="([0-9A-F]{8})"/g)].map(m => m[1]);
+    assert.ok(ids.length >= 100, "50 paragraphs × 2 IDs each = at least 100");
+    for (const id of ids) {
+      const n = parseInt(id, 16);
+      assert.ok(n >= 0x00000001 && n <= 0x7fffffff, `ID "${id}" must be in 0x00000001–0x7FFFFFFF`);
     }
   });
 
