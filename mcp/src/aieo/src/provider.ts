@@ -714,10 +714,20 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gemini-3-pro-preview": 1_000_000,
   "gemini-2.0-flash": 1_000_000,
   // OpenAI
-  "gpt-5": 128_000,
+  "gpt-5": 400_000,
+  "gpt-5.5": 1_050_000,
+  "gpt-5.6-terra": 1_050_000,
+  "gpt-5.6-luna": 1_050_000,
+  "gpt-5.6-sol": 1_050_000,
   "gpt-4.1-mini": 1_000_000,
   // OpenRouter — values from the OpenRouter model catalog
   // (https://openrouter.ai/api/v1/models, context_length).
+  "stealth/ox-alpha": 1_048_576,
+  "openai/gpt-5": 400_000,
+  "openai/gpt-5.5": 1_050_000,
+  "openai/gpt-5.6-terra": 1_050_000,
+  "openai/gpt-5.6-luna": 1_050_000,
+  "openai/gpt-5.6-sol": 1_050_000,
   "moonshotai/kimi-k3": 1_048_576,
   "moonshotai/kimi-k2.7-code": 262_144,
   "moonshotai/kimi-k2.6": 262_144,
@@ -741,8 +751,9 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
   anthropic: 1_000_000,
   google: 1_000_000,
-  openai: 128_000,
-  openrouter: 128_000,
+  // gpt-5.x models are all 400k+; only legacy chat models are smaller
+  openai: 400_000,
+  openrouter: 256_000,
   xai: 256_000,
 };
 
