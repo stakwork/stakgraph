@@ -356,6 +356,19 @@ const DEFAULT_LLM_HTTP_TIMEOUT_MS =
   parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 120_000;
 
 /**
+ * Extra attempts after a connect-phase timeout. The timeout aborts via an
+ * AbortController, so the AI SDK sees a DOMException AbortError and treats it
+ * as an intentional cancellation — its built-in 408/409/429/5xx retry ladder
+ * never fires. Retrying here, inside the fetch wrapper, is safe because no
+ * headers arrived (nothing was consumed) and the request body is a JSON
+ * string. Set `LLM_HTTP_TIMEOUT_RETRIES=0` to disable.
+ */
+const LLM_HTTP_TIMEOUT_RETRIES = (() => {
+  const parsed = parseInt(process.env.LLM_HTTP_TIMEOUT_RETRIES || "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2;
+})();
+
+/**
  * Combine any number of AbortSignals (skipping null/undefined) without
  * requiring `AbortSignal.any` (Node ≥20.3). Returns a signal that aborts when
  * any input fires. Gracefully handles an already-aborted input.
@@ -390,6 +403,10 @@ function combineSignals(
  *    preserved by folding it into the combined signal rather than overwriting.
  * 4. Logs and re-throws on timeout (`ETIMEDOUT`) or abort (`AbortError`) with
  *    a clear reason string so callers can surface the right error to the agent.
+ * 5. Retries pure connect-phase timeouts up to `LLM_HTTP_TIMEOUT_RETRIES`
+ *    extra attempts — the AI SDK won't, because the timeout surfaces as an
+ *    AbortError, which it treats as a deliberate cancellation. Genuine aborts
+ *    (run signal / SDK signal) are never retried.
  *
  * @param timeoutMs  Milliseconds to wait for headers before aborting.
  * @param runSignal  The per-run AbortSignal (may be undefined).
@@ -400,45 +417,57 @@ function buildTimeoutFetch(
 ): typeof fetch {
   return async (input, init) => {
     const url = typeof input === "string" ? input : (input as Request).url;
-    const startMs = Date.now();
-
-    // ── timeout controller — only guards the connect/first-response phase ──
-    const timeoutCtrl = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
-      timeoutCtrl.abort();
-    }, timeoutMs);
-
-    const clearTimer = () => {
-      if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
-    };
-
-    // Combine the per-request timeout signal, the run signal (if any), and
-    // the AI SDK's own per-request signal (if any) — overwriting init.signal
-    // would silently detach SDK-initiated cancellations from the socket.
     const sdkSignal = init?.signal;
-    const combinedSignal = combineSignals([
-      sdkSignal,
-      runSignal,
-      timeoutCtrl.signal,
-    ]);
+    // A retry re-sends the request from scratch, which is only sound when the
+    // body can be replayed: a plain-string body (the AI SDK always sends JSON
+    // strings) via a string/URL input. A Request object's body stream may have
+    // been consumed by the failed attempt.
+    const canResend =
+      (typeof input === "string" || input instanceof URL) &&
+      (init?.body == null || typeof init.body === "string");
+    const maxAttempts = canResend ? 1 + LLM_HTTP_TIMEOUT_RETRIES : 1;
 
-    try {
-      const response = await fetch(input, { ...init, signal: combinedSignal });
-      // Headers received — disarm the timeout so the streaming body is never killed by it.
-      clearTimer();
-      return response;
-    } catch (err: any) {
-      clearTimer();
-      const elapsedMs = Date.now() - startMs;
-      // Classify: the timeout timer fired, and neither the run signal nor the
-      // SDK's own signal was the cause.
-      const isTimeout =
-        timeoutCtrl.signal.aborted && !runSignal?.aborted && !sdkSignal?.aborted;
-      const reason = isTimeout ? "timeout" : "aborted";
-      console.warn(
-        `[llm-fetch] ${reason} after ${elapsedMs}ms: ${url} — ${err?.message ?? String(err)}`,
-      );
-      throw err;
+    for (let attempt = 1; ; attempt++) {
+      const startMs = Date.now();
+
+      // ── timeout controller — only guards the connect/first-response phase ──
+      const timeoutCtrl = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+        timeoutCtrl.abort();
+      }, timeoutMs);
+
+      const clearTimer = () => {
+        if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+      };
+
+      // Combine the per-request timeout signal, the run signal (if any), and
+      // the AI SDK's own per-request signal (if any) — overwriting init.signal
+      // would silently detach SDK-initiated cancellations from the socket.
+      const combinedSignal = combineSignals([
+        sdkSignal,
+        runSignal,
+        timeoutCtrl.signal,
+      ]);
+
+      try {
+        const response = await fetch(input, { ...init, signal: combinedSignal });
+        // Headers received — disarm the timeout so the streaming body is never killed by it.
+        clearTimer();
+        return response;
+      } catch (err: any) {
+        clearTimer();
+        const elapsedMs = Date.now() - startMs;
+        // Classify: the timeout timer fired, and neither the run signal nor the
+        // SDK's own signal was the cause.
+        const isTimeout =
+          timeoutCtrl.signal.aborted && !runSignal?.aborted && !sdkSignal?.aborted;
+        const reason = isTimeout ? "timeout" : "aborted";
+        console.warn(
+          `[llm-fetch] ${reason} after ${elapsedMs}ms (attempt ${attempt}/${maxAttempts}): ${url} — ${err?.message ?? String(err)}`,
+        );
+        if (isTimeout && attempt < maxAttempts) continue;
+        throw err;
+      }
     }
   };
 }
