@@ -745,6 +745,22 @@ describe("injectParaIds — unit tests", () => {
     }
   });
 
+  it("generates IDs within the OOXML-valid range (nonzero, high bit clear)", async () => {
+    const { injectParaIds } = await import("../docgen.js");
+    // 50 paragraphs × 2 IDs = 100 samples; under the old unmasked generator
+    // each had a ~50% chance of an out-of-range value, so all passing by luck
+    // is astronomically unlikely
+    const paras = Array(50).fill("<w:p/>").join("\n");
+    const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}</w:body></w:document>`;
+    const { xml: out } = injectParaIds(xml);
+    const ids = [...out.matchAll(/w14:(?:paraId|textId)="([0-9A-F]{8})"/g)].map(m => m[1]);
+    assert.ok(ids.length >= 100, "50 paragraphs × 2 IDs each = at least 100");
+    for (const id of ids) {
+      const n = parseInt(id, 16);
+      assert.ok(n >= 0x00000001 && n <= 0x7fffffff, `ID "${id}" must be in 0x00000001–0x7FFFFFFF`);
+    }
+  });
+
   it("generates unique IDs across multiple paragraphs", async () => {
     const { injectParaIds } = await import("../docgen.js");
     // Generate 20 paragraphs to surface collision issues

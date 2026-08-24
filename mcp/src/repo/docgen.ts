@@ -75,14 +75,15 @@ export interface XlsxInput {
 /**
  * Generate a unique 8-digit uppercase hex ID, avoiding the reserved value
  * "00000000" and any IDs already in the `used` set. Adds the new ID to `used`.
+ * OOXML requires paraId/textId values to be nonzero with the high bit clear,
+ * so IDs are constrained to 0x00000001–0x7FFFFFFF.
  */
 function genParaId(used: Set<string>): string {
   while (true) {
-    const id = Math.floor(Math.random() * 0xffffffff + 1)
-      .toString(16)
-      .toUpperCase()
-      .padStart(8, "0");
-    if (id !== "00000000" && !used.has(id)) {
+    const n = Math.floor(Math.random() * 0x100000000) & 0x7fffffff;
+    if (n === 0) continue;
+    const id = n.toString(16).toUpperCase().padStart(8, "0");
+    if (!used.has(id)) {
       used.add(id);
       return id;
     }
