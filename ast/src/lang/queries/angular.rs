@@ -98,8 +98,8 @@ impl Stack for Angular {
         ))
     }
     fn variables_query(&self) -> Option<String> {
-        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
-        let field_types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)(call_expression)";
+        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)(satisfies_expression)(as_expression)";
+        let field_types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)(call_expression)(satisfies_expression)(as_expression)";
         Some(format!(
             r#"(program
                     (export_statement
