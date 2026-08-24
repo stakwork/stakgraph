@@ -24,6 +24,8 @@ const TEMPLATES_DIR = path.join(
 
 /** Containment guard: resolve p against TEMPLATES_DIR and throw if it escapes. */
 function resolveTemplate(template: string): string {
+  // Bare names resolve to bundled .docx reference docs: "court" -> "court.docx"
+  if (!template.includes(".")) template += ".docx";
   const root = resolve(TEMPLATES_DIR);
   const target = resolve(isAbsolute(template) ? template : join(root, template));
   if (!(target === root || target.startsWith(root + sep))) {
