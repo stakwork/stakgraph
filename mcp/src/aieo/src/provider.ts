@@ -349,11 +349,14 @@ export interface GetModelOptions {
  * with HTTP headers before giving up. The timer is disarmed once headers
  * arrive, so only the connect/stall phase is bounded — not the stream body.
  *
- * 120 s is generous enough for slow gateways but still well below the 2-hour
- * busy watchdog. Ops can tune via `LLM_HTTP_TIMEOUT_MS`.
+ * 5 min covers slow gateways and — crucially — non-streaming `generateText`
+ * calls, where the provider sends nothing (headers included) until the whole
+ * message is generated, so an adaptive-thinking call can legitimately need
+ * minutes. Still well below the 2-hour busy watchdog. Ops can tune via
+ * `LLM_HTTP_TIMEOUT_MS`.
  */
 const DEFAULT_LLM_HTTP_TIMEOUT_MS =
-  parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 120_000;
+  parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 300_000;
 
 /**
  * Extra attempts after a connect-phase timeout. The timeout aborts via an
