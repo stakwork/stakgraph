@@ -125,8 +125,11 @@ impl Neo4jGraph {
     /// Drop the cached `neo4rs::Graph` and rebuild it. Used by the retry layer
     /// when an attempt times out — the underlying bolt socket(s) may be wedged,
     /// so reusing the same `Graph` would make every retry hang the same way.
+    /// The pool is shared process-wide, so also invalidate the manager's cache;
+    /// otherwise reconnecting would hand back the same wedged pool.
     pub async fn force_reconnect(&self) -> Result<Neo4jConnection> {
         warn!("[neo4j] forcing reconnect (cached Graph will be dropped)");
+        Neo4jConnectionManager::invalidate().await;
         *self.connection.lock().await = None;
         self.ensure_connected().await
     }

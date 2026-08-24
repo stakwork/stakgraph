@@ -11,18 +11,76 @@ use crate::lang::graphs::{
 use crate::lang::Neo4jGraph;
 pub struct Neo4jConnectionManager;
 
+/// Cache key for the shared pool. If a caller ever passes a `Neo4jConfig`
+/// pointing at a different server/db, it gets a fresh pool (replacing the
+/// cached one) instead of silently reusing the wrong connection.
+type PoolKey = (String, String, String);
+
+struct CachedPool {
+    key: PoolKey,
+    pool: Neo4jConnection,
+}
+
+/// Process-wide shared pool. `neo4rs::Graph` is an Arc'd pool handle, so
+/// cloning it is cheap and every clone talks to the same set of bolt sockets.
+/// The tokio Mutex is held across the connect await on purpose: concurrent
+/// first callers serialize, a FAILED connect is never cached, and the next
+/// caller retries.
+static SHARED_POOL: tokio::sync::Mutex<Option<CachedPool>> = tokio::sync::Mutex::const_new(None);
+
+#[cfg(test)]
+pub static POOL_BUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 impl Neo4jConnectionManager {
-    /// Build a `neo4rs::Graph` (a pooled bolt connection handle).
+    /// Return the process-wide `neo4rs::Graph` (a pooled bolt connection
+    /// handle), building it on first use.
     ///
-    /// IMPORTANT: previously this ignored `Neo4jConfig::max_connections` and
-    /// `fetch_size`, so the entire service ran on neo4rs's default pool. In
-    /// production this manifested as a single long-lived bolt socket carrying
-    /// every query — when that socket got into a bad state (idle middlebox,
-    /// server-side bolt thread stuck, etc.) every subsequent query hung until
-    /// our tokio per-attempt timeout fired, and retries reused the same wedged
-    /// socket. Configuring an explicit pool size means a wedged socket can't
-    /// take down the whole service.
+    /// Every `Neo4jGraph`/`GraphOps` in the process shares this one pool:
+    /// previously each call built a brand-new pool, so per-request
+    /// `GraphOps::new().connect()` callers opened `max_connections` fresh bolt
+    /// sockets per operation and concurrent load could hold ~70 connections
+    /// against a single Neo4j instance (enough to OOM a small swarm node).
+    ///
+    /// IMPORTANT: this must keep configuring the pool explicitly. At one point
+    /// it ignored `Neo4jConfig::max_connections` and `fetch_size`, so the
+    /// service ran on neo4rs's default pool. In production this manifested as
+    /// a single long-lived bolt socket carrying every query — when that socket
+    /// got into a bad state (idle middlebox, server-side bolt thread stuck,
+    /// etc.) every subsequent query hung until our tokio per-attempt timeout
+    /// fired, and retries reused the same wedged socket. Configuring an
+    /// explicit pool size means a wedged socket can't take down the whole
+    /// service. (`Neo4jGraph::force_reconnect` handles the wedged case for the
+    /// shared pool by calling `invalidate` below.)
     pub async fn initialize(cfg: &Neo4jConfig) -> Result<Neo4jConnection> {
+        let key: PoolKey = (cfg.uri.clone(), cfg.username.clone(), cfg.database.clone());
+
+        let mut cached = SHARED_POOL.lock().await;
+        if let Some(c) = cached.as_ref() {
+            if c.key == key {
+                return Ok(c.pool.clone());
+            }
+        }
+
+        let pool = Self::build_pool(cfg).await?;
+        *cached = Some(CachedPool {
+            key,
+            pool: pool.clone(),
+        });
+        Ok(pool)
+    }
+
+    /// Drop the cached shared pool so the next `initialize` builds a fresh
+    /// one. Used by `Neo4jGraph::force_reconnect` when the pool's bolt
+    /// socket(s) may be wedged — without this, re-connecting would just hand
+    /// back the same stuck pool.
+    pub async fn invalidate() {
+        *SHARED_POOL.lock().await = None;
+    }
+
+    async fn build_pool(cfg: &Neo4jConfig) -> Result<Neo4jConnection> {
+        #[cfg(test)]
+        POOL_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         let max_connections = std::env::var("NEO4J_MAX_CONNECTIONS")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
@@ -45,6 +103,38 @@ impl Neo4jConnectionManager {
         Neo4jConnection::connect(config)
             .await
             .map_err(|e| Error::dependency(format!("Failed to connect to Neo4j: {e}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[tokio::test]
+    async fn initialize_reuses_shared_pool() {
+        let cfg = Neo4jConfig::default();
+        if Neo4jConnectionManager::initialize(&cfg).await.is_err() {
+            eprintln!("skipping initialize_reuses_shared_pool: no Neo4j reachable");
+            return;
+        }
+        let builds = POOL_BUILDS.load(Ordering::SeqCst);
+        for _ in 0..3 {
+            Neo4jConnectionManager::initialize(&cfg).await.unwrap();
+        }
+        assert_eq!(
+            POOL_BUILDS.load(Ordering::SeqCst),
+            builds,
+            "repeated initialize() calls must reuse the cached pool"
+        );
+
+        Neo4jConnectionManager::invalidate().await;
+        Neo4jConnectionManager::initialize(&cfg).await.unwrap();
+        assert_eq!(
+            POOL_BUILDS.load(Ordering::SeqCst),
+            builds + 1,
+            "invalidate() must force the next initialize() to build a fresh pool"
+        );
     }
 }
 

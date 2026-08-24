@@ -142,7 +142,7 @@ pub async fn hive_query_handler(
     let stripped = LIMIT_STRIP_RE.replace_all(&body.query, "");
     let modified_query = format!("{} LIMIT {}", stripped.trim_end(), effective_limit);
 
-    // Per-request bolt pool — consistent with vector_search_handler and all other handlers.
+    // Cheap per-request handle — connect() reuses the process-wide shared bolt pool.
     let mut graph_ops = GraphOps::new();
     if let Err(e) = graph_ops.connect().await {
         tracing::error!(error = %e, "hive_query: failed to connect to Neo4j");
