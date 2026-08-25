@@ -335,7 +335,10 @@ impl Stack for TypeScriptReact {
             )
 
             (method_definition
-                name: (property_identifier) @{FUNCTION_NAME} (#not-eq? @{FUNCTION_NAME} "render")
+                name: [
+                    (property_identifier)
+                    (private_property_identifier)
+                ] @{FUNCTION_NAME} (#not-eq? @{FUNCTION_NAME} "render")
                 parameters: (formal_parameters)? @{ARGUMENTS}
                 return_type: (type_annotation)? @{RETURN_TYPES}
             ) @{FUNCTION_DEFINITION}
@@ -359,7 +362,10 @@ impl Stack for TypeScriptReact {
             ) @{FUNCTION_DEFINITION}
 
             (public_field_definition
-                name: (property_identifier) @{FUNCTION_NAME}
+                name: [
+                    (property_identifier)
+                    (private_property_identifier)
+                ] @{FUNCTION_NAME}
                 value: [
                     (function_expression
                         parameters: (formal_parameters)? @{ARGUMENTS}
