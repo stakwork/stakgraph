@@ -116,7 +116,7 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     assert_eq!(calls_edges, 18);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 238);
+    assert_eq!(contains_edges, 241);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 22);
@@ -133,8 +133,8 @@ async fn test_typescript_graph_upload() -> Result<()> {
     let graph_ops = setup_typescript_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 238);
-    assert_eq!(edges, 327, "Expected 327 edges, got {}", edges);
+    assert_eq!(nodes, 241);
+    assert_eq!(edges, 337, "Expected 337 edges, got {}", edges);
 
     Ok(())
 }
@@ -341,8 +341,8 @@ async fn test_nodes_class_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 11);
-    assert_eq!(results.len(), 11);
+    assert_eq!(count, 13);
+    assert_eq!(results.len(), 13);
 
     Ok(())
 }
