@@ -83,7 +83,10 @@ export function App() {
   const [loadedWf, setLoadedWf] = useState<string | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
-  const [showChat, setShowChat] = useState(false);
+  // Open on load when the URL deep-links into a chat (?chat=<id>).
+  const [showChat, setShowChat] = useState(() =>
+    new URLSearchParams(location.search).has("chat"),
+  );
   const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
   // The selected workflow's `params` defaults (tunable knobs). `wfParams` is
   // the published baseline; `localParams` is the editable working copy. Editing

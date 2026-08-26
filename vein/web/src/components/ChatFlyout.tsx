@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "preact/hooks";
 import * as api from "../api";
 import * as storage from "../storage";
 import { formatJson } from "../helpers";
-import { CloseIcon, HistoryIcon } from "../icons";
+import { CloseIcon, HistoryIcon, CopyIcon, CheckIcon } from "../icons";
+import { FlyoutResizer } from "./FlyoutResizer";
 
 // ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
 
@@ -17,6 +18,17 @@ type ChatEntry =
 // Persist the active chat id so closing/reopening the flyout (or the whole
 // browser) reattaches to the same detached session.
 const CHAT_ID_KEY = "activeChatId";
+
+// The active chat is also mirrored into the URL (?chat=<id>) so a link
+// deep-links straight into it; the param wins over the persisted id.
+const CHAT_URL_PARAM = "chat";
+
+function setChatUrlParam(id: string | null) {
+  const url = new URL(location.href);
+  if (id) url.searchParams.set(CHAT_URL_PARAM, id);
+  else url.searchParams.delete(CHAT_URL_PARAM);
+  history.replaceState(null, "", url);
+}
 
 // Server-initiated wake-up messages (a detached run finished) are stored as
 // user-role messages with this prefix; render them as a notice, not a bubble.
@@ -38,6 +50,28 @@ function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
     }
   }
   return groups;
+}
+
+/** Serialize the conversation as markdown — for pasting into an issue or
+ *  another chat when debugging. Tool inputs are included as JSON blocks. */
+function transcriptText(entries: ChatEntry[]): string {
+  const blocks: string[] = [];
+  for (const e of entries) {
+    if (e.kind === "user") {
+      blocks.push(`### User\n${e.content}`);
+    } else if (e.kind === "notice") {
+      blocks.push(`### Notice\n${e.content}`);
+    } else if (e.kind === "text") {
+      blocks.push(`### Assistant\n${e.content}`);
+    } else {
+      for (const g of e.groups) {
+        for (const tc of g.calls) {
+          blocks.push(`### Tool call: ${g.name}\n\`\`\`json\n${formatJson(tc.input)}\n\`\`\``);
+        }
+      }
+    }
+  }
+  return blocks.join("\n\n");
 }
 
 /** Compact relative timestamp (e.g. "3m", "2h", "5d") with absolute fallback. */
@@ -110,10 +144,22 @@ export function ChatFlyout(props: {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [chatId, setChatId] = useState<string | null>(() =>
+    new URLSearchParams(location.search).get(CHAT_URL_PARAM) ??
     storage.load<string | null>(CHAT_ID_KEY, null),
   );
   const [showHistory, setShowHistory] = useState(false);
   const [chats, setChats] = useState<api.ChatMeta[]>([]);
+  const [copied, setCopied] = useState(false);
+
+  const copyTranscript = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(transcriptText(entries));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) — no-op.
+    }
+  }, [entries]);
 
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -124,6 +170,11 @@ export function ChatFlyout(props: {
   const seenTurn = useRef(-1);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Mirror the active chat into the URL; clear the param when the flyout
+  // closes so a reload doesn't unexpectedly reopen the panel.
+  useEffect(() => { setChatUrlParam(chatId); }, [chatId]);
+  useEffect(() => () => setChatUrlParam(null), []);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -137,13 +188,20 @@ export function ChatFlyout(props: {
   const streamCallbacks = useCallback((): api.ChatCallbacks => {
     let textBuf = "";
     let toolBuf: api.ToolCallInfo[] = [];
+    // A trailing text/tool entry may only be replaced in place by the step
+    // that created it — a new step must append, not clobber the previous
+    // step's entry (which may be the same kind with no bubble in between).
+    let stepHasTextEntry = false;
+    let stepHasToolEntry = false;
     return {
       onTextDelta: (delta) => {
         textBuf += delta;
         const content = textBuf;
+        const replace = stepHasTextEntry;
+        stepHasTextEntry = true;
         setEntries((prev) => {
           const last = prev[prev.length - 1];
-          if (last && last.kind === "text") {
+          if (replace && last && last.kind === "text") {
             const next = [...prev];
             next[next.length - 1] = { kind: "text", content };
             return next;
@@ -157,9 +215,11 @@ export function ChatFlyout(props: {
           props.onWorkflowCreated(tc.input.name);
         }
         const groups = groupCalls(toolBuf);
+        const replace = stepHasToolEntry;
+        stepHasToolEntry = true;
         setEntries((prev) => {
           const last = prev[prev.length - 1];
-          if (last && last.kind === "tool") {
+          if (replace && last && last.kind === "tool") {
             const next = [...prev];
             next[next.length - 1] = { kind: "tool", groups };
             return next;
@@ -175,6 +235,8 @@ export function ChatFlyout(props: {
       onStepFinish: () => {
         textBuf = "";
         toolBuf = [];
+        stepHasTextEntry = false;
+        stepHasToolEntry = false;
       },
       onFinish: () => {
         setLoading(false);
@@ -291,12 +353,23 @@ export function ChatFlyout(props: {
 
   return (
     <div class="flyout chat-flyout">
+      <FlyoutResizer />
       <div class="flyout-header">
         <div>
           <div class="flyout-eyebrow">AI Builder</div>
           <div class="flyout-title">Create Workflow</div>
         </div>
         <div class="chat-header-actions">
+          {entries.length > 0 && (
+            <button
+              class="flyout-close chat-history-btn"
+              onClick={copyTranscript}
+              aria-label="Copy conversation"
+              title={copied ? "Copied!" : "Copy conversation"}
+            >
+              {copied ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
+            </button>
+          )}
           <button
             class={`flyout-close chat-history-btn${showHistory ? " is-active" : ""}`}
             onClick={toggleHistory}
