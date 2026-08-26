@@ -4,6 +4,7 @@ import * as storage from "../storage";
 import { formatJson } from "../helpers";
 import { CloseIcon, HistoryIcon, CopyIcon, CheckIcon } from "../icons";
 import { FlyoutResizer } from "./FlyoutResizer";
+import { Markdown } from "./Markdown";
 
 // ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
 
@@ -460,10 +461,14 @@ export function ChatFlyout(props: {
               </div>
             );
           }
-          // kind === "text"
+          // kind === "text" — plain text while tokens are still streaming into
+          // this bubble (the last entry of a live turn); markdown once done.
+          const streaming = loading && i === entries.length - 1;
           return (
             <div key={i} class="chat-msg chat-msg-assistant">
-              <div class="chat-msg-text">{entry.content}</div>
+              {streaming
+                ? <div class="chat-msg-text">{entry.content}</div>
+                : <Markdown class="chat-msg-text" source={entry.content} />}
             </div>
           );
         })}

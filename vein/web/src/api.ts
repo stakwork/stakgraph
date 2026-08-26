@@ -239,7 +239,7 @@ export async function streamRun(
 // ── Steps ──────────────────────────────────────────────────────────────────
 
 export interface StepsResponse {
-  core: { type: string; source: string }[];
+  core: { type: string; source: string; description?: string }[];
   workspace: { type: string; description?: string }[];
 }
 

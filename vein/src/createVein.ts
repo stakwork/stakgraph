@@ -750,7 +750,8 @@ export async function createVein<TServices = unknown>(
   app.get("/steps", async (c) => {
     const allSteps = Object.keys(registry).map((type) => ({
       type,
-      source: stepSources[type] ?? (registryWasInjected ? "core" : "core"),
+      source: stepSources[type] ?? "core",
+      description: registry[type]?.description,
     }));
     const workspaceSteps = await workspace.listSteps();
     return c.json({ core: allSteps, workspace: workspaceSteps });
