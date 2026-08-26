@@ -20,6 +20,7 @@ import {
 } from "./chat-store.js";
 import { WorkspaceManager } from "./workspace.js";
 import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
+import { maxOutputTokensFor } from "./pricing.js";
 import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
 import { requireApiKey, warnIfUnconfigured } from "./auth.js";
@@ -90,12 +91,13 @@ export interface VeinOptions<TServices = unknown> {
   secretStore?: SecretStore;
 
   /** Max agent steps (tool-call iterations) per chat turn. Raise for longer
-   *  autonomous "let it rip" loops. Defaults to `VEIN_CHAT_MAX_STEPS` or 30. */
+   *  autonomous "let it rip" loops. Defaults to `VEIN_CHAT_MAX_STEPS` or 100. */
   chatMaxSteps?: number;
 
   /** Anthropic model id for the chat agent. Defaults to `VEIN_CHAT_MODEL` or
    *  `claude-sonnet-5`. */
   chatModel?: string;
+
 
   /** How long the chat agent's `run_workflow` tool waits before a still-
    *  running workflow converts to a DETACHED run (the tool returns a
@@ -324,11 +326,16 @@ export async function createVein<TServices = unknown>(
       ? new FileChatStore(workspace.path)
       : new MemoryChatStore());
   const chatMaxSteps =
-    opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 30);
+    opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 100);
   const chatModel =
     opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-5";
   const chatRunWaitMs =
     opts.chatRunWaitMs ?? Number(process.env["VEIN_CHAT_RUN_WAIT_MS"] ?? 60_000);
+  // Provider-derived infra constant (see pricing.ts — NOT an option: a wrong
+  // value is only ever a bug). Without it the AI SDK defaults max_tokens to
+  // 4096, which truncates a create_step tool call MID-JSON (it carries a
+  // whole TS file in its `code` arg) — the turn dies with finish=length.
+  const chatMaxOutputTokens = maxOutputTokensFor("anthropic");
   const chatMaxAutoTurns =
     opts.chatMaxAutoTurns ?? Number(process.env["VEIN_CHAT_MAX_AUTO_TURNS"] ?? 10);
   const webDist =
@@ -743,7 +750,8 @@ export async function createVein<TServices = unknown>(
   app.get("/steps", async (c) => {
     const allSteps = Object.keys(registry).map((type) => ({
       type,
-      source: stepSources[type] ?? (registryWasInjected ? "core" : "core"),
+      source: stepSources[type] ?? "core",
+      description: registry[type]?.description,
     }));
     const workspaceSteps = await workspace.listSteps();
     return c.json({ core: allSteps, workspace: workspaceSteps });
@@ -1020,6 +1028,10 @@ export async function createVein<TServices = unknown>(
             store,
             services,
             secrets: secretsInjected ? undefined : secretStore,
+            // Build-time bash for the chat builder, cwd'd at the workspace
+            // root (scrubbed env — see shell.ts).
+            shell: { cwd: workspace.path },
+            webSearch: true,
             publishingEnabled: !registryWasInjected,
             getRegistry: async () => {
               if (registryWasInjected) return registry;
@@ -1089,6 +1101,7 @@ export async function createVein<TServices = unknown>(
             model: anthropic(chatModel),
             instructions: await buildSystem(deps),
             tools: buildTools(deps),
+            maxOutputTokens: chatMaxOutputTokens,
             stopWhen: stepCountIs(chatMaxSteps),
             onFinish: () => {
               registry = deps.registry;
@@ -1104,6 +1117,13 @@ export async function createVein<TServices = unknown>(
               console.log(
                 `[chat ${chatId}] turn ${turn} step ${step.stepNumber} finish=${step.finishReason} tokens=in:${u?.inputTokens ?? "?"}/out:${u?.outputTokens ?? "?"}`,
               );
+              // finish=length is a TRUNCATED generation: a cut-off tool call
+              // never executes and the turn dies silently. Say why, loudly.
+              if (step.finishReason === "length") {
+                console.warn(
+                  `[chat ${chatId}] turn ${turn} step ${step.stepNumber} TRUNCATED at maxOutputTokens=${chatMaxOutputTokens} — a cut-off tool call never executed; the turn likely ended incomplete. Raise VEIN_MAX_OUTPUT_TOKENS if this recurs.`,
+                );
+              }
             },
           });
 

@@ -413,6 +413,29 @@ over `ctx.services.harvey.*`; editing them can only break plumbing.
   tree / rev pin / missing dir), rubric stripping, artifact staging, CLI
   args, step wiring.
 
+### `gaia/` — GAIA benchmark scoring (the hardcoded grader)
+
+Scores answers with the **actual** GAIA leaderboard scorer (`scorer.py`,
+quasi-exact match with type-aware normalization) as a `python3 -c` subprocess
+against the validation split's gold answers. Same discipline as harvey: the
+grader AND the gold live in the in-code `gaia` service (`gaia/service.ts`,
+on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
+(authored by the assistant) are thin plumbing over `ctx.services.gaia.*`.
+
+- **Setup**: `GAIA_DIR` → a local clone of the (HF-gated, click-through)
+  `gaia-benchmark/GAIA` dataset repo, with the leaderboard Space's
+  `scorer.py` dropped untracked at its root. Optional `GAIA_SCORER_SHA256`
+  pin; `GAIA_PYTHON` (default `python3`, needs numpy for the real scorer).
+- **Integrity invariant** (per grade): dataset checkout must be a CLEAN git
+  tree (a doctored `metadata.jsonl` is doctored gold; untracked `scorer.py`
+  is tolerated), and the scorer hash must match any pin. Results carry
+  `benchmarkRev` + `scorerSha256`.
+- **Gold isolation**: `getTask`/`listTasks` strip `Final answer`; only the
+  `score()` subprocess reads it. Never grant a scoring step to the
+  producing agent's `agentTools`.
+- `smoke.ts` — offline integrity paths + the real python driver against a
+  stub scorer (`npx tsx src/lab/gaia/smoke.ts`).
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See

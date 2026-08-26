@@ -17,6 +17,7 @@ import { seedSheetsSteps } from "./sheets/seed.js";
 import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
+import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 
 /**
@@ -50,6 +51,11 @@ export interface LabServices extends ConceptServices {
    *  from the pinned harvey-labs checkout (HARVEY_LABS_DIR). In-code on
    *  purpose — the grader must stay outside the agent-editable surface. */
   harvey?: HarveyServices;
+  /** GAIA LAB scoring: runs the REAL leaderboard scorer.py (python3
+   *  subprocess) against the validation gold in the pinned dataset checkout
+   *  (GAIA_DIR). In-code on purpose — the grader and the gold must stay
+   *  outside the agent-editable surface; gaia/* steps are thin plumbing. */
+  gaia?: GaiaServices;
   /** Generic per-run teardown hook called by the vein runner in a `finally`
    *  (success AND error). Disposes a run's gitsee browser + booted stack. */
   onRunEnd?(runId: string): Promise<void>;
@@ -105,6 +111,12 @@ export async function createLabVein(
   // cheap; HARVEY_LABS_DIR is checked at call time (loud per-run error).
   if (!services.harvey) {
     services.harvey = buildHarveyServices();
+  }
+
+  // GAIA LAB grader — same in-code, NOT-seeded discipline (see
+  // gaia/service.ts). GAIA_DIR is checked at call time.
+  if (!services.gaia) {
+    services.gaia = buildGaiaServices();
   }
 
   const workspacePath =

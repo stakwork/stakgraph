@@ -185,6 +185,30 @@ body.is-resizing-events * {
   min-height: 0;
 }
 
+/* Collapsed sidebar section: shrinks to just its title row. */
+.sidebar-section.is-collapsed {
+  flex: 0 0 auto;
+}
+.section-title-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  cursor: pointer;
+  user-select: none;
+}
+.section-title-toggle:hover {
+  color: var(--text-muted);
+}
+.steps-group-label {
+  padding: var(--sp-1) var(--sp-4);
+  margin-top: var(--sp-1);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
 /* ─── list items ─────────────────────────────────────────────── */
 
 .list-item {
@@ -1132,6 +1156,45 @@ body.is-resizing-flyout * {
   appearance: auto;
 }
 
+/* ─── step info flyout (catalog) ─────────────────────────────── */
+
+.step-info-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.schema-field {
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.schema-field:last-child {
+  border-bottom: none;
+}
+.schema-field-head {
+  display: flex;
+  align-items: center;
+}
+.schema-field-head .param-type-tag:first-of-type {
+  margin-left: auto;
+}
+.schema-field-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.schema-field-req {
+  color: var(--warning);
+}
+.schema-field-default {
+  margin-top: 2px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ─── chat flyout ────────────────────────────────────────────── */
 
 .chat-flyout {
@@ -1218,6 +1281,7 @@ body.is-resizing-flyout * {
   color: var(--bg);
   border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-lg);
   padding: var(--sp-2) var(--sp-3);
+  white-space: pre-wrap;
 }
 .chat-msg-assistant {
   align-self: flex-start;
@@ -1229,6 +1293,12 @@ body.is-resizing-flyout * {
   padding: var(--sp-2) var(--sp-3);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Finished assistant bubbles render as markdown: block structure comes from
+   the md elements, so don't also preserve raw newlines. */
+.chat-msg-assistant .chat-msg-text.md-view {
+  white-space: normal;
 }
 
 .chat-thinking {
@@ -1316,8 +1386,9 @@ body.is-resizing-flyout * {
   border-top: 1px solid var(--border);
   display: flex;
   gap: var(--sp-2);
+  align-items: flex-end; /* keep Send pinned to the bottom as the textarea grows */
 }
-.chat-input-row input {
+.chat-input-row textarea {
   flex: 1;
   font: inherit;
   background: var(--surface-2);
@@ -1326,12 +1397,17 @@ body.is-resizing-flyout * {
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
   font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
+  max-height: 40vh; /* JS auto-grows height; cap it and scroll beyond */
+  box-sizing: border-box;
 }
-.chat-input-row input:focus {
+.chat-input-row textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
-.chat-input-row input:disabled {
+.chat-input-row textarea:disabled {
   opacity: 0.5;
 }
 

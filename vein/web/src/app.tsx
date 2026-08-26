@@ -16,6 +16,7 @@ import { CreateDialog } from "./components/CreateDialog";
 import { SecretsDialog } from "./components/SecretsDialog";
 import { AddStepDialog, StepTypeEntry } from "./components/AddStepDialog";
 import { StepEditFlyout } from "./components/StepEditFlyout";
+import { StepInfoFlyout } from "./components/StepInfoFlyout";
 import { EventsPanel } from "./components/EventsPanel";
 import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
@@ -74,6 +75,10 @@ export function App() {
   const [showSecrets, setShowSecrets] = useState(false);
   const [showAddStep, setShowAddStep] = useState(false);
   const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
+  // Sidebar Steps catalog: whether the section is expanded (persisted), and
+  // which step type's read-only info flyout is open.
+  const [stepsOpen, setStepsOpen] = useState<boolean>(() => loadPref("stepsOpen", false));
+  const [infoStep, setInfoStep] = useState<StepTypeEntry | null>(null);
   const [publishedSteps, setPublishedSteps] = useState<StepData[] | null>(null);
   const [localSteps, setLocalSteps] = useState<StepData[] | null>(null);
   // The workflow `localSteps` were actually loaded for. Until this matches
@@ -83,7 +88,10 @@ export function App() {
   const [loadedWf, setLoadedWf] = useState<string | null>(null);
   const [flyoutStepId, setFlyoutStepId] = useState<string | null>(null);
   const [flyoutStepIndex, setFlyoutStepIndex] = useState<number | null>(null);
-  const [showChat, setShowChat] = useState(false);
+  // Open on load when the URL deep-links into a chat (?chat=<id>).
+  const [showChat, setShowChat] = useState(() =>
+    new URLSearchParams(location.search).has("chat"),
+  );
   const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
   // The selected workflow's `params` defaults (tunable knobs). `wfParams` is
   // the published baseline; `localParams` is the editable working copy. Editing
@@ -240,7 +248,7 @@ export function App() {
       const entries: StepTypeEntry[] = resp.core.map((s) => ({
         type: s.type,
         source: s.source as "core" | "lib" | "custom",
-        description: descByType.get(s.type),
+        description: s.description ?? descByType.get(s.type),
       }));
       setStepTypes(entries);
     } catch { /* ignore */ }
@@ -493,6 +501,7 @@ export function App() {
     if (stepId == null) return;
     setShowParams(false);
     setShowPromote(false);
+    setInfoStep(null);
     setFlyoutStepId(stepId);
     setFlyoutStepIndex(stepIndex ?? null);
   }, []);
@@ -600,6 +609,30 @@ export function App() {
 
   const closeFlyout = () => { setFlyoutStepId(null); setFlyoutStepIndex(null); };
 
+  // Sidebar Steps catalog: grouped by tier, in the same order as the Add
+  // Step picker. Clicking an item toggles its read-only info flyout.
+  const stepGroups = useMemo(() => [
+    { label: "Core", steps: stepTypes.filter((s) => s.source === "core") },
+    { label: "Library", steps: stepTypes.filter((s) => s.source === "lib") },
+    { label: "Custom", steps: stepTypes.filter((s) => s.source === "custom") },
+  ].filter((g) => g.steps.length > 0), [stepTypes]);
+
+  const toggleStepsSection = useCallback(() => {
+    setStepsOpen((prev) => {
+      const next = !prev;
+      savePref("stepsOpen", next);
+      return next;
+    });
+  }, []);
+
+  const openStepInfo = useCallback((entry: StepTypeEntry) => {
+    setShowParams(false);
+    setShowPromote(false);
+    setFlyoutStepId(null);
+    setFlyoutStepIndex(null);
+    setInfoStep((prev) => (prev?.type === entry.type ? null : entry));
+  }, []);
+
   return (
     <div class="shell">
       {/* Sidebar */}
@@ -660,6 +693,32 @@ export function App() {
             ))}
           </div>
         </div>
+
+        {/* Steps catalog — every registered step type (core / lib / custom).
+            Collapsed by default; click a step for its info flyout. */}
+        <div class={`sidebar-section${stepsOpen ? "" : " is-collapsed"}`}>
+          <div class="section-title section-title-toggle" onClick={toggleStepsSection}>
+            <span class={`cat-caret${stepsOpen ? " is-open" : ""}`}>▸</span>
+            <span>Steps</span>
+            <span class="cat-count">{stepTypes.length}</span>
+          </div>
+          {stepsOpen && (
+            <div class="sidebar-scroll">
+              {stepTypes.length === 0 && <div class="empty-sidebar">No step types</div>}
+              {stepGroups.map((g) => (
+                <div key={g.label}>
+                  <div class="steps-group-label">{g.label}</div>
+                  {g.steps.map((s) => (
+                    <div key={s.type} class={`list-item ${infoStep?.type === s.type ? "is-active" : ""}`}
+                      onClick={() => openStepInfo(s)}>
+                      <span class="list-item-name">{s.type}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Topbar */}
@@ -683,13 +742,13 @@ export function App() {
           {isRunView && promotions.length > 0 && (
             <button
               class={`btn${showPromote ? " is-active" : ""}`}
-              onClick={() => { setShowPromote((s) => !s); setShowParams(false); closeFlyout(); }}
+              onClick={() => { setShowPromote((s) => !s); setShowParams(false); setInfoStep(null); closeFlyout(); }}
             >Promote</button>
           )}
           {selectedWf && localParams && Object.keys(localParams).length > 0 && (
             <button
               class={`btn${showParams ? " is-active" : ""}`}
-              onClick={() => { setShowParams((s) => !s); setShowPromote(false); setFlyoutStepId(null); }}
+              onClick={() => { setShowParams((s) => !s); setShowPromote(false); setInfoStep(null); setFlyoutStepId(null); }}
             >Params</button>
           )}
           {selectedWf && (
@@ -795,6 +854,11 @@ export function App() {
             setSelectedRun(runId);
           }}
         />
+      )}
+
+      {/* Step info flyout — read-only catalog view of a step type. */}
+      {infoStep && (
+        <StepInfoFlyout key={infoStep.type} entry={infoStep} onClose={() => setInfoStep(null)} />
       )}
 
       {/* Params flyout — edit the workflow's tunable knobs; Publish persists

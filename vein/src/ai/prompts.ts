@@ -24,6 +24,16 @@ export interface AiDeps {
    *  authoring steps and tell the user which to add. Optional: the
    *  `list_secrets` tool degrades gracefully when absent. */
   secrets?: { list(): Promise<SecretInfo[]> };
+  /** Build-time shell access for the chat builder's `bash` tool: commands run
+   *  with cwd at the workspace root (artifacts/, steps/_history/, and a
+   *  scratch/ dir for clones/experiments are all visible) under a SCRUBBED
+   *  env (see shell.ts — server API keys never reach model-authored
+   *  commands). Optional: without it the bash tool isn't offered. */
+  shell?: { cwd: string };
+  /** Offer the anthropic provider-executed web_search tool (same tool the
+   *  agent step ships). Chat is anthropic-only, so the standard server sets
+   *  this; leave unset for tests / non-anthropic embedders. */
+  webSearch?: boolean;
   /** Dispatch-mode `run_workflow` (see `plans/dispatch-run-notifications.md`).
    *  When present, a run still executing after `waitMs` converts to detached:
    *  the tool returns a `{ status: "running", runId }` stub immediately and
@@ -133,9 +143,10 @@ Authoring custom steps (create_step / edit_step):
         return { /* output */ };
       },
     });
-- External capabilities come from ctx.services — a deployment-provided bag. Two standard capabilities are ALWAYS available:
+- External capabilities come from ctx.services — a deployment-provided bag. The STANDARD capabilities (always injected by the standard server — do NOT read engine source to discover them, this is the complete contract):
     - ctx.services.http(url, { method?, headers?, body?, query? }) — a fetch-like transport. Returns a PLAIN object { status, ok, headers, body } (body is parsed JSON when JSON). Use this for ALL network/API calls — NOT the global fetch. (It returns a serializable object so the call can be recorded/replayed by run_step's cassette, and it keeps secrets out of your code path.)
     - ctx.services.secrets.get("ENV_NAME") — read an API key / token. Use this for ALL credentials — NOT process.env. (Secrets read this way are automatically scrubbed from recorded cassettes.) Call list_secrets to see which credential NAMES already exist; reference an existing name, and if the one you need is missing, tell the user to add it in the Secrets dialog (you can never see the value).
+    - ctx.services.artifacts — per-run file storage, keyed by ctx.runId (retained after the run; one run cannot reach another's files). dir(runId) → absolute path of the run's dir, created on demand; write(runId, relPath, content) → absolute path written (subdirs created); read(runId, relPath) → Uint8Array (Buffer.from(bytes).toString() for text); list(runId) → sorted relative paths. Use it for scratchpad/store-retrieve patterns and files later steps or humans need; put RELATIVE paths in step output. An agent step with cwd at dir(runId) sees the same files.
   So a typical REST adapter is: const key = await ctx.services.secrets.get("STRIPE_KEY"); const res = await ctx.services.http("https://api.stripe.com/v1/charges", { query: { customer: cfg.customer }, headers: { authorization: \`Bearer \${key}\` } }); return { charges: res.body.data };
   The built-in "http" step is the canonical example — call get_step("http") to read its source and mirror how it uses ctx.services.http.
 - Prefer raw REST via ctx.services.http — you rarely need a vendor SDK (it's just a wrapper over REST, and an SDK does its own networking so it can't be recorded/replayed). Only import a package other than "vein" if the deployment has pre-installed it (a vendor SDK with gnarly auth); otherwise the step will fail to load. If you're unsure what else is on ctx.services, call get_step on an existing custom step and mirror how it uses ctx.services.
@@ -148,6 +159,8 @@ Tools:
 - get_step("<type>"): full schema + (for lib/custom) source code. Always call before using a type.
 - list_secrets(): NAMES of credentials in the deployment's secret store (never values). Call before authoring a step that needs auth — reference an existing name in ctx.services.secrets.get("NAME"), or tell the user to add a missing one.
 - create_step / edit_step: author or revise a custom step (see above).
+- bash(command, timeoutMs?): BUILD-TIME shell in the workspace dir (when offered) — probe an API's real response shape with curl before authoring a step, clone a repo into scratch/ to study a format, check a CLI exists, inspect a run's file outputs under artifacts/<runId>/. Env is scrubbed (no server API keys — probe authed APIs via run_step with a real secret instead). NEVER a substitute for ctx.services.http/secrets inside a step: a step that shells out with curl or child_process is wrong — it breaks cassette record/replay and secret scrubbing.
+- web_search (when offered): search the web — for API documentation while authoring (endpoint shapes, auth schemes, rate limits), not something workflows can call (give a workflow agent web access via the agent step's built-in web_search instead).
 - run_step("<type>", config?, input?, params?, cassette?, cassetteName?): run ONE step in isolation and get its output — the inner loop for authoring an adapter, no workflow needed. After create_step, call run_step to test it. Use cassette:"record" for the first live run (captures external calls to a fixture, secrets scrubbed), then cassette:"replay" to iterate offline (deterministic, no rate limits, no side effects) while you edit_step.
 - list_workflows(): list existing workflows (name, active version, versions, description). Check this before creating a new workflow or referencing one in a subflow.
 - get_workflow("<name>", version?): read an existing workflow's full YAML + version metadata. Call before editing, referencing, or reusing a workflow you didn't just write.
