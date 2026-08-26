@@ -97,6 +97,12 @@ export interface VeinOptions<TServices = unknown> {
    *  `claude-sonnet-5`. */
   chatModel?: string;
 
+  /** Per-generation output-token cap for the chat agent. Defaults to
+   *  `VEIN_CHAT_MAX_OUTPUT_TOKENS` or 32000 (the AI SDK's own default is
+   *  4096 — far too small for create_step tool calls, which carry a whole
+   *  TS source file as an argument). */
+  chatMaxOutputTokens?: number;
+
   /** How long the chat agent's `run_workflow` tool waits before a still-
    *  running workflow converts to a DETACHED run (the tool returns a
    *  `{ status: "running", runId }` stub and the chat is woken with a
@@ -329,6 +335,12 @@ export async function createVein<TServices = unknown>(
     opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-5";
   const chatRunWaitMs =
     opts.chatRunWaitMs ?? Number(process.env["VEIN_CHAT_RUN_WAIT_MS"] ?? 60_000);
+  // Without this the AI SDK's anthropic provider defaults max_tokens to 4096,
+  // which truncates any large tool call MID-JSON (create_step carries a whole
+  // TS file in its `code` arg) — the turn dies with finish=length. 32k is
+  // safely under every current claude model's output ceiling.
+  const chatMaxOutputTokens =
+    opts.chatMaxOutputTokens ?? Number(process.env["VEIN_CHAT_MAX_OUTPUT_TOKENS"] ?? 32_000);
   const chatMaxAutoTurns =
     opts.chatMaxAutoTurns ?? Number(process.env["VEIN_CHAT_MAX_AUTO_TURNS"] ?? 10);
   const webDist =
@@ -1093,6 +1105,7 @@ export async function createVein<TServices = unknown>(
             model: anthropic(chatModel),
             instructions: await buildSystem(deps),
             tools: buildTools(deps),
+            maxOutputTokens: chatMaxOutputTokens,
             stopWhen: stepCountIs(chatMaxSteps),
             onFinish: () => {
               registry = deps.registry;

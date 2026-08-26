@@ -523,6 +523,14 @@ export default defineStep({
     model: z.string().optional(),
     provider: z.string().optional(),
     maxSteps: z.number().int().positive().default(40),
+    maxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .default(32_000)
+      .describe(
+        "per-generation output-token cap. The AI SDK's own default is 4096, which truncates long drafts or large tool calls mid-JSON (finish=length); 32k is safely under every current claude model's ceiling.",
+      ),
     returnMessages: z
       .boolean()
       .default(false)
@@ -697,6 +705,7 @@ export default defineStep({
       model,
       instructions: cfg.system,
       tools,
+      maxOutputTokens: cfg.maxOutputTokens,
       stopWhen,
       ...(providerOptions ? { providerOptions } : {}),
       ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
