@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
-import { usageFromResult, computeCost, addUsage } from "../../pricing.js";
+import { usageFromResult, computeCost, addUsage, maxOutputTokensFor } from "../../pricing.js";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, sep } from "node:path";
 import os from "node:os";
@@ -523,14 +523,6 @@ export default defineStep({
     model: z.string().optional(),
     provider: z.string().optional(),
     maxSteps: z.number().int().positive().default(40),
-    maxOutputTokens: z
-      .number()
-      .int()
-      .positive()
-      .default(32_000)
-      .describe(
-        "per-generation output-token cap. The AI SDK's own default is 4096, which truncates long drafts or large tool calls mid-JSON (finish=length); 32k is safely under every current claude model's ceiling.",
-      ),
     returnMessages: z
       .boolean()
       .default(false)
@@ -701,15 +693,27 @@ export default defineStep({
       ? [hasToolCall("final_answer"), stepCountIs(cfg.maxSteps)]
       : [stepCountIs(cfg.maxSteps)];
 
+    // Provider-derived infra constant (see pricing.ts) — NOT step config: a
+    // workflow author never picks this, and the SDK's 4096 default truncates
+    // large tool calls mid-JSON.
+    const maxOutputTokens = maxOutputTokensFor(provider);
     const agent = new ToolLoopAgent({
       model,
       instructions: cfg.system,
       tools,
-      maxOutputTokens: cfg.maxOutputTokens,
+      maxOutputTokens,
       stopWhen,
       ...(providerOptions ? { providerOptions } : {}),
       ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
       onStepFinish: (sf: any) => {
+        // A length finish means the generation was TRUNCATED at the output
+        // cap — a cut-off tool call never executes, so the loop dies with no
+        // error. Make the cause loud instead of silent.
+        if (sf.finishReason === "length") {
+          console.warn(
+            `[agent] TRUNCATED: generation hit maxOutputTokens=${maxOutputTokens} (finish=length, out:${sf.usage?.outputTokens ?? "?"}). A cut-off tool call never executed. Raise VEIN_MAX_OUTPUT_TOKENS or split the write.`,
+          );
+        }
         if (!Array.isArray(sf.content)) return;
         for (const c of sf.content) {
           if (c.type === "tool-call" && c.toolName !== "final_answer") {
