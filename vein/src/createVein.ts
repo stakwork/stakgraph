@@ -91,7 +91,7 @@ export interface VeinOptions<TServices = unknown> {
   secretStore?: SecretStore;
 
   /** Max agent steps (tool-call iterations) per chat turn. Raise for longer
-   *  autonomous "let it rip" loops. Defaults to `VEIN_CHAT_MAX_STEPS` or 30. */
+   *  autonomous "let it rip" loops. Defaults to `VEIN_CHAT_MAX_STEPS` or 100. */
   chatMaxSteps?: number;
 
   /** Anthropic model id for the chat agent. Defaults to `VEIN_CHAT_MODEL` or
@@ -326,7 +326,7 @@ export async function createVein<TServices = unknown>(
       ? new FileChatStore(workspace.path)
       : new MemoryChatStore());
   const chatMaxSteps =
-    opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 30);
+    opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 100);
   const chatModel =
     opts.chatModel ?? process.env["VEIN_CHAT_MODEL"] ?? "claude-sonnet-5";
   const chatRunWaitMs =
