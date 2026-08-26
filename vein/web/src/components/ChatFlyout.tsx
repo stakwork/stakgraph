@@ -164,12 +164,21 @@ export function ChatFlyout(props: {
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Highest turn this client has rendered/streamed — the poll below compares
   // against it to notice server-initiated turns (run notifications).
   const seenTurn = useRef(-1);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Auto-grow the input with its content (CSS max-height caps it); shrinks
+  // back when cleared on send.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   // Mirror the active chat into the URL; clear the param when the flyout
   // closes so a reload doesn't unexpectedly reopen the panel.
@@ -466,11 +475,11 @@ export function ChatFlyout(props: {
       </div>
       )}
       <div class="chat-input-row">
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
+          rows={1}
           value={input}
-          onInput={(e) => setInput((e.target as HTMLInputElement).value)}
+          onInput={(e) => setInput((e.target as HTMLTextAreaElement).value)}
           onKeyDown={handleKeyDown}
           placeholder="Describe your workflow..."
           disabled={loading}

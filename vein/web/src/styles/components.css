@@ -1218,6 +1218,7 @@ body.is-resizing-flyout * {
   color: var(--bg);
   border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-lg);
   padding: var(--sp-2) var(--sp-3);
+  white-space: pre-wrap;
 }
 .chat-msg-assistant {
   align-self: flex-start;
@@ -1316,8 +1317,9 @@ body.is-resizing-flyout * {
   border-top: 1px solid var(--border);
   display: flex;
   gap: var(--sp-2);
+  align-items: flex-end; /* keep Send pinned to the bottom as the textarea grows */
 }
-.chat-input-row input {
+.chat-input-row textarea {
   flex: 1;
   font: inherit;
   background: var(--surface-2);
@@ -1326,12 +1328,17 @@ body.is-resizing-flyout * {
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
   font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
+  max-height: 40vh; /* JS auto-grows height; cap it and scroll beyond */
+  box-sizing: border-box;
 }
-.chat-input-row input:focus {
+.chat-input-row textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
-.chat-input-row input:disabled {
+.chat-input-row textarea:disabled {
   opacity: 0.5;
 }
 
