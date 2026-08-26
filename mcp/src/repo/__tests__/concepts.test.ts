@@ -40,6 +40,8 @@ const {
   buildReflectTurn,
   reflectEnabled,
   reflectPromptOverride,
+  proposalTargetKey,
+  applyReflectionProposals,
 } = await import("../concepts.js");
 
 /** A graph_get result for a Concept node, as the tool actually returns it. */
@@ -192,23 +194,58 @@ test.describe("parsing the reflect turn", () => {
           { id: "c_4f2a", rank: 1, evidence: "used for the sidecar answer" },
           { id: "c_91bd", rank: 2, evidence: "opened on a wrong guess", contradicts: "says X; source says Y" },
         ],
-        gap: "provenance sidecar format",
       }),
       concepts,
     );
     expect(out.concepts[0].rank).toBe(1);
     expect(out.concepts[1].contradicts).toBe("says X; source says Y");
-    expect(out.gap).toBe("provenance sidecar format");
+    expect(out.proposals).toEqual([]);
   });
 
   test("a concept the model skipped stays unranked rather than disappearing", () => {
     const out = parseReflection(
-      JSON.stringify({ ranking: [{ id: "c_4f2a", rank: 1 }], gap: null }),
+      JSON.stringify({ ranking: [{ id: "c_4f2a", rank: 1 }] }),
       concepts,
     );
     expect(out.concepts).toHaveLength(2);
     expect(out.concepts[1].rank).toBeNull();
-    expect(out.gap).toBeNull();
+  });
+
+  test("parses proposals, dropping malformed entries", () => {
+    const out = parseReflection(
+      JSON.stringify({
+        ranking: [],
+        proposals: [
+          {
+            action: "update",
+            concept_id: "c_4f2a",
+            documentation: "# Auth\nrevised",
+            rationale: "source contradicts the docs",
+          },
+          { action: "explode", concept_id: "c_4f2a" }, // invalid action
+          "not an object",
+          { action: "create", name: "session-reflection", documentation: "# New", rationale: "missing" },
+        ],
+      }),
+      concepts,
+    );
+    expect(out.proposals).toHaveLength(2);
+    expect(out.proposals[0].action).toBe("update");
+    expect(out.proposals[0].concept_id).toBe("c_4f2a");
+    expect(out.proposals[1].action).toBe("create");
+    expect(out.proposals[1].name).toBe("session-reflection");
+  });
+
+  test("proposals survive a reply with no ranking", () => {
+    const out = parseReflection(
+      JSON.stringify({
+        proposals: [{ action: "delete", concept_id: "c_91bd", rationale: "obsolete" }],
+      }),
+      concepts,
+    );
+    expect(out.proposals).toHaveLength(1);
+    // The ranking half still degrades the same way it always did.
+    expect(out.concepts.every((c) => c.rank === null)).toBe(true);
   });
 
   test("ids the model invented are dropped", () => {
@@ -247,6 +284,30 @@ test.describe("the reflect turn itself", () => {
     expect(turn.content).not.toContain("REFLECTION");
   });
 
+  test("standing drafts are embedded with their full documentation", () => {
+    const turn = buildReflectTurn(
+      [{ id: "c_4f2a", name: "auth", via: "learn_concept" }],
+      undefined,
+      [
+        {
+          id: "prop-1",
+          action: "update",
+          status: "pending",
+          conceptId: "c_4f2a",
+          documentation: "# Auth\ndraft body from turn 1",
+          rationale: "docs were stale",
+          createdAt: new Date(),
+        },
+      ],
+    );
+    expect(turn.content).toContain("pending human review");
+    expect(turn.content).toContain("draft body from turn 1");
+    // No drafts -> no draft block at all (the prompt's own mention of
+    // standing drafts remains, but no block header or content).
+    const bare = buildReflectTurn([{ id: "c_4f2a", name: "auth", via: "learn_concept" }]);
+    expect(bare.content).not.toContain("pending human review");
+  });
+
   test("reflect config accepts true or an object", () => {
     expect(reflectEnabled(true)).toBe(true);
     expect(reflectEnabled({ prompt: "hi" })).toBe(true);
@@ -268,7 +329,6 @@ test.describe("the reflection sidecar", () => {
         { id: "c_4f2a", name: "auth", rank: 1, evidence: "load-bearing" },
         { id: "c_91bd", name: "runs", rank: 2 },
       ],
-      gap: "sidecar format",
     });
 
     // A later turn reads a third concept, but its reflect call fails — the
@@ -289,7 +349,6 @@ test.describe("the reflection sidecar", () => {
     expect(byId["c_02e1"].rank).toBeNull();
     // Unranked concepts sort after ranked ones.
     expect(saved?.concepts[2].id).toBe("c_02e1");
-    expect(saved?.gap).toBe("sidecar format");
   });
 
   test("a ref_id-only record and a fuller one are the same concept", async () => {
@@ -384,7 +443,6 @@ test.describe("the reflection sidecar", () => {
     const sessionId = `sess-${randomUUID()}`;
     const returned = mergeReflection(sessionId, {
       concepts: [{ ref_id: "ref-abc", name: "auth", rank: 1 }],
-      gap: null,
     });
     expect(returned.session_id).toBe(sessionId);
     expect(returned.concepts).toHaveLength(1);
@@ -394,5 +452,163 @@ test.describe("the reflection sidecar", () => {
   test("no sidecar for a session that read nothing", async () => {
     const { loadReflection } = await import("../session.js");
     expect(loadReflection(`sess-${randomUUID()}`)).toBeNull();
+  });
+});
+
+// ─── Filing reflection proposals (create-or-revise per (session, target)) ────
+
+function makeConcept(id: string, documentation: string) {
+  const now = new Date();
+  return {
+    id,
+    name: id,
+    description: "",
+    prNumbers: [],
+    commitShas: [],
+    createdAt: now,
+    lastUpdated: now,
+    documentation,
+  };
+}
+
+/** In-memory mock of the GraphStorage surface the proposal service touches. */
+function makeProposalStorage(seedConcepts: any[] = [], seedProposals: any[] = []) {
+  const concepts: Record<string, any> = {};
+  for (const c of seedConcepts) concepts[c.id] = c;
+  const proposals: Record<string, any> = {};
+  for (const p of seedProposals) proposals[p.id] = p;
+
+  return {
+    _proposals: proposals,
+    initialize: async () => {},
+    getConcept: async (id: string) => concepts[id] ?? null,
+    saveProposal: async (p: any) => {
+      proposals[p.id] = p;
+    },
+    getProposal: async (id: string) => proposals[id] ?? null,
+    updateProposal: async (p: any) => {
+      const existing = proposals[p.id];
+      if (!existing || existing.status !== "pending") return false;
+      proposals[p.id] = { ...p, status: existing.status };
+      return true;
+    },
+    claimProposal: async (id: string, status: string, decidedBy?: string) => {
+      const existing = proposals[id];
+      if (!existing || existing.status !== "pending") return false;
+      existing.status = status;
+      existing.decidedBy = decidedBy;
+      return true;
+    },
+  } as any;
+}
+
+test.describe("applying reflection proposals", () => {
+  test("target keys: creates by name, everything else by concept", () => {
+    expect(proposalTargetKey({ action: "create", name: "Session Reflection" })).toBe(
+      proposalTargetKey({ action: "create", name: "session reflection" }),
+    );
+    expect(proposalTargetKey({ action: "update", conceptId: "c_1" })).toBe(
+      proposalTargetKey({ action: "delete", conceptId: "c_1" }),
+    );
+    expect(proposalTargetKey({ action: "update", conceptId: "c_1" })).not.toBe(
+      proposalTargetKey({ action: "update", conceptId: "c_2" }),
+    );
+  });
+
+  test("files a fresh proposal stamped with the session and reflection source", async () => {
+    const storage = makeProposalStorage([makeConcept("c_1", "old docs")]);
+    const result = await applyReflectionProposals(storage, {
+      sessionId: "sess-1",
+      proposals: [
+        { action: "update", concept_id: "c_1", documentation: "new docs", rationale: "stale" },
+      ],
+      drafts: [],
+    });
+    expect(result.filed).toHaveLength(1);
+    expect(result.filed[0].source).toBe("reflection");
+    expect(result.filed[0].sessionIds).toEqual(["sess-1"]);
+    expect(result.filed[0].baseDocs).toBe("old docs");
+  });
+
+  test("revises the session's standing draft instead of filing a sibling", async () => {
+    const draft = {
+      id: "prop-1",
+      action: "update",
+      status: "pending",
+      conceptId: "c_1",
+      documentation: "turn-1 docs",
+      baseDocs: "docs as of turn 1",
+      sessionIds: ["sess-1"],
+      source: "reflection",
+      createdAt: new Date(),
+    };
+    // The concept drifted while the draft sat in the queue.
+    const storage = makeProposalStorage([makeConcept("c_1", "current docs")], [draft]);
+
+    const result = await applyReflectionProposals(storage, {
+      sessionId: "sess-1",
+      proposals: [
+        { action: "update", concept_id: "c_1", documentation: "turn-2 docs", rationale: "requirements changed" },
+      ],
+      drafts: [draft as any],
+    });
+
+    expect(result.filed).toHaveLength(0);
+    expect(result.revised).toHaveLength(1);
+    expect(result.revised[0].id).toBe("prop-1");
+    expect(result.revised[0].documentation).toBe("turn-2 docs");
+    // baseDocs re-snapshots at revision time, so accept-time staleness checks
+    // compare against what the reflection actually saw.
+    expect(result.revised[0].baseDocs).toBe("current docs");
+    expect(Object.keys(storage._proposals)).toHaveLength(1);
+  });
+
+  test("withdraw rejects the standing draft and files nothing", async () => {
+    const draft = {
+      id: "prop-1",
+      action: "create",
+      status: "pending",
+      name: "obsolete-idea",
+      documentation: "x",
+      sessionIds: ["sess-1"],
+      createdAt: new Date(),
+    };
+    const storage = makeProposalStorage([], [draft]);
+    const result = await applyReflectionProposals(storage, {
+      sessionId: "sess-1",
+      proposals: [{ action: "create", name: "obsolete-idea", withdraw: true }],
+      drafts: [draft as any],
+    });
+    expect(result.withdrawn).toEqual(["prop-1"]);
+    expect(result.filed).toHaveLength(0);
+    expect(storage._proposals["prop-1"].status).toBe("rejected");
+  });
+
+  test("a ref_id the model echoed back resolves to the gitree concept id", async () => {
+    const storage = makeProposalStorage([makeConcept("c_1", "docs")]);
+    const result = await applyReflectionProposals(storage, {
+      sessionId: "sess-1",
+      proposals: [
+        { action: "update", concept_id: "ref-abc", documentation: "revised", rationale: "r" },
+      ],
+      drafts: [],
+      known: [{ id: "c_1", ref_id: "ref-abc", via: "graph_get" }],
+    });
+    expect(result.filed).toHaveLength(1);
+    expect(result.filed[0].conceptId).toBe("c_1");
+  });
+
+  test("one bad proposal never blocks the rest", async () => {
+    const storage = makeProposalStorage([makeConcept("c_1", "docs")]);
+    const result = await applyReflectionProposals(storage, {
+      sessionId: "sess-1",
+      proposals: [
+        { action: "update", concept_id: "c_missing", documentation: "x", rationale: "r" },
+        { action: "update", concept_id: "c_1", documentation: "y", rationale: "r" },
+      ],
+      drafts: [],
+    });
+    expect(result.filed).toHaveLength(1);
+    expect(result.filed[0].conceptId).toBe("c_1");
   });
 });

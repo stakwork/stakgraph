@@ -16,7 +16,7 @@
  */
 import { test, expect } from "../../testkit.js";
 import { applyProposal } from "../proposals.js";
-import { createProposal, HttpError } from "../service.js";
+import { createProposal, reviseProposal, HttpError } from "../service.js";
 import type { Concept, ConceptProposal } from "../types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -55,14 +55,24 @@ function makeStorage(seed: Concept[] = []) {
   const savedDocs: Array<{ conceptId: string; documentation: string }> = [];
   const savedConcepts: Concept[] = [];
   const savedProposals: ConceptProposal[] = [];
+  const proposalsById: Record<string, ConceptProposal> = {};
 
   const storage: any = {
     _store: store,
     _savedDocs: savedDocs,
     _savedConcepts: savedConcepts,
     _savedProposals: savedProposals,
+    _proposalsById: proposalsById,
     saveProposal: async (proposal: ConceptProposal) => {
       savedProposals.push(proposal);
+      proposalsById[proposal.id] = proposal;
+    },
+    getProposal: async (id: string) => proposalsById[id] ?? null,
+    updateProposal: async (proposal: ConceptProposal) => {
+      const existing = proposalsById[proposal.id];
+      if (!existing || existing.status !== "pending") return false;
+      proposalsById[proposal.id] = { ...proposal, status: existing.status };
+      return true;
     },
     initialize: async () => {},
     getConcept: async (id: string, repo?: string) => {
@@ -219,6 +229,140 @@ test.describe("createProposal", () => {
         }),
       400
     );
+  });
+});
+
+// ─── reviseProposal (revise-in-place for session reflection) ────────────────
+
+test.describe("reviseProposal", () => {
+  async function seedDraft(storage: any) {
+    return createProposal(storage, {
+      action: "update",
+      conceptId: "owner/repo/auth",
+      documentation: "turn-1 docs",
+      rationale: "first pass",
+      sessionIds: ["sess-1"],
+      source: "reflection",
+    });
+  }
+
+  test("replaces content, keeps identity, re-snapshots baseDocs", async () => {
+    const concept = makeConcept({
+      id: "owner/repo/auth",
+      name: "Auth",
+      repo: "owner/repo",
+      documentation: "docs v1",
+    });
+    const storage = makeStorage([concept]);
+    const draft = await seedDraft(storage);
+    expect(draft.baseDocs).toBe("docs v1");
+
+    // The target drifts while the draft is pending.
+    concept.documentation = "docs v2";
+
+    const revised = await reviseProposal(storage, draft.id, {
+      action: "update",
+      conceptId: "owner/repo/auth",
+      documentation: "turn-2 docs",
+      rationale: "requirements changed",
+      sessionIds: ["sess-1"],
+    });
+
+    expect(revised.id).toBe(draft.id);
+    expect(revised.createdAt).toBe(draft.createdAt);
+    expect(revised.documentation).toBe("turn-2 docs");
+    // Fresh snapshot: an accepted revision must diff against docs v2, not v1.
+    expect(revised.baseDocs).toBe("docs v2");
+    expect(storage._proposalsById[draft.id].documentation).toBe("turn-2 docs");
+  });
+
+  test("evidence accumulates across revisions", async () => {
+    const storage = makeStorage([
+      makeConcept({ id: "owner/repo/auth", name: "Auth", repo: "owner/repo" }),
+    ]);
+    const draft = await seedDraft(storage);
+    const revised = await reviseProposal(storage, draft.id, {
+      action: "update",
+      conceptId: "owner/repo/auth",
+      documentation: "x",
+      sessionIds: ["sess-2"],
+    });
+    expect(revised.sessionIds).toEqual(["sess-1", "sess-2"]);
+  });
+
+  test("a revision can retarget the action for the same concept", async () => {
+    const storage = makeStorage([
+      makeConcept({ id: "owner/repo/auth", name: "Auth", repo: "owner/repo" }),
+    ]);
+    const draft = await seedDraft(storage);
+    const revised = await reviseProposal(storage, draft.id, {
+      action: "delete",
+      conceptId: "owner/repo/auth",
+      rationale: "turned out to be obsolete",
+    });
+    expect(revised.action).toBe("delete");
+    expect(revised.documentation).toBeUndefined();
+  });
+
+  test("404 for a proposal that does not exist", async () => {
+    const storage = makeStorage();
+    await expectHttpError(
+      () => reviseProposal(storage, "nope", { action: "create", name: "x", documentation: "d" }),
+      404
+    );
+  });
+
+  test("409 for a proposal that was already decided", async () => {
+    const storage = makeStorage([
+      makeConcept({ id: "owner/repo/auth", name: "Auth", repo: "owner/repo" }),
+    ]);
+    const draft = await seedDraft(storage);
+    storage._proposalsById[draft.id].status = "accepted";
+    const err = await expectHttpError(
+      () =>
+        reviseProposal(storage, draft.id, {
+          action: "update",
+          conceptId: "owner/repo/auth",
+          documentation: "x",
+        }),
+      409
+    );
+    expect(err.extra?.status).toBe("accepted");
+  });
+
+  test("409 when the reviewer decides it mid-revision (atomic guard)", async () => {
+    const storage = makeStorage([
+      makeConcept({ id: "owner/repo/auth", name: "Auth", repo: "owner/repo" }),
+    ]);
+    const draft = await seedDraft(storage);
+    // Pending at the early check, decided by the time the write lands.
+    storage.updateProposal = async () => false;
+    await expectHttpError(
+      () =>
+        reviseProposal(storage, draft.id, {
+          action: "update",
+          conceptId: "owner/repo/auth",
+          documentation: "x",
+        }),
+      409
+    );
+  });
+
+  test("revision re-validates: bad target fails without writing", async () => {
+    const storage = makeStorage([
+      makeConcept({ id: "owner/repo/auth", name: "Auth", repo: "owner/repo" }),
+    ]);
+    const draft = await seedDraft(storage);
+    await expectHttpError(
+      () =>
+        reviseProposal(storage, draft.id, {
+          action: "update",
+          conceptId: "owner/repo/vanished",
+          documentation: "x",
+        }),
+      404
+    );
+    expect(storage._proposalsById[draft.id].documentation).toBe("turn-1 docs");
   });
 });
 

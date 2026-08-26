@@ -164,15 +164,7 @@ export async function requireConcept(
   return concept;
 }
 
-/**
- * Validate and persist a ConceptProposal. Shared by POST /gitree/proposals
- * and the propose_concept_change agent tool. Snapshots the target's current
- * docs (baseDocs/absorbedDocs) server-side so accept can detect drift.
- */
-export async function createProposal(
-  storage: GraphStorage,
-  input: CreateProposalInput
-): Promise<ConceptProposal> {
+function newProposalShell(input: CreateProposalInput): ConceptProposal {
   const action = input.action;
   if (!VALID_PROPOSAL_ACTIONS.includes(action)) {
     throw new HttpError(
@@ -180,8 +172,7 @@ export async function createProposal(
       `action must be one of: ${VALID_PROPOSAL_ACTIONS.join(", ")}`
     );
   }
-
-  const proposal: ConceptProposal = {
+  return {
     id: randomUUID(),
     action,
     status: "pending",
@@ -196,6 +187,21 @@ export async function createProposal(
       : undefined,
     createdAt: new Date(),
   };
+}
+
+/**
+ * Per-action validation and target snapshotting, shared by create and revise.
+ * Fills the proposal's content fields in place, re-reading the target so
+ * baseDocs/absorbedDocs always reflect the target's docs AT THIS MOMENT —
+ * which is what lets a revised proposal pass the accept-time staleness check
+ * even when the target drifted while an earlier version sat in the queue.
+ */
+async function validateAndFillProposal(
+  storage: GraphStorage,
+  proposal: ConceptProposal,
+  input: CreateProposalInput
+): Promise<void> {
+  const action = proposal.action;
 
   if (action === "create") {
     const name = optionalString(input.name);
@@ -291,9 +297,70 @@ export async function createProposal(
     proposal.documentation = input.documentation;
     proposal.description = optionalString(input.description);
   }
+}
 
+/**
+ * Validate and persist a ConceptProposal. Shared by POST /gitree/proposals
+ * and the propose_concept_change agent tool. Snapshots the target's current
+ * docs (baseDocs/absorbedDocs) server-side so accept can detect drift.
+ */
+export async function createProposal(
+  storage: GraphStorage,
+  input: CreateProposalInput
+): Promise<ConceptProposal> {
+  const proposal = newProposalShell(input);
+  await validateAndFillProposal(storage, proposal, input);
   await storage.saveProposal(proposal);
   return proposal;
+}
+
+/**
+ * Replace a PENDING proposal's content in place — same validation and target
+ * snapshotting as createProposal, keeping the proposal's id and createdAt.
+ * Used by session reflection to keep one evolving draft per (session, target)
+ * instead of filing a sibling every turn.
+ *
+ * Evidence accumulates: prNumbers and sessionIds are unioned with what the
+ * proposal already carries. The pending-only guard is enforced twice — an
+ * early check for a friendly error, and atomically in storage.updateProposal
+ * so a reviewer deciding the proposal mid-revision always wins.
+ */
+export async function reviseProposal(
+  storage: GraphStorage,
+  id: string,
+  input: CreateProposalInput
+): Promise<ConceptProposal> {
+  const existing = await storage.getProposal(id);
+  if (!existing) {
+    throw new HttpError(404, `Proposal ${id} not found`);
+  }
+  if (existing.status !== "pending") {
+    throw new HttpError(409, `Proposal ${id} was already ${existing.status}`, {
+      status: existing.status,
+    });
+  }
+
+  const shell = newProposalShell(input);
+  const proposal: ConceptProposal = {
+    ...shell,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    source: shell.source ?? existing.source,
+    prNumbers: unionEvidence(existing.prNumbers, shell.prNumbers),
+    sessionIds: unionEvidence(existing.sessionIds, shell.sessionIds),
+  };
+  await validateAndFillProposal(storage, proposal, input);
+
+  const updated = await storage.updateProposal(proposal);
+  if (!updated) {
+    throw new HttpError(409, `Proposal ${id} was decided while being revised`);
+  }
+  return proposal;
+}
+
+function unionEvidence<T>(a?: T[], b?: T[]): T[] | undefined {
+  if (!a?.length && !b?.length) return undefined;
+  return Array.from(new Set([...(a ?? []), ...(b ?? [])]));
 }
 
 export async function listProposals(

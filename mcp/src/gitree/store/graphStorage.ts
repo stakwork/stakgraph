@@ -2656,53 +2656,127 @@ export class GraphStorage extends Storage {
         }
       );
 
-      // TARGETS edges to the concept(s) this proposal wants to change. For
-      // merge, both targets get an edge with a role so the UI can tell which
-      // concept survives.
-      const targets: Array<{ conceptId: string; role: string | null }> = [];
-      if (proposal.conceptId) {
-        targets.push({
-          conceptId: proposal.conceptId,
-          role: proposal.action === "merge" ? "absorb" : null,
-        });
-      }
-      if (proposal.mergeIntoConceptId) {
-        targets.push({ conceptId: proposal.mergeIntoConceptId, role: "into" });
-      }
-      for (const target of targets) {
-        await session.run(
-          `
-          MATCH (p:ConceptProposal {id: $id})
-          MATCH (c:Concept {id: $conceptId})
-          MERGE (p)-[r:TARGETS]->(c)
-          ON CREATE SET r.ref_id = randomUUID()
-          SET r.role = $role
-          `,
-          { id: proposal.id, conceptId: target.conceptId, role: target.role }
-        );
-      }
-
-      // EVIDENCE edges to the PRs that motivated this proposal (same matching
-      // pattern as the TOUCHES edges in saveConcept).
-      if (proposal.prNumbers && proposal.prNumbers.length > 0 && proposal.repo) {
-        await session.run(
-          `
-          MATCH (p:ConceptProposal {id: $id})
-          UNWIND $prNumbers as prNumber
-          MATCH (pr:PullRequest)
-          WHERE (pr.repo = $repo AND pr.number = prNumber) OR pr.id = $repo + '/pr-' + toString(prNumber)
-          MERGE (p)-[r:EVIDENCE]->(pr)
-          ON CREATE SET r.ref_id = randomUUID()
-          `,
-          {
-            id: proposal.id,
-            prNumbers: proposal.prNumbers,
-            repo: proposal.repo,
-          }
-        );
-      }
+      await this.writeProposalEdges(session, proposal);
     } finally {
       await session.close();
+    }
+  }
+
+  /**
+   * Revise a PENDING proposal's content in place. Deliberately never touches
+   * status/decision fields, and the pending guard is part of the match — so a
+   * reviewer deciding the proposal concurrently wins and this returns false.
+   */
+  async updateProposal(proposal: ConceptProposal): Promise<boolean> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id, status: 'pending'})
+        SET p.action = $action,
+            p.repo = $repo,
+            p.conceptId = $conceptId,
+            p.mergeIntoConceptId = $mergeIntoConceptId,
+            p.name = $name,
+            p.description = $description,
+            p.documentation = $documentation,
+            p.parent = $parent,
+            p.baseDocs = $baseDocs,
+            p.absorbedDocs = $absorbedDocs,
+            p.rationale = $rationale,
+            p.source = $source,
+            p.prNumbers = $prNumbers,
+            p.sessionIds = $sessionIds
+        RETURN p
+        `,
+        {
+          id: proposal.id,
+          action: proposal.action,
+          repo: proposal.repo || null,
+          conceptId: proposal.conceptId || null,
+          mergeIntoConceptId: proposal.mergeIntoConceptId || null,
+          name: proposal.name || null,
+          description: proposal.description ?? null,
+          documentation: proposal.documentation ?? null,
+          parent: proposal.parent || null,
+          baseDocs: proposal.baseDocs ?? null,
+          absorbedDocs: proposal.absorbedDocs ?? null,
+          rationale: proposal.rationale || null,
+          source: proposal.source || null,
+          prNumbers: proposal.prNumbers || [],
+          sessionIds: proposal.sessionIds || [],
+        }
+      );
+      if (result.records.length === 0) return false;
+
+      // A revision can retarget (create -> update, or a different concept), so
+      // rebuild the evidence edges from scratch.
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})-[r:TARGETS|EVIDENCE]->()
+        DELETE r
+        `,
+        { id: proposal.id }
+      );
+      await this.writeProposalEdges(session, proposal);
+      return true;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * TARGETS + EVIDENCE edges for a proposal. Shared by saveProposal and
+   * updateProposal; assumes the ConceptProposal node already exists.
+   */
+  private async writeProposalEdges(
+    session: any,
+    proposal: ConceptProposal
+  ): Promise<void> {
+    // TARGETS edges to the concept(s) this proposal wants to change. For
+    // merge, both targets get an edge with a role so the UI can tell which
+    // concept survives.
+    const targets: Array<{ conceptId: string; role: string | null }> = [];
+    if (proposal.conceptId) {
+      targets.push({
+        conceptId: proposal.conceptId,
+        role: proposal.action === "merge" ? "absorb" : null,
+      });
+    }
+    if (proposal.mergeIntoConceptId) {
+      targets.push({ conceptId: proposal.mergeIntoConceptId, role: "into" });
+    }
+    for (const target of targets) {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        MATCH (c:Concept {id: $conceptId})
+        MERGE (p)-[r:TARGETS]->(c)
+        ON CREATE SET r.ref_id = randomUUID()
+        SET r.role = $role
+        `,
+        { id: proposal.id, conceptId: target.conceptId, role: target.role }
+      );
+    }
+
+    // EVIDENCE edges to the PRs that motivated this proposal (same matching
+    // pattern as the TOUCHES edges in saveConcept).
+    if (proposal.prNumbers && proposal.prNumbers.length > 0 && proposal.repo) {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        UNWIND $prNumbers as prNumber
+        MATCH (pr:PullRequest)
+        WHERE (pr.repo = $repo AND pr.number = prNumber) OR pr.id = $repo + '/pr-' + toString(prNumber)
+        MERGE (p)-[r:EVIDENCE]->(pr)
+        ON CREATE SET r.ref_id = randomUUID()
+        `,
+        {
+          id: proposal.id,
+          prNumbers: proposal.prNumbers,
+          repo: proposal.repo,
+        }
+      );
     }
   }
 
