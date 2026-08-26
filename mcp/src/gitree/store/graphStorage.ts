@@ -13,8 +13,9 @@ import {
   ChronologicalCheckpoint,
   Usage,
 } from "../types.js";
-import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding } from "./utils.js";
+import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding, conceptEmbeddingText } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
+import { jarvisRedisEnabled, pushJarvisEmbeddingJob } from "./jarvis.js";
 
 const Data_Bank = "Data_Bank";
 
@@ -201,6 +202,10 @@ export class GraphStorage extends Storage {
 
     // Backfill embeddings for concepts created before semantic search existed.
     await this.backfillConceptEmbeddings();
+
+    // Label + queue jarvis text_embeddings for concepts written before the
+    // jarvis interop existed (see jarvis.ts).
+    await this.backfillJarvisConceptInterop();
   }
 
   /**
@@ -272,6 +277,59 @@ export class GraphStorage extends Storage {
       console.log(`[gitree] Backfilled embeddings for ${updated} concept(s).`);
     } catch (error) {
       console.error("[gitree] Error backfilling concept embeddings:", error);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Make pre-existing Concepts visible to jarvis (see jarvis.ts):
+   * apply the Domain_general label so they fall inside jarvis's domain-scoped
+   * vector index, and queue text_embeddings jobs for concepts that lack them.
+   * Runs on every `initialize()`; both steps short-circuit to no-op scans
+   * once the graph is caught up (the embedding step re-queues until jarvis's
+   * worker writes text_embeddings back, which is idempotent).
+   */
+  private async backfillJarvisConceptInterop(): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const labelResult = await session.run(`
+        MATCH (c:${Data_Bank}:Concept)
+        WHERE NOT c:Domain_general
+        SET c:Domain_general
+      `);
+      const labelsAdded =
+        labelResult.summary.counters.updates().labelsAdded || 0;
+      if (labelsAdded > 0) {
+        console.log(
+          `[gitree] Applied Domain_general label to ${labelsAdded} concept(s).`
+        );
+      }
+
+      if (!jarvisRedisEnabled()) return;
+
+      const pending = await session.run(`
+        MATCH (c:${Data_Bank}:Concept)
+        WHERE c.text_embeddings IS NULL AND c.ref_id IS NOT NULL
+        RETURN c.ref_id AS refId, c.name AS name, c.description AS description
+      `);
+      let queued = 0;
+      for (const record of pending.records) {
+        const text = conceptEmbeddingText({
+          name: record.get("name") || "",
+          description: record.get("description") || "",
+        });
+        if (await pushJarvisEmbeddingJob(record.get("refId"), text)) {
+          queued++;
+        }
+      }
+      if (queued > 0) {
+        console.log(
+          `[gitree] Queued jarvis text_embeddings for ${queued} concept(s).`
+        );
+      }
+    } catch (error) {
+      console.error("[gitree] Error backfilling jarvis concept interop:", error);
     } finally {
       await session.close();
     }
@@ -562,10 +620,11 @@ export class GraphStorage extends Storage {
         );
       }
 
-      await session.run(
+      const result = await session.run(
         `
         MERGE (f:${Data_Bank}:Concept {id: $id})
-        SET f.name = $name,
+        SET f:Domain_general,
+            f.name = $name,
             f.repo = $repo,
             f.description = $description,
             f.embeddings = $embeddings,
@@ -606,6 +665,12 @@ export class GraphStorage extends Storage {
           dateAddedToGraph: now,
         }
       );
+
+      // jarvis's vector search reads text_embeddings, which only its Redis
+      // embedding worker writes — queue a job so this concept shows up there.
+      const savedRefId =
+        result.records[0]?.get("f")?.properties?.ref_id ?? null;
+      await pushJarvisEmbeddingJob(savedRefId, conceptEmbeddingText(concept));
 
       // Create TOUCHES relationships from PRs to this Concept
       // Match PRs by repo-prefixed id or by number+repo combo
