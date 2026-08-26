@@ -25,9 +25,12 @@ import {
   runReflection,
   reflectEnabled,
   reflectPromptOverride,
+  sessionPendingProposals,
+  fileReflectionProposals,
   type ConceptCollector,
   type ReflectConfig,
 } from "./concepts.js";
+import type { ConceptProposal } from "../gitree/types.js";
 import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
@@ -1047,7 +1050,9 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
 
 /**
  * Record which gitree Concepts this run read, and — when `reflect` is on —
- * ask the agent to rank them.
+ * ask the agent to rank them and to propose knowledge-base changes its work
+ * supports (filed as human-reviewed ConceptProposals, one evolving draft per
+ * (session, target)).
  *
  * Called after the session has been persisted, so it is the last thing a run
  * does. Two properties it must keep:
@@ -1102,6 +1107,16 @@ async function reflectOnConcepts(
 
   if (!reflectEnabled(opts.reflect)) return recordReadsOnly();
 
+  // The session's standing draft proposals from earlier turns, shown to the
+  // model so it revises them instead of re-filing. Best-effort: reflection
+  // still runs (and files fresh proposals) when the lookup fails.
+  let drafts: ConceptProposal[] = [];
+  try {
+    drafts = await sessionPendingProposals(sessionId, repo);
+  } catch (e) {
+    console.error("[concepts] could not load session proposal drafts:", e);
+  }
+
   try {
     console.log(`===> reflecting on ${concepts.length} concept(s) for session ${sessionId}`);
     const result = await runReflection({
@@ -1112,9 +1127,34 @@ async function reflectOnConcepts(
       tools: prepared.tools as Record<string, any>,
       messages,
       concepts,
+      drafts,
       promptOverride: reflectPromptOverride(opts.reflect),
     });
-    return mergeReflection(sessionId, result);
+
+    // Proposals are the side-channel half: file them create-or-revise keyed on
+    // (session, target), and never let a filing failure cost the ranking.
+    if (result.proposals.length > 0) {
+      try {
+        const applied = await fileReflectionProposals({
+          sessionId,
+          repo,
+          proposals: result.proposals,
+          drafts,
+          known: concepts,
+        });
+        console.log(
+          `===> reflection proposals for session ${sessionId}: ` +
+            `${applied.filed.length} filed, ${applied.revised.length} revised, ${applied.withdrawn.length} withdrawn`,
+        );
+      } catch (e) {
+        console.error("[concepts] could not file reflection proposals:", e);
+      }
+    }
+
+    return mergeReflection(sessionId, {
+      concepts: result.concepts,
+      raw: result.raw,
+    });
   } catch (e) {
     console.error("[concepts] reflection failed:", e);
     // The ranking is the optional half — keep the read record regardless.

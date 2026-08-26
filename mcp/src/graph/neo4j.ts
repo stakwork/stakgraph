@@ -1145,9 +1145,10 @@ class Db {
       await session.run(Q.FULLTEXT_NAME_INDEX_QUERY);
       await session.run(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
       await session.run(Q.VECTOR_INDEX_QUERY);
-      await session.run(
-        "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)",
-      );
+      // No standalone index on (:AgentSession).node_key — the uniqueness
+      // constraint created below is backed by its own index, and Neo4j
+      // refuses to create the constraint while a separate index covers the
+      // same label/property.
       // Turn.session_id backs the polling endpoint's flat per-session lookup.
       await session.run(
         "CREATE INDEX turn_session_id_index IF NOT EXISTS FOR (n:Turn) ON (n.session_id)",
@@ -1175,6 +1176,14 @@ class Db {
    * to stop the service from booting.
    */
   private async ensureAgentSessionUnique(session: ResilientSession): Promise<void> {
+    try {
+      // Migration: earlier versions created a standalone index on this exact
+      // label/property. Neo4j will not create the constraint while it exists,
+      // so drop it first — a no-op on graphs that never had it.
+      await session.run("DROP INDEX agent_session_id_index IF EXISTS");
+    } catch (e) {
+      console.warn("[neo4j] could not drop legacy agent_session_id_index:", e);
+    }
     try {
       await session.run(Q.AGENT_SESSION_KEY_CONSTRAINT_QUERY);
       return;

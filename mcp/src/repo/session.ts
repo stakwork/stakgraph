@@ -509,8 +509,6 @@ export interface SessionReflection {
   session_id: string;
   updated_at: string;
   concepts: ReflectedConcept[];
-  /** Something the agent had to work out from source that no concept covered. */
-  gap?: string | null;
   /** Raw model output, kept only when it didn't parse into the shape above. */
   raw?: string;
 }
@@ -549,7 +547,6 @@ export function mergeReflection(
   sessionId: string,
   incoming: {
     concepts: ReflectedConcept[];
-    gap?: string | null;
     raw?: string;
   },
 ): SessionReflection {
@@ -603,7 +600,6 @@ export function mergeReflection(
     session_id: sessionId,
     updated_at: new Date().toISOString(),
     concepts,
-    gap: incoming.gap ?? existing?.gap ?? null,
   };
   if (incoming.raw) reflection.raw = incoming.raw;
 
