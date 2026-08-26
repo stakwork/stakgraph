@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { tool } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { runWorkflow } from "../runner.js";
 import type { RunEvent, RunSummary } from "../core.js";
 import { AiDeps } from "./prompts.js";
@@ -564,5 +565,49 @@ export function buildTools(deps: AiDeps) {
         };
       },
     }),
+
+    // Build-time shell — only offered when the host wires `deps.shell` (the
+    // standard server does; embedders/tests without it get no bash tool).
+    ...(deps.shell
+      ? {
+          bash: tool({
+            description:
+              "Execute a bash command in the workspace directory — for BUILD-TIME exploration while authoring: curl an API to see its real response shape before writing a step, clone a repo into scratch/ to inspect a data format, check a CLI exists, read a run's file outputs under artifacts/<runId>/. Commands run under a scrubbed environment (no server API keys — use placeholder values when probing an authed API, or author the step and run_step it with the real secret). This tool is NOT how production workflows reach the outside world: steps you author must still use ctx.services.http + ctx.services.secrets so runs stay recordable and secrets scrubbed. Output is captured with a cap; default timeout 30s (raise timeoutMs up to 10 min for clones/installs).",
+            inputSchema: z.object({
+              command: z.string().describe("The bash command to execute"),
+              timeoutMs: z
+                .number()
+                .int()
+                .positive()
+                .max(600_000)
+                .default(30_000)
+                .describe("Kill the command after this long (default 30s, max 10 min)."),
+            }),
+            execute: async ({ command, timeoutMs }) => {
+              const { cwd } = deps.shell!;
+              try {
+                // Lazy so embedders that never call bash don't load the module.
+                const { runShell } = await import("../shell.js");
+                const { mkdir } = await import("node:fs/promises");
+                const { join } = await import("node:path");
+                // scratch/ always exists — the advertised home for clones and
+                // experiments, so they never land among workspace internals.
+                await mkdir(join(cwd, "scratch"), { recursive: true });
+                return { output: await runShell(command, cwd, timeoutMs, 20_000) };
+              } catch (e) {
+                return { error: e instanceof Error ? e.message : String(e) };
+              }
+            },
+          }),
+        }
+      : {}),
+
+    // Provider-executed web search (same tool the agent step ships) — for
+    // reading API docs while authoring adapters. Anthropic-only; the host
+    // opts in (the standard chat server does).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any — provider
+    // tool's inferred generics don't satisfy ToolSet's index signature (same
+    // workaround as the agent step).
+    ...(deps.webSearch ? { web_search: anthropic.tools.webSearch_20260209({ maxUses: 5 }) as any } : {}),
   };
 }

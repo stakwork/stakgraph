@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
 import { usageFromResult, computeCost, addUsage } from "../../pricing.js";
-import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, sep } from "node:path";
 import os from "node:os";
@@ -37,57 +36,10 @@ import os from "node:os";
  */
 
 // ── tool helpers (pure: take cwd as an argument) ───────────────────────────────
+// Shell plumbing (capture/runCmd/runShell + env scrubbing) lives in shell.ts,
+// shared with the chat builder's bash tool.
 
-/** Spawn a child, capture stdout with a timeout + output cap. Exit 1 with no
- *  stderr → "No matches found" (grep/rg/find idiom). */
-function capture(
-  child: ReturnType<typeof spawn>,
-  timeoutMs: number,
-  maxBytes: number,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let stdout = "";
-    let stderr = "";
-    let done = false;
-    const cap = (s: string) =>
-      s.length > maxBytes ? s.slice(0, maxBytes) + "\n\n[... output truncated ...]" : s;
-    const finish = (fn: () => void) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      fn();
-    };
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish(() => reject(new Error(`Command timed out after ${timeoutMs}ms`)));
-    }, timeoutMs);
-    child.stdout?.on("data", (d) => {
-      stdout += d.toString();
-      if (stdout.length > maxBytes) {
-        child.kill("SIGKILL");
-        finish(() => resolve(cap(stdout)));
-      }
-    });
-    child.stderr?.on("data", (d) => (stderr += d.toString()));
-    child.on("close", (code) =>
-      finish(() => {
-        if (code === 0) resolve(cap(stdout));
-        else if (code === 1 && !stderr) resolve(cap(stdout) || "No matches found");
-        else reject(new Error(`Command failed (${code}): ${stderr || stdout || "Unknown error"}`));
-      }),
-    );
-    child.on("error", (err) => finish(() => reject(err)));
-  });
-}
-
-/** Run a program with explicit args (NO shell) — safe for untrusted args like a
- *  search query (no quoting/escaping/injection). */
-const runCmd = (cmd: string, args: string[], cwd: string, timeoutMs = 10000, maxBytes = 10000) =>
-  capture(spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] }), timeoutMs, maxBytes);
-
-/** Run an arbitrary shell command string — the `bash` tool needs a full shell. */
-const runShell = (command: string, cwd: string, timeoutMs = 15000, maxBytes = 10000) =>
-  capture(spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] }), timeoutMs, maxBytes);
+import { runCmd, runShell } from "../../shell.js";
 
 /** Immediate subdirs of `cwd` that are git repos. */
 function listRepos(cwd: string): string[] {

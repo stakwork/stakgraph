@@ -1020,6 +1020,10 @@ export async function createVein<TServices = unknown>(
             store,
             services,
             secrets: secretsInjected ? undefined : secretStore,
+            // Build-time bash for the chat builder, cwd'd at the workspace
+            // root (scrubbed env — see shell.ts).
+            shell: { cwd: workspace.path },
+            webSearch: true,
             publishingEnabled: !registryWasInjected,
             getRegistry: async () => {
               if (registryWasInjected) return registry;
