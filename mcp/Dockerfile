@@ -13,7 +13,7 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip zip unzip && \
+RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg && \
     ln -s /usr/bin/python3 /usr/bin/python
 
 # Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)
@@ -45,6 +45,30 @@ RUN pip freeze | grep -Ei 'mcp|httpx|pydantic|starlette|sse'
 # Fail the build (not runtime) if the docx-mcp import chain doesn't load.
 # Separate, unredirected steps so the real traceback surfaces in the build log.
 RUN python -c "from mcp.server.fastmcp import FastMCP"
+
+# Agent python venv — the python that agent-step `bash` (and the lab's GAIA
+# scorer) sees. A SEPARATE venv, not the system env: the system python carries
+# the pinned docx-mcp/mcp<2.0.0 resolution above, and mixing data-science deps
+# into it risks resolver conflicts on future builds; the venv also can't be
+# broken by a future docx-mcp pin change. Prepending its bin to PATH makes
+# `python3`/`python` resolve here for agent bash and for docgen's
+# build_workbook.py (openpyxl included for exactly that); docx-mcp-server is
+# unaffected (its console script pins the system interpreter via shebang).
+# Contents: PDF text extraction (pypdf, pdfplumber; pdftotext comes from
+# poppler-utils), spreadsheets (openpyxl, pandas), numerics (numpy — also
+# needed by the GAIA scorer), images (pillow), scraping (requests, bs4), and
+# yt-dlp (with ffmpeg from apt) for media tasks.
+RUN python3 -m venv /usr/src/agent-venv && \
+    /usr/src/agent-venv/bin/pip install --no-cache-dir \
+      numpy pandas openpyxl pypdf pdfplumber pillow requests beautifulsoup4 yt-dlp && \
+    /usr/src/agent-venv/bin/python -c "import numpy, pandas, openpyxl, pypdf, pdfplumber, PIL, requests, bs4"
+ENV PATH="/usr/src/agent-venv/bin:$PATH"
+
+# NOTE (lab / GAIA): the GAIA dataset is HF-gated and is NOT baked into the
+# image. To enable the lab's GAIA grader in a deployment, mount a pinned
+# dataset checkout (with the leaderboard's scorer.py at its root) and set
+# GAIA_DIR (+ optionally GAIA_SCORER_SHA256). The venv python above already
+# satisfies the scorer's numpy dependency.
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
