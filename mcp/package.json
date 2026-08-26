@@ -81,6 +81,7 @@
     "neo4j-driver": "5.28.3",
     "node-cache": "5.1.2",
     "p-queue": "^6.6.2",
+    "redis": "^6.2.1",
     "simple-git": "3.30.0",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
