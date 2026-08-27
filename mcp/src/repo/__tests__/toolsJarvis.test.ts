@@ -5,10 +5,19 @@ import {
   validateTripletSide,
   extractNodeRefId,
   extractEdgeRefId,
+  extractScratchpadInfo,
+  buildNodeCreateBody,
   buildNodeDedupKey,
   matchEdgeResults,
+  buildTripletResult,
+  assembleBatchResults,
 } from "../toolsJarvis.js";
-import type { ResolvedTriplet } from "../toolsJarvis.js";
+import type {
+  ResolvedTriplet,
+  ScratchpadInfo,
+  TripletSideResolution,
+  BatchSideResolution,
+} from "../toolsJarvis.js";
 
 // ── graph_search URL construction helpers ────────────────────────────────────
 // Simulate the URL-building logic from graph_search in toolsJarvis.ts so we
@@ -545,6 +554,21 @@ test.describe("validateTripletSide", () => {
   });
 });
 
+// Real nested scratchpad-capture response shape — rejection context under
+// `scratchpad`, entry identity under `data`.
+const scratchpadResponseFixture = {
+  status: "scratchpad",
+  message: "Wrote to scratchpad: unknown node type 'FooBar'",
+  scratchpad: {
+    intended_type: "FooBar",
+    rejection_reason: "unknown_node_type",
+    rejection_detail: "FooBar is not a valid node_type",
+    deduped: false,
+  },
+  data: { ref_id: "entry-ref-1", node_key: "scratchpadentry-foobar-abc123" },
+  nodes: [],
+};
+
 test.describe("extractNodeRefId", () => {
   test("reads data.ref_id from a fresh-create response", () => {
     expect(
@@ -568,6 +592,82 @@ test.describe("extractNodeRefId", () => {
     expect(extractNodeRefId({ data: { ref_id: "" } })).toBeUndefined();
     expect(extractNodeRefId(undefined)).toBeUndefined();
     expect(extractNodeRefId(null)).toBeUndefined();
+  });
+
+  test("returns undefined for a scratchpad capture even though data.ref_id is populated (fails closed)", () => {
+    expect(extractNodeRefId(scratchpadResponseFixture)).toBeUndefined();
+  });
+});
+
+test.describe("extractScratchpadInfo", () => {
+  test("parses the real nested response shape", () => {
+    const info = extractScratchpadInfo(scratchpadResponseFixture);
+    expect(info).not.toBeNull();
+    expect(info!.scratchpadded).toBe(true);
+    expect(info!.entry_ref_id).toBe("entry-ref-1");
+    expect(info!.node_key).toBe("scratchpadentry-foobar-abc123");
+    expect(info!.intended_type).toBe("FooBar");
+    expect(info!.rejection_reason).toBe("unknown_node_type");
+    expect(info!.rejection_detail).toBe("FooBar is not a valid node_type");
+    expect(info!.deduped).toBe(false);
+  });
+
+  test("passes deduped: true through", () => {
+    const info = extractScratchpadInfo({
+      ...scratchpadResponseFixture,
+      scratchpad: { ...scratchpadResponseFixture.scratchpad, deduped: true },
+    });
+    expect(info!.deduped).toBe(true);
+  });
+
+  test("returns null for a plain success body", () => {
+    expect(
+      extractScratchpadInfo({ status: "success", data: { ref_id: "abc", node_key: "k" } })
+    ).toBeNull();
+  });
+
+  test("returns null for a 'Node already exists' warning body", () => {
+    expect(
+      extractScratchpadInfo({
+        status: "Warning",
+        errorCode: "Node already exists in the graph",
+        data: { ref_id: "existing-1" },
+      })
+    ).toBeNull();
+  });
+
+  test("returns null for error bodies and junk", () => {
+    expect(extractScratchpadInfo({ status: "Error", status_messages: ["boom"] })).toBeNull();
+    expect(extractScratchpadInfo({ errorCode: "Not a valid node_type" })).toBeNull();
+    expect(extractScratchpadInfo(undefined)).toBeNull();
+    expect(extractScratchpadInfo(null)).toBeNull();
+  });
+
+  test("leaves entry_ref_id undefined when data.ref_id is missing or empty", () => {
+    const info = extractScratchpadInfo({ ...scratchpadResponseFixture, data: { ref_id: "" } });
+    expect(info).not.toBeNull();
+    expect(info!.entry_ref_id).toBeUndefined();
+  });
+});
+
+test.describe("buildNodeCreateBody", () => {
+  test("omits allow_scratchpad entirely when absent", () => {
+    const body = buildNodeCreateBody("Person", { name: "Alice" });
+    expect(body).toEqual({ node_type: "Person", node_data: { name: "Alice" } });
+    expect(Object.prototype.hasOwnProperty.call(body, "allow_scratchpad")).toBe(false);
+  });
+
+  test("omits allow_scratchpad entirely when explicitly false (byte-for-byte legacy body)", () => {
+    const body = buildNodeCreateBody("Person", { name: "Alice" }, false);
+    expect(Object.prototype.hasOwnProperty.call(body, "allow_scratchpad")).toBe(false);
+    expect(Object.keys(body)).toEqual(["node_type", "node_data"]);
+  });
+
+  test("places allow_scratchpad at the TOP LEVEL when true — a sibling of node_data, never inside it", () => {
+    const body = buildNodeCreateBody("Person", { name: "Alice" }, true);
+    expect(body.allow_scratchpad).toBe(true);
+    expect(body.node_data).toEqual({ name: "Alice" });
+    expect(Object.prototype.hasOwnProperty.call(body.node_data, "allow_scratchpad")).toBe(false);
   });
 });
 
@@ -761,12 +861,200 @@ test.describe("matchEdgeResults", () => {
     expect(matched.get(2)).toBe("e3");
     expect(unmatched).toHaveLength(0);
   });
+
+  test("a SCRATCHPAD_EDGE response matches back to the triplet that requested its intended_type", () => {
+    const triplets = [
+      makeTriplet(0, "entry-a", "entry-b", "CITES"),
+      makeTriplet(1, "entry-a", "entry-b", "MENTIONS"),
+    ];
+    const returned = [
+      { ref_id: "se-2", source: "entry-a", target: "entry-b", edge_type: "SCRATCHPAD_EDGE", intended_type: "MENTIONS" },
+      { ref_id: "se-1", source: "entry-a", target: "entry-b", edge_type: "SCRATCHPAD_EDGE", intended_type: "CITES" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("se-1");
+    expect(matched.get(1)).toBe("se-2");
+    expect(unmatched).toHaveLength(0);
+  });
+
+  test("a SCRATCHPAD_EDGE without intended_type falls back to a (source, target) match", () => {
+    const triplets = [makeTriplet(0, "entry-a", "entry-b", "CITES")];
+    const returned = [
+      { ref_id: "se-1", source: "entry-a", target: "entry-b", edge_type: "SCRATCHPAD_EDGE" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("se-1");
+    expect(unmatched).toHaveLength(0);
+  });
+
+  test("SCRATCHPAD_EDGE responses are still consumed at most once", () => {
+    const triplets = [
+      makeTriplet(0, "entry-a", "entry-b", "CITES"),
+      makeTriplet(1, "entry-a", "entry-b", "CITES"),
+    ];
+    const returned = [
+      { ref_id: "se-1", source: "entry-a", target: "entry-b", edge_type: "SCRATCHPAD_EDGE", intended_type: "CITES" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("se-1");
+    expect(matched.has(1)).toBe(false);
+    expect(unmatched).toHaveLength(1);
+    expect(unmatched[0].index).toBe(1);
+  });
+
+  test("the (source, target) fallback never steals a typed match from another triplet", () => {
+    // only the MENTIONS edge came back typed; the untyped one must reach CITES via fallback
+    const triplets = [
+      makeTriplet(0, "entry-a", "entry-b", "CITES"),
+      makeTriplet(1, "entry-a", "entry-b", "MENTIONS"),
+    ];
+    const returned = [
+      { ref_id: "se-untyped", source: "entry-a", target: "entry-b", edge_type: "SCRATCHPAD_EDGE" },
+      { ref_id: "se-mentions", source: "entry-a", target: "entry-b", edge_type: "SCRATCHPAD_EDGE", intended_type: "MENTIONS" },
+    ];
+    const { matched, unmatched } = matchEdgeResults(triplets, returned);
+    expect(matched.get(0)).toBe("se-untyped");
+    expect(matched.get(1)).toBe("se-mentions");
+    expect(unmatched).toHaveLength(0);
+  });
+});
+
+// ── create_triplet result assembly (buildTripletResult) ─────────────────────
+
+test.describe("create_triplet result assembly (buildTripletResult)", () => {
+  const canonicalSource: TripletSideResolution = { ref_id: "node-src", scratchpadded: false };
+  const canonicalTarget: TripletSideResolution = { ref_id: "node-tgt", scratchpadded: false };
+  const entryInfo: ScratchpadInfo = {
+    scratchpadded: true,
+    entry_ref_id: "entry-1",
+    node_key: "scratchpadentry-foobar-abc123",
+    intended_type: "FooBar",
+    rejection_reason: "unknown_node_type",
+    rejection_detail: "FooBar is not a valid node_type",
+    deduped: false,
+  };
+  const entrySource: TripletSideResolution = { ref_id: "entry-1", scratchpadded: true, scratchpad: entryInfo };
+  const entryTarget: TripletSideResolution = { ref_id: "entry-2", scratchpadded: true, scratchpad: { ...entryInfo, entry_ref_id: "entry-2" } };
+
+  test("flag-off success shape is unchanged (keys and values match the historical result)", () => {
+    const out = JSON.parse(buildTripletResult({
+      source: canonicalSource,
+      target: canonicalTarget,
+      edge_type: "KNOWS",
+      edgeOk: true,
+      edgeRefId: "edge-1",
+      httpStatus: 200,
+      bodyText: "{}",
+      bodyStatus: "Success",
+      returnedEdgeType: "KNOWS",
+    }));
+    expect(Object.keys(out)).toEqual(["status", "source_ref_id", "target_ref_id", "edge_ref_id", "edge_type"]);
+    expect(out.status).toBe("Success");
+    expect(out.source_ref_id).toBe("node-src");
+    expect(out.target_ref_id).toBe("node-tgt");
+    expect(out.edge_ref_id).toBe("edge-1");
+    expect(out.edge_type).toBe("KNOWS");
+  });
+
+  test("flag-off failure path is byte-identical to the historical string (regression)", () => {
+    const out = buildTripletResult({
+      source: canonicalSource,
+      target: canonicalTarget,
+      edge_type: "KNOWS",
+      edgeOk: false,
+      httpStatus: 400,
+      bodyText: '{"errorCode": "boom"}',
+    });
+    expect(out).toBe(
+      'create_triplet: nodes resolved (source=node-src, target=node-tgt) ' +
+      'but the edge write failed — HTTP 400: {"errorCode": "boom"}'
+    );
+  });
+
+  test("entry source → canonical target: success echoes both ref_ids and source_scratchpadded", () => {
+    const out = JSON.parse(buildTripletResult({
+      source: entrySource,
+      target: canonicalTarget,
+      edge_type: "MENTIONS",
+      edgeOk: true,
+      edgeRefId: "edge-1",
+      httpStatus: 200,
+      bodyText: "{}",
+      bodyStatus: "Success",
+      returnedEdgeType: "MENTIONS",
+    }));
+    expect(out.status).toBe("Success");
+    expect(out.source_ref_id).toBe("entry-1");
+    expect(out.target_ref_id).toBe("node-tgt");
+    expect(out.source_scratchpadded).toBe(true);
+    expect(out.source_scratchpad.rejection_reason).toBe("unknown_node_type");
+    expect(out.target_scratchpadded).toBeUndefined();
+    expect(out.edge_type).toBe("MENTIONS");
+    expect(out.intended_edge_type).toBeUndefined();
+  });
+
+  test("canonical → entry: surfaces ERROR_SCRATCHPAD_EDGE_TARGET verbatim with both ref_ids and per-side flags", () => {
+    const jarvisBody = '{"errorCode": "ERROR_SCRATCHPAD_EDGE_TARGET", "message": "edges may not target a ScratchpadEntry"}';
+    const out = buildTripletResult({
+      source: canonicalSource,
+      target: entryTarget,
+      edge_type: "ABOUT",
+      edgeOk: false,
+      httpStatus: 400,
+      bodyText: jarvisBody,
+    });
+    expect(out).toContain("ERROR_SCRATCHPAD_EDGE_TARGET");
+    expect(out).toContain(jarvisBody);
+    expect(out).toContain("source=node-src");
+    expect(out).toContain("target=entry-2");
+    expect(out).toContain("source_scratchpadded=false");
+    expect(out).toContain("target_scratchpadded=true");
+  });
+
+  test("entry → entry: reports edge_type SCRATCHPAD_EDGE plus intended_edge_type, never the requested type as stored", () => {
+    const out = JSON.parse(buildTripletResult({
+      source: entrySource,
+      target: entryTarget,
+      edge_type: "CITES",
+      edgeOk: true,
+      edgeRefId: "se-1",
+      httpStatus: 200,
+      bodyText: "{}",
+      bodyStatus: "Success",
+      returnedEdgeType: "SCRATCHPAD_EDGE",
+    }));
+    expect(out.edge_type).toBe("SCRATCHPAD_EDGE");
+    expect(out.intended_edge_type).toBe("CITES");
+    expect(out.source_scratchpadded).toBe(true);
+    expect(out.target_scratchpadded).toBe(true);
+    expect(out.source_ref_id).toBe("entry-1");
+    expect(out.target_ref_id).toBe("entry-2");
+  });
+
+  test("SCRATCHPAD_EDGE rewrite also applies when both sides were caller-supplied entry ref_ids", () => {
+    const out = JSON.parse(buildTripletResult({
+      source: { ref_id: "entry-old-1", scratchpadded: false },
+      target: { ref_id: "entry-old-2", scratchpadded: false },
+      edge_type: "CITES",
+      edgeOk: true,
+      edgeRefId: "se-1",
+      httpStatus: 200,
+      bodyText: "{}",
+      bodyStatus: "Success",
+      returnedEdgeType: "SCRATCHPAD_EDGE",
+    }));
+    expect(out.edge_type).toBe("SCRATCHPAD_EDGE");
+    expect(out.intended_edge_type).toBe("CITES");
+    expect(out.source_scratchpadded).toBeUndefined();
+    expect(out.target_scratchpadded).toBeUndefined();
+  });
 });
 
 // ── create_batch_triplet result assembly (pure logic simulation) ─────────────
 // We exercise the pure helpers (buildNodeDedupKey, matchEdgeResults,
 // validateTripletSide, extractNodeRefId, extractEdgeRefId) to simulate the
-// overall batch behaviour without hitting the network.
+// overall batch behaviour without hitting the network. Phase 3 comes from the
+// exported assembleBatchResults, not a local copy.
 
 test.describe("create_batch_triplet result assembly (simulated)", () => {
   // ── helpers re-used across tests ──────────────────────────────────────────
@@ -783,20 +1071,23 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
       weight?: number;
       create_schema_if_missing?: boolean;
     }>,
-    // pre-resolved node map: dedupKey → ref_id
-    nodeMap: Map<string, string>,
+    // pre-resolved node map: dedupKey → ref_id (canonical), or a full
+    // BatchSideResolution to simulate a scratchpad capture
+    nodeMap: Map<string, string | BatchSideResolution>,
     // simulated bulk edge response
     bulkEdgesResponse: Array<{
       ref_id: string;
       source?: string;
       target?: string;
       edge_type?: string;
+      intended_type?: string;
     }>,
-    // simulated fallback responses per unmatched triplet index (index → edgeRefId | null)
-    fallbackMap: Map<number, string | null> = new Map(),
+    // simulated fallback responses per unmatched triplet index — a bare
+    // ref_id, or { ref_id, edge_type } to simulate a SCRATCHPAD_EDGE rewrite
+    fallbackMap: Map<number, string | { ref_id: string; edge_type?: string } | null> = new Map(),
     // mirrors the tool's opt-in `return_edge_ids` param (default off)
     returnEdgeIds = false,
-  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type?: string; error?: string }> {
+  ): Array<{ status: string; index?: number; source_ref_id?: string; target_ref_id?: string; edge_ref_id?: string; edge_type?: string; intended_edge_type?: string; error?: string; edge_error?: string; source_scratchpadded?: boolean; target_scratchpadded?: boolean }> {
     const failures: Array<string | null> = triplets.map(() => null);
 
     // Phase 0: validation
@@ -808,9 +1099,11 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
       if (err) failures[i] = `invalid input — ${err}`;
     }
 
-    // Phase 1: resolve ref_ids
-    const sourceRefs: Array<string | null> = triplets.map(() => null);
-    const targetRefs: Array<string | null> = triplets.map(() => null);
+    // Phase 1: resolve sides (ref_id + scratchpad provenance)
+    const toSide = (r: string | BatchSideResolution): BatchSideResolution =>
+      typeof r === "string" ? { ref_id: r, scratchpadded: false } : r;
+    const sourceSides: Array<BatchSideResolution | null> = triplets.map(() => null);
+    const targetSides: Array<BatchSideResolution | null> = triplets.map(() => null);
 
     for (let i = 0; i < triplets.length; i++) {
       if (failures[i]) continue;
@@ -819,35 +1112,35 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
       // source
       const srcHasRef = typeof t.source_ref_id === "string" && t.source_ref_id.length > 0;
       if (srcHasRef) {
-        sourceRefs[i] = t.source_ref_id!;
+        sourceSides[i] = { ref_id: t.source_ref_id!, scratchpadded: false };
       } else {
         const key = buildNodeDedupKey(t.source_type!, t.source_data!);
         const r = nodeMap.get(key);
         if (!r) { failures[i] = "source node resolution failed"; continue; }
-        sourceRefs[i] = r;
+        sourceSides[i] = toSide(r);
       }
 
       // target
       const tgtHasRef = typeof t.target_ref_id === "string" && t.target_ref_id.length > 0;
       if (tgtHasRef) {
-        targetRefs[i] = t.target_ref_id!;
+        targetSides[i] = { ref_id: t.target_ref_id!, scratchpadded: false };
       } else {
         const key = buildNodeDedupKey(t.target_type!, t.target_data!);
         const r = nodeMap.get(key);
         if (!r) { failures[i] = "target node resolution failed"; continue; }
-        targetRefs[i] = r;
+        targetSides[i] = toSide(r);
       }
     }
 
     // Phase 2: match edges
     const resolvedTriplets: ResolvedTriplet[] = [];
     for (let i = 0; i < triplets.length; i++) {
-      if (failures[i] || !sourceRefs[i] || !targetRefs[i]) continue;
+      if (failures[i] || !sourceSides[i] || !targetSides[i]) continue;
       const t = triplets[i];
       resolvedTriplets.push({
         index: i,
-        source_ref_id: sourceRefs[i]!,
-        target_ref_id: targetRefs[i]!,
+        source_ref_id: sourceSides[i]!.ref_id,
+        target_ref_id: targetSides[i]!.ref_id,
         edge_type: t.edge_type,
         edge_data: t.edge_data,
         weight: t.weight,
@@ -856,38 +1149,42 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
     }
 
     const edgeResults = new Map<number, string>();
+    const storedEdgeTypes = new Map<number, string>();
+    const bulkMatchedIndexes = new Set<number>();
     const { matched, unmatched } = matchEdgeResults(resolvedTriplets, bulkEdgesResponse);
-    for (const [idx, ref] of matched) edgeResults.set(idx, ref);
+    const edgeByRefId = new Map<string, (typeof bulkEdgesResponse)[number]>();
+    for (const e of bulkEdgesResponse) {
+      if (e?.ref_id && !edgeByRefId.has(e.ref_id)) edgeByRefId.set(e.ref_id, e);
+    }
+    for (const [idx, ref] of matched) {
+      edgeResults.set(idx, ref);
+      bulkMatchedIndexes.add(idx);
+      const storedType = edgeByRefId.get(ref)?.edge_type;
+      if (storedType) storedEdgeTypes.set(idx, storedType);
+    }
 
     for (const rt of unmatched) {
-      const fallbackRef = fallbackMap.get(rt.index) ?? null;
-      if (fallbackRef) {
-        edgeResults.set(rt.index, fallbackRef);
+      const fallback = fallbackMap.get(rt.index) ?? null;
+      if (fallback) {
+        const fb = typeof fallback === "string" ? { ref_id: fallback } : fallback;
+        edgeResults.set(rt.index, fb.ref_id);
+        if (fb.edge_type) storedEdgeTypes.set(rt.index, fb.edge_type);
       } else {
         failures[rt.index] = "edge write failed";
       }
     }
 
-    // Phase 3: assemble
-    return triplets.map((t, i) => {
-      if (failures[i]) {
-        return { status: "Error", index: i, edge_type: t.edge_type, error: failures[i] };
-      }
-      const edgeRef = edgeResults.get(i);
-      if (!edgeRef) {
-        return { status: "Error", index: i, edge_type: t.edge_type, error: "edge ref_id could not be recovered" };
-      }
-      // Mirrors production: successful entries omit edge_type always, and omit
-      // edge_ref_id unless returnEdgeIds is set. A recovered edgeRef is still
-      // required — without it the branch above returns status "Error", so
-      // asserting "Success" proves recovery worked either way.
-      return {
-        status: "Success",
-        source_ref_id: sourceRefs[i]!,
-        target_ref_id: targetRefs[i]!,
-        ...(returnEdgeIds ? { edge_ref_id: edgeRef } : {}),
-      };
-    });
+    // Phase 3: the exported production assembly.
+    return assembleBatchResults({
+      edgeTypes: triplets.map((t) => t.edge_type),
+      failures,
+      sources: sourceSides,
+      targets: targetSides,
+      edgeResults,
+      storedEdgeTypes,
+      bulkMatchedIndexes,
+      returnEdgeIds,
+    }).results as any;
   }
 
   test("output ordering matches input ordering", () => {
@@ -1017,6 +1314,239 @@ test.describe("create_batch_triplet result assembly (simulated)", () => {
     expect(results[1].source_ref_id).toBe("node-alice");
     expect(results[0].status).toBe("Success");
     expect(results[1].status).toBe("Success");
+  });
+
+  // ── allow_scratchpad outcomes ─────────────────────────────────────────────
+
+  const entryScratchInfo: ScratchpadInfo = {
+    scratchpadded: true,
+    entry_ref_id: "entry-1",
+    node_key: "scratchpadentry-foobar-abc123",
+    intended_type: "FooBar",
+    rejection_reason: "unknown_node_type",
+    rejection_detail: "FooBar is not a valid node_type",
+    deduped: false,
+  };
+  const entrySide = (refId: string): BatchSideResolution => ({
+    ref_id: refId,
+    scratchpadded: true,
+    scratchpad: { ...entryScratchInfo, entry_ref_id: refId },
+  });
+
+  test("one-sided: entry source → canonical target is status Scratchpad with refs, flags and rejection info", () => {
+    const nodeMap = new Map<string, string | BatchSideResolution>([
+      [buildNodeDedupKey("FooBar", { name: "X" }), entrySide("entry-1")],
+    ]);
+    const triplets = [
+      { source_type: "FooBar", source_data: { name: "X" }, target_ref_id: "node-b", edge_type: "MENTIONS" },
+    ];
+    const bulk = [
+      { ref_id: "e1", source: "entry-1", target: "node-b", edge_type: "MENTIONS" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results[0].status).toBe("Scratchpad");
+    expect(results[0].source_ref_id).toBe("entry-1");
+    expect(results[0].target_ref_id).toBe("node-b");
+    expect(results[0].source_scratchpadded).toBe(true);
+    expect(results[0].target_scratchpadded).toBeUndefined();
+    expect((results[0] as any).source_scratchpad.rejection_reason).toBe("unknown_node_type");
+    expect(results[0].intended_edge_type).toBeUndefined();
+  });
+
+  test("both-sided: entry → entry reports edge_type SCRATCHPAD_EDGE plus intended_edge_type", () => {
+    const nodeMap = new Map<string, string | BatchSideResolution>([
+      [buildNodeDedupKey("FooBar", { name: "X" }), entrySide("entry-1")],
+      [buildNodeDedupKey("BazQux", { name: "Y" }), entrySide("entry-2")],
+    ]);
+    const triplets = [
+      { source_type: "FooBar", source_data: { name: "X" }, target_type: "BazQux", target_data: { name: "Y" }, edge_type: "CITES" },
+    ];
+    const bulk = [
+      { ref_id: "se-1", source: "entry-1", target: "entry-2", edge_type: "SCRATCHPAD_EDGE", intended_type: "CITES" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results[0].status).toBe("Scratchpad");
+    expect(results[0].edge_type).toBe("SCRATCHPAD_EDGE");
+    expect(results[0].intended_edge_type).toBe("CITES");
+    expect(results[0].source_scratchpadded).toBe(true);
+    expect(results[0].target_scratchpadded).toBe(true);
+  });
+
+  test("entry → entry recovered via the fallback loop still reports the SCRATCHPAD_EDGE rewrite", () => {
+    const nodeMap = new Map<string, string | BatchSideResolution>([
+      [buildNodeDedupKey("FooBar", { name: "X" }), entrySide("entry-1")],
+      [buildNodeDedupKey("BazQux", { name: "Y" }), entrySide("entry-2")],
+    ]);
+    const triplets = [
+      { source_type: "FooBar", source_data: { name: "X" }, target_type: "BazQux", target_data: { name: "Y" }, edge_type: "CITES" },
+    ];
+    const fallback = new Map<number, string | { ref_id: string; edge_type?: string } | null>([
+      [0, { ref_id: "se-1", edge_type: "SCRATCHPAD_EDGE" }],
+    ]);
+    const results = simulateBatch(triplets, nodeMap, [], fallback);
+    expect(results[0].status).toBe("Scratchpad");
+    expect(results[0].edge_type).toBe("SCRATCHPAD_EDGE");
+    expect(results[0].intended_edge_type).toBe("CITES");
+  });
+
+  test("canonical → entry edge rejection stays Scratchpad (not Error), carrying the edge error verbatim", () => {
+    const nodeMap = new Map<string, string | BatchSideResolution>([
+      [buildNodeDedupKey("FooBar", { name: "X" }), entrySide("entry-1")],
+    ]);
+    const triplets = [
+      { source_ref_id: "node-a", target_type: "FooBar", target_data: { name: "X" }, edge_type: "ABOUT" },
+    ];
+    // no bulk match, no fallback recovery → edge failure recorded
+    const results = simulateBatch(triplets, nodeMap, []);
+    expect(results[0].status).toBe("Scratchpad");
+    expect(results[0].source_ref_id).toBe("node-a");
+    expect(results[0].target_ref_id).toBe("entry-1");
+    expect(results[0].target_scratchpadded).toBe(true);
+    expect(results[0].edge_error).toContain("edge write failed");
+    expect(results[0].error).toBeUndefined();
+  });
+
+  test("a deduped scratchpadded side keeps its provenance for every item referencing it", () => {
+    const nodeMap = new Map<string, string | BatchSideResolution>([
+      [buildNodeDedupKey("FooBar", { name: "X" }), entrySide("entry-1")],
+    ]);
+    const triplets = [
+      { source_type: "FooBar", source_data: { name: "X" }, target_ref_id: "node-b", edge_type: "MENTIONS" },
+      { source_type: "FooBar", source_data: { name: "X" }, target_ref_id: "node-c", edge_type: "CITES" },
+    ];
+    const bulk = [
+      { ref_id: "e1", source: "entry-1", target: "node-b", edge_type: "MENTIONS" },
+      { ref_id: "e2", source: "entry-1", target: "node-c", edge_type: "CITES" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    for (const r of results) {
+      expect(r.status).toBe("Scratchpad");
+      expect(r.source_ref_id).toBe("entry-1");
+      expect(r.source_scratchpadded).toBe(true);
+      expect((r as any).source_scratchpad.rejection_reason).toBe("unknown_node_type");
+    }
+  });
+
+  test("scratchpadded items never leak into Success or Error; canonical items are unaffected", () => {
+    const nodeMap = new Map<string, string | BatchSideResolution>([
+      [buildNodeDedupKey("FooBar", { name: "X" }), entrySide("entry-1")],
+      [buildNodeDedupKey("Person", { name: "Alice" }), "node-alice"],
+    ]);
+    const triplets = [
+      { source_type: "Person", source_data: { name: "Alice" }, target_ref_id: "node-b", edge_type: "KNOWS" },
+      { source_type: "FooBar", source_data: { name: "X" }, target_ref_id: "node-b", edge_type: "MENTIONS" },
+      { target_ref_id: "node-b", edge_type: "KNOWS" } as any, // invalid — no source
+    ];
+    const bulk = [
+      { ref_id: "e1", source: "node-alice", target: "node-b", edge_type: "KNOWS" },
+      { ref_id: "e2", source: "entry-1", target: "node-b", edge_type: "MENTIONS" },
+    ];
+    const results = simulateBatch(triplets, nodeMap, bulk);
+    expect(results.map((r) => r.status)).toEqual(["Success", "Scratchpad", "Error"]);
+  });
+});
+
+// ── assembleBatchResults counters ────────────────────────────────────────────
+
+test.describe("assembleBatchResults counters", () => {
+  const entrySide: BatchSideResolution = {
+    ref_id: "entry-1",
+    scratchpadded: true,
+    scratchpad: {
+      scratchpadded: true,
+      entry_ref_id: "entry-1",
+      intended_type: "FooBar",
+      rejection_reason: "unknown_node_type",
+      deduped: false,
+    },
+  };
+  const canonical = (refId: string): BatchSideResolution => ({ ref_id: refId, scratchpadded: false });
+
+  test("no item is double-counted across Success / Scratchpad / Error, and counters add up", () => {
+    // 4 items: canonical success (bulk), scratchpad success (fallback),
+    // scratchpad with failed edge, hard error.
+    const out = assembleBatchResults({
+      edgeTypes: ["KNOWS", "MENTIONS", "ABOUT", "KNOWS"],
+      failures: [null, null, "edge write failed (HTTP 400): ERROR_SCRATCHPAD_EDGE_TARGET", "invalid input — source"],
+      sources: [canonical("a"), entrySide, canonical("c"), null],
+      targets: [canonical("b"), canonical("b"), entrySide, null],
+      edgeResults: new Map([[0, "e0"], [1, "e1"]]),
+      storedEdgeTypes: new Map(),
+      bulkMatchedIndexes: new Set([0]),
+      returnEdgeIds: false,
+    });
+    expect(out.results.map((r) => r.status)).toEqual(["Success", "Scratchpad", "Scratchpad", "Error"]);
+    expect(out.successCount).toBe(1);
+    expect(out.scratchpadCount).toBe(2);
+    expect(out.failedCount).toBe(1);
+    expect(out.successCount + out.scratchpadCount + out.failedCount).toBe(out.results.length);
+    // Edge provenance: item 0 via bulk, item 1 via fallback; item 2 has no edge.
+    expect(out.bulkMatched).toBe(1);
+    expect(out.fallbackRecovered).toBe(1);
+  });
+
+  test("a Scratchpad item is excluded from failedCount even when its edge write failed", () => {
+    const out = assembleBatchResults({
+      edgeTypes: ["ABOUT"],
+      failures: ["edge write failed (HTTP 400): ERROR_SCRATCHPAD_EDGE_TARGET"],
+      sources: [canonical("a")],
+      targets: [entrySide],
+      edgeResults: new Map(),
+      storedEdgeTypes: new Map(),
+      bulkMatchedIndexes: new Set(),
+      returnEdgeIds: false,
+    });
+    expect(out.results[0].status).toBe("Scratchpad");
+    expect(out.failedCount).toBe(0);
+    expect(out.scratchpadCount).toBe(1);
+  });
+
+  test("a stored SCRATCHPAD_EDGE marks the item Scratchpad even when both sides were caller-supplied ref_ids", () => {
+    const out = assembleBatchResults({
+      edgeTypes: ["CITES"],
+      failures: [null],
+      sources: [canonical("entry-old-1")],
+      targets: [canonical("entry-old-2")],
+      edgeResults: new Map([[0, "se-1"]]),
+      storedEdgeTypes: new Map([[0, "SCRATCHPAD_EDGE"]]),
+      bulkMatchedIndexes: new Set([0]),
+      returnEdgeIds: false,
+    });
+    expect(out.results[0].status).toBe("Scratchpad");
+    expect(out.results[0].edge_type).toBe("SCRATCHPAD_EDGE");
+    expect(out.results[0].intended_edge_type).toBe("CITES");
+    expect(out.successCount).toBe(0);
+  });
+
+  test("flag-off shapes are unchanged: Success and Error entries keep their historical keys", () => {
+    const out = assembleBatchResults({
+      edgeTypes: ["KNOWS", "LOVES"],
+      failures: [null, "edge write failed"],
+      sources: [canonical("a"), canonical("c")],
+      targets: [canonical("b"), canonical("d")],
+      edgeResults: new Map([[0, "e0"]]),
+      storedEdgeTypes: new Map([[0, "KNOWS"]]),
+      bulkMatchedIndexes: new Set([0]),
+      returnEdgeIds: false,
+    });
+    expect(Object.keys(out.results[0])).toEqual(["status", "source_ref_id", "target_ref_id"]);
+    expect(Object.keys(out.results[1])).toEqual(["status", "index", "edge_type", "error"]);
+  });
+
+  test("edge_ref_id is opt-in on Scratchpad entries too", () => {
+    const input = {
+      edgeTypes: ["MENTIONS"],
+      failures: [null as string | null],
+      sources: [entrySide],
+      targets: [canonical("b")],
+      edgeResults: new Map([[0, "e1"]]),
+      storedEdgeTypes: new Map<number, string>(),
+      bulkMatchedIndexes: new Set([0]),
+    };
+    const off = assembleBatchResults({ ...input, returnEdgeIds: false });
+    const on = assembleBatchResults({ ...input, returnEdgeIds: true });
+    expect(off.results[0].edge_ref_id).toBeUndefined();
+    expect(on.results[0].edge_ref_id).toBe("e1");
   });
 });
 

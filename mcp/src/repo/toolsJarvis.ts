@@ -1182,19 +1182,40 @@ export interface ResolvedTriplet {
  * so duplicate keys (same triple but different edge_data/weight) are
  * disambiguated deterministically.
  *
+ * An entry↔entry edge comes back with the reserved type `SCRATCHPAD_EDGE` and
+ * the caller's requested type preserved as `intended_type` — such an edge is
+ * keyed on its intended_type so it matches the triplet that requested it, and
+ * falls back to (source, target) alone when intended_type is absent.
+ *
  * Returns `{ matched: Map<index, edgeRefId>, unmatched: ResolvedTriplet[] }`.
  */
 export function matchEdgeResults(
   triplets: ResolvedTriplet[],
-  returnedEdges: Array<{ ref_id: string; source?: string; target?: string; edge_type?: string }>,
+  returnedEdges: Array<{
+    ref_id: string;
+    source?: string;
+    target?: string;
+    edge_type?: string;
+    intended_type?: string;
+  }>,
 ): { matched: Map<number, string>; unmatched: ResolvedTriplet[] } {
   // Build a pool of returned edges grouped by (src, tgt, edge_type) key.
   // Each pool entry is a queue; we shift() one per matched triplet so each
   // returned edge is consumed at most once.
   const pool = new Map<string, string[]>();
+  // SCRATCHPAD_EDGE responses missing intended_type: keyed on (src, tgt)
+  // alone, in a separate pool so they never collide with typed matches.
+  const scratchpadFallbackPool = new Map<string, string[]>();
   for (const e of returnedEdges) {
     if (!e?.ref_id) continue;
-    const key = `${e.source ?? ""}|${e.target ?? ""}|${e.edge_type ?? ""}`;
+    if (e.edge_type === "SCRATCHPAD_EDGE" && !e.intended_type) {
+      const key = `${e.source ?? ""}|${e.target ?? ""}`;
+      if (!scratchpadFallbackPool.has(key)) scratchpadFallbackPool.set(key, []);
+      scratchpadFallbackPool.get(key)!.push(e.ref_id);
+      continue;
+    }
+    const edgeType = e.edge_type === "SCRATCHPAD_EDGE" ? e.intended_type : e.edge_type;
+    const key = `${e.source ?? ""}|${e.target ?? ""}|${edgeType ?? ""}`;
     if (!pool.has(key)) pool.set(key, []);
     pool.get(key)!.push(e.ref_id);
   }
@@ -1207,9 +1228,16 @@ export function matchEdgeResults(
     const queue = pool.get(key);
     if (queue && queue.length > 0) {
       matched.set(t.index, queue.shift()!);
-    } else {
-      unmatched.push(t);
+      continue;
     }
+    const fallbackQueue = scratchpadFallbackPool.get(
+      `${t.source_ref_id}|${t.target_ref_id}`,
+    );
+    if (fallbackQueue && fallbackQueue.length > 0) {
+      matched.set(t.index, fallbackQueue.shift()!);
+      continue;
+    }
+    unmatched.push(t);
   }
 
   return { matched, unmatched };
@@ -1219,10 +1247,308 @@ export function matchEdgeResults(
  * Pull the created/merged node ref_id out of a Jarvis `POST /v2/nodes`
  * response body. Both plain success and the "Node already exists in the graph"
  * warning carry `data.ref_id` (merge semantics); anything else is a failure.
+ *
+ * A scratchpad capture (`status: "scratchpad"`, HTTP 200) also carries
+ * `data.ref_id` — the ScratchpadEntry's — so it returns undefined here;
+ * callers read it via `extractScratchpadInfo` instead.
  */
 export function extractNodeRefId(body: any): string | undefined {
+  if (body?.status === "scratchpad") return undefined;
   const refId = body?.data?.ref_id;
   return typeof refId === "string" && refId.length > 0 ? refId : undefined;
+}
+
+/**
+ * Rejection context from a Jarvis scratchpad capture. The response nests this
+ * under `scratchpad`, with the entry's identity under `data` — a flat
+ * top-level read sees none of it.
+ */
+export interface ScratchpadInfo {
+  scratchpadded: true;
+  /** ref_id of the ScratchpadEntry node holding the rejected payload */
+  entry_ref_id?: string;
+  /** entry identity: "scratchpadentry-<intended_type>-<entry_hash>" */
+  node_key?: string;
+  intended_type?: string;
+  rejection_reason?: string;
+  rejection_detail?: string;
+  /**
+   * An existing entry already held this payload. Informational only — the
+   * backend's dedup check is read-then-write, never an idempotency guarantee.
+   */
+  deduped: boolean;
+}
+
+/** Returns null for anything that is not a `status: "scratchpad"` body. */
+export function extractScratchpadInfo(body: any): ScratchpadInfo | null {
+  if (body?.status !== "scratchpad") return null;
+  const refId = body?.data?.ref_id;
+  return {
+    scratchpadded: true,
+    entry_ref_id: typeof refId === "string" && refId.length > 0 ? refId : undefined,
+    node_key: body?.data?.node_key,
+    intended_type: body?.scratchpad?.intended_type,
+    rejection_reason: body?.scratchpad?.rejection_reason,
+    rejection_detail: body?.scratchpad?.rejection_detail,
+    deduped: Boolean(body?.scratchpad?.deduped),
+  };
+}
+
+/**
+ * Body for `POST /v2/nodes`. Jarvis reads `allow_scratchpad` at the top level
+ * of the body (a sibling of `node_data`, not a key inside it); omitted
+ * entirely when falsy.
+ */
+export function buildNodeCreateBody(
+  node_type: string,
+  node_data: Record<string, any>,
+  allow_scratchpad?: boolean,
+): Record<string, any> {
+  return {
+    node_type,
+    node_data,
+    ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+  };
+}
+
+/** Per-side rejection context echoed in triplet results — drops entry_ref_id
+ * (already surfaced as the side's ref_id) and the scratchpadded marker. */
+function compactScratchpad(info: ScratchpadInfo): Record<string, any> {
+  return {
+    ...(info.node_key ? { node_key: info.node_key } : {}),
+    ...(info.intended_type ? { intended_type: info.intended_type } : {}),
+    ...(info.rejection_reason ? { rejection_reason: info.rejection_reason } : {}),
+    ...(info.rejection_detail ? { rejection_detail: info.rejection_detail } : {}),
+    deduped: info.deduped,
+  };
+}
+
+/**
+ * One resolved side of a triplet. `scratchpadded` means THIS call preserved
+ * it as a ScratchpadEntry — a caller-supplied ref_id may still point at an
+ * entry from an earlier call, which only Jarvis can know.
+ */
+export interface TripletSideResolution {
+  ref_id: string;
+  scratchpadded: boolean;
+  scratchpad?: ScratchpadInfo;
+}
+
+/**
+ * Assemble the create_triplet tool result after the edge write (extracted so
+ * tests exercise the shipped branching). Non-success paths echo both ref_ids
+ * plus per-side scratchpadded flags, with Jarvis's body verbatim. An
+ * entry↔entry edge is stored under the reserved type SCRATCHPAD_EDGE with the
+ * caller's type kept as `intended_type` — echoing the requested edge_type
+ * there would assert a relationship type that does not exist in the graph.
+ */
+export function buildTripletResult(params: {
+  source: TripletSideResolution;
+  target: TripletSideResolution;
+  edge_type: string;
+  edgeOk: boolean;
+  edgeRefId?: string;
+  httpStatus: number;
+  bodyText: string;
+  bodyStatus?: string;
+  returnedEdgeType?: string;
+  statusMessages?: string[];
+}): string {
+  const {
+    source,
+    target,
+    edge_type,
+    edgeOk,
+    edgeRefId,
+    httpStatus,
+    bodyText,
+    bodyStatus,
+    returnedEdgeType,
+    statusMessages,
+  } = params;
+  if (!edgeOk || !edgeRefId) {
+    const scratchNote =
+      source.scratchpadded || target.scratchpadded
+        ? ` (source_scratchpadded=${source.scratchpadded}, target_scratchpadded=${target.scratchpadded})`
+        : "";
+    return (
+      `create_triplet: nodes resolved (source=${source.ref_id}, target=${target.ref_id})${scratchNote} ` +
+      `but the edge write failed — HTTP ${httpStatus}: ${bodyText}`
+    );
+  }
+  const isScratchpadEdge = returnedEdgeType === "SCRATCHPAD_EDGE";
+  return JSON.stringify({
+    // "Warning" here means the edge already existed (idempotent merge).
+    status: bodyStatus ?? "Success",
+    source_ref_id: source.ref_id,
+    target_ref_id: target.ref_id,
+    edge_ref_id: edgeRefId,
+    edge_type: isScratchpadEdge ? "SCRATCHPAD_EDGE" : edge_type,
+    ...(isScratchpadEdge ? { intended_edge_type: edge_type } : {}),
+    ...(source.scratchpadded
+      ? {
+          source_scratchpadded: true,
+          ...(source.scratchpad ? { source_scratchpad: compactScratchpad(source.scratchpad) } : {}),
+        }
+      : {}),
+    ...(target.scratchpadded
+      ? {
+          target_scratchpadded: true,
+          ...(target.scratchpad ? { target_scratchpad: compactScratchpad(target.scratchpad) } : {}),
+        }
+      : {}),
+    ...(Array.isArray(statusMessages) && statusMessages.length > 0
+      ? { messages: statusMessages }
+      : {}),
+  });
+}
+
+/** Same semantics as {@link TripletSideResolution}. */
+export type BatchSideResolution = TripletSideResolution;
+
+export interface BatchAssemblyInput {
+  /** caller's requested edge_type per item, input order */
+  edgeTypes: string[];
+  /** hard-failure message per item (validation / node resolution / edge write); null = alive */
+  failures: Array<string | null>;
+  sources: Array<BatchSideResolution | null>;
+  targets: Array<BatchSideResolution | null>;
+  /** recovered edge ref_id per item index (bulk match or fallback) */
+  edgeResults: Map<number, string>;
+  /** edge_type as stored by Jarvis per item index, when known (e.g. SCRATCHPAD_EDGE) */
+  storedEdgeTypes: Map<number, string>;
+  /** item indexes whose edge came from the bulk pass (matchEdgeResults) */
+  bulkMatchedIndexes: Set<number>;
+  returnEdgeIds: boolean;
+}
+
+export interface BatchAssemblyOutput {
+  results: Array<Record<string, any>>;
+  successCount: number;
+  /** items reported "Scratchpad" — a capture, excluded from failedCount */
+  scratchpadCount: number;
+  failedCount: number;
+  /** non-Error items whose edge was matched in the bulk pass */
+  bulkMatched: number;
+  /** non-Error items whose edge was recovered by the single-object fallback */
+  fallbackRecovered: number;
+}
+
+/**
+ * Phase 3 of create_batch_triplet: per-item outcome assembly plus counter
+ * derivation (extracted so tests exercise the shipped branching). An item
+ * with a preserved side gets the distinct status "Scratchpad" — never "Error"
+ * (which would mislabel a successful capture and invite retries) and never a
+ * plain "Success" — and is excluded from failedCount.
+ */
+export function assembleBatchResults(input: BatchAssemblyInput): BatchAssemblyOutput {
+  const {
+    edgeTypes,
+    failures,
+    sources,
+    targets,
+    edgeResults,
+    storedEdgeTypes,
+    bulkMatchedIndexes,
+    returnEdgeIds,
+  } = input;
+
+  const results: Array<Record<string, any>> = [];
+  for (let i = 0; i < edgeTypes.length; i++) {
+    const source = sources[i];
+    const target = targets[i];
+    const scratchpadded = Boolean(source?.scratchpadded || target?.scratchpadded);
+    const edgeRef = edgeResults.get(i);
+    const failure = failures[i] ?? (edgeRef ? null : "edge ref_id could not be recovered");
+
+    if (failure) {
+      if (scratchpadded) {
+        results.push({
+          status: "Scratchpad",
+          index: i,
+          edge_type: edgeTypes[i],
+          ...(source ? { source_ref_id: source.ref_id } : {}),
+          ...(target ? { target_ref_id: target.ref_id } : {}),
+          ...(source?.scratchpadded
+            ? {
+                source_scratchpadded: true,
+                ...(source.scratchpad ? { source_scratchpad: compactScratchpad(source.scratchpad) } : {}),
+              }
+            : {}),
+          ...(target?.scratchpadded
+            ? {
+                target_scratchpadded: true,
+                ...(target.scratchpad ? { target_scratchpad: compactScratchpad(target.scratchpad) } : {}),
+              }
+            : {}),
+          edge_error: failure,
+        });
+      } else {
+        results.push({ status: "Error", index: i, edge_type: edgeTypes[i], error: failure });
+      }
+      continue;
+    }
+
+    // SCRATCHPAD_EDGE can also come back when both sides were caller-supplied
+    // ref_ids of existing entries — report Scratchpad either way.
+    const isScratchpadEdge = storedEdgeTypes.get(i) === "SCRATCHPAD_EDGE";
+    if (scratchpadded || isScratchpadEdge) {
+      results.push({
+        status: "Scratchpad",
+        index: i,
+        source_ref_id: source!.ref_id,
+        target_ref_id: target!.ref_id,
+        ...(source!.scratchpadded
+          ? {
+              source_scratchpadded: true,
+              ...(source!.scratchpad ? { source_scratchpad: compactScratchpad(source!.scratchpad) } : {}),
+            }
+          : {}),
+        ...(target!.scratchpadded
+          ? {
+              target_scratchpadded: true,
+              ...(target!.scratchpad ? { target_scratchpad: compactScratchpad(target!.scratchpad) } : {}),
+            }
+          : {}),
+        ...(isScratchpadEdge
+          ? { edge_type: "SCRATCHPAD_EDGE", intended_edge_type: edgeTypes[i] }
+          : {}),
+        ...(returnEdgeIds && edgeRef ? { edge_ref_id: edgeRef } : {}),
+      });
+      continue;
+    }
+
+    // Successful entries return only what the caller does NOT already have.
+    // `edge_ref_id` was measured across four production traces: 1,426 returned,
+    // 0 ever referenced in a later call — so it is opt-in via `return_edge_ids`.
+    // `edge_type` is echoed straight back from the request and is always dropped.
+    // Both are kept on the Error branches, where the context is worth the tokens
+    // and the volume is negligible.
+    results.push({
+      status: "Success",
+      source_ref_id: source!.ref_id,
+      target_ref_id: target!.ref_id,
+      ...(returnEdgeIds && edgeRef ? { edge_ref_id: edgeRef } : {}),
+    });
+  }
+
+  let successCount = 0;
+  let scratchpadCount = 0;
+  let failedCount = 0;
+  let bulkMatched = 0;
+  let fallbackRecovered = 0;
+  for (let i = 0; i < results.length; i++) {
+    const s = results[i].status;
+    if (s === "Success") successCount++;
+    else if (s === "Scratchpad") scratchpadCount++;
+    else failedCount++;
+    if (s !== "Error" && edgeResults.has(i)) {
+      if (bulkMatchedIndexes.has(i)) bulkMatched++;
+      else fallbackRecovered++;
+    }
+  }
+
+  return { results, successCount, scratchpadCount, failedCount, bulkMatched, fallbackRecovered };
 }
 
 /**
@@ -1268,7 +1594,9 @@ function registerGraphWriteTools(
       "an edge entry with \"*\" on either side matches any concrete type on that side — do not require an exact string match. " +
       "IMPORTANT: \"*\" is valid to SEE in get_ontology's edge output, but is NEVER a valid value to SUPPLY as " +
       "source_type or target_type when calling create_triplet — supplying \"*\" would create a node of type \"*\", " +
-      "which is an unintended backend sentinel, not a real node type.",
+      "which is an unintended backend sentinel, not a real node type. " +
+      "With allow_scratchpad set, a rejected inline node is preserved as a ScratchpadEntry instead of failing " +
+      "(see the parameter description for the exact coverage and edge rules).",
     inputSchema: z.object({
       source_ref_id: z
         .string()
@@ -1332,6 +1660,26 @@ function registerGraphWriteTools(
           "edge_type — a wildcard schema already matches any concrete type pair, so creating a new concrete-type " +
           "schema on top of it would produce a redundant, overlapping rule.",
         ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "OPT-IN loss-prevention for both inline node writes and the edge write. " +
+          "An inline node Jarvis rejects (unknown node type, failed validation) is preserved as a " +
+          "ScratchpadEntry instead of failing — the result then carries source_scratchpadded/" +
+          "target_scratchpadded plus rejection context, and that side's ref_id is the ENTRY's, " +
+          "not a canonical node's. Two rejection exits bypass the gate and still fail hard: a missing " +
+          "node_type, and a schema-does-not-exist 404. " +
+          "Edge rules (Jarvis adjudicates — this client never skips the edge write): an entry may be the " +
+          "SOURCE of an edge to a canonical node (that is how a preserved entry keeps its context); a " +
+          "canonical node may NEVER point at an entry (fails with ERROR_SCRATCHPAD_EDGE_TARGET); an " +
+          "entry-to-entry edge is stored under the reserved type SCRATCHPAD_EDGE with your requested type " +
+          "preserved as intended_type — so a successful result can report an edge_type differing from the " +
+          "one requested. An unregistered edge type between two canonical nodes still returns a plain 400. " +
+          "deduped: true on a side means an existing entry already held that payload (informational, not an " +
+          "idempotency guarantee). Entries are retrievable via graph_get and a typed graph_search with " +
+          "type=ScratchpadEntry (from these tools); they are NOT returned by untyped or name search.",
+        ),
       namespace: z
         .string()
         .optional()
@@ -1350,6 +1698,7 @@ function registerGraphWriteTools(
       edge_data?: Record<string, any>;
       weight?: number;
       create_schema_if_missing?: boolean;
+      allow_scratchpad?: boolean;
       namespace?: string;
     }) => {
       const {
@@ -1363,6 +1712,7 @@ function registerGraphWriteTools(
         edge_data,
         weight,
         create_schema_if_missing = false,
+        allow_scratchpad,
         namespace,
       } = input;
 
@@ -1373,9 +1723,8 @@ function registerGraphWriteTools(
         if (err) return `create_triplet invalid input — ${err}`;
       }
 
-      console.log(
-        `[create_triplet] ${source_ref_id ?? source_type} -[${edge_type}]-> ${target_ref_id ?? target_type} namespace=${namespace ?? "-"}`,
-      );
+      const logCtx = `${source_ref_id ?? source_type} -[${edge_type}]-> ${target_ref_id ?? target_type} namespace=${namespace ?? "-"}`;
+      console.log(`[create_triplet] ${logCtx}`);
 
       // Resolve one side to a concrete ref_id, creating/merging an inline node
       // via /v2/nodes when no ref_id was given. Namespace applies to node
@@ -1385,45 +1734,59 @@ function registerGraphWriteTools(
         refId?: string,
         nodeType?: string,
         nodeData?: Record<string, any>,
-      ): Promise<string> => {
-        if (refId) return refId;
+      ): Promise<TripletSideResolution> => {
+        if (refId) return { ref_id: refId, scratchpadded: false };
         const params = new URLSearchParams();
         appendNamespace(params, namespace);
         const qs = params.toString();
         const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
-        const res = await jarvisMutate("post", url, jarvisHeaders, {
-          node_type: nodeType,
-          node_data: nodeData,
-        }, reqOpts);
+        const res = await jarvisMutate(
+          "post",
+          url,
+          jarvisHeaders,
+          buildNodeCreateBody(nodeType!, nodeData!, allow_scratchpad),
+          reqOpts,
+        );
         let body: any;
         try {
           body = JSON.parse(res.text);
         } catch {
           // non-JSON body — fall through to the error below
         }
+        const scratch = extractScratchpadInfo(body);
+        if (scratch?.entry_ref_id) {
+          return { ref_id: scratch.entry_ref_id, scratchpadded: true, scratchpad: scratch };
+        }
         const created = extractNodeRefId(body);
         if (!created) {
+          if (allow_scratchpad && res.status >= 400 && res.status < 500) {
+            // plain 4xx despite the flag — likely un-seeded schema (migration 099)
+            console.log(`[create_triplet] ${logCtx} scratchpad_unavailable=true`);
+          }
           throw new Error(
             `could not create/merge ${side} node (HTTP ${res.status}): ${res.text}`,
           );
         }
-        return created;
+        return { ref_id: created, scratchpadded: false };
       };
 
       try {
         // Sequential so a failure names the side that broke.
-        const sourceRef = await resolveSide("source", source_ref_id, source_type, source_data);
-        const targetRef = await resolveSide("target", target_ref_id, target_type, target_data);
+        const source = await resolveSide("source", source_ref_id, source_type, source_data);
+        const target = await resolveSide("target", target_ref_id, target_type, target_data);
 
+        // Always attempted — edge legality around entries is Jarvis's call,
+        // never gated client-side.
         const res = await jarvisMutate("post", `${jarvisUrl}/v2/edges`, jarvisHeaders, {
           edge: {
             edge_type,
             ...(weight !== undefined ? { weight } : {}),
             ...(edge_data ? { edge_data } : {}),
           },
-          source: { ref_id: sourceRef },
-          target: { ref_id: targetRef },
+          source: { ref_id: source.ref_id },
+          target: { ref_id: target.ref_id },
           create_schema_if_missing,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }, reqOpts);
         let body: any;
         try {
@@ -1432,22 +1795,22 @@ function registerGraphWriteTools(
           // non-JSON body — fall through to the error below
         }
         const edgeRef = extractEdgeRefId(body);
-        if (!res.ok || !edgeRef) {
-          return (
-            `create_triplet: nodes resolved (source=${sourceRef}, target=${targetRef}) ` +
-            `but the edge write failed — HTTP ${res.status}: ${res.text}`
-          );
+        if (source.scratchpadded || target.scratchpadded) {
+          console.log(`[create_triplet] ${logCtx} scratchpadded=true`);
         }
-        return JSON.stringify({
-          // "Warning" here means the edge already existed (idempotent merge).
-          status: body?.status ?? "Success",
-          source_ref_id: sourceRef,
-          target_ref_id: targetRef,
-          edge_ref_id: edgeRef,
+        return buildTripletResult({
+          source,
+          target,
           edge_type,
-          ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
-            ? { messages: body.status_messages }
-            : {}),
+          edgeOk: res.ok,
+          edgeRefId: edgeRef,
+          httpStatus: res.status,
+          bodyText: res.text,
+          bodyStatus: body?.status,
+          returnedEdgeType: body?.edges?.[0]?.edge_type,
+          statusMessages: Array.isArray(body?.status_messages) && body.status_messages.length > 0
+            ? body.status_messages
+            : undefined,
         });
       } catch (err: any) {
         return `create_triplet failed: ${err?.message ?? String(err)}`;
@@ -1470,7 +1833,10 @@ function registerGraphWriteTools(
       "inline creation is a last resort. Identical inline sides across the batch are resolved once (deduped). " +
       "Returns one result entry per input triplet in input order; a failed item does not abort the rest. " +
       "Use `create_triplet` for a single fact; use this tool when asserting multiple related facts at once " +
-      "to avoid redundant round-trips.",
+      "to avoid redundant round-trips. " +
+      "A single top-level `allow_scratchpad` applies to ALL items (not per-triplet): items whose rejected " +
+      "node was preserved as a ScratchpadEntry are reported with the distinct status 'Scratchpad' — " +
+      "never 'Success' or 'Error' (see the parameter description).",
     inputSchema: z.object({
       triplets: z
         .array(
@@ -1540,6 +1906,24 @@ function registerGraphWriteTools(
           "Jarvis namespace (data partition) for inline node creation. Applies to all items. " +
           "Not an access-control boundary.",
         ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "OPT-IN loss-prevention, applied to ALL items (not per-triplet), covering both inline node " +
+          "writes and edge writes. An inline node Jarvis rejects (unknown node type, failed validation) " +
+          "is preserved as a ScratchpadEntry instead of failing; that item is then reported with status " +
+          "'Scratchpad' — carrying entry ref_ids, per-side source_scratchpadded/target_scratchpadded " +
+          "flags and rejection context — never as 'Success' or 'Error'. Two rejection exits bypass the " +
+          "gate and still fail hard: a missing node_type, and a schema-does-not-exist 404. " +
+          "Edge rules (Jarvis adjudicates — edges are always attempted): an entry may be the SOURCE of an " +
+          "edge to a canonical node; a canonical node may NEVER point at an entry (fails with " +
+          "ERROR_SCRATCHPAD_EDGE_TARGET); an entry-to-entry edge is stored under the reserved type " +
+          "SCRATCHPAD_EDGE with the requested type preserved as intended_type — so a stored edge_type can " +
+          "differ from the one requested. An unregistered edge type between two canonical nodes still " +
+          "returns a plain 400. Entries are retrievable via graph_get and a typed graph_search with " +
+          "type=ScratchpadEntry (from these tools); they are NOT returned by untyped or name search.",
+        ),
       return_edge_ids: z
         .boolean()
         .optional()
@@ -1566,12 +1950,16 @@ function registerGraphWriteTools(
         create_schema_if_missing?: boolean;
       }>;
       namespace?: string;
+      allow_scratchpad?: boolean;
       return_edge_ids?: boolean;
     }) => {
-      const { triplets, namespace, return_edge_ids = false } = input;
+      const { triplets, namespace, allow_scratchpad, return_edge_ids = false } = input;
       console.log(
         `[create_batch_triplet] count=${triplets.length} namespace=${namespace ?? "-"}`,
       );
+      // flag sent but a node write still returned a plain 4xx (un-seeded
+      // schema, migration 099) — surfaced on the summary log line
+      let scratchpadUnavailable = false;
 
       // ── Phase 0: per-item validation ────────────────────────────────────
       // Keep a parallel array tracking failures so a bad item doesn't abort
@@ -1600,8 +1988,9 @@ function registerGraphWriteTools(
       // Collect all unique (node_type, node_data) pairs across the batch and
       // resolve each once via single-object POST /v2/nodes.
       //
-      // Map: dedupKey → resolved ref_id (or Error if resolution failed).
-      const resolvedNodes = new Map<string, string | Error>();
+      // Map: dedupKey → resolved side (ref_id + scratchpad provenance), or
+      // Error if resolution failed.
+      const resolvedNodes = new Map<string, BatchSideResolution | Error>();
       // Which dedupKeys still need to be fetched.
       const toResolve = new Map<string, { nodeType: string; nodeData: Record<string, any> }>();
 
@@ -1629,18 +2018,34 @@ function registerGraphWriteTools(
           appendNamespace(params, namespace);
           const qs = params.toString();
           const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
-          const res = await jarvisMutate("post", url, jarvisHeaders, {
-            node_type: nodeType,
-            node_data: nodeData,
-          }, reqOpts);
+          const res = await jarvisMutate(
+            "post",
+            url,
+            jarvisHeaders,
+            buildNodeCreateBody(nodeType, nodeData, allow_scratchpad),
+            reqOpts,
+          );
           let body: any;
           try {
             body = JSON.parse(res.text);
           } catch {
             // non-JSON — will fail below
           }
+          const scratch = extractScratchpadInfo(body);
+          if (scratch?.entry_ref_id) {
+            resolvedNodes.set(key, {
+              ref_id: scratch.entry_ref_id,
+              scratchpadded: true,
+              scratchpad: scratch,
+            });
+            uniqueNodesResolved++;
+            continue;
+          }
           const ref = extractNodeRefId(body);
           if (!ref) {
+            if (allow_scratchpad && res.status >= 400 && res.status < 500) {
+              scratchpadUnavailable = true;
+            }
             resolvedNodes.set(
               key,
               new Error(
@@ -1648,7 +2053,7 @@ function registerGraphWriteTools(
               ),
             );
           } else {
-            resolvedNodes.set(key, ref);
+            resolvedNodes.set(key, { ref_id: ref, scratchpadded: false });
             uniqueNodesResolved++;
           }
         } catch (err: any) {
@@ -1660,9 +2065,9 @@ function registerGraphWriteTools(
       }
 
       // Propagate node-resolution failures to every dependent triplet and
-      // build the concrete ref_id pair for surviving triplets.
-      const sourceRefs: Array<string | null> = triplets.map(() => null);
-      const targetRefs: Array<string | null> = triplets.map(() => null);
+      // build the concrete side resolution pair for surviving triplets.
+      const sourceSides: Array<BatchSideResolution | null> = triplets.map(() => null);
+      const targetSides: Array<BatchSideResolution | null> = triplets.map(() => null);
 
       for (let i = 0; i < triplets.length; i++) {
         if (failures[i]) continue;
@@ -1671,14 +2076,14 @@ function registerGraphWriteTools(
         // Source side
         const srcHasRef = typeof t.source_ref_id === "string" && t.source_ref_id.length > 0;
         if (srcHasRef) {
-          sourceRefs[i] = t.source_ref_id!;
+          sourceSides[i] = { ref_id: t.source_ref_id!, scratchpadded: false };
         } else {
           const key = buildNodeDedupKey(t.source_type!, t.source_data!);
           const r = resolvedNodes.get(key);
           if (r instanceof Error) {
             failures[i] = `source node resolution failed: ${r.message}`;
           } else {
-            sourceRefs[i] = r ?? null;
+            sourceSides[i] = r ?? null;
           }
         }
 
@@ -1687,29 +2092,30 @@ function registerGraphWriteTools(
         // Target side
         const tgtHasRef = typeof t.target_ref_id === "string" && t.target_ref_id.length > 0;
         if (tgtHasRef) {
-          targetRefs[i] = t.target_ref_id!;
+          targetSides[i] = { ref_id: t.target_ref_id!, scratchpadded: false };
         } else {
           const key = buildNodeDedupKey(t.target_type!, t.target_data!);
           const r = resolvedNodes.get(key);
           if (r instanceof Error) {
             failures[i] = `target node resolution failed: ${r.message}`;
           } else {
-            targetRefs[i] = r ?? null;
+            targetSides[i] = r ?? null;
           }
         }
       }
 
       // ── Phase 2: bulk edge write ─────────────────────────────────────────
-      // Build the edge list for all triplets that survived validation +
-      // node resolution.
+      // Build the edge list for all triplets that survived validation + node
+      // resolution. Always attempted — edge legality around entries is
+      // Jarvis's call, never gated client-side.
       const resolvedTriplets: ResolvedTriplet[] = [];
       for (let i = 0; i < triplets.length; i++) {
-        if (failures[i] || !sourceRefs[i] || !targetRefs[i]) continue;
+        if (failures[i] || !sourceSides[i] || !targetSides[i]) continue;
         const t = triplets[i];
         resolvedTriplets.push({
           index: i,
-          source_ref_id: sourceRefs[i]!,
-          target_ref_id: targetRefs[i]!,
+          source_ref_id: sourceSides[i]!.ref_id,
+          target_ref_id: targetSides[i]!.ref_id,
           edge_type: t.edge_type,
           edge_data: t.edge_data,
           weight: t.weight,
@@ -1719,10 +2125,16 @@ function registerGraphWriteTools(
 
       // Per-triplet edge ref_id accumulator (index → edge_ref_id).
       const edgeResults = new Map<number, string>();
+      // edge_type as stored by Jarvis — entry↔entry comes back as SCRATCHPAD_EDGE.
+      const storedEdgeTypes = new Map<number, string>();
+      // Indexes recovered by the bulk pass (vs the single-object fallback).
+      const bulkMatchedIndexes = new Set<number>();
       const bulkStatusMessages: string[] = [];
 
       if (resolvedTriplets.length > 0) {
-        // Build list-body for sequential bulk endpoint.
+        // Build list-body for sequential bulk endpoint. It honours
+        // allow_scratchpad per item but collapses outcomes into an unindexed
+        // status_messages list — never derive per-item scratchpad state from it.
         const edgeList = resolvedTriplets.map((rt) => ({
           edge: {
             edge_type: rt.edge_type,
@@ -1732,6 +2144,7 @@ function registerGraphWriteTools(
           source: { ref_id: rt.source_ref_id },
           target: { ref_id: rt.target_ref_id },
           create_schema_if_missing: rt.create_schema_if_missing,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }));
 
         const edgeParams = new URLSearchParams();
@@ -1756,6 +2169,7 @@ function registerGraphWriteTools(
           source?: string;
           target?: string;
           edge_type?: string;
+          intended_type?: string;
         }> = Array.isArray(bulkBody?.edges) ? bulkBody.edges : [];
 
         if (Array.isArray(bulkBody?.status_messages)) {
@@ -1765,8 +2179,17 @@ function registerGraphWriteTools(
         const { matched, unmatched } = matchEdgeResults(resolvedTriplets, returnedEdges);
 
         // Record matched edges.
+        const edgeByRefId = new Map<string, (typeof returnedEdges)[number]>();
+        for (const e of returnedEdges) {
+          if (e?.ref_id && !edgeByRefId.has(e.ref_id)) edgeByRefId.set(e.ref_id, e);
+        }
         for (const [idx, refId] of matched) {
           edgeResults.set(idx, refId);
+          bulkMatchedIndexes.add(idx);
+          const storedType = edgeByRefId.get(refId)?.edge_type;
+          if (typeof storedType === "string" && storedType.length > 0) {
+            storedEdgeTypes.set(idx, storedType);
+          }
         }
 
         // Fallback: re-issue each unmatched triplet as a single-object POST.
@@ -1781,6 +2204,7 @@ function registerGraphWriteTools(
               source: { ref_id: rt.source_ref_id },
               target: { ref_id: rt.target_ref_id },
               create_schema_if_missing: rt.create_schema_if_missing,
+              ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
             }, reqOpts);
             let body: any;
             try {
@@ -1791,6 +2215,10 @@ function registerGraphWriteTools(
             const edgeRef = extractEdgeRefId(body);
             if (edgeRef) {
               edgeResults.set(rt.index, edgeRef);
+              const storedType = body?.edges?.[0]?.edge_type;
+              if (typeof storedType === "string" && storedType.length > 0) {
+                storedEdgeTypes.set(rt.index, storedType);
+              }
             } else {
               failures[rt.index] =
                 `edge write failed (HTTP ${res.status}): ${res.text}`;
@@ -1803,52 +2231,25 @@ function registerGraphWriteTools(
       }
 
       // ── Phase 3: assemble results in input order ─────────────────────────
-      const results = triplets.map((t, i) => {
-        if (failures[i]) {
-          return {
-            status: "Error",
-            index: i,
-            edge_type: t.edge_type,
-            error: failures[i],
-          };
-        }
-        const edgeRef = edgeResults.get(i);
-        if (!edgeRef) {
-          return {
-            status: "Error",
-            index: i,
-            edge_type: t.edge_type,
-            error: "edge ref_id could not be recovered",
-          };
-        }
-        // Successful entries return only what the caller does NOT already have.
-        // `edge_ref_id` was measured across four production traces: 1,426 returned,
-        // 0 ever referenced in a later call — so it is opt-in via `return_edge_ids`.
-        // `edge_type` is echoed straight back from the request and is always dropped.
-        // Both are kept on the Error branches, where the context is worth the tokens
-        // and the volume is negligible.
-        return {
-          status: "Success",
-          source_ref_id: sourceRefs[i]!,
-          target_ref_id: targetRefs[i]!,
-          ...(return_edge_ids ? { edge_ref_id: edgeRef } : {}),
-        };
+      const assembly = assembleBatchResults({
+        edgeTypes: triplets.map((t) => t.edge_type),
+        failures,
+        sources: sourceSides,
+        targets: targetSides,
+        edgeResults,
+        storedEdgeTypes,
+        bulkMatchedIndexes,
+        returnEdgeIds: return_edge_ids,
       });
 
-      const failedCount = results.filter((r) => r.status === "Error").length;
-      const bulkMatched = resolvedTriplets.length - (
-        resolvedTriplets.filter((rt) => !edgeResults.has(rt.index) || failures[rt.index]).length
-      );
-      const fallbackRecovered = results.filter(
-        (r) => r.status === "Success",
-      ).length - Math.max(0, bulkMatched);
-
       console.log(
-        `[create_batch_triplet] resolvedNodes=${uniqueNodesResolved} edgesWritten=${bulkMatched} edgesMerged=${fallbackRecovered} failed=${failedCount}`,
+        `[create_batch_triplet] resolvedNodes=${uniqueNodesResolved} edgesWritten=${assembly.bulkMatched} edgesMerged=${assembly.fallbackRecovered} failed=${assembly.failedCount}` +
+        (allow_scratchpad ? ` scratchpad=${assembly.scratchpadCount}` : "") +
+        (scratchpadUnavailable ? " scratchpad_unavailable=true" : ""),
       );
 
       return JSON.stringify({
-        results,
+        results: assembly.results,
         ...(bulkStatusMessages.length > 0 ? { status_messages: bulkStatusMessages } : {}),
       });
     },
@@ -1863,7 +2264,10 @@ function registerGraphWriteTools(
       "duplicate nodes fragment the graph. The node type must already exist in the ontology " +
       "(check with get_ontology; get_ontology_type shows its attributes and which are required). " +
       "Create-or-merge semantics: if a node with the same identity key already exists, its ref_id is " +
-      "returned (reported as a Warning) instead of creating a duplicate — so re-running is safe.",
+      "returned (reported as a Warning) instead of creating a duplicate — so re-running is safe. " +
+      "With allow_scratchpad set, a rejected write is preserved as a ScratchpadEntry instead of failing " +
+      "(see the parameter description) — such a result is clearly marked status 'scratchpad' with " +
+      "created: false, never reported as a created node.",
     inputSchema: z.object({
       node_type: z
         .string()
@@ -1877,6 +2281,20 @@ function registerGraphWriteTools(
           'Properties for the node, e.g. {"name": "Alice"}. ' +
           "Must satisfy the type's schema, including its node_key attribute.",
         ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "OPT-IN loss-prevention: when Jarvis rejects the write (unknown node type, node_data failing " +
+          "validation) the payload is preserved as a ScratchpadEntry node instead of returning an error. " +
+          "The result then reports status 'scratchpad' with created: false and the ENTRY's ref_id — never " +
+          "a canonical node's. Covers only rejections that reach the scratchpad gate: a missing node_type " +
+          "and a schema-does-not-exist 404 still fail hard. The entry may later be the SOURCE of edges to " +
+          "canonical nodes (that is how it keeps context), but a canonical node may never point AT an entry. " +
+          "deduped: true means an existing entry already held this payload (informational, not an " +
+          "idempotency guarantee). Entries are retrievable via graph_get and a typed graph_search with " +
+          "type=ScratchpadEntry (from these tools); they are NOT returned by untyped or name search.",
+        ),
       namespace: z
         .string()
         .optional()
@@ -1887,27 +2305,50 @@ function registerGraphWriteTools(
     execute: async (input: {
       node_type: string;
       node_data: Record<string, any>;
+      allow_scratchpad?: boolean;
       namespace?: string;
     }) => {
-      const { node_type, node_data, namespace } = input;
+      const { node_type, node_data, allow_scratchpad, namespace } = input;
       console.log(`[create_node] type=${node_type} namespace=${namespace ?? "-"}`);
       try {
         const params = new URLSearchParams();
         appendNamespace(params, namespace);
         const qs = params.toString();
         const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
-        const res = await jarvisMutate("post", url, jarvisHeaders, {
-          node_type,
-          node_data,
-        }, reqOpts);
+        const res = await jarvisMutate(
+          "post",
+          url,
+          jarvisHeaders,
+          buildNodeCreateBody(node_type, node_data, allow_scratchpad),
+          reqOpts,
+        );
         let body: any;
         try {
           body = JSON.parse(res.text);
         } catch {
           // non-JSON body — fall through to the error below
         }
+        const scratch = extractScratchpadInfo(body);
+        if (scratch?.entry_ref_id) {
+          console.log(`[create_node] type=${node_type} namespace=${namespace ?? "-"} scratchpadded=true`);
+          return JSON.stringify({
+            // ref_id is the ScratchpadEntry's, not a canonical node's
+            status: "scratchpad",
+            created: false,
+            ref_id: scratch.entry_ref_id,
+            ...(scratch.node_key ? { node_key: scratch.node_key } : {}),
+            ...(scratch.intended_type ? { intended_type: scratch.intended_type } : {}),
+            ...(scratch.rejection_reason ? { rejection_reason: scratch.rejection_reason } : {}),
+            ...(scratch.rejection_detail ? { rejection_detail: scratch.rejection_detail } : {}),
+            deduped: scratch.deduped,
+          });
+        }
         const refId = extractNodeRefId(body);
         if (!refId) {
+          if (allow_scratchpad && res.status >= 400 && res.status < 500) {
+            // plain 4xx despite the flag — likely un-seeded schema (migration 099)
+            console.log(`[create_node] type=${node_type} namespace=${namespace ?? "-"} scratchpad_unavailable=true`);
+          }
           return `create_node failed — HTTP ${res.status}: ${res.text}`;
         }
         return JSON.stringify({
