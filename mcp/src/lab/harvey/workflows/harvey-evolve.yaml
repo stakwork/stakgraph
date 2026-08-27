@@ -185,14 +185,15 @@ params:
   # the same ai-stamped workflow, so successive evolve runs accumulate a
   # versioned lineage instead of littering the registry with fresh names.
   candidateName: harvey-produce-ai
-  authorModel: claude-sonnet-4-6
+  authorModel: claude-sonnet-5
   # Observed live: 40 was not enough — an author that debugs a real HTTP
   # step (bad credentials, endpoint quirks) burns 40 calls before ever
   # publishing, and the forced final turn then dies with
   # AI_NoObjectGeneratedError (the §1/§8 at-the-cap failure, now at layer
-  # 3). 80 + the publish-early rule in authorSystem is the §8 lesson
-  # applied: raise the envelope AND stop treating the cap as unreachable.
-  authorMaxSteps: 80
+  # 3). A generous cap + the publish-early rule in authorSystem is the §8
+  # lesson applied: raise the envelope AND stop treating the cap as
+  # unreachable.
+  authorMaxSteps: 200
   # Extra per-run steering appended to the author's task prompt (experiment
   # surface — e.g. "the mission requires online research; grant http steps
   # and reference the COURTLISTENER_API_KEY secret by name").

@@ -63,11 +63,11 @@ steps:
       produceError: "{{ produce.error }}"
 
 params:
-  model: claude-sonnet-4-6
+  model: claude-sonnet-5
   # Generous budget — some GAIA tasks need many bash calls (pandas/pdftotext
   # loops, retries after a failed extraction). Too tight a budget is what
   # forces a premature/garbled final turn (AI_NoObjectGeneratedError).
-  maxSteps: 50
+  maxSteps: 200
   # Registry step types exposed as extra agent tools, beyond the agent's
   # built-ins (bash, str_replace_based_edit_tool, web_search, repo_overview,
   # fulltext_search). NEVER include gaia/* here (harness-only; would let the

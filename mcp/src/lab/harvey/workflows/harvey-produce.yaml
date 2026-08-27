@@ -107,10 +107,10 @@ steps:
       produceError: "{{ produce.produceError }}"
 
 params:
-  model: claude-sonnet-4-6
+  model: claude-sonnet-5
   # Generous budget: read 3-4 documents, draft substantial legal deliverables,
   # convert to docx. The agent forces a final turn if it runs out.
-  maxSteps: 80
+  maxSteps: 200
   # No web_search: benchmark purity — the task is closed-book against the
   # provided documents. (Empty would mean ALL built-ins, including web_search.)
   toolFilter: ["bash", "str_replace_based_edit_tool", "repo_overview", "fulltext_search"]
