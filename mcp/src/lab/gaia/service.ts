@@ -33,11 +33,13 @@ import { ensureGaiaDataset, ensureGaiaPython, SCORER_SHA256 } from "./bootstrap.
  * image numpy is already on PATH via /usr/src/agent-venv, so a deployment
  * needs exactly one variable — HF_TOKEN.
  *
- * Config (env), all optional:
- *   HF_TOKEN           — read access to the gated dataset (or
- *                        HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN). The owning
- *                        account must have accepted GAIA's terms on the HF
- *                        website; that click-through cannot be automated.
+ * Config (env):
+ *   HF_TOKEN           — REQUIRED for a cold start (or HUGGING_FACE_HUB_TOKEN
+ *                        / HF_API_TOKEN): read access to the gated dataset.
+ *                        The owning account must have accepted GAIA's terms on
+ *                        the HF website; that click-through cannot be
+ *                        automated. Only an already-populated checkout
+ *                        removes the need for it. The rest are optional:
  *   GAIA_DIR           — pin the checkout location (default <cache>/vein/gaia)
  *   GAIA_SCORER_SHA256 — override the in-repo scorer pin (SCORER_SHA256)
  *   GAIA_PYTHON        — python interpreter (default "python3"; needs numpy)

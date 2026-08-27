@@ -176,8 +176,8 @@ async function bootstrapSmoke(): Promise<void> {
             ? { code: 1, stdout: "", stderr: "git: 'lfs' is not a git command" }
             : { code: 0, stdout: "git-lfs/3.4.0\n", stderr: "" };
         }
-        // Record whether a credential helper was attached, so the token-optional
-        // behaviour is asserted rather than assumed.
+        // Record whether a credential helper was attached, so the token's
+        // delivery to git is asserted rather than assumed.
         if (opts.seenAuth && args.includes("fetch")) {
           opts.seenAuth.push(args.some((a) => a.startsWith("credential.helper=")) ? "auth" : "anon");
         }
@@ -202,18 +202,22 @@ async function bootstrapSmoke(): Promise<void> {
       };
     const fetchStub = async () => STUB_SCORER;
 
-    // ── NO token is fine: HF serves this repo's git endpoints anonymously ──
+    // ── NO token fails FAST, before any subprocess: the dataset is gated.
+    //    (hfToken: "" pins the no-token path even when HF_TOKEN is in env.) ──
     resetGaiaBootstrap();
-    const anon: string[] = [];
-    const anonDir = join(box, "anon");
-    const okAnon = await ensureGaiaDataset({
-      dir: anonDir, hfToken: "", exec: fakeExec({ seenAuth: anon }),
-      fetchText: fetchStub, scorerSha256: STUB_SHA, log,
-    });
-    assert.equal(okAnon.root, anonDir);
-    assert.deepEqual(anon, ["anon"], "fetched with a credential helper despite no token");
+    let sawExec = 0;
+    await assert.rejects(
+      () =>
+        ensureGaiaDataset({
+          dir: join(box, "anon"), hfToken: "",
+          exec: async () => { sawExec += 1; return { code: 0, stdout: "", stderr: "" }; },
+          fetchText: fetchStub, scorerSha256: STUB_SHA, log,
+        }),
+      /HF_TOKEN is not set[\s\S]*accepted GAIA's terms/,
+    );
+    assert.equal(sawExec, 0, "missing-token fail-fast still shelled out");
 
-    // ── a token, when present, IS attached to the fetch ──
+    // ── the token reaches the fetch via the credential helper ──
     resetGaiaBootstrap();
     const withTok: string[] = [];
     await ensureGaiaDataset({
@@ -227,27 +231,27 @@ async function bootstrapSmoke(): Promise<void> {
     await assert.rejects(
       () =>
         ensureGaiaDataset({
-          dir: join(box, "b"), exec: fakeExec({ lfs: false }), fetchText: fetchStub, log,
+          dir: join(box, "b"), hfToken: "hf_xxx", exec: fakeExec({ lfs: false }), fetchText: fetchStub, log,
         }),
       /git-lfs is required/,
     );
 
-    // ── HF's opaque gated failure ("expected 'packfile'") is recognised and,
-    //    with no token configured, the message points at HF_TOKEN ──
+    // ── HF's opaque gated failure ("expected 'packfile'") is recognised as
+    //    a refusal and blames the un-automatable click-through ──
     resetGaiaBootstrap();
     const gated = join(box, "c");
     await assert.rejects(
       () =>
         ensureGaiaDataset({
-          dir: gated, hfToken: "",
+          dir: gated, hfToken: "hf_xxx",
           exec: fakeExec({ fetchErr: "fatal: expected 'packfile'" }),
           fetchText: fetchStub, log,
         }),
-      /refused \(no HF token configured\)[\s\S]*Set HF_TOKEN/,
+      /refused with the configured HF token[\s\S]*accepted GAIA's terms/,
     );
     assert.ok(!existsSync(`${gated}.partial`), "staging dir left behind after a failed fetch");
 
-    // ── same failure WITH a token blames the un-automatable click-through ──
+    // ── the prose variant of the same refusal is recognised too ──
     resetGaiaBootstrap();
     await assert.rejects(
       () =>
@@ -266,7 +270,7 @@ async function bootstrapSmoke(): Promise<void> {
     await assert.rejects(
       () =>
         ensureGaiaDataset({
-          dir: nometa, exec: fakeExec({ noMeta: true }), fetchText: fetchStub,
+          dir: nometa, hfToken: "hf_xxx", exec: fakeExec({ noMeta: true }), fetchText: fetchStub,
           scorerSha256: STUB_SHA, log,
         }),
       /no 2023.*metadata\.jsonl[\s\S]*DATASET_REV/,
@@ -279,7 +283,7 @@ async function bootstrapSmoke(): Promise<void> {
     await assert.rejects(
       () =>
         ensureGaiaDataset({
-          dir: mism, exec: fakeExec(), fetchText: fetchStub, scorerSha256: "a".repeat(64), log,
+          dir: mism, hfToken: "hf_xxx", exec: fakeExec(), fetchText: fetchStub, scorerSha256: "a".repeat(64), log,
         }),
       /refusing to install/,
     );
@@ -290,7 +294,7 @@ async function bootstrapSmoke(): Promise<void> {
     await assert.rejects(
       () =>
         ensureGaiaDataset({
-          dir: join(box, "e"), exec: fakeExec({ lfsPointers: true }),
+          dir: join(box, "e"), hfToken: "hf_xxx", exec: fakeExec({ lfsPointers: true }),
           fetchText: fetchStub, scorerSha256: STUB_SHA, log,
         }),
       /unresolved git-lfs pointers/,
@@ -300,14 +304,15 @@ async function bootstrapSmoke(): Promise<void> {
     resetGaiaBootstrap();
     const ok = join(box, "f");
     const res = await ensureGaiaDataset({
-      dir: ok, exec: fakeExec(), fetchText: fetchStub, scorerSha256: STUB_SHA, log,
+      dir: ok, hfToken: "hf_xxx", exec: fakeExec(), fetchText: fetchStub, scorerSha256: STUB_SHA, log,
     });
     assert.equal(res.root, ok);
     assert.ok(existsSync(join(ok, "2023", "validation", "metadata.jsonl")));
     assert.equal(readFileSync(join(ok, "scorer.py"), "utf-8"), STUB_SCORER);
     assert.ok(!existsSync(`${ok}.partial`), "staging dir survived a successful fetch");
 
-    // ── idempotent: a populated dir short-circuits without touching git ──
+    // ── idempotent: a populated dir short-circuits without touching git —
+    //    and needs NO token (hfToken: "" proves the tokenless hot path) ──
     resetGaiaBootstrap();
     let execCalls = 0;
     const counting: BootstrapExecFn = async () => {
@@ -315,7 +320,7 @@ async function bootstrapSmoke(): Promise<void> {
       return { code: 0, stdout: "", stderr: "" };
     };
     const again = await ensureGaiaDataset({
-      dir: ok, exec: counting,
+      dir: ok, hfToken: "", exec: counting,
       fetchText: async () => { throw new Error("must not refetch scorer"); },
       scorerSha256: STUB_SHA, log,
     });
@@ -328,7 +333,7 @@ async function bootstrapSmoke(): Promise<void> {
     mkdirSync(partial, { recursive: true });
     writeFileSync(join(partial, "scorer.py"), STUB_SCORER); // scorer but no .git/meta
     const healed = await ensureGaiaDataset({
-      dir: partial, exec: fakeExec(), fetchText: fetchStub, scorerSha256: STUB_SHA, log,
+      dir: partial, hfToken: "hf_xxx", exec: fakeExec(), fetchText: fetchStub, scorerSha256: STUB_SHA, log,
     });
     assert.equal(healed.root, partial);
     assert.ok(existsSync(join(partial, "2023", "validation", "metadata.jsonl")));
