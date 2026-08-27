@@ -6,6 +6,11 @@ Minimal workflow engine with HTTP API and web UI. See `SPEC.md` for
 the full design spec (sections 1-15). This file covers how to work
 on the codebase.
 
+Companion specs: `EVAL_SPEC.md` — how a run gets scored (the measurement
+substrate). `EVOLVE_SPEC.md` — what varies between measured runs: the three
+self-evolution layers (prompts / environment / structure), what promotes to a
+versioned artifact, and what must never evolve.
+
 ## Stack
 
 | Concern     | Choice                                                                     |

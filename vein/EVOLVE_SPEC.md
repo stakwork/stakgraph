@@ -1,0 +1,317 @@
+# Self-Evolving Workflows — Spec
+
+What a workflow can change about itself, and how each kind of change gets
+proposed, measured, and kept.
+
+Builds on `EVAL_SPEC.md` (the **measurement** substrate: run target → collect
+→ score → a number). This doc is the layer above it: **what varies** between
+one measured run and the next. The guiding idea:
+
+> A workflow's behavior is determined by three things: the **prompts** it
+> runs, the **environment** those prompts run inside, and the **structure**
+> that wires them together. Each is a candidate the system can improve, each
+> evolves on its own cadence, and each promotes to a **versioned, pinned,
+> reviewable artifact** — never a runtime mutation. The eval is the fitness
+> function for all three.
+
+---
+
+## 1. The three layers
+
+| Layer | Candidate | Promotion artifact | Cadence | Status |
+| --- | --- | --- | --- | --- |
+| **1. Prompt** | a `params` value | param default + new workflow version | minutes; fully autonomous | **built** (`eval/optimize`) |
+| **2. Environment** | an `env.manifest` diff | rebuilt image | days; human-reviewed | **todo** (§4) |
+| **3. Structure** | a workflow version + step sources | published version | hours; agent-interactive | **partial** (§5 — the `meta/*` gap) |
+
+The layers are ordered by how cheap they are to try and how safely they can
+be automated. Prompt tuning is mechanical and reversible. Environment changes
+outlive the run that motivated them and touch every other experiment.
+Structural changes author *code*.
+
+### Why all three, empirically
+
+The first GAIA batch (level 1, limit 5) scored **1/5**. The second, after
+changes across two layers, scored **5/5** — and the per-question attribution
+separates the layers cleanly:
+
+| Task | Run 1 → Run 2 | Layer responsible |
+| --- | --- | --- |
+| Kipchoge (`17000` → `17`) | ❌ → ✅, cheaper | **1** — unit re-read rule |
+| Sosa (`2` → `3`) | ❌ → ✅, cheaper | **1** — persistence rule (404'd both runs; recovered only in run 2) |
+| Fish-bag PDF | ✅ → ✅, 19 → 3 steps, $1.33 → $0.74 | **2** — `pdftotext`/`pdfplumber` existed |
+| Bird video (`2` → `3`) | ❌ → ✅, 2 → 50 steps | **2** — `yt-dlp`/`ffmpeg` existed |
+| Ping-pong (`55` → `3`) | ❌ → ✅ | unattributed — likely variance |
+
+Two observations that motivate this whole doc:
+
+- **The environment was the largest single lever**, and its two wins have
+  *opposite* cost signatures: the PDF task got 5× cheaper (stopped fighting
+  its tools), the video task got 40× more expensive (could finally attempt
+  the work instead of guessing). A layer that only prompt-tuning can reach
+  would have found neither.
+- **A layer-3 fix was load-bearing and nobody asked for it.** The batch
+  initially crashed: one task exhausting `maxSteps: 30` threw
+  `AI_NoObjectGeneratedError` and killed the whole `foreach`. The assistant
+  raised the cap to 50 and added an `onError` fallback. The bird task then
+  used *exactly* 50 steps — at the old cap, 4/5.
+
+---
+
+## 2. The shared loop
+
+Every layer runs the same four beats. Only the artifact differs.
+
+```
+   capture ──► propose ──► evaluate ──► promote
+      │                        │            │
+   signal from            EVAL_SPEC       a pinned,
+   a real run             (a number)      versioned thing
+```
+
+- **Capture** — turn an observed failure into structured data. This is the
+  beat most often skipped, and skipping it is why a gap stays an anecdote in
+  a chat transcript instead of becoming an input.
+- **Propose** — an LLM (or plain code) reads the aggregate and emits a
+  candidate. Must see the **aggregate across the dataset**, never one
+  example, or it overfits (EVAL_SPEC §4/§7 — the wrong-insight problem).
+- **Evaluate** — run the candidate through the harness. One number, plus the
+  per-example detail the next proposal needs.
+- **Promote** — write the winner somewhere durable and diffable. Never leave
+  an improvement living only in a run's memory.
+
+**Promotion is always to a reviewable artifact.** A param default in
+published YAML, a manifest line consumed at image build, a new workflow
+version. Nothing self-modifies in place at runtime — that is the invariant
+that keeps a score attributable to a configuration (§6).
+
+---
+
+## 3. Layer 1 — prompts
+
+**Built.** The candidate is a `params` value; `paramOverrides` (`runner.ts`)
+reaches a knob at any nesting depth by workflow name, so a generation can
+sweep a prompt buried two subflows down without republishing anything.
+
+- `eval/score` — match produced ↔ expected by a `rubric`, F-beta recall-weighted.
+- `eval/reflect` — propose the next candidate from the aggregate, anchored to
+  the best-so-far and handed the full trajectory of prior generations.
+- `eval/optimize` — the loop, as one detached run.
+
+**What this session added to the picture:** the two winning rules were both
+*meta-instructions about method*, not domain knowledge —
+
+1. re-read the question before finalizing and check units/phrasing;
+2. if an approach fails, try a genuinely different one before answering.
+
+Both bought a question, and both made the run **cheaper**. That's worth
+noting because it cuts against the assumption that accuracy is bought with
+effort: these were failures of care, not of budget.
+
+**Known limitation.** `eval/optimize` tunes a single `promptParam` string and
+tracks `bestPrompt`. Layer 3 needs the candidate generalized to a workflow
+ref + version (§5).
+
+---
+
+## 4. Layer 2 — environment
+
+**Todo.** The tools available to `bash` inside an agent step: interpreters,
+CLIs, libraries. Today this is `mcp/Dockerfile` — edited by hand, discovered
+by an agent failing at something.
+
+### 4.1 Why not just let the agent install what it needs
+
+It technically could: the container runs as root, `bash` allows up to a
+10-minute timeout, and `/usr/src/agent-venv/bin` is first on `PATH`, so
+`pip install` would land in the right place. It is disallowed inside graded
+runs for three reasons:
+
+1. **Attribution.** A score where one run had pandas 2.1 and the next had 2.3
+   isn't comparable to itself. This is the same discipline the graders
+   already enforce with `benchmarkRev` / `scorerSha256` / clean-tree checks
+   (§6); a self-mutating environment silently breaks it.
+2. **It moves the tax, it doesn't remove it.** The PDF task's 19 steps of
+   *fighting* tooling would have become 19 steps of *installing* tooling —
+   still inside the run, still on the cost line, still against a step budget
+   meant for research. And the container filesystem is ephemeral in prod, so
+   every run re-pays it forever. Nothing accumulates.
+3. **Injection surface.** Benchmark tasks send agents to fetch arbitrary web
+   pages. An agent that installs packages it decided it needs, right after
+   reading attacker-controlled text, is a short path from prompt injection to
+   arbitrary code execution.
+
+**Authoring ≠ measuring.** The chat *builder* may install freely — that's
+exploration, and it already can. The obligation is that a discovery there
+becomes a manifest proposal, not an assumption that the install persists.
+
+### 4.2 The mechanism
+
+**Capture — `env/missing-tools`.** Missing tooling has machine-detectable
+signatures: `command not found: yt-dlp`, `ModuleNotFoundError: No module
+named 'fitz'`, `pdftotext: not found`. Every bash call already emits a nested
+run event (`wrapToolsWithEmit`, `agent.ts`), so a post-run step can scan a
+run's events and emit a structured gap list. Small (~40 lines) and it is the
+difference between a gap being noticed in prose and a gap being *data*.
+
+**Propose.** Aggregate across a batch → a frequency-ranked list
+(`pdftotext: 12 runs, yt-dlp: 3, tesseract: 2`). This is `eval/reflect`
+pointed at the environment.
+
+**Promote — `env.manifest`.** A versioned file (apt packages + pip packages,
+**pinned**) that the Dockerfile installs from at build time. The agent
+proposes a diff; a human reviews two lines instead of auditing a Dockerfile;
+CI rebuilds. The manifest becomes the same class of object as a workflow
+version: agent-authored, human-reviewed, diffable, pinned — and the mutation
+happens at **build** time, where it can be attributed.
+
+### 4.3 Current baseline (what `mcp/Dockerfile` provides)
+
+`/usr/src/agent-venv` first on `PATH` — numpy, pandas, openpyxl, pypdf,
+pdfplumber, pillow, requests, beautifulsoup4, yt-dlp — plus `pdftotext`
+(poppler), `ffmpeg`, `pandoc`, `gh`, `ripgrep`, `git`. Deliberately a
+separate venv from the system python, which carries the pinned
+`docx-mcp` / `mcp<2.0.0` resolution.
+
+---
+
+## 5. Layer 3 — structure
+
+**Partial.** The candidate is the *shape* of the pipeline: new steps, new
+tools, new data sources, different wiring, different budgets. EVAL_SPEC §4
+already frames a structural variant as "just a new workflow version," which
+versioning captures and the eval scores. What's missing is the ability for a
+workflow to author one **from inside a run**.
+
+### 5.1 The gap
+
+`agentTools` grants **registry step types** as LLM tools. The authoring
+tools — `create_step`, `edit_step`, `create_workflow`, `edit_workflow`,
+`run_workflow` — are bespoke AI SDK tools in `vein/src/ai/tools.ts`, bound to
+the workspace. They are not registry steps, so an in-workflow agent cannot
+reach them. That's why EVAL_SPEC §7 says structural evolution "stays
+agent-interactive for now."
+
+### 5.2 The fix: `meta/*` steps
+
+Wrap the workspace authoring ops as registry steps — `meta/create-step`,
+`meta/publish-workflow`, `meta/get-step`, `meta/list-steps`,
+`meta/run-workflow` — each thin plumbing over `workspace.*`. A leaf step has
+no workspace handle, so inject `services.authoring` exactly the way
+`createLabVein` already injects `services.optimizer` for the optimize loop.
+Then `agentTools: ["meta/*"]` closes the loop:
+
+```
+author  (agent, agentTools: ["meta/*"])   → candidate workflow name
+run     (meta/run-workflow, per dataset example)
+grade   (harvey/evaluate | gaia/evaluate | eval/score)
+reflect (eval/reflect)                    → next candidate
+```
+
+### 5.3 Four things that will bite
+
+1. **Glob expansion is start-of-step.** `buildRegistryTools` resolves
+   `agentTools` once when the agent step begins, so a step authored mid-turn
+   is not in that agent's own toolset. Split authoring and execution into
+   separate steps rather than adding a reload escape hatch — it also makes
+   each candidate harness a diffable artifact.
+2. **The authoring agent must never be the producing agent.** An agent with
+   `meta/*` *and* `bash` can author a step that reads a rubric or shells into
+   a benchmark checkout. Separate runs, disjoint grants (§6).
+3. **`eval/optimize` optimizes a string.** Generalizing the candidate from
+   "prompt" to "workflow ref + version" is a real change to that step's
+   shape, not a new step beside it.
+4. **Broken generated steps fail silently.** `loadStepFile` catches, warns,
+   and returns `null` — a step that doesn't compile simply doesn't exist. An
+   authoring agent will flail against that; `meta/create-step` must
+   typecheck-and-import before returning and hand the error back.
+
+---
+
+## 6. Fixed points — what must never evolve
+
+The counterpart to all of the above. These stay outside the agent-editable
+surface, permanently:
+
+- **Graders and gold.** `harvey/service.ts` and `gaia/service.ts` live in code
+  on the services bag, never as seeded steps. Seeded `harvey/*` / `gaia/*`
+  steps are thin plumbing; editing them can only break plumbing, never change
+  how grading works.
+- **Rubrics and answers, at read time.** `harvey/get-task` strips `criteria`;
+  `gaia/getTask` strips `Final answer`. A producing agent that can read its
+  own rubric trains against it.
+- **Grader grants.** `harvey/evaluate` / `gaia/evaluate` are harness-only,
+  never in a producing agent's `agentTools`.
+- **Benchmark provenance.** Clean-tree checks, `benchmarkRev`,
+  `scorerSha256`. A dirty checkout refuses to grade.
+- **Infra constants.** Values a workflow author has no basis for choosing and
+  where a wrong value is only ever a bug — e.g. `maxOutputTokensFor(provider)`
+  (`pricing.ts`). These are derived, not configured, and never exposed as
+  step config for a model to pick.
+
+---
+
+## 7. Autonomy and measurement discipline
+
+**Autonomy ladder.** Layer 1 is fully autonomous (a background optimize job
+sweeps params for hours). Layer 2 is agent-proposed, human-approved — the
+blast radius extends past the run that motivated it. Layer 3 is
+agent-interactive today; a headless authoring job is possible once §5.2
+lands, but it authors code and deserves review before it is trusted unattended.
+
+**Cost is a constraint, not telemetry.** A structural evolver will reliably
+discover that adding agents raises scores. `eval/optimize` already sums
+`totalUsage` / `totalCost` per generation — put it in the fitness function or
+the loop just buys accuracy.
+
+**A tuned-on set is a train set.** The five GAIA tasks that went 1/5 → 5/5
+were the tasks the prompt rules were written against. 5/5 there is the
+expected outcome, not evidence of 100% on level 1. Every layer needs a
+train/val split before its number means anything, and n=5 is an anecdote:
+one flip is ±20 points.
+
+**No silent caps.** If a harness bounds coverage (top-N, no retry, sampling),
+log what was dropped. Silent truncation reads as "covered everything."
+
+---
+
+## 8. How the layers interact
+
+They are not independent, and the coupling is the interesting part. The
+observed chain from this session:
+
+```
+layer 1: "try a different approach before answering"
+   └─► agents persist instead of guessing
+        └─► runs get longer, hit maxSteps: 30
+             └─► forced final turn throws, foreach dies
+                  └─► layer 3 fix: maxSteps 50 + onError fallback
+```
+
+**A layer-1 change created a layer-3 requirement.** The bird task then used
+exactly 50 of 50 steps — the fix was load-bearing for the result. Expect
+this: prompt changes shift resource envelopes, environment changes shift what
+prompts are worth writing, structural changes change what the environment
+needs. An optimizer that can only reach one layer will hill-climb into
+another layer's wall and stop, with no signal saying why.
+
+Practical consequence: the per-miss taxonomy — **formatting / persistence /
+tooling / capability** — should be a *required output* of every batch run.
+It routes each failure to the layer that owns it, and it is the cheapest
+possible version of "capture."
+
+---
+
+## 9. What's next
+
+1. **`env/missing-tools`** (§4.2) — the smallest high-value piece. Turns
+   tooling gaps into structured data instead of prose.
+2. **Full level-1 GAIA sweep** (53 tasks, ~$25) — a real baseline on 48
+   unseen tasks, and the first dataset big enough for layer-1 optimize to
+   have honest signal.
+3. **`env.manifest` + Dockerfile consumption** (§4.2) — makes layer 2 a
+   proposable artifact.
+4. **`meta/*` steps + `services.authoring`** (§5.2) — closes layer 3.
+5. **Generalize `eval/optimize`'s candidate** from prompt string to workflow
+   ref + version (§5.3.3) — the change that lets one loop drive all three
+   layers.
