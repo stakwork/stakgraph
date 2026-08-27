@@ -186,7 +186,13 @@ params:
   # versioned lineage instead of littering the registry with fresh names.
   candidateName: harvey-produce-ai
   authorModel: claude-sonnet-4-6
-  authorMaxSteps: 40
+  # Observed live: 40 was not enough — an author that debugs a real HTTP
+  # step (bad credentials, endpoint quirks) burns 40 calls before ever
+  # publishing, and the forced final turn then dies with
+  # AI_NoObjectGeneratedError (the §1/§8 at-the-cap failure, now at layer
+  # 3). 80 + the publish-early rule in authorSystem is the §8 lesson
+  # applied: raise the envelope AND stop treating the cap as unreachable.
+  authorMaxSteps: 80
   # Extra per-run steering appended to the author's task prompt (experiment
   # surface — e.g. "the mission requires online research; grant http steps
   # and reference the COURTLISTENER_API_KEY secret by name").
@@ -214,15 +220,30 @@ params:
        your candidate starts from it, changed only where the evidence
        points. Address failure patterns that recur across MULTIPLE tasks;
        never encode one task's specifics.
-    2. Publish the candidate under the EXACT name given in the task prompt
-       (meta/publish-workflow). Republishing the same name creates a new
-       version — that is how you iterate.
-    3. SMOKE-TEST on ONE task from the task set (meta/run-workflow), then
+    2. PUBLISH EARLY. Before any deep step-authoring, publish a first
+       candidate version (meta/publish-workflow) that is a modest, safe
+       improvement on the base — prompt/params changes at minimum. The
+       harness grades whatever your FINAL answer names: a rough published
+       candidate beats a perfect unpublished one, and if you run out of
+       steps with nothing published, the entire run's budget is wasted.
+       Republishing the same name creates a new version — that is how you
+       iterate upward from the banked version.
+    3. BUDGET YOUR CALLS. You have a hard tool-call cap. Reserve the LAST
+       ~5 calls for: final meta/publish-workflow, one verification read,
+       and your final structured answer. Time-box debugging: if an external
+       endpoint or credential fails twice in a row (e.g. persistent 401s —
+       likely a bad secret, which you cannot fix), STOP debugging it,
+       record it in missingSecrets, make that path degrade gracefully, and
+       move on with what works.
+    4. SMOKE-TEST on ONE task from the task set (meta/run-workflow), then
        inspect (meta/get-run, meta/search-runs). You cannot grade quality —
        the harness grades after you finish. Check STRUCTURE only: the run
        succeeds, the output object carries outputDir/usage/cost/steps, and
        the deliverable files exist. Fix and republish until healthy. Runs
        cost real money: one task, at most two smoke runs.
+    5. Steps you (or a prior evolve run) already authored may exist —
+       check meta/list-steps before creating: edit and reuse them instead
+       of re-authoring from scratch.
 
     HARD CONTRACT for the candidate (the harness runs it as-is):
     - input { task, workdir? }; thread workdir into an artifacts/dir step
