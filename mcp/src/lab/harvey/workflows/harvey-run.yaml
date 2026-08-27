@@ -1,151 +1,92 @@
 name: harvey-run
-# Harvey LAB harness: load a benchmark task → agent produces the deliverables
-# into this run's artifacts dir → grade with the REAL benchmark eval.
+# Single-task Harvey harness: PRODUCE (subflow, swappable by ref) → GRADE
+# with the REAL benchmark eval → pack one result object.
 #
-# The producing agent NEVER sees the rubric (harvey/get-task strips it in the
-# service) and is NOT granted harvey/evaluate — grading happens after the
-# agent finishes, in the harness. Prompts live in `params` (the experiment
-# surface). Deliverables are real files (usually .docx via pandoc) written to
-# ./output/ of the artifacts dir; the grade step stages exactly that dir.
+# The produce half lives in `harvey-produce` (EVOLVE_SPEC §5 split): this
+# harness invokes it as a subflow and stages EXACTLY the outputDir the
+# produce run reports. `input.produceWorkflow` swaps in a different produce
+# workflow by name — e.g. an agent-authored candidate (published via
+# meta/publish-workflow) — to A/B a structural variant against the same
+# grader. The ref runs at its ACTIVE version; for a version-pinned candidate
+# run use harvey-candidate-run (which also runs the candidate under its own
+# runId via meta/run-workflow).
+#
+# The producing agent NEVER sees the rubric and is never granted
+# harvey/evaluate — grading happens here, after the agent finishes.
+#
+# NOTE — params moved: the produce knobs (model, system, maxSteps,
+# toolFilter, agentTools, graphGuidance, …) now live on `harvey-produce`.
+# Override them per run with paramOverrides KEYED BY WORKFLOW NAME, which
+# reaches params at any subflow depth:
+#   { "input": { "task": "…" },
+#     "paramOverrides": { "harvey-produce": { "graphGuidance": "…" } } }
 #
 # Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR (+ uv, git, pandoc on PATH).
-# Input:  { task }  e.g. "arbitration-international-dispute-resolution/draft-markup-of-arbitration-agreement"
-# Output: the benchmark's own scores (score, all_pass, criteria_results, …)
-#         + benchmarkRev + reportPath, plus produceCost/produceSteps passthrough.
+# Input:  { task, workdir?, produceWorkflow? }
+# Output: { task, produceWorkflow, score, max_score, all_pass, summary,
+#           criteria_results, benchmarkRev, reportPath, outputDir,
+#           produceCost, produceSteps, produceError?, gradeError? }
 steps:
-  - id: dir
-    type: artifacts/dir
-
-  - id: task
-    type: harvey/get-task
+  - id: produced
+    type: subflow
     config:
-      task: "{{ input.task }}"
-
-  - id: produce
-    type: agent
-    depends: [dir, task]
-    # A severed API connection mid-generation kills an otherwise-healthy run
-    # (seen live: "other side closed" after the AI SDK's own 3 reconnects).
-    # One workflow-level retry restarts the agent step fresh — worst case one
-    # duplicate read phase, vs. a dead 10-minute run. NOTE: must nest under
-    # `options:` — the runner reads step.options.retry; a flat retry: key is
-    # silently ignored (learned the hard way).
-    options:
-      retry: { max: 1, delayMs: 15000 }
-    config:
-      cwd: "{{ dir.path }}"
-      # System prompt = the base persona/method + an OPTIONAL graph-guidance
-      # section (empty by default). Splitting them means the concepts arm of an
-      # A/B overrides ONLY graphGuidance (+ agentTools) — the base method stays
-      # byte-identical across arms.
-      system: "{{ params.system }}{{ params.graphGuidance }}"
-      prompt: |
-        {{ task.instructions }}
-
-        The task's input documents are in this READ-ONLY directory:
-        {{ task.documentsDir }}
-        List it first; extract .docx content with `pandoc <file> -t markdown`.
-
-        Required deliverable files (EXACT names, in ./output/ of your working
-        directory): {{ task.deliverables }}
-      model: "{{ params.model }}"
-      maxSteps: "{{ params.maxSteps }}"
-      toolFilter: "{{ params.toolFilter }}"
-      # Extra tool grants for the producing agent (registry step types; globs
-      # ok). Default NONE — the closed-book baseline. Override per run to arm
-      # e.g. read-only knowledge-graph access:
-      #   ["jarvis/graph-search","jarvis/graph-get","jarvis/graph-get-batched",
-      #    "jarvis/graph-neighbors","jarvis/get-ontology","jarvis/get-ontology-type"]
-      # NEVER grant the jarvis write steps or harvey/evaluate here.
-      agentTools: "{{ params.agentTools }}"
+      workflow: "{{ input.produceWorkflow || 'harvey-produce' }}"
+      input:
+        task: "{{ input.task }}"
+        workdir: "{{ input.workdir }}"
 
   - id: grade
     type: harvey/evaluate
-    depends: produce
-    # Same hardening: the judge pass is long (dozens of LLM calls); staging is
-    # idempotent (same runId dir re-copied), so a retry is safe.
+    depends: produced
+    # Retry: the judge pass is long (dozens of LLM calls); staging is
+    # idempotent (same staged dir re-copied), so a retry is safe.
+    # onError: a grading failure must not kill a batch run (harvey-evolve
+    # runs this per task via foreach → subflow) — record an explicit zero
+    # with the error instead. gradeError distinguishes "grader crashed" from
+    # "graded and failed" so the digest doesn't misattribute infra failures.
     options:
       retry: { max: 1, delayMs: 15000 }
+      onError:
+        id: grade_failed
+        type: harvey/pack-result
+        config:
+          score: 0
+          all_pass: false
+          gradeError: "{{ $error.message }}"
     config:
       task: "{{ input.task }}"
-      from: output
+      dir: "{{ produced.outputDir }}"
+      # NOTE: no guards here — the template evaluator does not short-circuit,
+      # so these rely on harvey-produce ALWAYS packing usage (an {} on its
+      # onError path) and outputDir.
       metrics:
-        input_tokens: "{{ produce.usage.inputTokens }}"
-        output_tokens: "{{ produce.usage.outputTokens }}"
-        produce_cost: "{{ produce.cost }}"
-        produce_steps: "{{ produce.steps }}"
+        input_tokens: "{{ produced.usage.inputTokens }}"
+        output_tokens: "{{ produced.usage.outputTokens }}"
+        produce_cost: "{{ produced.cost }}"
+        produce_steps: "{{ produced.steps }}"
       dual: "{{ params.dual }}"
       timeoutMs: "{{ params.evalTimeoutMs }}"
 
-params:
-  model: claude-sonnet-4-6
-  # Generous budget: read 3-4 documents, draft substantial legal deliverables,
-  # convert to docx. The agent forces a final turn if it runs out.
-  maxSteps: 80
-  # No web_search: benchmark purity — the task is closed-book against the
-  # provided documents. (Empty would mean ALL built-ins, including web_search.)
-  toolFilter: ["bash", "str_replace_based_edit_tool", "repo_overview", "fulltext_search"]
-  dual: false
-  # Producing agent's extra tool grants (see the produce step). Empty =
-  # closed-book baseline.
-  agentTools: []
-  # Appended to the system prompt when knowledge-graph access is granted.
-  # Default: empty (closed-book baseline). Pair with the read-only jarvis
-  # grants in agentTools. Learned from the first prod-tree A/B: enter via the
-  # Practice Area roots and SCAN EVERY ROOT'S CHILDREN — root names are opaque
-  # (the relevant checklist may live under a generic-sounding root) and
-  # semantic search on the tree is weak.
-  graphGuidance: ""
-  # The CANONICAL graph-guidance text for the concepts arm — versioned here so
-  # the experiment surface is visible/diffable in the UI, never buried in a
-  # launch script. To run the concepts arm: read this value and pass it as the
-  # per-run `graphGuidance` override (plus the agentTools read grants). It is
-  # deliberately NOT active by default.
-  graphGuidanceConcepts: |
+  - id: result
+    type: harvey/pack-result
+    depends: grade
+    config:
+      task: "{{ input.task }}"
+      produceWorkflow: "{{ input.produceWorkflow || 'harvey-produce' }}"
+      score: "{{ grade.score }}"
+      max_score: "{{ grade.max_score }}"
+      all_pass: "{{ grade.all_pass }}"
+      summary: "{{ grade.summary }}"
+      criteria_results: "{{ grade.criteria_results }}"
+      benchmarkRev: "{{ grade.benchmarkRev }}"
+      reportPath: "{{ grade.reportPath }}"
+      outputDir: "{{ produced.outputDir }}"
+      produceCost: "{{ produced.cost }}"
+      produceSteps: "{{ produced.steps }}"
+      produceError: "{{ produced.produceError }}"
+      gradeError: "{{ grade.gradeError }}"
 
-    Knowledge graph (consult BEFORE drafting):
-    A Concept knowledge graph holds legal review METHODOLOGY, organized under
-    "Practice Area" root concepts with PARENT_OF children from general to very
-    specific. Semantic search is unreliable on this graph — enter via the
-    roots:
-    1. jarvis_graph_search q="Practice Area" type=Concept — list ALL roots.
-    2. jarvis_graph_neighbors on EVERY root, ALWAYS with node_type=["Concept"]
-       (other node types are session noise). Root NAMES are opaque — scan the
-       full children list of each root before deciding what is relevant; the
-       best checklist may hang under a generic-sounding root.
-    3. jarvis_graph_get_batched the relevant ref_ids and READ their
-       documentation.
-    Use what you load as a CHECKLIST: cross-checks to run (e.g. reconcile
-    every pair of related figures), doctrines to apply, and terms whose
-    ABSENCE to flag. Facts still come ONLY from the task documents — the
-    graph guides HOW you review, never WHAT the documents say. Spend at most
-    ~12 tool calls on the graph phase, then draft.
+params:
+  dual: false
   # 59-criterion tasks with parallel judges can take a while.
   evalTimeoutMs: 2400000
-  system: |
-    You are a senior lawyer producing REAL work product for a demanding client.
-    Work ONLY from the documents provided in the task — do not invent facts,
-    parties, dates, or terms, and do not use outside sources.
-
-    Your WORKING DIRECTORY is where ALL your writes go — always use relative
-    paths (./draft.md, ./output/<name>.docx). The task documents directory is
-    READ-ONLY and OUTSIDE your working directory: read from its absolute path,
-    but NEVER write there — writes outside the working directory are rejected.
-
-    Method:
-    1. Read EVERY input document fully before drafting (convert .docx with
-       `pandoc <file> -t markdown`; read .xlsx with python3 + openpyxl,
-       printing EVERY sheet, row, and column — spreadsheets often hold the
-       facts the analysis hinges on; .eml files are plain text). The client's
-       instructions and any playbook control — follow them precisely,
-       including priorities and fallback positions.
-    2. Draft each deliverable as markdown first (work files in your working
-       directory are fine), covering every requirement in the instructions.
-       Be thorough and specific: cite the exact clauses/sections you change,
-       show precise replacement language, and explain each change briefly.
-    3. Produce the FINAL deliverables as real .docx files with EXACTLY the
-       requested filenames in ./output/ :  `pandoc draft.md -o output/<name>.docx`
-    4. Verify before finishing: `ls -la output/` shows every required file,
-       and each converts back cleanly (`pandoc output/<name>.docx -t markdown | head`).
-
-    Only files in ./output/ are graded. Missing or misnamed files score zero.

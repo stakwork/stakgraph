@@ -12,17 +12,29 @@ import type { WorkspaceManager } from "vein";
  *
  * - `harvey/get-task` — instructions + documents, rubric stripped. Safe for
  *   producing agents.
- * - `harvey/evaluate` — stage this run's artifact deliverables + run the real
- *   eval. Grant ONLY to harness workflows, never to the producing agent.
+ * - `harvey/evaluate` — stage deliverables + run the real eval. Grant ONLY
+ *   to harness workflows, never to the producing agent.
+ * - `harvey/pack-result` — echo combiner (assemble workflow outputs; onError
+ *   fallbacks).
+ * - `harvey/digest-results` — aggregate graded results into the propose
+ *   digest (verdict channel only; see the step header).
  */
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "get-task.ts", type: "harvey/get-task" },
   { file: "evaluate.ts", type: "harvey/evaluate" },
+  { file: "pack-result.ts", type: "harvey/pack-result" },
+  { file: "digest-results.ts", type: "harvey/digest-results" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const SEED_WORKFLOWS = ["harvey-run"];
+// Order matters only for readability — all four are plain publishes. The
+// produce/grade split (EVOLVE_SPEC §5): harvey-produce is the swappable
+// candidate unit, harvey-run/harvey-candidate-run are the grading harnesses,
+// harvey-evolve is the authoring harness over all of them. All seeded
+// UNSTAMPED (no publisher arg → not "ai"), so the meta surface can read but
+// never edit, run, or overwrite them.
+const SEED_WORKFLOWS = ["harvey-produce", "harvey-run", "harvey-candidate-run", "harvey-evolve"];
 
 export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<void> {
   const dir = join(HERE, "workflows");

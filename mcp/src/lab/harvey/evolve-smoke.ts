@@ -1,0 +1,137 @@
+/**
+ * Offline validation for the harvey produce/grade split + evolve harness:
+ *  1. all four workflows seed + parse into Flows (YAML → Flow schema)
+ *  2. the template expressions used in them resolve as intended
+ *  3. harvey/digest-results aggregates fixture score reports correctly
+ *  4. artifacts/dir `sub` creates/guards subdirs
+ * No uv/python, no LLM, no network.
+ * Run: npx tsx src/lab/harvey/evolve-smoke.ts
+ */
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { WorkspaceManager, buildRegistry, fileArtifactsCapability, resolveConfig } from "vein";
+import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
+import { seedArtifactSteps } from "../artifacts/seed.js";
+
+async function main() {
+  const base = mkdtempSync(join(process.cwd(), ".evolve-validate-"));
+  try {
+    const workspace = new WorkspaceManager(join(base, "ws"));
+    await seedHarveySteps(workspace);
+    await seedArtifactSteps(workspace);
+    await seedHarveyWorkflows(workspace);
+
+    // 1. every seeded workflow parses into a Flow
+    for (const name of ["harvey-produce", "harvey-run", "harvey-candidate-run", "harvey-evolve"]) {
+      const flow = await workspace.getWorkflow(name);
+      assert.equal(flow.name, name);
+      assert.ok(Array.isArray(flow.steps) && flow.steps.length > 0, `${name} has steps`);
+      console.log(`✔ workflow parses: ${name} (${flow.steps.length} steps)`);
+    }
+
+    // step types referenced by the workflows all exist in the registry
+    const { registry } = await buildRegistry(workspace.path);
+    const wanted = [
+      "harvey/get-task", "harvey/evaluate", "harvey/pack-result", "harvey/digest-results",
+      "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",
+    ];
+    for (const t of wanted) assert.ok(registry[t], `registry has ${t}`);
+    console.log("✔ all referenced step types resolve");
+
+    // 2. template expressions used in the new workflows
+    const scope: Record<string, unknown> = {
+      input: { task: "a/b", tasks: ["a/b", "c/d"] },
+      produced: { outputDir: "/x/output", cost: 1.2, steps: 7, usage: { inputTokens: 100, outputTokens: 50 } },
+      run: { runId: "r1", status: "success", output: { outputDir: "/y/output", cost: 0.5, steps: 3 } },
+      grade: { score: 0.5 },
+      author: { object: { candidate: "harvey-produce-ai", version: "v3" }, cost: 2, steps: 9 },
+      basedigest: { meanScore: 0.4, text: "digest" },
+      canddigest: { meanScore: 0.7 },
+      params: {},
+    };
+    const r = (s: string) => (resolveConfig as any)(s, scope);
+    assert.equal(r("{{ input.produceWorkflow || 'harvey-produce' }}"), "harvey-produce");
+    // The evaluator does NOT short-circuit (ternary/&&/|| still evaluate both
+    // sides), so the workflows never deep-access possibly-undefined objects.
+    const failedScope = { ...scope, run: { runId: "r2", status: "failed", error: { message: "boom" } } };
+    assert.throws(
+      () => (resolveConfig as any)("{{ run.output ? run.output.outputDir : undefined }}", failedScope),
+      /Cannot access/,
+    );
+    // Instead: whole objects are passed and unpacked in step code…
+    assert.deepEqual((resolveConfig as any)("{{ run }}", failedScope), failedScope.run);
+    assert.deepEqual((resolveConfig as any)("{{ run.error }}", failedScope), { message: "boom" });
+    // …and error-path packs keep usage always-present ({}), so one-level-deep
+    // access on it stays safe:
+    const onErrorScope = { ...scope, produced: { usage: {}, cost: 0, steps: 0 } };
+    assert.equal((resolveConfig as any)("{{ produced.usage.inputTokens }}", onErrorScope), undefined);
+    assert.equal(r("{{ produced.usage.inputTokens }}"), 100);
+    assert.equal(r("{{ canddigest.meanScore - basedigest.meanScore }}"), 0.7 - 0.4);
+    assert.equal(r("{{ input.tasks.length }}"), 2);
+    console.log("✔ template expressions resolve (fallback, whole-object pass, arithmetic; no-short-circuit guarded)");
+
+    // 3. digest step over fixture score reports (incl. onError shapes)
+    const digest = registry["harvey/digest-results"]!;
+    const ctxStub = { runId: "r", path: "p", scope: {}, input: undefined, emit: async () => {}, services: {}, registry } as any;
+    const out: any = await digest.run(
+      digest.input.parse({
+        results: [
+          {
+            task: "a/b", score: 0.5, all_pass: false,
+            criteria_results: [
+              { id: "c1", verdict: "pass", reasoning: "ok" },
+              { id: "c2", verdict: "fail", reasoning: "missed the HSR threshold update" },
+              { id: "c3", verdict: "fail" },
+            ],
+            produceCost: 1.1,
+          },
+          { task: "c/d", score: 1, all_pass: true, criteria_results: [{ id: "c1", verdict: "pass" }] },
+          {
+            task: "e/f", score: 0, all_pass: false,
+            // object-shaped RunResult error + cost only inside runResult —
+            // the harvey-candidate-run failure shape
+            error: { message: "candidate run failed" },
+            gradeError: "eval failed (exit 1)",
+            runResult: { runId: "x", status: "failed", output: { cost: 0.33 } },
+          },
+        ],
+        maxCriteria: 1,
+      }),
+      ctxStub,
+    );
+    assert.equal(out.n, 3);
+    assert.equal(out.meanScore, 0.5);
+    assert.equal(out.allPassCount, 1);
+    assert.equal(out.results[0].nFailed, 2);
+    assert.equal(out.results[0].failed.length, 1);
+    assert.equal(out.results[0].failedOmitted, 1);
+    assert.equal(out.results[0].cost, 1.1);
+    assert.equal(out.results[2].error, "candidate run failed");
+    assert.equal(out.results[2].cost, 0.33);
+    assert.ok(out.text.includes("mean score 0.5") && out.text.includes("✗ c2"));
+    assert.ok(out.text.includes("(+1 more failed criteria not shown)"));
+    console.log("✔ harvey/digest-results aggregates + formats");
+
+    // 4. artifacts/dir sub
+    const artifacts = fileArtifactsCapability(join(base, "artifacts"));
+    const dirStep = registry["artifacts/dir"]!;
+    const dirCtx = { ...ctxStub, services: { artifacts } };
+    const noSub: any = await dirStep.run(dirStep.input.parse({}), dirCtx);
+    assert.ok(noSub.path.endsWith("/r"));
+    const withSub: any = await dirStep.run(dirStep.input.parse({ sub: "a/b" }), dirCtx);
+    assert.ok(withSub.path.endsWith("/r/a/b"));
+    await assert.rejects(() => dirStep.run(dirStep.input.parse({ sub: "../nope" }), dirCtx), /relative path/);
+    await assert.rejects(() => dirStep.run(dirStep.input.parse({ sub: "/abs" }), dirCtx), /relative path/);
+    console.log("✔ artifacts/dir sub: create + traversal guards");
+
+    console.log("\nALL EVOLVE VALIDATION CHECKS PASSED");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

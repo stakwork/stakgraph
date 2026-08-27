@@ -1,0 +1,89 @@
+name: harvey-candidate-run
+# Run an AGENT-AUTHORED candidate produce workflow on ONE task, then grade
+# its deliverables with the real benchmark eval. The harness half of the
+# EVOLVE_SPEC §5.2 loop:
+#
+#   author (meta/*) → run (THIS) → grade (THIS) → reflect
+#
+# The candidate runs via meta/run-workflow (services.authoring), which
+#   (a) runs ONLY workflows stamped publisher "ai" — i.e. published via
+#       meta/publish-workflow. It refuses the seeded harvey-produce; baseline
+#       runs go through harvey-run instead. So this harness can never be
+#       pointed back at (or used to launder) the seeded harness surface.
+#   (b) rebuilds the step registry FRESH at call time — a candidate STEP
+#       authored earlier in the same enclosing run is visible (§5.3.1),
+#       which a plain subflow (start-of-run registry snapshot) can't do.
+#   (c) runs the candidate under its OWN runId — its artifacts dir is its
+#       own, so parallel candidate runs never collide. Grading stages the
+#       outputDir the candidate reports: the WHOLE run result is handed to
+#       harvey/evaluate as `fromRun` and unpacked in code (template
+#       expressions cannot guard deep access on a failed run's missing
+#       `output` — the evaluator does not short-circuit).
+#
+# CANDIDATE CONTRACT (what the author must publish): input { task },
+# output (last step) includes outputDir (absolute), usage, cost, steps.
+#
+# If the candidate run fails, the grade step fails on the missing outputDir
+# and its onError records an honest zero — produceStatus/error in the result
+# keep the cause attributable, and a batch over many tasks always completes
+# with one result per task.
+#
+# Input:  { workflow, version?, task }
+#   workflow: candidate name (publisher "ai"); version pins it (default: active)
+# Output: { task, candidate, version, produceRunId, produceStatus, score,
+#           all_pass, summary, criteria_results, benchmarkRev, reportPath,
+#           runResult, error?, gradeError? }
+steps:
+  - id: run
+    type: meta/run-workflow
+    config:
+      name: "{{ input.workflow }}"
+      version: "{{ input.version }}"
+      input:
+        task: "{{ input.task }}"
+
+  - id: grade
+    type: harvey/evaluate
+    depends: run
+    options:
+      retry: { max: 1, delayMs: 15000 }
+      onError:
+        id: grade_failed
+        type: harvey/pack-result
+        config:
+          score: 0
+          all_pass: false
+          gradeError: "{{ $error.message }}"
+    config:
+      task: "{{ input.task }}"
+      fromRun: "{{ run }}"
+      dual: "{{ params.dual }}"
+      timeoutMs: "{{ params.evalTimeoutMs }}"
+
+  - id: result
+    type: harvey/pack-result
+    depends: grade
+    config:
+      task: "{{ input.task }}"
+      candidate: "{{ input.workflow }}"
+      version: "{{ input.version }}"
+      produceRunId: "{{ run.runId }}"
+      produceStatus: "{{ run.status }}"
+      # object ({ message, … }), string (an authoring-gate refusal), or
+      # absent — harvey/digest-results normalizes all three.
+      error: "{{ run.error }}"
+      # The full candidate run result (runId, status, output, error) for
+      # humans debugging a candidate — inspect further via meta/get-run.
+      runResult: "{{ run }}"
+      score: "{{ grade.score }}"
+      max_score: "{{ grade.max_score }}"
+      all_pass: "{{ grade.all_pass }}"
+      summary: "{{ grade.summary }}"
+      criteria_results: "{{ grade.criteria_results }}"
+      benchmarkRev: "{{ grade.benchmarkRev }}"
+      reportPath: "{{ grade.reportPath }}"
+      gradeError: "{{ grade.gradeError }}"
+
+params:
+  dual: false
+  evalTimeoutMs: 2400000
