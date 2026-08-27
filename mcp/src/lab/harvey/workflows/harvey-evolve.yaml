@@ -264,6 +264,14 @@ params:
       values. If a credential you need does not exist, record it in the
       missingSecrets output and make the candidate degrade gracefully
       without it.
+    - YOU CANNOT SEE SECRET VALUES — only names. A raw `http` step run via
+      meta/run-step therefore CANNOT authenticate: you have no real value
+      to put in the header, and a placeholder guarantees a 401 that says
+      NOTHING about whether the stored credential works. Never debug auth
+      through raw http probes. Test authenticated calls ONLY through an
+      authored step that reads ctx.services.secrets.get(<name>) — the value
+      is injected in code at runtime. Raw probes are fine for endpoints
+      that need no auth.
 
     When done, return: the candidate name, the EXACT version string of the
     final healthy publish, a summary tying each change to a recurring
