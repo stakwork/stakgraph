@@ -1338,6 +1338,14 @@ function registerGraphWriteTools(
         .describe(
           "Jarvis namespace (data partition) for inline node creation. Not an access-control boundary.",
         ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt in to Jarvis's scratchpad fallback: when a node write is rejected (unknown node type, " +
+          "data that fails schema validation) the payload is preserved as a ScratchpadEntry instead of " +
+          "returning a 400, and the response comes back with status \"scratchpad\". Off by default.",
+        ),
     }),
     execute: async (input: {
       source_ref_id?: string;
@@ -1351,6 +1359,7 @@ function registerGraphWriteTools(
       weight?: number;
       create_schema_if_missing?: boolean;
       namespace?: string;
+      allow_scratchpad?: boolean;
     }) => {
       const {
         source_ref_id,
@@ -1364,6 +1373,7 @@ function registerGraphWriteTools(
         weight,
         create_schema_if_missing = false,
         namespace,
+        allow_scratchpad,
       } = input;
 
       for (const err of [
@@ -1394,6 +1404,7 @@ function registerGraphWriteTools(
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type: nodeType,
           node_data: nodeData,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }, reqOpts);
         let body: any;
         try {
@@ -1424,6 +1435,7 @@ function registerGraphWriteTools(
           source: { ref_id: sourceRef },
           target: { ref_id: targetRef },
           create_schema_if_missing,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }, reqOpts);
         let body: any;
         try {
@@ -1551,6 +1563,14 @@ function registerGraphWriteTools(
           "later in this session (e.g. to update or delete an individual edge). Leaving it off " +
           "keeps results small, which matters because every tool result stays in context.",
         ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt in to Jarvis's scratchpad fallback: when a node write is rejected (unknown node type, " +
+          "data that fails schema validation) the payload is preserved as a ScratchpadEntry instead of " +
+          "returning a 400, and the response comes back with status \"scratchpad\". Off by default.",
+        ),
     }),
     execute: async (input: {
       triplets: Array<{
@@ -1567,8 +1587,9 @@ function registerGraphWriteTools(
       }>;
       namespace?: string;
       return_edge_ids?: boolean;
+      allow_scratchpad?: boolean;
     }) => {
-      const { triplets, namespace, return_edge_ids = false } = input;
+      const { triplets, namespace, return_edge_ids = false, allow_scratchpad } = input;
       console.log(
         `[create_batch_triplet] count=${triplets.length} namespace=${namespace ?? "-"}`,
       );
@@ -1632,6 +1653,7 @@ function registerGraphWriteTools(
           const res = await jarvisMutate("post", url, jarvisHeaders, {
             node_type: nodeType,
             node_data: nodeData,
+            ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
           }, reqOpts);
           let body: any;
           try {
@@ -1732,6 +1754,7 @@ function registerGraphWriteTools(
           source: { ref_id: rt.source_ref_id },
           target: { ref_id: rt.target_ref_id },
           create_schema_if_missing: rt.create_schema_if_missing,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }));
 
         const edgeParams = new URLSearchParams();
@@ -1781,6 +1804,7 @@ function registerGraphWriteTools(
               source: { ref_id: rt.source_ref_id },
               target: { ref_id: rt.target_ref_id },
               create_schema_if_missing: rt.create_schema_if_missing,
+              ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
             }, reqOpts);
             let body: any;
             try {
@@ -1883,13 +1907,22 @@ function registerGraphWriteTools(
         .describe(
           "Jarvis namespace (data partition) to create the node in. Not an access-control boundary.",
         ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt in to Jarvis's scratchpad fallback: when a node write is rejected (unknown node type, " +
+          "data that fails schema validation) the payload is preserved as a ScratchpadEntry instead of " +
+          "returning a 400, and the response comes back with status \"scratchpad\". Off by default.",
+        ),
     }),
     execute: async (input: {
       node_type: string;
       node_data: Record<string, any>;
       namespace?: string;
+      allow_scratchpad?: boolean;
     }) => {
-      const { node_type, node_data, namespace } = input;
+      const { node_type, node_data, namespace, allow_scratchpad } = input;
       console.log(`[create_node] type=${node_type} namespace=${namespace ?? "-"}`);
       try {
         const params = new URLSearchParams();
@@ -1899,6 +1932,7 @@ function registerGraphWriteTools(
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type,
           node_data,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }, reqOpts);
         let body: any;
         try {
