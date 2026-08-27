@@ -33,6 +33,7 @@ import {
   isValidSecretName,
 } from "./secret-store.js";
 import { runSingleStep, cassettePath } from "./run-step.js";
+import { buildAuthoringCapability } from "./authoring.js";
 import type { CassetteMode } from "./cassette.js";
 // Static import is safe: notifier depends only on chat-store, never the AI
 // SDK (which stays lazy-loaded inside launchChatTurn).
@@ -356,6 +357,28 @@ export async function createVein<TServices = unknown>(
 
   if (!registryWasInjected) {
     await rebuildRegistry();
+  }
+
+  // Auto-provide the AUTHORING capability (the workspace's author/test/inspect
+  // operations as one service) unless the consumer injected their own — same
+  // spirit as http/secrets/artifacts above, added here because it closes over
+  // the registry state initialized just before. This is what the meta/* lib
+  // steps reach via ctx.services.authoring, letting an in-workflow agent
+  // (agentTools: ["meta/*"]) author and evaluate candidate workflows
+  // (EVOLVE_SPEC §5). Everything it publishes is stamped publisher "ai", and
+  // its publish/run/run-history operations are closed over that stamped set.
+  if (!(services as Record<string, unknown>)["authoring"]) {
+    (services as Record<string, unknown>)["authoring"] = buildAuthoringCapability({
+      workspace,
+      store,
+      services,
+      publishingEnabled: !registryWasInjected,
+      getRegistry: async () => {
+        await rebuildRegistry();
+        return registry;
+      },
+      ...(secretsInjected ? {} : { secrets: secretStore }),
+    });
   }
 
   const app = new Hono();
