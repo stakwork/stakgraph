@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { ensureGaiaDataset, ensureGaiaPython, SCORER_SHA256 } from "./bootstrap.js";
 
 /**
  * GAIA LAB scoring service — the lab's hardcoded, NON-EDITABLE grader.
@@ -27,15 +28,20 @@ import { join, resolve } from "node:path";
  * git SHA (`benchmarkRev`) and the scorer's hash (`scorerSha256`) so a
  * score is always attributable to a benchmark + scorer version.
  *
- * Config (env):
- *   GAIA_DIR           — local clone of the HF dataset repo
- *                        (huggingface.co/datasets/gaia-benchmark/GAIA; gated —
- *                        accept the terms, clone with your HF token), with the
- *                        leaderboard's scorer.py dropped at its root:
- *                        <GAIA_DIR>/scorer.py
- *                        <GAIA_DIR>/2023/validation/metadata.jsonl (+ files)
- *   GAIA_SCORER_SHA256 — optional pinned sha256 of scorer.py
+ * Setup is AUTOMATIC (see bootstrap.ts): given an HF token, the dataset is
+ * cloned and the leaderboard's scorer.py installed on first use. In the prod
+ * image numpy is already on PATH via /usr/src/agent-venv, so a deployment
+ * needs exactly one variable — HF_TOKEN.
+ *
+ * Config (env), all optional:
+ *   HF_TOKEN           — read access to the gated dataset (or
+ *                        HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN). The owning
+ *                        account must have accepted GAIA's terms on the HF
+ *                        website; that click-through cannot be automated.
+ *   GAIA_DIR           — pin the checkout location (default <cache>/vein/gaia)
+ *   GAIA_SCORER_SHA256 — override the in-repo scorer pin (SCORER_SHA256)
  *   GAIA_PYTHON        — python interpreter (default "python3"; needs numpy)
+ *   GAIA_AUTO_SETUP=0  — disable auto-setup; GAIA_DIR must be pre-populated
  */
 
 export interface ExecResult {
@@ -175,8 +181,16 @@ interface MetaRow {
 export interface BuildGaiaOptions {
   /** Dataset checkout path; defaults to env GAIA_DIR (checked at call time). */
   dir?: string;
-  /** Pinned scorer.py sha256; defaults to env GAIA_SCORER_SHA256 (optional). */
+  /** Pinned scorer.py sha256. Defaults to env GAIA_SCORER_SHA256, else the
+   *  in-repo SCORER_SHA256 constant — the pin is ALWAYS enforced, so a
+   *  deployment can never silently grade with an unidentified scorer. */
   scorerSha256?: string;
+  /** Auto-clone the dataset + install scorer.py on first use. Default true
+   *  (env GAIA_AUTO_SETUP=0 disables). Smokes pass false to exercise
+   *  verifyDataset against a fixture checkout in isolation. */
+  autoSetup?: boolean;
+  /** HF token; defaults to HF_TOKEN / HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN. */
+  hfToken?: string;
   /** Python interpreter; defaults to env GAIA_PYTHON or "python3". */
   python?: string;
   /** Subprocess runner override (for offline smokes). */
@@ -191,11 +205,21 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
   let metaCache: Map<string, MetaRow> | undefined;
 
   async function verifyDataset(): Promise<{ root: string; rev: string; scorerSha256: string }> {
-    const root = opts.dir ?? process.env.GAIA_DIR;
+    // Materialise the checkout if it isn't there yet (bootstrap.ts). A no-op
+    // costing two stats once it is, so this stays safe on the per-grade path.
+    const autoSetup = opts.autoSetup ?? process.env.GAIA_AUTO_SETUP !== "0";
+    let root: string | undefined = opts.dir ?? process.env.GAIA_DIR;
+    if (autoSetup) {
+      ({ root } = await ensureGaiaDataset({
+        ...(opts.dir ? { dir: opts.dir } : {}),
+        ...(opts.hfToken ? { hfToken: opts.hfToken } : {}),
+        ...(opts.scorerSha256 ? { scorerSha256: opts.scorerSha256 } : {}),
+      }));
+    }
     if (!root) {
       throw new Error(
-        "gaia: GAIA_DIR not configured — clone huggingface.co/datasets/gaia-benchmark/GAIA " +
-          "(gated: accept the terms on HF first) and drop the leaderboard's scorer.py at its root",
+        "gaia: GAIA_DIR not configured and auto-setup is off — set HF_TOKEN to let the dataset " +
+          "bootstrap itself, or point GAIA_DIR at a populated checkout",
       );
     }
     const abs = resolve(root);
@@ -240,7 +264,9 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
       );
     }
     const scorerSha256 = createHash("sha256").update(scorerSrc).digest("hex");
-    const pin = opts.scorerSha256 ?? process.env.GAIA_SCORER_SHA256;
+    // Always pinned: an unidentified scorer makes a score unattributable, so
+    // the in-repo constant is the floor, not an opt-in (EVOLVE_SPEC §6).
+    const pin = opts.scorerSha256 ?? process.env.GAIA_SCORER_SHA256 ?? SCORER_SHA256;
     if (pin && scorerSha256 !== pin.toLowerCase()) {
       throw new Error(
         `gaia: scorer.py sha256 ${scorerSha256.slice(0, 12)}… does not match pinned GAIA_SCORER_SHA256 — refusing to grade`,
@@ -302,6 +328,7 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     pairs: GaiaScorePair[],
     o: { timeoutMs?: number } = {},
   ): Promise<GaiaScoreReport> {
+    const autoSetup = opts.autoSetup ?? process.env.GAIA_AUTO_SETUP !== "0";
     const { root, rev, scorerSha256 } = await verifyDataset(); // fresh check every grade
     if (!pairs.length) throw new Error("gaia: score() called with no pairs");
 
@@ -312,7 +339,11 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
       JSON.stringify(pairs.map((p) => ({ task_id: p.taskId, answer: p.answer }))),
     );
 
-    const python = opts.python ?? process.env.GAIA_PYTHON ?? "python3";
+    // Resolves to plain `python3` in the prod image (agent venv on PATH has
+    // numpy); builds a cached venv on a dev box that lacks it.
+    const python = autoSetup
+      ? await ensureGaiaPython(opts.python ? { python: opts.python } : {})
+      : (opts.python ?? process.env.GAIA_PYTHON ?? "python3");
     const res = await exec(python, ["-c", DRIVER, root, pairsPath], {
       cwd: root,
       timeoutMs: o.timeoutMs ?? DEFAULT_SCORE_TIMEOUT_MS,
