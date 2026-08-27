@@ -99,6 +99,12 @@ export interface WorkflowMetadata {
    *  version-level: it survives publishes and can be changed at any time via
    *  `setWorkflowCategory`. */
   category?: string;
+  /** Optional identifier of the service that published this workflow
+   *  (parallels `StepInfo.publisher`). Workflow-level provenance: the
+   *  authoring capability stamps everything it publishes `"ai"` and its
+   *  publish/run/run-history operations are closed over that stamped set —
+   *  see `authoring.ts` and EVOLVE_SPEC §6 (run-history scoping). */
+  publisher?: string;
 }
 
 export interface StepVersionInfo {
@@ -138,6 +144,8 @@ export interface WorkflowListEntry {
   description?: string;
   /** Grouping label, if the workflow has one (see WorkflowMetadata.category). */
   category?: string;
+  /** Provenance stamp, if any (see WorkflowMetadata.publisher). */
+  publisher?: string;
   /** Start time (epoch ms) of the most recent run, if any. Run ids are
    *  millisecond timestamps (FileRunStore), so this is just the max entry
    *  in the workflow's `runs/` dir — no run.json reads. */
@@ -183,6 +191,7 @@ export class WorkspaceManager {
           versions: Object.keys(meta.versions),
           description: activeDesc,
           ...(meta.category ? { category: meta.category } : {}),
+          ...(meta.publisher ? { publisher: meta.publisher } : {}),
           ...(lastRunAt != null ? { lastRunAt } : {}),
         });
       }
@@ -259,6 +268,7 @@ export class WorkspaceManager {
     content: { steps: any[]; params?: Record<string, unknown> } | string,
     description?: string,
     category?: string,
+    publisher?: string,
   ): Promise<{ name: string; version: string }> {
     const workflowsDir = join(this.root, "workflows");
     let finalName = name;
@@ -278,18 +288,20 @@ export class WorkspaceManager {
       }
     }
 
-    await this.publishWorkflow(finalName, "v1", resolvedContent, description, category);
+    await this.publishWorkflow(finalName, "v1", resolvedContent, description, category, publisher);
     return { name: finalName, version: "v1" };
   }
 
   /** Publish a new workflow version. Accepts steps array or raw YAML string.
-   *  `category` (when provided) updates the workflow-level grouping label. */
+   *  `category` (when provided) updates the workflow-level grouping label;
+   *  `publisher` (when provided) sets the workflow-level provenance stamp. */
   async publishWorkflow(
     name: string,
     version: string,
     content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
     description?: string,
     category?: string,
+    publisher?: string,
   ): Promise<void> {
     const dir = join(this.root, "workflows", name);
     await mkdir(dir, { recursive: true });
@@ -325,6 +337,7 @@ export class WorkspaceManager {
     };
     meta.active = version;
     if (category !== undefined) meta.category = category;
+    if (publisher !== undefined) meta.publisher = publisher;
 
     await writeFile(
       join(dir, "_metadata.json"),
@@ -417,6 +430,7 @@ export class WorkspaceManager {
     yamlStr: string,
     description?: string,
     category?: string,
+    publisher?: string,
   ): Promise<{ version: string; changed: boolean }> {
     const hash = contentHash(yamlStr);
     const meta = await this.readWorkflowMetadata(name);
@@ -440,7 +454,11 @@ export class WorkspaceManager {
     }
 
     const next = nextVersionLabel(meta ? Object.keys(meta.versions) : []);
-    await this.publishWorkflow(name, next, yamlStr, description, category);
+    // `publisher` is only ever applied when a version is actually written —
+    // never reconciled on the identical-content no-op path above, so
+    // republishing a workflow's existing content verbatim cannot re-stamp
+    // (and thereby claim) a workflow someone else published.
+    await this.publishWorkflow(name, next, yamlStr, description, category, publisher);
     return { version: next, changed: true };
   }
 

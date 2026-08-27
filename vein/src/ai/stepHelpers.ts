@@ -2,7 +2,17 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { CORE_STEP_TYPES, LIB_DIR } from "../steps/registry.js";
-import { AiDeps } from "./prompts.js";
+import type { StepRegistry } from "../core.js";
+import type { WorkspaceManager } from "../workspace.js";
+
+/**
+ * The subset of dependencies the step-explorer helpers need. Both the chat
+ * builder's `AiDeps` and the authoring capability satisfy it structurally.
+ */
+export interface StepExplorerDeps {
+  workspace: WorkspaceManager;
+  registry: StepRegistry;
+}
 
 /**
  * Registry entries that don't come from any of the discoverable tiers
@@ -12,7 +22,7 @@ import { AiDeps } from "./prompts.js";
  * existing `list_steps` / pre-seeded prompt tree just sees them.
  */
 async function inCodeRegistryExtras(
-  deps: AiDeps,
+  deps: StepExplorerDeps,
 ): Promise<Array<{ type: string; description?: string }>> {
   const onDiskCustom = new Set(
     (await deps.workspace.listSteps()).map((s) => s.type),
@@ -69,7 +79,7 @@ function normalizeStepsPath(path: string): string[] {
   return parts;
 }
 
-export async function lsSteps(path: string, deps: AiDeps) {
+export async function lsSteps(path: string, deps: StepExplorerDeps) {
   const parts = normalizeStepsPath(path);
   if (parts[0] === "__invalid__") {
     return { error: `Invalid path "${path}". Paths must start with "steps".` };
@@ -164,7 +174,7 @@ async function listStepDir(dir: string): Promise<string[] | null> {
   return entries.sort();
 }
 
-export async function searchSteps(query: string, deps: AiDeps) {
+export async function searchSteps(query: string, deps: StepExplorerDeps) {
   const q = query.trim().toLowerCase();
   if (!q) return { matches: [] };
   const terms = q.split(/\s+/).filter(Boolean);
@@ -195,7 +205,7 @@ export async function searchSteps(query: string, deps: AiDeps) {
  */
 export async function readStepSource(
   type: string,
-  deps: AiDeps,
+  deps: StepExplorerDeps,
 ): Promise<string | undefined> {
   if (CORE_STEP_TYPES.includes(type)) return undefined;
 

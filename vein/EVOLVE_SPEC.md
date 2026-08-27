@@ -22,7 +22,7 @@ one measured run and the next. The guiding idea:
 | --- | --- | --- | --- | --- |
 | **1. Prompt** | a `params` value | param default + new workflow version | minutes; fully autonomous | **built** (`eval/optimize`) |
 | **2. Environment** | an `env.manifest` diff | rebuilt image | days; human-reviewed | **todo** (§4) |
-| **3. Structure** | a workflow version + step sources | published version | hours; agent-interactive | **partial** (§5 — the `meta/*` gap) |
+| **3. Structure** | a workflow version + step sources | published version | hours; agent-interactive | **mechanism built** (§5 — `meta/*` + `services.authoring`; optimize generalization §5.3.3 todo) |
 
 The layers are ordered by how cheap they are to try and how safely they can
 be automated. Prompt tuning is mechanical and reversible. Environment changes
@@ -147,16 +147,27 @@ becomes a manifest proposal, not an assumption that the install persists.
 
 ### 4.2 The mechanism
 
-**Capture — `env/missing-tools`.** Missing tooling has machine-detectable
-signatures: `command not found: yt-dlp`, `ModuleNotFoundError: No module
-named 'fitz'`, `pdftotext: not found`. Every bash call already emits a nested
-run event (`wrapToolsWithEmit`, `agent.ts`), so a post-run step can scan a
-run's events and emit a structured gap list. Small (~40 lines) and it is the
-difference between a gap being noticed in prose and a gap being *data*.
+**Capture — `meta/search-runs` + `env/missing-tools`.** Every bash call
+already emits a nested run event (`wrapToolsWithEmit`, `agent.ts`), so the
+evidence is on disk; the question is how it gets read. The general
+instrument is **`meta/search-runs`** (done — `searchRunEvents`,
+`authoring.ts`): grep a regex across a workflow's recent run event logs →
+matching (runId, event path, snippet) tuples plus a per-run frequency
+summary, behind the same agent-authored gate as `meta/get-run` (raw
+filesystem grep over the workspace would read grader logs — §6). That's
+what lets a propose agent hunt *flexibly* — signatures nobody enumerated,
+a tool that exists but is too old — instead of being limited to a fixed
+parser. One caveat: events hold ~1500-char output previews
+(`summarizeForEvent`), not full transcripts, so a signature buried deep in
+long output can be missed. On top of it, a deterministic `env/missing-tools`
+scan for the known signatures (`command not found: yt-dlp`,
+`ModuleNotFoundError: No module named 'fitz'`) is the free always-on
+tripwire: zero tokens per batch, and its misses just mean a gap surfaces a
+batch later through the agent's own search.
 
 **Propose.** Aggregate across a batch → a frequency-ranked list
 (`pdftotext: 12 runs, yt-dlp: 3, tesseract: 2`). This is `eval/reflect`
-pointed at the environment.
+pointed at the environment, with `meta/search-runs` as its instrument.
 
 **Promote — `env.manifest`.** A versioned file (apt packages + pip packages,
 **pinned**) that the Dockerfile installs from at build time. The agent
@@ -183,22 +194,51 @@ already frames a structural variant as "just a new workflow version," which
 versioning captures and the eval scores. What's missing is the ability for a
 workflow to author one **from inside a run**.
 
-### 5.1 The gap
+### 5.1 The gap (now closed)
 
 `agentTools` grants **registry step types** as LLM tools. The authoring
 tools — `create_step`, `edit_step`, `create_workflow`, `edit_workflow`,
-`run_workflow` — are bespoke AI SDK tools in `vein/src/ai/tools.ts`, bound to
-the workspace. They are not registry steps, so an in-workflow agent cannot
+`run_workflow` — were bespoke AI SDK tools in `vein/src/ai/tools.ts`, bound to
+the workspace. They are not registry steps, so an in-workflow agent could not
 reach them. That's why EVAL_SPEC §7 says structural evolution "stays
-agent-interactive for now."
+agent-interactive for now." §5.2 closes this.
 
-### 5.2 The fix: `meta/*` steps
+### 5.2 The fix: `meta/*` steps — **built**
 
-Wrap the workspace authoring ops as registry steps — `meta/create-step`,
-`meta/publish-workflow`, `meta/get-step`, `meta/list-steps`,
-`meta/run-workflow` — each thin plumbing over `workspace.*`. A leaf step has
-no workspace handle, so inject `services.authoring` exactly the way
-`createLabVein` already injects `services.optimizer` for the optimize loop.
+Implemented in vein core, benchmark-agnostic: `vein/src/authoring.ts` is the
+shared authoring core (the chat tools now sit on the same helpers), the steps
+live in `vein/src/steps/lib/meta/`, and `createVein` auto-provides
+`services.authoring` the way it already provides `http`/`secrets`/
+`artifacts` — so every vein deployment gets the surface, not just the lab.
+
+The roster mirrors the chat assistant's real authoring surface
+(`vein/src/ai/tools.ts`). The loop the assistant actually runs is
+create → test → edit → test; a roster missing the edit/test half strands an
+in-workflow author on iteration one:
+
+| Meta step | Wraps | Why |
+| --- | --- | --- |
+| `meta/list-steps`, `meta/search-steps`, `meta/get-step` | step discovery | read before authoring |
+| `meta/create-step`, `meta/edit-step` | `workspace.publishStep` | `create_step` refuses existing names — without edit, every iteration pollutes the registry (`my-fetcher-2`, `-3`, …) |
+| `meta/run-step` | `runSingleStep` + cassettes | the inner loop: test ONE step, offline via record/replay, without paying for a full candidate run |
+| `meta/list-workflows`, `meta/get-workflow` | workflow discovery | read current source before editing |
+| `meta/publish-workflow` | create/edit as an explicit upsert | the candidate artifact |
+| `meta/run-workflow` | `runWorkflow` | test the candidate end to end |
+| `meta/list-runs`, `meta/get-run` | run-store reads | debug a failed candidate — **provenance-scoped, see §6** |
+| `meta/list-secrets` | secret NAMES only | author steps that reference auth by name |
+
+Deliberately absent: `bash` and `web_search` — the agent step grants those
+itself, and §5.3.2 forbids `meta/*` + `bash` on one agent anyway — and
+`set_workflow_category` (UI cosmetics; and keeping it out means an in-run
+author cannot re-file a workflow into the candidate namespace, §6).
+
+The chat tools carry real logic worth not duplicating: name-conflict checks,
+JSON-string arg coercion (`coerceJsonArg`), and the load-verify-and-report
+behavior §5.3.4 demands. Both surfaces sit on the one shared core
+(`authoring.ts`); the capability adds the meta POLICY on top — everything it
+publishes is stamped `publisher: "ai"`, and its publish, run, and
+run-history operations are **closed over that stamped set** (§6).
+
 Then `agentTools: ["meta/*"]` closes the loop:
 
 ```
@@ -210,11 +250,17 @@ reflect (eval/reflect)                    → next candidate
 
 ### 5.3 Four things that will bite
 
-1. **Glob expansion is start-of-step.** `buildRegistryTools` resolves
-   `agentTools` once when the agent step begins, so a step authored mid-turn
-   is not in that agent's own toolset. Split authoring and execution into
-   separate steps rather than adding a reload escape hatch — it also makes
-   each candidate harness a diffable artifact.
+1. **The registry is a per-RUN snapshot, not just per-step.**
+   `buildRegistryTools` resolves `agentTools` once when the agent step
+   begins, so a step authored mid-turn is not in that agent's own toolset —
+   but it's worse than that: `runWorkflow` threads ONE registry through the
+   entire run, so a step published by `meta/create-step` at step N is
+   invisible to step N+1 too. Splitting authoring and execution into
+   separate steps is necessary but not sufficient: `meta/run-workflow` and
+   `meta/run-step` must build a fresh registry from the workspace at call
+   time (`services.authoring.getRegistry()`), never use the run's
+   `ctx.registry`. The chat tools already do the equivalent —
+   `deps.registry = await deps.getRegistry()` after every publish.
 2. **The authoring agent must never be the producing agent.** An agent with
    `meta/*` *and* `bash` can author a step that reads a rubric or shells into
    a benchmark checkout. Separate runs, disjoint grants (§6).
@@ -242,6 +288,29 @@ surface, permanently:
   own rubric trains against it.
 - **Grader grants.** `harvey/evaluate` / `gaia/evaluate` are harness-only,
   never in a producing agent's `agentTools`.
+- **The meta surface is closed over its own namespace** (*built* —
+  `authoring.ts`). A harness workflow's run log records what its grader
+  steps were handed — potentially gold and rubric text. So the capability
+  scopes by **workflow provenance**, not by actor: `meta/publish-workflow`
+  stamps everything it publishes `publisher: "ai"` (the capability sets the
+  stamp; the calling agent cannot override it), and `meta/run-workflow`,
+  `meta/list-runs`, and `meta/get-run` act on stamped workflows ONLY,
+  failing closed on everything else. Publishing over an existing unstamped
+  workflow is refused outright (so the loop also can't rewire the harness
+  that grades it), an identical-content republish never re-stamps (no
+  claiming a workflow by republishing its own YAML verbatim), and
+  `meta/edit-step` edits only steps published as `"ai"` (seeded harness
+  steps carry seeder publishers). Actor scoping ("runs this agent
+  started") would have broken iteration — generation N must inspect
+  generation N−1's candidate runs, which a different run started; the
+  stamp lives on the workflow record, so it survives sessions. This is
+  defense in depth, not the sole barrier: graders must also resolve gold
+  internally (by task id, from the services bag) and emit only verdicts,
+  so that NO run's event log carries answers even where scoping is
+  misconfigured — including a laundered candidate that embeds a grader
+  step directly. The residual channel — hill-climbing answers against
+  pass/fail verdicts as an oracle — is the train-set problem, and §7's
+  train/val split is what answers it, not scoping.
 - **Benchmark provenance.** Clean-tree checks, `benchmarkRev`,
   `scorerSha256`. A dirty checkout refuses to grade.
 - **Infra constants.** Values a workflow author has no basis for choosing and
@@ -304,14 +373,18 @@ possible version of "capture."
 
 ## 9. What's next
 
-1. **`env/missing-tools`** (§4.2) — the smallest high-value piece. Turns
-   tooling gaps into structured data instead of prose.
+1. **Environment capture** (§4.2) — ~~`meta/search-runs`~~ **done**
+   (cross-run grep over event logs, gated like `meta/get-run`; also a
+   `search_runs` chat tool). Next: the deterministic `env/missing-tools`
+   tripwire on top.
 2. **Full level-1 GAIA sweep** (53 tasks, ~$25) — a real baseline on 48
    unseen tasks, and the first dataset big enough for layer-1 optimize to
    have honest signal.
 3. **`env.manifest` + Dockerfile consumption** (§4.2) — makes layer 2 a
    proposable artifact.
-4. **`meta/*` steps + `services.authoring`** (§5.2) — closes layer 3.
+4. ~~**`meta/*` steps + `services.authoring`** (§5.2) — closes layer 3.~~
+   **Done** — `authoring.ts` + `steps/lib/meta/*`, auto-wired by
+   `createVein`; next is a first authoring-harness workflow that uses them.
 5. **Generalize `eval/optimize`'s candidate** from prompt string to workflow
    ref + version (§5.3.3) — the change that lets one loop drive all three
    layers.

@@ -420,10 +420,26 @@ quasi-exact match with type-aware normalization) as a `python3 -c` subprocess
 against the validation split's gold answers. Same discipline as harvey: the
 grader AND the gold live in the in-code `gaia` service (`gaia/service.ts`,
 on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
-(authored by the assistant) are thin plumbing over `ctx.services.gaia.*`.
+are thin plumbing over `ctx.services.gaia.*`.
 
-- **Setup**: automatic (`gaia/bootstrap.ts`) — **zero required env vars**.
-  First use materialises the dataset into `<cache>/vein/gaia`, installs the
+- **Committed harness** (`gaia/seed.ts`, seeded at boot like harvey's):
+  steps `gaia/list-tasks`, `gaia/get-task` (stages a task's attached file
+  into the run's artifacts dir), `gaia/evaluate` (HARNESS-ONLY), and the
+  combiners `gaia/pack-result` + `gaia/summarize-batch`; workflows
+  `gaia-produce` (agent step; the produce system prompt, model, maxSteps: 50
+  and agentTools live in `params`; an `onError` fallback scores a blown-up
+  agent as an empty wrong answer instead of killing the batch), `gaia-run`
+  (single task: produce → score) and `gaia-batch` ({ level, limit }: one
+  score call for the whole batch). This is the harness that went 1/5 → 5/5
+  on the level-1 batch (EVOLVE_SPEC §1), promoted from the workspace where
+  the assistant authored it. Seeding is content-hash reconciled — the
+  committed copy is authoritative at boot, so a workspace-side evolution
+  survives restarts only once it's ported back here. The from-scratch
+  authoring recipe is kept in `notes/GAIA.md` as an authoring eval; it is no
+  longer the path to a working harness.
+
+- **Setup**: automatic (`gaia/bootstrap.ts`) — the one required env var is
+  **`HF_TOKEN`**. First use materialises the dataset into `<cache>/vein/gaia`, installs the
   leaderboard Space's `scorer.py` (verified against the in-repo
   `SCORER_SHA256`), and resolves a numpy-capable python: `python3` in the prod
   image (the agent venv is on PATH), else a cached venv built on demand.
@@ -433,19 +449,18 @@ on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
   yields a checkout the grader cannot read. Bootstrap therefore does
   init → `fetch --depth 1 <pinned sha>` → `checkout FETCH_HEAD` against
   `897f2dfb`, the last revision with the full benchmark (165 validation +
-  300 test rows), which is also what every score so far was graded against.
-- **`HF_TOKEN` is OPTIONAL.** HF currently serves this repo's git endpoints
-  anonymously (its `resolve` HTTP endpoint returns 401, but git-upload-pack
-  and LFS do not) — a cold bootstrap succeeds with no credentials at all. A
-  token is attached whenever one is set, since that can change; no username is
-  needed (HF takes the token as the password with any username). If access is
-  ever refused the error names `HF_TOKEN` and the un-automatable
-  accept-the-terms click-through.
+  301 test rows), which is also what every score so far was graded against.
+- **`HF_TOKEN` is REQUIRED for a cold bootstrap.** The dataset is gated:
+  anonymous `ls-remote` answers (which makes the repo look open), but the
+  actual `git-upload-pack` fetch is refused without credentials. Bootstrap
+  fails fast — before any subprocess — when no token is set. No username is
+  needed (HF takes the token as the password with any username); the token
+  reaches git via an env-reading credential helper, never `.git/config` or
+  argv. An already-populated checkout needs no token.
 - **git-lfs is required**: GAIA's attachments are LFS-backed and a checkout
   without it silently yields ~130-byte pointer stubs. Checked before fetching
   and detected after.
-- Overrides, all optional: `GAIA_DIR`, `VEIN_CACHE_DIR`, `HF_TOKEN`,
-  `GAIA_PYTHON`, `GAIA_SCORER_SHA256`, `GAIA_AUTO_SETUP=0`. The dataset is NOT
+- Overrides, all optional: `GAIA_DIR`, `VEIN_CACHE_DIR`, `GAIA_PYTHON`, `GAIA_SCORER_SHA256`, `GAIA_AUTO_SETUP=0`. The dataset is NOT
   baked into the image (the terms forbid resharing outside a gated/private
   repo); mount a volume at the cache dir in prod.
 - **Integrity invariant** (per grade): dataset checkout must be a CLEAN git
@@ -460,7 +475,8 @@ on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
   `score()` subprocess reads it. Never grant a scoring step to the
   producing agent's `agentTools`.
 - `smoke.ts` — offline integrity paths + the real python driver against a
-  stub scorer, plus the bootstrap paths (no token / no git-lfs / gated 403 /
+  stub scorer, plus the bootstrap paths (missing-token fail-fast / no
+  git-lfs / gated 403 /
   scorer-hash mismatch / LFS pointer stubs / idempotent re-entry / half-written
   checkout) with `exec` and `fetchText` faked (`npx tsx src/lab/gaia/smoke.ts`).
 

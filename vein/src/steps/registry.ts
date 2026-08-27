@@ -171,6 +171,33 @@ async function loadStepFile(filePath: string): Promise<AnyStepDef | null> {
 }
 
 /**
+ * Import a step file the way registry discovery does, but return the failure
+ * as a MESSAGE instead of a console warning. `null` means the file imports
+ * cleanly and default-exports a valid step def. This is the authoring loop's
+ * §5.3.4 guard: `loadStepFile` fails silently (a broken step simply doesn't
+ * exist), so publish paths call this to hand the error back to the author.
+ */
+export async function stepLoadError(filePath: string): Promise<string | null> {
+  try {
+    let suffix = "?strict";
+    try {
+      const { mtimeMs } = await stat(filePath);
+      suffix = `?v=${mtimeMs}-strict`;
+    } catch {
+      // stat failed — fall back to a static cache-bust
+    }
+    const mod = await import(pathToFileURL(filePath).href + suffix);
+    const def = mod.default ?? mod;
+    if (def && typeof def === "object" && "type" in def && "run" in def) {
+      return null;
+    }
+    return `no valid default export — expected \`export default defineStep({ type, input, output, run })\``;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+/**
  * Build the complete step registry by merging core steps (statically
  * imported) with lib steps (dynamically imported from `src/steps/lib/`)
  * and custom steps (dynamically imported from `<workspace>/steps/custom/`).

@@ -169,6 +169,7 @@ Tools:
 - run_workflow("<name>", input?, params?, version?): run a published workflow and return its result. LONG RUNS AUTO-DETACH: if the run is still executing after the wait window (~a minute), the call returns { status: "running", detached: true, runId } and the run continues in the background. When it finishes, a "[run-notification]" user message will automatically start your next turn with the outcome (several runs finishing while you work arrive batched in one message). Do NOT poll get_run in a loop while waiting — finish your turn normally, stating what you launched and what you plan to do when the result arrives.
 - list_runs("<name>", limit?): a workflow's past runs (newest first) with status/duration — for inspecting history or comparing experiment runs.
 - get_run("<name>", "<runId>", fullEvents?): one run's summary (input/output/error) + event log (slimmed by default; fullEvents:true for per-step payloads) — for debugging a failed run.
+- search_runs("<name>", "<pattern>", runIds?/runLimit?/maxMatches?/ignoreCase?): grep a regex across recent runs' event logs (inputs/outputs/errors) → matching (runId, path, snippet) tuples + per-run counts — for cross-run questions ("which runs hit this error, and how often?"); then get_run on a hit.
 
 Workflow:
 1. Available step types are listed at the end of this prompt. Use search_steps only if you need to find something by keyword; use list_steps only to re-list after creating new custom steps.

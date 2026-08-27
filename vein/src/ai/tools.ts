@@ -2,63 +2,27 @@ import { z } from "zod";
 import { tool } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { runWorkflow } from "../runner.js";
-import type { RunEvent, RunSummary } from "../core.js";
 import { AiDeps } from "./prompts.js";
 import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
 import { runSingleStep, cassettePath } from "../run-step.js";
 import { generateRunId } from "../store.js";
-
-// The run-history read methods live on `FileRunStore`, not the base `RunStore`
-// interface (which is write-only: append/finalize). `MemoryRunStore` lacks them.
-// Feature-detect so the run-history tools degrade gracefully on stores that
-// can't read back (they return an error rather than throwing).
-interface RunReadStore {
-  listRuns(workflow: string): Promise<string[]>;
-  getRunSummary(workflow: string, runId: string): Promise<RunSummary | null>;
-  getRunEvents(workflow: string, runId: string): Promise<RunEvent[]>;
-}
-
-function asReadStore(store: unknown): RunReadStore | null {
-  const s = store as Partial<RunReadStore> | undefined;
-  return s &&
-    typeof s.listRuns === "function" &&
-    typeof s.getRunSummary === "function" &&
-    typeof s.getRunEvents === "function"
-    ? (s as RunReadStore)
-    : null;
-}
-
-/** Drop bulky input/output payloads from an event so a run's event list stays
- *  token-cheap; the agent can re-fetch a specific run's full events if needed. */
-function slimEvent(e: RunEvent) {
-  return {
-    type: e.type,
-    path: e.path,
-    ...(e.stepType ? { stepType: e.stepType } : {}),
-    ...(e.durationMs != null ? { durationMs: e.durationMs } : {}),
-    ...(e.iteration != null ? { iteration: e.iteration } : {}),
-    ...(e.error ? { error: e.error } : {}),
-  };
-}
+// The shared authoring core — the same mechanism the meta/* steps' capability
+// sits on (see authoring.ts): publish checks + strict load-verification, and
+// the run-history reads. The chat tools layer their own policy on top (no
+// ownership gating — this surface is human-supervised).
+import {
+  AI_PUBLISHER,
+  asReadStore,
+  coerceJsonArg,
+  listRunSummaries,
+  publishNewStep,
+  publishStepVersion,
+  readRun,
+  searchRunEvents,
+} from "../authoring.js";
 
 // ── Tools ──────────────────────────────────────────────────────────────────
-
-/** LLMs sometimes pass an object-valued tool arg as a JSON *string* (e.g.
- *  run_workflow's `input`). The template engine then sees a string, so
- *  `{{ input.owner }}` resolves to undefined and every field fails validation.
- *  Defensively parse a JSON string back into the object/array it represents;
- *  leave anything else untouched. */
-function coerceJsonArg(v: unknown): unknown {
-  if (typeof v !== "string") return v;
-  const t = v.trim();
-  if (!(t.startsWith("{") || t.startsWith("["))) return v;
-  try {
-    return JSON.parse(t);
-  } catch {
-    return v;
-  }
-}
 
 export function buildTools(deps: AiDeps) {
   return {
@@ -137,36 +101,13 @@ export function buildTools(deps: AiDeps) {
         description: z.string().optional(),
       }),
       execute: async ({ name, code, description }) => {
-        if (deps.publishingEnabled === false) {
-          return { error: "Step publishing is disabled (the registry was injected at construction)." };
-        }
-        const customs = await deps.workspace.listSteps();
-        if (customs.some((s) => s.type === name)) {
-          return { error: `Step "${name}" already exists. Use edit_step to publish a new version.` };
-        }
-        if (deps.registry[name]) {
-          return { error: `"${name}" conflicts with a built-in (core/lib) step. Choose another name.` };
-        }
-        let result;
-        try {
-          result = await deps.workspace.publishStep(name, code, description, "ai");
-        } catch (err) {
-          return { error: err instanceof Error ? err.message : String(err) };
-        }
+        const result = await publishNewStep(deps, name, code, description, AI_PUBLISHER);
         deps.registry = await deps.getRegistry();
-        const loaded = Boolean(deps.registry[name]);
-        return {
-          ok: true,
-          type: name,
-          version: result.version,
-          loaded,
-          ...(loaded
-            ? {}
-            : {
-                warning:
-                  "Published but failed to load into the registry — check the source imports only 'vein' and has a valid defineStep default export.",
-              }),
-        };
+        if (result.ok && result.loaded === false) {
+          const { loadError, ...rest } = result;
+          return { ...rest, warning: `Published but failed to load into the registry: ${loadError}` };
+        }
+        return result;
       },
     }),
 
@@ -181,31 +122,13 @@ export function buildTools(deps: AiDeps) {
         description: z.string().optional(),
       }),
       execute: async ({ type, code, description }) => {
-        if (deps.publishingEnabled === false) {
-          return { error: "Step publishing is disabled (the registry was injected at construction)." };
-        }
-        const customs = await deps.workspace.listSteps();
-        if (!customs.some((s) => s.type === type)) {
-          return {
-            error: deps.registry[type]
-              ? `"${type}" is a built-in step and can't be edited. Use create_step with a new name.`
-              : `Step "${type}" not found. Use create_step to author a new step.`,
-          };
-        }
-        let result;
-        try {
-          result = await deps.workspace.publishStep(type, code, description);
-        } catch (err) {
-          return { error: err instanceof Error ? err.message : String(err) };
-        }
+        const result = await publishStepVersion(deps, type, code, description);
         deps.registry = await deps.getRegistry();
-        return {
-          ok: true,
-          type,
-          version: result.version,
-          changed: result.changed,
-          loaded: Boolean(deps.registry[type]),
-        };
+        if (result.ok && result.loaded === false) {
+          const { loadError, ...rest } = result;
+          return { ...rest, warning: `Published but failed to load into the registry: ${loadError}` };
+        }
+        return result;
       },
     }),
 
@@ -514,20 +437,7 @@ export function buildTools(deps: AiDeps) {
               "Run history is unavailable (the run store does not support reading back runs).",
           };
         }
-        const ids = (await store.listRuns(name)).slice(0, limit);
-        const runs = await Promise.all(
-          ids.map(async (runId) => {
-            const s = await store.getRunSummary(name, runId);
-            return {
-              runId,
-              status: s?.status,
-              startedAt: s?.startedAt,
-              durationMs: s?.durationMs,
-              ...(s?.error ? { error: s.error } : {}),
-            };
-          }),
-        );
-        return { workflow: name, runs };
+        return { workflow: name, runs: await listRunSummaries(store, name, limit) };
       },
     }),
 
@@ -550,19 +460,49 @@ export function buildTools(deps: AiDeps) {
               "Run history is unavailable (the run store does not support reading back runs).",
           };
         }
-        const [summary, rawEvents] = await Promise.all([
-          store.getRunSummary(name, runId),
-          store.getRunEvents(name, runId),
-        ]);
-        if (!summary && rawEvents.length === 0) {
-          return { error: `Run "${runId}" not found for workflow "${name}".` };
+        return readRun(store, name, runId, fullEvents);
+      },
+    }),
+
+    search_runs: tool({
+      description:
+        "Grep across a workflow's recent runs: match a regex against every event's JSON (inputs, outputs, errors) and get back (runId, event path, snippet) tuples plus a per-run frequency summary. The cross-run complement to get_run — use it to answer 'which runs hit this, and how often?' (e.g. a recurring error signature across a batch), then get_run to investigate one run. Note: tool outputs are truncated in the event log (~1500 chars), so a signature deep in long output can be missed.",
+      inputSchema: z.object({
+        name: z.string().describe("Workflow name whose runs to search"),
+        pattern: z
+          .string()
+          .describe(
+            "JavaScript regular expression matched against each event's JSON line, e.g. \"command not found|ModuleNotFoundError\".",
+          ),
+        runIds: z
+          .array(z.string())
+          .optional()
+          .describe("Explicit run ids to search. Default: the newest runLimit runs."),
+        runLimit: z
+          .number()
+          .int()
+          .positive()
+          .default(20)
+          .describe("How many recent runs to scan when runIds is absent (default 20)."),
+        maxMatches: z
+          .number()
+          .int()
+          .positive()
+          .default(50)
+          .describe(
+            "Cap on returned matches; scanning stops once reached (truncated: true). Narrow the pattern or run window rather than raising this (default 50).",
+          ),
+        ignoreCase: z.boolean().default(true).describe("Case-insensitive matching (default true)."),
+      }),
+      execute: async ({ name, pattern, runIds, runLimit, maxMatches, ignoreCase }) => {
+        const store = asReadStore(deps.store);
+        if (!store) {
+          return {
+            error:
+              "Run history is unavailable (the run store does not support reading back runs).",
+          };
         }
-        return {
-          workflow: name,
-          runId,
-          summary,
-          events: fullEvents ? rawEvents : rawEvents.map(slimEvent),
-        };
+        return searchRunEvents(store, name, pattern, { runIds, runLimit, maxMatches, ignoreCase });
       },
     }),
 

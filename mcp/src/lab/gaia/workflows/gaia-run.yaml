@@ -1,0 +1,36 @@
+name: gaia-run
+# Single-task harness: get-task -> produce (agent) -> evaluate (REAL scorer).
+# The producing agent NEVER gets gaia/* tools (see gaia-produce's params).
+# Input:  { taskId }
+# Output: { accuracy, correct, total, byLevel, results, benchmarkRev,
+#           scorerSha256, taskId, question, level, answer, cost, steps }
+steps:
+  - id: produced
+    type: subflow
+    config:
+      workflow: gaia-produce
+      input:
+        taskId: "{{ input.taskId }}"
+
+  - id: score
+    type: gaia/evaluate
+    config:
+      pairs:
+        - taskId: "{{ produced.taskId }}"
+          answer: "{{ produced.answer }}"
+
+  - id: result
+    type: gaia/pack-result
+    config:
+      accuracy: "{{ score.accuracy }}"
+      correct: "{{ score.correct }}"
+      total: "{{ score.total }}"
+      byLevel: "{{ score.byLevel }}"
+      results: "{{ score.results }}"
+      benchmarkRev: "{{ score.benchmarkRev }}"
+      taskId: "{{ produced.taskId }}"
+      question: "{{ produced.question }}"
+      level: "{{ produced.level }}"
+      answer: "{{ produced.answer }}"
+      cost: "{{ produced.cost }}"
+      steps: "{{ produced.steps }}"
