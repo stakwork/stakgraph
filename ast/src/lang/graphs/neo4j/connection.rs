@@ -23,7 +23,7 @@ struct CachedPool {
 
 /// Process-wide shared pool. `neo4rs::Graph` is an Arc'd pool handle, so
 /// cloning it is cheap and every clone talks to the same set of bolt sockets.
-/// The tokio Mutex is held across the connect await on purpose: concurrent
+/// The tokio Mutex is held across pool construction on purpose: concurrent
 /// first callers serialize, a FAILED connect is never cached, and the next
 /// caller retries.
 static SHARED_POOL: tokio::sync::Mutex<Option<CachedPool>> = tokio::sync::Mutex::const_new(None);
@@ -101,7 +101,6 @@ impl Neo4jConnectionManager {
             .build()?;
 
         Neo4jConnection::connect(config)
-            .await
             .map_err(|e| Error::dependency(format!("Failed to connect to Neo4j: {e}")))
     }
 }

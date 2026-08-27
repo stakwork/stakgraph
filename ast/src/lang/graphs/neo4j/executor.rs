@@ -10,14 +10,43 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
 
-/// Returns true if the error string indicates a Neo4j transient error
+/// Returns true if the error indicates a Neo4j transient error
 /// (deadlock, leader switch, lock client stopped, etc.) — Neo4j explicitly
 /// marks these as safe-to-retry.
 ///
-/// We match on the formatted error string because `neo4rs::Error` does not
-/// expose a structured error code in a stable way across versions.
+/// neo4rs 0.9 exposes structured errors: `Neo4jError::kind()` classifies the
+/// server error code, so the primary check is the typed
+/// `Neo4jErrorKind::Transient`. Errors that never surface as a typed neo4rs
+/// error (e.g. wrapped/reformatted by our own layers) fall back to matching
+/// the formatted string.
 fn is_transient_neo4j_error(err: &shared::Error) -> bool {
-    let s = err.to_string();
+    match err {
+        shared::Error::Neo4j(neo4rs::Error::Neo4j(e)) => {
+            is_transient_neo4j_kind(e.kind(), e.code())
+        }
+        _ => is_transient_error_string(&err.to_string()),
+    }
+}
+
+/// Typed classification of a neo4rs error: `kind` is what neo4rs made of the
+/// server status code, `code` is the (neo4rs-adjusted) status code string.
+fn is_transient_neo4j_kind(kind: neo4rs::Neo4jErrorKind, code: &str) -> bool {
+    match kind {
+        neo4rs::Neo4jErrorKind::Transient => true,
+        // neo4rs classifies `Neo.ClientError.Cluster.NotALeader` — the
+        // leader-switch failure previously caught via string matching — as
+        // `SessionExpired`, which the driver itself treats as retryable.
+        neo4rs::Neo4jErrorKind::Client(neo4rs::Neo4jClientErrorKind::SessionExpired) => true,
+        // neo4rs 0.9 reclassifies `Neo.TransientError.Transaction.LockClientStopped`
+        // as a client error, but it is still a transient lock failure Neo4j
+        // marks safe-to-retry.
+        _ => code.contains("LockClientStopped"),
+    }
+}
+
+/// Fallback matching on the formatted error for errors that never surface as
+/// a typed neo4rs error.
+fn is_transient_error_string(s: &str) -> bool {
     s.contains("TransientError")
         || s.contains("DeadlockDetected")
         || s.contains("LeaderSwitch")
@@ -399,4 +428,91 @@ pub async fn execute_boolean_query(
         .first()
         .copied()
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::Error;
+
+    #[test]
+    fn typed_transient_error_is_retryable() {
+        // `Neo4jErrorKind` is constructible via its public `From<&str>`
+        // (`Neo4jError` itself has no public constructor outside the crate),
+        // so the typed classification is exercised directly: any
+        // `Neo.TransientError.*` code classifies as `Neo4jErrorKind::Transient`.
+        let kind = neo4rs::Neo4jErrorKind::from("Neo.TransientError.Transaction.DeadlockDetected");
+        assert_eq!(kind, neo4rs::Neo4jErrorKind::Transient);
+        assert!(is_transient_neo4j_kind(
+            kind,
+            "Neo.TransientError.Transaction.DeadlockDetected"
+        ));
+
+        let kind = neo4rs::Neo4jErrorKind::from("Neo.TransientError.Network.CommunicationError");
+        assert_eq!(kind, neo4rs::Neo4jErrorKind::Transient);
+        assert!(is_transient_neo4j_kind(
+            kind,
+            "Neo.TransientError.Network.CommunicationError"
+        ));
+    }
+
+    #[test]
+    fn plain_client_error_is_not_retryable() {
+        // Authentication and syntax failures are client errors — retrying
+        // them must stay off.
+        let kind = neo4rs::Neo4jErrorKind::from("Neo.ClientError.Security.Unauthorized");
+        assert_eq!(
+            kind,
+            neo4rs::Neo4jErrorKind::Client(neo4rs::Neo4jClientErrorKind::Security(
+                neo4rs::Neo4jSecurityErrorKind::Authentication
+            ))
+        );
+        assert!(!is_transient_neo4j_kind(
+            kind,
+            "Neo.ClientError.Security.Unauthorized"
+        ));
+
+        let kind = neo4rs::Neo4jErrorKind::from("Neo.ClientError.Statement.SyntaxError");
+        assert!(!is_transient_neo4j_kind(
+            kind,
+            "Neo.ClientError.Statement.SyntaxError"
+        ));
+    }
+
+    #[test]
+    fn reclassified_transient_codes_still_retry() {
+        // neo4rs 0.9 reclassifies these codes as client errors, but they are
+        // transient failures Neo4j marks safe-to-retry — previously caught by
+        // string matching, so they must not regress.
+        let kind = neo4rs::Neo4jErrorKind::from("Neo.TransientError.Transaction.LockClientStopped");
+        assert!(!matches!(kind, neo4rs::Neo4jErrorKind::Transient));
+        assert!(is_transient_neo4j_kind(
+            kind,
+            "Neo.ClientError.Transaction.LockClientStopped"
+        ));
+
+        // Leader switches surface as `Neo.ClientError.Cluster.NotALeader`,
+        // which neo4rs classifies as SessionExpired.
+        let kind = neo4rs::Neo4jErrorKind::from("Neo.ClientError.Cluster.NotALeader");
+        assert!(is_transient_neo4j_kind(
+            kind,
+            "Neo.ClientError.Cluster.NotALeader"
+        ));
+    }
+
+    #[test]
+    fn non_neo4j_errors_fall_back_to_string_matching() {
+        // Errors that never surface as a typed neo4rs error (e.g. wrapped by
+        // our own layers) fall back to the formatted-string checks.
+        let err = Error::dependency(
+            "Neo4j error `Neo.TransientError.Transaction.DeadlockDetected`: deadlock detected",
+        );
+        assert!(is_transient_neo4j_error(&err));
+
+        let err = Error::dependency("Failed to connect to Neo4j: connection refused");
+        assert!(!is_transient_neo4j_error(&err));
+
+        let err = Error::internal("Neo4j clear graph error: Neo.ClientError.Statement.SyntaxError");
+        assert!(!is_transient_neo4j_error(&err));
+    }
 }
