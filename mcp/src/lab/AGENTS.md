@@ -420,7 +420,23 @@ quasi-exact match with type-aware normalization) as a `python3 -c` subprocess
 against the validation split's gold answers. Same discipline as harvey: the
 grader AND the gold live in the in-code `gaia` service (`gaia/service.ts`,
 on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
-(authored by the assistant) are thin plumbing over `ctx.services.gaia.*`.
+are thin plumbing over `ctx.services.gaia.*`.
+
+- **Committed harness** (`gaia/seed.ts`, seeded at boot like harvey's):
+  steps `gaia/list-tasks`, `gaia/get-task` (stages a task's attached file
+  into the run's artifacts dir), `gaia/evaluate` (HARNESS-ONLY), and the
+  combiners `gaia/pack-result` + `gaia/summarize-batch`; workflows
+  `gaia-produce` (agent step; the produce system prompt, model, maxSteps: 50
+  and agentTools live in `params`; an `onError` fallback scores a blown-up
+  agent as an empty wrong answer instead of killing the batch), `gaia-run`
+  (single task: produce → score) and `gaia-batch` ({ level, limit }: one
+  score call for the whole batch). This is the harness that went 1/5 → 5/5
+  on the level-1 batch (EVOLVE_SPEC §1), promoted from the workspace where
+  the assistant authored it. Seeding is content-hash reconciled — the
+  committed copy is authoritative at boot, so a workspace-side evolution
+  survives restarts only once it's ported back here. The from-scratch
+  authoring recipe is kept in `notes/GAIA.md` as an authoring eval; it is no
+  longer the path to a working harness.
 
 - **Setup**: automatic (`gaia/bootstrap.ts`) — the one required env var is
   **`HF_TOKEN`**. First use materialises the dataset into `<cache>/vein/gaia`, installs the

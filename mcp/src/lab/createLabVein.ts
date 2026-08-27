@@ -15,6 +15,7 @@ import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
 import { seedSheetsSteps } from "./sheets/seed.js";
 import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
+import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
@@ -153,6 +154,10 @@ export async function createLabVein(
   // harvey/evaluate only to harness workflows, never the producing agent).
   await seedHarveySteps(workspace);
   await seedHarveyWorkflows(workspace);
+  // gaia harness (thin plumbing over services.gaia; grant gaia/evaluate —
+  // and every gaia/* — only to harness workflows, never the producing agent).
+  await seedGaiaSteps(workspace);
+  await seedGaiaWorkflows(workspace);
   // generic artifact plumbing (artifacts/dir — bridge runId → path for cwd).
   await seedArtifactSteps(workspace);
 

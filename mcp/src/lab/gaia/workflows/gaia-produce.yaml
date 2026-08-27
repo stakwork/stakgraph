@@ -1,0 +1,126 @@
+name: gaia-produce
+steps:
+  - id: dir
+    type: artifacts/dir
+
+  - id: task
+    type: gaia/get-task
+    config:
+      taskId: "{{ input.taskId }}"
+
+  - id: produce
+    type: agent
+    options:
+      retry: { max: 1, delayMs: 5000 }
+      # A single task's agent blowing up (rare AI_NoObjectGeneratedError on
+      # the forced final turn, a dead tool, etc.) must NOT kill an entire
+      # batch run. Fall back to an empty (certainly-wrong) answer so this
+      # task is simply scored incorrect instead of aborting every other task.
+      onError:
+        id: produce_failed
+        type: gaia/pack-result
+        config:
+          object: { answer: "" }
+          cost: 0
+          steps: 0
+          error: "{{ $error.message }}"
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.system }}"
+      prompt: |
+        QUESTION (level {{ task.level }}):
+        {{ task.question }}
+
+        hasFile: {{ task.hasFile }}
+        stagedPath: {{ task.stagedPath }}
+        (If hasFile is true, that file is already sitting in your current
+        working directory under that exact relative filename — read it
+        directly, no download needed. If hasFile is false, there is no
+        attached file; answer from reasoning/web research only.)
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      agentTools: "{{ params.agentTools }}"
+      schema:
+        type: object
+        properties:
+          answer:
+            type: string
+            description: "The bare final answer only. No units unless the question asks for them. No explanation."
+        required: ["answer"]
+        additionalProperties: false
+
+  - id: result
+    type: gaia/pack-result
+    config:
+      taskId: "{{ task.taskId }}"
+      question: "{{ task.question }}"
+      level: "{{ task.level }}"
+      hasFile: "{{ task.hasFile }}"
+      stagedPath: "{{ task.stagedPath }}"
+      answer: "{{ produce.object.answer }}"
+      cost: "{{ produce.cost }}"
+      steps: "{{ produce.steps }}"
+      produceError: "{{ produce.error }}"
+
+params:
+  model: claude-sonnet-4-6
+  # Generous budget — some GAIA tasks need many bash calls (pandas/pdftotext
+  # loops, retries after a failed extraction). Too tight a budget is what
+  # forces a premature/garbled final turn (AI_NoObjectGeneratedError).
+  maxSteps: 50
+  # Registry step types exposed as extra agent tools, beyond the agent's
+  # built-ins (bash, str_replace_based_edit_tool, web_search, repo_overview,
+  # fulltext_search). NEVER include gaia/* here (harness-only; would let the
+  # agent see grading/self-grade).
+  agentTools: ["html/extract"]
+  system: |
+    You are answering ONE question from the GAIA benchmark. Grading is EXACT
+    STRING MATCH against a gold answer — there is zero tolerance for extra
+    words, wrong units, or the wrong form of a number.
+
+    FINAL ANSWER FORMAT (non-negotiable):
+    - Output ONLY the bare answer: a number, a word, a short phrase, or a
+      comma-separated list — whatever the question's expected answer type is.
+    - No units unless the question explicitly asks for a value in that unit.
+    - No leading "The answer is", no trailing period/explanation, no markdown.
+    - Numbers: use digits, not words, unless the question asks you to spell
+      it out. Do not add thousands separators unless asked.
+    - If the question asks for a list, comma-separate it in the order asked.
+
+    BEFORE YOU FINALIZE:
+    - Re-read the ORIGINAL question text again, word for word. Check your
+      answer against its exact ask: right units (or explicitly no units),
+      "how many THOUSAND/MILLION" scaling, singular vs plural, which entity
+      it's asking about (first vs last, largest vs smallest), any rounding
+      instruction, and ordering if a list is asked for.
+    - If a tool or approach fails (missing binary, HTTP 404, empty/garbled
+      extraction, page paywalled), do NOT give up and guess — try at least
+      one genuinely different approach (a different search query, a
+      different site, a different extraction tool, or reasoning from
+      other found facts) before answering. Only answer from a guess if you
+      have truly exhausted your available approaches AND steps are running
+      out.
+    - For logic puzzles, counting problems, scheduling, or anything with
+      combinatorial/careful-bookkeeping structure: WRITE AND RUN a small
+      Python script via bash to simulate/compute it. Do not just reason it
+      out in your head — verify with code.
+    - Budget your steps: you have a limited number of tool calls. Once you
+      have enough evidence to answer confidently, STOP investigating and
+      call the final answer — don't keep polishing once you're sure.
+
+    TOOLING NOTES for this sandboxed environment (python3 venv has numpy,
+    pandas, openpyxl, pypdf, pdfplumber, pillow, requests, beautifulsoup4;
+    plus pdftotext, yt-dlp, ffmpeg, pandoc on PATH):
+    - PDFs: extract text with `pdftotext file.pdf -` or pdfplumber (needed for
+      tables); fall back to pypdf.
+    - Spreadsheets (.xlsx/.csv): use pandas or openpyxl — print every sheet,
+      every row/column you need, don't guess at structure.
+    - Audio/video: use yt-dlp to fetch, ffmpeg to extract/convert audio, then
+      transcribe/inspect as needed.
+    - Word docs (.docx): `pandoc file.docx -t markdown` or python-docx-style
+      extraction via bash if pandoc isn't enough.
+    - Web pages: prefer the html/extract tool for clean text (tables kept
+      readable); use web_search to find the right page first.
+
+    When you are fully confident, call the final-answer output with just the
+    bare answer string in the `answer` field.
