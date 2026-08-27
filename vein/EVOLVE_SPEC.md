@@ -22,7 +22,7 @@ one measured run and the next. The guiding idea:
 | --- | --- | --- | --- | --- |
 | **1. Prompt** | a `params` value | param default + new workflow version | minutes; fully autonomous | **built** (`eval/optimize`) |
 | **2. Environment** | an `env.manifest` diff | rebuilt image | days; human-reviewed | **todo** (§4) |
-| **3. Structure** | a workflow version + step sources | published version | hours; agent-interactive | **mechanism built** (§5 — `meta/*` + `services.authoring`; optimize generalization §5.3.3 todo) |
+| **3. Structure** | a workflow version + step sources | published version | hours; agent-interactive | **built** (§5 — `meta/*` + `services.authoring`; first authoring harness `harvey-evolve` §9.4; optimize generalization §5.3.3 todo) |
 
 The layers are ordered by how cheap they are to try and how safely they can
 be automated. Prompt tuning is mechanical and reversible. Environment changes
@@ -248,7 +248,7 @@ grade   (harvey/evaluate | gaia/evaluate | eval/score)
 reflect (eval/reflect)                    → next candidate
 ```
 
-### 5.3 Four things that will bite
+### 5.3 Five things that will bite
 
 1. **The registry is a per-RUN snapshot, not just per-step.**
    `buildRegistryTools` resolves `agentTools` once when the agent step
@@ -271,6 +271,16 @@ reflect (eval/reflect)                    → next candidate
    and returns `null` — a step that doesn't compile simply doesn't exist. An
    authoring agent will flail against that; `meta/create-step` must
    typecheck-and-import before returning and hand the error back.
+5. **The template evaluator does not short-circuit.** `expr.ts` is a direct
+   evaluator: ternary and `&&`/`||` still evaluate BOTH sides, so
+   `{{ run.output ? run.output.outputDir : undefined }}` throws
+   ("Cannot access property of undefined") exactly when the guard was
+   needed. Harness YAML must never deep-access a possibly-undefined object:
+   pass the WHOLE object into a step and unpack in code
+   (`harvey/evaluate`'s `fromRun`), or keep error-path packs shape-stable
+   (`usage: {}` in every `onError` fallback so `x.usage.inputTokens` stays
+   safe). This bites generated workflows too — candidates should copy the
+   base workflow's patterns, not invent guards.
 
 ---
 
@@ -384,7 +394,21 @@ possible version of "capture."
    proposable artifact.
 4. ~~**`meta/*` steps + `services.authoring`** (§5.2) — closes layer 3.~~
    **Done** — `authoring.ts` + `steps/lib/meta/*`, auto-wired by
-   `createVein`; next is a first authoring-harness workflow that uses them.
+   `createVein`. ~~Next is a first authoring-harness workflow that uses
+   them.~~ **Done** — `harvey-evolve` in the lab
+   (`mcp/src/lab/harvey/workflows/`), built on the Harvey produce/grade
+   split: `harvey-produce` is the swappable candidate unit (per-task
+   `workdir` for batch isolation), `harvey-run` grades any produce workflow
+   by ref (`input.produceWorkflow`), and `harvey-candidate-run` runs an
+   ai-stamped candidate under its own runId via `meta/run-workflow` (fresh
+   registry — §5.3.1) and grades the `outputDir` it reports. The evolve run
+   is one full generation: baseline over the task set →
+   `harvey/digest-results` (verdict-channel digest, §6) → authoring agent
+   (`agentTools: ["meta/*"]`, no bash — §5.3.2) publishes + smoke-tests a
+   candidate → harness re-runs it pinned over the same tasks → report with
+   baseline/candidate deltas and any `missingSecrets` the author captured
+   (the credential-request beat). Scores are TRAIN scores (§7); promotion
+   stays human. Offline checks: `mcp/src/lab/harvey/evolve-smoke.ts`.
 5. **Generalize `eval/optimize`'s candidate** from prompt string to workflow
    ref + version (§5.3.3) — the change that lets one loop drive all three
    layers.
