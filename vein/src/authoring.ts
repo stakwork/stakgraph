@@ -115,6 +115,111 @@ export async function readRun(
   };
 }
 
+// ── Run search (shared mechanism) ──────────────────────────────────────────
+
+export interface RunSearchOptions {
+  /** Explicit run ids to search (e.g. one eval batch). Default: newest `runLimit` runs. */
+  runIds?: string[];
+  /** How many recent runs to scan when `runIds` is absent. Default 20. */
+  runLimit?: number;
+  /** Cap on returned match entries; scanning stops once reached. Default 50. */
+  maxMatches?: number;
+  /** Case-insensitive matching. Default true (signature hunting favors recall). */
+  ignoreCase?: boolean;
+}
+
+/** One matching event from a run search. */
+export interface RunSearchMatch {
+  runId: string;
+  path: string;
+  type: string;
+  stepType?: string;
+  /** Matches within this one event (the snippet shows the first). */
+  count: number;
+  /** The matched text with surrounding context from the event's JSON. */
+  snippet: string;
+}
+
+const SNIPPET_BEFORE = 80;
+const SNIPPET_AFTER = 160;
+
+/**
+ * Grep across a workflow's run event logs — the cross-run question the
+ * per-run `readRun` can't answer without N calls and N payloads ("which runs
+ * hit `ModuleNotFoundError`, and how often?" — EVOLVE_SPEC §4.2 capture).
+ * Each event is matched as its JSON line (the same shape events.jsonl holds),
+ * so input/output/error payloads are all searchable; matches come back as
+ * (runId, event path, snippet) tuples plus a per-run frequency summary.
+ * Scanning stops at `maxMatches` (`truncated: true`) — narrow the pattern or
+ * the run window rather than raising the cap.
+ */
+export async function searchRunEvents(
+  store: RunReadStore,
+  name: string,
+  pattern: string,
+  opts: RunSearchOptions = {},
+) {
+  const { runLimit = 20, maxMatches = 50, ignoreCase = true } = opts;
+  let re: RegExp;
+  try {
+    re = new RegExp(pattern, ignoreCase ? "gi" : "g");
+  } catch (err) {
+    return { error: `Invalid pattern: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const runIds = opts.runIds?.length
+    ? opts.runIds
+    : (await store.listRuns(name)).slice(0, runLimit);
+
+  const matches: RunSearchMatch[] = [];
+  const perRun: { runId: string; matchingEvents: number }[] = [];
+  let runsScanned = 0;
+  let truncated = false;
+
+  for (const runId of runIds) {
+    if (truncated) break;
+    const events = await store.getRunEvents(name, runId);
+    runsScanned++;
+    let matchingEvents = 0;
+    for (const e of events) {
+      const line = JSON.stringify(e);
+      re.lastIndex = 0;
+      const first = re.exec(line);
+      if (!first) continue;
+      matchingEvents++;
+      let count = 1;
+      while (re.exec(line) !== null) count++;
+      matches.push({
+        runId,
+        path: e.path,
+        type: e.type,
+        ...(e.stepType ? { stepType: e.stepType } : {}),
+        count,
+        snippet: line.slice(
+          Math.max(0, first.index - SNIPPET_BEFORE),
+          first.index + first[0].length + SNIPPET_AFTER,
+        ),
+      });
+      if (matches.length >= maxMatches) {
+        truncated = true;
+        break;
+      }
+    }
+    if (matchingEvents > 0) perRun.push({ runId, matchingEvents });
+  }
+
+  return {
+    workflow: name,
+    pattern,
+    runsScanned,
+    runsWithMatches: perRun,
+    matches,
+    ...(truncated
+      ? { truncated: true, note: "Match cap reached — narrow the pattern or run window." }
+      : {}),
+  };
+}
+
 // ── Step publishing (shared mechanism) ─────────────────────────────────────
 
 /** LLMs sometimes pass an object-valued arg as a JSON *string* (e.g.
@@ -286,6 +391,7 @@ export interface AuthoringCapability {
   ): Promise<RunResult | { error: string }>;
   listRuns(name: string, limit?: number): Promise<unknown>;
   getRun(name: string, runId: string, fullEvents?: boolean): Promise<unknown>;
+  searchRuns(name: string, pattern: string, opts?: RunSearchOptions): Promise<unknown>;
   listSecrets(): Promise<unknown>;
 }
 
@@ -488,6 +594,14 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
       const read = asReadStore(store);
       if (!read) return { error: NO_RUN_HISTORY_ERROR };
       return readRun(read, name, runId, fullEvents);
+    },
+
+    async searchRuns(name, pattern, opts) {
+      const gate = await notOwned(name, "reads run history of");
+      if (gate) return { error: gate };
+      const read = asReadStore(store);
+      if (!read) return { error: NO_RUN_HISTORY_ERROR };
+      return searchRunEvents(read, name, pattern, opts);
     },
 
     async listSecrets() {

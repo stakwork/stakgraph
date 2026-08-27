@@ -19,6 +19,7 @@ import {
   publishNewStep,
   publishStepVersion,
   readRun,
+  searchRunEvents,
 } from "../authoring.js";
 
 // ── Tools ──────────────────────────────────────────────────────────────────
@@ -460,6 +461,48 @@ export function buildTools(deps: AiDeps) {
           };
         }
         return readRun(store, name, runId, fullEvents);
+      },
+    }),
+
+    search_runs: tool({
+      description:
+        "Grep across a workflow's recent runs: match a regex against every event's JSON (inputs, outputs, errors) and get back (runId, event path, snippet) tuples plus a per-run frequency summary. The cross-run complement to get_run — use it to answer 'which runs hit this, and how often?' (e.g. a recurring error signature across a batch), then get_run to investigate one run. Note: tool outputs are truncated in the event log (~1500 chars), so a signature deep in long output can be missed.",
+      inputSchema: z.object({
+        name: z.string().describe("Workflow name whose runs to search"),
+        pattern: z
+          .string()
+          .describe(
+            "JavaScript regular expression matched against each event's JSON line, e.g. \"command not found|ModuleNotFoundError\".",
+          ),
+        runIds: z
+          .array(z.string())
+          .optional()
+          .describe("Explicit run ids to search. Default: the newest runLimit runs."),
+        runLimit: z
+          .number()
+          .int()
+          .positive()
+          .default(20)
+          .describe("How many recent runs to scan when runIds is absent (default 20)."),
+        maxMatches: z
+          .number()
+          .int()
+          .positive()
+          .default(50)
+          .describe(
+            "Cap on returned matches; scanning stops once reached (truncated: true). Narrow the pattern or run window rather than raising this (default 50).",
+          ),
+        ignoreCase: z.boolean().default(true).describe("Case-insensitive matching (default true)."),
+      }),
+      execute: async ({ name, pattern, runIds, runLimit, maxMatches, ignoreCase }) => {
+        const store = asReadStore(deps.store);
+        if (!store) {
+          return {
+            error:
+              "Run history is unavailable (the run store does not support reading back runs).",
+          };
+        }
+        return searchRunEvents(store, name, pattern, { runIds, runLimit, maxMatches, ignoreCase });
       },
     }),
 

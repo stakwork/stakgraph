@@ -69,6 +69,7 @@ describe("authoring capability (the meta surface)", () => {
       "meta/run-workflow",
       "meta/list-runs",
       "meta/get-run",
+      "meta/search-runs",
       "meta/list-secrets",
     ]) {
       assert.ok(registry[type], `expected "${type}" in the registry`);
@@ -161,6 +162,55 @@ describe("authoring capability (the meta surface)", () => {
     assert.ok(Array.isArray(run.events) && run.events.length > 0);
     // Slim events carry no payloads by default.
     assert.equal(run.events[0].input, undefined);
+  });
+
+  it("searchRuns greps event logs across runs, gated to the stamped set", async () => {
+    // Two runs of a stamped candidate: one carries an env-gap signature, one is clean.
+    const yaml = `name: cand-search\nsteps:\n  - id: say\n    type: log\n    config:\n      message: "{{ input.msg }}"\n`;
+    const pub = (await authoring.publishWorkflow("cand-search", yaml)) as any;
+    assert.equal(pub.ok, true, JSON.stringify(pub));
+    const bad = (await authoring.runWorkflow("cand-search", {
+      msg: "ModuleNotFoundError: No module named 'fitz'",
+    })) as any;
+    assert.equal(bad.status, "success");
+    const good = (await authoring.runWorkflow("cand-search", { msg: "all good" })) as any;
+    assert.equal(good.status, "success");
+
+    // The cross-run question: which runs hit the signature?
+    const res = (await authoring.searchRuns("cand-search", "ModuleNotFoundError")) as any;
+    assert.equal(res.runsScanned, 2);
+    assert.deepEqual(
+      res.runsWithMatches.map((r: any) => r.runId),
+      [bad.runId],
+    );
+    assert.ok(res.matches.length >= 1);
+    assert.equal(res.matches[0].runId, bad.runId);
+    assert.ok(res.matches[0].snippet.includes("fitz"), res.matches[0].snippet);
+    assert.ok(res.matches[0].path, "matches carry the event path for get-run drill-down");
+
+    // Case-insensitive by default; a maxMatches cap truncates rather than growing.
+    const ci = (await authoring.searchRuns("cand-search", "modulenotfound")) as any;
+    assert.ok(ci.matches.length >= 1);
+    const capped = (await authoring.searchRuns("cand-search", "ModuleNotFoundError", {
+      maxMatches: 1,
+    })) as any;
+    assert.equal(capped.matches.length, 1);
+    assert.equal(capped.truncated, true);
+
+    // An explicit runIds window restricts the scan.
+    const windowed = (await authoring.searchRuns("cand-search", "ModuleNotFoundError", {
+      runIds: [good.runId],
+    })) as any;
+    assert.equal(windowed.runsScanned, 1);
+    assert.equal(windowed.matches.length, 0);
+
+    // Bad regex → a handed-back error, not a throw.
+    const invalid = (await authoring.searchRuns("cand-search", "(unclosed")) as any;
+    assert.ok(invalid.error && /Invalid pattern/.test(invalid.error), invalid.error);
+
+    // The ownership gate holds: unstamped workflows' logs are not searchable.
+    const refused = (await authoring.searchRuns("harness-flow", "gold")) as any;
+    assert.ok(refused.error && /not agent-authored/.test(refused.error), refused.error);
   });
 
   it("runWorkflow sees a step authored moments before (fresh registry, §5.3.1)", async () => {

@@ -147,16 +147,27 @@ becomes a manifest proposal, not an assumption that the install persists.
 
 ### 4.2 The mechanism
 
-**Capture — `env/missing-tools`.** Missing tooling has machine-detectable
-signatures: `command not found: yt-dlp`, `ModuleNotFoundError: No module
-named 'fitz'`, `pdftotext: not found`. Every bash call already emits a nested
-run event (`wrapToolsWithEmit`, `agent.ts`), so a post-run step can scan a
-run's events and emit a structured gap list. Small (~40 lines) and it is the
-difference between a gap being noticed in prose and a gap being *data*.
+**Capture — `meta/search-runs` + `env/missing-tools`.** Every bash call
+already emits a nested run event (`wrapToolsWithEmit`, `agent.ts`), so the
+evidence is on disk; the question is how it gets read. The general
+instrument is **`meta/search-runs`** (done — `searchRunEvents`,
+`authoring.ts`): grep a regex across a workflow's recent run event logs →
+matching (runId, event path, snippet) tuples plus a per-run frequency
+summary, behind the same agent-authored gate as `meta/get-run` (raw
+filesystem grep over the workspace would read grader logs — §6). That's
+what lets a propose agent hunt *flexibly* — signatures nobody enumerated,
+a tool that exists but is too old — instead of being limited to a fixed
+parser. One caveat: events hold ~1500-char output previews
+(`summarizeForEvent`), not full transcripts, so a signature buried deep in
+long output can be missed. On top of it, a deterministic `env/missing-tools`
+scan for the known signatures (`command not found: yt-dlp`,
+`ModuleNotFoundError: No module named 'fitz'`) is the free always-on
+tripwire: zero tokens per batch, and its misses just mean a gap surfaces a
+batch later through the agent's own search.
 
 **Propose.** Aggregate across a batch → a frequency-ranked list
 (`pdftotext: 12 runs, yt-dlp: 3, tesseract: 2`). This is `eval/reflect`
-pointed at the environment.
+pointed at the environment, with `meta/search-runs` as its instrument.
 
 **Promote — `env.manifest`.** A versioned file (apt packages + pip packages,
 **pinned**) that the Dockerfile installs from at build time. The agent
@@ -362,8 +373,10 @@ possible version of "capture."
 
 ## 9. What's next
 
-1. **`env/missing-tools`** (§4.2) — the smallest high-value piece. Turns
-   tooling gaps into structured data instead of prose.
+1. **Environment capture** (§4.2) — ~~`meta/search-runs`~~ **done**
+   (cross-run grep over event logs, gated like `meta/get-run`; also a
+   `search_runs` chat tool). Next: the deterministic `env/missing-tools`
+   tripwire on top.
 2. **Full level-1 GAIA sweep** (53 tasks, ~$25) — a real baseline on 48
    unseen tasks, and the first dataset big enough for layer-1 optimize to
    have honest signal.
