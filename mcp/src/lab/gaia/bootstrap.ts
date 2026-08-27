@@ -81,7 +81,7 @@ const DATASET_REPO = "https://huggingface.co/datasets/gaia-benchmark/GAIA";
  * later and confusingly at `loadMeta`.
  *
  * This SHA is the last revision carrying the full benchmark: 165 validation
- * rows + 300 test rows, matching the published split sizes. It is also the
+ * rows + 301 test rows, matching the published split sizes. It is also the
  * revision every score this lab has produced so far was graded against, so
  * pinning it keeps new numbers comparable to the existing ones.
  *
@@ -425,6 +425,10 @@ export async function ensureGaiaDataset(
       );
     }
 
+    // On a truly cold cache the parent dir does not exist yet — and a spawn
+    // with a missing cwd rejects with ENOENT, which the probe's catch-all
+    // would misreport as "git-lfs not on PATH". Create it before probing.
+    await mkdir(dirname(root), { recursive: true });
     await assertGitLfs(exec, dirname(root));
 
     // A checkout can be present-but-incomplete (interrupted clone, or a dir

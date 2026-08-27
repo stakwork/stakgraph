@@ -433,7 +433,7 @@ on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
   yields a checkout the grader cannot read. Bootstrap therefore does
   init → `fetch --depth 1 <pinned sha>` → `checkout FETCH_HEAD` against
   `897f2dfb`, the last revision with the full benchmark (165 validation +
-  300 test rows), which is also what every score so far was graded against.
+  301 test rows), which is also what every score so far was graded against.
 - **`HF_TOKEN` is REQUIRED for a cold bootstrap.** The dataset is gated:
   anonymous `ls-remote` answers (which makes the repo look open), but the
   actual `git-upload-pack` fetch is refused without credentials. Bootstrap

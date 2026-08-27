@@ -171,6 +171,10 @@ async function bootstrapSmoke(): Promise<void> {
         } = {},
       ): BootstrapExecFn =>
       async (_cmd, args, o) => {
+        // Real spawn REJECTS with ENOENT when cwd does not exist — it does
+        // not return a nonzero exit. Model that, so a probe run from a
+        // not-yet-created directory fails here the way it fails in prod.
+        if (!existsSync(o.cwd)) throw new Error(`spawn git ENOENT (cwd ${o.cwd})`);
         if (args[0] === "lfs") {
           return opts.lfs === false
             ? { code: 1, stdout: "", stderr: "git: 'lfs' is not a git command" }
@@ -299,6 +303,17 @@ async function bootstrapSmoke(): Promise<void> {
         }),
       /unresolved git-lfs pointers/,
     );
+
+    // ── a COLD cache (parent dirs don't exist yet) still bootstraps: the
+    //    git-lfs probe must not spawn from a not-yet-created directory ──
+    resetGaiaBootstrap();
+    const cold = join(box, "deep", "nested", "gaia");
+    const coldRes = await ensureGaiaDataset({
+      dir: cold, hfToken: "hf_xxx", exec: fakeExec(), fetchText: fetchStub,
+      scorerSha256: STUB_SHA, log,
+    });
+    assert.equal(coldRes.root, cold);
+    assert.ok(existsSync(join(cold, "2023", "validation", "metadata.jsonl")));
 
     // ── happy path: checkout + scorer installed, verified against the pin ──
     resetGaiaBootstrap();
