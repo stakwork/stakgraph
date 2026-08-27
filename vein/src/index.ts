@@ -145,6 +145,19 @@ export {
   type RunStepResult,
 } from "./run-step.js";
 
+// Authoring — the workspace's author/test/inspect operations as one
+// injectable service: what the meta/* steps are plumbing over. Auto-provided
+// by createVein as `services.authoring`; embedders can build their own.
+export {
+  buildAuthoringCapability,
+  AI_PUBLISHER,
+  type AuthoringCapability,
+  type AuthoringDeps,
+  type StepPublishDeps,
+  type StepPublishResult,
+  type RunStepArgs,
+} from "./authoring.js";
+
 // Vein factory — the primary entry point for library usage.
 export {
   createVein,
