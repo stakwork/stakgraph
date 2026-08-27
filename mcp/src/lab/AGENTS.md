@@ -422,19 +422,47 @@ grader AND the gold live in the in-code `gaia` service (`gaia/service.ts`,
 on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
 (authored by the assistant) are thin plumbing over `ctx.services.gaia.*`.
 
-- **Setup**: `GAIA_DIR` → a local clone of the (HF-gated, click-through)
-  `gaia-benchmark/GAIA` dataset repo, with the leaderboard Space's
-  `scorer.py` dropped untracked at its root. Optional `GAIA_SCORER_SHA256`
-  pin; `GAIA_PYTHON` (default `python3`, needs numpy for the real scorer).
+- **Setup**: automatic (`gaia/bootstrap.ts`) — **zero required env vars**.
+  First use materialises the dataset into `<cache>/vein/gaia`, installs the
+  leaderboard Space's `scorer.py` (verified against the in-repo
+  `SCORER_SHA256`), and resolves a numpy-capable python: `python3` in the prod
+  image (the agent venv is on PATH), else a cached venv built on demand.
+- **`DATASET_REV` is pinned, and the pin is load-bearing.** The repo's default
+  branch NO LONGER CARRIES THE BENCHMARK — as of `682dd723` (main) the
+  `metadata.jsonl` files (questions AND gold) are gone. A plain `git clone`
+  yields a checkout the grader cannot read. Bootstrap therefore does
+  init → `fetch --depth 1 <pinned sha>` → `checkout FETCH_HEAD` against
+  `897f2dfb`, the last revision with the full benchmark (165 validation +
+  300 test rows), which is also what every score so far was graded against.
+- **`HF_TOKEN` is OPTIONAL.** HF currently serves this repo's git endpoints
+  anonymously (its `resolve` HTTP endpoint returns 401, but git-upload-pack
+  and LFS do not) — a cold bootstrap succeeds with no credentials at all. A
+  token is attached whenever one is set, since that can change; no username is
+  needed (HF takes the token as the password with any username). If access is
+  ever refused the error names `HF_TOKEN` and the un-automatable
+  accept-the-terms click-through.
+- **git-lfs is required**: GAIA's attachments are LFS-backed and a checkout
+  without it silently yields ~130-byte pointer stubs. Checked before fetching
+  and detected after.
+- Overrides, all optional: `GAIA_DIR`, `VEIN_CACHE_DIR`, `HF_TOKEN`,
+  `GAIA_PYTHON`, `GAIA_SCORER_SHA256`, `GAIA_AUTO_SETUP=0`. The dataset is NOT
+  baked into the image (the terms forbid resharing outside a gated/private
+  repo); mount a volume at the cache dir in prod.
 - **Integrity invariant** (per grade): dataset checkout must be a CLEAN git
   tree (a doctored `metadata.jsonl` is doctored gold; untracked `scorer.py`
-  is tolerated), and the scorer hash must match any pin. Results carry
-  `benchmarkRev` + `scorerSha256`.
+  is tolerated), and the scorer hash must match the pin — which is now
+  **always enforced**, defaulting to the in-repo `SCORER_SHA256`. An
+  operator-supplied pin is self-certifying; a repo constant is reviewable in
+  a diff, the same class of object as the graders themselves (EVOLVE_SPEC §6).
+  A fresh auto-clone is clean by construction. Results carry `benchmarkRev` +
+  `scorerSha256`.
 - **Gold isolation**: `getTask`/`listTasks` strip `Final answer`; only the
   `score()` subprocess reads it. Never grant a scoring step to the
   producing agent's `agentTools`.
 - `smoke.ts` — offline integrity paths + the real python driver against a
-  stub scorer (`npx tsx src/lab/gaia/smoke.ts`).
+  stub scorer, plus the bootstrap paths (no token / no git-lfs / gated 403 /
+  scorer-hash mismatch / LFS pointer stubs / idempotent re-entry / half-written
+  checkout) with `exec` and `fetchText` faked (`npx tsx src/lab/gaia/smoke.ts`).
 
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 

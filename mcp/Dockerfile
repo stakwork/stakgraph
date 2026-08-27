@@ -13,7 +13,8 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg && \
+RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg && \
+    git lfs install --system && \
     ln -s /usr/bin/python3 /usr/bin/python
 
 # Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)
@@ -64,11 +65,28 @@ RUN python3 -m venv /usr/src/agent-venv && \
     /usr/src/agent-venv/bin/python -c "import numpy, pandas, openpyxl, pypdf, pdfplumber, PIL, requests, bs4"
 ENV PATH="/usr/src/agent-venv/bin:$PATH"
 
-# NOTE (lab / GAIA): the GAIA dataset is HF-gated and is NOT baked into the
-# image. To enable the lab's GAIA grader in a deployment, mount a pinned
-# dataset checkout (with the leaderboard's scorer.py at its root) and set
-# GAIA_DIR (+ optionally GAIA_SCORER_SHA256). The venv python above already
-# satisfies the scorer's numpy dependency.
+# NOTE (lab / GAIA): the dataset is deliberately NOT baked into the image —
+# GAIA's terms forbid resharing it outside a gated/private repo, and a
+# published image is neither. It is fetched at runtime by
+# src/lab/gaia/bootstrap.ts, which needs NO required env vars.
+#
+# HF_TOKEN is OPTIONAL: HF currently serves this repo's git endpoints
+# anonymously, so a cold bootstrap works with no credentials. Set it anyway if
+# you have one (no username needed — HF takes the token as the password with
+# any username); bootstrap attaches it when present and the failure path names
+# it if access is ever refused.
+#
+# GAIA_PYTHON is unnecessary here: the agent venv above is first on PATH and
+# carries the numpy the scorer needs. GAIA_SCORER_SHA256 is unnecessary too —
+# the pin lives in the repo (bootstrap.ts SCORER_SHA256).
+#
+# git-lfs (installed above) is REQUIRED: GAIA's attachments are LFS-backed and
+# a clone without it silently yields ~130-byte pointer stubs where the xlsx /
+# pdf / mp3 files should be.
+#
+# Mount a volume at the cache dir so the ~205MB clone happens once rather than
+# per container:  -v gaia-cache:/root/.cache/vein  (override with VEIN_CACHE_DIR
+# or pin the checkout outright with GAIA_DIR).
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
