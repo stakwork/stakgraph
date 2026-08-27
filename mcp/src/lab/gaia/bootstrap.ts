@@ -44,13 +44,16 @@ import { join, resolve, dirname } from "node:path";
  * has already accepted; a 403 on clone means it has not, and the error below
  * says exactly that.
  *
- * Config (env), all optional:
- *   HF_TOKEN            — (or HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN) a READ
- *                         token. Optional in practice — HF currently serves
- *                         this repo's git endpoints anonymously — but used
- *                         whenever set, since that can change. No username
- *                         is needed: HF takes the token as the password
- *                         with any username.
+ * Config (env):
+ *   HF_TOKEN            — REQUIRED for a cold bootstrap (or
+ *                         HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN): a READ
+ *                         token from an account that has accepted GAIA's
+ *                         terms. No username is needed — HF takes the token
+ *                         as the password with any username. An
+ *                         already-populated checkout is used as-is, no
+ *                         token needed.
+ *
+ *   The rest, all optional:
  *   GAIA_DIR            — pin the checkout location; defaults to
  *                         <cache>/vein/gaia
  *   VEIN_CACHE_DIR      — cache root override (else XDG_CACHE_HOME, else
@@ -127,7 +130,8 @@ export type FetchTextFn = (url: string) => Promise<string>;
 export interface EnsureGaiaOptions {
   /** Target checkout dir. Defaults to env GAIA_DIR, else <cache>/vein/gaia. */
   dir?: string;
-  /** HF token. Defaults to HF_TOKEN / HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN. */
+  /** HF token; REQUIRED whenever a clone is needed. Defaults to HF_TOKEN /
+   *  HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN. */
   hfToken?: string;
   /** Set false (or GAIA_AUTO_SETUP=0) to require a pre-populated GAIA_DIR. */
   autoSetup?: boolean;
@@ -288,20 +292,20 @@ async function installScorer(
  * `checkout FETCH_HEAD`. HF's git server allows fetching an arbitrary SHA,
  * and the shallow fetch keeps this to one revision (~210MB with LFS).
  *
- * The token, WHEN PRESENT, reaches git through a one-shot inline credential
- * helper reading it from the CHILD ENV: it is never written to `.git/config`
+ * The token reaches git through a one-shot inline credential helper
+ * reading it from the CHILD ENV: it is never written to `.git/config`
  * (which a plain `https://user:token@…` remote would do, persisting a live
  * credential inside the checkout) and never appears in argv (visible to any
  * `ps` on the host). HF accepts any username with the token as the password,
  * so the username is a constant.
  *
- * The token is OPTIONAL: this repo's git endpoints currently serve anonymous
- * fetches even though its `resolve` HTTP endpoint returns 401. That may
- * change without notice, so a token is used whenever one is configured.
+ * The token is REQUIRED: the dataset is gated. Do not be fooled by anonymous
+ * `git ls-remote` succeeding against this repo — HF answers `info/refs`
+ * without credentials, but refuses the actual `git-upload-pack` fetch.
  */
 async function cloneDataset(
   target: string,
-  token: string | undefined,
+  token: string,
   exec: BootstrapExecFn,
   log: (m: string) => void,
 ): Promise<void> {
@@ -310,21 +314,17 @@ async function cloneDataset(
   const staging = `${target}.partial`;
   await rm(staging, { recursive: true, force: true });
 
-  log(
-    `gaia: fetching ${DATASET_REPO} @ ${DATASET_REV.slice(0, 12)} (~210MB with LFS) → ${target}` +
-      (token ? "" : " [anonymous — no HF token configured]"),
-  );
+  log(`gaia: fetching ${DATASET_REPO} @ ${DATASET_REV.slice(0, 12)} (~210MB with LFS) → ${target}`);
   await mkdir(staging, { recursive: true });
 
-  // Token, when present, is supplied by an env-reading helper; no token means
-  // a plain anonymous fetch. GIT_TERMINAL_PROMPT=0 keeps a credential prompt
-  // from hanging a headless container forever.
+  // The token is supplied by an env-reading helper. GIT_TERMINAL_PROMPT=0
+  // keeps a credential prompt from hanging a headless container forever.
   const helper = '!f() { echo "username=hf"; echo "password=$GAIA_HF_TOKEN"; }; f';
-  const auth = token ? ["-c", `credential.helper=${helper}`] : [];
+  const auth = ["-c", `credential.helper=${helper}`];
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_TERMINAL_PROMPT: "0",
-    ...(token ? { GAIA_HF_TOKEN: token } : {}),
+    GAIA_HF_TOKEN: token,
   };
 
   const steps: Array<{ args: string[]; timeoutMs: number }> = [
@@ -348,17 +348,14 @@ async function cloneDataset(
     // "expected 'packfile'". Match all of them, or a gated failure gets
     // reported as a generic git error and the operator has nothing to act on.
     const denied =
-      /40[13]|forbidden|unauthor|restricted|gated|please log in|expected 'packfile'|could not fetch/i.test(
+      /40[13]|forbidden|unauthor|restricted|gated|please log in|expected 'packfile'|could not read username|could not fetch/i.test(
         tail,
       );
     throw new Error(
       denied
-        ? `gaia: access to the dataset was refused${token ? " with the configured HF token" : " (no HF token configured)"}. ` +
-          (token
-            ? `The owning account has probably not accepted GAIA's terms — that click-through cannot be automated. ` +
-              `Visit ${DATASET_REPO}, accept, then retry.`
-            : `Set HF_TOKEN to a read token from an account that has accepted GAIA's terms at ${DATASET_REPO}.`) +
-          `\n${tail}`
+        ? `gaia: access to the dataset was refused with the configured HF token. Either it is not a valid ` +
+          `READ token, or its account has not accepted GAIA's terms — that click-through cannot be ` +
+          `automated. Visit ${DATASET_REPO}, accept, then retry.\n${tail}`
         : `gaia: git ${step.args.filter((a) => a !== "-c" && !a.startsWith("credential.")).join(" ")} failed (exit ${res.code}).\n${tail}`,
     );
   }
@@ -417,10 +414,16 @@ export async function ensureGaiaDataset(
       );
     }
 
-    // Optional: HF currently serves this repo's git endpoints anonymously.
-    // Used when configured, and the failure path above tells the operator to
-    // set it if access is ever refused.
+    // Required: the dataset is gated. Fail here — before any subprocess —
+    // with the fix in hand, rather than letting git discover it obliquely.
     const token = resolveToken(opts.hfToken);
+    if (!token) {
+      throw new Error(
+        `gaia: HF_TOKEN is not set, and ${root} holds no GAIA checkout to fall back on. The dataset ` +
+          `is gated — set HF_TOKEN (or HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN) to a READ token from ` +
+          `an account that has accepted GAIA's terms at ${DATASET_REPO}.`,
+      );
+    }
 
     await assertGitLfs(exec, dirname(root));
 

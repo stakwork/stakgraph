@@ -68,13 +68,14 @@ ENV PATH="/usr/src/agent-venv/bin:$PATH"
 # NOTE (lab / GAIA): the dataset is deliberately NOT baked into the image —
 # GAIA's terms forbid resharing it outside a gated/private repo, and a
 # published image is neither. It is fetched at runtime by
-# src/lab/gaia/bootstrap.ts, which needs NO required env vars.
+# src/lab/gaia/bootstrap.ts.
 #
-# HF_TOKEN is OPTIONAL: HF currently serves this repo's git endpoints
-# anonymously, so a cold bootstrap works with no credentials. Set it anyway if
-# you have one (no username needed — HF takes the token as the password with
-# any username); bootstrap attaches it when present and the failure path names
-# it if access is ever refused.
+# HF_TOKEN is REQUIRED at runtime: the dataset is gated and the fetch is
+# refused without credentials (anonymous `git ls-remote` succeeding against
+# the repo is a red herring — `git-upload-pack` is what's gated). Supply a
+# READ token from an account that has accepted GAIA's terms; no username is
+# needed (HF takes the token as the password with any username). Only a
+# pre-populated checkout mounted at GAIA_DIR removes the need for it.
 #
 # GAIA_PYTHON is unnecessary here: the agent venv above is first on PATH and
 # carries the numpy the scorer needs. GAIA_SCORER_SHA256 is unnecessary too —
