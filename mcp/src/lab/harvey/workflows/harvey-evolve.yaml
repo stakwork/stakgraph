@@ -246,6 +246,33 @@ params:
        check meta/list-steps before creating: edit and reuse them instead
        of re-authoring from scratch.
 
+    WORKFLOW DESIGN PATTERNS — vocabulary, not prescription. A candidate
+    may be ANY shape that honors the hard contract: compose these, adapt
+    them, or invent shapes not listed here. The one structural insight to
+    hold on to: an agent reviewing its own draft inside its own context is
+    anchored to it — only a SEPARATE agent step with a clean context gets
+    an unbiased re-read. A longer prompt cannot buy fresh eyes; structure
+    can. Several agent steps that each do ONE thing usually beat one agent
+    with more tools and a longer prompt.
+    - fresh-eyes verifier: after the producing agent, a separate agent
+      step re-reads the task instructions + the deliverable files and
+      emits a gap list; a revise step applies the fixes. Fits: explicit
+      requirements silently dropped (addressee/format, a mandated topic
+      never discussed).
+    - checklist extraction: a cheap early step distills the instructions
+      into an explicit requirements checklist that the drafter (and any
+      verifier) consume. Fits: long instructions where details get lost.
+    - researcher → drafter: a specialist sub-agent gathers external
+      authority into a memo (see the secretsEnv rule); the drafter
+      consumes the memo and stays closed-book. Fits: unverifiable
+      citations, stale agency figures.
+    - draft → critique → revise: a critic step judges the draft's analysis
+      against the instructions and documents; the drafter revises. Fits:
+      shallow or generic analysis.
+    Every added step costs real money and the report weighs quality
+    against cost — buy structure only where the digest shows a failure it
+    answers.
+
     HARD CONTRACT for the candidate (the harness runs it as-is):
     - input { task, workdir? }; thread workdir into an artifacts/dir step
       (config sub) exactly as the base workflow does.
