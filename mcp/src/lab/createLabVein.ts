@@ -167,13 +167,20 @@ export async function createLabVein(
     serveUi: opts.serveUi ?? true,
   });
 
-  // Inject the run-sub-workflows capability now that the instance exists. We
-  // mutate the SAME `services` object createVein holds by reference, so steps
-  // see it at run time. This is what lets `eval/optimize` loop eval→reflect.
-  services.optimizer = {
+  // Inject the run-sub-workflows capability now that the instance exists.
+  // CRITICAL: mutate `vein.services` — the EFFECTIVE bag createVein built by
+  // spreading our `services` into a fresh object (standardServices +
+  // artifacts + ours) — NOT the local `services`, which runs never see
+  // again. Mutating the local bag here silently broke every consumer of
+  // `services.optimizer` (eval/optimize, harvey/evolve-loop): steps threw
+  // "requires a services.optimizer capability" at run time. This is what
+  // lets the optimize/evolve loops run sub-workflows.
+  const optimizer: LabServices["optimizer"] = {
     run: (name, input, runOpts) => vein.run(name, input, runOpts),
     getParams: async (name) => (await vein.workspace.getWorkflow(name)).params ?? {},
   };
+  (vein.services as LabServices).optimizer = optimizer;
+  services.optimizer = optimizer; // keep the caller's bag consistent too
 
   return vein;
 }
