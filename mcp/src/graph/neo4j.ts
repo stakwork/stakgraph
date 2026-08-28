@@ -29,7 +29,7 @@ import {
   nameFileOnly,
 } from "./utils.js";
 import * as Q from "./queries.js";
-import { nowEpochMs } from "./time.js";
+import { nowEpochMs, toEpochMs } from "./time.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { createByModelName } from "@microsoft/tiktokenizer";
@@ -166,8 +166,10 @@ class Db {
     return results
       .flat()
       .sort((a, b) => {
-        const at = Number(a.properties.date_added_to_graph || 0);
-        const bt = Number(b.properties.date_added_to_graph || 0);
+        // Normalize mixed legacy-seconds/new-ms stored values before sorting
+        // (backfill shim — remove once the data migration has run).
+        const at = toEpochMs(a.properties.date_added_to_graph) ?? 0;
+        const bt = toEpochMs(b.properties.date_added_to_graph) ?? 0;
         return bt - at;
       })
       .slice(0, limit_total);

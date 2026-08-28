@@ -154,7 +154,7 @@ MATCH (l:Learning)
 OPTIONAL MATCH (l)-[:HAS_SCOPE]->(s:Scope)
 WITH l, collect(s.name) AS scopes
 RETURN l, scopes
-ORDER BY l.date_added_to_graph DESC
+ORDER BY ${epochMsExpr("l.date_added_to_graph")} DESC
 `;
 
 export const GET_ALL_SCOPES_QUERY = `
@@ -693,15 +693,32 @@ WHERE file.name ENDS WITH 'Cargo.toml'
 RETURN DISTINCT file
 `;
 
+/**
+ * Cypher mirror of `toEpochMs()` in `time.ts` — keep in sync. Normalizes a
+ * stored `date_added_to_graph` (legacy seconds float/string, or new epoch-ms
+ * Integer) to epoch milliseconds before comparing/sorting: values < 1e12 are
+ * epoch-seconds (×1000), >= 1e12 are already ms. `toFloat` handles the legacy
+ * 7-decimal strings, plain numbers, and Neo4j Integers alike. Load-bearing
+ * until the data backfill migration — without it a ms `$since` cursor would
+ * silently drop every legacy-seconds node.
+ */
+export function epochMsExpr(prop: string): string {
+  return `CASE WHEN toFloat(${prop}) >= 1000000000000 THEN toFloat(${prop}) ELSE toFloat(${prop}) * 1000 END`;
+}
+
 export function listQueryForLabel(
   label: string,
   withSince: boolean = false,
 ): string {
   const sinceClause = withSince
-    ? `AND ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND toFloat(f.date_added_to_graph) >= $since))`
+    ? `AND ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND ${epochMsExpr(
+        "f.date_added_to_graph",
+      )} >= $since))`
     : "";
   const orderBy = withSince
-    ? `ORDER BY coalesce(toFloat(f.date_added_to_graph), 0) DESC, f.node_key`
+    ? `ORDER BY ${epochMsExpr(
+        "coalesce(f.date_added_to_graph, 0)",
+      )} DESC, f.node_key`
     : "";
   return `
 MATCH (f:${label})
