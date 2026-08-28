@@ -4,6 +4,7 @@ import { eventTone, statusTone } from "../helpers";
 import { ValueFields } from "./ValueFields";
 import { StepData } from "../flow-to-canvas";
 import { CloseIcon } from "../icons";
+import { EvolveChart } from "./EvolveChart";
 import yaml from "js-yaml";
 
 // ── Events Panel (expandable rows) ─────────────────────────────────────────
@@ -62,6 +63,7 @@ export function EventsPanel(props: {
   return (
     <div class="shell-events" ref={scrollRef} onScroll={onScroll}>
       <div class="events-header">Events ({props.events.length})</div>
+      <EvolveChart events={props.events} onOpenRun={props.onOpenRun} />
       {props.events.map((evt, i) => {
         const hasData = evt.input != null || evt.output != null || evt.error != null;
         const isOpen = expanded === i;
