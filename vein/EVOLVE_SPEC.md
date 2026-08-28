@@ -176,7 +176,39 @@ CI rebuilds. The manifest becomes the same class of object as a workflow
 version: agent-authored, human-reviewed, diffable, pinned — and the mutation
 happens at **build** time, where it can be attributed.
 
-### 4.3 Current baseline (what `mcp/Dockerfile` provides)
+### 4.3 Credentials — `secretsEnv` (built)
+
+How an in-workflow agent uses an authenticated API without ever seeing a
+credential. The `agent` step takes `secretsEnv: [<secret name>, …]`; the
+step resolves the names via `ctx.services.secrets` **in code** and injects
+the values into the bash tool's subprocess env only. The model writes
+`curl -H "Authorization: Token $COURTLISTENER_API_KEY" …`; the shell
+expands it at exec time. Two guarantees and one accepted residual:
+
+- **Values never enter context or logs.** The prompt and event log carry
+  `$NAME` literally, and every tool output is masked
+  (`wrapToolsWithMask`, applied inside the emit wrapper) before the model
+  or `events.jsonl` sees it — covering `echo $KEY`, `env`, curl errors
+  echoing the URL, and files the shell wrote that another tool later reads.
+- **Grant discipline.** `secretsEnv` goes on a dedicated, narrow research
+  sub-agent (an `agent` step whose whole job is e.g. case-law lookup) —
+  never on a drafting/producing agent, never on the meta/* author.
+- **Accepted residual: egress.** A prompt-injected agent can still *send*
+  `$KEY` somewhere — masking stops leakage into context/logs, not
+  exfiltration by the shell itself. This is the trade for bash-native
+  exploration (agents iterate curl+jq far faster than any structured http
+  tool); bound it by keeping the sub-agent's inputs narrow (legal APIs,
+  not arbitrary pages) and its grant list minimal.
+
+Why bash-env beats a per-API wrapper step: the first live evolve run showed
+the author routing around the value firewall by authoring brittle TS
+wrappers (the only place values could be injected), one of which shipped
+hardcoded "fallback data" — the exact staleness it was built to fix. With
+`secretsEnv`, a research capability is one `agent` step whose entire
+content is a *prompt* (tunable by layer 1 forever after), and the author
+can iterate it live via `meta/run-step type=agent`.
+
+### 4.4 Current baseline (what `mcp/Dockerfile` provides)
 
 `/usr/src/agent-venv` first on `PATH` — numpy, pandas, openpyxl, pypdf,
 pdfplumber, pillow, requests, beautifulsoup4, yt-dlp — plus `pdftotext`

@@ -35,6 +35,24 @@ describe("shell helpers", () => {
     }
   });
 
+  it("extraEnv widens the scrubbed env without unscrubbing it", async () => {
+    process.env.VEIN_TEST_FAKE_KEY = "sk-super-secret";
+    try {
+      const out = await runShell('echo "got:$INJECTED_TOKEN"; env', dir, 15000, 10000, {
+        INJECTED_TOKEN: "tok-abc123",
+      });
+      assert.match(out, /got:tok-abc123/); // injected value expands in the shell
+      assert.doesNotMatch(out, /VEIN_TEST_FAKE_KEY/); // scrubbing still applies
+    } finally {
+      delete process.env.VEIN_TEST_FAKE_KEY;
+    }
+  });
+
+  it("empty extraEnv is identical to no extraEnv", async () => {
+    const out = await runShell("echo ok", dir, 15000, 10000, {});
+    assert.equal(out.trim(), "ok");
+  });
+
   it("minimalEnv contains only allowlisted keys", () => {
     process.env.VEIN_TEST_FAKE_KEY = "x";
     try {

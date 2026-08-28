@@ -6,7 +6,16 @@ import { join } from "node:path";
 import { z } from "zod";
 import { coreRegistry } from "../registry.js";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
-import agent, { repoTree, textEdit, buildRegistryTools, expandAgentTools, wrapToolsWithEmit } from "./agent.js";
+import agent, {
+  repoTree,
+  textEdit,
+  buildRegistryTools,
+  expandAgentTools,
+  wrapToolsWithEmit,
+  maskSecretValues,
+  maskDeep,
+  wrapToolsWithMask,
+} from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
 // config-validation guards in run() that fire BEFORE any model call. The actual
@@ -423,5 +432,65 @@ describe("textEdit (str_replace_based_edit_tool handler)", () => {
   it("refuses absolute path outside all roots (e.g. /etc/passwd)", () => {
     const out = textEdit({ command: "view", path: "/etc/passwd" }, [cwd, tmpdir()]);
     assert.match(out, /escapes the working directory/);
+  });
+});
+
+describe("secretsEnv masking", () => {
+  const VALUES = ["tok-abc123def", "sk-other-secret-9"];
+
+  it("maskSecretValues replaces every occurrence of every value", () => {
+    const out = maskSecretValues("a tok-abc123def b tok-abc123def c sk-other-secret-9", VALUES);
+    assert.equal(out, "a [MASKED_SECRET] b [MASKED_SECRET] c [MASKED_SECRET]");
+  });
+
+  it("maskDeep masks string leaves in nested objects/arrays, preserves shape", () => {
+    const out = maskDeep(
+      { a: "x tok-abc123def", n: 7, ok: true, none: null, arr: ["sk-other-secret-9", { b: "clean" }] },
+      VALUES,
+    ) as any;
+    assert.deepEqual(out, {
+      a: "x [MASKED_SECRET]",
+      n: 7,
+      ok: true,
+      none: null,
+      arr: ["[MASKED_SECRET]", { b: "clean" }],
+    });
+  });
+
+  it("maskDeep with no values is identity", () => {
+    const v = { a: "tok-abc123def" };
+    assert.equal(maskDeep(v, []), v);
+  });
+
+  it("wrapToolsWithMask masks tool results (the echo-$KEY path)", async () => {
+    const tools: Record<string, any> = {
+      bash: {
+        execute: async ({ command }: { command: string }) =>
+          command === "echo $KEY" ? "tok-abc123def\n" : "ok",
+      },
+      // provider-executed tool (no execute) must be skipped, not crash
+      web_search: {},
+    };
+    wrapToolsWithMask(tools, VALUES);
+    assert.equal(await tools.bash.execute({ command: "echo $KEY" }), "[MASKED_SECRET]\n");
+    assert.equal(await tools.bash.execute({ command: "other" }), "ok");
+  });
+
+  it("run() fails loudly when secretsEnv is set but no secrets capability exists", async () => {
+    const cfg = (agent.input as any).parse({
+      cwd: tmpdir(),
+      system: "s",
+      prompt: "p",
+      secretsEnv: ["SOME_KEY"],
+    });
+    await assert.rejects(
+      () => agent.run(cfg, { runId: "r", path: "p", scope: {}, input: undefined, emit: async () => {}, services: {}, registry: {} } as any),
+      /secretsEnv requires the secrets capability/,
+    );
+  });
+
+  it("secretsEnv defaults to []", () => {
+    const cfg = (agent.input as any).parse({ cwd: "/tmp/x", system: "s", prompt: "p" });
+    assert.deepEqual(cfg.secretsEnv, []);
   });
 });

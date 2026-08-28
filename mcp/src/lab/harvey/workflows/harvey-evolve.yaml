@@ -250,6 +250,33 @@ params:
        check meta/list-steps before creating: edit and reuse them instead
        of re-authoring from scratch.
 
+    WORKFLOW DESIGN PATTERNS — vocabulary, not prescription. A candidate
+    may be ANY shape that honors the hard contract: compose these, adapt
+    them, or invent shapes not listed here. The one structural insight to
+    hold on to: an agent reviewing its own draft inside its own context is
+    anchored to it — only a SEPARATE agent step with a clean context gets
+    an unbiased re-read. A longer prompt cannot buy fresh eyes; structure
+    can. Several agent steps that each do ONE thing usually beat one agent
+    with more tools and a longer prompt.
+    - fresh-eyes verifier: after the producing agent, a separate agent
+      step re-reads the task instructions + the deliverable files and
+      emits a gap list; a revise step applies the fixes. Fits: explicit
+      requirements silently dropped (addressee/format, a mandated topic
+      never discussed).
+    - checklist extraction: a cheap early step distills the instructions
+      into an explicit requirements checklist that the drafter (and any
+      verifier) consume. Fits: long instructions where details get lost.
+    - researcher → drafter: a specialist sub-agent gathers external
+      authority into a memo (see the secretsEnv rule); the drafter
+      consumes the memo and stays closed-book. Fits: unverifiable
+      citations, stale agency figures.
+    - draft → critique → revise: a critic step judges the draft's analysis
+      against the instructions and documents; the drafter revises. Fits:
+      shallow or generic analysis.
+    Every added step costs real money and the report weighs quality
+    against cost — buy structure only where the digest shows a failure it
+    answers.
+
     HARD CONTRACT for the candidate (the harness runs it as-is):
     - input { task, workdir? }; thread workdir into an artifacts/dir step
       (config sub) exactly as the base workflow does.
@@ -272,10 +299,29 @@ params:
       meta/run-step therefore CANNOT authenticate: you have no real value
       to put in the header, and a placeholder guarantees a 401 that says
       NOTHING about whether the stored credential works. Never debug auth
-      through raw http probes. Test authenticated calls ONLY through an
-      authored step that reads ctx.services.secrets.get(<name>) — the value
-      is injected in code at runtime. Raw probes are fine for endpoints
-      that need no auth.
+      through raw http probes.
+    - THE WAY TO USE AN AUTHENTICATED API is a RESEARCH SUB-AGENT: an
+      `agent` step with toolFilter ["bash"] and secretsEnv: [<secret
+      names from meta/list-secrets>]. Its bash gets the values as env
+      vars — it writes $NAME in curl commands and pipes through jq to
+      keep outputs small; values are injected at exec time and masked in
+      all output, so neither you nor it ever sees them. PREFER this over
+      authoring TypeScript wrapper steps around an API: a wrapper
+      hardcodes today's guesses (and dies on the first endpoint quirk);
+      a sub-agent prompt adapts, and the prompt stays tunable by the
+      optimize loop afterward.
+    - ITERATE THE SUB-AGENT LIVE: run it in isolation with meta/run-step
+      (type "agent", config { cwd: <your own working directory>, system:
+      <the research method draft>, prompt: <a sample research question>,
+      toolFilter: ["bash"], secretsEnv: [...], maxSteps: ~20 }). Judge its
+      output structurally — did it return verified citations, current
+      figures with sources, HTTP 200s? Refine the system prompt and rerun.
+      Ask it to also report the exact command patterns that WORKED, and
+      distill those worked examples into the final method prompt you embed
+      in the candidate's params. In the candidate, the sub-agent step
+      feeds its memo to the drafting agent; the drafting agent itself
+      NEVER gets secretsEnv or web access — external authority comes only
+      through the research memo.
 
     When done, return: the candidate name, the EXACT version string of the
     final healthy publish, a summary tying each change to a recurring
