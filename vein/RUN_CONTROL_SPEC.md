@@ -5,7 +5,13 @@ run TREES the lab produces (an evolve run that launches generation runs
 that launch candidate runs), where today the only control is killing the
 server and orphaning every in-flight log as "stale".
 
-Status: DRAFT. Nothing in this document is implemented.
+Status: IMPLEMENTED (all three rungs). The runner/controller live in
+`src/run-control.ts` + `src/runner.ts`, the journal in `src/journal.ts`,
+the endpoints in `src/createVein.ts`
+(`POST /workflows/:name/runs/:runId/{cancel,pause,resume}`), the UI in
+`web/src/app.tsx`, and the lab linkage (optimizer `parentRunId`,
+evolve-loop `ctx.journal` iteration resume) in `mcp/src/lab`. Tests:
+`src/run-control.test.ts`.
 
 ---
 
