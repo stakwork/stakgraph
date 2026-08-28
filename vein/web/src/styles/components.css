@@ -1703,3 +1703,76 @@ body.is-resizing-flyout * {
   font-size: 11px;
 }
 
+
+/* ─── evolve hill-climb chart ────────────────────────────────── */
+
+.evolve-chart {
+  margin: var(--sp-2) 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+}
+.evolve-chart-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-1);
+  font-size: 11px;
+}
+.evolve-chart-title {
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.evolve-chart-stat {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.evolve-chart-best { color: var(--ok); }
+.evolve-chart-svg { display: block; }
+.evolve-grid { stroke: var(--border); stroke-width: 1; }
+.evolve-ylabel, .evolve-xlabel {
+  fill: var(--text-dim);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-anchor: middle;
+}
+.evolve-ylabel { text-anchor: end; }
+.evolve-baseline {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+}
+.evolve-stair {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 1.5;
+  opacity: 0.85;
+}
+.evolve-dot-base { fill: var(--text-dim); }
+.evolve-dot { stroke-width: 1.5; }
+.evolve-dot-best { fill: var(--ok); stroke: var(--ok); }
+.evolve-dot-miss { fill: var(--surface); stroke: var(--accent); }
+.evolve-dot-explore { stroke: var(--warning); }
+.evolve-dot-pending {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  animation: evolve-pulse 1.4s ease-in-out infinite;
+}
+.evolve-err {
+  fill: var(--danger);
+  font-size: 11px;
+  text-anchor: middle;
+  font-weight: 700;
+}
+.evolve-pt-link { cursor: pointer; }
+.evolve-pt-link:hover .evolve-dot { stroke-width: 2.5; }
+@keyframes evolve-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}

@@ -1,29 +1,47 @@
 import { z, defineStep, type RunEvent } from "vein";
 
 /**
- * The HILL-CLIMB over workflow versions (EVOLVE_SPEC §5.3.3, the harvey
- * instance): run `harvey-evolve-gen` up to maxGenerations times, feeding
- * each generation a BRIEFING composed from the baseline digest plus every
- * previous attempt's version, pass-rate, approach summary, and failure
+ * The GENERIC hill-climb over workflow versions (EVOLVE_SPEC §5.3.3 — the
+ * generalization §9.5 called for; promoted from the harvey instance): run a
+ * one-generation workflow up to maxGenerations times, feeding each
+ * generation a BRIEFING composed from the baseline digest plus every
+ * previous attempt's version, fitness, approach summary, and failure
  * digest — anchored to the best-so-far (never the latest, which may have
  * regressed; the same guarantee eval/optimize makes for prompts).
+ *
+ * Domain-agnostic on purpose: the loop knows nothing about rubrics or
+ * scorers. A domain plugs in via
+ *   - `genWorkflow`: its one-generation workflow (author → run candidate
+ *     over tasks → digest), invoked with
+ *     { tasks, mission, candidateName, generation, briefing } and returning
+ *     { version?, summary?, changes?, missingSecrets?, authorCost?, digest }
+ *   - the digest's FITNESS: the loop reads `digest.fitness` (falling back
+ *     to `digest.meanPassRate`, the harvey digest's field) — a number in
+ *     [0,1] that MUST have a gradient (harvey: criteria pass-rate, since
+ *     binary all-pass has none; gaia: plain accuracy — binary per task is
+ *     fine there because the set supplies the gradient).
+ *   - `fitnessName`: how briefings name that number ("pass-rate",
+ *     "accuracy", …) so authors read the right thing.
  *
  * EXPLOIT vs EXPLORE: while attempts keep beating the best, the directive
  * says refine the best version. After `exploreAfter` consecutive
  * non-improving attempts, it flips: try a GENUINELY DIFFERENT approach,
  * with the already-tried approaches listed so "different" is checkable.
  *
- * Judge noise: an improvement must clear `improveMargin` (default 0.02 —
- * one criterion on a 50-criterion task) to count; smaller deltas are ties.
+ * Noise: an improvement must clear `improveMargin` to count; smaller
+ * deltas are ties. What the margin answers is per-domain — judge noise for
+ * LLM-judged benchmarks (harvey: 0.02 ≈ one criterion at n=50), produce-
+ * sampling noise for deterministic scorers (gaia: 0, any task flip counts,
+ * but the same caveat rides: validate on held-out tasks).
  *
  * Runs generations through `services.optimizer` (vein.run — same capability
  * eval/optimize uses), each as its own persisted run linked from this
- * step's per-generation progress events. Stops on: stopPassRate reached,
+ * step's per-generation progress events. Stops on: stopFitness reached,
  * generations exhausted, or two consecutive generation-run failures (a
  * broken harness should not burn ten generations of budget).
  *
  * TRAIN-SET caveat rides on the output: every generation tunes against the
- * same tasks; the final pass-rate is a train score (EVOLVE_SPEC §7).
+ * same tasks; the final fitness is a train score (EVOLVE_SPEC §7).
  */
 
 interface AnyRec {
@@ -67,7 +85,7 @@ interface GenEntry {
   gen: number;
   genRunId: string;
   version?: string;
-  passRate: number;
+  fitness: number;
   allPassCount?: number;
   summary?: string;
   changes?: unknown;
@@ -82,19 +100,20 @@ interface GenEntry {
 export function composeBriefing(args: {
   baseWorkflow: string;
   candidateName: string;
+  fitnessName: string;
   baselineText: string;
-  baselinePassRate: number;
+  baselineFitness: number;
   generations: GenEntry[];
-  best: { gen: number; version?: string; passRate: number; digestText: string };
+  best: { gen: number; version?: string; fitness: number; digestText: string };
   explore: boolean;
   sinceImprove: number;
   improveMargin: number;
 }): string {
-  const { generations, best } = args;
+  const { generations, best, fitnessName } = args;
   const lines: string[] = [];
 
   lines.push(
-    `BASELINE — the seeded produce workflow "${args.baseWorkflow}" was run on every task and graded (mean pass-rate ${args.baselinePassRate}):`,
+    `BASELINE — the seeded produce workflow "${args.baseWorkflow}" was run on every task and graded (mean ${fitnessName} ${args.baselineFitness}):`,
   );
   lines.push(indent(args.baselineText, "  "));
   lines.push("");
@@ -108,9 +127,9 @@ export function composeBriefing(args: {
         lines.push(`- attempt ${g.gen}: FAILED to complete (${excerpt(g.error, 200)})`);
         continue;
       }
-      const delta = Math.round((g.passRate - args.baselinePassRate) * 1000) / 1000;
+      const delta = Math.round((g.fitness - args.baselineFitness) * 1000) / 1000;
       lines.push(
-        `- attempt ${g.gen} → published ${args.candidateName}@${g.version ?? "?"}: mean pass-rate ${g.passRate} (${delta >= 0 ? "+" : ""}${delta} vs baseline)`,
+        `- attempt ${g.gen} → published ${args.candidateName}@${g.version ?? "?"}: mean ${fitnessName} ${g.fitness} (${delta >= 0 ? "+" : ""}${delta} vs baseline)`,
       );
       // The approach summary is the ONLY channel telling the EXPLORE
       // directive what has already been tried — keep it roomy enough that
@@ -122,10 +141,12 @@ export function composeBriefing(args: {
   lines.push("");
 
   if (best.gen < 0) {
-    lines.push(`BEST SO FAR: the baseline itself (mean pass-rate ${best.passRate}) — no attempt has beaten it yet.`);
+    lines.push(
+      `BEST SO FAR: the baseline itself (mean ${fitnessName} ${best.fitness}) — no attempt has beaten it yet.`,
+    );
   } else {
     lines.push(
-      `BEST SO FAR: attempt ${best.gen} → ${args.candidateName}@${best.version} (mean pass-rate ${best.passRate}). Its result digest:`,
+      `BEST SO FAR: attempt ${best.gen} → ${args.candidateName}@${best.version} (mean ${fitnessName} ${best.fitness}). Its result digest:`,
     );
     lines.push(indent(excerpt(best.digestText, 900), "  "));
   }
@@ -150,36 +171,40 @@ export function composeBriefing(args: {
     lines.push(
       `DIRECTIVE — EXPLOIT. Improve FROM the best attempt: read ${args.candidateName}@${best.version} ` +
         `(meta/get-workflow with that EXACT version — the active version may be a worse later ` +
-        `attempt) and refine it: keep what worked, fix exactly what its failed criteria show.`,
+        `attempt) and refine it: keep what worked, fix exactly what its failures show.`,
     );
   }
   lines.push(
-    `Deltas within ±${args.improveMargin} are judge noise — treat them as ties, not as signal to chase.`,
+    `Deltas within ±${args.improveMargin} are noise — treat them as ties, not as signal to chase.`,
   );
 
   return lines.join("\n");
 }
 
 export default defineStep({
-  type: "harvey/evolve-loop",
+  type: "eval/evolve-loop",
   description:
-    "Hill-climb candidate produce workflows over generations: repeatedly run a generation workflow (default harvey-evolve-gen: author → run candidate over tasks → digest), composing each generation's briefing from the baseline digest + all previous attempts, anchored to the best-so-far, flipping to an explore directive after `exploreAfter` non-improving attempts. Requires services.optimizer. Config: tasks, mission, baseline (a harvey/digest-results object), candidateName, baseWorkflow?, genWorkflow?, maxGenerations? (default 5, max 20), stopPassRate? (default 1), improveMargin? (default 0.02), exploreAfter? (default 2), genParams? (paramOverrides for the generation workflow). Output: { candidate, baselinePassRate, bestGen, bestVersion, bestPassRate, improved, generations, totalKnownCost, stopReason }.",
+    "GENERIC hill-climb of candidate produce workflows over generations: repeatedly run a domain's one-generation workflow (author → run candidate over tasks → digest), composing each generation's briefing from the baseline digest + all previous attempts, anchored to the best-so-far, flipping to an explore directive after `exploreAfter` non-improving attempts. Fitness is the generation digest's `fitness` (fallback `meanPassRate`). Requires services.optimizer. Config: tasks, mission, baseline (a digest object with fitness/meanPassRate + text), candidateName, baseWorkflow, genWorkflow, fitnessName? (default 'pass-rate'), maxGenerations? (default 5, max 20), stopFitness? (default 1), improveMargin? (default 0.02), exploreAfter? (default 2), genParams? (paramOverrides for the generation workflow). Output: { candidate, baselineFitness, bestGen, bestVersion, bestFitness, improved, generations, totalKnownCost, stopReason }.",
   input: z.object({
-    tasks: z.array(z.string()).min(1).describe("Harvey task ids the loop optimizes against (the TRAIN set)"),
+    tasks: z.array(z.string()).min(1).describe("task ids the loop optimizes against (the TRAIN set)"),
     mission: z.string().describe("the standing gap statement handed to every generation's author"),
     baseline: z
       .any()
-      .describe("the baseline harvey/digest-results object ({ meanPassRate, text, … }) — generation 0's anchor"),
+      .describe("the baseline digest object ({ fitness | meanPassRate, text, … }) — generation 0's anchor"),
     candidateName: z.string().describe("the candidate workflow name every generation publishes to (versioned lineage)"),
-    baseWorkflow: z.string().default("harvey-produce").describe("the seeded produce workflow the baseline ran"),
-    genWorkflow: z.string().default("harvey-evolve-gen").describe("the one-generation workflow the loop runs"),
+    baseWorkflow: z.string().describe("the seeded produce workflow the baseline ran"),
+    genWorkflow: z.string().describe("the domain's one-generation workflow the loop runs"),
+    fitnessName: z
+      .string()
+      .default("pass-rate")
+      .describe("how briefings name the fitness number ('pass-rate', 'accuracy', …)"),
     maxGenerations: z.number().int().min(1).max(20).default(5),
-    stopPassRate: z.number().min(0).max(1).default(1).describe("stop early once a generation's mean pass-rate reaches this"),
+    stopFitness: z.number().min(0).max(1).default(1).describe("stop early once a generation's fitness reaches this"),
     improveMargin: z
       .number()
       .min(0)
       .default(0.02)
-      .describe("an attempt must beat the best by MORE than this to count as an improvement (judge noise floor; 0.02 ≈ one criterion on a 50-criterion task)"),
+      .describe("an attempt must beat the best by MORE than this to count as an improvement (noise floor — judge noise for LLM-judged domains, produce-sampling noise for deterministic scorers)"),
     exploreAfter: z
       .number()
       .int()
@@ -195,17 +220,17 @@ export default defineStep({
   async run(cfg, ctx) {
     const opt = (ctx.services as { optimizer?: Optimizer } | undefined)?.optimizer;
     if (!opt) {
-      throw new Error("harvey/evolve-loop requires a `services.optimizer` capability (injected in createLabVein).");
+      throw new Error("eval/evolve-loop requires a `services.optimizer` capability (injected in createLabVein).");
     }
 
     const baseline = (cfg.baseline ?? {}) as AnyRec;
-    const baselinePassRate = num(baseline["meanPassRate"]) ?? 0;
+    const baselineFitness = num(baseline["fitness"]) ?? num(baseline["meanPassRate"]) ?? 0;
     const baselineText =
       typeof baseline["text"] === "string" && baseline["text"]
         ? (baseline["text"] as string)
         : excerpt(JSON.stringify(baseline), 800);
 
-    let best = { gen: -1, version: undefined as string | undefined, passRate: baselinePassRate, digestText: baselineText };
+    let best = { gen: -1, version: undefined as string | undefined, fitness: baselineFitness, digestText: baselineText };
     let sinceImprove = 0;
     let consecutiveFailures = 0;
     let totalKnownCost = 0;
@@ -219,7 +244,7 @@ export default defineStep({
         ts: new Date().toISOString(),
         runId: ctx.runId,
         path: `${ctx.path}#${gen}`,
-        stepType: "harvey/evolve-loop",
+        stepType: "eval/evolve-loop",
         iteration: gen,
         ...e,
       } as RunEvent);
@@ -235,12 +260,12 @@ export default defineStep({
       // from the journaled output so the loop continues where it left off.
       const journaled = ctx.journal?.[`${ctx.path}#${gen}`] as AnyRec | undefined;
       if (journaled) {
-        const passRate = num(journaled["passRate"]) ?? 0;
+        const fitness = num(journaled["fitness"]) ?? num(journaled["passRate"]) ?? 0;
         const entry: GenEntry = {
           gen,
           genRunId: String((journaled["runs"] as AnyRec[] | undefined)?.[0]?.["runId"] ?? ""),
           version: typeof journaled["version"] === "string" ? (journaled["version"] as string) : undefined,
-          passRate,
+          fitness,
           summary: typeof journaled["summary"] === "string" ? (journaled["summary"] as string) : undefined,
           digestText: typeof journaled["digestText"] === "string" ? (journaled["digestText"] as string) : undefined,
           explore: journaled["directive"] === "explore",
@@ -248,15 +273,15 @@ export default defineStep({
         generations.push(entry);
         consecutiveFailures = 0;
         totalKnownCost += num(journaled["knownCost"]) ?? 0;
-        if (passRate > best.passRate + cfg.improveMargin) {
-          best = { gen, version: entry.version, passRate, digestText: entry.digestText ?? "" };
+        if (fitness > best.fitness + cfg.improveMargin) {
+          best = { gen, version: entry.version, fitness, digestText: entry.digestText ?? "" };
           sinceImprove = 0;
         } else {
           sinceImprove++;
         }
         await emitGen(gen, { type: "step.replayed", output: journaled });
-        if (passRate >= cfg.stopPassRate) {
-          stopReason = `stopPassRate ${cfg.stopPassRate} reached`;
+        if (fitness >= cfg.stopFitness) {
+          stopReason = `stopFitness ${cfg.stopFitness} reached`;
           break;
         }
         continue;
@@ -266,8 +291,9 @@ export default defineStep({
       const briefing = composeBriefing({
         baseWorkflow: cfg.baseWorkflow,
         candidateName: cfg.candidateName,
+        fitnessName: cfg.fitnessName,
         baselineText,
-        baselinePassRate,
+        baselineFitness,
         generations,
         best,
         explore,
@@ -277,7 +303,7 @@ export default defineStep({
       const genStart = Date.now();
       await emitGen(gen, {
         type: "step.start",
-        input: { gen, directive: explore ? "explore" : "exploit", bestPassRate: best.passRate, briefing: excerpt(briefing, 2000) },
+        input: { gen, directive: explore ? "explore" : "exploit", bestFitness: best.fitness, briefing: excerpt(briefing, 2000) },
       });
 
       const run = await opt.run(
@@ -295,7 +321,7 @@ export default defineStep({
 
       if (run.status !== "success") {
         const message = run.error?.message ?? "unknown";
-        generations.push({ gen, genRunId: run.runId, passRate: 0, explore, error: message });
+        generations.push({ gen, genRunId: run.runId, fitness: 0, explore, error: message });
         await emitGen(gen, {
           type: "step.error",
           durationMs: Date.now() - genStart,
@@ -312,7 +338,7 @@ export default defineStep({
 
       const out = (run.output ?? {}) as AnyRec;
       const digest = (out["digest"] ?? {}) as AnyRec;
-      const passRate = num(digest["meanPassRate"]) ?? 0;
+      const fitness = num(digest["fitness"]) ?? num(digest["meanPassRate"]) ?? 0;
       const digestResults = Array.isArray(digest["results"]) ? (digest["results"] as AnyRec[]) : [];
       const authorCost = num(out["authorCost"]) ?? 0;
       const produceCost = digestResults.reduce((s, r) => s + (num(r["cost"]) ?? 0), 0);
@@ -322,7 +348,7 @@ export default defineStep({
         gen,
         genRunId: run.runId,
         version: typeof out["version"] === "string" ? (out["version"] as string) : undefined,
-        passRate,
+        fitness,
         allPassCount: num(digest["allPassCount"]),
         summary: typeof out["summary"] === "string" ? (out["summary"] as string) : undefined,
         changes: out["changes"],
@@ -334,8 +360,8 @@ export default defineStep({
       };
       generations.push(entry);
 
-      if (passRate > best.passRate + cfg.improveMargin) {
-        best = { gen, version: entry.version, passRate, digestText: entry.digestText ?? "" };
+      if (fitness > best.fitness + cfg.improveMargin) {
+        best = { gen, version: entry.version, fitness, digestText: entry.digestText ?? "" };
         sinceImprove = 0;
       } else {
         sinceImprove++;
@@ -348,8 +374,8 @@ export default defineStep({
           gen,
           directive: explore ? "explore" : "exploit",
           version: entry.version,
-          passRate,
-          bestPassRate: best.passRate,
+          fitness,
+          bestFitness: best.fitness,
           bestGen: best.gen,
           knownCost: Math.round((authorCost + produceCost) * 10000) / 10000,
           runs: [{ label: `generation ${gen}`, workflow: cfg.genWorkflow, runId: run.runId }],
@@ -360,23 +386,23 @@ export default defineStep({
         },
       });
 
-      if (passRate >= cfg.stopPassRate) {
-        stopReason = `stopPassRate ${cfg.stopPassRate} reached`;
+      if (fitness >= cfg.stopFitness) {
+        stopReason = `stopFitness ${cfg.stopFitness} reached`;
         break;
       }
     }
 
     return {
       candidate: cfg.candidateName,
-      baselinePassRate,
+      baselineFitness,
       bestGen: best.gen,
       bestVersion: best.version,
-      bestPassRate: best.passRate,
+      bestFitness: best.fitness,
       improved: best.gen >= 0,
       generations,
       totalKnownCost: Math.round(totalKnownCost * 10000) / 10000,
       stopReason,
-      note: "TRAIN scores — every generation tuned against the same tasks (EVOLVE_SPEC §7). Validate the best version on held-out tasks before promoting. totalKnownCost = author + produce costs; judge cost is not surfaced by the benchmark and is additional.",
+      note: "TRAIN scores — every generation tuned against the same tasks (EVOLVE_SPEC §7). Validate the best version on held-out tasks before promoting. totalKnownCost = author + produce costs; grading cost (where the benchmark bills it) is additional.",
     };
   },
 });

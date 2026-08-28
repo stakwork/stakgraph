@@ -429,7 +429,8 @@ are thin plumbing over `ctx.services.gaia.*`.
   `gaia-produce` (agent step; the produce system prompt, model, maxSteps: 50
   and agentTools live in `params`; an `onError` fallback scores a blown-up
   agent as an empty wrong answer instead of killing the batch), `gaia-run`
-  (single task: produce → score) and `gaia-batch` ({ level, limit }: one
+  (single task: produce → score; `input.produceWorkflow` swaps in a seeded
+  produce variant) and `gaia-batch` ({ level, limit }: one
   score call for the whole batch). This is the harness that went 1/5 → 5/5
   on the level-1 batch (EVOLVE_SPEC §1), promoted from the workspace where
   the assistant authored it. Seeding is content-hash reconciled — the
@@ -437,6 +438,25 @@ are thin plumbing over `ctx.services.gaia.*`.
   survives restarts only once it's ported back here. The from-scratch
   authoring recipe is kept in `notes/GAIA.md` as an authoring eval; it is no
   longer the path to a working harness.
+
+- **Evolve harness** (mirrors harvey's, on the generic `eval/evolve-loop`):
+  `gaia/digest-results` (verdict-channel digest — accuracy as `fitness`,
+  misses tagged wrong-answer / empty-answer / produce-error per EVOLVE_SPEC
+  §8's taxonomy, candidate answers + question excerpts, never gold),
+  `gaia-candidate-run` (runs an ai-stamped candidate on one task via
+  `meta/run-workflow`, scores its reported answer via `gaia/evaluate`'s
+  `fromRun` unpack — a failed run is an honest zero), `gaia-evolve-gen`
+  (one generation: meta/* author → pinned candidate over the task set →
+  digest) and `gaia-evolve` (baseline → hill-climb → report;
+  `improveMargin: 0` since exact-match has no judge noise — the residual
+  produce-sampling noise is answered by held-out validation, not a margin).
+  Candidate contract: input `{ taskId }`, last step outputs `taskId`,
+  `answer` (bare string), `cost`, `steps`; candidates may use
+  `gaia/get-task` / `gaia/pack-result` as steps but NEVER `gaia/evaluate`
+  (produce-time oracle) and never gaia/*, eval/*, meta/* as agentTools.
+  Scores are TRAIN scores — validate the best version on a held-out
+  `gaia-batch` slice before promoting. Offline checks:
+  `npx tsx src/lab/gaia/evolve-smoke.ts`.
 
 - **Setup**: automatic (`gaia/bootstrap.ts`) — the one required env var is
   **`HF_TOKEN`**. First use materialises the dataset into `<cache>/vein/gaia`, installs the
@@ -497,6 +517,17 @@ Domain-agnostic eval substrate, shared by every experiment. See
   §11.2) — the per-example results array is fed to reflect. Each entry carries
   its own gold (e.g. `{ owner, repo, expected }`), read by the eval workflow
   from `input`. (A single example is just a 1-entry `evalInputs`.)
+- `eval/steps/evolve-loop.ts` (`eval/evolve-loop`) — the generic hill-climb
+  over WORKFLOW VERSIONS (EVOLVE_SPEC §5.3.3 generalized from the harvey
+  instance): runs a domain's one-generation workflow (author → run candidate
+  over tasks → digest) up to N generations, briefing each author with every
+  prior attempt anchored to the best-so-far, flipping exploit→explore after
+  `exploreAfter` non-improving attempts. Fitness is the generation digest's
+  `fitness` (fallback `meanPassRate`), named in briefings by `fitnessName`;
+  improvements must clear `improveMargin` (judge noise for LLM-judged
+  domains — harvey 0.02; produce-sampling noise for deterministic scorers —
+  gaia 0). Needs `services.optimizer`. Wired by `harvey-evolve`
+  (pass-rate) and `gaia-evolve` (accuracy).
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

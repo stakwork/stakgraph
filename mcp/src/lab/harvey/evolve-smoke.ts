@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { WorkspaceManager, buildRegistry, fileArtifactsCapability, resolveConfig } from "vein";
 import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
+import { seedEvalSteps } from "../eval/seed.js";
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { createLabVein } from "../createLabVein.js";
 
@@ -20,6 +21,7 @@ async function main() {
   try {
     const workspace = new WorkspaceManager(join(base, "ws"));
     await seedHarveySteps(workspace);
+    await seedEvalSteps(workspace); // eval/evolve-loop — the generic hill-climb harvey-evolve wires
     await seedArtifactSteps(workspace);
     await seedHarveyWorkflows(workspace);
 
@@ -35,7 +37,7 @@ async function main() {
     const { registry } = await buildRegistry(workspace.path);
     const wanted = [
       "harvey/get-task", "harvey/evaluate", "harvey/pack-result", "harvey/digest-results",
-      "harvey/evolve-loop", "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",
+      "eval/evolve-loop", "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",
     ];
     for (const t of wanted) assert.ok(registry[t], `registry has ${t}`);
     console.log("✔ all referenced step types resolve");
@@ -135,8 +137,8 @@ async function main() {
     // 5. the hill-climb loop, driven by a fake optimizer:
     //    rates 0.85, 0.86, 0.86, 0.95 vs baseline 0.90 (improveMargin 0.02,
     //    exploreAfter 2) → gens 0-1 exploit and fail to improve, gens 2-3
-    //    get the EXPLORE directive, gen 3 beats best and hits stopPassRate.
-    const loop = registry["harvey/evolve-loop"]!;
+    //    get the EXPLORE directive, gen 3 beats best and hits stopFitness.
+    const loop = registry["eval/evolve-loop"]!;
     const genCalls: any[] = [];
     const rates = [0.85, 0.86, 0.86, 0.95];
     const fakeOpt = {
@@ -163,19 +165,21 @@ async function main() {
         mission: "m",
         baseline: { meanPassRate: 0.9, text: "baseline digest" },
         candidateName: "harvey-produce-ai",
+        baseWorkflow: "harvey-produce",
+        genWorkflow: "harvey-evolve-gen",
         maxGenerations: 6,
-        stopPassRate: 0.94,
+        stopFitness: 0.94,
         improveMargin: 0.02,
         exploreAfter: 2,
       }),
       loopCtx,
     );
     assert.equal(genCalls.length, 4); // stopped at gen 3 (0.95 ≥ 0.94), not 6
-    assert.equal(loopOut.stopReason, "stopPassRate 0.94 reached");
+    assert.equal(loopOut.stopReason, "stopFitness 0.94 reached");
     assert.equal(loopOut.bestGen, 3);
     assert.equal(loopOut.bestVersion, "v4");
-    assert.equal(loopOut.bestPassRate, 0.95);
-    assert.equal(loopOut.baselinePassRate, 0.9);
+    assert.equal(loopOut.bestFitness, 0.95);
+    assert.equal(loopOut.baselineFitness, 0.9);
     assert.equal(loopOut.improved, true);
     assert.equal(loopOut.totalKnownCost, 12); // 4 gens × (author 1 + produce 2)
     // directive flip: gens 0-1 exploit, gens 2-3 explore
@@ -189,7 +193,7 @@ async function main() {
     assert.ok(genCalls[3].briefing.includes("attempt 2"));
     assert.ok(genCalls[3].briefing.includes("harvey-produce-ai@v3"));
     assert.ok(genCalls[3].briefing.includes("BEST SO FAR: the baseline itself"));
-    console.log("✔ harvey/evolve-loop: best-anchoring, explore flip, history, early stop");
+    console.log("✔ eval/evolve-loop: best-anchoring, explore flip, history, early stop");
 
     // two consecutive generation failures abort the loop
     const failOpt = { run: async () => ({ runId: "x", status: "failed", error: { message: "boom" } }) };
@@ -199,6 +203,8 @@ async function main() {
         mission: "m",
         baseline: { meanPassRate: 0.9, text: "b" },
         candidateName: "c",
+        baseWorkflow: "harvey-produce",
+        genWorkflow: "harvey-evolve-gen",
         maxGenerations: 6,
       }),
       { ...ctxStub, services: { optimizer: failOpt } },
@@ -206,15 +212,16 @@ async function main() {
     assert.equal(failOut.stopReason, "two consecutive generation failures");
     assert.equal(failOut.generations.length, 2);
     assert.equal(failOut.improved, false);
-    console.log("✔ harvey/evolve-loop: aborts after consecutive failures");
+    console.log("✔ eval/evolve-loop: aborts after consecutive failures");
 
     // 6. REGRESSION — the optimizer capability must be visible to RUNS.
     //    createVein SPREADS the caller's services into a fresh bag, so
     //    createLabVein's post-construction injection must land on
     //    vein.services (the effective bag), not the local one. This broke
-    //    silently once: eval/optimize and harvey/evolve-loop threw
+    //    silently once: eval/optimize and eval/evolve-loop threw
     //    "requires a services.optimizer capability" at run time while the
-    //    local bag looked fine. Prove it end to end: boot the real lab
+    //    local bag looked fine (eval/optimize + eval/evolve-loop). Prove it
+    //    end to end: boot the real lab
     //    vein, publish a probe step + workflow, and assert a RUN sees
     //    services.optimizer.
     // Construction-only requirement: concept services demand a provider key

@@ -1,49 +1,53 @@
-name: harvey-evolve
-# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4), now a HILL-CLIMB
-# (§5.3.3, harvey instance): baseline once, then up to maxGenerations
-# author→run→grade cycles, each generation briefed with every previous
-# attempt's version, pass-rate, approach, and failures — anchored to the
-# best-so-far, flipping to an explicit "try a genuinely different
-# approach" directive after `exploreAfter` non-improving attempts.
+name: gaia-evolve
+# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4) for GAIA — a HILL-CLIMB
+# (§5.3.3, gaia instance of the generic eval/evolve-loop): baseline once,
+# then up to maxGenerations author→run→grade cycles, each generation
+# briefed with every previous attempt's version, accuracy, approach, and
+# misses — anchored to the best-so-far, flipping to an explicit "try a
+# genuinely different approach" directive after `exploreAfter`
+# non-improving attempts.
 #
-#   capture   run the BASELINE produce workflow over the task set, grade it
-#             with the real benchmark eval, digest the aggregate misses
-#   loop      eval/evolve-loop (generic) runs harvey-evolve-gen per generation:
-#             an authoring agent (meta/* only — §5.3.2) publishes a new
+#   capture   run the BASELINE produce workflow over the task set, score it
+#             with the real leaderboard scorer, digest the misses (tagged
+#             wrong-answer / empty-answer / produce-error — §8's taxonomy)
+#   loop      eval/evolve-loop runs gaia-evolve-gen per generation: an
+#             authoring agent (meta/* only — §5.3.2) publishes a new
 #             version of the candidate, the harness runs it pinned over the
-#             same tasks and digests the grades; the loop composes the next
+#             same tasks and digests the scores; the loop composes the next
 #             generation's briefing and directive from the results
-#   promote   the report: best version + its pass-rate vs baseline, the
+#   promote   the report: best version + its accuracy vs baseline, the
 #             full generation history, costs. Promotion stays a HUMAN act —
-#             point harvey-run's input.produceWorkflow at the best version,
-#             or fold its diff into the seeded harvey-produce, after review.
+#             point gaia-run's input.produceWorkflow at the best version,
+#             or fold its diff into the seeded gaia-produce, after review.
+#             Review must also check the candidate never embeds
+#             gaia/evaluate (produce-time oracle access — §6).
 #
 # MEASUREMENT DISCIPLINE (EVOLVE_SPEC §6/§7):
-#   - Authors see pass/fail VERDICTS + truncated judge reasoning for failed
-#     criteria — never the rubric. Hill-climbing against verdicts is the
-#     train-set problem: every score in this report is a TRAIN score on the
-#     very tasks the candidates were tuned against. Validate the best
-#     version on held-out tasks before believing the delta.
-#   - The fitness is criteria pass-RATE (harvey/digest-results) — the
-#     benchmark's binary all-pass score has no gradient. Improvements must
-#     clear `improveMargin` (judge-noise floor) to count.
+#   - Scoring is exact-match, so there is no judge noise — improveMargin
+#     defaults to 0 (any task flip counts). The noise that remains is
+#     PRODUCE-SAMPLING noise: the same workflow re-run can flip tasks by
+#     luck, and on n tasks one flip is 1/n. Small task sets make single
+#     flips loud — n=5 is an anecdote (§7); prefer ~10+ train tasks.
+#   - Every score in this report is a TRAIN score on the very tasks the
+#     candidates were tuned against. Validate the best version on held-out
+#     tasks (gaia-batch over a different slice) before believing the delta.
 #   - Authors cannot grade: grading happens in the harness after each
 #     author finishes, and candidates run under their OWN runIds via
-#     meta/run-workflow (harvey-candidate-run).
+#     meta/run-workflow (gaia-candidate-run).
 #
-# COST: roughly (1 + generations) × |tasks| × (produce + judge) + each
-# generation's author (incl. its ≤2 smoke runs). With maxGenerations 5 and
-# one task, expect tens of dollars. Start small; raise input.generations
-# (cap 20) to let it rip.
+# COST: roughly (1 + generations) × |tasks| × produce + each generation's
+# author (incl. its ≤2 smoke runs). Scoring is a local python subprocess —
+# free. Start small; raise input.generations (cap 20) to let it rip.
 #
-# Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR (+ uv, git, pandoc on PATH).
+# Needs: ANTHROPIC_API_KEY, HF_TOKEN (or a populated GAIA_DIR checkout;
+# git-lfs for attachments).
 # Input:  { tasks: [taskId, …], mission, generations? }
 #   mission:     the standing gap statement handed to every generation's
 #                author (the digest evidence rides alongside it and, per
 #                the author method, outranks it).
 #   generations: override params.maxGenerations for this run (e.g. 10).
-# Output: { candidate, bestGen, bestVersion, bestPassRate,
-#           baselinePassRate, improved, generations, totalKnownCost,
+# Output: { candidate, bestGen, bestVersion, bestAccuracy,
+#           baselineAccuracy, improved, generations, totalKnownCost,
 #           stopReason, baseline, … }
 steps:
   # ── capture: baseline over the task set ────────────────────────────────
@@ -55,21 +59,17 @@ steps:
         id: one
         type: subflow
         config:
-          workflow: harvey-run
+          workflow: gaia-run
           input:
-            task: "{{ $current }}"
-            workdir: "{{ $current }}"
+            taskId: "{{ $current }}"
 
   - id: basedigest
-    type: harvey/digest-results
+    type: gaia/digest-results
     depends: baseline
     config:
       results: "{{ baseline }}"
-      maxCriteria: "{{ params.digestMaxCriteria }}"
 
   # ── the hill-climb: author → run → grade, up to N generations ──────────
-  # The loop is the GENERIC eval/evolve-loop; harvey's fitness is criteria
-  # pass-rate (the digest's meanPassRate — binary all-pass has no gradient).
   - id: evolve
     type: eval/evolve-loop
     depends: basedigest
@@ -80,16 +80,16 @@ steps:
       candidateName: "{{ params.candidateName }}"
       baseWorkflow: "{{ params.baseWorkflow }}"
       genWorkflow: "{{ params.genWorkflow }}"
-      fitnessName: pass-rate
+      fitnessName: accuracy
       maxGenerations: "{{ input.generations || params.maxGenerations }}"
-      stopFitness: "{{ params.stopPassRate }}"
+      stopFitness: "{{ params.stopAccuracy }}"
       improveMargin: "{{ params.improveMargin }}"
       exploreAfter: "{{ params.exploreAfter }}"
       genParams: "{{ params.genParams }}"
 
   # ── promote: the reviewable report ─────────────────────────────────────
   - id: report
-    type: harvey/pack-result
+    type: gaia/pack-result
     depends: evolve
     config:
       mission: "{{ input.mission }}"
@@ -97,9 +97,9 @@ steps:
       candidate: "{{ evolve.candidate }}"
       bestGen: "{{ evolve.bestGen }}"
       bestVersion: "{{ evolve.bestVersion }}"
-      bestPassRate: "{{ evolve.bestFitness }}"
-      baselinePassRate: "{{ evolve.baselineFitness }}"
-      passRateDelta: "{{ evolve.bestFitness - evolve.baselineFitness }}"
+      bestAccuracy: "{{ evolve.bestFitness }}"
+      baselineAccuracy: "{{ evolve.baselineFitness }}"
+      accuracyDelta: "{{ evolve.bestFitness - evolve.baselineFitness }}"
       improved: "{{ evolve.improved }}"
       generations: "{{ evolve.generations }}"
       totalKnownCost: "{{ evolve.totalKnownCost }}"
@@ -110,26 +110,26 @@ steps:
 params:
   # The produce workflow the baseline runs and generation-0 authors start
   # from (read via meta/get-workflow).
-  baseWorkflow: harvey-produce
+  baseWorkflow: gaia-produce
   # The candidate's name. Every generation republishes it — a NEW VERSION
   # each time, so one evolve run leaves a versioned lineage (and the report
   # pins the best version, which may not be the latest).
-  candidateName: harvey-produce-ai
+  candidateName: gaia-produce-ai
   # The one-generation workflow the loop runs (author → candidate eval →
   # digest). Its own params (authorModel, authorMaxSteps, authorSystem, …)
   # are the author's experiment surface — override per run via genParams.
-  genWorkflow: harvey-evolve-gen
+  genWorkflow: gaia-evolve-gen
   maxGenerations: 5
-  # Stop early once a generation's mean pass-rate reaches this (1 = every
-  # criterion on every task — rarely reached; generations are the real cap).
-  stopPassRate: 1
-  # Judge-noise floor: an attempt must beat the best by MORE than this to
-  # count as an improvement (0.02 ≈ one criterion on a 50-criterion task).
-  improveMargin: 0.02
+  # Stop early once a generation's accuracy reaches this (1 = every task —
+  # reachable on tuned-against train sets; generations are the real cap).
+  stopAccuracy: 1
+  # Exact-match scoring has no judge noise — any single task flip counts as
+  # an improvement. The residual produce-sampling noise is answered by the
+  # held-out validation the report's note demands, not by a margin.
+  improveMargin: 0
   # Consecutive non-improving attempts before the directive flips from
   # "refine the best" to "try a genuinely different approach".
   exploreAfter: 2
-  digestMaxCriteria: 6
-  # Param overrides for harvey-evolve-gen (e.g. { authorModel: "...",
+  # Param overrides for gaia-evolve-gen (e.g. { authorModel: "...",
   # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.
   genParams: {}

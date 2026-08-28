@@ -443,12 +443,26 @@ possible version of "capture."
    stays human. Offline checks: `mcp/src/lab/harvey/evolve-smoke.ts`.
 5. **Generalize `eval/optimize`'s candidate** from prompt string to workflow
    ref + version (§5.3.3) — the change that lets one loop drive all three
-   layers. **Harvey instance built** — `harvey/evolve-loop` (lab): up to N
-   generations of `harvey-evolve-gen` (author → run pinned candidate →
-   digest), each briefed with every prior attempt's version/pass-rate/
+   layers. **Done, twice over** — the loop is now the GENERIC
+   `eval/evolve-loop` (lab, `eval/steps/evolve-loop.ts`): up to N
+   generations of a domain's gen workflow (author → run pinned candidate →
+   digest), each briefed with every prior attempt's version/fitness/
    approach/failures, anchored to the best-so-far (never the latest), with
    the directive flipping from exploit to "try a GENUINELY DIFFERENT
-   approach" after `exploreAfter` non-improving attempts. Fitness is
-   criteria pass-rate (binary all-pass has no gradient); improvements must
-   clear a judge-noise margin (default 0.02 ≈ one criterion at n=50). The
-   GENERIC step remains open — this is the shape it should generalize.
+   approach" after `exploreAfter` non-improving attempts. A domain plugs in
+   its gen workflow plus a digest emitting `fitness` (fallback
+   `meanPassRate`) and a `fitnessName`. Two instances wired:
+   - **harvey-evolve** — fitness is criteria pass-rate (binary all-pass has
+     no gradient); improvements must clear a judge-noise margin (0.02 ≈ one
+     criterion at n=50).
+   - **gaia-evolve** — fitness is plain accuracy (binary per task is fine:
+     the task SET is the gradient, each flip moves it 1/n);
+     `improveMargin: 0` since exact-match scoring has no judge noise — the
+     residual produce-sampling noise is answered by §7's held-out
+     validation, not a margin. `gaia/digest-results` tags each miss
+     wrong-answer / empty-answer / produce-error (§8's taxonomy as a
+     required batch output, the cheap code-only version), and
+     `gaia-candidate-run` grades via `gaia/evaluate`'s `fromRun` unpack
+     (§5.3.5: a failed candidate run scores as "" — an honest zero, never
+     an aborted batch). Offline checks:
+     `mcp/src/lab/gaia/evolve-smoke.ts`.
