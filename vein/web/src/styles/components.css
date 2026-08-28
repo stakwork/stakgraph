@@ -440,6 +440,14 @@ body.is-resizing-events * {
 .btn-primary:hover {
   background: var(--accent-strong);
 }
+.btn-danger {
+  border-color: var(--danger, #b3423f);
+  color: var(--danger, #b3423f);
+}
+.btn-danger:hover {
+  background: var(--danger, #b3423f);
+  color: var(--bg);
+}
 
 /* ─── dialog ─────────────────────────────────────────────────── */
 

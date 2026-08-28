@@ -310,6 +310,34 @@ export const getRun = (workflow: string, runId: string) =>
 export const getRunEvents = (workflow: string, runId: string) =>
   fetchJSON<RunEvent[]>(`/workflows/${workflow}/runs/${runId}/events`);
 
+// ── Run control (RUN_CONTROL_SPEC) ─────────────────────────────────────────
+// Cancel/pause act on the live run tree (nested runs included). Resume is
+// dual-purpose: releases a paused run, or durably resumes a dead one
+// ("stale"/error/cancelled) by replaying its journal — optionally forcing
+// re-execution from a step path (`from`, the "re-run from here" gesture).
+
+export const cancelRun = (workflow: string, runId: string) =>
+  fetchJSON<{ ok: boolean; state: string }>(
+    `/workflows/${workflow}/runs/${runId}/cancel`,
+    { method: "POST" },
+  );
+
+export const pauseRun = (workflow: string, runId: string) =>
+  fetchJSON<{ ok: boolean; state: string; quiesced: boolean }>(
+    `/workflows/${workflow}/runs/${runId}/pause`,
+    { method: "POST" },
+  );
+
+export const resumeRun = (workflow: string, runId: string, from?: string) =>
+  fetchJSON<{ ok: boolean; resumed: string }>(
+    `/workflows/${workflow}/runs/${runId}/resume`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(from ? { from } : {}),
+    },
+  );
+
 // ── Promotions (promote a run output → a target workflow's param) ───────────
 
 /** A declared promotion resolved against a specific run's output. `value` is

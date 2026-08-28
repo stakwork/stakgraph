@@ -26,6 +26,9 @@ export function StepRunFlyout(props: {
   step: StepData;
   events: StepRunEvents;
   onClose: () => void;
+  /** When set, offers "Re-run from here" — durable resume with `from` at this
+   *  step (RUN_CONTROL_SPEC §5.2). Only passed for non-live runs. */
+  onRerunFrom?: () => void;
 }) {
   const { step } = props;
   const disp = props.events;
@@ -53,6 +56,14 @@ export function StepRunFlyout(props: {
               <div class="flyout-meta-row">
                 <span class="flyout-meta-label">Duration</span>
                 <span class="flyout-meta-value">{disp.end.durationMs}ms</span>
+              </div>
+            )}
+            {props.onRerunFrom && (
+              <div class="flyout-meta-row">
+                <span class="flyout-meta-label">Resume</span>
+                <button class="btn" style="padding:2px 10px;font-size:11px;" onClick={props.onRerunFrom}>
+                  Re-run from here
+                </button>
               </div>
             )}
             {disp.start?.ts && (
