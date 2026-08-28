@@ -17,7 +17,8 @@ export interface ReturnNode {
   node_type: NodeType;
   ref_id: string;
   properties: NodeData;
-  date_added_to_graph?: string | number;
+  /** Canonical: epoch milliseconds (Neo4j Integer, reads back as number). */
+  date_added_to_graph?: number;
 }
 
 export interface NodeData {
@@ -29,7 +30,8 @@ export interface NodeData {
   docs?: string;
   hash?: string;
   verb?: string;
-  date_added_to_graph?: string;
+  /** Canonical: epoch milliseconds (Neo4j Integer, reads back as number). */
+  date_added_to_graph?: number;
   [key: string]: any; // Allow any other properties
 }
 
