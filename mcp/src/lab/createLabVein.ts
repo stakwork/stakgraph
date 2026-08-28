@@ -178,7 +178,7 @@ export async function createLabVein(
   // spreading our `services` into a fresh object (standardServices +
   // artifacts + ours) — NOT the local `services`, which runs never see
   // again. Mutating the local bag here silently broke every consumer of
-  // `services.optimizer` (eval/optimize, harvey/evolve-loop): steps threw
+  // `services.optimizer` (eval/optimize, eval/evolve-loop): steps threw
   // "requires a services.optimizer capability" at run time. This is what
   // lets the optimize/evolve loops run sub-workflows.
   const optimizer: LabServices["optimizer"] = {

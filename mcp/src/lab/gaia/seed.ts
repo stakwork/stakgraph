@@ -18,6 +18,13 @@ import type { WorkspaceManager } from "vein";
  * - `gaia/evaluate` — the real leaderboard scorer. HARNESS-ONLY: grant only
  *   to harness workflows, never to a producing agent's `agentTools`.
  * - `gaia/pack-result`, `gaia/summarize-batch` — pure combiners.
+ * - `gaia/digest-results` — aggregate graded results into the evolve loop's
+ *   propose digest (verdict channel only; accuracy as `fitness`).
+ *
+ * The evolve harness (gaia-candidate-run / gaia-evolve-gen / gaia-evolve)
+ * mirrors harvey's, driven by the generic `eval/evolve-loop`. All seeded
+ * UNSTAMPED, so the meta surface can read but never edit, run, or
+ * overwrite them.
  *
  * Seeding is content-hash reconciled: the committed copy is authoritative at
  * boot. A workspace-side evolution of these survives restarts only once it's
@@ -29,6 +36,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "evaluate.ts", type: "gaia/evaluate" },
   { file: "pack-result.ts", type: "gaia/pack-result" },
   { file: "summarize-batch.ts", type: "gaia/summarize-batch" },
+  { file: "digest-results.ts", type: "gaia/digest-results" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -48,6 +56,21 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
     name: "gaia-batch",
     description:
       "GAIA batch harness: list-tasks (by level) -> first `limit` -> produce per task via gaia-produce -> one gaia/evaluate call -> merged report {accuracy, byLevel, perTask, totalCost, totalSteps}.",
+  },
+  {
+    name: "gaia-candidate-run",
+    description:
+      "Run an ai-stamped candidate produce workflow on ONE GAIA task via meta/run-workflow (own runId, fresh registry) and score its answer with the real scorer (fromRun unpack — a failed run scores as an honest zero). Input: { workflow, version?, taskId }. Output: { taskId, candidate, version, correct, answer, level, question, produceStatus, runResult, … }.",
+  },
+  {
+    name: "gaia-evolve-gen",
+    description:
+      "ONE GENERATION of the gaia evolution loop: meta/* authoring agent publishes a candidate version -> gaia-candidate-run over the task set (pinned version) -> gaia/digest-results. Invoked by eval/evolve-loop with { tasks, mission, candidateName, generation, briefing }. Output: { candidate, generation, version, summary, changes, missingSecrets, authorCost, authorSteps, digest }.",
+  },
+  {
+    name: "gaia-evolve",
+    description:
+      "GAIA authoring harness (hill-climb): baseline gaia-run over the task set -> digest -> eval/evolve-loop over gaia-evolve-gen generations (accuracy fitness, exact-match so improveMargin 0) -> report with best version vs baseline. TRAIN scores — validate the best version on held-out tasks before promoting. Input: { tasks: [taskId, …], mission, generations? }.",
   },
 ];
 
