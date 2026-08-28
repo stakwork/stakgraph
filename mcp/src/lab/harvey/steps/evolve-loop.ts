@@ -41,7 +41,7 @@ interface Optimizer {
   run(
     name: string,
     input: unknown,
-    opts?: { paramOverrides?: Record<string, Record<string, unknown>> },
+    opts?: { paramOverrides?: Record<string, Record<string, unknown>>; parentRunId?: string },
   ): Promise<RunResultLike>;
 }
 
@@ -112,7 +112,10 @@ export function composeBriefing(args: {
       lines.push(
         `- attempt ${g.gen} → published ${args.candidateName}@${g.version ?? "?"}: mean pass-rate ${g.passRate} (${delta >= 0 ? "+" : ""}${delta} vs baseline)`,
       );
-      if (g.summary) lines.push(`  approach: ${excerpt(g.summary, 400)}`);
+      // The approach summary is the ONLY channel telling the EXPLORE
+      // directive what has already been tried — keep it roomy enough that
+      // "pick an approach that is none of the above" stays checkable.
+      if (g.summary) lines.push(`  approach: ${excerpt(g.summary, 1200)}`);
       if (g.digestText) lines.push(indent(excerpt(g.digestText, 700), "    "));
     }
   }
@@ -222,6 +225,43 @@ export default defineStep({
       } as RunEvent);
 
     for (let gen = 0; gen < cfg.maxGenerations; gen++) {
+      // Cooperative boundary between generations (RUN_CONTROL_SPEC §2.1
+      // code-step opt-in): pause parks here; cancel stops the loop here.
+      await ctx.control?.checkpoint();
+
+      // Durable resume (§5, iterative code steps): a generation whose
+      // synthetic `#gen` step.end is journaled replays — its run is NOT
+      // re-launched. State (best / sinceImprove / stop logic) is rebuilt
+      // from the journaled output so the loop continues where it left off.
+      const journaled = ctx.journal?.[`${ctx.path}#${gen}`] as AnyRec | undefined;
+      if (journaled) {
+        const passRate = num(journaled["passRate"]) ?? 0;
+        const entry: GenEntry = {
+          gen,
+          genRunId: String((journaled["runs"] as AnyRec[] | undefined)?.[0]?.["runId"] ?? ""),
+          version: typeof journaled["version"] === "string" ? (journaled["version"] as string) : undefined,
+          passRate,
+          summary: typeof journaled["summary"] === "string" ? (journaled["summary"] as string) : undefined,
+          digestText: typeof journaled["digestText"] === "string" ? (journaled["digestText"] as string) : undefined,
+          explore: journaled["directive"] === "explore",
+        };
+        generations.push(entry);
+        consecutiveFailures = 0;
+        totalKnownCost += num(journaled["knownCost"]) ?? 0;
+        if (passRate > best.passRate + cfg.improveMargin) {
+          best = { gen, version: entry.version, passRate, digestText: entry.digestText ?? "" };
+          sinceImprove = 0;
+        } else {
+          sinceImprove++;
+        }
+        await emitGen(gen, { type: "step.replayed", output: journaled });
+        if (passRate >= cfg.stopPassRate) {
+          stopReason = `stopPassRate ${cfg.stopPassRate} reached`;
+          break;
+        }
+        continue;
+      }
+
       const explore = sinceImprove >= cfg.exploreAfter;
       const briefing = composeBriefing({
         baseWorkflow: cfg.baseWorkflow,
@@ -243,9 +283,14 @@ export default defineStep({
       const run = await opt.run(
         cfg.genWorkflow,
         { tasks: cfg.tasks, mission: cfg.mission, candidateName: cfg.candidateName, generation: gen, briefing },
-        cfg.genParams && Object.keys(cfg.genParams).length
-          ? { paramOverrides: { [cfg.genWorkflow]: cfg.genParams } }
-          : undefined,
+        {
+          // Tree linkage: cancelling/pausing THIS run reaches the generation
+          // run (and its candidate runs) — RUN_CONTROL_SPEC §2.2.
+          parentRunId: ctx.runId,
+          ...(cfg.genParams && Object.keys(cfg.genParams).length
+            ? { paramOverrides: { [cfg.genWorkflow]: cfg.genParams } }
+            : {}),
+        },
       );
 
       if (run.status !== "success") {
@@ -308,6 +353,10 @@ export default defineStep({
           bestGen: best.gen,
           knownCost: Math.round((authorCost + produceCost) * 10000) / 10000,
           runs: [{ label: `generation ${gen}`, workflow: cfg.genWorkflow, runId: run.runId }],
+          // Carried so a durable resume can rebuild later generations'
+          // briefings (approach summaries + best digest) from the journal.
+          ...(entry.summary ? { summary: excerpt(entry.summary, 1200) } : {}),
+          ...(entry.digestText ? { digestText: excerpt(entry.digestText, 900) } : {}),
         },
       });
 

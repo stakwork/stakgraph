@@ -9,6 +9,7 @@ import type {
 import { resolveConfig } from "./expr.js";
 import type { RunStore } from "./store.js";
 import { MemoryRunStore, generateRunId } from "./store.js";
+import { RunController, isCancelledError } from "./run-control.js";
 
 // ── Runner ─────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,24 @@ export interface RunOptions<TServices = unknown> {
    *  `params` defaults. Precedence: step `.default()` < flow `params` default
    *  < `paramOverrides[name]` < (entry only) `params`. */
   paramOverrides?: Record<string, Record<string, unknown>>;
+  /** Cooperative run control (RUN_CONTROL_SPEC §2.2). Registered at the
+   *  launch site; the runner awaits `checkpoint()` at every boundary (between
+   *  DAG steps, loop/foreach iterations, retry attempts) and exposes a
+   *  unit-scoped view to steps as `ctx.control`. Absent → uncontrolled run
+   *  (unit tests, bare embedders), zero overhead. */
+  controller?: RunController;
+  /** Resume journal (RUN_CONTROL_SPEC §5): completed step outputs keyed by
+   *  event path. A step whose path is journaled REPLAYS its output (emitting
+   *  `step.replayed`) instead of executing; the first path not in the journal
+   *  executes live and everything downstream follows. */
+  journal?: Record<string, unknown>;
+  /** True when this invocation CONTINUES an interrupted run (§5.2): emits a
+   *  `run.resumed` marker instead of a fresh `run.start`, appending to the
+   *  same log under the same runId. */
+  resume?: boolean;
+  /** Content hash of the workflow version being run, recorded on `run.start`
+   *  so resume can refuse to replay a journal into a different DAG (§5). */
+  workflowHash?: string;
 }
 
 /** Sentinel returned by steps that were skipped because their `when` didn't match. */
@@ -54,6 +73,19 @@ const SKIP = Symbol("vein.skip");
 
 function isSkipped(v: unknown): boolean {
   return v === SKIP;
+}
+
+/** Everything the execution tree threads through unchanged — bundled so the
+ *  recursive executors don't each grow another positional parameter. */
+interface Exec {
+  registry: StepRegistry;
+  runId: string;
+  emit: EmitFn;
+  workspace: SubflowResolver | undefined;
+  services: unknown;
+  paramOverrides?: Record<string, Record<string, unknown>>;
+  controller?: RunController;
+  journal?: Record<string, unknown>;
 }
 
 export async function runWorkflow<TServices = unknown>(
@@ -105,21 +137,35 @@ export async function runWorkflow<TServices = unknown>(
     return { runId, status: "error", error };
   }
 
-  await emit({ type: "run.start", path: wfName, input: parsedInput });
+  if (opts?.resume) {
+    // Continuing an interrupted run: same runId, same log — the marker both
+    // records the gap and reopens tails past an earlier terminal event.
+    await emit({ type: "run.resumed", path: wfName });
+  } else {
+    await emit({
+      type: "run.start",
+      path: wfName,
+      input: parsedInput,
+      ...(opts?.workflowHash ? { workflowHash: opts.workflowHash } : {}),
+      // Recorded so a durable resume re-executes with the same knob values.
+      ...(opts?.params ? { params: opts.params } : {}),
+      ...(opts?.paramOverrides ? { paramOverrides: opts.paramOverrides } : {}),
+    });
+  }
+
+  const exec: Exec = {
+    registry,
+    runId,
+    emit,
+    workspace: opts?.workspace,
+    services,
+    paramOverrides: opts?.paramOverrides,
+    controller: opts?.controller,
+    journal: opts?.journal,
+  };
 
   try {
-    const output = await executeFlow(
-      workflow,
-      parsedInput,
-      registry,
-      runId,
-      wfName,
-      emit,
-      opts?.workspace,
-      services,
-      opts?.params,
-      opts?.paramOverrides,
-    );
+    const output = await executeFlow(workflow, parsedInput, exec, wfName, opts?.params);
 
     const finishedAt = new Date().toISOString();
     await emit({ type: "run.end", path: wfName, output });
@@ -135,23 +181,31 @@ export async function runWorkflow<TServices = unknown>(
     });
     return { runId, status: "success", output };
   } catch (err) {
+    const cancelled = isCancelledError(err);
     const error = {
       message: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     };
     const finishedAt = new Date().toISOString();
-    await emit({ type: "run.error", path: wfName, error });
+    // Cancellation is a DISTINCT outcome, never conflated with error
+    // (RUN_CONTROL_SPEC §3): the run finalizes honestly as `cancelled`, its
+    // partial outputs stay inspectable in the log, and it is never "stale".
+    await emit(
+      cancelled
+        ? { type: "run.cancelled", path: wfName }
+        : { type: "run.error", path: wfName, error },
+    );
     await store.finalize(wfName, runId, {
       runId,
       workflow: wfName,
       startedAt,
       finishedAt,
       durationMs: Date.parse(finishedAt) - Date.parse(startedAt),
-      status: "error",
+      status: cancelled ? "cancelled" : "error",
       input: parsedInput,
-      error,
+      ...(cancelled ? {} : { error }),
     });
-    return { runId, status: "error", error };
+    return cancelled ? { runId, status: "cancelled" } : { runId, status: "error", error };
   } finally {
     // Generic per-run teardown hook. A consumer's services bag may implement
     // `onRunEnd(runId)` to dispose any per-run resources it allocated during the
@@ -192,14 +246,9 @@ function getDeps(step: Step, index: number, steps: Step[]): string[] {
 async function executeFlow(
   workflow: Flow,
   input: unknown,
-  registry: StepRegistry,
-  runId: string,
+  exec: Exec,
   basePath: string,
-  emit: EmitFn,
-  workspace: SubflowResolver | undefined,
-  services: unknown,
   paramsOverride?: Record<string, unknown>,
-  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // `params` = workflow defaults, shallow-merged with per-run overrides.
   // Exposed to step configs via `{{ params.* }}`. Distinct from `input`.
@@ -208,7 +257,7 @@ async function executeFlow(
   // Precedence: flow defaults < keyed override < entry flat override.
   const params = {
     ...(workflow.params ?? {}),
-    ...(paramOverrides?.[workflow.name] ?? {}),
+    ...(exec.paramOverrides?.[workflow.name] ?? {}),
     ...(paramsOverride ?? {}),
   };
   const scope: Record<string, unknown> = { input, params };
@@ -227,84 +276,119 @@ async function executeFlow(
 
   // Track completion
   const completed = new Set<string>();
-  // Each pending promise resolves with the step's output (or SKIP if skipped)
-  const pending = new Map<string, { resolve: (v: unknown) => void; promise: Promise<unknown> }>();
+  // Each pending promise resolves with the step's output (or SKIP if skipped),
+  // or REJECTS when the step failed — so dependents settle (fail fast) instead
+  // of hanging, letting the flow wait for every in-flight branch before it
+  // reports its outcome (required for honest cancel/error finalization: no
+  // step events land after the terminal event).
+  const pending = new Map<
+    string,
+    { resolve: (v: unknown) => void; reject: (e: unknown) => void; promise: Promise<unknown> }
+  >();
 
   for (const s of steps) {
     let resolve!: (v: unknown) => void;
-    const promise = new Promise<unknown>((r) => { resolve = r; });
-    pending.set(s.id, { resolve, promise });
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<unknown>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    // A rejected step promise with no dependents must not surface as an
+    // unhandled rejection — the error still propagates via runStep's throw.
+    promise.catch(() => {});
+    pending.set(s.id, { resolve, reject, promise });
   }
 
   // Execute a single step once its deps are met
   async function runStep(s: Step): Promise<void> {
-    // Wait for all dependencies, collecting their outputs
-    const deps = depMap.get(s.id) ?? [];
-    const depOutputs = await Promise.all(
-      deps.map((d) => pending.get(d)?.promise ?? Promise.resolve(undefined)),
-    );
+    try {
+      // Wait for all dependencies, collecting their outputs
+      const deps = depMap.get(s.id) ?? [];
+      const depOutputs = await Promise.all(
+        deps.map((d) => pending.get(d)?.promise ?? Promise.resolve(undefined)),
+      );
 
-    // Skip propagation: if this step has deps and ALL of them were skipped,
-    // skip this step too (no useful inputs available).
-    // A step with at least one real dep still runs — fan-in pattern.
-    // Steps with `when` use gate logic below regardless.
-    const hasGate = s.when != null;
-    if (deps.length > 0 && !hasGate) {
-      const allSkipped = depOutputs.every(isSkipped);
-      if (allSkipped) {
-        scope[s.id] = undefined;
-        await emit({
-          type: "step.skipped",
-          path: `${basePath}/${s.id}`,
-          stepType: s.type,
-        });
-        pending.get(s.id)!.resolve(SKIP);
-        return;
-      }
-    }
-
-    // Gate check: if `when` is set, find the gate dependency (the one whose
-    // boolean output matters). The gate is the dep whose output is boolean —
-    // but more precisely, we check ALL non-skipped deps for a boolean that
-    // matches `when`. If any boolean dep doesn't match, skip.
-    if (hasGate) {
-      // Find boolean deps (these are gates) and verify at least one matches.
-      // A skipped dep can never satisfy a gate (the gate didn't run).
-      let matched = false;
-      let sawGate = false;
-      for (let i = 0; i < deps.length; i++) {
-        const out = depOutputs[i];
-        if (isSkipped(out)) continue;
-        if (typeof out === "boolean") {
-          sawGate = true;
-          if (out === s.when) {
-            matched = true;
-            break;
-          }
+      // Skip propagation: if this step has deps and ALL of them were skipped,
+      // skip this step too (no useful inputs available).
+      // A step with at least one real dep still runs — fan-in pattern.
+      // Steps with `when` use gate logic below regardless.
+      const hasGate = s.when != null;
+      if (deps.length > 0 && !hasGate) {
+        const allSkipped = depOutputs.every(isSkipped);
+        if (allSkipped) {
+          scope[s.id] = undefined;
+          await exec.emit({
+            type: "step.skipped",
+            path: `${basePath}/${s.id}`,
+            stepType: s.type,
+          });
+          pending.get(s.id)!.resolve(SKIP);
+          return;
         }
       }
-      if (!sawGate || !matched) {
-        // Either no gate ran, or its value doesn't match `when` → skip
-        scope[s.id] = undefined;
-        await emit({
-          type: "step.skipped",
-          path: `${basePath}/${s.id}`,
-          stepType: s.type,
-        });
-        pending.get(s.id)!.resolve(SKIP);
-        return;
-      }
-    }
 
-    const stepPath = `${basePath}/${s.id}`;
-    const output = await executeStep(s, scope, registry, runId, stepPath, emit, workspace, services, paramOverrides);
-    scope[s.id] = output;
-    completed.add(s.id);
-    pending.get(s.id)!.resolve(output);
+      // Gate check: if `when` is set, find the gate dependency (the one whose
+      // boolean output matters). The gate is the dep whose output is boolean —
+      // but more precisely, we check ALL non-skipped deps for a boolean that
+      // matches `when`. If any boolean dep doesn't match, skip.
+      if (hasGate) {
+        // Find boolean deps (these are gates) and verify at least one matches.
+        // A skipped dep can never satisfy a gate (the gate didn't run).
+        let matched = false;
+        let sawGate = false;
+        for (let i = 0; i < deps.length; i++) {
+          const out = depOutputs[i];
+          if (isSkipped(out)) continue;
+          if (typeof out === "boolean") {
+            sawGate = true;
+            if (out === s.when) {
+              matched = true;
+              break;
+            }
+          }
+        }
+        if (!sawGate || !matched) {
+          // Either no gate ran, or its value doesn't match `when` → skip
+          scope[s.id] = undefined;
+          await exec.emit({
+            type: "step.skipped",
+            path: `${basePath}/${s.id}`,
+            stepType: s.type,
+          });
+          pending.get(s.id)!.resolve(SKIP);
+          return;
+        }
+      }
+
+      // Cooperative boundary: between DAG steps (RUN_CONTROL_SPEC §2.1).
+      // Blocks while paused; throws CancelledError while cancelling.
+      await exec.controller?.checkpoint();
+
+      const stepPath = `${basePath}/${s.id}`;
+      const output = await executeStep(s, scope, exec, stepPath);
+      scope[s.id] = output;
+      completed.add(s.id);
+      pending.get(s.id)!.resolve(output);
+    } catch (err) {
+      pending.get(s.id)!.reject(err);
+      throw err;
+    }
   }
 
-  // Launch all steps — each waits for its own deps internally
-  await Promise.all(steps.map((s) => runStep(s)));
+  // Launch all steps — each waits for its own deps internally. allSettled (not
+  // all) so a failing/cancelled branch doesn't abandon still-executing
+  // branches mid-unit: every branch settles (its in-flight unit completes and
+  // journals) before the flow reports its outcome.
+  const settled = await Promise.allSettled(steps.map((s) => runStep(s)));
+  const rejections = settled.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (rejections.length > 0) {
+    // Prefer a REAL failure over a CancelledError so a genuine error isn't
+    // masked when cancellation raced in behind it.
+    const real = rejections.find((r) => !isCancelledError(r.reason));
+    throw (real ?? rejections[0]!).reason;
+  }
 
   // Return last step's output (by array order). If skipped, return undefined.
   const lastOut = scope[steps[steps.length - 1]!.id];
@@ -316,17 +400,40 @@ async function executeFlow(
 // Control flow steps that manage their own template resolution.
 const SELF_RESOLVING_STEPS = new Set(["loop", "foreach", "subflow"]);
 
+const hasOwn = (obj: Record<string, unknown>, key: string) =>
+  Object.prototype.hasOwnProperty.call(obj, key);
+
+/** The slice of the resume journal that belongs to one step's own synthetic
+ *  iteration events (`<path>#…`) — what a step sees as `ctx.journal`. */
+function sliceJournal(
+  journal: Record<string, unknown> | undefined,
+  path: string,
+): Record<string, unknown> | undefined {
+  if (!journal) return undefined;
+  const prefix = `${path}#`;
+  let out: Record<string, unknown> | undefined;
+  for (const key of Object.keys(journal)) {
+    if (key.startsWith(prefix)) (out ??= {})[key] = journal[key];
+  }
+  return out;
+}
+
 async function executeStep(
   step: Step,
   scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
+  exec: Exec,
   path: string,
-  emit: EmitFn,
-  workspace: SubflowResolver | undefined,
-  services: unknown,
-  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
+  // Resume replay (RUN_CONTROL_SPEC §5): a step whose path has a journaled
+  // output replays it — zero cost, no side effects re-executed. Emitted as
+  // `step.replayed`, never a fake `step.end` (honest timings). The first path
+  // NOT in the journal executes live below.
+  if (exec.journal && hasOwn(exec.journal, path)) {
+    const output = exec.journal[path];
+    await exec.emit({ type: "step.replayed", path, stepType: step.type, output });
+    return output;
+  }
+
   const maxRetries = step.options?.retry?.max ?? 0;
   const retryDelay = step.options?.retry?.delayMs ?? 0;
 
@@ -335,13 +442,15 @@ async function executeStep(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        await emit({
+        await exec.emit({
           type: "step.retry",
           path,
           stepType: step.type,
           iteration: attempt,
         });
         await sleep(retryDelay);
+        // Cooperative boundary: between retry attempts (§2.1).
+        await exec.controller?.checkpoint();
       }
 
       const startTime = Date.now();
@@ -366,7 +475,7 @@ async function executeStep(
             : undefined
         : resolvedConfig;
 
-      await emit({
+      await exec.emit({
         type: "step.start",
         path,
         stepType: step.type,
@@ -374,22 +483,11 @@ async function executeStep(
       });
 
       // Execute based on step type
-      const output = await dispatchStep(
-        step,
-        resolvedConfig,
-        scope,
-        registry,
-        runId,
-        path,
-        emit,
-        workspace,
-        services,
-        paramOverrides,
-      );
+      const output = await dispatchStep(step, resolvedConfig, scope, exec, path);
 
       const durationMs = Date.now() - startTime;
 
-      await emit({
+      await exec.emit({
         type: "step.end",
         path,
         stepType: step.type,
@@ -399,6 +497,10 @@ async function executeStep(
 
       return output;
     } catch (err) {
+      // Cancellation is NOT the error path (§3): never retried, never
+      // diverted into onError — the branch stops at this boundary.
+      if (isCancelledError(err)) throw err;
+
       lastError = err instanceof Error ? err : new Error(String(err));
 
       if (attempt === maxRetries) {
@@ -413,18 +515,13 @@ async function executeStep(
             const fallbackOutput = await executeStep(
               step.options.onError,
               errorScope,
-              registry,
-              runId,
+              exec,
               `${path}/onError`,
-              emit,
-              workspace,
-              services,
-              paramOverrides,
             );
             return fallbackOutput;
           } catch (fallbackErr) {
             // Fallback itself failed
-            await emit({
+            await exec.emit({
               type: "step.error",
               path,
               stepType: step.type,
@@ -437,7 +534,7 @@ async function executeStep(
           }
         }
 
-        await emit({
+        await exec.emit({
           type: "step.error",
           path,
           stepType: step.type,
@@ -461,28 +558,23 @@ async function dispatchStep(
   step: Step,
   resolvedConfig: Record<string, unknown>,
   scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
+  exec: Exec,
   path: string,
-  emit: EmitFn,
-  workspace: SubflowResolver | undefined,
-  services: unknown,
-  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Handle core control flow steps specially
   switch (step.type) {
     case "loop":
-      return executeLoop(step, resolvedConfig, scope, registry, runId, path, emit, workspace, services, paramOverrides);
+      return executeLoop(step, scope, exec, path);
 
     case "foreach":
-      return executeForeach(step, scope, registry, runId, path, emit, workspace, services, paramOverrides);
+      return executeForeach(step, scope, exec, path);
 
     case "subflow":
-      return executeSubflow(step, scope, registry, runId, path, emit, workspace, services, paramOverrides);
+      return executeSubflow(step, scope, exec, path);
 
     default: {
       // Look up in registry
-      const def = registry[step.type];
+      const def = exec.registry[step.type];
       if (!def) {
         throw new Error(`Unknown step type: "${step.type}"`);
       }
@@ -491,17 +583,32 @@ async function dispatchStep(
       // Default to {} when no config is provided in the YAML.
       const validConfig = def.input.parse(resolvedConfig ?? {});
 
+      const stepJournal = sliceJournal(exec.journal, path);
       const ctx: StepContext<unknown> = {
-        runId,
+        runId: exec.runId,
         path,
         scope,
         input: scope["input"],
-        emit,
-        services,
-        registry,
+        emit: exec.emit,
+        services: exec.services,
+        registry: exec.registry,
+        // Unit-scoped control: a parked `ctx.control.checkpoint()` releases
+        // this unit so the subtree can quiesce (§2.2 threading).
+        ...(exec.controller ? { control: exec.controller.forUnit() } : {}),
+        ...(stepJournal ? { journal: stepJournal } : {}),
       };
 
-      return def.run(validConfig, ctx);
+      if (exec.controller) {
+        // checkpoint → beginUnit with no interleaving await, so a pause can
+        // never observe a false quiesce between the two.
+        await exec.controller.checkpoint();
+        exec.controller.beginUnit();
+      }
+      try {
+        return await def.run(validConfig, ctx);
+      } finally {
+        exec.controller?.endUnit();
+      }
     }
   }
 }
@@ -510,15 +617,9 @@ async function dispatchStep(
 
 async function executeLoop(
   step: Step,
-  _config: Record<string, unknown>,
   scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
+  exec: Exec,
   path: string,
-  emit: EmitFn,
-  workspace: SubflowResolver | undefined,
-  services: unknown,
-  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Resolve scalar config values (but not `until` or `body` which need per-iteration resolution)
   const maxIterations = resolveConfig(step.config["maxIterations"], scope) as number;
@@ -530,37 +631,48 @@ async function executeLoop(
   let current: unknown = undefined;
 
   for (let i = 0; i < maxIterations; i++) {
+    // Cooperative boundary: between loop iterations (§2.1).
+    await exec.controller?.checkpoint();
+
+    const iterPath = `${path}#${i}`;
+
+    // Resume replay of a completed iteration (§5): the `until` condition is
+    // still re-evaluated against the replayed `$current`, reconstructing the
+    // loop's original control flow.
+    if (exec.journal && hasOwn(exec.journal, iterPath)) {
+      current = exec.journal[iterPath];
+      await exec.emit({
+        type: "step.replayed",
+        path: iterPath,
+        stepType: rawBody.type,
+        output: current,
+        iteration: i,
+      });
+      const done = resolveConfig(untilExpr, { ...scope, $current: current });
+      if (done) return current;
+      continue;
+    }
+
     // Make $current available in scope for template resolution
     const iterScope = { ...scope, $current: current };
 
     // Resolve the body step's config with this iteration's scope
     const resolvedBodyConfig = resolveConfig(rawBody.config, iterScope) as Record<string, unknown>;
 
-    await emit({
+    await exec.emit({
       type: "step.start",
-      path: `${path}#${i}`,
+      path: iterPath,
       stepType: rawBody.type,
       iteration: i,
       input: resolvedBodyConfig,
     });
 
     const startTime = Date.now();
-    current = await dispatchStep(
-      rawBody,
-      resolvedBodyConfig,
-      iterScope,
-      registry,
-      runId,
-      `${path}#${i}`,
-      emit,
-      workspace,
-      services,
-      paramOverrides,
-    );
+    current = await dispatchStep(rawBody, resolvedBodyConfig, iterScope, exec, iterPath);
 
-    await emit({
+    await exec.emit({
       type: "step.end",
-      path: `${path}#${i}`,
+      path: iterPath,
       stepType: rawBody.type,
       output: current,
       durationMs: Date.now() - startTime,
@@ -596,13 +708,8 @@ async function executeLoop(
 async function executeForeach(
   step: Step,
   scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
+  exec: Exec,
   path: string,
-  emit: EmitFn,
-  workspace: SubflowResolver | undefined,
-  services: unknown,
-  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Resolve `items` once against the parent scope.
   const itemsResolved = resolveConfig(step.config["items"], scope);
@@ -638,34 +745,43 @@ async function executeForeach(
   const results: unknown[] = [];
 
   for (let i = 0; i < items.length; i++) {
+    // Cooperative boundary: between foreach iterations (§2.1).
+    await exec.controller?.checkpoint();
+
+    const iterPath = `${path}#${i}`;
+
+    // Resume replay of a completed iteration (§5): a failed iteration re-runs
+    // alone — completed ones replay by their `#i` paths.
+    if (exec.journal && hasOwn(exec.journal, iterPath)) {
+      const output = exec.journal[iterPath];
+      await exec.emit({
+        type: "step.replayed",
+        path: iterPath,
+        stepType: rawBody.type,
+        output,
+        iteration: i,
+      });
+      results.push(output);
+      continue;
+    }
+
     const iterScope = { ...scope, $current: items[i], $index: i };
     const resolvedBodyConfig = resolveConfig(rawBody.config, iterScope) as Record<string, unknown>;
 
-    await emit({
+    await exec.emit({
       type: "step.start",
-      path: `${path}#${i}`,
+      path: iterPath,
       stepType: rawBody.type,
       iteration: i,
       input: resolvedBodyConfig,
     });
 
     const startTime = Date.now();
-    const output = await dispatchStep(
-      rawBody,
-      resolvedBodyConfig,
-      iterScope,
-      registry,
-      runId,
-      `${path}#${i}`,
-      emit,
-      workspace,
-      services,
-      paramOverrides,
-    );
+    const output = await dispatchStep(rawBody, resolvedBodyConfig, iterScope, exec, iterPath);
 
-    await emit({
+    await exec.emit({
       type: "step.end",
-      path: `${path}#${i}`,
+      path: iterPath,
       stepType: rawBody.type,
       output,
       durationMs: Date.now() - startTime,
@@ -681,13 +797,8 @@ async function executeForeach(
 async function executeSubflow(
   step: Step,
   scope: Record<string, unknown>,
-  registry: StepRegistry,
-  runId: string,
+  exec: Exec,
   path: string,
-  emit: EmitFn,
-  workspace: SubflowResolver | undefined,
-  services: unknown,
-  paramOverrides?: Record<string, Record<string, unknown>>,
 ): Promise<unknown> {
   // Resolve workflow name, version, and input from parent scope
   const wfName = resolveConfig(step.config["workflow"], scope) as string;
@@ -700,22 +811,22 @@ async function executeSubflow(
     throw new Error(`subflow step "${step.id}" requires a "workflow" config (workflow name)`);
   }
 
-  if (!workspace) {
+  if (!exec.workspace) {
     throw new Error(
       `subflow step "${step.id}" references workflow "${wfName}" but no workspace was provided to runWorkflow`,
     );
   }
 
   const childFlow = version
-    ? await workspace.getWorkflowVersion(wfName, version)
-    : await workspace.getWorkflow(wfName);
+    ? await exec.workspace.getWorkflowVersion(wfName, version)
+    : await exec.workspace.getWorkflow(wfName);
 
   // Validate child flow input against its schema
   const validatedInput = childFlow.input.parse(childInput);
 
   // Thread `paramOverrides` (but NOT the entry-only flat `paramsOverride`) into
   // the child so a keyed override can reach knobs that live in this subflow.
-  return executeFlow(childFlow, validatedInput, registry, runId, path, emit, workspace, services, undefined, paramOverrides);
+  return executeFlow(childFlow, validatedInput, exec, path);
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────

@@ -27,6 +27,24 @@ export {
 // Runner
 export { runWorkflow, type RunOptions } from "./runner.js";
 
+// Run control — cancel / pause / resume for run trees (RUN_CONTROL_SPEC.md)
+export {
+  RunController,
+  CancelledError,
+  isCancelledError,
+  type RunControl,
+  type ControlState,
+} from "./run-control.js";
+
+// Resume journal — replay completed step outputs from the event log
+export {
+  buildJournal,
+  invalidateFrom,
+  readRunStart,
+  transitiveDependents,
+  type InvalidateResult,
+} from "./journal.js";
+
 // Expression engine
 export {
   evaluateExpr,

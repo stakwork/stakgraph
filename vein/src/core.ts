@@ -54,6 +54,18 @@ export interface StepContext<TServices = unknown> {
    *  runner-handled container step. Optional: absent when a step is invoked
    *  outside the runner (e.g. unit tests). Read-only by convention. */
   registry?: StepRegistry;
+  /** Cooperative run control (RUN_CONTROL_SPEC §6). A step with a long
+   *  internal loop should `await ctx.control?.checkpoint()` per iteration so
+   *  pause/cancel take effect between iterations rather than only at the
+   *  step's boundary. Optional (absent outside the runner, like `registry`);
+   *  ignoring it just leaves the step coarse-grained. */
+  control?: import("./run-control.js").RunControl;
+  /** On resume: this step's own prior synthetic `step.end` outputs (keys are
+   *  full event paths under this step's path, e.g. `wf/evolve#3`). A step
+   *  that emits per-iteration synthetic `step.end` events can consume this to
+   *  skip completed iterations (RUN_CONTROL_SPEC §5/§6). Absent on a fresh
+   *  run or when there is nothing journaled under this step. */
+  journal?: Record<string, unknown>;
 }
 
 /** Error handling options for a step. */
@@ -124,9 +136,18 @@ export type RunEventType =
   | "step.error"
   | "step.retry"
   | "step.skipped"
+  /** A completed step's journaled output was replayed on resume — zero cost,
+   *  no side effects re-executed. Never a fake `step.end` (honest timings). */
+  | "step.replayed"
   | "run.start"
   | "run.end"
-  | "run.error";
+  | "run.error"
+  /** Terminal: the run tree was cooperatively cancelled (RUN_CONTROL_SPEC §3). */
+  | "run.cancelled"
+  /** Non-terminal markers so parked time is visible in the log (§4), and so a
+   *  `run.resumed` after a terminal event reopens tails (§5.2). */
+  | "run.paused"
+  | "run.resumed";
 
 /** A single event in the run log. */
 export interface RunEvent {
@@ -140,12 +161,20 @@ export interface RunEvent {
   error?: { message: string; stack?: string };
   durationMs?: number;
   iteration?: number;
+  /** Content hash of the workflow version this run executes, recorded on
+   *  `run.start` — resume refuses to replay a journal into a DIFFERENT DAG
+   *  (RUN_CONTROL_SPEC §5, validity guards). */
+  workflowHash?: string;
+  /** Per-run param overrides, recorded on `run.start` so a durable resume
+   *  re-executes steps with the SAME knob values the original run used. */
+  params?: Record<string, unknown>;
+  paramOverrides?: Record<string, Record<string, unknown>>;
 }
 
 /** Result of running a workflow. */
 export interface RunResult {
   runId: string;
-  status: "success" | "error";
+  status: "success" | "error" | "cancelled";
   output?: unknown;
   error?: { message: string; stack?: string };
 }
@@ -157,7 +186,7 @@ export interface RunSummary {
   startedAt: string;
   finishedAt: string;
   durationMs: number;
-  status: "success" | "error";
+  status: "success" | "error" | "cancelled";
   input: unknown;
   output?: unknown;
   error?: { message: string; stack?: string };

@@ -63,6 +63,9 @@ export function App() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [events, setEvents] = useState<api.RunEvent[]>([]);
   const [running, setRunning] = useState(false);
+  // Bumped after a durable resume so the run-view effect re-tails the log
+  // (the prior tail closed at the old terminal event).
+  const [runEpoch, setRunEpoch] = useState(0);
   // True while an in-tab launched run is streaming live into `events`. Disarmed
   // when the user navigates into another run, so the stream can't clobber it.
   const liveStreamRef = useRef(false);
@@ -117,6 +120,19 @@ export function App() {
 
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
   const selectedEntry = workflows.find((w) => w.name === selectedWf);
+
+  // Version picker: which version of the selected workflow the canvas shows.
+  // Stored with the workflow it was pinned for, so the pin self-invalidates
+  // when the selection changes (no effect-ordering games). null = active.
+  const [versionPin, setVersionPin] = useState<{ wf: string | null; v: string | null }>({ wf: null, v: null });
+  const viewVersion = versionPin.wf === selectedWf ? versionPin.v : null;
+  const setViewVersion = useCallback(
+    (v: string | null) => setVersionPin({ wf: selectedWf, v }),
+    [selectedWf],
+  );
+  // Viewing history is read-only: editing/publishing/running only make sense
+  // against the active version (Publish always builds on active, Run runs it).
+  const viewingOld = viewVersion != null && activeVersion != null && viewVersion !== activeVersion;
 
   // ── Sidebar grouping ─────────────────────────────────────────────────────
   // Workflows grouped by category; groups (and workflows within them) are
@@ -272,7 +288,7 @@ export function App() {
       setFlyoutStepIndex(null);
       return;
     }
-    api.getWorkflowFlow(selectedWf).then((flow) => {
+    api.getWorkflowFlow(selectedWf, viewVersion ?? undefined).then((flow) => {
       const steps = flow.steps as StepData[];
       setPublishedSteps(steps);
       setLocalSteps(steps);
@@ -286,7 +302,7 @@ export function App() {
       setLoadError(true);
     });
     refreshRuns(selectedWf);
-  }, [selectedWf]);
+  }, [selectedWf, viewVersion]);
 
   // Load run events when a run is selected; clear overlay + drill when deselected
   useEffect(() => {
@@ -318,7 +334,7 @@ export function App() {
       })
       .catch(console.error);
     return () => ctrl.abort();
-  }, [selectedRun]);
+  }, [selectedRun, runEpoch]);
 
   // Resolve the selected run's declared promotions (a winning value → a target
   // param). Drives the topbar Promote button + flyout. Empty unless the
@@ -388,6 +404,7 @@ export function App() {
   }, []);
 
   function updateLocalSteps(steps: StepData[]) {
+    if (viewingOld) return; // historical versions are read-only
     setLocalSteps(steps);
   }
 
@@ -447,6 +464,52 @@ export function App() {
     if (selectedWf !== wf) setSelectedWf(wf);
     setSelectedRun(runId);
   }, [selectedWf]);
+
+  // ── Run control (RUN_CONTROL_SPEC): cancel / pause / resume ──────────────
+  const selectedRunSummary = selectedRun ? runs.find((r) => r.runId === selectedRun) : undefined;
+  const runControlStatus = selectedRunSummary?.status;
+  // Live states come from the server's controller map; "stale"/"error"/
+  // "cancelled" are dead-but-resumable (journal replay).
+  const runIsLive =
+    runControlStatus === "running" || runControlStatus === "pausing" ||
+    runControlStatus === "paused" || runControlStatus === "cancelling";
+  const runIsPaused = runControlStatus === "paused" || runControlStatus === "pausing";
+  const runIsResumable =
+    runControlStatus === "stale" || runControlStatus === "error" || runControlStatus === "cancelled";
+
+  const handleCancelRun = useCallback(async () => {
+    if (!selectedWf || !selectedRun) return;
+    if (!confirm("Cancel this run? Any nested runs it launched are cancelled too — each stops at its next step boundary (the in-flight step finishes and is journaled).")) return;
+    try { await api.cancelRun(selectedWf, selectedRun); } catch (e) { alert(`Cancel failed: ${(e as Error).message}`); }
+    await refreshRuns(selectedWf);
+  }, [selectedWf, selectedRun, refreshRuns]);
+
+  const handlePauseRun = useCallback(async () => {
+    if (!selectedWf || !selectedRun) return;
+    try { await api.pauseRun(selectedWf, selectedRun); } catch (e) { alert(`Pause failed: ${(e as Error).message}`); }
+    await refreshRuns(selectedWf);
+  }, [selectedWf, selectedRun, refreshRuns]);
+
+  // Dual-purpose: releases a paused run, or durably resumes a dead one
+  // (stale / error / cancelled) by replaying its journal.
+  const handleResumeRun = useCallback(async () => {
+    if (!selectedWf || !selectedRun) return;
+    try { await api.resumeRun(selectedWf, selectedRun); } catch (e) { alert(`Resume failed: ${(e as Error).message}`); return; }
+    await refreshRuns(selectedWf);
+    setRunEpoch((n) => n + 1); // re-tail: the log continues past its old terminal
+  }, [selectedWf, selectedRun, refreshRuns]);
+
+  // "Re-run from here" (§5.2 `from` invalidation): the chosen step, its
+  // dependents, and later loop iterations re-execute; upstream replays free.
+  const handleRerunFrom = useCallback(async (path: string) => {
+    if (!selectedWf || !selectedRun) return;
+    if (!confirm(`Re-run from "${path}"?\n\nThis step, everything downstream of it, and later iterations of an enclosing loop re-execute. Completed work upstream replays from the journal at zero cost.`)) return;
+    try { await api.resumeRun(selectedWf, selectedRun, path); } catch (e) { alert(`Re-run failed: ${(e as Error).message}`); return; }
+    setFlyoutStepId(null);
+    setFlyoutStepIndex(null);
+    await refreshRuns(selectedWf);
+    setRunEpoch((n) => n + 1);
+  }, [selectedWf, selectedRun, refreshRuns]);
 
   const handleRun = useCallback(async () => {
     if (!selectedWf || !localSteps || localSteps.length === 0) return;
@@ -680,7 +743,7 @@ export function App() {
             {filteredRuns.length === 0 && <div class="empty-sidebar">{selectedWf ? "No runs for this workflow" : "No runs yet"}</div>}
             {filteredRuns.map((run) => (
               <div key={run.runId} class={`list-item ${selectedRun === run.runId ? "is-active" : ""}`}
-                onClick={() => { setSelectedRun(run.runId); closeFlyout(); }}>
+                onClick={() => { setSelectedRun(run.runId); setViewVersion(null); closeFlyout(); }}>
                 <div class="list-item-stack">
                   <span class="list-item-name">{run.runId.slice(0, 10)}</span>
                   <span class="list-item-sub">
@@ -734,11 +797,42 @@ export function App() {
               onSaved={refreshWorkflows}
             />
           )}
+          {/* Version picker — browse the workflow's published lineage. Only
+              outside run view (a run overlays the active structure), and only
+              when there is history to browse. */}
+          {selectedWf && !selectedRun && selectedEntry && selectedEntry.versions.length > 1 && (
+            <select
+              class="version-select"
+              value={viewVersion ?? activeVersion}
+              onChange={(e) => {
+                const v = (e.target as HTMLSelectElement).value;
+                setViewVersion(v === activeVersion ? null : v);
+                closeFlyout();
+                setShowParams(false);
+              }}
+            >
+              {[...selectedEntry.versions].reverse().map((v) => (
+                <option key={v} value={v}>{v}{v === activeVersion ? " (active)" : ""}</option>
+              ))}
+            </select>
+          )}
+          {viewingOld && <span class="badge version-history-badge">history · read-only</span>}
           {selectedRun && <span class="topbar-run">{selectedRun.slice(0, 10)}</span>}
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
         <div class="topbar-actions">
-          {isDirty && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
+          {/* Run control: cancel/pause a live run tree; resume a paused or
+              dead (stale/error/cancelled) one — RUN_CONTROL_SPEC §3–§5. */}
+          {selectedRun && runIsLive && runControlStatus !== "cancelling" && (
+            <button class="btn btn-danger" onClick={handleCancelRun}>Cancel</button>
+          )}
+          {selectedRun && runControlStatus === "running" && (
+            <button class="btn" onClick={handlePauseRun}>Pause</button>
+          )}
+          {selectedRun && (runIsPaused || runIsResumable) && (
+            <button class="btn btn-primary" onClick={handleResumeRun}>Resume</button>
+          )}
+          {isDirty && !viewingOld && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
           {isRunView && promotions.length > 0 && (
             <button
               class={`btn${showPromote ? " is-active" : ""}`}
@@ -751,7 +845,7 @@ export function App() {
               onClick={() => { setShowParams((s) => !s); setShowPromote(false); setInfoStep(null); setFlyoutStepId(null); }}
             >Params</button>
           )}
-          {selectedWf && (
+          {selectedWf && !viewingOld && (
             <div class="run-anchor">
               <button class="btn btn-primary" onClick={handleRun}>Run</button>
               {runBindings && selectedWf && (
@@ -799,11 +893,11 @@ export function App() {
         )}
         {canvas
           ? <SystemCanvas
-              // Remount when the viewed workflow changes so the canvas
-              // re-fits/re-centers on its content (the library's
+              // Remount when the viewed workflow OR pinned version changes so
+              // the canvas re-fits/re-centers on its content (the library's
               // `autoFit="canvas-change"` only fires on sub-canvas
               // navigation, not when we swap the root `canvas` prop).
-              key={viewWorkflow ?? "none"}
+              key={`${viewWorkflow ?? "none"}@${viewVersion ?? "active"}`}
               panMode="trackpad"
               canvas={canvas}
               // A container node's ref arrow opens the referenced workflow
@@ -811,7 +905,7 @@ export function App() {
               // sub-canvas — onNavigate routes via the sidebar selection.
               externalNavigation
               onNavigate={handleNavigate}
-              editable={!isRunView}
+              editable={!isRunView && !viewingOld}
               showNodeToolbar={false}
               onNodeClick={handleNodeClick}
               onNodeAdd={handleNodeAdd}
@@ -819,7 +913,7 @@ export function App() {
               onEdgeAdd={handleEdgeAdd}
               onEdgeDelete={handleEdgeDelete}
               renderAddNodeButton={(_props: AddNodeButtonRenderProps) => (
-                selectedWf && !isRunView
+                selectedWf && !isRunView && !viewingOld
                   ? <button class="add-step-fab" onClick={() => setShowAddStep(true)}>+</button>
                   : null
               )}
@@ -892,7 +986,19 @@ export function App() {
         if (!step) return null;
 
         if (isRunView && flyoutEvents) {
-          return <StepRunFlyout step={step} events={flyoutEvents} onClose={closeFlyout} />;
+          // "Re-run from here" needs the step's TRUE event path (drilled views
+          // are re-keyed), and only applies to a run that isn't live.
+          const truePath = `${runDrill.length > 0 ? framePrefix(runDrill[runDrill.length - 1]!) : (selectedWf ?? "")}/${flyoutStepId}`;
+          return (
+            <StepRunFlyout
+              step={step}
+              events={flyoutEvents}
+              onClose={closeFlyout}
+              {...(!runIsLive && (runIsResumable || runControlStatus === "success")
+                ? { onRerunFrom: () => handleRerunFrom(truePath) }
+                : {})}
+            />
+          );
         }
         // Editing only applies at the root (drilled views are read-only run views).
         if (drill || !localSteps) return null;

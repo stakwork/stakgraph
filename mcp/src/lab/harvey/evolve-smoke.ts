@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { WorkspaceManager, buildRegistry, fileArtifactsCapability, resolveConfig } from "vein";
 import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
 import { seedArtifactSteps } from "../artifacts/seed.js";
+import { createLabVein } from "../createLabVein.js";
 
 async function main() {
   const base = mkdtempSync(join(process.cwd(), ".evolve-validate-"));
@@ -207,13 +208,64 @@ async function main() {
     assert.equal(failOut.improved, false);
     console.log("✔ harvey/evolve-loop: aborts after consecutive failures");
 
+    // 6. REGRESSION — the optimizer capability must be visible to RUNS.
+    //    createVein SPREADS the caller's services into a fresh bag, so
+    //    createLabVein's post-construction injection must land on
+    //    vein.services (the effective bag), not the local one. This broke
+    //    silently once: eval/optimize and harvey/evolve-loop threw
+    //    "requires a services.optimizer capability" at run time while the
+    //    local bag looked fine. Prove it end to end: boot the real lab
+    //    vein, publish a probe step + workflow, and assert a RUN sees
+    //    services.optimizer.
+    // Construction-only requirement: concept services demand a provider key
+    // when the bag is built. The probe never calls an LLM — a dummy keeps
+    // this smoke offline and keyless.
+    const hadKey = process.env.ANTHROPIC_API_KEY;
+    if (!hadKey) process.env.ANTHROPIC_API_KEY = "sk-dummy-offline-smoke";
+    const labVein = await createLabVein({ workspacePath: join(base, "lab-ws"), serveUi: false });
+    if (!hadKey) delete process.env.ANTHROPIC_API_KEY;
+    assert.ok((labVein.services as any).optimizer, "vein.services.optimizer must be set");
+    await labVein.workspace.publishStep(
+      "smoke/has-optimizer",
+      `import { z, defineStep } from "vein";
+export default defineStep({
+  type: "smoke/has-optimizer",
+  description: "probe: report whether ctx.services.optimizer is present",
+  input: z.object({}),
+  output: z.any(),
+  async run(_cfg, ctx) {
+    const opt = (ctx.services as any)?.optimizer;
+    return { hasOptimizer: !!opt && typeof opt.run === "function" };
+  },
+});
+`,
+      undefined,
+      "smoke",
+    );
+    await labVein.rebuildRegistry();
+    await labVein.workspace.publishWorkflowByContent(
+      "smoke-optimizer-probe",
+      "name: smoke-optimizer-probe\nsteps:\n  - id: probe\n    type: smoke/has-optimizer\n",
+      "smoke",
+      "smoke",
+    );
+    const probeRun = await labVein.run("smoke-optimizer-probe", {});
+    assert.equal(probeRun.status, "success", `probe run failed: ${JSON.stringify(probeRun.error)}`);
+    assert.deepEqual(probeRun.output, { hasOptimizer: true });
+    console.log("✔ services.optimizer reaches runs (createLabVein wiring)");
+
     console.log("\nALL EVOLVE VALIDATION CHECKS PASSED");
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main().then(
+  // The lab-vein boot (section 6) leaves live handles (stores, services) —
+  // exit explicitly so the smoke terminates instead of idling forever.
+  () => process.exit(0),
+  (err) => {
+    console.error(err);
+    process.exit(1);
+  },
+);

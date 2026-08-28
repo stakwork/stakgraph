@@ -397,7 +397,10 @@ impl Stack for Rust {
         Some(format!(
             r#"
         (impl_item
-            trait: (type_identifier)? @{TRAIT_NAME}
+            trait: [
+                (type_identifier) @{TRAIT_NAME}
+                (generic_type type: (type_identifier) @{TRAIT_NAME})
+            ]?
             type: (type_identifier) @{CLASS_NAME}
             body: (declaration_list)?
         ) @{IMPLEMENTS}

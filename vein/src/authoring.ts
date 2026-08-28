@@ -388,6 +388,9 @@ export interface AuthoringCapability {
     input?: unknown,
     params?: Record<string, unknown>,
     version?: string,
+    /** `parentRunId` = the calling step's `ctx.runId`, linking the nested
+     *  run's controller under the launching run's (subtree control). */
+    opts?: { parentRunId?: string },
   ): Promise<RunResult | { error: string }>;
   listRuns(name: string, limit?: number): Promise<unknown>;
   getRun(name: string, runId: string, fullEvents?: boolean): Promise<unknown>;
@@ -403,6 +406,16 @@ export interface AuthoringDeps extends StepPublishDeps {
   /** Read-only view of the deployment's secret store (NAMES only — never
    *  values). Optional: `listSecrets` degrades gracefully when absent. */
   secrets?: { list(): Promise<SecretInfo[]> };
+  /** Register a nested run as in-flight, creating its RunController —
+   *  attached to the launching run's controller when `parentRunId` is given,
+   *  so cancelling/pausing the parent reaches this run (RUN_CONTROL_SPEC
+   *  §2.2 tree linkage). Also drives the runs listing ("running" vs
+   *  "stale"). Optional: embedders without a live server need not care. */
+  trackRun?: (
+    workflow: string,
+    runId: string,
+    parentRunId?: string,
+  ) => { controller?: import("./run-control.js").RunController; untrack: () => void };
 }
 
 export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapability {
@@ -557,7 +570,7 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
       }
     },
 
-    async runWorkflow(name, input, params, version) {
+    async runWorkflow(name, input, params, version, opts) {
       const gate = await notOwned(name, "runs");
       if (gate) return { error: gate };
       let flow;
@@ -571,13 +584,25 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
       // FRESH registry, same reason as runStep: steps published mid-run are
       // invisible to the enclosing run's registry snapshot.
       const registry = await deps.getRegistry();
-      return runWorkflow(flow, coerceJsonArg(input) ?? {}, registry, {
-        runId: generateRunId(),
-        store,
-        workspace,
-        services: deps.services,
-        params: coerceJsonArg(params) as Record<string, unknown> | undefined,
-      });
+      const runId = generateRunId();
+      // Tree linkage: attach this nested run's controller to the launching
+      // run's (opts.parentRunId = the calling step's ctx.runId), so controls
+      // on the parent reach it (RUN_CONTROL_SPEC §2.2).
+      const tracked = deps.trackRun?.(flow.name, runId, opts?.parentRunId);
+      try {
+        return await runWorkflow(flow, coerceJsonArg(input) ?? {}, registry, {
+          runId,
+          store,
+          workspace,
+          services: deps.services,
+          params: coerceJsonArg(params) as Record<string, unknown> | undefined,
+          controller: tracked?.controller,
+          workflowHash:
+            (await workspace.getWorkflowHash(flow.name, version)) ?? undefined,
+        });
+      } finally {
+        tracked?.untrack();
+      }
     },
 
     async listRuns(name, limit = 20) {

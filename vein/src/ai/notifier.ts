@@ -28,7 +28,7 @@ export const NOTIFICATION_PREFIX = "[run-notification]";
 export interface RunNotificationInfo {
   workflow: string;
   runId: string;
-  status: "success" | "error";
+  status: "success" | "error" | "cancelled";
   durationMs?: number;
   output?: unknown;
   error?: { message: string };
