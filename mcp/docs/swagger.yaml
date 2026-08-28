@@ -1075,7 +1075,9 @@ components:
             verb:
               type: string
             date_added_to_graph:
-              type: string
+              type: integer
+              format: int64
+              description: Epoch milliseconds when the node was added to the graph (Neo4j Integer).
     Edge:
       type: object
       properties:

@@ -17,7 +17,7 @@ export function benchmarkRouter(): Router {
   router.get("/sessions/stats", session_stats);
   router.get("/sessions/:id", get_session);
   router.get("/sessions/:id/turns", get_session_turns);
-  router.post("/sessions/:id/annotations", add_annotation);
+  router.post("/sessions/:id/annotations", authMiddleware, add_annotation);
 
   // Ingest — out-of-process agents recording live Turn chains (see ingest.ts
   // and docs/session-ingest.md). Auth-gated, unlike the read endpoints these

@@ -12,6 +12,7 @@
  */
 
 import { db } from "../src/graph/neo4j.js";
+import { nowEpochMs } from "../src/graph/time.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ async function upsertSession(spec: SessionSpec): Promise<void> {
   try {
     await s.run(UPSERT, {
       ...spec,
-      ts: Date.now() / 1000,
+      ts: nowEpochMs(),
     });
   } finally {
     await s.close();

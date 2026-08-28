@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { getRequestListener } from "@hono/node-server";
 import { createLabVein } from "./createLabVein.js";
+import { authMiddleware } from "../graph/routes.js";
 
 /**
  * Bridge a (lazily-built) vein Hono app into Express. The instance is
@@ -41,9 +42,9 @@ export function mountLab(app: Express): void {
   // against redirecting `/lab/` to itself (an infinite 308 loop) by only
   // redirecting the exact, slash-less path and letting `/lab/` fall through
   // to the vein bridge below.
-  app.get("/lab", (req, res, next) => {
+  app.get("/lab", authMiddleware, (req, res, next) => {
     if (req.path === "/lab/") return next();
     res.redirect(308, "/lab/");
   });
-  app.use("/lab", bridge(() => createLabVein({ serveUi: true })));
+  app.use("/lab", authMiddleware, bridge(() => createLabVein({ serveUi: true })));
 }

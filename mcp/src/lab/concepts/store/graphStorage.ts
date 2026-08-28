@@ -1,5 +1,6 @@
 import neo4j from "neo4j-driver";
 import { ResilientSession, sharedResilientSession } from "../../../utils/neo4jRetry.js";
+import { nowEpochMs } from "../../../graph/time.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
@@ -160,7 +161,7 @@ export class GraphStorage extends Storage {
   async saveConcept(feature: Concept): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const dateTimestamp = Math.floor(feature.lastUpdated.getTime() / 1000);
 
       await session.run(
@@ -341,7 +342,7 @@ export class GraphStorage extends Storage {
   async savePR(pr: PRRecord): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const dateTimestamp = Math.floor(pr.mergedAt.getTime() / 1000);
       const docs = await formatPRMarkdown(pr, this);
       
@@ -456,7 +457,7 @@ export class GraphStorage extends Storage {
   async saveCommit(commit: CommitRecord): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const dateTimestamp = Math.floor(commit.committedAt.getTime() / 1000);
       const docs = await formatCommitMarkdown(commit, this);
       
@@ -607,7 +608,7 @@ export class GraphStorage extends Storage {
   async setLastProcessedPR(repo: string, number: number): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -662,7 +663,7 @@ export class GraphStorage extends Storage {
   async setLastProcessedCommit(repo: string, sha: string): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -720,7 +721,7 @@ export class GraphStorage extends Storage {
   ): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -748,7 +749,7 @@ export class GraphStorage extends Storage {
   async addThemes(repo: string, themes: string[]): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       // Get current themes
       const result = await session.run(
@@ -870,7 +871,7 @@ export class GraphStorage extends Storage {
   async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
