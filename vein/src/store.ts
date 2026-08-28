@@ -4,9 +4,20 @@ import type { RunEvent, RunSummary } from "./core.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** A run is terminal once its log records a `run.end` or `run.error`. */
+/** A run is terminal once its log records a `run.end`, `run.error`, or
+ *  `run.cancelled` — though a later `run.resumed` REOPENS it (§5.2: a
+ *  resumed run appends to the same log past its old terminal event). */
 function isTerminal(event: RunEvent): boolean {
-  return event.type === "run.end" || event.type === "run.error";
+  return (
+    event.type === "run.end" ||
+    event.type === "run.error" ||
+    event.type === "run.cancelled"
+  );
+}
+
+/** A `run.resumed` marker reopens a log whose previous event was terminal. */
+function reopensRun(event: RunEvent): boolean {
+  return event.type === "run.resumed";
 }
 
 /**
@@ -28,12 +39,28 @@ function isTerminal(event: RunEvent): boolean {
 export async function* tailJsonl<T>(
   file: string,
   isTerminal: (event: T) => boolean,
-  opts: { intervalMs?: number; signal?: AbortSignal } = {},
+  opts: {
+    intervalMs?: number;
+    signal?: AbortSignal;
+    /** A later event that REOPENS a log whose previous event was terminal
+     *  (a resumed run's `run.resumed`, RUN_CONTROL_SPEC §5.2). When set, a
+     *  terminal event doesn't end the tail immediately: the tail scans
+     *  ahead for a reopening event, and only closes at EOF (or, if
+     *  `stillLive` says the producer is live again, keeps following). */
+    reopens?: (event: T) => boolean;
+    /** Consulted at EOF after a terminal event when `reopens` is set: a live
+     *  producer (a registered run controller) means a resume is in flight —
+     *  keep following instead of closing. Default: close at EOF. */
+    stillLive?: () => boolean;
+  } = {},
 ): AsyncGenerator<T> {
   const intervalMs = opts.intervalMs ?? 250;
   const signal = opts.signal;
   let offset = 0;
   let leftover = "";
+  // Deferred-close mode (opts.reopens set): saw a terminal event, close at
+  // EOF unless a reopening event arrives first.
+  let sawTerminal = false;
 
   while (true) {
     if (signal?.aborted) return;
@@ -66,9 +93,22 @@ export async function* tailJsonl<T>(
           if (!line) continue;
           const event = JSON.parse(line) as T;
           yield event;
-          if (isTerminal(event)) return;
+          if (isTerminal(event)) {
+            if (!opts.reopens) return;
+            sawTerminal = true;
+          } else if (sawTerminal && opts.reopens?.(event)) {
+            sawTerminal = false;
+          }
         }
       }
+    }
+
+    // After a terminal event: re-check for appended bytes immediately (no
+    // poll delay for the common completed-run tail); at EOF, close — unless
+    // the producer is live again (a resume re-attached), then keep following.
+    if (sawTerminal) {
+      if (chunk) continue;
+      if (!(opts.stillLive?.() ?? false)) return;
     }
 
     await sleep(intervalMs);
@@ -159,27 +199,40 @@ export class FileRunStore implements RunStore {
   async *tailEvents(
     workflow: string,
     runId: string,
-    opts: { intervalMs?: number; signal?: AbortSignal } = {},
+    opts: { intervalMs?: number; signal?: AbortSignal; stillLive?: () => boolean } = {},
   ): AsyncGenerator<RunEvent> {
     const file = join(this.runDir(workflow, runId), "events.jsonl");
-    yield* tailJsonl<RunEvent>(file, isTerminal, opts);
+    // `run.error`/`run.cancelled` are no longer unconditionally terminal: a
+    // later `run.resumed` reopens the stream (historical tails scan ahead;
+    // live tails consult `opts.stillLive` — the server's controllers map).
+    yield* tailJsonl<RunEvent>(file, isTerminal, { ...opts, reopens: reopensRun });
   }
 
-  /** Read events.jsonl for a specific run. */
+  /** Read events.jsonl for a specific run. Tolerates a TORN TAIL: a process
+   *  killed mid-append can leave a truncated final line (single-write
+   *  atomicity is not guaranteed for large outputs) — it belongs to an
+   *  incomplete unit by definition, so it is skipped, not fatal (§5.1). */
   async getRunEvents(workflow: string, runId: string): Promise<RunEvent[]> {
+    let raw: string;
     try {
-      const raw = await readFile(
+      raw = await readFile(
         join(this.runDir(workflow, runId), "events.jsonl"),
         "utf-8",
       );
-      return raw
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as RunEvent);
     } catch {
       return [];
     }
+    const lines = raw.trim().split("\n").filter(Boolean);
+    const events: RunEvent[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        events.push(JSON.parse(lines[i]!) as RunEvent);
+      } catch (err) {
+        if (i === lines.length - 1) continue; // torn tail — skip
+        throw err; // corruption anywhere else is a real error
+      }
+    }
+    return events;
   }
 }
 

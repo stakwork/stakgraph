@@ -334,13 +334,19 @@ export function buildTools(deps: AiDeps) {
         // can report it before the run finishes.
         const runId = generateRunId();
         const startedAt = Date.now();
+        // Register with the host's controller registry (when wired) so the
+        // run is cancellable/pausable and lists as live from launch.
+        const tracked = deps.trackRun?.(name, runId);
         const promise = runWorkflow(flow, coerceJsonArg(input) ?? {}, deps.registry, {
           runId,
           store: deps.store,
           workspace: deps.workspace,
           services: deps.services,
           params: coerceJsonArg(params) as Record<string, unknown> | undefined,
-        });
+          controller: tracked?.controller,
+          workflowHash:
+            (await deps.workspace.getWorkflowHash(name, version)) ?? undefined,
+        }).finally(() => tracked?.untrack());
 
         // No detach seam (tests / non-chat embedders) → await as before.
         const detach = deps.detach;

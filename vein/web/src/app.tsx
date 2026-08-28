@@ -63,6 +63,9 @@ export function App() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [events, setEvents] = useState<api.RunEvent[]>([]);
   const [running, setRunning] = useState(false);
+  // Bumped after a durable resume so the run-view effect re-tails the log
+  // (the prior tail closed at the old terminal event).
+  const [runEpoch, setRunEpoch] = useState(0);
   // True while an in-tab launched run is streaming live into `events`. Disarmed
   // when the user navigates into another run, so the stream can't clobber it.
   const liveStreamRef = useRef(false);
@@ -331,7 +334,7 @@ export function App() {
       })
       .catch(console.error);
     return () => ctrl.abort();
-  }, [selectedRun]);
+  }, [selectedRun, runEpoch]);
 
   // Resolve the selected run's declared promotions (a winning value → a target
   // param). Drives the topbar Promote button + flyout. Empty unless the
@@ -461,6 +464,52 @@ export function App() {
     if (selectedWf !== wf) setSelectedWf(wf);
     setSelectedRun(runId);
   }, [selectedWf]);
+
+  // ── Run control (RUN_CONTROL_SPEC): cancel / pause / resume ──────────────
+  const selectedRunSummary = selectedRun ? runs.find((r) => r.runId === selectedRun) : undefined;
+  const runControlStatus = selectedRunSummary?.status;
+  // Live states come from the server's controller map; "stale"/"error"/
+  // "cancelled" are dead-but-resumable (journal replay).
+  const runIsLive =
+    runControlStatus === "running" || runControlStatus === "pausing" ||
+    runControlStatus === "paused" || runControlStatus === "cancelling";
+  const runIsPaused = runControlStatus === "paused" || runControlStatus === "pausing";
+  const runIsResumable =
+    runControlStatus === "stale" || runControlStatus === "error" || runControlStatus === "cancelled";
+
+  const handleCancelRun = useCallback(async () => {
+    if (!selectedWf || !selectedRun) return;
+    if (!confirm("Cancel this run? Any nested runs it launched are cancelled too — each stops at its next step boundary (the in-flight step finishes and is journaled).")) return;
+    try { await api.cancelRun(selectedWf, selectedRun); } catch (e) { alert(`Cancel failed: ${(e as Error).message}`); }
+    await refreshRuns(selectedWf);
+  }, [selectedWf, selectedRun, refreshRuns]);
+
+  const handlePauseRun = useCallback(async () => {
+    if (!selectedWf || !selectedRun) return;
+    try { await api.pauseRun(selectedWf, selectedRun); } catch (e) { alert(`Pause failed: ${(e as Error).message}`); }
+    await refreshRuns(selectedWf);
+  }, [selectedWf, selectedRun, refreshRuns]);
+
+  // Dual-purpose: releases a paused run, or durably resumes a dead one
+  // (stale / error / cancelled) by replaying its journal.
+  const handleResumeRun = useCallback(async () => {
+    if (!selectedWf || !selectedRun) return;
+    try { await api.resumeRun(selectedWf, selectedRun); } catch (e) { alert(`Resume failed: ${(e as Error).message}`); return; }
+    await refreshRuns(selectedWf);
+    setRunEpoch((n) => n + 1); // re-tail: the log continues past its old terminal
+  }, [selectedWf, selectedRun, refreshRuns]);
+
+  // "Re-run from here" (§5.2 `from` invalidation): the chosen step, its
+  // dependents, and later loop iterations re-execute; upstream replays free.
+  const handleRerunFrom = useCallback(async (path: string) => {
+    if (!selectedWf || !selectedRun) return;
+    if (!confirm(`Re-run from "${path}"?\n\nThis step, everything downstream of it, and later iterations of an enclosing loop re-execute. Completed work upstream replays from the journal at zero cost.`)) return;
+    try { await api.resumeRun(selectedWf, selectedRun, path); } catch (e) { alert(`Re-run failed: ${(e as Error).message}`); return; }
+    setFlyoutStepId(null);
+    setFlyoutStepIndex(null);
+    await refreshRuns(selectedWf);
+    setRunEpoch((n) => n + 1);
+  }, [selectedWf, selectedRun, refreshRuns]);
 
   const handleRun = useCallback(async () => {
     if (!selectedWf || !localSteps || localSteps.length === 0) return;
@@ -772,6 +821,17 @@ export function App() {
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
         <div class="topbar-actions">
+          {/* Run control: cancel/pause a live run tree; resume a paused or
+              dead (stale/error/cancelled) one — RUN_CONTROL_SPEC §3–§5. */}
+          {selectedRun && runIsLive && runControlStatus !== "cancelling" && (
+            <button class="btn btn-danger" onClick={handleCancelRun}>Cancel</button>
+          )}
+          {selectedRun && runControlStatus === "running" && (
+            <button class="btn" onClick={handlePauseRun}>Pause</button>
+          )}
+          {selectedRun && (runIsPaused || runIsResumable) && (
+            <button class="btn btn-primary" onClick={handleResumeRun}>Resume</button>
+          )}
           {isDirty && !viewingOld && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
           {isRunView && promotions.length > 0 && (
             <button
@@ -926,7 +986,19 @@ export function App() {
         if (!step) return null;
 
         if (isRunView && flyoutEvents) {
-          return <StepRunFlyout step={step} events={flyoutEvents} onClose={closeFlyout} />;
+          // "Re-run from here" needs the step's TRUE event path (drilled views
+          // are re-keyed), and only applies to a run that isn't live.
+          const truePath = `${runDrill.length > 0 ? framePrefix(runDrill[runDrill.length - 1]!) : (selectedWf ?? "")}/${flyoutStepId}`;
+          return (
+            <StepRunFlyout
+              step={step}
+              events={flyoutEvents}
+              onClose={closeFlyout}
+              {...(!runIsLive && (runIsResumable || runControlStatus === "success")
+                ? { onRerunFrom: () => handleRerunFrom(truePath) }
+                : {})}
+            />
+          );
         }
         // Editing only applies at the root (drilled views are read-only run views).
         if (drill || !localSteps) return null;

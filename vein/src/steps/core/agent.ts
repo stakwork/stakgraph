@@ -794,6 +794,15 @@ export default defineStep({
       stopWhen,
       ...(providerOptions ? { providerOptions } : {}),
       ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
+      // Cooperative boundary BETWEEN tool calls (RUN_CONTROL_SPEC §4) — the
+      // single highest-value checkpoint in long agent sessions: a pause parks
+      // before the next LLM call starts (the in-flight one finishes and is
+      // journaled); a cancel stops the session here. `ctx.control` is the
+      // runner's unit-scoped view, so a parked agent counts as quiesced.
+      prepareStep: async () => {
+        await ctx?.control?.checkpoint();
+        return undefined;
+      },
       onStepFinish: (sf: any) => {
         // A length finish means the generation was TRUNCATED at the output
         // cap — a cut-off tool call never executes, so the loop dies with no

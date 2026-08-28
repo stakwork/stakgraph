@@ -71,7 +71,7 @@ interface Optimizer {
   run(
     name: string,
     input: unknown,
-    opts?: { paramOverrides?: Record<string, Record<string, unknown>> },
+    opts?: { paramOverrides?: Record<string, Record<string, unknown>>; parentRunId?: string },
   ): Promise<RunResultLike>;
   getParams(name: string): Promise<Record<string, unknown>>;
 }
@@ -212,6 +212,10 @@ export default defineStep({
     let fromReflect: RunRef | undefined;
 
     for (let gen = 0; gen < cfg.maxGenerations; gen++) {
+      // Cooperative boundary between generations (RUN_CONTROL_SPEC §2.1
+      // code-step opt-in): pause parks here; cancel stops the loop here.
+      await ctx.control?.checkpoint();
+
       const genStart = Date.now();
       await emitGen(gen, {
         type: "step.start",
@@ -224,7 +228,9 @@ export default defineStep({
         // prompt is injected into all of them via the same paramOverrides.
         const paramOverrides = { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } };
         const evalRuns = await mapLimit(dataset, cfg.concurrency, async (datum, i) => {
-          const run = await opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides });
+          // parentRunId: nested eval runs attach under this run's controller
+          // (cancel/pause the optimize run → its eval runs follow).
+          const run = await opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides, parentRunId: ctx.runId });
           if (run.status !== "success") {
             throw new Error(`eval run for "${labelFor(datum, i)}" failed: ${run.error?.message ?? "unknown"}`);
           }
@@ -317,7 +323,7 @@ export default defineStep({
             insight: r.insight,
           })),
           history,
-        });
+        }, { parentRunId: ctx.runId });
         if (reflectRun.status !== "success") {
           throw new Error(`reflect run failed: ${reflectRun.error?.message ?? "unknown"}`);
         }

@@ -50,6 +50,15 @@ export interface AiDeps {
       promise: Promise<RunResult>;
     }) => void;
   };
+  /** Register a chat-launched run with the host's controller registry
+   *  (RUN_CONTROL_SPEC §2.2) so it is cancellable/pausable and listed as
+   *  live. Optional: without it, runs are simply uncontrolled (tests,
+   *  embedders). The returned untrack belongs in the launch's finally. */
+  trackRun?: (
+    workflow: string,
+    runId: string,
+    parentRunId?: string,
+  ) => { controller?: import("../run-control.js").RunController; untrack: () => void };
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────

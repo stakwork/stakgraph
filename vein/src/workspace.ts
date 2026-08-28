@@ -232,6 +232,24 @@ export class WorkspaceManager {
     return readFile(join(dir, `${version}.yaml`), "utf-8");
   }
 
+  /** Content hash of a workflow version's source (active version when
+   *  omitted) — recorded on `run.start` so resume can refuse to replay a
+   *  journal into a different DAG (RUN_CONTROL_SPEC §5). Null when the
+   *  workflow/version is unknown: hash recording degrades gracefully for
+   *  runs launched from a bare Flow object. */
+  async getWorkflowHash(name: string, version?: string): Promise<string | null> {
+    try {
+      const meta = await this.readWorkflowMetadata(name);
+      if (!meta) return null;
+      const v = version ?? meta.active;
+      const recorded = meta.versions[v]?.hash;
+      if (recorded) return recorded;
+      return contentHash(await this.getWorkflowSource(name, v));
+    } catch {
+      return null;
+    }
+  }
+
   private async loadFlowYaml(name: string, version: string): Promise<Flow> {
     const dir = join(this.root, "workflows", name);
     const raw = await readFile(join(dir, `${version}.yaml`), "utf-8");

@@ -33,7 +33,9 @@ vein/
 ├── src/
 │   ├── core.ts            # flow(), step(), defineStep(), services bag, all types
 │   ├── expr.ts            # {{ }} template evaluator (recursive descent; whitelisted array methods + arrow lambdas)
-│   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow
+│   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow, journal replay
+│   ├── run-control.ts     # RunController: cooperative cancel/pause/resume for run TREES (RUN_CONTROL_SPEC.md)
+│   ├── journal.ts         # resume journal: step.end outputs → {path→output}; `from` invalidation
 │   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore + tailJsonl (shared append-only tail engine)
 │   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
 │   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
@@ -54,7 +56,7 @@ vein/
 │   │   │                  #                   create_workflow, run_workflow (threads ctx.services)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
-│   └── *.test.ts          # 298 tests across 12 files
+│   └── *.test.ts          # 533 tests across 25 files
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -91,7 +93,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 298 tests, ~330ms
+npm test                    # 533 tests, ~1s
 npm run dev                 # starts Hono server on :3000
 
 # Web UI (dev mode with HMR)
@@ -415,6 +417,27 @@ services bag can override it, same as `http`/`secrets`).
   `api.runWorkflow` hides the two steps — it POSTs to launch, then
   `streamRun(name, runId)` reattaches to the tail — so callers see the
   same `(onEvent, → RunResult)` interface as before.
+
+- **Run control** (`RUN_CONTROL_SPEC.md`, `src/run-control.ts` +
+  `src/journal.ts`). Every launch site registers a `RunController`
+  (createVein's `trackRun` — superseding the old `activeRuns` set); nested
+  launches attach to the parent's controller via `parentRunId` (set by
+  meta/run-workflow + the lab's optimizer from `ctx.runId`), so
+  cancel/pause apply to WHOLE SUBTREES. All control is cooperative: the
+  runner awaits `checkpoint()` between DAG steps / loop+foreach iterations /
+  retry attempts; the agent step checkpoints between tool calls
+  (`prepareStep`); code steps with long loops opt in via
+  `ctx.control?.checkpoint()`. Endpoints:
+  `POST /workflows/:name/runs/:runId/{cancel,pause,resume}`. Cancel
+  finalizes honestly as `status: "cancelled"` (never the error path).
+  Durable resume replays the journal (`step.end` outputs keyed by path →
+  `step.replayed` events, zero cost) and re-executes from the first
+  incomplete path — valid for stale (crashed), error, and cancelled runs;
+  a successful run needs `from: <stepPath>` ("re-run from here", which
+  drops the target + transitive dependents + later loop iterations).
+  `run.start` records the workflow content hash (resume refuses a changed
+  DAG unless forced) and per-run params. Iterative code steps consume
+  `ctx.journal` to resume completed iterations (harvey/evolve-loop does).
 
 - **`RunStore.append/finalize`** take `(workflow, runId, ...)`
   — the workflow name is the first param. `MemoryRunStore` keys
