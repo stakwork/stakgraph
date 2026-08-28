@@ -443,4 +443,12 @@ possible version of "capture."
    stays human. Offline checks: `mcp/src/lab/harvey/evolve-smoke.ts`.
 5. **Generalize `eval/optimize`'s candidate** from prompt string to workflow
    ref + version (§5.3.3) — the change that lets one loop drive all three
-   layers.
+   layers. **Harvey instance built** — `harvey/evolve-loop` (lab): up to N
+   generations of `harvey-evolve-gen` (author → run pinned candidate →
+   digest), each briefed with every prior attempt's version/pass-rate/
+   approach/failures, anchored to the best-so-far (never the latest), with
+   the directive flipping from exploit to "try a GENUINELY DIFFERENT
+   approach" after `exploreAfter` non-improving attempts. Fitness is
+   criteria pass-rate (binary all-pass has no gradient); improvements must
+   clear a judge-noise margin (default 0.02 ≈ one criterion at n=50). The
+   GENERIC step remains open — this is the shape it should generalize.
