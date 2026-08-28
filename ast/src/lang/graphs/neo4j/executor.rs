@@ -10,6 +10,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
 
+use super::time::now_epoch_ms;
+
 /// Returns true if the error indicates a Neo4j transient error
 /// (deadlock, leader switch, lock client stopped, etc.) — Neo4j explicitly
 /// marks these as safe-to-retry.
@@ -163,12 +165,7 @@ fn bind_parameters(query_str: &str, params: BoltMap) -> Query {
         let properties = boltmap_to_bolttype_map(params);
         query_obj = query_obj.param("properties", properties);
         if query_str.contains("$now") {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                let ts = dur.as_secs_f64();
-                query_obj =
-                    query_obj.param("now", neo4rs::BoltType::String(format!("{:.7}", ts).into()));
-            }
+            query_obj = query_obj.param("now", now_epoch_ms());
         }
     } else {
         for (key, value) in params.value.iter() {
@@ -297,14 +294,7 @@ impl<'a> TransactionManager<'a> {
                         let properties = boltmap_to_bolttype_map(bolt_map);
                         query_obj = query_obj.param("properties", properties);
                         if query_str.contains("$now") {
-                            use std::time::{SystemTime, UNIX_EPOCH};
-                            if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                                let ts = dur.as_secs_f64();
-                                query_obj = query_obj.param(
-                                    "now",
-                                    neo4rs::BoltType::String(format!("{:.7}", ts).into()),
-                                );
-                            }
+                            query_obj = query_obj.param("now", now_epoch_ms());
                         }
                     } else {
                         for (key, value) in bolt_map.value.iter() {

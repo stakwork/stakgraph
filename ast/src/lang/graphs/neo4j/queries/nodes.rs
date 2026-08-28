@@ -45,10 +45,16 @@ impl NodeQueryBuilder {
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
+        // `date_added_to_graph` is set ONCE on create (epoch-ms Integer via
+        // the shared `now_epoch_ms` helper bound in executor.rs). It is
+        // deliberately absent from ON MATCH: re-ingesting an existing node
+        // must not re-stamp its creation time. The binder attaches `$now`
+        // for any query containing `$properties` + `$now`, so set-once here
+        // relies on this query text alone — see the tests below.
         let query = format!(
             "MERGE (node:{}:{} {{node_key: $node_key}})
          ON CREATE SET node += $properties, node.date_added_to_graph = $now
-         ON MATCH SET node += $properties, node.date_added_to_graph = $now
+         ON MATCH SET node += $properties
          Return node",
             self.node_type.to_string(),
             DATA_BANK,
@@ -752,4 +758,155 @@ pub fn query_nodes_with_count(
     );
 
     (query, params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::graphs::neo4j::{
+        helpers::boltmap_insert_str, Neo4jConfig, Neo4jConnectionManager, TransactionManager,
+    };
+    use neo4rs::{query, BoltMap};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn probe_node_data() -> NodeData {
+        NodeData {
+            name: "date_added_set_once_probe".to_string(),
+            file: "__test__/date_added_set_once.rs".to_string(),
+            body: "fn date_added_set_once_probe() {}".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn build_sets_date_added_to_graph_only_on_create() {
+        let (query, _) = NodeQueryBuilder::new(&NodeType::Function, &probe_node_data()).build();
+
+        let create_idx = query
+            .find("ON CREATE SET")
+            .expect("build() must contain ON CREATE SET");
+        let match_idx = query
+            .find("ON MATCH SET")
+            .expect("build() must contain ON MATCH SET");
+        assert!(
+            create_idx < match_idx,
+            "ON CREATE SET must precede ON MATCH SET, got:\n{query}"
+        );
+
+        let create_clause = &query[create_idx..match_idx];
+        let match_clause = &query[match_idx..];
+
+        assert!(
+            create_clause.contains("node.date_added_to_graph = $now"),
+            "date_added_to_graph must be set under ON CREATE SET, got:\n{query}"
+        );
+        // Set-once semantics: the binder in executor.rs attaches `$now` to
+        // any query containing `$properties` + `$now`, so the ON MATCH text
+        // is the only thing preventing a re-stamp on every merge.
+        assert!(
+            !match_clause.contains("date_added_to_graph"),
+            "date_added_to_graph must NOT be re-stamped under ON MATCH SET (set once on create), got:\n{query}"
+        );
+    }
+
+    #[test]
+    fn build_stream_sets_date_added_to_graph_only_on_create() {
+        let (query, _) =
+            NodeQueryBuilder::new(&NodeType::Function, &probe_node_data()).build_stream();
+
+        assert!(
+            query.contains("ON CREATE SET node += $properties, node.date_added_to_graph = $now"),
+            "build_stream() must set date_added_to_graph under ON CREATE SET, got:\n{query}"
+        );
+        assert!(
+            !query.contains("ON MATCH"),
+            "build_stream() must not set anything on match, got:\n{query}"
+        );
+    }
+
+    /// Reads the probe node's `date_added_to_graph` back as an `i64`.
+    ///
+    /// The `i64` read is the type assertion: neo4rs only deserializes a
+    /// Neo4j **Integer** into `i64`, so a legacy string/float/null value
+    /// fails here instead of silently passing.
+    async fn read_probe_date_added(conn: &neo4rs::Graph, node_key: &str) -> Option<i64> {
+        let read_query =
+            query("MATCH (n:Data_Bank {node_key: $node_key}) RETURN n.date_added_to_graph AS d")
+                .param("node_key", node_key);
+        let mut result = conn.execute(read_query).await.expect("read probe query");
+        let row = result.next().await.expect("read probe stream")?;
+        Some(
+            row.get("d").expect(
+                "date_added_to_graph must be stored as a Neo4j Integer (i64); \
+                 string/float/null values fail this read",
+            ),
+        )
+    }
+
+    async fn delete_probe(conn: &neo4rs::Graph, node_key: &str) {
+        let mut params = BoltMap::new();
+        boltmap_insert_str(&mut params, "node_key", node_key);
+        let mut txn = TransactionManager::new(conn);
+        txn.add_query((
+            "MATCH (n:Data_Bank {node_key: $node_key}) DELETE n".to_string(),
+            params,
+        ));
+        txn.execute().await.expect("probe cleanup");
+    }
+
+    #[tokio::test]
+    async fn merge_twice_keeps_date_added_to_graph_set_once_and_integer() {
+        let conn = match Neo4jConnectionManager::initialize(&Neo4jConfig::default()).await {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("skipping merge_twice test: no Neo4j reachable ({e})");
+                return;
+            }
+        };
+
+        let node_data = probe_node_data();
+        let node_key = create_node_key(&Node::new(NodeType::Function, node_data.clone()));
+
+        // Idempotent cleanup: a previously interrupted run may have left the probe.
+        delete_probe(&conn, &node_key).await;
+
+        // First merge — creates the probe via build()'s ON CREATE branch.
+        let (q, p) = add_node_query(&NodeType::Function, &node_data);
+        let mut txn = TransactionManager::new(&conn);
+        txn.add_query((q, p));
+        txn.execute().await.expect("first merge");
+
+        let created_ms = read_probe_date_added(&conn, &node_key)
+            .await
+            .expect("probe node missing after first merge");
+
+        // Must be epoch *milliseconds*: a seconds value (~1.7e9) or the
+        // legacy `{:.7}` string would fail this bound against an ms clock
+        // (~1.7e12+). (Non-Integer storage already failed the i64 read.)
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after 1970")
+            .as_millis() as i64;
+        assert!(
+            (now_ms - created_ms).abs() < 60_000,
+            "expected epoch milliseconds within a minute of now, got {created_ms} vs {now_ms}"
+        );
+
+        // Second identical merge — hits ON MATCH; must not re-stamp.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (q, p) = add_node_query(&NodeType::Function, &node_data);
+        let mut txn = TransactionManager::new(&conn);
+        txn.add_query((q, p));
+        txn.execute().await.expect("second merge");
+
+        let remerged_ms = read_probe_date_added(&conn, &node_key)
+            .await
+            .expect("probe node missing after second merge");
+        assert_eq!(
+            created_ms, remerged_ms,
+            "date_added_to_graph must be set once on create, not overwritten on merge"
+        );
+
+        delete_probe(&conn, &node_key).await;
+    }
 }
