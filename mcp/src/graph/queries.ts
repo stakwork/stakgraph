@@ -105,7 +105,7 @@ RETURN n
 
 export const UPDATE_REPO_DOCS_QUERY = `
 MATCH (r:Repository {ref_id: $ref_id})
-SET r.documentation = $documentation, r.date_added_to_graph = $ts
+SET r.documentation = $documentation
 RETURN r
 `;
 
@@ -218,7 +218,7 @@ RETURN count(n) as deleted_count
 
 export const ADD_NODE_QUERY = (nodeType: string) => `
 MERGE (n:${nodeType}:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n += $properties, n.namespace = 'default'
+ON CREATE SET n += $properties, n.date_added_to_graph = $dateAddedToGraph, n.namespace = 'default'
 ON MATCH SET n += $properties
 RETURN n.ref_id as ref_id
 `;
@@ -1314,7 +1314,7 @@ export const UPSERT_WORKFLOW_DOCUMENTATION_QUERY = `
 MATCH (w:Workflow {ref_id: $workflow_ref_id})
 MERGE (d:Workflow_documentation {node_key: $node_key})
 ON CREATE SET d.ref_id = randomUUID(), d.date_added_to_graph = $ts, d.namespace = 'default'
-SET d.name = $name, d.body = $body, d.date_added_to_graph = $ts, d.namespace = 'default'
+SET d.name = $name, d.body = $body, d.namespace = 'default'
 MERGE (d)-[:DOCUMENTS]->(w)
 RETURN d.ref_id AS ref_id
 `;

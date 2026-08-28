@@ -29,6 +29,7 @@ import {
   nameFileOnly,
 } from "./utils.js";
 import * as Q from "./queries.js";
+import { nowEpochMs } from "./time.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { createByModelName } from "@microsoft/tiktokenizer";
@@ -559,7 +560,7 @@ class Db {
         body: answer,
         question,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
         persona,
       });
       const r = await session.run(Q.GET_HINT_QUERY, { node_key });
@@ -606,7 +607,7 @@ class Db {
         body: JSON.stringify(files),
         description,
         mocked,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const r = await session.run(Q.GET_MOCK_QUERY, { node_key });
       const record = r.records[0];
@@ -797,14 +798,17 @@ class Db {
         },
       } as Node);
 
-      const now = Date.now();
-
-      const { ref_id, ...properties } = node_data;
+      const { ref_id, date_added_to_graph: _legacyDateAdded, ...rest } =
+        node_data;
 
       await session.run(Q.ADD_NODE_QUERY(node_type), {
         node_key,
-        properties: { ...properties, node_key },
-        now,
+        // date_added_to_graph is deliberately excluded from the property bag:
+        // ADD_NODE_QUERY stamps it from $dateAddedToGraph (nowEpochMs) under
+        // ON CREATE only, so re-merging an existing node_key never re-stamps
+        // it and callers can't inject legacy formats.
+        properties: { ...rest, node_key },
+        dateAddedToGraph: nowEpochMs(),
       });
 
       const result = await session.run(
@@ -899,7 +903,7 @@ class Db {
         body: answer,
         question,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const r = await session.run(Q.GET_PROMPT_QUERY, { node_key });
       const record = r.records[0];
@@ -935,7 +939,7 @@ class Db {
         docs,
         number,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const r = await session.run(Q.GET_PULL_REQUEST_QUERY, { node_key });
       const record = r.records[0];
@@ -970,7 +974,7 @@ class Db {
         rule,
         reason: reason || null,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const n = result.records[0].get("n");
       return { ref_id: n.properties.ref_id, node_key };
@@ -997,7 +1001,7 @@ class Db {
         name,
         node_key,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const s = result.records[0].get("s");
       return { ref_id: s.properties.ref_id };
@@ -1288,7 +1292,6 @@ class Db {
       await session.run(Q.UPDATE_REPO_DOCS_QUERY, {
         ref_id,
         documentation,
-        ts: Date.now() / 1000,
       });
     } finally {
       await session.close();
@@ -1698,7 +1701,7 @@ class Db {
     try {
       await session.run(Q.CREATE_AGENT_SESSION_STUB_QUERY, {
         ...params,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
     } finally {
       await session.close();
@@ -1736,7 +1739,7 @@ class Db {
       const result = await session.run(Q.UPSERT_TURNS_QUERY, {
         session_id,
         turns,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const written = result.records[0]?.get("written");
       return written?.toNumber?.() ?? Number(written ?? 0);
@@ -1898,7 +1901,7 @@ class Db {
     try {
       await session.run(Q.UPSERT_AGENT_SESSION_QUERY, {
         ...params,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
     } finally {
       await session.close();
