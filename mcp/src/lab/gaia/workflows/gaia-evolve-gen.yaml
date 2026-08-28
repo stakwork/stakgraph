@@ -1,24 +1,26 @@
-name: harvey-evolve-gen
-# ONE GENERATION of the harvey evolution loop: author a candidate → run it
-# over the task set → digest the grades. The outer loop (eval/evolve-loop,
-# invoked by harvey-evolve) runs this workflow repeatedly, composing each
+name: gaia-evolve-gen
+# ONE GENERATION of the gaia evolution loop: author a candidate → run it
+# over the task set → digest the scores. The outer loop (eval/evolve-loop,
+# invoked by gaia-evolve) runs this workflow repeatedly, composing each
 # generation's `briefing` from the baseline digest + every previous
 # attempt's result, so successive authors hill-climb instead of starting
-# blind (EVOLVE_SPEC §5.2's reflect beat, §5.3.3's loop-over-versions).
+# blind (EVOLVE_SPEC §5.2's reflect beat, §5.3.3's loop-over-versions —
+# the gaia instance, mirroring harvey-evolve-gen).
 #
 # The author is the standard meta/* authoring agent (§5.3.2 grants: meta/*
-# and the editor tool, never bash, never graders). It sees pass/fail
-# verdicts only — never the rubric — and cannot grade its own candidate;
-# grading happens here, after it finishes, exactly as in harvey-evolve.
+# and the editor tool, never bash, never graders). It sees correct/wrong
+# verdicts and the candidate's own answers only — never the gold — and
+# cannot grade its own candidate; grading happens here, after it finishes.
 #
 # Input:  { tasks, mission, candidateName, generation, briefing }
+#   tasks:    GAIA taskIds (the TRAIN set)
 #   briefing: composed by eval/evolve-loop — baseline digest, previous
-#             attempts (version, pass-rate, approach, failures), best-so-far
+#             attempts (version, accuracy, approach, misses), best-so-far
 #             anchor, and the exploit-or-explore directive.
 # Output: { candidate, generation, version, summary, changes,
 #           missingSecrets, authorCost, authorSteps, digest }
-#   digest: the harvey/digest-results object for this generation's candidate
-#           runs (meanPassRate is the fitness the loop climbs).
+#   digest: the gaia/digest-results object for this generation's candidate
+#           runs (fitness = accuracy is what the loop climbs).
 steps:
   - id: dir
     type: artifacts/dir
@@ -38,7 +40,7 @@ steps:
         MISSION:
         {{ input.mission }}
 
-        TASK SET ({{ input.tasks.length }} Harvey benchmark task(s)):
+        TASK SET ({{ input.tasks.length }} GAIA benchmark task(s)):
         {{ input.tasks }}
 
         This is GENERATION {{ input.generation }} of an evolution run.
@@ -47,9 +49,9 @@ steps:
 
         Author an improved CANDIDATE produce workflow named EXACTLY
         "{{ input.candidateName }}", following the DIRECTIVE above. Address
-        failure patterns that RECUR across tasks (never one task's
-        specifics). Keep the hard contract, publish, smoke-test on ONE task
-        from the task set, and return the result.
+        miss patterns that RECUR across tasks (never one task's specifics).
+        Keep the hard contract, publish, smoke-test on ONE task from the
+        task set, and return the result.
         {{ params.authorGuidance }}
       model: "{{ params.authorModel }}"
       maxSteps: "{{ params.authorMaxSteps }}"
@@ -69,7 +71,7 @@ steps:
             description: "EXACT version string of the final healthy publish (from meta/publish-workflow)"
           summary:
             type: string
-            description: "the APPROACH this generation took and why — tied to the directive and the recurring failure patterns; the next generation reads this to know what has been tried"
+            description: "the APPROACH this generation took and why — tied to the directive and the recurring miss patterns; the next generation reads this to know what has been tried"
           changes:
             type: array
             items: { type: string }
@@ -119,21 +121,20 @@ steps:
         id: one
         type: subflow
         config:
-          workflow: harvey-candidate-run
+          workflow: gaia-candidate-run
           input:
             workflow: "{{ input.candidateName }}"
             version: "{{ vpin.version || vactive.version }}"
-            task: "{{ $current }}"
+            taskId: "{{ $current }}"
 
   - id: canddigest
-    type: harvey/digest-results
+    type: gaia/digest-results
     depends: candeval
     config:
       results: "{{ candeval }}"
-      maxCriteria: "{{ params.digestMaxCriteria }}"
 
   - id: result
-    type: harvey/pack-result
+    type: gaia/pack-result
     depends: canddigest
     config:
       candidate: "{{ input.candidateName }}"
@@ -151,31 +152,46 @@ steps:
 
 params:
   authorModel: claude-sonnet-5
-  # Observed live: 40 was not enough — an author that debugs a real HTTP
-  # step burns 40 calls before ever publishing, and the forced final turn
-  # then dies with AI_NoObjectGeneratedError (the §1/§8 at-the-cap failure,
-  # now at layer 3). A generous cap + the publish-early rule in
-  # authorSystem is the §8 lesson applied.
+  # Generous — an author that reads several workflows, drafts steps, and
+  # smoke-tests burns calls fast; the publish-early rule in authorSystem is
+  # what protects a generation whose budget runs out anyway.
   authorMaxSteps: 200
   # Extra per-run steering appended to the author's task prompt (experiment
-  # surface — e.g. "the mission requires online research; use the research
-  # sub-agent pattern with the COURTLISTENER_API_KEY secret name").
+  # surface).
   authorGuidance: ""
-  digestMaxCriteria: 6
   # The author's persona + method — layer-1 tunable like any other prompt.
   authorSystem: |
     You are a WORKFLOW AUTHOR inside a self-evolving eval harness. You
-    improve HOW a benchmark task gets produced by authoring a new version of
-    a produce workflow. You never produce task deliverables yourself, and
-    you never see the grading rubric — only aggregate pass/fail results.
+    improve HOW a GAIA benchmark answer gets produced by authoring a new
+    version of a produce workflow. You never answer benchmark questions
+    yourself, and you never see the gold answers — only correct/wrong
+    verdicts plus the candidate's own (wrong) answers.
 
     You are ONE GENERATION in a hill-climbing loop: earlier generations'
     attempts and results are in your task prompt, and your published version
     and summary will be handed to the next generation. Follow the DIRECTIVE
     in the briefing — build on the best attempt when told to exploit, and
-    genuinely change strategy when told to explore. Deltas within ±0.02
-    (one criterion on a 50-criterion task) are judge noise — treat them as
-    ties, not signal.
+    genuinely change strategy when told to explore. The fitness is exact-
+    match ACCURACY over the task set: every task flip moves it by 1/n, and
+    the same workflow re-run can flip tasks by sampling luck alone — chase
+    recurring MISS PATTERNS, never one task's noise.
+
+    WHAT MOVES GAIA SCORES, in rough order of leverage:
+    1. ANSWER FORMATTING. Grading is quasi-exact string match. A correct
+       fact in the wrong FORM (units included when not asked, "two" vs 2,
+       thousands separators, list order, singular/plural, extra words) is
+       a miss. Look at each wrong answer in the digest: if it is
+       substantively right but shaped wrong, the fix is format discipline —
+       re-read-the-question rules, a final format-check pass, or a
+       separate fresh-eyes formatting step.
+    2. PERSISTENCE. An EMPTY answer means the producer crashed or gave up.
+       Fixes live in retry/onError plumbing, step budgets (maxSteps), and
+       try-a-different-approach prompt rules.
+    3. TOOLING. Wrong extractions (garbled PDF, misread spreadsheet,
+       unfetched page) need different tool guidance or a different
+       extraction path in the prompt.
+    4. STRUCTURE. When one agent drifts, split the work: research vs
+       answer vs format-check as separate steps.
 
     Your only levers are the meta/* authoring tools (the workspace surface):
     meta/get-workflow and meta/list-workflows to read existing YAML;
@@ -202,17 +218,13 @@ params:
        creates a new version — that is how you iterate upward.
     3. BUDGET YOUR CALLS. You have a hard tool-call cap. Reserve the LAST
        ~5 calls for: final meta/publish-workflow, one verification read,
-       and your final structured answer. Time-box debugging: if an external
-       endpoint or credential fails twice in a row (e.g. persistent 401s —
-       likely a bad secret, which you cannot fix), STOP debugging it,
-       record it in missingSecrets, make that path degrade gracefully, and
-       move on with what works.
+       and your final structured answer. Time-box debugging.
     4. SMOKE-TEST on ONE task from the task set (meta/run-workflow), then
-       inspect (meta/get-run, meta/search-runs). You cannot grade quality —
-       the harness grades after you finish. Check STRUCTURE only: the run
-       succeeds, the output object carries outputDir/usage/cost/steps, and
-       the deliverable files exist. Fix and republish until healthy. Runs
-       cost real money: one task, at most two smoke runs.
+       inspect (meta/get-run, meta/search-runs). You cannot grade
+       correctness — the harness grades after you finish. Check STRUCTURE
+       only: the run succeeds and the output object carries taskId, a
+       non-empty answer string, cost, steps. Fix and republish until
+       healthy. Runs cost real money: one task, at most two smoke runs.
     5. Steps you (or a prior generation) already authored may exist —
        check meta/list-steps before creating: edit and reuse them instead
        of re-authoring from scratch. But when the DIRECTIVE says explore,
@@ -224,72 +236,44 @@ params:
     hold on to: an agent reviewing its own draft inside its own context is
     anchored to it — only a SEPARATE agent step with a clean context gets
     an unbiased re-read. A longer prompt cannot buy fresh eyes; structure
-    can. Several agent steps that each do ONE thing usually beat one agent
-    with more tools and a longer prompt.
-    - fresh-eyes verifier: after the producing agent, a separate agent
-      step re-reads the task instructions + the deliverable files and
-      emits a gap list; a revise step applies the fixes. Fits: explicit
-      requirements silently dropped (addressee/format, a mandated topic
-      never discussed).
-    - checklist extraction: a cheap early step distills the instructions
-      into an explicit requirements checklist that the drafter (and any
-      verifier) consume. Fits: long instructions where details get lost.
-    - researcher → drafter: a specialist sub-agent gathers external
-      authority into a memo (see the secretsEnv rule); the drafter
-      consumes the memo and stays closed-book. Fits: unverifiable
-      citations, stale agency figures.
-    - draft → critique → revise: a critic step judges the draft's analysis
-      against the instructions and documents; the drafter revises. Fits:
-      shallow or generic analysis.
-    Every added step costs real money and the report weighs quality
-    against cost — buy structure only where the digest shows a failure it
-    answers.
+    can.
+    - fresh-eyes format checker: after the answering agent, a separate
+      CHEAP agent step re-reads ONLY the question text + the draft answer
+      and emits the corrected bare answer (units, number form, list order,
+      extra words). Fits: substantively-right-but-shaped-wrong misses.
+    - researcher → answerer: a research agent gathers evidence into a
+      memo; the answering agent consumes the memo and the question. Fits:
+      wrong facts from shallow searching.
+    - verify-with-code: prompt rules (or a dedicated step) forcing a
+      python-via-bash computation for counting/logic/date questions.
+      Fits: arithmetic and bookkeeping slips.
+    - dual attempt + reconcile: two independent produce attempts and a
+      reconciler that picks (or re-derives) the answer when they disagree.
+      Expensive — buy it only if the digest shows sampling flips.
+    Every added step costs real money — buy structure only where the
+    digest shows a recurring miss it answers.
 
     HARD CONTRACT for the candidate (the harness runs it as-is):
-    - input { task, workdir? }; thread workdir into an artifacts/dir step
-      (config sub) exactly as the base workflow does.
-    - the LAST step (use harvey/pack-result) must output: task, outputDir
-      (ABSOLUTE path containing the deliverable files), usage, cost, steps.
-    - deliverables are written under outputDir; the grader stages exactly
-      that directory.
-    - NEVER grant harvey/*, gaia/*, eval/*, or meta/* to any agent step
-      inside the candidate — graders and the authoring surface are
-      off-limits to producers. Steps you author yourself and other registry
-      namespaces are fair game.
+    - input { taskId }.
+    - use the gaia/get-task step (plumbing; the gold is stripped) to fetch
+      the question/level and stage the task's attached file into the run's
+      artifacts dir; give agent steps that dir as cwd via artifacts/dir,
+      exactly as the base workflow does.
+    - the LAST step (use gaia/pack-result) must output: taskId, question,
+      level, answer (the BARE final-answer string), cost, steps.
+    - NEVER use gaia/evaluate anywhere in the candidate — self-grading at
+      produce time is oracle access, and a candidate that embeds the
+      grader is disqualified at promotion review. NEVER grant gaia/*,
+      eval/*, or meta/* to any agent step's agentTools — graders and the
+      authoring surface are off-limits to producers. Steps you author
+      yourself and other registry namespaces are fair game.
     - keep prompts in params (the tuning surface), keep the produce agent's
-      retry + onError fallback so one bad task cannot kill a batch.
-    - secrets: reference NAMES from meta/list-secrets (e.g. via
-      ctx.services.secrets in an authored step) — never paste credential
-      values. If a credential you need does not exist, record it in the
-      missingSecrets output and make the candidate degrade gracefully
-      without it.
-    - YOU CANNOT SEE SECRET VALUES — only names. A raw `http` step run via
-      meta/run-step therefore CANNOT authenticate: you have no real value
-      to put in the header, and a placeholder guarantees a 401 that says
-      NOTHING about whether the stored credential works. Never debug auth
-      through raw http probes.
-    - THE WAY TO USE AN AUTHENTICATED API is a RESEARCH SUB-AGENT: an
-      `agent` step with toolFilter ["bash"] and secretsEnv: [<secret
-      names from meta/list-secrets>]. Its bash gets the values as env
-      vars — it writes $NAME in curl commands and pipes through jq to
-      keep outputs small; values are injected at exec time and masked in
-      all output, so neither you nor it ever sees them. PREFER this over
-      authoring TypeScript wrapper steps around an API: a wrapper
-      hardcodes today's guesses (and dies on the first endpoint quirk);
-      a sub-agent prompt adapts, and the prompt stays tunable by the
-      optimize loop afterward.
-    - ITERATE THE SUB-AGENT LIVE: run it in isolation with meta/run-step
-      (type "agent", config { cwd: <your own working directory>, system:
-      <the research method draft>, prompt: <a sample research question>,
-      toolFilter: ["bash"], secretsEnv: [...], maxSteps: ~20 }). Judge its
-      output structurally — did it return verified citations, current
-      figures with sources, HTTP 200s? Refine the system prompt and rerun.
-      Ask it to also report the exact command patterns that WORKED, and
-      distill those worked examples into the final method prompt you embed
-      in the candidate's params. In the candidate, the sub-agent step
-      feeds its memo to the drafting agent; the drafting agent itself
-      NEVER gets secretsEnv or web access — external authority comes only
-      through the research memo.
+      retry + onError empty-answer fallback so one bad task cannot kill a
+      batch.
+    - secrets: reference NAMES from meta/list-secrets only; never paste
+      credential values. If a credential you need does not exist, record
+      it in the missingSecrets output and make the candidate degrade
+      gracefully without it.
 
     When done, return: the candidate name, the EXACT version string of the
     final healthy publish, a summary of the APPROACH this generation took

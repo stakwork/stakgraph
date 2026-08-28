@@ -1,14 +1,18 @@
 name: gaia-run
 # Single-task harness: get-task -> produce (agent) -> evaluate (REAL scorer).
 # The producing agent NEVER gets gaia/* tools (see gaia-produce's params).
-# Input:  { taskId }
+# `input.produceWorkflow` swaps in a different produce workflow (a seeded
+# variant; ai-stamped candidates go through gaia-candidate-run instead,
+# which runs them via meta/run-workflow under their own runId).
+# Input:  { taskId, produceWorkflow? }
 # Output: { accuracy, correct, total, byLevel, results, benchmarkRev,
-#           scorerSha256, taskId, question, level, answer, cost, steps }
+#           scorerSha256, produceWorkflow, taskId, question, level, answer,
+#           cost, steps }
 steps:
   - id: produced
     type: subflow
     config:
-      workflow: gaia-produce
+      workflow: "{{ input.produceWorkflow || 'gaia-produce' }}"
       input:
         taskId: "{{ input.taskId }}"
 
@@ -28,6 +32,7 @@ steps:
       byLevel: "{{ score.byLevel }}"
       results: "{{ score.results }}"
       benchmarkRev: "{{ score.benchmarkRev }}"
+      produceWorkflow: "{{ input.produceWorkflow || 'gaia-produce' }}"
       taskId: "{{ produced.taskId }}"
       question: "{{ produced.question }}"
       level: "{{ produced.level }}"

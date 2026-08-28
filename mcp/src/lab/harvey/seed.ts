@@ -18,13 +18,16 @@ import type { WorkspaceManager } from "vein";
  *   fallbacks).
  * - `harvey/digest-results` — aggregate graded results into the propose
  *   digest (verdict channel only; see the step header).
+ *
+ * The hill-climb loop itself is the GENERIC `eval/evolve-loop` (seeded by
+ * eval/seed.ts) — harvey-evolve wires it with harvey's gen workflow and
+ * pass-rate fitness.
  */
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "get-task.ts", type: "harvey/get-task" },
   { file: "evaluate.ts", type: "harvey/evaluate" },
   { file: "pack-result.ts", type: "harvey/pack-result" },
   { file: "digest-results.ts", type: "harvey/digest-results" },
-  { file: "evolve-loop.ts", type: "harvey/evolve-loop" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

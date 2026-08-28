@@ -12,15 +12,20 @@ import type { WorkspaceManager } from "vein";
  * config. An experiment supplies its own eval WORKFLOWS that wire these steps
  * with its rubric / task / dataset (e.g. the concepts experiment ships
  * `concepts-eval*` in concepts/workflows, seeded by concepts/seed.ts):
- *   - `eval/score`    — match produced vs expected by a `rubric`, recall-weighted.
- *   - `eval/reflect`  — propose a better prompt from AGGREGATED results.
- *   - `eval/optimize` — eval → keep best → reflect loop (a detached job).
+ *   - `eval/score`       — match produced vs expected by a `rubric`, recall-weighted.
+ *   - `eval/reflect`     — propose a better prompt from AGGREGATED results.
+ *   - `eval/optimize`    — eval → keep best → reflect loop (a detached job).
+ *   - `eval/evolve-loop` — hill-climb candidate WORKFLOW VERSIONS over
+ *     generations (EVOLVE_SPEC §5.3.3 generalized): a domain supplies its
+ *     one-generation workflow + a digest with a `fitness`; harvey-evolve and
+ *     gaia-evolve are the two instances.
  */
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "score.ts", type: "eval/score" },
   { file: "reflect.ts", type: "eval/reflect" },
   { file: "optimize.ts", type: "eval/optimize" },
+  { file: "evolve-loop.ts", type: "eval/evolve-loop" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

@@ -1,0 +1,91 @@
+name: gaia-candidate-run
+# Run an AGENT-AUTHORED candidate produce workflow on ONE GAIA task, then
+# score its answer with the real leaderboard scorer. The harness half of the
+# EVOLVE_SPEC §5.2 loop (gaia instance, mirroring harvey-candidate-run):
+#
+#   author (meta/*) → run (THIS) → grade (THIS) → reflect
+#
+# The candidate runs via meta/run-workflow (services.authoring), which
+#   (a) runs ONLY workflows stamped publisher "ai" — i.e. published via
+#       meta/publish-workflow. It refuses the seeded gaia-produce; baseline
+#       runs go through gaia-run instead. So this harness can never be
+#       pointed back at (or used to launder) the seeded harness surface.
+#   (b) rebuilds the step registry FRESH at call time — a candidate STEP
+#       authored earlier in the same enclosing run is visible (§5.3.1),
+#       which a plain subflow (start-of-run registry snapshot) can't do.
+#   (c) runs the candidate under its OWN runId — its artifacts dir (where
+#       gaia/get-task stages the attached file) is its own, so parallel
+#       candidate runs never collide.
+#
+# Grading passes the WHOLE run result to gaia/evaluate as `fromRun` and
+# unpacks the answer in code (template expressions cannot guard deep access
+# on a failed run's missing `output` — the evaluator does not
+# short-circuit, §5.3.5). A failed candidate run scores as "" — an honest
+# zero with the cause attributable via produceStatus/error — and a batch
+# over many tasks always completes with one result per task.
+#
+# CANDIDATE CONTRACT (what the author must publish): input { taskId },
+# output (last step) includes taskId, answer (the bare final-answer
+# string), cost, steps.
+#
+# Input:  { workflow, version?, taskId }
+#   workflow: candidate name (publisher "ai"); version pins it (default: active)
+# Output: { taskId, candidate, version, produceRunId, produceStatus,
+#           correct, level, answer, question, cost, steps, benchmarkRev,
+#           scorerSha256, runResult, error?, gradeError? }
+steps:
+  - id: run
+    type: meta/run-workflow
+    config:
+      name: "{{ input.workflow }}"
+      version: "{{ input.version }}"
+      input:
+        taskId: "{{ input.taskId }}"
+
+  # question/level/answer come from the grade step (fromRun mode unpacks the
+  # run's answer and looks up gold-stripped task metadata IN CODE), never
+  # from deep template access on the candidate's output (it may be missing).
+  - id: grade
+    type: gaia/evaluate
+    depends: run
+    options:
+      retry: { max: 1, delayMs: 15000 }
+      # Shape-stable fallback: every field the result step reads one level
+      # deep must exist here (§5.3.5).
+      onError:
+        id: grade_failed
+        type: gaia/pack-result
+        config:
+          taskId: "{{ input.taskId }}"
+          isCorrect: false
+          answer: ""
+          level: null
+          question: null
+          gradeError: "{{ $error.message }}"
+    config:
+      fromRun:
+        taskId: "{{ input.taskId }}"
+        run: "{{ run }}"
+
+  - id: result
+    type: gaia/pack-result
+    depends: grade
+    config:
+      taskId: "{{ input.taskId }}"
+      candidate: "{{ input.workflow }}"
+      version: "{{ input.version }}"
+      produceRunId: "{{ run.runId }}"
+      produceStatus: "{{ run.status }}"
+      # object ({ message, … }), string (an authoring-gate refusal), or
+      # absent — gaia/digest-results normalizes all three.
+      error: "{{ run.error }}"
+      # The full candidate run result (runId, status, output, error) for
+      # humans debugging a candidate — inspect further via meta/get-run.
+      runResult: "{{ run }}"
+      correct: "{{ grade.isCorrect }}"
+      level: "{{ grade.level }}"
+      question: "{{ grade.question }}"
+      answer: "{{ grade.answer }}"
+      benchmarkRev: "{{ grade.benchmarkRev }}"
+      scorerSha256: "{{ grade.scorerSha256 }}"
+      gradeError: "{{ grade.gradeError }}"
