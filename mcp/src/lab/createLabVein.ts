@@ -31,7 +31,13 @@ export interface OptimizerCapability {
   run(
     name: string,
     input: unknown,
-    opts?: { paramOverrides?: Record<string, Record<string, unknown>> },
+    opts?: {
+      paramOverrides?: Record<string, Record<string, unknown>>;
+      /** The calling step's `ctx.runId` — links the nested run's controller
+       *  under the launching run's, so cancelling/pausing an evolve run
+       *  reaches its generation/candidate runs (RUN_CONTROL_SPEC §2.2). */
+      parentRunId?: string;
+    },
   ): Promise<RunResult>;
   getParams(name: string): Promise<Record<string, unknown>>;
 }
