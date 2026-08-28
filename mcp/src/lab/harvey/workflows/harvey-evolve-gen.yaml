@@ -87,10 +87,32 @@ steps:
         required: [candidate, version, summary]
         additionalProperties: false
 
+  # ── resolve: never trust the author's echo ─────────────────────────────
+  # The candidate NAME is harness-pinned (input.candidateName) — grading the
+  # string the author returned once zeroed two generations on a literal
+  # "placeholder" (in schema mode, one no-tool-call text turn ends the agent
+  # loop and IS the structured output). The VERSION falls back to the
+  # candidate's active version — the author's own last publish, since
+  # generations run sequentially — when the echoed pin is empty or bogus.
+  # meta/get-workflow returns { error } instead of throwing, so `vpin.version`
+  # is undefined on a bad pin and the `||` falls through to the active one.
+  - id: vactive
+    type: meta/get-workflow
+    depends: author
+    config:
+      name: "{{ input.candidateName }}"
+
+  - id: vpin
+    type: meta/get-workflow
+    depends: author
+    config:
+      name: "{{ input.candidateName }}"
+      version: "{{ author.object.version }}"
+
   # ── evaluate: the pinned candidate over the task set ───────────────────
   - id: candeval
     type: foreach
-    depends: author
+    depends: [vpin, vactive]
     config:
       items: "{{ input.tasks }}"
       body:
@@ -99,8 +121,8 @@ steps:
         config:
           workflow: harvey-candidate-run
           input:
-            workflow: "{{ author.object.candidate }}"
-            version: "{{ author.object.version }}"
+            workflow: "{{ input.candidateName }}"
+            version: "{{ vpin.version || vactive.version }}"
             task: "{{ $current }}"
 
   - id: canddigest
@@ -116,7 +138,10 @@ steps:
     config:
       candidate: "{{ input.candidateName }}"
       generation: "{{ input.generation }}"
-      version: "{{ author.object.version }}"
+      # The version that was actually GRADED (resolved above) — the loop's
+      # briefing and EXPLOIT anchor read this, so an author's garbage echo
+      # must not poison the lineage.
+      version: "{{ vpin.version || vactive.version }}"
       summary: "{{ author.object.summary }}"
       changes: "{{ author.object.changes }}"
       missingSecrets: "{{ author.object.missingSecrets }}"
