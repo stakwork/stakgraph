@@ -1,52 +1,51 @@
 name: harvey-evolve
-# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4): the first outer workflow
-# that exercises the meta/* authoring surface end to end. One generation of
-# the shared loop, with every beat a real, graded artifact:
+# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4), now a HILL-CLIMB
+# (§5.3.3, harvey instance): baseline once, then up to maxGenerations
+# author→run→grade cycles, each generation briefed with every previous
+# attempt's version, pass-rate, approach, and failures — anchored to the
+# best-so-far, flipping to an explicit "try a genuinely different
+# approach" directive after `exploreAfter` non-improving attempts.
 #
 #   capture   run the BASELINE produce workflow over the task set, grade it
 #             with the real benchmark eval, digest the aggregate misses
-#   propose   an AUTHORING agent — agentTools ["meta/*"] and NOTHING else
-#             (§5.3.2: never bash, never graders) — reads the digest,
-#             authors a CANDIDATE produce workflow via meta/publish-workflow
-#             (stamped publisher "ai"), smoke-tests it via meta/run-workflow,
-#             and iterates until structurally healthy
-#   evaluate  the HARNESS (not the author) runs the pinned candidate over
-#             the same tasks (harvey-candidate-run) and grades each
-#   promote   the report: candidate name + EXACT version, baseline vs
-#             candidate scores, the author's rationale, and any missing
-#             secrets the author captured. Promotion stays a HUMAN act —
-#             point harvey-run's input.produceWorkflow at the candidate, or
-#             fold its changes into the seeded harvey-produce, after review.
+#   loop      harvey/evolve-loop runs harvey-evolve-gen per generation:
+#             an authoring agent (meta/* only — §5.3.2) publishes a new
+#             version of the candidate, the harness runs it pinned over the
+#             same tasks and digests the grades; the loop composes the next
+#             generation's briefing and directive from the results
+#   promote   the report: best version + its pass-rate vs baseline, the
+#             full generation history, costs. Promotion stays a HUMAN act —
+#             point harvey-run's input.produceWorkflow at the best version,
+#             or fold its diff into the seeded harvey-produce, after review.
 #
 # MEASUREMENT DISCIPLINE (EVOLVE_SPEC §6/§7):
-#   - The author sees pass/fail VERDICTS + truncated judge reasoning for
-#     failed criteria (harvey/digest-results) — never the rubric itself.
-#     Hill-climbing against verdicts is the train-set problem: the scores in
-#     this report are TRAIN scores on the very tasks the candidate was tuned
-#     against. Validate on held-out tasks before believing the delta.
-#   - The author cannot grade: harvey/evaluate is not in its grants, and
-#     meta/run-workflow only reaches produce candidates. Its smoke tests
-#     check structure (run succeeds, deliverables exist), not quality.
-#   - Baselines run per-task workdirs (subflows share this run's artifacts
-#     dir); candidates run under their OWN runIds via meta/run-workflow.
+#   - Authors see pass/fail VERDICTS + truncated judge reasoning for failed
+#     criteria — never the rubric. Hill-climbing against verdicts is the
+#     train-set problem: every score in this report is a TRAIN score on the
+#     very tasks the candidates were tuned against. Validate the best
+#     version on held-out tasks before believing the delta.
+#   - The fitness is criteria pass-RATE (harvey/digest-results) — the
+#     benchmark's binary all-pass score has no gradient. Improvements must
+#     clear `improveMargin` (judge-noise floor) to count.
+#   - Authors cannot grade: grading happens in the harness after each
+#     author finishes, and candidates run under their OWN runIds via
+#     meta/run-workflow (harvey-candidate-run).
 #
-# COST: roughly 2 × |tasks| × (produce + judge) + the author's own smoke
-# runs (produce only, ≤2 by instruction). Start with 2-3 tasks.
+# COST: roughly (1 + generations) × |tasks| × (produce + judge) + each
+# generation's author (incl. its ≤2 smoke runs). With maxGenerations 5 and
+# one task, expect tens of dollars. Start small; raise input.generations
+# (cap 20) to let it rip.
 #
 # Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR (+ uv, git, pandoc on PATH).
-# Input:  { tasks: [taskId, …], mission }
-#   mission: what to improve and why — the gap statement handed to the
-#            author (e.g. a per-miss taxonomy line: "citations unverifiable;
-#            stale regulatory figures — needs an online research step").
-# Output: { candidate, candidateVersion, baselineMean, candidateMean,
-#           meanDelta, baseline, candidateResults, authorSummary,
-#           authorChanges, missingSecrets, … }
+# Input:  { tasks: [taskId, …], mission, generations? }
+#   mission:     the standing gap statement handed to every generation's
+#                author (the digest evidence rides alongside it and, per
+#                the author method, outranks it).
+#   generations: override params.maxGenerations for this run (e.g. 10).
+# Output: { candidate, bestGen, bestVersion, bestPassRate,
+#           baselinePassRate, improved, generations, totalKnownCost,
+#           stopReason, baseline, … }
 steps:
-  - id: dir
-    type: artifacts/dir
-    config:
-      sub: author
-
   # ── capture: baseline over the task set ────────────────────────────────
   - id: baseline
     type: foreach
@@ -68,211 +67,66 @@ steps:
       results: "{{ baseline }}"
       maxCriteria: "{{ params.digestMaxCriteria }}"
 
-  # ── propose: the authoring agent ───────────────────────────────────────
-  - id: author
-    type: agent
-    depends: [dir, basedigest]
-    options:
-      retry: { max: 1, delayMs: 15000 }
+  # ── the hill-climb: author → run → grade, up to N generations ──────────
+  - id: evolve
+    type: harvey/evolve-loop
+    depends: basedigest
     config:
-      cwd: "{{ dir.path }}"
-      system: "{{ params.authorSystem }}"
-      prompt: |
-        MISSION:
-        {{ input.mission }}
-
-        TASK SET ({{ input.tasks.length }} Harvey benchmark task(s)):
-        {{ input.tasks }}
-
-        BASELINE: the current produce workflow "{{ params.baseWorkflow }}"
-        was run on every task above and graded by the real benchmark.
-        Aggregate results:
-
-        {{ basedigest.text }}
-
-        Author an improved CANDIDATE produce workflow named EXACTLY
-        "{{ params.candidateName }}" that addresses the failure patterns
-        that RECUR across tasks (never one task's specifics). Start from the
-        base workflow's YAML, keep its hard contract, publish, smoke-test on
-        ONE task from the task set, and return the result.
-        {{ params.authorGuidance }}
-      model: "{{ params.authorModel }}"
-      maxSteps: "{{ params.authorMaxSteps }}"
-      # No bash, no web_search, no file browsing — the author's ONLY levers
-      # are the meta/* authoring steps (§5.3.2). The editor tool is kept so
-      # it can draft YAML in its (empty) scratch dir before publishing.
-      toolFilter: ["str_replace_based_edit_tool"]
-      agentTools: ["meta/*"]
-      schema:
-        type: object
-        properties:
-          candidate:
-            type: string
-            description: "the published candidate workflow name"
-          version:
-            type: string
-            description: "EXACT version string of the final healthy publish (from meta/publish-workflow)"
-          summary:
-            type: string
-            description: "what changed and why, each change tied to a recurring failure pattern from the digest"
-          changes:
-            type: array
-            items: { type: string }
-            description: "one line per concrete change"
-          missingSecrets:
-            type: array
-            description: "credentials the candidate needs that meta/list-secrets does not show — the capture artifact a human fulfills"
-            items:
-              type: object
-              properties:
-                name: { type: string }
-                why: { type: string }
-              required: [name, why]
-              additionalProperties: false
-        required: [candidate, version, summary]
-        additionalProperties: false
-
-  # ── evaluate: the pinned candidate over the same tasks ─────────────────
-  - id: candeval
-    type: foreach
-    depends: author
-    config:
-      items: "{{ input.tasks }}"
-      body:
-        id: one
-        type: subflow
-        config:
-          workflow: harvey-candidate-run
-          input:
-            workflow: "{{ author.object.candidate }}"
-            version: "{{ author.object.version }}"
-            task: "{{ $current }}"
-
-  - id: canddigest
-    type: harvey/digest-results
-    depends: candeval
-    config:
-      results: "{{ candeval }}"
-      maxCriteria: "{{ params.digestMaxCriteria }}"
+      tasks: "{{ input.tasks }}"
+      mission: "{{ input.mission }}"
+      baseline: "{{ basedigest }}"
+      candidateName: "{{ params.candidateName }}"
+      baseWorkflow: "{{ params.baseWorkflow }}"
+      genWorkflow: "{{ params.genWorkflow }}"
+      maxGenerations: "{{ input.generations || params.maxGenerations }}"
+      stopPassRate: "{{ params.stopPassRate }}"
+      improveMargin: "{{ params.improveMargin }}"
+      exploreAfter: "{{ params.exploreAfter }}"
+      genParams: "{{ params.genParams }}"
 
   # ── promote: the reviewable report ─────────────────────────────────────
   - id: report
     type: harvey/pack-result
-    depends: [basedigest, canddigest]
+    depends: evolve
     config:
       mission: "{{ input.mission }}"
       tasks: "{{ input.tasks }}"
-      candidate: "{{ author.object.candidate }}"
-      candidateVersion: "{{ author.object.version }}"
-      baselineMean: "{{ basedigest.meanScore }}"
-      candidateMean: "{{ canddigest.meanScore }}"
-      meanDelta: "{{ canddigest.meanScore - basedigest.meanScore }}"
-      baselineAllPass: "{{ basedigest.allPassCount }}"
-      candidateAllPass: "{{ canddigest.allPassCount }}"
+      candidate: "{{ evolve.candidate }}"
+      bestGen: "{{ evolve.bestGen }}"
+      bestVersion: "{{ evolve.bestVersion }}"
+      bestPassRate: "{{ evolve.bestPassRate }}"
+      baselinePassRate: "{{ evolve.baselinePassRate }}"
+      passRateDelta: "{{ evolve.bestPassRate - evolve.baselinePassRate }}"
+      improved: "{{ evolve.improved }}"
+      generations: "{{ evolve.generations }}"
+      totalKnownCost: "{{ evolve.totalKnownCost }}"
+      stopReason: "{{ evolve.stopReason }}"
       baseline: "{{ basedigest.results }}"
-      candidateResults: "{{ canddigest.results }}"
-      authorSummary: "{{ author.object.summary }}"
-      authorChanges: "{{ author.object.changes }}"
-      missingSecrets: "{{ author.object.missingSecrets }}"
-      authorCost: "{{ author.cost }}"
-      authorSteps: "{{ author.steps }}"
-      note: "TRAIN scores — the candidate was tuned against these tasks (EVOLVE_SPEC §7). Validate on held-out tasks before promoting. Promote by pointing harvey-run's input.produceWorkflow at the candidate, or by folding its diff into harvey-produce after review."
+      note: "{{ evolve.note }}"
 
 params:
-  # The produce workflow the author starts from (read via meta/get-workflow).
+  # The produce workflow the baseline runs and generation-0 authors start
+  # from (read via meta/get-workflow).
   baseWorkflow: harvey-produce
-  # The candidate's name. Publishing the same name again = a NEW VERSION on
-  # the same ai-stamped workflow, so successive evolve runs accumulate a
-  # versioned lineage instead of littering the registry with fresh names.
+  # The candidate's name. Every generation republishes it — a NEW VERSION
+  # each time, so one evolve run leaves a versioned lineage (and the report
+  # pins the best version, which may not be the latest).
   candidateName: harvey-produce-ai
-  authorModel: claude-sonnet-5
-  # Observed live: 40 was not enough — an author that debugs a real HTTP
-  # step (bad credentials, endpoint quirks) burns 40 calls before ever
-  # publishing, and the forced final turn then dies with
-  # AI_NoObjectGeneratedError (the §1/§8 at-the-cap failure, now at layer
-  # 3). A generous cap + the publish-early rule in authorSystem is the §8
-  # lesson applied: raise the envelope AND stop treating the cap as
-  # unreachable.
-  authorMaxSteps: 200
-  # Extra per-run steering appended to the author's task prompt (experiment
-  # surface — e.g. "the mission requires online research; grant http steps
-  # and reference the COURTLISTENER_API_KEY secret by name").
-  authorGuidance: ""
+  # The one-generation workflow the loop runs (author → candidate eval →
+  # digest). Its own params (authorModel, authorMaxSteps, authorSystem, …)
+  # are the author's experiment surface — override per run via genParams.
+  genWorkflow: harvey-evolve-gen
+  maxGenerations: 5
+  # Stop early once a generation's mean pass-rate reaches this (1 = every
+  # criterion on every task — rarely reached; generations are the real cap).
+  stopPassRate: 1
+  # Judge-noise floor: an attempt must beat the best by MORE than this to
+  # count as an improvement (0.02 ≈ one criterion on a 50-criterion task).
+  improveMargin: 0.02
+  # Consecutive non-improving attempts before the directive flips from
+  # "refine the best" to "try a genuinely different approach".
+  exploreAfter: 2
   digestMaxCriteria: 6
-  # The author's persona + method — layer-1 tunable like any other prompt.
-  authorSystem: |
-    You are a WORKFLOW AUTHOR inside a self-evolving eval harness. You
-    improve HOW a benchmark task gets produced by authoring a new version of
-    a produce workflow. You never produce task deliverables yourself, and
-    you never see the grading rubric — only aggregate pass/fail results.
-
-    Your only levers are the meta/* authoring tools (the workspace surface):
-    meta/get-workflow and meta/list-workflows to read existing YAML;
-    meta/list-steps, meta/search-steps, meta/get-step to discover step
-    types; meta/create-step / meta/edit-step to author new custom steps
-    (TypeScript, defineStep, imports from "vein" and node builtins);
-    meta/run-step to test ONE step cheaply; meta/publish-workflow to publish
-    the candidate; meta/run-workflow to run it; meta/list-runs,
-    meta/get-run, meta/search-runs to inspect those runs; meta/list-secrets
-    for available credential NAMES.
-
-    METHOD
-    1. Read the base produce workflow's YAML FIRST (meta/get-workflow) —
-       your candidate starts from it, changed only where the evidence
-       points. Address failure patterns that recur across MULTIPLE tasks;
-       never encode one task's specifics.
-    2. PUBLISH EARLY. Before any deep step-authoring, publish a first
-       candidate version (meta/publish-workflow) that is a modest, safe
-       improvement on the base — prompt/params changes at minimum. The
-       harness grades whatever your FINAL answer names: a rough published
-       candidate beats a perfect unpublished one, and if you run out of
-       steps with nothing published, the entire run's budget is wasted.
-       Republishing the same name creates a new version — that is how you
-       iterate upward from the banked version.
-    3. BUDGET YOUR CALLS. You have a hard tool-call cap. Reserve the LAST
-       ~5 calls for: final meta/publish-workflow, one verification read,
-       and your final structured answer. Time-box debugging: if an external
-       endpoint or credential fails twice in a row (e.g. persistent 401s —
-       likely a bad secret, which you cannot fix), STOP debugging it,
-       record it in missingSecrets, make that path degrade gracefully, and
-       move on with what works.
-    4. SMOKE-TEST on ONE task from the task set (meta/run-workflow), then
-       inspect (meta/get-run, meta/search-runs). You cannot grade quality —
-       the harness grades after you finish. Check STRUCTURE only: the run
-       succeeds, the output object carries outputDir/usage/cost/steps, and
-       the deliverable files exist. Fix and republish until healthy. Runs
-       cost real money: one task, at most two smoke runs.
-    5. Steps you (or a prior evolve run) already authored may exist —
-       check meta/list-steps before creating: edit and reuse them instead
-       of re-authoring from scratch.
-
-    HARD CONTRACT for the candidate (the harness runs it as-is):
-    - input { task, workdir? }; thread workdir into an artifacts/dir step
-      (config sub) exactly as the base workflow does.
-    - the LAST step (use harvey/pack-result) must output: task, outputDir
-      (ABSOLUTE path containing the deliverable files), usage, cost, steps.
-    - deliverables are written under outputDir; the grader stages exactly
-      that directory.
-    - NEVER grant harvey/*, gaia/*, eval/*, or meta/* to any agent step
-      inside the candidate — graders and the authoring surface are
-      off-limits to producers. Steps you author yourself and other registry
-      namespaces are fair game.
-    - keep prompts in params (the tuning surface), keep the produce agent's
-      retry + onError fallback so one bad task cannot kill a batch.
-    - secrets: reference NAMES from meta/list-secrets (e.g. via
-      ctx.services.secrets in an authored step) — never paste credential
-      values. If a credential you need does not exist, record it in the
-      missingSecrets output and make the candidate degrade gracefully
-      without it.
-    - YOU CANNOT SEE SECRET VALUES — only names. A raw `http` step run via
-      meta/run-step therefore CANNOT authenticate: you have no real value
-      to put in the header, and a placeholder guarantees a 401 that says
-      NOTHING about whether the stored credential works. Never debug auth
-      through raw http probes. Test authenticated calls ONLY through an
-      authored step that reads ctx.services.secrets.get(<name>) — the value
-      is injected in code at runtime. Raw probes are fine for endpoints
-      that need no auth.
-
-    When done, return: the candidate name, the EXACT version string of the
-    final healthy publish, a summary tying each change to a recurring
-    failure pattern, the list of changes, and any missing secrets.
+  # Param overrides for harvey-evolve-gen (e.g. { authorModel: "...",
+  # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.
+  genParams: {}

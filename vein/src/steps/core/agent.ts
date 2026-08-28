@@ -456,6 +456,51 @@ export function buildRegistryTools(
  * (provider-executed tools like anthropic `web_search`). Output is truncated in
  * the event only (the model still sees the full result).
  */
+/** Replace every occurrence of each secret value in `text` with a marker.
+ *  Plain string splitting (no regex) — values are opaque tokens. */
+export function maskSecretValues(text: string, values: string[]): string {
+  let out = text;
+  for (const v of values) out = out.split(v).join("[MASKED_SECRET]");
+  return out;
+}
+
+/** Recursively mask secret values in every string leaf of a tool result.
+ *  Tool outputs are JSON-ish (they get persisted to run events), so a plain
+ *  object/array/primitive walk covers them. */
+export function maskDeep(value: unknown, values: string[]): unknown {
+  if (!values.length) return value;
+  if (typeof value === "string") return maskSecretValues(value, values);
+  if (Array.isArray(value)) return value.map((x) => maskDeep(x, values));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = maskDeep(v, values);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Wrap every tool's `execute` so its RESULT is masked before the model (and
+ * the event log — this runs inside `wrapToolsWithEmit`'s wrapping) sees it.
+ * The complement to `secretsEnv`: values reach the bash SUBPROCESS, and this
+ * guarantees they never travel back into the model's context via any tool
+ * output — `echo $KEY`, `env`, a curl error echoing the URL, or a file the
+ * shell wrote and the editor tool later views. Mutates `tools` in place.
+ *
+ * What it cannot do: stop the shell itself from SENDING `$KEY` somewhere
+ * (egress under prompt injection). That residual is accepted and documented
+ * (EVOLVE_SPEC §4.4) — grant secretsEnv only to narrow research agents.
+ */
+export function wrapToolsWithMask(tools: Record<string, any>, secretValues: string[]): void {
+  if (!secretValues.length) return;
+  for (const t of Object.values(tools)) {
+    const orig = t?.execute;
+    if (typeof orig !== "function") continue;
+    t.execute = async (input: unknown, opts: unknown) =>
+      maskDeep(await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, opts), secretValues);
+  }
+}
+
 export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext | undefined): void {
   if (!ctx?.emit || !ctx.path) return;
   const basePath = ctx.path;
@@ -497,7 +542,7 @@ export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext |
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of built-in tool names; empty = all), agentTools? (registry step TYPES exposed as extra tools — the 'tools are steps' model; each tool call emits a nested run event), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of built-in tool names; empty = all), agentTools? (registry step TYPES exposed as extra tools — the 'tools are steps' model; each tool call emits a nested run event), secretsEnv? (secret NAMES injected as env vars into the bash subprocess only — the agent writes $NAME, values are masked out of all tool output; for narrow research sub-agents), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -519,6 +564,12 @@ export default defineStep({
       .default([])
       .describe(
         "registry step TYPES to expose as additional LLM tools (the 'tools are steps' model, e.g. ['gitsee/read-logs']). Entries may be glob patterns over step types ('jarvis/*' grants the whole namespace; new steps in it are picked up automatically). Each step's input schema becomes the tool schema and its run() is the executor, called with a nested ctx so every tool call emits a step.start/step.end run event (visible in the events panel). Merged ON TOP of the built-ins (not subject to toolFilter). Unknown types are skipped. Requires the runner-populated ctx.registry.",
+      ),
+    secretsEnv: z
+      .array(z.string())
+      .default([])
+      .describe(
+        "secret NAMES (from the deployment's secret store) to inject as env vars into the bash tool's subprocess — the agent writes `$NAME` in commands (e.g. curl auth headers) and the shell expands it at exec time. The VALUE never enters the prompt, the model's context, or the event log: bash gets it via env only, and every tool output is masked before the model sees it. Grant narrowly (a dedicated research sub-agent), never to a drafting/producing agent. Residual risk (accepted): a prompt-injected agent can still SEND $NAME somewhere — masking stops leakage into context/logs, not egress.",
       ),
     model: z.string().optional(),
     provider: z.string().optional(),
@@ -569,6 +620,37 @@ export default defineStep({
         throw new Error(`Unknown LLM provider: "${provider}". Supported: anthropic, openai`);
     }
 
+    // ── secretsEnv: resolve named secrets → bash subprocess env ────────────
+    // Values are fetched here (in code, via the secrets capability) and go two
+    // places ONLY: the bash child env, and the mask list. Never the prompt.
+    const secretEnv: Record<string, string> = {};
+    const missingSecretNames: string[] = [];
+    if (cfg.secretsEnv.length) {
+      const secrets = (ctx?.services as { secrets?: { get(name: string): Promise<string | undefined> } } | undefined)
+        ?.secrets;
+      if (!secrets || typeof secrets.get !== "function") {
+        throw new Error("agent: secretsEnv requires the secrets capability (ctx.services.secrets)");
+      }
+      for (const name of cfg.secretsEnv) {
+        const v = await secrets.get(name);
+        if (v) secretEnv[name] = v;
+        else missingSecretNames.push(name);
+      }
+    }
+    // Very short values would mask common substrings all over the output;
+    // real credentials are long. (A <6-char "secret" is not protectable anyway.)
+    const secretValues = Object.values(secretEnv).filter((v) => v.length >= 6);
+    // Tell the model what's available — by NAME only — in the bash tool's own
+    // description (not the prompt: descriptions travel with the tool).
+    const secretsNote = cfg.secretsEnv.length
+      ? " Credential env vars available in this shell (values injected at exec time and masked in all output — write $NAME, never expect to see the value): " +
+        (Object.keys(secretEnv).join(", ") || "none") +
+        "." +
+        (missingSecretNames.length
+          ? ` Requested but NOT in the secret store (the $VAR will be empty — degrade gracefully and report it): ${missingSecretNames.join(", ")}.`
+          : "")
+      : "";
+
     // Built-in tools (operate on cfg.cwd). `inputSchema` cast to any to stop the
     // SDK's tool() from deeply inferring the zod type (TS2589 in strict builds).
     const allTools: Record<string, any> = {
@@ -598,7 +680,8 @@ export default defineStep({
       }),
       bash: tool({
         description:
-          "Execute a bash command inside the working dir. Use for listing dirs, reading files (cat/head), inspecting manifests/lockfiles/docker files, running installs/builds, and anything the other tools don't cover. Long-running commands are allowed (up to a 10-minute timeout); a command that never exits (e.g. a dev server) will block until killed at the timeout.",
+          "Execute a bash command inside the working dir. Use for listing dirs, reading files (cat/head), inspecting manifests/lockfiles/docker files, running installs/builds, and anything the other tools don't cover. Long-running commands are allowed (up to a 10-minute timeout); a command that never exits (e.g. a dev server) will block until killed at the timeout." +
+          secretsNote,
         inputSchema: z.object({ command: z.string().describe("The bash command to execute") }) as any,
         execute: async ({ command }: { command: string }) => {
           try {
@@ -606,7 +689,7 @@ export default defineStep({
             // 10-minute timeout so the agent can run real installs/builds (not just
             // quick inspection). Note: a non-terminating process (a dev server)
             // still blocks until killed at this timeout.
-            return await runShell(command, cfg.cwd, 600_000);
+            return await runShell(command, cfg.cwd, 600_000, 10000, secretEnv);
           } catch (e) {
             return `Command execution failed: ${e}`;
           }
@@ -682,6 +765,12 @@ export default defineStep({
         execute: async ({ answer }: { answer: string }) => answer,
       });
     }
+
+    // Mask secret values out of EVERY tool result — must wrap INSIDE the emit
+    // wrapper (i.e. be applied first) so run events also only ever see masked
+    // output. Covers indirect paths too: bash writes a secret to a file, the
+    // editor tool views it — still masked.
+    wrapToolsWithMask(tools, secretValues);
 
     // Emit a nested run event per tool call (built-ins + agentTools) so every
     // iteration is visible in the UI events panel / run drill-down. No-op when

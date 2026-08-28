@@ -93,10 +93,29 @@ export const runCmd = (cmd: string, args: string[], cwd: string, timeoutMs = 100
   );
 
 /** Run an arbitrary shell command string (the `bash` tools need a full shell).
- *  Scrubbed env — model-authored commands never see the server's API keys. */
-export const runShell = (command: string, cwd: string, timeoutMs = 15000, maxBytes = 10000) =>
+ *  Scrubbed env — model-authored commands never see the server's API keys.
+ *
+ *  `extraEnv` is the ONE sanctioned widening of the scrubbed env: the agent
+ *  step's `secretsEnv` config resolves named secrets via ctx.services.secrets
+ *  and injects the VALUES here — into the subprocess env only, never into a
+ *  prompt or log (the model writes `$NAME`; the shell expands it at exec
+ *  time, and the agent step masks the values out of every tool output before
+ *  the model or the event log sees them). Callers other than that path should
+ *  not pass it. */
+export const runShell = (
+  command: string,
+  cwd: string,
+  timeoutMs = 15000,
+  maxBytes = 10000,
+  extraEnv?: Record<string, string>,
+) =>
   capture(
-    spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"], env: minimalEnv() }),
+    spawn(command, {
+      cwd,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: extraEnv && Object.keys(extraEnv).length ? { ...minimalEnv(), ...extraEnv } : minimalEnv(),
+    }),
     timeoutMs,
     maxBytes,
   );

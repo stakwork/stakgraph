@@ -61,7 +61,7 @@ function criterionNote(c: AnyRec, maxChars: number): string {
 export default defineStep({
   type: "harvey/digest-results",
   description:
-    "Aggregate an array of graded Harvey results (harvey-run / harvey-candidate-run outputs) into a compact digest: per-task score, all_pass, failed-criteria excerpts (capped), errors, plus mean score / all-pass count and a preformatted `text` block for an LLM prompt. Config: results (array), maxCriteria? (failed-criteria excerpts per task, default 6), maxChars? (per excerpt, default 240). Output: { n, meanScore, allPassCount, results, text }.",
+    "Aggregate an array of graded Harvey results (harvey-run / harvey-candidate-run outputs) into a compact digest: per-task criteria pass-RATE (the fitness — the benchmark's binary all-pass score has no gradient), all_pass, failed-criteria excerpts (capped), errors, plus mean pass-rate / all-pass count and a preformatted `text` block for an LLM prompt. Config: results (array), maxCriteria? (failed-criteria excerpts per task, default 6), maxChars? (per excerpt, default 240). Output: { n, meanScore, meanPassRate, allPassCount, results, text }.",
   input: z.object({
     results: z.array(z.any()).describe("graded results, one per task (harvey-run / harvey-candidate-run outputs)"),
     maxCriteria: z
@@ -84,9 +84,19 @@ export default defineStep({
       const error = errStr(r["error"]) ?? errStr(r["gradeError"]) ?? errStr(r["produceError"]);
       const runOut = ((r["runResult"] as AnyRec | undefined)?.["output"] ?? {}) as AnyRec;
       const cost = num(r["produceCost"]) ?? num(r["cost"]) ?? num(runOut["cost"]);
+      // THE FITNESS: criteria pass-RATE, not the benchmark's binary
+      // all-pass `score`. On a 50-criterion task the binary score is 0 for
+      // both a 45/50 and a 20/50 memo — no gradient, nothing can
+      // hill-climb. passRate keeps the benchmark's own per-criterion
+      // verdicts as the signal while giving the loop something monotone to
+      // move. A result with no readable criteria (grade error, empty
+      // report) is a 0, never a 1.
+      const passRate =
+        crit.length > 0 ? Math.round(((crit.length - failed.length) / crit.length) * 1000) / 1000 : 0;
       return {
         task,
         score,
+        passRate,
         all_pass: allPass,
         nCriteria: crit.length,
         nFailed: failed.length,
@@ -99,14 +109,19 @@ export default defineStep({
 
     const n = entries.length;
     const meanScore = n ? Math.round((entries.reduce((s, e) => s + e.score, 0) / n) * 1000) / 1000 : 0;
+    const meanPassRate = n
+      ? Math.round((entries.reduce((s, e) => s + e.passRate, 0) / n) * 1000) / 1000
+      : 0;
     const allPassCount = entries.filter((e) => e.all_pass).length;
 
     // Preformatted for an LLM prompt ({{ digest.text }}) — objects
     // interpolated into template strings would arrive as raw JSON.
-    const lines: string[] = [`${n} task(s) — mean score ${meanScore}, all-pass ${allPassCount}/${n}`];
+    const lines: string[] = [
+      `${n} task(s) — mean criteria pass-rate ${meanPassRate}, all-pass ${allPassCount}/${n}`,
+    ];
     for (const e of entries) {
       lines.push(
-        `- ${e.task}  score ${e.score}  all_pass=${e.all_pass}` +
+        `- ${e.task}  pass-rate ${e.passRate}  all_pass=${e.all_pass}` +
           (e.nCriteria ? `  (${e.nFailed}/${e.nCriteria} criteria failed)` : ""),
       );
       for (const f of e.failed) lines.push(`    ✗ ${f}`);
@@ -114,6 +129,6 @@ export default defineStep({
       if (e.error) lines.push(`    ERROR: ${e.error}`);
     }
 
-    return { n, meanScore, allPassCount, results: entries, text: lines.join("\n") };
+    return { n, meanScore, meanPassRate, allPassCount, results: entries, text: lines.join("\n") };
   },
 });
