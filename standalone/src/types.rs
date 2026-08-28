@@ -261,7 +261,12 @@ impl IntoResponse for WebError {
             | shared::Error::Walkdir(_)
             | shared::Error::Other(_)
             | shared::Error::TreeSitterLanguage(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            shared::Error::Custom(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            // Note: the Hive query handler maps Error::ReadOnlyViolation to 403 itself;
+            // this generic wrapper never sees it because execute_raw_cypher's only
+            // caller is that handler. Default to 500 if it ever leaks here.
+            shared::Error::Custom(_) | shared::Error::ReadOnlyViolation(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         };
         tracing::error!("Handler error: {:?}", self.0);
         let resp = ErrorResponse {

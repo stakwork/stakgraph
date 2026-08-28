@@ -4573,6 +4573,7 @@ dependencies = [
  "hex",
  "hmac",
  "lsp",
+ "neo4rs",
  "once_cell",
  "regex",
  "reqwest",
