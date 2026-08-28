@@ -24,6 +24,11 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    return requireAuthoring(ctx.services).runWorkflow(cfg.name, cfg.input, cfg.params, cfg.version);
+    // parentRunId links the child run's controller under this run's — so
+    // cancelling/pausing this run reaches the children it launched
+    // (RUN_CONTROL_SPEC §2.2 tree linkage).
+    return requireAuthoring(ctx.services).runWorkflow(cfg.name, cfg.input, cfg.params, cfg.version, {
+      parentRunId: ctx.runId,
+    });
   },
 });

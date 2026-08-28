@@ -39,7 +39,7 @@ export interface RunStepOptions {
 }
 
 export interface RunStepResult {
-  status: "success" | "error";
+  status: "success" | "error" | "cancelled";
   output?: unknown;
   error?: { message: string; stack?: string };
   /** Every event the step emitted (start/end/error, plus nested for containers). */

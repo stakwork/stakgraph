@@ -252,7 +252,42 @@ Optionally, the server can offer auto-resume of summary-less runs on
 boot (off by default — a human choosing Resume on a "stale" run is the
 right v1 ergonomics).
 
-**Same runId, same artifacts.** Resume CONTINUES the original run: it
+### 5.2 Resume after failure — retry from the failed step
+
+A run that finalized `status: "error"` (an infra hiccup: a 529 from the
+provider that outlived retries, a grader subprocess OOM) is the same
+journal with a terminal summary on top. The replay mechanics need
+NOTHING new: the failed step has no journaled `step.end`, so plain
+resume replays the completed prefix and re-executes exactly the failed
+step (fresh retry budget, same onError config) and everything
+downstream. A failed foreach iteration re-runs alone — completed
+iterations replay by their `#i` paths. What failure-resume actually
+adds is lifecycle bookkeeping:
+
+- **The terminal-summary guard relaxes.** Resume refuses only
+  SUCCESSFUL runs (nothing to resume — unless `from` below). `error`
+  and `cancelled` runs are resumable; on the resumed run's completion,
+  `store.finalize` supersedes the old summary (the log keeps the
+  original `run.error` + `run.resumed` marker, so history stays
+  honest).
+- **Tail terminality.** `run.error`/`run.cancelled` are no longer
+  unconditionally terminal: a later `run.resumed` in the log reopens
+  the stream (historical tails scan ahead; live tails consult the
+  controllers map). Without this, the UI would freeze a resumed run's
+  event panel at the old failure.
+- **`from`: forced invalidation (the "re-run from this step" gesture).**
+  Resume accepts an optional step path: that path, its transitive
+  dependents, and its iteration children are DROPPED from the journal
+  before replay, forcing re-execution even though they completed. This
+  covers the step that returned garbage without erroring (a judge that
+  produced empty criteria, a fetch that 200'd with an error page).
+  With `from`, even a successful run is resumable — "re-grade from
+  candeval onward" costs the grades, not the memo.
+
+UI: a failed run's view offers **Resume** (retry the failed step); a
+step node's flyout offers **Re-run from here** (resume with
+`from: <path>`). Both show what will replay vs re-execute before
+confirming — the journal makes that computable upfront. Resume CONTINUES the original run: it
 appends to the same JSONL (after a `run.resumed` marker event) and keeps
 the runId — critical because artifact directories are keyed by runId
 (`artifacts/<runId>/...`): a drafted memo written before the crash is
@@ -286,14 +321,17 @@ the runId (it's not dead, pause it instead); the workflow's current
 content hash differs from the one recorded at `run.start` (the runner
 must record it there — replaying outputs into a DIFFERENT DAG is
 undefined; power users may override with an explicit flag); or the run
-already has a terminal summary. Registry drift (a custom step edited
+finished successfully with no `from` invalidation (§5.2 — `error` and
+`cancelled` runs ARE resumable). Registry drift (a custom step edited
 between crash and resume) is allowed but WARNED — steps re-executing
 post-resume use current code, same as any new run.
 
-**API/UI.** `POST /workflows/:name/runs/:runId/resume` (only valid on
-summary-less, controller-less runs — exactly today's "stale"). UI: the
-"stale" badge becomes a Resume affordance. This retroactively gives
-"stale" a purpose: it is the set of resumable runs.
+**API/UI.** `POST /workflows/:name/runs/:runId/resume` with optional
+`{ from: <stepPath> }` (§5.2). Valid on controller-less runs that are
+summary-less ("stale" — crashed), `error`, or `cancelled`; a `success`
+run needs `from`. UI: the "stale" badge becomes a Resume affordance.
+This retroactively gives "stale" a purpose: it is (part of) the set of
+resumable runs.
 
 ---
 
@@ -341,7 +379,8 @@ summary-less, controller-less runs — exactly today's "stale"). UI: the
 2. Pause/resume + agent tool-loop checkpoint + paused/quiesced surfacing.
 3. Content-hash recording at `run.start` (ship early — resume needs
    history to exist); journal replay; `ctx.journal`; evolve-loop
-   iteration resume; UI resume-from-stale.
+   iteration resume; failure-resume + `from` invalidation (§5.2); UI
+   resume-from-stale, resume-failed, re-run-from-here.
 
 Each rung lands with runner tests (cancel/pause mid-DAG, mid-foreach,
 mid-retry; resume replay correctness incl. skip/gate reconstruction) and

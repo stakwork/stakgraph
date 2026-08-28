@@ -23,6 +23,8 @@ import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
 import { maxOutputTokensFor } from "./pricing.js";
 import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
+import { RunController } from "./run-control.js";
+import { buildJournal, invalidateFrom, readRunStart } from "./journal.js";
 import { requireApiKey, warnIfUnconfigured } from "./auth.js";
 import { standardServices, fileArtifactsCapability } from "./capabilities.js";
 import type { ArtifactsCapability } from "./capabilities.js";
@@ -165,6 +167,10 @@ export interface VeinRunOptions<TServices = unknown> {
   runId?: string;
   /** Workflow version (only meaningful when `workflow` is a string). */
   version?: string;
+  /** The launching run's id (the calling step's `ctx.runId`) — attaches this
+   *  run's controller under the parent's, so cancel/pause on the parent
+   *  reach it (RUN_CONTROL_SPEC §2.2 tree linkage). */
+  parentRunId?: string;
   /** Per-event hook — useful for SSE streaming. */
   onEvent?: (event: RunEvent) => void | Promise<void>;
   /** Override the instance-level services for a single run. */
@@ -284,22 +290,54 @@ export async function createVein<TServices = unknown>(
 ): Promise<Vein<TServices>> {
   const workspace = opts.workspace ?? new WorkspaceManager();
   const store = opts.store ?? new FileRunStore(workspace.path);
-  // Run IDs currently executing **in this process** (keyed `${workflow}/${runId}`).
-  // Detached execution is in-memory, so a run with no `run.json` summary is only
-  // genuinely "running" if it's in this set; otherwise it never finalized (server
-  // restart / crash / cancellation) and is reported as "stale" rather than a
-  // perpetual "running".
-  const activeRuns = new Set<string>();
-  /** Register a run as in-flight for the runs-listing status fallback (a run
-   *  dir with events but no run.json yet is "running" if registered here,
-   *  "stale" — i.e. orphaned by a crash/restart — otherwise). Every launch
-   *  path must register: HTTP (launchDetached), programmatic (vein.run), and
-   *  in-process nested runs (authoring's meta/run-workflow). Returns the
-   *  untrack fn for the caller's finally. */
-  const trackRun = (workflow: string, runId: string) => {
+  // Controllers for runs currently executing **in this process** (keyed
+  // `${workflow}/${runId}`) — RUN_CONTROL_SPEC §2.2. A controller's presence
+  // IS "in-flight" (superseding the old `activeRuns` set): detached execution
+  // is in-memory, so a run with no `run.json` summary is only genuinely live
+  // if it's in this map; otherwise it never finalized (server restart /
+  // crash) and is reported as "stale" — i.e. resumable (§5).
+  const controllers = new Map<string, RunController>();
+  // Secondary index for tree linkage: a nested launch names only its
+  // `parentRunId` (the calling step's ctx.runId), not the parent workflow.
+  const controllersByRunId = new Map<string, RunController>();
+  /** Register a run as in-flight, creating its controller (attached to the
+   *  launching run's controller when `parentRunId` resolves — controls apply
+   *  to whole subtrees). Every launch path must register: HTTP
+   *  (launchDetached), programmatic (vein.run), in-process nested runs
+   *  (authoring's meta/run-workflow), and chat-detached runs. The returned
+   *  untrack fn belongs in the launcher's finally. */
+  const trackRun = (workflow: string, runId: string, parentRunId?: string) => {
     const key = `${workflow}/${runId}`;
-    activeRuns.add(key);
-    return () => activeRuns.delete(key);
+    const parent = parentRunId ? controllersByRunId.get(parentRunId) : undefined;
+    const controller = new RunController(runId, workflow, parent);
+    controllers.set(key, controller);
+    controllersByRunId.set(runId, controller);
+    const untrack = () => {
+      controllers.delete(key);
+      if (controllersByRunId.get(runId) === controller) controllersByRunId.delete(runId);
+      controller.detach();
+    };
+    return { controller, untrack };
+  };
+  /** Listing/stream status for a summary-less run: the controller's live
+   *  state, or "stale" (orphaned by a crash/restart — resumable). */
+  const liveStatus = (workflow: string, runId: string): string => {
+    const controller = controllers.get(`${workflow}/${runId}`);
+    return controller ? controller.state : "stale";
+  };
+  /** Append a control marker (run.paused / run.resumed) to a run's log so
+   *  the parked gap is visible in the record (§4 observability). */
+  const appendControlEvent = async (
+    workflow: string,
+    runId: string,
+    type: "run.paused" | "run.resumed",
+  ) => {
+    await store.append(workflow, runId, {
+      ts: new Date().toISOString(),
+      runId,
+      path: workflow,
+      type,
+    });
   };
   // Deployment-scoped secret store backing the `secrets` capability + the
   // `/secrets` admin endpoints. Mirrors the run/chat store defaults: encrypted
@@ -469,8 +507,7 @@ export async function createVein<TServices = unknown>(
       if (summary) {
         runs.push(summary);
       } else {
-        const status = activeRuns.has(`${name}/${runId}`) ? "running" : "stale";
-        runs.push({ runId, workflow: name, status });
+        runs.push({ runId, workflow: name, status: liveStatus(name, runId) });
       }
     }
     return c.json(runs);
@@ -509,16 +546,162 @@ export async function createVein<TServices = unknown>(
     return streamSSE(c, async (stream) => {
       const ac = new AbortController();
       stream.onAbort(() => ac.abort());
-      for await (const event of store.tailEvents(name, runId, { signal: ac.signal })) {
+      for await (const event of store.tailEvents(name, runId, {
+        signal: ac.signal,
+        // A resumed run appends past its old terminal event — keep following
+        // while a live controller exists (§5.2 tail terminality).
+        stillLive: () => controllers.has(`${name}/${runId}`),
+      })) {
         await stream.writeSSE({ data: JSON.stringify(event) });
       }
       if (ac.signal.aborted) return;
       const summary = await store.getRunSummary(name, runId);
       const result = summary
         ? { runId, status: summary.status, output: summary.output, error: summary.error }
-        : { runId, status: activeRuns.has(`${name}/${runId}`) ? "running" : "stale" };
+        : { runId, status: liveStatus(name, runId) };
       await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
     });
+  });
+
+  // ── Run control (RUN_CONTROL_SPEC §3–§5) ────────────────────────────────
+  //
+  // Cancel / pause / resume act on the LIVE controller (whole subtree via the
+  // effective-state walk); resume additionally covers DURABLE resume (§5):
+  // with no live controller, it replays the journal of a "stale" (crashed),
+  // `error`, or `cancelled` run — or, with `from`, re-runs a completed run
+  // from a chosen step.
+
+  /** Resolve a control request target: its live controller (if any) and
+   *  whether the run exists at all. */
+  const findRun = async (name: string, runId: string) => {
+    const controller = controllers.get(`${name}/${runId}`) ?? null;
+    const summary =
+      store instanceof FileRunStore ? await store.getRunSummary(name, runId) : null;
+    const events =
+      store instanceof FileRunStore ? await store.getRunEvents(name, runId) : [];
+    return { controller, summary, exists: controller != null || events.length > 0 };
+  };
+
+  app.post("/workflows/:name/runs/:runId/cancel", async (c) => {
+    const { name, runId } = c.req.param();
+    const { controller, summary, exists } = await findRun(name, runId);
+    if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
+    if (!controller) {
+      return c.json(
+        { error: summary ? `Run already terminal (${summary.status})` : "Run is not live (stale) — nothing to cancel" },
+        409,
+      );
+    }
+    controller.cancel();
+    return c.json({ ok: true, runId, state: controller.state }, 202);
+  });
+
+  app.post("/workflows/:name/runs/:runId/pause", async (c) => {
+    const { name, runId } = c.req.param();
+    const { controller, summary, exists } = await findRun(name, runId);
+    if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
+    if (!controller) {
+      return c.json(
+        { error: summary ? `Run already terminal (${summary.status})` : "Run is not live (stale) — nothing to pause" },
+        409,
+      );
+    }
+    controller.pause();
+    await appendControlEvent(name, runId, "run.paused");
+    return c.json(
+      { ok: true, runId, state: controller.state, quiesced: controller.quiesced() },
+      202,
+    );
+  });
+
+  app.post("/workflows/:name/runs/:runId/resume", async (c) => {
+    const { name, runId } = c.req.param();
+    const body = await c.req
+      .json<{ from?: string; force?: boolean }>()
+      .catch(() => ({}) as { from?: string; force?: boolean });
+
+    const { controller, summary, exists } = await findRun(name, runId);
+
+    // Live controller → in-memory resume of a paused run (§4).
+    if (controller) {
+      if (body.from) {
+        return c.json(
+          { error: "Run is live — `from` applies to durable resume of a dead run. Pause/cancel it first." },
+          409,
+        );
+      }
+      controller.resume();
+      await appendControlEvent(name, runId, "run.resumed");
+      return c.json({ ok: true, runId, state: controller.state, resumed: "in-memory" }, 202);
+    }
+
+    // No controller → durable resume: journal replay (§5).
+    if (!(store instanceof FileRunStore)) {
+      return c.json({ error: "Durable resume requires a FileRunStore" }, 501);
+    }
+    if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
+    if (summary?.status === "success" && !body.from) {
+      return c.json(
+        { error: "Run completed successfully — nothing to resume (pass `from` to force re-execution from a step)" },
+        400,
+      );
+    }
+
+    const events = await store.getRunEvents(name, runId);
+    const runStart = readRunStart(events);
+    if (!runStart) {
+      return c.json({ error: "Run log has no run.start event — cannot resume" }, 409);
+    }
+
+    let flow: Flow;
+    try {
+      flow = await workspace.getWorkflow(name);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+
+    // Validity guard (§5): replaying outputs into a DIFFERENT DAG is
+    // undefined — refuse on a content-hash mismatch unless forced.
+    const currentHash = await workspace.getWorkflowHash(name);
+    if (runStart.workflowHash && currentHash && runStart.workflowHash !== currentHash && !body.force) {
+      return c.json(
+        {
+          error:
+            `Workflow content changed since this run started (recorded ${runStart.workflowHash}, ` +
+            `active ${currentHash}) — replaying its journal into a different DAG is refused. ` +
+            `Pass { force: true } to override.`,
+        },
+        409,
+      );
+    }
+    if (!runStart.workflowHash) {
+      console.warn(
+        `[run ${runId}] no workflow hash recorded at run.start (pre-run-control log) — resuming without the DAG guard`,
+      );
+    }
+
+    let journal = buildJournal(events);
+    if (body.from) {
+      try {
+        const inv = await invalidateFrom(journal, body.from, flow, workspace);
+        journal = inv.journal;
+        for (const w of inv.warnings) console.warn(`[run ${runId}] resume from=${body.from}: ${w}`);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    }
+
+    launchDetached(
+      flow,
+      {
+        input: runStart.input,
+        runId,
+        params: runStart.params,
+        paramOverrides: runStart.paramOverrides,
+      },
+      { journal, resume: true },
+    );
+    return c.json({ ok: true, runId, resumed: "journal", replaying: Object.keys(journal).length }, 202);
   });
 
   // Resolve this workflow's declared `promotes` against a run's OUTPUT — the
@@ -968,17 +1151,29 @@ export async function createVein<TServices = unknown>(
    * throws (e.g. a store write failure) so they don't become unhandled
    * rejections.
    */
-  function launchDetached(flow: Flow, body: RunBody): string {
+  function launchDetached(
+    flow: Flow,
+    body: RunBody,
+    extra?: { journal?: Record<string, unknown>; resume?: boolean; version?: string },
+  ): string {
     const runId = body.runId ?? generateRunId();
-    const untrack = trackRun(flow.name, runId);
-    void runWorkflow(flow, body.input ?? {}, registry, {
-      runId,
-      store,
-      workspace,
-      services,
-      params: body.params,
-      paramOverrides: body.paramOverrides,
-    })
+    const { controller, untrack } = trackRun(flow.name, runId);
+    void (async () => {
+      const workflowHash =
+        (await workspace.getWorkflowHash(flow.name, extra?.version)) ?? undefined;
+      return runWorkflow(flow, body.input ?? {}, registry, {
+        runId,
+        store,
+        workspace,
+        services,
+        params: body.params,
+        paramOverrides: body.paramOverrides,
+        controller,
+        ...(workflowHash ? { workflowHash } : {}),
+        ...(extra?.journal ? { journal: extra.journal } : {}),
+        ...(extra?.resume ? { resume: true } : {}),
+      });
+    })()
       .catch((err) => {
         console.error(`[run ${runId}] launch failed:`, err);
       })
@@ -1008,7 +1203,7 @@ export async function createVein<TServices = unknown>(
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
     }
-    const runId = launchDetached(flow, body);
+    const runId = launchDetached(flow, body, { version });
     return c.json({ runId }, 202);
   });
 
@@ -1077,9 +1272,13 @@ export async function createVein<TServices = unknown>(
               stepSources = bundle.sources;
               return bundle.registry;
             },
+            // Controller registration for chat-launched runs — cancellable/
+            // pausable like any other launch path (tracked from launch inside
+            // the run_workflow tool, not only on detach).
+            trackRun,
             // Dispatch-mode run_workflow: a run that outlives the wait window
-            // converts to detached — track it like an HTTP-launched run and
-            // wake this chat with a [run-notification] when it settles.
+            // converts to detached — wake this chat with a [run-notification]
+            // when it settles.
             detach: {
               waitMs: chatRunWaitMs,
               onDetach: ({
@@ -1093,8 +1292,6 @@ export async function createVein<TServices = unknown>(
                 startedAt: number;
                 promise: Promise<RunResult>;
               }) => {
-                const key = `${workflow}/${runId}`;
-                activeRuns.add(key);
                 promise
                   .then(
                     (res) =>
@@ -1128,8 +1325,7 @@ export async function createVein<TServices = unknown>(
                   )
                   .catch((err) =>
                     console.error(`[chat ${chatId}] run-notification delivery failed:`, err),
-                  )
-                  .finally(() => activeRuns.delete(key));
+                  );
               },
             },
           };
@@ -1351,8 +1547,15 @@ export async function createVein<TServices = unknown>(
     // the run can be registered as in-flight — otherwise nested runs (e.g. the
     // optimizer capability's generation runs) list as "stale" while running.
     const runId = runOpts?.runId ?? generateRunId();
-    const untrack = trackRun(flow.name, runId);
+    // Tree linkage (RUN_CONTROL_SPEC §2.2): `parentRunId` (the calling
+    // step's ctx.runId — set by e.g. the lab's optimizer capability) attaches
+    // this run's controller under the launching run's.
+    const { controller, untrack } = trackRun(flow.name, runId, runOpts?.parentRunId);
     try {
+      const workflowHash =
+        typeof workflow === "string"
+          ? ((await workspace.getWorkflowHash(workflow, runOpts?.version)) ?? undefined)
+          : undefined;
       return await runWorkflow(flow, input, registry, {
         runId,
         store,
@@ -1361,6 +1564,8 @@ export async function createVein<TServices = unknown>(
         params: runOpts?.params,
         paramOverrides: runOpts?.paramOverrides,
         onEvent: runOpts?.onEvent,
+        controller,
+        ...(workflowHash ? { workflowHash } : {}),
       });
     } finally {
       untrack();
