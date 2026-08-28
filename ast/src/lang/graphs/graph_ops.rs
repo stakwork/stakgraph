@@ -589,15 +589,19 @@ impl GraphOps {
     /// Execute an arbitrary read-only Cypher query and return a flat `(columns, rows)` result.
     ///
     /// ## Write protection
-    /// The bolt transaction is opened in **read mode** so Neo4j itself rejects any write
-    /// operation — including write procedures invoked via `CALL` that bypass the
-    /// application-level keyword denylist. The caller's denylist check is defense-in-depth.
+    /// The query runs through `connection.execute_read()`, which opens the bolt
+    /// transaction in **read mode** (`mode: "r"` autocommit metadata). Neo4j itself
+    /// rejects any write attempted inside it — including write procedures invoked
+    /// via `CALL` (e.g. APOC) — so write protection does not depend on the caller's
+    /// keyword denylist, which stays as defense-in-depth. Such database-level
+    /// rejections are surfaced as [`Error::ReadOnlyViolation`] carrying the Neo4j
+    /// status code; every other failure keeps the generic dependency-error mapping.
     ///
     /// ## Column names
-    /// Column names are derived from the first row returned by the query. neo4rs 0.8.x does
-    /// not expose a `keys()` method on `DetachedRowStream` (the internal `fields` BoltList
-    /// from the protocol response is not publicly accessible). As a consequence, empty
-    /// result sets will return `columns: []` — this is an API limitation of neo4rs 0.8.x.
+    /// Column names are derived from the first row returned by the query. The
+    /// `DetachedRowStream` does not expose the response's `fields` BoltList before
+    /// row consumption. As a consequence, empty result sets will return
+    /// `columns: []`.
     ///
     /// ## Graph object serialization
     /// Each row is deserialized via `row.to::<serde_json::Value>()` which uses the neo4rs
@@ -619,14 +623,16 @@ impl GraphOps {
         let connection = self.graph.ensure_connected().await?;
 
         let query_obj = query(cypher);
+        let query_len = cypher.len();
 
+        // execute_read() sends the bolt RUN with `mode: "r"` autocommit metadata, so the
+        // server enforces read-only access for the whole result stream.
         let mut stream = connection
-            .execute(query_obj)
+            .execute_read(query_obj)
             .await
-            .map_err(|e| Error::dependency(format!("Neo4j execute error: {e}")))?;
+            .map_err(|e| map_read_mode_error("Neo4j execute error", e, query_len))?;
 
-        // neo4rs 0.8.x does not expose column names from DetachedRowStream before
-        // row consumption. Columns are initialized from the first row's keys.
+        // neo4rs initializes column names from the first row's keys.
         let mut columns: Vec<String> = Vec::new();
         let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
         let mut columns_initialized = false;
@@ -634,7 +640,7 @@ impl GraphOps {
         while let Some(row) = stream
             .next()
             .await
-            .map_err(|e| Error::dependency(format!("Neo4j stream error: {e}")))?
+            .map_err(|e| map_read_mode_error("Neo4j stream error", e, query_len))?
         {
             // Deserialize the row as a serde_json::Value::Object to extract both column
             // names (keys) and typed values in a single pass.
@@ -659,4 +665,51 @@ impl GraphOps {
 
         Ok((columns, rows))
     }
+}
+
+/// Map a neo4rs error raised by the read-mode execution path to a `shared::Error`.
+///
+/// A rejection with status code `Neo.ClientError.Statement.AccessMode` is Neo4j
+/// refusing a write inside the read-mode bolt transaction — surfaced as
+/// [`Error::ReadOnlyViolation`] carrying the status code. Write-mode procedures
+/// invoked via `CALL` (e.g. APOC writes) can surface as
+/// `Neo.ClientError.Procedure.ProcedureCallFailed` with the same access-mode
+/// violation in the server message; those are classified here too. Every other
+/// error keeps the generic dependency-error mapping.
+///
+/// On a database-level rejection this logs a `warn!` with the Neo4j error code and
+/// the query length only — never the query body. This is the signal separating
+/// "the denylist caught it" from "the denylist had a hole and the database
+/// saved us".
+fn map_read_mode_error(context: &str, e: neo4rs::Error, query_len: usize) -> Error {
+    if let neo4rs::Error::Neo4j(ne) = &e {
+        let code = ne.code();
+        if is_write_in_read_mode(code, ne.message()) {
+            tracing::warn!(
+                neo4j_error_code = code,
+                query_len,
+                "Neo4j rejected a write attempt inside the read-mode bolt transaction"
+            );
+            return Error::ReadOnlyViolation(code.to_string());
+        }
+    }
+    Error::dependency(format!("{context}: {e}"))
+}
+
+/// True when a Neo4j server failure indicates a write attempted under read access
+/// mode. Matches the direct access-mode status code plus the procedure-call-wrapped
+/// form, whose message names the offending write while its cause chain carries the
+/// access-mode violation.
+fn is_write_in_read_mode(code: &str, message: &str) -> bool {
+    if code == "Neo.ClientError.Statement.AccessMode" {
+        return true;
+    }
+    if !code.starts_with("Neo.ClientError.Procedure") {
+        return false;
+    }
+    let m = message.to_lowercase();
+    m.contains("read access mode")
+        || m.contains("writing in read")
+        || m.contains("write in read")
+        || m.contains("not allowed unless")
 }

@@ -10,8 +10,12 @@ use serde_json::json;
 /// Write-keyword denylist — case-insensitive word-boundary patterns.
 ///
 /// `CALL` is intentionally omitted: read-only procedures (e.g. `CALL db.labels()`) are
-/// legitimate Graph Explorer queries.  Write procedures invoked via `CALL` are blocked at
-/// the Neo4j transaction layer by read-mode enforcement in `execute_raw_cypher`.
+/// legitimate Graph Explorer queries.  Write procedures invoked via `CALL` (e.g. APOC
+/// writes) are rejected by Neo4j itself: `execute_raw_cypher` runs every query through a
+/// read-mode bolt transaction, and the server refuses any write inside it. This denylist
+/// stays as defense-in-depth underneath that database-level guarantee, and it remains
+/// the only guard for `LOAD` (an SSRF vector that performs no database write, so the
+/// read-mode transaction does not block it).
 ///
 /// `FOREACH` and `LOAD` are included:
 /// - `FOREACH` is a native Cypher write clause.
@@ -87,13 +91,58 @@ pub struct HiveQueryResponse {
     pub rows: Vec<Vec<serde_json::Value>>,
 }
 
+/// 403 response for a query rejected by the write-keyword denylist.
+///
+/// Deliberately independent from [`read_only_violation_response`]: the unit test
+/// asserting both bodies are byte-identical only has drift-detection value if the
+/// two literals are not trivially the same constant.
+fn denylist_rejection_response() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({"error": "write operations not permitted"})),
+    )
+        .into_response()
+}
+
+/// 403 response for a query rejected by the database inside the read-mode bolt
+/// transaction (`Error::ReadOnlyViolation`).
+fn read_only_violation_response() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({"error": "write operations not permitted"})),
+    )
+        .into_response()
+}
+
+/// Which pre-execution write guards to apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DenylistMode {
+    /// Production behavior: keyword denylist, then database-level read mode.
+    Enforced,
+    /// Skip the keyword denylist so tests can exercise the database-level
+    /// read-mode guard in isolation. Not reachable from any HTTP route.
+    Bypassed,
+}
+
 /// `POST /api/hive/query`
 ///
 /// Validates the request, applies the write-keyword denylist, enforces a server-controlled
-/// LIMIT, and proxies the query to Neo4j via a read-mode bolt transaction.
-pub async fn hive_query_handler(
-    Json(body): Json<HiveQueryBody>,
-) -> Response {
+/// LIMIT, and proxies the query to Neo4j through a read-mode bolt transaction (the
+/// database itself refuses any write; this denylist is defense-in-depth underneath).
+pub async fn hive_query_handler(Json(body): Json<HiveQueryBody>) -> Response {
+    execute_hive_query(body, DenylistMode::Enforced).await
+}
+
+/// TEST-ONLY variant of [`hive_query_handler`] with the write-keyword denylist
+/// disabled, so integration tests can prove that the database-level read-mode
+/// transaction rejects writes on its own. This function is intentionally **not**
+/// wired into the router — no HTTP route can reach it.
+#[doc(hidden)]
+pub async fn hive_query_handler_denylist_bypassed(Json(body): Json<HiveQueryBody>) -> Response {
+    execute_hive_query(body, DenylistMode::Bypassed).await
+}
+
+async fn execute_hive_query(body: HiveQueryBody, denylist_mode: DenylistMode) -> Response {
     // Language validation — 400 (not 422) even when the field is missing.
     if body.language.as_deref() != Some("cypher") {
         return (
@@ -120,21 +169,20 @@ pub async fn hive_query_handler(
         "hive_query: received request"
     );
 
-    // Write-keyword denylist (defense-in-depth — primary guard is read-mode transaction).
-    // Strip string literals first so values like `n.creator = 'MERGE request author'`
-    // do not cause false positives.
-    let query_no_literals = strip_string_literals(&body.query);
-    for (keyword, pattern) in WRITE_PATTERNS.iter() {
-        if pattern.is_match(&query_no_literals) {
-            tracing::warn!(
-                matched_keyword = keyword,
-                "hive_query: write keyword detected in query"
-            );
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({"error": "write operations not permitted"})),
-            )
-                .into_response();
+    // Write-keyword denylist (defense-in-depth — the primary guard is the read-mode
+    // bolt transaction enforced by `execute_raw_cypher`). Strip string literals first
+    // so values like `n.creator = 'MERGE request author'` do not cause false positives.
+    // Bypassed only by the test-only entry point above.
+    if denylist_mode == DenylistMode::Enforced {
+        let query_no_literals = strip_string_literals(&body.query);
+        for (keyword, pattern) in WRITE_PATTERNS.iter() {
+            if pattern.is_match(&query_no_literals) {
+                tracing::warn!(
+                    matched_keyword = keyword,
+                    "hive_query: write keyword detected in query"
+                );
+                return denylist_rejection_response();
+            }
         }
     }
 
@@ -159,6 +207,18 @@ pub async fn hive_query_handler(
             Json(json!(HiveQueryResponse { columns, rows })),
         )
             .into_response(),
+        // The database itself refused a write inside the read-mode bolt transaction —
+        // the denylist had a hole and the DB guard saved us. Surface it as the same
+        // 403 body the denylist uses. Log the Neo4j error code and query length only;
+        // never the query body.
+        Err(shared::Error::ReadOnlyViolation(neo4j_code)) => {
+            tracing::warn!(
+                neo4j_error_code = %neo4j_code,
+                query_len = modified_query.len(),
+                "hive_query: database rejected a write attempt inside the read-mode transaction"
+            );
+            read_only_violation_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "hive_query: Neo4j execution failed");
             (
@@ -342,5 +402,54 @@ mod tests {
     fn test_query_at_limit_accepted() {
         let ok_query = "A".repeat(4096);
         assert!(ok_query.len() <= 4096);
+    }
+
+    // ── Read-mode transaction rejection (Error::ReadOnlyViolation → 403) ──────
+
+    async fn response_parts(resp: Response) -> (axum::http::StatusCode, Vec<u8>) {
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read response body")
+            .to_vec();
+        (status, bytes)
+    }
+
+    /// The database-level read-mode rejection must be indistinguishable on the
+    /// wire from the denylist rejection: same status, byte-identical JSON body.
+    /// The two literals are kept independent on purpose so this test fails if
+    /// either path drifts.
+    #[tokio::test]
+    async fn test_read_only_violation_body_matches_denylist_body() {
+        let (denylist_status, denylist_body) =
+            response_parts(denylist_rejection_response()).await;
+        let (db_status, db_body) = response_parts(read_only_violation_response()).await;
+
+        assert_eq!(denylist_status, StatusCode::FORBIDDEN);
+        assert_eq!(db_status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            denylist_body, db_body,
+            "ReadOnlyViolation body diverged from the denylist body"
+        );
+        assert_eq!(
+            String::from_utf8(db_body).unwrap(),
+            r#"{"error":"write operations not permitted"}"#
+        );
+    }
+
+    /// `apoc.create.node` is caught by the denylist today (word boundaries exist
+    /// around `create` inside `apoc.create.node`), but write procedures whose
+    /// names contain no denylist keyword (e.g. `apoc.atomic.add`) are not — those
+    /// are exactly the queries the database-level read-mode guard must reject,
+    /// which the integration test exercises via
+    /// `hive_query_handler_denylist_bypassed`.
+    #[test]
+    fn test_denylist_catches_apoc_create_but_not_atomic_add() {
+        assert!(check_write_blocked(
+            "CALL apoc.create.node(['_ReadOnlyProbe'], {id: 'x'}) YIELD node RETURN node"
+        ));
+        assert!(!check_write_blocked(
+            "MATCH (n) CALL apoc.atomic.add(n, 'count', 1) YIELD oldValue RETURN oldValue"
+        ));
     }
 }
