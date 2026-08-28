@@ -75,8 +75,12 @@ export interface FlowDef {
   promotes?: PromoteSpec[];
 }
 
-export const getWorkflowFlow = (name: string) =>
-  fetchJSON<FlowDef>(`/workflows/${name}/flow`);
+/** Parsed flow of a workflow — the active version, or a pinned historical
+ *  one when `version` is given (the version picker's data source). */
+export const getWorkflowFlow = (name: string, version?: string) =>
+  fetchJSON<FlowDef>(
+    `/workflows/${name}/flow${version ? `?version=${encodeURIComponent(version)}` : ""}`,
+  );
 
 export interface CreateWorkflowResponse {
   ok: true;

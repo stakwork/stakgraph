@@ -611,8 +611,13 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/flow", async (c) => {
     const name = c.req.param("name");
+    // ?version= pins a historical version (the UI's version picker);
+    // omitted = the active version, as before.
+    const version = c.req.query("version");
     try {
-      const flow = await workspace.getWorkflow(name);
+      const flow = version
+        ? await workspace.getWorkflowVersion(name, version)
+        : await workspace.getWorkflow(name);
       return c.json({
         name: flow.name,
         steps: flow.steps,

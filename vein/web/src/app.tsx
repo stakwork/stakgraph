@@ -118,6 +118,19 @@ export function App() {
   const activeVersion = workflows.find((w) => w.name === selectedWf)?.activeVersion;
   const selectedEntry = workflows.find((w) => w.name === selectedWf);
 
+  // Version picker: which version of the selected workflow the canvas shows.
+  // Stored with the workflow it was pinned for, so the pin self-invalidates
+  // when the selection changes (no effect-ordering games). null = active.
+  const [versionPin, setVersionPin] = useState<{ wf: string | null; v: string | null }>({ wf: null, v: null });
+  const viewVersion = versionPin.wf === selectedWf ? versionPin.v : null;
+  const setViewVersion = useCallback(
+    (v: string | null) => setVersionPin({ wf: selectedWf, v }),
+    [selectedWf],
+  );
+  // Viewing history is read-only: editing/publishing/running only make sense
+  // against the active version (Publish always builds on active, Run runs it).
+  const viewingOld = viewVersion != null && activeVersion != null && viewVersion !== activeVersion;
+
   // ── Sidebar grouping ─────────────────────────────────────────────────────
   // Workflows grouped by category; groups (and workflows within them) are
   // ordered by most-recent run so the active experiment floats to the top.
@@ -272,7 +285,7 @@ export function App() {
       setFlyoutStepIndex(null);
       return;
     }
-    api.getWorkflowFlow(selectedWf).then((flow) => {
+    api.getWorkflowFlow(selectedWf, viewVersion ?? undefined).then((flow) => {
       const steps = flow.steps as StepData[];
       setPublishedSteps(steps);
       setLocalSteps(steps);
@@ -286,7 +299,7 @@ export function App() {
       setLoadError(true);
     });
     refreshRuns(selectedWf);
-  }, [selectedWf]);
+  }, [selectedWf, viewVersion]);
 
   // Load run events when a run is selected; clear overlay + drill when deselected
   useEffect(() => {
@@ -388,6 +401,7 @@ export function App() {
   }, []);
 
   function updateLocalSteps(steps: StepData[]) {
+    if (viewingOld) return; // historical versions are read-only
     setLocalSteps(steps);
   }
 
@@ -680,7 +694,7 @@ export function App() {
             {filteredRuns.length === 0 && <div class="empty-sidebar">{selectedWf ? "No runs for this workflow" : "No runs yet"}</div>}
             {filteredRuns.map((run) => (
               <div key={run.runId} class={`list-item ${selectedRun === run.runId ? "is-active" : ""}`}
-                onClick={() => { setSelectedRun(run.runId); closeFlyout(); }}>
+                onClick={() => { setSelectedRun(run.runId); setViewVersion(null); closeFlyout(); }}>
                 <div class="list-item-stack">
                   <span class="list-item-name">{run.runId.slice(0, 10)}</span>
                   <span class="list-item-sub">
@@ -734,11 +748,31 @@ export function App() {
               onSaved={refreshWorkflows}
             />
           )}
+          {/* Version picker — browse the workflow's published lineage. Only
+              outside run view (a run overlays the active structure), and only
+              when there is history to browse. */}
+          {selectedWf && !selectedRun && selectedEntry && selectedEntry.versions.length > 1 && (
+            <select
+              class="version-select"
+              value={viewVersion ?? activeVersion}
+              onChange={(e) => {
+                const v = (e.target as HTMLSelectElement).value;
+                setViewVersion(v === activeVersion ? null : v);
+                closeFlyout();
+                setShowParams(false);
+              }}
+            >
+              {[...selectedEntry.versions].reverse().map((v) => (
+                <option key={v} value={v}>{v}{v === activeVersion ? " (active)" : ""}</option>
+              ))}
+            </select>
+          )}
+          {viewingOld && <span class="badge version-history-badge">history · read-only</span>}
           {selectedRun && <span class="topbar-run">{selectedRun.slice(0, 10)}</span>}
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
         <div class="topbar-actions">
-          {isDirty && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
+          {isDirty && !viewingOld && <button class="btn btn-publish" disabled={showParams && !paramsValid} onClick={handlePublish}>Publish</button>}
           {isRunView && promotions.length > 0 && (
             <button
               class={`btn${showPromote ? " is-active" : ""}`}
@@ -751,7 +785,7 @@ export function App() {
               onClick={() => { setShowParams((s) => !s); setShowPromote(false); setInfoStep(null); setFlyoutStepId(null); }}
             >Params</button>
           )}
-          {selectedWf && (
+          {selectedWf && !viewingOld && (
             <div class="run-anchor">
               <button class="btn btn-primary" onClick={handleRun}>Run</button>
               {runBindings && selectedWf && (
@@ -799,11 +833,11 @@ export function App() {
         )}
         {canvas
           ? <SystemCanvas
-              // Remount when the viewed workflow changes so the canvas
-              // re-fits/re-centers on its content (the library's
+              // Remount when the viewed workflow OR pinned version changes so
+              // the canvas re-fits/re-centers on its content (the library's
               // `autoFit="canvas-change"` only fires on sub-canvas
               // navigation, not when we swap the root `canvas` prop).
-              key={viewWorkflow ?? "none"}
+              key={`${viewWorkflow ?? "none"}@${viewVersion ?? "active"}`}
               panMode="trackpad"
               canvas={canvas}
               // A container node's ref arrow opens the referenced workflow
@@ -811,7 +845,7 @@ export function App() {
               // sub-canvas — onNavigate routes via the sidebar selection.
               externalNavigation
               onNavigate={handleNavigate}
-              editable={!isRunView}
+              editable={!isRunView && !viewingOld}
               showNodeToolbar={false}
               onNodeClick={handleNodeClick}
               onNodeAdd={handleNodeAdd}
@@ -819,7 +853,7 @@ export function App() {
               onEdgeAdd={handleEdgeAdd}
               onEdgeDelete={handleEdgeDelete}
               renderAddNodeButton={(_props: AddNodeButtonRenderProps) => (
-                selectedWf && !isRunView
+                selectedWf && !isRunView && !viewingOld
                   ? <button class="add-step-fab" onClick={() => setShowAddStep(true)}>+</button>
                   : null
               )}

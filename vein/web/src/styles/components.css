@@ -89,6 +89,27 @@
   cursor: pointer;
 }
 
+/* Topbar version picker — browse a workflow's published lineage. */
+.version-select {
+  margin-left: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  padding: 2px 4px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.version-history-badge {
+  margin-left: 8px;
+  color: var(--warning, #d9a441);
+  border: 1px solid currentColor;
+  background: transparent;
+  vertical-align: middle;
+}
+
 .shell-events {
   grid-area: events;
   background: var(--bg);
