@@ -100,9 +100,9 @@ steps:
       report: "{{ qa.result }}"
 
 params:
-  model: claude-sonnet-4-6
+  model: claude-sonnet-5
   # A complex multi-service app + reboots burns a lot of tool calls.
-  maxSteps: 240
+  maxSteps: 200
   useStaklink: true
   bootCommand: npx -y staklink@latest start
   bootTimeoutMs: 420000

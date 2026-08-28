@@ -56,7 +56,7 @@ steps:
 
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
-  model: claude-sonnet-4-6
+  model: claude-sonnet-5
   # Agent step budget. Generous for hard multi-repo workspaces (mikeoss, hive)
   # that need a lot of exploration before producing; a forced final-answer turn
   # (in the agent step) still guarantees output if even this is exhausted.
