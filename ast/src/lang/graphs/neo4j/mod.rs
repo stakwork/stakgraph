@@ -4,5 +4,8 @@ pub mod graph;
 pub mod helpers;
 pub mod operations;
 pub mod queries;
+pub mod time;
 
-pub use {connection::*, executor::*, graph::*, helpers::*, operations::*, queries::*};
+pub use {
+    connection::*, executor::*, graph::*, helpers::*, operations::*, queries::*, time::*,
+};
