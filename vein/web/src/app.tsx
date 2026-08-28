@@ -57,10 +57,15 @@ function countIterations(events: api.RunEvent[], prefix: string): number {
 }
 
 export function App() {
+  // Deep-links: ?wf=<workflow>&run=<runId>&v=<version> select on load and are
+  // kept in sync (replaceState) as the selection changes, so the address bar
+  // is always a shareable link to what's on screen. (?chat is read below and
+  // preserved by the sync.)
+  const [initialUrl] = useState(() => new URLSearchParams(location.search));
   const [workflows, setWorkflows] = useState<api.WorkflowEntry[]>([]);
   const [runs, setRuns] = useState<api.RunSummary[]>([]);
-  const [selectedWf, setSelectedWf] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<string | null>(null);
+  const [selectedWf, setSelectedWf] = useState<string | null>(initialUrl.get("wf"));
+  const [selectedRun, setSelectedRun] = useState<string | null>(initialUrl.get("run"));
   const [events, setEvents] = useState<api.RunEvent[]>([]);
   const [running, setRunning] = useState(false);
   // Bumped after a durable resume so the run-view effect re-tails the log
@@ -124,7 +129,10 @@ export function App() {
   // Version picker: which version of the selected workflow the canvas shows.
   // Stored with the workflow it was pinned for, so the pin self-invalidates
   // when the selection changes (no effect-ordering games). null = active.
-  const [versionPin, setVersionPin] = useState<{ wf: string | null; v: string | null }>({ wf: null, v: null });
+  const [versionPin, setVersionPin] = useState<{ wf: string | null; v: string | null }>(() => ({
+    wf: initialUrl.get("v") ? initialUrl.get("wf") : null,
+    v: initialUrl.get("v"),
+  }));
   const viewVersion = versionPin.wf === selectedWf ? versionPin.v : null;
   const setViewVersion = useCallback(
     (v: string | null) => setVersionPin({ wf: selectedWf, v }),
@@ -133,6 +141,22 @@ export function App() {
   // Viewing history is read-only: editing/publishing/running only make sense
   // against the active version (Publish always builds on active, Run runs it).
   const viewingOld = viewVersion != null && activeVersion != null && viewVersion !== activeVersion;
+
+  // Mirror the selection into the address bar (replaceState — no history
+  // spam) so the current view is always copy-paste shareable. Unrelated
+  // params (e.g. ?chat) are preserved.
+  useEffect(() => {
+    const p = new URLSearchParams(location.search);
+    const put = (k: string, val: string | null) => (val ? p.set(k, val) : p.delete(k));
+    put("wf", selectedWf);
+    put("run", selectedRun);
+    put("v", viewVersion);
+    const qs = p.toString();
+    const next = `${location.pathname}${qs ? `?${qs}` : ""}${location.hash}`;
+    if (next !== `${location.pathname}${location.search}${location.hash}`) {
+      history.replaceState(null, "", next);
+    }
+  }, [selectedWf, selectedRun, viewVersion]);
 
   // ── Sidebar grouping ─────────────────────────────────────────────────────
   // Workflows grouped by category; groups (and workflows within them) are
