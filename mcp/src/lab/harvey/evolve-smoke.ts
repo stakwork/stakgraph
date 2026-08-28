@@ -102,6 +102,12 @@ async function main() {
     );
     assert.equal(out.n, 3);
     assert.equal(out.meanScore, 0.5);
+    // pass-rate fitness: 1/3, 1/1, and 0 (no readable criteria → 0, never 1)
+    assert.equal(out.results[0].passRate, 0.333);
+    assert.equal(out.results[1].passRate, 1);
+    assert.equal(out.results[2].passRate, 0);
+    assert.equal(out.meanPassRate, 0.444);
+    assert.ok(out.text.includes("mean criteria pass-rate 0.444"));
     assert.equal(out.allPassCount, 1);
     assert.equal(out.results[0].nFailed, 2);
     assert.equal(out.results[0].failed.length, 1);
@@ -109,7 +115,7 @@ async function main() {
     assert.equal(out.results[0].cost, 1.1);
     assert.equal(out.results[2].error, "candidate run failed");
     assert.equal(out.results[2].cost, 0.33);
-    assert.ok(out.text.includes("mean score 0.5") && out.text.includes("✗ c2"));
+    assert.ok(out.text.includes("✗ c2"));
     assert.ok(out.text.includes("(+1 more failed criteria not shown)"));
     console.log("✔ harvey/digest-results aggregates + formats");
 

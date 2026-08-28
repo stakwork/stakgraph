@@ -38,8 +38,8 @@ name: harvey-evolve
 #   mission: what to improve and why — the gap statement handed to the
 #            author (e.g. a per-miss taxonomy line: "citations unverifiable;
 #            stale regulatory figures — needs an online research step").
-# Output: { candidate, candidateVersion, baselineMean, candidateMean,
-#           meanDelta, baseline, candidateResults, authorSummary,
+# Output: { candidate, candidateVersion, baselinePassRate, candidatePassRate,
+#           passRateDelta, baseline, candidateResults, authorSummary,
 #           authorChanges, missingSecrets, … }
 steps:
   - id: dir
@@ -164,9 +164,13 @@ steps:
       tasks: "{{ input.tasks }}"
       candidate: "{{ author.object.candidate }}"
       candidateVersion: "{{ author.object.version }}"
-      baselineMean: "{{ basedigest.meanScore }}"
-      candidateMean: "{{ canddigest.meanScore }}"
-      meanDelta: "{{ canddigest.meanScore - basedigest.meanScore }}"
+      # THE FITNESS is criteria pass-rate, not the benchmark's binary
+      # all-pass score — binary at n=1 has no gradient to climb (observed:
+      # 45/50 vs 44/50 both report score 0). All-pass counts are kept as
+      # the headline benchmark metric; pass-rate is what a delta means.
+      baselinePassRate: "{{ basedigest.meanPassRate }}"
+      candidatePassRate: "{{ canddigest.meanPassRate }}"
+      passRateDelta: "{{ canddigest.meanPassRate - basedigest.meanPassRate }}"
       baselineAllPass: "{{ basedigest.allPassCount }}"
       candidateAllPass: "{{ canddigest.allPassCount }}"
       baseline: "{{ basedigest.results }}"
