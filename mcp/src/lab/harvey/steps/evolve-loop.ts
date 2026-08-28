@@ -112,7 +112,10 @@ export function composeBriefing(args: {
       lines.push(
         `- attempt ${g.gen} → published ${args.candidateName}@${g.version ?? "?"}: mean pass-rate ${g.passRate} (${delta >= 0 ? "+" : ""}${delta} vs baseline)`,
       );
-      if (g.summary) lines.push(`  approach: ${excerpt(g.summary, 400)}`);
+      // The approach summary is the ONLY channel telling the EXPLORE
+      // directive what has already been tried — keep it roomy enough that
+      // "pick an approach that is none of the above" stays checkable.
+      if (g.summary) lines.push(`  approach: ${excerpt(g.summary, 1200)}`);
       if (g.digestText) lines.push(indent(excerpt(g.digestText, 700), "    "));
     }
   }

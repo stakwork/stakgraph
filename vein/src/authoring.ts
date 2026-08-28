@@ -403,6 +403,11 @@ export interface AuthoringDeps extends StepPublishDeps {
   /** Read-only view of the deployment's secret store (NAMES only — never
    *  values). Optional: `listSecrets` degrades gracefully when absent. */
   secrets?: { list(): Promise<SecretInfo[]> };
+  /** Register a nested run as in-flight (returns the untrack fn) so the
+   *  server's runs listing reports it "running" rather than "stale" while
+   *  its run.json doesn't exist yet. Optional: embedders without a live
+   *  server need not care. */
+  trackRun?: (workflow: string, runId: string) => () => void;
 }
 
 export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapability {
@@ -571,13 +576,19 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
       // FRESH registry, same reason as runStep: steps published mid-run are
       // invisible to the enclosing run's registry snapshot.
       const registry = await deps.getRegistry();
-      return runWorkflow(flow, coerceJsonArg(input) ?? {}, registry, {
-        runId: generateRunId(),
-        store,
-        workspace,
-        services: deps.services,
-        params: coerceJsonArg(params) as Record<string, unknown> | undefined,
-      });
+      const runId = generateRunId();
+      const untrack = deps.trackRun?.(flow.name, runId);
+      try {
+        return await runWorkflow(flow, coerceJsonArg(input) ?? {}, registry, {
+          runId,
+          store,
+          workspace,
+          services: deps.services,
+          params: coerceJsonArg(params) as Record<string, unknown> | undefined,
+        });
+      } finally {
+        untrack?.();
+      }
     },
 
     async listRuns(name, limit = 20) {

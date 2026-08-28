@@ -290,6 +290,17 @@ export async function createVein<TServices = unknown>(
   // restart / crash / cancellation) and is reported as "stale" rather than a
   // perpetual "running".
   const activeRuns = new Set<string>();
+  /** Register a run as in-flight for the runs-listing status fallback (a run
+   *  dir with events but no run.json yet is "running" if registered here,
+   *  "stale" — i.e. orphaned by a crash/restart — otherwise). Every launch
+   *  path must register: HTTP (launchDetached), programmatic (vein.run), and
+   *  in-process nested runs (authoring's meta/run-workflow). Returns the
+   *  untrack fn for the caller's finally. */
+  const trackRun = (workflow: string, runId: string) => {
+    const key = `${workflow}/${runId}`;
+    activeRuns.add(key);
+    return () => activeRuns.delete(key);
+  };
   // Deployment-scoped secret store backing the `secrets` capability + the
   // `/secrets` admin endpoints. Mirrors the run/chat store defaults: encrypted
   // file store for the standard server, in-memory when runs are in-memory.
@@ -372,6 +383,7 @@ export async function createVein<TServices = unknown>(
       workspace,
       store,
       services,
+      trackRun,
       publishingEnabled: !registryWasInjected,
       getRegistry: async () => {
         await rebuildRegistry();
@@ -611,8 +623,13 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/flow", async (c) => {
     const name = c.req.param("name");
+    // ?version= pins a historical version (the UI's version picker);
+    // omitted = the active version, as before.
+    const version = c.req.query("version");
     try {
-      const flow = await workspace.getWorkflow(name);
+      const flow = version
+        ? await workspace.getWorkflowVersion(name, version)
+        : await workspace.getWorkflow(name);
       return c.json({
         name: flow.name,
         steps: flow.steps,
@@ -953,8 +970,7 @@ export async function createVein<TServices = unknown>(
    */
   function launchDetached(flow: Flow, body: RunBody): string {
     const runId = body.runId ?? generateRunId();
-    const key = `${flow.name}/${runId}`;
-    activeRuns.add(key);
+    const untrack = trackRun(flow.name, runId);
     void runWorkflow(flow, body.input ?? {}, registry, {
       runId,
       store,
@@ -966,9 +982,7 @@ export async function createVein<TServices = unknown>(
       .catch((err) => {
         console.error(`[run ${runId}] launch failed:`, err);
       })
-      .finally(() => {
-        activeRuns.delete(key);
-      });
+      .finally(untrack);
     return runId;
   }
 
@@ -1333,15 +1347,24 @@ export async function createVein<TServices = unknown>(
           : await workspace.getWorkflow(workflow)
         : workflow;
 
-    return runWorkflow(flow, input, registry, {
-      runId: runOpts?.runId,
-      store,
-      workspace,
-      services: runOpts?.services ?? services,
-      params: runOpts?.params,
-      paramOverrides: runOpts?.paramOverrides,
-      onEvent: runOpts?.onEvent,
-    });
+    // Generate the runId here (rather than letting runWorkflow default it) so
+    // the run can be registered as in-flight — otherwise nested runs (e.g. the
+    // optimizer capability's generation runs) list as "stale" while running.
+    const runId = runOpts?.runId ?? generateRunId();
+    const untrack = trackRun(flow.name, runId);
+    try {
+      return await runWorkflow(flow, input, registry, {
+        runId,
+        store,
+        workspace,
+        services: runOpts?.services ?? services,
+        params: runOpts?.params,
+        paramOverrides: runOpts?.paramOverrides,
+        onEvent: runOpts?.onEvent,
+      });
+    } finally {
+      untrack();
+    }
   }
 
   // ── Listener ─────────────────────────────────────────────────────────────
