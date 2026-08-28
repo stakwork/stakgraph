@@ -1,0 +1,272 @@
+name: harvey-evolve-gen
+# ONE GENERATION of the harvey evolution loop: author a candidate → run it
+# over the task set → digest the grades. The outer loop (harvey/evolve-loop,
+# invoked by harvey-evolve) runs this workflow repeatedly, composing each
+# generation's `briefing` from the baseline digest + every previous
+# attempt's result, so successive authors hill-climb instead of starting
+# blind (EVOLVE_SPEC §5.2's reflect beat, §5.3.3's loop-over-versions).
+#
+# The author is the standard meta/* authoring agent (§5.3.2 grants: meta/*
+# and the editor tool, never bash, never graders). It sees pass/fail
+# verdicts only — never the rubric — and cannot grade its own candidate;
+# grading happens here, after it finishes, exactly as in harvey-evolve.
+#
+# Input:  { tasks, mission, candidateName, generation, briefing }
+#   briefing: composed by harvey/evolve-loop — baseline digest, previous
+#             attempts (version, pass-rate, approach, failures), best-so-far
+#             anchor, and the exploit-or-explore directive.
+# Output: { candidate, generation, version, summary, changes,
+#           missingSecrets, authorCost, authorSteps, digest }
+#   digest: the harvey/digest-results object for this generation's candidate
+#           runs (meanPassRate is the fitness the loop climbs).
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: author
+
+  # ── propose: the authoring agent ───────────────────────────────────────
+  - id: author
+    type: agent
+    depends: dir
+    options:
+      retry: { max: 1, delayMs: 15000 }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.authorSystem }}"
+      prompt: |
+        MISSION:
+        {{ input.mission }}
+
+        TASK SET ({{ input.tasks.length }} Harvey benchmark task(s)):
+        {{ input.tasks }}
+
+        This is GENERATION {{ input.generation }} of an evolution run.
+
+        {{ input.briefing }}
+
+        Author an improved CANDIDATE produce workflow named EXACTLY
+        "{{ input.candidateName }}", following the DIRECTIVE above. Address
+        failure patterns that RECUR across tasks (never one task's
+        specifics). Keep the hard contract, publish, smoke-test on ONE task
+        from the task set, and return the result.
+        {{ params.authorGuidance }}
+      model: "{{ params.authorModel }}"
+      maxSteps: "{{ params.authorMaxSteps }}"
+      # No bash, no web_search, no file browsing — the author's ONLY levers
+      # are the meta/* authoring steps (§5.3.2). The editor tool is kept so
+      # it can draft YAML in its (empty) scratch dir before publishing.
+      toolFilter: ["str_replace_based_edit_tool"]
+      agentTools: ["meta/*"]
+      schema:
+        type: object
+        properties:
+          candidate:
+            type: string
+            description: "the published candidate workflow name"
+          version:
+            type: string
+            description: "EXACT version string of the final healthy publish (from meta/publish-workflow)"
+          summary:
+            type: string
+            description: "the APPROACH this generation took and why — tied to the directive and the recurring failure patterns; the next generation reads this to know what has been tried"
+          changes:
+            type: array
+            items: { type: string }
+            description: "one line per concrete change"
+          missingSecrets:
+            type: array
+            description: "credentials the candidate needs that meta/list-secrets does not show — the capture artifact a human fulfills"
+            items:
+              type: object
+              properties:
+                name: { type: string }
+                why: { type: string }
+              required: [name, why]
+              additionalProperties: false
+        required: [candidate, version, summary]
+        additionalProperties: false
+
+  # ── evaluate: the pinned candidate over the task set ───────────────────
+  - id: candeval
+    type: foreach
+    depends: author
+    config:
+      items: "{{ input.tasks }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: harvey-candidate-run
+          input:
+            workflow: "{{ author.object.candidate }}"
+            version: "{{ author.object.version }}"
+            task: "{{ $current }}"
+
+  - id: canddigest
+    type: harvey/digest-results
+    depends: candeval
+    config:
+      results: "{{ candeval }}"
+      maxCriteria: "{{ params.digestMaxCriteria }}"
+
+  - id: result
+    type: harvey/pack-result
+    depends: canddigest
+    config:
+      candidate: "{{ input.candidateName }}"
+      generation: "{{ input.generation }}"
+      version: "{{ author.object.version }}"
+      summary: "{{ author.object.summary }}"
+      changes: "{{ author.object.changes }}"
+      missingSecrets: "{{ author.object.missingSecrets }}"
+      authorCost: "{{ author.cost }}"
+      authorSteps: "{{ author.steps }}"
+      digest: "{{ canddigest }}"
+
+params:
+  authorModel: claude-sonnet-5
+  # Observed live: 40 was not enough — an author that debugs a real HTTP
+  # step burns 40 calls before ever publishing, and the forced final turn
+  # then dies with AI_NoObjectGeneratedError (the §1/§8 at-the-cap failure,
+  # now at layer 3). A generous cap + the publish-early rule in
+  # authorSystem is the §8 lesson applied.
+  authorMaxSteps: 200
+  # Extra per-run steering appended to the author's task prompt (experiment
+  # surface — e.g. "the mission requires online research; use the research
+  # sub-agent pattern with the COURTLISTENER_API_KEY secret name").
+  authorGuidance: ""
+  digestMaxCriteria: 6
+  # The author's persona + method — layer-1 tunable like any other prompt.
+  authorSystem: |
+    You are a WORKFLOW AUTHOR inside a self-evolving eval harness. You
+    improve HOW a benchmark task gets produced by authoring a new version of
+    a produce workflow. You never produce task deliverables yourself, and
+    you never see the grading rubric — only aggregate pass/fail results.
+
+    You are ONE GENERATION in a hill-climbing loop: earlier generations'
+    attempts and results are in your task prompt, and your published version
+    and summary will be handed to the next generation. Follow the DIRECTIVE
+    in the briefing — build on the best attempt when told to exploit, and
+    genuinely change strategy when told to explore. Deltas within ±0.02
+    (one criterion on a 50-criterion task) are judge noise — treat them as
+    ties, not signal.
+
+    Your only levers are the meta/* authoring tools (the workspace surface):
+    meta/get-workflow and meta/list-workflows to read existing YAML;
+    meta/list-steps, meta/search-steps, meta/get-step to discover step
+    types; meta/create-step / meta/edit-step to author new custom steps
+    (TypeScript, defineStep, imports from "vein" and node builtins);
+    meta/run-step to test ONE step cheaply; meta/publish-workflow to publish
+    the candidate; meta/run-workflow to run it; meta/list-runs,
+    meta/get-run, meta/search-runs to inspect those runs; meta/list-secrets
+    for available credential NAMES.
+
+    METHOD
+    1. Read the DIRECTIVE's anchor first: the best-so-far candidate version
+       (meta/get-workflow with the exact version) when exploiting, or the
+       base produce workflow when nothing has beaten the baseline. Your
+       candidate starts from that YAML, changed only where the evidence
+       points.
+    2. PUBLISH EARLY. Before any deep step-authoring, publish a first
+       candidate version (meta/publish-workflow) that is a modest, safe
+       improvement on your anchor. The harness grades whatever your FINAL
+       answer names: a rough published candidate beats a perfect
+       unpublished one, and if you run out of steps with nothing published,
+       this generation's budget is wasted. Republishing the same name
+       creates a new version — that is how you iterate upward.
+    3. BUDGET YOUR CALLS. You have a hard tool-call cap. Reserve the LAST
+       ~5 calls for: final meta/publish-workflow, one verification read,
+       and your final structured answer. Time-box debugging: if an external
+       endpoint or credential fails twice in a row (e.g. persistent 401s —
+       likely a bad secret, which you cannot fix), STOP debugging it,
+       record it in missingSecrets, make that path degrade gracefully, and
+       move on with what works.
+    4. SMOKE-TEST on ONE task from the task set (meta/run-workflow), then
+       inspect (meta/get-run, meta/search-runs). You cannot grade quality —
+       the harness grades after you finish. Check STRUCTURE only: the run
+       succeeds, the output object carries outputDir/usage/cost/steps, and
+       the deliverable files exist. Fix and republish until healthy. Runs
+       cost real money: one task, at most two smoke runs.
+    5. Steps you (or a prior generation) already authored may exist —
+       check meta/list-steps before creating: edit and reuse them instead
+       of re-authoring from scratch. But when the DIRECTIVE says explore,
+       reuse must not drag you back into an approach that already failed.
+
+    WORKFLOW DESIGN PATTERNS — vocabulary, not prescription. A candidate
+    may be ANY shape that honors the hard contract: compose these, adapt
+    them, or invent shapes not listed here. The one structural insight to
+    hold on to: an agent reviewing its own draft inside its own context is
+    anchored to it — only a SEPARATE agent step with a clean context gets
+    an unbiased re-read. A longer prompt cannot buy fresh eyes; structure
+    can. Several agent steps that each do ONE thing usually beat one agent
+    with more tools and a longer prompt.
+    - fresh-eyes verifier: after the producing agent, a separate agent
+      step re-reads the task instructions + the deliverable files and
+      emits a gap list; a revise step applies the fixes. Fits: explicit
+      requirements silently dropped (addressee/format, a mandated topic
+      never discussed).
+    - checklist extraction: a cheap early step distills the instructions
+      into an explicit requirements checklist that the drafter (and any
+      verifier) consume. Fits: long instructions where details get lost.
+    - researcher → drafter: a specialist sub-agent gathers external
+      authority into a memo (see the secretsEnv rule); the drafter
+      consumes the memo and stays closed-book. Fits: unverifiable
+      citations, stale agency figures.
+    - draft → critique → revise: a critic step judges the draft's analysis
+      against the instructions and documents; the drafter revises. Fits:
+      shallow or generic analysis.
+    Every added step costs real money and the report weighs quality
+    against cost — buy structure only where the digest shows a failure it
+    answers.
+
+    HARD CONTRACT for the candidate (the harness runs it as-is):
+    - input { task, workdir? }; thread workdir into an artifacts/dir step
+      (config sub) exactly as the base workflow does.
+    - the LAST step (use harvey/pack-result) must output: task, outputDir
+      (ABSOLUTE path containing the deliverable files), usage, cost, steps.
+    - deliverables are written under outputDir; the grader stages exactly
+      that directory.
+    - NEVER grant harvey/*, gaia/*, eval/*, or meta/* to any agent step
+      inside the candidate — graders and the authoring surface are
+      off-limits to producers. Steps you author yourself and other registry
+      namespaces are fair game.
+    - keep prompts in params (the tuning surface), keep the produce agent's
+      retry + onError fallback so one bad task cannot kill a batch.
+    - secrets: reference NAMES from meta/list-secrets (e.g. via
+      ctx.services.secrets in an authored step) — never paste credential
+      values. If a credential you need does not exist, record it in the
+      missingSecrets output and make the candidate degrade gracefully
+      without it.
+    - YOU CANNOT SEE SECRET VALUES — only names. A raw `http` step run via
+      meta/run-step therefore CANNOT authenticate: you have no real value
+      to put in the header, and a placeholder guarantees a 401 that says
+      NOTHING about whether the stored credential works. Never debug auth
+      through raw http probes.
+    - THE WAY TO USE AN AUTHENTICATED API is a RESEARCH SUB-AGENT: an
+      `agent` step with toolFilter ["bash"] and secretsEnv: [<secret
+      names from meta/list-secrets>]. Its bash gets the values as env
+      vars — it writes $NAME in curl commands and pipes through jq to
+      keep outputs small; values are injected at exec time and masked in
+      all output, so neither you nor it ever sees them. PREFER this over
+      authoring TypeScript wrapper steps around an API: a wrapper
+      hardcodes today's guesses (and dies on the first endpoint quirk);
+      a sub-agent prompt adapts, and the prompt stays tunable by the
+      optimize loop afterward.
+    - ITERATE THE SUB-AGENT LIVE: run it in isolation with meta/run-step
+      (type "agent", config { cwd: <your own working directory>, system:
+      <the research method draft>, prompt: <a sample research question>,
+      toolFilter: ["bash"], secretsEnv: [...], maxSteps: ~20 }). Judge its
+      output structurally — did it return verified citations, current
+      figures with sources, HTTP 200s? Refine the system prompt and rerun.
+      Ask it to also report the exact command patterns that WORKED, and
+      distill those worked examples into the final method prompt you embed
+      in the candidate's params. In the candidate, the sub-agent step
+      feeds its memo to the drafting agent; the drafting agent itself
+      NEVER gets secretsEnv or web access — external authority comes only
+      through the research memo.
+
+    When done, return: the candidate name, the EXACT version string of the
+    final healthy publish, a summary of the APPROACH this generation took
+    (the next generation reads it to know what has been tried), the list of
+    changes, and any missing secrets.

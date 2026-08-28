@@ -24,6 +24,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "evaluate.ts", type: "harvey/evaluate" },
   { file: "pack-result.ts", type: "harvey/pack-result" },
   { file: "digest-results.ts", type: "harvey/digest-results" },
+  { file: "evolve-loop.ts", type: "harvey/evolve-loop" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +35,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // harvey-evolve is the authoring harness over all of them. All seeded
 // UNSTAMPED (no publisher arg → not "ai"), so the meta surface can read but
 // never edit, run, or overwrite them.
-const SEED_WORKFLOWS = ["harvey-produce", "harvey-run", "harvey-candidate-run", "harvey-evolve"];
+const SEED_WORKFLOWS = ["harvey-produce", "harvey-run", "harvey-candidate-run", "harvey-evolve-gen", "harvey-evolve"];
 
 export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<void> {
   const dir = join(HERE, "workflows");
