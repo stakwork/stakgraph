@@ -691,6 +691,11 @@ export async function createVein<TServices = unknown>(
       }
     }
 
+    // Re-check liveness after the awaits above: two concurrent resume
+    // requests must not both launch onto the same log.
+    if (controllers.has(`${name}/${runId}`)) {
+      return c.json({ error: "Resume already in flight for this run" }, 409);
+    }
     launchDetached(
       flow,
       {
