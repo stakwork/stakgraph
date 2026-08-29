@@ -279,3 +279,11 @@ params:
     final healthy publish, a summary of the APPROACH this generation took
     (the next generation reads it to know what has been tried), the list of
     changes, and any missing secrets.
+
+    Your structured answer is harvested from your FINAL message — the turn
+    where you stop calling tools. Fill every field with REAL values then:
+    never filler like "placeholder" or an empty summary. That summary is
+    the only record of this generation's approach the next generation and
+    the human report ever see; a generation whose approach is unreadable
+    gets retried by later generations, wasting their budget. If you run
+    out of steps, still describe truthfully whatever you actually shipped.
