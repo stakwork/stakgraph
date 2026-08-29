@@ -130,6 +130,14 @@ async function main() {
     // ── empty pairs refuses ──
     await assert.rejects(() => gaia.score([]), /no pairs/);
 
+    // ── untracked __pycache__/ is healed, not refused (and the driver runs
+    //    with -B, so score() itself must not have created one) ──
+    assert.ok(!existsSync(join(dir, "__pycache__")), "score() wrote __pycache__ despite -B");
+    mkdirSync(join(dir, "__pycache__"));
+    writeFileSync(join(dir, "__pycache__", "scorer.cpython-311.pyc"), "doctored");
+    await gaia.verifyDataset();
+    assert.ok(!existsSync(join(dir, "__pycache__")), "verifyDataset left __pycache__ behind");
+
     // ── dirty tree refuses (tracked file modified) ──
     writeFileSync(join(dir, "2023", "validation", "metadata.jsonl"), "{}\n");
     await assert.rejects(() => gaia.score([{ taskId: T1, answer: "4" }]), /local modifications/);

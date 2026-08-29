@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ensureGaiaDataset, ensureGaiaPython, SCORER_SHA256 } from "./bootstrap.js";
@@ -238,6 +238,13 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     }
     const rev = head.stdout.trim();
 
+    // Importing scorer.py compiles bytecode into __pycache__/ — derived
+    // state, but also a shadowing vector: python prefers a matching .pyc over
+    // the (sha-pinned) source, so a doctored cache could bypass the pin.
+    // Delete it rather than tolerate it. score() runs python -B so it
+    // normally never appears; this also heals checkouts dirtied before -B.
+    await rm(join(abs, "__pycache__"), { recursive: true, force: true });
+
     // The dataset must be unmodified (a doctored metadata.jsonl = doctored
     // gold). scorer.py is expected untracked — it comes from the leaderboard
     // Space, not this repo.
@@ -346,7 +353,9 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     const python = autoSetup
       ? await ensureGaiaPython(opts.python ? { python: opts.python } : {})
       : (opts.python ?? process.env.GAIA_PYTHON ?? "python3");
-    const res = await exec(python, ["-c", DRIVER, root, pairsPath], {
+    // -B: never write __pycache__/ into the checkout (verifyDataset treats a
+    // dirty tree as doctored gold and refuses to grade).
+    const res = await exec(python, ["-B", "-c", DRIVER, root, pairsPath], {
       cwd: root,
       timeoutMs: o.timeoutMs ?? DEFAULT_SCORE_TIMEOUT_MS,
     });
