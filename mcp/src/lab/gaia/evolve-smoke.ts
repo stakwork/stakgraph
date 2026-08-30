@@ -190,7 +190,9 @@ async function main() {
           output: {
             candidate: input.candidateName,
             version: `v${g + 1}`,
-            summary: `approach ${g}`,
+            // gen 0 echoes filler (the observed schema-mode failure); the
+            // loop must replace it with the honest no-summary marker.
+            summary: g === 0 ? "placeholder" : `approach ${g}`,
             authorCost: 1,
             digest: { fitness: rates[g], text: `digest ${g}`, results: [{ cost: 2 }] },
           },
@@ -224,7 +226,16 @@ async function main() {
     assert.ok(genCalls[1].briefing.includes('the seeded produce workflow "gaia-produce"'));
     // margin 0 semantics: a TIE (0.4 vs baseline 0.4) does not become best
     assert.ok(genCalls[1].briefing.includes("BEST SO FAR: the baseline itself"));
-    console.log("✔ eval/evolve-loop: climbs gaia `fitness`, accuracy naming, margin-0 tie handling");
+    // junk-summary guard: gen 0's "placeholder" echo must NOT reach the next
+    // briefing or the report — both carry the honest no-summary marker.
+    assert.ok(!genCalls[1].briefing.includes("placeholder"));
+    assert.ok(genCalls[1].briefing.includes("no usable approach summary"));
+    assert.equal(
+      loopOut.generations[0].summary.includes("no usable approach summary"),
+      true,
+    );
+    assert.equal(loopOut.generations[1].summary, "approach 1");
+    console.log("✔ eval/evolve-loop: climbs gaia `fitness`, accuracy naming, margin-0 tie handling, junk-summary guard");
 
     console.log("\nALL GAIA EVOLVE VALIDATION CHECKS PASSED");
   } finally {

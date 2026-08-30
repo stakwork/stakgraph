@@ -73,6 +73,25 @@ function num(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
+/**
+ * Authors occasionally end schema mode on a bare text turn, echoing filler
+ * ("placeholder", "") into `summary`. Junk there poisons every later
+ * briefing — the EXPLORE directive's "pick an approach that is none of the
+ * above" is only checkable against real summaries — and the report the
+ * human reads. Replace it with an honest marker instead of passing it
+ * through. (The version echo has its own fallback in the gen workflows;
+ * this is the summary-channel counterpart.)
+ */
+const NO_SUMMARY =
+  "(no usable approach summary reported by this generation's author — read this version's YAML diff to see what it changed)";
+function usableSummary(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  if (t.length < 8) return undefined;
+  if (/^(placeholder|todo|tbd|n\/?a|none|null|summary|unknown)[.!]?$/i.test(t)) return undefined;
+  return t;
+}
+
 function indent(s: string, pad: string): string {
   return s
     .split("\n")
@@ -266,7 +285,7 @@ export default defineStep({
           genRunId: String((journaled["runs"] as AnyRec[] | undefined)?.[0]?.["runId"] ?? ""),
           version: typeof journaled["version"] === "string" ? (journaled["version"] as string) : undefined,
           fitness,
-          summary: typeof journaled["summary"] === "string" ? (journaled["summary"] as string) : undefined,
+          summary: usableSummary(journaled["summary"]) ?? NO_SUMMARY,
           digestText: typeof journaled["digestText"] === "string" ? (journaled["digestText"] as string) : undefined,
           explore: journaled["directive"] === "explore",
         };
@@ -350,7 +369,7 @@ export default defineStep({
         version: typeof out["version"] === "string" ? (out["version"] as string) : undefined,
         fitness,
         allPassCount: num(digest["allPassCount"]),
-        summary: typeof out["summary"] === "string" ? (out["summary"] as string) : undefined,
+        summary: usableSummary(out["summary"]) ?? NO_SUMMARY,
         changes: out["changes"],
         missingSecrets: out["missingSecrets"],
         digestText: typeof digest["text"] === "string" ? (digest["text"] as string) : undefined,
