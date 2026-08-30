@@ -75,7 +75,9 @@ export async function get_edges(
 
 export type OutputFormat = "snippet" | "json";
 
-const RRF_K = 5;
+// Standard reciprocal-rank-fusion constant (Cormack et al.); high k keeps
+// contributions flat across ranks so neither retriever's head dominates.
+const RRF_K = 60;
 
 function sortByPagerank(nodes: Neo4jNode[]): Neo4jNode[] {
   return [...nodes].sort((a, b) => {
@@ -167,21 +169,17 @@ export async function searchWithProvenance(
     });
 
     const merged = new Map<string, { node: Neo4jNode; score: number }>();
-    const ftMaxScore = fulltextResults.length > 0 ? Math.max(...fulltextResults.map(n => n.score || 1)) : 1;
-    const vecMaxScore = vectorResults.length > 0 ? Math.max(...vectorResults.map(n => n.score || 1)) : 1;
 
     fulltextResults.forEach((node, i) => {
       const key = node.properties.ref_id || node.properties.node_key;
-      const norm = (node.score || 0) / ftMaxScore;
-      merged.set(key, { node, score: (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm) });
+      merged.set(key, { node, score: 1 / (RRF_K + i + 1) });
     });
     vectorResults.forEach((node, i) => {
       const key = node.properties.ref_id || node.properties.node_key;
-      const norm = (node.score || 0) / vecMaxScore;
-      const rrfScore = (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm);
+      const rrfScore = 1 / (RRF_K + i + 1);
       const existing = merged.get(key);
       if (existing) {
-        existing.score += rrfScore * 1.5;
+        existing.score += rrfScore;
       } else {
         merged.set(key, { node, score: rrfScore });
       }
