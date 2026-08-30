@@ -14,7 +14,7 @@ import {
   ChronologicalCheckpoint,
   Usage,
 } from "../types.js";
-import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding, conceptEmbeddingText } from "./utils.js";
+import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding, conceptEmbeddingText, jarvisConceptNodeKey } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
 import { jarvisRedisEnabled, pushJarvisEmbeddingJob } from "./jarvis.js";
 
@@ -666,6 +666,47 @@ export class GraphStorage extends Storage {
           dateAddedToGraph: now,
         }
       );
+
+      // Stamp jarvis's identity onto the node: its create-or-merge resolves
+      // Concepts by MERGE (node:Concept:Node {node_key, namespace}), not by
+      // our id slug, so without these a jarvis-side write of the same
+      // concept forks a duplicate. Kept out of the MERGE above and made
+      // best-effort deliberately: node_key carries a (node_key, namespace)
+      // uniqueness constraint, and a rename that computes an already-taken
+      // key must not fail the content save. The NOT EXISTS guards skip the
+      // stamp when another node holds the key (leaving the old node_key in
+      // place, so the node stays jarvis-addressable under its prior name);
+      // a lost race with a concurrent writer throws on the constraint and
+      // is caught the same way.
+      try {
+        const nodeKey = jarvisConceptNodeKey(concept.name);
+        const keyResult = await session.run(
+          `
+          MATCH (f:Concept {id: $id})
+          WHERE NOT EXISTS {
+              MATCH (o:Node {node_key: $nodeKey, namespace: $namespace})
+              WHERE o <> f
+            }
+            AND NOT EXISTS {
+              MATCH (o:Concept {node_key: $nodeKey, namespace: $namespace})
+              WHERE o <> f
+            }
+          SET f:Node, f.node_key = $nodeKey
+          RETURN f
+          `,
+          { id: concept.id, nodeKey, namespace: "default" }
+        );
+        if (keyResult.records.length === 0) {
+          console.warn(
+            `Concept ${concept.id}: node_key '${nodeKey}' is held by another node — left unstamped (jarvis writes to this name will target that node)`
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `Concept ${concept.id}: failed to stamp jarvis node_key:`,
+          error
+        );
+      }
 
       // jarvis's vector search reads text_embeddings, which only its Redis
       // embedding worker writes — queue a job so this concept shows up there.
