@@ -19,20 +19,20 @@ fn person_service_rb_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Class: PersonService (1-13)"), true);
+    assert_eq!(out.stdout.contains("Class: PersonService (1-16)"), true);
     assert_eq!(
         out.stdout
-            .contains("Function: PersonService.get_person_by_id (2-4)"),
+            .contains("Function: PersonService.get_person_by_id (3-5)"),
         true
     );
     assert_eq!(
         out.stdout
-            .contains("Function: PersonService.new_person (6-8)"),
+            .contains("Function: PersonService.new_person (8-10)"),
         true
     );
     assert_eq!(
         out.stdout
-            .contains("Function: PersonService.delete (10-12)"),
+            .contains("Function: PersonService.delete (13-15)"),
         true
     );
 }
@@ -46,8 +46,8 @@ fn parse_stats_ruby_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             23"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Class                35"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             64"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Class                32"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             61"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             21"), "stdout: {}", out.stdout);
 }
 
