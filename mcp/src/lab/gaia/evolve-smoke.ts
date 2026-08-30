@@ -70,7 +70,27 @@ async function main() {
     const fallbackScope = { ...scope, grade: { taskId: "t-1", isCorrect: false, answer: "", level: null, gradeError: "boom" } };
     assert.equal((resolveConfig as any)("{{ grade.isCorrect }}", fallbackScope), false);
     assert.equal((resolveConfig as any)("{{ grade.benchmarkRev }}", fallbackScope), undefined);
-    console.log("✔ template expressions resolve (fallback, version pin, whole-run pass; no-short-circuit guarded)");
+    // gaia-evolve-gen's `published` gate: did this generation's author ship a
+    // NEW version, or did the version fallback just land back on the previous
+    // generation's publish? Every access here must stay undefined-safe, since
+    // meta/get-workflow returns { error } (never undefined) for a miss.
+    const GATE =
+      "{{ (vpin.version || vactive.version) && (vpin.version || vactive.version) !== vbefore.version }}";
+    const gate = (vbefore: unknown, vpin: unknown, vactive: unknown) =>
+      Boolean((resolveConfig as any)(GATE, { ...scope, vbefore, vpin, vactive }));
+    // gen 0: candidate does not exist yet, author publishes v1 → shipped
+    assert.equal(gate({ error: "not found" }, { version: "v1" }, { version: "v1" }), true);
+    // gen 0: author publishes nothing at all → no-op
+    assert.equal(gate({ error: "not found" }, {}, { error: "not found" }), false);
+    // gen N: author publishes a new version → shipped
+    assert.equal(gate({ version: "v11" }, { version: "v12" }, { version: "v12" }), true);
+    // gen N: author echoes garbage and published nothing, so the fallback
+    // resolves to the PREVIOUS generation's publish → no-op (the live bug)
+    assert.equal(gate({ version: "v11" }, {}, { version: "v11" }), false);
+    // the no-op flag handed to the loop is the gate's negation
+    assert.equal((resolveConfig as any)("{{ !published }}", { ...scope, published: true }), false);
+    assert.equal((resolveConfig as any)("{{ !published }}", { ...scope, published: false }), true);
+    console.log("✔ template expressions resolve (fallback, version pin, whole-run pass, published gate; no-short-circuit guarded)");
 
     // 3. gaia/evaluate fromRun: unpack-in-code semantics against a faked
     //    scoring service (no python, no dataset).
@@ -236,6 +256,117 @@ async function main() {
     );
     assert.equal(loopOut.generations[1].summary, "approach 1");
     console.log("✔ eval/evolve-loop: climbs gaia `fitness`, accuracy naming, margin-0 tie handling, junk-summary guard");
+
+    // 6. NO-OP generation: the gen workflow's `published` gate reports that an
+    //    author shipped nothing, so nothing was graded. The loop must record
+    //    it without a fitness, leave `best` untouched, spend only the author
+    //    cost, and tell the next generation not to read it as evidence.
+    const noopCalls: any[] = [];
+    const noopOpt = {
+      run: async (_name: string, input: any) => {
+        noopCalls.push(input);
+        const g = input.generation as number;
+        return {
+          runId: `genrun-${g}`,
+          status: "success",
+          output:
+            g === 1
+              ? { candidate: input.candidateName, noop: true, authorCost: 1, summary: "ran out of steps" }
+              : {
+                  candidate: input.candidateName,
+                  version: `v${g + 1}`,
+                  summary: `approach ${g}`,
+                  authorCost: 1,
+                  digest: { fitness: 0.6, text: `digest ${g}`, results: [{ cost: 2 }] },
+                },
+        };
+      },
+    };
+    const noopBase = {
+      tasks: ["t-1", "t-2"],
+      mission: "m",
+      baseline: { fitness: 0.4, text: "baseline digest" },
+      candidateName: "gaia-produce-ai",
+      baseWorkflow: "gaia-produce",
+      genWorkflow: "gaia-evolve-gen",
+      fitnessName: "accuracy",
+      stopFitness: 1,
+      improveMargin: 0,
+      exploreAfter: 2,
+    };
+    const noopOut: any = await loop.run(
+      loop.input.parse({ ...noopBase, maxGenerations: 3 }),
+      { ...ctxStub, services: { optimizer: noopOpt } },
+    );
+    assert.equal(noopOut.generations[1].noop, true);
+    assert.equal(noopOut.bestGen, 0); // gen 1 did not displace gen 0's v1
+    assert.equal(noopOut.bestVersion, "v1");
+    assert.equal(noopOut.bestFitness, 0.6);
+    // no-op spends the author budget only — never the 2 tasks × cost 2 produce
+    assert.equal(noopOut.totalKnownCost, 3 + 1 + 3);
+    // the briefing must not libel an approach that was never tried
+    assert.ok(noopCalls[2].briefing.includes("NO CANDIDATE PUBLISHED"));
+    assert.ok(!noopCalls[2].briefing.includes("attempt 1 → published"));
+    console.log("✔ eval/evolve-loop: no-op generation records no fitness, spends only the author budget");
+
+    // 7. RE-SCORE guard: the same version graded twice cannot be promoted on
+    //    the luckier sample — the run's best stays pinned to first measurement.
+    const dupOpt = {
+      run: async (_name: string, input: any) => {
+        const g = input.generation as number;
+        return {
+          runId: `genrun-${g}`,
+          status: "success",
+          output: {
+            candidate: input.candidateName,
+            version: "v1", // gen 1 re-runs gen 0's version…
+            summary: `approach ${g}`,
+            authorCost: 1,
+            digest: { fitness: g === 0 ? 0.6 : 0.9, text: `digest ${g}`, results: [{ cost: 2 }] }, // …and gets lucky
+          },
+        };
+      },
+    };
+    const dupOut: any = await loop.run(
+      loop.input.parse({ ...noopBase, maxGenerations: 2 }),
+      { ...ctxStub, services: { optimizer: dupOpt } },
+    );
+    assert.equal(dupOut.bestGen, 0);
+    assert.equal(dupOut.bestFitness, 0.6); // NOT 0.9 — a resample, not a climb
+    assert.equal(dupOut.generations[1].fitness, 0.9); // still reported honestly
+    console.log("✔ eval/evolve-loop: a re-scored version cannot become the best on sampling luck");
+
+    // 8. BUDGET caps stop the loop between generations.
+    const costOpt = {
+      run: async (_name: string, input: any) => ({
+        runId: `genrun-${input.generation}`,
+        status: "success",
+        output: {
+          candidate: input.candidateName,
+          version: `v${input.generation + 1}`,
+          summary: `approach ${input.generation}`,
+          authorCost: 1,
+          digest: { fitness: 0.5, text: "d", results: [{ cost: 2 }] },
+        },
+      }),
+    };
+    const cappedOut: any = await loop.run(
+      loop.input.parse({ ...noopBase, maxGenerations: 10, maxCost: 8 }),
+      { ...ctxStub, services: { optimizer: costOpt } },
+    );
+    // $3/gen (author 1 + produce 2); the gate trips before gen 3, at $9 ≥ $8
+    assert.equal(cappedOut.generations.length, 3);
+    assert.ok(cappedOut.stopReason.includes("maxCost $8 reached"));
+    const uncappedOut: any = await loop.run(
+      loop.input.parse({ ...noopBase, maxGenerations: 10 }),
+      { ...ctxStub, services: { optimizer: costOpt } },
+    );
+    assert.equal(uncappedOut.generations.length, 10); // no cap = unchanged
+    // gaia-evolve wires `{{ input.maxCost || params.maxCost }}`, and an unset
+    // YAML param resolves to null — the schema must read that as "uncapped"
+    // rather than rejecting the whole step.
+    assert.equal(loop.input.parse({ ...noopBase, maxGenerations: 1, maxCost: null, maxMinutes: null }).maxCost, null);
+    console.log("✔ eval/evolve-loop: maxCost stops between generations, absent caps change nothing");
 
     console.log("\nALL GAIA EVOLVE VALIDATION CHECKS PASSED");
   } finally {

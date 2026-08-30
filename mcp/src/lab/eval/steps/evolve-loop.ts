@@ -92,6 +92,30 @@ function usableSummary(v: unknown): string | undefined {
   return t;
 }
 
+/**
+ * A generation only becomes the new best if it BEAT the bar by more than the
+ * noise margin AND it is a version this run has not already scored.
+ *
+ * The second half matters because fitness is resampled: re-running an
+ * already-graded version can land above its own recorded score by produce-
+ * sampling luck alone. The gen workflows' `published` gate stops the common
+ * cause (an author that ships nothing, so the version fallback resolves to
+ * the previous generation's publish), but a *deliberate* republish of
+ * identical YAML under a new version string is indistinguishable from here —
+ * this is the backstop for the case the gate cannot see, and it keeps the
+ * reported best pinned to the run where that version was first measured.
+ */
+function isNewBest(
+  version: string | undefined,
+  fitness: number,
+  best: { fitness: number },
+  margin: number,
+  scored: Map<string, number>,
+): boolean {
+  if (!(fitness > best.fitness + margin)) return false;
+  return version == null || !scored.has(version);
+}
+
 function indent(s: string, pad: string): string {
   return s
     .split("\n")
@@ -114,6 +138,9 @@ interface GenEntry {
   produceCost?: number;
   explore: boolean;
   error?: string;
+  /** The author published nothing — nothing was graded, so there is no
+   *  fitness datapoint here (see the gen workflows' `published` gate). */
+  noop?: boolean;
 }
 
 export function composeBriefing(args: {
@@ -144,6 +171,17 @@ export function composeBriefing(args: {
     for (const g of generations) {
       if (g.error) {
         lines.push(`- attempt ${g.gen}: FAILED to complete (${excerpt(g.error, 200)})`);
+        continue;
+      }
+      // A no-op attempt has no score to compare — saying "mean accuracy 0"
+      // here would read as a catastrophic approach rather than an author
+      // that never shipped, and would push later generations to explore
+      // away from a strategy that was never actually tried.
+      if (g.noop) {
+        lines.push(
+          `- attempt ${g.gen}: NO CANDIDATE PUBLISHED — its author finished without publishing a new ` +
+            `version, so nothing was graded. Do not read this as evidence about any approach.`,
+        );
         continue;
       }
       const delta = Math.round((g.fitness - args.baselineFitness) * 1000) / 1000;
@@ -234,6 +272,23 @@ export default defineStep({
       .record(z.any())
       .optional()
       .describe("param overrides for the generation workflow (e.g. { authorModel, authorMaxSteps }) — applied via paramOverrides keyed by genWorkflow"),
+    // Generation COUNT is a poor budget: each generation costs whatever the
+    // architecture the authors evolved costs, and authors reliably evolve
+    // toward more expensive shapes (redundant attempts, reconcilers, extra
+    // verification passes). A 10-generation run that started at ~1h/gen can
+    // finish at ~2.5h/gen. These caps bound the run in the units a human
+    // actually budgets in. Both are checked BETWEEN generations, so the cap
+    // is a floor on when the loop stops, never a mid-generation kill.
+    maxCost: z
+      .number()
+      .positive()
+      .nullish()
+      .describe("stop before starting a generation once totalKnownCost (author + produce) reaches this many dollars — omit for no cost cap"),
+    maxMinutes: z
+      .number()
+      .positive()
+      .nullish()
+      .describe("stop before starting a generation once this many minutes of wall-clock have elapsed in the loop — omit for no time cap"),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -250,6 +305,10 @@ export default defineStep({
         : excerpt(JSON.stringify(baseline), 800);
 
     let best = { gen: -1, version: undefined as string | undefined, fitness: baselineFitness, digestText: baselineText };
+    // version → the fitness it was FIRST measured at, so a later re-score of
+    // the same version cannot be promoted as an improvement (see isNewBest).
+    const scored = new Map<string, number>();
+    const loopStart = Date.now();
     let sinceImprove = 0;
     let consecutiveFailures = 0;
     let totalKnownCost = 0;
@@ -273,12 +332,26 @@ export default defineStep({
       // code-step opt-in): pause parks here; cancel stops the loop here.
       await ctx.control?.checkpoint();
 
+      // Budget gates, checked before spending the next generation. Deliberately
+      // NOT applied on the journal-replay path below: a resumed run must reach
+      // the same state it left, and replay spends nothing.
+      const elapsedMin = (Date.now() - loopStart) / 60000;
+      if (cfg.maxCost != null && totalKnownCost >= cfg.maxCost) {
+        stopReason = `maxCost $${cfg.maxCost} reached (spent $${Math.round(totalKnownCost * 100) / 100}) after ${gen} generation(s)`;
+        break;
+      }
+      if (cfg.maxMinutes != null && elapsedMin >= cfg.maxMinutes) {
+        stopReason = `maxMinutes ${cfg.maxMinutes} reached (elapsed ${Math.round(elapsedMin)}m) after ${gen} generation(s)`;
+        break;
+      }
+
       // Durable resume (§5, iterative code steps): a generation whose
       // synthetic `#gen` step.end is journaled replays — its run is NOT
       // re-launched. State (best / sinceImprove / stop logic) is rebuilt
       // from the journaled output so the loop continues where it left off.
       const journaled = ctx.journal?.[`${ctx.path}#${gen}`] as AnyRec | undefined;
       if (journaled) {
+        const noop = journaled["noop"] === true;
         const fitness = num(journaled["fitness"]) ?? num(journaled["passRate"]) ?? 0;
         const entry: GenEntry = {
           gen,
@@ -288,18 +361,20 @@ export default defineStep({
           summary: usableSummary(journaled["summary"]) ?? NO_SUMMARY,
           digestText: typeof journaled["digestText"] === "string" ? (journaled["digestText"] as string) : undefined,
           explore: journaled["directive"] === "explore",
+          ...(noop ? { noop: true } : {}),
         };
         generations.push(entry);
         consecutiveFailures = 0;
         totalKnownCost += num(journaled["knownCost"]) ?? 0;
-        if (fitness > best.fitness + cfg.improveMargin) {
+        if (!noop && isNewBest(entry.version, fitness, best, cfg.improveMargin, scored)) {
           best = { gen, version: entry.version, fitness, digestText: entry.digestText ?? "" };
           sinceImprove = 0;
         } else {
           sinceImprove++;
         }
+        if (!noop && entry.version && !scored.has(entry.version)) scored.set(entry.version, fitness);
         await emitGen(gen, { type: "step.replayed", output: journaled });
-        if (fitness >= cfg.stopFitness) {
+        if (!noop && fitness >= cfg.stopFitness) {
           stopReason = `stopFitness ${cfg.stopFitness} reached`;
           break;
         }
@@ -356,6 +431,43 @@ export default defineStep({
       consecutiveFailures = 0;
 
       const out = (run.output ?? {}) as AnyRec;
+
+      // NO-OP generation: the gen workflow's `published` gate found that this
+      // generation's author shipped no new version, so it skipped grading
+      // rather than re-running an already-scored version over the whole task
+      // set. Record the wasted author budget, leave `best` alone, and let the
+      // non-improvement push the directive toward explore — but never write a
+      // fitness of 0, which would libel an approach that was never tried.
+      if (out["noop"] === true) {
+        const authorOnly = num(out["authorCost"]) ?? 0;
+        totalKnownCost += authorOnly;
+        generations.push({
+          gen,
+          genRunId: run.runId,
+          fitness: 0,
+          noop: true,
+          explore,
+          authorCost: authorOnly,
+          summary: usableSummary(out["summary"]) ?? NO_SUMMARY,
+        });
+        sinceImprove++;
+        await emitGen(gen, {
+          type: "step.end",
+          durationMs: Date.now() - genStart,
+          output: {
+            gen,
+            directive: explore ? "explore" : "exploit",
+            noop: true,
+            note: "author published no new candidate version — grading skipped, no fitness recorded",
+            bestFitness: best.fitness,
+            bestGen: best.gen,
+            knownCost: Math.round(authorOnly * 10000) / 10000,
+            runs: [{ label: `generation ${gen} (no-op)`, workflow: cfg.genWorkflow, runId: run.runId }],
+          },
+        });
+        continue;
+      }
+
       const digest = (out["digest"] ?? {}) as AnyRec;
       const fitness = num(digest["fitness"]) ?? num(digest["meanPassRate"]) ?? 0;
       const digestResults = Array.isArray(digest["results"]) ? (digest["results"] as AnyRec[]) : [];
@@ -379,12 +491,14 @@ export default defineStep({
       };
       generations.push(entry);
 
-      if (fitness > best.fitness + cfg.improveMargin) {
+      const rescored = entry.version != null && scored.has(entry.version);
+      if (isNewBest(entry.version, fitness, best, cfg.improveMargin, scored)) {
         best = { gen, version: entry.version, fitness, digestText: entry.digestText ?? "" };
         sinceImprove = 0;
       } else {
         sinceImprove++;
       }
+      if (entry.version && !rescored) scored.set(entry.version, fitness);
 
       await emitGen(gen, {
         type: "step.end",
@@ -396,6 +510,9 @@ export default defineStep({
           fitness,
           bestFitness: best.fitness,
           bestGen: best.gen,
+          // A version this run already scored — its fitness here is a
+          // resample, not a hill-climb step, and cannot become the best.
+          ...(rescored ? { rescoredVersion: true } : {}),
           knownCost: Math.round((authorCost + produceCost) * 10000) / 10000,
           runs: [{ label: `generation ${gen}`, workflow: cfg.genWorkflow, runId: run.runId }],
           // Carried so a durable resume can rebuild later generations'
