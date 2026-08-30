@@ -90,8 +90,9 @@ ui: ui-install ui-build
 
 # ─── tygo (Go -> TS struct codegen) ───────────────────────────────────
 #
-# Install once per dev machine:
-#   go install github.com/gzuidhof/tygo@latest
+# Install once per dev machine (CI pins the same version in
+# .github/workflows/gateway-check.yml — bump both together):
+#   go install github.com/gzuidhof/tygo@v0.2.21
 
 tygo:
 	tygo generate

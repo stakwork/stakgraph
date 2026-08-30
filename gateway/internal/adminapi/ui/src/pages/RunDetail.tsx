@@ -12,16 +12,15 @@ import { DataTable } from "../components/tables/DataTable";
 import { BotIcon, UserIcon } from "../components/icons";
 import { getErrorMessage } from "../api/client";
 import { useRunCall, useRunDetail, useTrustOrg, useTrustStatus } from "../api/queries";
+import type { CallDetailResponse, RunLogEntry } from "../api/types";
 import type {
   CacheDebug,
-  CallDetailResponse,
   ChatContentBlock,
   ChatMessage,
   ChatToolCall,
-  RunLogEntry,
   TokenUsage,
   TrustOrg,
-} from "../api/types";
+} from "../api/manual";
 
 interface Props {
   runID: string;

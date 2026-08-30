@@ -104,8 +104,9 @@ type evalRunRequest struct {
 	Agent string `json:"agent,omitempty"`
 }
 
-// evalRefResponse is the create/link acknowledgement.
-type evalRefResponse struct {
+// EvalRefResponse is the create/link acknowledgement. Exported so
+// tygo emits the TS binding the SPA's eval mutations decode.
+type EvalRefResponse struct {
 	RefID  string `json:"ref_id"`
 	Linked bool   `json:"linked,omitempty"`
 }
@@ -234,7 +235,7 @@ func (h *evalHandlers) createOrLinkForAgent(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadGateway, "catalog_write_failed", "neo4j write failed")
 			return
 		}
-		writeJSON(w, http.StatusOK, evalRefResponse{RefID: req.SetID, Linked: true})
+		writeJSON(w, http.StatusOK, EvalRefResponse{RefID: req.SetID, Linked: true})
 		return
 	}
 
@@ -243,7 +244,7 @@ func (h *evalHandlers) createOrLinkForAgent(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "missing_field", "name (or set_id) is required")
 		return
 	}
-	var created evalRefResponse
+	var created EvalRefResponse
 	if err := h.hive.call(ctx, http.MethodPost, "/api/gateway/evals",
 		map[string]any{"name": req.Name, "description": req.Description}, &created); err != nil {
 		relayHiveError(w, err)
@@ -262,7 +263,7 @@ func (h *evalHandlers) createOrLinkForAgent(w http.ResponseWriter, r *http.Reque
 			"set created but linking to agent failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, evalRefResponse{RefID: created.RefID})
+	writeJSON(w, http.StatusOK, EvalRefResponse{RefID: created.RefID})
 }
 
 // linkEdge MERGEs HiveAgent-[:HAS_EVAL_SET]->EvalSet and clears any
@@ -457,7 +458,7 @@ func (h *evalHandlers) createSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing_field", "name is required")
 		return
 	}
-	var created evalRefResponse
+	var created EvalRefResponse
 	if err := h.hive.call(r.Context(), http.MethodPost, "/api/gateway/evals",
 		map[string]any{"name": req.Name, "description": req.Description}, &created); err != nil {
 		relayHiveError(w, err)
@@ -513,7 +514,7 @@ func (h *evalHandlers) createRequirement(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "missing_field", "name is required")
 		return
 	}
-	var created evalRefResponse
+	var created EvalRefResponse
 	if err := h.hive.call(r.Context(), http.MethodPost,
 		"/api/gateway/evals/"+urlSeg(setID)+"/requirements", req, &created); err != nil {
 		relayHiveError(w, err)

@@ -1,0 +1,71 @@
+name: Gateway Checks
+
+# Guards the gateway's Go -> TypeScript codegen contract:
+#   - tygo-check regenerates ui/src/api/types.ts from the Go structs
+#     in gateway/internal/adminapi and fails on any diff, so a Go
+#     struct change can't land without its committed TS counterpart
+#     (drift would silently break the dashboard's typed fetch layer).
+#   - ui-build type-checks (tsc -b) and bundles the SPA, catching
+#     imports that the regenerated types.ts no longer satisfies.
+
+on:
+  pull_request:
+    paths:
+      - "gateway/**"
+      - ".github/workflows/gateway-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "gateway/**"
+      - ".github/workflows/gateway-check.yml"
+
+jobs:
+  tygo-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+
+      # Pinned so the generated output is byte-stable — a tygo release
+      # changing its formatting would otherwise fail every PR. Bump in
+      # lockstep with the version noted in gateway/Makefile.
+      - name: Install tygo
+        run: go install github.com/gzuidhof/tygo@v0.2.21
+
+      - name: Check generated TS types are up to date
+        run: make tygo-check
+
+  ui-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          # package-lock.json is git-ignored for this SPA, so key the
+          # npm cache on package.json instead.
+          cache-dependency-path: gateway/internal/adminapi/ui/package.json
+
+      - name: Install SPA dependencies
+        run: make ui-install
+
+      - name: Type-check and build SPA
+        run: make ui-build

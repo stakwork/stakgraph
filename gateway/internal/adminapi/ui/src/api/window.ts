@@ -2,7 +2,7 @@
 // because the backend's parseWindow is the authority on this set; if
 // it grows a new option, this mapping needs to grow with it.
 
-import type { Window } from "./types";
+import type { Window } from "./manual";
 
 export function windowToSeconds(w: Window): number {
   switch (w) {

@@ -25,13 +25,15 @@ import type {
   SpendByAgentResponse,
   SpendByAgentUserResponse,
   SpendByUserResponse,
-  TrustOrg,
-  TrustStatus,
   UserDetailResponse,
-  Window,
+} from "./types";
+import type {
   Bucket,
   Dimension,
-} from "./types";
+  TrustOrg,
+  TrustStatus,
+  Window,
+} from "./manual";
 
 // ─── /me ─────────────────────────────────────────────────────────────
 // Fires once at boot, plus on tab refocus (Tanstack default). Cheap
