@@ -413,6 +413,57 @@ over `ctx.services.harvey.*`; editing them can only break plumbing.
   tree / rev pin / missing dir), rubric stripping, artifact staging, CLI
   args, step wiring.
 
+**The DELIVER pipeline (`harvey-deliver`) — the production-style port, NOT
+part of the benchmark harness.** A lab-shaped recreation of the stakwork
+Harvey LAB workflow (normalize → register namespace → EvalSet/requirements →
+per-doc graph ingestion → checklist/fact base/case law/tailor → drafters ×N →
+4 parallel verifiers → aggregator → per-criterion LLM judge → dispute →
+persist eval chain → webhook → recursion gate). STANDALONE: the rubric
+(`[{ id, title, match_criteria, deliverables }]`) is a RUN INPUT and the
+pipeline self-scores against it — so it must NEVER be wired as a harvey-run
+produce candidate (candidates may not see a rubric). Documents come from the
+local harvey-labs checkout via `harvey/get-task`; the graph namespace AND
+EvalSet id are the slugified task id, so reruns reuse the namespace, skip
+completed ingestions, and skip re-merging requirements.
+
+- Workflows: `harvey-deliver` (orchestrator) → subflows `harvey-ingest-doc`
+  (per document; Document node keyed on `source_link`, dedupe via a
+  `status: "ingested"` COMPLETION MARKER written only after a successful
+  agent run — a partially-failed ingestion is retried, not skipped),
+  `harvey-knowledge` (checklist writer → cross-check fact base [GRAPH-ONLY
+  reads — no bash, deliberately blind to source docs] → case-law research →
+  tailor+freeze), `harvey-draft` (drafter foreach → 4 explicit fall-soft
+  verifier agents → aggregator into `./output/`), `harvey-score` (validate
+  exact deliverable names [hard gate] → filter contested [fails open] →
+  judge foreach → aggregate → dispute foreach [annotates, never flips] →
+  merge [fail-soft] → batch-triplet eval chain
+  EvalSet→EvalTrigger→EvalTriggerOutput→CriterionResult per the jarvis
+  schema_library ontology → contested write-back → webhook → all-pass ⇒
+  `EvalSet.recursion=false`), and `harvey-judge-criterion` /
+  `harvey-dispute-criterion` (per-criterion agent-in-schema-mode subflows —
+  they exist because foreach bodies get no onError; a judge crash scores as
+  an honest FAIL via `harvey/aggregate-scores`' zip, never a pass).
+- Steps: `harvey/normalize-documents`, `harvey/ingest-state`,
+  `harvey/drafter-plan`, `harvey/validate-deliverables`,
+  `harvey/filter-contested`, `harvey/aggregate-scores`,
+  `harvey/merge-disputes`, `harvey/build-eval-chain` (pure/plumbing), plus
+  `harvey/graph-sub-agent` — the PINNED read-only graph research sub-agent
+  (wraps the core `agent` step via ctx.registry with fixed system frame +
+  read-only jarvis grants; parents supply only the question, so a role agent
+  can never widen the child's tools) — and `jarvis/register-namespace`.
+- Prompts are the experiment surface: every workflow's `params` block has a
+  `── PASTE-IN SURFACE ──` marker naming the production prompt it stands in
+  for (HARVEY_DOCUMENT_INGESTION_PROMPT, HARVEY_CROSS_CHECK_PROMPT,
+  HARVEY_DRAFT_PROMPT, HARVEY_VERIFY_*/AGGREGATOR, dispute, …); the interim
+  defaults are functional stand-ins. Override per run with `paramOverrides`
+  keyed by workflow name.
+- Judge verdict identity is ORDER-BASED (foreach preserves input order; the
+  aggregate zips rubric×results and refuses on length mismatch) — the judge
+  LLM never echoes criterion ids.
+- Needs `JARVIS_URL` + `API_TOKEN` + `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY`
+  (+ pandoc, python3). Smoke (offline, no LLM/graph):
+  `npx tsx src/lab/harvey/deliver-smoke.ts`.
+
 ### `gaia/` — GAIA benchmark scoring (the hardcoded grader)
 
 Scores answers with the **actual** GAIA leaderboard scorer (`scorer.py`,

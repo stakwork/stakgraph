@@ -1,0 +1,256 @@
+name: harvey-score
+# Phases 5–7 of harvey-deliver: validate → filter contested → judge → score →
+# dispute → persist the eval chain → webhook → recursion gate.
+#
+#   validate      — HARD gate: every rubric/canonical deliverable exists in
+#                   outputDir under its exact name (misnamed = fail the run)
+#   reqs/reqdetails — read the EvalSet's EvalRequirement nodes (for the
+#                   durable `contested` exclusions and dispute write-backs)
+#   scorable      — drop contested criteria (FAILS OPEN — never blocks scoring)
+#   judged        — foreach criterion (parallel) → harvey-judge-criterion
+#   scores        — zip verdicts into scores_json (null verdict = honest fail)
+#   disputes      — foreach FAILED criterion → harvey-dispute-criterion
+#                   (annotates; never flips verdicts)
+#   merged        — left-join annotations (fail-soft)
+#   chain/record  — persist EvalSet→EvalTrigger→EvalTriggerOutput→
+#                   CriterionResult (+EvalRequirement links) via one batch
+#                   triplet write (fall-soft: a graph outage never loses the
+#                   run output)
+#   contested_wb  — write contested=true back onto EvalRequirement nodes
+#   webhook       — POST the final JSON when input.webhookUrl is set
+#   norec         — all-pass ⇒ EvalSet.recursion = false
+#
+# Input:  { outputDir, rubric, deliverables, evalset_ref, evalset_id,
+#           namespace, task_description, task, webhookUrl? }
+# Output: the final scores JSON (+ persistence/webhook status fields).
+steps:
+  - id: validate
+    type: harvey/validate-deliverables
+    config:
+      outputDir: "{{ input.outputDir }}"
+      deliverables: "{{ input.deliverables }}"
+      rubric: "{{ input.rubric }}"
+
+  - id: reqs
+    type: jarvis/graph-neighbors
+    depends: validate
+    config:
+      ref_id: "{{ input.evalset_ref }}"
+      edge_type: [HAS_REQUIREMENT]
+      namespace: "{{ input.namespace }}"
+
+  - id: reqdetails
+    type: jarvis/graph-get-batched
+    depends: reqs
+    # reqs returns an error STRING on HTTP trouble → the .map below throws →
+    # onError keeps scoring alive (filter-contested fails open on the pack).
+    options:
+      onError:
+        id: reqdetails_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.message }}"
+    config:
+      ref_ids: "{{ reqs.map(n => n.ref_id) }}"
+      namespace: "{{ input.namespace }}"
+
+  - id: scorable
+    type: harvey/filter-contested
+    depends: reqdetails
+    config:
+      rubric: "{{ input.rubric }}"
+      requirements: "{{ reqdetails }}"
+      evalsetId: "{{ input.evalset_id }}"
+
+  - id: judged
+    type: foreach
+    depends: scorable
+    config:
+      items: "{{ scorable.rubric }}"
+      concurrency: "{{ params.judgeConcurrency }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: harvey-judge-criterion
+          input:
+            criterion: "{{ $current }}"
+            outputDir: "{{ input.outputDir }}"
+            taskDescription: "{{ input.task_description }}"
+
+  - id: scores
+    type: harvey/aggregate-scores
+    depends: judged
+    config:
+      rubric: "{{ scorable.rubric }}"
+      results: "{{ judged }}"
+      judge_model: "{{ params.judgeModel }}"
+      dropped: "{{ scorable.dropped }}"
+
+  - id: have_failures
+    type: if
+    depends: scores
+    config:
+      cond: "{{ scores.n_passed < scores.n_total }}"
+
+  - id: disputes
+    type: foreach
+    depends: have_failures
+    when: true
+    config:
+      items: "{{ scores.failed }}"
+      concurrency: "{{ params.disputeConcurrency }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: harvey-dispute-criterion
+          input:
+            criterion: "{{ $current }}"
+            outputDir: "{{ input.outputDir }}"
+            taskDescription: "{{ input.task_description }}"
+
+  # Joins the dispute branch: gate + scores always run, so an all-pass run
+  # (disputes skipped → undefined) merges nothing and passes verdicts through.
+  - id: merged
+    type: harvey/merge-disputes
+    depends: [disputes, have_failures, scores]
+    config:
+      criteria_results: "{{ scores.criteria_results }}"
+      failed: "{{ scores.failed }}"
+      disputes: "{{ disputes }}"
+      requirements: "{{ reqdetails }}"
+      evalsetId: "{{ input.evalset_id }}"
+
+  - id: chain
+    type: harvey/build-eval-chain
+    depends: merged
+    config:
+      evalsetId: "{{ input.evalset_id }}"
+      task: "{{ input.task }}"
+      scores: "{{ scores }}"
+      criteria_results: "{{ merged.criteria_results }}"
+      judge_model: "{{ params.judgeModel }}"
+      workflow: harvey-deliver
+
+  - id: record
+    type: jarvis/create-batch-triplet
+    depends: chain
+    options:
+      onError:
+        id: record_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.message }}"
+    config:
+      triplets: "{{ chain.triplets }}"
+      namespace: "{{ input.namespace }}"
+
+  # Durable write-back: contested criterion definitions get contested=true on
+  # their EvalRequirement nodes, excluding them from FUTURE runs' scoring.
+  # jarvis/edit-node reports failures as strings (doesn't throw), so a graph
+  # hiccup here can't kill the run.
+  - id: contested_writeback
+    type: foreach
+    depends: merged
+    config:
+      items: "{{ merged.contested_requirements }}"
+      body:
+        id: mark_contested
+        type: jarvis/edit-node
+        config:
+          ref_id: "{{ $current.ref_id }}"
+          namespace: "{{ input.namespace }}"
+          node_data:
+            contested: true
+
+  # The final JSON (build_webhook_body equivalent) — also this workflow's
+  # output via the trailing `result` echo.
+  - id: body
+    type: harvey/pack-result
+    depends: [merged, chain, record]
+    config:
+      task: "{{ input.task }}"
+      evalset_id: "{{ input.evalset_id }}"
+      score: "{{ scores.score }}"
+      max_score: "{{ scores.max_score }}"
+      all_pass: "{{ scores.all_pass }}"
+      n_passed: "{{ scores.n_passed }}"
+      n_total: "{{ scores.n_total }}"
+      pass_rate: "{{ scores.pass_rate }}"
+      judge_model: "{{ params.judgeModel }}"
+      criteria_results: "{{ merged.criteria_results }}"
+      dropped: "{{ scores.dropped }}"
+      flagged_count: "{{ merged.flagged_count }}"
+      contested_count: "{{ merged.contested_count }}"
+      files: "{{ validate.files }}"
+      trigger_id: "{{ chain.trigger_id }}"
+      output_id: "{{ chain.output_id }}"
+      recordError: "{{ record.error }}"
+      judgeCost: "{{ scores.judgeCost }}"
+
+  - id: have_webhook
+    type: if
+    depends: body
+    config:
+      cond: "{{ input.webhookUrl }}"
+
+  - id: post
+    type: http
+    depends: have_webhook
+    when: true
+    options:
+      onError:
+        id: post_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.message }}"
+    config:
+      url: "{{ input.webhookUrl }}"
+      method: POST
+      body: "{{ body }}"
+
+  - id: all_pass
+    type: if
+    depends: scores
+    config:
+      cond: "{{ scores.all_pass }}"
+
+  # Every criterion passed ⇒ the EvalSet needs no further recursive attempts.
+  - id: norec
+    type: jarvis/edit-node
+    depends: all_pass
+    when: true
+    config:
+      ref_id: "{{ input.evalset_ref }}"
+      namespace: "{{ input.namespace }}"
+      node_data:
+        recursion: false
+
+  - id: result
+    type: harvey/pack-result
+    depends: [body, post, have_webhook, all_pass, norec, contested_writeback]
+    config:
+      task: "{{ input.task }}"
+      evalset_id: "{{ input.evalset_id }}"
+      score: "{{ scores.score }}"
+      max_score: "{{ scores.max_score }}"
+      all_pass: "{{ scores.all_pass }}"
+      n_passed: "{{ scores.n_passed }}"
+      n_total: "{{ scores.n_total }}"
+      pass_rate: "{{ scores.pass_rate }}"
+      judge_model: "{{ params.judgeModel }}"
+      criteria_results: "{{ merged.criteria_results }}"
+      dropped: "{{ scores.dropped }}"
+      flagged_count: "{{ merged.flagged_count }}"
+      contested_count: "{{ merged.contested_count }}"
+      trigger_id: "{{ chain.trigger_id }}"
+      output_id: "{{ chain.output_id }}"
+      recordError: "{{ record.error }}"
+      webhookError: "{{ post.error }}"
+      judgeCost: "{{ scores.judgeCost }}"
+
+params:
+  judgeModel: claude-sonnet-5
+  judgeConcurrency: 6
+  disputeConcurrency: 3

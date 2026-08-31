@@ -1,0 +1,265 @@
+name: harvey-draft
+# Phase 3+4 of harvey-deliver: plan → parallel drafters → 4 parallel
+# verifiers → aggregator.
+#
+#   plan            — harvey/drafter-plan: draft_k/ dirs, critique filenames,
+#                     canonical ./output/ names (derive_basename +
+#                     build_drafter_plan equivalent)
+#   drafts          — foreach over the plan (concurrency = drafter count):
+#                     each drafter writes a COMPLETE deliverable set under
+#                     its own draft_k/. No onError: drafting is the essential
+#                     path (and foreach bodies get no onError of their own).
+#   verify_*        — four EXPLICIT parallel agent steps (completeness,
+#                     correctness, arithmetic, doctrine), each fall-soft
+#                     (skip_on_error: a lost critique degrades aggregation,
+#                     never kills the run), each writing
+#                     critiques/critique-<name>.md
+#   aggregate       — merges drafts + critiques into the FINAL canonical
+#                     files in ./output/ (the only graded directory)
+#
+# Input:  { workdir?, namespace, instructions, deliverables }
+# Output: { outputDir, deliverables, per-agent cost/error fields }
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: "{{ input.workdir }}"
+
+  - id: plan
+    type: harvey/drafter-plan
+    config:
+      deliverables: "{{ input.deliverables }}"
+      drafters: "{{ params.drafters }}"
+      verifiers: ["completeness", "correctness", "arithmetic", "doctrine"]
+
+  - id: drafts
+    type: foreach
+    depends: [dir, plan]
+    config:
+      items: "{{ plan.drafts }}"
+      concurrency: "{{ params.drafters }}"
+      body:
+        id: draft
+        type: agent
+        config:
+          cwd: "{{ dir.path }}"
+          system: "{{ params.drafterSystem }}"
+          prompt: |
+            {{ params.drafterPrompt }}
+
+            Task instructions:
+            ---
+            {{ input.instructions }}
+            ---
+            Frozen inputs in your working directory: ./checklist.md (follow
+            it VERBATIM — every item), ./facts.md, ./spreadsheet.md,
+            ./case-law-research.md (those that exist).
+            Task graph namespace: {{ input.namespace }}
+
+            Write your COMPLETE deliverable set into ./{{ $current.dir }}/ —
+            exact filenames: {{ $current.files }}
+            (markdown working drafts alongside are fine; the .docx files are
+            what count: `pandoc <draft>.md -o {{ $current.dir }}/<name>.docx`)
+          model: "{{ params.reasoningModel }}"
+          maxSteps: "{{ params.drafterMaxSteps }}"
+          toolFilter: ["bash", "str_replace_based_edit_tool"]
+          agentTools:
+            - jarvis/graph-search
+            - jarvis/graph-get
+            - jarvis/graph-get-batched
+            - jarvis/graph-neighbors
+            - harvey/graph-sub-agent
+          finalAnswer: >
+            Confirm every deliverable file exists in your draft dir (ls it),
+            and summarize the positions taken.
+
+  - id: verify_completeness
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_completeness_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.verifierSystem }}"
+      prompt: |
+        {{ params.verifyCompletenessPrompt }}
+
+        Drafts to critique: every ./draft_*/ directory. The frozen checklist
+        is ./checklist.md; the fact base is ./facts.md.
+        Write your critique to ./critiques/critique-completeness.md.
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      finalAnswer: "Confirm the critique file was written; list the material findings."
+
+  - id: verify_correctness
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_correctness_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.verifierSystem }}"
+      prompt: |
+        {{ params.verifyCorrectnessPrompt }}
+
+        Drafts to critique: every ./draft_*/ directory. The fact base is
+        ./facts.md; the graph is the source of record.
+        Write your critique to ./critiques/critique-correctness.md.
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+      finalAnswer: "Confirm the critique file was written; list the material findings."
+
+  - id: verify_arithmetic
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_arithmetic_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.verifierSystem }}"
+      prompt: |
+        {{ params.verifyArithmeticPrompt }}
+
+        Drafts to critique: every ./draft_*/ directory. Recompute every
+        figure from ./spreadsheet.md and the graph's ComputedFigure /
+        FormulaComponent nodes (namespace {{ input.namespace }}).
+        Write your critique to ./critiques/critique-arithmetic.md.
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+      finalAnswer: "Confirm the critique file was written; list every numeric discrepancy."
+
+  - id: verify_doctrine
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_doctrine_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.verifierSystem }}"
+      prompt: |
+        {{ params.verifyDoctrinePrompt }}
+
+        Drafts to critique: every ./draft_*/ directory. Authorities are in
+        ./case-law-research.md (when research ran).
+        Write your critique to ./critiques/critique-doctrine.md.
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      finalAnswer: "Confirm the critique file was written; list the material findings."
+
+  - id: aggregate
+    type: agent
+    depends: [drafts, verify_completeness, verify_correctness, verify_arithmetic, verify_doctrine]
+    options:
+      retry: { max: 1, delayMs: 15000 }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.aggregatorSystem }}"
+      prompt: |
+        {{ params.aggregatorPrompt }}
+
+        Inputs: the drafts (./draft_*/), the critiques (./critiques/ — some
+        may be missing if a verifier failed), the frozen ./checklist.md and
+        ./facts.md.
+
+        Produce the FINAL deliverables in ./output/ with EXACTLY these
+        filenames: {{ plan.canonical }}
+        (draft final markdown, then `pandoc <final>.md -o output/<name>.docx`;
+        verify with `ls -la output/` and a pandoc round-trip of each file).
+        Only ./output/ is graded — missing or misnamed files score zero.
+      model: "{{ params.reasoningModel }}"
+      maxSteps: "{{ params.aggregatorMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      finalAnswer: >
+        Confirm every canonical file exists in ./output/ (ls output), and
+        summarize which critique findings you incorporated vs rejected (and
+        why).
+
+  - id: result
+    type: harvey/pack-result
+    depends: aggregate
+    config:
+      outputDir: "{{ dir.path }}/output"
+      deliverables: "{{ plan.canonical }}"
+      aggregateCost: "{{ aggregate.cost }}"
+      completenessError: "{{ verify_completeness.error }}"
+      correctnessError: "{{ verify_correctness.error }}"
+      arithmeticError: "{{ verify_arithmetic.error }}"
+      doctrineError: "{{ verify_doctrine.error }}"
+
+params:
+  standardModel: claude-sonnet-5
+  reasoningModel: claude-opus-5
+  drafters: 1
+  drafterMaxSteps: 200
+  verifierMaxSteps: 80
+  aggregatorMaxSteps: 150
+  # ── PASTE-IN SURFACE ─────────────────────────────────────────────────────
+  # drafterSystem/…Prompt        ⇐ HARVEY_DRAFT_PROMPT
+  # verifierSystem + verify*     ⇐ HARVEY_VERIFY_{COMPLETENESS,CORRECTNESS,
+  #                                ARITHMETIC,DOCTRINE}_PROMPT
+  # aggregatorSystem/…Prompt     ⇐ HARVEY_AGGREGATOR_PROMPT
+  # Interim defaults below are functional stand-ins, not the production text.
+  drafterSystem: |
+    You are a senior lawyer producing REAL work product for a demanding
+    client. Facts come ONLY from the frozen fact base, the checklist, and
+    the task graph — never invented. Follow ./checklist.md item by item;
+    cite exact clauses/sections; show precise replacement language where the
+    task calls for markup. All writes are relative paths inside your working
+    directory.
+  drafterPrompt: |
+    Draft the complete deliverable set for this task.
+  verifierSystem: |
+    You are an adversarial reviewer of legal drafts. You critique — you
+    NEVER edit the drafts. Every finding must name the draft file, the
+    location, the problem, and the fix, ordered by severity. An empty
+    critique means you affirmatively verified there is nothing to find.
+  verifyCompletenessPrompt: |
+    COMPLETENESS pass: check every ./checklist.md item and every task
+    requirement is addressed in each draft; flag anything missing, and any
+    required deliverable file that is absent or underdeveloped.
+  verifyCorrectnessPrompt: |
+    CORRECTNESS pass: verify every factual assertion in the drafts against
+    ./facts.md and the graph — parties, dates, terms, quotes, section
+    references. Flag every mismatch with the authoritative value.
+  verifyArithmeticPrompt: |
+    ARITHMETIC pass: recompute every figure in the drafts (totals,
+    percentages, rate × base derivations) from the fact base's components.
+    Flag every discrepancy with your computation shown.
+  verifyDoctrinePrompt: |
+    DOCTRINE pass: check the legal standards, doctrines, and authorities the
+    drafts rely on — misapplied standards, missing controlling authority,
+    jurisdiction mismatches, and positions the research does not support.
+  aggregatorSystem: |
+    You are the aggregating senior partner. Merge the strongest parts of the
+    drafts, apply every critique finding you judge valid (state why when you
+    reject one), and produce the definitive final deliverables. You are the
+    last quality gate before delivery.
+  aggregatorPrompt: |
+    Produce the final deliverables now.

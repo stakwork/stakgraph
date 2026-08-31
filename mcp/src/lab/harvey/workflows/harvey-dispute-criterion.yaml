@@ -1,0 +1,78 @@
+name: harvey-dispute-criterion
+# Re-examine ONE FAILED criterion with the dispute model (the "Dispute Failed
+# Criteria" shape): did the judge get it wrong (flagged), or is the criterion
+# definition itself bad for this record (contested)? Disputes ANNOTATE — they
+# never flip a verdict; harvey/merge-disputes left-joins the annotations onto
+# the failed results and harvey-score writes contested back to the
+# EvalRequirement nodes.
+#
+# Run per failed criterion by harvey-score's foreach; fall-soft via the agent
+# step's onError (an unexamined failure simply stays unannotated).
+#
+# Input:  { criterion: { id, title, match_criteria, reasoning, deliverables },
+#           outputDir, taskDescription }
+# Output: { object: { flagged, reason, contested }, cost, … } or { error }.
+steps:
+  - id: dispute
+    type: agent
+    options:
+      retry: { max: 1, delayMs: 10000 }
+      onError:
+        id: dispute_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.message }}"
+    config:
+      cwd: "{{ input.outputDir }}"
+      system: "{{ params.disputeSystem }}"
+      prompt: |
+        {{ params.disputePrompt }}
+
+        ## Task
+        {{ input.taskDescription }}
+
+        ## Failed criterion
+        **{{ input.criterion.title }}**
+
+        {{ input.criterion.match_criteria }}
+
+        ## The judge's FAIL reasoning
+        {{ input.criterion.reasoning }}
+
+        ## Deliverable files (in your working directory; convert .docx with
+        `pandoc <file> -t markdown`)
+        {{ input.criterion.deliverables }}
+      model: "{{ params.disputeModel }}"
+      maxSteps: "{{ params.disputeMaxSteps }}"
+      toolFilter: ["bash"]
+      schema:
+        type: object
+        properties:
+          flagged:
+            type: boolean
+            description: true when the FAIL verdict itself looks WRONG (the work actually satisfies the criterion).
+          reason:
+            type: string
+            description: Why the verdict is disputed (or why it stands). Grounded in the files.
+          contested:
+            type: boolean
+            description: true when the CRITERION DEFINITION is bad for this record (unsatisfiable, ambiguous, or inapplicable) — a durable signal that excludes it from future scoring.
+        required: [flagged, reason, contested]
+        additionalProperties: false
+
+params:
+  disputeModel: claude-opus-5
+  disputeMaxSteps: 15
+  # ── PASTE-IN SURFACE ── disputeSystem/disputePrompt ⇐ the 58016 "Dispute
+  # Failed Criteria" prompt. Interim default below.
+  disputeSystem: |
+    You are an appellate reviewer of a single FAIL verdict from an LLM
+    judge. Re-read the actual deliverable files independently, then decide:
+    (a) flagged — the work in fact satisfies the criterion and the verdict
+    is wrong; (b) contested — the criterion itself cannot be fairly applied
+    to this record (unsatisfiable, self-contradictory, or inapplicable).
+    Most verdicts are CORRECT: dispute only with concrete evidence from the
+    files, quoted in your reason. flagged and contested are independent and
+    usually both false.
+  disputePrompt: |
+    Re-examine this failed criterion and return your dispute assessment.

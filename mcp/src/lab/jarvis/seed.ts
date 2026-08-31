@@ -29,6 +29,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "graph-get-batched.ts", type: "jarvis/graph-get-batched" },
   { file: "graph-neighbors.ts", type: "jarvis/graph-neighbors" },
   // writes
+  { file: "register-namespace.ts", type: "jarvis/register-namespace" },
   { file: "create-node.ts", type: "jarvis/create-node" },
   { file: "edit-node.ts", type: "jarvis/edit-node" },
   { file: "create-triplet.ts", type: "jarvis/create-triplet" },
