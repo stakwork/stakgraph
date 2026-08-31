@@ -39,6 +39,7 @@ async function main() {
     const wanted = [
       "gaia/list-tasks", "gaia/get-task", "gaia/evaluate", "gaia/pack-result",
       "gaia/summarize-batch", "gaia/digest-results", "eval/evolve-loop",
+      "eval/matrix",
       "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",
     ];
     for (const t of wanted) assert.ok(registry[t], `registry has ${t}`);
@@ -256,6 +257,71 @@ async function main() {
     );
     assert.equal(loopOut.generations[1].summary, "approach 1");
     console.log("✔ eval/evolve-loop: climbs gaia `fitness`, accuracy naming, margin-0 tie handling, junk-summary guard");
+
+    // 6. the capture stage (Phase 1 wiring): a k-sample baseline folded by
+    //    eval/matrix plugs into the loop AS the baseline object, and the
+    //    measured noise floor feeds improveMargin via the yaml's fallback
+    //    expression.
+    const matrixStep = registry["eval/matrix"]!;
+    // Two identical-YAML baseline samples, one task flipping between them —
+    // gaia-run result shape (correct as 0/1 count with total 1).
+    const bSample = (flip: boolean) => [
+      { taskId: "t-1", level: 2, correct: 1, total: 1, answer: "42", question: "Q1" },
+      { taskId: "t-2", level: 2, correct: flip ? 1 : 0, total: 1, answer: flip ? "ok" : "no", question: "Q2" },
+    ];
+    const basematrix: any = await matrixStep.run(
+      matrixStep.input.parse({ version: "gaia-produce", samples: [bSample(true), bSample(false)] }),
+      ctxStub,
+    );
+    assert.equal(basematrix.fitness, 1); // MAX sample (2/2) — the conservative bar
+    assert.equal(basematrix.noise.floorKnown, true);
+    assert.equal(basematrix.noise.suggestedMargin, 0.5); // 1 flip on n=2
+    assert.ok(basematrix.text.includes("question: Q2"), "stuck-task question in the baseline text");
+    // the yaml's margin expression: measured floor wins, fallback when unmeasured
+    const mScope = { basematrix, params: { improveMargin: 0 } };
+    assert.equal((resolveConfig as any)("{{ basematrix.noise.suggestedMargin || params.improveMargin }}", mScope), 0.5);
+    const mScopeUnknown = { basematrix: { noise: { floorKnown: false } }, params: { improveMargin: 0 } };
+    assert.equal(
+      (resolveConfig as any)("{{ basematrix.noise.suggestedMargin || params.improveMargin }}", mScopeUnknown),
+      0,
+    );
+    // the matrix object IS a valid loop baseline: fitness + text read through
+    const mLoopCalls: any[] = [];
+    const mLoopOut: any = await loop.run(
+      loop.input.parse({
+        tasks: ["t-1", "t-2"],
+        mission: "m",
+        baseline: basematrix,
+        candidateName: "gaia-produce-ai",
+        baseWorkflow: "gaia-produce",
+        genWorkflow: "gaia-evolve-gen",
+        fitnessName: "accuracy",
+        maxGenerations: 1,
+        stopFitness: 1,
+        improveMargin: 0.5,
+        exploreAfter: 2,
+      }),
+      {
+        ...ctxStub,
+        services: {
+          optimizer: {
+            run: async (_n: string, input: any) => {
+              mLoopCalls.push(input);
+              return {
+                runId: "genrun-m",
+                status: "success",
+                output: { version: "v1", summary: "an approach", digest: { fitness: 1, text: "d", results: [] } },
+              };
+            },
+          },
+        },
+      },
+    );
+    assert.equal(mLoopOut.baselineFitness, 1); // read from basematrix.fitness
+    assert.ok(mLoopCalls[0].briefing.includes("TASK×VERSION MATRIX"), "matrix text is the baseline briefing block");
+    // fitness 1 vs baseline 1 with margin 0.5: a tie, not an improvement
+    assert.equal(mLoopOut.improved, false);
+    console.log("✔ capture wiring: k-sample matrix as loop baseline, measured-margin fallback expression");
 
     // 6. NO-OP generation: the gen workflow's `published` gate reports that an
     //    author shipped nothing, so nothing was graded. The loop must record

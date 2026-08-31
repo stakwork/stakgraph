@@ -86,7 +86,7 @@ interface Obs {
 export default defineStep({
   type: "eval/matrix",
   description:
-    "Fold MULTIPLE graded measurements (each: one version run over the task set) into the task×version matrix: per-task bands (floor / movable / ceiling), per-version fitness samples, an EMPIRICAL noise floor from same-version re-measurements (fitness deltas + task flips on identical YAML), and bias-vs-variance tags for never-correct tasks (byte-identical wrong answer across ≥3 measurements = bias; distinct wrong answers = variance). Gold never enters or leaves. Config: measurements (array of { version, results }, oldest → newest; results are gaia-run / gaia-candidate-run style graded outputs), maxAnswerChars? (default 120). Output: { tasks, versions, bands, noise, text }.",
+    "Fold MULTIPLE graded measurements (each: one version run over the task set) into the task×version matrix: per-task bands (floor / movable / ceiling), per-version fitness samples, an EMPIRICAL noise floor from same-version re-measurements (fitness deltas + task flips on identical YAML), and bias-vs-variance tags for never-correct tasks (byte-identical wrong answer across ≥3 measurements = bias; distinct wrong answers = variance). Gold never enters or leaves. Two input modes (exactly one): `measurements` (array of { version, results }, oldest → newest) for mixed versions, or `version` + `samples` (array of results-arrays) for k re-measurements of ONE version — the baseline-capture form a workflow's nested foreach produces, since template expressions cannot construct object arrays. When exactly one version was measured, the output adds top-level `fitness` (the MAX sample — the conservative bar a challenger must beat), so the matrix object plugs straight into eval/evolve-loop's `baseline`. Results are gaia-run / gaia-candidate-run style graded outputs. Config: measurements? | (version? + samples?), maxAnswerChars? (default 120), maxQuestionChars? (default 200). Output: { tasks, versions, bands, noise, text, fitness? }.",
   input: z.object({
     measurements: z
       .array(
@@ -96,13 +96,34 @@ export default defineStep({
         }),
       )
       .min(1)
-      .describe("all measurements so far, oldest → newest"),
+      .optional()
+      .describe("all measurements so far, oldest → newest (mixed-version mode)"),
+    version: z.string().optional().describe("single-version mode: the version every entry in `samples` measured"),
+    samples: z
+      .array(z.array(z.any()))
+      .min(1)
+      .optional()
+      .describe("single-version mode: k re-measurements of `version`, each an array of graded results (a nested foreach's output)"),
     maxAnswerChars: z.number().int().positive().default(120),
+    maxQuestionChars: z.number().int().positive().default(200),
   }),
   output: z.any(),
-  async run(cfg) {
+  async run(rawCfg) {
+    const modeA = rawCfg.measurements != null;
+    const modeB = rawCfg.version != null && rawCfg.samples != null;
+    if (modeA === modeB) {
+      throw new Error(
+        "eval/matrix takes EITHER `measurements` OR `version` + `samples` — exactly one mode",
+      );
+    }
+    const cfg = {
+      ...rawCfg,
+      measurements:
+        rawCfg.measurements ??
+        rawCfg.samples!.map((results) => ({ version: rawCfg.version!, results })),
+    };
     // ── fold every measurement into per-task observations ────────────────
-    const byTask = new Map<string, { level: number | null; obs: Obs[] }>();
+    const byTask = new Map<string, { level: number | null; question?: string; obs: Obs[] }>();
     const versionOrder: string[] = [];
     const byVersion = new Map<string, { fitness: number[]; vectors: Map<string, boolean>[] }>();
 
@@ -123,6 +144,9 @@ export default defineStep({
         vec.set(taskId, correct);
         const rec = byTask.get(taskId) ?? { level: num(r["level"]) ?? null, obs: [] };
         rec.level ??= num(r["level"]) ?? null;
+        // Task-visible text only (every producer sees the question) — never
+        // the gold. Kept so briefings can show WHAT a stuck task asks.
+        rec.question ??= str(r["question"]);
         rec.obs.push({
           version: m.version,
           measurement: mi,
@@ -138,7 +162,7 @@ export default defineStep({
     });
 
     // ── per-task rows: band, flips, bias-vs-variance ─────────────────────
-    const tasks = [...byTask.entries()].map(([taskId, { level, obs }]) => {
+    const tasks = [...byTask.entries()].map(([taskId, { level, question, obs }]) => {
       const n = obs.length;
       const solved = obs.filter((o) => o.correct).length;
       const band = solved === n ? "floor" : solved === 0 ? "ceiling" : "movable";
@@ -159,6 +183,7 @@ export default defineStep({
         n,
         solved,
         flips,
+        ...(band !== "floor" && question ? { question: truncate(question, cfg.maxQuestionChars) } : {}),
         ...(wrongAnswers.length
           ? { wrongAnswers: wrongAnswers.slice(0, 5).map((a) => truncate(a, cfg.maxAnswerChars)) }
           : {}),
@@ -272,6 +297,7 @@ export default defineStep({
           `- ${t.taskId}${t.level != null ? ` (L${t.level})` : ""}: correct ${t.solved}/${t.n}, ${t.flips} flip(s)` +
             (t.wrongAnswers?.length ? ` — wrong answers seen: ${t.wrongAnswers.map((a) => `"${a}"`).join(", ")}` : ""),
         );
+        if (t.question) lines.push(`    question: ${t.question}`);
       }
     }
     const ceiling = tasks.filter((t) => t.band === "ceiling");
@@ -289,9 +315,17 @@ export default defineStep({
                 : `every measurement returned an empty answer`) +
             (t.errors?.length ? ` [errors: ${t.errors.join(" | ")}]` : ""),
         );
+        if (t.question) lines.push(`    question: ${t.question}`);
       }
     }
 
-    return { tasks, versions, bands, noise, text: lines.join("\n") };
+    // Single-version matrices (the k-sample baseline capture) also report a
+    // top-level `fitness` — the MAX sample, i.e. the baseline's best observed
+    // draw, the conservative bar a challenger must beat by more than the
+    // measured margin — so this object plugs directly into eval/evolve-loop's
+    // `baseline` (which reads `.fitness` and `.text`).
+    const single = versions.length === 1 ? { fitness: versions[0]!.maxFitness } : {};
+
+    return { tasks, versions, bands, noise, ...single, text: lines.join("\n") };
   },
 });

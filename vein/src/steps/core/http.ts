@@ -20,7 +20,7 @@ export default defineStep({
     url: z.string(),
     method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).default("GET"),
     body: z.any().optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     timeout: z.number().positive().optional(),
   }),
   output: z.any(),

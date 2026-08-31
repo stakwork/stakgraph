@@ -632,6 +632,68 @@ describe("foreach step", () => {
     assert.ok(result.error?.message.includes("body"));
   });
 
+  it("accepts a non-negative integer for items (iterate 0..N-1)", async () => {
+    const wf = flow("foreach-range", {
+      input: z.object({}),
+      params: { samples: 3 },
+      steps: [
+        step("each", "foreach", {
+          items: "{{ params.samples }}",
+          body: step("pair", "echo", { i: "{{ $index }}", cur: "{{ $current }}" }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.deepEqual(result.output, [
+      { i: 0, cur: 0 },
+      { i: 1, cur: 1 },
+      { i: 2, cur: 2 },
+    ]);
+
+    const zero = flow("foreach-range-0", {
+      input: z.object({}),
+      steps: [step("each", "foreach", { items: 0, body: step("v", "value", { result: 1 }) })],
+    });
+    assert.deepEqual((await runWorkflow(zero, {}, makeRegistry())).output, []);
+  });
+
+  it("rejects a fractional or negative items number", async () => {
+    for (const items of [2.5, -1]) {
+      const wf = flow("foreach-bad-range", {
+        input: z.object({}),
+        steps: [step("each", "foreach", { items, body: step("v", "value", { result: 1 }) })],
+      });
+      const result = await runWorkflow(wf, {}, makeRegistry());
+      assert.equal(result.status, "error");
+      assert.ok(result.error?.message.includes("non-negative integer"));
+    }
+  });
+
+  it("nests: a foreach body may itself be a foreach (k samples of a task set)", async () => {
+    const wf = flow("foreach-nested", {
+      input: z.object({ tasks: z.array(z.string()) }),
+      params: { samples: 2 },
+      steps: [
+        step("baseline", "foreach", {
+          items: "{{ params.samples }}",
+          body: step("sample", "foreach", {
+            items: "{{ input.tasks }}",
+            body: step("run", "echo", { task: "{{ $current }}" }),
+          }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, { tasks: ["a", "b"] }, makeRegistry());
+    assert.equal(result.status, "success");
+    assert.deepEqual(result.output, [
+      [{ task: "a" }, { task: "b" }],
+      [{ task: "a" }, { task: "b" }],
+    ]);
+  });
+
   describe("concurrency", () => {
     /** A step that records how many bodies are in flight at once. */
     function gauge() {

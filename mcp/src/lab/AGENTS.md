@@ -446,10 +446,16 @@ are thin plumbing over `ctx.services.gaia.*`.
   `gaia-candidate-run` (runs an ai-stamped candidate on one task via
   `meta/run-workflow`, scores its reported answer via `gaia/evaluate`'s
   `fromRun` unpack — a failed run is an honest zero), `gaia-evolve-gen`
-  (one generation: meta/* author → pinned candidate over the task set →
-  digest) and `gaia-evolve` (baseline → hill-climb → report;
-  `improveMargin: 0` since exact-match has no judge noise — the residual
-  produce-sampling noise is answered by held-out validation, not a margin).
+  (one generation: meta/* author → pinned candidate over the task set,
+  `produceConcurrency`-wide → digest) and `gaia-evolve` (capture →
+  hill-climb → report). The capture stage runs the baseline
+  `baselineSamples` times (nested foreach, numeric outer items) and folds
+  the samples with `eval/matrix`: the matrix object IS the loop's baseline
+  (`fitness` = the MAX sample, the conservative bar) and its MEASURED
+  produce-sampling floor (`noise.suggestedMargin`, the max fitness delta
+  between identical-YAML re-runs) becomes the loop's `improveMargin` —
+  `params.improveMargin: 0` is only the fallback when the floor is
+  unmeasured (`baselineSamples: 1`, the pre-Phase-1 behavior).
   Candidate contract: input `{ taskId }`, last step outputs `taskId`,
   `answer` (bare string), `cost`, `steps`; candidates may use
   `gaia/get-task` / `gaia/pack-result` as steps but NEVER `gaia/evaluate`

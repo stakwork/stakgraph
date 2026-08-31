@@ -9,11 +9,11 @@ export default defineStep({
   input: z.object({
     type: z.string().describe("Step type to run, e.g. 'candidates/my-fetcher' or 'http'."),
     config: z
-      .record(z.any())
+      .record(z.string(), z.any())
       .optional()
       .describe("The step's config (same shape as in a workflow). Templates like {{ input.* }} / {{ params.* }} are resolved."),
     input: z.any().optional().describe("Workflow input object, referenced in config via {{ input.* }}."),
-    params: z.record(z.any()).optional().describe("Params knobs, referenced via {{ params.* }}."),
+    params: z.record(z.string(), z.any()).optional().describe("Params knobs, referenced via {{ params.* }}."),
     cassette: z
       .enum(["record", "replay"])
       .optional()
