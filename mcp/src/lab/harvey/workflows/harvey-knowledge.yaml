@@ -115,8 +115,15 @@ steps:
         exactly. API keys are provided ONLY as bash environment variables
         ($SERPA_API_KEY, $COURTLISTENER_API_KEY) — reference them as $NAME in
         curl commands; never echo their values.
+      # The prompt body references "the task goal below" — in production the
+      # runner appended it after the prompt; the exported text ends without
+      # it, so we append it here.
       prompt: |
         @@include(HARVEY_CASE_LAW_RESEARCH_PROMPT.md)
+
+        ## Task Goal
+
+        {{ input.instructions }}
       model: "{{ params.standardModel }}"
       maxSteps: "{{ params.caseLawMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool", "web_search"]
