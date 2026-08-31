@@ -51,7 +51,7 @@ Each entry MUST reference which checklist item it speaks to, and carry the case 
 
 ## Tools
 
-**SerpAPI (Google Scholar)** — for DISCOVERY. Auth: `api_key` query param ($GOOGLE_SERPA).
+**SerpAPI (Google Scholar)** — for DISCOVERY. Auth: `api_key` query param ($SERPA_API_KEY).
 **CourtListener** — for VERIFICATION and full text. Auth header: `Authorization: Token $COURTLISTENER_API_KEY`.
 **Federal Register API** — for CURRENT regulatory thresholds, filing fees, and dollar figures set annually by federal agencies. Free, public, no API key. Base: `https://www.federalregister.gov/api/v1`. Case law tells you the legal *standard*; it does NOT tell you the *current dollar figure* — an agency threshold or fee recited from training data is frequently stale. Use this tool whenever the analysis turns on a figure an agency revises on a schedule (e.g. HSR/Hart-Scott-Rodino notification thresholds and filing fees, merger-guidelines concentration thresholds, or any annually-adjusted statutory dollar amount).
 
@@ -153,6 +153,6 @@ For each current regulatory figure retrieved (when Step 2b applied):
 - If discovery and verification disagree (name/cite mismatch), trust CourtListener.
 - If you can't verify a citation, say so — never guess a reporter cite.
 
-- SERPA api key: $GOOGLE_SERPA
+- SERPA api key: $SERPA_API_KEY
 - courtlistener api key: $COURTLISTENER_API_KEY
 

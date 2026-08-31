@@ -434,7 +434,7 @@ completed ingestions, and skip re-merging requirements.
   reads — no bash, deliberately blind to source docs; unregistered findings
   land as ScratchpadEntry via `allow_scratchpad`] → case-law research
   [SerpAPI/CourtListener keys via the agent step's `secretsEnv` —
-  GOOGLE_SERPA + COURTLISTENER_API_KEY reach bash as env only] →
+  SERPA_API_KEY + COURTLISTENER_API_KEY reach bash as env only] →
   tailor [ADDITIVE, then checklist.md freezes]), `harvey-draft` (drafter
   foreach → 4 explicit fall-soft verifier agents → aggregator into
   `./output/`), `harvey-score` (validate exact deliverable names [hard
@@ -479,7 +479,7 @@ completed ingestions, and skip re-merging requirements.
   aggregate zips rubric×results and refuses on length mismatch) — the judge
   LLM never echoes criterion ids.
 - Needs `JARVIS_URL` + `API_TOKEN` + `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY`
-  (+ pandoc, python3+openpyxl; optional GOOGLE_SERPA + COURTLISTENER_API_KEY
+  (+ pandoc, python3+openpyxl; optional SERPA_API_KEY + COURTLISTENER_API_KEY
   for case-law research, GOOGLE_SERVICE_ACCOUNT_JSON for the shared FACTS
   spreadsheet). Smoke (offline, no LLM/graph):
   `npx tsx src/lab/harvey/deliver-smoke.ts`.

@@ -113,14 +113,14 @@ steps:
       system: |
         You are the legal-authority research stage. Follow the task prompt
         exactly. API keys are provided ONLY as bash environment variables
-        ($GOOGLE_SERPA, $COURTLISTENER_API_KEY) — reference them as $NAME in
+        ($SERPA_API_KEY, $COURTLISTENER_API_KEY) — reference them as $NAME in
         curl commands; never echo their values.
       prompt: |
         @@include(HARVEY_CASE_LAW_RESEARCH_PROMPT.md)
       model: "{{ params.standardModel }}"
       maxSteps: "{{ params.caseLawMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool", "web_search"]
-      secretsEnv: ["GOOGLE_SERPA", "COURTLISTENER_API_KEY"]
+      secretsEnv: ["SERPA_API_KEY", "COURTLISTENER_API_KEY"]
       agentTools:
         - jarvis/graph-search
         - jarvis/graph-get
