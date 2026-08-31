@@ -122,6 +122,87 @@ export interface RunStore {
   finalize(workflow: string, runId: string, summary: RunSummary): Promise<void>;
 }
 
+// ── Partial summary (reconstructed from events) ────────────────────────────
+
+/**
+ * A best-effort summary for a run with no `run.json` — in-flight, or
+ * orphaned by a crash/restart before `finalize` ran. Everything here is
+ * derived from the append-only event log, which IS durable per-step: the
+ * run's input from `run.start`, the latest output of every top-level step,
+ * and the last error seen anywhere in the tree. `partial: true` is the
+ * discriminator — a consumer that needs a terminal result must not treat
+ * this as one.
+ */
+export interface PartialRunSummary {
+  runId: string;
+  workflow: string;
+  partial: true;
+  /** Live state when the caller knows it ("running" / "paused"), else
+   *  "stale" (no controller — the process that ran it is gone; resumable). */
+  status: string;
+  startedAt?: string;
+  lastEventAt?: string;
+  eventCount: number;
+  input?: unknown;
+  /** Latest completed output per TOP-LEVEL step (path `<wf>/<stepId>` with
+   *  no deeper segment and no `#iteration`), in completion order. */
+  steps: Record<string, unknown>;
+  /** The last `step.error` seen at any depth — where a dead run stopped. */
+  lastError?: { path: string; message: string; ts: string };
+  /** The last event of any kind — how far the log got. */
+  lastEvent?: { type: string; path: string; ts: string };
+}
+
+/**
+ * Reconstruct a `PartialRunSummary` from a run's event log. Pure over the
+ * events array so it is equally usable on a live tail, a stale run's log,
+ * or in tests. Returns null for an empty log (no such run).
+ */
+export function summarizeFromEvents(
+  workflow: string,
+  runId: string,
+  events: RunEvent[],
+  status = "stale",
+): PartialRunSummary | null {
+  if (events.length === 0) return null;
+
+  const prefix = `${workflow}/`;
+  const isTopLevelStep = (path: string): boolean => {
+    if (!path.startsWith(prefix)) return false;
+    const rest = path.slice(prefix.length);
+    return rest.length > 0 && !rest.includes("/") && !rest.includes("#");
+  };
+
+  const summary: PartialRunSummary = {
+    runId,
+    workflow,
+    partial: true,
+    status,
+    eventCount: events.length,
+    steps: {},
+  };
+
+  for (const e of events) {
+    if (e.type === "run.start") {
+      summary.startedAt ??= e.ts;
+      if (e.input !== undefined) summary.input = e.input;
+    }
+    if ((e.type === "step.end" || e.type === "step.replayed") && isTopLevelStep(e.path)) {
+      const stepId = e.path.slice(prefix.length);
+      delete summary.steps[stepId]; // re-insert so key order tracks completion order
+      summary.steps[stepId] = e.output;
+    }
+    if (e.type === "step.error") {
+      summary.lastError = { path: e.path, message: e.error?.message ?? "unknown", ts: e.ts };
+    }
+  }
+
+  const last = events[events.length - 1]!;
+  summary.lastEventAt = last.ts;
+  summary.lastEvent = { type: last.type, path: last.path, ts: last.ts };
+  return summary;
+}
+
 // ── Filesystem implementation ──────────────────────────────────────────────
 
 /**

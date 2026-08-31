@@ -42,6 +42,12 @@ name: harvey-evolve
 #                author (the digest evidence rides alongside it and, per
 #                the author method, outranks it).
 #   generations: override params.maxGenerations for this run (e.g. 10).
+#   maxCost:     dollar ceiling (author + produce) — the loop stops before
+#                starting the generation that would cross it.
+#   maxMinutes:  wall-clock ceiling, same between-generations semantics.
+#                Both default to params (null = uncapped). Prefer these over
+#                guessing a generation count: cost and time per generation
+#                GROW as authors evolve more expensive architectures.
 # Output: { candidate, bestGen, bestVersion, bestPassRate,
 #           baselinePassRate, improved, generations, totalKnownCost,
 #           stopReason, baseline, … }
@@ -86,6 +92,8 @@ steps:
       improveMargin: "{{ params.improveMargin }}"
       exploreAfter: "{{ params.exploreAfter }}"
       genParams: "{{ params.genParams }}"
+      maxCost: "{{ input.maxCost || params.maxCost }}"
+      maxMinutes: "{{ input.maxMinutes || params.maxMinutes }}"
 
   # ── promote: the reviewable report ─────────────────────────────────────
   - id: report
@@ -133,3 +141,10 @@ params:
   # Param overrides for harvey-evolve-gen (e.g. { authorModel: "...",
   # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.
   genParams: {}
+  # BUDGET CAPS (checked between generations, so they bound when the loop
+  # STOPS, never kill a generation mid-flight). Generation count alone is a
+  # poor budget: authors evolve toward more expensive architectures, so a
+  # run that starts at ~1h and ~$3 per generation can end at 2.5h and $8.
+  # Null = uncapped (generations remain the only limit).
+  maxCost: null
+  maxMinutes: null

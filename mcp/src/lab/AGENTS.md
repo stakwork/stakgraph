@@ -528,6 +528,31 @@ Domain-agnostic eval substrate, shared by every experiment. See
   domains — harvey 0.02; produce-sampling noise for deterministic scorers —
   gaia 0). Needs `services.optimizer`. Wired by `harvey-evolve`
   (pass-rate) and `gaia-evolve` (accuracy).
+  Three guards keep the climb honest, all learned from live runs:
+  (a) **no-op generations.** An author can burn its budget and publish
+  nothing; the version fallback in the `*-evolve-gen` workflows then
+  resolves to the PREVIOUS generation's publish. The `published` gate
+  (`vbefore` vs the resolved version) catches that and skips `candeval`
+  entirely, so the generation reports `noop: true` and costs one author
+  instead of a whole task set. The loop records it with no fitness — a 0
+  there would libel an approach that was never tried.
+  (b) **re-score guard.** A version this run already graded cannot become
+  the best on a second, luckier sample (`isNewBest` + the `scored` ledger).
+  Fitness is resampled, so without this, produce-sampling noise gets
+  written into the lineage as a hill-climb step.
+  (c) **budget caps.** `maxCost` / `maxMinutes`, checked BETWEEN generations
+  (never a mid-generation kill), both null by default. Generation count is
+  a poor budget on its own: authors reliably evolve toward more expensive
+  architectures, so per-generation cost and wall-clock GROW over a run.
+- `eval/steps/matrix.ts` (`eval/matrix`) — the task×version MATRIX across
+  measurements (plans/evolve-scoreboard-and-task-matrix.md, Phase 1): folds
+  every `{ version, results }` measurement into per-task bands
+  (floor/movable/ceiling), an EMPIRICAL noise floor from same-version
+  re-measurements (identical-YAML fitness deltas + task flips; UNKNOWN, not
+  0, when no version has n≥2), and bias-vs-variance tags on never-correct
+  tasks (byte-identical wrong answer ×≥3 = bias — immune to redundancy and
+  prompt nudges; distinct wrong answers = variance). Verdict channel only —
+  gold never enters. Smoke: `npx tsx src/lab/eval/matrix-smoke.ts`.
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

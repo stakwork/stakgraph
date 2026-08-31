@@ -631,6 +631,183 @@ describe("foreach step", () => {
     assert.equal(result.status, "error");
     assert.ok(result.error?.message.includes("body"));
   });
+
+  describe("concurrency", () => {
+    /** A step that records how many bodies are in flight at once. */
+    function gauge() {
+      let active = 0;
+      let peak = 0;
+      const step_ = defineStep({
+        type: "gauge",
+        input: z.object({ n: z.number() }),
+        output: z.any(),
+        async run(cfg) {
+          active++;
+          peak = Math.max(peak, active);
+          await new Promise((r) => setTimeout(r, 15));
+          active--;
+          return cfg.n * 10;
+        },
+      });
+      return { step_, peakActive: () => peak };
+    }
+
+    it("runs up to N iterations at once, results in input order", async () => {
+      const { step_, peakActive } = gauge();
+      const wf = flow("foreach-conc", {
+        input: z.object({ items: z.array(z.number()) }),
+        steps: [
+          step("each", "foreach", {
+            items: "{{ input.items }}",
+            concurrency: 3,
+            body: step("g", "gauge", { n: "{{ $current }}" }),
+          }),
+        ],
+      });
+
+      const result = await runWorkflow(
+        wf,
+        { items: [1, 2, 3, 4, 5, 6, 7] },
+        makeRegistry({ gauge: step_ }),
+      );
+      assert.equal(result.status, "success");
+      assert.deepEqual(result.output, [10, 20, 30, 40, 50, 60, 70]);
+      assert.ok(peakActive() >= 2, `expected overlap, peak was ${peakActive()}`);
+      assert.ok(peakActive() <= 3, `pool exceeded its bound: ${peakActive()}`);
+    });
+
+    it("caps in-flight iterations at the configured bound", async () => {
+      const { step_, peakActive } = gauge();
+      const wf = flow("foreach-conc-cap", {
+        input: z.object({}),
+        steps: [
+          step("each", "foreach", {
+            items: [1, 2, 3, 4, 5, 6],
+            concurrency: 2,
+            body: step("g", "gauge", { n: "{{ $current }}" }),
+          }),
+        ],
+      });
+
+      await runWorkflow(wf, {}, makeRegistry({ gauge: step_ }));
+      assert.ok(peakActive() <= 2, `pool exceeded its bound: ${peakActive()}`);
+    });
+
+    it("a failing iteration stops new starts and surfaces the lowest-index error", async () => {
+      const started: number[] = [];
+      const flaky = defineStep({
+        type: "flaky",
+        input: z.object({ i: z.number() }),
+        output: z.any(),
+        async run(cfg) {
+          started.push(cfg.i);
+          await new Promise((r) => setTimeout(r, 5));
+          if (cfg.i === 1 || cfg.i === 2) throw new Error(`boom at ${cfg.i}`);
+          return cfg.i;
+        },
+      });
+
+      const wf = flow("foreach-conc-fail", {
+        input: z.object({}),
+        steps: [
+          step("each", "foreach", {
+            items: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            concurrency: 3,
+            body: step("f", "flaky", { i: "{{ $current }}" }),
+          }),
+        ],
+      });
+
+      const result = await runWorkflow(wf, {}, makeRegistry({ flaky }));
+      assert.equal(result.status, "error");
+      // Both 1 and 2 fail near-simultaneously; the lowest index must win.
+      assert.ok(
+        result.error?.message.includes("boom at 1"),
+        `expected the lowest-index error, got: ${result.error?.message}`,
+      );
+      // The pool must not have raced through the whole list after failing.
+      assert.ok(
+        started.length < 10,
+        `expected no new starts after failure, but ${started.length}/10 started`,
+      );
+    });
+
+    it("replays journaled iterations and runs the rest live under concurrency", async () => {
+      const ran: number[] = [];
+      const tracker = defineStep({
+        type: "tracker",
+        input: z.object({ i: z.number() }),
+        output: z.any(),
+        async run(cfg) {
+          ran.push(cfg.i);
+          return cfg.i * 10;
+        },
+      });
+
+      const wf = flow("foreach-conc-journal", {
+        input: z.object({}),
+        steps: [
+          step("each", "foreach", {
+            items: [0, 1, 2, 3],
+            concurrency: 2,
+            body: step("t", "tracker", { i: "{{ $current }}" }),
+          }),
+        ],
+      });
+
+      const store = new MemoryRunStore();
+      const result = await runWorkflow(wf, {}, makeRegistry({ tracker }), {
+        runId: "fc-j",
+        store,
+        journal: {
+          "foreach-conc-journal/each#0": 0,
+          "foreach-conc-journal/each#2": 20,
+        },
+      });
+
+      assert.equal(result.status, "success");
+      assert.deepEqual(result.output, [0, 10, 20, 30]);
+      assert.deepEqual(ran.sort(), [1, 3]);
+      const replayed = eventsOfType(store, "foreach-conc-journal", "fc-j", "step.replayed");
+      assert.deepEqual(replayed.map((e) => e.iteration).sort(), [0, 2]);
+    });
+
+    it("concurrency defaults to sequential when omitted", async () => {
+      const { step_, peakActive } = gauge();
+      const wf = flow("foreach-seq-default", {
+        input: z.object({}),
+        steps: [
+          step("each", "foreach", {
+            items: [1, 2, 3],
+            body: step("g", "gauge", { n: "{{ $current }}" }),
+          }),
+        ],
+      });
+
+      const result = await runWorkflow(wf, {}, makeRegistry({ gauge: step_ }));
+      assert.deepEqual(result.output, [10, 20, 30]);
+      assert.equal(peakActive(), 1);
+    });
+
+    it("resolves concurrency from params", async () => {
+      const { step_, peakActive } = gauge();
+      const wf = flow("foreach-conc-param", {
+        input: z.object({}),
+        params: { width: 2 },
+        steps: [
+          step("each", "foreach", {
+            items: [1, 2, 3, 4],
+            concurrency: "{{ params.width }}",
+            body: step("g", "gauge", { n: "{{ $current }}" }),
+          }),
+        ],
+      });
+
+      const result = await runWorkflow(wf, {}, makeRegistry({ gauge: step_ }));
+      assert.deepEqual(result.output, [10, 20, 30, 40]);
+      assert.ok(peakActive() >= 2 && peakActive() <= 2, `peak ${peakActive()}`);
+    });
+  });
 });
 
 // ── DAG depends (parallel via shared dependency) ───────────────────────────

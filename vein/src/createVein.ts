@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
 import type { RunStore } from "./store.js";
-import { FileRunStore, generateRunId } from "./store.js";
+import { FileRunStore, generateRunId, summarizeFromEvents } from "./store.js";
 import type { ChatStore, ChatEvent } from "./chat-store.js";
 import {
   FileChatStore,
@@ -519,10 +519,17 @@ export async function createVein<TServices = unknown>(
       return c.json({ error: "Run lookup requires a FileRunStore" }, 501);
     }
     const summary = await store.getRunSummary(name, runId);
-    if (!summary) {
+    if (summary) return c.json(summary);
+    // No run.json — in-flight, or orphaned before finalize (crash/restart).
+    // The event log is durable per-step, so serve a summary reconstructed
+    // from it (`partial: true` is the discriminator) instead of a 404: a
+    // 17-hour run that dies mid-generation must not cost its whole report.
+    const events = await store.getRunEvents(name, runId);
+    const partial = summarizeFromEvents(name, runId, events, liveStatus(name, runId));
+    if (!partial) {
       return c.json({ error: `Run "${runId}" not found for workflow "${name}"` }, 404);
     }
-    return c.json(summary);
+    return c.json(partial);
   });
 
   app.get("/workflows/:name/runs/:runId/events", async (c) => {
