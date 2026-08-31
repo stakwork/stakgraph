@@ -528,6 +528,22 @@ Domain-agnostic eval substrate, shared by every experiment. See
   domains — harvey 0.02; produce-sampling noise for deterministic scorers —
   gaia 0). Needs `services.optimizer`. Wired by `harvey-evolve`
   (pass-rate) and `gaia-evolve` (accuracy).
+  Three guards keep the climb honest, all learned from live runs:
+  (a) **no-op generations.** An author can burn its budget and publish
+  nothing; the version fallback in the `*-evolve-gen` workflows then
+  resolves to the PREVIOUS generation's publish. The `published` gate
+  (`vbefore` vs the resolved version) catches that and skips `candeval`
+  entirely, so the generation reports `noop: true` and costs one author
+  instead of a whole task set. The loop records it with no fitness — a 0
+  there would libel an approach that was never tried.
+  (b) **re-score guard.** A version this run already graded cannot become
+  the best on a second, luckier sample (`isNewBest` + the `scored` ledger).
+  Fitness is resampled, so without this, produce-sampling noise gets
+  written into the lineage as a hill-climb step.
+  (c) **budget caps.** `maxCost` / `maxMinutes`, checked BETWEEN generations
+  (never a mid-generation kill), both null by default. Generation count is
+  a poor budget on its own: authors reliably evolve toward more expensive
+  architectures, so per-generation cost and wall-clock GROW over a run.
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

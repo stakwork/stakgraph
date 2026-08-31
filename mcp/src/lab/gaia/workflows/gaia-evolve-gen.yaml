@@ -27,10 +27,20 @@ steps:
     config:
       sub: author
 
+  # The candidate's active version BEFORE this generation's author runs.
+  # If the author publishes nothing, the version fallback below resolves to
+  # this very version — a silent re-run of a version already graded (see the
+  # `published` gate). Must complete before the author can publish, hence
+  # the explicit ordering edge into `author`.
+  - id: vbefore
+    type: meta/get-workflow
+    config:
+      name: "{{ input.candidateName }}"
+
   # ── propose: the authoring agent ───────────────────────────────────────
   - id: author
     type: agent
-    depends: dir
+    depends: [dir, vbefore]
     options:
       retry: { max: 1, delayMs: 15000 }
     config:
@@ -112,9 +122,30 @@ steps:
       version: "{{ author.object.version }}"
 
   # ── evaluate: the pinned candidate over the task set ───────────────────
+  # ── did this generation actually SHIP anything? ────────────────────────
+  # An author can burn its whole budget and publish NOTHING — observed live
+  # when the agent degenerated into a filler loop and echoed a garbage
+  # version string. The fallback above then resolves to the candidate's
+  # active version, which is the PREVIOUS generation's publish: the harness
+  # would re-run an already-graded version over the whole task set, costing
+  # a full generation's produce budget to learn nothing. Worse, exact-match
+  # scoring resamples — the re-run can land above its own recorded fitness
+  # by luck alone and be written into the hill-climb as an improvement.
+  #
+  # Gate on it instead: same version in as out ⇒ nothing was published ⇒
+  # skip `candeval` entirely and report a no-op generation. At generation 0
+  # the candidate does not exist yet, so `vbefore.version` is undefined and
+  # any real publish trips the gate true.
+  - id: published
+    type: if
+    depends: [vpin, vactive, vbefore]
+    config:
+      cond: "{{ (vpin.version || vactive.version) && (vpin.version || vactive.version) !== vbefore.version }}"
+
   - id: candeval
     type: foreach
-    depends: [vpin, vactive]
+    depends: published
+    when: true
     config:
       items: "{{ input.tasks }}"
       body:
@@ -133,15 +164,24 @@ steps:
     config:
       results: "{{ candeval }}"
 
+  # Depends on the GATE as well as the digest so it runs on both branches:
+  # vein only skip-propagates when EVERY dep was skipped, and `published`
+  # always runs. On the no-op branch `canddigest` is skipped, so `digest` is
+  # undefined and `noop` tells the loop to score nothing.
   - id: result
     type: gaia/pack-result
-    depends: canddigest
+    depends: [canddigest, published]
     config:
       candidate: "{{ input.candidateName }}"
       generation: "{{ input.generation }}"
+      # True when this generation's author published NOTHING — the loop must
+      # record it as a no-op, not as a fitness datapoint (a skipped candeval
+      # digests to nothing, which would otherwise read as fitness 0).
+      noop: "{{ !published }}"
       # The version that was actually GRADED (resolved above) — the loop's
       # briefing and EXPLOIT anchor read this, so an author's garbage echo
-      # must not poison the lineage.
+      # must not poison the lineage. Undefined-safe on the no-op branch,
+      # where nothing was graded at all.
       version: "{{ vpin.version || vactive.version }}"
       summary: "{{ author.object.summary }}"
       changes: "{{ author.object.changes }}"
