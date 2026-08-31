@@ -307,7 +307,7 @@ export function buildTools(deps: AiDeps) {
             "Input passed to the workflow as a JSON OBJECT (not a string), referenced in step configs via {{ input.* }} — the run subject, e.g. { owner, repo, pull_number }. Use {} if none.",
           ),
         params: z
-          .record(z.any())
+          .record(z.string(), z.any())
           .optional()
           .describe(
             "Optional overrides for the workflow's `params` knobs (prompts, thresholds, sample sizes). Shallow-merged over the workflow's `params` defaults — set just the knobs you want to vary for this trial. Referenced in step configs via {{ params.* }}.",
@@ -388,7 +388,7 @@ export function buildTools(deps: AiDeps) {
       inputSchema: z.object({
         type: z.string().describe("Step type to run, e.g. 'stripe/list-charges' or 'http'."),
         config: z
-          .record(z.any())
+          .record(z.string(), z.any())
           .optional()
           .describe("The step's config (same shape as in a workflow). Templates like {{ input.* }} / {{ params.* }} are resolved."),
         input: z
@@ -396,7 +396,7 @@ export function buildTools(deps: AiDeps) {
           .optional()
           .describe("Workflow input object, referenced in config via {{ input.* }}."),
         params: z
-          .record(z.any())
+          .record(z.string(), z.any())
           .optional()
           .describe("Params knobs, referenced via {{ params.* }}."),
         cassette: z

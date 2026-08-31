@@ -114,7 +114,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_PORT`         | `3000`         | HTTP server port                     |
 | `VEIN_API_KEY`      | (unset)        | Deployment-scoped shared secret. See "Auth" below. |
 | `VEIN_SECRET_KEY`   | (unset)        | Encryption key for the secret store (AES-256-GCM). Unset → a default dev key + one-time warning (obfuscated, not secure). See "Secrets". |
-| `VEIN_LLM_PROVIDER` | `anthropic`    | Default LLM provider for llm step    |
+| `VEIN_LLM_PROVIDER` | (inferred from model, else `anthropic`) | Default LLM provider for agent/llm steps (anthropic\|openai\|google\|openrouter\|xai, via aieo) |
 | `VEIN_LLM_MODEL`    | (per-provider) | Override model name                  |
 | `VEIN_CHAT_MODEL`   | `claude-sonnet-5` | Anthropic model for the AI-builder chat agent |
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
@@ -583,8 +583,11 @@ services bag can override it, same as `http`/`secrets`).
   `final_answer` tool's
   text (set `finalAnswer` to its description), a STRUCTURED object (set
   `schema` to a JSON Schema → `Output.object`, read off `res.output`), or
-  the final assistant text. Provider-direct (anthropic|openai), lazy-
-  loaded; needs the provider key in env + `git`/`rg` on PATH. Returns
+  the final assistant text. Provider-direct via aieo
+  (anthropic|openai|google|openrouter|xai — inferred from the model
+  name, which may be an alias like `sonnet`/`grok` or slash format like
+  `openrouter/moonshotai/kimi-k2.6`), lazy-loaded; needs the provider
+  key in env + `git`/`rg` on PATH. Returns
   `{ result, object?, steps, usage, cost }`. The full session
   (`messages`) is the seam for a future fork/sub-agent capability, but
   it's **opt-in** (`returnMessages`, default false): it's huge and the

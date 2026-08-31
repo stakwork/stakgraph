@@ -19,7 +19,9 @@ const limitsSchema = z
     maxComments: z.number().int().positive().default(50),
     maxReviews: z.number().int().positive().default(20),
   })
-  .default({});
+  // zod v4: `.default()` now takes a fully-populated OUTPUT value; `.prefault`
+  // keeps the v3 behavior of parsing {} so the field defaults apply.
+  .prefault({});
 
 type Limits = z.infer<typeof limitsSchema>;
 

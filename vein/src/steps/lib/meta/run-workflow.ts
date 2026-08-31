@@ -15,7 +15,7 @@ export default defineStep({
         "Input passed to the workflow as a JSON OBJECT (not a string), referenced in its steps via {{ input.* }}. Use {} if none.",
       ),
     params: z
-      .record(z.any())
+      .record(z.string(), z.any())
       .optional()
       .describe(
         "Optional overrides for the workflow's `params` knobs (prompts, thresholds), shallow-merged over its defaults — those are runs, not versions.",
