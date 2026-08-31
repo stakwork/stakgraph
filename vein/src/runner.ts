@@ -720,22 +720,32 @@ async function executeForeach(
   exec: Exec,
   path: string,
 ): Promise<unknown> {
-  // Resolve `items` once against the parent scope.
+  // Resolve `items` once against the parent scope. A non-negative integer N
+  // means "iterate 0..N-1" ($current = $index) — the range form the template
+  // language deliberately cannot construct (e.g. `items: {{ params.samples }}`
+  // to repeat a body a parameterized number of times).
   const itemsResolved = resolveConfig(step.config["items"], scope);
 
-  if (!Array.isArray(itemsResolved)) {
+  if (
+    !Array.isArray(itemsResolved) &&
+    !(typeof itemsResolved === "number" && Number.isInteger(itemsResolved) && itemsResolved >= 0)
+  ) {
     throw new Error(
-      `foreach step "${step.id}" requires "items" to resolve to an array, got ${
+      `foreach step "${step.id}" requires "items" to resolve to an array or a non-negative integer, got ${
         itemsResolved === null
           ? "null"
           : typeof itemsResolved === "object"
             ? "object"
-            : typeof itemsResolved
+            : typeof itemsResolved === "number"
+              ? `number (${itemsResolved})`
+              : typeof itemsResolved
       }`,
     );
   }
 
-  const items = itemsResolved as unknown[];
+  const items: unknown[] = Array.isArray(itemsResolved)
+    ? itemsResolved
+    : Array.from({ length: itemsResolved as number }, (_, i) => i);
   const maxIterations = step.config["maxIterations"] != null
     ? (resolveConfig(step.config["maxIterations"], scope) as number)
     : undefined;

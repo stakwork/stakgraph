@@ -148,6 +148,10 @@ steps:
     when: true
     config:
       items: "{{ input.tasks }}"
+      # Parallel candidate runs are safe (each runs under its OWN runId via
+      # meta/run-workflow, so artifacts dirs never collide). Kept low: the
+      # tasks hit rate-limited targets (429s observed live).
+      concurrency: "{{ params.produceConcurrency }}"
       body:
         id: one
         type: subflow
@@ -191,6 +195,9 @@ steps:
       digest: "{{ canddigest }}"
 
 params:
+  # Parallel candidate produce runs (candeval foreach concurrency). Low on
+  # purpose — the tasks hit rate-limited targets.
+  produceConcurrency: 3
   authorModel: claude-sonnet-5
   # Generous — an author that reads several workflows, drafts steps, and
   # smoke-tests burns calls fast; the publish-early rule in authorSystem is

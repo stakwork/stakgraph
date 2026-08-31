@@ -48,6 +48,7 @@ async function main() {
         meas("v11", false, "7"), // the accidental re-measurement
       ],
       maxAnswerChars: 120,
+      maxQuestionChars: 200,
     },
     ctx,
   )) as AnyRec;
@@ -89,7 +90,7 @@ async function main() {
 
   // 4. single measurement per version → floor UNKNOWN, never zero
   const single = (await matrix.run(
-    { measurements: [meas("gaia-produce", true, "x"), meas("v10", false, "y")], maxAnswerChars: 120 },
+    { measurements: [meas("gaia-produce", true, "x"), meas("v10", false, "y")], maxAnswerChars: 120, maxQuestionChars: 200 },
     ctx,
   )) as AnyRec;
   const n2 = single.noise as AnyRec;
@@ -114,6 +115,7 @@ async function main() {
         },
       ],
       maxAnswerChars: 120,
+      maxQuestionChars: 200,
     },
     ctx,
   )) as AnyRec;
@@ -123,6 +125,57 @@ async function main() {
   assert.equal(sById["c"]!.band, "ceiling");
   assert.equal(sById["d"]!.band, "ceiling"); // unreadable → false, never true
   console.log("✔ all three graded-result shapes normalize");
+
+  // 6. single-version `samples` mode (the k-sample baseline capture): the
+  // nested-foreach output shape, a top-level fitness = MAX sample, and the
+  // question excerpt threading through for non-floor tasks.
+  const sampleResults = (flip: boolean) => [
+    res("floor-1", true, "right"),
+    res("stuck-1", false, "36", 3, { question: "What is the average number of pre-2020 works?" }),
+    res("flip-1", flip, flip ? "ok" : "nope"),
+  ];
+  const base = (await matrix.run(
+    {
+      version: "gaia-produce",
+      samples: [sampleResults(true), sampleResults(false), sampleResults(true)],
+      maxAnswerChars: 120,
+      maxQuestionChars: 200,
+    },
+    ctx,
+  )) as AnyRec;
+  const bVersions = base.versions as AnyRec[];
+  assert.equal(bVersions.length, 1);
+  assert.deepEqual((bVersions[0] as AnyRec).fitness, [0.667, 0.333, 0.667]);
+  assert.equal(base.fitness, 0.667, "top-level fitness is the MAX sample (the conservative bar)");
+  const bNoise = base.noise as AnyRec;
+  assert.equal(bNoise.sameVersionPairs, 3); // 3 samples → 3 pairs
+  assert.equal(bNoise.floorKnown, true);
+  const bTasks = Object.fromEntries((base.tasks as AnyRec[]).map((t) => [t.taskId as string, t]));
+  assert.ok(String(bTasks["stuck-1"]!.question).includes("pre-2020"), "ceiling task carries its question");
+  assert.equal(bTasks["floor-1"]!.question, undefined, "floor tasks stay question-free");
+  assert.ok((base.text as string).includes("question:"), "text shows stuck-task questions");
+  console.log("✔ samples mode: nested-foreach shape, MAX-sample fitness, questions threaded");
+
+  // exactly-one-mode validation
+  await assert.rejects(
+    () => matrix.run({ maxAnswerChars: 120, maxQuestionChars: 200 } as never, ctx),
+    /exactly one mode/,
+  );
+  await assert.rejects(
+    () =>
+      matrix.run(
+        {
+          measurements: [{ version: "v", results: [] }],
+          version: "v",
+          samples: [[]],
+          maxAnswerChars: 120,
+          maxQuestionChars: 200,
+        } as never,
+        ctx,
+      ),
+    /exactly one mode/,
+  );
+  console.log("✔ mode exclusivity enforced");
 
   console.log("\nmatrix smoke: all checks passed");
 }

@@ -16,7 +16,7 @@ const EXAMPLE = `- id: process_changes
 
 export default defineStep({
   type: "foreach",
-  description: `Iterate over a list, running "body" once per item. Config: "items" (template expression evaluating to an array), "body" (single Step), "concurrency" (optional, default 1: run up to N iterations at once through a bounded pool — results stay in input order and each iteration keeps its own #i event path; size it to what the body's targets tolerate, e.g. rate-limited sites want 1-4). Inside body: "$current" is the current item, "$index" is the zero-based position. Output is the array of body results, one per item, in order.\n\n${EXAMPLE}`,
+  description: `Iterate over a list, running "body" once per item. Config: "items" (template expression evaluating to an array, or a non-negative integer N meaning iterate 0..N-1 — the parameterized-repeat form), "body" (single Step), "concurrency" (optional, default 1: run up to N iterations at once through a bounded pool — results stay in input order and each iteration keeps its own #i event path; size it to what the body's targets tolerate, e.g. rate-limited sites want 1-4). Inside body: "$current" is the current item, "$index" is the zero-based position. Output is the array of body results, one per item, in order.\n\n${EXAMPLE}`,
   input: z.object({
     items: z.any(), // template expression → array (resolved per-iteration scope)
     body: z.any(), // Step object
