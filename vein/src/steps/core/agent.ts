@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Provider as AieoProvider } from "aieo";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
 import { usageFromResult, computeCost, addUsage, maxOutputTokensFor } from "../../pricing.js";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
@@ -26,9 +27,10 @@ import os from "node:os";
  * automatically in finalAnswer mode and is always available regardless of
  * `toolFilter`.
  *
- * Provider-direct via the AI SDK (anthropic | openai), lazy-loaded. Needs the
- * provider's key in env (ANTHROPIC_API_KEY / OPENAI_API_KEY) and `git` + `rg` on
- * PATH for the repo tools. Output: { result, object?, steps, usage, cost }
+ * Provider-direct via the AI SDK, resolved through aieo (anthropic | openai |
+ * google | openrouter | xai), lazy-loaded. Needs the provider's key in env
+ * (ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY / OPENROUTER_API_KEY /
+ * XAI_API_KEY) and `git` + `rg` on PATH for the repo tools. Output: { result, object?, steps, usage, cost }
  * (+ `messages`, the full session, only when `returnMessages` is set — it's huge
  * and persisted per step, so it's off by default). `usage` is the aggregated
  * token counts across the whole agent loop
@@ -542,7 +544,7 @@ export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext |
 export default defineStep({
   type: "agent",
   description:
-    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of built-in tool names; empty = all), agentTools? (registry step TYPES exposed as extra tools — the 'tools are steps' model; each tool call emits a nested run event), secretsEnv? (secret NAMES injected as env vars into the bash subprocess only — the agent writes $NAME, values are masked out of all tool output; for narrow research sub-agents), model?, provider? (anthropic|openai), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
+    "General tool-using agent (AI SDK ToolLoopAgent). Explores AND edits a working dir (cwd) with built-in tools (repo_overview, fulltext_search, bash, str_replace_based_edit_tool for viewing/creating/editing files, + anthropic web_search, + file_summary when the `stakgraph` AST CLI is on PATH) and returns either a final_answer (set `finalAnswer` to its tool description), a STRUCTURED object (set `schema` to a JSON Schema → Output.object), or the final text. Config: cwd, system, prompt, finalAnswer?, schema?, toolFilter? (subset of built-in tool names; empty = all), agentTools? (registry step TYPES exposed as extra tools — the 'tools are steps' model; each tool call emits a nested run event), secretsEnv? (secret NAMES injected as env vars into the bash subprocess only — the agent writes $NAME, values are masked out of all tool output; for narrow research sub-agents), model? (id, alias like 'sonnet'/'grok', or slash format like 'openrouter/moonshotai/kimi-k2' — the provider is inferred from it), provider? (anthropic|openai|google|openrouter|xai; usually omitted), maxSteps (default 40), returnMessages? (default false — the full session is huge + persisted per step). Needs the provider key in env + git/rg on PATH. Output: { result, object?, steps, usage, cost } (+ messages when returnMessages).",
   input: z.object({
     cwd: z.string().describe("working directory the tools operate in"),
     system: z.string().describe("system prompt / agent persona"),
@@ -571,8 +573,16 @@ export default defineStep({
       .describe(
         "secret NAMES (from the deployment's secret store) to inject as env vars into the bash tool's subprocess — the agent writes `$NAME` in commands (e.g. curl auth headers) and the shell expands it at exec time. The VALUE never enters the prompt, the model's context, or the event log: bash gets it via env only, and every tool output is masked before the model sees it. Grant narrowly (a dedicated research sub-agent), never to a drafting/producing agent. Residual risk (accepted): a prompt-injected agent can still SEND $NAME somewhere — masking stops leakage into context/logs, not egress.",
       ),
-    model: z.string().optional(),
-    provider: z.string().optional(),
+    model: z
+      .string()
+      .optional()
+      .describe(
+        "model id, aieo alias ('sonnet', 'gemini', 'grok', 'kimi'), or slash format ('openrouter/deepseek/deepseek-v3'); the provider is inferred from it when `provider` is omitted",
+      ),
+    provider: z
+      .string()
+      .optional()
+      .describe("anthropic | openai | google | openrouter | xai — usually omitted (inferred from `model`)"),
     maxSteps: z.number().int().positive().default(40),
     returnMessages: z
       .boolean()
@@ -585,39 +595,41 @@ export default defineStep({
   async run(cfg, ctx) {
     const { ToolLoopAgent, Output, tool, stepCountIs, hasToolCall, jsonSchema, streamText } = await import("ai");
 
-    const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
+    // Model/provider resolution via aieo (shared with mcp): friendly aliases
+    // ("sonnet", "grok"), slash-format ids ("openrouter/moonshotai/kimi-k2"),
+    // per-provider env keys (ANTHROPIC_API_KEY, OPENROUTER_API_KEY, ...), LLM
+    // gateway routing, and a timeout-wrapped fetch all live there. When no
+    // provider is given it's INFERRED from the model name (unknown names
+    // default to anthropic), so `model: "openrouter/deepseek/deepseek-v3"`
+    // alone is enough to switch providers.
+    const { getModel, getProviderForModel, PROVIDERS } = await import("aieo");
     const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
+    const provider =
+      cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? getProviderForModel(modelName);
+    if (!PROVIDERS.includes(provider as AieoProvider)) {
+      throw new Error(
+        `Unknown LLM provider: "${provider}". Supported: ${PROVIDERS.join(", ")}`,
+      );
+    }
 
-    // Resolve the model + (anthropic-only) provider-defined web_search tool +
-    // provider options. For anthropic we enable EPHEMERAL PROMPT CACHING at the
-    // call level (the provider auto-inserts the cache breakpoints across the
-    // static prefix — system + tool schemas — that the loop resends every step).
-    // Big win for multi-step agents (and the future fork: the shared prefix is a
-    // cache hit across all forks). Same pattern as aieo's getProviderOptions.
-    let model: any;
+    // Anthropic-only extras: server-side web_search, the provider-defined text
+    // editor (the model is specially trained on its schema; we supply the
+    // execute that performs the edit inside cfg.cwd), and EPHEMERAL PROMPT
+    // CACHING at the call level (the provider auto-inserts the cache
+    // breakpoints across the static prefix — system + tool schemas — that the
+    // loop resends every step). Big win for multi-step agents (and the future
+    // fork: the shared prefix is a cache hit across all forks). Other
+    // providers fall back to the generic editor tool and no web search.
     let webSearchTool: any;
     let textEditorTool: any;
     let providerOptions: any;
-    switch (provider) {
-      case "anthropic": {
-        const { anthropic } = await import("@ai-sdk/anthropic");
-        model = anthropic(modelName ?? "claude-sonnet-5");
-        webSearchTool = anthropic.tools.webSearch_20260209({ maxUses: 3 });
-        // Provider-defined text editor (the model is specially trained on its
-        // schema); we supply the execute that performs the edit inside cfg.cwd.
-        textEditorTool = anthropic.tools.textEditor_20250728({
-          execute: async (input: TextEditInput) => textEdit(input, [cfg.cwd, os.tmpdir()]),
-        });
-        providerOptions = { anthropic: { cacheControl: { type: "ephemeral" } } };
-        break;
-      }
-      case "openai": {
-        const { openai } = await import("@ai-sdk/openai");
-        model = openai(modelName ?? "gpt-4o");
-        break;
-      }
-      default:
-        throw new Error(`Unknown LLM provider: "${provider}". Supported: anthropic, openai`);
+    if (provider === "anthropic") {
+      const { anthropic } = await import("@ai-sdk/anthropic");
+      webSearchTool = anthropic.tools.webSearch_20260209({ maxUses: 3 });
+      textEditorTool = anthropic.tools.textEditor_20250728({
+        execute: async (input: TextEditInput) => textEdit(input, [cfg.cwd, os.tmpdir()]),
+      });
+      providerOptions = { anthropic: { cacheControl: { type: "ephemeral" } } };
     }
 
     // ── secretsEnv: resolve named secrets → bash subprocess env ────────────
@@ -786,6 +798,10 @@ export default defineStep({
     // workflow author never picks this, and the SDK's 4096 default truncates
     // large tool calls mid-JSON.
     const maxOutputTokens = maxOutputTokensFor(provider);
+    // Resolved LAST (after all config validation): aieo's getModel resolves
+    // the provider API key eagerly and throws when it's absent — a config
+    // error should surface before a missing-key error.
+    const model: any = getModel(provider as AieoProvider, modelName ? { modelName } : undefined);
     const agent = new ToolLoopAgent({
       model,
       instructions: cfg.system,

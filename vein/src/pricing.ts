@@ -8,7 +8,7 @@
 // Pricing table copied from `mcp/src/aieo/src/provider.ts` ($ per 1M tokens).
 // Keep it in sync when that table changes.
 
-export type LLMProvider = "anthropic" | "openai" | "google" | "openrouter";
+export type LLMProvider = "anthropic" | "openai" | "google" | "openrouter" | "xai";
 
 export interface TokenPricing {
   inputTokenPrice: number; // $ per 1M non-cached input tokens
@@ -36,6 +36,13 @@ export const TOKEN_PRICING: Record<LLMProvider, TokenPricing> = {
   openrouter: {
     inputTokenPrice: 0.6,
     outputTokenPrice: 3.0,
+  },
+  // Grok has no cache-write charge — writes are billed as ordinary input,
+  // so no cacheWritePrice here.
+  xai: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+    cacheReadPrice: 0.75,
   },
 };
 

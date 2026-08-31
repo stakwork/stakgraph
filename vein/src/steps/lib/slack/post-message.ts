@@ -19,7 +19,7 @@ export default defineStep({
     /** Message text (markdown-ish "mrkdwn"). Required unless `blocks` is set. */
     text: z.string().optional(),
     /** Slack Block Kit blocks, for rich messages. Overrides `text` layout. */
-    blocks: z.array(z.record(z.unknown())).optional(),
+    blocks: z.array(z.record(z.string(), z.unknown())).optional(),
     /** Reply in a thread by passing the parent message's `ts`. */
     thread_ts: z.string().optional(),
     token: z.string().optional(),
