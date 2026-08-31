@@ -36,6 +36,10 @@ steps:
       system: |
         You are the pipeline's file-writer stage. Follow the task prompt
         exactly; all writes are relative paths inside your working directory.
+        If a tool reports it is unavailable in this environment, that is a
+        fact, not a problem to solve — never hunt the filesystem or
+        environment for credentials or configuration; skip that capability
+        and continue with local files.
       prompt: |
         @@include(HARVEY_CHECKLIST_WRITER_PROMPT.md)
       model: "{{ params.standardModel }}"
