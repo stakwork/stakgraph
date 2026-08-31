@@ -57,10 +57,12 @@ export {
 // Persistence
 export {
   type RunStore,
+  type PartialRunSummary,
   FileRunStore,
   MemoryRunStore,
   generateRunId,
   tailJsonl,
+  summarizeFromEvents,
 } from "./store.js";
 
 // Chat persistence (detached AI-builder background jobs)

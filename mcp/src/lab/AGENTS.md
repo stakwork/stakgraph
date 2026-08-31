@@ -544,6 +544,15 @@ Domain-agnostic eval substrate, shared by every experiment. See
   (never a mid-generation kill), both null by default. Generation count is
   a poor budget on its own: authors reliably evolve toward more expensive
   architectures, so per-generation cost and wall-clock GROW over a run.
+- `eval/steps/matrix.ts` (`eval/matrix`) — the task×version MATRIX across
+  measurements (plans/evolve-scoreboard-and-task-matrix.md, Phase 1): folds
+  every `{ version, results }` measurement into per-task bands
+  (floor/movable/ceiling), an EMPIRICAL noise floor from same-version
+  re-measurements (identical-YAML fitness deltas + task flips; UNKNOWN, not
+  0, when no version has n≥2), and bias-vs-variance tags on never-correct
+  tasks (byte-identical wrong answer ×≥3 = bias — immune to redundancy and
+  prompt nudges; distinct wrong answers = variance). Verdict channel only —
+  gold never enters. Smoke: `npx tsx src/lab/eval/matrix-smoke.ts`.
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.
