@@ -19,6 +19,10 @@ import type { WorkspaceManager } from "vein";
  *     generations (EVOLVE_SPEC §5.3.3 generalized): a domain supplies its
  *     one-generation workflow + a digest with a `fitness`; harvey-evolve and
  *     gaia-evolve are the two instances.
+ *   - `eval/matrix`      — the task×version matrix across MEASUREMENTS:
+ *     bands (floor/movable/ceiling), the empirical noise floor from
+ *     same-version re-runs, and bias-vs-variance tags for never-correct
+ *     tasks (plans/evolve-scoreboard-and-task-matrix.md, Phase 1).
  */
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
@@ -26,6 +30,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "reflect.ts", type: "eval/reflect" },
   { file: "optimize.ts", type: "eval/optimize" },
   { file: "evolve-loop.ts", type: "eval/evolve-loop" },
+  { file: "matrix.ts", type: "eval/matrix" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

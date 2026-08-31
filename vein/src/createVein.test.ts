@@ -230,6 +230,41 @@ describe("createVein", () => {
     assert.equal(result.status, "success");
   });
 
+  it("serves a partial summary for a run with events but no run.json", async () => {
+    const ws = new WorkspaceManager(tempDir);
+    const vein = await createVein({
+      workspace: ws,
+      serveUi: false,
+      enableChat: false,
+    });
+    // Simulate a run orphaned before finalize: events on disk, no run.json.
+    const ev = (over: Record<string, unknown>) => ({
+      ts: "2026-01-01T00:00:00.000Z",
+      runId: "9999",
+      path: "dead-wf",
+      type: "run.start",
+      ...over,
+    });
+    await vein.store.append("dead-wf", "9999", ev({ input: { taskId: "t1" } }) as never);
+    await vein.store.append(
+      "dead-wf",
+      "9999",
+      ev({ type: "step.end", path: "dead-wf/first", output: { n: 1 }, ts: "2026-01-01T00:01:00.000Z" }) as never,
+    );
+
+    const res = await vein.app.request("/workflows/dead-wf/runs/9999");
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.partial, true);
+    assert.equal(body.status, "stale");
+    assert.deepEqual(body.input, { taskId: "t1" });
+    assert.deepEqual(body.steps, { first: { n: 1 } });
+
+    // A run with no events at all is still a 404.
+    const missing = await vein.app.request("/workflows/dead-wf/runs/1234");
+    assert.equal(missing.status, 404);
+  });
+
   it("exposes a working /health endpoint", async () => {
     const vein = await createVein({
       workspace: new WorkspaceManager(tempDir),

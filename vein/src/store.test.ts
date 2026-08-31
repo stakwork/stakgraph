@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { RunEvent, RunSummary } from "./core.js";
-import { FileRunStore, MemoryRunStore } from "./store.js";
+import { FileRunStore, MemoryRunStore, summarizeFromEvents } from "./store.js";
 
 const WF = "test-workflow";
 
@@ -341,5 +341,62 @@ describe("FileRunStore", () => {
     ac.abort();
     await consume; // must resolve despite no terminal event
     assert.equal(seen[0]?.type, "run.start");
+  });
+});
+
+// ── summarizeFromEvents ────────────────────────────────────────────────────
+
+describe("summarizeFromEvents", () => {
+  const ev = (over: Partial<RunEvent> & { type: RunEvent["type"] }): RunEvent => ({
+    ts: "2026-01-01T00:00:00.000Z",
+    runId: "r1",
+    path: WF,
+    ...over,
+  });
+
+  it("returns null for an empty log", () => {
+    assert.equal(summarizeFromEvents(WF, "r1", []), null);
+  });
+
+  it("reconstructs input, top-level step outputs, and the last event", () => {
+    const events: RunEvent[] = [
+      ev({ type: "run.start", input: { q: 1 }, ts: "2026-01-01T00:00:00.000Z" }),
+      ev({ type: "step.start", path: `${WF}/a` }),
+      ev({ type: "step.end", path: `${WF}/a`, output: { got: "a" } }),
+      ev({ type: "step.start", path: `${WF}/b` }),
+      // nested + iteration paths must NOT appear as top-level steps
+      ev({ type: "step.end", path: `${WF}/b/inner`, output: "nested" }),
+      ev({ type: "step.end", path: `${WF}/b#0`, output: "iter" }),
+      ev({ type: "step.end", path: `${WF}/b`, output: { got: "b" }, ts: "2026-01-01T00:05:00.000Z" }),
+    ];
+    const s = summarizeFromEvents(WF, "r1", events);
+    assert.ok(s);
+    assert.equal(s.partial, true);
+    assert.equal(s.status, "stale");
+    assert.equal(s.startedAt, "2026-01-01T00:00:00.000Z");
+    assert.deepEqual(s.input, { q: 1 });
+    assert.deepEqual(s.steps, { a: { got: "a" }, b: { got: "b" } });
+    assert.equal(s.lastEventAt, "2026-01-01T00:05:00.000Z");
+    assert.equal(s.lastEvent?.path, `${WF}/b`);
+    assert.equal(s.eventCount, events.length);
+  });
+
+  it("keeps the LATEST output for a re-run step and records the last error", () => {
+    const events: RunEvent[] = [
+      ev({ type: "run.start", input: {} }),
+      ev({ type: "step.end", path: `${WF}/a`, output: "first" }),
+      ev({ type: "step.error", path: `${WF}/a/tool`, error: { message: "rate limited" }, ts: "t-err" }),
+      ev({ type: "step.replayed", path: `${WF}/a`, output: "second" }),
+    ];
+    const s = summarizeFromEvents(WF, "r1", events);
+    assert.ok(s);
+    assert.deepEqual(s.steps, { a: "second" });
+    assert.equal(s.lastError?.message, "rate limited");
+    assert.equal(s.lastError?.path, `${WF}/a/tool`);
+  });
+
+  it("threads a caller-supplied live status through", () => {
+    const s = summarizeFromEvents(WF, "r1", [ev({ type: "run.start" })], "running");
+    assert.equal(s?.status, "running");
   });
 });

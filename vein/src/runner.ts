@@ -704,6 +704,15 @@ async function executeLoop(
  *
  * Body config is re-resolved each iteration so templates referencing
  * `$current` / `$index` see the right values.
+ *
+ * `concurrency: N` (default 1) runs up to N iterations at once through a
+ * bounded worker pool. Results stay in input order, each iteration keeps its
+ * own `#i` event path (so journal replay and per-iteration inspection are
+ * unchanged), and the cooperative checkpoint moves to just before each
+ * iteration STARTS — pause parks new starts while in-flight iterations
+ * drain, cancel stops the pool at the same boundary. The practical ceiling
+ * is usually the targets the body talks to (rate limits), not CPU — set it
+ * per call site, low.
  */
 async function executeForeach(
   step: Step,
@@ -742,10 +751,16 @@ async function executeForeach(
     throw new Error(`foreach step "${step.id}" requires a "body" step`);
   }
 
-  const results: unknown[] = [];
+  const concurrencyRaw = step.config["concurrency"] != null
+    ? (resolveConfig(step.config["concurrency"], scope) as number)
+    : 1;
+  const concurrency = Math.max(1, Math.floor(Number(concurrencyRaw) || 1));
 
-  for (let i = 0; i < items.length; i++) {
-    // Cooperative boundary: between foreach iterations (§2.1).
+  const results: unknown[] = new Array(items.length);
+
+  const runIteration = async (i: number): Promise<void> => {
+    // Cooperative boundary: before each iteration STARTS (§2.1) — under a
+    // pool, pause parks new starts while in-flight iterations drain.
     await exec.controller?.checkpoint();
 
     const iterPath = `${path}#${i}`;
@@ -761,8 +776,8 @@ async function executeForeach(
         output,
         iteration: i,
       });
-      results.push(output);
-      continue;
+      results[i] = output;
+      return;
     }
 
     const iterScope = { ...scope, $current: items[i], $index: i };
@@ -788,7 +803,44 @@ async function executeForeach(
       iteration: i,
     });
 
-    results.push(output);
+    results[i] = output;
+  };
+
+  if (concurrency === 1) {
+    for (let i = 0; i < items.length; i++) {
+      await runIteration(i);
+    }
+    return results;
+  }
+
+  // Bounded pool: workers pull the next index off a shared cursor. On the
+  // first failure no NEW iterations start; in-flight ones finish (they are
+  // mid-spend and aborting a body mid-step isn't supported), then the error
+  // that would have surfaced first sequentially — the lowest-index one —
+  // propagates. A cancellation always wins over an ordinary error so the run
+  // finalizes as cancelled, never as error (RUN_CONTROL_SPEC §3).
+  let cursor = 0;
+  const failures: { i: number; err: unknown }[] = [];
+  const worker = async (): Promise<void> => {
+    while (failures.length === 0) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        await runIteration(i);
+      } catch (err) {
+        failures.push({ i, err });
+        return;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  if (failures.length > 0) {
+    const cancelled = failures.find((f) => isCancelledError(f.err));
+    if (cancelled) throw cancelled.err;
+    failures.sort((a, b) => a.i - b.i);
+    throw failures[0]!.err;
   }
 
   return results;
