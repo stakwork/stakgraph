@@ -13,12 +13,17 @@ name: harvey-deliver
 # the same task reuse the namespace, skip completed ingestions (completion
 # marker), and skip re-merging requirements.
 #
-# Phase orchestration lives in subflows (each phase's prompts live in ITS
-# params — override per run with paramOverrides keyed by workflow name):
+# Phase orchestration lives in subflows. The VERBATIM production prompts
+# live as markdown files in harvey/prompts/, spliced into the step configs at
+# seed time via @@include markers (see seed.ts) with their stakwork
+# interpolation tokens translated to vein {{ … }} templates; models and
+# fan-out knobs stay in each workflow's params (override per run with
+# paramOverrides keyed by workflow name):
 #   harvey-ingest-doc   — per-document parse+ingest (agent, jarvis writes)
 #   harvey-knowledge    — checklist writer → fact base → case law → tailor
 #   harvey-draft        — drafters ×N → 4 verifiers → aggregator
-#   harvey-score        — validate → judge → dispute → persist → webhook
+#   harvey-score        — validate → judge → record → dispute → persist →
+#                         webhook
 #
 # Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR, JARVIS_URL + API_TOKEN
 # (+ pandoc, python3 on PATH).
@@ -97,7 +102,9 @@ steps:
           source_ref_id: "{{ evalset.ref_id }}"
           target_type: EvalRequirement
           target_data:
-            id: "{{ docs.namespace }}/{{ $current.id }}"
+            # Production id convention: "<task_slug>-<criterion_id>" (the
+            # dispute prompt's EvalRequirement lookups depend on it).
+            id: "{{ docs.namespace }}-{{ $current.id }}"
             name: "{{ $current.title }}"
             description: "{{ $current.match_criteria }}"
             deliverables: "{{ $current.deliverables }}"
@@ -124,31 +131,35 @@ steps:
             namespace: "{{ docs.namespace }}"
             workdir: "{{ input.workdir }}"
 
-  # Branch B (parallel with ingest): the GENERIC checklist seed from the task
-  # goal alone — graph methodology via the pinned read-only sub-agent, no
-  # task-record facts yet (they don't exist until ingestion finishes).
+  # Branch B (parallel with ingest): the GENERIC checklist seed — the
+  # verbatim HARVEY_LAWYER_CHECKLIST_PROMPT (document-independent: takes only
+  # the task goal + deliverables description; graph methodology via the
+  # pinned read-only sub-agent; no task-record facts, which don't exist
+  # until ingestion finishes).
   - id: seed_checklist
     type: agent
-    depends: [task, dir]
+    depends: [task, dir, docs]
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.checklistSystem }}"
+      system: |
+        You are the stage-1 checklist generator of a legal deliverable
+        pipeline. Follow the task prompt exactly.
       prompt: |
-        {{ params.checklistPrompt }}
-
-        Task instructions:
-        ---
-        {{ task.instructions }}
-        ---
-        Expected deliverables: {{ task.deliverables }}
+        @@include(HARVEY_LAWYER_CHECKLIST_PROMPT.md)
       model: "{{ params.reasoningModel }}"
       maxSteps: "{{ params.checklistMaxSteps }}"
       toolFilter: ["repo_overview"]
       agentTools:
+        - jarvis/get-ontology
+        - jarvis/get-ontology-type
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
         - harvey/graph-sub-agent
       finalAnswer: >
-        The complete GENERIC checklist in markdown — numbered verifiable
-        items grouped by review phase, no record-specific values.
+        The complete GENERIC checklist in structured markdown, exactly as
+        the prompt specifies — no record-specific values.
 
   # Branches rejoin: fact base + tailoring need both the ingested graph and
   # the checklist seed.
@@ -162,6 +173,8 @@ steps:
         namespace: "{{ docs.namespace }}"
         checklist: "{{ seed_checklist.result }}"
         instructions: "{{ task.instructions }}"
+        hasSpreadsheets: "{{ docs.hasSpreadsheets }}"
+        spreadsheetSources: "{{ docs.documents.filter(d => d.isSpreadsheet) }}"
 
   - id: draft
     type: subflow
@@ -173,6 +186,7 @@ steps:
         namespace: "{{ docs.namespace }}"
         instructions: "{{ task.instructions }}"
         deliverables: "{{ task.deliverables }}"
+        documentTitles: "{{ docs.documents.map(d => d.file) }}"
 
   - id: score
     type: subflow
@@ -180,6 +194,7 @@ steps:
     config:
       workflow: harvey-score
       input:
+        dir: "{{ dir.path }}"
         outputDir: "{{ draft.outputDir }}"
         rubric: "{{ input.rubric }}"
         deliverables: "{{ task.deliverables }}"
@@ -218,19 +233,4 @@ params:
   reasoningModel: claude-opus-5
   requireDocuments: true
   ingestConcurrency: 3
-  checklistMaxSteps: 40
-  # ── PASTE-IN SURFACE ── checklistSystem/checklistPrompt ⇐
-  # HARVEY_LAWYER_CHECKLIST_PROMPT (the run_concept_fetch_agent seed).
-  # Interim default below.
-  checklistSystem: |
-    You are a senior lawyer building a GENERIC review checklist for a legal
-    task — before any record documents have been analyzed. Use the shared
-    Concept methodology graph (via the graph research sub-agent) for
-    doctrine and practice-area checklists: enter via the Practice Area
-    roots, scan EVERY root's children (root names are opaque — the relevant
-    checklist may hang under a generic-sounding one), and read the relevant
-    Concepts in full. Output a generic checklist only: verifiable checks,
-    doctrines to apply, cross-checks to run, and terms whose ABSENCE to
-    flag. No record-specific values — tailoring happens later.
-  checklistPrompt: |
-    Build the generic review checklist for this task.
+  checklistMaxSteps: 60

@@ -9,7 +9,7 @@ import { z, defineStep } from "vein";
  * FAILS OPEN by design: any surprise in the graph data (error strings from
  * the jarvis read steps, missing properties, shape drift) filters NOTHING —
  * a broken filter must never block scoring. Matching is by EvalRequirement
- * id ("<evalsetId>/<criterionId>", how merge_requirements writes them) with
+ * id ("<evalsetId>-<criterionId>", how merge_requirements writes them) with
  * a bare-criterion-id fallback.
  */
 export default defineStep({
@@ -24,7 +24,7 @@ export default defineStep({
       .any()
       .optional()
       .describe("EvalRequirement nodes (jarvis/graph-get-batched output; any shape tolerated)."),
-    evalsetId: z.string().optional().describe("EvalSet id — requirement ids are '<evalsetId>/<criterionId>'."),
+    evalsetId: z.string().optional().describe("EvalSet id — requirement ids are '<evalsetId>-<criterionId>'."),
   }),
   output: z.any(),
   async run(cfg) {
@@ -42,7 +42,7 @@ export default defineStep({
       if (contested.size > 0) {
         rubric = cfg.rubric.filter((c) => {
           const id = String((c as Record<string, any>)?.id ?? "");
-          const hit = contested.has(id) || (cfg.evalsetId ? contested.has(`${cfg.evalsetId}/${id}`) : false);
+          const hit = contested.has(id) || (cfg.evalsetId ? contested.has(`${cfg.evalsetId}-${id}`) : false);
           if (hit) dropped.push(id);
           return !hit;
         });

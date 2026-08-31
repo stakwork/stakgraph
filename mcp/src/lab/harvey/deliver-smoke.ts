@@ -37,6 +37,9 @@ async function main() {
       "harvey/aggregate-scores",
       "harvey/merge-disputes",
       "harvey/build-eval-chain",
+      "harvey/criterion-refs",
+      "harvey/generate-docx",
+      "harvey/generate-xlsx",
       "jarvis/register-namespace",
     ];
     for (const t of expectedSteps) assert.ok(registry[t], `registry missing ${t}`);
@@ -54,8 +57,17 @@ async function main() {
     for (const name of expectedWorkflows) {
       const wf = await workspace.getWorkflow(name);
       assert.ok(wf?.steps?.length, `workflow ${name} missing/empty`);
+      // @@include expansion happened at seed time — no markers survive.
+      assert.ok(!JSON.stringify(wf).includes("@@include"), `workflow ${name} has unexpanded @@include`);
     }
-    console.log(`✔ ${expectedWorkflows.length} deliver workflows published + parse`);
+    // Spot-check the splice actually carried prompt bodies in: the persona
+    // text lands in harvey-draft's params, the ingestion prompt in the
+    // ingest-doc agent step.
+    const draftWf = JSON.stringify(await workspace.getWorkflow("harvey-draft"));
+    assert.ok(draftWf.includes("experienced practicing attorney"), "persona not spliced into harvey-draft");
+    const ingestWf = JSON.stringify(await workspace.getWorkflow("harvey-ingest-doc"));
+    assert.ok(ingestWf.includes("ledger of assertions"), "ingestion prompt not spliced into harvey-ingest-doc");
+    console.log(`✔ ${expectedWorkflows.length} deliver workflows published + prompts spliced`);
 
     const run = (type: string, input: unknown, ctx?: StepContext) =>
       registry[type].run(registry[type].input.parse(input), ctx ?? ({} as StepContext));
@@ -148,8 +160,8 @@ async function main() {
       rubric,
       evalsetId: "slug",
       requirements: [
-        { ref_id: "rq1", properties: { id: "slug/c1", contested: true } },
-        { ref_id: "rq2", properties: { id: "slug/c2", contested: false } },
+        { ref_id: "rq1", properties: { id: "slug-c1", contested: true } },
+        { ref_id: "rq2", properties: { id: "slug-c2", contested: false } },
       ],
     });
     assert.deepEqual(out.dropped, ["c1"]);
@@ -192,21 +204,64 @@ async function main() {
     let merged: any = await run("harvey/merge-disputes", {
       criteria_results,
       failed: out.failed,
-      disputes: [{ object: { flagged: true, reason: "actually satisfied", contested: true } }],
-      requirements: [{ ref_id: "rq2", properties: { id: "slug/c2" } }],
+      disputes: [
+        {
+          object: {
+            id: "c2",
+            flagged: true,
+            flag_basis: "criterion_validity",
+            contested: true,
+            llm_flag_reason: "**Criterion Validity:** defective…",
+            document_excerpt: "quoted passage",
+          },
+        },
+      ],
+      criterionRefs: [
+        { criterion_id: "c1", ref_id: "cr1" },
+        { criterion_id: "c2", ref_id: "cr2" },
+      ],
+      requirements: [{ ref_id: "rq2", properties: { id: "slug-c2" } }],
       evalsetId: "slug",
     });
     assert.equal(merged.criteria_results[0].flagged, undefined); // pass untouched
     assert.equal(merged.criteria_results[1].flagged, true);
-    assert.equal(merged.criteria_results[1].llm_flag_reason, "actually satisfied");
+    assert.equal(merged.criteria_results[1].flag_basis, "criterion_validity");
+    assert.equal(merged.criteria_results[1].llm_flag_reason, "**Criterion Validity:** defective…");
+    assert.equal(merged.criteria_results[1].document_excerpt, "quoted passage");
     assert.equal(merged.flagged_count, 1);
     assert.equal(merged.contested_count, 1);
     assert.deepEqual(merged.contested_requirements, [{ criterion_id: "c2", ref_id: "rq2" }]);
+    // the write-back list carries the CriterionResult ref
+    assert.equal(merged.annotations.length, 1);
+    assert.equal(merged.annotations[0].ref_id, "cr2");
+    assert.equal(merged.annotations[0].contested, true);
     // fail-soft: garbage disputes annotate nothing
     merged = await run("harvey/merge-disputes", { criteria_results, failed: out.failed, disputes: "boom" });
     assert.equal(merged.flagged_count, 0);
     assert.equal(merged.criteria_results[1].flagged, undefined);
-    console.log("✔ merge-disputes (left-join + fail-soft + contested refs)");
+    assert.deepEqual(merged.annotations, []);
+    console.log("✔ merge-disputes (left-join + refs + fail-soft + contested)");
+
+    // ── 8b. criterion-refs (slot × batch-result zip, fail-soft) ──────────
+    let refs: any = await run("harvey/criterion-refs", {
+      slots: [
+        { criterion_id: "c1", index: 2 },
+        { criterion_id: "c2", index: 4 },
+      ],
+      record: {
+        results: [
+          { target_ref_id: "t0" },
+          { target_ref_id: "o0" },
+          { target_ref_id: "cr1" },
+          { target_ref_id: "x" },
+          { error: "edge write failed", target_ref_id: "cr2" },
+        ],
+      },
+    });
+    assert.deepEqual(refs, [{ criterion_id: "c1", ref_id: "cr1" }]); // errored slot dropped
+    refs = await run("harvey/criterion-refs", { slots: "garbage", record: { error: "record failed" } });
+    assert.deepEqual(refs, []);
+    console.log("✔ criterion-refs (zip + fail-soft)");
 
     // ── 9. build-eval-chain (ontology shape) ─────────────────────────────
     const ctx = { runId: "run42" } as StepContext;
@@ -240,11 +295,59 @@ async function main() {
     assert.equal(critA.edge_type, "HAS_CRITERION_RESULT");
     assert.equal(critA.target_data.id, "crit-run42-c1");
     assert.equal(reqA.source_type, "EvalRequirement");
-    assert.equal(reqA.source_data.id, "slug/c1");
+    assert.equal(reqA.source_data.id, "slug-c1");
     const critB = chain.triplets[4];
     assert.equal(critB.target_data.flagged, true);
     assert.equal(critB.target_data.contested, true);
-    console.log("✔ build-eval-chain (unified eval chain triplets)");
+    // criterionSlots name each HAS_CRITERION_RESULT triplet's index
+    assert.deepEqual(chain.criterionSlots, [
+      { criterion_id: "c1", index: 2 },
+      { criterion_id: "c2", index: 4 },
+    ]);
+    console.log("✔ build-eval-chain (unified eval chain triplets + slots)");
+
+    // ── 9b. generate-docx / generate-xlsx (skipped if tools absent) ──────
+    const artDir = join(dir, "artifacts-run");
+    mkdirSync(artDir, { recursive: true });
+    const artCtx = {
+      runId: "smoke",
+      services: { artifacts: { dir: async () => artDir } },
+    } as unknown as StepContext;
+    const { execSync } = await import("node:child_process");
+    const have = (cmd: string) => {
+      try {
+        execSync(cmd, { stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (have("pandoc --version")) {
+      const gen: any = await run(
+        "harvey/generate-docx",
+        { filename: "draft_1/memo.docx", markdown: "# Memo\n\nHello." },
+        artCtx,
+      );
+      assert.ok(gen.bytes > 0, `generate-docx failed: ${JSON.stringify(gen)}`);
+      assert.ok(gen.path.endsWith("draft_1/memo.docx"));
+      // containment guard
+      const esc: any = await run("harvey/generate-docx", { filename: "../out.docx", markdown: "x" }, artCtx);
+      assert.match(String(esc), /relative path/);
+      console.log("✔ generate-docx (pandoc + containment)");
+    } else {
+      console.log("· generate-docx skipped (no pandoc on PATH)");
+    }
+    if (have("python3 -c 'import openpyxl'")) {
+      const xlsx: any = await run(
+        "harvey/generate-xlsx",
+        { filename: "output/model.xlsx", sheets: [{ name: "FACTS", rows: [["label", "value"], ["a", 1], ["sum", "=SUM(B2:B2)"]] }] },
+        artCtx,
+      );
+      assert.ok(xlsx.bytes > 0, `generate-xlsx failed: ${JSON.stringify(xlsx)}`);
+      console.log("✔ generate-xlsx (openpyxl)");
+    } else {
+      console.log("· generate-xlsx skipped (no python3/openpyxl)");
+    }
 
     // ── 10. jarvis/register-namespace (fake http) ────────────────────────
     const calls: Array<{ url: string; opts: any }> = [];

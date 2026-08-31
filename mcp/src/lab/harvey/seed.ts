@@ -40,6 +40,11 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "aggregate-scores.ts", type: "harvey/aggregate-scores" },
   { file: "merge-disputes.ts", type: "harvey/merge-disputes" },
   { file: "build-eval-chain.ts", type: "harvey/build-eval-chain" },
+  { file: "criterion-refs.ts", type: "harvey/criterion-refs" },
+  // deliverable generation (pandoc / openpyxl) — grantable agent tools so the
+  // production prompts' harvey_generate_docx/_xlsx calls work verbatim.
+  { file: "generate-docx.ts", type: "harvey/generate-docx" },
+  { file: "generate-xlsx.ts", type: "harvey/generate-xlsx" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -67,11 +72,40 @@ const SEED_WORKFLOWS = [
   "harvey-deliver",
 ];
 
+/**
+ * Expand `@@include(FILE.md)` marker lines with the contents of
+ * `prompts/FILE.md`, indented to the marker's own indentation — so a marker
+ * inside a YAML literal block (`prompt: |`) splices a multi-KB prompt body in
+ * as valid YAML. Keeps the big deliver-pipeline prompts as clean, diffable
+ * markdown files instead of 40KB YAML scalars; publishWorkflowByContent
+ * hashes the EXPANDED yaml, so editing a prompt file re-seeds its workflows.
+ * Unknown includes throw (a silently-missing prompt would seed a broken
+ * workflow).
+ */
+async function expandIncludes(yaml: string): Promise<string> {
+  const promptsDir = join(HERE, "prompts");
+  const lines = yaml.split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = line.match(/^([ \t]*)@@include\(([^)]+)\)\s*$/);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+    const [, indent, file] = m;
+    const body = await readFile(join(promptsDir, file), "utf-8");
+    for (const bodyLine of body.replace(/\n$/, "").split("\n")) {
+      out.push(bodyLine.length > 0 ? indent + bodyLine : "");
+    }
+  }
+  return out.join("\n");
+}
+
 export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<void> {
   const dir = join(HERE, "workflows");
   for (const name of SEED_WORKFLOWS) {
     try {
-      const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
+      const yaml = await expandIncludes(await readFile(join(dir, `${name}.yaml`), "utf-8"));
       const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, "harvey-seed", "harvey");
       if (changed) console.log(`[harvey] seeded workflow: ${name} @ ${version}`);
     } catch (err) {

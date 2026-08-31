@@ -45,6 +45,10 @@ export default defineStep({
         ? s.criteria_results
         : [];
 
+    // Position of each criterion's HAS_CRITERION_RESULT triplet in the array
+    // below — harvey/criterion-refs zips these with the batch write's results
+    // to recover the created CriterionResult ref_ids.
+    const criterionSlots: Array<{ criterion_id: string; index: number }> = [];
     const triplets: Array<Record<string, any>> = [
       {
         source_type: "EvalSet",
@@ -82,6 +86,7 @@ export default defineStep({
     for (const c of criteria) {
       const critId = String(c?.criterion_id ?? c?.id ?? "");
       if (!critId) continue;
+      criterionSlots.push({ criterion_id: critId, index: triplets.length });
       triplets.push({
         source_type: "EvalTriggerOutput",
         source_data: { id: output_id },
@@ -94,18 +99,22 @@ export default defineStep({
           reasoning: typeof c?.reasoning === "string" ? c.reasoning : "",
           ...(c?.flagged === true ? { flagged: true, llm_flag_reason: String(c?.llm_flag_reason ?? "") } : {}),
           ...(c?.contested === true ? { contested: true } : {}),
+          ...(typeof c?.document_excerpt === "string" && c.document_excerpt
+            ? { document_excerpt: c.document_excerpt }
+            : {}),
         },
         edge_type: "HAS_CRITERION_RESULT",
       });
       triplets.push({
         source_type: "EvalRequirement",
-        source_data: { id: `${cfg.evalsetId}/${critId}` },
+        // Production id convention: "<task_slug>-<criterion_id>".
+        source_data: { id: `${cfg.evalsetId}-${critId}` },
         target_type: "EvalTrigger",
         target_data: { id: trigger_id },
         edge_type: "HAS_TRIGGER",
       });
     }
 
-    return { triplets, trigger_id, output_id };
+    return { triplets, criterionSlots, trigger_id, output_id };
   },
 });

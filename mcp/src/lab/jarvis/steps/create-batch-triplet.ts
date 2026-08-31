@@ -83,6 +83,14 @@ export default defineStep({
       .string()
       .optional()
       .describe("Jarvis namespace (data partition) for all inline node creation. Not an access-control boundary."),
+    allow_scratchpad: z
+      .boolean()
+      .optional()
+      .describe(
+        "Last-resort capture for ALL triplets in the batch: a write that would otherwise be rejected " +
+          "(unregistered edge type/pair, or data failing schema validation) is preserved as a ScratchpadEntry " +
+          "node instead of being dropped. No effect on writes that validate cleanly.",
+      ),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -108,7 +116,11 @@ export default defineStep({
         headers,
         query,
         timeout,
-        body: { node_type: nodeType, node_data: nodeData },
+        body: {
+          node_type: nodeType,
+          node_data: nodeData,
+          ...(cfg.allow_scratchpad ? { allow_scratchpad: true } : {}),
+        },
       });
       const created = extractNodeRefId(res.body);
       if (!created) {
@@ -143,6 +155,7 @@ export default defineStep({
             source: { ref_id: sourceRef },
             target: { ref_id: targetRef },
             create_schema_if_missing: t.create_schema_if_missing ?? false,
+            ...(cfg.allow_scratchpad ? { allow_scratchpad: true } : {}),
           },
         });
         const body = res.body as any;

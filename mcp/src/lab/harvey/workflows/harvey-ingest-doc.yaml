@@ -9,11 +9,13 @@ name: harvey-ingest-doc
 # ingestion is retried on rerun instead of silently skipped — deliberately
 # NOT the stakwork node-exists dedupe) → agent-based extraction → mark done.
 #
-# The ingestion agent is the vein-core `agent` step: it reads the document
-# itself with bash (pandoc/pdftotext/python3+openpyxl) instead of a pre-parse
-# lambda injecting text into the prompt (keeps prompt size flat), and writes
-# assertions through the jarvis write tools. Graph *methodology* questions go
-# through the pinned read-only harvey/graph-sub-agent.
+# The ingestion agent runs the verbatim HARVEY_DOCUMENT_INGESTION_PROMPT
+# (prompts/, spliced in at seed time via @@include; interpolation tokens are
+# now vein templates, and the docx-MCP/pre-parsed-text sections were adapted
+# to bash+pandoc since the agent reads the document itself — prompt size
+# stays flat). Writes go through the jarvis triplet tools (allow_scratchpad
+# supported); graph *methodology* questions go through the pinned read-only
+# harvey/graph-sub-agent.
 #
 # Input:  { file, path, namespace, workdir? }
 #   file: relative name (display/id), path: ABSOLUTE readable path,
@@ -67,22 +69,20 @@ steps:
           error: "{{ $error.message }}"
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.system }}"
+      system: |
+        Follow the extraction instructions in the task prompt exactly. Your
+        working directory is scratch space plus work/unmapped-findings.md;
+        the source document path is READ-ONLY — never write to it. All
+        durable output goes to the knowledge graph through the jarvis tools.
       prompt: |
-        {{ params.prompt }}
-
-        Document to ingest (READ-ONLY — never write to this path):
-          {{ input.path }}
-        Its Document node already exists: ref_id {{ docnode.ref_id }} — hang
-        every assertion off it via CONTAINS edges from that ref_id.
-        Task graph namespace (ALL writes): {{ input.namespace }}
-        Concept reads use the DEFAULT namespace (omit the namespace arg).
+        @@include(HARVEY_DOCUMENT_INGESTION_PROMPT.md)
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       # Writes: triplets only (create-node deliberately absent — nodes enter
       # the graph as triplet sides, always connected, never orphaned).
-      # Reads: jarvis read family + the pinned research sub-agent.
+      # Reads: jarvis read family + the pinned research sub-agent. sheets/*
+      # for the prompt's scratch-spreadsheet option (discarded at step end).
       agentTools:
         - jarvis/get-ontology
         - jarvis/get-ontology-type
@@ -93,6 +93,7 @@ steps:
         - jarvis/create-triplet
         - jarvis/create-batch-triplet
         - harvey/graph-sub-agent
+        - sheets/*
       finalAnswer: >
         Your ingestion report: counts of nodes/edges created by type, every
         contradiction recorded, and anything logged to work/unmapped-findings.md.
@@ -133,47 +134,3 @@ steps:
 params:
   model: claude-sonnet-5
   maxSteps: 120
-  # ── PASTE-IN SURFACE ─────────────────────────────────────────────────────
-  # system ⇐ HARVEY_DOCUMENT_INGESTION_PROMPT (v13). The interim default
-  # below encodes the v13 core rules; replace with the verbatim prompt.
-  system: |
-    You are a legal knowledge-graph extraction engine processing ONE document.
-    You produce a LEDGER OF ASSERTIONS — never a summary, never analysis.
-
-    Core rules:
-    - ASSERT, NEVER RESOLVE. Record what this document says even if it looks
-      wrong; a silently "fixed" mistake hides a planted flaw. Contradiction
-      detection happens downstream and needs the raw assertions.
-    - Intra-document contradictions: emit BOTH assertions (each with verbatim
-      quote + section) plus a CONTRADICTS or CONFLICTS_WITH edge tagged
-      intra-document. Nothing else in the pipeline catches same-document
-      conflicts.
-    - EVERY fact carries provenance: verbatim quote + location (section /
-      clause / page / sheet cell).
-    - Every numeric fact becomes a ComputedFigure node (label snake_case,
-      formula, verified, discrepancy_flag, unit, verbatim provenance) with
-      its derivation inputs as FormulaComponent nodes linked HAS_COMPONENT.
-      Record BOTH sides of every formula: the stated amount AND rate × base,
-      as two facts; totals with every component in the same group.
-    - Defined terms are first-class DefinedTerm nodes, never inlined values.
-    - COMPLETENESS OVER SELECTIVITY: every figure, percentage, date,
-      deadline, party, obligation, standard, threshold. No inference — a
-      value is extractable only if stated.
-    - Numbers go to the graph or they are LOST: scratch files are discarded,
-      and the downstream cross-check agent reads ONLY the graph.
-    - Every node connects to the task's Document node via a CONTAINS edge.
-      Use ontology types (jarvis_get_ontology, domains Legal/Entity/Content);
-      if no registered edge fits a contradiction pair, still ingest both
-      facts and log the pair to work/unmapped-findings.md instead.
-    - Concepts are STRICTLY READ-ONLY shared methodology (default namespace):
-      orient via the Concept named "Law" and its neighbors; gaps go to
-      work/unmapped-findings.md, never authored.
-
-    Reading files: pandoc for .docx (`pandoc <file> -t markdown`), python3 +
-    openpyxl for .xlsx (print EVERY sheet, row, column), pdftotext or python3
-    for .pdf, .eml is plain text. The document path is read-only; your
-    working directory is for scratch + work/unmapped-findings.md only.
-  prompt: |
-    Ingest the document below into the task namespace, following your system
-    rules exactly. Work document-first: read it fully, then assert every
-    extractable fact with provenance.

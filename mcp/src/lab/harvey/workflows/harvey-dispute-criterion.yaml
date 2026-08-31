@@ -1,17 +1,26 @@
 name: harvey-dispute-criterion
-# Re-examine ONE FAILED criterion with the dispute model (the "Dispute Failed
-# Criteria" shape): did the judge get it wrong (flagged), or is the criterion
-# definition itself bad for this record (contested)? Disputes ANNOTATE — they
-# never flip a verdict; harvey/merge-disputes left-joins the annotations onto
-# the failed results and harvey-score writes contested back to the
-# EvalRequirement nodes.
+# Root-cause audit of ONE FAILED criterion (the verbatim
+# HARVEY_LAB_JUDGE_DISPUTE_PROMPT as the system prompt — spliced in via
+# @@include at seed time). The auditor classifies the failure
+# (criterion_validity / judge_error / legitimate_failure / indeterminate),
+# which maps onto the annotation fields: flagged ("the FAIL verdict is
+# wrong") and contested ("the criterion definition is bad — durably exclude
+# it"). Disputes ANNOTATE — they never flip a verdict.
 #
-# Run per failed criterion by harvey-score's foreach; fall-soft via the agent
-# step's onError (an unexamined failure simply stays unannotated).
+# Production disputes the whole failed set in one call; this runs
+# per-criterion (foreach in harvey-score), so the structured output is the
+# single object, not the prompt's array — the user prompt says so. The
+# prompt's Cause-triplet protocol needs the persisted CriterionResult
+# ref_ids, so harvey-score records the eval chain BEFORE disputing and
+# passes the refs in.
+#
+# Fall-soft via the agent step's onError (an unexamined failure simply stays
+# unannotated).
 #
 # Input:  { criterion: { id, title, match_criteria, reasoning, deliverables },
-#           outputDir, taskDescription }
-# Output: { object: { flagged, reason, contested }, cost, … } or { error }.
+#           dir, namespace, taskDescription, criterionRefs }
+# Output: { object: { id, flagged, flag_basis, contested, llm_flag_reason,
+#           document_excerpt }, cost, … } or { error }.
 steps:
   - id: dispute
     type: agent
@@ -23,56 +32,71 @@ steps:
         config:
           error: "{{ $error.message }}"
     config:
-      cwd: "{{ input.outputDir }}"
-      system: "{{ params.disputeSystem }}"
+      cwd: "{{ input.dir }}"
+      system: |
+        @@include(HARVEY_LAB_JUDGE_DISPUTE_PROMPT.md)
       prompt: |
-        {{ params.disputePrompt }}
-
         ## Task
         {{ input.taskDescription }}
 
-        ## Failed criterion
+        ## Failed Criterion (this run audits exactly ONE)
+        criterion_id: {{ input.criterion.id }}
         **{{ input.criterion.title }}**
 
+        match_criteria:
         {{ input.criterion.match_criteria }}
 
-        ## The judge's FAIL reasoning
+        ## The Judge's FAIL Reasoning
         {{ input.criterion.reasoning }}
 
-        ## Deliverable files (in your working directory; convert .docx with
-        `pandoc <file> -t markdown`)
-        {{ input.criterion.deliverables }}
+        ## Retrieval Context
+        - Artifact directory: your working directory (list and read it —
+          checklist.md, facts.md, spreadsheet.md pointer, draft_*/, critiques/).
+        - deliverable_paths (the produced deliverables): ./output/ — this
+          criterion's files: {{ input.criterion.deliverables }}
+        - Graph namespace for this task's documents: {{ input.namespace }}
+          (Concept/Cause lookups use namespace=default per your protocol.)
+
+        ## Criterion Result Refs
+        {{ input.criterionRefs }}
+
+        ## Output
+        Because this run audits a single criterion, return your result via
+        the structured output as ONE object (the same fields as one entry of
+        your array spec: id, flagged, flag_basis, contested, llm_flag_reason,
+        document_excerpt) — not an array.
       model: "{{ params.disputeModel }}"
       maxSteps: "{{ params.disputeMaxSteps }}"
       toolFilter: ["bash"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - jarvis/create-triplet
+        - sheets/*
       schema:
         type: object
         properties:
+          id:
+            type: string
+            description: The criterion_id, copied exactly.
           flagged:
             type: boolean
-            description: true when the FAIL verdict itself looks WRONG (the work actually satisfies the criterion).
-          reason:
+          flag_basis:
             type: string
-            description: Why the verdict is disputed (or why it stands). Grounded in the files.
+            enum: [criterion_validity, judge_error, legitimate_failure, indeterminate]
           contested:
             type: boolean
-            description: true when the CRITERION DEFINITION is bad for this record (unsatisfiable, ambiguous, or inapplicable) — a durable signal that excludes it from future scoring.
-        required: [flagged, reason, contested]
+          llm_flag_reason:
+            type: string
+            description: The five-section structured audit narrative (Markdown, literal \n newlines).
+          document_excerpt:
+            type: string
+            description: Single plain-text paragraph, no newlines or markdown.
+        required: [id, flagged, flag_basis, contested, llm_flag_reason, document_excerpt]
         additionalProperties: false
 
 params:
   disputeModel: claude-opus-5
-  disputeMaxSteps: 15
-  # ── PASTE-IN SURFACE ── disputeSystem/disputePrompt ⇐ the 58016 "Dispute
-  # Failed Criteria" prompt. Interim default below.
-  disputeSystem: |
-    You are an appellate reviewer of a single FAIL verdict from an LLM
-    judge. Re-read the actual deliverable files independently, then decide:
-    (a) flagged — the work in fact satisfies the criterion and the verdict
-    is wrong; (b) contested — the criterion itself cannot be fairly applied
-    to this record (unsatisfiable, self-contradictory, or inapplicable).
-    Most verdicts are CORRECT: dispute only with concrete evidence from the
-    files, quoted in your reason. flagged and contested are independent and
-    usually both false.
-  disputePrompt: |
-    Re-examine this failed criterion and return your dispute assessment.
+  disputeMaxSteps: 25

@@ -1,20 +1,25 @@
 name: harvey-knowledge
 # Phase 2 of harvey-deliver: turn the ingested graph + the generic checklist
-# seed into the frozen drafting inputs, all as files in the shared artifacts
-# dir (subflows share the parent's runId → same dir):
+# seed into the frozen drafting inputs. All prompts are the verbatim
+# production texts (prompts/, spliced in via @@include at seed time), which
+# define the shared-file contract themselves:
 #
-#   checklist.md           — written, then TAILORED to the record and frozen
+#   checklist.md           — written VERBATIM by the writer, then ADDITIVELY
+#                            tailored to the record and frozen
 #   facts.md               — the fact base (graph-only reconstruction)
-#   spreadsheet.md         — tabular fact reconciliation notes
-#   case-law-research.md   — optional legal research (web)
+#   spreadsheet.md         — POINTER file: its entire contents are the shared
+#                            spreadsheet's ID/URL, nothing else
+#   case-law-research.md   — optional legal research (web + case-law APIs)
 #
 # The cross-check agent is the FACT BASE BUILDER: it reads ONLY graph nodes —
 # never the raw source documents (that blindness is the point: facts that
 # didn't survive ingestion must surface as gaps here, not be quietly patched
-# from the source). Enforced by tooling as far as vein allows (no bash, no
-# jarvis writes beyond triplets) plus prompt discipline.
+# from the source). Enforced by tooling as far as vein allows (no bash) plus
+# the prompt's own discipline. Its unregistered findings land as
+# ScratchpadEntry nodes via create_triplet's allow_scratchpad.
 #
-# Input:  { workdir?, namespace, checklist, instructions }
+# Input:  { workdir?, namespace, checklist, instructions, hasSpreadsheets,
+#           spreadsheetSources }
 # Output: { checklistFile, factsFile, caseLawFile, crossCheckError?,
 #           caseLawError?, cost fields }
 steps:
@@ -28,23 +33,17 @@ steps:
     depends: dir
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.writerSystem }}"
+      system: |
+        You are the pipeline's file-writer stage. Follow the task prompt
+        exactly; all writes are relative paths inside your working directory.
       prompt: |
-        {{ params.writerPrompt }}
-
-        The generic checklist content to write and structure:
-        ---
-        {{ input.checklist }}
-        ---
-        Task instructions (for context on what the checklist must cover):
-        ---
-        {{ input.instructions }}
-        ---
-        Write the checklist to ./checklist.md now.
+        @@include(HARVEY_CHECKLIST_WRITER_PROMPT.md)
       model: "{{ params.standardModel }}"
-      maxSteps: 30
+      maxSteps: "{{ params.writerMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
-      finalAnswer: "Confirm checklist.md was written and summarize its top-level sections."
+      agentTools:
+        - sheets/*
+      finalAnswer: "Confirm checklist.md (and the spreadsheet pointer, if created) were written."
 
   - id: use_cross_check
     type: if
@@ -66,17 +65,17 @@ steps:
           error: "{{ $error.message }}"
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.crossCheckSystem }}"
+      system: |
+        You are the cross-document fact reconciliation stage. Follow the task
+        prompt exactly. You read ONLY the knowledge graph — never source
+        documents. File writes are relative paths inside your working
+        directory.
       prompt: |
-        {{ params.crossCheckPrompt }}
-
-        Task graph namespace: {{ input.namespace }}
-        The tailored checklist target is ./checklist.md (read it first).
-        Write your outputs to ./facts.md and ./spreadsheet.md.
+        @@include(HARVEY_CROSS_CHECK_PROMPT.md)
       model: "{{ params.standardModel }}"
       maxSteps: "{{ params.crossCheckMaxSteps }}"
       # NO bash: the fact base is built from the GRAPH, not the source
-      # documents. The edit tool is for writing facts.md / spreadsheet.md.
+      # documents. The edit tool writes facts.md / spreadsheet.md.
       toolFilter: ["str_replace_based_edit_tool"]
       agentTools:
         - jarvis/get-ontology
@@ -88,9 +87,10 @@ steps:
         - jarvis/create-triplet
         - jarvis/create-batch-triplet
         - harvey/graph-sub-agent
+        - sheets/*
       finalAnswer: >
-        Confirm facts.md and spreadsheet.md were written; report every
-        discrepancy found and every checklist item with NO supporting fact.
+        Confirm facts.md and the FACTS tab were written; report every
+        discrepancy found and every finding that landed as a ScratchpadEntry.
 
   - id: use_case_law
     type: if
@@ -110,23 +110,28 @@ steps:
           error: "{{ $error.message }}"
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.caseLawSystem }}"
+      system: |
+        You are the legal-authority research stage. Follow the task prompt
+        exactly. API keys are provided ONLY as bash environment variables
+        ($GOOGLE_SERPA, $COURTLISTENER_API_KEY) — reference them as $NAME in
+        curl commands; never echo their values.
       prompt: |
-        {{ params.caseLawPrompt }}
-
-        Task instructions:
-        ---
-        {{ input.instructions }}
-        ---
-        The record checklist is ./checklist.md. Write your research to
-        ./case-law-research.md.
+        @@include(HARVEY_CASE_LAW_RESEARCH_PROMPT.md)
       model: "{{ params.standardModel }}"
       maxSteps: "{{ params.caseLawMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool", "web_search"]
+      secretsEnv: ["GOOGLE_SERPA", "COURTLISTENER_API_KEY"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
       finalAnswer: "Confirm case-law-research.md was written and list the authorities covered."
 
-  # Tailor AFTER facts + research exist: binds generic checklist items to real
-  # record values, then FREEZES checklist.md (drafters treat it as law).
+  # Tailor AFTER facts + research exist: ADDITIVELY appends graph-surfaced
+  # items and sharpens existing text in place (never supersedes the stage-1
+  # skeleton), then checklist.md is FROZEN for all downstream agents.
   # Depends on the gates too, so it runs even when both optional agents were
   # skipped (vein only skip-propagates when EVERY dep skipped).
   - id: tailor
@@ -134,15 +139,11 @@ steps:
     depends: [write_checklist, use_cross_check, use_case_law, cross_check, case_law]
     config:
       cwd: "{{ dir.path }}"
-      system: "{{ params.tailorSystem }}"
+      system: |
+        You are the checklist-tailoring stage. Follow the task prompt
+        exactly; edit checklist.md in place, additively.
       prompt: |
-        {{ params.tailorPrompt }}
-
-        Task graph namespace: {{ input.namespace }}
-        Inputs in your working directory: ./checklist.md (the target),
-        ./facts.md and ./spreadsheet.md (if the fact base ran),
-        ./case-law-research.md (if research ran).
-        Rewrite ./checklist.md in place — after you finish it is FROZEN.
+        @@include(HARVEY_CHECKLIST_TAILOR_PROMPT.md)
       model: "{{ params.reasoningModel }}"
       maxSteps: "{{ params.tailorMaxSteps }}"
       toolFilter: ["str_replace_based_edit_tool"]
@@ -152,9 +153,10 @@ steps:
         - jarvis/graph-get-batched
         - jarvis/graph-neighbors
         - harvey/graph-sub-agent
+        - sheets/*
       finalAnswer: >
-        Confirm checklist.md is tailored and frozen; report items you could
-        not bind to a record value.
+        Confirm checklist.md is tailored and frozen; report every item
+        appended, edited, or resolved (or the legitimate no-op conditions).
 
   - id: result
     type: harvey/pack-result
@@ -175,54 +177,7 @@ params:
   reasoningModel: claude-opus-5
   useCrossCheck: true
   useCaseLaw: true
+  writerMaxSteps: 40
   crossCheckMaxSteps: 120
-  caseLawMaxSteps: 60
-  tailorMaxSteps: 60
-  # ── PASTE-IN SURFACE ─────────────────────────────────────────────────────
-  # writerSystem/writerPrompt   ⇐ checklist-writer-agent prompt
-  # crossCheckSystem/…Prompt    ⇐ HARVEY_CROSS_CHECK_PROMPT
-  # caseLawSystem/…Prompt       ⇐ case-law-research-agent prompt
-  # tailorSystem/…Prompt        ⇐ checklist-tailor-agent prompt
-  # Interim defaults below are functional stand-ins, not the production text.
-  writerSystem: |
-    You are a senior lawyer's checklist writer. You structure a generic legal
-    review checklist into a clean, actionable markdown document — numbered
-    items, each phrased as a verifiable check, grouped by phase of review.
-  writerPrompt: |
-    Structure the generic checklist below into ./checklist.md. Keep every
-    substantive item; normalize phrasing into verifiable checks; do not
-    invent record-specific values (tailoring happens later).
-  crossCheckSystem: |
-    You are the FACT BASE BUILDER. You reconstruct the task's facts from the
-    knowledge graph ONLY — you never read source documents, and that
-    blindness is deliberate: a fact that did not survive ingestion must show
-    up here as a GAP, not be patched from the source.
-
-    Method: walk the task namespace (Documents → CONTAINS → entities,
-    ComputedFigures → HAS_COMPONENT → FormulaComponents). Reconcile every
-    pair of related figures (recompute formulas from components; flag
-    discrepancies). Cross-check parties, dates, defined terms, deadlines,
-    and obligations across documents; contradictions (CONTRADICTS /
-    CONFLICTS_WITH edges and any you newly detect) are FINDINGS — record
-    them, and you may assert newly-detected cross-document contradictions as
-    triplets. Write ./facts.md (the narrative fact base: label, value, unit,
-    source doc + section, graph ref_id, verified flag) and ./spreadsheet.md
-    (tabular reconciliation of every numeric group).
-  caseLawSystem: |
-    You are a legal research agent. Research the doctrines, standards, and
-    authorities the task turns on, using web search. Cite precisely
-    (court, year, citation), quote sparingly, and clearly separate holding
-    from dictum. Note jurisdiction fit for every authority.
-  caseLawPrompt: |
-    Research the case law and doctrine relevant to this task and write
-    ./case-law-research.md: authorities grouped by checklist area, each with
-    citation, one-line holding, and why it matters here.
-  tailorSystem: |
-    You are the checklist TAILOR. Bind each generic checklist item to the
-    real record: concrete values from ./facts.md and the graph, document +
-    section references, and the applicable authorities from research. Drop
-    items that cannot apply to this record (say why); add record-specific
-    checks the generic list missed. The result is the FROZEN drafting
-    checklist — drafters follow it verbatim.
-  tailorPrompt: |
-    Tailor ./checklist.md to this record now, editing it in place.
+  caseLawMaxSteps: 80
+  tailorMaxSteps: 80
