@@ -226,7 +226,9 @@ separate commit; §1 and §2+3+4 are independently shippable).
 
 ## 7. The Neo4j follow-up (sketch, out of scope here)
 
-What the boundary buys, and the recommended split:
+The goal is a graph that holds the *skeleton* of everything — the domain
+knowledge, the workflow/step logic, AND the usage of both — with heavy
+payloads hanging off it by reference. The split that serves that:
 
 - **Graph-backed:** `Neo4jWorkspaceStore` — workflows, versions, steps,
   metadata as nodes; `ACTIVE`, `VERSION_OF`, `DEPENDS_ON`, `PUBLISHED_BY`
@@ -234,11 +236,41 @@ What the boundary buys, and the recommended split:
   version lineage, promotion ancestry (EVOLVE_SPEC) become one-hop queries.
   Custom step source lives as node properties; `materializeCustomSteps`
   writes them to `dataDir` scratch at boot/rebuild.
-- **Not graph-backed (recommendation):** run events. High-volume
-  append-only with byte-offset tailing is the wrong shape for Neo4j; the
-  file `RunStore` (or later Postgres) composes fine beside a graph
-  workspace — the layers are independently pluggable, which is the point.
-- Chats/secrets: either; low value, small surface.
+- **Run events — two tiers, not "not graph-backed."** The queries we
+  actually want over runs ("which prompt versions touch which subgraph",
+  "how did 10k traces perform against Concept X", "which runs promoted
+  which param") are queries over structure and linkage, not raw token
+  streams. So:
+  - *Raw log stays append-only and pluggable* (file, later Postgres).
+    High-volume events with byte-offset tailing are the wrong shape for
+    Neo4j node properties; stuffing full tool I/O and transcripts into the
+    graph makes it slow without adding a queryable edge. The raw store
+    remains the store of record for SSE tailing, resume, and replay.
+  - *A graph projection is built on top:* `Run`, `Turn`, `AgentSession`,
+    `ToolCall` nodes; `EXECUTED (Run→WorkflowVersion)`,
+    `TOUCHED (ToolCall→Concept)`, `USED_PARAMS`, `PROMOTED` edges. Nodes
+    carry summaries + a pointer back to the raw log, never full payloads.
+    The raw materials already exist: `run.start` records `workflowHash`
+    and `params`, and `promotes` declares the output→param evolution
+    mapping — Run→version→prompt-knob linkage is derivable today.
+  - *Recommended shape: a post-hoc projector*, i.e. a consumer of any
+    `RunStore` — §1's widened read interface (`listRuns`/`getRunEvents`)
+    is precisely what an ingester needs. It can run as a vein workflow
+    itself, batch or streaming, and can be re-run to rebuild/enrich the
+    projection as the edge vocabulary evolves. Zero coupling to the hot
+    path. (Alternative: a `Neo4jRunStore` that dual-writes — file append,
+    projection on `finalize` — if projection lag ever matters.)
+- **Chats: projected (or fully graph-backed), not "low value."** A chat
+  turn is where a human's intent enters the system;
+  `Chat→SPAWNED→Run→TOUCHED→Concept` is the provenance chain a
+  reflection loop reads. Volume is low enough that chats could live
+  entirely in the graph; at minimum they get projected alongside runs
+  with the spawn edge.
+- Secrets: either; small surface, no linkage value.
+
+The projection vocabulary above (`Run`/`ToolCall`/`TOUCHED`/`EXECUTED`/
+`PROMOTED`) should be named once and shared — the conformance suite's
+future graph cases, the projector, and EVOLVE_SPEC all speak it.
 
 ## Sequencing vs. `workspace-files-and-includes`
 
@@ -262,3 +294,39 @@ backend-independent and unaffected.
    root; remove every `workspace.path` read outside `workspace.ts`.
 5. **Default wiring** cleanup (§5) + **conformance suite** (§6).
 6. (Follow-up plan) `Neo4jWorkspaceStore` against the conformance suite.
+
+## v2: Provenance convention (the gap the projection can't close alone)
+
+Storage backends are not what blocks "which prompts touch which parts of
+the graph" — **provenance capture is**. Today a graph-touching tool call
+(e.g. a `jarvis/*` step exposed via `agentTools`) is logged as
+`stepType: "tool:jarvis/search"` with I/O truncated to 1500 chars for
+event-log readability (`summarizeForEvent` in `steps/core/agent.ts`).
+Which Concept nodes that call touched is recorded nowhere structured —
+a projector would have to parse prose. Without this, the `TOUCHED` edge
+has no data to run on.
+
+The convention (small, additive — v2 work, after the boundary lands):
+
+- **Graph-touching steps return touched node refs in a standard field**
+  on their output — e.g. `output._nodes: [{ id, label }]` (or a
+  well-known key negotiated with jarvis). Steps that don't touch the
+  graph simply omit it.
+- **`wrapToolsWithEmit` preserves `_nodes` untruncated** in the emitted
+  `step.end` event, exempt from `summarizeForEvent` — it's the one part
+  of tool output that must survive into the log verbatim, because it's
+  data for the projector, not a preview for humans.
+- **The projector turns `_nodes` into `TOUCHED` edges**
+  (`ToolCall→Concept`), completing the chain:
+  `Chat→SPAWNED→Run→EXECUTED→WorkflowVersion` (+ `USED_PARAMS`) and
+  `Run→ToolCall→TOUCHED→Concept`. That chain is what makes
+  self-evolution queryable: evaluate trace cohorts against the subgraph
+  they touched, and trace a prompt/param version's blast radius through
+  the domain graph.
+- Same convention applies to chat-mode agents (their tool calls emit
+  into the chat observability stream) so chat provenance projects
+  identically.
+
+Non-goal even in v2: inferring touched nodes from unstructured output.
+If a step doesn't report refs, it gets no `TOUCHED` edges — explicit
+over clever.
