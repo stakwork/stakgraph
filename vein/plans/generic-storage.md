@@ -329,6 +329,11 @@ added later gets the same check against `schema_library.py` first.
 This registry is the shared vocabulary — the conformance suite's future
 graph cases, the projector, and EVOLVE_SPEC all speak it.
 
+Write-dialect details (labels, node_key composition, embeddings,
+domain seeding — everything needed to write these nodes from
+TypeScript with no jarvis in the loop, jarvis-compatibly):
+`jarvis-graph-compat.md`.
+
 ## Sequencing vs. `workspace-files-and-includes`
 
 **This plan lands first.** The files plan adds `publishFile` /
