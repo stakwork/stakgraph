@@ -231,9 +231,11 @@ knowledge, the workflow/step logic, AND the usage of both — with heavy
 payloads hanging off it by reference. The split that serves that:
 
 - **Graph-backed:** `Neo4jWorkspaceStore` — workflows, versions, steps,
-  metadata as nodes; `ACTIVE`, `VERSION_OF`, `DEPENDS_ON`, `PUBLISHED_BY`
-  edges. This is where the graph pays: "which workflows use step X",
-  version lineage, promotion ancestry (EVOLVE_SPEC) become one-hop queries.
+  metadata as nodes (`VeinWorkflow`, `VeinWorkflowVersion`, `VeinStep`,
+  `VeinStepVersion` — see the label registry below); `ACTIVE_VERSION`,
+  `VERSION_OF`, `USES_STEP`, `DEPENDS_ON`, `PUBLISHED_BY` edges. This is
+  where the graph pays: "which workflows use step X", version lineage,
+  promotion ancestry (EVOLVE_SPEC) become one-hop queries.
   Custom step source lives as node properties; `materializeCustomSteps`
   writes them to `dataDir` scratch at boot/rebuild.
 - **Run events — two tiers, not "not graph-backed."** The queries we
@@ -246,10 +248,13 @@ payloads hanging off it by reference. The split that serves that:
     Neo4j node properties; stuffing full tool I/O and transcripts into the
     graph makes it slow without adding a queryable edge. The raw store
     remains the store of record for SSE tailing, resume, and replay.
-  - *A graph projection is built on top:* `Run`, `Turn`, `AgentSession`,
-    `ToolCall` nodes; `EXECUTED (Run→WorkflowVersion)`,
-    `TOUCHED (ToolCall→Concept)`, `USED_PARAMS`, `PROMOTED` edges. Nodes
-    carry summaries + a pointer back to the raw log, never full payloads.
+  - *A graph projection is built on top:* `VeinRun`, `VeinTurn`,
+    `VeinAgentSession`, `VeinToolCall` nodes;
+    `EXECUTED (VeinRun→VeinWorkflowVersion)`,
+    `ACCESSED (VeinToolCall→Concept | any node)`, `PROMOTED_FROM` edges;
+    the run's `params` snapshot lives as properties on `VeinRun` (it's a
+    value bag, not a relationship). Nodes carry summaries + a pointer
+    back to the raw log, never full payloads.
     The raw materials already exist: `run.start` records `workflowHash`
     and `params`, and `promotes` declares the output→param evolution
     mapping — Run→version→prompt-knob linkage is derivable today.
@@ -262,15 +267,67 @@ payloads hanging off it by reference. The split that serves that:
     projection on `finalize` — if projection lag ever matters.)
 - **Chats: projected (or fully graph-backed), not "low value."** A chat
   turn is where a human's intent enters the system;
-  `Chat→SPAWNED→Run→TOUCHED→Concept` is the provenance chain a
-  reflection loop reads. Volume is low enough that chats could live
+  `VeinChat→SPAWNED→VeinRun→…→ACCESSED→Concept` is the provenance chain
+  a reflection loop reads. Volume is low enough that chats could live
   entirely in the graph; at minimum they get projected alongside runs
   with the spawn edge.
 - Secrets: either; small surface, no linkage value.
 
-The projection vocabulary above (`Run`/`ToolCall`/`TOUCHED`/`EXECUTED`/
-`PROMOTED`) should be named once and shared — the conformance suite's
-future graph cases, the projector, and EVOLVE_SPEC all speak it.
+### Label registry (checked against jarvis `schema_library.py`)
+
+The target graph is jarvis's Neo4j, whose schema library already defines
+153 node types — including an entire `Workflow` domain (`Workflow`,
+`Workflow_version`, `Run`, `Run_step`, `Turn`, `Agent`, `AgentSession`,
+`Prompt`) that belongs to a **different workflow engine**. We do NOT
+reuse those labels: same-name nodes with different semantics and
+node_keys would corrupt both engines' queries. Rule, following the
+existing `Hive*` precedent for a separate product family: **every vein
+node label is `Vein`-prefixed, domain `Vein`**, and every edge label is
+verified absent from the library before use. `Concept` (and other
+domain-knowledge nodes) are jarvis's — we point edges AT them, never
+redefine them.
+
+Node labels (all verified unused in the library):
+
+| Label                 | What it is                                              |
+| --------------------- | ------------------------------------------------------- |
+| `VeinWorkflow`        | A workflow by name (the stable identity)                |
+| `VeinWorkflowVersion` | One content-hashed version of a workflow                |
+| `VeinStep`            | A published step type (custom tier)                     |
+| `VeinStepVersion`     | One version of a step's source                          |
+| `VeinRun`             | One run (projected: status, timings, params, log ref)   |
+| `VeinAgentSession`    | One agent-step execution inside a run                   |
+| `VeinToolCall`        | One tool call inside an agent session                   |
+| `VeinChat`            | A long-lived chat                                       |
+| `VeinTurn`            | One turn of a chat                                      |
+
+Edge labels (all verified absent; child→parent direction for `IN_*`):
+
+| Edge             | From → To                                   |
+| ---------------- | ------------------------------------------- |
+| `VERSION_OF`     | `VeinWorkflowVersion`/`VeinStepVersion` → parent |
+| `ACTIVE_VERSION` | `VeinWorkflow`/`VeinStep` → its active version |
+| `USES_STEP`      | `VeinWorkflowVersion` → `VeinStep`          |
+| `DEPENDS_ON`     | `VeinWorkflowVersion` → `VeinWorkflow` (subflow) |
+| `PUBLISHED_BY`   | `VeinStepVersion` → `Person` (optional)     |
+| `EXECUTED`       | `VeinRun` → `VeinWorkflowVersion`           |
+| `PROMOTED_FROM`  | `VeinWorkflowVersion` → `VeinRun` (param promotion lineage) |
+| `IN_RUN`         | `VeinAgentSession` → `VeinRun`              |
+| `IN_SESSION`     | `VeinToolCall` → `VeinAgentSession`         |
+| `SPAWNED`        | `VeinChat` → `VeinRun`                      |
+| `IN_CHAT`        | `VeinTurn` → `VeinChat`                     |
+| `ACCESSED`       | `VeinToolCall` → `Concept` (or any graph node) — provenance |
+
+Near-collision notes (why some obvious names were rejected): the library
+already uses `TOUCHES`, `DERIVED_FROM`, `USES`, `HAS_TURN`,
+`HAS_SESSION`, `HAS_PROMPT`, `CALLS`, `TRIGGERED_BY` — hence `ACCESSED`
+(not `TOUCHED`/`TOUCHES`), `PROMOTED_FROM` (not `DERIVED_FROM`, which is
+ProposedFix fix-lineage), `USES_STEP` (not `USES`), and the `IN_*`
+child→parent family (not `HAS_*`, heavily overloaded). Any new label
+added later gets the same check against `schema_library.py` first.
+
+This registry is the shared vocabulary — the conformance suite's future
+graph cases, the projector, and EVOLVE_SPEC all speak it.
 
 ## Sequencing vs. `workspace-files-and-includes`
 
@@ -303,7 +360,7 @@ the graph" — **provenance capture is**. Today a graph-touching tool call
 `stepType: "tool:jarvis/search"` with I/O truncated to 1500 chars for
 event-log readability (`summarizeForEvent` in `steps/core/agent.ts`).
 Which Concept nodes that call touched is recorded nowhere structured —
-a projector would have to parse prose. Without this, the `TOUCHED` edge
+a projector would have to parse prose. Without this, the `ACCESSED` edge
 has no data to run on.
 
 The convention (small, additive — v2 work, after the boundary lands):
@@ -316,10 +373,11 @@ The convention (small, additive — v2 work, after the boundary lands):
   `step.end` event, exempt from `summarizeForEvent` — it's the one part
   of tool output that must survive into the log verbatim, because it's
   data for the projector, not a preview for humans.
-- **The projector turns `_nodes` into `TOUCHED` edges**
-  (`ToolCall→Concept`), completing the chain:
-  `Chat→SPAWNED→Run→EXECUTED→WorkflowVersion` (+ `USED_PARAMS`) and
-  `Run→ToolCall→TOUCHED→Concept`. That chain is what makes
+- **The projector turns `_nodes` into `ACCESSED` edges**
+  (`VeinToolCall→Concept`), completing the chain:
+  `VeinChat→SPAWNED→VeinRun→EXECUTED→VeinWorkflowVersion` and
+  `VeinRun←IN_RUN←VeinAgentSession←IN_SESSION←VeinToolCall→ACCESSED→Concept`.
+  That chain is what makes
   self-evolution queryable: evaluate trace cohorts against the subgraph
   they touched, and trace a prompt/param version's blast radius through
   the domain graph.
@@ -328,5 +386,5 @@ The convention (small, additive — v2 work, after the boundary lands):
   identically.
 
 Non-goal even in v2: inferring touched nodes from unstructured output.
-If a step doesn't report refs, it gets no `TOUCHED` edges — explicit
+If a step doesn't report refs, it gets no `ACCESSED` edges — explicit
 over clever.
