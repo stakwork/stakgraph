@@ -56,7 +56,18 @@ vein/
 │   │   │                  #                   create_workflow, run_workflow (threads ctx.services)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
-│   └── *.test.ts          # 533 tests across 25 files
+│   ├── graph/             # jarvis-compatible Neo4j graph backend over bolt, no jarvis in the loop (plans/jarvis-graph-compat.md). Opt-in via openGraphBackend
+│   │   ├── bolt.ts        # neo4j-driver wrapper; int() for Integer writes (plain JS numbers write as FLOAT)
+│   │   ├── vein-schemas.ts# the 9 Vein node types + 14-row edge registry (label registry in plans/generic-storage.md); author-time checks
+│   │   ├── schema-seed.ts # idempotent domain registration: Thing root, Schema nodes, CHILD_OF, constraints, vector/fulltext indexes, migration stamp
+│   │   ├── node-writer.ts # §6 validation gate + node_key composition + Data_Bank + MERGE (create/upsert/restore/update), UNWIND batches
+│   │   ├── edge-writer.ts # edge MERGE by ref_id with IS_ALIAS rewrite; closed (source, edge, target) registry
+│   │   ├── embeddings.ts  # local all-MiniLM-L6-v2 via transformers.js, tokenized like sentence-transformers (256 incl. specials); NULL-scan backfill
+│   │   ├── search.ts      # the read surface: hybrid search (RRF + title boost + usage tiebreak), get/neighbors/counts, ontology, namespaces
+│   │   ├── backend.ts     # openGraphBackend(): cached per config; runs seed + backfill on first open
+│   │   ├── test-util.ts   # live-test helpers (wipe, canonical graph snapshot) — only ever point at a throwaway Neo4j
+│   │   └── fixtures/      # Python-produced MiniLM golden vectors + jarvis sanitize_node_key parity cases
+│   └── *.test.ts          # 569 unit tests across 25 files (+ 70 live graph tests under src/graph/, opt-in)
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -93,8 +104,15 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 533 tests, ~1s
+npm test                    # 569 tests, ~1s
 npm run dev                 # starts Hono server on :3000
+
+# Graph backend tests — LIVE, against a THROWAWAY Neo4j (they wipe it).
+# Skipped entirely when VEIN_TEST_NEO4J_URI is unset. Add
+# VEIN_TEST_EMBEDDINGS=1 to also run the real-model parity case (downloads
+# ~90MB of ONNX weights into ~/.cache/vein-models on first run).
+docker run -d --name vein-neo4j-test -p 7688:7687 -e NEO4J_AUTH=neo4j/veintest neo4j:5
+VEIN_TEST_NEO4J_URI=bolt://localhost:7688 VEIN_TEST_NEO4J_PASSWORD=veintest npm run test:graph
 
 # Web UI (dev mode with HMR)
 cd vein/web
@@ -120,6 +138,10 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 | `VEIN_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
 | `VEIN_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
+| `NEO4J_URI`         | (unset)        | Graph backend (opt-in): bolt URI. With `NEO4J_USER`/`NEO4J_PASSWORD` (default `neo4j`/empty), optional `NEO4J_DATABASE`. Read by `openGraphBackendFromEnv` and the mcp lab `graph/*` steps (via the secrets capability). |
+| `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
+| `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
+| `VEIN_MODEL_CACHE`  | `~/.cache/vein-models` | Where the embedding model's ONNX files are cached |
 
 ## Auth
 

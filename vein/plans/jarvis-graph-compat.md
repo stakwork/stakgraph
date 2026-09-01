@@ -19,6 +19,60 @@ entity-resolution machinery (see "Explicitly out of scope").
 Everything below was extracted from jarvis-backend source with
 file:line references; treat those as the authority when implementing.
 
+## Implementation status
+
+Build-order steps 1–6 are implemented on branch `vein-jarvis-graph-compat`
+(`vein/src/graph/*` + the `graph/*` lab steps in `mcp/src/lab/graph/`).
+Tests: `npm run test:graph` in `vein/` (live, against a throwaway Neo4j —
+see `src/graph/test-util.ts`; add `VEIN_TEST_EMBEDDINGS=1` for the
+real-model parity case) and `npx tsx src/lab/graph/smoke.ts` in `mcp/`.
+Not yet built (parallel track, generic-storage §1–5): `Neo4jWorkspaceStore`
+and the run/chat projector; `openGraphBackend` in `src/graph/backend.ts` is
+the seam they plug into.
+
+Decisions and deviations discovered while implementing (source of truth
+over this doc where they disagree):
+
+- `@huggingface/transformers@4.1.1` does not exist on npm; pinned `4.1.0`.
+  transformers.js's own `truncation: true` truncates AFTER adding special
+  tokens (it chops `[SEP]` off long inputs — cosine 0.9978 vs Python), so
+  `embeddings.ts` drives tokenizer + model directly with the body cut to
+  254 tokens and `[CLS]`/`[SEP]` re-added. Parity vs sentence-transformers
+  is ≥ 0.999 on all golden texts including the >256-token one.
+- Main semantic retriever: jarvis applies NO similarity floor and uses
+  `k = cap` (`_search_fetch_limit`); the `k = 50` / `0.4` floor in §7 is
+  the field-scoped (`input_q`/`output_q`) retriever only. Ported as in
+  source. Neo4j's cosine score is `(1+cos)/2`, so 0.4 is permissive.
+- Fulltext/vector index routing without a `domains` filter uses the global
+  `data_bank_attribute_index_v2` / `domain_all_vector_index` when they
+  exist and otherwise unions the per-domain indexes over visible domains
+  (jarvis does this for vectors only) — so a standalone vein DB needs no
+  global fulltext index and we never create one (add-only in shared mode).
+- `description` is a jarvis `SCHEMA_CORE_PROPERTY`, so `Thing`'s
+  `description: "?string"` never surfaces as an *attribute* in ontology
+  output (it lands on the schema as a core key). Node writes still accept
+  it. Mirrored, not fixed.
+- `updated_at` is a jarvis generic node property, so `VeinChat` uses
+  `last_active_at` instead.
+- Namespace registry (§7 open question): a single `(:NameSpace {ref_id,
+  data: [lowercased names]})` node; `default` is implicit. Ported.
+- `PUBLISHED_BY → Person` (§4 item 6): seeded only when a `Person` schema
+  exists (shared mode); skipped in standalone, reported in `SeedReport`.
+- `upsert` rebuilds `Data_Bank` + vectors from the new payload (jarvis's
+  `reprocess` leaves them stale — we produce the state a fresh create
+  would). `NodeWriter.update` (jarvis `POST /v2/nodes/:ref_id`) re-validates
+  the merged payload, recomposes `node_key` with a collision check, and
+  rebuilds search text/vectors; without an embedder a changed text drops
+  the stale vector so the boot backfill heals it.
+- Migration ledger stamp is `ON CREATE SET` (jarvis re-SETs `executed_at`
+  on every run) so re-seeding is a true graph no-op.
+- Edge `unique_source_id` stamping mentioned in §1 was not found in
+  jarvis's edge write path; not implemented.
+- Parity fixtures checked in: `src/graph/fixtures/minilm-golden.json`
+  (Python encoder) and `node-key-parity.json` (jarvis's own
+  `sanitize_node_key` over 10 cases incl. the hashed long-key forms). The
+  §9 search-parity fixture against a live jarvis dump is still to do.
+
 ## Implementation notes (start here in a fresh session)
 
 - **Read first**: this doc + the "Label registry" section of
