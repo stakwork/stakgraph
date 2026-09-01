@@ -383,6 +383,27 @@ export function expandAgentTools(names: string[], registry: StepRegistry): strin
   return out;
 }
 
+/**
+ * Classify how a finalAnswer-mode tool loop ended. The AI SDK loop stops on
+ * ANY turn with no tool call — including a mid-task narration ("now let's
+ * copy this…"), observed live losing a 62-minute research session whose
+ * deliverable needed two more tool calls.
+ *  - "done"      — final_answer was called; nothing to salvage.
+ *  - "nudge"     — stopped tool-lessly WITH budget remaining: resume the real
+ *                  tool loop once (it can still finish file work), telling the
+ *                  model to continue or call final_answer.
+ *  - "exhausted" — the step budget is spent: only a no-tools forced answer
+ *                  turn is possible.
+ */
+export function classifyFinalAnswerStop(
+  finalFound: boolean,
+  stepsUsed: number,
+  maxSteps: number,
+): "done" | "nudge" | "exhausted" {
+  if (finalFound) return "done";
+  return stepsUsed < maxSteps ? "nudge" : "exhausted";
+}
+
 /** Truncate a tool's I/O for the run-event log (the full thing lives in the
  *  model transcript; the event log only needs a readable preview). */
 function summarizeForEvent(v: unknown): string {
@@ -802,6 +823,32 @@ export default defineStep({
     // the provider API key eagerly and throws when it's absent — a config
     // error should surface before a missing-key error.
     const model: any = getModel(provider as AieoProvider, modelName ? { modelName } : undefined);
+    // Shared by the main loop and the premature-stop nudge continuation.
+    const onStepFinish = (sf: any) => {
+      // A length finish means the generation was TRUNCATED at the output
+      // cap — a cut-off tool call never executes, so the loop dies with no
+      // error. Make the cause loud instead of silent.
+      if (sf.finishReason === "length") {
+        console.warn(
+          `[agent] TRUNCATED: generation hit maxOutputTokens=${maxOutputTokens} (finish=length, out:${sf.usage?.outputTokens ?? "?"}). A cut-off tool call never executed. Raise VEIN_MAX_OUTPUT_TOKENS or split the write.`,
+        );
+      }
+      if (!Array.isArray(sf.content)) return;
+      for (const c of sf.content) {
+        if (c.type === "tool-call" && c.toolName !== "final_answer") {
+          console.log("[agent] TOOL CALL:", c.toolName, ":", JSON.stringify(c.input));
+        }
+      }
+    };
+    // Cooperative boundary BETWEEN tool calls (RUN_CONTROL_SPEC §4) — the
+    // single highest-value checkpoint in long agent sessions: a pause parks
+    // before the next LLM call starts (the in-flight one finishes and is
+    // journaled); a cancel stops the session here. `ctx.control` is the
+    // runner's unit-scoped view, so a parked agent counts as quiesced.
+    const prepareStep = async () => {
+      await ctx?.control?.checkpoint();
+      return undefined;
+    };
     const agent = new ToolLoopAgent({
       model,
       instructions: cfg.system,
@@ -810,31 +857,8 @@ export default defineStep({
       stopWhen,
       ...(providerOptions ? { providerOptions } : {}),
       ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
-      // Cooperative boundary BETWEEN tool calls (RUN_CONTROL_SPEC §4) — the
-      // single highest-value checkpoint in long agent sessions: a pause parks
-      // before the next LLM call starts (the in-flight one finishes and is
-      // journaled); a cancel stops the session here. `ctx.control` is the
-      // runner's unit-scoped view, so a parked agent counts as quiesced.
-      prepareStep: async () => {
-        await ctx?.control?.checkpoint();
-        return undefined;
-      },
-      onStepFinish: (sf: any) => {
-        // A length finish means the generation was TRUNCATED at the output
-        // cap — a cut-off tool call never executes, so the loop dies with no
-        // error. Make the cause loud instead of silent.
-        if (sf.finishReason === "length") {
-          console.warn(
-            `[agent] TRUNCATED: generation hit maxOutputTokens=${maxOutputTokens} (finish=length, out:${sf.usage?.outputTokens ?? "?"}). A cut-off tool call never executed. Raise VEIN_MAX_OUTPUT_TOKENS or split the write.`,
-          );
-        }
-        if (!Array.isArray(sf.content)) return;
-        for (const c of sf.content) {
-          if (c.type === "tool-call" && c.toolName !== "final_answer") {
-            console.log("[agent] TOOL CALL:", c.toolName, ":", JSON.stringify(c.input));
-          }
-        }
-      },
+      prepareStep,
+      onStepFinish,
     });
 
     const preamble = buildPreamble(cfg.cwd);
@@ -861,6 +885,9 @@ export default defineStep({
     };
 
     const steps = res.steps ?? [];
+    // Total LLM turns across the whole session — the nudge continuation
+    // (finalAnswer mode, below) folds its turns in.
+    let stepsUsed = steps.length;
     // The full session is HUGE and the runner persists every step's output, so we
     // only include it when explicitly asked (a future fork/sub-agent). Off by
     // default keeps the explore step's persisted output to `{ result, steps, … }`.
@@ -891,19 +918,86 @@ export default defineStep({
       }
     }
     if (cfg.finalAnswer) {
-      for (const step of [...steps].reverse()) {
-        const fa = step.content.find(
-          (c: any) => c.type === "tool-result" && c.toolName === "final_answer",
+      const extractFinal = (fromSteps: any[]): string => {
+        for (const step of [...fromSteps].reverse()) {
+          const fa = step.content.find(
+            (c: any) => c.type === "tool-result" && c.toolName === "final_answer",
+          );
+          if (fa) return String((fa as { output?: unknown }).output ?? "");
+        }
+        return "";
+      };
+      final = extractFinal(steps);
+
+      // PREMATURE text-only stop: the model narrated ("now let's copy this…")
+      // instead of calling a tool, which ends the SDK loop even with budget
+      // remaining — observed live losing a 62-minute research session whose
+      // deliverable needed two more tool calls. Unlike the no-tools forced
+      // turn below, resuming the REAL tool loop can still finish that work:
+      // continue the session ONCE with the remaining budget and a nudge to
+      // either keep working or call final_answer. A second tool-less stop
+      // falls through to the forced turn / last-text fallback as before.
+      if (classifyFinalAnswerStop(!!final, stepsUsed, cfg.maxSteps) === "nudge") {
+        console.warn(
+          `[agent] Loop ended tool-lessly at ${stepsUsed}/${cfg.maxSteps} steps without final_answer; nudging the loop once.`,
         );
-        if (fa) {
-          final = String((fa as { output?: unknown }).output ?? "");
-          break;
+        try {
+          const nudger = new ToolLoopAgent({
+            model,
+            instructions: cfg.system,
+            tools,
+            maxOutputTokens,
+            stopWhen: [
+              hasToolCall("final_answer"),
+              // At least a few turns even when the stop came near the cap —
+              // finishing file work takes more than one call.
+              stepCountIs(Math.max(4, cfg.maxSteps - stepsUsed)),
+            ],
+            ...(providerOptions ? { providerOptions } : {}),
+            prepareStep,
+            onStepFinish,
+          });
+          const nudged = await nudger.stream({
+            messages: [
+              // The session's own user prompt first — response.messages holds
+              // only the generated turns, and the continuation needs the task.
+              { role: "user", content: preamble ? `${preamble}\n\n${cfg.prompt}` : cfg.prompt },
+              ...(messages as any[]),
+              {
+                role: "user",
+                content:
+                  "You stopped by sending a message without any tool call — that ends your run, and you have NOT called final_answer. " +
+                  "If the task is genuinely complete, verify your deliverables now and call final_answer. Otherwise continue the work " +
+                  "with tool calls. Do not stop again without calling final_answer.\n\n" +
+                  cfg.finalAnswer,
+              },
+            ] as any,
+          });
+          let nudgeError: unknown;
+          await nudged.consumeStream({ onError: (e: unknown) => { nudgeError = e; } });
+          if (nudgeError) throw nudgeError;
+          const nudgedSteps = (await nudged.steps) ?? [];
+          stepsUsed += nudgedSteps.length;
+          messages.push(...(((await nudged.response)?.messages ?? []) as any[]));
+          for (const step of nudgedSteps) {
+            for (const item of step.content) {
+              if (item.type === "text" && item.text?.trim()) lastText = item.text.trim();
+            }
+          }
+          final = extractFinal(nudgedSteps);
+          const nu = usageFromResult(await nudged.totalUsage);
+          usage = addUsage(usage, nu);
+          cost += computeCost(provider, nu);
+        } catch (e) {
+          console.warn("[agent] nudge continuation failed:", (e as Error).message);
         }
       }
-      // The loop ended (almost always: hit maxSteps) WITHOUT calling final_answer,
-      // so we'd otherwise return a stray reasoning sentence and lose the whole
-      // (expensive) exploration. Salvage it: force ONE no-tools turn that must emit
-      // the final answer now, continuing the full session.
+
+      // The loop ended (budget exhausted, or the nudge also stopped tool-lessly)
+      // WITHOUT calling final_answer, so we'd otherwise return a stray reasoning
+      // sentence and lose the whole (expensive) exploration. Salvage it: force
+      // ONE no-tools turn that must emit the final answer now, continuing the
+      // full session.
       if (!final) {
         console.warn("[agent] No final_answer tool call; forcing a final-answer turn.");
         try {
@@ -941,7 +1035,7 @@ export default defineStep({
       final = res.text || lastText;
     }
 
-    console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps)`);
-    return { result: final, steps: steps.length, ...maybeMessages, usage, cost };
+    console.log(`[agent] completed in ${Date.now() - startTime}ms (${stepsUsed} steps)`);
+    return { result: final, steps: stepsUsed, ...maybeMessages, usage, cost };
   },
 });

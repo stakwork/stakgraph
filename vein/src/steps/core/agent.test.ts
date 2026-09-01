@@ -15,6 +15,7 @@ import agent, {
   maskSecretValues,
   maskDeep,
   wrapToolsWithMask,
+  classifyFinalAnswerStop,
 } from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
@@ -492,5 +493,25 @@ describe("secretsEnv masking", () => {
   it("secretsEnv defaults to []", () => {
     const cfg = (agent.input as any).parse({ cwd: "/tmp/x", system: "s", prompt: "p" });
     assert.deepEqual(cfg.secretsEnv, []);
+  });
+});
+
+describe("classifyFinalAnswerStop (premature text-only stop vs exhausted budget)", () => {
+  it("done when final_answer was called, regardless of budget", () => {
+    assert.equal(classifyFinalAnswerStop(true, 3, 40), "done");
+    assert.equal(classifyFinalAnswerStop(true, 40, 40), "done");
+  });
+
+  it("nudge when the loop stopped tool-lessly with budget remaining", () => {
+    // The live incident: a mid-task narration ended a 32-step session with an
+    // 80-step budget — the loop must be resumed, not force-answered.
+    assert.equal(classifyFinalAnswerStop(false, 32, 80), "nudge");
+    // A single pure-text first turn is also premature.
+    assert.equal(classifyFinalAnswerStop(false, 1, 40), "nudge");
+  });
+
+  it("exhausted at (or beyond) the step cap — only a no-tools forced turn is left", () => {
+    assert.equal(classifyFinalAnswerStop(false, 40, 40), "exhausted");
+    assert.equal(classifyFinalAnswerStop(false, 41, 40), "exhausted");
   });
 });
