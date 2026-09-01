@@ -47,6 +47,7 @@ vein/
 │   ├── steps/
 │   │   ├── core/          # 9 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait (static import)
 │   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — file dynamic-imported at build; heavy SDKs lazy-imported in run() (see "Lib step dependency convention")
+│   │   │   └── graph/     # graph/* knowledge-graph steps over src/graph (the vein-native twins of the mcp lab's jarvis/* steps — same names, inputs, outputs); _shared.ts lazy-imports the backend; graph-steps.test.ts is a live end-to-end test
 │   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
 │   │   ├── index.ts       # barrel export
@@ -138,7 +139,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 | `VEIN_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
 | `VEIN_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
-| `NEO4J_URI`         | (unset)        | Graph backend (opt-in): bolt URI. With `NEO4J_USER`/`NEO4J_PASSWORD` (default `neo4j`/empty), optional `NEO4J_DATABASE`. Read by `openGraphBackendFromEnv` and the mcp lab `graph/*` steps (via the secrets capability). |
+| `NEO4J_URI`         | (unset)        | Graph backend (opt-in): bolt URI. With `NEO4J_USER`/`NEO4J_PASSWORD` (default `neo4j`/empty), optional `NEO4J_DATABASE`. Read by `openGraphBackendFromEnv` and the `graph/*` lib steps (via the secrets capability). |
 | `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
 | `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
 | `VEIN_MODEL_CACHE`  | `~/.cache/vein-models` | Where the embedding model's ONNX files are cached |

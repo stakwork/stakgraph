@@ -22,10 +22,12 @@ file:line references; treat those as the authority when implementing.
 ## Implementation status
 
 Build-order steps 1–6 are implemented on branch `vein-jarvis-graph-compat`
-(`vein/src/graph/*` + the `graph/*` lab steps in `mcp/src/lab/graph/`).
+(`vein/src/graph/*` + the `graph/*` step twins as vein LIB steps in
+`vein/src/steps/lib/graph/` — not lab steps: they wrap vein's own module,
+so they ship with the engine and are auto-discovered by the registry).
 Tests: `npm run test:graph` in `vein/` (live, against a throwaway Neo4j —
 see `src/graph/test-util.ts`; add `VEIN_TEST_EMBEDDINGS=1` for the
-real-model parity case) and `npx tsx src/lab/graph/smoke.ts` in `mcp/`.
+real-model parity case; includes the end-to-end step test).
 Not yet built (parallel track, generic-storage §1–5): `Neo4jWorkspaceStore`
 and the run/chat projector; `openGraphBackend` in `src/graph/backend.ts` is
 the seam they plug into.

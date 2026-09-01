@@ -1,31 +1,7 @@
-import { z, defineStep, openGraphBackend, GraphValidationError, GraphReadError, type StepContext, type VeinCapabilities, type GraphBackend } from "vein";
-
-/** Resolve the Neo4j connection via the secrets capability (secret store →
- *  env fallback) and open — or reuse — the shared vein graph backend.
- *  Duplicated in every graph/* step — see _shared.ts. */
-async function graphCtx(ctx?: StepContext<VeinCapabilities>): Promise<GraphBackend> {
-  const secrets = ctx?.services?.secrets;
-  const uri = await secrets?.get("NEO4J_URI");
-  if (!uri) throw new Error("graph: NEO4J_URI not configured (set it in the env or the vein secret store)");
-  const emb = ((await secrets?.get("VEIN_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
-  return openGraphBackend(
-    {
-      uri,
-      user: (await secrets?.get("NEO4J_USER")) ?? "neo4j",
-      password: (await secrets?.get("NEO4J_PASSWORD")) ?? "",
-      namespace: (await secrets?.get("VEIN_GRAPH_NAMESPACE")) || "default",
-      database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
-    },
-    { embeddings: !["off", "0", "false"].includes(emb) },
-  );
-}
-
-/** Render a graph error the way the jarvis/* steps render HTTP failures. */
-function errText(step: string, e: unknown): string {
-  if (e instanceof GraphValidationError || e instanceof GraphReadError) return `${step} failed — ${e.code}: ${e.message}`;
-  return `${step} failed: ${e instanceof Error ? e.message : String(e)}`;
-}
-
+import { z } from "zod";
+import { defineStep, type StepContext } from "../../../core.js";
+import type { VeinCapabilities } from "../../../capabilities.js";
+import { graphCtx, errText } from "./_shared.js";
 const LABEL_MAX = 160;
 const NEIGHBOR_CAP = 50;
 const EXCLUDED_NODE_TYPES = ["Hint", "Memory", "Clip", "Turn"];

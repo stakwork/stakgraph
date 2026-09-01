@@ -331,44 +331,13 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
   workspace, verifies registry discovery, and runs every step against a fake
   `ctx.services.http` Jarvis.
 
-### `graph/` — vein-native knowledge-graph steps (NOT an experiment)
-
-The `graph/*` twins of the `jarvis/*` steps: same step names, input schemas,
-and output shapes, but backed by vein's own Neo4j-over-bolt graph layer
-(`vein/src/graph/*`, spec `vein/plans/jarvis-graph-compat.md`) — no jarvis
-in the loop. Everything they write follows jarvis's conventions (labels,
-`node_key`, `Data_Bank`, MiniLM `text_embeddings`, schema meta-graph), so a
-jarvis mounted on the same database later treats the `Vein` domain as
-native. A workflow swaps backends by step type (`jarvis/graph-search` ↔
-`graph/graph-search`).
-
-- **Reads:** `graph/get-ontology`, `graph/get-ontology-type`,
-  `graph/graph-search` (the same hybrid RRF + field-scoped vector search,
-  ported from `node_service_v2.py`), `graph/graph-get`,
-  `graph/graph-get-batched`, `graph/graph-neighbors`.
-- **Writes:** `graph/register-namespace`, `graph/create-node`,
-  `graph/edit-node`, `graph/create-triplet`, `graph/create-batch-triplet`.
-  Writes go through a strict validation gate (closed Vein type set, unknown
-  attributes rejected, closed edge registry) — stricter than jarvis in the
-  safe direction. `edit-node` cannot change a node's type;
-  `create_schema_if_missing` / `allow_scratchpad` are accepted for input
-  parity but have no effect.
-- **Config is automatic:** each step resolves `NEO4J_URI` (+ `NEO4J_USER`,
-  `NEO4J_PASSWORD`, optional `NEO4J_DATABASE`, `VEIN_GRAPH_NAMESPACE`,
-  `VEIN_GRAPH_EMBEDDINGS=off`) through `ctx.services.secrets` and opens the
-  process-wide cached backend (`openGraphBackend` from vein). The first open
-  per config seeds the Vein domain and heals NULL embeddings. Steps are
-  ALWAYS seeded; without `NEO4J_URI` they fail loudly per run.
-- **Granting to agents:** `agentTools: ["graph/*"]`, exactly like `jarvis/*`.
-- **Self-contained duplication is deliberate:** each step inlines its small
-  `graphCtx` preamble; the contract is documented once in
-  `graph/steps/_shared.ts` — change it there AND in every step.
-- **Smoke:** `NEO4J_URI=bolt://localhost:7688 NEO4J_PASSWORD=veintest
-  VEIN_GRAPH_EMBEDDINGS=off npx tsx src/lab/graph/smoke.ts` — LIVE against a
-  throwaway Neo4j (it seeds and writes); seeds into a temp workspace,
-  verifies registry discovery, and runs every step end to end. The graph
-  layer's own suite (`npm run test:graph` in `vein/`, same env with the
-  `VEIN_TEST_` prefix) covers dialect parity in depth.
+The vein-native twins of these steps — `graph/*`, same names, inputs, and
+output shapes, backed by vein's own Neo4j-over-bolt graph layer with no
+jarvis in the loop — are NOT lab steps: they ship inside vein as lib steps
+(`vein/src/steps/lib/graph/`, auto-discovered by the registry) and only
+need `NEO4J_URI` (+ `NEO4J_USER`/`NEO4J_PASSWORD`) in the env or secret
+store. A workflow swaps backends by step type (`jarvis/graph-search` ↔
+`graph/graph-search`); grant with `agentTools: ["graph/*"]`.
 
 ### `sheets/` — Google Sheets steps (NOT an experiment)
 
