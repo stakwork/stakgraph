@@ -146,9 +146,9 @@ export interface WorkflowListEntry {
   category?: string;
   /** Provenance stamp, if any (see WorkflowMetadata.publisher). */
   publisher?: string;
-  /** Start time (epoch ms) of the most recent run, if any. Run ids are
-   *  millisecond timestamps (FileRunStore), so this is just the max entry
-   *  in the workflow's `runs/` dir — no run.json reads. */
+  /** Start time (epoch ms) of the most recent run, if any. Not produced by
+   *  the workspace itself (runs are the run store's records) — the server's
+   *  `GET /workflows` decorates entries from `RunStore.lastRunAt`. */
   lastRunAt?: number;
 }
 
@@ -184,7 +184,6 @@ export class WorkspaceManager {
       const meta = await this.readWorkflowMetadata(entry.name);
       if (meta) {
         const activeDesc = meta.versions[meta.active]?.description;
-        const lastRunAt = await this.lastRunAt(entry.name);
         results.push({
           name: entry.name,
           activeVersion: meta.active,
@@ -192,24 +191,11 @@ export class WorkspaceManager {
           description: activeDesc,
           ...(meta.category ? { category: meta.category } : {}),
           ...(meta.publisher ? { publisher: meta.publisher } : {}),
-          ...(lastRunAt != null ? { lastRunAt } : {}),
         });
       }
     }
 
     return results;
-  }
-
-  /** Most recent run's start time (epoch ms), or null if never run. Run ids
-   *  are millisecond-timestamp dir names, so the max entry is the latest. */
-  private async lastRunAt(name: string): Promise<number | null> {
-    const entries = await safeReaddir(join(this.root, "workflows", name, "runs"));
-    let max: number | null = null;
-    for (const e of entries) {
-      const t = parseInt(e.name, 10);
-      if (!isNaN(t) && (max == null || t > max)) max = t;
-    }
-    return max;
   }
 
   /** Load the active version of a workflow. */

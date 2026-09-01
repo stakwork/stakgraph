@@ -13,7 +13,6 @@ import { generateRunId } from "../store.js";
 // ownership gating — this surface is human-supervised).
 import {
   AI_PUBLISHER,
-  asReadStore,
   coerceJsonArg,
   listRunSummaries,
   publishNewStep,
@@ -436,14 +435,7 @@ export function buildTools(deps: AiDeps) {
           .describe("Max number of recent runs to return (default 20)."),
       }),
       execute: async ({ name, limit }) => {
-        const store = asReadStore(deps.store);
-        if (!store) {
-          return {
-            error:
-              "Run history is unavailable (the run store does not support reading back runs).",
-          };
-        }
-        return { workflow: name, runs: await listRunSummaries(store, name, limit) };
+        return { workflow: name, runs: await listRunSummaries(deps.store, name, limit) };
       },
     }),
 
@@ -459,14 +451,7 @@ export function buildTools(deps: AiDeps) {
           .describe("Include full per-step input/output payloads in events (default false: slimmed)."),
       }),
       execute: async ({ name, runId, fullEvents }) => {
-        const store = asReadStore(deps.store);
-        if (!store) {
-          return {
-            error:
-              "Run history is unavailable (the run store does not support reading back runs).",
-          };
-        }
-        return readRun(store, name, runId, fullEvents);
+        return readRun(deps.store, name, runId, fullEvents);
       },
     }),
 
@@ -501,14 +486,7 @@ export function buildTools(deps: AiDeps) {
         ignoreCase: z.boolean().default(true).describe("Case-insensitive matching (default true)."),
       }),
       execute: async ({ name, pattern, runIds, runLimit, maxMatches, ignoreCase }) => {
-        const store = asReadStore(deps.store);
-        if (!store) {
-          return {
-            error:
-              "Run history is unavailable (the run store does not support reading back runs).",
-          };
-        }
-        return searchRunEvents(store, name, pattern, { runIds, runLimit, maxMatches, ignoreCase });
+        return searchRunEvents(deps.store, name, pattern, { runIds, runLimit, maxMatches, ignoreCase });
       },
     }),
 

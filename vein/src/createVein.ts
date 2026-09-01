@@ -442,8 +442,17 @@ export async function createVein<TServices = unknown>(
   // ── Workflows ────────────────────────────────────────────────────────────
 
   app.get("/workflows", async (c) => {
+    // The workspace lists what it stores; the run store decorates with each
+    // workflow's newest run time. Composed here so neither layer reads the
+    // other's records.
     const workflows = await workspace.listWorkflows();
-    return c.json(workflows);
+    const decorated = await Promise.all(
+      workflows.map(async (w) => {
+        const lastRunAt = await store.lastRunAt(w.name);
+        return lastRunAt != null ? { ...w, lastRunAt } : w;
+      }),
+    );
+    return c.json(decorated);
   });
 
   app.post("/workflows", async (c) => {
@@ -502,9 +511,6 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/runs", async (c) => {
     const name = c.req.param("name");
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Run listing requires a FileRunStore" }, 501);
-    }
     const runIds = await store.listRuns(name);
     const runs = [];
     for (const runId of runIds) {
@@ -520,9 +526,6 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/runs/:runId", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Run lookup requires a FileRunStore" }, 501);
-    }
     const summary = await store.getRunSummary(name, runId);
     if (summary) return c.json(summary);
     // No run.json — in-flight, or orphaned before finalize (crash/restart).
@@ -539,9 +542,6 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/runs/:runId/events", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Event lookup requires a FileRunStore" }, 501);
-    }
     const events = await store.getRunEvents(name, runId);
     return c.json(events);
   });
@@ -549,12 +549,9 @@ export async function createVein<TServices = unknown>(
   // Reattach to a run (live or completed) — SSE tail of its event log.
   // Replays history from the start of the file, then follows appends until
   // the terminal event, then sends a final `done` carrying the RunResult.
-  // One path serves in-flight and finished runs (see `FileRunStore.tailEvents`).
+  // One path serves in-flight and finished runs (see `RunStore.tailEvents`).
   app.get("/workflows/:name/runs/:runId/stream", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Run streaming requires a FileRunStore" }, 501);
-    }
     return streamSSE(c, async (stream) => {
       const ac = new AbortController();
       stream.onAbort(() => ac.abort());
@@ -587,10 +584,8 @@ export async function createVein<TServices = unknown>(
    *  whether the run exists at all. */
   const findRun = async (name: string, runId: string) => {
     const controller = controllers.get(`${name}/${runId}`) ?? null;
-    const summary =
-      store instanceof FileRunStore ? await store.getRunSummary(name, runId) : null;
-    const events =
-      store instanceof FileRunStore ? await store.getRunEvents(name, runId) : [];
+    const summary = await store.getRunSummary(name, runId);
+    const events = await store.getRunEvents(name, runId);
     return { controller, summary, exists: controller != null || events.length > 0 };
   };
 
@@ -648,9 +643,6 @@ export async function createVein<TServices = unknown>(
     }
 
     // No controller → durable resume: journal replay (§5).
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Durable resume requires a FileRunStore" }, 501);
-    }
     if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
     if (summary?.status === "success" && !body.from) {
       return c.json(
@@ -728,9 +720,6 @@ export async function createVein<TServices = unknown>(
   // written until the human POSTs to `/promote`.
   app.get("/workflows/:name/runs/:runId/promotions", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Promotions require a FileRunStore" }, 501);
-    }
     let flow: Flow;
     try {
       flow = await workspace.getWorkflow(name);
@@ -776,9 +765,6 @@ export async function createVein<TServices = unknown>(
   // version + before/after.
   app.post("/workflows/:name/runs/:runId/promote", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Promotions require a FileRunStore" }, 501);
-    }
     const body = await c.req.json<{ to?: string }>();
     if (!body.to) return c.json({ error: "to is required" }, 400);
 

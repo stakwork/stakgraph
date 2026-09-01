@@ -36,7 +36,7 @@ vein/
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow, journal replay
 │   ├── run-control.ts     # RunController: cooperative cancel/pause/resume for run TREES (RUN_CONTROL_SPEC.md)
 │   ├── journal.ts         # resume journal: step.end outputs → {path→output}; `from` invalidation
-│   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore + tailJsonl (shared append-only tail engine)
+│   ├── store.ts           # RunStore interface (writes + reads + tail) + FileRunStore + MemoryRunStore + tailJsonl / tailFromPolling
 │   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
 │   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
 │   ├── createVein.ts      # createVein() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + detached /chat (launch+reattach) + static serving; injectable registry/store/chatStore/services
@@ -424,7 +424,7 @@ services bag can override it, same as `http`/`secrets`).
   connection (closing the client, proxy timeouts, etc. can't kill it).
   To watch a run — live **or** after it finished — open
   `GET /workflows/:name/runs/:runId/stream` (SSE). That endpoint calls
-  `FileRunStore.tailEvents`, which **tails the events file**: replay
+  `RunStore.tailEvents`; the file store **tails the events file**: replay
   from byte offset 0 → EOF (history), then follow appends (polling
   `intervalMs`, default 250ms) until the terminal event
   (`run.end`/`run.error`), then sends a final `done` carrying the
@@ -433,9 +433,12 @@ services bag can override it, same as `http`/`secrets`).
   from EOF — no sequence numbers, no dedupe), and **one code path
   serves completed and in-flight runs**. Pass an `AbortSignal` (wired
   to `stream.onAbort` on client disconnect) to stop the tail early.
-  Streaming requires a `FileRunStore` (the tail reads the file);
-  `MemoryRunStore` runs still launch but the stream endpoint returns
-  501. **Crash caveat:** in-flight *execution* is in-memory, so a
+  `RunStore` is the FULL contract (append/finalize + listRuns/
+  getRunSummary/getRunEvents/tailEvents/lastRunAt): no endpoint
+  capability-gates on the concrete class. A backend without a native
+  tail delegates `tailEvents` to `tailFromPolling` (re-read + index
+  cursor) — `MemoryRunStore` does, so memory-mode vein has run history,
+  SSE reattach, durable resume, and promotions. **Crash caveat:** in-flight *execution* is in-memory, so a
   crash mid-run loses the remaining work (the log up to the crash
   survives); true resume is a later add. The web UI's
   `api.runWorkflow` hides the two steps — it POSTs to launch, then

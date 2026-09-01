@@ -36,26 +36,6 @@ export const AI_PUBLISHER = "ai";
 
 // ── Run-history reads (shared mechanism) ───────────────────────────────────
 
-// The run-history read methods live on `FileRunStore`, not the base `RunStore`
-// interface (which is write-only: append/finalize). `MemoryRunStore` lacks
-// them. Feature-detect so run-history reads degrade gracefully on stores that
-// can't read back (they return an error rather than throwing).
-export interface RunReadStore {
-  listRuns(workflow: string): Promise<string[]>;
-  getRunSummary(workflow: string, runId: string): Promise<RunSummary | null>;
-  getRunEvents(workflow: string, runId: string): Promise<RunEvent[]>;
-}
-
-export function asReadStore(store: unknown): RunReadStore | null {
-  const s = store as Partial<RunReadStore> | undefined;
-  return s &&
-    typeof s.listRuns === "function" &&
-    typeof s.getRunSummary === "function" &&
-    typeof s.getRunEvents === "function"
-    ? (s as RunReadStore)
-    : null;
-}
-
 /** Drop bulky input/output payloads from an event so a run's event list stays
  *  token-cheap; the caller can re-fetch a specific run's full events if needed. */
 export function slimEvent(e: RunEvent) {
@@ -69,12 +49,9 @@ export function slimEvent(e: RunEvent) {
   };
 }
 
-const NO_RUN_HISTORY_ERROR =
-  "Run history is unavailable (the run store does not support reading back runs).";
-
 /** List a workflow's recent runs (newest first) as slim summaries. */
 export async function listRunSummaries(
-  store: RunReadStore,
+  store: Pick<RunStore, "listRuns" | "getRunSummary" | "getRunEvents">,
   name: string,
   limit: number,
 ) {
@@ -95,7 +72,7 @@ export async function listRunSummaries(
 
 /** Read one run's summary + events (slimmed unless `fullEvents`). */
 export async function readRun(
-  store: RunReadStore,
+  store: Pick<RunStore, "listRuns" | "getRunSummary" | "getRunEvents">,
   name: string,
   runId: string,
   fullEvents: boolean,
@@ -154,7 +131,7 @@ const SNIPPET_AFTER = 160;
  * the run window rather than raising the cap.
  */
 export async function searchRunEvents(
-  store: RunReadStore,
+  store: Pick<RunStore, "listRuns" | "getRunSummary" | "getRunEvents">,
   name: string,
   pattern: string,
   opts: RunSearchOptions = {},
@@ -608,25 +585,19 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
     async listRuns(name, limit = 20) {
       const gate = await notOwned(name, "reads run history of");
       if (gate) return { error: gate };
-      const read = asReadStore(store);
-      if (!read) return { error: NO_RUN_HISTORY_ERROR };
-      return { workflow: name, runs: await listRunSummaries(read, name, limit) };
+      return { workflow: name, runs: await listRunSummaries(store, name, limit) };
     },
 
     async getRun(name, runId, fullEvents = false) {
       const gate = await notOwned(name, "reads run history of");
       if (gate) return { error: gate };
-      const read = asReadStore(store);
-      if (!read) return { error: NO_RUN_HISTORY_ERROR };
-      return readRun(read, name, runId, fullEvents);
+      return readRun(store, name, runId, fullEvents);
     },
 
     async searchRuns(name, pattern, opts) {
       const gate = await notOwned(name, "reads run history of");
       if (gate) return { error: gate };
-      const read = asReadStore(store);
-      if (!read) return { error: NO_RUN_HISTORY_ERROR };
-      return searchRunEvents(read, name, pattern, opts);
+      return searchRunEvents(store, name, pattern, opts);
     },
 
     async listSecrets() {

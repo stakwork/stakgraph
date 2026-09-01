@@ -57,11 +57,14 @@ export {
 // Persistence
 export {
   type RunStore,
+  type TailOpts,
   type PartialRunSummary,
   FileRunStore,
   MemoryRunStore,
   generateRunId,
   tailJsonl,
+  tailFromPolling,
+  lastRunAtFromIds,
   summarizeFromEvents,
 } from "./store.js";
 

@@ -468,15 +468,23 @@ describe("createVein", () => {
     assert.ok(text.includes("event: done"));
   });
 
-  it("refuses run streaming when the store is not a FileRunStore", async () => {
+  it("streams a completed run's events from a MemoryRunStore (no capability gate)", async () => {
     const vein = await createVein({
       workspace: new WorkspaceManager(tempDir),
       store: new MemoryRunStore(),
       serveUi: false,
       enableChat: false,
     });
-    const res = await vein.app.request("/workflows/x/runs/123/stream");
-    assert.equal(res.status, 501);
+    const wf = flow("mem-stream", {
+      input: z.object({}),
+      steps: [step("g", "log", { message: "hello" })],
+    });
+    const result = await vein.run(wf, {});
+    const res = await vein.app.request(`/workflows/mem-stream/runs/${result.runId}/stream`);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(text.includes("run.start"));
+    assert.ok(text.includes("event: done"));
   });
 
   it("rebuildRegistry is a no-op when the registry was injected", async () => {
@@ -501,7 +509,7 @@ describe("createVein", () => {
     assert.deepEqual(before, after);
   });
 
-  it("works with an in-memory store (no FileRunStore methods called)", async () => {
+  it("serves run history from an in-memory store (list, lookup, events)", async () => {
     const memStore = new MemoryRunStore();
     const vein = await createVein({
       workspace: new WorkspaceManager(tempDir),
@@ -518,10 +526,42 @@ describe("createVein", () => {
     const result = await vein.run(wf, {});
     assert.equal(result.status, "success");
 
-    // The /runs endpoint should refuse, not crash, when the store
-    // doesn't support listing.
-    const res = await vein.app.request("/workflows/mem-test/runs");
-    assert.equal(res.status, 501);
+    // Every read endpoint works over the memory store — it is a complete
+    // ephemeral backend, not a write-only stub.
+    const list = await vein.app.request("/workflows/mem-test/runs");
+    assert.equal(list.status, 200);
+    const runs = (await list.json()) as { runId: string; status: string }[];
+    assert.deepEqual(runs.map((r) => [r.runId, r.status]), [[result.runId, "success"]]);
+
+    const one = await vein.app.request(`/workflows/mem-test/runs/${result.runId}`);
+    assert.equal(one.status, 200);
+    assert.equal(((await one.json()) as { status: string }).status, "success");
+
+    const events = await vein.app.request(`/workflows/mem-test/runs/${result.runId}/events`);
+    assert.equal(events.status, 200);
+    const types = ((await events.json()) as { type: string }[]).map((e) => e.type);
+    assert.ok(types.includes("run.start") && types.includes("run.end"));
+
+    const missing = await vein.app.request("/workflows/mem-test/runs/nope");
+    assert.equal(missing.status, 404);
+  });
+
+  it("GET /workflows decorates entries with lastRunAt from the run store", async () => {
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishWorkflow("ran", "v1", { steps: [{ id: "g", type: "log", config: { message: "x" } }] });
+    await ws.publishWorkflow("never", "v1", { steps: [{ id: "g", type: "log", config: { message: "x" } }] });
+    const vein = await createVein({
+      workspace: ws,
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+    });
+    const result = await vein.run("ran", {});
+    const res = await vein.app.request("/workflows");
+    const list = (await res.json()) as { name: string; lastRunAt?: number }[];
+    const byName = Object.fromEntries(list.map((w) => [w.name, w.lastRunAt]));
+    assert.equal(byName["ran"], Number(result.runId));
+    assert.equal(byName["never"], undefined);
   });
 
   it("resolves + applies a declared promotion (run output → target param)", async () => {
