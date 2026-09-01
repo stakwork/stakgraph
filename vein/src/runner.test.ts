@@ -389,6 +389,50 @@ describe("runWorkflow - onError", () => {
     assert.equal((result.output as any).errorMsg, "something broke");
   });
 
+  it("$error.cause flattens the cause chain (the socket reason behind a wrapped failure)", async () => {
+    // A severed stream throws a bare "terminated"; the reason it died is only
+    // on the cause. Without this, an onError handler records the symptom and
+    // loses the diagnosis.
+    const throwWithCause = defineStep({
+      type: "boom",
+      input: z.object({}),
+      run: async () => {
+        throw new Error("terminated", {
+          cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+        });
+      },
+    });
+    const wf = flow("cause-chain", {
+      input: z.object({}),
+      steps: [
+        step("risky", "boom", {}, {
+          onError: step("recover", "echo", {
+            msg: "{{ $error.message }}",
+            cause: "{{ $error.cause }}",
+          }),
+        }),
+      ],
+    });
+
+    const result = await runWorkflow(wf, {}, makeRegistry({ boom: throwWithCause }));
+    assert.equal(result.status, "success");
+    assert.equal((result.output as any).msg, "terminated");
+    assert.equal((result.output as any).cause, "ECONNRESET: socket hang up");
+  });
+
+  it("$error.cause is empty when there is no cause", async () => {
+    const wf = flow("no-cause", {
+      input: z.object({}),
+      steps: [
+        step("risky", "fail", { message: "plain" }, {
+          onError: step("recover", "echo", { cause: "{{ $error.cause }}" }),
+        }),
+      ],
+    });
+    const result = await runWorkflow(wf, {}, makeRegistry());
+    assert.equal((result.output as any).cause, "");
+  });
+
   it("retry + onError: fallback runs after retries exhausted", async () => {
     const flakey = createFlakeyStep(10); // never succeeds
     const wf = flow("retry-then-fallback", {

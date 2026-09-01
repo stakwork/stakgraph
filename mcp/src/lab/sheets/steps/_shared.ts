@@ -12,8 +12,12 @@
  *   - Credentials: `cfg.serviceAccount` (explicit step config — parsed JSON
  *     object, JSON string, or base64 JSON) wins, else
  *     `ctx.services.secrets.get("GOOGLE_SERVICE_ACCOUNT_JSON")` (secret store
- *     → env fallback). Missing credentials THROW a loud per-run error — the
- *     steps are always seeded, never silently absent.
+ *     → env fallback). Missing credentials THROW a loud per-run error whose
+ *     text is aimed at the CALLING AGENT: it states sheets are unavailable in
+ *     this environment and says to proceed without them — never an
+ *     instructional "paste the key into env" (observed live sending an agent
+ *     credential-hunting across the filesystem). The throw is loud on
+ *     purpose — the steps are always seeded, never silently absent.
  *   - `cfg.driveFolderId` wins, else the `GOOGLE_DRIVE_FOLDER_ID` secret.
  *     Spreadsheets are created inside that folder (share it with the service
  *     account's client_email so humans can see agent-created sheets).

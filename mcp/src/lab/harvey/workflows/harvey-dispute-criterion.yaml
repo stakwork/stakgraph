@@ -1,0 +1,102 @@
+name: harvey-dispute-criterion
+# Root-cause audit of ONE FAILED criterion (the verbatim
+# HARVEY_LAB_JUDGE_DISPUTE_PROMPT as the system prompt — spliced in via
+# @@include at seed time). The auditor classifies the failure
+# (criterion_validity / judge_error / legitimate_failure / indeterminate),
+# which maps onto the annotation fields: flagged ("the FAIL verdict is
+# wrong") and contested ("the criterion definition is bad — durably exclude
+# it"). Disputes ANNOTATE — they never flip a verdict.
+#
+# Production disputes the whole failed set in one call; this runs
+# per-criterion (foreach in harvey-score), so the structured output is the
+# single object, not the prompt's array — the user prompt says so. The
+# prompt's Cause-triplet protocol needs the persisted CriterionResult
+# ref_ids, so harvey-score records the eval chain BEFORE disputing and
+# passes the refs in.
+#
+# Fall-soft via the agent step's onError (an unexamined failure simply stays
+# unannotated).
+#
+# Input:  { criterion: { id, title, match_criteria, reasoning, deliverables },
+#           dir, namespace, taskDescription, criterionRefs }
+# Output: { object: { id, flagged, flag_basis, contested, llm_flag_reason,
+#           document_excerpt }, cost, … } or { error }.
+steps:
+  - id: dispute
+    type: agent
+    options:
+      retry: { max: 1, delayMs: 10000 }
+      onError:
+        id: dispute_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ input.dir }}"
+      system: |
+        @@include(HARVEY_LAB_JUDGE_DISPUTE_PROMPT.md)
+      prompt: |
+        ## Task
+        {{ input.taskDescription }}
+
+        ## Failed Criterion (this run audits exactly ONE)
+        criterion_id: {{ input.criterion.id }}
+        **{{ input.criterion.title }}**
+
+        match_criteria:
+        {{ input.criterion.match_criteria }}
+
+        ## The Judge's FAIL Reasoning
+        {{ input.criterion.reasoning }}
+
+        ## Retrieval Context
+        - Artifact directory: your working directory (list and read it —
+          checklist.md, facts.md, spreadsheet.md pointer, draft_*/, critiques/).
+        - deliverable_paths (the produced deliverables): ./output/ — this
+          criterion's files: {{ input.criterion.deliverables }}
+        - Graph namespace for this task's documents: {{ input.namespace }}
+          (Concept/Cause lookups use namespace=default per your protocol.)
+
+        ## Criterion Result Refs
+        {{ input.criterionRefs }}
+
+        ## Output
+        Because this run audits a single criterion, return your result via
+        the structured output as ONE object (the same fields as one entry of
+        your array spec: id, flagged, flag_basis, contested, llm_flag_reason,
+        document_excerpt) — not an array.
+      model: "{{ params.disputeModel }}"
+      maxSteps: "{{ params.disputeMaxSteps }}"
+      toolFilter: ["bash"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - jarvis/create-triplet
+        - sheets/*
+      schema:
+        type: object
+        properties:
+          id:
+            type: string
+            description: The criterion_id, copied exactly.
+          flagged:
+            type: boolean
+          flag_basis:
+            type: string
+            enum: [criterion_validity, judge_error, legitimate_failure, indeterminate]
+          contested:
+            type: boolean
+          llm_flag_reason:
+            type: string
+            description: The five-section structured audit narrative (Markdown, literal \n newlines).
+          document_excerpt:
+            type: string
+            description: Single plain-text paragraph, no newlines or markdown.
+        required: [id, flagged, flag_basis, contested, llm_flag_reason, document_excerpt]
+        additionalProperties: false
+
+params:
+  disputeModel: claude-opus-5
+  disputeMaxSteps: 25

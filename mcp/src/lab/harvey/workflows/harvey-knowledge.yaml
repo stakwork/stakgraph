@@ -1,0 +1,206 @@
+name: harvey-knowledge
+# Phase 2 of harvey-deliver: turn the ingested graph + the generic checklist
+# seed into the frozen drafting inputs. All prompts are the verbatim
+# production texts (prompts/, spliced in via @@include at seed time), which
+# define the shared-file contract themselves:
+#
+#   checklist.md           — written VERBATIM by the writer, then ADDITIVELY
+#                            tailored to the record and frozen
+#   facts.md               — the fact base (graph-only reconstruction)
+#   spreadsheet.md         — POINTER file: its entire contents are the shared
+#                            spreadsheet's ID/URL, nothing else
+#   case-law-research.md   — optional legal research (web + case-law APIs)
+#
+# The cross-check agent is the FACT BASE BUILDER: it reads ONLY graph nodes —
+# never the raw source documents (that blindness is the point: facts that
+# didn't survive ingestion must surface as gaps here, not be quietly patched
+# from the source). Enforced by tooling as far as vein allows (no bash) plus
+# the prompt's own discipline. Its unregistered findings land as
+# ScratchpadEntry nodes via create_triplet's allow_scratchpad.
+#
+# Input:  { workdir?, namespace, checklist, instructions, hasSpreadsheets,
+#           spreadsheetSources }
+# Output: { checklistFile, factsFile, caseLawFile, crossCheckError?,
+#           caseLawError?, cost fields }
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: "{{ input.workdir }}"
+
+  - id: write_checklist
+    type: agent
+    depends: dir
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        You are the pipeline's file-writer stage. Follow the task prompt
+        exactly; all writes are relative paths inside your working directory.
+        If a tool reports it is unavailable in this environment, that is a
+        fact, not a problem to solve — never hunt the filesystem or
+        environment for credentials or configuration; skip that capability
+        and continue with local files.
+      prompt: |
+        @@include(HARVEY_CHECKLIST_WRITER_PROMPT.md)
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.writerMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - sheets/*
+      finalAnswer: "Confirm checklist.md (and the spreadsheet pointer, if created) were written."
+
+  - id: use_cross_check
+    type: if
+    depends: write_checklist
+    config:
+      cond: "{{ params.useCrossCheck }}"
+
+  - id: cross_check
+    type: agent
+    depends: use_cross_check
+    when: true
+    # skip_on_error equivalent: a broken fact base degrades drafting but must
+    # not kill the run — drafters fall back to the graph + checklist.
+    options:
+      onError:
+        id: cross_check_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        You are the cross-document fact reconciliation stage. Follow the task
+        prompt exactly. You read ONLY the knowledge graph — never source
+        documents. File writes are relative paths inside your working
+        directory.
+      prompt: |
+        @@include(HARVEY_CROSS_CHECK_PROMPT.md)
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.crossCheckMaxSteps }}"
+      # NO bash: the fact base is built from the GRAPH, not the source
+      # documents. The edit tool writes facts.md / spreadsheet.md.
+      toolFilter: ["str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/get-ontology
+        - jarvis/get-ontology-type
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - jarvis/create-triplet
+        - jarvis/create-batch-triplet
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: >
+        Confirm facts.md and the FACTS tab were written; report every
+        discrepancy found and every finding that landed as a ScratchpadEntry.
+
+  - id: use_case_law
+    type: if
+    depends: write_checklist
+    config:
+      cond: "{{ params.useCaseLaw }}"
+
+  - id: case_law
+    type: agent
+    depends: use_case_law
+    when: true
+    options:
+      onError:
+        id: case_law_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        You are the legal-authority research stage. Follow the task prompt
+        exactly. API keys are provided ONLY as bash environment variables
+        ($SERPA_API_KEY, $COURTLISTENER_API_KEY) — reference them as $NAME in
+        curl commands; never echo their values.
+
+        Deliverable discipline (learned from a lost run — follow exactly):
+        - Build ./case-law-research.md IN YOUR WORKING DIRECTORY from the
+          very first finding, appending as you research — never draft it in
+          /tmp or plan to assemble it at the end. Scratch API responses may
+          go to /tmp; the deliverable may not.
+        - Your run ENDS the moment you emit a message with no tool call.
+          Never narrate an intention ("now let's copy/write…") — DO it with
+          a tool call. When the research is complete, verify the file with
+          `wc -l ./case-law-research.md`, then call final_answer.
+      # The prompt body references "the task goal below" — in production the
+      # runner appended it after the prompt; the exported text ends without
+      # it, so we append it here.
+      prompt: |
+        @@include(HARVEY_CASE_LAW_RESEARCH_PROMPT.md)
+
+        ## Task Goal
+
+        {{ input.instructions }}
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.caseLawMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool", "web_search"]
+      secretsEnv: ["SERPA_API_KEY", "COURTLISTENER_API_KEY"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+      finalAnswer: "Confirm case-law-research.md was written and list the authorities covered."
+
+  # Tailor AFTER facts + research exist: ADDITIVELY appends graph-surfaced
+  # items and sharpens existing text in place (never supersedes the stage-1
+  # skeleton), then checklist.md is FROZEN for all downstream agents.
+  # Depends on the gates too, so it runs even when both optional agents were
+  # skipped (vein only skip-propagates when EVERY dep skipped).
+  - id: tailor
+    type: agent
+    depends: [write_checklist, use_cross_check, use_case_law, cross_check, case_law]
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        You are the checklist-tailoring stage. Follow the task prompt
+        exactly; edit checklist.md in place, additively.
+      prompt: |
+        @@include(HARVEY_CHECKLIST_TAILOR_PROMPT.md)
+      model: "{{ params.reasoningModel }}"
+      maxSteps: "{{ params.tailorMaxSteps }}"
+      toolFilter: ["str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: >
+        Confirm checklist.md is tailored and frozen; report every item
+        appended, edited, or resolved (or the legitimate no-op conditions).
+
+  - id: result
+    type: harvey/pack-result
+    depends: [tailor]
+    config:
+      checklistFile: checklist.md
+      factsFile: facts.md
+      caseLawFile: case-law-research.md
+      # cross_check / case_law are SKIPPED when their gates are off — `?.`
+      # resolves undefined instead of throwing on the skipped refs.
+      crossCheckError: "{{ cross_check?.error }}"
+      caseLawError: "{{ case_law?.error }}"
+      writerCost: "{{ write_checklist.cost }}"
+      crossCheckCost: "{{ cross_check?.cost }}"
+      caseLawCost: "{{ case_law?.cost }}"
+      tailorCost: "{{ tailor.cost }}"
+
+params:
+  standardModel: claude-sonnet-5
+  reasoningModel: claude-opus-5
+  useCrossCheck: true
+  useCaseLaw: true
+  writerMaxSteps: 40
+  crossCheckMaxSteps: 120
+  caseLawMaxSteps: 80
+  tailorMaxSteps: 80

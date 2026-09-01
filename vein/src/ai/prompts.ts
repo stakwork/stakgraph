@@ -126,7 +126,7 @@ Agent (tool-using sub-agent):
 
 Error handling:
 - Any step can have options.onError: <Step> as a fallback that runs if the step fails (after retries, if any).
-- Inside the onError step's config, {{ $error }} is available — it has { message, stack }.
+- Inside the onError step's config, {{ $error }} is available — it has { message, stack, cause } (cause is the flattened Error cause chain, "" when there is none).
 - Example:
     - id: deploy
       type: http

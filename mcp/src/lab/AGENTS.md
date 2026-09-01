@@ -413,6 +413,77 @@ over `ctx.services.harvey.*`; editing them can only break plumbing.
   tree / rev pin / missing dir), rubric stripping, artifact staging, CLI
   args, step wiring.
 
+**The DELIVER pipeline (`harvey-deliver`) — the production-style port, NOT
+part of the benchmark harness.** A lab-shaped recreation of the stakwork
+Harvey LAB workflow (normalize → register namespace → EvalSet/requirements →
+per-doc graph ingestion → checklist/fact base/case law/tailor → drafters ×N →
+4 parallel verifiers → aggregator → per-criterion LLM judge → dispute →
+persist eval chain → webhook → recursion gate). STANDALONE: the rubric
+(`[{ id, title, match_criteria, deliverables }]`) is a RUN INPUT and the
+pipeline self-scores against it — so it must NEVER be wired as a harvey-run
+produce candidate (candidates may not see a rubric). Documents come from the
+local harvey-labs checkout via `harvey/get-task`; the graph namespace AND
+EvalSet id are the slugified task id, so reruns reuse the namespace, skip
+completed ingestions, and skip re-merging requirements.
+
+- Workflows: `harvey-deliver` (orchestrator) → subflows `harvey-ingest-doc`
+  (per document; Document node keyed on `source_link`, dedupe via a
+  `status: "ingested"` COMPLETION MARKER written only after a successful
+  agent run — a partially-failed ingestion is retried, not skipped),
+  `harvey-knowledge` (checklist writer → cross-check fact base [GRAPH-ONLY
+  reads — no bash, deliberately blind to source docs; unregistered findings
+  land as ScratchpadEntry via `allow_scratchpad`] → case-law research
+  [SerpAPI/CourtListener keys via the agent step's `secretsEnv` —
+  SERPA_API_KEY + COURTLISTENER_API_KEY reach bash as env only] →
+  tailor [ADDITIVE, then checklist.md freezes]), `harvey-draft` (drafter
+  foreach → 4 explicit fall-soft verifier agents → aggregator into
+  `./output/`), `harvey-score` (validate exact deliverable names [hard
+  gate] → filter contested [fails open] → judge foreach → aggregate →
+  RECORD the eval chain EvalSet→EvalTrigger→EvalTriggerOutput→
+  CriterionResult per the jarvis schema_library ontology → dispute foreach
+  [root-cause audit: flagged=verdict wrong, contested=criterion defective;
+  annotates + writes Cause triplets onto the recorded CriterionResult refs;
+  never flips verdicts] → merge [fail-soft] → write annotations back onto
+  the CriterionResult nodes + contested onto EvalRequirements → webhook →
+  all-pass ⇒ `EvalSet.recursion=false`), and `harvey-judge-criterion` /
+  `harvey-dispute-criterion` (per-criterion agent-in-schema-mode subflows —
+  they exist because foreach bodies get no onError; a judge crash scores as
+  an honest FAIL via `harvey/aggregate-scores`' zip, never a pass).
+- Steps: `harvey/normalize-documents`, `harvey/ingest-state`,
+  `harvey/drafter-plan`, `harvey/validate-deliverables`,
+  `harvey/filter-contested`, `harvey/aggregate-scores`,
+  `harvey/merge-disputes`, `harvey/build-eval-chain`,
+  `harvey/criterion-refs` (pure/plumbing), `harvey/generate-docx` +
+  `harvey/generate-xlsx` (pandoc / openpyxl deliverable generators,
+  granted as agent tools so the production prompts' generate calls work),
+  `harvey/graph-sub-agent` — the PINNED read-only graph research sub-agent
+  (wraps the core `agent` step via ctx.registry with fixed system frame +
+  read-only jarvis grants; parents supply only the question, so a role agent
+  can never widen the child's tools) — and `jarvis/register-namespace`
+  (+ `allow_scratchpad` passthrough added to `jarvis/create-triplet` /
+  `create-batch-triplet`).
+- **Prompts are the VERBATIM production texts**, kept as markdown files in
+  `harvey/prompts/` and spliced into step configs at seed time via
+  `@@include(FILE.md)` markers (`expandIncludes` in `harvey/seed.ts`,
+  indentation-aware; the content hash covers the expanded YAML, so editing
+  a prompt file re-seeds its workflows). Stakwork `[$(step).output.*]`
+  interpolation tokens were translated to vein `{{ … }}` templates (which
+  is why prompt bodies live in step CONFIG, not params — template
+  resolution is single-pass, so a `{{ }}` inside a params value never
+  resolves), tool names to the lab step names (`jarvis_graph_search`,
+  `harvey_graph_sub_agent`, `harvey_generate_docx`, `sheets_*`…), and
+  container paths to `./`. The raw exports + transform live in git history
+  (`notes/harvey_prompts`, scratchpad transform). EvalRequirement ids
+  follow the production convention `<task_slug>-<criterion_id>`.
+- Judge verdict identity is ORDER-BASED (foreach preserves input order; the
+  aggregate zips rubric×results and refuses on length mismatch) — the judge
+  LLM never echoes criterion ids.
+- Needs `JARVIS_URL` + `API_TOKEN` + `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY`
+  (+ pandoc, python3+openpyxl; optional SERPA_API_KEY + COURTLISTENER_API_KEY
+  for case-law research, GOOGLE_SERVICE_ACCOUNT_JSON for the shared FACTS
+  spreadsheet). Smoke (offline, no LLM/graph):
+  `npx tsx src/lab/harvey/deliver-smoke.ts`.
+
 ### `gaia/` — GAIA benchmark scoring (the hardcoded grader)
 
 Scores answers with the **actual** GAIA leaderboard scorer (`scorer.py`,

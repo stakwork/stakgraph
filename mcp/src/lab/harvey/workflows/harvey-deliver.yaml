@@ -1,0 +1,236 @@
+name: harvey-deliver
+# The Harvey LAB DELIVER pipeline — the lab-shaped port of the stakwork
+# production workflow (normalize → register namespace → EvalSet/requirements →
+# ingest → checklist/fact base → draft+verify+aggregate → judge → dispute →
+# persist → webhook). STANDALONE, production-style: the rubric is a RUN INPUT
+# and the internal judge scores against it. This is NOT a harvey-run produce
+# candidate — a candidate must never see a rubric (harvey/get-task strips the
+# benchmark's), and this pipeline's whole scoring half exists because its
+# rubric is caller-supplied.
+#
+# Documents come from the LOCAL harvey-labs task checkout (harvey/get-task);
+# the graph namespace and EvalSet id are the slugified task id, so reruns of
+# the same task reuse the namespace, skip completed ingestions (completion
+# marker), and skip re-merging requirements.
+#
+# Phase orchestration lives in subflows. The VERBATIM production prompts
+# live as markdown files in harvey/prompts/, spliced into the step configs at
+# seed time via @@include markers (see seed.ts) with their stakwork
+# interpolation tokens translated to vein {{ … }} templates; models and
+# fan-out knobs stay in each workflow's params (override per run with
+# paramOverrides keyed by workflow name):
+#   harvey-ingest-doc   — per-document parse+ingest (agent, jarvis writes)
+#   harvey-knowledge    — checklist writer → fact base → case law → tailor
+#   harvey-draft        — drafters ×N → 4 verifiers → aggregator
+#   harvey-score        — validate → judge → record → dispute → persist →
+#                         webhook
+#
+# Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR, JARVIS_URL + API_TOKEN
+# (+ pandoc, python3 on PATH).
+# Input:  { task, rubric: [{ id, title, match_criteria, deliverables }],
+#           workdir?, webhookUrl? }
+# Output: { task, namespace, evalset_ref, outputDir, scores…, artifactsRunId }
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: "{{ input.workdir }}"
+
+  - id: task
+    type: harvey/get-task
+    config:
+      task: "{{ input.task }}"
+
+  # Intake: verify + classify the local documents, derive the namespace
+  # (hard-fails when documents are listed-but-unreadable or required-but-absent
+  # — the guard_missing_docs equivalent).
+  - id: docs
+    type: harvey/normalize-documents
+    depends: task
+    config:
+      task: "{{ input.task }}"
+      documentsDir: "{{ task.documentsDir }}"
+      documents: "{{ task.documents }}"
+      requireDocuments: "{{ params.requireDocuments }}"
+
+  - id: ns
+    type: jarvis/register-namespace
+    depends: docs
+    config:
+      namespace: "{{ docs.namespace }}"
+
+  # EvalSet id = namespace = task slug; create-or-merge, so reruns reuse it.
+  - id: evalset
+    type: jarvis/create-node
+    depends: ns
+    config:
+      node_type: EvalSet
+      namespace: "{{ docs.namespace }}"
+      node_data:
+        id: "{{ docs.namespace }}"
+        name: "{{ task.title }}"
+        description: "{{ input.task }}"
+        recursion: true
+
+  # Rerun guard: only merge EvalRequirements when the EvalSet has none yet
+  # (an error string from neighbors has .length > 0 → also skips — fail-soft
+  # toward not duplicating).
+  - id: reqcheck
+    type: jarvis/graph-neighbors
+    depends: evalset
+    config:
+      ref_id: "{{ evalset.ref_id }}"
+      edge_type: [HAS_REQUIREMENT]
+      namespace: "{{ docs.namespace }}"
+
+  - id: need_reqs
+    type: if
+    depends: reqcheck
+    config:
+      cond: "{{ !reqcheck.length }}"
+
+  - id: merge_reqs
+    type: foreach
+    depends: need_reqs
+    when: true
+    config:
+      items: "{{ input.rubric }}"
+      body:
+        id: req
+        type: jarvis/create-triplet
+        config:
+          source_ref_id: "{{ evalset.ref_id }}"
+          target_type: EvalRequirement
+          target_data:
+            # Production id convention: "<task_slug>-<criterion_id>" (the
+            # dispute prompt's EvalRequirement lookups depend on it).
+            id: "{{ docs.namespace }}-{{ $current.id }}"
+            name: "{{ $current.title }}"
+            description: "{{ $current.match_criteria }}"
+            deliverables: "{{ $current.deliverables }}"
+            contested: false
+          edge_type: HAS_REQUIREMENT
+          namespace: "{{ docs.namespace }}"
+
+  # Branch A: ingest every document into the task namespace (per-doc subflow;
+  # a single bad document falls soft inside it).
+  - id: ingest
+    type: foreach
+    depends: [ns, dir]
+    config:
+      items: "{{ docs.documents }}"
+      concurrency: "{{ params.ingestConcurrency }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: harvey-ingest-doc
+          input:
+            file: "{{ $current.file }}"
+            path: "{{ $current.path }}"
+            namespace: "{{ docs.namespace }}"
+            workdir: "{{ input.workdir }}"
+
+  # Branch B (parallel with ingest): the GENERIC checklist seed — the
+  # verbatim HARVEY_LAWYER_CHECKLIST_PROMPT (document-independent: takes only
+  # the task goal + deliverables description; graph methodology via the
+  # pinned read-only sub-agent; no task-record facts, which don't exist
+  # until ingestion finishes).
+  - id: seed_checklist
+    type: agent
+    depends: [task, dir, docs]
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        You are the stage-1 checklist generator of a legal deliverable
+        pipeline. Follow the task prompt exactly.
+      prompt: |
+        @@include(HARVEY_LAWYER_CHECKLIST_PROMPT.md)
+      model: "{{ params.reasoningModel }}"
+      maxSteps: "{{ params.checklistMaxSteps }}"
+      toolFilter: ["repo_overview"]
+      agentTools:
+        - jarvis/get-ontology
+        - jarvis/get-ontology-type
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+      finalAnswer: >
+        The complete GENERIC checklist in structured markdown, exactly as
+        the prompt specifies — no record-specific values.
+
+  # Branches rejoin: fact base + tailoring need both the ingested graph and
+  # the checklist seed.
+  - id: knowledge
+    type: subflow
+    depends: [ingest, seed_checklist, merge_reqs, need_reqs]
+    config:
+      workflow: harvey-knowledge
+      input:
+        workdir: "{{ input.workdir }}"
+        namespace: "{{ docs.namespace }}"
+        checklist: "{{ seed_checklist.result }}"
+        instructions: "{{ task.instructions }}"
+        hasSpreadsheets: "{{ docs.hasSpreadsheets }}"
+        spreadsheetSources: "{{ docs.documents.filter(d => d.isSpreadsheet) }}"
+
+  - id: draft
+    type: subflow
+    depends: knowledge
+    config:
+      workflow: harvey-draft
+      input:
+        workdir: "{{ input.workdir }}"
+        namespace: "{{ docs.namespace }}"
+        instructions: "{{ task.instructions }}"
+        deliverables: "{{ task.deliverables }}"
+        documentTitles: "{{ docs.documents.map(d => d.file) }}"
+
+  - id: score
+    type: subflow
+    depends: draft
+    config:
+      workflow: harvey-score
+      input:
+        dir: "{{ dir.path }}"
+        outputDir: "{{ draft.outputDir }}"
+        rubric: "{{ input.rubric }}"
+        deliverables: "{{ task.deliverables }}"
+        evalset_ref: "{{ evalset.ref_id }}"
+        evalset_id: "{{ docs.namespace }}"
+        namespace: "{{ docs.namespace }}"
+        task_description: "{{ task.instructions }}"
+        task: "{{ input.task }}"
+        webhookUrl: "{{ input.webhookUrl }}"
+
+  - id: result
+    type: harvey/pack-result
+    depends: score
+    config:
+      task: "{{ input.task }}"
+      namespace: "{{ docs.namespace }}"
+      evalset_ref: "{{ evalset.ref_id }}"
+      outputDir: "{{ draft.outputDir }}"
+      artifactsRunId: "{{ dir.runId }}"
+      score: "{{ score.score }}"
+      max_score: "{{ score.max_score }}"
+      all_pass: "{{ score.all_pass }}"
+      n_passed: "{{ score.n_passed }}"
+      n_total: "{{ score.n_total }}"
+      pass_rate: "{{ score.pass_rate }}"
+      criteria_results: "{{ score.criteria_results }}"
+      flagged_count: "{{ score.flagged_count }}"
+      contested_count: "{{ score.contested_count }}"
+      trigger_id: "{{ score.trigger_id }}"
+      output_id: "{{ score.output_id }}"
+      ingested: "{{ ingest }}"
+      checklistCost: "{{ seed_checklist.cost }}"
+      judgeCost: "{{ score.judgeCost }}"
+
+params:
+  reasoningModel: claude-opus-5
+  requireDocuments: true
+  ingestConcurrency: 3
+  checklistMaxSteps: 60
