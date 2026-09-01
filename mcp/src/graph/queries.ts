@@ -697,11 +697,15 @@ export function listQueryForLabel(
   label: string,
   withSince: boolean = false,
 ): string {
+  // `date_added_to_graph` is a canonical epoch-ms Integer (see ./time.ts), so
+  // it compares directly against an epoch-ms `$since` — no toFloat coercion.
+  // `nodes_by_type` normalizes caller-supplied `since` values to ms via
+  // `epochValueToMs` before binding.
   const sinceClause = withSince
-    ? `AND ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND toFloat(f.date_added_to_graph) >= $since))`
+    ? `AND ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND f.date_added_to_graph >= $since))`
     : "";
   const orderBy = withSince
-    ? `ORDER BY coalesce(toFloat(f.date_added_to_graph), 0) DESC, f.node_key`
+    ? `ORDER BY coalesce(f.date_added_to_graph, 0) DESC, f.node_key`
     : "";
   return `
 MATCH (f:${label})
