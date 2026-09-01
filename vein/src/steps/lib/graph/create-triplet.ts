@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineStep, type StepContext } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
-import { graphCtx, errText, graphErrorCode } from "./_shared.js";
+import { graphCtx, errText, graphErrorCode, writeEdge } from "./_shared.js";
 /** Validate one side of a triplet: either ref_id XOR (type + data). */
 function validateTripletSide(
   side: "source" | "target",
@@ -26,10 +26,13 @@ export default defineStep({
     "OR a node type + data object to create/merge the node inline. " +
     "REUSE existing nodes wherever possible: search first, and only create inline when the entity " +
     "genuinely doesn't exist yet — duplicate nodes fragment the graph. " +
-    "Node types and the (source_type, edge_type, target_type) triple must be in the ontology " +
-    "(check graph_get_ontology with include_edges) — the edge registry is closed; " +
-    "create_schema_if_missing and allow_scratchpad are accepted for input parity but have no effect. " +
-    "The source must be a Vein node; ACCESSED may point at ANY node (including jarvis-owned types like Concept).",
+    "Node types and the edge type must already exist in the ontology (check with graph_get_ontology); " +
+    "create_schema_if_missing auto-creates a missing edge schema as a last resort. " +
+    "WILDCARD EDGE MATCHING: when checking source_type/target_type against graph_get_ontology's edges for validity, " +
+    'an edge entry with "*" on either side matches any concrete type on that side. ' +
+    '"*" is NEVER a valid value to SUPPLY as source_type or target_type — it is a backend sentinel, not a real node type. ' +
+    "Edges whose source is a Vein-owned type (VeinRun, VeinWorkflow, …) follow vein's closed registry instead. " +
+    "allow_scratchpad is accepted for input parity but has no effect (rejected writes return an error instead of a ScratchpadEntry).",
   input: z.object({
     source_ref_id: z
       .string()
@@ -38,7 +41,7 @@ export default defineStep({
     source_type: z
       .string()
       .optional()
-      .describe("Node type for an INLINE source node (a Vein type). Requires source_data; omit when source_ref_id is set."),
+      .describe("Node type for an INLINE source node (must exist in the ontology). Requires source_data; omit when source_ref_id is set."),
     source_data: z
       .record(z.string(), z.any())
       .optional()
@@ -50,14 +53,14 @@ export default defineStep({
     target_type: z
       .string()
       .optional()
-      .describe("Node type for an INLINE target node (a Vein type). Requires target_data; omit when target_ref_id is set."),
+      .describe("Node type for an INLINE target node (must exist in the ontology). Requires target_data; omit when target_ref_id is set."),
     target_data: z
       .record(z.string(), z.any())
       .optional()
       .describe('Properties for an INLINE target node.'),
     edge_type: z
       .string()
-      .describe("The relationship type, e.g. 'VERSION_OF'. Uppercased. Must be a registered (source_type, edge_type, target_type) triple."),
+      .describe("The relationship type, e.g. 'HAS_TRIGGER'. Uppercased. Must exist in the ontology between the two node types unless create_schema_if_missing is set."),
     edge_data: z
       .record(z.string(), z.any())
       .optional()
@@ -67,7 +70,10 @@ export default defineStep({
       .boolean()
       .optional()
       .default(false)
-      .describe("Accepted for input parity with jarvis/create-triplet; the vein edge registry is closed, so this has no effect."),
+      .describe(
+        "Auto-create the edge schema when the (source_type, edge_type, target_type) relationship is not yet in the ontology. " +
+        'Last resort — check graph_get_ontology\'s edges for an existing wildcard ("*") rule covering the same edge_type first.',
+      ),
     namespace: z
       .string()
       .optional()
@@ -106,12 +112,13 @@ export default defineStep({
 
       let edge;
       try {
-        edge = await b.edges.write({
-          edge: cfg.edge_type.toUpperCase().replace(/ /g, "_"),
+        edge = await writeEdge(b, {
+          edge_type: cfg.edge_type,
           source_ref_id: sourceRef,
           target_ref_id: targetRef,
-          ...(cfg.edge_data ? { properties: cfg.edge_data } : {}),
-          ...(cfg.weight !== undefined ? { weight: cfg.weight } : {}),
+          edge_data: cfg.edge_data,
+          weight: cfg.weight,
+          create_schema_if_missing: cfg.create_schema_if_missing ?? false,
         });
       } catch (e) {
         return (

@@ -9,7 +9,7 @@ import { z, defineStep, type StepContext } from "vein";
  *     -HAS_CRITERION_RESULT-> CriterionResult (one per judged criterion)
  *   EvalRequirement -HAS_TRIGGER-> EvalTrigger (one per judged criterion)
  *
- * Pure payload construction — the write itself is jarvis/create-batch-triplet
+ * Pure payload construction — the write itself is graph/create-batch-triplet
  * (its inline-node dedupe collapses the repeated EvalTriggerOutput side).
  * Ids are derived from ctx.runId, so a retried write MERGES instead of
  * duplicating the chain. Dispute annotations (flagged / llm_flag_reason /
@@ -48,7 +48,7 @@ export default defineStep({
     // ONE node_data object for EVERY EvalTriggerOutput side. The batch step's
     // inline-node dedup cache keys on (type + full node_data) — when the
     // criterion triplets carried a bare { id } while the spine carried the
-    // full attributes, the cache missed and the bare re-create failed jarvis
+    // full attributes, the cache missed and the bare re-create failed the backend's
     // schema validation ("Missing required attribute 'result'"), dropping all
     // 60 CriterionResult writes in the first live run. Identical objects →
     // one resolve, reused everywhere.

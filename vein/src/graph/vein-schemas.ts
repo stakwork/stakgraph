@@ -129,6 +129,15 @@ export const GENERIC_NODE_PROPERTIES = new Set([
   "is_deleted",
 ]);
 
+/** jarvis `SCHEMA_CORE_PROPERTIES` — top-level keys of a Schema node that
+ *  are NOT attributes (everything else on the node is one). */
+export const SCHEMA_CORE_PROPERTIES = new Set([
+  "type", "parent", "attributes", "icon", "media_url", "source_link", "primary_color", "secondary_color",
+  "shape", "index", "node_key", "conditional_formatting", "action", "type_description", "description",
+  "display_name", "title_key", "description_key", "paid_properties", "domain", "vector_index", "volatility",
+  "ref_id",
+]);
+
 /** Attribute names a schema may not declare (jarvis reserved keys). */
 export const RESERVED_ATTRIBUTE_NAMES = new Set(["type", "parent", "node_key", "index"]);
 

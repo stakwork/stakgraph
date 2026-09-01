@@ -20,6 +20,9 @@ export type { GraphBackend };
  *   - `VEIN_GRAPH_NAMESPACE`  — default jarvis namespace (default "default").
  *   - `VEIN_GRAPH_EMBEDDINGS` — "off" disables the local MiniLM embedder
  *     (writes leave vectors NULL; search is fulltext-only).
+ *   - `VEIN_GRAPH_SEED_ONTOLOGY` — "1" also seeds the bundled jarvis
+ *     ontology on first open (add-only), so a STANDALONE Neo4j can host
+ *     jarvis-typed data (Document, EvalSet, …) with no jarvis process.
  *
  * The backend is opened once per config and cached process-wide; the first
  * open runs the boot obligations (domain seeding + embedding backfill).
@@ -32,6 +35,7 @@ export async function graphCtx(ctx?: StepContext<VeinCapabilities>): Promise<Gra
   const uri = await secrets?.get("NEO4J_URI");
   if (!uri) throw new Error("graph: NEO4J_URI not configured (set it in the env or the vein secret store)");
   const emb = ((await secrets?.get("VEIN_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
+  const ont = ((await secrets?.get("VEIN_GRAPH_SEED_ONTOLOGY")) ?? "").toLowerCase();
   const { openGraphBackend } = await import("../../../graph/backend.js");
   return openGraphBackend(
     {
@@ -41,8 +45,42 @@ export async function graphCtx(ctx?: StepContext<VeinCapabilities>): Promise<Gra
       namespace: (await secrets?.get("VEIN_GRAPH_NAMESPACE")) || "default",
       database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
     },
-    { embeddings: !["off", "0", "false"].includes(emb) },
+    { embeddings: !["off", "0", "false"].includes(emb), seedOntology: ["1", "true", "on"].includes(ont) },
   );
+}
+
+export interface EdgeWriteArgs {
+  edge_type: string;
+  source_ref_id: string;
+  target_ref_id: string;
+  edge_data?: Record<string, unknown>;
+  weight?: number;
+  /** jarvis `create_schema_if_missing`: when the (source type, edge, target
+   *  type) triple has no edge schema, register one between the endpoint
+   *  types and retry once. */
+  create_schema_if_missing?: boolean;
+}
+
+/** Write one edge through the backend, honouring `create_schema_if_missing`
+ *  the way jarvis's edge endpoint does. Throws the writer's error otherwise. */
+export async function writeEdge(b: GraphBackend, a: EdgeWriteArgs) {
+  const edge = a.edge_type.toUpperCase().replace(/ /g, "_");
+  const input = {
+    edge,
+    source_ref_id: a.source_ref_id,
+    target_ref_id: a.target_ref_id,
+    ...(a.edge_data ? { properties: a.edge_data } : {}),
+    ...(a.weight !== undefined ? { weight: a.weight } : {}),
+  };
+  try {
+    return await b.edges.write(input);
+  } catch (e) {
+    if (!a.create_schema_if_missing || graphErrorCode(e) !== "WRONG_TYPE") throw e;
+    const [s, t] = await Promise.all([b.reader.getNode(a.source_ref_id), b.reader.getNode(a.target_ref_id)]);
+    if (!s?.node_type || !t?.node_type) throw e;
+    await b.schemas.createEdgeSchema(s.node_type, edge, t.node_type);
+    return await b.edges.write(input);
+  }
 }
 
 /** The `code` of a `GraphValidationError` / `GraphReadError`, else undefined.

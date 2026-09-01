@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineStep, type StepContext } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
-import { graphCtx, errText, graphErrorCode, type GraphBackend } from "./_shared.js";
+import { graphCtx, errText, graphErrorCode, writeEdge, type GraphBackend } from "./_shared.js";
 /** Validate one side of a triplet: either ref_id XOR (type + data). */
 function validateTripletSide(
   side: "source" | "target",
@@ -106,12 +106,13 @@ export default defineStep({
         const targetRef = await resolveSide("target", t.target_ref_id, t.target_type, t.target_data);
         let edge;
         try {
-          edge = await b.edges.write({
-            edge: edgeType,
+          edge = await writeEdge(b, {
+            edge_type: t.edge_type,
             source_ref_id: sourceRef,
             target_ref_id: targetRef,
-            ...(t.edge_data ? { properties: t.edge_data } : {}),
-            ...(t.weight !== undefined ? { weight: t.weight } : {}),
+            edge_data: t.edge_data,
+            weight: t.weight,
+            create_schema_if_missing: t.create_schema_if_missing ?? false,
           });
         } catch (e) {
           results.push({

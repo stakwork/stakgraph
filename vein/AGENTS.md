@@ -142,6 +142,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `NEO4J_URI`         | (unset)        | Graph backend (opt-in): bolt URI. With `NEO4J_USER`/`NEO4J_PASSWORD` (default `neo4j`/empty), optional `NEO4J_DATABASE`. Read by `openGraphBackendFromEnv` and the `graph/*` lib steps (via the secrets capability). |
 | `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
 | `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
+| `VEIN_GRAPH_SEED_ONTOLOGY` | (off)   | `1` seeds the bundled jarvis ontology (151 schemas + edge schemas + indexes, add-only) on first open, so a standalone Neo4j can host jarvis-typed data (Document, EvalSet, Concept, …) with no jarvis process. No-op on a jarvis-seeded DB. |
 | `VEIN_MODEL_CACHE`  | `~/.cache/vein-models` | Where the embedding model's ONNX files are cached |
 
 ## Auth

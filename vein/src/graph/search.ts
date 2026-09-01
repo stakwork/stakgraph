@@ -19,7 +19,8 @@ import type { ManagedTransaction } from "neo4j-driver";
 import { Bolt, int, txRows, type Row } from "./bolt.js";
 import { typeLabelOf } from "./edge-writer.js";
 import { renderVectorField, type Embedder } from "./node-writer.js";
-import { getVeinSchema, vectorIndexedPairs, vectorStem } from "./vein-schemas.js";
+import type { SchemaResolver } from "./schema-resolver.js";
+import { SCHEMA_CORE_PROPERTIES, getVeinSchema, vectorIndexedPairs, vectorStem } from "./vein-schemas.js";
 
 // ── Constants (jarvis) ──────────────────────────────────────────────────────
 
@@ -50,13 +51,7 @@ export const RESPONSE_STRIPPED_EDGE_PROPERTIES = new Set([
   "ref_id", "edge_text_embeddings", "edge_text", "edge_key", "weight", "unique_source_id", "algo_similarity",
 ]);
 
-/** jarvis `SCHEMA_CORE_PROPERTIES` — everything else on a Schema node is an attribute. */
-export const SCHEMA_CORE_PROPERTIES = new Set([
-  "type", "parent", "attributes", "icon", "media_url", "source_link", "primary_color", "secondary_color",
-  "shape", "index", "node_key", "conditional_formatting", "action", "type_description", "description",
-  "display_name", "title_key", "description_key", "paid_properties", "domain", "vector_index", "volatility",
-  "ref_id",
-]);
+export { SCHEMA_CORE_PROPERTIES };
 const SCHEMA_PARENT_PROPERTIES_TO_IGNORE = new Set(["type_description"]);
 
 const DATA_BANK_FULLTEXT_INDEX_V2 = "data_bank_attribute_index_v2";
@@ -345,6 +340,10 @@ export interface GraphReaderOptions {
   /** Needed for the semantic and field-scoped retrievers; without it search
    *  is fulltext-only (jarvis logs "TEXT_MODEL not loaded" and does the same). */
   embedder?: Embedder;
+  /** Canonicalizes `type` filters case-insensitively (jarvis
+   *  `resolve_canonical_node_types`); unresolved names are kept verbatim
+   *  (they match nothing — jarvis's silent-empty behaviour). */
+  resolver?: SchemaResolver;
 }
 
 export class GraphReader {
@@ -486,7 +485,7 @@ export class GraphReader {
     const where = [visibility("node")];
     const params: Record<string, unknown> = { ref_id, blocked_statuses: BLOCKED_NODE_STATUSES };
     if (p.node_types?.length) {
-      params["imp_node_types"] = p.node_types.map((n) => n.replace(/[-+/>]/g, ""));
+      params["imp_node_types"] = (await this.canonicalTypes(p.node_types)).map((n) => n.replace(/[-+/>]/g, ""));
       where.push("any(lbl IN labels(node) WHERE lbl IN $imp_node_types)");
     }
     if (p.exclude_node_types?.length) {
@@ -550,6 +549,7 @@ export class GraphReader {
     const skip = p.skip ?? 0;
     const domains = (p.domains ?? []).map((d) => d.toLowerCase()).filter(Boolean);
 
+    const types = p.types?.length ? await this.canonicalTypes(p.types) : undefined;
     return this.bolt.read(async (tx) => {
       const allDomains = await this.listDomains(tx);
       for (const d of domains) if (!allDomains.includes(d)) throw new GraphReadError("INVALID_DOMAIN", `unknown domain ${d}`);
@@ -560,9 +560,9 @@ export class GraphReader {
       // also excludes types whose domain is hidden.
       const clauses = [`n.namespace = $namespace`, visibility("n")];
       const base: Record<string, unknown> = { namespace, blocked_statuses: BLOCKED_NODE_STATUSES };
-      if (p.types?.length) {
+      if (types?.length) {
         clauses.push(`ANY(t IN $node_types WHERE t IN labels(n))`);
-        base["node_types"] = p.types;
+        base["node_types"] = types;
       } else if (hidden.size) {
         const rows = await txRows(tx, `MATCH (s:Schema) WHERE s.domain IS NOT NULL AND toLower(s.domain) IN $hidden RETURN s.type AS t`, { hidden: [...hidden] });
         const labels = rows.map((r) => String(r["t"]));
@@ -774,6 +774,14 @@ export class GraphReader {
     for (const [k, v] of Object.entries(split.attributes)) if (!own.has(k)) inherited[k] = v;
     split.inherited_attributes = inherited;
     return split;
+  }
+
+  /** Resolve each type name to its canonical label; unresolved kept as-is. */
+  private async canonicalTypes(raw: string[]): Promise<string[]> {
+    if (!this.opts.resolver) return raw;
+    const out: string[] = [];
+    for (const t of raw) out.push((await this.opts.resolver.resolveType(t)) ?? t);
+    return out;
   }
 
   private rows(tx: ManagedTransaction | undefined, cypher: string, params: Record<string, unknown> = {}): Promise<Row[]> {

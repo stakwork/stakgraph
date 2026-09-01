@@ -1,32 +1,35 @@
 /**
  * jarvis-dialect edge writes (`plans/jarvis-graph-compat.md` §3, §6).
  *
- * Canonical semantics from jarvis's bulk path (`bulk_edge_helper.py:243-254`)
- * in plain Cypher — no APOC needed because the edge type is static per
- * statement:
+ * Canonical semantics from jarvis's bulk path (`bulk_edge_helper.py:243-254`
+ * + `node_service_v2.py` edge stamping) in plain Cypher — no APOC needed
+ * because the edge type is static per statement:
  *
  *   - endpoints matched by `ref_id` on `:Data_Bank` (the only unique ref_id
  *     constraint), never by node_key;
  *   - `IS_ALIAS` COALESCE rewrite (jarvis node-merge parks aliases; the
  *     edge lands on the canonical node);
- *   - `edge_key = edgeType.toLowerCase()` (no Vein edge declares a key
- *     pattern, matching jarvis where effectively none do);
+ *   - `edge_key` = the edge schema's `edge_key` pattern sanitized over the
+ *     edge properties when it declares one, else `edgeType.toLowerCase()`;
  *   - one edge per (src, type, tgt): ON CREATE only — existing edges are
  *     never mutated;
- *   - stamps: `ref_id`, `edge_key`, `weight: 1`, `date_added_to_graph`
- *     (epoch ms); NO `namespace` on edges;
+ *   - stamps: `ref_id`, `edge_key`, `weight` (1 unless given),
+ *     `date_added_to_graph` (epoch ms), and `unique_source_id` when both
+ *     endpoints carry the same one; NO `namespace` on edges;
  *   - soft delete = `is_muted = true`.
  *
- * Validation, stricter than jarvis (§6 item 6): edge type must be in the
- * registry (closed set — no equivalent of jarvis's 63-type bypass), the
- * (source label, edge, target label) triple must match a registry row
- * (`ACCESSED` accepts any target), and both endpoints must resolve — a
+ * Validation: an edge whose SOURCE is a Vein type must be a row of the
+ * closed Vein registry (§6 item 6; `ACCESSED` accepts any target). Any
+ * other source type follows jarvis's own rules — the `EDGE_TYPES`
+ * allowlist, else an edge schema must exist between the endpoint types or
+ * their ancestors (or the `*` wildcard). Both endpoints must resolve — a
  * miss is an error, not a silent zero-row no-op.
  */
 import { randomUUID } from "node:crypto";
 import type { ManagedTransaction } from "neo4j-driver";
 import { Bolt, int, txRows } from "./bolt.js";
 import { GraphValidationError } from "./node-writer.js";
+import { SchemaResolver } from "./schema-resolver.js";
 import { VEIN_EDGES, WILDCARD_TARGET_EDGES, isVeinType, typeLabelOf } from "./vein-schemas.js";
 
 export { typeLabelOf };
@@ -54,9 +57,14 @@ export interface EdgeWriteResult {
   target_ref_id: string;
 }
 
-const STAMPS = new Set(["ref_id", "edge_key", "weight", "date_added_to_graph"]);
+export interface EdgeWriterOptions {
+  resolver?: SchemaResolver;
+}
+
+const STAMPS = new Set(["ref_id", "edge_key", "weight", "date_added_to_graph", "unique_source_id"]);
 const IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-const EDGE_TYPES = new Set(VEIN_EDGES.map((e) => e.edge));
+const EDGE_TYPE = /^[A-Z][A-Z0-9_]*$/;
+
 /** Registry check for one (source type, edge, target type) triple. */
 export function isRegisteredEdge(edge: string, sourceType: string, targetType: string): boolean {
   return VEIN_EDGES.some(
@@ -68,8 +76,34 @@ export function edgeKeyFor(edge: string): string {
   return edge.toLowerCase();
 }
 
+/** jarvis `sanitize_edge_key`: each `-`-token of the schema's edge_key
+ *  pattern is looked up (case-insensitively) in the edge properties and
+ *  sanitized like node_key values. */
+export function composeEdgeKey(pattern: string, properties: Record<string, unknown>): string {
+  const lower = new Map(Object.entries(properties).map(([k, v]) => [k.toLowerCase(), v]));
+  return pattern
+    .split("-")
+    .map((tok) => {
+      if (!lower.has(tok.toLowerCase())) throw new GraphValidationError("MISSING_REQUIRED", "edge", `edge_key property ${tok} missing from edge data`, tok);
+      return String(lower.get(tok.toLowerCase())).trim().replace(/ /g, "").toLowerCase().replace(/[^a-zA-Z0-9\s]/g, "");
+    })
+    .join("-");
+}
+
+interface ResolvedEdge {
+  input: EdgeInput;
+  edge_key: string;
+  unique_source_id?: string;
+}
+
 export class EdgeWriter {
-  constructor(private readonly bolt: Bolt) {}
+  readonly resolver: SchemaResolver;
+  constructor(
+    private readonly bolt: Bolt,
+    opts: EdgeWriterOptions = {},
+  ) {
+    this.resolver = opts.resolver ?? new SchemaResolver(bolt);
+  }
 
   async write(input: EdgeInput): Promise<EdgeWriteResult> {
     const [r] = await this.writeMany([input]);
@@ -87,11 +121,11 @@ export class EdgeWriter {
     for (const i of inputs) validateEdgeShape(i);
     const results: EdgeWriteResult[] = new Array(inputs.length);
     await this.bolt.write(async (tx) => {
-      await validateEndpoints(tx, inputs);
+      const resolved = await this.validateEndpoints(tx, inputs);
       const byType = new Map<string, number[]>();
       inputs.forEach((i, idx) => byType.set(i.edge, [...(byType.get(i.edge) ?? []), idx]));
       for (const [edge, idxs] of byType) {
-        const out = await mergeEdges(tx, edge, idxs.map((i) => inputs[i]!));
+        const out = await mergeEdges(tx, edge, idxs.map((i) => resolved[i]!));
         idxs.forEach((i, k) => {
           results[i] = out[k]!;
         });
@@ -105,10 +139,42 @@ export class EdgeWriter {
     const rows = await this.bolt.run(`MATCH ()-[r {ref_id: $ref_id}]->() SET r.is_muted = true RETURN r.ref_id AS ref_id`, { ref_id });
     return rows.length > 0;
   }
+
+  /** Resolve every endpoint's type label and check each triple: Vein
+   *  registry for Vein sources, jarvis's allowlist/edge-schema rules for the
+   *  rest. Throws on a missing endpoint or disallowed triple. */
+  private async validateEndpoints(tx: ManagedTransaction, inputs: EdgeInput[]): Promise<ResolvedEdge[]> {
+    const ids = [...new Set(inputs.flatMap((i) => [i.source_ref_id, i.target_ref_id]))];
+    const rows = await txRows(tx, `UNWIND $ids AS id MATCH (n:Data_Bank {ref_id: id}) RETURN id, labels(n) AS labels, n.unique_source_id AS uid`, { ids });
+    const nodes = new Map(rows.map((r) => [r["id"] as string, { labels: r["labels"] as string[], uid: r["uid"] as string | null }]));
+    const out: ResolvedEdge[] = [];
+    for (const i of inputs) {
+      const s = nodes.get(i.source_ref_id);
+      const t = nodes.get(i.target_ref_id);
+      if (!s) throw new GraphValidationError("MISSING_REQUIRED", i.edge, `source ${i.source_ref_id} does not resolve`, "source_ref_id");
+      if (!t) throw new GraphValidationError("MISSING_REQUIRED", i.edge, `target ${i.target_ref_id} does not resolve`, "target_ref_id");
+      const st = typeLabelOf(s.labels);
+      const tt = typeLabelOf(t.labels);
+      if (!st) throw new GraphValidationError("WRONG_TYPE", i.edge, "source node has no type label", "source_ref_id");
+      let edge_key = edgeKeyFor(i.edge);
+      if (isVeinType(st)) {
+        if (!isRegisteredEdge(i.edge, st, tt ?? "")) {
+          throw new GraphValidationError("WRONG_TYPE", i.edge, `${st}-[${i.edge}]->${tt ?? "?"} is not a registered Vein edge`);
+        }
+      } else {
+        const match = await this.resolver.edgeSchema(i.edge, st, tt ?? "", tx);
+        if (!match) throw new GraphValidationError("WRONG_TYPE", i.edge, `Invalid edge type: ${i.edge} (no edge schema ${st}-[${i.edge}]->${tt ?? "?"})`);
+        const pattern = match.properties["edge_key"];
+        if (typeof pattern === "string" && pattern) edge_key = composeEdgeKey(pattern, i.properties ?? {});
+      }
+      out.push({ input: i, edge_key, unique_source_id: s.uid && s.uid === t.uid ? s.uid : undefined });
+    }
+    return out;
+  }
 }
 
 function validateEdgeShape(i: EdgeInput): void {
-  if (!EDGE_TYPES.has(i.edge)) throw new GraphValidationError("UNKNOWN_TYPE", i.edge, "not a registered Vein edge type");
+  if (!EDGE_TYPE.test(i.edge)) throw new GraphValidationError("UNKNOWN_TYPE", i.edge, "edge type must match ^[A-Z][A-Z0-9_]*$");
   if (!i.source_ref_id || !i.target_ref_id) throw new GraphValidationError("MISSING_REQUIRED", i.edge, "source_ref_id and target_ref_id are required");
   for (const k of Object.keys(i.properties ?? {})) {
     if (STAMPS.has(k)) throw new GraphValidationError("UNKNOWN_ATTRIBUTE", i.edge, "edge stamp is system-managed", k);
@@ -116,39 +182,19 @@ function validateEdgeShape(i: EdgeInput): void {
   }
 }
 
-/** Resolve every endpoint's type label and check each triple against the
- *  registry. Throws on a missing endpoint or unregistered triple. */
-async function validateEndpoints(tx: ManagedTransaction, inputs: EdgeInput[]): Promise<void> {
-  const ids = [...new Set(inputs.flatMap((i) => [i.source_ref_id, i.target_ref_id]))];
-  const rows = await txRows(tx, `UNWIND $ids AS id MATCH (n:Data_Bank {ref_id: id}) RETURN id, labels(n) AS labels`, { ids });
-  const labels = new Map(rows.map((r) => [r["id"] as string, r["labels"] as string[]]));
-  for (const i of inputs) {
-    const sl = labels.get(i.source_ref_id);
-    const tl = labels.get(i.target_ref_id);
-    if (!sl) throw new GraphValidationError("MISSING_REQUIRED", i.edge, `source ${i.source_ref_id} does not resolve`, "source_ref_id");
-    if (!tl) throw new GraphValidationError("MISSING_REQUIRED", i.edge, `target ${i.target_ref_id} does not resolve`, "target_ref_id");
-    const st = typeLabelOf(sl);
-    const tt = typeLabelOf(tl);
-    if (!st || !isVeinType(st)) throw new GraphValidationError("WRONG_TYPE", i.edge, `source type ${st ?? "?"} is not a Vein type`, "source_ref_id");
-    if (!isRegisteredEdge(i.edge, st, tt ?? "")) {
-      throw new GraphValidationError("WRONG_TYPE", i.edge, `${st}-[${i.edge}]->${tt ?? "?"} is not a registered edge`);
-    }
-  }
-}
-
-async function mergeEdges(tx: ManagedTransaction, edge: string, inputs: EdgeInput[]): Promise<EdgeWriteResult[]> {
-  const edge_key = edgeKeyFor(edge);
-  const rows = inputs.map((i, k) => ({
+async function mergeEdges(tx: ManagedTransaction, edge: string, edges: ResolvedEdge[]): Promise<EdgeWriteResult[]> {
+  const rows = edges.map((e, k) => ({
     k,
-    src: i.source_ref_id,
-    tgt: i.target_ref_id,
-    edge_key,
+    src: e.input.source_ref_id,
+    tgt: e.input.target_ref_id,
+    edge_key: e.edge_key,
     on_create: {
-      ...(i.properties ?? {}),
+      ...(e.input.properties ?? {}),
       ref_id: randomUUID(),
-      edge_key,
-      weight: i.weight === undefined ? int(1) : Number.isInteger(i.weight) ? int(i.weight) : i.weight,
+      edge_key: e.edge_key,
+      weight: e.input.weight === undefined ? int(1) : Number.isInteger(e.input.weight) ? int(e.input.weight) : e.input.weight,
       date_added_to_graph: int(Date.now()),
+      ...(e.unique_source_id ? { unique_source_id: e.unique_source_id } : {}),
     },
   }));
   const out = await txRows(
@@ -165,15 +211,15 @@ async function mergeEdges(tx: ManagedTransaction, edge: string, inputs: EdgeInpu
             ns.ref_id AS source_ref_id, nt.ref_id AS target_ref_id`,
     { edges: rows },
   );
-  if (out.length !== inputs.length) {
-    throw new Error(`edge MERGE for ${edge} returned ${out.length} rows for ${inputs.length} inputs`);
+  if (out.length !== edges.length) {
+    throw new Error(`edge MERGE for ${edge} returned ${out.length} rows for ${edges.length} inputs`);
   }
   const byK = new Map(out.map((r) => [r["k"] as number, r]));
-  return inputs.map((_, k) => {
+  return edges.map((e, k) => {
     const r = byK.get(k)!;
     return {
       ref_id: r["ref_id"] as string,
-      edge_key,
+      edge_key: e.edge_key,
       created: r["created"] as boolean,
       source_ref_id: r["source_ref_id"] as string,
       target_ref_id: r["target_ref_id"] as string,

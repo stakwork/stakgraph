@@ -69,11 +69,11 @@ steps:
       maxSteps: "{{ params.disputeMaxSteps }}"
       toolFilter: ["bash"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
-        - jarvis/create-triplet
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
+        - graph/create-triplet
         - sheets/*
       schema:
         type: object

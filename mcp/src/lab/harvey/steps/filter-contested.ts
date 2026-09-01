@@ -7,7 +7,7 @@ import { z, defineStep } from "vein";
  * distinct from the per-run `flagged` dispute of a fail verdict).
  *
  * FAILS OPEN by design: any surprise in the graph data (error strings from
- * the jarvis read steps, missing properties, shape drift) filters NOTHING —
+ * the graph read steps, missing properties, shape drift) filters NOTHING —
  * a broken filter must never block scoring. Matching is by EvalRequirement
  * id ("<evalsetId>-<criterionId>", how merge_requirements writes them) with
  * a bare-criterion-id fallback.
@@ -16,14 +16,14 @@ export default defineStep({
   type: "harvey/filter-contested",
   description:
     "Drop rubric criteria whose EvalRequirement node has contested=true. Pass the rubric plus the " +
-    "requirement nodes (jarvis/graph-get-batched output). FAILS OPEN: on any data surprise the full " +
+    "requirement nodes (graph/graph-get-batched output). FAILS OPEN: on any data surprise the full " +
     "rubric is returned. Output: { rubric, dropped: [criterion ids], kept, total }.",
   input: z.object({
     rubric: z.array(z.any()).describe("Rubric criteria: [{ id, title, match_criteria, deliverables }]."),
     requirements: z
       .any()
       .optional()
-      .describe("EvalRequirement nodes (jarvis/graph-get-batched output; any shape tolerated)."),
+      .describe("EvalRequirement nodes (graph/graph-get-batched output; any shape tolerated)."),
     evalsetId: z.string().optional().describe("EvalSet id — requirement ids are '<evalsetId>-<criterionId>'."),
   }),
   output: z.any(),

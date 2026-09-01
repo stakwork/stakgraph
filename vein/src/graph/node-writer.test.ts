@@ -14,6 +14,7 @@ import {
   type Embedder,
 } from "./node-writer.js";
 import { getVeinSchema } from "./vein-schemas.js";
+import { fromVein } from "./schema-resolver.js";
 import { graphSnapshot, testGraphConfig, wipeGraph } from "./test-util.js";
 
 const cfg = testGraphConfig();
@@ -120,12 +121,23 @@ describe("composeNodeKey (parity with jarvis sanitize_node_key)", () => {
 
 describe("buildSearchText (Data_Bank)", () => {
   it("joins index fields in declared order with newlines, skipping blanks", () => {
-    const s = getVeinSchema("VeinRun")!;
+    const s = fromVein(getVeinSchema("VeinRun")!);
     assert.deepEqual(buildSearchText(s, { summary: " sum ", workflow_name: "wf", status: "  " }), {
       text: "wf\nsum",
       fields: ["workflow_name", "summary"],
     });
-    assert.deepEqual(buildSearchText(s, { run_id: "x" }), { text: null, fields: [] });
+    // No usable index field → jarvis's kitchen-sink fallback (priority
+    // fields first, then everything not in DATA_BANK_EXCLUDED_FIELDS).
+    assert.deepEqual(buildSearchText(s, { run_id: "x", duration_ms: 5, status: "" }), { text: "x\n5", fields: ["run_id", "duration_ms"] });
+    assert.deepEqual(buildSearchText(s, { log_ref: "" }), { text: null, fields: [] });
+  });
+  it("kitchen-sink fallback: priority order, exclusions, non-string values", () => {
+    const s = fromVein(getVeinSchema("VeinChat")!);
+    // VeinChat index [title, summary] both absent → fallback over the rest.
+    assert.deepEqual(buildSearchText(s, { chat_id: "c1", model: "m", status: "live", turn_count: 3, name: "n" }), {
+      text: "n\nc1\nm\n3",
+      fields: ["name", "chat_id", "model", "turn_count"],
+    });
   });
   it("renders vector fields like jarvis render_schema", () => {
     assert.equal(renderVectorField("input_schema", " {a: 1} "), "Input:\n{a: 1}");

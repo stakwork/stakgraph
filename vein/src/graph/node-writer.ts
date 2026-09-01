@@ -4,9 +4,15 @@
  * Every node vein puts in the graph goes through `NodeWriter`. The writer
  * validates BEFORE building any Cypher (§6 — nothing invalid or unexpected
  * reaches the graph through vein), composes `node_key` exactly like jarvis
- * (`schema_validation.py:350-399`), builds the `Data_Bank` search text from
- * the schema's `index` list (`schema_node_helper.py:141-234`), and MERGEs
- * with jarvis's label set and generic stamps (`schema_node_helper.py:238-268`).
+ * (`schema_validation.py:350-399`), builds the `Data_Bank` search text
+ * (`schema_node_helper.py:141-234`, including jarvis's kitchen-sink fallback
+ * for schemas without a usable explicit index), and MERGEs with jarvis's
+ * label set and generic stamps (`schema_node_helper.py:238-268`).
+ *
+ * Types: Vein's own come from the in-code registry; any other type
+ * (Document, EvalSet, Concept, …) is resolved from the live `:Schema`
+ * meta-graph by `SchemaResolver` — the same source jarvis validates against
+ * — so the writer is a drop-in for jarvis on jarvis-typed data too.
  *
  * Two modes:
  *   - `create`: no-op on an existing node (returns its ref_id) — except a
@@ -26,20 +32,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ManagedTransaction } from "neo4j-driver";
 import { Bolt, int, txRows } from "./bolt.js";
-import {
-  GENERIC_NODE_PROPERTIES,
-  VEIN_DOMAIN_LABEL,
-  baseType,
-  effectiveAttributes,
-  embeddingColumn,
-  getVeinSchema,
-  isOptional,
-  nodeKeyFields,
-  typeLabelOf,
-  vectorStem,
-  type AttrBase,
-  type VeinSchema,
-} from "./vein-schemas.js";
+import { SchemaResolver, fromVein, type NodeSchema } from "./schema-resolver.js";
+import { GENERIC_NODE_PROPERTIES, VEIN_DOMAIN_LABEL, embeddingColumn, getVeinSchema, typeLabelOf, vectorStem } from "./vein-schemas.js";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +64,7 @@ export class GraphValidationError extends Error {
 // ── Validation + normalization (§6) ─────────────────────────────────────────
 
 export interface ValidatedNode {
-  schema: VeinSchema;
+  schema: NodeSchema;
   /** Attribute values as JS primitives (datetime → epoch seconds), with
    *  null/undefined and empty strings dropped. Used for node_key and
    *  Data_Bank composition. */
@@ -79,15 +73,24 @@ export interface ValidatedNode {
   params: Record<string, unknown>;
 }
 
+const isOptionalType = (t: string) => t.startsWith("?");
+const baseOf = (t: string) => (isOptionalType(t) ? t.slice(1) : t);
+
 /**
  * The write-time gate. Throws `GraphValidationError` on the first violation
  * and writes nothing. Stricter than jarvis in the safe direction: anything
- * accepted here also passes jarvis's validators.
+ * accepted here also passes jarvis's validators. Pass a Vein type name or
+ * a resolved `NodeSchema` (from `SchemaResolver`) for any type.
  */
-export function validateNode(type: string, data: Record<string, unknown>): ValidatedNode {
-  const schema = getVeinSchema(type);
-  if (!schema) throw new GraphValidationError("UNKNOWN_TYPE", type, "not a registered Vein type");
-  const attrs = effectiveAttributes(schema);
+export function validateNode(typeOrSchema: string | NodeSchema, data: Record<string, unknown>): ValidatedNode {
+  let schema: NodeSchema;
+  if (typeof typeOrSchema === "string") {
+    const vein = getVeinSchema(typeOrSchema);
+    if (!vein) throw new GraphValidationError("UNKNOWN_TYPE", typeOrSchema, "not a registered Vein type (resolve other types via SchemaResolver)");
+    schema = fromVein(vein);
+  } else schema = typeOrSchema;
+  const type = schema.type;
+  const attrs = schema.attributes;
 
   // 3. Unknown attributes rejected — this is what makes "unexpected" nodes
   //    impossible, not just invalid ones. Generic/system props included.
@@ -101,12 +104,12 @@ export function validateNode(type: string, data: Record<string, unknown>): Valid
   const params: Record<string, unknown> = {};
   for (const [name, t] of Object.entries(attrs)) {
     const raw = data[name];
-    const base = baseType(t);
+    const base = baseOf(t);
     const present = raw !== null && raw !== undefined && !(typeof raw === "string" && raw.length === 0);
     if (!present) {
       // 2. Required attributes present and non-null. jarvis treats an empty
       //    string as "present" then silently never writes it; we reject it.
-      if (!isOptional(t)) throw new GraphValidationError("MISSING_REQUIRED", type, `required ${base} attribute is missing`, name);
+      if (!isOptionalType(t)) throw new GraphValidationError("MISSING_REQUIRED", type, `required ${base} attribute is missing`, name);
       continue;
     }
     // 4. Type checks per the grammar.
@@ -115,19 +118,26 @@ export function validateNode(type: string, data: Record<string, unknown>): Valid
     params[name] = norm.param;
   }
 
-  // 5. node_key integrity: tokens are required attrs (enforced at library
-  //    load), so they are present; a token that sanitizes to nothing would
-  //    still produce a degenerate key — reject.
-  for (const field of nodeKeyFields(schema)) {
-    if (sanitizeKeyValue(values[field]).length === 0) {
+  // 5. node_key integrity: every token after the type must be present
+  //    (jarvis: "Attribute referenced in node_key not found in node data")
+  //    and must not sanitize to nothing.
+  for (const field of schema.node_key.split("-").slice(1)) {
+    const lower = field.toLowerCase();
+    const hit = Object.keys(values).find((k) => k.toLowerCase() === lower);
+    if (!hit) throw new GraphValidationError("MISSING_REQUIRED", type, "attribute referenced in node_key is missing", field);
+    if (sanitizeKeyValue(values[hit]).length === 0) {
       throw new GraphValidationError("EMPTY_NODE_KEY_TOKEN", type, "node_key attribute sanitizes to an empty token", field);
     }
   }
 
-  return { schema, values, params };
+  // Keep the caller's key order (jarvis iterates the request payload, and
+  // the kitchen-sink Data_Bank fallback depends on that order).
+  const ordered: Record<string, unknown> = {};
+  for (const k of Object.keys(data)) if (k in values) ordered[k] = values[k];
+  return { schema, values: ordered, params };
 }
 
-function normalizeValue(type: string, name: string, base: AttrBase, raw: unknown): { value: unknown; param: unknown } {
+function normalizeValue(type: string, name: string, base: string, raw: unknown): { value: unknown; param: unknown } {
   switch (base) {
     case "string":
       if (typeof raw !== "string") throw wrong(type, name, "string", raw);
@@ -157,6 +167,9 @@ function normalizeValue(type: string, name: string, base: AttrBase, raw: unknown
       }
       return { value: raw, param: raw };
     }
+    default:
+      // `complex` (jarvis grammar, never used by Vein): passthrough.
+      return { value: raw, param: raw };
   }
 }
 
@@ -210,7 +223,7 @@ export function sanitizeKeyValue(v: unknown): string {
  * case-insensitive; a missing property is an error. If the composed key
  * exceeds 200 chars, the value portion collapses to a 32-hex sha256 prefix.
  */
-export function composeNodeKey(schema: VeinSchema, values: Record<string, unknown>): string {
+export function composeNodeKey(schema: { type: string; node_key: string }, values: Record<string, unknown>): string {
   const lower = new Map(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
   const parts: string[] = [];
   const tokens = schema.node_key.split("-");
@@ -230,24 +243,60 @@ export function composeNodeKey(schema: VeinSchema, values: Record<string, unknow
 
 // ── Data_Bank (§2) ──────────────────────────────────────────────────────────
 
+/** jarvis `DATA_BANK_EXCLUDED_FIELDS` — never part of kitchen-sink search text. */
+export const DATA_BANK_EXCLUDED_FIELDS = new Set([
+  "ref_id", "node_key", "date_added_to_graph", "namespace", "Data_Bank", "text_embeddings", "_search_fields_used",
+  "id", "uuid", "tweet_id", "bounty_id", "episode_id", "video_id", "podcast_id", "clip_id", "message_id", "project_id",
+  "org_uuid", "workspace_uuid", "phase_uuid", "owner_id", "pub_key", "pubkey",
+  "created", "updated", "date", "timestamp", "created_at", "updated_at",
+  "image_url", "profile_picture", "source_link", "link", "ticket_url", "media_url", "report_url",
+  "old_value", "new_value",
+  "contested", "boost", "num_boost", "price", "amount", "commitment_fee", "assigned_hours", "paid", "show", "completed",
+  "verified", "impression_count", "sentiment_score", "relevancy_score",
+  "start", "end", "line", "column", "operand", "output_data_type",
+  "status", "type", "parent", "shape", "icon", "primary_color", "secondary_color", "phase_priority", "number",
+]);
+
+/** jarvis priority order for the kitchen-sink fallback. */
+const PRIORITY_FIELDS = [
+  "name", "title", "episode_title", "show_title", "description", "graph_description", "type_description", "text",
+  "content", "body", "code", "docs", "summary", "one_sentence_summary", "deliverables", "github_description",
+];
+
+const nonBlank = (v: unknown) => v !== null && v !== undefined && String(v).trim().length > 0;
+
 /**
- * Search text: the schema's `index` fields in declared order, values that
- * are present and non-blank after trim, joined with "\n" — no field-name
- * prefixes. Returns the used field names alongside. Null when nothing
- * qualifies (jarvis would then fall back to a kitchen-sink of all props; the
- * plan deliberately does not port that path).
+ * `get_search_fields_for_node`: the schema's explicit `index` fields (in
+ * declared order) that are present and non-blank; when the schema has no
+ * real index (`["node_key"]`) or none of its index fields are usable, fall
+ * through to jarvis's priority list + every other non-excluded property.
  */
-export function buildSearchText(schema: VeinSchema, values: Record<string, unknown>): { text: string | null; fields: string[] } {
-  const fields: string[] = [];
-  const parts: string[] = [];
-  for (const f of schema.index) {
-    const v = values[f];
-    if (v === null || v === undefined) continue;
-    const s = String(v).trim();
-    if (!s) continue;
-    fields.push(f);
-    parts.push(s);
+export function searchFieldsFor(schema: NodeSchema, values: Record<string, unknown>): string[] {
+  if (!(schema.index.length === 1 && schema.index[0] === "node_key")) {
+    const focused = schema.index.filter((f) => nonBlank(values[f]));
+    if (focused.length) return focused;
   }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const f of PRIORITY_FIELDS) {
+    if (f in values && !DATA_BANK_EXCLUDED_FIELDS.has(f) && nonBlank(values[f])) {
+      out.push(f);
+      seen.add(f);
+    }
+  }
+  for (const [f, v] of Object.entries(values)) {
+    if (DATA_BANK_EXCLUDED_FIELDS.has(f) || seen.has(f) || !nonBlank(v)) continue;
+    out.push(f);
+    seen.add(f);
+  }
+  return out;
+}
+
+/** `build_search_text`: values of the chosen fields, trimmed, joined with
+ *  "\n" — no field-name prefixes. Null when nothing qualifies. */
+export function buildSearchText(schema: NodeSchema, values: Record<string, unknown>): { text: string | null; fields: string[] } {
+  const fields = searchFieldsFor(schema, values);
+  const parts = fields.map((f) => String(values[f]).trim()).filter(Boolean);
   return { text: parts.length ? parts.join("\n") : null, fields };
 }
 
@@ -272,6 +321,8 @@ export type WriteMode = "create" | "upsert";
 export type WriteOutcome = "created" | "existing" | "restored" | "updated";
 
 export interface NodeInput {
+  /** Node type — a Vein type (exact) or any jarvis type (resolved
+   *  case-insensitively against the live schema). */
   type: string;
   data: Record<string, unknown>;
 }
@@ -279,11 +330,15 @@ export interface NodeInput {
 export interface NodeWriteResult {
   ref_id: string;
   node_key: string;
+  /** Canonical type label the node was written under. */
+  node_type: string;
   outcome: WriteOutcome;
 }
 
 export interface NodeWriterOptions {
   embedder?: Embedder;
+  /** Shared resolver (one per backend); a private one is created otherwise. */
+  resolver?: SchemaResolver;
 }
 
 export interface WriteOptions {
@@ -312,7 +367,7 @@ export interface NodeUpdateResult {
 const PRESERVED = new Set(["ref_id", "node_key", "namespace", "date_added_to_graph"]);
 
 interface PreparedNode {
-  type: string;
+  schema: NodeSchema;
   node_key: string;
   ref_id: string;
   onCreate: Record<string, unknown>;
@@ -320,13 +375,16 @@ interface PreparedNode {
 }
 
 export class NodeWriter {
+  readonly resolver: SchemaResolver;
   constructor(
     private readonly bolt: Bolt,
     private readonly opts: NodeWriterOptions = {},
-  ) {}
+  ) {
+    this.resolver = opts.resolver ?? new SchemaResolver(bolt);
+  }
 
-  /** Validate + compose everything except the MERGE. Pure apart from the
-   *  embedder call; exposed for tests and the batch path. */
+  /** Validate + compose everything except the MERGE. Exposed for tests and
+   *  the batch path. */
   async prepare(input: NodeInput, opts: WriteOptions = {}): Promise<PreparedNode> {
     const [p] = await this.prepareMany([input], opts);
     return p!;
@@ -334,7 +392,12 @@ export class NodeWriter {
 
   async prepareMany(inputs: NodeInput[], opts: WriteOptions = {}): Promise<PreparedNode[]> {
     const namespace = opts.namespace ?? this.bolt.namespace;
-    const validated = inputs.map((i) => validateNode(i.type, i.data));
+    const validated: ValidatedNode[] = [];
+    for (const i of inputs) {
+      const schema = await this.resolver.schema(i.type);
+      if (!schema) throw new GraphValidationError("UNKNOWN_TYPE", i.type, "unknown node type (not a Vein type and no such Schema in the graph)");
+      validated.push(validateNode(schema, i.data));
+    }
     // Gather every text to embed across the batch → one encoder call.
     const jobs: Array<{ idx: number; column: string; text: string }> = [];
     const prepared: PreparedNode[] = validated.map((v, idx) => {
@@ -347,7 +410,7 @@ export class NodeWriter {
         props["_search_fields_used"] = fields;
         jobs.push({ idx, column: "text_embeddings", text });
       }
-      for (const vi of v.schema.vector_index ?? []) {
+      for (const vi of v.schema.vector_index) {
         const raw = v.values[vi];
         if (typeof raw !== "string") continue;
         const rendered = renderVectorField(vi, raw);
@@ -356,7 +419,7 @@ export class NodeWriter {
       const onMatch: Record<string, unknown> = {};
       for (const [k, val] of Object.entries(props)) if (!PRESERVED.has(k)) onMatch[k] = val;
       return {
-        type: v.schema.type,
+        schema: v.schema,
         node_key,
         ref_id,
         onCreate: { ...props, ref_id, node_key, namespace, date_added_to_graph: int(Date.now()) },
@@ -391,16 +454,16 @@ export class NodeWriter {
     const prepared = await this.prepareMany(inputs, { namespace });
     const byType = new Map<string, Array<{ i: number; p: PreparedNode }>>();
     prepared.forEach((p, i) => {
-      const list = byType.get(p.type) ?? [];
+      const list = byType.get(p.schema.type) ?? [];
       list.push({ i, p });
-      byType.set(p.type, list);
+      byType.set(p.schema.type, list);
     });
     const results: NodeWriteResult[] = new Array(inputs.length);
     await this.bolt.write(async (tx) => {
       for (const [type, rows] of byType) {
-        const out = await mergeBatch(tx, type, namespace, rows.map((r) => r.p), mode);
+        const out = await mergeBatch(tx, rows[0]!.p.schema, namespace, rows.map((r) => r.p), mode);
         rows.forEach((r, k) => {
-          results[r.i] = out[k]!;
+          results[r.i] = { ...out[k]!, node_type: type };
         });
       }
     });
@@ -420,37 +483,33 @@ export class NodeWriter {
     const remove = patch.remove ?? [];
     const set = patch.set ?? {};
     return this.bolt.write(async (tx) => {
-      const rows = await txRows(
-        tx,
-        `MATCH (n:\`${VEIN_DOMAIN_LABEL}\` {ref_id: $ref_id}) RETURN labels(n) AS labels, properties(n) AS props`,
-        { ref_id },
-      );
-      if (rows.length === 0) throw new GraphValidationError("NOT_FOUND", "?", `no Vein node with ref_id ${ref_id}`);
+      const rows = await txRows(tx, `MATCH (n:Data_Bank {ref_id: $ref_id}) RETURN labels(n) AS labels, properties(n) AS props`, { ref_id });
+      if (rows.length === 0) throw new GraphValidationError("NOT_FOUND", "?", `no node with ref_id ${ref_id}`);
       const labels = rows[0]!["labels"] as string[];
       const props = rows[0]!["props"] as Record<string, unknown>;
       const type = typeLabelOf(labels) ?? "?";
-      const schema = getVeinSchema(type);
-      if (!schema) throw new GraphValidationError("UNKNOWN_TYPE", type, "stored node is not a registered Vein type");
-      const attrs = effectiveAttributes(schema);
+      const schema = await this.resolver.schema(type, tx);
+      if (!schema) throw new GraphValidationError("UNKNOWN_TYPE", type, "stored node's type has no schema");
+      const attrs = schema.attributes;
 
       const current: Record<string, unknown> = {};
       for (const k of Object.keys(attrs)) if (props[k] !== undefined && props[k] !== null) current[k] = props[k];
       for (const k of remove) {
         const t = attrs[k];
         if (!t) throw new GraphValidationError("UNKNOWN_ATTRIBUTE", type, "attribute is not declared on the schema", k);
-        if (!isOptional(t)) throw new GraphValidationError("MISSING_REQUIRED", type, "required attribute cannot be removed", k);
+        if (!isOptionalType(t)) throw new GraphValidationError("MISSING_REQUIRED", type, "required attribute cannot be removed", k);
         delete current[k];
       }
       const merged = { ...current, ...set };
       for (const k of remove) if (k in set) delete merged[k];
 
-      const [p] = await this.prepareMany([{ type, data: merged }], { namespace: String(props["namespace"]) });
+      const [p] = await this.prepareMany([{ type: schema.type, data: merged }], { namespace: String(props["namespace"]) });
       const node_key = p!.node_key;
       const rekeyed = node_key !== props["node_key"];
       if (rekeyed) {
         const clash = await txRows(
           tx,
-          `MATCH (m:\`${type}\` {node_key: $k, namespace: $ns}) WHERE m.ref_id <> $ref_id RETURN m.ref_id AS ref_id LIMIT 1`,
+          `MATCH (m:\`${schema.type}\` {node_key: $k, namespace: $ns}) WHERE m.ref_id <> $ref_id RETURN m.ref_id AS ref_id LIMIT 1`,
           { k: node_key, ns: props["namespace"], ref_id },
         );
         if (clash.length) throw new GraphValidationError("DUPLICATE_KEY", type, `Node already exists in the graph with node_key: ${node_key}`);
@@ -461,7 +520,7 @@ export class NodeWriter {
       const drop = new Set<string>(remove);
       if (!("Data_Bank" in setMap)) for (const k of ["Data_Bank", "_search_fields_used", "text_embeddings"]) drop.add(k);
       else if (!this.opts.embedder && setMap["Data_Bank"] !== props["Data_Bank"]) drop.add("text_embeddings");
-      for (const vi of schema.vector_index ?? []) {
+      for (const vi of schema.vector_index) {
         const col = embeddingColumn(vi);
         if (!(vi in merged)) drop.add(col);
         else if (!this.opts.embedder && merged[vi] !== props[vi]) drop.add(col);
@@ -488,22 +547,25 @@ export class NodeWriter {
 
 /**
  * The one Cypher template, UNWIND form. Labels = `Type` + Node + Data_Bank
- * + Domain_vein; identity = (node_key, namespace). ON CREATE gets the full
- * stamped payload; ON MATCH gets the non-identity payload only when the
- * mode is `upsert` or the node is soft-deleted-and-not-muted (restore).
- * `is_deleted` is cleared only in those cases and is otherwise left exactly
- * as it was (a SET to its own value is a no-op, so absent stays absent).
+ * + the schema's Domain_* labels; identity = (node_key, namespace). ON
+ * CREATE gets the full stamped payload; ON MATCH gets the non-identity
+ * payload only when the mode is `upsert` or the node is soft-deleted-and-
+ * not-muted (restore). `is_deleted` is cleared only in those cases and is
+ * otherwise left exactly as it was (a SET to its own value is a no-op, so
+ * absent stays absent).
  *
  * Outcome per row comes from a pre-read in the same transaction; the MERGE
  * itself stays race-safe (a concurrent create just turns into a match).
  */
 async function mergeBatch(
   tx: ManagedTransaction,
-  type: string,
+  schema: NodeSchema,
   namespace: string,
   nodes: PreparedNode[],
   mode: WriteMode,
-): Promise<NodeWriteResult[]> {
+): Promise<Array<Omit<NodeWriteResult, "node_type">>> {
+  const type = schema.type;
+  const labels = [`\`${type}\``, "Node", "Data_Bank", ...schema.domainLabels.map((l) => `\`${l}\``)].join(":");
   const before = await txRows(
     tx,
     `UNWIND $keys AS k
@@ -516,7 +578,7 @@ async function mergeBatch(
   const rows = await txRows(
     tx,
     `UNWIND $rows AS row
-     MERGE (node:\`${type}\`:Node:Data_Bank:\`${VEIN_DOMAIN_LABEL}\` {node_key: row.node_key, namespace: $ns})
+     MERGE (node:${labels} {node_key: row.node_key, namespace: $ns})
      ON CREATE SET node += row.on_create
      ON MATCH SET
        node += CASE

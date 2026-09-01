@@ -228,6 +228,9 @@ export {
   type GraphValidationCode,
 } from "./graph/node-writer.js";
 export { EdgeWriter, type EdgeInput, type EdgeWriteResult } from "./graph/edge-writer.js";
+export { SchemaResolver, EDGE_TYPES_ALLOWLIST, type NodeSchema, type EdgeSchemaMatch } from "./graph/schema-resolver.js";
+export { seedJarvisOntology, type OntologySeedReport } from "./graph/ontology-seed.js";
+export { JARVIS_ONTOLOGY, type OntologyFixture } from "./graph/fixtures/jarvis-ontology.js";
 export { MiniLMEmbedder, backfillEmbeddings, EMBEDDING_DIM, type BackfillReport } from "./graph/embeddings.js";
 export {
   GraphReader,

@@ -96,7 +96,7 @@ describe("EdgeWriter (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI n
   it("rejects unknown types, unregistered triples, stamp overrides, and unresolvable endpoints — writing nothing", async () => {
     const snap = await graphSnapshot(bolt);
     const cases: Array<[Parameters<EdgeWriter["write"]>[0], string]> = [
-      [{ edge: "HAS_TURN", source_ref_id: session, target_ref_id: run }, "UNKNOWN_TYPE"],
+      [{ edge: "HAS_TURN", source_ref_id: session, target_ref_id: run }, "WRONG_TYPE"],
       [{ edge: "in_run", source_ref_id: session, target_ref_id: run }, "UNKNOWN_TYPE"],
       [{ edge: "IN_RUN", source_ref_id: run, target_ref_id: session }, "WRONG_TYPE"],
       [{ edge: "IN_SESSION", source_ref_id: call, target_ref_id: run }, "WRONG_TYPE"],

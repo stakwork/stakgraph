@@ -82,6 +82,21 @@ const SEED_WORKFLOWS = [
  * Unknown includes throw (a silently-missing prompt would seed a broken
  * workflow).
  */
+/**
+ * The prompt files are VERBATIM copies of the stakwork production prompts,
+ * which name the repo-agent's jarvis tools (`jarvis_graph_search`, …). The
+ * lab pipeline runs on the vein-native `graph/*` steps (same shapes, backed
+ * by vein's own Neo4j graph backend — no jarvis process), whose agent tool
+ * names are `graph_*`. Translate the tool names at seed time so the prompt
+ * files stay byte-identical to production while the agents call the tools
+ * they were actually granted.
+ */
+const JARVIS_TOOL_NAME =
+  /\bjarvis_(get_ontology_type|get_ontology|graph_search|graph_get_batched|graph_get|graph_neighbors|register_namespace|create_node|edit_node|create_triplet|create_batch_triplet)\b/g;
+export function translateToolNames(text: string): string {
+  return text.replace(JARVIS_TOOL_NAME, "graph_$1");
+}
+
 async function expandIncludes(yaml: string): Promise<string> {
   const promptsDir = join(HERE, "prompts");
   const lines = yaml.split("\n");
@@ -93,7 +108,7 @@ async function expandIncludes(yaml: string): Promise<string> {
       continue;
     }
     const [, indent, file] = m;
-    const body = await readFile(join(promptsDir, file), "utf-8");
+    const body = translateToolNames(await readFile(join(promptsDir, file), "utf-8"));
     for (const bodyLine of body.replace(/\n$/, "").split("\n")) {
       out.push(bodyLine.length > 0 ? indent + bodyLine : "");
     }

@@ -32,6 +32,24 @@ Not yet built (parallel track, generic-storage §1–5): `Neo4jWorkspaceStore`
 and the run/chat projector; `openGraphBackend` in `src/graph/backend.ts` is
 the seam they plug into.
 
+**Beyond the original scope — jarvis-typed data.** The harvey lab pipeline
+writes jarvis's own types (Document, EvalSet, EvalRequirement, EvalTrigger,
+EvalTriggerOutput, CriterionResult, extraction entities) and reads
+jarvis-seeded Concepts. To run it on this backend with no jarvis process,
+the writers resolve NON-Vein types the way jarvis does — from the live
+`:Schema` meta-graph (`src/graph/schema-resolver.ts`: case-insensitive
+type canonicalization, CHILD_OF-merged attributes, `Domain_*` labels
+honouring `About.hidden_domains`/`hidden_types`, edge-schema lookup with
+ancestor walks + `*` wildcard, the `EDGE_TYPES` allowlist,
+`create_schema_if_missing`). The §6 closed registry still governs Vein
+types and Vein-sourced edges. For a STANDALONE Neo4j, the bundled
+`fixtures/jarvis-ontology.ts` (a read-only dump of jarvis's default
+library: 151 schemas, 309 edge schemas) is seeded add-only by
+`seedJarvisOntology` (`VEIN_GRAPH_SEED_ONTOLOGY=1`), including the
+per-domain fulltext/vector indexes. jarvis's kitchen-sink `Data_Bank`
+fallback (priority fields + every non-excluded property) IS ported after
+all — jarvis types like EvalTriggerOutput depend on it.
+
 Decisions and deviations discovered while implementing (source of truth
 over this doc where they disagree):
 
