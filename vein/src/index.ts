@@ -95,6 +95,8 @@ export {
 
 // Workspace
 export {
+  type WorkspaceStore,
+  FileWorkspaceStore,
   WorkspaceManager,
   type WorkflowMetadata,
   type WorkflowVersionInfo,

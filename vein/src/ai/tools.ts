@@ -410,13 +410,16 @@ export function buildTools(deps: AiDeps) {
       execute: async ({ type, config, input, params, cassette, cassetteName }) => {
         const registry = deps.registry;
         if (!registry[type]) return { error: `Step type "${type}" not found` };
+        if (cassette && !deps.dataDir) {
+          return { error: "Cassette record/replay is unavailable (no local data dir configured)." };
+        }
         return runSingleStep(type, registry, deps.services, {
           config: coerceJsonArg(config) as Record<string, unknown> | undefined,
           input: coerceJsonArg(input),
           params: coerceJsonArg(params) as Record<string, unknown> | undefined,
           workspace: deps.workspace,
           ...(cassette
-            ? { cassette: { mode: cassette, path: cassettePath(deps.workspace.path, cassetteName ?? type) } }
+            ? { cassette: { mode: cassette, path: cassettePath(deps.dataDir!, cassetteName ?? type) } }
             : {}),
         });
       },
@@ -496,7 +499,7 @@ export function buildTools(deps: AiDeps) {
       ? {
           bash: tool({
             description:
-              "Execute a bash command in the workspace directory — for BUILD-TIME exploration while authoring: curl an API to see its real response shape before writing a step, clone a repo into scratch/ to inspect a data format, check a CLI exists, read a run's file outputs under artifacts/<runId>/. Commands run under a scrubbed environment (no server API keys — use placeholder values when probing an authed API, or author the step and run_step it with the real secret). This tool is NOT how production workflows reach the outside world: steps you author must still use ctx.services.http + ctx.services.secrets so runs stay recordable and secrets scrubbed. Output is captured with a cap; default timeout 30s (raise timeoutMs up to 10 min for clones/installs).",
+              "Execute a bash command in the server's data directory — for BUILD-TIME exploration while authoring: curl an API to see its real response shape before writing a step, clone a repo into scratch/ to inspect a data format, check a CLI exists, read a run's file outputs under artifacts/<runId>/. Commands run under a scrubbed environment (no server API keys — use placeholder values when probing an authed API, or author the step and run_step it with the real secret). This tool is NOT how production workflows reach the outside world: steps you author must still use ctx.services.http + ctx.services.secrets so runs stay recordable and secrets scrubbed. Output is captured with a cap; default timeout 30s (raise timeoutMs up to 10 min for clones/installs).",
             inputSchema: z.object({
               command: z.string().describe("The bash command to execute"),
               timeoutMs: z

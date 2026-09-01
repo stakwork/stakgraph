@@ -3,6 +3,8 @@ import { dirname, join, relative, sep } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import type { Flow } from "./core.js";
+import type { SubflowResolver } from "./runner.js";
+import { readStepSourceFromDisk, type StepSource } from "./steps/registry.js";
 import { contentHash, nextVersionLabel } from "./version.js";
 import { evaluateExpr } from "./expr.js";
 
@@ -159,15 +161,100 @@ export interface StepListEntry {
   publisher?: string;
 }
 
-// ── Workspace Manager ──────────────────────────────────────────────────────
+// ── Workspace store boundary ───────────────────────────────────────────────
 
-export class WorkspaceManager {
+/**
+ * The persistence boundary for workflows and steps — everything the server,
+ * the authoring capability, and the chat builder need from "the workspace",
+ * with no filesystem in the contract. `FileWorkspaceStore` is the default
+ * implementation; a graph-backed one implements the same surface.
+ *
+ * Two things a workspace deliberately does NOT own: run records (the
+ * `RunStore`) and local scratch (artifacts, cassettes, shell cwd — the
+ * server's `dataDir`). Custom steps are executable code, so the boundary
+ * exposes them two ways: as source text (`getStepSource`) and as an
+ * importable directory (`materializeCustomSteps`) for the module loader.
+ */
+export interface WorkspaceStore extends SubflowResolver {
+  // ── Workflows ──
+  /** Every workflow with its version list. `lastRunAt` is NOT populated
+   *  here (runs belong to the run store — the server composes it). */
+  listWorkflows(): Promise<WorkflowListEntry[]>;
+  getWorkflow(name: string): Promise<Flow>;
+  getWorkflowVersion(name: string, version: string): Promise<Flow>;
+  /** Raw YAML source of a workflow version (throws when missing). */
+  getWorkflowSource(name: string, version: string): Promise<string>;
+  /** Content hash of a version's source (active when omitted), or null. */
+  getWorkflowHash(name: string, version?: string): Promise<string | null>;
+  /** The workflow's metadata record (active version, versions, category,
+   *  publisher), or null when the workflow doesn't exist. */
+  getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null>;
+  createWorkflow(
+    name: string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<{ name: string; version: string }>;
+  publishWorkflow(
+    name: string,
+    version: string,
+    content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<void>;
+  publishWorkflowByContent(
+    name: string,
+    yamlStr: string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<{ version: string; changed: boolean }>;
+  setWorkflowCategory(name: string, category: string | null): Promise<void>;
+  setActiveVersion(name: string, version: string): Promise<void>;
+  setParam(
+    name: string,
+    param: string,
+    value: unknown,
+  ): Promise<{ version: string; before: unknown; after: unknown }>;
+
+  // ── Steps (custom tier) ──
+  listSteps(filter?: { publisher?: string }): Promise<StepListEntry[]>;
+  publishStep(
+    name: string,
+    code: string,
+    description?: string,
+    publisher?: string,
+  ): Promise<{ version: string; changed: boolean }>;
+  listStepVersions(name: string): Promise<StepVersionsResult>;
+  getStepVersionSource(name: string, version: string): Promise<string>;
+  setActiveStepVersion(name: string, version: string): Promise<void>;
+  deleteStep(name: string): Promise<boolean>;
+  deleteStepsByPublisher(publisher: string): Promise<string[]>;
+
+  // ── Step source + code loading ──
+  /** A step's source text across all tiers (core / lib ship with the
+   *  engine; custom is this store's), or null when none is on record. */
+  getStepSource(type: string): Promise<{ code: string; origin: StepSource } | null>;
+  /** Ensure every ACTIVE custom step exists as an importable file and
+   *  return the directory root — what `buildRegistry(customDir)` loads. A
+   *  file-backed store already has it; other backends write to scratch. */
+  materializeCustomSteps(): Promise<string>;
+}
+
+// ── Filesystem implementation ──────────────────────────────────────────────
+
+export class FileWorkspaceStore implements WorkspaceStore {
   private root: string;
 
   constructor(root?: string) {
     this.root = root ?? process.env["VEIN_WORKSPACE"] ?? "./workspace";
   }
 
+  /** The filesystem root — an implementation detail of THIS store, not part
+   *  of `WorkspaceStore`. The server's local scratch (`dataDir`) defaults to
+   *  it so file-backed deployments keep one directory. */
   get path(): string {
     return this.root;
   }
@@ -196,6 +283,10 @@ export class WorkspaceManager {
     }
 
     return results;
+  }
+
+  async getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null> {
+    return this.readWorkflowMetadata(name);
   }
 
   /** Load the active version of a workflow. */
@@ -715,6 +806,22 @@ export class WorkspaceManager {
     return toDelete;
   }
 
+  // ── Step source + code loading ─────────────────────────────────────────
+
+  async getStepSource(type: string): Promise<{ code: string; origin: StepSource } | null> {
+    return readStepSourceFromDisk(type, this.customStepsDir());
+  }
+
+  /** Publishing already writes each active custom step to
+   *  `<root>/steps/custom/<name>.ts`, so the store IS the materialization. */
+  async materializeCustomSteps(): Promise<string> {
+    return this.customStepsDir();
+  }
+
+  private customStepsDir(): string {
+    return join(this.root, "steps", "custom");
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────
 
   private async readWorkflowMetadata(
@@ -742,6 +849,9 @@ export class WorkspaceManager {
     }
   }
 }
+
+/** Back-compat name for `FileWorkspaceStore` (embedders and docs). */
+export { FileWorkspaceStore as WorkspaceManager };
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 

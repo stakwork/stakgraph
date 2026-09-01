@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { RunEvent, RunResult, RunSummary, StepRegistry } from "./core.js";
-import type { WorkspaceManager } from "./workspace.js";
+import type { WorkspaceStore } from "./workspace.js";
 import type { RunStore } from "./store.js";
 import { generateRunId } from "./store.js";
 import { runWorkflow } from "./runner.js";
@@ -219,7 +219,7 @@ export function coerceJsonArg(v: unknown): unknown {
  *  structurally; the authoring capability builds its own. `getRegistry` must
  *  return a FRESH registry (re-scanned from the workspace). */
 export interface StepPublishDeps {
-  workspace: WorkspaceManager;
+  workspace: WorkspaceStore;
   getRegistry(): Promise<StepRegistry>;
   publishingEnabled?: boolean;
 }
@@ -246,7 +246,7 @@ async function verifyLoaded(
   const fresh = await deps.getRegistry();
   if (fresh[name]) return { loaded: true };
   const err = await stepLoadError(
-    join(deps.workspace.path, "steps", "custom", `${name}.ts`),
+    join(await deps.workspace.materializeCustomSteps(), `${name}.ts`),
   );
   return {
     loaded: false,
@@ -377,6 +377,9 @@ export interface AuthoringCapability {
 
 export interface AuthoringDeps extends StepPublishDeps {
   store: RunStore;
+  /** Local directory for step cassettes (`runStep` record/replay). Optional:
+   *  without it, cassette modes report an error instead of recording. */
+  dataDir?: string;
   /** Capabilities bag threaded into `runWorkflow` / `runStep` so authored
    *  steps reach `ctx.services` (http, secrets, and any consumer services). */
   services?: unknown;
@@ -474,6 +477,9 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
       // snapshot and would not contain it (EVOLVE_SPEC §5.3.1).
       const registry = await deps.getRegistry();
       if (!registry[type]) return { error: `Step type "${type}" not found` };
+      if (args.cassette && !deps.dataDir) {
+        return { error: "Cassette record/replay is unavailable (no local data dir configured)." };
+      }
       return runSingleStep(type, registry, deps.services, {
         config: coerceJsonArg(args.config) as Record<string, unknown> | undefined,
         input: coerceJsonArg(args.input),
@@ -483,7 +489,7 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
           ? {
               cassette: {
                 mode: args.cassette,
-                path: cassettePath(workspace.path, args.cassetteName ?? type),
+                path: cassettePath(deps.dataDir!, args.cassetteName ?? type),
               },
             }
           : {}),

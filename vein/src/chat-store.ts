@@ -319,11 +319,25 @@ export class MemoryChatStore implements ChatStore {
     this.events.set(chatId, arr);
   }
 
-  async *tailEvents(chatId: string, turn: number): AsyncGenerator<ChatEvent> {
-    // Tests use this only for already-finished turns; replay what we have.
-    for (const e of this.events.get(chatId) ?? []) {
-      if (e.turn === turn) yield e;
-      if (e.turn === turn && isChatTerminal(e)) return;
+  /** Same contract as the file tail: replay the turn's history, then follow
+   *  live appends (index cursor + poll) until the turn's terminal event. */
+  async *tailEvents(
+    chatId: string,
+    turn: number,
+    opts: { intervalMs?: number; signal?: AbortSignal } = {},
+  ): AsyncGenerator<ChatEvent> {
+    const intervalMs = opts.intervalMs ?? 250;
+    let cursor = 0;
+    while (true) {
+      if (opts.signal?.aborted) return;
+      const log = this.events.get(chatId) ?? [];
+      while (cursor < log.length) {
+        const e = log[cursor++]!;
+        if (e.turn !== turn) continue;
+        yield e;
+        if (isChatTerminal(e)) return;
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
   }
 

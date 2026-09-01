@@ -9,6 +9,7 @@ import { z } from "zod";
 import { createVein } from "./createVein.js";
 import { createRegistry } from "./steps/registry.js";
 import { defineStep, flow, step } from "./core.js";
+import { pathlessWorkspace } from "./test-util/pathless-workspace.js";
 import { WorkspaceManager } from "./workspace.js";
 import { MemoryRunStore, FileRunStore } from "./store.js";
 
@@ -544,6 +545,41 @@ describe("createVein", () => {
 
     const missing = await vein.app.request("/workflows/mem-test/runs/nope");
     assert.equal(missing.status, 404);
+  });
+
+  it("a non-file WorkspaceStore gets in-memory store defaults and still loads custom steps", async () => {
+    const ws = pathlessWorkspace(new WorkspaceManager(tempDir));
+    // Import-free step source (the temp dir sits outside the project tree,
+    // so `import "vein"` wouldn't resolve — same trick as registry.test.ts).
+    await ws.publishStep(
+      "conf-step",
+      `export default {
+        type: "conf-step",
+        input: { _def: { typeName: 'ZodObject', shape: () => ({}) } },
+        output: { _def: { typeName: 'ZodAny' } },
+        async run() { return "ok"; },
+      };`,
+    );
+    const vein = await createVein({ workspace: ws, dataDir: join(tempDir, "data"), serveUi: false, enableChat: false });
+    assert.ok(vein.store instanceof MemoryRunStore, "run store defaults to memory for a non-file workspace");
+    assert.equal(vein.dataDir, join(tempDir, "data"));
+    assert.ok("conf-step" in vein.getRegistry(), "custom steps load via materializeCustomSteps()");
+    const health = (await (await vein.app.request("/health")).json()) as { dataDir: string };
+    assert.equal(health.dataDir, join(tempDir, "data"));
+    const meta = await vein.app.request("/workflows/nope");
+    assert.equal(meta.status, 404);
+  });
+
+  it("dataDir defaults to the file workspace root and is overridable", async () => {
+    const a = await createVein({ workspace: new WorkspaceManager(tempDir), serveUi: false, enableChat: false });
+    assert.equal(a.dataDir, tempDir);
+    const b = await createVein({
+      workspace: new WorkspaceManager(tempDir),
+      dataDir: join(tempDir, "elsewhere"),
+      serveUi: false,
+      enableChat: false,
+    });
+    assert.equal(b.dataDir, join(tempDir, "elsewhere"));
   });
 
   it("GET /workflows decorates entries with lastRunAt from the run store", async () => {
