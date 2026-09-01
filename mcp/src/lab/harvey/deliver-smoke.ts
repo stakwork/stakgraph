@@ -294,6 +294,11 @@ async function main() {
     assert.equal(trigOut.target_data.n_passed, 1);
     assert.equal(critA.edge_type, "HAS_CRITERION_RESULT");
     assert.equal(critA.target_data.id, "crit-run42-c1");
+    // The criterion side carries the FULL output node_data (identical to the
+    // spine's) so the batch write's dedup cache resolves it once — a bare
+    // { id } missed the cache and failed schema validation live.
+    assert.equal(critA.source_data.id, "output-run42");
+    assert.equal(critA.source_data.result, trigOut.target_data.result);
     assert.equal(reqA.source_type, "EvalRequirement");
     assert.equal(reqA.source_data.id, "slug-c1");
     const critB = chain.triplets[4];

@@ -127,9 +127,11 @@ steps:
       file: "{{ input.file }}"
       ref_id: "{{ docnode.ref_id }}"
       needed: "{{ needed }}"
-      error: "{{ ingest.error }}"
-      cost: "{{ ingest.cost }}"
-      steps: "{{ ingest.steps }}"
+      # ingest is SKIPPED on an already-ingested doc — `?.` keeps this join
+      # from throwing on the undefined ref.
+      error: "{{ ingest?.error }}"
+      cost: "{{ ingest?.cost }}"
+      steps: "{{ ingest?.steps }}"
 
 params:
   model: claude-sonnet-5

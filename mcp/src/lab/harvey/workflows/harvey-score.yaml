@@ -284,7 +284,9 @@ steps:
       trigger_id: "{{ chain.trigger_id }}"
       output_id: "{{ chain.output_id }}"
       recordError: "{{ record.error }}"
-      webhookError: "{{ post.error }}"
+      # post is SKIPPED without a webhookUrl — `?.` resolves undefined instead
+      # of throwing (a plain .error here killed a full live run at this step).
+      webhookError: "{{ post?.error }}"
       judgeCost: "{{ scores.judgeCost }}"
 
 params:

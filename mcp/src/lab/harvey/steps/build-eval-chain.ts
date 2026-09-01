@@ -45,6 +45,24 @@ export default defineStep({
         ? s.criteria_results
         : [];
 
+    // ONE node_data object for EVERY EvalTriggerOutput side. The batch step's
+    // inline-node dedup cache keys on (type + full node_data) — when the
+    // criterion triplets carried a bare { id } while the spine carried the
+    // full attributes, the cache missed and the bare re-create failed jarvis
+    // schema validation ("Missing required attribute 'result'"), dropping all
+    // 60 CriterionResult writes in the first live run. Identical objects →
+    // one resolve, reused everywhere.
+    const outputNodeData = {
+      id: output_id,
+      result: s.all_pass ? "pass" : "fail",
+      verdict: s.all_pass ? "pass" : "fail",
+      score: typeof s.score === "number" ? s.score : 0,
+      max_score: typeof s.max_score === "number" ? s.max_score : 0,
+      n_total: typeof s.n_total === "number" ? s.n_total : 0,
+      n_passed: typeof s.n_passed === "number" ? s.n_passed : 0,
+      ...(cfg.judge_model ? { judge_model: cfg.judge_model } : {}),
+    };
+
     // Position of each criterion's HAS_CRITERION_RESULT triplet in the array
     // below — harvey/criterion-refs zips these with the batch write's results
     // to recover the created CriterionResult ref_ids.
@@ -69,16 +87,7 @@ export default defineStep({
         source_type: "EvalTrigger",
         source_data: { id: trigger_id },
         target_type: "EvalTriggerOutput",
-        target_data: {
-          id: output_id,
-          result: s.all_pass ? "pass" : "fail",
-          verdict: s.all_pass ? "pass" : "fail",
-          score: typeof s.score === "number" ? s.score : 0,
-          max_score: typeof s.max_score === "number" ? s.max_score : 0,
-          n_total: typeof s.n_total === "number" ? s.n_total : 0,
-          n_passed: typeof s.n_passed === "number" ? s.n_passed : 0,
-          ...(cfg.judge_model ? { judge_model: cfg.judge_model } : {}),
-        },
+        target_data: outputNodeData,
         edge_type: "HAS_OUTPUT",
       },
     ];
@@ -89,7 +98,7 @@ export default defineStep({
       criterionSlots.push({ criterion_id: critId, index: triplets.length });
       triplets.push({
         source_type: "EvalTriggerOutput",
-        source_data: { id: output_id },
+        source_data: outputNodeData,
         target_type: "CriterionResult",
         target_data: {
           id: `crit-${runId}-${critId}`,

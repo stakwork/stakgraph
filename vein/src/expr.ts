@@ -3,6 +3,9 @@
  *
  * Supports:
  *  - Property access: foo.bar.baz, foo["bar"], arr[0]
+ *  - Optional chaining: foo?.bar — undefined (no throw) when foo is
+ *    null/undefined; guards ONE hop (write a?.b?.c for deeper chains).
+ *    The escape hatch for refs into steps a `when:` gate SKIPPED.
  *  - Literals: numbers, strings ('...' or "..."), true, false, null
  *  - Operators: === !== == != < <= > >= && || ! + - * / %
  *  - Ternary: a ? b : c
@@ -34,6 +37,7 @@ type TokenType =
   | "lparen"
   | "rparen"
   | "question"
+  | "optionalDot"
   | "colon"
   | "not"
   | "comma"
@@ -139,6 +143,10 @@ function tokenize(input: string): Token[] {
     } else if (ch === ")") {
       tokens.push({ type: "rparen", value: ")" });
       i++;
+    } else if (ch === "?" && input[i + 1] === ".") {
+      // Optional chaining `?.` — must be checked before the ternary `?`.
+      tokens.push({ type: "optionalDot", value: "?." });
+      i += 2;
     } else if (ch === "?") {
       tokens.push({ type: "question", value: "?" });
       i++;
@@ -441,6 +449,23 @@ function parse(
           );
         }
         obj = (obj as Record<string, unknown>)[prop];
+      } else if (peek().type === "optionalDot") {
+        // Optional chaining: `a?.b` is undefined (no throw) when `a` is
+        // null/undefined — the escape hatch for refs into SKIPPED steps
+        // (`{{ post?.error }}`), whose scope value is undefined. Each `?.`
+        // guards ONE hop (write `a?.b?.c` for deeper chains — a plain `.`
+        // on the undefined result still throws, deliberately).
+        advance();
+        const prop = expect("ident").value;
+        if (peek().type === "lparen") {
+          const args = parseCallArgs();
+          obj = obj === null || obj === undefined ? undefined : callMethod(obj, prop, args);
+          continue;
+        }
+        obj =
+          obj === null || obj === undefined
+            ? undefined
+            : (obj as Record<string, unknown>)[prop];
       } else if (peek().type === "lbracket") {
         advance();
         const idx = parseTernary();

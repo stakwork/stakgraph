@@ -186,11 +186,13 @@ steps:
       checklistFile: checklist.md
       factsFile: facts.md
       caseLawFile: case-law-research.md
-      crossCheckError: "{{ cross_check.error }}"
-      caseLawError: "{{ case_law.error }}"
+      # cross_check / case_law are SKIPPED when their gates are off — `?.`
+      # resolves undefined instead of throwing on the skipped refs.
+      crossCheckError: "{{ cross_check?.error }}"
+      caseLawError: "{{ case_law?.error }}"
       writerCost: "{{ write_checklist.cost }}"
-      crossCheckCost: "{{ cross_check.cost }}"
-      caseLawCost: "{{ case_law.cost }}"
+      crossCheckCost: "{{ cross_check?.cost }}"
+      caseLawCost: "{{ case_law?.cost }}"
       tailorCost: "{{ tailor.cost }}"
 
 params:

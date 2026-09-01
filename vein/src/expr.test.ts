@@ -135,6 +135,46 @@ describe("evaluateExpr", () => {
     });
   });
 
+  describe("optional chaining (?.)", () => {
+    it("returns undefined (no throw) on a nullish base — the skipped-step ref case", () => {
+      // A step skipped by a `when:` gate is IN scope with value undefined;
+      // plain `post.error` THROWS (killed a live 4-hour pipeline run at its
+      // final echo step), `post?.error` must not. An ident entirely ABSENT
+      // from scope still throws Undefined reference — that catches typos.
+      assert.equal(evaluateExpr("post?.error", { post: undefined }), undefined);
+      assert.equal(evaluateExpr("post?.error", { post: null }), undefined);
+      assert.throws(() => evaluateExpr("post?.error", {}), /Undefined reference/);
+    });
+
+    it("behaves like plain access on a present base", () => {
+      assert.equal(evaluateExpr("post?.error", { post: { error: "boom" } }), "boom");
+      assert.equal(evaluateExpr("a?.b?.c", { a: { b: { c: 42 } } }), 42);
+    });
+
+    it("guards one hop — chain deeper hops with their own ?.", () => {
+      assert.equal(evaluateExpr("a?.b?.c", { a: {} }), undefined);
+      // a?.b is undefined; the PLAIN .c on it still throws (deliberate).
+      assert.throws(() => evaluateExpr("a?.b.c", { a: {} }), /Cannot access property 'c'/);
+    });
+
+    it("optional method call on a nullish base returns undefined without invoking", () => {
+      assert.equal(evaluateExpr("xs?.map(x => x)", { xs: undefined }), undefined);
+      assert.deepEqual(evaluateExpr("xs?.map(x => x + 1)", { xs: [1, 2] }), [2, 3]);
+    });
+
+    it("does not confuse ?. with the ternary ?", () => {
+      assert.equal(evaluateExpr("flag ? a?.b : 2", { flag: true, a: { b: 1 } }), 1);
+      assert.equal(evaluateExpr("flag ? 1 : a?.b", { flag: false, a: undefined }), undefined);
+    });
+
+    it("plain dot access on undefined still throws (unchanged semantics)", () => {
+      assert.throws(
+        () => evaluateExpr("post.error", { post: undefined }),
+        /Cannot access property 'error'/,
+      );
+    });
+  });
+
   describe("arithmetic operators", () => {
     it("adds numbers", () => {
       assert.equal(evaluateExpr("a + b", { a: 3, b: 4 }), 7);
