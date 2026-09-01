@@ -154,6 +154,16 @@ describe("EdgeWriter (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI n
     assert.equal(vt[0]!["t"], "INTEGER NOT NULL");
   });
 
+  it("caller weight overrides the stamp", async () => {
+    const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, weight: 3 });
+    const r = await rel(a.ref_id);
+    assert.equal((r["props"] as Record<string, unknown>)["weight"], 3);
+    assert.equal(r["weightType"], "INTEGER NOT NULL");
+    await edges.mute(a.ref_id);
+    const b = await edges.write({ edge: "IN_SESSION", source_ref_id: call, target_ref_id: session, weight: 0.5 });
+    assert.equal((await rel(b.ref_id))["weightType"], "FLOAT NOT NULL");
+  });
+
   it("mute is the edge soft delete", async () => {
     const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run });
     assert.equal(await edges.mute(a.ref_id), true);

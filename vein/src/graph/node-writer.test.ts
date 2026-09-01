@@ -294,6 +294,51 @@ describe("NodeWriter (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI n
     assert.equal((p2["input_embeddings"] as number[])[0], "Input:\n{ab}".length);
   });
 
+  it("update: merge, remove, re-validate, re-key with collision check, rebuild Data_Bank", async () => {
+    const seen: string[] = [];
+    const fake: Embedder = { async embed(texts) { seen.push(...texts); return texts.map((t) => Array.from({ length: 384 }, (_, i) => (i === 0 ? t.length : 0))); } };
+    const w = new NodeWriter(bolt, { embedder: fake });
+    const a = await w.write({ type: "VeinRun", data: { ...RUN, log_ref: "runs/1" } });
+    const before = (await node(a.ref_id))["props"] as Record<string, unknown>;
+    const u = await w.update(a.ref_id, { set: { status: "error", error_message: "boom" }, remove: ["log_ref"] });
+    assert.deepEqual(u, { ref_id: a.ref_id, node_key: "veinrun-1725220000123", rekeyed: false });
+    const p = (await node(a.ref_id))["props"] as Record<string, unknown>;
+    assert.equal(p["status"], "error");
+    assert.equal(p["error_message"], "boom");
+    assert.ok(!("log_ref" in p));
+    assert.equal(p["summary"], RUN.summary, "untouched attrs survive");
+    assert.equal(p["date_added_to_graph"], before["date_added_to_graph"]);
+    assert.equal(p["Data_Bank"], "harvey-deliver\nerror\nDelivered 60 of 60");
+    assert.equal((p["text_embeddings"] as number[])[0], "harvey-deliver\nerror\nDelivered 60 of 60".length);
+    // Remove every index field but one → Data_Bank rebuilt; remove all → dropped.
+    await w.update(a.ref_id, { remove: ["summary"] });
+    assert.equal(((await node(a.ref_id))["props"] as Record<string, unknown>)["Data_Bank"], "harvey-deliver\nerror");
+    // Validation still applies to the merged payload.
+    await assert.rejects(w.update(a.ref_id, { set: { bogus: 1 } }), (e: unknown) => e instanceof GraphValidationError && e.code === "UNKNOWN_ATTRIBUTE");
+    await assert.rejects(w.update(a.ref_id, { remove: ["status"] }), (e: unknown) => e instanceof GraphValidationError && e.code === "MISSING_REQUIRED");
+    await assert.rejects(w.update(a.ref_id, { set: { duration_ms: "x" } }), (e: unknown) => e instanceof GraphValidationError && e.code === "WRONG_TYPE");
+    await assert.rejects(w.update("nope", { set: { status: "x" } }), (e: unknown) => e instanceof GraphValidationError && e.code === "NOT_FOUND");
+    // Re-key: editing an identity attr recomposes node_key; colliding fails.
+    const b = await w.write({ type: "VeinRun", data: { ...RUN, run_id: "other" } });
+    await assert.rejects(w.update(b.ref_id, { set: { run_id: "1725220000123" } }), (e: unknown) => e instanceof GraphValidationError && e.code === "DUPLICATE_KEY");
+    const rk = await w.update(b.ref_id, { set: { run_id: "renamed" } });
+    assert.deepEqual(rk, { ref_id: b.ref_id, node_key: "veinrun-renamed", rekeyed: true });
+    assert.equal(((await node(b.ref_id))["props"] as Record<string, unknown>)["node_key"], "veinrun-renamed");
+    // Without an embedder, a changed text drops the stale vector so backfill heals it.
+    const plain = new NodeWriter(bolt);
+    await plain.update(a.ref_id, { set: { status: "success" } });
+    assert.ok(!("text_embeddings" in ((await node(a.ref_id))["props"] as Record<string, unknown>)));
+  });
+
+  it("per-write namespace overrides the backend default", async () => {
+    const r = await writer.write({ type: "VeinRun", data: RUN }, "create", { namespace: "tenant-z" });
+    assert.equal(((await node(r.ref_id))["props"] as Record<string, unknown>)["namespace"], "tenant-z");
+    const again = await writer.write({ type: "VeinRun", data: RUN }, "create", { namespace: "tenant-z" });
+    assert.equal(again.outcome, "existing");
+    const dflt = await writer.write({ type: "VeinRun", data: RUN });
+    assert.equal(dflt.outcome, "created");
+  });
+
   it("namespace scopes identity", async () => {
     const other = new Bolt({ ...cfg!, namespace: "tenant-b" });
     try {

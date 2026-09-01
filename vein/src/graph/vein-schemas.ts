@@ -360,6 +360,15 @@ export const WILDCARD_TARGET_EDGES = new Set(["ACCESSED"]);
 
 // ── Lookups ─────────────────────────────────────────────────────────────────
 
+/** Labels jarvis strips when resolving a node's type from its label set
+ *  (`resolve_node_type`): `Node`, `Data_Bank`, and every `Domain_*`. */
+const STRUCTURAL_LABEL = /^(Node|Data_Bank|Domain_.*)$/;
+
+/** The type label of a node: its labels minus the structural ones. */
+export function typeLabelOf(labels: string[]): string | undefined {
+  return labels.find((l) => !STRUCTURAL_LABEL.test(l));
+}
+
 const BY_TYPE = new Map(VEIN_SCHEMAS.map((s) => [s.type, s]));
 
 /** Exact-match lookup (jarvis resolves case-insensitively; we don't). */

@@ -27,7 +27,9 @@ import { randomUUID } from "node:crypto";
 import type { ManagedTransaction } from "neo4j-driver";
 import { Bolt, int, txRows } from "./bolt.js";
 import { GraphValidationError } from "./node-writer.js";
-import { VEIN_EDGES, WILDCARD_TARGET_EDGES, isVeinType } from "./vein-schemas.js";
+import { VEIN_EDGES, WILDCARD_TARGET_EDGES, isVeinType, typeLabelOf } from "./vein-schemas.js";
+
+export { typeLabelOf };
 
 export interface EdgeInput {
   edge: string;
@@ -38,6 +40,9 @@ export interface EdgeInput {
    *  be supplied. Plain JS numbers are written as FLOAT; wrap with `int()`
    *  from `bolt.ts` for an Integer. */
   properties?: Record<string, unknown>;
+  /** Overrides the `weight: 1` stamp on create (jarvis accepts a caller
+   *  weight on POST /v2/edges). Written as an Integer when integral. */
+  weight?: number;
 }
 
 export interface EdgeWriteResult {
@@ -52,14 +57,6 @@ export interface EdgeWriteResult {
 const STAMPS = new Set(["ref_id", "edge_key", "weight", "date_added_to_graph"]);
 const IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const EDGE_TYPES = new Set(VEIN_EDGES.map((e) => e.edge));
-/** Labels jarvis strips when resolving a node's type from its label set. */
-const STRUCTURAL_LABEL = /^(Node|Data_Bank|Domain_.*)$/;
-
-/** The type label of a node: its labels minus the structural ones. */
-export function typeLabelOf(labels: string[]): string | undefined {
-  return labels.find((l) => !STRUCTURAL_LABEL.test(l));
-}
-
 /** Registry check for one (source type, edge, target type) triple. */
 export function isRegisteredEdge(edge: string, sourceType: string, targetType: string): boolean {
   return VEIN_EDGES.some(
@@ -150,7 +147,7 @@ async function mergeEdges(tx: ManagedTransaction, edge: string, inputs: EdgeInpu
       ...(i.properties ?? {}),
       ref_id: randomUUID(),
       edge_key,
-      weight: int(1),
+      weight: i.weight === undefined ? int(1) : Number.isInteger(i.weight) ? int(i.weight) : i.weight,
       date_added_to_graph: int(Date.now()),
     },
   }));

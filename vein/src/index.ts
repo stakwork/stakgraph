@@ -188,3 +188,63 @@ export {
 
 // Default filesystem-backed server (a thin wrapper over createVein).
 export { getApp, startServer } from "./server.js";
+
+// Graph backend — jarvis-compatible Neo4j writes/reads over bolt, no jarvis
+// in the loop (plans/jarvis-graph-compat.md). Opt-in: nothing here runs
+// unless a consumer opens a backend.
+export {
+  Bolt,
+  graphConfigFromEnv,
+  int as neo4jInt,
+  type GraphConfig,
+} from "./graph/bolt.js";
+export {
+  VEIN_SCHEMAS,
+  VEIN_EDGES,
+  VEIN_DOMAIN,
+  VEIN_DOMAIN_LABEL,
+  getVeinSchema,
+  isVeinType,
+  effectiveAttributes,
+  typeLabelOf,
+  type VeinSchema,
+  type VeinEdgeDef,
+  type AttrType,
+} from "./graph/vein-schemas.js";
+export { seedVeinDomain, type SeedReport } from "./graph/schema-seed.js";
+export {
+  NodeWriter,
+  GraphValidationError,
+  validateNode,
+  composeNodeKey,
+  buildSearchText,
+  type Embedder,
+  type NodeInput,
+  type NodeWriteResult,
+  type NodeUpdate,
+  type NodeUpdateResult,
+  type WriteMode,
+  type WriteOptions,
+  type GraphValidationCode,
+} from "./graph/node-writer.js";
+export { EdgeWriter, type EdgeInput, type EdgeWriteResult } from "./graph/edge-writer.js";
+export { MiniLMEmbedder, backfillEmbeddings, EMBEDDING_DIM, type BackfillReport } from "./graph/embeddings.js";
+export {
+  GraphReader,
+  GraphReadError,
+  type NodeEnvelope,
+  type EdgeEnvelope,
+  type SearchParams,
+  type SearchResult,
+  type NeighborsParams,
+  type ConnectionCount,
+  type SchemaEnvelope,
+  type OntologyEdge,
+} from "./graph/search.js";
+export {
+  openGraphBackend,
+  openGraphBackendFromEnv,
+  closeGraphBackends,
+  type GraphBackend,
+  type GraphBackendOptions,
+} from "./graph/backend.js";

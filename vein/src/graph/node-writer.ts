@@ -35,6 +35,7 @@ import {
   getVeinSchema,
   isOptional,
   nodeKeyFields,
+  typeLabelOf,
   vectorStem,
   type AttrBase,
   type VeinSchema,
@@ -49,7 +50,9 @@ export type GraphValidationCode =
   | "WRONG_TYPE"
   | "INVALID_LIST"
   | "INVALID_DATETIME"
-  | "EMPTY_NODE_KEY_TOKEN";
+  | "EMPTY_NODE_KEY_TOKEN"
+  | "NOT_FOUND"
+  | "DUPLICATE_KEY";
 
 export class GraphValidationError extends Error {
   readonly code: GraphValidationCode;
@@ -283,6 +286,28 @@ export interface NodeWriterOptions {
   embedder?: Embedder;
 }
 
+export interface WriteOptions {
+  /** Override the backend's default namespace for this write. Must already
+   *  be registered when it is not `default` (callers check via
+   *  `GraphReader.resolveNamespace`). */
+  namespace?: string;
+}
+
+export interface NodeUpdate {
+  /** Properties to set/overwrite (validated against the schema after
+   *  merging over the node's current attributes). */
+  set?: Record<string, unknown>;
+  /** Attribute names to remove. Required attributes cannot be removed. */
+  remove?: string[];
+}
+
+export interface NodeUpdateResult {
+  ref_id: string;
+  node_key: string;
+  /** True when the update changed the node_key (identity attrs edited). */
+  rekeyed: boolean;
+}
+
 /** Identity props never touched after create. */
 const PRESERVED = new Set(["ref_id", "node_key", "namespace", "date_added_to_graph"]);
 
@@ -302,12 +327,13 @@ export class NodeWriter {
 
   /** Validate + compose everything except the MERGE. Pure apart from the
    *  embedder call; exposed for tests and the batch path. */
-  async prepare(input: NodeInput): Promise<PreparedNode> {
-    const [p] = await this.prepareMany([input]);
+  async prepare(input: NodeInput, opts: WriteOptions = {}): Promise<PreparedNode> {
+    const [p] = await this.prepareMany([input], opts);
     return p!;
   }
 
-  async prepareMany(inputs: NodeInput[]): Promise<PreparedNode[]> {
+  async prepareMany(inputs: NodeInput[], opts: WriteOptions = {}): Promise<PreparedNode[]> {
+    const namespace = opts.namespace ?? this.bolt.namespace;
     const validated = inputs.map((i) => validateNode(i.type, i.data));
     // Gather every text to embed across the batch → one encoder call.
     const jobs: Array<{ idx: number; column: string; text: string }> = [];
@@ -333,7 +359,7 @@ export class NodeWriter {
         type: v.schema.type,
         node_key,
         ref_id,
-        onCreate: { ...props, ref_id, node_key, namespace: this.bolt.namespace, date_added_to_graph: int(Date.now()) },
+        onCreate: { ...props, ref_id, node_key, namespace, date_added_to_graph: int(Date.now()) },
         onMatch,
       };
     });
@@ -349,8 +375,8 @@ export class NodeWriter {
   }
 
   /** Write one node. */
-  async write(input: NodeInput, mode: WriteMode = "create"): Promise<NodeWriteResult> {
-    const [r] = await this.writeMany([input], mode);
+  async write(input: NodeInput, mode: WriteMode = "create", opts: WriteOptions = {}): Promise<NodeWriteResult> {
+    const [r] = await this.writeMany([input], mode, opts);
     return r!;
   }
 
@@ -359,9 +385,10 @@ export class NodeWriter {
    * MERGE per type, same resulting state as the single form. Results are in
    * input order. All-or-nothing: a validation error anywhere writes nothing.
    */
-  async writeMany(inputs: NodeInput[], mode: WriteMode = "create"): Promise<NodeWriteResult[]> {
+  async writeMany(inputs: NodeInput[], mode: WriteMode = "create", opts: WriteOptions = {}): Promise<NodeWriteResult[]> {
     if (inputs.length === 0) return [];
-    const prepared = await this.prepareMany(inputs);
+    const namespace = opts.namespace ?? this.bolt.namespace;
+    const prepared = await this.prepareMany(inputs, { namespace });
     const byType = new Map<string, Array<{ i: number; p: PreparedNode }>>();
     prepared.forEach((p, i) => {
       const list = byType.get(p.type) ?? [];
@@ -371,13 +398,82 @@ export class NodeWriter {
     const results: NodeWriteResult[] = new Array(inputs.length);
     await this.bolt.write(async (tx) => {
       for (const [type, rows] of byType) {
-        const out = await mergeBatch(tx, type, this.bolt.namespace, rows.map((r) => r.p), mode);
+        const out = await mergeBatch(tx, type, namespace, rows.map((r) => r.p), mode);
         rows.forEach((r, k) => {
           results[r.i] = out[k]!;
         });
       }
     });
     return results;
+  }
+
+  /**
+   * Partial update by ref_id (jarvis `POST /v2/nodes/:ref_id` with
+   * `node_data` / `properties_to_be_deleted`): the patch is merged over the
+   * node's current attributes, the merged payload is re-validated as a
+   * whole, `node_key` is recomposed (an identity edit that collides with
+   * another node fails with DUPLICATE_KEY, nothing written), and
+   * `Data_Bank` + vectors are rebuilt. Identity stamps (`ref_id`,
+   * `namespace`, `date_added_to_graph`) and `is_deleted` are untouched.
+   */
+  async update(ref_id: string, patch: NodeUpdate): Promise<NodeUpdateResult> {
+    const remove = patch.remove ?? [];
+    const set = patch.set ?? {};
+    return this.bolt.write(async (tx) => {
+      const rows = await txRows(
+        tx,
+        `MATCH (n:\`${VEIN_DOMAIN_LABEL}\` {ref_id: $ref_id}) RETURN labels(n) AS labels, properties(n) AS props`,
+        { ref_id },
+      );
+      if (rows.length === 0) throw new GraphValidationError("NOT_FOUND", "?", `no Vein node with ref_id ${ref_id}`);
+      const labels = rows[0]!["labels"] as string[];
+      const props = rows[0]!["props"] as Record<string, unknown>;
+      const type = typeLabelOf(labels) ?? "?";
+      const schema = getVeinSchema(type);
+      if (!schema) throw new GraphValidationError("UNKNOWN_TYPE", type, "stored node is not a registered Vein type");
+      const attrs = effectiveAttributes(schema);
+
+      const current: Record<string, unknown> = {};
+      for (const k of Object.keys(attrs)) if (props[k] !== undefined && props[k] !== null) current[k] = props[k];
+      for (const k of remove) {
+        const t = attrs[k];
+        if (!t) throw new GraphValidationError("UNKNOWN_ATTRIBUTE", type, "attribute is not declared on the schema", k);
+        if (!isOptional(t)) throw new GraphValidationError("MISSING_REQUIRED", type, "required attribute cannot be removed", k);
+        delete current[k];
+      }
+      const merged = { ...current, ...set };
+      for (const k of remove) if (k in set) delete merged[k];
+
+      const [p] = await this.prepareMany([{ type, data: merged }], { namespace: String(props["namespace"]) });
+      const node_key = p!.node_key;
+      const rekeyed = node_key !== props["node_key"];
+      if (rekeyed) {
+        const clash = await txRows(
+          tx,
+          `MATCH (m:\`${type}\` {node_key: $k, namespace: $ns}) WHERE m.ref_id <> $ref_id RETURN m.ref_id AS ref_id LIMIT 1`,
+          { k: node_key, ns: props["namespace"], ref_id },
+        );
+        if (clash.length) throw new GraphValidationError("DUPLICATE_KEY", type, `Node already exists in the graph with node_key: ${node_key}`);
+      }
+
+      // Everything the fresh payload would carry, minus identity stamps.
+      const setMap: Record<string, unknown> = { ...p!.onMatch, node_key };
+      const drop = new Set<string>(remove);
+      if (!("Data_Bank" in setMap)) for (const k of ["Data_Bank", "_search_fields_used", "text_embeddings"]) drop.add(k);
+      else if (!this.opts.embedder && setMap["Data_Bank"] !== props["Data_Bank"]) drop.add("text_embeddings");
+      for (const vi of schema.vector_index ?? []) {
+        const col = embeddingColumn(vi);
+        if (!(vi in merged)) drop.add(col);
+        else if (!this.opts.embedder && merged[vi] !== props[vi]) drop.add(col);
+      }
+      for (const k of drop) delete setMap[k];
+      // Attributes present before but absent from the merged payload
+      // (e.g. explicitly set to null) go too.
+      for (const k of Object.keys(attrs)) if (k in props && !(k in setMap) && !drop.has(k) && !(k in merged)) drop.add(k);
+      const removeClause = drop.size ? `REMOVE ${[...drop].map((k) => `n.\`${k}\``).join(", ")}` : "";
+      await tx.run(`MATCH (n:Data_Bank {ref_id: $ref_id}) SET n += $set ${removeClause}`, { ref_id, set: setMap });
+      return { ref_id, node_key, rekeyed };
+    });
   }
 
   /** Soft delete (`is_deleted = true`). Scoped to Vein's own nodes. */
