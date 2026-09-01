@@ -269,7 +269,7 @@ export default defineStep({
       .default(2)
       .describe("consecutive non-improving attempts before the directive flips from exploit to explore"),
     genParams: z
-      .record(z.any())
+      .record(z.string(), z.any())
       .optional()
       .describe("param overrides for the generation workflow (e.g. { authorModel, authorMaxSteps }) — applied via paramOverrides keyed by genWorkflow"),
     // Generation COUNT is a poor budget: each generation costs whatever the

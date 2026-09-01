@@ -1,0 +1,232 @@
+name: harvey-draft
+# Phase 3+4 of harvey-deliver: plan → parallel drafters → 4 parallel
+# verifiers → aggregator. All prompts are the verbatim production texts
+# (prompts/, spliced in via @@include at seed time). The persona
+# (HARVEY_PERSONA) is the system prompt exactly where production injected it:
+# the drafters and the four verifiers.
+#
+#   plan            — harvey/drafter-plan: draft_k/ dirs, critique filenames,
+#                     canonical ./output/ names
+#   drafts          — foreach over the plan (concurrency = drafter count):
+#                     each drafter writes a COMPLETE deliverable set under
+#                     its own draft_k/ (the "isolated artifact paths" the
+#                     prompt mandates — the footer pins each drafter's dir).
+#                     No onError: drafting is the essential path.
+#   verify_*        — four EXPLICIT parallel agent steps, each fall-soft
+#                     (skip_on_error), each writing its own single-scope
+#                     critique per its prompt (critiques/critique-<name>.md)
+#   aggregate       — reconciles the drafts + critiques into the FINAL
+#                     canonical files in ./output/ (the only graded dir)
+#
+# Input:  { workdir?, namespace, instructions, deliverables, documentTitles }
+# Output: { outputDir, deliverables, per-agent cost/error fields }
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: "{{ input.workdir }}"
+
+  - id: plan
+    type: harvey/drafter-plan
+    config:
+      deliverables: "{{ input.deliverables }}"
+      drafters: "{{ params.drafters }}"
+      verifiers: ["completeness", "correctness", "arithmetic", "doctrine"]
+
+  - id: drafts
+    type: foreach
+    depends: [dir, plan]
+    config:
+      items: "{{ plan.drafts }}"
+      concurrency: "{{ params.drafters }}"
+      body:
+        id: draft
+        type: agent
+        config:
+          cwd: "{{ dir.path }}"
+          system: "{{ params.persona }}"
+          prompt: |
+            @@include(HARVEY_DRAFT_PROMPT.md)
+
+            ---
+
+            # Your Isolated Output Paths (drafter {{ $current.k }})
+
+            YOUR isolated draft directory for this run is ./{{ $current.dir }}/ —
+            write your COMPLETE deliverable set there with EXACTLY these
+            relative paths: {{ $current.files }}
+            (e.g. harvey_generate_docx with filename "{{ $current.dir }}/<name>.docx",
+            or pandoc via bash). Never write to ./output/ — those canonical
+            paths belong to the aggregator.
+          model: "{{ params.reasoningModel }}"
+          maxSteps: "{{ params.drafterMaxSteps }}"
+          toolFilter: ["bash", "str_replace_based_edit_tool"]
+          agentTools:
+            - jarvis/get-ontology
+            - jarvis/get-ontology-type
+            - jarvis/graph-search
+            - jarvis/graph-get
+            - jarvis/graph-get-batched
+            - jarvis/graph-neighbors
+            - harvey/graph-sub-agent
+            - harvey/generate-docx
+            - harvey/generate-xlsx
+            - sheets/*
+          finalAnswer: >
+            Confirm every deliverable file exists in your draft dir (ls it),
+            and summarize the positions taken.
+
+  - id: verify_completeness
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_completeness_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.persona }}"
+      prompt: |
+        @@include(HARVEY_VERIFY_COMPLETENESS_PROMPT.md)
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: "Confirm the critique file was written; state the verdict and material findings."
+
+  - id: verify_correctness
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_correctness_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.persona }}"
+      prompt: |
+        @@include(HARVEY_VERIFY_CORRECTNESS_PROMPT.md)
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: "Confirm the critique file was written; state the verdict and material findings."
+
+  - id: verify_arithmetic
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_arithmetic_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.persona }}"
+      prompt: |
+        @@include(HARVEY_VERIFY_ARITHMETIC_PROMPT.md)
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: "Confirm the critique file was written; list every numeric discrepancy."
+
+  - id: verify_doctrine
+    type: agent
+    depends: drafts
+    options:
+      onError:
+        id: verify_doctrine_failed
+        type: harvey/pack-result
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.persona }}"
+      prompt: |
+        @@include(HARVEY_VERIFY_DOCTRINE_PROMPT.md)
+      model: "{{ params.standardModel }}"
+      maxSteps: "{{ params.verifierMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: "Confirm the critique file was written; state the verdict and material findings."
+
+  - id: aggregate
+    type: agent
+    depends: [drafts, verify_completeness, verify_correctness, verify_arithmetic, verify_doctrine]
+    options:
+      retry: { max: 1, delayMs: 15000 }
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        You are the final QA stage of the pipeline. Follow the task prompt
+        exactly; only files at the canonical ./output/ paths are delivered.
+      prompt: |
+        @@include(HARVEY_AGGREGATOR_PROMPT.md)
+      model: "{{ params.reasoningModel }}"
+      maxSteps: "{{ params.aggregatorMaxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      agentTools:
+        - jarvis/get-ontology
+        - jarvis/get-ontology-type
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - harvey/graph-sub-agent
+        - harvey/generate-docx
+        - harvey/generate-xlsx
+        - sheets/*
+      finalAnswer: >
+        Confirm every canonical file exists in ./output/ (ls output), and
+        summarize which critique findings you incorporated vs rejected (and
+        why).
+
+  - id: result
+    type: harvey/pack-result
+    depends: aggregate
+    config:
+      outputDir: "{{ dir.path }}/output"
+      deliverables: "{{ plan.canonical }}"
+      aggregateCost: "{{ aggregate.cost }}"
+      completenessError: "{{ verify_completeness.error }}"
+      correctnessError: "{{ verify_correctness.error }}"
+      arithmeticError: "{{ verify_arithmetic.error }}"
+      doctrineError: "{{ verify_doctrine.error }}"
+
+params:
+  standardModel: claude-sonnet-5
+  reasoningModel: claude-opus-5
+  drafters: 1
+  drafterMaxSteps: 200
+  verifierMaxSteps: 100
+  aggregatorMaxSteps: 200
+  # The shared persona (HARVEY_PERSONA) — the system prompt for drafters and
+  # verifiers, exactly where production injected it.
+  persona: |
+    @@include(HARVEY_PERSONA.md)

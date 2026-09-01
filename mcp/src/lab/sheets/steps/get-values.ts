@@ -74,7 +74,15 @@ async function sheetsCtx(
   const rawSa = cfg.serviceAccount ?? (await secrets?.get("GOOGLE_SERVICE_ACCOUNT_JSON"));
   if (!rawSa) {
     throw new Error(
-      "GOOGLE_SERVICE_ACCOUNT_JSON not configured — paste the service-account JSON into the vein secrets UI or mcp env",
+      // Aimed at the AGENT that called this tool, not a human operator: an
+      // instructional "paste the key into the env" message was observed live
+      // sending an agent credential-hunting (env greps, full-disk finds for
+      // service-account JSONs). State it as an environment FACT with a
+      // fallback, never as a fixable configuration step.
+      "Google Sheets tools are UNAVAILABLE in this environment (no service account is configured). " +
+        "This is not something you can fix: do NOT search the environment or filesystem for credentials, " +
+        "and do NOT retry other sheets tools — they will all fail the same way. Proceed WITHOUT " +
+        "spreadsheets: keep tabular and numeric work in local markdown files in your working directory.",
     );
   }
   const sa = parseServiceAccount(rawSa);

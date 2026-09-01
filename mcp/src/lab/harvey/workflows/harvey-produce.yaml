@@ -63,7 +63,7 @@ steps:
           usage: {}
           cost: 0
           steps: 0
-          produceError: "{{ $error.message }}"
+          produceError: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
       cwd: "{{ dir.path }}"
       # System prompt = the base persona/method + an OPTIONAL graph-guidance

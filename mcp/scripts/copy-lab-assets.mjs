@@ -41,6 +41,9 @@ function isAsset(path) {
   if (path.endsWith(".ts") && !path.endsWith(".test.ts") && path.split(sep).includes("steps")) {
     return true;
   }
+  // Prompt bodies expanded into workflow YAML at seed time (@@include(...)
+  // markers — see harvey/seed.ts).
+  if (path.endsWith(".md") && path.split(sep).includes("prompts")) return true;
   return false;
 }
 

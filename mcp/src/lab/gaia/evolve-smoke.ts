@@ -431,7 +431,11 @@ async function main() {
     // gaia-evolve wires `{{ input.maxCost || params.maxCost }}`, and an unset
     // YAML param resolves to null — the schema must read that as "uncapped"
     // rather than rejecting the whole step.
-    assert.equal(loop.input.parse({ ...noopBase, maxGenerations: 1, maxCost: null, maxMinutes: null }).maxCost, null);
+    assert.equal(
+      (loop.input.parse({ ...noopBase, maxGenerations: 1, maxCost: null, maxMinutes: null }) as { maxCost: number | null })
+        .maxCost,
+      null,
+    );
     console.log("✔ eval/evolve-loop: maxCost stops between generations, absent caps change nothing");
 
     console.log("\nALL GAIA EVOLVE VALIDATION CHECKS PASSED");

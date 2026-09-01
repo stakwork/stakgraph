@@ -1,0 +1,138 @@
+name: harvey-ingest-doc
+# Parse + ingest ONE input document into the task's graph namespace (the lab
+# shape of stakwork's "Harvey LAB — Parse and Ingest Document"). Called per
+# document by harvey-deliver's ingest foreach.
+#
+# Flow: create the Document node (create-or-merge on source_link — the natural
+# key) → read its status → gate on the COMPLETION MARKER (`status: ingested`,
+# written only after a successful agent run, so a partially-failed first
+# ingestion is retried on rerun instead of silently skipped — deliberately
+# NOT the stakwork node-exists dedupe) → agent-based extraction → mark done.
+#
+# The ingestion agent runs the verbatim HARVEY_DOCUMENT_INGESTION_PROMPT
+# (prompts/, spliced in at seed time via @@include; interpolation tokens are
+# now vein templates, and the docx-MCP/pre-parsed-text sections were adapted
+# to bash+pandoc since the agent reads the document itself — prompt size
+# stays flat). Writes go through the jarvis triplet tools (allow_scratchpad
+# supported); graph *methodology* questions go through the pinned read-only
+# harvey/graph-sub-agent.
+#
+# Input:  { file, path, namespace, workdir? }
+#   file: relative name (display/id), path: ABSOLUTE readable path,
+#   namespace: task data partition, workdir: parent's artifacts subdir.
+# Output: { file, ref_id, needed, error? } — needed=false means skipped
+#   (already ingested by a completed prior run).
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: "{{ input.workdir }}"
+
+  - id: docnode
+    type: jarvis/create-node
+    config:
+      node_type: Document
+      namespace: "{{ input.namespace }}"
+      node_data:
+        source_link: "{{ input.path }}"
+        title: "{{ input.file }}"
+
+  - id: state
+    type: jarvis/graph-get
+    depends: docnode
+    config:
+      ref_id: "{{ docnode.ref_id }}"
+      namespace: "{{ input.namespace }}"
+
+  # Boolean output = the gate for every `when:` below (true → still needs
+  # ingestion). Tolerant of error strings/missing properties in TS, where the
+  # template language can't probe safely.
+  - id: needed
+    type: harvey/ingest-state
+    depends: state
+    config:
+      node: "{{ state }}"
+
+  - id: ingest
+    type: agent
+    depends: needed
+    when: true
+    # One retry for severed-connection deaths (same rationale as
+    # harvey-produce); onError falls soft so one bad document never kills the
+    # whole deliver run — the parent sees { error } for this file.
+    options:
+      retry: { max: 1, delayMs: 15000 }
+      onError:
+        id: ingest_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ dir.path }}"
+      system: |
+        Follow the extraction instructions in the task prompt exactly. Your
+        working directory is scratch space plus work/unmapped-findings.md;
+        the source document path is READ-ONLY — never write to it. All
+        durable output goes to the knowledge graph through the jarvis tools.
+      prompt: |
+        @@include(HARVEY_DOCUMENT_INGESTION_PROMPT.md)
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      toolFilter: ["bash", "str_replace_based_edit_tool"]
+      # Writes: triplets only (create-node deliberately absent — nodes enter
+      # the graph as triplet sides, always connected, never orphaned).
+      # Reads: jarvis read family + the pinned research sub-agent. sheets/*
+      # for the prompt's scratch-spreadsheet option (discarded at step end).
+      agentTools:
+        - jarvis/get-ontology
+        - jarvis/get-ontology-type
+        - jarvis/graph-search
+        - jarvis/graph-get
+        - jarvis/graph-get-batched
+        - jarvis/graph-neighbors
+        - jarvis/create-triplet
+        - jarvis/create-batch-triplet
+        - harvey/graph-sub-agent
+        - sheets/*
+      finalAnswer: >
+        Your ingestion report: counts of nodes/edges created by type, every
+        contradiction recorded, and anything logged to work/unmapped-findings.md.
+
+  # Completion marker — only after a SUCCESSFUL agent run (the onError pack
+  # has `error` set, and `ok` gates on that, so a failed ingest stays
+  # unmarked and reruns retry it).
+  - id: ok
+    type: if
+    depends: ingest
+    config:
+      cond: "{{ !ingest.error }}"
+
+  - id: mark
+    type: jarvis/edit-node
+    depends: ok
+    when: true
+    config:
+      ref_id: "{{ docnode.ref_id }}"
+      namespace: "{{ input.namespace }}"
+      node_data:
+        status: ingested
+
+  # Join both branches (skip + ingest): `needed` and `docnode` always run, so
+  # skip-propagation never swallows this. Refs into a skipped branch resolve
+  # undefined-safe in pack-result.
+  - id: result
+    type: harvey/pack-result
+    depends: [mark, needed, docnode]
+    config:
+      file: "{{ input.file }}"
+      ref_id: "{{ docnode.ref_id }}"
+      needed: "{{ needed }}"
+      # ingest is SKIPPED on an already-ingested doc — `?.` keeps this join
+      # from throwing on the undefined ref.
+      error: "{{ ingest?.error }}"
+      cost: "{{ ingest?.cost }}"
+      steps: "{{ ingest?.steps }}"
+
+params:
+  model: claude-sonnet-5
+  maxSteps: 120

@@ -75,6 +75,25 @@ function isSkipped(v: unknown): boolean {
   return v === SKIP;
 }
 
+/** Flatten an Error's `cause` chain into one readable string (`""` when there
+ *  is none). Transport failures hide their real diagnosis down this chain —
+ *  the thrown message is a bare "terminated" while the socket-level reason
+ *  sits on the cause — so an onError step that only sees `message` is blind to
+ *  why it failed. Cycle-safe and depth-capped: causes are arbitrary values. */
+function causeChain(err: Error): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let c: unknown = (err as { cause?: unknown }).cause;
+  while (c && !seen.has(c) && parts.length < 5) {
+    seen.add(c);
+    const e = c as { message?: unknown; code?: unknown; cause?: unknown };
+    const code = e.code ? `${String(e.code)}: ` : "";
+    parts.push(`${code}${String(e.message ?? c)}`);
+    c = e.cause;
+  }
+  return parts.join(" <- ");
+}
+
 /** Everything the execution tree threads through unchanged — bundled so the
  *  recursive executors don't each grow another positional parameter. */
 interface Exec {
@@ -509,7 +528,15 @@ async function executeStep(
           // Run fallback step
           const errorScope = {
             ...scope,
-            $error: { message: lastError.message, stack: lastError.stack },
+            // `cause` carries the diagnosis for wrapped failures — a severed
+            // stream surfaces as a bare "terminated" whose underlying socket
+            // reason (ECONNRESET, body timeout, …) lives only on the cause.
+            // Flattened to a string so an onError step can log or persist it.
+            $error: {
+              message: lastError.message,
+              stack: lastError.stack,
+              cause: causeChain(lastError),
+            },
           };
           try {
             const fallbackOutput = await executeStep(

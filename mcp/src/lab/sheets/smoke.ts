@@ -94,7 +94,10 @@ async function main() {
           registry["sheets/get-values"].input.parse({ spreadsheet_id: "s1", range: "Sheet1!A1" }),
           makeCtx([], {}),
         ),
-      /GOOGLE_SERVICE_ACCOUNT_JSON not configured/,
+      // The message is aimed at the calling AGENT: unavailable-in-this-
+      // environment + proceed-without, never "paste the key into env"
+      // (which sent a live agent credential-hunting across the disk).
+      /UNAVAILABLE in this environment.*do NOT search/s,
     );
     console.log("✔ loud error without GOOGLE_SERVICE_ACCOUNT_JSON");
 

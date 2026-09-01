@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Provider as AieoProvider } from "aieo";
 import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
-import { usageFromResult, computeCost, addUsage, maxOutputTokensFor } from "../../pricing.js";
+import { isCancelledError } from "../../run-control.js";
+import { usageFromResult, computeCost, addUsage, emptyUsage, maxOutputTokensFor } from "../../pricing.js";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute, sep } from "node:path";
 import os from "node:os";
@@ -382,6 +383,90 @@ export function expandAgentTools(names: string[], registry: StepRegistry): strin
   }
   return out;
 }
+
+/**
+ * Classify how a finalAnswer-mode tool loop ended. The AI SDK loop stops on
+ * ANY turn with no tool call — including a mid-task narration ("now let's
+ * copy this…"), observed live losing a 62-minute research session whose
+ * deliverable needed two more tool calls.
+ *  - "done"      — final_answer was called; nothing to salvage.
+ *  - "nudge"     — stopped tool-lessly WITH budget remaining: resume the real
+ *                  tool loop once (it can still finish file work), telling the
+ *                  model to continue or call final_answer.
+ *  - "exhausted" — the step budget is spent: only a no-tools forced answer
+ *                  turn is possible.
+ */
+export function classifyFinalAnswerStop(
+  finalFound: boolean,
+  stepsUsed: number,
+  maxSteps: number,
+): "done" | "nudge" | "exhausted" {
+  if (finalFound) return "done";
+  return stepsUsed < maxSteps ? "nudge" : "exhausted";
+}
+
+/**
+ * How many times a mid-stream CONNECTION failure may be resumed before the
+ * step gives up. Each continuation replays the whole conversation so far, so
+ * this is bounded work, not a spin: the step budget (`maxSteps`) still caps
+ * total tool calls, and a genuinely dead endpoint fails the classifier's
+ * transient test and throws on the first try.
+ */
+const MAX_STREAM_ERROR_CONTINUATIONS = 5;
+
+/**
+ * Distinguishes a mid-stream CONNECTION death from a real API failure.
+ *
+ * Once the response headers are in, the SDK's own request-level retry is out
+ * of the picture — if the body stream then dies (undici raises a bare
+ * `TypeError: terminated`), every result promise on the stream rejects, so an
+ * unguarded loop discards the entire session. Observed live: a 34-tool-call
+ * case-law research step lost ~12 minutes in when its streaming response
+ * socket dropped.
+ *
+ * Only connection-level faults are resumable. Auth failures, 400s, and schema
+ * errors are deterministic — retrying them just burns the budget, so they must
+ * still throw. Aborts are excluded deliberately: a paused or cancelled run
+ * surfaces as an abort, and resuming one would defeat run control.
+ */
+export function isTransientStreamError(err: unknown): boolean {
+  // Run control wins over recovery: a cancelled run must die, not resume.
+  // Checked up front and by identity, not by message sniffing, so a reworded
+  // CancelledError can never start looking transient.
+  if (isCancelledError(err)) return false;
+  const seen = new Set<unknown>();
+  for (let e: any = err; e && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    const msg = String(e.message ?? e).toLowerCase();
+    const code = String(e.code ?? "").toUpperCase();
+    if (e.name === "AbortError" || msg.includes("abort")) return false;
+    if (
+      msg === "terminated" || // undici: response body stream died mid-flight
+      msg.includes("fetch failed") ||
+      msg.includes("socket hang up") ||
+      msg.includes("premature close") ||
+      msg.includes("connection closed") ||
+      msg.includes("other side closed") ||
+      code === "ECONNRESET" ||
+      code === "ECONNABORTED" ||
+      code === "EPIPE" ||
+      code === "ETIMEDOUT" ||
+      code === "UND_ERR_SOCKET" ||
+      code === "UND_ERR_BODY_TIMEOUT" ||
+      code === "UND_ERR_HEADERS_TIMEOUT"
+    )
+      return true;
+  }
+  return false;
+}
+
+/** Sent as a user turn when resuming after a severed stream. The model cannot
+ *  see where the cut fell, so it must be told what did and didn't happen. */
+const STREAM_ERROR_NUDGE =
+  "Your previous message was interrupted mid-stream by a transient connection error; " +
+  "nothing after the interruption was received. Continue from where the conversation " +
+  "actually is: any tool call you were about to make never executed — issue it now, and " +
+  "do not repeat work already done or text already written.";
 
 /** Truncate a tool's I/O for the run-event log (the full thing lives in the
  *  model transcript; the event log only needs a readable preview). */
@@ -802,6 +887,43 @@ export default defineStep({
     // the provider API key eagerly and throws when it's absent — a config
     // error should surface before a missing-key error.
     const model: any = getModel(provider as AieoProvider, modelName ? { modelName } : undefined);
+    // Steps that completed BEFORE a mid-stream failure are unreachable through
+    // the stream's result promises — `steps`, `response`, `totalUsage` and
+    // `text` all reject with the stream error — so the only way to keep that
+    // work is to bank each step as it finishes. Cumulative across resume
+    // attempts, which is exactly what a continuation needs to replay.
+    const bankedSteps: any[] = [];
+    const bankedMessages: any[] = [];
+    let bankedUsage = emptyUsage();
+    // Shared by the main loop and the premature-stop nudge continuation.
+    const onStepFinish = (sf: any) => {
+      bankedSteps.push(sf);
+      bankedMessages.push(...((sf.response?.messages ?? []) as any[]));
+      bankedUsage = addUsage(bankedUsage, usageFromResult(sf.usage));
+      // A length finish means the generation was TRUNCATED at the output
+      // cap — a cut-off tool call never executes, so the loop dies with no
+      // error. Make the cause loud instead of silent.
+      if (sf.finishReason === "length") {
+        console.warn(
+          `[agent] TRUNCATED: generation hit maxOutputTokens=${maxOutputTokens} (finish=length, out:${sf.usage?.outputTokens ?? "?"}). A cut-off tool call never executed. Raise VEIN_MAX_OUTPUT_TOKENS or split the write.`,
+        );
+      }
+      if (!Array.isArray(sf.content)) return;
+      for (const c of sf.content) {
+        if (c.type === "tool-call" && c.toolName !== "final_answer") {
+          console.log("[agent] TOOL CALL:", c.toolName, ":", JSON.stringify(c.input));
+        }
+      }
+    };
+    // Cooperative boundary BETWEEN tool calls (RUN_CONTROL_SPEC §4) — the
+    // single highest-value checkpoint in long agent sessions: a pause parks
+    // before the next LLM call starts (the in-flight one finishes and is
+    // journaled); a cancel stops the session here. `ctx.control` is the
+    // runner's unit-scoped view, so a parked agent counts as quiesced.
+    const prepareStep = async () => {
+      await ctx?.control?.checkpoint();
+      return undefined;
+    };
     const agent = new ToolLoopAgent({
       model,
       instructions: cfg.system,
@@ -810,31 +932,8 @@ export default defineStep({
       stopWhen,
       ...(providerOptions ? { providerOptions } : {}),
       ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
-      // Cooperative boundary BETWEEN tool calls (RUN_CONTROL_SPEC §4) — the
-      // single highest-value checkpoint in long agent sessions: a pause parks
-      // before the next LLM call starts (the in-flight one finishes and is
-      // journaled); a cancel stops the session here. `ctx.control` is the
-      // runner's unit-scoped view, so a parked agent counts as quiesced.
-      prepareStep: async () => {
-        await ctx?.control?.checkpoint();
-        return undefined;
-      },
-      onStepFinish: (sf: any) => {
-        // A length finish means the generation was TRUNCATED at the output
-        // cap — a cut-off tool call never executes, so the loop dies with no
-        // error. Make the cause loud instead of silent.
-        if (sf.finishReason === "length") {
-          console.warn(
-            `[agent] TRUNCATED: generation hit maxOutputTokens=${maxOutputTokens} (finish=length, out:${sf.usage?.outputTokens ?? "?"}). A cut-off tool call never executed. Raise VEIN_MAX_OUTPUT_TOKENS or split the write.`,
-          );
-        }
-        if (!Array.isArray(sf.content)) return;
-        for (const c of sf.content) {
-          if (c.type === "tool-call" && c.toolName !== "final_answer") {
-            console.log("[agent] TOOL CALL:", c.toolName, ":", JSON.stringify(c.input));
-          }
-        }
-      },
+      prepareStep,
+      onStepFinish,
     });
 
     const preamble = buildPreamble(cfg.cwd);
@@ -845,32 +944,99 @@ export default defineStep({
     // seen live as "other side closed" at ~3min, killing whole runs.
     // Streaming keeps bytes flowing; we drain the stream and then await the
     // aggregate fields, which have the same shapes generate() returned.
-    const streamRes = await agent.stream({
-      prompt: preamble ? `${preamble}\n\n${cfg.prompt}` : cfg.prompt,
-    });
-    let streamError: unknown;
-    await streamRes.consumeStream({ onError: (e: unknown) => { streamError = e; } });
-    if (streamError) throw streamError;
-    const res = {
-      steps: await streamRes.steps,
-      response: await streamRes.response,
-      totalUsage: await streamRes.totalUsage,
-      usage: undefined as unknown,
-      text: await streamRes.text,
-      output: useSchema ? await (streamRes as any).output : undefined,
+    const basePrompt = preamble ? `${preamble}\n\n${cfg.prompt}` : cfg.prompt;
+    // Streaming keeps the socket alive but cannot make it immortal: the body
+    // can still die mid-flight, and when it does the SDK's result promises all
+    // reject, so an unguarded read throws away every tool call the session
+    // already made. Resume instead — replay the banked conversation and let the
+    // model carry on. Only connection faults qualify; see isTransientStreamError.
+    let streamErrorContinuations = 0;
+    let res!: {
+      steps: any;
+      response: any;
+      totalUsage: any;
+      usage: unknown;
+      text: any;
+      output: any;
     };
+    for (;;) {
+      const resuming = streamErrorContinuations > 0;
+      // Budget already spent by banked steps must not be handed out again.
+      const remaining = Math.max(1, cfg.maxSteps - bankedSteps.length);
+      const runner = resuming
+        ? new ToolLoopAgent({
+            model,
+            instructions: cfg.system,
+            tools,
+            maxOutputTokens,
+            stopWhen:
+              !useSchema && cfg.finalAnswer
+                ? [hasToolCall("final_answer"), stepCountIs(remaining)]
+                : [stepCountIs(remaining)],
+            ...(providerOptions ? { providerOptions } : {}),
+            ...(useSchema ? { output: Output.object({ schema: jsonSchema(cfg.schema) }) } : {}),
+            prepareStep,
+            onStepFinish,
+          })
+        : agent;
+      const attempt = resuming
+        ? await runner.stream({
+            messages: [
+              // response.messages holds only generated turns, so the task
+              // itself has to lead the replay.
+              { role: "user", content: basePrompt },
+              ...(bankedMessages as any[]),
+              { role: "user", content: STREAM_ERROR_NUDGE },
+            ] as any,
+          })
+        : await runner.stream({ prompt: basePrompt });
+      let streamError: unknown;
+      await attempt.consumeStream({ onError: (e: unknown) => { streamError = e; } });
+      if (!streamError) {
+        res = {
+          steps: await attempt.steps,
+          response: await attempt.response,
+          totalUsage: await attempt.totalUsage,
+          usage: undefined as unknown,
+          text: await attempt.text,
+          output: useSchema ? await (attempt as any).output : undefined,
+        };
+        break;
+      }
+      if (
+        !isTransientStreamError(streamError) ||
+        streamErrorContinuations >= MAX_STREAM_ERROR_CONTINUATIONS ||
+        bankedSteps.length >= cfg.maxSteps
+      ) {
+        throw streamError;
+      }
+      streamErrorContinuations++;
+      console.warn(
+        `[agent] stream severed after ${bankedSteps.length} banked step(s) (${
+          (streamError as Error).message
+        }); resuming ${streamErrorContinuations}/${MAX_STREAM_ERROR_CONTINUATIONS}.`,
+      );
+    }
+    // A resumed run's final attempt only knows its own segment — the banked
+    // record spans every attempt, so it is the honest view of the whole step.
+    const resumedFromStreamError = streamErrorContinuations > 0;
 
-    const steps = res.steps ?? [];
+    const steps = resumedFromStreamError ? bankedSteps : (res.steps ?? []);
+    // Total LLM turns across the whole session — the nudge continuation
+    // (finalAnswer mode, below) folds its turns in.
+    let stepsUsed = steps.length;
     // The full session is HUGE and the runner persists every step's output, so we
     // only include it when explicitly asked (a future fork/sub-agent). Off by
     // default keeps the explore step's persisted output to `{ result, steps, … }`.
-    const messages = res.response?.messages ?? [];
+    const messages = resumedFromStreamError ? bankedMessages : (res.response?.messages ?? []);
     const maybeMessages = cfg.returnMessages ? { messages } : {};
 
     // Token usage + cost across the WHOLE agent loop (totalUsage aggregates every
     // step; fall back to the final-step usage). `provider` drives the rate table.
     // Mutable so a forced final-answer turn (below) can be folded in.
-    let usage = usageFromResult(res.totalUsage ?? res.usage);
+    let usage = resumedFromStreamError
+      ? bankedUsage
+      : usageFromResult(res.totalUsage ?? res.usage);
     let cost = computeCost(provider, usage);
     console.log(
       `[agent] tokens in:${usage.inputTokens} cacheRead:${usage.cacheReadTokens} cacheWrite:${usage.cacheWriteTokens} out:${usage.outputTokens} → $${cost.toFixed(4)}`,
@@ -891,19 +1057,86 @@ export default defineStep({
       }
     }
     if (cfg.finalAnswer) {
-      for (const step of [...steps].reverse()) {
-        const fa = step.content.find(
-          (c: any) => c.type === "tool-result" && c.toolName === "final_answer",
+      const extractFinal = (fromSteps: any[]): string => {
+        for (const step of [...fromSteps].reverse()) {
+          const fa = step.content.find(
+            (c: any) => c.type === "tool-result" && c.toolName === "final_answer",
+          );
+          if (fa) return String((fa as { output?: unknown }).output ?? "");
+        }
+        return "";
+      };
+      final = extractFinal(steps);
+
+      // PREMATURE text-only stop: the model narrated ("now let's copy this…")
+      // instead of calling a tool, which ends the SDK loop even with budget
+      // remaining — observed live losing a 62-minute research session whose
+      // deliverable needed two more tool calls. Unlike the no-tools forced
+      // turn below, resuming the REAL tool loop can still finish that work:
+      // continue the session ONCE with the remaining budget and a nudge to
+      // either keep working or call final_answer. A second tool-less stop
+      // falls through to the forced turn / last-text fallback as before.
+      if (classifyFinalAnswerStop(!!final, stepsUsed, cfg.maxSteps) === "nudge") {
+        console.warn(
+          `[agent] Loop ended tool-lessly at ${stepsUsed}/${cfg.maxSteps} steps without final_answer; nudging the loop once.`,
         );
-        if (fa) {
-          final = String((fa as { output?: unknown }).output ?? "");
-          break;
+        try {
+          const nudger = new ToolLoopAgent({
+            model,
+            instructions: cfg.system,
+            tools,
+            maxOutputTokens,
+            stopWhen: [
+              hasToolCall("final_answer"),
+              // At least a few turns even when the stop came near the cap —
+              // finishing file work takes more than one call.
+              stepCountIs(Math.max(4, cfg.maxSteps - stepsUsed)),
+            ],
+            ...(providerOptions ? { providerOptions } : {}),
+            prepareStep,
+            onStepFinish,
+          });
+          const nudged = await nudger.stream({
+            messages: [
+              // The session's own user prompt first — response.messages holds
+              // only the generated turns, and the continuation needs the task.
+              { role: "user", content: preamble ? `${preamble}\n\n${cfg.prompt}` : cfg.prompt },
+              ...(messages as any[]),
+              {
+                role: "user",
+                content:
+                  "You stopped by sending a message without any tool call — that ends your run, and you have NOT called final_answer. " +
+                  "If the task is genuinely complete, verify your deliverables now and call final_answer. Otherwise continue the work " +
+                  "with tool calls. Do not stop again without calling final_answer.\n\n" +
+                  cfg.finalAnswer,
+              },
+            ] as any,
+          });
+          let nudgeError: unknown;
+          await nudged.consumeStream({ onError: (e: unknown) => { nudgeError = e; } });
+          if (nudgeError) throw nudgeError;
+          const nudgedSteps = (await nudged.steps) ?? [];
+          stepsUsed += nudgedSteps.length;
+          messages.push(...(((await nudged.response)?.messages ?? []) as any[]));
+          for (const step of nudgedSteps) {
+            for (const item of step.content) {
+              if (item.type === "text" && item.text?.trim()) lastText = item.text.trim();
+            }
+          }
+          final = extractFinal(nudgedSteps);
+          const nu = usageFromResult(await nudged.totalUsage);
+          usage = addUsage(usage, nu);
+          cost += computeCost(provider, nu);
+        } catch (e) {
+          console.warn("[agent] nudge continuation failed:", (e as Error).message);
         }
       }
-      // The loop ended (almost always: hit maxSteps) WITHOUT calling final_answer,
-      // so we'd otherwise return a stray reasoning sentence and lose the whole
-      // (expensive) exploration. Salvage it: force ONE no-tools turn that must emit
-      // the final answer now, continuing the full session.
+
+      // The loop ended (budget exhausted, or the nudge also stopped tool-lessly)
+      // WITHOUT calling final_answer, so we'd otherwise return a stray reasoning
+      // sentence and lose the whole (expensive) exploration. Salvage it: force
+      // ONE no-tools turn that must emit the final answer now, continuing the
+      // full session.
       if (!final) {
         console.warn("[agent] No final_answer tool call; forcing a final-answer turn.");
         try {
@@ -941,7 +1174,7 @@ export default defineStep({
       final = res.text || lastText;
     }
 
-    console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps)`);
-    return { result: final, steps: steps.length, ...maybeMessages, usage, cost };
+    console.log(`[agent] completed in ${Date.now() - startTime}ms (${stepsUsed} steps)`);
+    return { result: final, steps: stepsUsed, ...maybeMessages, usage, cost };
   },
 });
