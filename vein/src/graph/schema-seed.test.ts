@@ -127,6 +127,19 @@ describe("seedVeinDomain (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_U
     assert.deepEqual(snap2, snap1);
   });
 
+  it("shared: tolerates a jarvis DB whose Data_Bank(ref_id) is a plain index, not a constraint", async () => {
+    await bolt.run(`CREATE INDEX data_bank_ref_id_plain IF NOT EXISTS FOR (n:Data_Bank) ON (n.ref_id)`);
+    const r = await seedVeinDomain(bolt);
+    assert.equal(r.mode, "standalone");
+    assert.equal(r.skippedSchemaObjects.length, 1, JSON.stringify(r.skippedSchemaObjects));
+    assert.match(r.skippedSchemaObjects[0]!, /cannot be created until the index has been dropped|already exists/);
+    const names = await schemaObjectNames(bolt);
+    assert.ok(names.indexes.includes("data_bank_ref_id_plain"), "jarvis-owned index left in place");
+    assert.equal(names.constraints.filter((c) => /data_bank/i.test(c)).length, 0);
+    const r2 = await seedVeinDomain(bolt);
+    assert.equal(r2.skippedSchemaObjects.length, 1, "still skipped, still no throw");
+  });
+
   it("shared: leaves a jarvis-seeded Thing/Person untouched and add-only reconciles an existing Vein schema", async () => {
     // Simulate what jarvis would already have: its own Thing (different
     // colours, extra key), a Person schema, the global constraints, and a

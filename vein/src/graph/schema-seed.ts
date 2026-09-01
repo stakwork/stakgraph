@@ -38,6 +38,26 @@ export const GLOBAL_VECTOR_INDEX = "text_embeddings_vector_index";
 const VECTOR_OPTIONS =
   "OPTIONS { indexConfig: { `vector.dimensions`: 384, `vector.similarity_function`: 'cosine' } }";
 
+/**
+ * Run one schema statement (CREATE CONSTRAINT / INDEX … IF NOT EXISTS),
+ * tolerating a pre-existing EQUIVALENT object under a different shape: a
+ * jarvis database may carry a plain index on `Data_Bank(ref_id)` where we
+ * ask for a uniqueness constraint (Neo4j then refuses: "A constraint cannot
+ * be created until the index has been dropped"). jarvis's own seeder logs
+ * and continues in that case; so do we — the existing object serves the
+ * same purpose and is jarvis-owned. Returns the skip reason, or null.
+ */
+export async function schemaStatement(bolt: Bolt, cypher: string): Promise<string | null> {
+  try {
+    await bolt.run(cypher);
+    return null;
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    if (/already exists|cannot be created until|equivalent/i.test(msg)) return msg.split("\n")[0]!;
+    throw e;
+  }
+}
+
 export interface SeedReport {
   mode: "standalone" | "shared";
   /** Schema types created on this run. */
@@ -48,6 +68,9 @@ export interface SeedReport {
   createdEdgeSchemas: string[];
   /** Edge-schema rows skipped because an endpoint Schema is absent. */
   skippedEdgeSchemas: string[];
+  /** Schema statements skipped because an equivalent jarvis-owned object
+   *  already exists under another shape (see `schemaStatement`). */
+  skippedSchemaObjects: string[];
 }
 
 /**
@@ -68,6 +91,11 @@ export async function seedVeinDomain(bolt: Bolt): Promise<SeedReport> {
     reconciled: {},
     createdEdgeSchemas: [],
     skippedEdgeSchemas: [],
+    skippedSchemaObjects: [],
+  };
+  const ddl = async (cypher: string) => {
+    const skipped = await schemaStatement(bolt, cypher);
+    if (skipped) report.skippedSchemaObjects.push(skipped);
   };
 
   // 1. Thing root — MERGE leaves a jarvis-seeded Thing untouched.
@@ -119,19 +147,19 @@ export async function seedVeinDomain(bolt: Bolt): Promise<SeedReport> {
     );
 
     // 4. Per-type (node_key, namespace) uniqueness + node_key range index.
-    await bolt.run(
+    await ddl(
       `CREATE CONSTRAINT ${`unique_${schema.type.toLowerCase()}_node_key`} IF NOT EXISTS
        FOR (n:\`${schema.type}\`) REQUIRE (n.node_key, n.namespace) IS UNIQUE`,
     );
-    await bolt.run(`CREATE INDEX IF NOT EXISTS FOR (n:\`${schema.type}\`) ON (n.node_key)`);
+    await ddl(`CREATE INDEX IF NOT EXISTS FOR (n:\`${schema.type}\`) ON (n.node_key)`);
   }
 
   // 5. Global objects (jarvis-owned in shared mode; IF NOT EXISTS is a no-op).
-  await bolt.run(
+  await ddl(
     `CREATE CONSTRAINT unique_node_key_global IF NOT EXISTS
      FOR (n:Node) REQUIRE (n.node_key, n.namespace) IS UNIQUE`,
   );
-  await bolt.run(`CREATE CONSTRAINT IF NOT EXISTS FOR (n:Data_Bank) REQUIRE n.ref_id IS UNIQUE`);
+  await ddl(`CREATE CONSTRAINT IF NOT EXISTS FOR (n:Data_Bank) REQUIRE n.ref_id IS UNIQUE`);
 
   // 6. Edge schemas — one relationship per registry row between Schema nodes.
   for (const e of VEIN_EDGES) {
@@ -142,16 +170,16 @@ export async function seedVeinDomain(bolt: Bolt): Promise<SeedReport> {
 
   // 7. Vector indexes — the one thing jarvis does NOT auto-create for a new
   //    domain at startup. Domain, global (standalone), and per-stem.
-  await bolt.run(
+  await ddl(
     `CREATE VECTOR INDEX \`${DOMAIN_VECTOR_INDEX}\` IF NOT EXISTS
      FOR (n:\`${VEIN_DOMAIN_LABEL}\`) ON n.text_embeddings ${VECTOR_OPTIONS}`,
   );
-  await bolt.run(
+  await ddl(
     `CREATE VECTOR INDEX \`${GLOBAL_VECTOR_INDEX}\` IF NOT EXISTS
      FOR (n:Data_Bank) ON n.text_embeddings ${VECTOR_OPTIONS}`,
   );
   for (const { type, prop } of vectorIndexedPairs()) {
-    await bolt.run(
+    await ddl(
       `CREATE VECTOR INDEX \`${vectorIndexName(type, prop)}\` IF NOT EXISTS
        FOR (n:\`${type}\`) ON n.${embeddingColumn(prop)} ${VECTOR_OPTIONS}`,
     );
@@ -161,14 +189,14 @@ export async function seedVeinDomain(bolt: Bolt): Promise<SeedReport> {
   //    Property list = sorted searchable attrs + node_key, like jarvis's
   //    v2 builder (`attribute_index_helper.py:823,838`).
   const props = [...searchableAttributes(), "node_key"].map((p) => `n.\`${p}\``).join(", ");
-  await bolt.run(
+  await ddl(
     `CREATE FULLTEXT INDEX \`${DOMAIN_FULLTEXT_INDEX_V2}\` IF NOT EXISTS
      FOR (n:\`${VEIN_DOMAIN_LABEL}\`) ON EACH [${props}]
      OPTIONS { indexConfig: { \`fulltext.analyzer\`: 'english' } }`,
   );
 
   // 9. Migration ledger stamp so jarvis's runner sees done work, not conflict.
-  await bolt.run(
+  await ddl(
     `CREATE CONSTRAINT migration_id_unique IF NOT EXISTS
      FOR (m:Migration) REQUIRE m.migration_id IS UNIQUE`,
   );

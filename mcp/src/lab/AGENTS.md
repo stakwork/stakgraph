@@ -492,14 +492,17 @@ completed ingestions, and skip re-merging requirements.
 - Judge verdict identity is ORDER-BASED (foreach preserves input order; the
   aggregate zips rubric×results and refuses on length mismatch) — the judge
   LLM never echoes criterion ids.
-- Needs `NEO4J_URI` (+ `NEO4J_USER`/`NEO4J_PASSWORD`) + `HARVEY_LABS_DIR` +
-  `ANTHROPIC_API_KEY` (+ pandoc, python3+openpyxl; optional SERPA_API_KEY +
-  COURTLISTENER_API_KEY for case-law research, GOOGLE_SERVICE_ACCOUNT_JSON
-  for the shared FACTS spreadsheet). Point `NEO4J_URI` at the jarvis Neo4j
-  (shared mode — Concept methodology lives there) or at a fresh Neo4j with
-  `VEIN_GRAPH_SEED_ONTOLOGY=1` (standalone — the jarvis ontology is seeded
-  from vein's bundled snapshot; no Concept content). Smoke (offline, no
-  LLM/graph): `npx tsx src/lab/harvey/deliver-smoke.ts`.
+- Needs `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY` (+ pandoc, python3+openpyxl;
+  optional SERPA_API_KEY + COURTLISTENER_API_KEY for case-law research,
+  GOOGLE_SERVICE_ACCOUNT_JSON for the shared FACTS spreadsheet). The graph
+  connection is mcp's own: `NEO4J_HOST`/`NEO4J_USER`/`NEO4J_PASSWORD` (or
+  `NEO4J_URI`), defaulting to `localhost:7687`/`neo4j`/`testtest` — nothing
+  to set locally, and prod's existing vars are picked up. That is the
+  jarvis Neo4j (shared mode — Concept methodology lives there); a fresh
+  Neo4j works too with `VEIN_GRAPH_SEED_ONTOLOGY=1` (standalone — the
+  jarvis ontology is seeded from vein's bundled snapshot; no Concept
+  content). Smoke (offline, no LLM/graph):
+  `npx tsx src/lab/harvey/deliver-smoke.ts`.
 
 ### `gaia/` — GAIA benchmark scoring (the hardcoded grader)
 

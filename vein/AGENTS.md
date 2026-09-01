@@ -139,7 +139,7 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 | `VEIN_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
 | `VEIN_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
-| `NEO4J_URI`         | (unset)        | Graph backend (opt-in): bolt URI. With `NEO4J_USER`/`NEO4J_PASSWORD` (default `neo4j`/empty), optional `NEO4J_DATABASE`. Read by `openGraphBackendFromEnv` and the `graph/*` lib steps (via the secrets capability). |
+| `NEO4J_URI` / `NEO4J_HOST` | (unset) / `localhost:7687` | Graph backend connection — same names and defaults as mcp's own Neo4j client: `NEO4J_URI` wins, else `bolt://<NEO4J_HOST>`; `NEO4J_USER`/`NEO4J_PASSWORD` default `neo4j`/`testtest`; optional `NEO4J_DATABASE`. The `graph/*` lib steps read these via the secrets capability (secret store → env) and need nothing configured for a local Neo4j; `openGraphBackendFromEnv` stays opt-in (null when neither is set). |
 | `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
 | `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
 | `VEIN_GRAPH_SEED_ONTOLOGY` | (off)   | `1` seeds the bundled jarvis ontology (151 schemas + edge schemas + indexes, add-only) on first open, so a standalone Neo4j can host jarvis-typed data (Document, EvalSet, Concept, …) with no jarvis process. No-op on a jarvis-seeded DB. |

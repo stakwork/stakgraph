@@ -13,9 +13,12 @@ export type { GraphBackend };
  * everything written follows jarvis's conventions so a jarvis mounted on
  * the same database later treats the `Vein` domain as native.
  *
- * Config (all via `ctx.services.secrets`, secret store → env fallback):
- *   - `NEO4J_URI`             — bolt:// URI (required).
- *   - `NEO4J_USER` / `NEO4J_PASSWORD` — credentials (default neo4j / "").
+ * Config (all via `ctx.services.secrets`, secret store → env fallback; the
+ * same names + defaults as the mcp host's own Neo4j client, so a local
+ * Neo4j needs nothing and a deployment's existing vars just work):
+ *   - `NEO4J_URI`             — bolt:// URI; else `bolt://<NEO4J_HOST>`
+ *     (`NEO4J_HOST` default `localhost:7687`).
+ *   - `NEO4J_USER` / `NEO4J_PASSWORD` — credentials (default neo4j / testtest).
  *   - `NEO4J_DATABASE`        — optional database name.
  *   - `VEIN_GRAPH_NAMESPACE`  — default jarvis namespace (default "default").
  *   - `VEIN_GRAPH_EMBEDDINGS` — "off" disables the local MiniLM embedder
@@ -32,16 +35,20 @@ export type { GraphBackend };
  */
 export async function graphCtx(ctx?: StepContext<VeinCapabilities>): Promise<GraphBackend> {
   const secrets = ctx?.services?.secrets;
-  const uri = await secrets?.get("NEO4J_URI");
-  if (!uri) throw new Error("graph: NEO4J_URI not configured (set it in the env or the vein secret store)");
+  // Same resolution as the mcp host's own Neo4j client: `NEO4J_URI`, else
+  // `bolt://<NEO4J_HOST>` (default localhost:7687), user/password defaulting
+  // to neo4j/testtest. Nothing needs configuring for a local Neo4j, and a
+  // deployment that already carries NEO4J_HOST/USER/PASSWORD is picked up
+  // as-is (secret store → env, per the secrets capability).
+  const uri = (await secrets?.get("NEO4J_URI")) || `bolt://${(await secrets?.get("NEO4J_HOST")) || "localhost:7687"}`;
   const emb = ((await secrets?.get("VEIN_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
   const ont = ((await secrets?.get("VEIN_GRAPH_SEED_ONTOLOGY")) ?? "").toLowerCase();
   const { openGraphBackend } = await import("../../../graph/backend.js");
   return openGraphBackend(
     {
       uri,
-      user: (await secrets?.get("NEO4J_USER")) ?? "neo4j",
-      password: (await secrets?.get("NEO4J_PASSWORD")) ?? "",
+      user: (await secrets?.get("NEO4J_USER")) || "neo4j",
+      password: (await secrets?.get("NEO4J_PASSWORD")) || "testtest",
       namespace: (await secrets?.get("VEIN_GRAPH_NAMESPACE")) || "default",
       database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
     },

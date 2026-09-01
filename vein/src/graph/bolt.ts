@@ -35,18 +35,21 @@ export interface GraphConfig {
 export const DEFAULT_NAMESPACE = "default";
 
 /**
- * Resolve the graph config from an env-like map. Returns null when
- * `NEO4J_URI` is unset — the graph backend is opt-in.
+ * Resolve the graph config from an env-like map, with the same names and
+ * defaults as the mcp host's own Neo4j client: `NEO4J_URI`, else
+ * `bolt://<NEO4J_HOST>`; user/password default to neo4j/testtest. Returns
+ * null when neither `NEO4J_URI` nor `NEO4J_HOST` is set — the backend is
+ * opt-in for embedders (the `graph/*` steps default to localhost instead).
  */
 export function graphConfigFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): GraphConfig | null {
-  const uri = env["NEO4J_URI"];
+  const uri = env["NEO4J_URI"] || (env["NEO4J_HOST"] ? `bolt://${env["NEO4J_HOST"]}` : undefined);
   if (!uri) return null;
   return {
     uri,
-    user: env["NEO4J_USER"] ?? "neo4j",
-    password: env["NEO4J_PASSWORD"] ?? "",
+    user: env["NEO4J_USER"] || "neo4j",
+    password: env["NEO4J_PASSWORD"] || "testtest",
     namespace: env["VEIN_GRAPH_NAMESPACE"] || DEFAULT_NAMESPACE,
     database: env["NEO4J_DATABASE"] || undefined,
   };

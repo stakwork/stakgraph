@@ -18,12 +18,15 @@
 import { randomUUID } from "node:crypto";
 import { Bolt } from "./bolt.js";
 import { JARVIS_ONTOLOGY, type OntologyFixture } from "./fixtures/jarvis-ontology.js";
+import { schemaStatement } from "./schema-seed.js";
 import { SCHEMA_CORE_PROPERTIES } from "./vein-schemas.js";
 
 export interface OntologySeedReport {
   createdSchemas: string[];
   createdEdgeSchemas: number;
   domains: string[];
+  /** Schema statements skipped over an equivalent pre-existing object. */
+  skippedSchemaObjects: string[];
 }
 
 const VECTOR_OPTIONS =
@@ -58,7 +61,11 @@ export function searchableAttributesOf(schema: Record<string, unknown>): Set<str
 }
 
 export async function seedJarvisOntology(bolt: Bolt, fixture: OntologyFixture = JARVIS_ONTOLOGY): Promise<OntologySeedReport> {
-  const report: OntologySeedReport = { createdSchemas: [], createdEdgeSchemas: 0, domains: [] };
+  const report: OntologySeedReport = { createdSchemas: [], createdEdgeSchemas: 0, domains: [], skippedSchemaObjects: [] };
+  const ddl = async (cypher: string) => {
+    const skipped = await schemaStatement(bolt, cypher);
+    if (skipped) report.skippedSchemaObjects.push(skipped);
+  };
 
   // 1. Schema nodes (guarded, case-insensitive like jarvis's seeder).
   for (const schema of fixture.schemas) {
@@ -86,13 +93,13 @@ export async function seedJarvisOntology(bolt: Bolt, fixture: OntologyFixture = 
   for (const schema of fixture.schemas) {
     const type = String(schema["type"]);
     if (type === "*" || typeof schema["node_key"] !== "string") continue;
-    await bolt.run(
+    await ddl(
       `CREATE CONSTRAINT ${`unique_${type.toLowerCase()}_node_key`} IF NOT EXISTS FOR (n:\`${type}\`) REQUIRE (n.node_key, n.namespace) IS UNIQUE`,
     );
-    await bolt.run(`CREATE INDEX IF NOT EXISTS FOR (n:\`${type}\`) ON (n.node_key)`);
+    await ddl(`CREATE INDEX IF NOT EXISTS FOR (n:\`${type}\`) ON (n.node_key)`);
   }
-  await bolt.run(`CREATE CONSTRAINT unique_node_key_global IF NOT EXISTS FOR (n:Node) REQUIRE (n.node_key, n.namespace) IS UNIQUE`);
-  await bolt.run(`CREATE CONSTRAINT IF NOT EXISTS FOR (n:Data_Bank) REQUIRE n.ref_id IS UNIQUE`);
+  await ddl(`CREATE CONSTRAINT unique_node_key_global IF NOT EXISTS FOR (n:Node) REQUIRE (n.node_key, n.namespace) IS UNIQUE`);
+  await ddl(`CREATE CONSTRAINT IF NOT EXISTS FOR (n:Data_Bank) REQUIRE n.ref_id IS UNIQUE`);
 
   // 4. Edge schemas (`create_edge_schema`: MERGE + properties, ref_id kept).
   for (const e of fixture.edge_schemas) {
@@ -124,24 +131,24 @@ export async function seedJarvisOntology(bolt: Bolt, fixture: OntologyFixture = 
   }
   attrs.add("node_key");
   const props = [...attrs].sort().map((p) => `n.\`${p}\``).join(", ");
-  await bolt.run(
+  await ddl(
     `CREATE FULLTEXT INDEX data_bank_attribute_index_v2 IF NOT EXISTS FOR (n:Data_Bank) ON EACH [${props}]
      OPTIONS { indexConfig: { \`fulltext.analyzer\`: 'english' } }`,
   );
-  await bolt.run(`CREATE VECTOR INDEX text_embeddings_vector_index IF NOT EXISTS FOR (n:Data_Bank) ON n.text_embeddings ${VECTOR_OPTIONS}`);
+  await ddl(`CREATE VECTOR INDEX text_embeddings_vector_index IF NOT EXISTS FOR (n:Data_Bank) ON n.text_embeddings ${VECTOR_OPTIONS}`);
   for (const d of [...domains].sort()) {
-    await bolt.run(
+    await ddl(
       `CREATE FULLTEXT INDEX \`domain_${d}_attribute_index_v2\` IF NOT EXISTS FOR (n:\`Domain_${d}\`) ON EACH [${props}]
        OPTIONS { indexConfig: { \`fulltext.analyzer\`: 'english' } }`,
     );
-    await bolt.run(`CREATE VECTOR INDEX \`domain_${d}_vector_index\` IF NOT EXISTS FOR (n:\`Domain_${d}\`) ON n.text_embeddings ${VECTOR_OPTIONS}`);
+    await ddl(`CREATE VECTOR INDEX \`domain_${d}_vector_index\` IF NOT EXISTS FOR (n:\`Domain_${d}\`) ON n.text_embeddings ${VECTOR_OPTIONS}`);
   }
   for (const s of fixture.schemas) {
     const vi = s["vector_index"];
     if (!Array.isArray(vi)) continue;
     for (const prop of vi) {
       const stem = String(prop).endsWith("_schema") ? String(prop).slice(0, -"_schema".length) : String(prop);
-      await bolt.run(
+      await ddl(
         `CREATE VECTOR INDEX \`${String(s["type"]).toLowerCase()}_${stem}_vector_index\` IF NOT EXISTS FOR (n:\`${s["type"]}\`) ON n.${stem}_embeddings ${VECTOR_OPTIONS}`,
       );
     }
