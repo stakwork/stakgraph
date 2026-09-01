@@ -100,6 +100,10 @@ export interface SearchResult {
   nodes: NodeEnvelope[];
   total: number;
   truncated: boolean;
+  /** Retriever layers that failed and were skipped (jarvis logs these and
+   *  carries on with the other layers — e.g. Lucene's TooManyNestedClauses
+   *  when a many-word query meets the 150-property global fulltext index). */
+  warnings?: string[];
 }
 
 export interface NeighborsParams {
@@ -401,7 +405,9 @@ export class GraphReader {
    *  anything else must be registered. */
   async resolveNamespace(namespace: string | undefined): Promise<string> {
     const ns = namespace ?? this.bolt.namespace;
-    if (ns === DEFAULT_NAMESPACE) return ns;
+    // Lenient on the implicit partition only: agents write "DEFAULT" (jarvis
+    // would 400 that); everything else must be registered, exactly as-is.
+    if (ns.toLowerCase() === DEFAULT_NAMESPACE) return DEFAULT_NAMESPACE;
     const known = await this.listNamespaces();
     if (!known.includes(ns.toLowerCase())) throw new GraphReadError("INVALID_NAMESPACE", `namespace ${ns} is not registered`);
     return ns;
@@ -550,7 +556,11 @@ export class GraphReader {
     const domains = (p.domains ?? []).map((d) => d.toLowerCase()).filter(Boolean);
 
     const types = p.types?.length ? await this.canonicalTypes(p.types) : undefined;
-    return this.bolt.read(async (tx) => {
+    // Each retriever runs as its own auto-commit statement (like jarvis's
+    // per-query sessions): a failing layer must not poison the others, which
+    // it would inside one managed transaction.
+    const tx: ManagedTransaction | undefined = undefined;
+    {
       const allDomains = await this.listDomains(tx);
       for (const d of domains) if (!allDomains.includes(d)) throw new GraphReadError("INVALID_DOMAIN", `unknown domain ${d}`);
       const hidden = new Set(await this.hiddenDomains(tx));
@@ -564,7 +574,7 @@ export class GraphReader {
         clauses.push(`ANY(t IN $node_types WHERE t IN labels(n))`);
         base["node_types"] = types;
       } else if (hidden.size) {
-        const rows = await txRows(tx, `MATCH (s:Schema) WHERE s.domain IS NOT NULL AND toLower(s.domain) IN $hidden RETURN s.type AS t`, { hidden: [...hidden] });
+        const rows = await this.rows(tx, `MATCH (s:Schema) WHERE s.domain IS NOT NULL AND toLower(s.domain) IN $hidden RETURN s.type AS t`, { hidden: [...hidden] });
         const labels = rows.map((r) => String(r["t"]));
         if (labels.length) {
           clauses.push(`NOT ANY(t IN $hidden_type_labels WHERE t IN labels(n))`);
@@ -580,7 +590,7 @@ export class GraphReader {
       // fall back to the per-domain union over visible domains — jarvis does
       // this for vectors; we do it for fulltext too so a vein-only DB needs
       // no global index. Existence is read once, up front.
-      const existing = new Set((await txRows(tx, `SHOW INDEXES YIELD name RETURN name`)).map((r) => String(r["name"])));
+      const existing = new Set((await this.rows(tx, `SHOW INDEXES YIELD name RETURN name`)).map((r) => String(r["name"])));
       const route = (suffix: string, global: string) =>
         domains.length ? domains.map((d) => `domain_${d}${suffix}`) : existing.has(global) ? [global] : visibleDomains.map((d) => `domain_${d}${suffix}`);
       const ftIndexes = route("_attribute_index_v2", DATA_BANK_FULLTEXT_INDEX_V2).filter((i) => existing.has(i));
@@ -590,12 +600,25 @@ export class GraphReader {
       let semantic: Hit[] = [];
       let ftTruncated = false;
       let semTruncated = false;
+      const warnings: string[] = [];
+      // jarvis wraps every retriever in try/except and logs — a failing
+      // layer (Lucene clause explosion, missing index, model gap) must never
+      // sink the whole search.
+      const layer = async <T>(name: string, fn: () => Promise<T>, empty: T): Promise<T> => {
+        try {
+          return await fn();
+        } catch (e) {
+          const msg = `${name} layer error: ${(e as Error)?.message?.split("\n")[0] ?? String(e)}`;
+          warnings.push(msg);
+          console.warn(`[graph search] ${msg}`);
+          return empty;
+        }
+      };
 
       const runFulltext = async (indexes: string[], lucene: string): Promise<Hit[]> => {
         const all: Hit[] = [];
         for (const index of indexes) {
-          const rows = await txRows(
-            tx,
+          const rows = await this.rows(tx,
             `CALL db.index.fulltext.queryNodes($index, $q_lucene, $fulltext_options) YIELD node AS n, score WHERE ${filter} RETURN n, score`,
             { ...base, index, q_lucene: lucene, fulltext_options: { limit: int(cap) } },
           );
@@ -605,17 +628,19 @@ export class GraphReader {
       };
 
       if (q && ftIndexes.length) {
-        fulltext = await runFulltext(ftIndexes, buildFulltextQuery(q));
-        // Fuzzy fallback on zero hits (no gs operators → always eligible).
-        if (fulltext.length === 0) fulltext = await runFulltext(ftIndexes, `${q}~`);
+        fulltext = await layer("fulltext", async () => {
+          let hits = await runFulltext(ftIndexes, buildFulltextQuery(q));
+          // Fuzzy fallback on zero hits (no gs operators → always eligible).
+          if (hits.length === 0) hits = await runFulltext(ftIndexes, `${q}~`);
+          return hits;
+        }, []);
         if (fulltext.length >= cap) ftTruncated = true;
       }
 
       const runVector = async (indexes: string[], k: number, embedding: number[]): Promise<Hit[]> => {
         const all: Hit[] = [];
         for (const index of indexes) {
-          const rows = await txRows(
-            tx,
+          const rows = await this.rows(tx,
             `CALL db.index.vector.queryNodes($index, $k, $embedding) YIELD node AS n, score WHERE ${filter} RETURN n, score`,
             { ...base, index, k: int(k), embedding },
           );
@@ -625,8 +650,10 @@ export class GraphReader {
       };
 
       if (q && this.opts.embedder && vecIndexes.length) {
-        const [embedding] = await this.opts.embedder.embed([q]);
-        semantic = await runVector(vecIndexes, cap, embedding!);
+        semantic = await layer("semantic", async () => {
+          const [embedding] = await this.opts.embedder!.embed([q]);
+          return runVector(vecIndexes, cap, embedding!);
+        }, []);
         if (semantic.length >= cap) semTruncated = true;
       }
 
@@ -641,16 +668,18 @@ export class GraphReader {
         for (const [stem, text] of Object.entries(vectorQueries)) {
           const labels = stemLabels.get(stem) ?? [];
           if (labels.length === 0) continue;
-          const [emb] = await this.opts.embedder.embed([text]);
-          const all: Hit[] = [];
-          for (const lbl of labels) {
-            const idx = `${lbl.toLowerCase()}_${stem}_vector_index`;
-            if (!existing.has(idx)) continue; // migration may not have run yet
-            for (const h of await runVector([idx], VECTOR_Q_K, emb!)) {
-              if (h.raw_score >= VECTOR_Q_SIM_FLOOR) all.push(h);
+          buckets[stem] = await layer(`${stem}_q`, async () => {
+            const [emb] = await this.opts.embedder!.embed([text]);
+            const all: Hit[] = [];
+            for (const lbl of labels) {
+              const idx = `${lbl.toLowerCase()}_${stem}_vector_index`;
+              if (!existing.has(idx)) continue; // migration may not have run yet
+              for (const h of await runVector([idx], VECTOR_Q_K, emb!)) {
+                if (h.raw_score >= VECTOR_Q_SIM_FLOOR) all.push(h);
+              }
             }
-          }
-          buckets[stem] = rankHits(all);
+            return rankHits(all);
+          }, []);
         }
       }
 
@@ -661,7 +690,7 @@ export class GraphReader {
         const vein = getVeinSchema(t);
         if (vein) titleKeys.set(t, vein.title_key);
         else {
-          const r = await txRows(tx, `MATCH (s:Schema) WHERE toLower(s.type) = toLower($t) RETURN s.title_key AS k LIMIT 1`, { t });
+          const r = await this.rows(tx, `MATCH (s:Schema) WHERE toLower(s.type) = toLower($t) RETURN s.title_key AS k LIMIT 1`, { t });
           if (typeof r[0]?.["k"] === "string") titleKeys.set(t, r[0]["k"] as string);
         }
       }
@@ -675,15 +704,15 @@ export class GraphReader {
         const counts = await this.edgeCounts(nodes.map((n) => n.ref_id), namespace, Boolean(p.namespace), tx);
         for (const n of nodes) n.edges = counts[n.ref_id] ?? {};
       }
-      return { nodes, total, truncated: ftTruncated || semTruncated };
-    });
+      return { nodes, total, truncated: ftTruncated || semTruncated, ...(warnings.length ? { warnings } : {}) };
+    }
   }
 
   /** `(label, property)` pairs declaring `vector_index`, from live Schema
    *  nodes (jarvis's discovery) — falls back to the Vein registry so a
    *  vein-only DB needs no extra read. */
-  private async vectorIndexedPairsLive(tx: ManagedTransaction): Promise<Array<{ type: string; prop: string }>> {
-    const rows = await txRows(tx, `MATCH (s:Schema) WHERE s.vector_index IS NOT NULL AND (s.is_deleted IS NULL OR s.is_deleted = false) RETURN s.type AS t, s.vector_index AS v`);
+  private async vectorIndexedPairsLive(tx?: ManagedTransaction): Promise<Array<{ type: string; prop: string }>> {
+    const rows = await this.rows(tx, `MATCH (s:Schema) WHERE s.vector_index IS NOT NULL AND (s.is_deleted IS NULL OR s.is_deleted = false) RETURN s.type AS t, s.vector_index AS v`);
     const out: Array<{ type: string; prop: string }> = [];
     for (const r of rows) for (const prop of (r["v"] as string[]) ?? []) out.push({ type: String(r["t"]), prop });
     return out.length ? out : vectorIndexedPairs();

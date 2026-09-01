@@ -237,6 +237,19 @@ describe("GraphReader (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI 
     assert.equal(page1.total, page2.total);
   });
 
+  it("search: a retriever layer failing (Lucene clause explosion) degrades to the other layers, like jarvis", async () => {
+    // 15-property Vein fulltext index × 150 required terms > Lucene's 1024
+    // clause ceiling → TooManyNestedClauses. The semantic layer still finds
+    // the workflow; the failure is reported, not thrown.
+    const words = Array.from({ length: 150 }, (_, i) => `harvey${i}`).join(" ") + " harvey";
+    const r = await reader.search({ q: words });
+    assert.ok(r.warnings?.some((w) => /fulltext layer error/.test(w)), JSON.stringify(r.warnings));
+    assert.ok(r.nodes.some((n) => n.ref_id === ids["wf2"]), "semantic (bag-of-words) hit survives");
+    assert.ok(r.nodes.every((n) => n.match_type === "semantic"));
+    const fine = await reader.search({ q: "harvey" });
+    assert.equal(fine.warnings, undefined);
+  });
+
   it("search: input_q/output_q hit the per-stem vector indexes (k=50, floor 0.4, weight 1.2)", async () => {
     const byInput = await reader.search({ input_q: "a video url" });
     assert.equal(byInput.nodes[0]!.ref_id, ids["stepVideo"]);
