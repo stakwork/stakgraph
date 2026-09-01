@@ -56,7 +56,7 @@ steps:
         id: reqdetails_failed
         type: harvey/pack-result
         config:
-          error: "{{ $error.message }}"
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
       ref_ids: "{{ reqs.map(n => n.ref_id) }}"
       namespace: "{{ input.namespace }}"
@@ -112,7 +112,7 @@ steps:
         id: record_failed
         type: harvey/pack-result
         config:
-          error: "{{ $error.message }}"
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
       triplets: "{{ chain.triplets }}"
       namespace: "{{ input.namespace }}"
@@ -241,7 +241,7 @@ steps:
         id: post_failed
         type: harvey/pack-result
         config:
-          error: "{{ $error.message }}"
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
       url: "{{ input.webhookUrl }}"
       method: POST

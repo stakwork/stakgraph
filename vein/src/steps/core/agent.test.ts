@@ -1,4 +1,5 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
+import http from "node:http";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +17,7 @@ import agent, {
   maskDeep,
   wrapToolsWithMask,
   classifyFinalAnswerStop,
+  isTransientStreamError,
 } from "./agent.js";
 
 // These tests are OFFLINE: they exercise registration, the input schema, and the
@@ -513,5 +515,223 @@ describe("classifyFinalAnswerStop (premature text-only stop vs exhausted budget)
   it("exhausted at (or beyond) the step cap — only a no-tools forced turn is left", () => {
     assert.equal(classifyFinalAnswerStop(false, 40, 40), "exhausted");
     assert.equal(classifyFinalAnswerStop(false, 41, 40), "exhausted");
+  });
+});
+
+describe("isTransientStreamError (resume a severed stream, not a real failure)", () => {
+  it("treats undici's bare `terminated` as transient", () => {
+    // The live incident: a 34-tool-call case-law step died ~12 minutes in when
+    // its streaming response body dropped. undici raises exactly this.
+    assert.equal(isTransientStreamError(new TypeError("terminated")), true);
+  });
+
+  it("matches connection faults by message or errno code", () => {
+    for (const e of [
+      new Error("fetch failed"),
+      new Error("socket hang up"),
+      new Error("Premature close"),
+      new Error("other side closed"),
+      Object.assign(new Error("read"), { code: "ECONNRESET" }),
+      Object.assign(new Error("x"), { code: "UND_ERR_BODY_TIMEOUT" }),
+      Object.assign(new Error("x"), { code: "UND_ERR_HEADERS_TIMEOUT" }),
+    ]) {
+      assert.equal(isTransientStreamError(e), true, `expected transient: ${e.message}`);
+    }
+  });
+
+  it("unwraps a nested cause (the SDK wraps the socket error)", () => {
+    const wrapped = new Error("API call failed", { cause: new TypeError("terminated") });
+    assert.equal(isTransientStreamError(wrapped), true);
+  });
+
+  it("does NOT resume deterministic API failures", () => {
+    for (const e of [
+      new Error("401 Unauthorized: invalid x-api-key"),
+      new Error("400 Bad Request: messages.0 invalid"),
+      new Error("No object generated: could not parse the response."),
+      new Error("model not found"),
+    ]) {
+      assert.equal(isTransientStreamError(e), false, `expected fatal: ${e.message}`);
+    }
+  });
+
+  it("does NOT resume an abort — run control must win over recovery", () => {
+    // A paused or cancelled run surfaces as an abort; resuming one would
+    // defeat the cooperative pause/cancel boundary.
+    assert.equal(isTransientStreamError(Object.assign(new Error("x"), { name: "AbortError" })), false);
+    assert.equal(isTransientStreamError(new Error("The operation was aborted")), false);
+    // Even when a transient-looking cause is wrapped underneath it.
+    assert.equal(
+      isTransientStreamError(Object.assign(new Error("aborted"), { cause: new TypeError("terminated") })),
+      false,
+    );
+  });
+
+  it("never resumes a cancelled run, by identity not by wording", () => {
+    // Run control outranks recovery. Matched on the CancelledError marker so a
+    // reworded cancel can't start looking transient.
+    assert.equal(isTransientStreamError(Object.assign(new Error("stopped"), { isVeinCancelled: true })), false);
+    assert.equal(isTransientStreamError(Object.assign(new Error("stopped"), { name: "CancelledError" })), false);
+    // Even wrapping a genuinely transient cause must not make a cancel resumable.
+    assert.equal(
+      isTransientStreamError(
+        Object.assign(new Error("stopped"), { isVeinCancelled: true, cause: new TypeError("terminated") }),
+      ),
+      false,
+    );
+  });
+
+  it("terminates on a self-referential cause chain", () => {
+    const a: any = new Error("weird");
+    a.cause = a;
+    assert.equal(isTransientStreamError(a), false);
+  });
+
+  it("is safe on null/undefined/non-errors", () => {
+    assert.equal(isTransientStreamError(undefined), false);
+    assert.equal(isTransientStreamError(null), false);
+    assert.equal(isTransientStreamError("terminated"), true);
+  });
+});
+
+// These stay OFFLINE in the sense that matters — nothing leaves the machine.
+// They drive the real generation loop against a local server that speaks the
+// Anthropic SSE wire format, because the failure being guarded is a TRANSPORT
+// fault: only a genuinely severed socket reproduces `TypeError: terminated`.
+describe("mid-stream socket death is resumed, not lost", () => {
+  const sse = (o: any) => `event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`;
+  const msgStart = () =>
+    sse({
+      type: "message_start",
+      message: {
+        id: "msg_1", type: "message", role: "assistant", model: "claude-sonnet-4-5",
+        content: [], stop_reason: null, stop_sequence: null,
+        usage: { input_tokens: 100, output_tokens: 1 },
+      },
+    });
+  const toolUse = (id: string, name: string, input: unknown) =>
+    sse({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id, name, input: {} } }) +
+    sse({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } }) +
+    sse({ type: "content_block_stop", index: 0 }) +
+    sse({ type: "message_delta", delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 20 } }) +
+    sse({ type: "message_stop" });
+
+  type Server = { port: number; bodies: string[]; calls: () => number; close: () => void };
+  async function serve(handler: (call: number, res: http.ServerResponse) => void): Promise<Server> {
+    const bodies: string[] = [];
+    let call = 0;
+    const server = http.createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => { bodies.push(raw); handler(++call, res); });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    return {
+      port: (server.address() as any).port,
+      bodies, calls: () => call,
+      close: () => server.close(),
+    };
+  }
+  const severMidStream = (res: http.ServerResponse) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write(msgStart());
+    res.write(sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }));
+    res.write(sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "partial" } }));
+    setTimeout(() => res.socket?.destroy(), 5);
+  };
+
+  let cwd = "";
+  let saved: Record<string, string | undefined> = {};
+  const ENV = ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "VEIN_LLM_PROVIDER", "AI_SDK_LOG_WARNINGS"];
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "vein-stream-"));
+    saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
+    process.env["ANTHROPIC_API_KEY"] = "test-key";
+    process.env["AI_SDK_LOG_WARNINGS"] = "false";
+  });
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+    for (const k of ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k]!;
+    }
+  });
+
+  const run = (maxSteps = 10) =>
+    agent.run(
+      (agent.input as any).parse({
+        cwd, system: "sys", prompt: "do the research",
+        model: "claude-sonnet-4-5", maxSteps,
+        finalAnswer: "Report what you found.", toolFilter: ["bash"],
+      }),
+      { runId: "r", path: "p", scope: {}, input: undefined, emit: async () => {}, services: {}, registry: {} } as any,
+    ) as Promise<any>;
+
+  it("resumes a severed stream and keeps the work done before it died", async () => {
+    const s = await serve((call, res) => {
+      if (call === 2) return severMidStream(res);
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(msgStart());
+      res.write(
+        call === 1
+          ? toolUse("toolu_1", "bash", { command: "echo 'finding one' > research.md" })
+          : toolUse("toolu_2", "final_answer", { answer: "resumed and finished" }),
+      );
+      res.end();
+    });
+    process.env["ANTHROPIC_BASE_URL"] = `http://127.0.0.1:${s.port}`;
+    try {
+      const out = await run();
+      assert.equal(out.result, "resumed and finished");
+      // The pre-error tool call's real side effect survived the socket death.
+      assert.equal(readFileSync(join(cwd, "research.md"), "utf8").trim(), "finding one");
+      // Banked + resumed steps are both counted, and usage is summed across
+      // attempts (two message_starts at 100 input tokens each).
+      assert.equal(out.steps, 2);
+      assert.equal(out.usage.inputTokens, 200);
+      // The resume replayed the banked conversation, the original task, and
+      // told the model what actually happened.
+      const resume = s.bodies[2] ?? "";
+      assert.ok(resume.includes("toolu_1"), "resume must replay the banked tool call");
+      assert.ok(resume.includes("do the research"), "resume must restate the task");
+      assert.ok(resume.includes("interrupted mid-stream"), "resume must carry the nudge");
+    } finally {
+      s.close();
+    }
+  });
+
+  it("gives up after a bounded number of resumes when the socket keeps dying", async () => {
+    const s = await serve((call, res) => {
+      if (call === 1) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(msgStart());
+        res.write(toolUse("toolu_1", "bash", { command: "echo hi > research.md" }));
+        res.end();
+        return;
+      }
+      severMidStream(res);
+    });
+    process.env["ANTHROPIC_BASE_URL"] = `http://127.0.0.1:${s.port}`;
+    try {
+      await assert.rejects(run(), /terminated/);
+      // 1 good call + the first sever + MAX_STREAM_ERROR_CONTINUATIONS resumes.
+      assert.equal(s.calls(), 7);
+    } finally {
+      s.close();
+    }
+  });
+
+  it("does not burn resumes on a deterministic API failure", async () => {
+    const s = await serve((_call, res) => {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }));
+    });
+    process.env["ANTHROPIC_BASE_URL"] = `http://127.0.0.1:${s.port}`;
+    try {
+      await assert.rejects(run());
+      assert.equal(s.calls(), 1, "a 401 must fail on the first call, not retry");
+    } finally {
+      s.close();
+    }
   });
 });

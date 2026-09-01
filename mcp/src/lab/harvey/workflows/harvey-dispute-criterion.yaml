@@ -30,7 +30,7 @@ steps:
         id: dispute_failed
         type: harvey/pack-result
         config:
-          error: "{{ $error.message }}"
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
       cwd: "{{ input.dir }}"
       system: |

@@ -83,7 +83,7 @@ steps:
       onError:
         id: verify_completeness_failed
         type: harvey/pack-result
-        config: { error: "{{ $error.message }}" }
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
     config:
       cwd: "{{ dir.path }}"
       system: "{{ params.persona }}"
@@ -108,7 +108,7 @@ steps:
       onError:
         id: verify_correctness_failed
         type: harvey/pack-result
-        config: { error: "{{ $error.message }}" }
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
     config:
       cwd: "{{ dir.path }}"
       system: "{{ params.persona }}"
@@ -133,7 +133,7 @@ steps:
       onError:
         id: verify_arithmetic_failed
         type: harvey/pack-result
-        config: { error: "{{ $error.message }}" }
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
     config:
       cwd: "{{ dir.path }}"
       system: "{{ params.persona }}"
@@ -158,7 +158,7 @@ steps:
       onError:
         id: verify_doctrine_failed
         type: harvey/pack-result
-        config: { error: "{{ $error.message }}" }
+        config: { error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}" }
     config:
       cwd: "{{ dir.path }}"
       system: "{{ params.persona }}"

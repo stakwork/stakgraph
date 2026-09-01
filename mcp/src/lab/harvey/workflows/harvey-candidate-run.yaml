@@ -53,7 +53,7 @@ steps:
         config:
           score: 0
           all_pass: false
-          gradeError: "{{ $error.message }}"
+          gradeError: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
       task: "{{ input.task }}"
       fromRun: "{{ run }}"
