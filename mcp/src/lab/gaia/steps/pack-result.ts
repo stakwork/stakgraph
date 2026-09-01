@@ -10,7 +10,7 @@ export default defineStep({
   type: "gaia/pack-result",
   description:
     "Echo the resolved config object back as output — a combiner for assembling fields from earlier steps into one object (workflow output = last step's output). Config: any JSON object. Output: the same object.",
-  input: z.record(z.any()),
+  input: z.record(z.string(), z.any()),
   output: z.any(),
   async run(cfg) {
     return cfg;

@@ -204,6 +204,9 @@ export async function streamRun(
   const decoder = new TextDecoder();
   let buffer = "";
   let result: any = null;
+  // Persists across read chunks: an `event:` line and its `data:` line can
+  // arrive in different chunks (e.g. the multi-MB `done` result frame).
+  let eventType = "message";
 
   while (true) {
     let done: boolean, value: Uint8Array | undefined;
@@ -221,7 +224,6 @@ export async function streamRun(
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
 
-    let eventType = "message";
     for (const line of lines) {
       if (line.startsWith("event: ")) {
         eventType = line.slice(7).trim();
@@ -476,6 +478,9 @@ export async function streamChat(
   const decoder = new TextDecoder();
   let buf = "";
   let status = "done";
+  // Persists across read chunks: an `event:` line and its `data:` line can
+  // arrive in different chunks.
+  let eventType = "message";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -484,7 +489,6 @@ export async function streamChat(
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
 
-    let eventType = "message";
     for (const line of lines) {
       if (line.startsWith("event: ")) {
         eventType = line.slice(7).trim();

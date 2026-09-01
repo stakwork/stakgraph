@@ -1,0 +1,74 @@
+name: harvey-judge-criterion
+# LLM-as-judge for ONE rubric criterion (the harvey_lab_score_rubric /
+# evaluation.run_eval judge shape): read ONLY the criterion's deliverable
+# files, evaluate against the match criteria, return a structured pass/fail
+# verdict. Run per criterion by harvey-score's foreach (this subflow exists
+# because foreach bodies get no onError of their own — the fall-soft lives on
+# the agent step here: a judge crash returns { error } and is scored as an
+# honest FAIL by harvey/aggregate-scores, never a pass).
+#
+# The judge is the core agent step in SCHEMA mode with bash-only tools: it
+# reads the deliverables itself (pandoc for .docx — mirrors the harness's
+# extraction), then emits { verdict, reasoning }.
+#
+# Input:  { criterion: { id, title, match_criteria, deliverables }, outputDir,
+#           taskDescription }
+# Output: agent schema-mode result { object: { verdict, reasoning }, cost,
+#           usage, steps } — or { error } from the onError pack.
+steps:
+  - id: judge
+    type: agent
+    options:
+      retry: { max: 1, delayMs: 10000 }
+      onError:
+        id: judge_failed
+        type: harvey/pack-result
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ input.outputDir }}"
+      system: "{{ params.judgeSystem }}"
+      prompt: |
+        {{ params.judgePrompt }}
+
+        ## Task
+        {{ input.taskDescription }}
+
+        ## Deliverable files to evaluate (in your working directory — read
+        ONLY these; convert .docx with `pandoc <file> -t markdown`, .xlsx
+        with python3 + openpyxl)
+        {{ input.criterion.deliverables }}
+
+        ## Criterion
+        **{{ input.criterion.title }}**
+
+        {{ input.criterion.match_criteria }}
+      model: "{{ params.judgeModel }}"
+      maxSteps: "{{ params.judgeMaxSteps }}"
+      toolFilter: ["bash"]
+      schema:
+        type: object
+        properties:
+          verdict:
+            type: string
+            enum: [pass, fail]
+          reasoning:
+            type: string
+            description: Brief explanation of the verdict.
+        required: [verdict, reasoning]
+        additionalProperties: false
+
+params:
+  judgeModel: claude-sonnet-5
+  judgeMaxSteps: 15
+  # ── PASTE-IN SURFACE ── judgeSystem/judgePrompt mirror the harvey-labs
+  # rubric_criterion.txt judge; adjust only deliberately (this is the
+  # pipeline's own quality gate, not the benchmark grader).
+  judgeSystem: |
+    You are evaluating a legal AI agent's work product against a specific
+    quality criterion. Read the listed deliverable files fully before
+    judging. PASS means the output satisfies the criterion as described;
+    FAIL means it does not. Judge only the stated criterion — not general
+    quality — and ground your reasoning in what the files actually say.
+  judgePrompt: |
+    Evaluate the deliverables against the criterion below.
