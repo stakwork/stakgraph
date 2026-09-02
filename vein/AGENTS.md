@@ -284,7 +284,9 @@ services bag can override it, same as `http`/`secrets`).
   `VeinStepVersion` nodes (content-addressed versions; soft deletes;
   `USES_STEP`/`DEPENDS_ON` edges) and passes the same conformance suite
   (`npm run test:graph`, live). `VEIN_WORKSPACE_BACKEND=graph` switches
-  the default server to it (`src/graph/wiring.ts`). Runs/chats stay in
+  the default server to it (`src/graph/wiring.ts`; connection from
+  `NEO4J_URI` / `NEO4J_HOST` / `NEO4J_USER` / `NEO4J_PASSWORD`, defaulting
+  to localhost:7687 / neo4j / testtest like the mcp host). Runs/chats stay in
   their stores; `src/graph/projector.ts` (or the `graph/project` step)
   projects them into `VeinRun`/`VeinAgentSession`/`VeinToolCall`/
   `VeinChat`/`VeinTurn` with `EXECUTED`/`IN_RUN`/`IN_SESSION`/`SPAWNED`/

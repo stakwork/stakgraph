@@ -14,19 +14,21 @@ export function graphWorkspaceRequested(env: Record<string, string | undefined> 
   return (env["VEIN_WORKSPACE_BACKEND"] ?? "").toLowerCase() === "graph";
 }
 
+/** Same default as the mcp host's own Neo4j client and the `graph/*` steps:
+ *  a local Neo4j needs nothing configured. */
+export const DEFAULT_NEO4J_HOST = "localhost:7687";
+
 /**
  * Open the graph backend from env and wrap it in a `Neo4jWorkspaceStore`.
- * Throws when no connection is configured — a deployment that asked for
- * the graph backend must not silently fall back to files.
+ * Connection: `NEO4J_URI`, else `bolt://<NEO4J_HOST>` (default
+ * `localhost:7687`); `NEO4J_USER` / `NEO4J_PASSWORD` default to
+ * neo4j / testtest — the same resolution as the mcp host, so a deployment's
+ * existing vars just work and a local Neo4j needs none.
  */
 export async function graphWorkspaceFromEnv(
   env: Record<string, string | undefined> = process.env,
   opts: { backend?: GraphBackendOptions; store?: Neo4jWorkspaceStoreOptions } = {},
 ): Promise<{ backend: GraphBackend; workspace: Neo4jWorkspaceStore }> {
-  const pending = openGraphBackendFromEnv(env, opts.backend);
-  if (!pending) {
-    throw new Error("VEIN_WORKSPACE_BACKEND=graph needs NEO4J_URI (or NEO4J_HOST) — no Neo4j connection configured");
-  }
-  const backend = await pending;
+  const backend = await openGraphBackendFromEnv({ NEO4J_HOST: DEFAULT_NEO4J_HOST, ...env }, opts.backend)!;
   return { backend, workspace: new Neo4jWorkspaceStore(backend, opts.store) };
 }
