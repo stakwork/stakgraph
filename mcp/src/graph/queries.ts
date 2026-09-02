@@ -696,14 +696,17 @@ RETURN DISTINCT file
 /**
  * Cypher mirror of `toEpochMs()` in `time.ts` — keep in sync. Normalizes a
  * stored `date_added_to_graph` (legacy seconds float/string, or new epoch-ms
- * Integer) to epoch milliseconds before comparing/sorting: values < 1e12 are
- * epoch-seconds (×1000), >= 1e12 are already ms. `toFloat` handles the legacy
+ * Integer) to epoch milliseconds before comparing/sorting: values ≤ 1e12 are
+ * epoch-seconds (×1000), > 1e12 are already ms. `toFloat` handles the legacy
  * 7-decimal strings, plain numbers, and Neo4j Integers alike. Load-bearing
  * until the data backfill migration — without it a ms `$since` cursor would
  * silently drop every legacy-seconds node.
+ *
+ * `nodes_by_type` also normalizes caller-supplied `since` values to ms via
+ * `epochValueToMs` before binding, so both sides of the comparison are ms.
  */
 export function epochMsExpr(prop: string): string {
-  return `CASE WHEN toFloat(${prop}) >= 1000000000000 THEN toFloat(${prop}) ELSE toFloat(${prop}) * 1000 END`;
+  return `CASE WHEN toFloat(${prop}) <= 1000000000000 THEN toFloat(${prop}) * 1000 ELSE toFloat(${prop}) END`;
 }
 
 export function listQueryForLabel(

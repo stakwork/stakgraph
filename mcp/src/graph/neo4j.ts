@@ -29,7 +29,7 @@ import {
   nameFileOnly,
 } from "./utils.js";
 import * as Q from "./queries.js";
-import { nowEpochMs, toEpochMs } from "./time.js";
+import { nowEpochMs, toEpochMs, epochValueToMs } from "./time.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { createByModelName } from "@microsoft/tiktokenizer";
@@ -106,7 +106,11 @@ class Db {
       const r = await session.run(Q.listQueryForLabel(safe, since != null), {
         extensions,
         limit,
-        since: since ?? null,
+        // `date_added_to_graph` is a canonical epoch-ms Integer (see ./time.ts).
+        // Normalize a seconds-magnitude `since` to ms here — the single bind
+        // site for `listQueryForLabel` — so every caller's "recently added"
+        // filter is guaranteed to compare ms against ms.
+        since: since == null ? null : epochValueToMs(since),
       });
       return r.records.map((record) => deser_node(record, "f"));
     } finally {

@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import neo4j from "neo4j-driver";
 
-import { nowEpochMs, toEpochMs, nodeAgeHours } from "./time.js";
+import {
+  nowEpochMs,
+  toEpochMs,
+  epochValueToMs,
+  nodeAgeHours,
+  dateAddedAgeHours,
+} from "./time.js";
 import {
   ADD_NODE_QUERY,
   CREATE_AGENT_SESSION_STUB_QUERY,
@@ -115,21 +122,21 @@ describe("date_added_to_graph set-once semantics (query templates)", () => {
 });
 
 describe("toEpochMs (magnitude discriminator)", () => {
-  it("treats < 1e12 as legacy epoch-seconds and converts to ms", () => {
+  it("treats <= 1e12 as legacy epoch-seconds and converts to ms", () => {
     assert.equal(toEpochMs(1700000000), 1700000000000);
     // just under the threshold is still seconds
     assert.equal(toEpochMs(999999999999), 999999999999000);
+    // exactly 10**12 is still-seconds (matches TimeFormatter.epoch_value_to_ms)
+    assert.equal(toEpochMs(1e12), 1e15);
   });
 
-  it("passes >= 1e12 through unchanged (already ms)", () => {
+  it("passes > 1e12 through unchanged (already ms)", () => {
     assert.equal(toEpochMs(1700000000000), 1700000000000);
-    assert.equal(toEpochMs(1e12), 1e12);
+    assert.equal(toEpochMs(1e12 + 1), 1e12 + 1);
   });
 
   it("parses legacy 7-decimal seconds strings (old Rust ingest format)", () => {
-    const ms = toEpochMs("1700000000.1234567");
-    assert.ok(ms !== null);
-    assert.ok(Math.abs(ms - 1700000000123.4567) < 0.01, `got ${ms}`);
+    assert.equal(toEpochMs("1700000000.1234567"), 1700000000123);
   });
 
   it("parses ms-magnitude strings", () => {
@@ -180,9 +187,9 @@ describe("listQueryForLabel delta filter (ms cursor over mixed stored formats)",
     const q = listQueryForLabel("Hint", true);
     assert.match(
       q,
-      /CASE WHEN toFloat\(f\.date_added_to_graph\) >= 1000000000000/,
+      /CASE WHEN toFloat\(f\.date_added_to_graph\) <= 1000000000000/,
     );
-    assert.match(q, /toFloat\(f\.date_added_to_graph\) \* 1000 END >= \$since/);
+    assert.match(q, /toFloat\(f\.date_added_to_graph\) \* 1000 ELSE toFloat\(f\.date_added_to_graph\) END >= \$since/);
     // the legacy bare-seconds comparison must be gone
     assert.ok(
       !q.includes("toFloat(f.date_added_to_graph) >= $since"),
@@ -194,7 +201,7 @@ describe("listQueryForLabel delta filter (ms cursor over mixed stored formats)",
     const q = listQueryForLabel("Hint", true);
     assert.match(
       q,
-      /ORDER BY CASE WHEN toFloat\(coalesce\(f\.date_added_to_graph, 0\)\) >= 1000000000000/,
+      /ORDER BY CASE WHEN toFloat\(coalesce\(f\.date_added_to_graph, 0\)\) <= 1000000000000/,
     );
     assert.match(q, /DESC, f\.node_key/);
     assert.ok(!q.includes("coalesce(toFloat(f.date_added_to_graph), 0)"));
@@ -209,7 +216,7 @@ describe("listQueryForLabel delta filter (ms cursor over mixed stored formats)",
   it("normalizes the learnings ORDER BY (mixed-format sort)", () => {
     assert.match(
       GET_ALL_LEARNINGS_WITH_SCOPES_QUERY,
-      /ORDER BY CASE WHEN toFloat\(l\.date_added_to_graph\) >= 1000000000000/,
+      /ORDER BY CASE WHEN toFloat\(l\.date_added_to_graph\) <= 1000000000000/,
     );
   });
 });
@@ -281,4 +288,90 @@ describe("gitsee node prep leaves timestamping to the write path", () => {
       );
     });
   }
+});
+
+describe("epochValueToMs", () => {
+  it("scales seconds-magnitude values ×1000", () => {
+    assert.equal(epochValueToMs(1_700_000_000), 1_700_000_000_000);
+  });
+
+  it("treats exactly 10**12 as still-seconds (matches TimeFormatter.epoch_value_to_ms boundary)", () => {
+    assert.equal(epochValueToMs(1e12), 1e15);
+  });
+
+  it("passes ms-magnitude values through without double-scaling", () => {
+    const ms = 1_700_000_000_123; // already canonical epoch-ms
+    assert.equal(epochValueToMs(ms), ms);
+  });
+
+  it("truncates sub-ms precision like the backend int() conversion", () => {
+    // 7-decimal string seconds (legacy shape) round-trips to ms via floor
+    assert.equal(epochValueToMs(1700000000.1234567), 1700000000123);
+  });
+
+  it("accepts a nowEpochMs() stamp unchanged", () => {
+    const ts = nowEpochMs().toNumber();
+    assert.equal(epochValueToMs(ts), ts);
+  });
+});
+
+describe("dateAddedAgeHours (intelligence cache-control age math)", () => {
+  const HOUR_MS = 3600 * 1000;
+
+  it("computes age in hours from a canonical ms-magnitude stamp", () => {
+    const stamp = 1_700_000_000_000; // canonical epoch-ms Integer
+    const now = stamp + 3 * HOUR_MS;
+    assert.equal(dateAddedAgeHours(stamp, now), 3);
+  });
+
+  it("ages a legacy-seconds stored value correctly", () => {
+    const now = 1_800_000_000_000;
+    const stampSeconds = (now - 2 * HOUR_MS) / 1000;
+    assert.equal(dateAddedAgeHours(stampSeconds, now), 2);
+  });
+
+  it("a fresh node (1h old) is within a 24h maxAgeHours window", () => {
+    const now = Date.now();
+    const stamp = now - 1 * HOUR_MS;
+    assert.ok(dateAddedAgeHours(stamp, now) < 24);
+  });
+
+  it("a stale node (72h old) exceeds a 24h maxAgeHours window", () => {
+    const now = Date.now();
+    const stamp = now - 72 * HOUR_MS;
+    assert.ok(dateAddedAgeHours(stamp, now) > 24);
+  });
+
+  it("defaults `now` to Date.now()", () => {
+    const stamp = Date.now() - 2 * HOUR_MS;
+    const hours = dateAddedAgeHours(stamp);
+    assert.ok(hours > 1.9 && hours < 2.1, `expected ~2h, got ${hours}`);
+  });
+});
+
+describe("intelligence cache-control regression guard (source scan)", () => {
+  /**
+   * The cache-control branch reads `date_added_to_graph` without going
+   * through any toInteger/toFloat shim, so a shim-only grep would miss a
+   * regression to the old seconds-assuming math (`Date.now() / 1000`,
+   * `... / 3600`). Scan the source directly to pin the ms semantics.
+   */
+  it("reads date_added_to_graph as epoch-ms via dateAddedAgeHours", () => {
+    const src = readFileSync(
+      new URL("../tools/intelligence/index.ts", import.meta.url),
+      "utf8"
+    );
+    assert.ok(
+      src.includes("dateAddedAgeHours(nodeAge)"),
+      "cache branch must use the canonical dateAddedAgeHours helper"
+    );
+    assert.ok(
+      !src.includes("Date.now() / 1000"),
+      "seconds-assuming currentTime must not return"
+    );
+    assert.ok(
+      !src.includes("/ 3600"),
+      "hours conversion must go through the helper, not a seconds-based divide"
+    );
+  });
 });

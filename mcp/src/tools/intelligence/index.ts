@@ -6,7 +6,7 @@ import { recomposeAnswer, RecomposedAnswer } from "./answer.js";
 import { LEARN_HTML } from "./learn.js";
 import * as G from "../../graph/graph.js";
 import { db } from "../../graph/neo4j.js";
-import { nodeAgeHours } from "../../graph/time.js";
+import { dateAddedAgeHours } from "../../graph/time.js";
 import { vectorizeQuery } from "../../vector/index.js";
 
 /**
@@ -122,29 +122,42 @@ export async function ask_prompt(
         existingRefIdToReplace = top.ref_id;
       } else if (cacheControl?.maxAgeHours) {
         const nodeAge = top.properties.date_added_to_graph;
-        // Normalize the stored value (legacy seconds float/string vs new
-        // epoch-ms Integer) to milliseconds before aging — mixed formats
-        // coexist until the data backfill migration runs (see toEpochMs).
-        const ageInHours = nodeAgeHours(nodeAge);
+        // Mixed legacy-seconds / new-ms values are normalized inside
+        // dateAddedAgeHours → toEpochMs until the data backfill runs.
+        if (nodeAge) {
+          const ageInHours = dateAddedAgeHours(nodeAge);
 
-        if (ageInHours !== null && ageInHours > cacheControl.maxAgeHours) {
-          console.log(
-            `>> Cache control: node age ${ageInHours.toFixed(
-              2,
-            )}h exceeds maxAge ${
-              cacheControl.maxAgeHours
-            }h, replacing existing answer`,
-          );
-          existingRefIdToReplace = top.ref_id;
+          if (ageInHours > cacheControl.maxAgeHours) {
+            console.log(
+              `>> Cache control: node age ${ageInHours.toFixed(
+                2,
+              )}h exceeds maxAge ${
+                cacheControl.maxAgeHours
+              }h, replacing existing answer`,
+            );
+            existingRefIdToReplace = top.ref_id;
+          } else {
+            console.log(
+              `>> Cache control: node age ${ageInHours.toFixed(
+                2,
+              )}h within maxAge ${
+                cacheControl.maxAgeHours
+              }h, using cached answer`,
+            );
+            // Fetch connected hints (sub_answers) for this existing prompt
+            const connected_hints = await db.get_connected_hints(top.ref_id);
+            const hints = mapConnectedHints(connected_hints);
+
+            return {
+              answer: top.properties.body,
+              hints,
+              ref_id: top.ref_id,
+              usage: totalHintUsage(hints),
+            };
+          }
         } else {
           console.log(
-            ageInHours === null
-              ? ">> Cache control: no parseable date_added_to_graph property found, using cached answer"
-              : `>> Cache control: node age ${ageInHours.toFixed(
-                  2,
-                )}h within maxAge ${
-                  cacheControl.maxAgeHours
-                }h, using cached answer`,
+            ">> Cache control: no date_added_to_graph property found, using cached answer",
           );
           // Fetch connected hints (sub_answers) for this existing prompt
           const connected_hints = await db.get_connected_hints(top.ref_id);
