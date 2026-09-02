@@ -17,7 +17,7 @@ versioned artifact, and what must never evolve.
 | ----------- | -------------------------------------------------------------------------- |
 | Engine      | TypeScript (Node 22+), Zod for schemas, custom expression evaluator        |
 | HTTP        | Hono + @hono/node-server                                                   |
-| Persistence | Filesystem (JSONL events + JSON summaries). Swappable via `RunStore` iface |
+| Persistence | One interface per layer — `WorkspaceStore` (workflows/steps), `RunStore` (runs), `ChatStore`, `SecretStore` — with File + Memory impls; local blobs (artifacts/cassettes/shell scratch) live under an explicit `dataDir` |
 | Web UI      | Preact + Vite + system-canvas-react. Vanilla CSS, no Tailwind              |
 | Tests       | Node native test runner (`node:test`) via tsx                              |
 | LLM step    | Vercel AI SDK (ai + @ai-sdk/anthropic + @ai-sdk/openai) — lazy-loaded      |
@@ -36,9 +36,10 @@ vein/
 │   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow, journal replay
 │   ├── run-control.ts     # RunController: cooperative cancel/pause/resume for run TREES (RUN_CONTROL_SPEC.md)
 │   ├── journal.ts         # resume journal: step.end outputs → {path→output}; `from` invalidation
-│   ├── store.ts           # RunStore interface + FileRunStore + MemoryRunStore + tailJsonl (shared append-only tail engine)
+│   ├── store.ts           # RunStore interface (writes + reads + tail) + FileRunStore + MemoryRunStore + tailJsonl / tailFromPolling
 │   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
-│   ├── workspace.ts       # WorkspaceManager: versioning, _metadata.json, YAML loading
+│   ├── workspace.ts       # WorkspaceStore interface + FileWorkspaceStore (alias WorkspaceManager): versioning, _metadata.json, YAML loading
+│   ├── storage-conformance.test.ts  # the storage boundary's spec: one suite per layer, run over every impl
 │   ├── createVein.ts      # createVein() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + detached /chat (launch+reattach) + static serving; injectable registry/store/chatStore/services
 │   ├── server.ts          # thin wrapper over createVein() (getApp/startServer) — default filesystem-backed server
 │   ├── auth.ts            # requireApiKey middleware + warnIfUnconfigured (VEIN_API_KEY shared secret)
@@ -47,6 +48,7 @@ vein/
 │   ├── steps/
 │   │   ├── core/          # 9 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait (static import)
 │   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — file dynamic-imported at build; heavy SDKs lazy-imported in run() (see "Lib step dependency convention")
+│   │   │   └── graph/     # graph/* knowledge-graph steps over src/graph (the vein-native twins of the mcp lab's jarvis/* steps — same names, inputs, outputs); _shared.ts lazy-imports the backend; graph-steps.test.ts is a live end-to-end test
 │   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
 │   │   ├── index.ts       # barrel export
@@ -56,7 +58,18 @@ vein/
 │   │   │                  #                   create_workflow, run_workflow (threads ctx.services)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
-│   └── *.test.ts          # 533 tests across 25 files
+│   ├── graph/             # jarvis-compatible Neo4j graph backend over bolt, no jarvis in the loop (plans/jarvis-graph-compat.md). Opt-in via openGraphBackend
+│   │   ├── bolt.ts        # neo4j-driver wrapper; int() for Integer writes (plain JS numbers write as FLOAT)
+│   │   ├── vein-schemas.ts# the 9 Vein node types + 14-row edge registry (label registry in plans/generic-storage.md); author-time checks
+│   │   ├── schema-seed.ts # idempotent domain registration: Thing root, Schema nodes, CHILD_OF, constraints, vector/fulltext indexes, migration stamp
+│   │   ├── node-writer.ts # §6 validation gate + node_key composition + Data_Bank + MERGE (create/upsert/restore/update), UNWIND batches
+│   │   ├── edge-writer.ts # edge MERGE by ref_id with IS_ALIAS rewrite; closed (source, edge, target) registry
+│   │   ├── embeddings.ts  # local all-MiniLM-L6-v2 via transformers.js, tokenized like sentence-transformers (256 incl. specials); NULL-scan backfill
+│   │   ├── search.ts      # the read surface: hybrid search (RRF + title boost + usage tiebreak), get/neighbors/counts, ontology, namespaces
+│   │   ├── backend.ts     # openGraphBackend(): cached per config; runs seed + backfill on first open
+│   │   ├── test-util.ts   # live-test helpers (wipe, canonical graph snapshot) — only ever point at a throwaway Neo4j
+│   │   └── fixtures/      # Python-produced MiniLM golden vectors + jarvis sanitize_node_key parity cases
+│   └── *.test.ts          # 569 unit tests across 25 files (+ 70 live graph tests under src/graph/, opt-in)
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -93,8 +106,15 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 533 tests, ~1s
+npm test                    # 569 tests, ~1s
 npm run dev                 # starts Hono server on :3000
+
+# Graph backend tests — LIVE, against a THROWAWAY Neo4j (they wipe it).
+# Skipped entirely when VEIN_TEST_NEO4J_URI is unset. Add
+# VEIN_TEST_EMBEDDINGS=1 to also run the real-model parity case (downloads
+# ~90MB of ONNX weights into ~/.cache/vein-models on first run).
+docker run -d --name vein-neo4j-test -p 7688:7687 -e NEO4J_AUTH=neo4j/veintest neo4j:5
+VEIN_TEST_NEO4J_URI=bolt://localhost:7688 VEIN_TEST_NEO4J_PASSWORD=veintest npm run test:graph
 
 # Web UI (dev mode with HMR)
 cd vein/web
@@ -120,6 +140,11 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 | `VEIN_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
 | `VEIN_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
+| `NEO4J_URI` / `NEO4J_HOST` | (unset) / `localhost:7687` | Graph backend connection — same names and defaults as mcp's own Neo4j client: `NEO4J_URI` wins, else `bolt://<NEO4J_HOST>`; `NEO4J_USER`/`NEO4J_PASSWORD` default `neo4j`/`testtest`; optional `NEO4J_DATABASE`. The `graph/*` lib steps read these via the secrets capability (secret store → env) and need nothing configured for a local Neo4j; `openGraphBackendFromEnv` stays opt-in (null when neither is set). |
+| `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
+| `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
+| `VEIN_GRAPH_SEED_ONTOLOGY` | (off)   | `1` seeds the bundled jarvis ontology (151 schemas + edge schemas + indexes, add-only) on first open, so a standalone Neo4j can host jarvis-typed data (Document, EvalSet, Concept, …) with no jarvis process. No-op on a jarvis-seeded DB. |
+| `VEIN_MODEL_CACHE`  | `~/.cache/vein-models` | Where the embedding model's ONNX files are cached |
 
 ## Auth
 
@@ -239,9 +264,34 @@ services bag can override it, same as `http`/`secrets`).
   `services`, plus `run()`/`listen()`/`rebuildRegistry()` helpers — and
   mounts every route (`/workflows`, `/steps`, `/secrets`, `/chat` +
   `/chats`, `/health`, static UI). Everything is injectable via
-  `VeinOptions`: pass your own `registry` (disables filesystem step
-  discovery + publishing), `store` (e.g. `MemoryRunStore`), `chatStore`,
-  `secretStore`, `services` bag, or toggle `serveUi`/`enableChat`.
+  `VeinOptions`: pass your own `workspace` (any `WorkspaceStore`),
+  `registry` (disables step discovery + publishing), `store` (e.g.
+  `MemoryRunStore`), `chatStore`, `secretStore`, `services` bag,
+  `dataDir`, or toggle `serveUi`/`enableChat`.
+  **Storage boundary:** nothing outside `workspace.ts` reads a workspace
+  directory. `WorkspaceStore` exposes custom step code two ways —
+  `getStepSource(type)` (text, all tiers) and `materializeCustomSteps()`
+  (an importable dir for `buildRegistry`). The inherently-local things —
+  run artifacts, step cassettes, the chat builder's shell cwd + scratch/ —
+  hang off `dataDir` (default: the file workspace's root, so a
+  file-backed deployment keeps one directory). Unspecified store defaults
+  follow the workspace's kind (file → file stores under `dataDir`; any
+  other impl → memory); an explicitly passed store always wins, and no
+  capability is gated on a concrete class. `storage-conformance.test.ts`
+  is the boundary's spec — a new backend passes by running it.
+  **Graph backend:** `Neo4jWorkspaceStore` (`src/graph/workspace-store.ts`)
+  keeps workflows/steps as `VeinWorkflow`/`VeinWorkflowVersion`/`VeinStep`/
+  `VeinStepVersion` nodes (content-addressed versions; soft deletes;
+  `USES_STEP`/`DEPENDS_ON` edges) and passes the same conformance suite
+  (`npm run test:graph`, live). `VEIN_WORKSPACE_BACKEND=graph` switches
+  the default server to it (`src/graph/wiring.ts`; connection from
+  `NEO4J_URI` / `NEO4J_HOST` / `NEO4J_USER` / `NEO4J_PASSWORD`, defaulting
+  to localhost:7687 / neo4j / testtest like the mcp host). Runs/chats stay in
+  their stores; `src/graph/projector.ts` (or the `graph/project` step)
+  projects them into `VeinRun`/`VeinAgentSession`/`VeinToolCall`/
+  `VeinChat`/`VeinTurn` with `EXECUTED`/`IN_RUN`/`IN_SESSION`/`SPAWNED`/
+  `IN_CHAT` edges — summaries + `log_ref` pointers, never payloads,
+  idempotent upserts.
   `server.ts` is a thin wrapper (`getApp`/`startServer`) over
   `createVein()` with filesystem defaults.
 
@@ -267,7 +317,7 @@ services bag can override it, same as `http`/`secrets`).
 
 - **`createRegistry(steps)`** builds a registry from in-code step defs
   layered on core + lib (no filesystem custom/ discovery) — the
-  library-usage counterpart to `buildRegistry(workspacePath)`. User
+  library-usage counterpart to `buildRegistry(customDir)`. User
   steps may shadow core/lib steps (with a warning); duplicates throw.
   Like `buildRegistry`, it imports every lib step *file* at build time
   (cheap: schema + metadata only) — heavy SDK deps load lazily in `run()`
@@ -400,7 +450,7 @@ services bag can override it, same as `http`/`secrets`).
   connection (closing the client, proxy timeouts, etc. can't kill it).
   To watch a run — live **or** after it finished — open
   `GET /workflows/:name/runs/:runId/stream` (SSE). That endpoint calls
-  `FileRunStore.tailEvents`, which **tails the events file**: replay
+  `RunStore.tailEvents`; the file store **tails the events file**: replay
   from byte offset 0 → EOF (history), then follow appends (polling
   `intervalMs`, default 250ms) until the terminal event
   (`run.end`/`run.error`), then sends a final `done` carrying the
@@ -409,9 +459,12 @@ services bag can override it, same as `http`/`secrets`).
   from EOF — no sequence numbers, no dedupe), and **one code path
   serves completed and in-flight runs**. Pass an `AbortSignal` (wired
   to `stream.onAbort` on client disconnect) to stop the tail early.
-  Streaming requires a `FileRunStore` (the tail reads the file);
-  `MemoryRunStore` runs still launch but the stream endpoint returns
-  501. **Crash caveat:** in-flight *execution* is in-memory, so a
+  `RunStore` is the FULL contract (append/finalize + listRuns/
+  getRunSummary/getRunEvents/tailEvents/lastRunAt): no endpoint
+  capability-gates on the concrete class. A backend without a native
+  tail delegates `tailEvents` to `tailFromPolling` (re-read + index
+  cursor) — `MemoryRunStore` does, so memory-mode vein has run history,
+  SSE reattach, durable resume, and promotions. **Crash caveat:** in-flight *execution* is in-memory, so a
   crash mid-run loses the remaining work (the log up to the crash
   survives); true resume is a later add. The web UI's
   `api.runWorkflow` hides the two steps — it POSTs to launch, then

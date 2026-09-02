@@ -418,19 +418,24 @@ describe("AI list_runs / get_run tools", () => {
     assert.ok(res.error && /not found/.test(res.error));
   });
 
-  it("run-history tools degrade gracefully on a non-readable store", async () => {
+  it("run-history tools read from a MemoryRunStore like any other", async () => {
     const registry = await createRegistry([]);
+    const store = new MemoryRunStore();
+    await store.append("x", "1", { ts: new Date().toISOString(), runId: "1", path: "x", type: "run.start" });
     const deps = {
       workspace: new WorkspaceManager(tempDir),
       registry,
-      store: new MemoryRunStore(),
+      store,
       getRegistry: async () => registry,
     };
     const tools = buildTools(deps) as any;
-    const list = await tools.list_runs.execute({ name: "x" });
-    assert.ok(list.error && /unavailable/.test(list.error));
-    const get = await tools.get_run.execute({ name: "x", runId: "1" });
-    assert.ok(get.error && /unavailable/.test(get.error));
+    const list = await tools.list_runs.execute({ name: "x", limit: 20 });
+    assert.deepEqual(list.runs.map((r: { runId: string }) => r.runId), ["1"]);
+    const get = await tools.get_run.execute({ name: "x", runId: "1", fullEvents: false });
+    assert.equal(get.runId, "1");
+    assert.equal(get.events.length, 1);
+    const missing = await tools.get_run.execute({ name: "x", runId: "2", fullEvents: false });
+    assert.ok(missing.error && /not found/.test(missing.error));
   });
 });
 

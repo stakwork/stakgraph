@@ -19,6 +19,130 @@ entity-resolution machinery (see "Explicitly out of scope").
 Everything below was extracted from jarvis-backend source with
 file:line references; treat those as the authority when implementing.
 
+## Implementation status
+
+Build-order steps 1–6 are implemented on branch `vein-jarvis-graph-compat`
+(`vein/src/graph/*` + the `graph/*` step twins as vein LIB steps in
+`vein/src/steps/lib/graph/` — not lab steps: they wrap vein's own module,
+so they ship with the engine and are auto-discovered by the registry).
+Tests: `npm run test:graph` in `vein/` (live, against a throwaway Neo4j —
+see `src/graph/test-util.ts`; add `VEIN_TEST_EMBEDDINGS=1` for the
+real-model parity case; includes the end-to-end step test).
+Also on branch `vein-generic-storage`: the vein-native storage boundary
+(generic-storage §1–5) and, on top of it, `Neo4jWorkspaceStore`
+(`src/graph/workspace-store.ts`) + the run/chat projector
+(`src/graph/projector.ts`, `graph/project` step) + env wiring
+(`src/graph/wiring.ts`, `VEIN_WORKSPACE_BACKEND=graph`). Their live tests
+run under `npm run test:graph`.
+
+**Beyond the original scope — jarvis-typed data.** The harvey lab pipeline
+writes jarvis's own types (Document, EvalSet, EvalRequirement, EvalTrigger,
+EvalTriggerOutput, CriterionResult, extraction entities) and reads
+jarvis-seeded Concepts. To run it on this backend with no jarvis process,
+the writers resolve NON-Vein types the way jarvis does — from the live
+`:Schema` meta-graph (`src/graph/schema-resolver.ts`: case-insensitive
+type canonicalization, CHILD_OF-merged attributes, `Domain_*` labels
+honouring `About.hidden_domains`/`hidden_types`, edge-schema lookup with
+ancestor walks + `*` wildcard, the `EDGE_TYPES` allowlist,
+`create_schema_if_missing`). The §6 closed registry still governs Vein
+types and Vein-sourced edges. For a STANDALONE Neo4j, the bundled
+`fixtures/jarvis-ontology.ts` (a read-only dump of jarvis's default
+library: 151 schemas, 309 edge schemas) is seeded add-only by
+`seedJarvisOntology` (`VEIN_GRAPH_SEED_ONTOLOGY=1`), including the
+per-domain fulltext/vector indexes. jarvis's kitchen-sink `Data_Bank`
+fallback (priority fields + every non-excluded property) IS ported after
+all — jarvis types like EvalTriggerOutput depend on it.
+
+Decisions and deviations discovered while implementing (source of truth
+over this doc where they disagree):
+
+- `@huggingface/transformers@4.1.1` does not exist on npm; pinned `4.1.0`.
+  transformers.js's own `truncation: true` truncates AFTER adding special
+  tokens (it chops `[SEP]` off long inputs — cosine 0.9978 vs Python), so
+  `embeddings.ts` drives tokenizer + model directly with the body cut to
+  254 tokens and `[CLS]`/`[SEP]` re-added. Parity vs sentence-transformers
+  is ≥ 0.999 on all golden texts including the >256-token one.
+- Main semantic retriever: jarvis applies NO similarity floor and uses
+  `k = cap` (`_search_fetch_limit`); the `k = 50` / `0.4` floor in §7 is
+  the field-scoped (`input_q`/`output_q`) retriever only. Ported as in
+  source. Neo4j's cosine score is `(1+cos)/2`, so 0.4 is permissive.
+- Fulltext/vector index routing without a `domains` filter uses the global
+  `data_bank_attribute_index_v2` / `domain_all_vector_index` when they
+  exist and otherwise unions the per-domain indexes over visible domains
+  (jarvis does this for vectors only) — so a standalone vein DB needs no
+  global fulltext index and we never create one (add-only in shared mode).
+- `description` is a jarvis `SCHEMA_CORE_PROPERTY`, so `Thing`'s
+  `description: "?string"` never surfaces as an *attribute* in ontology
+  output (it lands on the schema as a core key). Node writes still accept
+  it. Mirrored, not fixed.
+- `updated_at` is a jarvis generic node property, so `VeinChat` uses
+  `last_active_at` instead.
+- Namespace registry (§7 open question): a single `(:NameSpace {ref_id,
+  data: [lowercased names]})` node; `default` is implicit. Ported.
+- `PUBLISHED_BY → Person` (§4 item 6): seeded only when a `Person` schema
+  exists (shared mode); skipped in standalone, reported in `SeedReport`.
+- `upsert` rebuilds `Data_Bank` + vectors from the new payload (jarvis's
+  `reprocess` leaves them stale — we produce the state a fresh create
+  would). `NodeWriter.update` (jarvis `POST /v2/nodes/:ref_id`) re-validates
+  the merged payload, recomposes `node_key` with a collision check, and
+  rebuilds search text/vectors; without an embedder a changed text drops
+  the stale vector so the boot backfill heals it.
+- Migration ledger stamp is `ON CREATE SET` (jarvis re-SETs `executed_at`
+  on every run) so re-seeding is a true graph no-op.
+- Edge `unique_source_id` stamping mentioned in §1 was not found in
+  jarvis's edge write path; not implemented.
+- Parity fixtures checked in: `src/graph/fixtures/minilm-golden.json`
+  (Python encoder) and `node-key-parity.json` (jarvis's own
+  `sanitize_node_key` over 10 cases incl. the hashed long-key forms). The
+  §9 search-parity fixture against a live jarvis dump is still to do.
+
+## Implementation notes (start here in a fresh session)
+
+- **Read first**: this doc + the "Label registry" section of
+  `generic-storage.md` (the node/edge vocabulary — do not invent
+  labels).
+- **Source-of-truth repos**: jarvis-backend lives at
+  `/Users/evan/code/sphinx/jarvis-backend` (all `file:line` refs below
+  point into it). The lab step tools defining the read surface (§7):
+  `mcp/src/lab/jarvis/steps/` in this repo.
+- **Branch, never main**: implement on a feature branch + PR.
+- **Deps**: `neo4j-driver` (bolt) and
+  `npm install @huggingface/transformers@4.1.1` (chosen for ARM+Intel
+  Mac cross-compat). Config via env/secret store: `NEO4J_URI`,
+  `NEO4J_USER`, `NEO4J_PASSWORD`, optional `VEIN_GRAPH_NAMESPACE`
+  (default `"default"`).
+- **Build order** (each step testable before the next):
+  1. `bolt.ts` + `vein-schemas.ts` + `schema-seed.ts` — then assert
+     seeding idempotence (run twice, graph diff empty).
+  2. `node-writer.ts` + the §6 validation gate.
+  3. `embeddings.ts` — golden-vector parity FIRST, then the boot sweep.
+  4. `edge-writer.ts`.
+  5. `search.ts` (§7 hybrid search + get/neighbors).
+  6. `graph/*` step twins of the `jarvis/*` steps.
+  The vein-native boundary work (generic-storage §1–5) is a parallel,
+  independent track; the two meet only in `Neo4jWorkspaceStore` + the
+  projector, which come after both.
+- **Parity fixtures** (check into the test tree, produced once):
+  - Embedding golden vector: with jarvis's Python env
+    (`sentence-transformers`), encode a fixed string —
+    `SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2").encode("vein golden parity fixture").tolist()`
+    → JSON fixture; TS side must reach cosine ≥ 0.999 against it.
+  - Node-write + search-response snapshots: run jarvis-backend locally
+    (or hit the swarm deployment), perform one `POST /v2/nodes` and one
+    `GET /v2/nodes?q=...`, dump the resulting node's full property map
+    (via bolt) and the HTTP response as fixtures.
+- **Vein schema attributes** (§5 lists only node_key/index): derive
+  each type's full attribute map from vein's existing core types —
+  `RunSummary`/`RunEvent` (`src/core.ts`, `src/store.ts`) for
+  `VeinRun`/`VeinAgentSession`/`VeinToolCall`, `ChatMeta`/chat events
+  (`src/chat-store.ts`) for `VeinChat`/`VeinTurn`, the workspace
+  types (`src/workspace.ts`) for the workflow/step schemas. Every
+  node_key token must be a required (non-`?`) attribute; previews
+  capped ~500 chars; full payloads by `log_ref` pointer only.
+- **Known open questions** (resolve by reading jarvis source when
+  reached, don't guess): how `POST /namespace` persists registrations
+  (§7 table); seed `Person` or defer `PUBLISHED_BY` (§4 item 6).
+
 ## Deployment modes
 
 - **Standalone**: a fresh Neo4j only vein writes to. Our bootstrap must
@@ -42,6 +166,7 @@ file:line references; treat those as the authority when implementing.
 | `edge-writer.ts`  | jarvis-dialect edge MERGE (edge_key, alias rewrite)     |
 | `embeddings.ts`   | local MiniLM vectors via `@huggingface/transformers`    |
 | `vein-schemas.ts` | the Vein schema library (TS mirror of a jarvis library) |
+| `search.ts`       | hybrid search + get/neighbors reads (§7)                |
 
 ## 1. Node writes (`node-writer.ts`)
 
@@ -107,7 +232,21 @@ resulting state is what jarvis intends).
 
 Soft delete = `SET n.is_deleted = true`; readers filter
 `(n.is_deleted IS NULL OR n.is_deleted = false)`. Never DETACH DELETE
-except an explicit destructive admin path.
+except an explicit destructive admin path. **Restore semantics**
+(mirroring jarvis `schema_node_helper.py:620-657`): a `create` that
+hits a soft-deleted node with the same node_key restores it —
+`is_deleted = false`, new payload applied, preserving `ref_id`,
+`node_key`, `namespace`, `date_added_to_graph`.
+
+**Idempotent projector writes**: stamp `unique_source_id` on projected
+nodes (e.g. `"veinrun:<runId>"`, `"veintoolcall:<runId>:<path>:<seq>"`)
+— jarvis already indexes it (`node_unique_source_id_index`) and stamps
+it onto edges when both endpoints share the value, so re-projection
+and cross-store reconciliation get a cheap identity probe for free.
+
+**Batching**: the projector writes many nodes per run — use the UNWIND
+form of the same MERGE (one statement per type per batch, same
+resulting state), mirroring jarvis's bulk paths.
 
 ## 2. `Data_Bank` search text + embeddings (`embeddings.ts`)
 
@@ -146,9 +285,25 @@ vector) to prove parity with jarvis's encoder.
 compatible: a jarvis backfill would simply find nothing NULL. Never
 invent a pending-marker property.
 
-**Do not implement**: per-property `vector_index` embeddings
-(`{stem}_embeddings`) unless a Vein schema ever declares
-`vector_index`; `edge_text_embeddings`; metaphone3.
+**Crash-safe backfill sweep** (replaces the durability the queue gave
+jarvis): a crash between the node MERGE and the vector write leaves
+`text_embeddings` NULL permanently. At every boot of the graph
+backend, sweep and heal:
+
+```cypher
+MATCH (n:Domain_vein)
+WHERE n.Data_Bank IS NOT NULL AND n.text_embeddings IS NULL
+RETURN n.ref_id, n.Data_Bank
+```
+
+→ embed in batches → `SET n.text_embeddings` (matching jarvis's own
+NULL-scan backfill idiom, `migration.py:857-861`). Idempotent, cheap
+when clean.
+
+**Do not implement**: `edge_text_embeddings`; metaphone3.
+Per-property `vector_index` embeddings (`{stem}_embeddings`) ARE
+needed for the two types that declare `vector_index` (§7 —
+`input_q`/`output_q` search); no others.
 
 ## 3. Edge writes (`edge-writer.ts`)
 
@@ -303,7 +458,118 @@ Optionally spread jarvis's `USAGE_ATTRIBUTES` shape
 owns updating them; jarvis's `?sort=usage` and search tiebreak read
 them for free.
 
-## 6. Explicitly out of scope (jarvis tolerates absence)
+## 6. Validation — no invalid/unexpected node reaches the graph
+
+Every write goes through the writer; the writer validates BEFORE
+building any Cypher. Mirror of jarvis's two-stage gate
+(`assert_is_valid_schema_of_type` `schema_validation.py:58-180` +
+`validate_by_schema` `:184-278`), tightened where jarvis is loose —
+strictness is safe in one direction only: anything vein accepts must
+also pass jarvis's validators, never the reverse.
+
+Write-time gate (reject with a typed error, nothing written):
+
+1. **Closed type set** — `type` must be one of the nine registered
+   Vein schemas. No dynamic types, no scratchpad fallback, no
+   `create_schema_if_missing`. (Jarvis resolves types case-
+   insensitively against `db.labels()`; we don't — exact match on our
+   registry.)
+2. **Required attributes present** — every non-`?` attribute in the
+   schema must be present and non-null.
+3. **Unknown attributes rejected** — every key in the payload must be
+   declared in the schema (jarvis rejects these too, `:161-178`).
+   This is what makes "unexpected" nodes impossible, not just invalid
+   ones.
+4. **Type checks per the grammar** — `string|boolean|int|float|
+   datetime|list` (+`?`). Stricter than jarvis on two Python quirks we
+   do NOT replicate: booleans are not ints, and int-where-float is
+   coerced explicitly rather than passed through. `datetime` accepts
+   ISO string or epoch number and always normalizes to epoch seconds
+   (int) before write.
+5. **node_key integrity** — all node_key tokens are required attrs
+   (enforced at schema-author time, mirroring `valid_node_key`
+   `:311-338`: token 0 = type.lower(), no optional/reserved fields),
+   so a node can never be written with an incomplete key.
+6. **Edge validation, stricter than jarvis** — edge type must be in
+   the label-registry vocabulary (closed set — no equivalent of
+   jarvis's 63-type `EDGE_TYPES` bypass), and (source label, edge,
+   target label) must match a registry row (`ACCESSED` alone accepts
+   any target). Both endpoints must resolve by `ref_id` — a MATCH
+   miss is an error, not a silent zero-row no-op.
+
+DB-level backstop (catches bugs in the writer itself and concurrent
+races): the `(node_key, namespace)` per-type uniqueness constraints,
+global `:Node` key constraint, and `:Data_Bank` ref_id constraint from
+§4. Honest limit: Neo4j property *type/existence* constraints are
+Enterprise-only, so attribute-level enforcement lives in the app layer
+— same as jarvis. Anyone with raw bolt credentials can bypass both
+vein's and jarvis's validation equally; the guarantee is "nothing
+invalid gets in **through vein**", and the conformance suite's
+graph-lint case (§8) exists to detect out-of-band junk: scan
+`Domain_vein` nodes and re-run the validator against stored state,
+assert zero violations.
+
+## 7. Read surface — scoped by the lab step tools
+
+The functional contract for "vein without jarvis" is NOT jarvis's whole
+API — it is exactly what the `jarvis/*` steps in
+`mcp/src/lab/jarvis/steps/` touch. Those steps keep their input/output
+shapes; their backing moves from HTTP calls to the TS graph layer
+(vein-native `graph/*` step twins, so workflows swap by step type).
+Everything in jarvis NOT reached by these tools stays out of scope.
+
+| Step(s)                                          | jarvis endpoint                          | TS implementation needed |
+| ------------------------------------------------ | ---------------------------------------- | ------------------------ |
+| `create-node`, `create-triplet`, `create-batch-triplet` | `POST /v2/nodes`, `POST /v2/edges` | already §1/§3            |
+| `edit-node`                                      | `POST /v2/nodes/:ref_id`                 | §1 upsert (reprocess semantics) |
+| `register-namespace`                             | `POST/GET /namespace`                    | trivial: idempotent namespace registry (mirror jarvis's storage — verify whether it's a node or derived from distinct `n.namespace` before building) |
+| `get-ontology`, `get-ontology-type`              | `GET /v2/schema[/{type}]`                | list `:Schema` nodes + inherited attrs via `CHILD_OF` walk (read side of §4) |
+| `graph-get`, `graph-get-batched`                 | `GET /v2/nodes/:ref_id` + `/connection-counts` | fetch by ref_id; response envelope = properties minus `GENERIC_NODE_PROPERTIES`; `{EDGE_TYPE: count}` map |
+| `graph-neighbors`                                | `GET /v2/nodes/:ref_id?expand=edges&...` | bounded neighbor traversal: `edge_type`/`node_type`/`exclude_node_type` filters, `limit` with `sort_by=importance`, per-neighbor edge counts |
+| `graph-search`                                   | `GET /v2/nodes?q&input_q&output_q&type&domains&namespace&include_edge_counts` | **hybrid search — see below** |
+
+### Hybrid search (the one algorithm to port faithfully)
+
+`graph-search` depends on jarvis's fused retrieval
+(`node_service_v2.py`); the exact recipe:
+
+- **Keyword retriever**: fulltext query against the `_v2`
+  english-analyzer index (`data_bank_attribute_index_v2`, or
+  `domain_<d>_attribute_index_v2` when domain-filtered).
+- **Semantic retriever**: embed the query with the same MiniLM encoder
+  (no prefix/instruction), `db.index.vector.queryNodes(<index>, k, emb)`
+  against `text_embeddings_vector_index` / `domain_*_vector_index`;
+  `k = 50`, similarity floor `0.4` (Neo4j cosine score = `(1+cos)/2`).
+- **Field-scoped retrievers** (`input_q` / `output_q`): vector query
+  against `{label.lower()}_{stem}_vector_index` over
+  `{stem}_embeddings`.
+- **Fusion**: weighted Reciprocal Rank Fusion, `RRF_K = 60`; weights
+  fulltext `1.15`, semantic `1.0`, field-scoped `1.2`.
+- **Tiebreak**: bucket normalized scores by epsilon, then sort within a
+  bucket by `usage_count_30d` desc → `usage_count` desc → best rank →
+  `ref_id`.
+- Filters: `type` (label list), `domains` (validated against the
+  distinct-domain registry), `namespace`, soft-delete/mute exclusion.
+
+Consequence for §2/§5 (supersedes §2's "do not implement
+`vector_index`"): `input_q`/`output_q` only work on types whose schema
+declares `vector_index` — so `VeinWorkflowVersion` and `VeinStep`
+declare `vector_index: ["input_schema", "output_schema"]`, we write
+`input_embeddings`/`output_embeddings` (embedding the rendered form
+`"Input:\n{text}"` / `"Output:\n{text}"`, per `schema_embedding.py:30-41`),
+and create the per-label vector indexes
+(`veinworkflowversion_input_vector_index`, …, 384/cosine) at seed time.
+
+### What this scoping proves unnecessary
+
+Radar, review/merge queues, scratchpad promotion, legal/matter
+endpoints, temporal facts API, Hive endpoints, stats/decay/GDS,
+Elasticsearch, whinx alias ingest, the ontology-agent — none are
+reachable from the lab steps. They are jarvis application features,
+not graph-dialect obligations; jarvis can keep providing them on top
+of the shared DB whenever it's mounted.
+
+## 8. Explicitly out of scope (jarvis tolerates absence)
 
 Redis embedding queue (we embed in-process) · scratchpad fallback ·
 `smart_reinsert` / `force_delete` flows · temporal edges ·
@@ -313,7 +579,7 @@ alias/entity ingest (we only *honor* `IS_ALIAS` on edge writes) ·
 `edge_text_embeddings` · jarvis's HTTP API surface · the legacy
 non-`_v2` fulltext variants.
 
-## 7. Conformance additions
+## 9. Conformance additions
 
 Extend the storage-conformance suite (generic-storage.md §6) with a
 jarvis-dialect suite run against a Neo4j test container:
@@ -330,3 +596,12 @@ jarvis-dialect suite run against a Neo4j test container:
 - bootstrap idempotence: run seeding twice, diff graph state = empty;
   run against a jarvis-seeded dump, assert no jarvis-owned property
   changed.
+- validation gate (§6): missing required attr, unknown attr, wrong
+  attr type, unregistered node/edge type, edge with unresolvable
+  endpoint — each rejected with nothing written (assert graph
+  unchanged). Plus the graph-lint case: re-validate all stored
+  `Domain_vein` nodes against the schemas, zero violations.
+- search parity (§7): seed a small corpus, run each lab step's
+  scenario against the TS layer, and assert result-set/rank agreement
+  with jarvis on the same dump (fixture-based — record jarvis's
+  responses once, don't require a live jarvis in CI).

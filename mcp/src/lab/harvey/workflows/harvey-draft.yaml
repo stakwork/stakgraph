@@ -62,12 +62,12 @@ steps:
           maxSteps: "{{ params.drafterMaxSteps }}"
           toolFilter: ["bash", "str_replace_based_edit_tool"]
           agentTools:
-            - jarvis/get-ontology
-            - jarvis/get-ontology-type
-            - jarvis/graph-search
-            - jarvis/graph-get
-            - jarvis/graph-get-batched
-            - jarvis/graph-neighbors
+            - graph/get-ontology
+            - graph/get-ontology-type
+            - graph/graph-search
+            - graph/graph-get
+            - graph/graph-get-batched
+            - graph/graph-neighbors
             - harvey/graph-sub-agent
             - harvey/generate-docx
             - harvey/generate-xlsx
@@ -93,10 +93,10 @@ steps:
       maxSteps: "{{ params.verifierMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: "Confirm the critique file was written; state the verdict and material findings."
@@ -118,10 +118,10 @@ steps:
       maxSteps: "{{ params.verifierMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: "Confirm the critique file was written; state the verdict and material findings."
@@ -143,10 +143,10 @@ steps:
       maxSteps: "{{ params.verifierMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: "Confirm the critique file was written; list every numeric discrepancy."
@@ -168,10 +168,10 @@ steps:
       maxSteps: "{{ params.verifierMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: "Confirm the critique file was written; state the verdict and material findings."
@@ -192,12 +192,12 @@ steps:
       maxSteps: "{{ params.aggregatorMaxSteps }}"
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/get-ontology
-        - jarvis/get-ontology-type
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/get-ontology
+        - graph/get-ontology-type
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
         - harvey/generate-docx
         - harvey/generate-xlsx

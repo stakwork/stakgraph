@@ -1,6 +1,8 @@
 // Default vein server — a thin wrapper over createVein() that boots
 // vein with its filesystem-backed defaults (FileRunStore, workspace
-// loaded from VEIN_WORKSPACE, registry built by scanning steps/).
+// loaded from VEIN_WORKSPACE, registry built by scanning steps/), or —
+// with VEIN_WORKSPACE_BACKEND=graph — keeps workflows/steps in Neo4j
+// (see src/graph/wiring.ts) while runs/chats/blobs stay under VEIN_WORKSPACE.
 //
 // This file is the canonical "library usage" example: anything you
 // see here, your own consumer code can do too. Pass your own
@@ -9,6 +11,10 @@
 // behind Express, or just call `vein.listen(port)`).
 
 import { createVein, type Vein } from "./createVein.js";
+import { FileRunStore } from "./store.js";
+import { FileChatStore } from "./chat-store.js";
+import { FileSecretStore } from "./secret-store.js";
+import { graphWorkspaceRequested } from "./graph/wiring.js";
 
 let veinInstance: Vein | null = null;
 
@@ -16,7 +22,24 @@ let veinInstance: Vein | null = null;
  *  module doesn't kick off filesystem I/O at module-load time. */
 async function getDefault(): Promise<Vein> {
   if (!veinInstance) {
-    veinInstance = await createVein();
+    if (graphWorkspaceRequested()) {
+      const { graphWorkspaceFromEnv } = await import("./graph/wiring.js");
+      // dataDir keeps its file default (VEIN_WORKSPACE / ./workspace): runs,
+      // chats, secrets, artifacts, cassettes, and the materialized custom
+      // steps stay local. Explicit file stores, since a non-file workspace
+      // would otherwise default to memory.
+      const dataDir = process.env["VEIN_WORKSPACE"] ?? "./workspace";
+      const { workspace } = await graphWorkspaceFromEnv(process.env, { dataDir });
+      veinInstance = await createVein({
+        workspace,
+        dataDir,
+        store: new FileRunStore(dataDir),
+        chatStore: new FileChatStore(dataDir),
+        secretStore: new FileSecretStore(dataDir),
+      });
+    } else {
+      veinInstance = await createVein();
+    }
   }
   return veinInstance;
 }

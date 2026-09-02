@@ -3,6 +3,8 @@ import { dirname, join, relative, sep } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import type { Flow } from "./core.js";
+import type { SubflowResolver } from "./runner.js";
+import { readStepSourceFromDisk, type StepSource } from "./steps/registry.js";
 import { contentHash, nextVersionLabel } from "./version.js";
 import { evaluateExpr } from "./expr.js";
 
@@ -24,7 +26,7 @@ const PARAM_SELF_REF = /\{\{\s*(params(?:\.[\w$]+|\[[^\]]+\])+)\s*\}\}/g;
  * positive on `{{ }}` inside block-scalar message bodies) and throw a clear,
  * actionable error pointing at the fix: quote the template.
  */
-function assertValidWorkflowYaml(yamlStr: string): void {
+export function assertValidWorkflowYaml(yamlStr: string): void {
   let parsed: unknown;
   try {
     parsed = yaml.load(yamlStr);
@@ -80,6 +82,44 @@ function resolveParamSelfReferences(params: Record<string, unknown>): Record<str
     return v;
   };
   return walk(params) as Record<string, unknown>;
+}
+
+/** Parse a stored workflow version's YAML into a runnable `Flow` — the one
+ *  loader every `WorkspaceStore` backend shares (param self-references are
+ *  resolved once here, at load). */
+export function flowFromYaml(name: string, version: string, raw: string): Flow {
+  const data = yaml.load(raw) as any;
+  if (!data || !data.steps) {
+    throw new Error(`Invalid workflow YAML for "${name}" version "${version}"`);
+  }
+  return {
+    name: data.name ?? name,
+    input: z.any(),
+    steps: data.steps,
+    // Resolve param-to-param references (`{{ params.* }}` nested inside another
+    // param) once at load, so a shared value can be factored into one knob.
+    ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
+    ...(Array.isArray(data.promotes) ? { promotes: data.promotes } : {}),
+  };
+}
+
+/** Render publish content (a steps object or raw YAML) to the YAML string
+ *  that gets stored — shared by every backend so hashes agree. */
+export function renderWorkflowYaml(
+  name: string,
+  content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+): string {
+  return typeof content === "string"
+    ? content
+    : yaml.dump(
+        {
+          name,
+          steps: content.steps,
+          ...(content.params != null ? { params: content.params } : {}),
+          ...(content.promotes != null ? { promotes: content.promotes } : {}),
+        },
+        { lineWidth: 120, noRefs: true },
+      );
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -146,9 +186,9 @@ export interface WorkflowListEntry {
   category?: string;
   /** Provenance stamp, if any (see WorkflowMetadata.publisher). */
   publisher?: string;
-  /** Start time (epoch ms) of the most recent run, if any. Run ids are
-   *  millisecond timestamps (FileRunStore), so this is just the max entry
-   *  in the workflow's `runs/` dir — no run.json reads. */
+  /** Start time (epoch ms) of the most recent run, if any. Not produced by
+   *  the workspace itself (runs are the run store's records) — the server's
+   *  `GET /workflows` decorates entries from `RunStore.lastRunAt`. */
   lastRunAt?: number;
 }
 
@@ -159,15 +199,100 @@ export interface StepListEntry {
   publisher?: string;
 }
 
-// ── Workspace Manager ──────────────────────────────────────────────────────
+// ── Workspace store boundary ───────────────────────────────────────────────
 
-export class WorkspaceManager {
+/**
+ * The persistence boundary for workflows and steps — everything the server,
+ * the authoring capability, and the chat builder need from "the workspace",
+ * with no filesystem in the contract. `FileWorkspaceStore` is the default
+ * implementation; a graph-backed one implements the same surface.
+ *
+ * Two things a workspace deliberately does NOT own: run records (the
+ * `RunStore`) and local scratch (artifacts, cassettes, shell cwd — the
+ * server's `dataDir`). Custom steps are executable code, so the boundary
+ * exposes them two ways: as source text (`getStepSource`) and as an
+ * importable directory (`materializeCustomSteps`) for the module loader.
+ */
+export interface WorkspaceStore extends SubflowResolver {
+  // ── Workflows ──
+  /** Every workflow with its version list. `lastRunAt` is NOT populated
+   *  here (runs belong to the run store — the server composes it). */
+  listWorkflows(): Promise<WorkflowListEntry[]>;
+  getWorkflow(name: string): Promise<Flow>;
+  getWorkflowVersion(name: string, version: string): Promise<Flow>;
+  /** Raw YAML source of a workflow version (throws when missing). */
+  getWorkflowSource(name: string, version: string): Promise<string>;
+  /** Content hash of a version's source (active when omitted), or null. */
+  getWorkflowHash(name: string, version?: string): Promise<string | null>;
+  /** The workflow's metadata record (active version, versions, category,
+   *  publisher), or null when the workflow doesn't exist. */
+  getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null>;
+  createWorkflow(
+    name: string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<{ name: string; version: string }>;
+  publishWorkflow(
+    name: string,
+    version: string,
+    content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<void>;
+  publishWorkflowByContent(
+    name: string,
+    yamlStr: string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<{ version: string; changed: boolean }>;
+  setWorkflowCategory(name: string, category: string | null): Promise<void>;
+  setActiveVersion(name: string, version: string): Promise<void>;
+  setParam(
+    name: string,
+    param: string,
+    value: unknown,
+  ): Promise<{ version: string; before: unknown; after: unknown }>;
+
+  // ── Steps (custom tier) ──
+  listSteps(filter?: { publisher?: string }): Promise<StepListEntry[]>;
+  publishStep(
+    name: string,
+    code: string,
+    description?: string,
+    publisher?: string,
+  ): Promise<{ version: string; changed: boolean }>;
+  listStepVersions(name: string): Promise<StepVersionsResult>;
+  getStepVersionSource(name: string, version: string): Promise<string>;
+  setActiveStepVersion(name: string, version: string): Promise<void>;
+  deleteStep(name: string): Promise<boolean>;
+  deleteStepsByPublisher(publisher: string): Promise<string[]>;
+
+  // ── Step source + code loading ──
+  /** A step's source text across all tiers (core / lib ship with the
+   *  engine; custom is this store's), or null when none is on record. */
+  getStepSource(type: string): Promise<{ code: string; origin: StepSource } | null>;
+  /** Ensure every ACTIVE custom step exists as an importable file and
+   *  return the directory root — what `buildRegistry(customDir)` loads. A
+   *  file-backed store already has it; other backends write to scratch. */
+  materializeCustomSteps(): Promise<string>;
+}
+
+// ── Filesystem implementation ──────────────────────────────────────────────
+
+export class FileWorkspaceStore implements WorkspaceStore {
   private root: string;
 
   constructor(root?: string) {
     this.root = root ?? process.env["VEIN_WORKSPACE"] ?? "./workspace";
   }
 
+  /** The filesystem root — an implementation detail of THIS store, not part
+   *  of `WorkspaceStore`. The server's local scratch (`dataDir`) defaults to
+   *  it so file-backed deployments keep one directory. */
   get path(): string {
     return this.root;
   }
@@ -184,7 +309,6 @@ export class WorkspaceManager {
       const meta = await this.readWorkflowMetadata(entry.name);
       if (meta) {
         const activeDesc = meta.versions[meta.active]?.description;
-        const lastRunAt = await this.lastRunAt(entry.name);
         results.push({
           name: entry.name,
           activeVersion: meta.active,
@@ -192,7 +316,6 @@ export class WorkspaceManager {
           description: activeDesc,
           ...(meta.category ? { category: meta.category } : {}),
           ...(meta.publisher ? { publisher: meta.publisher } : {}),
-          ...(lastRunAt != null ? { lastRunAt } : {}),
         });
       }
     }
@@ -200,16 +323,8 @@ export class WorkspaceManager {
     return results;
   }
 
-  /** Most recent run's start time (epoch ms), or null if never run. Run ids
-   *  are millisecond-timestamp dir names, so the max entry is the latest. */
-  private async lastRunAt(name: string): Promise<number | null> {
-    const entries = await safeReaddir(join(this.root, "workflows", name, "runs"));
-    let max: number | null = null;
-    for (const e of entries) {
-      const t = parseInt(e.name, 10);
-      if (!isNaN(t) && (max == null || t > max)) max = t;
-    }
-    return max;
+  async getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null> {
+    return this.readWorkflowMetadata(name);
   }
 
   /** Load the active version of a workflow. */
@@ -253,23 +368,7 @@ export class WorkspaceManager {
   private async loadFlowYaml(name: string, version: string): Promise<Flow> {
     const dir = join(this.root, "workflows", name);
     const raw = await readFile(join(dir, `${version}.yaml`), "utf-8");
-    const data = yaml.load(raw) as any;
-
-    if (!data || !data.steps) {
-      throw new Error(
-        `Invalid workflow YAML for "${name}" version "${version}"`,
-      );
-    }
-
-    return {
-      name: data.name ?? name,
-      input: z.any(),
-      steps: data.steps,
-      // Resolve param-to-param references (`{{ params.* }}` nested inside another
-      // param) once at load, so a shared value can be factored into one knob.
-      ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
-      ...(Array.isArray(data.promotes) ? { promotes: data.promotes } : {}),
-    };
+    return flowFromYaml(name, version, raw);
   }
 
   /**
@@ -324,20 +423,7 @@ export class WorkspaceManager {
     const dir = join(this.root, "workflows", name);
     await mkdir(dir, { recursive: true });
 
-    // Write YAML
-    const yamlStr =
-      typeof content === "string"
-        ? content
-        : yaml.dump(
-            {
-              name,
-              steps: content.steps,
-              ...(content.params != null ? { params: content.params } : {}),
-              ...(content.promotes != null ? { promotes: content.promotes } : {}),
-            },
-            { lineWidth: 120, noRefs: true },
-          );
-
+    const yamlStr = renderWorkflowYaml(name, content);
     assertValidWorkflowYaml(yamlStr);
 
     await writeFile(join(dir, `${version}.yaml`), yamlStr, "utf-8");
@@ -729,6 +815,22 @@ export class WorkspaceManager {
     return toDelete;
   }
 
+  // ── Step source + code loading ─────────────────────────────────────────
+
+  async getStepSource(type: string): Promise<{ code: string; origin: StepSource } | null> {
+    return readStepSourceFromDisk(type, this.customStepsDir());
+  }
+
+  /** Publishing already writes each active custom step to
+   *  `<root>/steps/custom/<name>.ts`, so the store IS the materialization. */
+  async materializeCustomSteps(): Promise<string> {
+    return this.customStepsDir();
+  }
+
+  private customStepsDir(): string {
+    return join(this.root, "steps", "custom");
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────
 
   private async readWorkflowMetadata(
@@ -757,6 +859,9 @@ export class WorkspaceManager {
   }
 }
 
+/** Back-compat name for `FileWorkspaceStore` (embedders and docs). */
+export { FileWorkspaceStore as WorkspaceManager };
+
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 async function safeReaddir(dir: string) {
@@ -781,7 +886,7 @@ async function pathExists(p: string): Promise<boolean> {
  * (e.g. `gitree/save-feature`) and helper names with leading underscores
  * (e.g. `gitree/_shared`). Rejects path traversal and absolute paths.
  */
-function validateStepName(name: string): void {
+export function validateStepName(name: string): void {
   if (!name) {
     throw new Error("Step name cannot be empty");
   }

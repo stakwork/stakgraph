@@ -5,17 +5,17 @@
  *      and buildRegistry discovers every step from disk;
  *   2. every deliver workflow YAML parses and publishes;
  *   3. the pure/plumbing steps' logic against fixtures (fail-open /
- *      fail-soft / hard-gate semantics), plus jarvis/register-namespace
- *      against a fake ctx.services.http.
+ *      fail-soft / hard-gate semantics). The graph/* steps the pipeline
+ *      writes through are vein lib steps with their own live test
+ *      (vein/src/steps/lib/graph/graph-steps.test.ts).
  *
  * Run: npx tsx src/lab/harvey/deliver-smoke.ts
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, type StepContext, type HttpResponse } from "vein";
+import { WorkspaceManager, buildRegistry, type StepContext } from "vein";
 import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
-import { seedJarvisSteps } from "../jarvis/seed.js";
 
 async function main() {
   const dir = mkdtempSync(join(process.cwd(), ".harvey-deliver-smoke-"));
@@ -23,7 +23,6 @@ async function main() {
     // ── 1. seed + discover ───────────────────────────────────────────────
     const workspace = new WorkspaceManager(dir);
     await seedHarveySteps(workspace);
-    await seedJarvisSteps(workspace);
     await seedHarveyWorkflows(workspace);
     const { registry } = await buildRegistry(workspace.path);
 
@@ -40,7 +39,10 @@ async function main() {
       "harvey/criterion-refs",
       "harvey/generate-docx",
       "harvey/generate-xlsx",
-      "jarvis/register-namespace",
+      // graph/* are vein LIB steps — discovered from the engine, not seeded.
+      "graph/register-namespace",
+      "graph/create-node",
+      "graph/create-batch-triplet",
     ];
     for (const t of expectedSteps) assert.ok(registry[t], `registry missing ${t}`);
     console.log(`✔ seeded + discovered ${expectedSteps.length} deliver steps`);
@@ -353,60 +355,6 @@ async function main() {
     } else {
       console.log("· generate-xlsx skipped (no python3/openpyxl)");
     }
-
-    // ── 10. jarvis/register-namespace (fake http) ────────────────────────
-    const calls: Array<{ url: string; opts: any }> = [];
-    const makeCtx = (routes: Array<{ match: (u: string, o: any) => boolean; body: unknown; status?: number }>) =>
-      ({
-        runId: "smoke",
-        path: "smoke",
-        scope: {},
-        input: undefined,
-        emit: async () => {},
-        services: {
-          http: async (url: string, opts: any = {}): Promise<HttpResponse> => {
-            calls.push({ url, opts });
-            for (const r of routes) {
-              if (r.match(url, opts)) {
-                return { status: r.status ?? 200, ok: (r.status ?? 200) < 300, headers: {}, body: r.body };
-              }
-            }
-            return { status: 404, ok: false, headers: {}, body: "no route" };
-          },
-          secrets: {
-            get: async (n: string) => (n === "JARVIS_URL" ? "http://jarvis.fake" : n === "API_TOKEN" ? "tok" : undefined),
-          },
-        },
-      }) as unknown as StepContext;
-
-    out = await run(
-      "jarvis/register-namespace",
-      { namespace: "slug" },
-      makeCtx([{ match: (u, o) => u.endsWith("/namespace") && o.method === "POST", body: { ok: true } }]),
-    );
-    assert.deepEqual(out, { namespace: "slug", registered: true });
-    assert.equal(calls[calls.length - 1].opts.headers["X-Api-Token"], "tok");
-
-    // duplicate POST fails, but the list confirms it exists → success
-    out = await run(
-      "jarvis/register-namespace",
-      { namespace: "slug" },
-      makeCtx([
-        { match: (u, o) => u.endsWith("/namespace") && o.method === "POST", body: "exists", status: 400 },
-        { match: (u, o) => u.endsWith("/namespace") && !o.method, body: { data: { namespace: ["other", "slug"] } } },
-      ]),
-    );
-    assert.equal(out.registered, true);
-    assert.equal(out.alreadyExisted, true);
-
-    // hard failure surfaces as an error string
-    out = await run(
-      "jarvis/register-namespace",
-      { namespace: "slug" },
-      makeCtx([{ match: (u, o) => u.endsWith("/namespace") && o.method === "POST", body: "boom", status: 500 }]),
-    );
-    assert.match(String(out), /HTTP 500/);
-    console.log("✔ register-namespace (create / already-exists / hard fail)");
 
     console.log("\nALL DELIVER SMOKE CHECKS PASSED");
   } finally {
