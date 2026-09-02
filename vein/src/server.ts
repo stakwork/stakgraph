@@ -24,11 +24,12 @@ async function getDefault(): Promise<Vein> {
   if (!veinInstance) {
     if (graphWorkspaceRequested()) {
       const { graphWorkspaceFromEnv } = await import("./graph/wiring.js");
-      const { workspace } = await graphWorkspaceFromEnv();
       // dataDir keeps its file default (VEIN_WORKSPACE / ./workspace): runs,
-      // chats, secrets, artifacts, and cassettes stay local. Explicit file
-      // stores, since a non-file workspace would otherwise default to memory.
+      // chats, secrets, artifacts, cassettes, and the materialized custom
+      // steps stay local. Explicit file stores, since a non-file workspace
+      // would otherwise default to memory.
       const dataDir = process.env["VEIN_WORKSPACE"] ?? "./workspace";
+      const { workspace } = await graphWorkspaceFromEnv(process.env, { dataDir });
       veinInstance = await createVein({
         workspace,
         dataDir,

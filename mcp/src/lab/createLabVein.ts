@@ -151,7 +151,7 @@ export async function createLabVein(
   // stay on disk under `workspacePath` either way.
   const graphBacked = graphWorkspaceRequested();
   const workspace: WorkspaceStore = graphBacked
-    ? (await graphWorkspaceFromEnv()).workspace
+    ? (await graphWorkspaceFromEnv(process.env, { dataDir: workspacePath })).workspace
     : new WorkspaceManager(workspacePath);
   if (graphBacked) console.log(`[lab] vein workspace: Neo4jWorkspaceStore (data dir: ${workspacePath})`);
   // Generic, domain-agnostic eval primitives (steps). The concept-specific eval

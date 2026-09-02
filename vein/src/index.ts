@@ -258,7 +258,7 @@ export {
 } from "./graph/backend.js";
 // Graph-backed workspace + the run/chat projector (plans/generic-storage.md §7).
 export { Neo4jWorkspaceStore, type Neo4jWorkspaceStoreOptions } from "./graph/workspace-store.js";
-export { graphWorkspaceFromEnv, graphWorkspaceRequested } from "./graph/wiring.js";
+export { graphWorkspaceFromEnv, graphWorkspaceRequested, graphMaterializeDir } from "./graph/wiring.js";
 export {
   projectRuns,
   projectChats,
