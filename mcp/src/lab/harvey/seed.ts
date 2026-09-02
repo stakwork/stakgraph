@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "vein";
 
 /**
  * Harvey LAB verification steps — THIN plumbing only. The actual grader is
@@ -116,7 +116,7 @@ async function expandIncludes(yaml: string): Promise<string> {
   return out.join("\n");
 }
 
-export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<void> {
+export async function seedHarveyWorkflows(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "workflows");
   for (const name of SEED_WORKFLOWS) {
     try {
@@ -129,7 +129,7 @@ export async function seedHarveyWorkflows(workspace: WorkspaceManager): Promise<
   }
 }
 
-export async function seedHarveySteps(workspace: WorkspaceManager): Promise<void> {
+export async function seedHarveySteps(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {
     try {

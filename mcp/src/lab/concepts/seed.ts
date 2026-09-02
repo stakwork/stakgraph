@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "vein";
 
 /**
  * Workflow + step templates shipped with the concepts experiment. They are
@@ -60,7 +60,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * content hash. Idempotent; edits publish a new active version.
  */
 export async function seedConceptWorkflows(
-  workspace: WorkspaceManager,
+  workspace: WorkspaceStore,
 ): Promise<void> {
   const dir = join(HERE, "workflows");
   for (const name of SEED_WORKFLOWS) {
@@ -89,7 +89,7 @@ export async function seedConceptWorkflows(
  * edits publish a new active version while prior versions are archived.
  */
 export async function seedConceptSteps(
-  workspace: WorkspaceManager,
+  workspace: WorkspaceStore,
 ): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {

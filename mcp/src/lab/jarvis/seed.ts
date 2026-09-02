@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "vein";
 
 /**
  * Jarvis knowledge-graph steps, seeded into the vein workspace. Each is a
@@ -38,7 +38,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export async function seedJarvisSteps(workspace: WorkspaceManager): Promise<void> {
+export async function seedJarvisSteps(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {
     try {
