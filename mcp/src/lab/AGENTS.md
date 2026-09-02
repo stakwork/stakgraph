@@ -331,6 +331,14 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
   workspace, verifies registry discovery, and runs every step against a fake
   `ctx.services.http` Jarvis.
 
+The vein-native twins of these steps — `graph/*`, same names, inputs, and
+output shapes, backed by vein's own Neo4j-over-bolt graph layer with no
+jarvis in the loop — are NOT lab steps: they ship inside vein as lib steps
+(`vein/src/steps/lib/graph/`, auto-discovered by the registry) and only
+need `NEO4J_URI` (+ `NEO4J_USER`/`NEO4J_PASSWORD`) in the env or secret
+store. A workflow swaps backends by step type (`jarvis/graph-search` ↔
+`graph/graph-search`); grant with `agentTools: ["graph/*"]`.
+
 ### `sheets/` — Google Sheets steps (NOT an experiment)
 
 Self-contained ports of the mcp repo-agent's Google Sheets tools
@@ -458,10 +466,15 @@ completed ingestions, and skip re-merging requirements.
   granted as agent tools so the production prompts' generate calls work),
   `harvey/graph-sub-agent` — the PINNED read-only graph research sub-agent
   (wraps the core `agent` step via ctx.registry with fixed system frame +
-  read-only jarvis grants; parents supply only the question, so a role agent
-  can never widen the child's tools) — and `jarvis/register-namespace`
-  (+ `allow_scratchpad` passthrough added to `jarvis/create-triplet` /
-  `create-batch-triplet`).
+  read-only `graph/*` grants; parents supply only the question, so a role
+  agent can never widen the child's tools). Graph reads/writes go through
+  vein's `graph/*` LIB steps (`vein/src/steps/lib/graph/`, the twins of the
+  lab's `jarvis/*` steps) — vein's own Neo4j backend, NO jarvis process:
+  jarvis-typed nodes (Document, EvalSet, EvalTrigger, …) validate against
+  the live `:Schema` meta-graph exactly as jarvis would, and
+  `create_schema_if_missing` works; `allow_scratchpad` is accepted but has
+  no effect (a rejected write returns an error string instead of a
+  ScratchpadEntry).
 - **Prompts are the VERBATIM production texts**, kept as markdown files in
   `harvey/prompts/` and spliced into step configs at seed time via
   `@@include(FILE.md)` markers (`expandIncludes` in `harvey/seed.ts`,
@@ -470,18 +483,25 @@ completed ingestions, and skip re-merging requirements.
   interpolation tokens were translated to vein `{{ … }}` templates (which
   is why prompt bodies live in step CONFIG, not params — template
   resolution is single-pass, so a `{{ }}` inside a params value never
-  resolves), tool names to the lab step names (`jarvis_graph_search`,
-  `harvey_graph_sub_agent`, `harvey_generate_docx`, `sheets_*`…), and
-  container paths to `./`. The raw exports + transform live in git history
+  resolves), tool names to the lab step names (`harvey_graph_sub_agent`,
+  `harvey_generate_docx`, `sheets_*`…; the production `jarvis_*` graph tool
+  names stay in the files and are rewritten to `graph_*` at seed time by
+  `translateToolNames`), and container paths to `./`. The raw exports + transform live in git history
   (`notes/harvey_prompts`, scratchpad transform). EvalRequirement ids
   follow the production convention `<task_slug>-<criterion_id>`.
 - Judge verdict identity is ORDER-BASED (foreach preserves input order; the
   aggregate zips rubric×results and refuses on length mismatch) — the judge
   LLM never echoes criterion ids.
-- Needs `JARVIS_URL` + `API_TOKEN` + `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY`
-  (+ pandoc, python3+openpyxl; optional SERPA_API_KEY + COURTLISTENER_API_KEY
-  for case-law research, GOOGLE_SERVICE_ACCOUNT_JSON for the shared FACTS
-  spreadsheet). Smoke (offline, no LLM/graph):
+- Needs `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY` (+ pandoc, python3+openpyxl;
+  optional SERPA_API_KEY + COURTLISTENER_API_KEY for case-law research,
+  GOOGLE_SERVICE_ACCOUNT_JSON for the shared FACTS spreadsheet). The graph
+  connection is mcp's own: `NEO4J_HOST`/`NEO4J_USER`/`NEO4J_PASSWORD` (or
+  `NEO4J_URI`), defaulting to `localhost:7687`/`neo4j`/`testtest` — nothing
+  to set locally, and prod's existing vars are picked up. That is the
+  jarvis Neo4j (shared mode — Concept methodology lives there); a fresh
+  Neo4j works too with `VEIN_GRAPH_SEED_ONTOLOGY=1` (standalone — the
+  jarvis ontology is seeded from vein's bundled snapshot; no Concept
+  content). Smoke (offline, no LLM/graph):
   `npx tsx src/lab/harvey/deliver-smoke.ts`.
 
 ### `gaia/` — GAIA benchmark scoring (the hardcoded grader)

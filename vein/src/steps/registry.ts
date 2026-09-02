@@ -60,7 +60,7 @@ export const CORE_DIR = join(dirname(fileURLToPath(import.meta.url)), "core");
  */
 export async function readStepSourceFromDisk(
   type: string,
-  workspacePath: string,
+  customDir: string,
 ): Promise<{ code: string; origin: StepSource } | null> {
   const parts = type.split("/");
   const leaf = parts.at(-1)!;
@@ -72,7 +72,7 @@ export async function readStepSourceFromDisk(
   }
   candidates.push({ base: join(LIB_DIR, ...nested, leaf), origin: "lib" });
   candidates.push({
-    base: join(workspacePath, "steps", "custom", ...nested, leaf),
+    base: join(customDir, ...nested, leaf),
     origin: "custom",
   });
 
@@ -200,7 +200,8 @@ export async function stepLoadError(filePath: string): Promise<string | null> {
 /**
  * Build the complete step registry by merging core steps (statically
  * imported) with lib steps (dynamically imported from `src/steps/lib/`)
- * and custom steps (dynamically imported from `<workspace>/steps/custom/`).
+ * and custom steps (dynamically imported from `customDir` — the directory
+ * `WorkspaceStore.materializeCustomSteps()` returns; omit for core+lib only).
  *
  * Resolution order: core/ → lib/ → custom/. Higher tiers cannot shadow
  * lower ones — a name collision is skipped with a warning.
@@ -213,7 +214,7 @@ export async function stepLoadError(filePath: string): Promise<string | null> {
  * Returns both the registry and a parallel `sources` map so callers can
  * report which tier each step came from without guessing from the name.
  */
-export async function buildRegistry(workspacePath?: string): Promise<RegistryBundle> {
+export async function buildRegistry(customDir?: string): Promise<RegistryBundle> {
   const registry: StepRegistry = { ...CORE_STEPS };
   const sources: StepSources = {};
 
@@ -223,13 +224,8 @@ export async function buildRegistry(workspacePath?: string): Promise<RegistryBun
 
   await loadStepsFrom(LIB_DIR, registry, sources, "lib");
 
-  if (workspacePath) {
-    await loadStepsFrom(
-      join(workspacePath, "steps", "custom"),
-      registry,
-      sources,
-      "custom",
-    );
+  if (customDir) {
+    await loadStepsFrom(customDir, registry, sources, "custom");
   }
 
   return { registry, sources };
@@ -285,9 +281,8 @@ export function coreRegistry(): StepRegistry {
  *     See AGENTS.md "Lib step dependency convention".
  *   - whatever you pass in `steps`
  *
- * Workspace **custom/** steps live on disk and are loaded via
- * `buildRegistry(workspacePath)` instead — they're never included
- * here.
+ * Workspace **custom/** steps are loaded via `buildRegistry(customDir)`
+ * instead — they're never included here.
  *
  * Each step is keyed by its `type` field. Duplicates among `steps`
  * throw. A user step whose `type` collides with a core or lib step

@@ -86,9 +86,9 @@ steps:
       # Extra tool grants for the producing agent (registry step types; globs
       # ok). Default NONE — the closed-book baseline. Override per run to arm
       # e.g. read-only knowledge-graph access:
-      #   ["jarvis/graph-search","jarvis/graph-get","jarvis/graph-get-batched",
-      #    "jarvis/graph-neighbors","jarvis/get-ontology","jarvis/get-ontology-type"]
-      # NEVER grant the jarvis write steps, harvey/evaluate, or meta/* here.
+      #   ["graph/graph-search","graph/graph-get","graph/graph-get-batched",
+      #    "graph/graph-neighbors","graph/get-ontology","graph/get-ontology-type"]
+      # NEVER grant the graph write steps, harvey/evaluate, or meta/* here.
       agentTools: "{{ params.agentTools }}"
 
   - id: result
@@ -118,7 +118,7 @@ params:
   # closed-book baseline.
   agentTools: []
   # Appended to the system prompt when knowledge-graph access is granted.
-  # Default: empty (closed-book baseline). Pair with the read-only jarvis
+  # Default: empty (closed-book baseline). Pair with the read-only graph/*
   # grants in agentTools. Learned from the first prod-tree A/B: enter via the
   # Practice Area roots and SCAN EVERY ROOT'S CHILDREN — root names are opaque
   # (the relevant checklist may live under a generic-sounding root) and
@@ -136,12 +136,12 @@ params:
     "Practice Area" root concepts with PARENT_OF children from general to very
     specific. Semantic search is unreliable on this graph — enter via the
     roots:
-    1. jarvis_graph_search q="Practice Area" type=Concept — list ALL roots.
-    2. jarvis_graph_neighbors on EVERY root, ALWAYS with node_type=["Concept"]
+    1. graph_graph_search q="Practice Area" type=Concept — list ALL roots.
+    2. graph_graph_neighbors on EVERY root, ALWAYS with node_type=["Concept"]
        (other node types are session noise). Root NAMES are opaque — scan the
        full children list of each root before deciding what is relevant; the
        best checklist may hang under a generic-sounding root.
-    3. jarvis_graph_get_batched the relevant ref_ids and READ their
+    3. graph_graph_get_batched the relevant ref_ids and READ their
        documentation.
     Use what you load as a CHECKLIST: cross-checks to run (e.g. reconcile
     every pair of related figures), doctrines to apply, and terms whose

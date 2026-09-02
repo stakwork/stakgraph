@@ -82,14 +82,14 @@ steps:
       # documents. The edit tool writes facts.md / spreadsheet.md.
       toolFilter: ["str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/get-ontology
-        - jarvis/get-ontology-type
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
-        - jarvis/create-triplet
-        - jarvis/create-batch-triplet
+        - graph/get-ontology
+        - graph/get-ontology-type
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
+        - graph/create-triplet
+        - graph/create-batch-triplet
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: >
@@ -143,10 +143,10 @@ steps:
       toolFilter: ["bash", "str_replace_based_edit_tool", "web_search"]
       secretsEnv: ["SERPA_API_KEY", "COURTLISTENER_API_KEY"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
       finalAnswer: "Confirm case-law-research.md was written and list the authorities covered."
 
@@ -169,10 +169,10 @@ steps:
       maxSteps: "{{ params.tailorMaxSteps }}"
       toolFilter: ["str_replace_based_edit_tool"]
       agentTools:
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: >

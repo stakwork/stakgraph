@@ -13,8 +13,8 @@ name: harvey-ingest-doc
 # (prompts/, spliced in at seed time via @@include; interpolation tokens are
 # now vein templates, and the docx-MCP/pre-parsed-text sections were adapted
 # to bash+pandoc since the agent reads the document itself — prompt size
-# stays flat). Writes go through the jarvis triplet tools (allow_scratchpad
-# supported); graph *methodology* questions go through the pinned read-only
+# stays flat). Writes go through the graph/* triplet tools (vein's own Neo4j backend —
+# no jarvis process; allow_scratchpad is accepted but has no effect); graph *methodology* questions go through the pinned read-only
 # harvey/graph-sub-agent.
 #
 # Input:  { file, path, namespace, workdir? }
@@ -29,7 +29,7 @@ steps:
       sub: "{{ input.workdir }}"
 
   - id: docnode
-    type: jarvis/create-node
+    type: graph/create-node
     config:
       node_type: Document
       namespace: "{{ input.namespace }}"
@@ -38,7 +38,7 @@ steps:
         title: "{{ input.file }}"
 
   - id: state
-    type: jarvis/graph-get
+    type: graph/graph-get
     depends: docnode
     config:
       ref_id: "{{ docnode.ref_id }}"
@@ -73,7 +73,7 @@ steps:
         Follow the extraction instructions in the task prompt exactly. Your
         working directory is scratch space plus work/unmapped-findings.md;
         the source document path is READ-ONLY — never write to it. All
-        durable output goes to the knowledge graph through the jarvis tools.
+        durable output goes to the knowledge graph through the graph tools.
       prompt: |
         @@include(HARVEY_DOCUMENT_INGESTION_PROMPT.md)
       model: "{{ params.model }}"
@@ -81,17 +81,17 @@ steps:
       toolFilter: ["bash", "str_replace_based_edit_tool"]
       # Writes: triplets only (create-node deliberately absent — nodes enter
       # the graph as triplet sides, always connected, never orphaned).
-      # Reads: jarvis read family + the pinned research sub-agent. sheets/*
+      # Reads: graph read family + the pinned research sub-agent. sheets/*
       # for the prompt's scratch-spreadsheet option (discarded at step end).
       agentTools:
-        - jarvis/get-ontology
-        - jarvis/get-ontology-type
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
-        - jarvis/create-triplet
-        - jarvis/create-batch-triplet
+        - graph/get-ontology
+        - graph/get-ontology-type
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
+        - graph/create-triplet
+        - graph/create-batch-triplet
         - harvey/graph-sub-agent
         - sheets/*
       finalAnswer: >
@@ -108,7 +108,7 @@ steps:
       cond: "{{ !ingest.error }}"
 
   - id: mark
-    type: jarvis/edit-node
+    type: graph/edit-node
     depends: ok
     when: true
     config:

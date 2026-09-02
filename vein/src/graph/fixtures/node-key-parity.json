@@ -1,0 +1,88 @@
+[
+  {
+    "type": "VeinRun",
+    "node_key_spec": "veinrun-run_id",
+    "props": {
+      "run_id": "Run 42-A!"
+    },
+    "expected": "veinrun-run42a"
+  },
+  {
+    "type": "VeinRun",
+    "node_key_spec": "veinrun-run_id",
+    "props": {
+      "run_id": "1725220000123"
+    },
+    "expected": "veinrun-1725220000123"
+  },
+  {
+    "type": "VeinAgentSession",
+    "node_key_spec": "veinagentsession-run_id-path",
+    "props": {
+      "run_id": "1725220000123",
+      "path": "harvey-deliver/agent#3"
+    },
+    "expected": "veinagentsession-1725220000123-harveydeliveragent3"
+  },
+  {
+    "type": "VeinToolCall",
+    "node_key_spec": "veintoolcall-run_id-path-seq",
+    "props": {
+      "run_id": "abc",
+      "path": "wf/step",
+      "seq": 7
+    },
+    "expected": "veintoolcall-abc-wfstep-7"
+  },
+  {
+    "type": "VeinTurn",
+    "node_key_spec": "veinturn-chat_id-turn",
+    "props": {
+      "chat_id": "c-1",
+      "turn": 0
+    },
+    "expected": "veinturn-c1-0"
+  },
+  {
+    "type": "VeinWorkflowVersion",
+    "node_key_spec": "veinworkflowversion-name-content_hash",
+    "props": {
+      "name": "Harvey Deliver",
+      "content_hash": "c-1a2b3c4d5e"
+    },
+    "expected": "veinworkflowversion-harveydeliver-c1a2b3c4d5e"
+  },
+  {
+    "type": "VeinWorkflow",
+    "node_key_spec": "veinworkflow-name",
+    "props": {
+      "name": "  \u00dcn\u00efcode n\u00e4me  "
+    },
+    "expected": "veinworkflow-ncodenme"
+  },
+  {
+    "type": "VeinWorkflow",
+    "node_key_spec": "veinworkflow-name",
+    "props": {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "expected": "veinworkflow-0d4e2ca9e9cbced7a7a5380eb29e1a37"
+  },
+  {
+    "type": "VeinWorkflowVersion",
+    "node_key_spec": "veinworkflowversion-name-content_hash",
+    "props": {
+      "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "expected": "veinworkflowversion-5d76e91f570014209eade7d6f505c359"
+  },
+  {
+    "type": "VeinWorkflow",
+    "node_key_spec": "veinworkflow-name",
+    "props": {
+      "name": "tab\there\nnewline"
+    },
+    "expected": "veinworkflow-tab\there\nnewline"
+  }
+]

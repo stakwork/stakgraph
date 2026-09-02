@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "vein";
 
 /**
  * Workflow + step templates for the `gitsee` experiment (self-contained port of
@@ -66,7 +66,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export async function seedGitseeWorkflows(workspace: WorkspaceManager): Promise<void> {
+export async function seedGitseeWorkflows(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "workflows");
   for (const name of SEED_WORKFLOWS) {
     try {
@@ -82,7 +82,7 @@ export async function seedGitseeWorkflows(workspace: WorkspaceManager): Promise<
   }
 }
 
-export async function seedGitseeSteps(workspace: WorkspaceManager): Promise<void> {
+export async function seedGitseeSteps(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {
     try {

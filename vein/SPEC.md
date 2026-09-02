@@ -455,11 +455,11 @@ Swap in S3, Postgres, etc. without changing the runner.
 
 ## 8. Type Safety
 
-The registry is the single source of truth. It is built at server startup by `buildRegistry(workspacePath?)` in `src/steps/registry.ts`:
+The registry is the single source of truth. It is built at server startup by `buildRegistry(customDir?)` in `src/steps/registry.ts`, where `customDir` is whatever `WorkspaceStore.materializeCustomSteps()` returns (the file store's `<workspace>/steps/custom/`):
 
 - **Core** steps are statically imported (always present, always in the bundle).
 - **Lib** steps are discovered by walking `src/steps/lib/` and `await import()`-ing each `.ts` file. Their step name is derived from the path (e.g. `lib/github/fetch-pr.ts` → `"github/fetch-pr"`).
-- **Custom** steps are discovered the same way under `<workspace>/steps/custom/`.
+- **Custom** steps are discovered the same way under `customDir` — the directory the workspace store materializes its active custom steps into.
 
 Sketch:
 
@@ -471,11 +471,11 @@ import http from "./core/http.js";
 const CORE_STEPS = { http, if: ifStep, loop, subflow, log, llm, wait };
 const LIB_DIR = join(dirname(fileURLToPath(import.meta.url)), "lib");
 
-export async function buildRegistry(workspacePath?: string): Promise<StepRegistry> {
+export async function buildRegistry(customDir?: string): Promise<StepRegistry> {
   const registry: StepRegistry = { ...CORE_STEPS };
   await loadStepsFrom(LIB_DIR, registry, "lib");
-  if (workspacePath) {
-    await loadStepsFrom(join(workspacePath, "steps", "custom"), registry, "custom");
+  if (customDir) {
+    await loadStepsFrom(customDir, registry, "custom");
   }
   return registry;
 }
@@ -706,24 +706,36 @@ The **active** version's source is materialized at `steps/custom/<name>.ts` (wha
 
 The engine can function without this file — it discovers steps by scanning `.ts` files — but the UI needs it for version listing and rollback. Versioning is disabled when the registry is injected at construction time (`createRegistry`/`registry` option).
 
-### 11.3 WorkspaceManager API
+### 11.3 WorkspaceStore API
 
-The engine exposes programmatic helpers used by the HTTP server:
+Workflows and steps persist behind the `WorkspaceStore` interface (`src/workspace.ts`); `FileWorkspaceStore` (alias `WorkspaceManager`) is the default implementation and any backend implementing the same surface can be passed as `VeinOptions.workspace`. The HTTP server, the authoring capability, and the chat builder only ever see the interface — nothing outside `workspace.ts` reads a workspace directory. Sketch (see the source for the full signatures):
 
 ```ts
-interface WorkspaceManager {
+interface WorkspaceStore {
   // Workflows
-  listWorkflows(): Promise<WorkflowInfo[]>;
+  listWorkflows(): Promise<WorkflowListEntry[]>;
   getWorkflow(name: string): Promise<Flow>;
+  getWorkflowVersion(name: string, version: string): Promise<Flow>;
   getWorkflowSource(name: string, version: string): Promise<string>; // raw YAML
-  publishWorkflow(name: string, version: string, content: { steps: any[] } | string, description?: string): Promise<void>;
-  setActiveVersion(name: string, version: string): Promise<void>;
+  getWorkflowHash(name: string, version?: string): Promise<string | null>;
+  getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null>;
+  createWorkflow(...): Promise<{ name: string; version: string }>;
+  publishWorkflow(...): Promise<void>;
+  publishWorkflowByContent(...): Promise<{ version: string; changed: boolean }>;
+  setWorkflowCategory / setActiveVersion / setParam
 
-  // Steps
-  listSteps(): Promise<StepInfo[]>;
-  publishStep(namespace: string, name: string, code: string, description?: string): Promise<void>;
+  // Steps (custom tier)
+  listSteps(filter?): Promise<StepListEntry[]>;
+  publishStep(name, code, description?, publisher?): Promise<{ version: string; changed: boolean }>;
+  listStepVersions / getStepVersionSource / setActiveStepVersion / deleteStep / deleteStepsByPublisher
+
+  // Step source + code loading
+  getStepSource(type): Promise<{ code: string; origin: "core" | "lib" | "custom" } | null>;
+  materializeCustomSteps(): Promise<string>; // importable dir for buildRegistry()
 }
 ```
+
+Runs are the `RunStore`'s records (full read/write/tail contract, `src/store.ts`), and the inherently-local things — run artifacts, step cassettes, the chat builder's shell cwd — live under the server's `dataDir` (`VeinOptions.dataDir`, default: the file workspace's root). `src/storage-conformance.test.ts` is the behavioral spec every implementation of each layer must pass.
 
 ---
 

@@ -1,7 +1,7 @@
 import { z, defineStep } from "vein";
 
 /**
- * Zip harvey/build-eval-chain's criterion slots with jarvis/create-batch-
+ * Zip harvey/build-eval-chain's criterion slots with graph/create-batch-
  * triplet's per-triplet results to recover each persisted CriterionResult
  * node's ref_id: slots name the triplet-array INDEX of each criterion's
  * HAS_CRITERION_RESULT write, and the batch step returns results in input
@@ -21,7 +21,7 @@ export default defineStep({
     "[{ criterion_id, ref_id }].",
   input: z.object({
     slots: z.any().optional().describe("harvey/build-eval-chain's criterionSlots: [{ criterion_id, index }]."),
-    record: z.any().optional().describe("jarvis/create-batch-triplet's output ({ results: [...] })."),
+    record: z.any().optional().describe("graph/create-batch-triplet's output ({ results: [...] })."),
   }),
   output: z.any(),
   async run(cfg) {

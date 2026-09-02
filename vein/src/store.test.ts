@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { RunEvent, RunSummary } from "./core.js";
-import { FileRunStore, MemoryRunStore, summarizeFromEvents } from "./store.js";
+import { FileRunStore, MemoryRunStore, summarizeFromEvents, tailFromPolling, lastRunAtFromIds } from "./store.js";
 
 const WF = "test-workflow";
 
@@ -398,5 +398,122 @@ describe("summarizeFromEvents", () => {
   it("threads a caller-supplied live status through", () => {
     const s = summarizeFromEvents(WF, "r1", [ev({ type: "run.start" })], "running");
     assert.equal(s?.status, "running");
+  });
+});
+
+// ── MemoryRunStore reads + polling tail ────────────────────────────────────
+
+describe("MemoryRunStore reads", () => {
+  const ev = (runId: string, type: RunEvent["type"], ts = new Date().toISOString()): RunEvent => ({
+    ts,
+    runId,
+    path: WF,
+    type,
+  });
+
+  it("lists runs newest first, reads events + summary, reports lastRunAt", async () => {
+    const store = new MemoryRunStore();
+    await store.append(WF, "1000", ev("1000", "run.start"));
+    await store.append(WF, "2000", ev("2000", "run.start"));
+    await store.append(WF, "2000", ev("2000", "run.end"));
+    const summary: RunSummary = {
+      runId: "2000",
+      workflow: WF,
+      startedAt: "a",
+      finishedAt: "b",
+      durationMs: 1,
+      status: "success",
+      input: {},
+    };
+    await store.finalize(WF, "2000", summary);
+
+    assert.deepEqual(await store.listRuns(WF), ["2000", "1000"]);
+    assert.deepEqual(await store.listRuns("other"), []);
+    assert.equal((await store.getRunEvents(WF, "2000")).length, 2);
+    assert.deepEqual(await store.getRunEvents(WF, "nope"), []);
+    assert.deepEqual(await store.getRunSummary(WF, "2000"), summary);
+    assert.equal(await store.getRunSummary(WF, "1000"), null);
+    assert.equal(await store.lastRunAt(WF), 2000);
+    assert.equal(await store.lastRunAt("other"), null);
+  });
+
+  it("getRunEvents returns a copy (callers can't mutate the log)", async () => {
+    const store = new MemoryRunStore();
+    await store.append(WF, "r", ev("r", "run.start"));
+    const got = await store.getRunEvents(WF, "r");
+    got.push(ev("r", "run.end"));
+    assert.equal((await store.getRunEvents(WF, "r")).length, 1);
+  });
+
+  it("tailEvents drains history then follows appends until terminal", async () => {
+    const store = new MemoryRunStore();
+    await store.append(WF, "r", ev("r", "run.start"));
+    const seen: string[] = [];
+    const tail = (async () => {
+      for await (const e of store.tailEvents(WF, "r", { intervalMs: 5 })) seen.push(e.type);
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await store.append(WF, "r", ev("r", "step.start"));
+    await store.append(WF, "r", ev("r", "run.end"));
+    await tail;
+    assert.deepEqual(seen, ["run.start", "step.start", "run.end"]);
+  });
+
+  it("tailEvents scans past a terminal event when a run.resumed reopens the log", async () => {
+    const store = new MemoryRunStore();
+    for (const t of ["run.start", "run.error", "run.resumed", "run.end"] as const) {
+      await store.append(WF, "r", ev("r", t));
+    }
+    const seen: string[] = [];
+    for await (const e of store.tailEvents(WF, "r", { intervalMs: 5 })) seen.push(e.type);
+    assert.deepEqual(seen, ["run.start", "run.error", "run.resumed", "run.end"]);
+  });
+
+  it("tailEvents keeps following after a terminal event while stillLive", async () => {
+    const store = new MemoryRunStore();
+    await store.append(WF, "r", ev("r", "run.start"));
+    await store.append(WF, "r", ev("r", "run.cancelled"));
+    let live = true;
+    const seen: string[] = [];
+    const tail = (async () => {
+      for await (const e of store.tailEvents(WF, "r", { intervalMs: 5, stillLive: () => live })) {
+        seen.push(e.type);
+      }
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await store.append(WF, "r", ev("r", "run.resumed"));
+    await store.append(WF, "r", ev("r", "run.end"));
+    live = false;
+    await tail;
+    assert.deepEqual(seen, ["run.start", "run.cancelled", "run.resumed", "run.end"]);
+  });
+
+  it("tailEvents stops on abort", async () => {
+    const store = new MemoryRunStore();
+    await store.append(WF, "r", ev("r", "run.start"));
+    const ac = new AbortController();
+    const seen: string[] = [];
+    const tail = (async () => {
+      for await (const e of store.tailEvents(WF, "r", { intervalMs: 5, signal: ac.signal })) {
+        seen.push(e.type);
+      }
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+    await tail;
+    assert.deepEqual(seen, ["run.start"]);
+  });
+
+  it("tailFromPolling works over any getRunEvents source", async () => {
+    const log: RunEvent[] = [ev("r", "run.start"), ev("r", "run.end")];
+    const seen: string[] = [];
+    for await (const e of tailFromPolling({ getRunEvents: async () => log }, WF, "r")) seen.push(e.type);
+    assert.deepEqual(seen, ["run.start", "run.end"]);
+  });
+
+  it("lastRunAtFromIds picks the max numeric id and ignores non-numeric", () => {
+    assert.equal(lastRunAtFromIds(["10", "abc", "30", "20"]), 30);
+    assert.equal(lastRunAtFromIds(["abc"]), null);
+    assert.equal(lastRunAtFromIds([]), null);
   });
 });

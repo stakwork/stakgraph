@@ -1,6 +1,9 @@
-// Default vein server — a thin wrapper over createVein() that boots
-// vein with its filesystem-backed defaults (FileRunStore, workspace
-// loaded from VEIN_WORKSPACE, registry built by scanning steps/).
+// Default vein server — a thin wrapper over createVein() that keeps
+// workflows/steps in Neo4j by default (see src/graph/wiring.ts; NEO4J_*
+// vars, localhost:7687 when unset) while runs/chats/blobs stay under
+// VEIN_WORKSPACE. Set VEIN_WORKSPACE_BACKEND=fs to boot with the
+// filesystem-backed defaults instead (FileRunStore, workspace loaded from
+// VEIN_WORKSPACE, registry built by scanning steps/) — no Neo4j needed.
 //
 // This file is the canonical "library usage" example: anything you
 // see here, your own consumer code can do too. Pass your own
@@ -9,6 +12,10 @@
 // behind Express, or just call `vein.listen(port)`).
 
 import { createVein, type Vein } from "./createVein.js";
+import { FileRunStore } from "./store.js";
+import { FileChatStore } from "./chat-store.js";
+import { FileSecretStore } from "./secret-store.js";
+import { graphWorkspaceRequested } from "./graph/wiring.js";
 
 let veinInstance: Vein | null = null;
 
@@ -16,13 +23,30 @@ let veinInstance: Vein | null = null;
  *  module doesn't kick off filesystem I/O at module-load time. */
 async function getDefault(): Promise<Vein> {
   if (!veinInstance) {
-    veinInstance = await createVein();
+    if (graphWorkspaceRequested()) {
+      const { graphWorkspaceFromEnv } = await import("./graph/wiring.js");
+      // dataDir keeps its file default (VEIN_WORKSPACE / ./workspace): runs,
+      // chats, secrets, artifacts, cassettes, and the materialized custom
+      // steps stay local. Explicit file stores, since a non-file workspace
+      // would otherwise default to memory.
+      const dataDir = process.env["VEIN_WORKSPACE"] ?? "./workspace";
+      const { workspace } = await graphWorkspaceFromEnv(process.env, { dataDir });
+      veinInstance = await createVein({
+        workspace,
+        dataDir,
+        store: new FileRunStore(dataDir),
+        chatStore: new FileChatStore(dataDir),
+        secretStore: new FileSecretStore(dataDir),
+      });
+    } else {
+      veinInstance = await createVein();
+    }
   }
   return veinInstance;
 }
 
 /**
- * Hono app for the default filesystem-backed vein. Returns the same
+ * Hono app for the default vein. Returns the same
  * instance on repeated calls. Most code should call `createVein()`
  * directly and mount `vein.app` — this helper exists for ergonomic
  * scripting and backwards compatibility.
@@ -32,7 +56,7 @@ export async function getApp() {
 }
 
 /**
- * Boot the default filesystem-backed vein server on `port` (defaults to
+ * Boot the default vein server on `port` (defaults to
  * `VEIN_PORT` or `3000`). Equivalent to:
  *
  * ```ts

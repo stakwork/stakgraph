@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { RunEvent, RunResult, RunSummary, StepRegistry } from "./core.js";
-import type { WorkspaceManager } from "./workspace.js";
+import type { WorkspaceStore } from "./workspace.js";
 import type { RunStore } from "./store.js";
 import { generateRunId } from "./store.js";
 import { runWorkflow } from "./runner.js";
@@ -36,26 +36,6 @@ export const AI_PUBLISHER = "ai";
 
 // ── Run-history reads (shared mechanism) ───────────────────────────────────
 
-// The run-history read methods live on `FileRunStore`, not the base `RunStore`
-// interface (which is write-only: append/finalize). `MemoryRunStore` lacks
-// them. Feature-detect so run-history reads degrade gracefully on stores that
-// can't read back (they return an error rather than throwing).
-export interface RunReadStore {
-  listRuns(workflow: string): Promise<string[]>;
-  getRunSummary(workflow: string, runId: string): Promise<RunSummary | null>;
-  getRunEvents(workflow: string, runId: string): Promise<RunEvent[]>;
-}
-
-export function asReadStore(store: unknown): RunReadStore | null {
-  const s = store as Partial<RunReadStore> | undefined;
-  return s &&
-    typeof s.listRuns === "function" &&
-    typeof s.getRunSummary === "function" &&
-    typeof s.getRunEvents === "function"
-    ? (s as RunReadStore)
-    : null;
-}
-
 /** Drop bulky input/output payloads from an event so a run's event list stays
  *  token-cheap; the caller can re-fetch a specific run's full events if needed. */
 export function slimEvent(e: RunEvent) {
@@ -69,12 +49,9 @@ export function slimEvent(e: RunEvent) {
   };
 }
 
-const NO_RUN_HISTORY_ERROR =
-  "Run history is unavailable (the run store does not support reading back runs).";
-
 /** List a workflow's recent runs (newest first) as slim summaries. */
 export async function listRunSummaries(
-  store: RunReadStore,
+  store: Pick<RunStore, "listRuns" | "getRunSummary" | "getRunEvents">,
   name: string,
   limit: number,
 ) {
@@ -95,7 +72,7 @@ export async function listRunSummaries(
 
 /** Read one run's summary + events (slimmed unless `fullEvents`). */
 export async function readRun(
-  store: RunReadStore,
+  store: Pick<RunStore, "listRuns" | "getRunSummary" | "getRunEvents">,
   name: string,
   runId: string,
   fullEvents: boolean,
@@ -154,7 +131,7 @@ const SNIPPET_AFTER = 160;
  * the run window rather than raising the cap.
  */
 export async function searchRunEvents(
-  store: RunReadStore,
+  store: Pick<RunStore, "listRuns" | "getRunSummary" | "getRunEvents">,
   name: string,
   pattern: string,
   opts: RunSearchOptions = {},
@@ -242,7 +219,7 @@ export function coerceJsonArg(v: unknown): unknown {
  *  structurally; the authoring capability builds its own. `getRegistry` must
  *  return a FRESH registry (re-scanned from the workspace). */
 export interface StepPublishDeps {
-  workspace: WorkspaceManager;
+  workspace: WorkspaceStore;
   getRegistry(): Promise<StepRegistry>;
   publishingEnabled?: boolean;
 }
@@ -269,7 +246,7 @@ async function verifyLoaded(
   const fresh = await deps.getRegistry();
   if (fresh[name]) return { loaded: true };
   const err = await stepLoadError(
-    join(deps.workspace.path, "steps", "custom", `${name}.ts`),
+    join(await deps.workspace.materializeCustomSteps(), `${name}.ts`),
   );
   return {
     loaded: false,
@@ -400,6 +377,9 @@ export interface AuthoringCapability {
 
 export interface AuthoringDeps extends StepPublishDeps {
   store: RunStore;
+  /** Local directory for step cassettes (`runStep` record/replay). Optional:
+   *  without it, cassette modes report an error instead of recording. */
+  dataDir?: string;
   /** Capabilities bag threaded into `runWorkflow` / `runStep` so authored
    *  steps reach `ctx.services` (http, secrets, and any consumer services). */
   services?: unknown;
@@ -497,6 +477,9 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
       // snapshot and would not contain it (EVOLVE_SPEC §5.3.1).
       const registry = await deps.getRegistry();
       if (!registry[type]) return { error: `Step type "${type}" not found` };
+      if (args.cassette && !deps.dataDir) {
+        return { error: "Cassette record/replay is unavailable (no local data dir configured)." };
+      }
       return runSingleStep(type, registry, deps.services, {
         config: coerceJsonArg(args.config) as Record<string, unknown> | undefined,
         input: coerceJsonArg(args.input),
@@ -506,7 +489,7 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
           ? {
               cassette: {
                 mode: args.cassette,
-                path: cassettePath(workspace.path, args.cassetteName ?? type),
+                path: cassettePath(deps.dataDir!, args.cassetteName ?? type),
               },
             }
           : {}),
@@ -608,25 +591,19 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
     async listRuns(name, limit = 20) {
       const gate = await notOwned(name, "reads run history of");
       if (gate) return { error: gate };
-      const read = asReadStore(store);
-      if (!read) return { error: NO_RUN_HISTORY_ERROR };
-      return { workflow: name, runs: await listRunSummaries(read, name, limit) };
+      return { workflow: name, runs: await listRunSummaries(store, name, limit) };
     },
 
     async getRun(name, runId, fullEvents = false) {
       const gate = await notOwned(name, "reads run history of");
       if (gate) return { error: gate };
-      const read = asReadStore(store);
-      if (!read) return { error: NO_RUN_HISTORY_ERROR };
-      return readRun(read, name, runId, fullEvents);
+      return readRun(store, name, runId, fullEvents);
     },
 
     async searchRuns(name, pattern, opts) {
       const gate = await notOwned(name, "reads run history of");
       if (gate) return { error: gate };
-      const read = asReadStore(store);
-      if (!read) return { error: NO_RUN_HISTORY_ERROR };
-      return searchRunEvents(read, name, pattern, opts);
+      return searchRunEvents(store, name, pattern, opts);
     },
 
     async listSecrets() {

@@ -39,7 +39,7 @@ steps:
       rubric: "{{ input.rubric }}"
 
   - id: reqs
-    type: jarvis/graph-neighbors
+    type: graph/graph-neighbors
     depends: validate
     config:
       ref_id: "{{ input.evalset_ref }}"
@@ -47,7 +47,7 @@ steps:
       namespace: "{{ input.namespace }}"
 
   - id: reqdetails
-    type: jarvis/graph-get-batched
+    type: graph/graph-get-batched
     depends: reqs
     # reqs returns an error STRING on HTTP trouble → the .map below throws →
     # onError keeps scoring alive (filter-contested fails open on the pack).
@@ -105,7 +105,7 @@ steps:
       workflow: harvey-deliver
 
   - id: record
-    type: jarvis/create-batch-triplet
+    type: graph/create-batch-triplet
     depends: chain
     options:
       onError:
@@ -166,7 +166,7 @@ steps:
       evalsetId: "{{ input.evalset_id }}"
 
   # Annotation write-back onto the persisted CriterionResult nodes.
-  # jarvis/edit-node reports failures as strings (doesn't throw), so a graph
+  # graph/edit-node reports failures as strings (doesn't throw), so a graph
   # hiccup here can't kill the run.
   - id: persist_annotations
     type: foreach
@@ -175,7 +175,7 @@ steps:
       items: "{{ merged.annotations }}"
       body:
         id: annotate
-        type: jarvis/edit-node
+        type: graph/edit-node
         config:
           ref_id: "{{ $current.ref_id }}"
           namespace: "{{ input.namespace }}"
@@ -194,7 +194,7 @@ steps:
       items: "{{ merged.contested_requirements }}"
       body:
         id: mark_contested
-        type: jarvis/edit-node
+        type: graph/edit-node
         config:
           ref_id: "{{ $current.ref_id }}"
           namespace: "{{ input.namespace }}"
@@ -255,7 +255,7 @@ steps:
 
   # Every criterion passed ⇒ the EvalSet needs no further recursive attempts.
   - id: norec
-    type: jarvis/edit-node
+    type: graph/edit-node
     depends: all_pass
     when: true
     config:

@@ -102,8 +102,9 @@ export async function runSingleStep(
   };
 }
 
-/** Default on-disk location for a step's cassette, under the workspace. */
-export function cassettePath(workspacePath: string, name: string): string {
+/** Default on-disk location for a step's cassette, under the server's local
+ *  data dir (`dataDir` — the workspace root for file-backed deployments). */
+export function cassettePath(dataDir: string, name: string): string {
   // `name` may contain slashes (namespaced step types) — they become subdirs.
-  return `${workspacePath}/steps/_cassettes/${name}.json`;
+  return `${dataDir}/steps/_cassettes/${name}.json`;
 }

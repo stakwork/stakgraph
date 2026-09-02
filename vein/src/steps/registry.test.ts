@@ -22,14 +22,14 @@ describe("buildRegistry", () => {
   });
 
   it("returns a registry and a parallel sources map", async () => {
-    const { registry, sources } = await buildRegistry(tempDir);
+    const { registry, sources } = await buildRegistry(join(tempDir, "steps", "custom"));
 
     assert.ok(typeof registry === "object" && registry !== null);
     assert.ok(typeof sources === "object" && sources !== null);
   });
 
   it("tags every core step with source: core", async () => {
-    const { sources } = await buildRegistry(tempDir);
+    const { sources } = await buildRegistry(join(tempDir, "steps", "custom"));
 
     for (const type of CORE_STEP_TYPES) {
       assert.equal(
@@ -41,7 +41,7 @@ describe("buildRegistry", () => {
   });
 
   it("tags lib steps (shipped under src/steps/lib) with source: lib", async () => {
-    const { registry, sources } = await buildRegistry(tempDir);
+    const { registry, sources } = await buildRegistry(join(tempDir, "steps", "custom"));
 
     // Shipped lib steps live under src/steps/lib (e.g. github/fetch-pr,
     // gdrive/export-file). If lib steps change, this test should adapt —
@@ -81,7 +81,7 @@ describe("buildRegistry", () => {
   it("tags user-published custom steps with source: custom", async () => {
     await ws.publishStep("my-custom", minimalStep("my-custom"));
 
-    const { registry, sources } = await buildRegistry(tempDir);
+    const { registry, sources } = await buildRegistry(join(tempDir, "steps", "custom"));
 
     assert.ok(registry["my-custom"], "custom step should be in registry");
     assert.equal(sources["my-custom"], "custom");
@@ -97,7 +97,7 @@ describe("buildRegistry", () => {
       minimalStep("gitree/save-feature"),
     );
 
-    const { registry, sources } = await buildRegistry(tempDir);
+    const { registry, sources } = await buildRegistry(join(tempDir, "steps", "custom"));
 
     assert.ok(
       registry["gitree/save-feature"],
@@ -113,7 +113,7 @@ describe("buildRegistry", () => {
   it("does not register helper files (_-prefixed)", async () => {
     await ws.publishStep("gitree/_shared", "export const HELPER = 1;");
 
-    const { registry, sources } = await buildRegistry(tempDir);
+    const { registry, sources } = await buildRegistry(join(tempDir, "steps", "custom"));
     assert.equal(registry["gitree/_shared"], undefined);
     assert.equal(sources["gitree/_shared"], undefined);
   });

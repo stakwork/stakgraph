@@ -19,13 +19,13 @@ name: harvey-deliver
 # interpolation tokens translated to vein {{ … }} templates; models and
 # fan-out knobs stay in each workflow's params (override per run with
 # paramOverrides keyed by workflow name):
-#   harvey-ingest-doc   — per-document parse+ingest (agent, jarvis writes)
+#   harvey-ingest-doc   — per-document parse+ingest (agent, graph writes)
 #   harvey-knowledge    — checklist writer → fact base → case law → tailor
 #   harvey-draft        — drafters ×N → 4 verifiers → aggregator
 #   harvey-score        — validate → judge → record → dispute → persist →
 #                         webhook
 #
-# Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR, JARVIS_URL + API_TOKEN
+# Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR, NEO4J_URI (+ NEO4J_USER/NEO4J_PASSWORD)
 # (+ pandoc, python3 on PATH).
 # Input:  { task, rubric: [{ id, title, match_criteria, deliverables }],
 #           workdir?, webhookUrl? }
@@ -54,14 +54,14 @@ steps:
       requireDocuments: "{{ params.requireDocuments }}"
 
   - id: ns
-    type: jarvis/register-namespace
+    type: graph/register-namespace
     depends: docs
     config:
       namespace: "{{ docs.namespace }}"
 
   # EvalSet id = namespace = task slug; create-or-merge, so reruns reuse it.
   - id: evalset
-    type: jarvis/create-node
+    type: graph/create-node
     depends: ns
     config:
       node_type: EvalSet
@@ -76,7 +76,7 @@ steps:
   # (an error string from neighbors has .length > 0 → also skips — fail-soft
   # toward not duplicating).
   - id: reqcheck
-    type: jarvis/graph-neighbors
+    type: graph/graph-neighbors
     depends: evalset
     config:
       ref_id: "{{ evalset.ref_id }}"
@@ -97,7 +97,7 @@ steps:
       items: "{{ input.rubric }}"
       body:
         id: req
-        type: jarvis/create-triplet
+        type: graph/create-triplet
         config:
           source_ref_id: "{{ evalset.ref_id }}"
           target_type: EvalRequirement
@@ -150,12 +150,12 @@ steps:
       maxSteps: "{{ params.checklistMaxSteps }}"
       toolFilter: ["repo_overview"]
       agentTools:
-        - jarvis/get-ontology
-        - jarvis/get-ontology-type
-        - jarvis/graph-search
-        - jarvis/graph-get
-        - jarvis/graph-get-batched
-        - jarvis/graph-neighbors
+        - graph/get-ontology
+        - graph/get-ontology-type
+        - graph/graph-search
+        - graph/graph-get
+        - graph/graph-get-batched
+        - graph/graph-neighbors
         - harvey/graph-sub-agent
       finalAnswer: >
         The complete GENERIC checklist in structured markdown, exactly as

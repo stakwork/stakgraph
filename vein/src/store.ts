@@ -117,9 +117,93 @@ export async function* tailJsonl<T>(
 
 // ── Interface ──────────────────────────────────────────────────────────────
 
+/** Options for `RunStore.tailEvents`. */
+export interface TailOpts {
+  /** Poll interval while following a live log (default 250ms). */
+  intervalMs?: number;
+  /** Stop the tail early (e.g. on client disconnect). */
+  signal?: AbortSignal;
+  /** Consulted at EOF after a terminal event: a live producer (the server's
+   *  registered run controller) means a resume is in flight — keep following
+   *  instead of closing. Default: close at EOF. */
+  stillLive?: () => boolean;
+}
+
+/**
+ * The persistence boundary for runs — the full contract, writes AND reads.
+ * Every backend (filesystem, memory, a database) implements all of it; the
+ * server capability-gates on nothing else. `tailEvents` has a generic
+ * polling implementation (`tailFromPolling`) built on `getRunEvents`, so a
+ * backend without a native tail implements the five data methods and
+ * delegates.
+ *
+ * Tail contract (RUN_CONTROL_SPEC §5.2): yield the run's history from event
+ * 0, then follow appends until a terminal event (`run.end` / `run.error` /
+ * `run.cancelled`). A terminal event doesn't close the tail immediately — a
+ * later `run.resumed` REOPENS the log (durable resume appends past the old
+ * terminal event), so the tail scans ahead and only closes at EOF, or keeps
+ * following if `opts.stillLive()` reports a resume in flight.
+ */
 export interface RunStore {
   append(workflow: string, runId: string, event: RunEvent): Promise<void>;
   finalize(workflow: string, runId: string, summary: RunSummary): Promise<void>;
+  /** Run ids for a workflow, newest first. */
+  listRuns(workflow: string): Promise<string[]>;
+  /** The finalized summary, or null while the run is in flight / if it never
+   *  finalized (crash) — callers fall back to `summarizeFromEvents`. */
+  getRunSummary(workflow: string, runId: string): Promise<RunSummary | null>;
+  /** The full event log (empty for an unknown run). */
+  getRunEvents(workflow: string, runId: string): Promise<RunEvent[]>;
+  /** History → live tail; see the interface doc for terminality. */
+  tailEvents(workflow: string, runId: string, opts?: TailOpts): AsyncGenerator<RunEvent>;
+  /** Start time (epoch ms) of the most recent run, or null if never run. */
+  lastRunAt(workflow: string): Promise<number | null>;
+}
+
+/**
+ * Generic `tailEvents` for backends without a native append-following
+ * primitive: re-read the run's events on each poll and yield past the index
+ * cursor. Same terminal / reopen / `stillLive` semantics as the file tail
+ * (`tailJsonl`), which `FileRunStore` keeps because a byte-offset read is
+ * cheaper than a full re-read per poll.
+ */
+export async function* tailFromPolling(
+  store: Pick<RunStore, "getRunEvents">,
+  workflow: string,
+  runId: string,
+  opts: TailOpts = {},
+): AsyncGenerator<RunEvent> {
+  const intervalMs = opts.intervalMs ?? 250;
+  let cursor = 0;
+  let sawTerminal = false;
+  while (true) {
+    if (opts.signal?.aborted) return;
+    const events = await store.getRunEvents(workflow, runId);
+    const fresh = events.slice(cursor);
+    cursor = events.length;
+    for (const event of fresh) {
+      yield event;
+      if (isTerminal(event)) sawTerminal = true;
+      else if (sawTerminal && reopensRun(event)) sawTerminal = false;
+    }
+    if (sawTerminal) {
+      if (fresh.length > 0) continue; // drain immediately, no poll delay
+      if (!(opts.stillLive?.() ?? false)) return;
+    }
+    await sleep(intervalMs);
+  }
+}
+
+/** Newest run's start time from the run-id list — run ids are millisecond
+ *  timestamps (`generateRunId`), so the max parseable id is the latest.
+ *  Shared by backends whose ids follow that convention. */
+export function lastRunAtFromIds(runIds: string[]): number | null {
+  let max: number | null = null;
+  for (const id of runIds) {
+    const t = parseInt(id, 10);
+    if (!isNaN(t) && (max == null || t > max)) max = t;
+  }
+  return max;
 }
 
 // ── Partial summary (reconstructed from events) ────────────────────────────
@@ -280,7 +364,7 @@ export class FileRunStore implements RunStore {
   async *tailEvents(
     workflow: string,
     runId: string,
-    opts: { intervalMs?: number; signal?: AbortSignal; stillLive?: () => boolean } = {},
+    opts: TailOpts = {},
   ): AsyncGenerator<RunEvent> {
     const file = join(this.runDir(workflow, runId), "events.jsonl");
     // `run.error`/`run.cancelled` are no longer unconditionally terminal: a
@@ -315,16 +399,49 @@ export class FileRunStore implements RunStore {
     }
     return events;
   }
+
+  async lastRunAt(workflow: string): Promise<number | null> {
+    return lastRunAtFromIds(await this.listRuns(workflow));
+  }
 }
 
-// ── In-memory implementation (for testing) ─────────────────────────────────
+// ── In-memory implementation ───────────────────────────────────────────────
 
+/**
+ * A complete ephemeral backend (not just a write-only test stub): run
+ * history, SSE reattach, durable resume, and promotions all work over it —
+ * the records just don't survive the process.
+ */
 export class MemoryRunStore implements RunStore {
   events: Map<string, RunEvent[]> = new Map();
   summaries: Map<string, RunSummary> = new Map();
 
   private key(workflow: string, runId: string): string {
     return `${workflow}/${runId}`;
+  }
+
+  async listRuns(workflow: string): Promise<string[]> {
+    const prefix = `${workflow}/`;
+    const ids = new Set<string>();
+    for (const k of this.events.keys()) if (k.startsWith(prefix)) ids.add(k.slice(prefix.length));
+    for (const k of this.summaries.keys()) if (k.startsWith(prefix)) ids.add(k.slice(prefix.length));
+    return [...ids].sort((a, b) => b.localeCompare(a));
+  }
+
+  async getRunSummary(workflow: string, runId: string): Promise<RunSummary | null> {
+    return this.summaries.get(this.key(workflow, runId)) ?? null;
+  }
+
+  async getRunEvents(workflow: string, runId: string): Promise<RunEvent[]> {
+    return [...(this.events.get(this.key(workflow, runId)) ?? [])];
+  }
+
+  tailEvents(workflow: string, runId: string, opts: TailOpts = {}): AsyncGenerator<RunEvent> {
+    return tailFromPolling(this, workflow, runId, opts);
+  }
+
+  async lastRunAt(workflow: string): Promise<number | null> {
+    return lastRunAtFromIds(await this.listRuns(workflow));
   }
 
   async append(workflow: string, runId: string, event: RunEvent): Promise<void> {

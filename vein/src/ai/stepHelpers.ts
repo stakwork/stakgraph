@@ -1,16 +1,16 @@
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { CORE_STEP_TYPES, LIB_DIR } from "../steps/registry.js";
 import type { StepRegistry } from "../core.js";
-import type { WorkspaceManager } from "../workspace.js";
+import type { WorkspaceStore } from "../workspace.js";
 
 /**
  * The subset of dependencies the step-explorer helpers need. Both the chat
  * builder's `AiDeps` and the authoring capability satisfy it structurally.
  */
 export interface StepExplorerDeps {
-  workspace: WorkspaceManager;
+  workspace: Pick<WorkspaceStore, "listSteps" | "getStepSource">;
   registry: StepRegistry;
 }
 
@@ -198,38 +198,15 @@ export async function searchSteps(query: string, deps: StepExplorerDeps) {
 }
 
 /**
- * Read the source code for a step. Looks in:
- *   - src/steps/lib/<...>.ts  (built-in lib steps)
- *   - <workspace>/steps/custom/<name>.ts  (user custom steps)
- * Returns undefined for core steps or anything not found.
+ * Read the source code for a lib or custom step through the workspace
+ * boundary. Returns undefined for core steps (the AI gets their schema and
+ * description instead) or anything the store has no source for.
  */
 export async function readStepSource(
   type: string,
   deps: StepExplorerDeps,
 ): Promise<string | undefined> {
   if (CORE_STEP_TYPES.includes(type)) return undefined;
-
-  const parts = type.split("/");
-  const candidates: string[] = [];
-
-  if (parts.length > 1) {
-    // Likely a lib step: src/steps/lib/<...>.ts
-    candidates.push(join(LIB_DIR, ...parts.slice(0, -1), `${parts.at(-1)}.ts`));
-    // Or a nested custom step: <workspace>/steps/custom/<...>.ts
-    candidates.push(
-      join(deps.workspace.path, "steps", "custom", ...parts.slice(0, -1), `${parts.at(-1)}.ts`),
-    );
-  } else {
-    // Flat custom step
-    candidates.push(join(deps.workspace.path, "steps", "custom", `${type}.ts`));
-  }
-
-  for (const file of candidates) {
-    try {
-      return await readFile(file, "utf-8");
-    } catch {
-      // try next
-    }
-  }
-  return undefined;
+  const found = await deps.workspace.getStepSource(type);
+  return found?.code;
 }
