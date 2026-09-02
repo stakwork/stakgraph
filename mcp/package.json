@@ -22,6 +22,9 @@
     "@ai-sdk/xai": "3.0.88",
     "onnxruntime-node": "1.24.3"
   },
+  "overrides": {
+    "onnxruntime-node": "1.24.3"
+  },
   "scripts": {
     "dev": "([ -n \"$CI\" ] || npm run refresh-vein); tsx src/index.ts",
     "build": "tsc && node scripts/copy-lab-assets.mjs",
