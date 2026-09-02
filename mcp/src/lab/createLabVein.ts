@@ -1,6 +1,12 @@
 import {
   createVein,
   WorkspaceManager,
+  FileRunStore,
+  FileChatStore,
+  FileSecretStore,
+  graphWorkspaceRequested,
+  graphWorkspaceFromEnv,
+  type WorkspaceStore,
   type Vein,
   type RunResult,
 } from "vein";
@@ -132,12 +138,22 @@ export async function createLabVein(
     "./lab-workspace";
 
   // Seed each experiment's workflow + step templates into the workspace
-  // BEFORE building the vein, so the registry's disk discovery picks up the
-  // seeded steps. Steps are now self-contained custom steps on disk (not
-  // injected in-code) — content-hash reconciled, editable + versioned via the
-  // vein API/UI. No `registry` is passed, so createVein discovers core + lib +
-  // these custom steps from `workspace.path` (and step publishing is enabled).
-  const workspace = new WorkspaceManager(workspacePath);
+  // BEFORE building the vein, so the registry's discovery picks up the
+  // seeded steps. Steps are self-contained custom steps (not injected
+  // in-code) — content-hash reconciled, editable + versioned via the vein
+  // API/UI. No `registry` is passed, so createVein discovers core + lib +
+  // these custom steps via `workspace.materializeCustomSteps()` (and step
+  // publishing is enabled).
+  //
+  // VEIN_WORKSPACE_BACKEND=graph keeps workflows/steps in Neo4j
+  // (vein's Neo4jWorkspaceStore; NEO4J_HOST/USER/PASSWORD, same defaults as
+  // this host's own client). Runs, chats, secrets, artifacts, and cassettes
+  // stay on disk under `workspacePath` either way.
+  const graphBacked = graphWorkspaceRequested();
+  const workspace: WorkspaceStore = graphBacked
+    ? (await graphWorkspaceFromEnv(process.env, { dataDir: workspacePath })).workspace
+    : new WorkspaceManager(workspacePath);
+  if (graphBacked) console.log(`[lab] vein workspace: Neo4jWorkspaceStore (data dir: ${workspacePath})`);
   // Generic, domain-agnostic eval primitives (steps). The concept-specific eval
   // WORKFLOWS that wire them (concepts-eval*) are seeded with the concepts
   // experiment below.
@@ -171,6 +187,16 @@ export async function createLabVein(
     workspace,
     services,
     serveUi: opts.serveUi ?? true,
+    // A non-file workspace would otherwise default the run/chat/secret
+    // stores to memory — pin them to disk so history survives restarts.
+    ...(graphBacked
+      ? {
+          dataDir: workspacePath,
+          store: new FileRunStore(workspacePath),
+          chatStore: new FileChatStore(workspacePath),
+          secretStore: new FileSecretStore(workspacePath),
+        }
+      : {}),
   });
 
   // Inject the run-sub-workflows capability now that the instance exists.

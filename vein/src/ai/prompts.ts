@@ -1,5 +1,5 @@
 import type { StepRegistry, RunResult } from "../core.js";
-import type { WorkspaceManager } from "../workspace.js";
+import type { WorkspaceStore } from "../workspace.js";
 import type { RunStore } from "../store.js";
 import type { SecretInfo } from "../secret-store.js";
 import { lsSteps } from "./stepHelpers.js";
@@ -7,9 +7,12 @@ import { lsSteps } from "./stepHelpers.js";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface AiDeps {
-  workspace: WorkspaceManager;
+  workspace: WorkspaceStore;
   registry: StepRegistry;
   store: RunStore;
+  /** Local directory for cassettes (`run_step` record/replay). Optional:
+   *  without it, cassette modes report an error instead of recording. */
+  dataDir?: string;
   getRegistry: () => Promise<StepRegistry>;
   /** Whether custom-step publishing is allowed (false when the registry was
    *  injected at construction). Defaults to enabled when unset. */
@@ -25,8 +28,8 @@ export interface AiDeps {
    *  `list_secrets` tool degrades gracefully when absent. */
   secrets?: { list(): Promise<SecretInfo[]> };
   /** Build-time shell access for the chat builder's `bash` tool: commands run
-   *  with cwd at the workspace root (artifacts/, steps/_history/, and a
-   *  scratch/ dir for clones/experiments are all visible) under a SCRUBBED
+   *  with cwd at the server's data dir (artifacts/ and a scratch/ dir for
+   *  clones/experiments are visible) under a SCRUBBED
    *  env (see shell.ts — server API keys never reach model-authored
    *  commands). Optional: without it the bash tool isn't offered. */
   shell?: { cwd: string };

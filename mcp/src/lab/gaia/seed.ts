@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "vein";
 
 /**
  * GAIA LAB steps + workflows — the harness that scored 5/5 on the first
@@ -74,7 +74,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   },
 ];
 
-export async function seedGaiaWorkflows(workspace: WorkspaceManager): Promise<void> {
+export async function seedGaiaWorkflows(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "workflows");
   for (const { name, description } of SEED_WORKFLOWS) {
     try {
@@ -87,7 +87,7 @@ export async function seedGaiaWorkflows(workspace: WorkspaceManager): Promise<vo
   }
 }
 
-export async function seedGaiaSteps(workspace: WorkspaceManager): Promise<void> {
+export async function seedGaiaSteps(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {
     try {

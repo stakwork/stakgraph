@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
 import type { RunStore } from "./store.js";
-import { FileRunStore, generateRunId, summarizeFromEvents } from "./store.js";
+import { FileRunStore, MemoryRunStore, generateRunId, summarizeFromEvents } from "./store.js";
 import type { ChatStore, ChatEvent } from "./chat-store.js";
 import {
   FileChatStore,
@@ -18,8 +18,8 @@ import {
   generateChatId,
   truncateToolMessages,
 } from "./chat-store.js";
-import { WorkspaceManager } from "./workspace.js";
-import { buildRegistry, readStepSourceFromDisk } from "./steps/registry.js";
+import { FileWorkspaceStore, type WorkspaceStore } from "./workspace.js";
+import { buildRegistry } from "./steps/registry.js";
 import { maxOutputTokensFor } from "./pricing.js";
 import type { StepSources } from "./steps/registry.js";
 import { runWorkflow } from "./runner.js";
@@ -49,14 +49,22 @@ import { createChatNotifier, formatRunNotification } from "./ai/notifier.js";
  * any subset to embed vein in your own app.
  */
 export interface VeinOptions<TServices = unknown> {
-  /** Persistent workspace for workflows/runs. Defaults to a new
-   *  `WorkspaceManager()` (reads `VEIN_WORKSPACE` env, falls back to
-   *  `./workspace`). */
-  workspace?: WorkspaceManager;
+  /** Persistent store for workflows and steps. Defaults to a new
+   *  `FileWorkspaceStore()` (reads `VEIN_WORKSPACE` env, falls back to
+   *  `./workspace`). Any `WorkspaceStore` implementation works. */
+  workspace?: WorkspaceStore;
+
+  /** Local directory for the inherently-local things: run artifacts,
+   *  step cassettes, the chat builder's shell cwd + scratch/. Defaults to
+   *  the file workspace's root (so a file-backed deployment keeps one
+   *  directory), else `VEIN_WORKSPACE` / `./workspace`. A non-file
+   *  workspace can point this at any scratch volume — losing it loses
+   *  blobs and cassettes, never workspace records. */
+  dataDir?: string;
 
   /** Step registry. If supplied, used as-is and `rebuildRegistry` becomes
    *  a no-op (the consumer owns step composition). If omitted, vein
-   *  discovers steps from disk via `buildRegistry(workspace.path)`. */
+   *  discovers steps via `buildRegistry(await workspace.materializeCustomSteps())`. */
   registry?: StepRegistry;
 
   /** Where to persist run events + summaries. Defaults to a `FileRunStore`
@@ -134,7 +142,9 @@ export interface Vein<TServices = unknown> {
   /** Hono app with all vein routes mounted. Mount under your own router
    *  with `parent.route("/vein", vein.app)`, or call `vein.listen(port)`. */
   app: Hono;
-  workspace: WorkspaceManager;
+  workspace: WorkspaceStore;
+  /** Resolved local data directory (see `VeinOptions.dataDir`). */
+  dataDir: string;
   store: RunStore;
   /** Deployment-scoped secret store backing `ctx.services.secrets` + the
    *  `/secrets` endpoints. */
@@ -293,8 +303,16 @@ function describeField(name: string, s: z.ZodTypeAny): FieldDesc {
 export async function createVein<TServices = unknown>(
   opts: VeinOptions<TServices> = {},
 ): Promise<Vein<TServices>> {
-  const workspace = opts.workspace ?? new WorkspaceManager();
-  const store = opts.store ?? new FileRunStore(workspace.path);
+  const workspace: WorkspaceStore = opts.workspace ?? new FileWorkspaceStore();
+  // Backend mode, used ONLY to pick unspecified defaults: the run/chat/secret
+  // stores follow the workspace's kind (file-backed → file stores under
+  // dataDir; anything else → in-memory). No capability is gated on it —
+  // every store is the full interface. An explicitly passed store always wins.
+  const fileBacked = workspace instanceof FileWorkspaceStore;
+  const dataDir =
+    opts.dataDir ??
+    (fileBacked ? workspace.path : (process.env["VEIN_WORKSPACE"] ?? "./workspace"));
+  const store = opts.store ?? (fileBacked ? new FileRunStore(dataDir) : new MemoryRunStore());
   // Controllers for runs currently executing **in this process** (keyed
   // `${workflow}/${runId}`) — RUN_CONTROL_SPEC §2.2. A controller's presence
   // IS "in-flight" (superseding the old `activeRuns` set): detached execution
@@ -349,9 +367,7 @@ export async function createVein<TServices = unknown>(
   // file store for the standard server, in-memory when runs are in-memory.
   const secretStore: SecretStore =
     opts.secretStore ??
-    (store instanceof FileRunStore
-      ? new FileSecretStore(workspace.path)
-      : new MemorySecretStore());
+    (fileBacked ? new FileSecretStore(dataDir) : new MemorySecretStore());
   // Did the consumer inject their own `secrets` capability? If so we leave it
   // alone and the `/secrets` endpoints (which manage *our* store) report 501.
   const secretsInjected =
@@ -365,9 +381,9 @@ export async function createVein<TServices = unknown>(
   // existing out of the box.
   const services = {
     ...(standardServices({ secretStore }) as unknown as Record<string, unknown>),
-    // Per-run artifact files, rooted in the workspace. A consumer bag can
-    // override with its own ArtifactsCapability (spread below wins).
-    artifacts: fileArtifactsCapability(join(workspace.path, "artifacts")),
+    // Per-run artifact files, rooted in the local data dir. A consumer bag
+    // can override with its own ArtifactsCapability (spread below wins).
+    artifacts: fileArtifactsCapability(join(dataDir, "artifacts")),
     ...((opts.services ?? {}) as Record<string, unknown>),
   } as TServices;
   const artifacts = (services as Record<string, unknown>)["artifacts"] as
@@ -376,10 +392,7 @@ export async function createVein<TServices = unknown>(
   const serveUi = opts.serveUi ?? true;
   const enableChat = opts.enableChat ?? true;
   const chatStore: ChatStore =
-    opts.chatStore ??
-    (store instanceof FileRunStore
-      ? new FileChatStore(workspace.path)
-      : new MemoryChatStore());
+    opts.chatStore ?? (fileBacked ? new FileChatStore(dataDir) : new MemoryChatStore());
   const chatMaxSteps =
     opts.chatMaxSteps ?? Number(process.env["VEIN_CHAT_MAX_STEPS"] ?? 100);
   const chatModel =
@@ -404,7 +417,7 @@ export async function createVein<TServices = unknown>(
 
   async function rebuildRegistry(): Promise<void> {
     if (registryWasInjected) return; // consumer owns the registry
-    const bundle = await buildRegistry(workspace.path);
+    const bundle = await buildRegistry(await workspace.materializeCustomSteps());
     registry = bundle.registry;
     stepSources = bundle.sources;
   }
@@ -424,6 +437,7 @@ export async function createVein<TServices = unknown>(
   if (!(services as Record<string, unknown>)["authoring"]) {
     (services as Record<string, unknown>)["authoring"] = buildAuthoringCapability({
       workspace,
+      dataDir,
       store,
       services,
       trackRun,
@@ -442,8 +456,17 @@ export async function createVein<TServices = unknown>(
   // ── Workflows ────────────────────────────────────────────────────────────
 
   app.get("/workflows", async (c) => {
+    // The workspace lists what it stores; the run store decorates with each
+    // workflow's newest run time. Composed here so neither layer reads the
+    // other's records.
     const workflows = await workspace.listWorkflows();
-    return c.json(workflows);
+    const decorated = await Promise.all(
+      workflows.map(async (w) => {
+        const lastRunAt = await store.lastRunAt(w.name);
+        return lastRunAt != null ? { ...w, lastRunAt } : w;
+      }),
+    );
+    return c.json(decorated);
   });
 
   app.post("/workflows", async (c) => {
@@ -489,22 +512,13 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name", async (c) => {
     const name = c.req.param("name");
-    try {
-      const meta = await readFile(
-        join(workspace.path, "workflows", name, "_metadata.json"),
-        "utf-8",
-      );
-      return c.json(JSON.parse(meta));
-    } catch {
-      return c.json({ error: `Workflow "${name}" not found` }, 404);
-    }
+    const meta = await workspace.getWorkflowMetadata(name);
+    if (!meta) return c.json({ error: `Workflow "${name}" not found` }, 404);
+    return c.json(meta);
   });
 
   app.get("/workflows/:name/runs", async (c) => {
     const name = c.req.param("name");
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Run listing requires a FileRunStore" }, 501);
-    }
     const runIds = await store.listRuns(name);
     const runs = [];
     for (const runId of runIds) {
@@ -520,9 +534,6 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/runs/:runId", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Run lookup requires a FileRunStore" }, 501);
-    }
     const summary = await store.getRunSummary(name, runId);
     if (summary) return c.json(summary);
     // No run.json — in-flight, or orphaned before finalize (crash/restart).
@@ -539,9 +550,6 @@ export async function createVein<TServices = unknown>(
 
   app.get("/workflows/:name/runs/:runId/events", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Event lookup requires a FileRunStore" }, 501);
-    }
     const events = await store.getRunEvents(name, runId);
     return c.json(events);
   });
@@ -549,12 +557,9 @@ export async function createVein<TServices = unknown>(
   // Reattach to a run (live or completed) — SSE tail of its event log.
   // Replays history from the start of the file, then follows appends until
   // the terminal event, then sends a final `done` carrying the RunResult.
-  // One path serves in-flight and finished runs (see `FileRunStore.tailEvents`).
+  // One path serves in-flight and finished runs (see `RunStore.tailEvents`).
   app.get("/workflows/:name/runs/:runId/stream", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Run streaming requires a FileRunStore" }, 501);
-    }
     return streamSSE(c, async (stream) => {
       const ac = new AbortController();
       stream.onAbort(() => ac.abort());
@@ -587,10 +592,8 @@ export async function createVein<TServices = unknown>(
    *  whether the run exists at all. */
   const findRun = async (name: string, runId: string) => {
     const controller = controllers.get(`${name}/${runId}`) ?? null;
-    const summary =
-      store instanceof FileRunStore ? await store.getRunSummary(name, runId) : null;
-    const events =
-      store instanceof FileRunStore ? await store.getRunEvents(name, runId) : [];
+    const summary = await store.getRunSummary(name, runId);
+    const events = await store.getRunEvents(name, runId);
     return { controller, summary, exists: controller != null || events.length > 0 };
   };
 
@@ -648,9 +651,6 @@ export async function createVein<TServices = unknown>(
     }
 
     // No controller → durable resume: journal replay (§5).
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Durable resume requires a FileRunStore" }, 501);
-    }
     if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
     if (summary?.status === "success" && !body.from) {
       return c.json(
@@ -728,9 +728,6 @@ export async function createVein<TServices = unknown>(
   // written until the human POSTs to `/promote`.
   app.get("/workflows/:name/runs/:runId/promotions", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Promotions require a FileRunStore" }, 501);
-    }
     let flow: Flow;
     try {
       flow = await workspace.getWorkflow(name);
@@ -776,9 +773,6 @@ export async function createVein<TServices = unknown>(
   // version + before/after.
   app.post("/workflows/:name/runs/:runId/promote", async (c) => {
     const { name, runId } = c.req.param();
-    if (!(store instanceof FileRunStore)) {
-      return c.json({ error: "Promotions require a FileRunStore" }, 501);
-    }
     const body = await c.req.json<{ to?: string }>();
     if (!body.to) return c.json({ error: "to is required" }, 400);
 
@@ -1005,8 +999,8 @@ export async function createVein<TServices = unknown>(
   });
 
   // Source code for a step. In-code steps (injected via createRegistry) carry
-  // their source on the def; everything else is read from disk
-  // (core / lib / workspace custom). `source` is null when none is available.
+  // their source on the def; everything else comes through the workspace
+  // boundary (core / lib / custom). `source` is null when none is available.
   app.get("/steps/:type{.+}/source", async (c) => {
     const type = c.req.param("type");
     const def = registry[type];
@@ -1014,11 +1008,11 @@ export async function createVein<TServices = unknown>(
     if (def.source) {
       return c.json({ type, source: def.source, origin: "registry" });
     }
-    const onDisk = await readStepSourceFromDisk(type, workspace.path);
+    const found = await workspace.getStepSource(type);
     return c.json({
       type,
-      source: onDisk?.code ?? null,
-      origin: onDisk?.origin ?? null,
+      source: found?.code ?? null,
+      origin: found?.origin ?? null,
     });
   });
 
@@ -1121,7 +1115,7 @@ export async function createVein<TServices = unknown>(
       params: body.params,
       workspace,
       ...(mode
-        ? { cassette: { mode, path: cassettePath(workspace.path, body.cassetteName ?? type) } }
+        ? { cassette: { mode, path: cassettePath(dataDir, body.cassetteName ?? type) } }
         : {}),
     });
     return c.json(result);
@@ -1273,18 +1267,19 @@ export async function createVein<TServices = unknown>(
 
           const deps = {
             workspace,
+            dataDir,
             registry,
             store,
             services,
             secrets: secretsInjected ? undefined : secretStore,
-            // Build-time bash for the chat builder, cwd'd at the workspace
-            // root (scrubbed env — see shell.ts).
-            shell: { cwd: workspace.path },
+            // Build-time bash for the chat builder, cwd'd at the local data
+            // dir (scrubbed env — see shell.ts).
+            shell: { cwd: dataDir },
             webSearch: true,
             publishingEnabled: !registryWasInjected,
             getRegistry: async () => {
               if (registryWasInjected) return registry;
-              const bundle = await buildRegistry(workspace.path);
+              const bundle = await buildRegistry(await workspace.materializeCustomSteps());
               registry = bundle.registry;
               stepSources = bundle.sources;
               return bundle.registry;
@@ -1517,7 +1512,7 @@ export async function createVein<TServices = unknown>(
   app.get("/health", (c) => {
     return c.json({
       ok: true,
-      workspace: workspace.path,
+      dataDir,
       stepCount: Object.keys(registry).length,
     });
   });
@@ -1594,7 +1589,11 @@ export async function createVein<TServices = unknown>(
   async function listen(port?: number): Promise<number> {
     warnIfUnconfigured();
     const p = port ?? parseInt(process.env["VEIN_PORT"] ?? "3000", 10);
-    console.log(`vein workspace: ${workspace.path}`);
+    console.log(
+      fileBacked
+        ? `vein workspace: ${dataDir}`
+        : `vein workspace: ${workspace.constructor.name} (data dir: ${dataDir})`,
+    );
     console.log(`vein steps: ${Object.keys(registry).length} registered`);
     console.log(`vein server: http://localhost:${p}`);
     serve({ fetch: app.fetch, port: p });
@@ -1604,6 +1603,7 @@ export async function createVein<TServices = unknown>(
   return {
     app,
     workspace,
+    dataDir,
     store,
     secretStore,
     services,
