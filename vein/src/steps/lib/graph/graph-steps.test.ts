@@ -193,3 +193,59 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
     assert.equal(steps.length, 1, "inline VeinStep created once");
   });
 });
+
+// ── graph/project: the run/chat projector as a step ─────────────────────────
+
+describe("graph/project step", () => {
+  it("is discovered by the registry, sourced from lib", async () => {
+    const { registry, sources } = await buildRegistry();
+    assert.ok(registry["graph/project"]);
+    assert.equal(sources["graph/project"], "lib");
+  });
+
+  it("projects a file workspace's runs into the graph (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI not set" }, async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { FileWorkspaceStore } = await import("../../../workspace.js");
+    const { FileRunStore } = await import("../../../store.js");
+    const { openGraphBackend } = await import("../../../graph/backend.js");
+
+    const dataDir = await mkdtemp(join(tmpdir(), "vein-project-step-"));
+    try {
+      const ws = new FileWorkspaceStore(dataDir);
+      await ws.publishWorkflow("wf", "v1", { steps: [{ id: "a", type: "log", config: { message: "x" } }] });
+      const store = new FileRunStore(dataDir);
+      const base = { runId: "1700000000000", path: "wf" };
+      await store.append("wf", base.runId, { ...base, ts: new Date().toISOString(), type: "run.start", input: {} });
+      await store.append("wf", base.runId, { ...base, ts: new Date().toISOString(), type: "run.end", output: "ok" });
+
+      const bolt = new Bolt(cfg!);
+      await wipeGraph(bolt);
+      await bolt.close();
+      const secrets: Record<string, string> = {
+        NEO4J_URI: cfg!.uri, NEO4J_USER: cfg!.user, NEO4J_PASSWORD: cfg!.password,
+        VEIN_GRAPH_NAMESPACE: cfg!.namespace, VEIN_GRAPH_EMBEDDINGS: "off",
+      };
+      const ctx = {
+        runId: "test", path: "test", scope: {}, input: undefined, emit: async () => {},
+        services: { secrets: { get: async (n: string) => secrets[n] } },
+      } as unknown as StepContext;
+      const { registry } = await buildRegistry();
+      const def = registry["graph/project"] as unknown as { input: { parse(v: unknown): unknown }; run(cfg: unknown, ctx: StepContext): Promise<any> };
+
+      const out = await def.run(def.input.parse({ dataDir }), ctx);
+      assert.ok(typeof out !== "string", out);
+      assert.deepEqual([out.workflows, out.runs, out.chats, out.skipped], [["wf"], 1, 0, 0]);
+      const again = await def.run(def.input.parse({ dataDir }), ctx);
+      assert.deepEqual([again.runs, again.skipped], [0, 1], "settled run skipped on re-run");
+
+      const b = await openGraphBackend({ ...cfg!, namespace: cfg!.namespace }, { embeddings: false, skipBoot: true });
+      const rows = await b.bolt.run(`MATCH (r:VeinRun) RETURN r.run_id AS id, r.status AS s`);
+      assert.deepEqual(rows, [{ id: base.runId, s: "success" }]);
+    } finally {
+      await closeGraphBackends();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+});

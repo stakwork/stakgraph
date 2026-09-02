@@ -26,7 +26,7 @@ const PARAM_SELF_REF = /\{\{\s*(params(?:\.[\w$]+|\[[^\]]+\])+)\s*\}\}/g;
  * positive on `{{ }}` inside block-scalar message bodies) and throw a clear,
  * actionable error pointing at the fix: quote the template.
  */
-function assertValidWorkflowYaml(yamlStr: string): void {
+export function assertValidWorkflowYaml(yamlStr: string): void {
   let parsed: unknown;
   try {
     parsed = yaml.load(yamlStr);
@@ -82,6 +82,44 @@ function resolveParamSelfReferences(params: Record<string, unknown>): Record<str
     return v;
   };
   return walk(params) as Record<string, unknown>;
+}
+
+/** Parse a stored workflow version's YAML into a runnable `Flow` — the one
+ *  loader every `WorkspaceStore` backend shares (param self-references are
+ *  resolved once here, at load). */
+export function flowFromYaml(name: string, version: string, raw: string): Flow {
+  const data = yaml.load(raw) as any;
+  if (!data || !data.steps) {
+    throw new Error(`Invalid workflow YAML for "${name}" version "${version}"`);
+  }
+  return {
+    name: data.name ?? name,
+    input: z.any(),
+    steps: data.steps,
+    // Resolve param-to-param references (`{{ params.* }}` nested inside another
+    // param) once at load, so a shared value can be factored into one knob.
+    ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
+    ...(Array.isArray(data.promotes) ? { promotes: data.promotes } : {}),
+  };
+}
+
+/** Render publish content (a steps object or raw YAML) to the YAML string
+ *  that gets stored — shared by every backend so hashes agree. */
+export function renderWorkflowYaml(
+  name: string,
+  content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+): string {
+  return typeof content === "string"
+    ? content
+    : yaml.dump(
+        {
+          name,
+          steps: content.steps,
+          ...(content.params != null ? { params: content.params } : {}),
+          ...(content.promotes != null ? { promotes: content.promotes } : {}),
+        },
+        { lineWidth: 120, noRefs: true },
+      );
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -330,23 +368,7 @@ export class FileWorkspaceStore implements WorkspaceStore {
   private async loadFlowYaml(name: string, version: string): Promise<Flow> {
     const dir = join(this.root, "workflows", name);
     const raw = await readFile(join(dir, `${version}.yaml`), "utf-8");
-    const data = yaml.load(raw) as any;
-
-    if (!data || !data.steps) {
-      throw new Error(
-        `Invalid workflow YAML for "${name}" version "${version}"`,
-      );
-    }
-
-    return {
-      name: data.name ?? name,
-      input: z.any(),
-      steps: data.steps,
-      // Resolve param-to-param references (`{{ params.* }}` nested inside another
-      // param) once at load, so a shared value can be factored into one knob.
-      ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
-      ...(Array.isArray(data.promotes) ? { promotes: data.promotes } : {}),
-    };
+    return flowFromYaml(name, version, raw);
   }
 
   /**
@@ -401,20 +423,7 @@ export class FileWorkspaceStore implements WorkspaceStore {
     const dir = join(this.root, "workflows", name);
     await mkdir(dir, { recursive: true });
 
-    // Write YAML
-    const yamlStr =
-      typeof content === "string"
-        ? content
-        : yaml.dump(
-            {
-              name,
-              steps: content.steps,
-              ...(content.params != null ? { params: content.params } : {}),
-              ...(content.promotes != null ? { promotes: content.promotes } : {}),
-            },
-            { lineWidth: 120, noRefs: true },
-          );
-
+    const yamlStr = renderWorkflowYaml(name, content);
     assertValidWorkflowYaml(yamlStr);
 
     await writeFile(join(dir, `${version}.yaml`), yamlStr, "utf-8");
@@ -877,7 +886,7 @@ async function pathExists(p: string): Promise<boolean> {
  * (e.g. `gitree/save-feature`) and helper names with leading underscores
  * (e.g. `gitree/_shared`). Rejects path traversal and absolute paths.
  */
-function validateStepName(name: string): void {
+export function validateStepName(name: string): void {
   if (!name) {
     throw new Error("Step name cannot be empty");
   }

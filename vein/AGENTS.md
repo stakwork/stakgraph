@@ -279,6 +279,17 @@ services bag can override it, same as `http`/`secrets`).
   other impl → memory); an explicitly passed store always wins, and no
   capability is gated on a concrete class. `storage-conformance.test.ts`
   is the boundary's spec — a new backend passes by running it.
+  **Graph backend:** `Neo4jWorkspaceStore` (`src/graph/workspace-store.ts`)
+  keeps workflows/steps as `VeinWorkflow`/`VeinWorkflowVersion`/`VeinStep`/
+  `VeinStepVersion` nodes (content-addressed versions; soft deletes;
+  `USES_STEP`/`DEPENDS_ON` edges) and passes the same conformance suite
+  (`npm run test:graph`, live). `VEIN_WORKSPACE_BACKEND=graph` switches
+  the default server to it (`src/graph/wiring.ts`). Runs/chats stay in
+  their stores; `src/graph/projector.ts` (or the `graph/project` step)
+  projects them into `VeinRun`/`VeinAgentSession`/`VeinToolCall`/
+  `VeinChat`/`VeinTurn` with `EXECUTED`/`IN_RUN`/`IN_SESSION`/`SPAWNED`/
+  `IN_CHAT` edges — summaries + `log_ref` pointers, never payloads,
+  idempotent upserts.
   `server.ts` is a thin wrapper (`getApp`/`startServer`) over
   `createVein()` with filesystem defaults.
 

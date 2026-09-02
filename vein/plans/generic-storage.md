@@ -4,11 +4,17 @@
 > (two commits: step 1, then steps 2–5). `RunStore` is the full contract;
 > `WorkspaceStore` + `FileWorkspaceStore` (alias `WorkspaceManager`);
 > `getStepSource` / `materializeCustomSteps`; `dataDir`; one resolved
-> default mode; `src/storage-conformance.test.ts`. Remaining: §7 (the
-> graph workspace store + projector) and the v2 provenance convention.
-> The §7 label registry already exists in code — `src/graph/vein-schemas.ts`
-> (seeded by `schema-seed.ts`); the backend seam is `openGraphBackend` in
-> `src/graph/backend.ts`.
+> default mode; `src/storage-conformance.test.ts`. §7 is built too:
+> `src/graph/workspace-store.ts` (`Neo4jWorkspaceStore`, passes the
+> workspace conformance suite live — `npm run test:graph`),
+> `src/graph/projector.ts` (post-hoc run/chat projector, idempotent
+> upserts) + the `graph/project` lib step, and `src/graph/wiring.ts`
+> (`VEIN_WORKSPACE_BACKEND=graph` for the default server). Not projected
+> yet: `ACCESSED` (needs the v2 provenance convention below) and
+> `PROMOTED_FROM` (promotion doesn't record its source run). One deliberate
+> deviation from the file store: graph versions are content-addressed —
+> publishing identical content under a new label re-labels the existing
+> version node instead of duplicating it.
 
 ## Problem
 

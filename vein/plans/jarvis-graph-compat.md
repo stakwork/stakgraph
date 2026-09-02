@@ -28,12 +28,12 @@ so they ship with the engine and are auto-discovered by the registry).
 Tests: `npm run test:graph` in `vein/` (live, against a throwaway Neo4j —
 see `src/graph/test-util.ts`; add `VEIN_TEST_EMBEDDINGS=1` for the
 real-model parity case; includes the end-to-end step test).
-Not yet built: `Neo4jWorkspaceStore` and the run/chat projector;
-`openGraphBackend` in `src/graph/backend.ts` is the seam they plug into.
-The vein-native boundary they implement against (generic-storage §1–5:
-`WorkspaceStore`, the full `RunStore`, `dataDir`, and the conformance
-suite in `src/storage-conformance.test.ts`) landed on branch
-`vein-generic-storage`.
+Also on branch `vein-generic-storage`: the vein-native storage boundary
+(generic-storage §1–5) and, on top of it, `Neo4jWorkspaceStore`
+(`src/graph/workspace-store.ts`) + the run/chat projector
+(`src/graph/projector.ts`, `graph/project` step) + env wiring
+(`src/graph/wiring.ts`, `VEIN_WORKSPACE_BACKEND=graph`). Their live tests
+run under `npm run test:graph`.
 
 **Beyond the original scope — jarvis-typed data.** The harvey lab pipeline
 writes jarvis's own types (Document, EvalSet, EvalRequirement, EvalTrigger,
