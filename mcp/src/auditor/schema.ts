@@ -10,7 +10,7 @@ export const ClaimSchema = z.object({
   proof: z
     .array(z.string())
     .describe(
-      "Evidence ids returned by the capture tool that back this verdict. Required for a works verdict.",
+      "Probe-captured evidence ids that back this verdict — ids returned by http_request, sample, read_logs, browser_extract, browser_screenshot, or browser_current_url. Notes from the capture tool do NOT count. A works verdict with no such id is downgraded to unknown.",
     ),
   reasoning: z
     .string()

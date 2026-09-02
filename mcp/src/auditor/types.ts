@@ -68,13 +68,14 @@ export interface Verdict {
 
 export interface EvidenceCollector {
   records: EvidenceRecord[];
+  strongIds: Set<string>;
   verdict?: {
     overall: Outcome;
     claims: ClaimVerdict[];
     observations: string[];
     summary: string;
   };
-  push(kind: EvidenceKind, summary: string, data?: string): string;
+  push(kind: EvidenceKind, summary: string, data?: string, strong?: boolean): string;
 }
 
 export interface AuditorContext {

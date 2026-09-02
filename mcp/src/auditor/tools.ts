@@ -3,7 +3,7 @@ import { z } from "zod";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { fetch } from "undici";
-import { AuditorContext } from "./types.js";
+import { AuditorContext, ClaimVerdict } from "./types.js";
 import { VerdictSchema } from "./schema.js";
 
 const execAsync = promisify(exec);
@@ -146,7 +146,7 @@ export function getAuditorTools(ctx: AuditorContext) {
           typeof extraction === "string"
             ? extraction
             : JSON.stringify(extraction);
-        const id = collector.push("dom", instruction, data);
+        const id = collector.push("dom", instruction, data, true);
         return { id, extraction };
       } catch (err: any) {
         return browserError("browser_extract", err);
@@ -161,7 +161,7 @@ export function getAuditorTools(ctx: AuditorContext) {
     execute: async () => {
       try {
         const base64 = await browser.screenshot();
-        const id = collector.push("screenshot", "screenshot of current page", base64);
+        const id = collector.push("screenshot", "screenshot of current page", base64, true);
         return { id, note: `Screenshot captured as evidence ${id}. Cite ${id} in proof[].` };
       } catch (err: any) {
         return browserError("browser_screenshot", err);
@@ -176,7 +176,7 @@ export function getAuditorTools(ctx: AuditorContext) {
     execute: async () => {
       try {
         const url = await browser.currentUrl();
-        const id = collector.push("dom", `current url: ${url}`, url);
+        const id = collector.push("dom", `current url: ${url}`, url, true);
         return { id, url };
       } catch (err: any) {
         return browserError("browser_current_url", err);
@@ -222,6 +222,7 @@ export function getAuditorTools(ctx: AuditorContext) {
           "http",
           `HTTP ${method ?? "GET"} ${url} -> ${resp.status} in ${ms}ms`,
           JSON.stringify({ status: resp.status, ms, bodySnippet }),
+          true,
         );
         return {
           id,
@@ -237,6 +238,7 @@ export function getAuditorTools(ctx: AuditorContext) {
           "http",
           `HTTP ${method ?? "GET"} ${url} -> request failed in ${ms}ms`,
           JSON.stringify({ status: 0, ms, bodySnippet: `request failed: ${message}` }),
+          true,
         );
         return {
           id,
@@ -262,11 +264,11 @@ export function getAuditorTools(ctx: AuditorContext) {
           maxBuffer: 1024 * 1024,
         });
         const logs = (stdout || "") + (stderr ? `\n[stderr]\n${stderr}` : "");
-        const id = collector.push("log", "recent application logs", logs);
+        const id = collector.push("log", "recent application logs", logs, true);
         return { id, logs };
       } catch (err: any) {
         const logs = `log fetch failed: ${err?.message ?? String(err)}`;
-        const id = collector.push("log", "log fetch failed", logs);
+        const id = collector.push("log", "log fetch failed", logs, true);
         return { id, logs };
       }
     },
@@ -323,6 +325,7 @@ export function getAuditorTools(ctx: AuditorContext) {
         "timing",
         `sampled ${url} n=${count} median=${medianMs}ms p95=${p95Ms}ms`,
         JSON.stringify({ count, medianMs, p95Ms, samples }),
+        true,
       );
       return { id, count, medianMs, p95Ms, samples };
     },
@@ -330,37 +333,63 @@ export function getAuditorTools(ctx: AuditorContext) {
 
   const capture = tool({
     description:
-      "Capture a free-form NOTE as an evidence record. Probe tools (http_request, sample, read_logs, browser_extract, browser_screenshot) already auto-capture their own evidence and return ids — use this only for a note you observed. Returns an evidence id you cite in a claim's proof[].",
+      "Record a free-form NOTE for the trail. A note is NOT proof and cannot back a works verdict — only the probe tools (http_request, sample, read_logs, browser_extract, browser_screenshot, browser_current_url) produce evidence that backs works. Use this for context you observed, not to justify a verdict.",
     inputSchema: z.object({
-      kind: z
-        .enum(["screenshot", "http", "log", "timing", "dom", "note"])
-        .describe("Kind of evidence; use 'note' for a free-form observation."),
-      summary: z.string().describe("A short human-readable description of what this proves."),
-      data: z.string().optional().describe("The underlying evidence text/JSON."),
+      summary: z.string().describe("A short human-readable description of what you observed."),
+      data: z.string().optional().describe("The underlying note text."),
     }),
     execute: async ({
-      kind,
       summary,
       data,
     }: {
-      kind: "screenshot" | "http" | "log" | "timing" | "dom" | "note";
       summary: string;
       data?: string;
     }) => {
-      const id = collector.push(kind, summary, data);
-      return { id };
+      const id = collector.push("note", summary, data);
+      return { id, note: "Recorded as a NOTE — not proof; cannot back a works verdict." };
     },
   });
 
   const submit_verdict = tool({
     description:
-      "Submit the final audit verdict and END the audit. Each claim's verdict must be backed by captured evidence ids in proof[]. This is the terminal tool.",
+      "Submit the final audit verdict and END the audit. A claim may be marked works ONLY if its proof[] cites at least one probe-captured evidence id (from http_request, sample, read_logs, browser_extract, browser_screenshot, or browser_current_url); notes do not count. A works claim without such proof is downgraded to unknown, and overall is downgraded to match. This is the terminal tool.",
     inputSchema: VerdictSchema,
     execute: async (input: z.infer<typeof VerdictSchema>) => {
+      const strong = collector.strongIds;
+      const notes: string[] = [];
+
+      const claims: ClaimVerdict[] = input.claims.map((c): ClaimVerdict => {
+        if (c.verdict !== "works") return c;
+        const backed = c.proof.filter((id) => strong.has(id));
+        if (backed.length === 0) {
+          notes.push(
+            `Guard: claim "${c.claim}" was submitted as works with no probe-captured proof; downgraded to unknown.`,
+          );
+          return {
+            ...c,
+            verdict: "unknown",
+            proof: backed,
+            reasoning: `${c.reasoning} [auditor guard: no captured proof backed this works claim]`,
+          };
+        }
+        return { ...c, proof: backed };
+      });
+
+      const hasBroken = claims.some((c) => c.verdict === "broken");
+      const allWorks = claims.length > 0 && claims.every((c) => c.verdict === "works");
+
+      let overall = input.overall;
+      if (overall === "works" && !allWorks) {
+        overall = hasBroken ? "broken" : "unknown";
+        notes.push(
+          `Guard: overall downgraded from works to ${overall} because not every claim is backed as works.`,
+        );
+      }
+
       collector.verdict = {
-        overall: input.overall,
-        claims: input.claims,
-        observations: input.observations,
+        overall,
+        claims,
+        observations: notes.length > 0 ? [...input.observations, ...notes] : input.observations,
         summary: input.summary,
       };
       return `Verdict recorded. ${END_OF_AUDIT}`;

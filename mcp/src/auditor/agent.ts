@@ -26,12 +26,15 @@ const MODEL_TIMEOUT_MS =
 
 function createCollector(): EvidenceCollector {
   const records: EvidenceRecord[] = [];
+  const strongIds = new Set<string>();
   return {
     records,
+    strongIds,
     verdict: undefined,
-    push(kind: EvidenceKind, summary: string, data?: string): string {
+    push(kind: EvidenceKind, summary: string, data?: string, strong = false): string {
       const id = `ev${records.length + 1}`;
       records.push({ id, kind, summary, data: data ?? "" });
+      if (strong) strongIds.add(id);
       return id;
     },
   };
