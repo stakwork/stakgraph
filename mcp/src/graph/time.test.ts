@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import neo4j from "neo4j-driver";
 
-import { nowEpochMs } from "./time.js";
+import { nowEpochMs, epochValueToMs, dateAddedAgeHours } from "./time.js";
 import {
   ADD_NODE_QUERY,
   CREATE_AGENT_SESSION_STUB_QUERY,
@@ -141,4 +142,84 @@ describe("gitsee node prep leaves timestamping to the write path", () => {
       );
     });
   }
+});
+
+describe("epochValueToMs", () => {
+  it("scales seconds-magnitude values ×1000", () => {
+    assert.equal(epochValueToMs(1_700_000_000), 1_700_000_000_000);
+  });
+
+  it("treats exactly 10**12 as still-seconds (matches TimeFormatter.epoch_value_to_ms boundary)", () => {
+    assert.equal(epochValueToMs(1e12), 1e15);
+  });
+
+  it("passes ms-magnitude values through without double-scaling", () => {
+    const ms = 1_700_000_000_123; // already canonical epoch-ms
+    assert.equal(epochValueToMs(ms), ms);
+  });
+
+  it("truncates sub-ms precision like the backend int() conversion", () => {
+    // 7-decimal string seconds (legacy shape) round-trips to ms via floor
+    assert.equal(epochValueToMs(1700000000.1234567), 1700000000123);
+  });
+
+  it("accepts a nowEpochMs() stamp unchanged", () => {
+    const ts = nowEpochMs().toNumber();
+    assert.equal(epochValueToMs(ts), ts);
+  });
+});
+
+describe("dateAddedAgeHours (intelligence cache-control age math)", () => {
+  const HOUR_MS = 3600 * 1000;
+
+  it("computes age in hours from a canonical ms-magnitude stamp", () => {
+    const stamp = 1_700_000_000_000; // canonical epoch-ms Integer
+    const now = stamp + 3 * HOUR_MS;
+    assert.equal(dateAddedAgeHours(stamp, now), 3);
+  });
+
+  it("a fresh node (1h old) is within a 24h maxAgeHours window", () => {
+    const now = Date.now();
+    const stamp = now - 1 * HOUR_MS;
+    assert.ok(dateAddedAgeHours(stamp, now) < 24);
+  });
+
+  it("a stale node (72h old) exceeds a 24h maxAgeHours window", () => {
+    const now = Date.now();
+    const stamp = now - 72 * HOUR_MS;
+    assert.ok(dateAddedAgeHours(stamp, now) > 24);
+  });
+
+  it("defaults `now` to Date.now()", () => {
+    const stamp = Date.now() - 2 * HOUR_MS;
+    const hours = dateAddedAgeHours(stamp);
+    assert.ok(hours > 1.9 && hours < 2.1, `expected ~2h, got ${hours}`);
+  });
+});
+
+describe("intelligence cache-control regression guard (source scan)", () => {
+  /**
+   * The cache-control branch reads `date_added_to_graph` without going
+   * through any toInteger/toFloat shim, so a shim-only grep would miss a
+   * regression to the old seconds-assuming math (`Date.now() / 1000`,
+   * `... / 3600`). Scan the source directly to pin the ms semantics.
+   */
+  it("reads date_added_to_graph as epoch-ms via dateAddedAgeHours", () => {
+    const src = readFileSync(
+      new URL("../tools/intelligence/index.ts", import.meta.url),
+      "utf8"
+    );
+    assert.ok(
+      src.includes("dateAddedAgeHours(nodeAge)"),
+      "cache branch must use the canonical dateAddedAgeHours helper"
+    );
+    assert.ok(
+      !src.includes("Date.now() / 1000"),
+      "seconds-assuming currentTime must not return"
+    );
+    assert.ok(
+      !src.includes("/ 3600"),
+      "hours conversion must go through the helper, not a seconds-based divide"
+    );
+  });
 });
