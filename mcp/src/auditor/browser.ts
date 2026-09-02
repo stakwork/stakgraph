@@ -83,6 +83,12 @@ export class AuditBrowser {
     return { instruction, extraction };
   }
 
+  async currentUrl(): Promise<string> {
+    const sh = await this.ensure();
+    const page = await this.page(sh);
+    return page.url();
+  }
+
   async screenshot(): Promise<string> {
     const sh = await this.ensure();
     const page = await this.page(sh);

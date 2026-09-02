@@ -169,6 +169,21 @@ export function getAuditorTools(ctx: AuditorContext) {
     },
   });
 
+  const browser_current_url = tool({
+    description:
+      "Return the current page URL of the browser. Useful to confirm redirects and navigation outcomes. Captures a dom evidence record and returns its id plus the url.",
+    inputSchema: z.object({}),
+    execute: async () => {
+      try {
+        const url = await browser.currentUrl();
+        const id = collector.push("dom", `current url: ${url}`, url);
+        return { id, url };
+      } catch (err: any) {
+        return browserError("browser_current_url", err);
+      }
+    },
+  });
+
   const http_request = tool({
     description:
       "Make a timed HTTP request against the running app or its API. Returns status, elapsed ms, response headers, and a snippet of the body.",
@@ -361,6 +376,7 @@ export function getAuditorTools(ctx: AuditorContext) {
     browser_observe,
     browser_extract,
     browser_screenshot,
+    browser_current_url,
     http_request,
     read_logs,
     run_command,
