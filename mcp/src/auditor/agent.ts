@@ -2,9 +2,14 @@ import { ToolLoopAgent, StopCondition, stepCountIs } from "ai";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { getModelDetails, getProviderOptions } from "../aieo/src/index.js";
-import { maxOutputTokensFor } from "../repo/utils.js";
+import { getModelDetails, getProviderOptions } from "../aieo/src/provider.js";
 import { BrowserSession } from "../lab/gitsee/services/browser.js";
+
+function maxOutputTokensFor(provider?: string): number {
+  const env = Number(process.env.MAX_OUTPUT_TOKENS);
+  if (env > 0) return env;
+  return provider === "anthropic" ? 128_000 : 64_000;
+}
 import { getAuditorTools, AuditorTools, END_OF_AUDIT } from "./tools.js";
 import { AUDITOR_SYSTEM_PROMPT } from "./prompt.js";
 import {
