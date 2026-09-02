@@ -4,9 +4,11 @@ import { graphConfigFromEnv } from "./bolt.js";
 import { DEFAULT_NEO4J_HOST, graphMaterializeDir, graphWorkspaceRequested } from "./wiring.js";
 
 describe("graph workspace wiring defaults", () => {
-  it("VEIN_WORKSPACE_BACKEND=graph is the switch (case-insensitive)", () => {
-    assert.equal(graphWorkspaceRequested({}), false);
+  it("graph by default; VEIN_WORKSPACE_BACKEND=fs opts out (case-insensitive)", () => {
+    assert.equal(graphWorkspaceRequested({}), true);
     assert.equal(graphWorkspaceRequested({ VEIN_WORKSPACE_BACKEND: "Graph" }), true);
+    assert.equal(graphWorkspaceRequested({ VEIN_WORKSPACE_BACKEND: "FS" }), false);
+    assert.equal(graphWorkspaceRequested({ VEIN_WORKSPACE_BACKEND: "file" }), false);
   });
   it("materializes custom steps inside the data dir (module resolution), apart from steps/custom", () => {
     assert.equal(graphMaterializeDir("./lab-workspace"), "lab-workspace/steps/_graph");

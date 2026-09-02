@@ -283,17 +283,18 @@ services bag can override it, same as `http`/`secrets`).
   keeps workflows/steps as `VeinWorkflow`/`VeinWorkflowVersion`/`VeinStep`/
   `VeinStepVersion` nodes (content-addressed versions; soft deletes;
   `USES_STEP`/`DEPENDS_ON` edges) and passes the same conformance suite
-  (`npm run test:graph`, live). `VEIN_WORKSPACE_BACKEND=graph` switches
-  the default server to it (`src/graph/wiring.ts`; connection from
-  `NEO4J_URI` / `NEO4J_HOST` / `NEO4J_USER` / `NEO4J_PASSWORD`, defaulting
-  to localhost:7687 / neo4j / testtest like the mcp host). Runs/chats stay in
+  (`npm run test:graph`, live). It is the default server's workspace
+  (`src/graph/wiring.ts`; connection from `NEO4J_URI` / `NEO4J_HOST` /
+  `NEO4J_USER` / `NEO4J_PASSWORD`, defaulting to localhost:7687 / neo4j /
+  testtest like the mcp host — so Neo4j is a boot dependency);
+  `VEIN_WORKSPACE_BACKEND=fs` opts back into the file workspace. Runs/chats stay in
   their stores; `src/graph/projector.ts` (or the `graph/project` step)
   projects them into `VeinRun`/`VeinAgentSession`/`VeinToolCall`/
   `VeinChat`/`VeinTurn` with `EXECUTED`/`IN_RUN`/`IN_SESSION`/`SPAWNED`/
   `IN_CHAT` edges — summaries + `log_ref` pointers, never payloads,
   idempotent upserts.
   `server.ts` is a thin wrapper (`getApp`/`startServer`) over
-  `createVein()` with filesystem defaults.
+  `createVein()` — graph workspace by default, file stores for the rest.
 
 - **`services` bag** is a consumer-defined capabilities object exposed to
   every step via `ctx.services` (typed by `defineStep`, untyped at

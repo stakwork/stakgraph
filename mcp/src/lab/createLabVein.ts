@@ -145,10 +145,11 @@ export async function createLabVein(
   // these custom steps via `workspace.materializeCustomSteps()` (and step
   // publishing is enabled).
   //
-  // VEIN_WORKSPACE_BACKEND=graph keeps workflows/steps in Neo4j
-  // (vein's Neo4jWorkspaceStore; NEO4J_HOST/USER/PASSWORD, same defaults as
-  // this host's own client). Runs, chats, secrets, artifacts, and cassettes
-  // stay on disk under `workspacePath` either way.
+  // Workflows/steps live in Neo4j by default (vein's Neo4jWorkspaceStore;
+  // NEO4J_HOST/USER/PASSWORD, same defaults as this host's own client);
+  // VEIN_WORKSPACE_BACKEND=fs keeps them on disk instead. Runs, chats,
+  // secrets, artifacts, and cassettes stay on disk under `workspacePath`
+  // either way.
   const graphBacked = graphWorkspaceRequested();
   const workspace: WorkspaceStore = graphBacked
     ? (await graphWorkspaceFromEnv(process.env, { dataDir: workspacePath })).workspace

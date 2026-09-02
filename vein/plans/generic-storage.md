@@ -9,7 +9,8 @@
 > workspace conformance suite live — `npm run test:graph`),
 > `src/graph/projector.ts` (post-hoc run/chat projector, idempotent
 > upserts) + the `graph/project` lib step, and `src/graph/wiring.ts`
-> (`VEIN_WORKSPACE_BACKEND=graph` for the default server). Not projected
+> (graph is the default server's workspace; `VEIN_WORKSPACE_BACKEND=fs`
+opts out). Not projected
 > yet: `ACCESSED` (needs the v2 provenance convention below) and
 > `PROMOTED_FROM` (promotion doesn't record its source run). One deliberate
 > deviation from the file store: graph versions are content-addressed —
