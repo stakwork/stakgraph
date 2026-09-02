@@ -152,7 +152,18 @@ COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 RUN yarn
 
 # Install linux x64 tokenizer bindings (required for fastembed in Docker)
+#
+# This is an `npm install` on top of a yarn tree, so npm re-resolves
+# package.json here and ignores yarn's `resolutions`. Without a matching npm
+# `overrides` entry it re-nests fastembed's declared onnxruntime-node 1.21.0
+# under node_modules/fastembed/node_modules, and at runtime that older
+# libonnxruntime.so.1 loads first and vein's 1.24.3 binding (same soname)
+# fails with "version VERS_1.24.3 not found". package.json carries both
+# `resolutions` (yarn) and `overrides` (npm) pinned to the same version; the
+# check below fails the build, not /lab at runtime, if a second copy sneaks in.
 RUN npm install --force --os=linux --cpu=x64 @anush008/tokenizers-linux-x64-gnu@0.0.0
+RUN extra="$(find node_modules -mindepth 2 -type d -name onnxruntime-node -not -path 'node_modules/onnxruntime-node' -not -path 'node_modules/vein/*')"; \
+    if [ -n "$extra" ]; then echo "duplicate onnxruntime-node copies (soname clash with vein):"; echo "$extra"; exit 1; fi
 
 # Copy the rest of your application code
 COPY ./tsconfig.json ./tsconfig.json
