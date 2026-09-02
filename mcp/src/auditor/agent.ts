@@ -17,7 +17,8 @@ import {
   Verdict,
 } from "./types.js";
 
-const DEFAULT_MAX_TURNS = 40;
+const DEFAULT_MAX_TURNS =
+  parseInt(process.env.AUDIT_MAX_TURNS || "", 10) || 40;
 
 const RUN_TIMEOUT_MS =
   parseInt(process.env.AUDIT_RUN_TIMEOUT_MS || "", 10) || 900_000;
@@ -65,8 +66,6 @@ export function prepareAuditor(
   const collector = createCollector();
   const logs: string[] = [];
 
-  const browser = new AuditBrowser(job.model);
-
   const abortController = new AbortController();
 
   const modelName = job.model.model ?? job.model.provider;
@@ -78,6 +77,8 @@ export function prepareAuditor(
     abortController.signal,
     MODEL_TIMEOUT_MS,
   );
+
+  const browser = new AuditBrowser(model);
 
   const tools = getAuditorTools({ deck: job.deck, collector, browser });
 

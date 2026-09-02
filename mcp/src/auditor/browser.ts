@@ -1,35 +1,16 @@
-import { Stagehand } from "@browserbasehq/stagehand";
-import { JobModel } from "./types.js";
-
-interface StagehandModel {
-  modelName: string;
-  apiKey: string;
-  baseURL?: string;
-}
-
-function deriveModel(job: JobModel): StagehandModel {
-  const raw = job.model ?? "";
-  if (job.provider === "openrouter") {
-    return {
-      modelName: raw.replace(/^openrouter\//, ""),
-      apiKey: job.apiKey,
-      baseURL: job.host || "https://openrouter.ai/api/v1",
-    };
-  }
-  return { modelName: raw, apiKey: job.apiKey };
-}
+import { Stagehand, AISdkClient } from "@browserbasehq/stagehand";
+import type { LanguageModel } from "ai";
 
 export class AuditBrowser {
   private stagehand?: Stagehand;
-  private readonly model: JobModel;
+  private readonly model: LanguageModel;
 
-  constructor(model: JobModel) {
+  constructor(model: LanguageModel) {
     this.model = model;
   }
 
   private async ensure(): Promise<Stagehand> {
     if (this.stagehand) return this.stagehand;
-    const cfg = deriveModel(this.model);
     const sh = new Stagehand({
       env: "LOCAL",
       domSettleTimeout: 60000,
@@ -37,11 +18,7 @@ export class AuditBrowser {
         headless: true,
         viewport: { width: 1024, height: 768 },
       },
-      model: {
-        modelName: cfg.modelName,
-        apiKey: cfg.apiKey,
-        ...(cfg.baseURL ? { baseURL: cfg.baseURL } : {}),
-      },
+      llmClient: new AISdkClient({ model: this.model as any }),
     });
     await sh.init();
     this.stagehand = sh;
