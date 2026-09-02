@@ -32,7 +32,8 @@ Also on branch `vein-generic-storage`: the vein-native storage boundary
 (generic-storage §1–5) and, on top of it, `Neo4jWorkspaceStore`
 (`src/graph/workspace-store.ts`) + the run/chat projector
 (`src/graph/projector.ts`, `graph/project` step) + env wiring
-(`src/graph/wiring.ts`, `VEIN_WORKSPACE_BACKEND=graph`). Their live tests
+(`src/graph/wiring.ts`; graph by default, `VEIN_WORKSPACE_BACKEND=fs` to
+opt out). Their live tests
 run under `npm run test:graph`.
 
 **Beyond the original scope — jarvis-typed data.** The harvey lab pipeline

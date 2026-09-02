@@ -1,8 +1,10 @@
 /**
- * Env-driven wiring for the graph-backed workspace: set
- * `VEIN_WORKSPACE_BACKEND=graph` (plus the `NEO4J_*` connection vars) and
- * the default server keeps workflows/steps in Neo4j instead of the
- * filesystem. Runs, chats, secrets, artifacts, and cassettes stay local
+ * Env-driven wiring for the graph-backed workspace. Graph is the DEFAULT:
+ * the default server keeps workflows/steps in Neo4j (connection from the
+ * `NEO4J_*` vars, defaulting to localhost:7687) unless
+ * `VEIN_WORKSPACE_BACKEND=fs` opts back into the filesystem workspace.
+ * Neo4j is therefore a boot dependency by default — `bolt.verify()` fails
+ * loudly when nothing is listening. Runs, chats, secrets, artifacts, and cassettes stay local
  * under `dataDir` (`VEIN_WORKSPACE`) — the run/chat projector
  * (`projector.ts`, or the `graph/project` step) builds their graph view.
  */
@@ -11,8 +13,12 @@ import type { GraphBackend, GraphBackendOptions } from "./backend.js";
 import { openGraphBackendFromEnv } from "./backend.js";
 import { Neo4jWorkspaceStore, type Neo4jWorkspaceStoreOptions } from "./workspace-store.js";
 
+/** Graph unless `VEIN_WORKSPACE_BACKEND=fs` (case-insensitive; `file` /
+ *  `filesystem` accepted too). Any other value — including unset or the
+ *  legacy `graph` — means graph. */
 export function graphWorkspaceRequested(env: Record<string, string | undefined> = process.env): boolean {
-  return (env["VEIN_WORKSPACE_BACKEND"] ?? "").toLowerCase() === "graph";
+  const v = (env["VEIN_WORKSPACE_BACKEND"] ?? "").toLowerCase();
+  return !(v === "fs" || v === "file" || v === "filesystem");
 }
 
 /** Same default as the mcp host's own Neo4j client and the `graph/*` steps:
