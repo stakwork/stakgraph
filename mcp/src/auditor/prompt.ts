@@ -16,4 +16,4 @@ PERSISTENCE
 If a tool call fails or a page looks empty, wait briefly and retry, or try browser_observe to find elements and browser_act to interact, before concluding. Do not give up after one failure.
 
 FINISHING
-When done, call submit_verdict with per-claim verdicts, each backed by captured evidence ids, plus a holistic overall verdict and a short summary. submit_verdict is the only way to end the audit.`;
+Work toward a verdict efficiently. As soon as you have captured proof for each claim the task makes, STOP probing and call submit_verdict — do not keep exploring once the evidence is sufficient. Over-exploration burns the turn budget and risks the run ending with NO verdict, which is the worst outcome. A focused audit of a handful of claims rarely needs more than a dozen or so tool calls. Call submit_verdict with per-claim verdicts, each backed by captured evidence ids, plus a holistic overall verdict and a short summary. submit_verdict is the only way to end the audit; if you never call it, the audit fails as unknown.`;
