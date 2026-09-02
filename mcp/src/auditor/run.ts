@@ -21,6 +21,7 @@ function fallbackVerdict(
     claims: [],
     observations: [],
     summary: "The auditor could not complete.",
+    evidence: [],
     startedAt,
     finishedAt: new Date().toISOString(),
     error,

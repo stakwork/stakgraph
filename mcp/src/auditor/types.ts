@@ -32,11 +32,19 @@ export interface AuditJob {
   callbackApiKey: string;
 }
 
+export type EvidenceKind =
+  | "screenshot"
+  | "http"
+  | "log"
+  | "timing"
+  | "dom"
+  | "note";
+
 export interface EvidenceRecord {
   id: string;
-  kind: string;
+  kind: EvidenceKind;
   summary: string;
-  data?: unknown;
+  data: string;
 }
 
 export interface ClaimVerdict {
@@ -52,6 +60,7 @@ export interface Verdict {
   claims: ClaimVerdict[];
   observations: string[];
   summary: string;
+  evidence: EvidenceRecord[];
   startedAt: string;
   finishedAt: string;
   error?: string;
@@ -65,11 +74,11 @@ export interface EvidenceCollector {
     observations: string[];
     summary: string;
   };
-  push(kind: string, summary: string, data?: unknown): string;
+  push(kind: EvidenceKind, summary: string, data?: string): string;
 }
 
 export interface AuditorContext {
   deck: Deck;
   collector: EvidenceCollector;
-  browser: import("../lab/gitsee/services/browser.js").BrowserSession;
+  browser: import("./browser.js").AuditBrowser;
 }

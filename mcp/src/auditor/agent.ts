@@ -1,9 +1,6 @@
 import { ToolLoopAgent, StopCondition, stepCountIs } from "ai";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { getModelDetails, getProviderOptions } from "../aieo/src/provider.js";
-import { BrowserSession } from "../lab/gitsee/services/browser.js";
+import { AuditBrowser } from "./browser.js";
 
 function maxOutputTokensFor(provider?: string): number {
   const env = Number(process.env.MAX_OUTPUT_TOKENS);
@@ -15,6 +12,7 @@ import { AUDITOR_SYSTEM_PROMPT } from "./prompt.js";
 import {
   AuditJob,
   EvidenceCollector,
+  EvidenceKind,
   EvidenceRecord,
   Verdict,
 } from "./types.js";
@@ -25,17 +23,15 @@ const RUN_TIMEOUT_MS =
   parseInt(process.env.AUDIT_RUN_TIMEOUT_MS || "", 10) || 900_000;
 const MODEL_TIMEOUT_MS =
   parseInt(process.env.AUDIT_MODEL_TIMEOUT_MS || "", 10) || 300_000;
-const BROWSER_TIMEOUT_MS =
-  parseInt(process.env.AUDIT_BROWSER_TIMEOUT_MS || "", 10) || 30_000;
 
 function createCollector(): EvidenceCollector {
   const records: EvidenceRecord[] = [];
   return {
     records,
     verdict: undefined,
-    push(kind: string, summary: string, data?: unknown): string {
+    push(kind: EvidenceKind, summary: string, data?: string): string {
       const id = `ev${records.length + 1}`;
-      records.push({ id, kind, summary, data });
+      records.push({ id, kind, summary, data: data ?? "" });
       return id;
     },
   };
@@ -66,12 +62,7 @@ export function prepareAuditor(
   const collector = createCollector();
   const logs: string[] = [];
 
-  const screenshotDir = join(tmpdir(), `auditor-${job.taskId}-${randomUUID()}`);
-  const browser = new BrowserSession(
-    job.deck.map.appUrl,
-    screenshotDir,
-    BROWSER_TIMEOUT_MS,
-  );
+  const browser = new AuditBrowser(job.model);
 
   const abortController = new AbortController();
 
@@ -149,6 +140,7 @@ export function prepareAuditor(
         claims: submitted.claims,
         observations: submitted.observations,
         summary: submitted.summary,
+        evidence: collector.records,
         startedAt,
         finishedAt,
         ...(runError ? { error: runError } : {}),
@@ -167,6 +159,7 @@ export function prepareAuditor(
       ],
       summary:
         "The audit ended before submit_verdict was called; no honest verdict could be produced.",
+      evidence: collector.records,
       startedAt,
       finishedAt,
       error: runError ?? "no verdict submitted",

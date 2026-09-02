@@ -10,6 +10,25 @@ const execAsync = promisify(exec);
 
 export const END_OF_AUDIT = "[END_OF_AUDIT]";
 
+function resolveUrl(appUrl: string, url: string): string {
+  try {
+    return new URL(url).toString();
+  } catch {
+    try {
+      return new URL(url, appUrl).toString();
+    } catch {
+      return url;
+    }
+  }
+}
+
+function browserError(op: string, err: any) {
+  return {
+    error: `${op} failed: ${err?.message ?? String(err)}`,
+    hint: "Wait briefly and retry, or use browser_observe to locate elements and browser_act to interact before concluding. Do not give up after one failure.",
+  };
+}
+
 const MUTATING: Array<[RegExp, string]> = [
   [/\bgit\b[^\n|;&]*\b(commit|push|reset|checkout|merge|rebase|add|clean|stash)\b/, "git write command"],
   [/\brm\b/, "rm"],
@@ -71,59 +90,82 @@ export function getAuditorTools(ctx: AuditorContext) {
     inputSchema: z.object({
       url: z.string().describe("Absolute URL or a path relative to the app base URL."),
     }),
-    execute: async ({ url }: { url: string }) => browser.open(url),
+    execute: async ({ url }: { url: string }) => {
+      try {
+        return await browser.open(resolveUrl(deck.map.appUrl, url));
+      } catch (err: any) {
+        return browserError("browser_open", err);
+      }
+    },
   });
 
-  const browser_snapshot = tool({
+  const browser_act = tool({
     description:
-      "Snapshot the current page: interactive elements as @eN refs plus visible text. Refs reset on navigation — re-snapshot after clicks that navigate.",
-    inputSchema: z.object({}),
-    execute: async () => browser.snapshot(),
-  });
-
-  const browser_click = tool({
-    description: "Click an interactive element by its @eN ref from the latest snapshot.",
-    inputSchema: z.object({ ref: z.string().describe("An @eN ref, e.g. 'e3'.") }),
-    execute: async ({ ref }: { ref: string }) => browser.click(ref),
-  });
-
-  const browser_fill = tool({
-    description: "Fill an input/textarea (by @eN ref) with a value.",
+      "Perform a natural-language action on the current page, e.g. 'Click the sign in button' or 'Type hello into the search input'. Keep actions atomic and specific.",
     inputSchema: z.object({
-      ref: z.string().describe("An @eN ref from the latest snapshot."),
-      value: z.string().describe("The text to type into the field."),
+      action: z.string().describe("The atomic action to perform in natural language."),
     }),
-    execute: async ({ ref, value }: { ref: string; value: string }) => browser.fill(ref, value),
-  });
-
-  const browser_press = tool({
-    description: "Press a keyboard key on the page (e.g. 'Enter', 'Tab', 'Escape').",
-    inputSchema: z.object({ key: z.string().describe("Key name, e.g. 'Enter'.") }),
-    execute: async ({ key }: { key: string }) => browser.press(key),
+    execute: async ({ action }: { action: string }) => {
+      try {
+        return await browser.act(action);
+      } catch (err: any) {
+        return browserError("browser_act", err);
+      }
+    },
   });
 
   const browser_observe = tool({
     description:
-      "Observe what actually happened on the page: the current snapshot plus any console errors, page errors, failed requests, and HTTP 4xx/5xx responses seen since the last observation. Use this to catch runtime failures.",
+      "Observe the current page in natural language to find candidate actionable elements (e.g. 'find the login button'). Use before acting when you are unsure what is on the page.",
     inputSchema: z.object({
       instruction: z
         .string()
-        .describe("What you are trying to observe or verify right now."),
+        .describe("What you are looking for on the page right now."),
     }),
     execute: async ({ instruction }: { instruction: string }) => {
-      const snapshot = await browser.snapshot();
-      const events = browser.drainSummary();
-      return { instruction, snapshot, events };
+      try {
+        return await browser.observe(instruction);
+      } catch (err: any) {
+        return browserError("browser_observe", err);
+      }
+    },
+  });
+
+  const browser_extract = tool({
+    description:
+      "Extract a structured/text observation from the current page in natural language (e.g. 'the visible error message' or 'the list of rows'). Captures a dom evidence record and returns its id you can cite in proof[].",
+    inputSchema: z.object({
+      instruction: z
+        .string()
+        .describe("What to read/extract from the page."),
+    }),
+    execute: async ({ instruction }: { instruction: string }) => {
+      try {
+        const { extraction } = await browser.extract(instruction);
+        const data =
+          typeof extraction === "string"
+            ? extraction
+            : JSON.stringify(extraction);
+        const id = collector.push("dom", instruction, data);
+        return { id, extraction };
+      } catch (err: any) {
+        return browserError("browser_extract", err);
+      }
     },
   });
 
   const browser_screenshot = tool({
     description:
-      "Take a full-page screenshot of the current page. Returns the saved file path (usable as proof when captured).",
+      "Take a screenshot of the current page. Captures a screenshot evidence record and returns its id — cite that id in a claim's proof[]. The raw image is stored as evidence, not returned here.",
     inputSchema: z.object({}),
     execute: async () => {
-      const path = await browser.screenshot(`audit-${Date.now()}.png`);
-      return { path: path ?? "screenshot unavailable" };
+      try {
+        const base64 = await browser.screenshot();
+        const id = collector.push("screenshot", "screenshot of current page", base64);
+        return { id, note: `Screenshot captured as evidence ${id}. Cite ${id} in proof[].` };
+      } catch (err: any) {
+        return browserError("browser_screenshot", err);
+      }
     },
   });
 
@@ -160,18 +202,33 @@ export function getAuditorTools(ctx: AuditorContext) {
         resp.headers.forEach((v, k) => {
           respHeaders[k] = v;
         });
+        const bodySnippet = text.slice(0, 2000);
+        const id = collector.push(
+          "http",
+          `HTTP ${method ?? "GET"} ${url} -> ${resp.status} in ${ms}ms`,
+          JSON.stringify({ status: resp.status, ms, bodySnippet }),
+        );
         return {
+          id,
           status: resp.status,
           ms,
           headers: respHeaders,
-          bodySnippet: text.slice(0, 2000),
+          bodySnippet,
         };
       } catch (err: any) {
+        const ms = Date.now() - start;
+        const message = err?.message ?? String(err);
+        const id = collector.push(
+          "http",
+          `HTTP ${method ?? "GET"} ${url} -> request failed in ${ms}ms`,
+          JSON.stringify({ status: 0, ms, bodySnippet: `request failed: ${message}` }),
+        );
         return {
+          id,
           status: 0,
-          ms: Date.now() - start,
+          ms,
           headers: {},
-          bodySnippet: `request failed: ${err?.message ?? String(err)}`,
+          bodySnippet: `request failed: ${message}`,
         };
       }
     },
@@ -189,9 +246,13 @@ export function getAuditorTools(ctx: AuditorContext) {
           timeout: 30000,
           maxBuffer: 1024 * 1024,
         });
-        return { logs: (stdout || "") + (stderr ? `\n[stderr]\n${stderr}` : "") };
+        const logs = (stdout || "") + (stderr ? `\n[stderr]\n${stderr}` : "");
+        const id = collector.push("log", "recent application logs", logs);
+        return { id, logs };
       } catch (err: any) {
-        return { logs: `log fetch failed: ${err?.message ?? String(err)}` };
+        const logs = `log fetch failed: ${err?.message ?? String(err)}`;
+        const id = collector.push("log", "log fetch failed", logs);
+        return { id, logs };
       }
     },
   });
@@ -243,28 +304,33 @@ export function getAuditorTools(ctx: AuditorContext) {
       const sorted = [...samples].sort((a, b) => a - b);
       const medianMs = percentile(sorted, 50);
       const p95Ms = percentile(sorted, 95);
-      return { count, medianMs, p95Ms, samples };
+      const id = collector.push(
+        "timing",
+        `sampled ${url} n=${count} median=${medianMs}ms p95=${p95Ms}ms`,
+        JSON.stringify({ count, medianMs, p95Ms, samples }),
+      );
+      return { id, count, medianMs, p95Ms, samples };
     },
   });
 
   const capture = tool({
     description:
-      "Capture an evidence record (a screenshot path, an HTTP response, a log line, a number, an error). Returns an evidence id you cite in a claim's proof[]. Only captured evidence can justify a works verdict.",
+      "Capture a free-form NOTE as an evidence record. Probe tools (http_request, sample, read_logs, browser_extract, browser_screenshot) already auto-capture their own evidence and return ids — use this only for a note you observed. Returns an evidence id you cite in a claim's proof[].",
     inputSchema: z.object({
       kind: z
-        .string()
-        .describe("Kind of evidence, e.g. 'screenshot', 'http', 'log', 'timing', 'error'."),
+        .enum(["screenshot", "http", "log", "timing", "dom", "note"])
+        .describe("Kind of evidence; use 'note' for a free-form observation."),
       summary: z.string().describe("A short human-readable description of what this proves."),
-      data: z.any().optional().describe("The underlying evidence data."),
+      data: z.string().optional().describe("The underlying evidence text/JSON."),
     }),
     execute: async ({
       kind,
       summary,
       data,
     }: {
-      kind: string;
+      kind: "screenshot" | "http" | "log" | "timing" | "dom" | "note";
       summary: string;
-      data?: unknown;
+      data?: string;
     }) => {
       const id = collector.push(kind, summary, data);
       return { id };
@@ -291,11 +357,9 @@ export function getAuditorTools(ctx: AuditorContext) {
     read_feature_context,
     read_map,
     browser_open,
-    browser_snapshot,
-    browser_click,
-    browser_fill,
-    browser_press,
+    browser_act,
     browser_observe,
+    browser_extract,
     browser_screenshot,
     http_request,
     read_logs,
