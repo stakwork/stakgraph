@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText } from "./_shared.js";
 const LABEL_MAX = 160;
@@ -101,7 +101,11 @@ export default defineStep({
         if (neighbors.length >= NEIGHBOR_CAP) break;
       }
 
-      return neighbors;
+      // Provenance: the expanded node plus every neighbor returned.
+      return withAccessedNodes(neighbors, [
+        { ref_id: cfg.ref_id },
+        ...neighbors.map((n) => ({ ref_id: n.ref_id as string, node_type: n.node_type as string })),
+      ]);
     } catch (e) {
       return errText("graph/graph-neighbors", e);
     }

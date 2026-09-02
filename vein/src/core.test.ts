@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { flow, step, defineStep } from "./core.js";
+import { flow, step, defineStep, withAccessedNodes, accessedNodesOf } from "./core.js";
 
 // ── step() ─────────────────────────────────────────────────────────────────
 
@@ -187,5 +187,34 @@ describe("defineStep()", () => {
     // Invalid input
     assert.throws(() => def.input.parse({ name: "Alice" }));
     assert.throws(() => def.input.parse({ name: 123, age: 30 }));
+  });
+});
+
+// ── Provenance marker (withAccessedNodes / accessedNodesOf) ────────────────
+
+describe("withAccessedNodes()", () => {
+  it("marks objects and arrays with a non-enumerable, deduplicated node list", () => {
+    const obj = withAccessedNodes({ ref_id: "a" }, [{ ref_id: "a", node_type: "Concept" }, { ref_id: "a" }, { ref_id: "b" }]);
+    assert.deepEqual(accessedNodesOf(obj), [{ ref_id: "a", node_type: "Concept" }, { ref_id: "b" }]);
+    // Invisible to enumeration, JSON, spreads, and deep-equality.
+    assert.deepEqual(Object.keys(obj), ["ref_id"]);
+    assert.equal(JSON.stringify(obj), '{"ref_id":"a"}');
+    assert.equal(accessedNodesOf({ ...obj }), undefined);
+    assert.deepEqual(obj, { ref_id: "a" });
+
+    const arr = withAccessedNodes([{ ref_id: "x" }], [{ ref_id: "x" }]);
+    assert.deepEqual(accessedNodesOf(arr), [{ ref_id: "x" }]);
+    assert.equal(JSON.stringify(arr), '[{"ref_id":"x"}]');
+    assert.equal(arr.length, 1);
+  });
+
+  it("leaves primitives, empty lists, and junk refs unmarked", () => {
+    assert.equal(withAccessedNodes("error text", [{ ref_id: "a" }]), "error text");
+    assert.equal(accessedNodesOf("error text"), undefined);
+    assert.equal(accessedNodesOf(withAccessedNodes({}, [])), undefined);
+    assert.equal(accessedNodesOf(withAccessedNodes({}, [null, undefined, { ref_id: "" }, { ref_id: 1 as any }])), undefined);
+    assert.equal(accessedNodesOf(null), undefined);
+    // node_type is optional and dropped when empty.
+    assert.deepEqual(accessedNodesOf(withAccessedNodes({}, [{ ref_id: "a", node_type: "" }])), [{ ref_id: "a" }]);
   });
 });

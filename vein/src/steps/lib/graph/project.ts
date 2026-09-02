@@ -7,7 +7,8 @@ export default defineStep({
   type: "graph/project",
   description:
     "Project vein's own run and chat history into the knowledge graph (VeinRun / VeinAgentSession / " +
-    "VeinToolCall / VeinChat / VeinTurn nodes with EXECUTED, IN_RUN, IN_SESSION, SPAWNED, IN_CHAT edges), " +
+    "VeinToolCall / VeinChat / VeinTurn nodes with EXECUTED, IN_RUN, IN_SESSION, SPAWNED, IN_CHAT edges, plus " +
+    "ACCESSED edges from each tool call to the graph nodes it reported touching), " +
     "reading the raw logs under the server's data dir. Idempotent — re-run any time; settled runs are " +
     "skipped unless skipSettled is false. This is what makes 'which runs executed this version' and " +
     "'which chat launched this run' one-hop graph questions.",

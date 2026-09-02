@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText } from "./_shared.js";
 const LABEL_MAX = 160;
@@ -66,13 +66,16 @@ export default defineStep({
       } catch {
         // edges stays {}
       }
-      return {
-        ref_id: raw.ref_id,
-        node_type: raw.node_type,
-        name: deriveNodeName(raw, properties),
-        properties: raw.properties,
-        edges,
-      };
+      return withAccessedNodes(
+        {
+          ref_id: raw.ref_id,
+          node_type: raw.node_type,
+          name: deriveNodeName(raw, properties),
+          properties: raw.properties,
+          edges,
+        },
+        [{ ref_id: raw.ref_id, node_type: raw.node_type }],
+      );
     } catch (e) {
       return errText("graph/graph-get", e);
     }

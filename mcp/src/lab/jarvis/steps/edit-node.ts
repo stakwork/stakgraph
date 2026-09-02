@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
@@ -86,12 +86,15 @@ export default defineStep({
     }
     // Compact confirmation — deliberately NOT the full updated node, whose
     // properties include bulky derived fields. jarvis_graph_get to verify.
-    return {
-      status: "Success",
-      ref_id: cfg.ref_id,
-      ...(hasSet ? { updated: Object.keys(cfg.node_data!) } : {}),
-      ...(hasDelete ? { deleted: cfg.properties_to_be_deleted } : {}),
-      ...(cfg.node_type ? { node_type: cfg.node_type } : {}),
-    };
+    return withAccessedNodes(
+      {
+        status: "Success",
+        ref_id: cfg.ref_id,
+        ...(hasSet ? { updated: Object.keys(cfg.node_data!) } : {}),
+        ...(hasDelete ? { deleted: cfg.properties_to_be_deleted } : {}),
+        ...(cfg.node_type ? { node_type: cfg.node_type } : {}),
+      },
+      [{ ref_id: cfg.ref_id, node_type: cfg.node_type }],
+    );
   },
 });

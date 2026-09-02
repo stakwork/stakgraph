@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText, graphErrorCode, writeEdge, type GraphBackend } from "./_shared.js";
 /** Validate one side of a triplet: either ref_id XOR (type + data). */
@@ -136,6 +136,10 @@ export default defineStep({
     }
 
     const failed = results.filter((r) => r.error).length;
-    return { requested: cfg.triplets.length, succeeded: results.length - failed, failed, results };
+    return withAccessedNodes(
+      { requested: cfg.triplets.length, succeeded: results.length - failed, failed, results },
+      // Provenance: both endpoints of every edge that was written.
+      results.filter((r) => !r.error).flatMap((r) => [{ ref_id: r.source_ref_id as string }, { ref_id: r.target_ref_id as string }]),
+    );
   },
 });

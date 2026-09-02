@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
@@ -125,6 +125,10 @@ export default defineStep({
       if (neighbors.length >= NEIGHBOR_CAP) break;
     }
 
-    return neighbors;
+    // Provenance: the expanded node plus every neighbor returned.
+    return withAccessedNodes(neighbors, [
+      { ref_id: cfg.ref_id },
+      ...neighbors.map((n) => ({ ref_id: n.ref_id as string, node_type: n.node_type as string })),
+    ]);
   },
 });

@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
@@ -82,7 +82,7 @@ export default defineStep({
     if (!res.ok) return `HTTP ${res.status}: ${typeof res.body === "string" ? res.body : JSON.stringify(res.body)}`;
     const data = res.body as any;
     const nodes: any[] = Array.isArray(data) ? data : (data?.nodes ?? []);
-    return nodes.map((n: any) => ({
+    const hits = nodes.map((n: any) => ({
       ref_id: n.ref_id ?? n.properties?.ref_id,
       name:
         n.properties?.name ??
@@ -96,5 +96,7 @@ export default defineStep({
       ...(n.properties?.workflow_id !== undefined ? { workflow_id: n.properties.workflow_id } : {}),
       ...(n.properties?.skill_id !== undefined ? { skill_id: n.properties.skill_id } : {}),
     }));
+    // Provenance: every hit is a node this call touched.
+    return withAccessedNodes(hits, hits.map((h: any) => ({ ref_id: h.ref_id, node_type: h.node_type })));
   },
 });

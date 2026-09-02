@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText } from "./_shared.js";
 export default defineStep({
@@ -52,12 +52,15 @@ export default defineStep({
       await b.nodes.update(cfg.ref_id, { set: cfg.node_data ?? {}, remove: cfg.properties_to_be_deleted ?? [] });
       // Compact confirmation — deliberately NOT the full updated node.
       // graph_graph_get to verify.
-      return {
-        status: "Success",
-        ref_id: cfg.ref_id,
-        ...(hasSet ? { updated: Object.keys(cfg.node_data!) } : {}),
-        ...(hasDelete ? { deleted: cfg.properties_to_be_deleted } : {}),
-      };
+      return withAccessedNodes(
+        {
+          status: "Success",
+          ref_id: cfg.ref_id,
+          ...(hasSet ? { updated: Object.keys(cfg.node_data!) } : {}),
+          ...(hasDelete ? { deleted: cfg.properties_to_be_deleted } : {}),
+        },
+        [{ ref_id: cfg.ref_id }],
+      );
     } catch (e) {
       return errText("graph/edit-node", e);
     }
