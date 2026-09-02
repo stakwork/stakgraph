@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
@@ -182,6 +182,10 @@ export default defineStep({
     }
 
     const failed = results.filter((r) => r.error).length;
-    return { requested: cfg.triplets.length, succeeded: results.length - failed, failed, results };
+    return withAccessedNodes(
+      { requested: cfg.triplets.length, succeeded: results.length - failed, failed, results },
+      // Provenance: both endpoints of every edge that was written.
+      results.filter((r) => !r.error).flatMap((r) => [{ ref_id: r.source_ref_id as string }, { ref_id: r.target_ref_id as string }]),
+    );
   },
 });

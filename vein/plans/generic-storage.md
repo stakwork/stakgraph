@@ -10,9 +10,11 @@
 > `src/graph/projector.ts` (post-hoc run/chat projector, idempotent
 > upserts) + the `graph/project` lib step, and `src/graph/wiring.ts`
 > (graph is the default server's workspace; `VEIN_WORKSPACE_BACKEND=fs`
-opts out). Not projected
-> yet: `ACCESSED` (needs the v2 provenance convention below) and
-> `PROMOTED_FROM` (promotion doesn't record its source run). One deliberate
+opts out). The v2 provenance convention below landed 2026-09-02
+> (`withAccessedNodes` in `core.ts`, `nodes` on `step.end`, `ACCESSED`
+> in the projector; every `graph/*` + mcp `jarvis/*` node-touching step
+> reports). Not projected yet: `PROMOTED_FROM` (promotion doesn't record
+> its source run). One deliberate
 > deviation from the file store: graph versions are content-addressed —
 > publishing identical content under a new label re-labels the existing
 > version node instead of duplicating it.
@@ -375,6 +377,15 @@ backend-independent and unaffected.
 6. (Follow-up plan) `Neo4jWorkspaceStore` against the conformance suite.
 
 ## v2: Provenance convention (the gap the projection can't close alone)
+
+> **Status (2026-09-02):** implemented. The marker is `withAccessedNodes`
+> / `accessedNodesOf` in `core.ts` (a NON-enumerable `_nodes` property, so
+> it rides with the value in-process but never reaches the model, `{{ }}`
+> expressions, or JSON — which also lets array-shaped outputs carry it);
+> `wrapToolsWithEmit` lifts it onto `step.end` as `RunEvent.nodes`;
+> `maskDeep` carries it across masking; the projector writes `ACCESSED`
+> for refs the graph holds and counts the rest as `unresolved`. Chat-mode
+> agents expose no graph tools today, so nothing to capture there yet.
 
 Storage backends are not what blocks "which prompts touch which parts of
 the graph" — **provenance capture is**. Today a graph-touching tool call

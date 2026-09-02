@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText } from "./_shared.js";
 export default defineStep({
@@ -32,14 +32,17 @@ export default defineStep({
       const namespace = await b.reader.resolveNamespace(cfg.namespace);
       const r = await b.nodes.write({ type: cfg.node_type, data: cfg.node_data }, "create", { namespace });
       const existed = r.outcome === "existing";
-      return {
-        // "Warning" here means the node already existed (idempotent merge).
-        status: existed ? "Warning" : "Success",
-        ref_id: r.ref_id,
-        node_type: cfg.node_type,
-        ...(existed ? { messages: [`Node already exists in the graph with node_key: ${r.node_key}`] } : {}),
-        ...(r.outcome === "restored" ? { messages: ["Node restored"] } : {}),
-      };
+      return withAccessedNodes(
+        {
+          // "Warning" here means the node already existed (idempotent merge).
+          status: existed ? "Warning" : "Success",
+          ref_id: r.ref_id,
+          node_type: cfg.node_type,
+          ...(existed ? { messages: [`Node already exists in the graph with node_key: ${r.node_key}`] } : {}),
+          ...(r.outcome === "restored" ? { messages: ["Node restored"] } : {}),
+        },
+        [{ ref_id: r.ref_id, node_type: cfg.node_type }],
+      );
     } catch (e) {
       return errText("graph/create-node", e);
     }

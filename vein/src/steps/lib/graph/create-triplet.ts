@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText, graphErrorCode, writeEdge } from "./_shared.js";
 /** Validate one side of a triplet: either ref_id XOR (type + data). */
@@ -126,15 +126,19 @@ export default defineStep({
           `but the edge write failed — ${graphErrorCode(e) ? `${graphErrorCode(e)}: ` : ""}${e instanceof Error ? e.message : String(e)}`
         );
       }
-      return {
-        // "Warning" here means the edge already existed (idempotent merge).
-        status: edge.created ? "Success" : "Warning",
-        source_ref_id: edge.source_ref_id,
-        target_ref_id: edge.target_ref_id,
-        edge_ref_id: edge.ref_id,
-        edge_type: cfg.edge_type.toUpperCase().replace(/ /g, "_"),
-        ...(edge.created ? {} : { messages: ["Edge already exists in the graph"] }),
-      };
+      return withAccessedNodes(
+        {
+          // "Warning" here means the edge already existed (idempotent merge).
+          status: edge.created ? "Success" : "Warning",
+          source_ref_id: edge.source_ref_id,
+          target_ref_id: edge.target_ref_id,
+          edge_ref_id: edge.ref_id,
+          edge_type: cfg.edge_type.toUpperCase().replace(/ /g, "_"),
+          ...(edge.created ? {} : { messages: ["Edge already exists in the graph"] }),
+        },
+        // Provenance: both endpoints (the edge itself is not a node).
+        [{ ref_id: edge.source_ref_id, node_type: cfg.source_type }, { ref_id: edge.target_ref_id, node_type: cfg.target_type }],
+      );
     } catch (e) {
       return errText("graph/create-triplet", e);
     }

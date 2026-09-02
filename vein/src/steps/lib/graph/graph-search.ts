@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { getVeinSchema } from "../../../graph/vein-schemas.js";
 import { graphCtx, errText } from "./_shared.js";
@@ -80,7 +80,7 @@ export default defineStep({
         // targets come back in one call.
         include_edge_counts: true,
       });
-      return res.nodes.map((n) => {
+      const hits = res.nodes.map((n) => {
         const p = (n.properties ?? {}) as Record<string, any>;
         return {
           ref_id: n.ref_id,
@@ -93,6 +93,8 @@ export default defineStep({
           ...(p.skill_id !== undefined ? { skill_id: p.skill_id } : {}),
         };
       });
+      // Provenance: every hit is a node this call touched.
+      return withAccessedNodes(hits, hits.map((h) => ({ ref_id: h.ref_id, node_type: h.node_type })));
     } catch (e) {
       return errText("graph/graph-search", e);
     }

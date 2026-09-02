@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Provider as AieoProvider } from "aieo";
-import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
+import { accessedNodesOf, defineStep, type StepContext, type StepRegistry, withAccessedNodes } from "../../core.js";
 import { isCancelledError } from "../../run-control.js";
 import { usageFromResult, computeCost, addUsage, emptyUsage, maxOutputTokensFor } from "../../pricing.js";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
@@ -541,7 +541,11 @@ export function buildRegistryTools(
  * No-op when there's no runner ctx (in-code/test) or no path. Skips
  * `final_answer` (terminal, noisy) and any tool with no function `execute`
  * (provider-executed tools like anthropic `web_search`). Output is truncated in
- * the event only (the model still sees the full result).
+ * the event only (the model still sees the full result) — except the
+ * provenance marker: a result marked with `withAccessedNodes` gets its node
+ * refs lifted verbatim onto the `step.end` event as `nodes`, the one part of
+ * tool output that must survive into the log untruncated because it is data
+ * for the graph projector (`ACCESSED` edges), not a preview for humans.
  */
 /** Replace every occurrence of each secret value in `text` with a marker.
  *  Plain string splitting (no regex) — values are opaque tokens. */
@@ -557,11 +561,13 @@ export function maskSecretValues(text: string, values: string[]): string {
 export function maskDeep(value: unknown, values: string[]): unknown {
   if (!values.length) return value;
   if (typeof value === "string") return maskSecretValues(value, values);
-  if (Array.isArray(value)) return value.map((x) => maskDeep(x, values));
+  // Rebuilding a container drops its non-enumerable provenance marker
+  // (`withAccessedNodes`) — carry it over; node refs are ids, not secrets.
+  if (Array.isArray(value)) return withAccessedNodes(value.map((x) => maskDeep(x, values)), accessedNodesOf(value) ?? []);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) out[k] = maskDeep(v, values);
-    return out;
+    return withAccessedNodes(out, accessedNodesOf(value) ?? []);
   }
   return value;
 }
@@ -610,12 +616,14 @@ export function wrapToolsWithEmit(tools: Record<string, any>, ctx: StepContext |
             ? { ...(opts as Record<string, unknown>), veinToolPath: path }
             : { veinToolPath: path };
         const out = await (orig as (i: unknown, o: unknown) => Promise<unknown>)(input, optsWithPath);
+        const nodes = accessedNodesOf(out);
         await emit({
           type: "step.end",
           path,
           stepType: `tool:${name}`,
           output: summarizeForEvent(out),
           durationMs: Date.now() - startedAt,
+          ...(nodes ? { nodes } : {}),
         });
         return out;
       } catch (e) {

@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
@@ -184,17 +184,21 @@ export default defineStep({
           `but the edge write failed — HTTP ${res.status}: ${typeof res.body === "string" ? res.body : JSON.stringify(res.body)}`
         );
       }
-      return {
-        // "Warning" here means the edge already existed (idempotent merge).
-        status: body?.status ?? "Success",
-        source_ref_id: sourceRef,
-        target_ref_id: targetRef,
-        edge_ref_id: edgeRef,
-        edge_type: cfg.edge_type,
-        ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
-          ? { messages: body.status_messages }
-          : {}),
-      };
+      return withAccessedNodes(
+        {
+          // "Warning" here means the edge already existed (idempotent merge).
+          status: body?.status ?? "Success",
+          source_ref_id: sourceRef,
+          target_ref_id: targetRef,
+          edge_ref_id: edgeRef,
+          edge_type: cfg.edge_type,
+          ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
+            ? { messages: body.status_messages }
+            : {}),
+        },
+        // Provenance: both endpoints (the edge itself is not a node).
+        [{ ref_id: sourceRef, node_type: cfg.source_type }, { ref_id: targetRef, node_type: cfg.target_type }],
+      );
     } catch (err: any) {
       return `jarvis/create-triplet failed: ${err?.message ?? String(err)}`;
     }

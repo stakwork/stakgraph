@@ -169,6 +169,52 @@ export interface RunEvent {
    *  re-executes steps with the SAME knob values the original run used. */
   params?: Record<string, unknown>;
   paramOverrides?: Record<string, Record<string, unknown>>;
+  /** Graph nodes this step reported touching (the provenance convention,
+   *  plans/generic-storage.md "v2") — lifted verbatim from the output's
+   *  `_nodes` marker on `step.end`, exempt from any truncation. The graph
+   *  projector turns them into `ACCESSED` edges. */
+  nodes?: AccessedNode[];
+}
+
+// ── Provenance convention: which graph nodes did a step touch? ─────────────
+
+/** One graph node a step read or wrote, by its stable `ref_id`. */
+export interface AccessedNode {
+  ref_id: string;
+  node_type?: string;
+}
+
+const ACCESSED_NODES_KEY = "_nodes";
+
+/**
+ * Mark a step's output with the graph nodes it touched. The marker is a
+ * NON-enumerable own property of the output value (object or array), so it
+ * rides along in-process — to `wrapToolsWithEmit`, which lifts it onto the
+ * `step.end` event — but never reaches the model, downstream `{{ }}`
+ * expressions, or a JSON serializer. Refs are deduplicated by `ref_id`;
+ * empty lists and non-object outputs (error strings) are left unmarked.
+ * Returns `output` for chaining: `return withAccessedNodes(result, refs)`.
+ */
+export function withAccessedNodes<T>(output: T, nodes: Array<AccessedNode | null | undefined>): T {
+  if (output === null || typeof output !== "object") return output;
+  const seen = new Set<string>();
+  const list: AccessedNode[] = [];
+  for (const n of nodes) {
+    if (!n || typeof n.ref_id !== "string" || !n.ref_id || seen.has(n.ref_id)) continue;
+    seen.add(n.ref_id);
+    list.push(typeof n.node_type === "string" && n.node_type ? { ref_id: n.ref_id, node_type: n.node_type } : { ref_id: n.ref_id });
+  }
+  if (list.length === 0) return output;
+  Object.defineProperty(output, ACCESSED_NODES_KEY, { value: list, enumerable: false, configurable: true, writable: true });
+  return output;
+}
+
+/** The nodes a step output was marked with (see `withAccessedNodes`), else
+ *  undefined. */
+export function accessedNodesOf(output: unknown): AccessedNode[] | undefined {
+  if (output === null || typeof output !== "object") return undefined;
+  const v = (output as Record<string, unknown>)[ACCESSED_NODES_KEY];
+  return Array.isArray(v) && v.length > 0 ? (v as AccessedNode[]) : undefined;
 }
 
 /** Result of running a workflow. */

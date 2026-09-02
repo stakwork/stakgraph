@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineStep, type StepContext } from "../../../core.js";
+import { defineStep, type StepContext, withAccessedNodes } from "../../../core.js";
 import type { VeinCapabilities } from "../../../capabilities.js";
 import { graphCtx, errText, type GraphBackend } from "./_shared.js";
 const LABEL_MAX = 160;
@@ -98,12 +98,16 @@ export default defineStep({
       nodes.push(...(await Promise.all(wave.map(fetchNode))));
     }
 
-    return {
-      requested: cfg.ref_ids.length,
-      returned: nodes.length,
-      truncated: omitted.length > 0,
-      omitted_ref_ids: omitted,
-      nodes,
-    };
+    return withAccessedNodes(
+      {
+        requested: cfg.ref_ids.length,
+        returned: nodes.length,
+        truncated: omitted.length > 0,
+        omitted_ref_ids: omitted,
+        nodes,
+      },
+      // Provenance: the nodes that resolved (an `error` entry touched nothing).
+      nodes.filter((n) => !n["error"]).map((n) => ({ ref_id: n["ref_id"] as string, node_type: n["node_type"] as string })),
+    );
   },
 });

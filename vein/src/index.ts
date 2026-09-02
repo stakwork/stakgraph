@@ -22,6 +22,9 @@ export {
   type RunResult,
   type RunSummary,
   type RunEventType,
+  type AccessedNode,
+  withAccessedNodes,
+  accessedNodesOf,
 } from "./core.js";
 
 // Runner
