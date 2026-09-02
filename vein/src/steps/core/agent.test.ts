@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { coreRegistry } from "../registry.js";
-import { defineStep, type StepContext, type StepRegistry } from "../../core.js";
+import { withAccessedNodes, accessedNodesOf, defineStep, type StepContext, type StepRegistry } from "../../core.js";
 import agent, {
   repoTree,
   textEdit,
@@ -282,6 +282,40 @@ describe("wrapToolsWithEmit (per-call nested run events)", () => {
     const orig = tools.bash.execute;
     wrapToolsWithEmit(tools, undefined);
     assert.equal(tools.bash.execute, orig, "execute is left untouched");
+  });
+
+  it("lifts the provenance marker onto step.end as `nodes`, untruncated, without touching the tool result", async () => {
+    const events: any[] = [];
+    const big = "x".repeat(5000);
+    const refs = Array.from({ length: 40 }, (_, i) => ({ ref_id: `ref-${i}`, node_type: "Concept" }));
+    const tools: Record<string, any> = {
+      search: { execute: async () => withAccessedNodes([{ ref_id: "ref-0", text: big }], refs) },
+      plain: { execute: async () => ({ ok: true }) },
+    };
+    wrapToolsWithEmit(tools, makeCtx(events));
+
+    const out = await tools.search.execute({});
+    assert.deepEqual(accessedNodesOf(out), refs, "the model-facing result keeps the marker (invisible to JSON)");
+    assert.equal(JSON.stringify(out), JSON.stringify([{ ref_id: "ref-0", text: big }]));
+    const end = events.find((e) => e.type === "step.end" && e.path.endsWith("-search"));
+    assert.deepEqual(end.nodes, refs, "all 40 refs survive even though output was truncated");
+    assert.ok(end.output.length < big.length, "output itself is still summarized");
+
+    await tools.plain.execute({});
+    const plainEnd = events.find((e) => e.type === "step.end" && e.path.endsWith("-plain"));
+    assert.ok(!("nodes" in plainEnd), "unmarked results emit no nodes field");
+  });
+});
+
+describe("maskDeep keeps the provenance marker", () => {
+  it("carries `_nodes` across the rebuilt object/array", () => {
+    const refs = [{ ref_id: "r1" }];
+    const obj = maskDeep(withAccessedNodes({ key: "sk-123", nested: ["sk-123"] }, refs), ["sk-123"]) as any;
+    assert.deepEqual(obj, { key: "[MASKED_SECRET]", nested: ["[MASKED_SECRET]"] });
+    assert.deepEqual(accessedNodesOf(obj), refs);
+    const arr = maskDeep(withAccessedNodes(["sk-123"], refs), ["sk-123"]) as any;
+    assert.deepEqual(arr, ["[MASKED_SECRET]"]);
+    assert.deepEqual(accessedNodesOf(arr), refs);
   });
 });
 

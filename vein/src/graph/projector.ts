@@ -12,12 +12,17 @@
  * edge vocabulary grows — every write is an idempotent `upsert` keyed by
  * the node's identity (`unique_source_id` stamped for cheap reconciliation).
  *
- * Not projected (v2, "provenance convention"): `ACCESSED` edges from tool
- * calls to the domain nodes they touched — the log has no structured record
- * of those yet. `PROMOTED_FROM` likewise: promotions publish a new version
- * without recording the source run.
+ * Provenance: a tool call whose `step.end` carries `nodes` (the convention
+ * in plans/generic-storage.md "v2" — graph-touching steps mark their output
+ * with `withAccessedNodes`, and `wrapToolsWithEmit` lifts the marker onto
+ * the event untruncated) gets one `ACCESSED` edge per node that exists in
+ * this graph. Refs the graph doesn't hold (another database, a deleted
+ * node) are counted as `unresolved`, never written — explicit over clever.
+ *
+ * Not projected: `PROMOTED_FROM` — promotions publish a new version without
+ * recording the source run.
  */
-import type { RunEvent, RunSummary } from "../core.js";
+import type { AccessedNode, RunEvent, RunSummary } from "../core.js";
 import type { RunStore } from "../store.js";
 import type { ChatStore, StoredMessage } from "../chat-store.js";
 import type { GraphBackend } from "./backend.js";
@@ -42,11 +47,16 @@ export interface ProjectReport {
   toolCalls: number;
   chats: number;
   turns: number;
+  /** Every edge written, `ACCESSED` included. */
   edges: number;
+  /** `ACCESSED` edges written (tool call → node it touched). */
+  accessed: number;
+  /** Node refs tool calls reported that this graph does not hold — no edge. */
+  unresolved: number;
   skipped: number;
 }
 
-const emptyReport = (): ProjectReport => ({ runs: 0, sessions: 0, toolCalls: 0, chats: 0, turns: 0, edges: 0, skipped: 0 });
+const emptyReport = (): ProjectReport => ({ runs: 0, sessions: 0, toolCalls: 0, chats: 0, turns: 0, edges: 0, accessed: 0, unresolved: 0, skipped: 0 });
 
 /** A bounded text preview of any value — the only shape of payload that
  *  reaches the graph. */
@@ -86,7 +96,7 @@ function runStatus(summary: RunSummary | null, events: RunEvent[]): string {
 interface RunProjection {
   run: NodeInput;
   sessions: NodeInput[];
-  toolCalls: Array<{ node: NodeInput; sessionPath: string }>;
+  toolCalls: Array<{ node: NodeInput; sessionPath: string; accessed: AccessedNode[] }>;
   workflowHash?: string;
 }
 
@@ -156,7 +166,8 @@ export function projectRunEvents(workflow: string, runId: string, events: RunEve
   }
 
   // Tool calls: `tool:<name>` steps nested under a session path, numbered
-  // per session in log order.
+  // per session in log order. `accessed` is the end event's `nodes` list
+  // (the provenance marker), deduplicated by ref_id.
   const toolCalls: RunProjection["toolCalls"] = [];
   const seqBySession = new Map<string, number>();
   const toolEnds = new Map<string, RunEvent>();
@@ -168,8 +179,16 @@ export function projectRunEvents(workflow: string, runId: string, events: RunEve
     const seq = (seqBySession.get(session) ?? 0) + 1;
     seqBySession.set(session, seq);
     const end = toolEnds.get(keyOf(e));
+    const accessed: AccessedNode[] = [];
+    const seenRef = new Set<string>();
+    for (const n of end?.nodes ?? []) {
+      if (!n || typeof n.ref_id !== "string" || !n.ref_id || seenRef.has(n.ref_id)) continue;
+      seenRef.add(n.ref_id);
+      accessed.push(n);
+    }
     toolCalls.push({
       sessionPath: session,
+      accessed,
       node: {
         type: "VeinToolCall",
         data: compact({
@@ -234,10 +253,26 @@ export async function projectRuns(backend: GraphBackend, store: RunStore, opts: 
         const ref = sessionRef.get(String(s.data["path"]).replace(/#\d+$/, ""))!;
         edges.push({ edge: "IN_RUN", source_ref_id: ref, target_ref_id: runRef });
       });
+      const toolRef = (i: number) => written[1 + p.sessions.length + i]!.ref_id;
       p.toolCalls.forEach((t, i) => {
-        const ref = written[1 + p.sessions.length + i]!.ref_id;
-        edges.push({ edge: "IN_SESSION", source_ref_id: ref, target_ref_id: sessionRef.get(t.sessionPath)! });
+        edges.push({ edge: "IN_SESSION", source_ref_id: toolRef(i), target_ref_id: sessionRef.get(t.sessionPath)! });
       });
+      // ACCESSED: only toward nodes this graph actually holds (the edge
+      // writer treats a missing endpoint as an error, and a ref may point
+      // at another database or a since-deleted node).
+      const wanted = new Set(p.toolCalls.flatMap((t) => t.accessed.map((n) => n.ref_id)));
+      if (wanted.size) {
+        const rows = await backend.bolt.run(`MATCH (n:Data_Bank) WHERE n.ref_id IN $ids RETURN DISTINCT n.ref_id AS ref_id`, { ids: [...wanted] });
+        const present = new Set(rows.map((r) => r["ref_id"] as string));
+        p.toolCalls.forEach((t, i) => {
+          for (const n of t.accessed) {
+            if (present.has(n.ref_id)) {
+              edges.push({ edge: "ACCESSED", source_ref_id: toolRef(i), target_ref_id: n.ref_id });
+              report.accessed++;
+            } else report.unresolved++;
+          }
+        });
+      }
       if (p.workflowHash) {
         const rows = await backend.bolt.run(
           `MATCH (v:VeinWorkflowVersion {namespace: $ns, name: $wf, content_hash: $h}) RETURN v.ref_id AS ref_id LIMIT 1`,
@@ -373,6 +408,8 @@ export async function projectAll(
     chats: a.chats + b.chats,
     turns: a.turns + b.turns,
     edges: a.edges + b.edges,
+    accessed: a.accessed + b.accessed,
+    unresolved: a.unresolved + b.unresolved,
     skipped: a.skipped + b.skipped,
   };
 }

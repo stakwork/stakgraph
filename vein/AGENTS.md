@@ -292,7 +292,14 @@ services bag can override it, same as `http`/`secrets`).
   projects them into `VeinRun`/`VeinAgentSession`/`VeinToolCall`/
   `VeinChat`/`VeinTurn` with `EXECUTED`/`IN_RUN`/`IN_SESSION`/`SPAWNED`/
   `IN_CHAT` edges — summaries + `log_ref` pointers, never payloads,
-  idempotent upserts.
+  idempotent upserts. **Provenance convention:** a graph-touching step
+  marks its output with `withAccessedNodes(output, [{ ref_id, node_type? }])`
+  (`core.ts`; a non-enumerable marker — invisible to the model, `{{ }}`
+  expressions, and JSON). `wrapToolsWithEmit` lifts it onto the tool call's
+  `step.end` event as `nodes`, untruncated, and the projector writes one
+  `ACCESSED` edge per ref the graph holds (`VeinToolCall → any node`). Every
+  `graph/*` (and mcp `jarvis/*`) node-touching step does this; a step that
+  reports nothing gets no edges — never inferred from prose.
   `server.ts` is a thin wrapper (`getApp`/`startServer`) over
   `createVein()` — graph workspace by default, file stores for the rest.
 

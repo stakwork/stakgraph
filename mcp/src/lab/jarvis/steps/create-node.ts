@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
@@ -60,14 +60,17 @@ export default defineStep({
     if (!refId) {
       return `jarvis/create-node failed — HTTP ${res.status}: ${typeof res.body === "string" ? res.body : JSON.stringify(res.body)}`;
     }
-    return {
-      // "Warning" here means the node already existed (idempotent merge).
-      status: body?.status ?? "Success",
-      ref_id: refId,
-      node_type: cfg.node_type,
-      ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
-        ? { messages: body.status_messages }
-        : {}),
-    };
+    return withAccessedNodes(
+      {
+        // "Warning" here means the node already existed (idempotent merge).
+        status: body?.status ?? "Success",
+        ref_id: refId,
+        node_type: cfg.node_type,
+        ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
+          ? { messages: body.status_messages }
+          : {}),
+      },
+      [{ ref_id: refId, node_type: cfg.node_type }],
+    );
   },
 });

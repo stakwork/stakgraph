@@ -7,7 +7,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { buildRegistry } from "../../registry.js";
-import type { StepContext } from "../../../core.js";
+import { accessedNodesOf, type StepContext } from "../../../core.js";
 import { Bolt } from "../../../graph/bolt.js";
 import { closeGraphBackends } from "../../../graph/backend.js";
 import { testGraphConfig, wipeGraph } from "../../../graph/test-util.js";
@@ -105,6 +105,7 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
 
   it("graph-get returns the jarvis envelope", async () => {
     const out = await run("graph/graph-get", { ref_id: wfRef, namespace: NS });
+    assert.deepEqual(accessedNodesOf(out), [{ ref_id: wfRef, node_type: "VeinWorkflow" }], "provenance marker");
     assert.equal(out.ref_id, wfRef);
     assert.equal(out.node_type, "VeinWorkflow");
     assert.equal(out.name, "harvey-deliver");
@@ -129,6 +130,7 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
   it("graph-search finds the workflow (fulltext, title boost, type filter)", async () => {
     const out = await run("graph/graph-search", { q: "harvey-deliver", namespace: NS, type: "VeinWorkflow" });
     assert.ok(Array.isArray(out) && out[0].ref_id === wfRef, JSON.stringify(out));
+    assert.deepEqual(accessedNodesOf(out), [{ ref_id: wfRef, node_type: "VeinWorkflow" }], "provenance marker on an array output");
     assert.equal(out[0].name, "harvey-deliver");
     assert.equal(out[0].node_type, "VeinWorkflow");
     assert.deepEqual(out[0].edges, {});
@@ -149,6 +151,7 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
     assert.equal(out.edge_type, "VERSION_OF");
     assert.equal(out.target_ref_id, wfRef);
     wfvRef = out.source_ref_id;
+    assert.deepEqual(accessedNodesOf(out), [{ ref_id: wfvRef, node_type: "VeinWorkflowVersion" }, { ref_id: wfRef }], "both endpoints");
     out = await run("graph/create-triplet", { source_ref_id: wfvRef, target_ref_id: wfRef, edge_type: "VERSION_OF" });
     assert.equal(out.status, "Warning");
     assert.match(await run("graph/create-triplet", { source_ref_id: wfRef, target_ref_id: wfvRef, edge_type: "VERSION_OF" }), /WRONG_TYPE/);
@@ -158,6 +161,7 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
   it("graph-neighbors: direction, importance, edge filter, per-neighbor counts", async () => {
     const out = await run("graph/graph-neighbors", { ref_id: wfRef, namespace: NS });
     assert.equal(out.length, 1);
+    assert.deepEqual(accessedNodesOf(out), [{ ref_id: wfRef }, { ref_id: wfvRef, node_type: "VeinWorkflowVersion" }], "expanded node + neighbors");
     assert.deepEqual(out[0], { ref_id: wfvRef, node_type: "VeinWorkflowVersion", name: "harvey-deliver", edge_type: "VERSION_OF", direction: "reverse", edges: { VERSION_OF: 1 }, importance: 0.5 });
     assert.deepEqual(await run("graph/graph-neighbors", { ref_id: wfRef, edge_type: ["USES_STEP"] }), []);
   });
@@ -171,6 +175,7 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
     assert.match(out.nodes[1].error, /not found/);
     assert.equal(out.nodes[2].node_type, "VeinWorkflowVersion");
     assert.equal(out.truncated, false);
+    assert.deepEqual(accessedNodesOf(out), [{ ref_id: wfRef, node_type: "VeinWorkflow" }, { ref_id: wfvRef, node_type: "VeinWorkflowVersion" }], "resolved nodes only");
   });
 
   it("create-batch-triplet: per-item outcomes, inline dedupe", async () => {
@@ -189,6 +194,7 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
     assert.match(out.results[1].error, /WRONG_TYPE/);
     assert.equal(out.results[2].status, "Success");
     assert.match(out.results[3].error, /does not resolve/);
+    assert.deepEqual(accessedNodesOf(out)!.map((n) => n.ref_id).sort(), [...new Set([wfRef, wfvRef, out.results[2].target_ref_id])].sort(), "endpoints of written edges");
     const steps = await run("graph/graph-search", { q: "smoke/step", type: "VeinStep", namespace: NS });
     assert.equal(steps.length, 1, "inline VeinStep created once");
   });
@@ -212,6 +218,10 @@ describe("graph/project step", () => {
     const { openGraphBackend } = await import("../../../graph/backend.js");
 
     const dataDir = await mkdtemp(join(tmpdir(), "vein-project-step-"));
+    // The step lists workflows from the DEFAULT workspace (the graph since
+    // PR #1632); this case seeds a FILE workspace at dataDir, so pin fs.
+    const prevBackend = process.env["VEIN_WORKSPACE_BACKEND"];
+    process.env["VEIN_WORKSPACE_BACKEND"] = "fs";
     try {
       const ws = new FileWorkspaceStore(dataDir);
       await ws.publishWorkflow("wf", "v1", { steps: [{ id: "a", type: "log", config: { message: "x" } }] });
@@ -244,6 +254,8 @@ describe("graph/project step", () => {
       const rows = await b.bolt.run(`MATCH (r:VeinRun) RETURN r.run_id AS id, r.status AS s`);
       assert.deepEqual(rows, [{ id: base.runId, s: "success" }]);
     } finally {
+      if (prevBackend === undefined) delete process.env["VEIN_WORKSPACE_BACKEND"];
+      else process.env["VEIN_WORKSPACE_BACKEND"] = prevBackend;
       await closeGraphBackends();
       await rm(dataDir, { recursive: true, force: true });
     }

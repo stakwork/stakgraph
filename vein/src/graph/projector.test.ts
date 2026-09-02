@@ -15,6 +15,8 @@ let backend: GraphBackend;
 const WF = "harvey-deliver";
 const RUN = "1788307097627";
 const T0 = Date.parse("2026-09-01T20:00:00Z");
+const CONCEPT_A = "11111111-1111-4111-8111-111111111111";
+const CONCEPT_B = "22222222-2222-4222-8222-222222222222";
 const ts = (i: number) => new Date(T0 + i * 1000).toISOString();
 const ev = (i: number, type: RunEvent["type"], path: string, extra: Partial<RunEvent> = {}): RunEvent => ({
   ts: ts(i),
@@ -30,7 +32,14 @@ function sampleEvents(workflowHash: string): RunEvent[] {
     ev(0, "run.start", WF, { input: { q: "deliver" }, workflowHash, params: { model: "m" } }),
     ev(1, "step.start", `${WF}/plan`, { stepType: "agent", input: { prompt: "Plan the delivery", model: "claude" } }),
     ev(2, "step.start", `${WF}/plan/001-search`, { stepType: "tool:graph/graph-search", input: { query: "docs" } }),
-    ev(3, "step.end", `${WF}/plan/001-search`, { stepType: "tool:graph/graph-search", output: { hits: 3 }, durationMs: 800 }),
+    ev(3, "step.end", `${WF}/plan/001-search`, {
+      stepType: "tool:graph/graph-search",
+      output: { hits: 3 },
+      durationMs: 800,
+      // Provenance marker lifted by wrapToolsWithEmit: two concepts, one
+      // repeated, one ref this graph will not hold.
+      nodes: [{ ref_id: CONCEPT_A, node_type: "Concept" }, { ref_id: CONCEPT_B }, { ref_id: CONCEPT_A }, { ref_id: "not-in-this-graph" }],
+    }),
     ev(4, "step.start", `${WF}/plan/002-read`, { stepType: "tool:read", input: { id: "x" } }),
     ev(5, "step.error", `${WF}/plan/002-read`, { stepType: "tool:read", error: { message: "not found" }, durationMs: 10 }),
     ev(6, "step.end", `${WF}/plan`, { stepType: "agent", output: "Plan: ship it", durationMs: 5000 }),
@@ -64,6 +73,12 @@ describe("projectRunEvents (pure)", () => {
         [2, "read", "not found", `${WF}/plan`],
       ],
     );
+    // Accessed refs come from the end event's `nodes`, deduplicated.
+    assert.deepEqual(
+      p.toolCalls.map((t) => t.accessed.map((n) => n.ref_id)),
+      [[CONCEPT_A, CONCEPT_B, "not-in-this-graph"], []],
+    );
+    assert.equal(p.toolCalls[0]!.accessed[0]!.node_type, "Concept");
   });
 
   it("uses the summary when present, and marks a finalize-less log stale", () => {
@@ -132,8 +147,16 @@ describe("projector (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI no
       runId: RUN, workflow: WF, startedAt: ts(0), finishedAt: ts(9), durationMs: 9000, status: "success", input: { q: "deliver" }, output: { delivered: 60 },
     });
 
+    // Two jarvis-style Concept nodes (no Vein label) the search step reported touching.
+    for (const [r, name] of [[CONCEPT_A, "a"], [CONCEPT_B, "b"]]) {
+      await backend.bolt.run(`CREATE (:Concept:Node:Data_Bank:Domain_general {ref_id: $r, node_key: $k, namespace: "default", name: $n})`, { r, k: `concept-${name}`, n: name });
+    }
+
     const report = await projectRuns(backend, store, { workflows: [WF] });
-    assert.deepEqual([report.runs, report.sessions, report.toolCalls, report.edges, report.skipped], [1, 1, 2, 4, 0]);
+    assert.deepEqual(
+      [report.runs, report.sessions, report.toolCalls, report.edges, report.accessed, report.unresolved, report.skipped],
+      [1, 1, 2, 6, 2, 1, 0],
+    );
     assert.equal(await count("VeinRun"), 1);
     assert.equal(await count("VeinAgentSession"), 1);
     assert.equal(await count("VeinToolCall"), 2);
@@ -153,6 +176,20 @@ describe("projector (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI no
       `MATCH (r:VeinRun)-[:EXECUTED]->(v:VeinWorkflowVersion)<-[:ACTIVE_VERSION]-(w:VeinWorkflow) RETURN w.name AS wf, r.run_id AS run`,
     );
     assert.deepEqual(rows, [{ wf: WF, run: RUN }]);
+
+    // ACCESSED: the search call → each concept it reported (the unknown ref
+    // is skipped, never an error); the full provenance chain is queryable.
+    assert.equal(await edges("ACCESSED"), 2);
+    const touched = await backend.bolt.run(
+      `MATCH (r:VeinRun)<-[:IN_RUN]-(:VeinAgentSession)<-[:IN_SESSION]-(t:VeinToolCall)-[:ACCESSED]->(c:Concept) RETURN r.run_id AS run, t.tool_name AS tool, c.name AS concept ORDER BY concept`,
+    );
+    assert.deepEqual(touched, [
+      { run: RUN, tool: "graph/graph-search", concept: "a" },
+      { run: RUN, tool: "graph/graph-search", concept: "b" },
+    ]);
+    // Re-projection does not duplicate the edges.
+    await projectRuns(backend, store, { workflows: [WF], skipSettled: false });
+    assert.equal(await edges("ACCESSED"), 2);
   });
 
   it("is idempotent, skips settled runs, and re-projects an unsettled run once it finalizes", async () => {
