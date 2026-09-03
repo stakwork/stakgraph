@@ -1,58 +1,46 @@
 name: gaia-evolve
-# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4) for GAIA — a HILL-CLIMB
-# (§5.3.3, gaia instance of the generic eval/evolve-loop): baseline once,
-# then up to maxGenerations author→run→grade cycles, each generation
-# briefed with every previous attempt's version, accuracy, approach, and
-# misses — anchored to the best-so-far, flipping to an explicit "try a
-# genuinely different approach" directive after `exploreAfter`
-# non-improving attempts.
+# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4) for GAIA — the gaia
+# instance of the generic eval/evolve-loop: baseline once, then up to
+# maxGenerations author→run→grade cycles. Each generation's author is
+# briefed with the EVIDENCE so far — the task list, a task×version grid of
+# every version graded in this run (baseline first), and each attempt's
+# approach summary and misses — and chooses for itself which version to
+# build on (it can read any of them with meta/get-workflow).
 #
-#   capture   run the BASELINE produce workflow over the task set
-#             `baselineSamples` times (identical YAML re-runs — the noise
-#             instrument), score each with the real leaderboard scorer, and
-#             fold the samples into the eval/matrix task×version view:
-#             bands, per-task wrong answers + questions, and the MEASURED
-#             produce-sampling floor that becomes the loop's improveMargin
+#   capture   run the BASELINE produce workflow once over the task set,
+#             score it with the real leaderboard scorer, digest it — the
+#             grid's first column
 #   loop      eval/evolve-loop runs gaia-evolve-gen per generation: an
 #             authoring agent (meta/* only — §5.3.2) publishes a new
 #             version of the candidate, the harness runs it pinned over the
-#             same tasks and digests the scores; the loop composes the next
-#             generation's briefing and directive from the results
-#   promote   the report: best version + its accuracy vs baseline, the
+#             same tasks and digests the scores; the loop folds the result
+#             into the next generation's briefing
+#   promote   the report: the top version(s) + accuracy vs baseline, the
 #             full generation history, costs. Promotion stays a HUMAN act —
-#             point gaia-run's input.produceWorkflow at the best version,
-#             or fold its diff into the seeded gaia-produce, after review.
+#             point gaia-run's input.produceWorkflow at a top version, or
+#             fold its diff into the seeded gaia-produce, after review.
 #             Review must also check the candidate never embeds
 #             gaia/evaluate (produce-time oracle access — §6).
 #
-# MEASUREMENT DISCIPLINE (EVOLVE_SPEC §6/§7; the plan doc's Phase 1):
-#   - Scoring is exact-match, so there is no judge noise. What remains is
-#     PRODUCE-SAMPLING noise: the same workflow re-run flips tasks by luck
-#     (observed live: identical YAML re-measured 0.76 vs 0.80). The k
-#     baseline samples MEASURE that floor — eval/matrix reports the max
-#     fitness delta between same-version re-runs, and the loop's
-#     improveMargin defaults to it, so a challenger must beat the
-#     baseline's best draw by more than identical YAML wobbles on its own.
-#     params.improveMargin is only the fallback if the floor is unmeasured
-#     (baselineSamples: 1).
-#   - Every score in this report is a TRAIN score on the very tasks the
-#     candidates were tuned against. Validate the best version on held-out
-#     tasks (gaia-batch over a different slice) before believing the delta.
-#   - Authors cannot grade: grading happens in the harness after each
-#     author finishes, and candidates run under their OWN runIds via
-#     meta/run-workflow (gaia-candidate-run).
+# MEASUREMENT (EVOLVE_SPEC §6/§7): scoring is exact-match, so there is no
+# judge noise, but the same YAML re-run flips a task or two by produce-
+# sampling luck alone. Every version here is graded ONCE — there is no
+# noise margin or best-so-far machinery trying to outguess that; the grid
+# shows the author every column and the author reads patterns across them.
+# Every score is a TRAIN score on the very tasks the candidates were tuned
+# against: validate a top version on held-out tasks (gaia-batch over a
+# different slice) before believing the delta.
 #
-# COST: roughly (baselineSamples + generations) × |tasks| × produce + each
-# generation's author (incl. its ≤2 smoke runs). Scoring is a local python
-# subprocess — free. produceConcurrency shrinks wall-clock, not dollars.
-# Start small; raise input.generations (cap 20) to let it rip.
+# COST: roughly (1 + generations) × |tasks| × produce + each generation's
+# author (incl. its ≤2 smoke runs). Scoring is a local python subprocess —
+# free. produceConcurrency shrinks wall-clock, not dollars.
 #
 # Needs: ANTHROPIC_API_KEY, HF_TOKEN (or a populated GAIA_DIR checkout;
 # git-lfs for attachments).
 # Input:  { tasks: [taskId, …], mission, generations? }
 #   mission:     the standing gap statement handed to every generation's
-#                author (the digest evidence rides alongside it and, per
-#                the author method, outranks it).
+#                author (the grid evidence rides alongside it and, per the
+#                author method, outranks it).
 #   generations: override params.maxGenerations for this run (e.g. 10).
 #   maxCost:     dollar ceiling (author + produce) — the loop stops before
 #                starting the generation that would cross it.
@@ -60,67 +48,48 @@ name: gaia-evolve
 #                Both default to params (null = uncapped). Prefer these over
 #                guessing a generation count: cost and time per generation
 #                GROW as authors evolve more expensive architectures.
-# Output: { candidate, bestGen, bestVersion, bestAccuracy,
+# Output: { candidate, topVersions, bestGen, bestVersion, bestAccuracy,
 #           baselineAccuracy, improved, generations, totalKnownCost,
 #           stopReason, baseline, … }
 steps:
-  # ── capture: k baseline samples over the task set ──────────────────────
-  # Outer foreach counts 0..baselineSamples-1 (numeric items — the
-  # parameterized-repeat form); each sample is a full pass over the tasks.
-  # Identical YAML re-runs are the noise instrument: their score spread IS
-  # the produce-sampling floor, measured for free before the loop spends
-  # anything on generations.
+  # ── capture: the baseline over the task set ────────────────────────────
   - id: baseline
     type: foreach
     config:
-      items: "{{ params.baselineSamples }}"
+      items: "{{ input.tasks }}"
+      # Tasks hit rate-limited targets (observed 429s) — keep this low.
+      concurrency: "{{ params.produceConcurrency }}"
       body:
-        id: sample
-        type: foreach
+        id: one
+        type: subflow
         config:
-          items: "{{ input.tasks }}"
-          # Tasks hit rate-limited targets (observed 429s) — keep this low.
-          concurrency: "{{ params.produceConcurrency }}"
-          body:
-            id: one
-            type: subflow
-            config:
-              workflow: gaia-run
-              input:
-                taskId: "{{ $current }}"
+          workflow: gaia-run
+          input:
+            taskId: "{{ $current }}"
 
-  # The task×version matrix over the samples (single-version mode). Output
-  # carries `fitness` (MAX sample — the baseline's best observed draw, the
-  # conservative bar), `noise.suggestedMargin` (the measured floor), bands,
-  # and a `text` block with per-task wrong answers + questions — it IS the
-  # loop's baseline object.
-  - id: basematrix
-    type: eval/matrix
+  # The same digest every generation produces — per-task verdicts, the
+  # produced answers, and the questions — so the baseline is just the
+  # grid's first column.
+  - id: basedigest
+    type: gaia/digest-results
     depends: baseline
     config:
-      version: "{{ params.baseWorkflow }}"
-      samples: "{{ baseline }}"
+      results: "{{ baseline }}"
 
-  # ── the hill-climb: author → run → grade, up to N generations ──────────
+  # ── the loop: author → run → grade, up to N generations ────────────────
   - id: evolve
     type: eval/evolve-loop
-    depends: basematrix
+    depends: basedigest
     config:
       tasks: "{{ input.tasks }}"
       mission: "{{ input.mission }}"
-      baseline: "{{ basematrix }}"
+      baseline: "{{ basedigest }}"
       candidateName: "{{ params.candidateName }}"
       baseWorkflow: "{{ params.baseWorkflow }}"
       genWorkflow: "{{ params.genWorkflow }}"
       fitnessName: accuracy
       maxGenerations: "{{ input.generations || params.maxGenerations }}"
       stopFitness: "{{ params.stopAccuracy }}"
-      # The MEASURED produce-sampling floor (max fitness delta between the
-      # identical-YAML baseline samples); params.improveMargin only when
-      # unmeasured (baselineSamples: 1). A measured 0 also falls through —
-      # indistinguishable here, and the fallback is 0 anyway.
-      improveMargin: "{{ basematrix.noise.suggestedMargin || params.improveMargin }}"
-      exploreAfter: "{{ params.exploreAfter }}"
       genParams: "{{ params.genParams }}"
       maxCost: "{{ input.maxCost || params.maxCost }}"
       maxMinutes: "{{ input.maxMinutes || params.maxMinutes }}"
@@ -133,6 +102,9 @@ steps:
       mission: "{{ input.mission }}"
       tasks: "{{ input.tasks }}"
       candidate: "{{ evolve.candidate }}"
+      # Every version that reached the top accuracy, oldest first — a tie on
+      # one noisy run is no reason to hide one of them.
+      topVersions: "{{ evolve.topVersions }}"
       bestGen: "{{ evolve.bestGen }}"
       bestVersion: "{{ evolve.bestVersion }}"
       bestAccuracy: "{{ evolve.bestFitness }}"
@@ -142,11 +114,9 @@ steps:
       generations: "{{ evolve.generations }}"
       totalKnownCost: "{{ evolve.totalKnownCost }}"
       stopReason: "{{ evolve.stopReason }}"
-      # The per-task matrix rows (bands, flips, wrong answers, questions)
-      # and the measured noise floor — the report's evidence base.
-      baseline: "{{ basematrix.tasks }}"
-      baselineNoise: "{{ basematrix.noise }}"
-      baselineSamples: "{{ params.baselineSamples }}"
+      # The baseline's per-task verdicts, answers, and questions — the
+      # report's evidence base.
+      baseline: "{{ basedigest.results }}"
       note: "{{ evolve.note }}"
 
 params:
@@ -155,7 +125,7 @@ params:
   baseWorkflow: gaia-produce
   # The candidate's name. Every generation republishes it — a NEW VERSION
   # each time, so one evolve run leaves a versioned lineage (and the report
-  # pins the best version, which may not be the latest).
+  # names the top version(s), which may not be the latest).
   candidateName: gaia-produce-ai
   # The one-generation workflow the loop runs (author → candidate eval →
   # digest). Its own params (authorModel, authorMaxSteps, authorSystem, …)
@@ -165,21 +135,9 @@ params:
   # Stop early once a generation's accuracy reaches this (1 = every task —
   # reachable on tuned-against train sets; generations are the real cap).
   stopAccuracy: 1
-  # How many identical baseline passes to run — ≥2 measures the
-  # produce-sampling noise floor (eval/matrix's suggestedMargin) that
-  # becomes the loop's improveMargin. 1 = old single-sample behavior with
-  # an UNKNOWN floor; the fallback margin below applies then.
-  baselineSamples: 2
   # Parallel produce runs per pass (foreach concurrency). Tasks hit
   # rate-limited targets (metmuseum/NIST 429s observed) — keep low.
   produceConcurrency: 3
-  # FALLBACK margin, used only when the floor is unmeasured
-  # (baselineSamples: 1) or measured exactly 0. Exact-match scoring has no
-  # judge noise, so 0 = any task flip counts — the pre-Phase-1 behavior.
-  improveMargin: 0
-  # Consecutive non-improving attempts before the directive flips from
-  # "refine the best" to "try a genuinely different approach".
-  exploreAfter: 2
   # Param overrides for gaia-evolve-gen (e.g. { authorModel: "...",
   # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.
   genParams: {}

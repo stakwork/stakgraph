@@ -1,21 +1,21 @@
 name: harvey-evolve
-# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4), now a HILL-CLIMB
-# (§5.3.3, harvey instance): baseline once, then up to maxGenerations
-# author→run→grade cycles, each generation briefed with every previous
-# attempt's version, pass-rate, approach, and failures — anchored to the
-# best-so-far, flipping to an explicit "try a genuinely different
-# approach" directive after `exploreAfter` non-improving attempts.
+# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4), harvey instance of the
+# generic eval/evolve-loop (§5.3.3): baseline once, then up to
+# maxGenerations author→run→grade cycles, each generation briefed with the
+# EVIDENCE so far — the task list, a task×version grid of every version
+# graded (baseline first), and each attempt's approach and failed criteria.
+# The author chooses for itself which version to build on.
 #
 #   capture   run the BASELINE produce workflow over the task set, grade it
 #             with the real benchmark eval, digest the aggregate misses
 #   loop      eval/evolve-loop (generic) runs harvey-evolve-gen per generation:
 #             an authoring agent (meta/* only — §5.3.2) publishes a new
 #             version of the candidate, the harness runs it pinned over the
-#             same tasks and digests the grades; the loop composes the next
-#             generation's briefing and directive from the results
-#   promote   the report: best version + its pass-rate vs baseline, the
+#             same tasks and digests the grades; the loop folds the result
+#             into the next generation's briefing
+#   promote   the report: the top version(s) + pass-rate vs baseline, the
 #             full generation history, costs. Promotion stays a HUMAN act —
-#             point harvey-run's input.produceWorkflow at the best version,
+#             point harvey-run's input.produceWorkflow at a top version,
 #             or fold its diff into the seeded harvey-produce, after review.
 #
 # MEASUREMENT DISCIPLINE (EVOLVE_SPEC §6/§7):
@@ -25,8 +25,10 @@ name: harvey-evolve
 #     very tasks the candidates were tuned against. Validate the best
 #     version on held-out tasks before believing the delta.
 #   - The fitness is criteria pass-RATE (harvey/digest-results) — the
-#     benchmark's binary all-pass score has no gradient. Improvements must
-#     clear `improveMargin` (judge-noise floor) to count.
+#     benchmark's binary all-pass score has no gradient. Every version is
+#     graded ONCE; ±0.02 (one criterion on a 50-criterion task) is judge
+#     noise — the grid shows the author every column and the author reads
+#     patterns across them, no margin machinery tries to outguess it.
 #   - Authors cannot grade: grading happens in the harness after each
 #     author finishes, and candidates run under their OWN runIds via
 #     meta/run-workflow (harvey-candidate-run).
@@ -48,7 +50,7 @@ name: harvey-evolve
 #                Both default to params (null = uncapped). Prefer these over
 #                guessing a generation count: cost and time per generation
 #                GROW as authors evolve more expensive architectures.
-# Output: { candidate, bestGen, bestVersion, bestPassRate,
+# Output: { candidate, topVersions, bestGen, bestVersion, bestPassRate,
 #           baselinePassRate, improved, generations, totalKnownCost,
 #           stopReason, baseline, … }
 steps:
@@ -89,8 +91,6 @@ steps:
       fitnessName: pass-rate
       maxGenerations: "{{ input.generations || params.maxGenerations }}"
       stopFitness: "{{ params.stopPassRate }}"
-      improveMargin: "{{ params.improveMargin }}"
-      exploreAfter: "{{ params.exploreAfter }}"
       genParams: "{{ params.genParams }}"
       maxCost: "{{ input.maxCost || params.maxCost }}"
       maxMinutes: "{{ input.maxMinutes || params.maxMinutes }}"
@@ -103,6 +103,8 @@ steps:
       mission: "{{ input.mission }}"
       tasks: "{{ input.tasks }}"
       candidate: "{{ evolve.candidate }}"
+      # Every version that reached the top pass-rate, oldest first.
+      topVersions: "{{ evolve.topVersions }}"
       bestGen: "{{ evolve.bestGen }}"
       bestVersion: "{{ evolve.bestVersion }}"
       bestPassRate: "{{ evolve.bestFitness }}"
@@ -131,12 +133,6 @@ params:
   # Stop early once a generation's mean pass-rate reaches this (1 = every
   # criterion on every task — rarely reached; generations are the real cap).
   stopPassRate: 1
-  # Judge-noise floor: an attempt must beat the best by MORE than this to
-  # count as an improvement (0.02 ≈ one criterion on a 50-criterion task).
-  improveMargin: 0.02
-  # Consecutive non-improving attempts before the directive flips from
-  # "refine the best" to "try a genuinely different approach".
-  exploreAfter: 2
   digestMaxCriteria: 6
   # Param overrides for harvey-evolve-gen (e.g. { authorModel: "...",
   # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.

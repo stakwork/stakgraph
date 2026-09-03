@@ -67,7 +67,7 @@ function correctOf(r: AnyRec): boolean {
 export default defineStep({
   type: "gaia/digest-results",
   description:
-    "Aggregate an array of graded GAIA results (gaia-run / gaia-candidate-run outputs) into a compact digest: accuracy as `fitness` (what eval/evolve-loop reads), per-task correct/wrong with the produced answer excerpt, miss tags (wrong-answer / empty-answer / produce-error), question excerpts for misses, and a preformatted `text` block for an LLM prompt. Gold never enters or leaves this step. Config: results (array), maxAnswerChars? (default 160), maxQuestionChars? (default 240). Output: { n, correctCount, accuracy, fitness, byLevel, results, text }.",
+    "Aggregate an array of graded GAIA results (gaia-run / gaia-candidate-run outputs) into a compact digest: accuracy as `fitness` (what eval/evolve-loop reads), per-task correct/wrong with the produced answer excerpt, miss tags (wrong-answer / empty-answer / produce-error), question excerpts, and a preformatted `text` block for an LLM prompt. Gold never enters or leaves this step. Config: results (array), maxAnswerChars? (default 160), maxQuestionChars? (default 240). Output: { n, correctCount, accuracy, fitness, byLevel, results, text }.",
   input: z.object({
     results: z.array(z.any()).describe("graded results, one per task (gaia-run / gaia-candidate-run outputs)"),
     maxAnswerChars: z.number().int().positive().default(160).describe("max characters of the produced answer per task"),
@@ -76,7 +76,7 @@ export default defineStep({
       .int()
       .positive()
       .default(240)
-      .describe("max characters of the question excerpt shown for missed tasks"),
+      .describe("max characters of the question excerpt per task"),
   }),
   output: z.any(),
   async run(cfg) {
@@ -104,7 +104,9 @@ export default defineStep({
         correct,
         answer: truncate(answer, cfg.maxAnswerChars),
         ...(miss ? { miss } : {}),
-        ...(correct ? {} : { question: truncate(str(r["question"]) ?? "", cfg.maxQuestionChars) }),
+        // Task-visible text (every producer sees it); the loop's briefing
+        // builds its task list from here, so every entry carries it.
+        question: truncate(str(r["question"]) ?? "", cfg.maxQuestionChars),
         ...(cost != null ? { cost } : {}),
         ...(steps != null ? { steps } : {}),
         ...(error ? { error: truncate(error, 240) } : {}),

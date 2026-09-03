@@ -70,7 +70,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "gaia-evolve",
     description:
-      "GAIA authoring harness (hill-climb): baseline gaia-run over the task set -> digest -> eval/evolve-loop over gaia-evolve-gen generations (accuracy fitness, exact-match so improveMargin 0) -> report with best version vs baseline. TRAIN scores — validate the best version on held-out tasks before promoting. Input: { tasks: [taskId, …], mission, generations? }.",
+      "GAIA authoring harness (hill-climb): baseline gaia-run over the task set -> digest -> eval/evolve-loop over gaia-evolve-gen generations (accuracy fitness) -> report with the top version(s) vs baseline. TRAIN scores — validate a top version on held-out tasks before promoting. Input: { tasks: [taskId, …], mission, generations? }.",
   },
 ];
 
