@@ -18,6 +18,8 @@ const SYSTEM = `You are verifying whether a specific TASK actually works in a ru
 
 Use the tools available to exercise the running app and gather evidence, then call submit_verdict to end.
 
+SCOPE: Judge ONLY what THIS task claims. Do not invent or verify additional claims the task did not make — e.g. do not check database persistence for a task that is only about a network call. Extra observations belong in observations[], never as claims that can fail the task.
+
 DISCIPLINE (the core):
 - Mark a claim "works" ONLY if you CAPTURED proof for it and cite the evidence id (evN) a probe tool returned, in that claim's proof[]. A works claim with no captured evidence id is rejected.
 - "It looks right" or "the UI said success" is NOT proof — confirm the underlying behavior (the actual network status, the console, the persisted data).
@@ -107,8 +109,9 @@ async function main() {
   verdict.startedAt = new Date(started).toISOString();
   verdict.finishedAt = new Date().toISOString();
 
-  mkdirSync(`${SCRATCH}/verdicts-goose`, { recursive: true });
-  writeFileSync(`${SCRATCH}/verdicts-goose/${cell.id}.json`, JSON.stringify(verdict, null, 2));
+  const outDir = process.env.OUT_DIR || "verdicts-goose";
+  mkdirSync(`${SCRATCH}/${outDir}`, { recursive: true });
+  writeFileSync(`${SCRATCH}/${outDir}/${cell.id}.json`, JSON.stringify(verdict, null, 2));
   const kinds = [...new Set((verdict.evidence || []).map((e: any) => e.kind))].join(",");
   const secs = ((Date.now() - started) / 1000).toFixed(0);
   console.log(`RESULT ${cell.id} overall=${verdict.overall} kinds=[${kinds}] (${secs}s)`);
