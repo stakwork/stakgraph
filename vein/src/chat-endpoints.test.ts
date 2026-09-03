@@ -128,6 +128,35 @@ describe("chat endpoints", () => {
     assert.ok(text.includes("event: done"), text);
   });
 
+  it("a chat left live by a dead process is reconciled to error on read", async () => {
+    // Simulate a crash mid-turn: meta says live, events.jsonl has no
+    // terminal for the turn, and nothing is running in this process.
+    const vein = await makeVein();
+    await chatStore.createChat({ id: "c1" });
+    await chatStore.setMeta("c1", { status: "live", currentTurn: 0 });
+    await chatStore.appendEvent("c1", {
+      ts: new Date().toISOString(),
+      chatId: "c1",
+      turn: 0,
+      type: "text-delta",
+      delta: "partial",
+    });
+
+    const get = await vein.app.request("/chat/c1");
+    const { meta } = (await get.json()) as { meta: { status: string } };
+    assert.equal(meta.status, "error");
+
+    // The tail now terminates (would hang forever without the synthesized
+    // chat.error) and reports the reconciled status.
+    const res = await vein.app.request("/chat/c1/stream?turn=0");
+    const text = await res.text();
+    assert.ok(text.includes("chat.error"), text);
+    assert.ok(text.includes('"status":"error"'), text);
+
+    const list = (await (await vein.app.request("/chats")).json()) as { status: string }[];
+    assert.equal(list[0]!.status, "error");
+  });
+
   it("GET /chat/:id/stream for a not-yet-started turn sends done immediately", async () => {
     const vein = await makeVein();
     await chatStore.createChat({ id: "c1" }); // currentTurn -1
