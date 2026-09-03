@@ -1460,6 +1460,14 @@ export async function createVein<TServices = unknown>(
       if (chatId && !meta) {
         return c.json({ error: `Chat "${chatId}" not found` }, 404);
       }
+      if (meta) {
+        // One turn per chat at a time — two agents appending to the same
+        // transcript would interleave. (Different chats run concurrently.)
+        if (notifier.isLive(meta.id)) {
+          return c.json({ error: `Chat "${meta.id}" has a turn in progress` }, 409);
+        }
+        meta = await reconcileStaleChat(meta);
+      }
       if (!chatId) {
         chatId = generateChatId();
         meta = await chatStore.createChat({

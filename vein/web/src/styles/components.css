@@ -1296,6 +1296,19 @@ body.is-resizing-flyout * {
   font-size: 11px;
   flex-shrink: 0;
 }
+.chat-history-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+  align-self: center;
+  animation: chat-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes chat-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 .chat-msg {
   max-width: 92%;
