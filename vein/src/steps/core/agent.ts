@@ -406,6 +406,33 @@ export function classifyFinalAnswerStop(
 }
 
 /**
+ * Schema-mode counterpart of that check. In structured mode the SDK loop
+ * ends on ANY tool-less turn and parses that turn AS the object, so a model
+ * that narrates or bails early hands back a schema-valid object whose
+ * required strings are empty or filler. Observed live in a hill-climb: 3 of
+ * 8 authoring generations returned `summary: ""` at 5-8 of 200 steps, and
+ * one of them echoed a version it never got round to publishing — the
+ * finalAnswer-mode nudge would have caught all three, but it never ran in
+ * schema mode. Returns the names of top-level REQUIRED string properties
+ * whose value is missing, blank, or a filler token; empty when the object
+ * is usable (or the schema declares no required strings to check).
+ */
+const FILLER_VALUE = /^(placeholder|todo|tbd|n\/?a|none|null|unknown|string|\.\.\.|-+)[.!]?$/i;
+export function degenerateSchemaFields(schema: unknown, output: unknown): string[] {
+  const s = schema as { properties?: Record<string, { type?: unknown }>; required?: unknown } | null;
+  if (!s || typeof s !== "object" || !Array.isArray(s.required)) return [];
+  const props = s.properties ?? {};
+  const obj = (output && typeof output === "object" ? output : {}) as Record<string, unknown>;
+  const bad: string[] = [];
+  for (const key of s.required as unknown[]) {
+    if (typeof key !== "string" || props[key]?.type !== "string") continue;
+    const v = obj[key];
+    if (typeof v !== "string" || !v.trim() || FILLER_VALUE.test(v.trim())) bad.push(key);
+  }
+  return bad;
+}
+
+/**
  * How many times a mid-stream CONNECTION failure may be resumed before the
  * step gives up. Each continuation replays the whole conversation so far, so
  * this is bounded work, not a spin: the step budget (`maxSteps`) still caps
@@ -1052,8 +1079,76 @@ export default defineStep({
 
     // Structured mode: return the typed object.
     if (useSchema) {
-      console.log(`[agent] completed in ${Date.now() - startTime}ms (${steps.length} steps, structured)`);
-      return { result: res.text, object: res.output, steps: steps.length, ...maybeMessages, usage, cost };
+      let object = res.output;
+      let text = res.text;
+      // PREMATURE stop, schema flavour: the loop ended on a tool-less turn
+      // with budget remaining and the parsed object has required strings
+      // that are empty or filler. Same remedy as the finalAnswer nudge
+      // below — resume the REAL tool loop once (it can still publish or
+      // verify whatever it skipped) and demand a complete structured
+      // answer. A second degenerate stop is returned as-is: the caller's
+      // own fallbacks (usableSummary, version resolution) take it from there.
+      const bad = degenerateSchemaFields(cfg.schema, object);
+      if (bad.length && stepsUsed < cfg.maxSteps) {
+        console.warn(
+          `[agent] Structured answer left required field(s) empty/filler (${bad.join(", ")}) at ${stepsUsed}/${cfg.maxSteps} steps; nudging the loop once.`,
+        );
+        try {
+          const nudger = new ToolLoopAgent({
+            model,
+            instructions: cfg.system,
+            tools,
+            maxOutputTokens,
+            // At least a few turns even when the stop came near the cap.
+            stopWhen: [stepCountIs(Math.max(4, cfg.maxSteps - stepsUsed))],
+            ...(providerOptions ? { providerOptions } : {}),
+            output: Output.object({ schema: jsonSchema(cfg.schema) }),
+            prepareStep,
+            onStepFinish,
+          });
+          const nudged = await nudger.stream({
+            messages: [
+              // response.messages holds only generated turns — the task leads.
+              { role: "user", content: basePrompt },
+              ...(messages as any[]),
+              {
+                role: "user",
+                content:
+                  "Your last message ended your run and was parsed as your FINAL structured answer, but it left " +
+                  `required field(s) empty or filler: ${bad.join(", ")}. That answer is what the harness harvests — ` +
+                  "an empty field there wastes the whole run. If work remains (something you still had to publish, " +
+                  "create, or verify), continue it with tool calls now. Then finish with a complete structured answer " +
+                  "that fills EVERY required field with real values: never a placeholder, never an empty string.",
+              },
+            ] as any,
+          });
+          let nudgeError: unknown;
+          await nudged.consumeStream({ onError: (e: unknown) => { nudgeError = e; } });
+          if (nudgeError) throw nudgeError;
+          const nudgedSteps = (await nudged.steps) ?? [];
+          stepsUsed += nudgedSteps.length;
+          messages.push(...(((await nudged.response)?.messages ?? []) as any[]));
+          const nu = usageFromResult(await nudged.totalUsage);
+          usage = addUsage(usage, nu);
+          cost += computeCost(provider, nu);
+          // The continuation may have done real work (a publish) before
+          // answering, so its object is the fresher one — keep it unless it
+          // is WORSE than what we already had.
+          const nudgedObject = await (nudged as any).output;
+          const stillBad = degenerateSchemaFields(cfg.schema, nudgedObject);
+          if (stillBad.length <= bad.length) {
+            object = nudgedObject;
+            text = await nudged.text;
+          }
+          if (stillBad.length) {
+            console.warn(`[agent] nudged structured answer still has empty/filler field(s): ${stillBad.join(", ")}`);
+          }
+        } catch (e) {
+          console.warn("[agent] schema nudge continuation failed:", (e as Error).message);
+        }
+      }
+      console.log(`[agent] completed in ${Date.now() - startTime}ms (${stepsUsed} steps, structured)`);
+      return { result: text, object, steps: stepsUsed, ...maybeMessages, usage, cost };
     }
 
     // finalAnswer / text mode: extract the final_answer tool output, else last text.

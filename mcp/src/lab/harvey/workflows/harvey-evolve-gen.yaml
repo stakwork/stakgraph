@@ -13,8 +13,8 @@ name: harvey-evolve-gen
 #
 # Input:  { tasks, mission, candidateName, generation, briefing }
 #   briefing: composed by eval/evolve-loop — baseline digest, previous
-#             attempts (version, pass-rate, approach, failures), best-so-far
-#             anchor, and the exploit-or-explore directive.
+#             attempts (version, pass-rate, approach, failures) as a
+#             task×version grid plus per-attempt miss lines.
 # Output: { candidate, generation, version, summary, changes,
 #           missingSecrets, authorCost, authorSteps, digest }
 #   digest: the harvey/digest-results object for this generation's candidate
@@ -56,7 +56,7 @@ steps:
         {{ input.briefing }}
 
         Author an improved CANDIDATE produce workflow named EXACTLY
-        "{{ input.candidateName }}", following the DIRECTIVE above. Address
+        "{{ input.candidateName }}", using the evidence above. Address
         failure patterns that RECUR across tasks (never one task's
         specifics). Keep the hard contract, publish, smoke-test on ONE task
         from the task set, and return the result.
@@ -79,7 +79,7 @@ steps:
             description: "EXACT version string of the final healthy publish (from meta/publish-workflow)"
           summary:
             type: string
-            description: "the APPROACH this generation took and why — tied to the directive and the recurring failure patterns; the next generation reads this to know what has been tried"
+            description: "the APPROACH this generation took and why — tied to the recurring failure patterns; the next generation reads this to know what has been tried"
           changes:
             type: array
             items: { type: string }
@@ -211,9 +211,11 @@ params:
 
     You are ONE GENERATION in a hill-climbing loop: earlier generations'
     attempts and results are in your task prompt, and your published version
-    and summary will be handed to the next generation. Follow the DIRECTIVE
-    in the briefing — build on the best attempt when told to exploit, and
-    genuinely change strategy when told to explore. Deltas within ±0.02
+    and summary will be handed to the next generation. The briefing is
+    EVIDENCE only — the task list, a task×version grid of every version
+    graded so far, and each attempt's approach and misses. Nothing in the
+    harness picks a winner: YOU choose which version to build on, or
+    whether to change strategy, by reading the grid. Deltas within ±0.02
     (one criterion on a 50-criterion task) are judge noise — treat them as
     ties, not signal.
 
@@ -228,11 +230,12 @@ params:
     for available credential NAMES.
 
     METHOD
-    1. Read the DIRECTIVE's anchor first: the best-so-far candidate version
-       (meta/get-workflow with the exact version) when exploiting, or the
-       base produce workflow when nothing has beaten the baseline. Your
-       candidate starts from that YAML, changed only where the evidence
-       points.
+    1. Pick your anchor from the grid: read the version that solved the
+       most (meta/get-workflow with the exact version), or the base produce
+       workflow when nothing has beaten the baseline. Your candidate starts
+       from that YAML, changed where the evidence points — and when the
+       same misses recur across every column, change approach instead of
+       adding another rule to the same prompt.
     2. PUBLISH EARLY. Before any deep step-authoring, publish a first
        candidate version (meta/publish-workflow) that is a modest, safe
        improvement on your anchor. The harness grades whatever your FINAL
@@ -255,8 +258,8 @@ params:
        cost real money: one task, at most two smoke runs.
     5. Steps you (or a prior generation) already authored may exist —
        check meta/list-steps before creating: edit and reuse them instead
-       of re-authoring from scratch. But when the DIRECTIVE says explore,
-       reuse must not drag you back into an approach that already failed.
+       of re-authoring from scratch. But reuse must not drag you back into
+       an approach the grid shows already failed.
 
     WORKFLOW DESIGN PATTERNS — vocabulary, not prescription. A candidate
     may be ANY shape that honors the hard contract: compose these, adapt

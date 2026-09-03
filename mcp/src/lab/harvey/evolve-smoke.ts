@@ -34,7 +34,7 @@ async function main() {
     }
 
     // step types referenced by the workflows all exist in the registry
-    const { registry } = await buildRegistry(workspace.path);
+    const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     const wanted = [
       "harvey/get-task", "harvey/evaluate", "harvey/pack-result", "harvey/digest-results",
       "eval/evolve-loop", "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",
@@ -134,10 +134,10 @@ async function main() {
     await assert.rejects(() => dirStep.run(dirStep.input.parse({ sub: "/abs" }), dirCtx), /relative path/);
     console.log("✔ artifacts/dir sub: create + traversal guards");
 
-    // 5. the hill-climb loop, driven by a fake optimizer:
-    //    rates 0.85, 0.86, 0.86, 0.95 vs baseline 0.90 (improveMargin 0.02,
-    //    exploreAfter 2) → gens 0-1 exploit and fail to improve, gens 2-3
-    //    get the EXPLORE directive, gen 3 beats best and hits stopFitness.
+    // 5. the loop, driven by a fake optimizer: pass-rates 0.85, 0.86, 0.86,
+    //    0.95 vs baseline 0.90 → gen 3 hits stopFitness 0.94. Each
+    //    generation is briefed with the grid (harvey's per-task pass-rate as
+    //    the cell) and the failed-criteria miss lines.
     const loop = registry["eval/evolve-loop"]!;
     const genCalls: any[] = [];
     const rates = [0.85, 0.86, 0.86, 0.95];
@@ -153,7 +153,12 @@ async function main() {
             version: `v${g + 1}`,
             summary: `approach ${g}`,
             authorCost: 1,
-            digest: { meanPassRate: rates[g], allPassCount: 0, text: `digest ${g}`, results: [{ cost: 2 }] },
+            digest: {
+              meanPassRate: rates[g],
+              allPassCount: 0,
+              text: `digest ${g}`,
+              results: [{ task: "a/b", passRate: rates[g], all_pass: false, failed: [`c${g}: missing`], cost: 2 }],
+            },
           },
         };
       },
@@ -163,37 +168,40 @@ async function main() {
       loop.input.parse({
         tasks: ["a/b"],
         mission: "m",
-        baseline: { meanPassRate: 0.9, text: "baseline digest" },
+        baseline: {
+          meanPassRate: 0.9,
+          text: "baseline digest",
+          results: [{ task: "a/b", passRate: 0.9, all_pass: false, failed: ["c9: missing"] }],
+        },
         candidateName: "harvey-produce-ai",
         baseWorkflow: "harvey-produce",
         genWorkflow: "harvey-evolve-gen",
         maxGenerations: 6,
         stopFitness: 0.94,
-        improveMargin: 0.02,
-        exploreAfter: 2,
       }),
       loopCtx,
     );
     assert.equal(genCalls.length, 4); // stopped at gen 3 (0.95 ≥ 0.94), not 6
     assert.equal(loopOut.stopReason, "stopFitness 0.94 reached");
+    assert.deepEqual(loopOut.topVersions, [{ gen: 3, version: "v4", fitness: 0.95 }]);
     assert.equal(loopOut.bestGen, 3);
     assert.equal(loopOut.bestVersion, "v4");
     assert.equal(loopOut.bestFitness, 0.95);
     assert.equal(loopOut.baselineFitness, 0.9);
     assert.equal(loopOut.improved, true);
     assert.equal(loopOut.totalKnownCost, 12); // 4 gens × (author 1 + produce 2)
-    // directive flip: gens 0-1 exploit, gens 2-3 explore
-    assert.ok(!genCalls[0].briefing.includes("GENUINELY DIFFERENT"));
-    assert.ok(!genCalls[1].briefing.includes("GENUINELY DIFFERENT"));
-    assert.ok(genCalls[2].briefing.includes("GENUINELY DIFFERENT"));
-    assert.ok(genCalls[3].briefing.includes("GENUINELY DIFFERENT"));
-    // history accumulates: gen 3's briefing lists all prior attempts + baseline anchor
+    // history accumulates: gen 3's briefing lists every prior attempt, the
+    // grid carries a column per version with the pass-rate as the cell, and
+    // the miss lines carry the failed criteria.
     assert.ok(genCalls[0].briefing.includes("none — this is the first attempt"));
-    assert.ok(genCalls[3].briefing.includes("attempt 0"));
-    assert.ok(genCalls[3].briefing.includes("attempt 2"));
-    assert.ok(genCalls[3].briefing.includes("harvey-produce-ai@v3"));
-    assert.ok(genCalls[3].briefing.includes("BEST SO FAR: the baseline itself"));
-    console.log("✔ eval/evolve-loop: best-anchoring, explore flip, history, early stop");
+    const b3 = genCalls[3].briefing as string;
+    assert.ok(b3.includes("attempt 0") && b3.includes("attempt 2"));
+    assert.ok(b3.includes("harvey-produce-ai@v3: pass-rate 0.86"));
+    assert.match(b3, /task\s+\|\s+base \|\s+v1 \|\s+v2 \|\s+v3/);
+    assert.match(b3, /a\/b\s+\|\s+0\.9 \|\s+0\.85 \|\s+0\.86 \|\s+0\.86/);
+    assert.ok(b3.includes("a/b → score 0.86; failed: c2: missing"));
+    assert.ok(!b3.includes("GENUINELY DIFFERENT") && !b3.includes("BEST SO FAR"));
+    console.log("✔ eval/evolve-loop: evidence briefing (grid + failed criteria), history, early stop");
 
     // two consecutive generation failures abort the loop
     const failOpt = { run: async () => ({ runId: "x", status: "failed", error: { message: "boom" } }) };
