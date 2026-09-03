@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { Flow, StepRegistry, RunEvent, RunResult } from "./core.js";
 import type { RunStore } from "./store.js";
 import { FileRunStore, MemoryRunStore, generateRunId, summarizeFromEvents } from "./store.js";
-import type { ChatStore, ChatEvent } from "./chat-store.js";
+import type { ChatStore, ChatEvent, ChatMeta } from "./chat-store.js";
 import {
   FileChatStore,
   MemoryChatStore,
@@ -1422,6 +1422,32 @@ export async function createVein<TServices = unknown>(
       })();
     }
 
+    /**
+     * A turn that was live when this process died never wrote its
+     * `chat.end`/`chat.error` — `meta.status` stays `"live"` on disk and any
+     * tail of that turn waits forever (which is what pins the UI: the client
+     * treats a live chat as loading until its stream ends). Liveness is only
+     * knowable in-process (`notifier.isLive`), so reconcile lazily on every
+     * read: no running turn → emit the missing terminal and mark the chat
+     * `"error"`. Returns the (possibly patched) meta.
+     */
+    async function reconcileStaleChat(meta: ChatMeta): Promise<ChatMeta> {
+      if (meta.status !== "live" || meta.currentTurn < 0 || notifier.isLive(meta.id)) {
+        return meta;
+      }
+      console.warn(
+        `[chat ${meta.id}] turn ${meta.currentTurn} marked live but no turn is running — interrupted by a restart; marking error.`,
+      );
+      await chatStore.appendEvent(meta.id, {
+        ts: new Date().toISOString(),
+        chatId: meta.id,
+        turn: meta.currentTurn,
+        type: "chat.error",
+        error: { message: "Turn interrupted: the server restarted mid-turn." },
+      });
+      return (await chatStore.setMeta(meta.id, { status: "error" })) ?? meta;
+    }
+
     // Send a message: append it, launch the turn detached, return ids (202).
     app.post("/chat", async (c) => {
       const body = await c.req.json<{ chatId?: string; message?: string; title?: string }>();
@@ -1433,6 +1459,14 @@ export async function createVein<TServices = unknown>(
       let meta = chatId ? await chatStore.getMeta(chatId) : null;
       if (chatId && !meta) {
         return c.json({ error: `Chat "${chatId}" not found` }, 404);
+      }
+      if (meta) {
+        // One turn per chat at a time — two agents appending to the same
+        // transcript would interleave. (Different chats run concurrently.)
+        if (notifier.isLive(meta.id)) {
+          return c.json({ error: `Chat "${meta.id}" has a turn in progress` }, 409);
+        }
+        meta = await reconcileStaleChat(meta);
       }
       if (!chatId) {
         chatId = generateChatId();
@@ -1461,15 +1495,17 @@ export async function createVein<TServices = unknown>(
 
     // List chat sessions (newest first).
     app.get("/chats", async (c) => {
-      return c.json(await chatStore.listChats());
+      const list = await chatStore.listChats();
+      return c.json(await Promise.all(list.map(reconcileStaleChat)));
     });
 
     // Reattach to a chat turn's event stream (live or completed) — SSE tail.
     // Defaults to the latest turn; pass ?turn=N to follow a specific one.
     app.get("/chat/:chatId/stream", async (c) => {
       const chatId = c.req.param("chatId");
-      const meta = await chatStore.getMeta(chatId);
-      if (!meta) return c.json({ error: `Chat "${chatId}" not found` }, 404);
+      const stored = await chatStore.getMeta(chatId);
+      if (!stored) return c.json({ error: `Chat "${chatId}" not found` }, 404);
+      const meta = await reconcileStaleChat(stored);
 
       const turnParam = c.req.query("turn");
       const turn = turnParam != null ? Number(turnParam) : meta.currentTurn;
@@ -1500,8 +1536,9 @@ export async function createVein<TServices = unknown>(
     // Full chat transcript + meta (for reload / reattach).
     app.get("/chat/:chatId", async (c) => {
       const chatId = c.req.param("chatId");
-      const meta = await chatStore.getMeta(chatId);
+      let meta = await chatStore.getMeta(chatId);
       if (!meta) return c.json({ error: `Chat "${chatId}" not found` }, 404);
+      meta = await reconcileStaleChat(meta);
       const messages = await chatStore.loadMessages(chatId);
       return c.json({ meta, messages });
     });

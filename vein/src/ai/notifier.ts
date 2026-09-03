@@ -85,6 +85,10 @@ export interface ChatNotifier {
   turnEnded(chatId: string): Promise<void>;
   /** Deliver one notification: queue if a turn is live, else wake now. */
   deliver(chatId: string, text: string): Promise<void>;
+  /** Is a turn for this chat running in THIS process? The authoritative
+   *  liveness check — `meta.status === "live"` on disk can be stale after a
+   *  crash/restart (see `createVein`'s `reconcileStaleChat`). */
+  isLive(chatId: string): boolean;
 }
 
 export function createChatNotifier(opts: {
@@ -140,6 +144,10 @@ export function createChatNotifier(opts: {
   }
 
   return {
+    isLive(chatId) {
+      return live.has(chatId);
+    },
+
     turnStarted(chatId) {
       live.add(chatId);
     },

@@ -450,7 +450,10 @@ export async function sendChat(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, ...(chatId ? { chatId } : {}) }),
   });
-  if (!res.ok) throw new Error(`chat: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // 409 = the chat already has a turn in progress (reattach instead).
+    throw Object.assign(new Error(`chat: ${res.status} ${res.statusText}`), { status: res.status });
+  }
   return (await res.json()) as { chatId: string; turn: number };
 }
 
@@ -470,8 +473,17 @@ export async function streamChat(
   chatId: string,
   turn: number,
   callbacks: ChatCallbacks,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/chat/${chatId}/stream?turn=${turn}`);
+  // Aborting detaches this client from the turn — the turn itself keeps
+  // running server-side. Resolves silently (no onFinish) when aborted.
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/chat/${chatId}/stream?turn=${turn}`, { signal });
+  } catch (err) {
+    if (signal?.aborted) return;
+    throw err;
+  }
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
 
@@ -483,7 +495,14 @@ export async function streamChat(
   let eventType = "message";
 
   while (true) {
-    const { done, value } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch (err) {
+      if (signal?.aborted) return;
+      throw err;
+    }
+    const { done, value } = chunk;
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     const lines = buf.split("\n");
@@ -509,6 +528,7 @@ export async function streamChat(
     }
   }
 
+  if (signal?.aborted) return;
   callbacks.onFinish(status);
 }
 

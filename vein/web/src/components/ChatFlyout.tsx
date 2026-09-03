@@ -169,6 +169,16 @@ export function ChatFlyout(props: {
   // Highest turn this client has rendered/streamed — the poll below compares
   // against it to notice server-initiated turns (run notifications).
   const seenTurn = useRef(-1);
+  // The stream this client is attached to (at most one). Switching chats or
+  // starting a new one aborts it — the turn keeps running server-side and
+  // `loadChat` reattaches when you come back. Several chats can be live at
+  // once; `loading` only means "the chat I'm LOOKING AT has a live turn".
+  const streamRef = useRef<AbortController | null>(null);
+  const detach = useCallback(() => {
+    streamRef.current?.abort();
+    streamRef.current = null;
+  }, []);
+  useEffect(() => detach, [detach]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -195,7 +205,7 @@ export function ChatFlyout(props: {
 
   // Build the incremental stream callbacks. Each `step.finish` starts a fresh
   // bubble; tool calls/results also drive the canvas (workflow created/ran).
-  const streamCallbacks = useCallback((): api.ChatCallbacks => {
+  const streamCallbacks = useCallback((signal: AbortSignal): api.ChatCallbacks => {
     let textBuf = "";
     let toolBuf: api.ToolCallInfo[] = [];
     // A trailing text/tool entry may only be replaced in place by the step
@@ -205,6 +215,7 @@ export function ChatFlyout(props: {
     let stepHasToolEntry = false;
     return {
       onTextDelta: (delta) => {
+        if (signal.aborted) return;
         textBuf += delta;
         const content = textBuf;
         const replace = stepHasTextEntry;
@@ -220,6 +231,7 @@ export function ChatFlyout(props: {
         });
       },
       onToolCall: (tc) => {
+        if (signal.aborted) return;
         toolBuf.push(tc);
         if (tc.name === "create_workflow" && tc.input?.name) {
           props.onWorkflowCreated(tc.input.name);
@@ -238,6 +250,7 @@ export function ChatFlyout(props: {
         });
       },
       onToolResult: (tr) => {
+        if (signal.aborted) return;
         if (tr.name === "run_workflow" && tr.input?.name && tr.output?.runId) {
           props.onWorkflowRan(tr.input.name, tr.output.runId);
         }
@@ -249,15 +262,32 @@ export function ChatFlyout(props: {
         stepHasToolEntry = false;
       },
       onFinish: () => {
+        if (signal.aborted) return;
         setLoading(false);
       },
     };
   }, [props.onWorkflowCreated, props.onWorkflowRan]);
 
+  /** Attach to a turn's stream (replacing any current attachment) and
+   *  follow it to its end. */
+  const attach = useCallback(async (id: string, turn: number) => {
+    detach();
+    const ac = new AbortController();
+    streamRef.current = ac;
+    setLoading(true);
+    try {
+      await api.streamChat(id, turn, streamCallbacks(ac.signal), ac.signal);
+    } finally {
+      if (streamRef.current === ac) streamRef.current = null;
+    }
+  }, [detach, streamCallbacks]);
+
   // Load a chat's transcript and — if a turn is still live server-side (we may
   // have closed the tab) — reattach to its stream. Shared by mount-restore and
   // clicking an entry in the history list.
   const loadChat = useCallback(async (id: string) => {
+    detach();
+    setLoading(false);
     setShowHistory(false);
     setExpanded({});
     setChatId(id);
@@ -267,8 +297,7 @@ export function ChatFlyout(props: {
       setEntries(transcriptToEntries(messages));
       seenTurn.current = meta.currentTurn;
       if (meta.status === "live" && meta.currentTurn >= 0) {
-        setLoading(true);
-        await api.streamChat(id, meta.currentTurn, streamCallbacks());
+        await attach(id, meta.currentTurn);
       }
     } catch {
       // Stale id (e.g. workspace wiped) — drop it and start fresh.
@@ -276,7 +305,7 @@ export function ChatFlyout(props: {
       setChatId(null);
       setEntries([]);
     }
-  }, [streamCallbacks]);
+  }, [detach, attach]);
 
   // On mount: restore the persisted chat (if any).
   useEffect(() => {
@@ -298,8 +327,7 @@ export function ChatFlyout(props: {
           seenTurn.current = meta.currentTurn;
           setEntries(transcriptToEntries(messages));
           if (meta.status === "live") {
-            setLoading(true);
-            await api.streamChat(chatId, meta.currentTurn, streamCallbacks());
+            await attach(chatId, meta.currentTurn);
           }
         }
       } catch {
@@ -307,16 +335,20 @@ export function ChatFlyout(props: {
       }
     }, TURN_POLL_MS);
     return () => clearInterval(t);
-  }, [chatId, loading, showHistory, streamCallbacks]);
+  }, [chatId, loading, showHistory, attach]);
 
+  // Always available — a live turn in the current chat keeps running
+  // detached; it's just no longer the one on screen.
   const newChat = useCallback(() => {
+    detach();
+    setLoading(false);
     storage.remove(CHAT_ID_KEY);
     setChatId(null);
     setEntries([]);
     setExpanded({});
     setShowHistory(false);
     seenTurn.current = -1;
-  }, []);
+  }, [detach]);
 
   // Toggle the history list, fetching the latest sessions when opening.
   const toggleHistory = useCallback(async () => {
@@ -347,12 +379,19 @@ export function ChatFlyout(props: {
         storage.save(CHAT_ID_KEY, id);
       }
       seenTurn.current = turn;
-      await api.streamChat(id, turn, streamCallbacks());
-    } catch {
+      await attach(id, turn);
+    } catch (err) {
+      if ((err as { status?: number }).status === 409 && chatId) {
+        // The chat is still working on an earlier message (we were
+        // detached, e.g. after switching away) — reattach, keep the draft.
+        setInput(text);
+        await loadChat(chatId);
+        return;
+      }
       setEntries((prev) => [...prev, { kind: "text", content: "Error connecting to AI." }]);
       setLoading(false);
     }
-  }, [input, loading, chatId, streamCallbacks]);
+  }, [input, loading, chatId, attach, loadChat]);
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -388,7 +427,7 @@ export function ChatFlyout(props: {
           >
             <HistoryIcon />
           </button>
-          <button class="btn" onClick={newChat} disabled={loading}>New chat</button>
+          <button class="btn" onClick={newChat}>New chat</button>
           <button class="flyout-close" onClick={props.onClose} aria-label="Close"><CloseIcon /></button>
         </div>
       </div>
@@ -404,6 +443,9 @@ export function ChatFlyout(props: {
                 class={`chat-history-item${ch.id === chatId ? " is-current" : ""}`}
                 onClick={() => loadChat(ch.id)}
               >
+                {ch.status === "live" && (
+                  <span class="chat-history-live" title="Working" aria-label="Working" />
+                )}
                 <span class="chat-history-title">{ch.title || "Untitled chat"}</span>
                 <span class="chat-history-time">{relativeTime(ch.updatedAt)}</span>
               </button>
