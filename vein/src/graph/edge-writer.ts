@@ -27,7 +27,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { ManagedTransaction } from "neo4j-driver";
-import { Bolt, int, txRows } from "./bolt.js";
+import { Bolt, int, txRows, type Row } from "./bolt.js";
 import { GraphValidationError } from "./node-writer.js";
 import { SchemaResolver } from "./schema-resolver.js";
 import { VEIN_EDGES, WILDCARD_TARGET_EDGES, isVeinType, typeLabelOf } from "./vein-schemas.js";
@@ -57,11 +57,32 @@ export interface EdgeWriteResult {
   target_ref_id: string;
 }
 
+/** How `update` finds its edge: by ref_id, or by the (source, EDGE, target) triple. */
+export type EdgeLocator = { ref_id: string } | { edge: string; source_ref_id: string; target_ref_id: string };
+
+export interface EdgeUpdate {
+  /** Properties to set/overwrite (`undefined` values are skipped). */
+  set?: Record<string, unknown>;
+  /** Property names to remove. */
+  remove?: string[];
+}
+
+export interface EdgeUpdateResult {
+  ref_id: string;
+  edge: string;
+  source_ref_id: string;
+  target_ref_id: string;
+  updated: string[];
+  removed: string[];
+}
+
 export interface EdgeWriterOptions {
   resolver?: SchemaResolver;
 }
 
 const STAMPS = new Set(["ref_id", "edge_key", "weight", "date_added_to_graph", "unique_source_id"]);
+/** Stamps `update` may never touch (`weight` is caller-settable, as on create). */
+const PROTECTED = new Set(["ref_id", "edge_key", "date_added_to_graph", "unique_source_id"]);
 const IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const EDGE_TYPE = /^[A-Z][A-Z0-9_]*$/;
 
@@ -132,6 +153,73 @@ export class EdgeWriter {
       }
     });
     return results;
+  }
+
+  /**
+   * Patch an existing edge's properties — jarvis `PATCH /v2/edges/:ref_id`
+   * (`set_edge_properties`), the one way to change an edge after the
+   * ON-CREATE-only MERGE. Located by `ref_id`, or by the
+   * `(source, EDGE, target)` triple (alias-rewritten like a write; muted
+   * edges are skipped; more than one live edge of that type between the
+   * endpoints — distinct edge_keys — is an error: pass the ref_id).
+   * Identity stamps (`ref_id`, `edge_key`, `date_added_to_graph`,
+   * `unique_source_id`) cannot be set or removed; `weight` can. Numbers
+   * write as FLOAT (an integral `weight` as Integer, like create).
+   */
+  async update(where: EdgeLocator, patch: EdgeUpdate): Promise<EdgeUpdateResult> {
+    const set: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(patch.set ?? {})) {
+      if (v === undefined) continue;
+      if (PROTECTED.has(k)) throw new GraphValidationError("UNKNOWN_ATTRIBUTE", "edge", "edge stamp is system-managed", k);
+      if (!IDENT.test(k)) throw new GraphValidationError("UNKNOWN_ATTRIBUTE", "edge", "edge property is not a bare identifier", k);
+      set[k] = k === "weight" && typeof v === "number" && Number.isInteger(v) ? int(v) : v;
+    }
+    const remove = [...new Set(patch.remove ?? [])];
+    for (const k of remove) {
+      if (PROTECTED.has(k) || k === "weight") throw new GraphValidationError("UNKNOWN_ATTRIBUTE", "edge", "edge stamp is system-managed", k);
+      if (!IDENT.test(k)) throw new GraphValidationError("UNKNOWN_ATTRIBUTE", "edge", "edge property is not a bare identifier", k);
+    }
+    if (Object.keys(set).length === 0 && remove.length === 0) throw new GraphValidationError("MISSING_REQUIRED", "edge", "nothing to set or remove");
+
+    const removeClause = remove.length ? `REMOVE ${remove.map((k) => `r.\`${k}\``).join(", ")}` : "";
+    const ret = `RETURN r.ref_id AS ref_id, type(r) AS edge, s.ref_id AS source_ref_id, t.ref_id AS target_ref_id`;
+    return this.bolt.write(async (tx) => {
+      let rows: Row[];
+      if ("ref_id" in where) {
+        if (!where.ref_id) throw new GraphValidationError("MISSING_REQUIRED", "edge", "ref_id is required");
+        rows = await txRows(tx, `MATCH (s)-[r {ref_id: $ref_id}]->(t) SET r += $set ${removeClause} ${ret}`, { ref_id: where.ref_id, set });
+        if (rows.length === 0) throw new GraphValidationError("NOT_FOUND", "edge", `no edge with ref_id ${where.ref_id}`);
+      } else {
+        const edge = where.edge.toUpperCase().replace(/ /g, "_");
+        if (!EDGE_TYPE.test(edge)) throw new GraphValidationError("UNKNOWN_TYPE", edge, "edge type must match ^[A-Z][A-Z0-9_]*$");
+        if (!where.source_ref_id || !where.target_ref_id) throw new GraphValidationError("MISSING_REQUIRED", edge, "source_ref_id and target_ref_id are required");
+        const found = await txRows(
+          tx,
+          `MATCH (source:Data_Bank {ref_id: $src})
+           MATCH (target:Data_Bank {ref_id: $tgt})
+           OPTIONAL MATCH (source)-[:IS_ALIAS]->(sa)
+           OPTIONAL MATCH (target)-[:IS_ALIAS]->(ta)
+           WITH COALESCE(sa, source) AS s, COALESCE(ta, target) AS t
+           MATCH (s)-[r:\`${edge}\`]->(t)
+           WHERE r.is_muted IS NULL OR r.is_muted = false
+           RETURN r.ref_id AS ref_id`,
+          { src: where.source_ref_id, tgt: where.target_ref_id },
+        );
+        if (found.length === 0) throw new GraphValidationError("NOT_FOUND", edge, `no ${edge} edge from ${where.source_ref_id} to ${where.target_ref_id}`);
+        if (found.length > 1) throw new GraphValidationError("DUPLICATE_KEY", edge, `${found.length} ${edge} edges between those nodes — pass the edge ref_id`);
+        const ref_id = String(found[0]!["ref_id"]);
+        rows = await txRows(tx, `MATCH (s)-[r {ref_id: $ref_id}]->(t) SET r += $set ${removeClause} ${ret}`, { ref_id, set });
+      }
+      const r = rows[0]!;
+      return {
+        ref_id: String(r["ref_id"]),
+        edge: String(r["edge"]),
+        source_ref_id: String(r["source_ref_id"]),
+        target_ref_id: String(r["target_ref_id"]),
+        updated: Object.keys(set),
+        removed: remove,
+      };
+    });
   }
 
   /** Edge soft delete (`is_muted = true`), by edge ref_id. */

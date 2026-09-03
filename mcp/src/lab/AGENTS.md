@@ -311,7 +311,9 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
 - **Writes:** `jarvis/create-node`, `jarvis/edit-node`,
   `jarvis/create-triplet`, `jarvis/create-batch-triplet`. The ontology CRUD
   family is deliberately NOT ported (schema editing stays a human/setup
-  activity).
+  activity). Vein's own `graph/*` twins go one step further: vein-only
+  `graph/create-schema` (register/extend a node type) and `graph/edit-edge`
+  (patch an edge's properties) exist there, with no jarvis/* counterpart.
 - **Config is automatic:** each step resolves `JARVIS_URL` + `API_TOKEN`
   (+ optional `JARVIS_HTTP_TIMEOUT_MS`) through `ctx.services.secrets`
   (secret store → env fallback) and calls through `ctx.services.http` — so
