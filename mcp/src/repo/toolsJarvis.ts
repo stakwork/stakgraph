@@ -203,11 +203,26 @@ const KG_NEIGHBOR_CAP = 50;
 const KG_BATCH_GET_MAX = 50;
 
 /**
- * In-flight node fetches per batched call. Each ref_id costs two Jarvis
- * requests (the node + its connection-counts), so this is ~2x this many
- * sockets against Jarvis at once.
+ * In-flight node fetches per batched call. Each ref_id costs three Jarvis
+ * requests (the node, its connection-counts, its ancestors), so this is ~3x
+ * this many sockets against Jarvis at once.
  */
 const KG_BATCH_GET_CONCURRENCY = 8;
+
+/**
+ * Hierarchy edge `graph_get` walks toward the root(s) via Jarvis
+ * `/v2/nodes/:ref_id/ancestors`. Concept/Class/Claim all use
+ * `(parent)-[:PARENT_OF]->(child)`, so the walk follows incoming edges.
+ */
+const KG_ANCESTOR_EDGE_TYPE = "PARENT_OF";
+const KG_ANCESTOR_MAX_DEPTH = 10;
+
+/**
+ * Cap on ancestor entries attached to one node. The live Concept graph tops
+ * out at 27 ancestors (depth 3), so this only bites on a pathological
+ * hierarchy; nearest ancestors are kept because Jarvis orders by depth.
+ */
+const KG_ANCESTOR_CAP = 60;
 
 /** Max length of a derived label so a single row doesn't flood the context. */
 const LABEL_MAX = 160;
@@ -237,6 +252,47 @@ export function collapseConnectionCounts(
   for (const c of counts ?? []) {
     if (!c?.edge_type) continue;
     out[c.edge_type] = (out[c.edge_type] ?? 0) + Number(c.count ?? 0);
+  }
+  return out;
+}
+
+/** One entry of the `ancestors` list attached to graph_get / graph_get_batched nodes. */
+export interface NodeAncestor {
+  ref_id: string;
+  name: string;
+  node_type: string;
+  /** Shortest hop count from the resolved node; 1 = direct parent. */
+  depth: number;
+  /** ref_ids of this ancestor's own direct parents; empty means it is a root. */
+  parents: string[];
+}
+
+/**
+ * Normalize the Jarvis `/v2/nodes/:ref_id/ancestors` payload into the compact
+ * list attached to a node. Concept PARENT_OF is many-to-many, so this is a
+ * flat DAG (each entry carries its own `parents`) rather than a single chain.
+ * Drops malformed rows, keeps Jarvis' depth-then-name ordering, and truncates
+ * at `KG_ANCESTOR_CAP` so a runaway hierarchy cannot flood the context.
+ */
+export function normalizeAncestors(data: any, cap: number = KG_ANCESTOR_CAP): NodeAncestor[] {
+  const rows: any[] = Array.isArray(data?.ancestors) ? data.ancestors : [];
+  const out: NodeAncestor[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (!r || typeof r.ref_id !== "string" || r.ref_id.length === 0) continue;
+    if (seen.has(r.ref_id)) continue;
+    seen.add(r.ref_id);
+    const depth = Number(r.depth);
+    out.push({
+      ref_id: r.ref_id,
+      name: typeof r.name === "string" ? r.name.slice(0, LABEL_MAX) : "",
+      node_type: typeof r.node_type === "string" ? r.node_type : "unknown",
+      depth: Number.isFinite(depth) && depth >= 1 ? depth : 1,
+      parents: Array.isArray(r.parents)
+        ? r.parents.filter((p: unknown): p is string => typeof p === "string" && p.length > 0)
+        : [],
+    });
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -550,7 +606,7 @@ You traverse a knowledge graph of interconnected entities (people, topics, episo
 - \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`, and \`namespace\` (data partition) when one applies.
 - \`graph_get_batched\` — resolve up to ${KG_BATCH_GET_MAX} ref_ids in ONE call. Always use this instead of calling \`graph_get\` repeatedly.
 - \`graph_neighbors\` — nodes one hop away, with \`edge_type\` and \`direction\`. This is how you follow relationships.
-- \`graph_get\` — resolve a single ref_id to its full content.
+- \`graph_get\` — resolve a single ref_id to its full content (plus \`ancestors\`, its PARENT_OF hierarchy up to the root, when it has one).
 - \`graph_sub_agent\` (only if available) — delegate an even more focused subtask to a further child agent.
 
 Workflow:
@@ -2432,32 +2488,60 @@ export function registerJarvisTools(
       if (!raw || !raw.ref_id) return { ok: false, error: `node not found: ${ref_id}` };
       const properties = (raw.properties ?? {}) as Record<string, any>;
 
-      // Fetch edge-type connectivity from the dedicated aggregation endpoint
-      // (cheap: counts only, no neighbor materialization). Collapse the
-      // (edge_type, target_type) breakdown into a {EDGE_TYPE: count} map so
-      // graph_get and graph_search present connectivity identically. Best
-      // effort — never fail the whole call if this lookup errors.
-      // EXCEPTION: if the error is an abort/timeout, rethrow so the caller
-      // sees a genuine cancellation rather than silently returning edges:{}.
-      let edges: Record<string, number> = {};
-      try {
-        const ccParams = new URLSearchParams();
-        appendNamespace(ccParams, namespace);
-        const ccQuery = ccParams.toString();
-        const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
-        const ccResp = await jarvisFetch(ccUrl, jarvisHeaders, nodeReqOpts);
-        if (ccResp.ok) {
-          const ccData = (await ccResp.json()) as any;
-          edges = collapseConnectionCounts(ccData?.counts ?? []);
-        }
-      } catch (ccErr: any) {
-        // Rethrow abort/timeout so cancellation is not silently absorbed.
-        const kind = classifyAxiosError(ccErr);
+      // Two cheap side lookups, fired together:
+      //  - connection-counts: edge-type connectivity (counts only, no neighbor
+      //    materialization), collapsed into a {EDGE_TYPE: count} map so
+      //    graph_get and graph_search present connectivity identically.
+      //  - ancestors: the PARENT_OF hierarchy above the node as a flat DAG,
+      //    so the agent knows which parents to read next without walking
+      //    graph_neighbors one hop at a time (Concepts have up to ~6 parents).
+      //    An older Jarvis without the endpoint 404s, which is treated as
+      //    "no ancestors".
+      // Both are best effort — never fail the whole call if a lookup errors.
+      // EXCEPTION: abort/timeout is rethrown so the caller sees a genuine
+      // cancellation rather than a silently degraded node.
+      const rethrowIfCancelled = (err: any) => {
+        const kind = classifyAxiosError(err);
         if (kind === "timeout" || kind === "aborted" || nodeReqOpts?.signal?.aborted) {
-          throw ccErr;
+          throw err;
         }
-        // Genuine non-cancellation edge-fetch failure — best effort, edges stays {}
-      }
+      };
+      const fetchEdges = async (): Promise<Record<string, number>> => {
+        try {
+          const ccParams = new URLSearchParams();
+          appendNamespace(ccParams, namespace);
+          const ccQuery = ccParams.toString();
+          const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
+          const ccResp = await jarvisFetch(ccUrl, jarvisHeaders, nodeReqOpts);
+          if (ccResp.ok) {
+            const ccData = (await ccResp.json()) as any;
+            return collapseConnectionCounts(ccData?.counts ?? []);
+          }
+        } catch (ccErr: any) {
+          rethrowIfCancelled(ccErr);
+          // Genuine non-cancellation edge-fetch failure — best effort, edges stays {}
+        }
+        return {};
+      };
+      const fetchAncestors = async (): Promise<NodeAncestor[]> => {
+        try {
+          const anParams = new URLSearchParams({
+            edge_type: KG_ANCESTOR_EDGE_TYPE,
+            direction: "in",
+            max_depth: String(KG_ANCESTOR_MAX_DEPTH),
+          });
+          const anUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/ancestors?${anParams.toString()}`;
+          const anResp = await jarvisFetch(anUrl, jarvisHeaders, nodeReqOpts);
+          if (anResp.ok) {
+            return normalizeAncestors((await anResp.json()) as any);
+          }
+        } catch (anErr: any) {
+          rethrowIfCancelled(anErr);
+          // Genuine non-cancellation failure — best effort, no ancestors attached
+        }
+        return [];
+      };
+      const [edges, ancestors] = await Promise.all([fetchEdges(), fetchAncestors()]);
 
       return {
         ok: true,
@@ -2467,6 +2551,9 @@ export function registerJarvisTools(
           name: deriveNodeName(raw, properties),
           properties: raw.properties,
           edges,
+          // Only attached when the node sits under something, so leaf/flat
+          // nodes (the vast majority) don't pay for an empty field.
+          ...(ancestors.length > 0 ? { ancestors } : {}),
         },
       };
     } catch (err: any) {
@@ -2481,6 +2568,11 @@ export function registerJarvisTools(
       "Returns the node's ref_id, node_type, derived name, properties, and an " +
       "`edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
       "which relationship types you can traverse next with graph_neighbors. " +
+      "When the node sits in a PARENT_OF hierarchy (e.g. a Concept), it also carries " +
+      "`ancestors`: every node above it up to the root(s), each with {ref_id, name, node_type, depth, parents}. " +
+      "`depth` 1 = direct parent; `parents` is that ancestor's own parents (empty = root). " +
+      "A node can have several parents, so treat it as a DAG, not a chain — read the " +
+      "depth-1 entries first, then graph_get whichever ancestor's docs you need. " +
       "To resolve several ref_ids at once, use graph_get_batched instead.",
     inputSchema: z.object({
       ref_id: z.string().describe("The ref_id of the node to resolve."),
@@ -2511,7 +2603,8 @@ export function registerJarvisTools(
       "ALWAYS prefer this over calling graph_get in a loop, and over delegating a list of " +
       "ref_ids to sub-agents: it fetches them concurrently in a single tool call. " +
       "Returns `{ requested, returned, truncated, omitted_ref_ids, nodes }`, where each entry in " +
-      "`nodes` is either the full node (ref_id, node_type, name, properties, edges) or " +
+      "`nodes` is either the full node (ref_id, node_type, name, properties, edges, and " +
+      "`ancestors` when it sits under a PARENT_OF hierarchy — see graph_get) or " +
       "`{ ref_id, error }` if that one could not be resolved — one bad ref_id never fails the rest. " +
       `If you pass more than ${KG_BATCH_GET_MAX} ref_ids, the excess comes back in ` +
       "`omitted_ref_ids` and `truncated` is true; call again with those to finish the job.",

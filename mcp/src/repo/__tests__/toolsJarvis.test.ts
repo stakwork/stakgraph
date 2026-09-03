@@ -2,6 +2,7 @@ import { test, expect } from "../../testkit.js";
 import {
   buildOntologyPayload,
   collapseConnectionCounts,
+  normalizeAncestors,
   validateTripletSide,
   extractNodeRefId,
   extractEdgeRefId,
@@ -1560,5 +1561,79 @@ test.describe("graph_sub_agent error-path transcript recovery", () => {
     // The return value must still be the original error, not the recovery error
     expect(returnValue).toBe("graph_sub_agent failed: network timeout");
     expect(appendMessagesCalled).toBe(false);
+  });
+});
+
+// ── normalizeAncestors (graph_get `ancestors` field) ─────────────────────────
+test.describe("normalizeAncestors", () => {
+  const payload = {
+    ref_id: "leaf",
+    edge_type: "PARENT_OF",
+    direction: "in",
+    max_depth: 10,
+    ancestors: [
+      { ref_id: "mid-a", name: "Mid A", node_type: "Concept", depth: 1, parents: ["root"] },
+      { ref_id: "mid-b", name: "Mid B", node_type: "Concept", depth: 1, parents: ["root"] },
+      { ref_id: "root", name: "Law", node_type: "Concept", depth: 2, parents: [] },
+    ],
+  };
+
+  test("keeps Jarvis ordering and per-entry parents so the DAG is reconstructible", () => {
+    const out = normalizeAncestors(payload);
+    expect(out.map((a) => a.ref_id)).toEqual(["mid-a", "mid-b", "root"]);
+    expect(out[0]).toEqual({
+      ref_id: "mid-a",
+      name: "Mid A",
+      node_type: "Concept",
+      depth: 1,
+      parents: ["root"],
+    });
+    // Root is recognisable by its empty parents list.
+    expect(out[2].parents).toEqual([]);
+    expect(out[2].depth).toBe(2);
+  });
+
+  test("returns [] for missing, non-array, or empty ancestors (older Jarvis / leaf node)", () => {
+    expect(normalizeAncestors(undefined)).toEqual([]);
+    expect(normalizeAncestors({})).toEqual([]);
+    expect(normalizeAncestors({ ancestors: null })).toEqual([]);
+    expect(normalizeAncestors({ ancestors: "nope" })).toEqual([]);
+    expect(normalizeAncestors({ ancestors: [] })).toEqual([]);
+  });
+
+  test("drops malformed rows, dedupes ref_ids, and coerces bad fields to safe defaults", () => {
+    const out = normalizeAncestors({
+      ancestors: [
+        null,
+        { name: "no ref" },
+        { ref_id: "", name: "empty ref" },
+        { ref_id: "x", name: 42, node_type: null, depth: "abc", parents: "root" },
+        { ref_id: "x", name: "dup", depth: 1, parents: [] },
+        { ref_id: "y", name: "Y", node_type: "Claim", depth: 0, parents: ["p", 7, "", null] },
+      ],
+    });
+    expect(out).toEqual([
+      { ref_id: "x", name: "", node_type: "unknown", depth: 1, parents: [] },
+      { ref_id: "y", name: "Y", node_type: "Claim", depth: 1, parents: ["p"] },
+    ]);
+  });
+
+  test("truncates at the cap, keeping the nearest (first) ancestors", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({
+      ref_id: `a${i}`,
+      name: `A${i}`,
+      node_type: "Concept",
+      depth: i + 1,
+      parents: [],
+    }));
+    const out = normalizeAncestors({ ancestors: rows }, 3);
+    expect(out.map((a) => a.ref_id)).toEqual(["a0", "a1", "a2"]);
+  });
+
+  test("truncates over-long names to the label cap", () => {
+    const out = normalizeAncestors({
+      ancestors: [{ ref_id: "r", name: "x".repeat(500), node_type: "Concept", depth: 1, parents: [] }],
+    });
+    expect(out[0].name.length).toBe(160);
   });
 });
