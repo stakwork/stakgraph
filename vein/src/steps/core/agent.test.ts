@@ -17,6 +17,7 @@ import agent, {
   maskDeep,
   wrapToolsWithMask,
   classifyFinalAnswerStop,
+  degenerateSchemaFields,
   isTransientStreamError,
 } from "./agent.js";
 
@@ -552,6 +553,58 @@ describe("classifyFinalAnswerStop (premature text-only stop vs exhausted budget)
   });
 });
 
+describe("degenerateSchemaFields (schema-mode premature stop)", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      candidate: { type: "string" },
+      version: { type: "string" },
+      summary: { type: "string" },
+      changes: { type: "array", items: { type: "string" } },
+      score: { type: "number" },
+    },
+    required: ["candidate", "version", "summary", "changes"],
+  };
+
+  it("flags required strings that are empty, whitespace, or filler", () => {
+    // The live incident: 3 of 8 authoring generations ended on a bare text
+    // turn like this at a handful of steps into a 200-step budget.
+    assert.deepEqual(
+      degenerateSchemaFields(schema, { candidate: "gaia-produce-ai", version: "", summary: "  " }),
+      ["version", "summary"],
+    );
+    assert.deepEqual(
+      degenerateSchemaFields(schema, { candidate: "x", version: "v3", summary: "placeholder" }),
+      ["summary"],
+    );
+    assert.deepEqual(degenerateSchemaFields(schema, { candidate: "x", version: "TBD.", summary: "n/a" }), [
+      "version",
+      "summary",
+    ]);
+  });
+
+  it("returns nothing for a usable object", () => {
+    assert.deepEqual(
+      degenerateSchemaFields(schema, { candidate: "gaia-produce-ai", version: "v6", summary: "split research and format" }),
+      [],
+    );
+  });
+
+  it("only judges required STRING properties — arrays, numbers, optionals are not its business", () => {
+    // `changes` is required but an array; `score` is a number; a missing
+    // optional string is fine. None of those may trigger a nudge.
+    assert.deepEqual(degenerateSchemaFields(schema, { candidate: "x", version: "v1", summary: "real", changes: [] }), []);
+    const optionalOnly = { type: "object", properties: { note: { type: "string" } } };
+    assert.deepEqual(degenerateSchemaFields(optionalOnly, { note: "" }), []);
+  });
+
+  it("treats a missing object as every required string missing, and a malformed schema as nothing to check", () => {
+    assert.deepEqual(degenerateSchemaFields(schema, undefined), ["candidate", "version", "summary"]);
+    assert.deepEqual(degenerateSchemaFields(undefined, { summary: "" }), []);
+    assert.deepEqual(degenerateSchemaFields({ required: "summary" }, { summary: "" }), []);
+  });
+});
+
 describe("isTransientStreamError (resume a severed stream, not a real failure)", () => {
   it("treats undici's bare `terminated` as transient", () => {
     // The live incident: a 34-tool-call case-law step died ~12 minutes in when
@@ -750,6 +803,83 @@ describe("mid-stream socket death is resumed, not lost", () => {
       await assert.rejects(run(), /terminated/);
       // 1 good call + the first sever + MAX_STREAM_ERROR_CONTINUATIONS resumes.
       assert.equal(s.calls(), 7);
+    } finally {
+      s.close();
+    }
+  });
+
+  // Schema (structured-output) mode: the provider sends the JSON as plain
+  // assistant text (output_format json_schema), so a "final answer" is a
+  // text turn that ends the loop.
+  const textTurn = (text: string) =>
+    sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }) +
+    sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }) +
+    sse({ type: "content_block_stop", index: 0 }) +
+    sse({ type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 20 } }) +
+    sse({ type: "message_stop" });
+  const schema = {
+    type: "object",
+    properties: { candidate: { type: "string" }, version: { type: "string" }, summary: { type: "string" } },
+    required: ["candidate", "version", "summary"],
+    additionalProperties: false,
+  };
+  const runSchema = (maxSteps = 10) =>
+    agent.run(
+      (agent.input as any).parse({
+        cwd, system: "sys", prompt: "author and publish the candidate",
+        model: "claude-sonnet-4-5", maxSteps, schema, toolFilter: ["bash"],
+      }),
+      { runId: "r", path: "p", scope: {}, input: undefined, emit: async () => {}, services: {}, registry: {} } as any,
+    ) as Promise<any>;
+
+  it("schema mode: a premature degenerate answer is nudged, and the continuation's work + object win", async () => {
+    // The live incident: an author ended on a bare text turn at 6/200 steps
+    // with summary "" and a version it never published.
+    const s = await serve((call, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(msgStart());
+      if (call === 1) res.write(textTurn(JSON.stringify({ candidate: "gaia-produce-ai", version: "v11", summary: "" })));
+      else if (call === 2) res.write(toolUse("toolu_1", "bash", { command: "echo v11 > published.txt" }));
+      else res.write(textTurn(JSON.stringify({ candidate: "gaia-produce-ai", version: "v11", summary: "dual attempt + reconcile" })));
+      res.end();
+    });
+    process.env["ANTHROPIC_BASE_URL"] = `http://127.0.0.1:${s.port}`;
+    try {
+      const out = await runSchema();
+      assert.equal(out.object.summary, "dual attempt + reconcile");
+      assert.equal(out.object.version, "v11");
+      // The nudged loop ran a REAL tool call before answering.
+      assert.equal(readFileSync(join(cwd, "published.txt"), "utf8").trim(), "v11");
+      // 1 original turn + 2 continuation turns; usage summed across all three.
+      assert.equal(out.steps, 3);
+      assert.equal(out.usage.inputTokens, 300);
+      const nudge = s.bodies[1] ?? "";
+      assert.ok(nudge.includes("empty or filler: summary"), "nudge must name the empty field(s)");
+      assert.ok(nudge.includes("author and publish the candidate"), "nudge must restate the task");
+    } finally {
+      s.close();
+    }
+  });
+
+  it("schema mode: a usable answer is returned without a nudge, and an exhausted budget is never nudged", async () => {
+    let body = JSON.stringify({ candidate: "gaia-produce-ai", version: "v6", summary: "" });
+    const s = await serve((_call, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(msgStart());
+      res.write(textTurn(body));
+      res.end();
+    });
+    process.env["ANTHROPIC_BASE_URL"] = `http://127.0.0.1:${s.port}`;
+    try {
+      // Degenerate but the step budget is already spent: hand it back as-is.
+      const exhausted = await runSchema(1);
+      assert.equal(exhausted.object.summary, "");
+      assert.equal(s.calls(), 1);
+      body = JSON.stringify({ candidate: "gaia-produce-ai", version: "v6", summary: "curl not html/extract" });
+      const fine = await runSchema();
+      assert.equal(fine.object.summary, "curl not html/extract");
+      assert.equal(fine.steps, 1);
+      assert.equal(s.calls(), 2, "a complete answer must not trigger a continuation");
     } finally {
       s.close();
     }
