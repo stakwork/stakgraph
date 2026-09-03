@@ -128,6 +128,57 @@ describe("chat endpoints", () => {
     assert.ok(text.includes("event: done"), text);
   });
 
+  it("POST /chat is a 409 while that chat has a turn in progress", async () => {
+    const vein = await makeVein();
+    const post = (body: object) =>
+      vein.app.request("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const first = await post({ message: "start" });
+    assert.equal(first.status, 202);
+    const { chatId } = (await first.json()) as { chatId: string };
+
+    // The turn launched by the first POST is live in-process (it will fail
+    // shortly for lack of an API key, but liveness is claimed synchronously).
+    const second = await post({ chatId, message: "again" });
+    assert.equal(second.status, 409);
+
+    // A different chat is unaffected — chats run concurrently.
+    const other = await post({ message: "elsewhere" });
+    assert.equal(other.status, 202);
+  });
+
+  it("a chat left live by a dead process is reconciled to error on read", async () => {
+    // Simulate a crash mid-turn: meta says live, events.jsonl has no
+    // terminal for the turn, and nothing is running in this process.
+    const vein = await makeVein();
+    await chatStore.createChat({ id: "c1" });
+    await chatStore.setMeta("c1", { status: "live", currentTurn: 0 });
+    await chatStore.appendEvent("c1", {
+      ts: new Date().toISOString(),
+      chatId: "c1",
+      turn: 0,
+      type: "text-delta",
+      delta: "partial",
+    });
+
+    const get = await vein.app.request("/chat/c1");
+    const { meta } = (await get.json()) as { meta: { status: string } };
+    assert.equal(meta.status, "error");
+
+    // The tail now terminates (would hang forever without the synthesized
+    // chat.error) and reports the reconciled status.
+    const res = await vein.app.request("/chat/c1/stream?turn=0");
+    const text = await res.text();
+    assert.ok(text.includes("chat.error"), text);
+    assert.ok(text.includes('"status":"error"'), text);
+
+    const list = (await (await vein.app.request("/chats")).json()) as { status: string }[];
+    assert.equal(list[0]!.status, "error");
+  });
+
   it("GET /chat/:id/stream for a not-yet-started turn sends done immediately", async () => {
     const vein = await makeVein();
     await chatStore.createChat({ id: "c1" }); // currentTurn -1
