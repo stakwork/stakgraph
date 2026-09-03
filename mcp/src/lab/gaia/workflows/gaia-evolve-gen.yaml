@@ -2,10 +2,11 @@ name: gaia-evolve-gen
 # ONE GENERATION of the gaia evolution loop: author a candidate → run it
 # over the task set → digest the scores. The outer loop (eval/evolve-loop,
 # invoked by gaia-evolve) runs this workflow repeatedly, composing each
-# generation's `briefing` from the baseline digest + every previous
-# attempt's result, so successive authors hill-climb instead of starting
-# blind (EVOLVE_SPEC §5.2's reflect beat, §5.3.3's loop-over-versions —
-# the gaia instance, mirroring harvey-evolve-gen).
+# generation's `briefing` from the baseline + every previous attempt's
+# result — a task×version grid plus each attempt's approach and misses —
+# so successive authors build on evidence instead of starting blind
+# (EVOLVE_SPEC §5.2's reflect beat, §5.3.3's loop-over-versions — the gaia
+# instance, mirroring harvey-evolve-gen).
 #
 # The author is the standard meta/* authoring agent (§5.3.2 grants: meta/*
 # and the editor tool, never bash, never graders). It sees correct/wrong
@@ -14,9 +15,9 @@ name: gaia-evolve-gen
 #
 # Input:  { tasks, mission, candidateName, generation, briefing }
 #   tasks:    GAIA taskIds (the TRAIN set)
-#   briefing: composed by eval/evolve-loop — baseline digest, previous
-#             attempts (version, accuracy, approach, misses), best-so-far
-#             anchor, and the exploit-or-explore directive.
+#   briefing: composed by eval/evolve-loop — the task list, a task×version
+#             grid of every version graded so far (baseline first), and
+#             each previous attempt's approach summary and misses.
 # Output: { candidate, generation, version, summary, changes,
 #           missingSecrets, authorCost, authorSteps, digest }
 #   digest: the gaia/digest-results object for this generation's candidate
@@ -58,7 +59,7 @@ steps:
         {{ input.briefing }}
 
         Author an improved CANDIDATE produce workflow named EXACTLY
-        "{{ input.candidateName }}", following the DIRECTIVE above. Address
+        "{{ input.candidateName }}", using the evidence above. Address
         miss patterns that RECUR across tasks (never one task's specifics).
         Keep the hard contract, publish, smoke-test on ONE task from the
         task set, and return the result.
@@ -81,7 +82,7 @@ steps:
             description: "EXACT version string of the final healthy publish (from meta/publish-workflow)"
           summary:
             type: string
-            description: "the APPROACH this generation took and why — tied to the directive and the recurring miss patterns; the next generation reads this to know what has been tried"
+            description: "the APPROACH this generation took and why — tied to the recurring miss patterns; the next generation reads this to know what has been tried"
           changes:
             type: array
             items: { type: string }
@@ -216,9 +217,11 @@ params:
 
     You are ONE GENERATION in a hill-climbing loop: earlier generations'
     attempts and results are in your task prompt, and your published version
-    and summary will be handed to the next generation. Follow the DIRECTIVE
-    in the briefing — build on the best attempt when told to exploit, and
-    genuinely change strategy when told to explore. The fitness is exact-
+    and summary will be handed to the next generation. The briefing is
+    EVIDENCE only — the task list, a task×version grid of every version
+    graded so far, and each attempt's approach and misses. Nothing in the
+    harness picks a winner: YOU choose which version to build on, or
+    whether to change strategy, by reading the grid. The fitness is exact-
     match ACCURACY over the task set: every task flip moves it by 1/n, and
     the same workflow re-run can flip tasks by sampling luck alone — chase
     recurring MISS PATTERNS, never one task's noise.
@@ -251,11 +254,12 @@ params:
     for available credential NAMES.
 
     METHOD
-    1. Read the DIRECTIVE's anchor first: the best-so-far candidate version
-       (meta/get-workflow with the exact version) when exploiting, or the
-       base produce workflow when nothing has beaten the baseline. Your
-       candidate starts from that YAML, changed only where the evidence
-       points.
+    1. Pick your anchor from the grid: read the version that solved the
+       most (meta/get-workflow with the exact version), or the base produce
+       workflow when nothing has beaten the baseline. Your candidate starts
+       from that YAML, changed where the evidence points — and when the
+       same misses recur across every column, change approach instead of
+       adding another rule to the same prompt.
     2. PUBLISH EARLY. Before any deep step-authoring, publish a first
        candidate version (meta/publish-workflow) that is a modest, safe
        improvement on your anchor. The harness grades whatever your FINAL
@@ -274,8 +278,8 @@ params:
        healthy. Runs cost real money: one task, at most two smoke runs.
     5. Steps you (or a prior generation) already authored may exist —
        check meta/list-steps before creating: edit and reuse them instead
-       of re-authoring from scratch. But when the DIRECTIVE says explore,
-       reuse must not drag you back into an approach that already failed.
+       of re-authoring from scratch. But reuse must not drag you back into
+       an approach the grid shows already failed.
 
     WORKFLOW DESIGN PATTERNS — vocabulary, not prescription. A candidate
     may be ANY shape that honors the hard contract: compose these, adapt

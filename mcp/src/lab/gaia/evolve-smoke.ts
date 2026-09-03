@@ -35,7 +35,7 @@ async function main() {
     }
 
     // step types referenced by the workflows all exist in the registry
-    const { registry } = await buildRegistry(workspace.path);
+    const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     const wanted = [
       "gaia/list-tasks", "gaia/get-task", "gaia/evaluate", "gaia/pack-result",
       "gaia/summarize-batch", "gaia/digest-results", "eval/evolve-loop",
@@ -183,7 +183,7 @@ async function main() {
     assert.equal(out.results[0].correct, true);
     assert.equal(out.results[0].cost, 0.5); // unpacked from runResult.output in code
     assert.equal(out.results[0].steps, 12);
-    assert.equal(out.results[0].question, undefined); // question excerpts ride on MISSES only
+    assert.equal(typeof out.results[0].question, "string"); // question rides on EVERY entry (the loop's task list)
     assert.equal(out.results[1].correct, false); // count+results normalization
     assert.equal(out.results[1].miss, "wrong-answer");
     assert.equal(out.results[2].miss, "produce-error");
@@ -195,12 +195,17 @@ async function main() {
     assert.ok(out.text.includes("ERROR: AI_NoObjectGeneratedError"));
     console.log("✔ gaia/digest-results: shape normalization, miss taxonomy, fitness, text");
 
-    // 5. the generic loop climbs the gaia digest's `fitness` field (accuracy)
-    //    with improveMargin 0 — any task flip counts — and names the fitness
-    //    "accuracy" in briefings.
+    // 5. the generic loop climbs the gaia digest's `fitness` field (accuracy),
+    //    names it "accuracy" in briefings, and briefs each generation with
+    //    the EVIDENCE: task list once, a task×version grid, per-attempt
+    //    misses only. No best-so-far anchor, no margin, no directive.
     const loop = registry["eval/evolve-loop"]!;
     const genCalls: any[] = [];
     const rates = [0.4, 0.6];
+    const verdicts = (g: number) => [
+      { taskId: "t-1", level: 1, correct: true, answer: "42", question: "Q one", cost: 2 },
+      { taskId: "t-2", level: 2, correct: g === 1, answer: g === 1 ? "ok" : "nope", question: "Q two", cost: 0 },
+    ];
     const fakeOpt = {
       run: async (_name: string, input: any) => {
         genCalls.push(input);
@@ -215,118 +220,98 @@ async function main() {
             // loop must replace it with the honest no-summary marker.
             summary: g === 0 ? "placeholder" : `approach ${g}`,
             authorCost: 1,
-            digest: { fitness: rates[g], text: `digest ${g}`, results: [{ cost: 2 }] },
+            digest: { fitness: rates[g], text: `digest ${g}`, results: verdicts(g) },
           },
         };
       },
     };
+    const baseDigest = {
+      fitness: 0.4,
+      text: "baseline digest",
+      results: [
+        { taskId: "t-1", level: 1, correct: true, answer: "42", question: "Q one" },
+        { taskId: "t-2", level: 2, correct: false, answer: "", question: "Q two" },
+      ],
+    };
+    const loopBase = {
+      tasks: ["t-1", "t-2"],
+      mission: "m",
+      baseline: baseDigest,
+      candidateName: "gaia-produce-ai",
+      baseWorkflow: "gaia-produce",
+      genWorkflow: "gaia-evolve-gen",
+      fitnessName: "accuracy",
+    };
     const loopOut: any = await loop.run(
-      loop.input.parse({
-        tasks: ["t-1", "t-2"],
-        mission: "m",
-        baseline: { fitness: 0.4, text: "baseline digest" },
-        candidateName: "gaia-produce-ai",
-        baseWorkflow: "gaia-produce",
-        genWorkflow: "gaia-evolve-gen",
-        fitnessName: "accuracy",
-        maxGenerations: 5,
-        stopFitness: 0.6,
-        improveMargin: 0,
-        exploreAfter: 2,
-      }),
+      loop.input.parse({ ...loopBase, maxGenerations: 5, stopFitness: 0.6 }),
       { ...ctxStub, services: { optimizer: fakeOpt } },
     );
     assert.equal(genCalls.length, 2); // gen 1 hit stopFitness 0.6
     assert.equal(loopOut.stopReason, "stopFitness 0.6 reached");
+    assert.deepEqual(loopOut.topVersions, [{ gen: 1, version: "v2", fitness: 0.6 }]);
     assert.equal(loopOut.bestGen, 1);
     assert.equal(loopOut.bestVersion, "v2");
     assert.equal(loopOut.bestFitness, 0.6);
     assert.equal(loopOut.baselineFitness, 0.4);
     assert.equal(loopOut.improved, true);
-    assert.ok(genCalls[0].briefing.includes("mean accuracy 0.4"));
-    assert.ok(genCalls[1].briefing.includes('the seeded produce workflow "gaia-produce"'));
-    // margin 0 semantics: a TIE (0.4 vs baseline 0.4) does not become best
-    assert.ok(genCalls[1].briefing.includes("BEST SO FAR: the baseline itself"));
+    const b0 = genCalls[0].briefing as string;
+    const b1 = genCalls[1].briefing as string;
+    assert.ok(b0.includes("mean accuracy 0.4"));
+    assert.ok(b0.includes('the seeded produce workflow "gaia-produce"'));
+    assert.ok(b0.includes("none — this is the first attempt"));
+    // the task list appears ONCE, with level + question from the baseline digest
+    assert.ok(b1.includes("- t-2 (L2): Q two"));
+    assert.equal(b1.split("Q two").length - 1, 1, "questions are listed once, never repeated per attempt");
+    // the grid: baseline column first, then v1; ∅ for the baseline's empty answer
+    assert.ok(b1.includes("RESULTS GRID"));
+    assert.match(b1, /task\s+\|\s+base \|\s+v1/);
+    assert.match(b1, /t-2\s+\|\s+∅ \|\s+✗/);
+    assert.match(b1, /fitness\s+\|\s+0\.4 \|\s+0\.4/); // fitness row
+    // per attempt: misses only, with the wrong answer
+    assert.ok(b1.includes("attempt 0 → gaia-produce-ai@v1: accuracy 0.4"));
+    assert.ok(b1.includes('- t-2 → answered "nope"'));
+    assert.ok(!b1.includes("t-1 → "), "solved tasks are not listed under misses");
+    // no anchor / directive machinery left
+    assert.ok(!b1.includes("BEST SO FAR") && !b1.includes("DIRECTIVE"));
     // junk-summary guard: gen 0's "placeholder" echo must NOT reach the next
     // briefing or the report — both carry the honest no-summary marker.
-    assert.ok(!genCalls[1].briefing.includes("placeholder"));
-    assert.ok(genCalls[1].briefing.includes("no usable approach summary"));
-    assert.equal(
-      loopOut.generations[0].summary.includes("no usable approach summary"),
-      true,
-    );
+    assert.ok(!b1.includes("placeholder"));
+    assert.ok(b1.includes("no usable approach summary"));
+    assert.equal(loopOut.generations[0].summary.includes("no usable approach summary"), true);
     assert.equal(loopOut.generations[1].summary, "approach 1");
-    console.log("✔ eval/evolve-loop: climbs gaia `fitness`, accuracy naming, margin-0 tie handling, junk-summary guard");
+    console.log("✔ eval/evolve-loop: climbs gaia `fitness`, evidence briefing (tasks once, grid, misses only), junk-summary guard");
 
-    // 6. the capture stage (Phase 1 wiring): a k-sample baseline folded by
-    //    eval/matrix plugs into the loop AS the baseline object, and the
-    //    measured noise floor feeds improveMargin via the yaml's fallback
-    //    expression.
-    const matrixStep = registry["eval/matrix"]!;
-    // Two identical-YAML baseline samples, one task flipping between them —
-    // gaia-run result shape (correct as 0/1 count with total 1).
-    const bSample = (flip: boolean) => [
-      { taskId: "t-1", level: 2, correct: 1, total: 1, answer: "42", question: "Q1" },
-      { taskId: "t-2", level: 2, correct: flip ? 1 : 0, total: 1, answer: flip ? "ok" : "no", question: "Q2" },
-    ];
-    const basematrix: any = await matrixStep.run(
-      matrixStep.input.parse({ version: "gaia-produce", samples: [bSample(true), bSample(false)] }),
-      ctxStub,
-    );
-    assert.equal(basematrix.fitness, 1); // MAX sample (2/2) — the conservative bar
-    assert.equal(basematrix.noise.floorKnown, true);
-    assert.equal(basematrix.noise.suggestedMargin, 0.5); // 1 flip on n=2
-    assert.ok(basematrix.text.includes("question: Q2"), "stuck-task question in the baseline text");
-    // the yaml's margin expression: measured floor wins, fallback when unmeasured
-    const mScope = { basematrix, params: { improveMargin: 0 } };
-    assert.equal((resolveConfig as any)("{{ basematrix.noise.suggestedMargin || params.improveMargin }}", mScope), 0.5);
-    const mScopeUnknown = { basematrix: { noise: { floorKnown: false } }, params: { improveMargin: 0 } };
-    assert.equal(
-      (resolveConfig as any)("{{ basematrix.noise.suggestedMargin || params.improveMargin }}", mScopeUnknown),
-      0,
-    );
-    // the matrix object IS a valid loop baseline: fitness + text read through
-    const mLoopCalls: any[] = [];
-    const mLoopOut: any = await loop.run(
-      loop.input.parse({
-        tasks: ["t-1", "t-2"],
-        mission: "m",
-        baseline: basematrix,
-        candidateName: "gaia-produce-ai",
-        baseWorkflow: "gaia-produce",
-        genWorkflow: "gaia-evolve-gen",
-        fitnessName: "accuracy",
-        maxGenerations: 1,
-        stopFitness: 1,
-        improveMargin: 0.5,
-        exploreAfter: 2,
-      }),
-      {
-        ...ctxStub,
-        services: {
-          optimizer: {
-            run: async (_n: string, input: any) => {
-              mLoopCalls.push(input);
-              return {
-                runId: "genrun-m",
-                status: "success",
-                output: { version: "v1", summary: "an approach", digest: { fitness: 1, text: "d", results: [] } },
-              };
-            },
-          },
+    // 6. TIES stay ties: two versions at the top are BOTH reported; the
+    //    single-field `bestVersion` is the oldest of them.
+    const tieOpt = {
+      run: async (_name: string, input: any) => ({
+        runId: `genrun-${input.generation}`,
+        status: "success",
+        output: {
+          candidate: input.candidateName,
+          version: `v${input.generation + 1}`,
+          summary: `approach ${input.generation}`,
+          authorCost: 1,
+          digest: { fitness: 0.5, text: "d", results: verdicts(0) },
         },
-      },
+      }),
+    };
+    const tieOut: any = await loop.run(
+      loop.input.parse({ ...loopBase, maxGenerations: 2, stopFitness: 1 }),
+      { ...ctxStub, services: { optimizer: tieOpt } },
     );
-    assert.equal(mLoopOut.baselineFitness, 1); // read from basematrix.fitness
-    assert.ok(mLoopCalls[0].briefing.includes("TASK×VERSION MATRIX"), "matrix text is the baseline briefing block");
-    // fitness 1 vs baseline 1 with margin 0.5: a tie, not an improvement
-    assert.equal(mLoopOut.improved, false);
-    console.log("✔ capture wiring: k-sample matrix as loop baseline, measured-margin fallback expression");
+    assert.deepEqual(tieOut.topVersions, [
+      { gen: 0, version: "v1", fitness: 0.5 },
+      { gen: 1, version: "v2", fitness: 0.5 },
+    ]);
+    assert.equal(tieOut.bestVersion, "v1");
+    assert.equal(tieOut.improved, true); // 0.5 > baseline 0.4
+    console.log("✔ eval/evolve-loop: tied top versions are all reported");
 
-    // 6. NO-OP generation: the gen workflow's `published` gate reports that an
+    // 7. NO-OP generation: the gen workflow's `published` gate reports that an
     //    author shipped nothing, so nothing was graded. The loop must record
-    //    it without a fitness, leave `best` untouched, spend only the author
-    //    cost, and tell the next generation not to read it as evidence.
+    //    it without a fitness, spend only the author cost, keep it out of the
+    //    grid, and tell the next generation not to read it as evidence.
     const noopCalls: any[] = [];
     const noopOpt = {
       run: async (_name: string, input: any) => {
@@ -343,64 +328,28 @@ async function main() {
                   version: `v${g + 1}`,
                   summary: `approach ${g}`,
                   authorCost: 1,
-                  digest: { fitness: 0.6, text: `digest ${g}`, results: [{ cost: 2 }] },
+                  digest: { fitness: 0.6, text: `digest ${g}`, results: verdicts(1) },
                 },
         };
       },
     };
-    const noopBase = {
-      tasks: ["t-1", "t-2"],
-      mission: "m",
-      baseline: { fitness: 0.4, text: "baseline digest" },
-      candidateName: "gaia-produce-ai",
-      baseWorkflow: "gaia-produce",
-      genWorkflow: "gaia-evolve-gen",
-      fitnessName: "accuracy",
-      stopFitness: 1,
-      improveMargin: 0,
-      exploreAfter: 2,
-    };
+    const noopBase = { ...loopBase, stopFitness: 1 };
     const noopOut: any = await loop.run(
       loop.input.parse({ ...noopBase, maxGenerations: 3 }),
       { ...ctxStub, services: { optimizer: noopOpt } },
     );
     assert.equal(noopOut.generations[1].noop, true);
-    assert.equal(noopOut.bestGen, 0); // gen 1 did not displace gen 0's v1
+    assert.equal(noopOut.bestGen, 0); // oldest of the tied v1 / v3
     assert.equal(noopOut.bestVersion, "v1");
     assert.equal(noopOut.bestFitness, 0.6);
+    assert.equal(noopOut.topVersions.length, 2);
     // no-op spends the author budget only — never the 2 tasks × cost 2 produce
     assert.equal(noopOut.totalKnownCost, 3 + 1 + 3);
     // the briefing must not libel an approach that was never tried
     assert.ok(noopCalls[2].briefing.includes("NO CANDIDATE PUBLISHED"));
-    assert.ok(!noopCalls[2].briefing.includes("attempt 1 → published"));
+    assert.ok(!noopCalls[2].briefing.includes("attempt 1 → "));
+    assert.ok(!noopCalls[2].briefing.includes("gen1"), "a no-op gets no grid column");
     console.log("✔ eval/evolve-loop: no-op generation records no fitness, spends only the author budget");
-
-    // 7. RE-SCORE guard: the same version graded twice cannot be promoted on
-    //    the luckier sample — the run's best stays pinned to first measurement.
-    const dupOpt = {
-      run: async (_name: string, input: any) => {
-        const g = input.generation as number;
-        return {
-          runId: `genrun-${g}`,
-          status: "success",
-          output: {
-            candidate: input.candidateName,
-            version: "v1", // gen 1 re-runs gen 0's version…
-            summary: `approach ${g}`,
-            authorCost: 1,
-            digest: { fitness: g === 0 ? 0.6 : 0.9, text: `digest ${g}`, results: [{ cost: 2 }] }, // …and gets lucky
-          },
-        };
-      },
-    };
-    const dupOut: any = await loop.run(
-      loop.input.parse({ ...noopBase, maxGenerations: 2 }),
-      { ...ctxStub, services: { optimizer: dupOpt } },
-    );
-    assert.equal(dupOut.bestGen, 0);
-    assert.equal(dupOut.bestFitness, 0.6); // NOT 0.9 — a resample, not a climb
-    assert.equal(dupOut.generations[1].fitness, 0.9); // still reported honestly
-    console.log("✔ eval/evolve-loop: a re-scored version cannot become the best on sampling luck");
 
     // 8. BUDGET caps stop the loop between generations.
     const costOpt = {
