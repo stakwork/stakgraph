@@ -523,6 +523,8 @@ Everything in jarvis NOT reached by these tools stays out of scope.
 | ------------------------------------------------ | ---------------------------------------- | ------------------------ |
 | `create-node`, `create-triplet`, `create-batch-triplet` | `POST /v2/nodes`, `POST /v2/edges` | already §1/§3            |
 | `edit-node`                                      | `POST /v2/nodes/:ref_id`                 | §1 upsert (reprocess semantics) |
+| `create-schema` (vein-only, no jarvis/* twin)    | `POST /v2/schema`                        | `schema-crud.ts`: register a non-Vein node type (parent must exist, jarvis attribute grammar, node_key tokens, CHILD_OF, per-type constraint), or add-only extend an existing one — the ontology CRUD the mcp lab deliberately left to humans, exposed because a workflow may need a type (e.g. `Evidence`) the seed lacks |
+| `edit-edge` (vein-only, no jarvis/* twin)        | `PATCH /v2/edges/:ref_id`                | `EdgeWriter.update()`: patch an edge's properties by ref_id or by (source, EDGE, target); identity stamps protected. The only way to change an edge after the ON-CREATE-only MERGE |
 | `register-namespace`                             | `POST/GET /namespace`                    | trivial: idempotent namespace registry (mirror jarvis's storage — verify whether it's a node or derived from distinct `n.namespace` before building) |
 | `get-ontology`, `get-ontology-type`              | `GET /v2/schema[/{type}]`                | list `:Schema` nodes + inherited attrs via `CHILD_OF` walk (read side of §4) |
 | `graph-get`, `graph-get-batched`                 | `GET /v2/nodes/:ref_id` + `/connection-counts` | fetch by ref_id; response envelope = properties minus `GENERIC_NODE_PROPERTIES`; `{EDGE_TYPE: count}` map |

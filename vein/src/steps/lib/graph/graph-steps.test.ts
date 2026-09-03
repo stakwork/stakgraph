@@ -16,11 +16,11 @@ const cfg = testGraphConfig();
 const STEP_TYPES = [
   "graph/get-ontology", "graph/get-ontology-type", "graph/graph-search", "graph/graph-get",
   "graph/graph-get-batched", "graph/graph-neighbors", "graph/register-namespace", "graph/create-node",
-  "graph/edit-node", "graph/create-triplet", "graph/create-batch-triplet",
+  "graph/edit-node", "graph/create-triplet", "graph/create-batch-triplet", "graph/create-schema", "graph/edit-edge",
 ];
 
 describe("graph/* lib steps are discovered by the registry", () => {
-  it("all eleven twins are present, sourced from lib", async () => {
+  it("all thirteen graph steps are present, sourced from lib", async () => {
     const { registry, sources } = await buildRegistry();
     for (const t of STEP_TYPES) {
       assert.ok(registry[t], `missing ${t}`);
@@ -197,6 +197,89 @@ describe("graph/* lib steps (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4
     assert.deepEqual(accessedNodesOf(out)!.map((n) => n.ref_id).sort(), [...new Set([wfRef, wfvRef, out.results[2].target_ref_id])].sort(), "endpoints of written edges");
     const steps = await run("graph/graph-search", { q: "smoke/step", type: "VeinStep", namespace: NS });
     assert.equal(steps.length, 1, "inline VeinStep created once");
+  });
+
+  it("edit-edge: by ref_id and by triple, deletes, refuses stamps / bad locators / missing edges", async () => {
+    // The ACTIVE_VERSION edge written by the batch test above.
+    let out = await run("graph/edit-edge", { source_ref_id: wfRef, edge_type: "active version", target_ref_id: wfvRef, edge_data: { strength: 0.75, note: "grounded" } });
+    assert.equal(out.status, "Success", JSON.stringify(out));
+    assert.equal(out.edge_type, "ACTIVE_VERSION");
+    assert.deepEqual(out.updated, ["strength", "note"]);
+    assert.deepEqual(accessedNodesOf(out), [{ ref_id: wfRef }, { ref_id: wfvRef }], "both endpoints");
+    const edgeRef = out.edge_ref_id;
+    out = await run("graph/edit-edge", { edge_ref_id: edgeRef, edge_data: { strength: -0.4 }, properties_to_be_deleted: ["note"] });
+    assert.deepEqual(out, { status: "Success", edge_ref_id: edgeRef, edge_type: "ACTIVE_VERSION", source_ref_id: wfRef, target_ref_id: wfvRef, updated: ["strength"], deleted: ["note"] });
+    const bolt = new Bolt(cfg!);
+    try {
+      const rows = await bolt.run(`MATCH ()-[r {ref_id: $r}]->() RETURN properties(r) AS p`, { r: edgeRef });
+      const p = rows[0]!["p"] as Record<string, unknown>;
+      assert.equal(p["strength"], -0.4);
+      assert.ok(!("note" in p));
+      assert.equal(p["edge_key"], "active_version");
+    } finally {
+      await bolt.close();
+    }
+    assert.match(await run("graph/edit-edge", { edge_ref_id: edgeRef, edge_data: { ref_id: "x" } }), /UNKNOWN_ATTRIBUTE/);
+    assert.match(await run("graph/edit-edge", { edge_ref_id: "nope", edge_data: { x: 1 } }), /NOT_FOUND/);
+    assert.match(await run("graph/edit-edge", { source_ref_id: wfvRef, edge_type: "ACTIVE_VERSION", target_ref_id: wfRef, edge_data: { x: 1 } }), /NOT_FOUND/);
+    assert.match(await run("graph/edit-edge", { edge_ref_id: edgeRef }), /invalid input/);
+    assert.match(await run("graph/edit-edge", { source_ref_id: wfRef, edge_data: { x: 1 } }), /invalid input/);
+    assert.match(await run("graph/edit-edge", { edge_ref_id: edgeRef, source_ref_id: wfRef, edge_type: "X", target_ref_id: wfvRef, edge_data: { x: 1 } }), /invalid input/);
+  });
+
+  it("create-schema: registers a type create-node can then write, extends it add-only, refuses Vein types and bad input", async () => {
+    assert.match(await run("graph/create-node", { node_type: "Evidence", namespace: NS, node_data: { description: "d" } }), /UNKNOWN_TYPE/);
+    let out = await run("graph/create-schema", {
+      type: "Evidence",
+      attributes: { description: "string", content: "?string", evidence_status: "?string" },
+      node_key: "description",
+      title_key: "description",
+      description_key: "content",
+    });
+    assert.equal(out.status, "Success", JSON.stringify(out));
+    assert.equal(out.created, true);
+    assert.deepEqual([out.type, out.parent, out.node_key], ["Evidence", "Thing", "evidence-description"]);
+    assert.equal(out.attributes.description, "?string", "core-name attribute reads optional; required via node_key");
+    assert.equal(out.attributes.content, "?string");
+    assert.equal(accessedNodesOf(out), undefined, "a Schema node is not data — no provenance marker");
+
+    const node = await run("graph/create-node", { node_type: "Evidence", namespace: NS, node_data: { description: "release notes mention vectors", evidence_status: "planned" } });
+    assert.equal(node.status, "Success", JSON.stringify(node));
+    assert.match(await run("graph/create-node", { node_type: "Evidence", namespace: NS, node_data: { description: "x", strength: 1 } }), /UNKNOWN_ATTRIBUTE/);
+
+    // Extend: add-only.
+    out = await run("graph/create-schema", { type: "evidence", attributes: { strength: "?float", description: "?string" } });
+    assert.equal(out.status, "Warning");
+    assert.equal(out.created, false);
+    assert.deepEqual(out.added_attributes, ["strength"]);
+    assert.equal(out.attributes.strength, "?float");
+    assert.equal(out.node_key, "evidence-description");
+    const edited = await run("graph/edit-node", { ref_id: node.ref_id, node_data: { strength: 0.75, evidence_status: "collected" } });
+    assert.equal(edited.status, "Success", JSON.stringify(edited));
+    const single = await run("graph/get-ontology-type", { type: "Evidence" });
+    assert.equal(single.attributes.strength, "?float");
+
+    // Edge between the new type and a Vein type is still gated by the closed Vein registry (source is Vein)…
+    assert.match(await run("graph/create-triplet", { source_ref_id: wfRef, target_ref_id: node.ref_id, edge_type: "EVIDENCED_BY", create_schema_if_missing: true }), /WRONG_TYPE/);
+    // …but between two ontology types create_schema_if_missing registers the edge schema.
+    const doc = await run("graph/create-schema", { type: "SourceDoc", attributes: { title: "string", url: "?string" }, node_key: "title" });
+    assert.equal(doc.created, true);
+    const trip = await run("graph/create-triplet", {
+      source_ref_id: node.ref_id,
+      target_type: "SourceDoc",
+      target_data: { title: "Falkor release notes", url: "https://example.test" },
+      edge_type: "HAS_SOURCE",
+      edge_data: { authority_level: "expert" },
+      create_schema_if_missing: true,
+      namespace: NS,
+    });
+    assert.equal(trip.status, "Success", JSON.stringify(trip));
+
+    assert.match(await run("graph/create-schema", { type: "VeinRun", attributes: {} }), /UNKNOWN_TYPE/);
+    assert.match(await run("graph/create-schema", { type: "Sub", parent: "VeinRun", attributes: {} }), /closed registry/);
+    assert.match(await run("graph/create-schema", { type: "Orphan", parent: "Nope", attributes: {} }), /does not exist/);
+    assert.match(await run("graph/create-schema", { type: "Bad", attributes: { score: "number" } }), /WRONG_TYPE/);
+    assert.match(await run("graph/create-schema", { type: "Bad", attributes: { a: "string" }, node_key: "b" }), /UNKNOWN_ATTRIBUTE/);
   });
 });
 

@@ -119,6 +119,46 @@ describe("EdgeWriter (live Neo4j)", { skip: cfg ? false : "VEIN_TEST_NEO4J_URI n
     assert.deepEqual(await graphSnapshot(bolt), snap);
   });
 
+  it("update patches an existing edge by ref_id or by triple; stamps stay protected", async () => {
+    const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, properties: { note: "x", strength: 0.5 } });
+    const stamped = (await rel(a.ref_id))["props"] as Record<string, unknown>;
+
+    const u = await edges.update({ ref_id: a.ref_id }, { set: { strength: -0.75, weight: 3 }, remove: ["note"] });
+    assert.deepEqual(u, { ref_id: a.ref_id, edge: "IN_RUN", source_ref_id: session, target_ref_id: run, updated: ["strength", "weight"], removed: ["note"] });
+    let r = await rel(a.ref_id);
+    let p = r["props"] as Record<string, unknown>;
+    assert.equal(p["strength"], -0.75);
+    assert.equal(p["weight"], 3);
+    assert.equal(r["weightType"], "INTEGER NOT NULL", "integral weight stays an Integer");
+    assert.ok(!("note" in p));
+    for (const k of ["ref_id", "edge_key", "date_added_to_graph"]) assert.equal(p[k], stamped[k], `${k} untouched`);
+
+    // By triple (case-insensitive edge type), undefined values skipped.
+    const t = await edges.update({ edge: "in run", source_ref_id: session, target_ref_id: run }, { set: { strength: 0.4, skipped: undefined } });
+    assert.equal(t.ref_id, a.ref_id);
+    assert.deepEqual(t.updated, ["strength"]);
+    p = (await rel(a.ref_id))["props"] as Record<string, unknown>;
+    assert.equal(p["strength"], 0.4);
+
+    const cases: Array<[Parameters<EdgeWriter["update"]>, string]> = [
+      [[{ ref_id: a.ref_id }, { set: { ref_id: "y" } }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { set: { edge_key: "y" } }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { remove: ["date_added_to_graph"] }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { remove: ["weight"] }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { set: { "bad-name": 1 } }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, {}], "MISSING_REQUIRED"],
+      [[{ ref_id: randomUUID() }, { set: { x: 1 } }], "NOT_FOUND"],
+      [[{ edge: "IN_RUN", source_ref_id: run, target_ref_id: session }, { set: { x: 1 } }], "NOT_FOUND"],
+      [[{ edge: "in_run!", source_ref_id: session, target_ref_id: run }, { set: { x: 1 } }], "UNKNOWN_TYPE"],
+    ];
+    for (const [args, code] of cases) {
+      await assert.rejects(edges.update(...args), (e: unknown) => e instanceof GraphValidationError && e.code === code, `${JSON.stringify(args)} → ${code}`);
+    }
+    // A muted edge is invisible to the triple lookup.
+    await edges.mute(a.ref_id);
+    await assert.rejects(edges.update({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run }, { set: { x: 1 } }), (e: any) => e.code === "NOT_FOUND");
+  });
+
   it("ACCESSED may point at any node, including a jarvis-owned one; source must still be a Vein node", async () => {
     // A jarvis-style Concept node: no Vein label, plain Data_Bank ref_id.
     const concept = randomUUID();
