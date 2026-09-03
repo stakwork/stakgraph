@@ -27,5 +27,8 @@ export function getProvider(arg?: "anthropic" | "openai"): ProviderData {
   if (arg === "openai" || process.env.LLM_PROVIDER === "openai") {
     provider = PROVIDER_MODELS["openai"];
   }
+  if (process.env.STAGEHAND_MODEL) {
+    provider = { ...provider, model: process.env.STAGEHAND_MODEL };
+  }
   return provider;
 }

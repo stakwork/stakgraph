@@ -4,7 +4,8 @@ import { bearerToken } from "./utils.js";
 import { Express } from "express";
 import * as stakgraph from "./stakgraph/index.js";
 import * as stagehand from "./stagehand/tools.js";
-import { getMcpTools } from "./utils.js";
+import * as verify from "./verify/index.js";
+import { getMcpTools, use_stagehand } from "./utils.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -36,7 +37,8 @@ export function graph_mcp_routes(app: Express) {
 }
 
 graphServer.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools: getMcpTools() };
+  const tools = getMcpTools();
+  return { tools: use_stagehand() ? [...tools, ...verify.VERIFY_TOOLS] : tools };
 });
 
 graphServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -61,9 +63,20 @@ graphServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     case stakgraph.GetRulesFilesTool.name: {
       return await stakgraph.getRulesFiles();
     }
+    case verify.DbQueryTool.name: {
+      const sid = extra.sessionId || "default-session-id";
+      const result = await verify.dbQuery(args || {});
+      return verify.tagEvidence(sid, verify.DbQueryTool.name, result);
+    }
+    case verify.SubmitVerdictTool.name: {
+      const sid = extra.sessionId || "default-session-id";
+      return await verify.submitVerdict(sid, args || {});
+    }
     default:
       if (name.startsWith("stagehand_")) {
-        return await stagehand.call(name, args || {}, extra.sessionId);
+        const sid = extra.sessionId || "default-session-id";
+        const result = await stagehand.call(name, args || {}, extra.sessionId);
+        return verify.tagEvidence(sid, name, result);
       }
       throw new Error(`Unknown tool: ${name}`);
   }
