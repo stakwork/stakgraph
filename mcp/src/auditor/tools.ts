@@ -3,10 +3,13 @@ import { z } from "zod";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { fetch } from "undici";
+import pg from "pg";
 import { AuditorContext, ClaimVerdict } from "./types.js";
 import { VerdictSchema } from "./schema.js";
 
 const execAsync = promisify(exec);
+
+const DB_ROW_CAP = 50;
 
 export const END_OF_AUDIT = "[END_OF_AUDIT]";
 
@@ -92,7 +95,12 @@ export function getAuditorTools(ctx: AuditorContext) {
     }),
     execute: async ({ url }: { url: string }) => {
       try {
-        return await browser.open(resolveUrl(deck.map.appUrl, url));
+        const res = await browser.open(resolveUrl(deck.map.appUrl, url));
+        return {
+          ...res,
+          network: browser.drainNetworkDelta(),
+          console: browser.drainConsoleDelta(),
+        };
       } catch (err: any) {
         return browserError("browser_open", err);
       }
@@ -107,7 +115,12 @@ export function getAuditorTools(ctx: AuditorContext) {
     }),
     execute: async ({ action }: { action: string }) => {
       try {
-        return await browser.act(action);
+        const res = await browser.act(action);
+        return {
+          ...res,
+          network: browser.drainNetworkDelta(),
+          console: browser.drainConsoleDelta(),
+        };
       } catch (err: any) {
         return browserError("browser_act", err);
       }
@@ -181,6 +194,39 @@ export function getAuditorTools(ctx: AuditorContext) {
       } catch (err: any) {
         return browserError("browser_current_url", err);
       }
+    },
+  });
+
+  const read_network = tool({
+    description:
+      "Snapshot the network requests the PAGE has made so far (XHR/fetch/document only) — method, url, status, and any failures. Use this after a browser action to prove the app actually called its API and got the expected status. Captures a network evidence record and returns its id to cite in proof[].",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const entries = browser.snapshotNetwork();
+      const id = collector.push(
+        "network",
+        `page network log (${entries.length} requests)`,
+        JSON.stringify(entries),
+        true,
+      );
+      return { id, entries };
+    },
+  });
+
+  const read_console = tool({
+    description:
+      "Snapshot the browser console output the PAGE has produced so far — console.* calls, uncaught exceptions, and resource-load errors. Use this to detect runtime breakage a screenshot hides. Captures a console evidence record and returns its id to cite in proof[].",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const entries = browser.snapshotConsole();
+      const errors = entries.filter((e) => e.level === "error").length;
+      const id = collector.push(
+        "console",
+        `page console (${entries.length} entries, ${errors} errors)`,
+        JSON.stringify(entries),
+        true,
+      );
+      return { id, entries, errorCount: errors };
     },
   });
 
@@ -274,6 +320,56 @@ export function getAuditorTools(ctx: AuditorContext) {
     },
   });
 
+  const db_query = tool({
+    description:
+      "Run a READ-ONLY SQL query (Postgres) against the app database to independently confirm state persisted — e.g. after a write through the UI, SELECT the row to prove it exists. Enforced read-only (READ ONLY transaction + statement timeout + row cap), so a write attempt fails honestly. Captures a db evidence record and returns its id to cite in proof[]. Only available when a database URL is configured.",
+    inputSchema: z.object({
+      query: z.string().describe("A single read-only SELECT statement."),
+    }),
+    execute: async ({ query }: { query: string }) => {
+      const url = process.env.AUDIT_DB_URL || process.env.DATABASE_URL;
+      if (!url) {
+        return {
+          unavailable: true,
+          message: "no database configured (AUDIT_DB_URL/DATABASE_URL unset)",
+        };
+      }
+      const client = new pg.Client({
+        connectionString: url,
+        connectionTimeoutMillis: 5000,
+      });
+      try {
+        await client.connect();
+        await client.query("SET default_transaction_read_only = on");
+        await client.query("BEGIN");
+        await client.query("SET TRANSACTION READ ONLY");
+        await client.query("SET LOCAL statement_timeout = '5s'");
+        // extended protocol (values: []) rejects multi-statement strings
+        const res = await client.query({ text: query, values: [] });
+        await client.query("ROLLBACK");
+        const rows = res.rows.slice(0, DB_ROW_CAP);
+        const id = collector.push(
+          "db",
+          `db_query rows=${res.rowCount ?? rows.length}`,
+          JSON.stringify({ rowCount: res.rowCount, rows }),
+          true,
+        );
+        return { id, rowCount: res.rowCount, rows };
+      } catch (err: any) {
+        const message = err?.message ?? String(err);
+        const id = collector.push(
+          "db",
+          "db_query failed",
+          message,
+          true,
+        );
+        return { id, error: `db_query failed: ${message}` };
+      } finally {
+        await client.end().catch(() => {});
+      }
+    },
+  });
+
   const run_command = tool({
     description:
       "Run a READ-ONLY shell command to inspect the running system (ls, cat, curl, timing, etc.). Mutating commands are rejected. Returns stdout and stderr.",
@@ -333,7 +429,7 @@ export function getAuditorTools(ctx: AuditorContext) {
 
   const capture = tool({
     description:
-      "Record a free-form NOTE for the trail. A note is NOT proof and cannot back a works verdict — only the probe tools (http_request, sample, read_logs, browser_extract, browser_screenshot, browser_current_url) produce evidence that backs works. Use this for context you observed, not to justify a verdict.",
+      "Record a free-form NOTE for the trail. A note is NOT proof and cannot back a works verdict — only the probe tools (http_request, sample, read_logs, read_network, read_console, db_query, browser_extract, browser_screenshot, browser_current_url) produce evidence that backs works. Use this for context you observed, not to justify a verdict.",
     inputSchema: z.object({
       summary: z.string().describe("A short human-readable description of what you observed."),
       data: z.string().optional().describe("The underlying note text."),
@@ -352,7 +448,7 @@ export function getAuditorTools(ctx: AuditorContext) {
 
   const submit_verdict = tool({
     description:
-      "Submit the final audit verdict and END the audit. A claim may be marked works ONLY if its proof[] cites at least one probe-captured evidence id (from http_request, sample, read_logs, browser_extract, browser_screenshot, or browser_current_url); notes do not count. A works claim without such proof is downgraded to unknown, and overall is downgraded to match. This is the terminal tool.",
+      "Submit the final audit verdict and END the audit. A claim may be marked works ONLY if its proof[] cites at least one probe-captured evidence id (from http_request, sample, read_logs, read_network, read_console, db_query, browser_extract, browser_screenshot, or browser_current_url); notes do not count. A works claim without such proof is downgraded to unknown, and overall is downgraded to match. This is the terminal tool.",
     inputSchema: VerdictSchema,
     execute: async (input: z.infer<typeof VerdictSchema>) => {
       const strong = collector.strongIds;
@@ -406,8 +502,11 @@ export function getAuditorTools(ctx: AuditorContext) {
     browser_extract,
     browser_screenshot,
     browser_current_url,
+    read_network,
+    read_console,
     http_request,
     read_logs,
+    db_query,
     run_command,
     sample,
     capture,

@@ -38,6 +38,9 @@ export type EvidenceKind =
   | "log"
   | "timing"
   | "dom"
+  | "network"
+  | "console"
+  | "db"
   | "note";
 
 export interface EvidenceRecord {
