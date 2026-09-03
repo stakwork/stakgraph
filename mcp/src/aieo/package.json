@@ -1,6 +1,6 @@
 {
   "name": "aieo",
-  "version": "0.1.35",
+  "version": "0.1.36",
   "main": "./dist/index.js",
   "type": "module",
   "module": "./dist/index.mjs",
@@ -12,11 +12,13 @@
   "repository": "https://github.com/stakwork/stakgraph",
   "scripts": {
     "build": "tsup",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx ./src/__tests__/search.test.ts && tsx ./src/__tests__/provider.test.ts",
     "try": "ts-node ./src/test/try.ts",
     "try-anthropic": "ts-node ./src/test/try-anthropic.ts",
     "try-kimi": "ts-node ./src/test/try-kimi.ts",
-    "try-grok": "tsx ./src/test/try-grok.ts"
+    "try-grok": "tsx ./src/test/try-grok.ts",
+    "try-search": "tsx ./src/test/try-search.ts",
+    "cite-rate": "tsx ./src/test/cite-rate.ts"
   },
   "keywords": [
     "llm",
