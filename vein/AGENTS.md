@@ -48,7 +48,7 @@ vein/
 │   ├── steps/
 │   │   ├── core/          # 9 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait (static import)
 │   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — file dynamic-imported at build; heavy SDKs lazy-imported in run() (see "Lib step dependency convention")
-│   │   │   └── graph/     # graph/* knowledge-graph steps over src/graph (the vein-native twins of the mcp lab's jarvis/* steps — same names, inputs, outputs); _shared.ts lazy-imports the backend; graph-steps.test.ts is a live end-to-end test
+│   │   │   └── graph/     # graph/* knowledge-graph steps over src/graph (the vein-native twins of the mcp lab's jarvis/* steps — same names, inputs, outputs — plus two vein-only ones: create-schema registers/extends a node type, edit-edge patches an edge's properties); _shared.ts lazy-imports the backend; graph-steps.test.ts is a live end-to-end test
 │   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
 │   ├── ai/                # AI workflow-builder backend (used by POST /chat)
 │   │   ├── index.ts       # barrel export
@@ -63,13 +63,14 @@ vein/
 │   │   ├── vein-schemas.ts# the 9 Vein node types + 14-row edge registry (label registry in plans/generic-storage.md); author-time checks
 │   │   ├── schema-seed.ts # idempotent domain registration: Thing root, Schema nodes, CHILD_OF, constraints, vector/fulltext indexes, migration stamp
 │   │   ├── node-writer.ts # §6 validation gate + node_key composition + Data_Bank + MERGE (create/upsert/restore/update), UNWIND batches
-│   │   ├── edge-writer.ts # edge MERGE by ref_id with IS_ALIAS rewrite; closed (source, edge, target) registry
+│   │   ├── edge-writer.ts # edge MERGE by ref_id with IS_ALIAS rewrite (ON CREATE only); closed (source, edge, target) registry; update() = jarvis PATCH /v2/edges/:ref_id (stamps protected)
+│   │   ├── schema-crud.ts # createNodeSchema(): register a non-Vein node type like jarvis POST /v2/schema (parent, attribute grammar, node_key, CHILD_OF, constraint) or add-only extend an existing one
 │   │   ├── embeddings.ts  # local all-MiniLM-L6-v2 via transformers.js, tokenized like sentence-transformers (256 incl. specials); NULL-scan backfill
 │   │   ├── search.ts      # the read surface: hybrid search (RRF + title boost + usage tiebreak), get/neighbors/counts, ontology, namespaces
 │   │   ├── backend.ts     # openGraphBackend(): cached per config; runs seed + backfill on first open
 │   │   ├── test-util.ts   # live-test helpers (wipe, canonical graph snapshot) — only ever point at a throwaway Neo4j
 │   │   └── fixtures/      # Python-produced MiniLM golden vectors + jarvis sanitize_node_key parity cases
-│   └── *.test.ts          # 569 unit tests across 25 files (+ 70 live graph tests under src/graph/, opt-in)
+│   └── *.test.ts          # 622 unit tests across 25 files (+ 127 live graph tests under src/graph/ and steps/lib/graph/, opt-in)
 └── web/
     ├── package.json       # preact, system-canvas, vite
     ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
@@ -106,7 +107,7 @@ vein/
 # Engine
 cd vein
 npm install
-npm test                    # 569 tests, ~1s
+npm test                    # 622 tests, ~1s
 npm run dev                 # starts Hono server on :3000
 
 # Graph backend tests — LIVE, against a THROWAWAY Neo4j (they wipe it).
