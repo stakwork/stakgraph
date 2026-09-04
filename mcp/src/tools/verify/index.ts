@@ -298,6 +298,14 @@ export async function submitVerdict(sessionId: string, args: Record<string, unkn
     evidence: sess(sessionId).records,
   };
   VERDICTS[sessionId] = verdict;
+  if (process.env.AUDIT_VERDICT_OUT) {
+    try {
+      const fs = await import("node:fs");
+      fs.writeFileSync(process.env.AUDIT_VERDICT_OUT, JSON.stringify(verdict, null, 2));
+    } catch {
+      /* best effort */
+    }
+  }
   return text(JSON.stringify(verdict));
 }
 
