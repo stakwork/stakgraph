@@ -140,8 +140,9 @@ export async function createLabVein(
   // Seed each experiment's workflow + step templates into the workspace
   // BEFORE building the vein, so the registry's discovery picks up the
   // seeded steps. Steps are self-contained custom steps (not injected
-  // in-code) — content-hash reconciled, editable + versioned via the vein
-  // API/UI. No `registry` is passed, so createVein discovers core + lib +
+  // in-code) — content-hash reconciled (see seed-opts.ts: a changed template
+  // wins, an unchanged one leaves UI/API edits active), editable + versioned
+  // via the vein API/UI. No `registry` is passed, so createVein discovers core + lib +
   // these custom steps via `workspace.materializeCustomSteps()` (and step
   // publishing is enabled).
   //

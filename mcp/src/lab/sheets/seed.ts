@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
+import { SEED_OPTS } from "../seed-opts.js";
 
 /**
  * Google Sheets steps, seeded into the vein workspace. Each is a
@@ -35,7 +36,7 @@ export async function seedSheetsSteps(workspace: WorkspaceStore): Promise<void> 
   for (const { file, type } of SEED_STEPS) {
     try {
       const code = await readFile(join(dir, file), "utf-8");
-      const { version, changed } = await workspace.publishStep(type, code, undefined, "sheets-seed");
+      const { version, changed } = await workspace.publishStep(type, code, undefined, "sheets-seed", SEED_OPTS);
       if (changed) console.log(`[sheets] seeded step: ${type} @ ${version}`);
     } catch (err) {
       console.warn(

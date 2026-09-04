@@ -28,6 +28,8 @@ export function readRunStart(
   workflowHash?: string;
   params?: Record<string, unknown>;
   paramOverrides?: Record<string, Record<string, unknown>>;
+  /** Set for a nested run (§5.3: boot-time auto-resume resumes roots only). */
+  parentRunId?: string;
 } | null {
   const start = events.find((e) => e.type === "run.start");
   if (!start) return null;
@@ -36,6 +38,7 @@ export function readRunStart(
     workflowHash: start.workflowHash,
     params: start.params,
     paramOverrides: start.paramOverrides,
+    parentRunId: start.parentRunId,
   };
 }
 

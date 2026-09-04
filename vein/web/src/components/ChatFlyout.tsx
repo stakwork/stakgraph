@@ -3,12 +3,16 @@ import * as api from "../api";
 import * as storage from "../storage";
 import { formatJson } from "../helpers";
 import { CloseIcon, HistoryIcon, CopyIcon, CheckIcon } from "../icons";
+import { ToolResultView } from "./ToolResultView";
 import { FlyoutResizer } from "./FlyoutResizer";
 import { Markdown } from "./Markdown";
 
 // ── Chat Flyout (AI workflow builder) ──────────────────────────────────────
 
-type ToolGroup = { name: string; calls: api.ToolCallInfo[] };
+/** A tool RESULT paired to its call. `isError` = the tool threw. */
+type ToolResult = { output: unknown; isError: boolean };
+type ToolCall = api.ToolCallInfo & { result?: ToolResult };
+type ToolGroup = { name: string; calls: ToolCall[] };
 
 type ChatEntry =
   | { kind: "user"; content: string }
@@ -40,7 +44,7 @@ const NOTIFICATION_PREFIX = "[run-notification]";
 const TURN_POLL_MS = 4000;
 
 // Coalesce consecutive same-name tool calls into groups.
-function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
+function groupCalls(calls: ToolCall[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   for (const tc of calls) {
     const last = groups[groups.length - 1];
@@ -53,8 +57,46 @@ function groupCalls(calls: api.ToolCallInfo[]): ToolGroup[] {
   return groups;
 }
 
+/** Attach a result to the call with the same id, searching tool entries
+ *  from the end (the call is almost always in the last one). Returns the
+ *  matched call (for callers that need its input) or null. Pure: returns a
+ *  new entries array when something changed. */
+function attachResult(
+  entries: ChatEntry[],
+  toolCallId: string | undefined,
+  result: ToolResult,
+): { entries: ChatEntry[]; call: ToolCall | null } {
+  if (!toolCallId) return { entries, call: null };
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i]!;
+    if (e.kind !== "tool") continue;
+    for (let j = 0; j < e.groups.length; j++) {
+      const g = e.groups[j]!;
+      const k = g.calls.findIndex((c) => c.toolCallId === toolCallId);
+      if (k < 0) continue;
+      const call: ToolCall = { ...g.calls[k]!, result };
+      const groups = e.groups.slice();
+      groups[j] = { ...g, calls: g.calls.map((c, idx) => (idx === k ? call : c)) };
+      const next = entries.slice();
+      next[i] = { kind: "tool", groups };
+      return { entries: next, call };
+    }
+  }
+  return { entries, call: null };
+}
+
+/** Unwrap a stored AI SDK tool-result `output` ({ type, value }) into the
+ *  plain value + error flag the UI renders. */
+function storedOutputToResult(output: any): ToolResult {
+  if (output && typeof output === "object" && typeof output.type === "string" && "value" in output) {
+    return { output: output.value, isError: String(output.type).startsWith("error") };
+  }
+  return { output, isError: false };
+}
+
 /** Serialize the conversation as markdown — for pasting into an issue or
- *  another chat when debugging. Tool inputs are included as JSON blocks. */
+ *  another chat when debugging. Tool inputs and results are included as JSON
+ *  blocks. */
 function transcriptText(entries: ChatEntry[]): string {
   const blocks: string[] = [];
   for (const e of entries) {
@@ -68,11 +110,36 @@ function transcriptText(entries: ChatEntry[]): string {
       for (const g of e.groups) {
         for (const tc of g.calls) {
           blocks.push(`### Tool call: ${g.name}\n\`\`\`json\n${formatJson(tc.input)}\n\`\`\``);
+          if (tc.result) {
+            const label = tc.result.isError ? "Tool error" : "Tool result";
+            blocks.push(`### ${label}: ${g.name}\n\`\`\`json\n${formatJson(tc.result.output)}\n\`\`\``);
+          }
         }
       }
     }
   }
   return blocks.join("\n\n");
+}
+
+type ToolStatus = "pending" | "ok" | "error" | "unknown";
+
+const STATUS_TITLE: Record<ToolStatus, string> = {
+  pending: "Running",
+  ok: "Completed",
+  error: "Failed",
+  unknown: "No result recorded",
+};
+
+/** Roll a group's calls up to one status for the chip's dot. A call with no
+ *  result is "pending" only while this is the live tail of the chat;
+ *  otherwise the result was never recorded (e.g. the turn died). */
+function groupStatus(g: ToolGroup, live: boolean): ToolStatus {
+  let status: ToolStatus = "ok";
+  for (const c of g.calls) {
+    if (!c.result) return live ? "pending" : "unknown";
+    if (c.result.isError) status = "error";
+  }
+  return status;
 }
 
 /** Compact relative timestamp (e.g. "3m", "2h", "5d") with absolute fallback. */
@@ -103,10 +170,18 @@ function extractText(content: unknown): string {
 }
 
 /** Render stored ModelMessages (the transcript) into display entries. Tool
- *  RESULT messages (role "tool") aren't shown as bubbles — only the calls. */
+ *  RESULT messages (role "tool") aren't bubbles — each result is attached to
+ *  its call (by toolCallId) so the call's chip can disclose it. */
 function transcriptToEntries(messages: { role: string; content: unknown }[]): ChatEntry[] {
-  const entries: ChatEntry[] = [];
+  let entries: ChatEntry[] = [];
   for (const m of messages) {
+    if (m.role === "tool" && Array.isArray(m.content)) {
+      for (const part of m.content as any[]) {
+        if (part?.type !== "tool-result") continue;
+        entries = attachResult(entries, part.toolCallId, storedOutputToResult(part.output)).entries;
+      }
+      continue;
+    }
     if (m.role === "user") {
       const text = extractText(m.content);
       if (text) {
@@ -120,12 +195,12 @@ function transcriptToEntries(messages: { role: string; content: unknown }[]): Ch
       if (typeof m.content === "string") {
         if (m.content) entries.push({ kind: "text", content: m.content });
       } else if (Array.isArray(m.content)) {
-        const calls: api.ToolCallInfo[] = [];
+        const calls: ToolCall[] = [];
         for (const part of m.content as any[]) {
           if (part?.type === "text" && part.text) {
             entries.push({ kind: "text", content: part.text });
           } else if (part?.type === "tool-call") {
-            calls.push({ name: part.toolName, input: part.input });
+            calls.push({ name: part.toolName, input: part.input, toolCallId: part.toolCallId });
           }
         }
         if (calls.length) entries.push({ kind: "tool", groups: groupCalls(calls) });
@@ -207,7 +282,7 @@ export function ChatFlyout(props: {
   // bubble; tool calls/results also drive the canvas (workflow created/ran).
   const streamCallbacks = useCallback((signal: AbortSignal): api.ChatCallbacks => {
     let textBuf = "";
-    let toolBuf: api.ToolCallInfo[] = [];
+    let toolBuf: ToolCall[] = [];
     // A trailing text/tool entry may only be replaced in place by the step
     // that created it — a new step must append, not clobber the previous
     // step's entry (which may be the same kind with no bubble in between).
@@ -251,8 +326,15 @@ export function ChatFlyout(props: {
       },
       onToolResult: (tr) => {
         if (signal.aborted) return;
-        if (tr.name === "run_workflow" && tr.input?.name && tr.output?.runId) {
-          props.onWorkflowRan(tr.input.name, tr.output.runId);
+        const result: ToolResult = { output: tr.output, isError: !!tr.isError };
+        // Keep the step buffer in sync so a later same-step re-render
+        // (another tool call) doesn't drop the result again.
+        toolBuf = toolBuf.map((c) => (c.toolCallId === tr.toolCallId ? { ...c, result } : c));
+        setEntries((prev) => attachResult(prev, tr.toolCallId, result).entries);
+        // The tool-output event carries no input; recover it from the call.
+        const input = tr.input ?? toolBuf.find((c) => c.toolCallId === tr.toolCallId)?.input;
+        if (tr.name === "run_workflow" && !tr.isError && input?.name && tr.output?.runId) {
+          props.onWorkflowRan(input.name, tr.output.runId);
         }
       },
       onStepFinish: () => {
@@ -479,6 +561,7 @@ export function ChatFlyout(props: {
                   const key = `${i}:${j}`;
                   const isOpen = !!expanded[key];
                   const count = g.calls.length;
+                  const status = groupStatus(g, loading && i === entries.length - 1);
                   return (
                     <div key={j} class={`chat-tool-call${isOpen ? " is-open" : ""}`}>
                       <button
@@ -487,14 +570,28 @@ export function ChatFlyout(props: {
                         onClick={() => toggleExpanded(key)}
                         aria-expanded={isOpen}
                       >
+                        <span class={`chat-tool-dot is-${status}`} title={STATUS_TITLE[status]} />
                         <span class="chat-tool-name">{g.name}</span>
-                        {count > 1 && <span class="chat-tool-count">×{count}</span>}
+                        <span class="chat-tool-meta">
+                          {status === "error" && <span class="chat-tool-err">error</span>}
+                          {count > 1 && <span class="chat-tool-count">×{count}</span>}
+                        </span>
                       </button>
                       {isOpen && (
                         <div class="chat-tool-body">
-                          {g.calls.map((tc, k) => (
-                            <pre key={k} class="chat-tool-input">{formatJson(tc.input)}</pre>
-                          ))}
+                          {g.calls.map((tc, k) => {
+                            const rkey = `${key}:${k}:result`;
+                            return (
+                              <div key={k} class="chat-tool-item">
+                                <pre class="chat-tool-input">{formatJson(tc.input)}</pre>
+                                <ToolResultView
+                                  result={tc.result}
+                                  open={!!expanded[rkey]}
+                                  onToggle={() => toggleExpanded(rkey)}
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

@@ -140,7 +140,9 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_CHAT_MODEL`   | `claude-sonnet-5` | Anthropic model for the AI-builder chat agent |
 | `VEIN_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
 | `VEIN_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
+| `VEIN_CHAT_TOOL_RESULT_MAX_CHARS` | `50000` | Per-string cap on tool RESULTS in the history re-fed to the model on later turns (the turn that ran the tool always sees the full result; disk stays lossless). `0` disables. |
 | `VEIN_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
+| `VEIN_AUTO_RESUME` | `1` (file-backed) | Boot-time auto-resume of runs cut off by a crash/restart (RUN_CONTROL_SPEC §5.3): the newest root run per workflow with a log but no summary, unless paused/cancelling, older than 7 days, or already resumed 5 times. `0` disables. |
 | `NEO4J_URI` / `NEO4J_HOST` | (unset) / `localhost:7687` | Graph backend connection — same names and defaults as mcp's own Neo4j client: `NEO4J_URI` wins, else `bolt://<NEO4J_HOST>`; `NEO4J_USER`/`NEO4J_PASSWORD` default `neo4j`/`testtest`; optional `NEO4J_DATABASE`. The `graph/*` lib steps read these via the secrets capability (secret store → env) and need nothing configured for a local Neo4j; `openGraphBackendFromEnv` stays opt-in (null when neither is set). |
 | `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
 | `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
@@ -410,8 +412,9 @@ services bag can override it, same as `http`/`secrets`).
 - **Custom steps are versioned** (like workflows). `publishStep`
   is keyed by content hash (`src/version.ts`) but labeled with
   sequential `vN` ids: identical content re-activates the existing
-  version (no-op if already active), changed content publishes the
-  next `vN`. The active version's source is materialized at
+  version (no-op if already active; `{ reactivateKnown: false }` — what
+  seeders pass — skips the re-activation so UI/API edits survive a
+  reseed), changed content publishes the next `vN`. The active version's source is materialized at
   `steps/custom/<name>.ts` (what the registry loads); every version
   is archived under `steps/_history/<name>/<vid>.ts` for rollback.
   Endpoints: `GET /steps/:type/versions`, `GET /steps/:type/version/:version`,
@@ -598,7 +601,9 @@ services bag can override it, same as `http`/`secrets`).
   `tailJsonl` in `store.ts` (used by both `FileRunStore.tailEvents`
   and `FileChatStore`). `messages.jsonl` stays lossless on disk;
   `truncateToolMessages` trims long `role:"tool"` results only in the
-  copy re-fed to the model (token hygiene for long autonomous loops).
+  copy re-fed to the model on LATER turns (token hygiene for long
+  autonomous loops; env `VEIN_CHAT_TOOL_RESULT_MAX_CHARS`, default 50000,
+  `0` disables).
   `chatMaxSteps` (env `VEIN_CHAT_MAX_STEPS`, default 30) bounds the
   per-turn agent loop. The browser (`web/src/api.ts`: `sendChat` +
   `streamChat` + `getChat`) persists the active `chatId` in

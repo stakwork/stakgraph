@@ -83,6 +83,8 @@ export {
   MemoryChatStore,
   generateChatId,
   truncateToolMessages,
+  DEFAULT_TOOL_RESULT_MAX_CHARS,
+  toolResultMaxCharsFromEnv,
   isChatTerminal,
 } from "./chat-store.js";
 
@@ -109,6 +111,7 @@ export {
   type StepVersionInfo,
   type StepListEntry,
   type StepVersionsResult,
+  type PublishByContentOptions,
 } from "./workspace.js";
 
 // Content-hash versioning (internal dedup) + sequential version labels
