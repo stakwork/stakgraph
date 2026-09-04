@@ -168,7 +168,7 @@ steps:
   # always runs. On the no-op branch `canddigest` is skipped, so `digest` is
   # undefined and `noop` tells the loop to score nothing.
   - id: result
-    type: harvey/pack-result
+    type: pack
     depends: [canddigest, published]
     config:
       candidate: "{{ input.candidateName }}"
@@ -291,7 +291,7 @@ params:
     HARD CONTRACT for the candidate (the harness runs it as-is):
     - input { task, workdir? }; thread workdir into an artifacts/dir step
       (config sub) exactly as the base workflow does.
-    - the LAST step (use harvey/pack-result) must output: task, outputDir
+    - the LAST step (use pack) must output: task, outputDir
       (ABSOLUTE path containing the deliverable files), usage, cost, steps.
     - deliverables are written under outputDir; the grader stages exactly
       that directory.

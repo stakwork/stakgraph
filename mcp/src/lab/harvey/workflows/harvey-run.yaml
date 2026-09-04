@@ -48,7 +48,7 @@ steps:
       retry: { max: 1, delayMs: 15000 }
       onError:
         id: grade_failed
-        type: harvey/pack-result
+        type: pack
         config:
           score: 0
           all_pass: false
@@ -68,7 +68,7 @@ steps:
       timeoutMs: "{{ params.evalTimeoutMs }}"
 
   - id: result
-    type: harvey/pack-result
+    type: pack
     depends: grade
     config:
       task: "{{ input.task }}"

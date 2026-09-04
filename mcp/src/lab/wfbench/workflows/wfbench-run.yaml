@@ -1,0 +1,510 @@
+name: wfbench-run
+# The Workflow Editor Agent Benchmark — Task Runner (the vein twin of
+# stakwork workflow 58313 + its nested 54419 / 55741 / 55740 / 58114 / 58414
+# / 57425 / 58312). One task in, one Hive callback out:
+#
+#   roster (graph)  EvalSet → EvalRequirement×N, EvalTrigger, HAS_TRIGGER |
+#                   HAS_BASELINE_TRIGGER — 58313's ids, on graph/* steps
+#   author          the meta/* authoring agent (54419's twin) builds a NEW
+#                   workflow named wfbench-<slug> from the instructions
+#   resolve         pin the version it actually shipped (never its echo)
+#   gate + rerun    input-key contract (check-input-keys) → meta/run-workflow
+#   judge           per-criterion LLM judge (wfbench-judge-criterion) →
+#                   eval/aggregate-scores; a runtime-failed rerun is still
+#                   judged, a harness error never is
+#   record          EvalTriggerOutput + CriterionResult per 58312
+#   callback        one body (wfbench/webhook-body) POSTed to webhook_url AND
+#                   returned as this run's output (no set_output divergence)
+#
+# Grant discipline: the author gets meta/* + the editor tool ONLY (never
+# bash, never graph/*, never wfbench/*); the judge gets nothing useful; the
+# produced workflow runs via meta/run-workflow, so it is necessarily
+# publisher "ai" — the seeded harness surface can never be graded.
+#
+# Input: { task_slug, task_title?, instructions, criteria, workflow_input_json?,
+#          rerun_expected_output?, webhook_url? }
+#   criteria: [{ id, title, match_criteria, deliverables? }] (or a JSON string)
+#   workflow_input_json: the payload the produced workflow is launched with
+# Output: the callback body + diagnostics (see the `result` step).
+steps:
+  # ── task ─────────────────────────────────────────────────────────────
+  - id: task
+    type: wfbench/normalize-task
+    config:
+      task_slug: "{{ input.task_slug }}"
+      task_title: "{{ input.task_title }}"
+      instructions: "{{ input.instructions }}"
+      criteria: "{{ input.criteria }}"
+      workflow_input_json: "{{ input.workflow_input_json }}"
+      rerun_expected_output: "{{ input.rerun_expected_output }}"
+
+  # This harness's own version → EvalTrigger.workflow_version_id (58313 used
+  # the engine's @WORKFLOW_VERSION magic var). Reads are not ownership-gated.
+  - id: self
+    type: meta/get-workflow
+    depends: []
+    config:
+      name: wfbench-run
+
+  - id: roster
+    type: wfbench/build-roster
+    depends: [task, self]
+    config:
+      task_slug: "{{ task.task_slug }}"
+      task_title: "{{ task.task_title }}"
+      instructions: "{{ task.instructions }}"
+      criteria: "{{ task.criteria }}"
+      workflow: wfbench-run
+      workflow_version: "{{ self.version }}"
+
+  # ── roster: graph writes (58313 steps 2–9), in parallel with the author ──
+  - id: ns
+    type: graph/register-namespace
+    depends: roster
+    config:
+      namespace: "{{ params.namespace }}"
+
+  - id: evalset
+    type: graph/create-node
+    depends: ns
+    config:
+      node_type: EvalSet
+      node_data: "{{ roster.evalset.node_data }}"
+      namespace: "{{ params.namespace }}"
+
+  # One EvalRequirement per criterion (58114), EvalSet -HAS_REQUIREMENT-> it.
+  # Inline EvalSet source merges onto the node above (same node_key).
+  - id: reqs
+    type: graph/create-batch-triplet
+    depends: evalset
+    config:
+      triplets: "{{ roster.requirement_triplets }}"
+      namespace: "{{ params.namespace }}"
+
+  # After the requirements (58313's order) so every roster write is upstream
+  # of the record + result steps.
+  - id: trig
+    type: graph/create-node
+    depends: reqs
+    config:
+      node_type: EvalTrigger
+      node_data: "{{ roster.trigger.node_data }}"
+      namespace: "{{ params.namespace }}"
+
+  # hop_check_trigger_exists + guard_first_run: prior triggers ⇒ HAS_TRIGGER,
+  # none ⇒ HAS_BASELINE_TRIGGER.
+  - id: hop
+    type: graph/graph-neighbors
+    depends: trig
+    config:
+      ref_id: "{{ evalset.ref_id }}"
+      edge_type: [HAS_TRIGGER, HAS_BASELINE_TRIGGER]
+      node_type: [EvalTrigger]
+      namespace: "{{ params.namespace }}"
+
+  - id: edge
+    type: wfbench/trigger-edge
+    depends: hop
+    config:
+      neighbors: "{{ hop }}"
+      trigger_ref_id: "{{ trig.ref_id }}"
+
+  - id: link
+    type: graph/create-triplet
+    depends: edge
+    config:
+      source_ref_id: "{{ evalset.ref_id }}"
+      target_ref_id: "{{ trig.ref_id }}"
+      edge_type: "{{ edge.edge_type }}"
+      namespace: "{{ params.namespace }}"
+
+  # ── author (54419's twin) ─────────────────────────────────────────────
+  - id: dir
+    type: artifacts/dir
+    depends: task
+    config:
+      sub: author
+
+  # The candidate's active version BEFORE the author runs — the `published`
+  # gate compares against it (an author can burn its budget and ship
+  # nothing; the fallback below would then resolve to this very version).
+  - id: vbefore
+    type: meta/get-workflow
+    depends: task
+    config:
+      name: "wfbench-{{ task.task_slug }}"
+
+  - id: author
+    type: agent
+    depends: [dir, vbefore]
+    options:
+      retry: { max: 1, delayMs: 15000 }
+      onError:
+        id: author_failed
+        type: pack
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.authorSystem }}"
+      prompt: |
+        TASK:
+        {{ task.instructions }}
+
+        Build a NEW vein workflow that does exactly this, and publish it under
+        the EXACT name "wfbench-{{ task.task_slug }}" (meta/publish-workflow;
+        republishing the same name creates a new version — iterate that way).
+
+        INPUT CONTRACT: the harness will launch your workflow ONCE with this
+        input object — reference ONLY these keys (as input.<key> templates):
+        {{ task.workflow_input }}
+        Reading any other input key is a harness error and your workflow will
+        not be launched or graded.
+
+        {{ params.authorGuidance }}
+
+        When done, return the workflow name, the EXACT version string of your
+        final publish, a summary of the design, the list of custom step types
+        you created (if any), and any secrets you needed that do not exist.
+      model: "{{ params.authorModel }}"
+      maxSteps: "{{ params.authorMaxSteps }}"
+      # meta/* + the editor tool only (EVOLVE_SPEC §5.3.2): no bash, no
+      # graders, no graph. The editor lets it draft YAML in its scratch dir.
+      toolFilter: ["str_replace_based_edit_tool"]
+      agentTools: ["meta/*"]
+      schema:
+        type: object
+        properties:
+          workflow:
+            type: string
+            description: "the published workflow name (must be the exact name you were given)"
+          version:
+            type: string
+            description: "EXACT version string of the final healthy publish (from meta/publish-workflow)"
+          summary:
+            type: string
+            description: "how the workflow is built and why — steps, data flow, what it produces"
+          changes:
+            type: array
+            items: { type: string }
+            description: "one line per notable design decision"
+          customSteps:
+            type: array
+            items: { type: string }
+            description: "step TYPES you created with meta/create-step (e.g. 'cand/parse-feed'); [] if none"
+          missingSecrets:
+            type: array
+            description: "credentials the workflow needs that meta/list-secrets does not show"
+            items:
+              type: object
+              properties:
+                name: { type: string }
+                why: { type: string }
+              required: [name, why]
+              additionalProperties: false
+        required: [workflow, version, summary]
+        additionalProperties: false
+
+  # ── resolve what actually shipped (never trust the echo) ─────────────
+  - id: vactive
+    type: meta/get-workflow
+    depends: author
+    config:
+      name: "wfbench-{{ task.task_slug }}"
+
+  - id: vpin
+    type: meta/get-workflow
+    depends: author
+    config:
+      name: "wfbench-{{ task.task_slug }}"
+      version: "{{ author.object.version }}"
+
+  - id: cand
+    type: wfbench/resolve-candidate
+    depends: [vpin, vactive, vbefore]
+    config:
+      author: "{{ author }}"
+      candidate: "wfbench-{{ task.task_slug }}"
+      vbefore: "{{ vbefore }}"
+      vpin: "{{ vpin }}"
+      vactive: "{{ vactive }}"
+
+  # Sources of the custom steps the author says it created — judge materials.
+  - id: stepsrc
+    type: foreach
+    depends: cand
+    config:
+      items: "{{ cand.customSteps }}"
+      concurrency: 3
+      body:
+        id: one
+        type: meta/get-step
+        config:
+          type: "{{ $current }}"
+
+  # ── gate + rerun (57425's twin) ───────────────────────────────────────
+  - id: keys
+    type: wfbench/check-input-keys
+    depends: cand
+    config:
+      workflow_yaml: "{{ cand.yaml }}"
+      workflow_input: "{{ task.workflow_input }}"
+
+  - id: launchable
+    type: if
+    depends: keys
+    config:
+      cond: "{{ keys.keys_match && cand.published }}"
+
+  # Runs the candidate as its OWN run (own runId = 58313's project_id), under
+  # this run's controller. No webhook wait: meta/run-workflow awaits.
+  - id: run
+    type: meta/run-workflow
+    depends: launchable
+    when: true
+    config:
+      name: "{{ cand.workflow }}"
+      version: "{{ cand.version }}"
+      input: "{{ keys.launch_payload }}"
+
+  # Depends on the gate too so it runs on BOTH branches (`run` is skipped on
+  # the false branch and resolves undefined here).
+  - id: cls
+    type: wfbench/classify-run
+    depends: [run, launchable]
+    config:
+      run: "{{ run }}"
+      gate_error_type: "{{ keys.error_type }}"
+      gate_error: "{{ keys.error }}"
+
+  # ── judge (harvey_lab_score_rubric's twin) ────────────────────────────
+  - id: mats
+    type: wfbench/build-materials
+    depends: [cls, stepsrc]
+    config:
+      workflow: "{{ cand.workflow }}"
+      version: "{{ cand.version }}"
+      workflow_yaml: "{{ cand.yaml }}"
+      custom_steps: "{{ stepsrc }}"
+      run_output: "{{ cls.run_output }}"
+      execution_status: "{{ cls.execution_status }}"
+      project_id: "{{ cls.project_id }}"
+      rerun_expected_output: "{{ task.rerun_expected_output }}"
+      launch_payload: "{{ keys.launch_payload }}"
+      instructions: "{{ task.instructions }}"
+
+  # guard_materials_present + if_launch_ok: judge only a launched run with
+  # at least one produced material (a runtime-FAILED rerun is still judged).
+  - id: judgeable
+    type: if
+    depends: mats
+    config:
+      cond: "{{ cls.launch_ok && mats.n_materials > 0 }}"
+
+  - id: judged
+    type: foreach
+    depends: judgeable
+    when: true
+    config:
+      items: "{{ task.criteria }}"
+      concurrency: "{{ params.judgeConcurrency }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: wfbench-judge-criterion
+          input:
+            criterion: "{{ $current }}"
+            task_desc: "{{ mats.task_desc }}"
+            materials_text: "{{ mats.materials_text }}"
+
+  # guard_judge_ran / guard_valid_score: a zip refusal packs { error } and
+  # the callback reports judge_failed instead of a fake score.
+  - id: scores
+    type: eval/aggregate-scores
+    depends: judged
+    options:
+      onError:
+        id: scores_failed
+        type: pack
+        config:
+          error: "{{ $error.message }}"
+    config:
+      rubric: "{{ task.criteria }}"
+      results: "{{ judged }}"
+      judge_model: "{{ params.judgeModel }}"
+
+  # ── record (58312's twin) ─────────────────────────────────────────────
+  - id: chain
+    type: wfbench/build-eval-output
+    depends: [scores, link]
+    config:
+      task_slug: "{{ task.task_slug }}"
+      scores: "{{ scores }}"
+      trigger_ref_id: "{{ trig.ref_id }}"
+      trigger_id: "{{ roster.trigger_id }}"
+      judge_model: "{{ params.judgeModel }}"
+
+  - id: recordable
+    type: if
+    depends: chain
+    config:
+      cond: "{{ chain.scored }}"
+
+  - id: record
+    type: graph/create-batch-triplet
+    depends: recordable
+    when: true
+    config:
+      triplets: "{{ chain.triplets }}"
+      namespace: "{{ params.namespace }}"
+
+  - id: critrefs
+    type: eval/criterion-refs
+    depends: [record, recordable]
+    config:
+      slots: "{{ chain.criterionSlots }}"
+      record: "{{ record }}"
+
+  # ── callback (resolve_webhook_payload + post_result) ──────────────────
+  - id: body
+    type: wfbench/webhook-body
+    depends: [scores, judgeable, cls, keys]
+    config:
+      task_slug: "{{ task.task_slug }}"
+      task_title: "{{ task.task_title }}"
+      judge_model: "{{ params.judgeModel }}"
+      keys: "{{ keys }}"
+      cls: "{{ cls }}"
+      mats: "{{ mats }}"
+      scores: "{{ scores }}"
+
+  - id: have_webhook
+    type: if
+    depends: body
+    config:
+      cond: "{{ input.webhook_url }}"
+
+  - id: post
+    type: http
+    depends: have_webhook
+    when: true
+    options:
+      onError:
+        id: post_failed
+        type: pack
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      url: "{{ input.webhook_url }}"
+      method: POST
+      headers: { "content-type": "application/json" }
+      body: "{{ body }}"
+
+  # The run's output IS the callback body, plus diagnostics for humans.
+  - id: result
+    type: pack
+    depends: [post, have_webhook, body, critrefs]
+    config:
+      callback: "{{ body }}"
+      posted: "{{ input.webhook_url ? true : false }}"
+      post: "{{ post }}"
+      produced: "{{ cand }}"
+      launch: "{{ keys }}"
+      run: "{{ cls }}"
+      n_materials: "{{ mats.n_materials }}"
+      material_warnings: "{{ mats.warnings }}"
+      graph:
+        evalset_ref_id: "{{ evalset.ref_id }}"
+        trigger_ref_id: "{{ trig.ref_id }}"
+        trigger_id: "{{ roster.trigger_id }}"
+        trigger_edge: "{{ edge.edge_type }}"
+        requirements: "{{ reqs }}"
+        output_id: "{{ chain.output_id }}"
+        record: "{{ record }}"
+        criterion_refs: "{{ critrefs }}"
+
+params:
+  # Graph partition every roster/record write lands in (registered on each run).
+  namespace: wfbench
+  authorModel: claude-sonnet-5
+  # An author that reads step docs, drafts, publishes, smoke-tests and fixes
+  # burns calls fast; the publish-early rule below protects the budget.
+  authorMaxSteps: 150
+  # Extra per-run steering appended to the author's task prompt.
+  authorGuidance: ""
+  judgeModel: claude-sonnet-5
+  judgeConcurrency: 4
+  # The author's persona + method (layer-1 tunable). The translation
+  # cheat-sheet at the end is what makes this harness usable for PORTING
+  # stakwork workflows: hand the stakwork body as the instructions.
+  authorSystem: |
+    You are a WORKFLOW EDITOR agent inside a benchmark harness. You build a
+    NEW vein workflow from English instructions. After you finish, the
+    harness launches your workflow once with a fixed input object and an
+    LLM judge grades the workflow body, your custom steps, and the run's
+    output against a rubric you cannot see. You never run the task
+    yourself — you build the workflow that does.
+
+    Your only levers are the meta/* authoring tools (the workspace surface):
+    meta/list-steps, meta/search-steps, meta/get-step to discover step
+    types and read their input schemas; meta/list-workflows and
+    meta/get-workflow to read existing YAML for patterns; meta/create-step /
+    meta/edit-step to author custom steps (TypeScript: `import { z,
+    defineStep } from "vein"`, export default defineStep({ type, description,
+    input, output, run })); meta/run-step to test ONE step cheaply;
+    meta/validate-workflow to static-check YAML BEFORE publishing;
+    meta/publish-workflow to publish; meta/run-workflow to run it;
+    meta/list-runs, meta/get-run, meta/search-runs to inspect runs;
+    meta/list-secrets for available credential NAMES.
+
+    METHOD
+    1. Read the task. List the steps that exist (meta/list-steps) and read
+       the ones you will use (meta/get-step) — never guess a config shape.
+    2. Draft the YAML. Every template is quoted: `url: "{{ input.url }}"`
+       (an unquoted `{{` is a YAML mapping and silently corrupts the value).
+       Reference only the input keys you were given, as {{ input.<key> }}.
+       Put prompts and thresholds in `params:`; keep `steps:` sequential
+       unless `depends:` parallelism is clearly useful.
+    3. VALIDATE (meta/validate-workflow), fix every error, then PUBLISH
+       EARLY (meta/publish-workflow) under the exact name you were given.
+       A rough published workflow beats a perfect unpublished one: if you
+       run out of steps with nothing published, this task scores nothing.
+    4. Smoke-test with meta/run-workflow using the input you were given,
+       inspect with meta/get-run, fix and republish. Runs cost real money:
+       at most three smoke runs.
+    5. BUDGET YOUR CALLS. You have a hard tool-call cap. Reserve the LAST
+       ~5 calls for: a final meta/publish-workflow, one verification read
+       (meta/get-workflow), and your structured answer.
+
+    HARD CONTRACT (the harness runs it as-is):
+    - publish under the EXACT workflow name you were given; the version you
+      return must be a real version string from meta/publish-workflow.
+    - the workflow's output is its LAST step's output — make that the
+      task's deliverable (structured, not prose).
+    - secrets: reference NAMES from meta/list-secrets only (steps read them
+      via ctx.services.secrets); never paste credential values. A missing
+      credential goes in missingSecrets and the workflow degrades gracefully.
+    - no `agent` step may be granted meta/*, eval/*, graph/* or wfbench/*
+      tools; the authoring surface and graders are off-limits to producers.
+
+    PORTING A STAKWORK WORKFLOW (when the instructions contain a stakwork
+    workflow body): reproduce its behavior, step for step where it matters,
+    with this translation table —
+      set_var / SetVar            → `input` keys (the launch payload) + `params:`
+      JSONBuilder / JSONPathParser
+        / IfElseValue             → {{ }} template expressions on step outputs
+      Request                     → `http` step (url, method, headers, body)
+      IfElseCondition + goTo      → `if` step + `when: true|false` on branches
+      WhileLoop                   → `loop` step (`until`, `maxIterations`)
+      ForEachCondition            → `foreach` step (`items`, `body`, `concurrency`)
+      WorkflowRunner (nested wf)  → `subflow` (publish the nested workflow first)
+      Script (python)             → a custom step via meta/create-step
+      Skill / LLM / agent steps   → `llm` (structured output) or `agent` step
+      [#(step).output.x] / $(item) → {{ step.x }} / {{ $current }}
+      %%SECRET%%                  → a secret NAME via ctx.services.secrets
+    Keep the produced output shape identical to the original's set_output.
+
+    Your structured answer is harvested from your FINAL message — the turn
+    where you stop calling tools. Fill every field with REAL values: the
+    exact name, the exact version, a truthful summary of what you shipped.

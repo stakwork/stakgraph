@@ -44,47 +44,58 @@ Not a "chat assistant as a step". Reasons:
 | skill `harvey_lab_score_rubric` (all criteria, one call) | `foreach` criteria → subflow `wfbench-judge-criterion` (clone of `harvey-judge-criterion`: agent schema mode, materials in prompt / artifacts dir, NO tools) → `eval/aggregate-scores`. Judge crash = `{ error }` = honest FAIL |
 | `guard_judge_ran`, `guard_valid_score` | `if` on aggregate output, else `judge_failed` |
 | 58312 record (EvalTriggerOutput + CriterionResult + edges) | `eval/build-eval-chain` → `graph/create-batch-triplet` (idempotent on runId) |
-| `resolve_webhook_payload` (4-way) + `post_result` | one `wfbench/pack-result` depending on every branch (`||` chain) → `if webhookUrl` → `http POST`. Output == what was posted (fixes the 58313 `set_output` divergence) |
+| `resolve_webhook_payload` (4-way) + `post_result` | one `pack` depending on every branch (`||` chain) → `if webhookUrl` → `http POST`. Output == what was posted (fixes the 58313 `set_output` divergence) |
 
 Webhook body: byte-compatible with what Hive parses today
 (`RunnerScoreSchema`): success `{ task_slug, task_title, n_passed, n_total,
 all_pass, pass_rate, judge_model, criteria_results }`, failure
 `{ harness_error: true, error_type }` with no score fields.
 
-## Files
+## Files (v1 — BUILT; offline smoke green)
 
 ```
 mcp/src/lab/wfbench/
   seed.ts                          # seedWfbenchSteps / seedWfbenchWorkflows (SEED_OPTS)
-  steps/
-    check-input-keys.ts            # pure
-    classify-run.ts                # pure
-    build-materials.ts             # pure (reads meta/* outputs passed in)
-    pack-result.ts                 # pure passthrough (like harvey/pack-result)
-    stakwork-fetch.ts              # GET jobs.stakwork.com workflow body + one project's
-                                   #   input/output; STAK_CUSTOMER_TOKEN via ctx.services.secrets
+  smoke.ts                         # offline: seed, discover, validate YAML, drive every pure step,
+                                   #   check graph payloads against JARVIS_ONTOLOGY
+  steps/                           # all pure — no services, LLM, or graph
+    normalize-task.ts              # Hive/58313 payload → canonical task (hard-fails early)
+    build-roster.ts                # EvalSet / EvalRequirement×N / EvalTrigger payloads (58313 ids)
+    trigger-edge.ts                # guard_first_run: HAS_BASELINE_TRIGGER vs HAS_TRIGGER
+    resolve-candidate.ts           # vpin || vactive, published vs vbefore (never trust the echo)
+    check-input-keys.ts            # input.<key> refs in the YAML vs the launch payload
+    classify-run.ts                # launch_ok / completed / failed / harness error
+    build-materials.ts             # judge materials → one markdown block (judge needs no tools)
+    build-eval-output.ts           # EvalTriggerOutput + CriterionResult triplets (58312 ids)
+    webhook-body.ts                # resolve_webhook_payload (exact Hive keys)
+    pack-result.ts                 # passthrough / onError pack
   workflows/
-    wfbench-run.yaml               # the 58313 twin (input below)
-    wfbench-judge-criterion.yaml   # per-criterion judge subflow
-    wfbench-port-task.yaml         # stakwork workflow id → task object (+ derived rubric)
-    wfbench-batch.yaml             # foreach tasks → wfbench-run
+    wfbench-run.yaml               # the 58313 twin
+    wfbench-judge-criterion.yaml   # per-criterion judge subflow (agent schema mode)
 ```
 
-`wfbench-run` input: `{ task_slug, task_title, instructions, criteria,
-workflow_input_json, rerun_expected_output?, webhookUrl?, namespace?,
-baseline_workflow? }`. Params: `authorSystem`, `authorModel`,
-`authorMaxSteps`, `judgeSystem`, `judgeModel`, `judgeMaxSteps`.
+Not built (deferred): `wfbench-batch` (foreach tasks), `wfbench-port-task`
+(stakwork id → task; needs `STAK_CUSTOMER_TOKEN`) and the edit-existing
+(`baseline_workflow`) path. The bench itself needs NO stakwork credentials:
+tasks arrive as input.
 
-Registered in `createLabVein.ts` next to gaia. Needs the graph (mcp's
-Neo4j), `ANTHROPIC_API_KEY`, and `STAK_CUSTOMER_TOKEN` in the secret store
-for the port path.
+`wfbench-run` input: `{ task_slug, task_title?, instructions, criteria,
+workflow_input_json?, rerun_expected_output?, webhook_url? }`. Params:
+`namespace`, `authorSystem`, `authorGuidance`, `authorModel`,
+`authorMaxSteps`, `judgeModel`, `judgeConcurrency` (+ `judgeSystem` /
+`judgePrompt` / `judgeMaxSteps` on the judge subflow).
+
+Registered in `createLabVein.ts` after the artifact steps. Needs the graph
+(mcp's Neo4j) and `ANTHROPIC_API_KEY`.
 
 ## Grant discipline
 
 - author: `meta/*` + editor tool only. Never bash, never `graph/*`, never
   `wfbench/*`.
-- judge: no tools (materials are pre-resolved into the prompt). Cheap and
-  non-gameable.
+- judge: nothing useful to call (materials are pre-resolved into the
+  prompt; the core `llm` step takes a Zod schema, not JSON Schema, so the
+  judge is the `agent` step in schema mode with the editor tool over an
+  empty dir). Cheap and non-gameable.
 - produced workflow: runs via `meta/run-workflow` so it is necessarily
   publisher `ai`; the seeded harness surface can never be graded as a
   candidate.
@@ -125,6 +136,17 @@ one; 58313 v1 skipped it.
    `harvey/criterion-refs` promoted to `eval/*` (no aliases: harvey-score
    and the smoke were re-pointed in the same change; `workflow` is now a
    required input of build-eval-chain).
+
+## Graph writes vs 58313 / 58312 (what differs, and why)
+
+vein's graph backend rejects attributes the ontology does not declare, so:
+`EvalSet.project_id` (an int in stakwork; vein runIds are strings) and the
+`name` on EvalTrigger / EvalTriggerOutput are omitted (EvalTrigger gets
+`agent: wfbench-run` as its title). 58312's `CriterionResult -HAS_CAUSE->
+Workflow_version(material_ref_id)` is not written: the ontology has no
+such relationship and the produced vein workflow is not a Workflow_version
+node. Everything else — ids, edge types, EvalTriggerOutput's score fields,
+CriterionResult's verdict/reasoning — matches, and the smoke asserts it.
 
 ## Not ported on purpose
 
