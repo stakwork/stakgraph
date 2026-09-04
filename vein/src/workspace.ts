@@ -172,6 +172,18 @@ export interface StepDirMetadata {
   steps: Record<string, StepInfo>;
 }
 
+/** Options for the content-hash publishers (`publishWorkflowByContent`,
+ *  `publishStep`). */
+export interface PublishByContentOptions {
+  /** What to do when the content matches an OLDER, non-active version.
+   *  `true` (default) re-points active at it — "this exact content should be
+   *  live" (the author's intent). `false` leaves the active pointer alone —
+   *  the boot-time seeder's setting, so an edit made through the UI/API
+   *  survives every reseed until the committed template itself changes (a
+   *  never-seen hash still publishes the next `vN` and activates it). */
+  reactivateKnown?: boolean;
+}
+
 export interface StepVersionsResult {
   active: string;
   versions: string[];
@@ -248,6 +260,7 @@ export interface WorkspaceStore extends SubflowResolver {
     description?: string,
     category?: string,
     publisher?: string,
+    opts?: PublishByContentOptions,
   ): Promise<{ version: string; changed: boolean }>;
   setWorkflowCategory(name: string, category: string | null): Promise<void>;
   setActiveVersion(name: string, version: string): Promise<void>;
@@ -264,6 +277,7 @@ export interface WorkspaceStore extends SubflowResolver {
     code: string,
     description?: string,
     publisher?: string,
+    opts?: PublishByContentOptions,
   ): Promise<{ version: string; changed: boolean }>;
   listStepVersions(name: string): Promise<StepVersionsResult>;
   getStepVersionSource(name: string, version: string): Promise<string>;
@@ -528,6 +542,8 @@ export class FileWorkspaceStore implements WorkspaceStore {
    * active at it (no new version); changed content publishes the next `vN` and
    * activates it, retaining prior versions. This is the content-hash seeder's
    * primitive. Returns the version id and whether anything changed.
+   * `opts.reactivateKnown: false` turns the "re-points active" case into a
+   * no-op (see `PublishByContentOptions`).
    */
   async publishWorkflowByContent(
     name: string,
@@ -535,6 +551,7 @@ export class FileWorkspaceStore implements WorkspaceStore {
     description?: string,
     category?: string,
     publisher?: string,
+    opts?: PublishByContentOptions,
   ): Promise<{ version: string; changed: boolean }> {
     const hash = contentHash(yamlStr);
     const meta = await this.readWorkflowMetadata(name);
@@ -551,7 +568,9 @@ export class FileWorkspaceStore implements WorkspaceStore {
       );
       if (match) {
         const [vid] = match;
-        if (meta.active === vid) return { version: vid, changed: false };
+        if (meta.active === vid || opts?.reactivateKnown === false) {
+          return { version: vid, changed: false };
+        }
         await this.setActiveVersion(name, vid);
         return { version: vid, changed: true };
       }
@@ -626,6 +645,7 @@ export class FileWorkspaceStore implements WorkspaceStore {
     code: string,
     description?: string,
     publisher?: string,
+    opts?: PublishByContentOptions,
   ): Promise<{ version: string; changed: boolean }> {
     validateStepName(name);
 
@@ -636,7 +656,8 @@ export class FileWorkspaceStore implements WorkspaceStore {
     const meta = (await this.readStepMetadata(customDir)) ?? { steps: {} };
     const existing = meta.steps[name];
 
-    // Content already known → no-op (if active) or re-activate that version.
+    // Content already known → no-op (if active) or re-activate that version
+    // (unless the caller opted out of re-activation).
     if (existing) {
       const match = Object.entries(existing.versions).find(
         ([, info]) => info.hash === hash,
@@ -644,7 +665,7 @@ export class FileWorkspaceStore implements WorkspaceStore {
       if (match) {
         const [vid] = match;
         let changed = false;
-        if (existing.active !== vid) {
+        if (existing.active !== vid && opts?.reactivateKnown !== false) {
           const archived = await readFile(this.stepVersionPath(name, vid), "utf-8");
           await mkdir(dirname(filePath), { recursive: true });
           await writeFile(filePath, archived, "utf-8");

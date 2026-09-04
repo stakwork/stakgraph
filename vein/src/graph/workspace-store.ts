@@ -32,6 +32,7 @@ import {
   flowFromYaml,
   renderWorkflowYaml,
   validateStepName,
+  type PublishByContentOptions,
   type StepListEntry,
   type StepVersionsResult,
   type WorkflowListEntry,
@@ -404,6 +405,7 @@ export class Neo4jWorkspaceStore implements WorkspaceStore {
     description?: string,
     category?: string,
     publisher?: string,
+    opts?: PublishByContentOptions,
   ): Promise<{ version: string; changed: boolean }> {
     const hash = contentHash(yamlStr);
     const w = await this.workflowRow(name);
@@ -413,7 +415,9 @@ export class Neo4jWorkspaceStore implements WorkspaceStore {
       }
       const match = (await this.versionRows(name)).find((v) => v.content_hash === hash);
       if (match) {
-        if (w.active_version === hash) return { version: match.version_label, changed: false };
+        if (w.active_version === hash || opts?.reactivateKnown === false) {
+          return { version: match.version_label, changed: false };
+        }
         await this.setActiveVersion(name, match.version_label);
         return { version: match.version_label, changed: true };
       }
@@ -539,6 +543,7 @@ export class Neo4jWorkspaceStore implements WorkspaceStore {
     code: string,
     description?: string,
     publisher?: string,
+    opts?: PublishByContentOptions,
   ): Promise<{ version: string; changed: boolean }> {
     validateStepName(name);
     const hash = contentHash(code);
@@ -551,7 +556,7 @@ export class Neo4jWorkspaceStore implements WorkspaceStore {
       if (match) {
         let changed = false;
         const desired: Record<string, unknown> = {};
-        if (existing.active_version !== hash) {
+        if (existing.active_version !== hash && opts?.reactivateKnown !== false) {
           desired["active_version"] = hash;
           desired["description"] = match.description;
           changed = true;

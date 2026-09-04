@@ -682,7 +682,7 @@ Subflows use their own `params` defaults; the parent's per-run override does not
 Custom steps are versioned, the same way workflows are. `publishStep` is keyed by a content **hash** (internal dedup) but labeled with friendly, sequential `vN` ids:
 
 - Identical content that's already active → no-op.
-- Identical content of an older version → re-activates it (no new version).
+- Identical content of an older version → re-activates it (no new version). Pass `{ reactivateKnown: false }` to make this a no-op instead — the boot-time seeder's setting, so a workspace edit made through the UI/API stays active until the committed template itself changes.
 - Changed content → publishes the next `vN` and activates it; prior versions are retained for rollback.
 
 The **active** version's source is materialized at `steps/custom/<name>.ts` (what the registry loads). Every version (including the active one) is archived under `steps/_history/<name>/<vid>.ts`.
