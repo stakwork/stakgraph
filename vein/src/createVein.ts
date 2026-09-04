@@ -37,6 +37,8 @@ import {
 import { runSingleStep, cassettePath } from "./run-step.js";
 import { buildAuthoringCapability } from "./authoring.js";
 import type { CassetteMode } from "./cassette.js";
+// Type-only: the graph backend stays a lazy, opt-in dependency.
+import type { GraphBackend } from "./graph/backend.js";
 // Static import is safe: notifier depends only on chat-store, never the AI
 // SDK (which stays lazy-loaded inside launchChatTurn).
 import { createChatNotifier, formatRunNotification } from "./ai/notifier.js";
@@ -129,6 +131,11 @@ export interface VeinOptions<TServices = unknown> {
    *  `VEIN_AUTO_RESUME=0`; pass `false` to disable, or an object to tune
    *  the guards. Only the NEWEST root run per workflow is considered. */
   autoResume?: boolean | AutoResumeOptions;
+
+  /** The vein graph backend, when the deployment has one (server.ts passes
+   *  the one behind its graph-backed workspace). Enables the chat builder's
+   *  read-only `graph_query` tool. Omit and the tool isn't offered. */
+  graph?: GraphBackend;
 
   /** Directory containing the built web UI (the `dist` folder). Defaults
    *  to vein's own bundled UI resolved relative to this module, so it
@@ -1502,6 +1509,8 @@ export async function createVein<TServices = unknown>(
             // dir (scrubbed env — see shell.ts).
             shell: { cwd: dataDir },
             webSearch: true,
+            // Read-only graph_query, when the host wired a graph backend.
+            graph: opts.graph,
             publishingEnabled: !registryWasInjected,
             getRegistry: async () => {
               if (registryWasInjected) return registry;

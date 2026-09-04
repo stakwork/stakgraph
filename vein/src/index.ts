@@ -262,6 +262,8 @@ export {
   type GraphBackend,
   type GraphBackendOptions,
 } from "./graph/backend.js";
+// Read-only raw Cypher (the chat builder's graph_query tool).
+export { readQuery, findWriteKeyword, compactValue, ReadOnlyViolation, type ReadQueryOptions, type ReadQueryResult } from "./graph/query.js";
 // Graph-backed workspace + the run/chat projector (plans/generic-storage.md §7).
 export { Neo4jWorkspaceStore, type Neo4jWorkspaceStoreOptions } from "./graph/workspace-store.js";
 export { graphWorkspaceFromEnv, graphWorkspaceRequested, graphMaterializeDir } from "./graph/wiring.js";

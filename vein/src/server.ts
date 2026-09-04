@@ -30,9 +30,11 @@ async function getDefault(): Promise<Vein> {
       // steps stay local. Explicit file stores, since a non-file workspace
       // would otherwise default to memory.
       const dataDir = process.env["VEIN_WORKSPACE"] ?? "./workspace";
-      const { workspace } = await graphWorkspaceFromEnv(process.env, { dataDir });
+      const { backend, workspace } = await graphWorkspaceFromEnv(process.env, { dataDir });
       veinInstance = await createVein({
         workspace,
+        // Same backend for the chat builder's read-only graph_query tool.
+        graph: backend,
         dataDir,
         store: new FileRunStore(dataDir),
         chatStore: new FileChatStore(dataDir),

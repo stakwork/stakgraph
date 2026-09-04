@@ -529,6 +529,49 @@ export function buildTools(deps: AiDeps) {
         }
       : {}),
 
+    // Read-only raw Cypher — only when the host wires a graph backend
+    // (`deps.graph`). The builder's verification loop for graph-writing
+    // workflows; see graph/query.ts for why it is read-only and capped, and
+    // why it is a chat tool rather than a step.
+    ...(deps.graph
+      ? {
+          graph_query: tool({
+            description:
+              "Run a READ-ONLY Cypher query against the vein graph (Neo4j) and get rows back. Use it to VERIFY what a workflow's graph/* steps actually wrote — count nodes/edges by type, read back exact properties, check edge fan-out — or to inspect graph-backed workspace state. " +
+              "Writes (CREATE/MERGE/SET/DELETE/…, apoc.*) are rejected; write through the graph/* steps. " +
+              `Conventions: every node has its type as a label plus :Node:Data_Bank and the properties {ref_id, node_key, namespace}; the deployment's default namespace is "${deps.graph.cfg.namespace}" — filter on it (n.namespace = $ns) so you don't read across partitions. Edge types are UPPER_SNAKE. ` +
+              "Output is capped: rows (default 100), long strings truncated, embedding vectors collapsed. Prefer aggregates (count, collect(DISTINCT …)) and LIMIT over dumping nodes. " +
+              "Returns { columns, rows, rowCount, truncated, elapsedMs } or { error }.",
+            inputSchema: z.object({
+              cypher: z.string().describe("A read-only Cypher query, e.g. \"MATCH (n:Concept {namespace: $ns}) RETURN count(n) AS n\"."),
+              params: z
+                .record(z.string(), z.any())
+                .optional()
+                .describe("Query parameters referenced as $name in the cypher, e.g. { ns: \"default\" }. Prefer params over string interpolation."),
+              maxRows: z
+                .number()
+                .int()
+                .positive()
+                .max(1000)
+                .default(100)
+                .describe("Row cap (default 100, max 1000). When exceeded, truncated:true — narrow the query rather than raising this."),
+            }),
+            execute: async ({ cypher, params, maxRows }) => {
+              try {
+                // Lazy so embedders that never call it don't load neo4j-driver here.
+                const { readQuery } = await import("../graph/query.js");
+                return await readQuery(deps.graph!, cypher, {
+                  params: coerceJsonArg(params) as Record<string, unknown> | undefined,
+                  maxRows,
+                });
+              } catch (e) {
+                return { error: e instanceof Error ? e.message : String(e) };
+              }
+            },
+          }),
+        }
+      : {}),
+
     // Provider-executed web search (same tool the agent step ships) — for
     // reading API docs while authoring adapters. Anthropic-only; the host
     // opts in (the standard chat server does).
