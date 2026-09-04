@@ -113,7 +113,13 @@ export class SchemaResolver {
   /**
    * Canonical type for a user-supplied string, or null. Vein types must
    * match exactly (registry); everything else resolves case-insensitively
-   * against live labels, then `Schema.type`.
+   * against `Schema.type` first, then live labels — exact case preferred in
+   * both. Schema first, because a long-lived jarvis graph carries LEGACY
+   * labels that differ only by case (`Evalset` next to `EvalSet`, with no
+   * nodes and no Schema): Neo4j keeps them in `db.labels()` forever, and
+   * "first label that matches case-insensitively" then canonicalizes to a
+   * type that has no Schema, so every write fails UNKNOWN_TYPE while the
+   * real schema sits right there.
    */
   async resolveType(raw: string, tx?: ManagedTransaction): Promise<string | null> {
     const key = raw.trim();
@@ -122,15 +128,21 @@ export class SchemaResolver {
     const c = this.types.get(key.toLowerCase());
     if (this.fresh(c)) return c.value;
     let out: string | null = null;
-    const labels = await this.rows(tx, `CALL db.labels() YIELD label WHERE toLower(label) = toLower($t) RETURN label LIMIT 1`, { t: key });
-    if (labels.length) out = String(labels[0]!["label"]);
+    const s = await this.rows(
+      tx,
+      `MATCH (n:Schema) WHERE toLower(n.type) = toLower($t) AND (n.is_deleted IS NULL OR n.is_deleted = false) AND n.type <> "*"
+       RETURN n.type AS t ORDER BY CASE WHEN n.type = $t THEN 0 ELSE 1 END, n.type LIMIT 1`,
+      { t: key },
+    );
+    if (s.length) out = String(s[0]!["t"]);
     else {
-      const s = await this.rows(
+      const labels = await this.rows(
         tx,
-        `MATCH (n:Schema) WHERE toLower(n.type) = toLower($t) AND (n.is_deleted IS NULL OR n.is_deleted = false) AND n.type <> "*" RETURN n.type AS t LIMIT 1`,
+        `CALL db.labels() YIELD label WHERE toLower(label) = toLower($t)
+         RETURN label ORDER BY CASE WHEN label = $t THEN 0 ELSE 1 END, label LIMIT 1`,
         { t: key },
       );
-      if (s.length) out = String(s[0]!["t"]);
+      if (labels.length) out = String(labels[0]!["label"]);
     }
     if (out && getVeinSchema(out)) out = getVeinSchema(out)!.type;
     this.types.set(key.toLowerCase(), { at: Date.now(), value: out });
