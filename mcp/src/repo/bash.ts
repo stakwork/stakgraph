@@ -2,6 +2,8 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024; // 8 MB cap to stay well under V8 max string length
+
 // Execute ripgrep with args array directly
 function execRipgrepCommandDirect(
   args: string[],
@@ -28,19 +30,18 @@ function execRipgrepCommandDirect(
 
     process.stdout.on("data", (data) => {
       stdout += data.toString();
-
-      // if (stdout.length > 10000) {
-      //   process.kill("SIGKILL");
-      //   if (!resolved) {
-      //     resolved = true;
-      //     clearTimeout(timeout);
-      //     const truncated =
-      //       stdout.substring(0, 10000) +
-      //       "\n\n[... output truncated due to size limit ...]";
-      //     resolve(truncated);
-      //   }
-      //   return;
-      // }
+      if (stdout.length > MAX_OUTPUT_BYTES) {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          process.kill("SIGKILL");
+          resolve(
+            stdout.substring(0, MAX_OUTPUT_BYTES) +
+              "\n\n[... output truncated due to size limit ...]"
+          );
+        }
+        return;
+      }
     });
 
     process.stderr.on("data", (data) => {
@@ -53,14 +54,7 @@ function execRipgrepCommandDirect(
         clearTimeout(timeout);
 
         if (code === 0) {
-          // if (stdout.length > 10000) {
-          //   const truncated =
-          //     stdout.substring(0, 10000) +
-          //     "\n\n[... output truncated to 10,000 characters ...]";
-          //   resolve(truncated);
-          // } else {
           resolve(stdout);
-          // }
         } else if (code === 1) {
           resolve("No matches found");
         } else {
@@ -108,19 +102,18 @@ function execShellCommand(
 
     process.stdout.on("data", (data) => {
       stdout += data.toString();
-
-      // if (stdout.length > 10000) {
-      //   process.kill("SIGKILL");
-      //   if (!resolved) {
-      //     resolved = true;
-      //     clearTimeout(timeout);
-      //     const truncated =
-      //       stdout.substring(0, 10000) +
-      //       "\n\n[... output truncated due to size limit ...]";
-      //     resolve(truncated);
-      //   }
-      //   return;
-      // }
+      if (stdout.length > MAX_OUTPUT_BYTES) {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          process.kill("SIGKILL");
+          resolve(
+            stdout.substring(0, MAX_OUTPUT_BYTES) +
+              "\n\n[... output truncated due to size limit ...]"
+          );
+        }
+        return;
+      }
     });
 
     process.stderr.on("data", (data) => {
@@ -133,11 +126,6 @@ function execShellCommand(
         clearTimeout(timeout);
 
         let output = stdout;
-        // if (output.length > 10000) {
-        //   output =
-        //     output.substring(0, 10000) +
-        //     "\n\n[... output truncated to 10,000 characters ...]";
-        // }
 
         if (code === 0) {
           resolve(output);
