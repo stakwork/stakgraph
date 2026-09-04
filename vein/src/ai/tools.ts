@@ -7,6 +7,7 @@ import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
 import { runSingleStep, cassettePath } from "../run-step.js";
 import { generateRunId } from "../store.js";
+import { formatValidationErrors, validateWorkflowYaml } from "../validate.js";
 // The shared authoring core — the same mechanism the meta/* steps' capability
 // sits on (see authoring.ts): publish checks + strict load-verification, and
 // the run-history reads. The chat tools layer their own policy on top (no
@@ -21,9 +22,60 @@ import {
   searchRunEvents,
 } from "../authoring.js";
 
+// ── Run control ────────────────────────────────────────────────────────────
+
+type RunControlAction = "cancel" | "pause" | "resume";
+type ControlRun = NonNullable<AiDeps["controlRun"]>;
+
+function runControlTool(controlRun: ControlRun, action: RunControlAction, description: string) {
+  return tool({
+    description,
+    inputSchema: z.object({
+      name: z.string().describe("Workflow name"),
+      runId: z.string().describe("Run id (from run_workflow's response or list_runs)"),
+    }),
+    execute: async ({ name, runId }) => controlRun(name, runId, action),
+  });
+}
+
+function runControlTools(controlRun: ControlRun) {
+  return {
+    cancel_run: runControlTool(
+      controlRun,
+      "cancel",
+      "Cancel a run that is LIVE in this process — e.g. a detached run_workflow you launched with the wrong input, or one you want to stop after seeing partial output in get_run. Cancellation is cooperative: the run stops at its next step boundary and finalizes as cancelled (a [run-notification] follows for chat-launched runs). A run that already finished reports its terminal status instead.",
+    ),
+    pause_run: runControlTool(
+      controlRun,
+      "pause",
+      "Pause a LIVE run at its next step boundary (in-flight steps finish; no new ones start) so you or the user can inspect it with get_run before deciding to resume_run or cancel_run. Only live runs can be paused.",
+    ),
+    resume_run: runControlTool(
+      controlRun,
+      "resume",
+      "Resume a run you paused with pause_run (in-memory; the run continues from where it parked). For a run cut off by a crash/restart, tell the user to use the UI's durable resume instead.",
+    ),
+  };
+}
+
 // ── Tools ──────────────────────────────────────────────────────────────────
 
 export function buildTools(deps: AiDeps) {
+  /** The static check behind validate_workflow — also the gate on
+   *  create_workflow / edit_workflow, so an invalid YAML never becomes a
+   *  version. Registry + workflow list come from deps at call time. */
+  const validate = async (yaml: string, name?: string) => {
+    const workflows = await deps.workspace.listWorkflows().catch(() => []);
+    return validateWorkflowYaml(yaml, {
+      registry: deps.registry,
+      workflows: workflows.map((w) => ({ name: w.name, versions: w.versions })),
+      name,
+    });
+  };
+  /** Non-blocking: warnings ride along on a successful publish. */
+  const withWarnings = <T extends object>(result: T, v: { warnings: Array<{ path: string; message: string }> }) =>
+    v.warnings.length ? { ...result, warnings: v.warnings } : result;
+
   return {
     list_steps: tool({
       description:
@@ -131,6 +183,19 @@ export function buildTools(deps: AiDeps) {
       },
     }),
 
+    validate_workflow: tool({
+      description:
+        "Statically check workflow YAML WITHOUT publishing — call this before create_workflow / edit_workflow so a typo doesn't become a published version. Errors (would fail or hang at run time): YAML/unquoted-template problems, missing/duplicate/unreferenceable step ids, unknown step types, `depends` on unknown ids, dependency cycles, template references to unknown roots ({{ foo.x }} where foo is not a step id / input / params / a loop variable), config fields that fail the step's schema (template-valued fields are skipped — they resolve at run time), subflows naming a workflow/version that doesn't exist. Warnings: unknown config fields, `when` without an `if` gate among its depends, references to steps that aren't upstream dependencies. Returns { ok, errors: [{path, message}], warnings: [...], summary }.",
+      inputSchema: z.object({
+        yaml: z.string().describe("Full workflow YAML to check"),
+        name: z
+          .string()
+          .optional()
+          .describe("The name you will publish under (lets a YAML without `name:` pass, as create_workflow stamps it in)."),
+      }),
+      execute: async ({ yaml, name }) => validate(yaml, name),
+    }),
+
     create_workflow: tool({
       description:
         "Create and publish a NEW workflow from YAML. If the name already " +
@@ -140,7 +205,10 @@ export function buildTools(deps: AiDeps) {
         "to group the workflow in the UI sidebar (e.g. an experiment or " +
         "project name) — set it when the user asks for one or when the " +
         "workflow clearly belongs to an existing category (see " +
-        "list_workflows for categories already in use).",
+        "list_workflows for categories already in use). The YAML is " +
+        "validated first (same checks as validate_workflow): on errors " +
+        "nothing is published and the error lists them; warnings are " +
+        "returned alongside a successful publish.",
       inputSchema: z.object({
         name: z.string().describe("Workflow name (kebab-case)"),
         yaml: z.string().describe("Full workflow YAML"),
@@ -153,6 +221,8 @@ export function buildTools(deps: AiDeps) {
           ),
       }),
       execute: async ({ name, yaml, description, category }) => {
+        const v = await validate(yaml, name);
+        if (!v.ok) return { error: formatValidationErrors(v), validation: v };
         const { name: finalName, version } = await deps.workspace.createWorkflow(
           name,
           yaml,
@@ -161,13 +231,16 @@ export function buildTools(deps: AiDeps) {
         );
         // Rebuild registry in case the workflow references new patterns
         deps.registry = await deps.getRegistry();
-        return {
-          ok: true,
-          name: finalName,
-          version,
-          renamed: finalName !== name,
-          requested: name,
-        };
+        return withWarnings(
+          {
+            ok: true,
+            name: finalName,
+            version,
+            renamed: finalName !== name,
+            requested: name,
+          },
+          v,
+        );
       },
     }),
 
@@ -180,7 +253,10 @@ export function buildTools(deps: AiDeps) {
         "changes (adding/removing steps, rewiring `depends`, or promoting a " +
         "winning `params` default). To merely try a different prompt or " +
         "threshold value, do NOT publish a version — pass `params` to " +
-        "run_workflow instead (those are runs, not versions).",
+        "run_workflow instead (those are runs, not versions). The YAML is " +
+        "validated first (same checks as validate_workflow): on errors no " +
+        "version is published and the error lists them; warnings ride along " +
+        "on success.",
       inputSchema: z.object({
         name: z.string().describe("Existing workflow name to edit"),
         yaml: z.string().describe("Full updated workflow YAML"),
@@ -201,6 +277,8 @@ export function buildTools(deps: AiDeps) {
             error: `Workflow "${name}" not found. Use create_workflow to author a new one.`,
           };
         }
+        const v = await validate(yaml, name);
+        if (!v.ok) return { error: formatValidationErrors(v), validation: v };
         let result;
         try {
           result = await deps.workspace.publishWorkflowByContent(
@@ -213,12 +291,15 @@ export function buildTools(deps: AiDeps) {
           return { error: err instanceof Error ? err.message : String(err) };
         }
         deps.registry = await deps.getRegistry();
-        return {
-          ok: true,
-          name,
-          version: result.version,
-          changed: result.changed,
-        };
+        return withWarnings(
+          {
+            ok: true,
+            name,
+            version: result.version,
+            changed: result.changed,
+          },
+          v,
+        );
       },
     }),
 
@@ -243,6 +324,34 @@ export function buildTools(deps: AiDeps) {
         } catch (err) {
           return { error: err instanceof Error ? err.message : String(err) };
         }
+      },
+    }),
+
+    set_active_version: tool({
+      description:
+        "ROLLBACK: make a prior version of a workflow or custom step the ACTIVE one — the version runs use (and, for steps, the one loaded in the registry). No new version is published and history is kept; later versions remain available to re-activate. Use this when a newer version turns out worse (\"go back to v2\") instead of republishing old source as yet another version. Call get_workflow / get_step first to see the versions.",
+      inputSchema: z.object({
+        kind: z.enum(["workflow", "step"]).describe("What to roll back: a published workflow or a custom step."),
+        name: z.string().describe("Workflow name, or custom step type (e.g. 'concepts/decide')."),
+        version: z.string().describe("Version label to activate, e.g. 'v2'."),
+      }),
+      execute: async ({ kind, name, version }) => {
+        try {
+          if (kind === "workflow") {
+            await deps.workspace.setActiveVersion(name, version);
+          } else {
+            if (deps.publishingEnabled === false) {
+              return { error: "Step versioning is disabled in this deployment (the registry is provided in code)." };
+            }
+            await deps.workspace.setActiveStepVersion(name, version);
+          }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+        // A step switch changes what's loaded; a workflow switch may change
+        // which custom steps are referenced. Either way, refresh.
+        deps.registry = await deps.getRegistry();
+        return { ok: true, kind, name, active: version };
       },
     }),
 
@@ -493,6 +602,11 @@ export function buildTools(deps: AiDeps) {
       },
     }),
 
+    // Run control — only when the host wires `deps.controlRun` (the standard
+    // server does): the builder can stop/park a live run it launched, not
+    // just launch it. Same code path as the HTTP control endpoints.
+    ...(deps.controlRun ? runControlTools(deps.controlRun) : {}),
+
     // Build-time shell — only offered when the host wires `deps.shell` (the
     // standard server does; embedders/tests without it get no bash tool).
     ...(deps.shell
@@ -521,6 +635,49 @@ export function buildTools(deps: AiDeps) {
                 // experiments, so they never land among workspace internals.
                 await mkdir(join(cwd, "scratch"), { recursive: true });
                 return { output: await runShell(command, cwd, timeoutMs, 20_000) };
+              } catch (e) {
+                return { error: e instanceof Error ? e.message : String(e) };
+              }
+            },
+          }),
+        }
+      : {}),
+
+    // Read-only raw Cypher — only when the host wires a graph backend
+    // (`deps.graph`). The builder's verification loop for graph-writing
+    // workflows; see graph/query.ts for why it is read-only and capped, and
+    // why it is a chat tool rather than a step.
+    ...(deps.graph
+      ? {
+          graph_query: tool({
+            description:
+              "Run a READ-ONLY Cypher query against the vein graph (Neo4j) and get rows back. Use it to VERIFY what a workflow's graph/* steps actually wrote — count nodes/edges by type, read back exact properties, check edge fan-out — or to inspect graph-backed workspace state. " +
+              "Writes (CREATE/MERGE/SET/DELETE/…, apoc.*) are rejected; write through the graph/* steps. " +
+              `Conventions: every node has its type as a label plus :Node:Data_Bank and the properties {ref_id, node_key, namespace}; the deployment's default namespace is "${deps.graph.cfg.namespace}" — filter on it (n.namespace = $ns) so you don't read across partitions. Edge types are UPPER_SNAKE. ` +
+              "Output is capped: rows (default 100), long strings truncated, embedding vectors collapsed. Prefer aggregates (count, collect(DISTINCT …)) and LIMIT over dumping nodes. " +
+              "Returns { columns, rows, rowCount, truncated, elapsedMs } or { error }.",
+            inputSchema: z.object({
+              cypher: z.string().describe("A read-only Cypher query, e.g. \"MATCH (n:Concept {namespace: $ns}) RETURN count(n) AS n\"."),
+              params: z
+                .record(z.string(), z.any())
+                .optional()
+                .describe("Query parameters referenced as $name in the cypher, e.g. { ns: \"default\" }. Prefer params over string interpolation."),
+              maxRows: z
+                .number()
+                .int()
+                .positive()
+                .max(1000)
+                .default(100)
+                .describe("Row cap (default 100, max 1000). When exceeded, truncated:true — narrow the query rather than raising this."),
+            }),
+            execute: async ({ cypher, params, maxRows }) => {
+              try {
+                // Lazy so embedders that never call it don't load neo4j-driver here.
+                const { readQuery } = await import("../graph/query.js");
+                return await readQuery(deps.graph!, cypher, {
+                  params: coerceJsonArg(params) as Record<string, unknown> | undefined,
+                  maxRows,
+                });
               } catch (e) {
                 return { error: e instanceof Error ? e.message : String(e) };
               }

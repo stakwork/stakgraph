@@ -37,6 +37,8 @@ import {
 import { runSingleStep, cassettePath } from "./run-step.js";
 import { buildAuthoringCapability } from "./authoring.js";
 import type { CassetteMode } from "./cassette.js";
+// Type-only: the graph backend stays a lazy, opt-in dependency.
+import type { GraphBackend } from "./graph/backend.js";
 // Static import is safe: notifier depends only on chat-store, never the AI
 // SDK (which stays lazy-loaded inside launchChatTurn).
 import { createChatNotifier, formatRunNotification } from "./ai/notifier.js";
@@ -129,6 +131,11 @@ export interface VeinOptions<TServices = unknown> {
    *  `VEIN_AUTO_RESUME=0`; pass `false` to disable, or an object to tune
    *  the guards. Only the NEWEST root run per workflow is considered. */
   autoResume?: boolean | AutoResumeOptions;
+
+  /** The vein graph backend, when the deployment has one (server.ts passes
+   *  the one behind its graph-backed workspace). Enables the chat builder's
+   *  read-only `graph_query` tool. Omit and the tool isn't offered. */
+  graph?: GraphBackend;
 
   /** Directory containing the built web UI (the `dist` folder). Defaults
    *  to vein's own bundled UI resolved relative to this module, so it
@@ -862,40 +869,60 @@ export async function createVein<TServices = unknown>(
     return { controller, summary, exists: controller != null || events.length > 0 };
   };
 
+  /** Cancel / pause / resume a run that is LIVE in this process — the shared
+   *  core of the HTTP control endpoints and the chat builder's cancel_run /
+   *  pause_run / resume_run tools. `status` is the HTTP code the endpoint
+   *  answers with; the chat tool just relays ok/error. */
+  const controlLiveRun = async (
+    name: string,
+    runId: string,
+    action: "cancel" | "pause" | "resume",
+  ): Promise<
+    | { ok: true; runId: string; state: string; quiesced?: boolean; status: 202 }
+    | { ok: false; error: string; status: 404 | 409 }
+  > => {
+    const { controller, summary, exists } = await findRun(name, runId);
+    if (!exists) return { ok: false, error: `Run "${runId}" not found`, status: 404 };
+    if (!controller) {
+      return {
+        ok: false,
+        error: summary ? `Run already terminal (${summary.status})` : `Run is not live (stale) — nothing to ${action}`,
+        status: 409,
+      };
+    }
+    if (action === "cancel") {
+      controller.cancel();
+      // Marker: if the process dies before the run reaches its boundary and
+      // finalizes as `run.cancelled`, boot-time auto-resume must know this
+      // run was being cancelled, not cut off (§5.3).
+      await appendControlEvent(name, runId, "run.cancelling");
+      return { ok: true, runId, state: controller.state, status: 202 };
+    }
+    if (action === "pause") {
+      controller.pause();
+      await appendControlEvent(name, runId, "run.paused");
+      return { ok: true, runId, state: controller.state, quiesced: controller.quiesced(), status: 202 };
+    }
+    controller.resume();
+    await appendControlEvent(name, runId, "run.resumed");
+    return { ok: true, runId, state: controller.state, status: 202 };
+  };
+  /** The chat-tool view of controlLiveRun: same result minus the HTTP code. */
+  const controlRunForChat = async (name: string, runId: string, action: "cancel" | "pause" | "resume") => {
+    const { status: _status, ...rest } = await controlLiveRun(name, runId, action);
+    return rest;
+  };
+
   app.post("/workflows/:name/runs/:runId/cancel", async (c) => {
     const { name, runId } = c.req.param();
-    const { controller, summary, exists } = await findRun(name, runId);
-    if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
-    if (!controller) {
-      return c.json(
-        { error: summary ? `Run already terminal (${summary.status})` : "Run is not live (stale) — nothing to cancel" },
-        409,
-      );
-    }
-    controller.cancel();
-    // Marker: if the process dies before the run reaches its boundary and
-    // finalizes as `run.cancelled`, boot-time auto-resume must know this run
-    // was being cancelled, not cut off (§5.3).
-    await appendControlEvent(name, runId, "run.cancelling");
-    return c.json({ ok: true, runId, state: controller.state }, 202);
+    const { status, ...body } = await controlLiveRun(name, runId, "cancel");
+    return c.json(body, status);
   });
 
   app.post("/workflows/:name/runs/:runId/pause", async (c) => {
     const { name, runId } = c.req.param();
-    const { controller, summary, exists } = await findRun(name, runId);
-    if (!exists) return c.json({ error: `Run "${runId}" not found` }, 404);
-    if (!controller) {
-      return c.json(
-        { error: summary ? `Run already terminal (${summary.status})` : "Run is not live (stale) — nothing to pause" },
-        409,
-      );
-    }
-    controller.pause();
-    await appendControlEvent(name, runId, "run.paused");
-    return c.json(
-      { ok: true, runId, state: controller.state, quiesced: controller.quiesced() },
-      202,
-    );
+    const { status, ...body } = await controlLiveRun(name, runId, "pause");
+    return c.json(body, status);
   });
 
   app.post("/workflows/:name/runs/:runId/resume", async (c) => {
@@ -1502,6 +1529,10 @@ export async function createVein<TServices = unknown>(
             // dir (scrubbed env — see shell.ts).
             shell: { cwd: dataDir },
             webSearch: true,
+            // Read-only graph_query, when the host wired a graph backend.
+            graph: opts.graph,
+            // cancel_run / pause_run / resume_run over the live controllers.
+            controlRun: controlRunForChat,
             publishingEnabled: !registryWasInjected,
             getRegistry: async () => {
               if (registryWasInjected) return registry;

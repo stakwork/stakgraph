@@ -55,7 +55,10 @@ vein/
 │   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree); AiDeps carries `services` + `secrets` (read-only names)
 │   │   ├── tools.ts       # buildTools(deps): list_steps, search_steps, get_step,
 │   │   │                  #                   list_secrets (NAMES only), create_step, edit_step,
-│   │   │                  #                   create_workflow, run_workflow (threads ctx.services)
+│   │   │                  #                   create_workflow, run_workflow (threads ctx.services),
+│   │   │                  #                   graph_query (read-only Cypher; only when deps.graph is wired),
+│   │   │                  #                   set_active_version (rollback), cancel_run/pause_run/resume_run (when deps.controlRun is wired),
+│   │   │                  #                   validate_workflow (static YAML check, no publish — src/validate.ts)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
 │   ├── graph/             # jarvis-compatible Neo4j graph backend over bolt, no jarvis in the loop (plans/jarvis-graph-compat.md). Opt-in via openGraphBackend
@@ -68,6 +71,7 @@ vein/
 │   │   ├── embeddings.ts  # local all-MiniLM-L6-v2 via transformers.js, tokenized like sentence-transformers (256 incl. specials); NULL-scan backfill
 │   │   ├── search.ts      # the read surface: hybrid search (RRF + title boost + usage tiebreak), get/neighbors/counts, ontology, namespaces
 │   │   ├── backend.ts     # openGraphBackend(): cached per config; runs seed + backfill on first open
+│   │   ├── query.ts       # readQuery(): read-only raw Cypher for the chat builder's graph_query — keyword pre-check + READ tx, streamed row cap, tx timeout, strings/vectors compacted; a chat tool, deliberately not a step
 │   │   ├── test-util.ts   # live-test helpers (wipe, canonical graph snapshot) — only ever point at a throwaway Neo4j
 │   │   └── fixtures/      # Python-produced MiniLM golden vectors + jarvis sanitize_node_key parity cases
 │   └── *.test.ts          # 622 unit tests across 25 files (+ 127 live graph tests under src/graph/ and steps/lib/graph/, opt-in)
