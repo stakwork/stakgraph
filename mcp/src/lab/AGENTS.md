@@ -15,6 +15,11 @@ workflows/steps inside it — **not** separate servers. Adding an experiment
 
 - `createLabVein.ts` — the single instance: registry (vein core+lib + all
   experiment steps), merged `services` bag, seeded workflow templates.
+  **Seeding is additive**: dropping a step from a seeder's `SEED_STEPS` does
+  NOT remove it from existing workspaces (graph-backed ones persist, and
+  the author agent keeps discovering it). When you remove or rename a
+  seeded step, add the old type to that seeder's `RETIRED_STEPS` list —
+  `retireSteps` (`seed-opts.ts`) soft-deletes it at boot.
 - `mount.ts` — bridges the vein (Hono) app into Express under `/lab`
   (API + run-streaming SSE). Registered before `express.json()` to keep
   raw request streams. Lazy-initialized so mcp boot isn't coupled to

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
  * Harvey LAB verification steps — THIN plumbing only. The actual grader is
@@ -43,6 +43,15 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   // production prompts' harvey_generate_docx/_xlsx calls work verbatim.
   { file: "generate-docx.ts", type: "harvey/generate-docx" },
   { file: "generate-xlsx.ts", type: "harvey/generate-xlsx" },
+];
+
+// Types this seeder USED to publish. Seeding is additive, so without this a
+// dropped step lingers in every existing workspace (see retireSteps).
+const RETIRED_STEPS = [
+  "harvey/pack-result", // → vein core `pack`
+  "harvey/aggregate-scores", // → eval/aggregate-scores
+  "harvey/build-eval-chain", // → eval/build-eval-chain
+  "harvey/criterion-refs", // → eval/criterion-refs
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -141,4 +150,5 @@ export async function seedHarveySteps(workspace: WorkspaceStore): Promise<void> 
       );
     }
   }
+  await retireSteps(workspace, RETIRED_STEPS, "harvey");
 }

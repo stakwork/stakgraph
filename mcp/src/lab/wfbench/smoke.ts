@@ -35,6 +35,14 @@ async function main() {
   try {
     // ── 1. seed + discover ───────────────────────────────────────────────
     const workspace = new WorkspaceManager(dir);
+    // A step this seeder USED to ship, left over from an earlier deploy —
+    // reseeding must retire it (seeding is additive otherwise).
+    await workspace.publishStep(
+      "wfbench/pack-result",
+      'import { z, defineStep } from "vein";\nexport default defineStep({ type: "wfbench/pack-result", input: z.any(), output: z.any(), async run(cfg) { return cfg; } });\n',
+      undefined,
+      "old-deploy",
+    );
     await seedEvalSteps(workspace);
     await seedArtifactSteps(workspace);
     await seedWfbenchSteps(workspace);
@@ -66,7 +74,9 @@ async function main() {
       "agent",
     ];
     for (const t of expectedSteps) assert.ok(registry[t], `registry missing ${t}`);
-    console.log(`✔ seeded + discovered ${expectedSteps.length} steps`);
+    assert.equal(registry["wfbench/pack-result"], undefined, "retired step must not be discoverable after reseeding");
+    assert.ok(registry["pack"], "core pack step");
+    console.log(`✔ seeded + discovered ${expectedSteps.length} steps; stale wfbench/pack-result retired`);
 
     // ── 2. static validation (what meta/validate-workflow runs) ──────────
     const vein = await createVein({ workspace, serveUi: false });
