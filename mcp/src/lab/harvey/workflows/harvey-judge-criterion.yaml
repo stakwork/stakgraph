@@ -5,7 +5,7 @@ name: harvey-judge-criterion
 # verdict. Run per criterion by harvey-score's foreach (this subflow exists
 # because foreach bodies get no onError of their own — the fall-soft lives on
 # the agent step here: a judge crash returns { error } and is scored as an
-# honest FAIL by harvey/aggregate-scores, never a pass).
+# honest FAIL by eval/aggregate-scores, never a pass).
 #
 # The judge is the core agent step in SCHEMA mode with bash-only tools: it
 # reads the deliverables itself (pandoc for .docx — mirrors the harness's
@@ -22,7 +22,7 @@ steps:
       retry: { max: 1, delayMs: 10000 }
       onError:
         id: judge_failed
-        type: harvey/pack-result
+        type: pack
         config:
           error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
  * GAIA LAB steps + workflows — the harness that scored 5/5 on the first
@@ -18,7 +18,8 @@ import { SEED_OPTS } from "../seed-opts.js";
  *   artifacts dir so agent steps (cwd = artifacts dir) can read it.
  * - `gaia/evaluate` — the real leaderboard scorer. HARNESS-ONLY: grant only
  *   to harness workflows, never to a producing agent's `agentTools`.
- * - `gaia/pack-result`, `gaia/summarize-batch` — pure combiners.
+ * - `gaia/summarize-batch` — pure combiner (the echo combiner is vein's core
+ *   `pack` step now).
  * - `gaia/digest-results` — aggregate graded results into the evolve loop's
  *   propose digest (verdict channel only; accuracy as `fitness`).
  *
@@ -35,10 +36,12 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "list-tasks.ts", type: "gaia/list-tasks" },
   { file: "get-task.ts", type: "gaia/get-task" },
   { file: "evaluate.ts", type: "gaia/evaluate" },
-  { file: "pack-result.ts", type: "gaia/pack-result" },
   { file: "summarize-batch.ts", type: "gaia/summarize-batch" },
   { file: "digest-results.ts", type: "gaia/digest-results" },
 ];
+
+// Types this seeder USED to publish (seeding is additive — see retireSteps).
+const RETIRED_STEPS = ["gaia/pack-result"]; // → vein core `pack`
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -102,4 +105,5 @@ export async function seedGaiaSteps(workspace: WorkspaceStore): Promise<void> {
       );
     }
   }
+  await retireSteps(workspace, RETIRED_STEPS, "gaia");
 }

@@ -55,7 +55,7 @@ steps:
       retry: { max: 1, delayMs: 15000 }
       onError:
         id: produce_failed
-        type: harvey/pack-result
+        type: pack
         config:
           # usage: {} (not omitted) — the template evaluator does NOT
           # short-circuit, so downstream `produced.usage.inputTokens` must
@@ -92,7 +92,7 @@ steps:
       agentTools: "{{ params.agentTools }}"
 
   - id: result
-    type: harvey/pack-result
+    type: pack
     depends: produce
     config:
       task: "{{ input.task }}"

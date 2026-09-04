@@ -24,7 +24,7 @@ steps:
           answer: "{{ produced.answer }}"
 
   - id: result
-    type: gaia/pack-result
+    type: pack
     config:
       accuracy: "{{ score.accuracy }}"
       correct: "{{ score.correct }}"

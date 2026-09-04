@@ -24,6 +24,13 @@ import { SEED_OPTS } from "../seed-opts.js";
  *     bands (floor/movable/ceiling), the empirical noise floor from
  *     same-version re-runs, and bias-vs-variance tags for never-correct
  *     tasks (plans/evolve-scoreboard-and-task-matrix.md, Phase 1).
+ *   - `eval/aggregate-scores`, `eval/build-eval-chain`, `eval/criterion-refs`
+ *     — rubric-judged scoring plumbing (promoted from harvey/*): zip judge
+ *     verdicts into scores_json, build the EvalSet→EvalTrigger→
+ *     EvalTriggerOutput→CriterionResult batch-triplet payload, recover the
+ *     persisted CriterionResult ref_ids. harvey-score uses all three;
+ *     wfbench uses aggregate-scores + criterion-refs (its record payload,
+ *     wfbench/build-eval-output, follows stakwork 58312's id conventions).
  */
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
@@ -32,6 +39,9 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "optimize.ts", type: "eval/optimize" },
   { file: "evolve-loop.ts", type: "eval/evolve-loop" },
   { file: "matrix.ts", type: "eval/matrix" },
+  { file: "aggregate-scores.ts", type: "eval/aggregate-scores" },
+  { file: "build-eval-chain.ts", type: "eval/build-eval-chain" },
+  { file: "criterion-refs.ts", type: "eval/criterion-refs" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
  * Harvey LAB verification steps — THIN plumbing only. The actual grader is
@@ -15,8 +15,7 @@ import { SEED_OPTS } from "../seed-opts.js";
  *   producing agents.
  * - `harvey/evaluate` — stage deliverables + run the real eval. Grant ONLY
  *   to harness workflows, never to the producing agent.
- * - `harvey/pack-result` — echo combiner (assemble workflow outputs; onError
- *   fallbacks).
+ * - (the echo combiner is vein's core `pack` step now — not seeded here)
  * - `harvey/digest-results` — aggregate graded results into the propose
  *   digest (verdict channel only; see the step header).
  *
@@ -27,25 +26,32 @@ import { SEED_OPTS } from "../seed-opts.js";
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "get-task.ts", type: "harvey/get-task" },
   { file: "evaluate.ts", type: "harvey/evaluate" },
-  { file: "pack-result.ts", type: "harvey/pack-result" },
   { file: "digest-results.ts", type: "harvey/digest-results" },
   // harvey-deliver pipeline steps (standalone production-style pipeline —
   // rubric as input; NOT part of the benchmark harness): intake, drafting
-  // plan, scoring plumbing, and the pinned read-only graph sub-agent.
+  // plan, scoring plumbing, and the pinned read-only graph sub-agent. The
+  // generic scoring steps (aggregate-scores, build-eval-chain,
+  // criterion-refs) live in eval/* now — seeded by eval/seed.ts.
   { file: "normalize-documents.ts", type: "harvey/normalize-documents" },
   { file: "graph-sub-agent.ts", type: "harvey/graph-sub-agent" },
   { file: "ingest-state.ts", type: "harvey/ingest-state" },
   { file: "drafter-plan.ts", type: "harvey/drafter-plan" },
   { file: "validate-deliverables.ts", type: "harvey/validate-deliverables" },
   { file: "filter-contested.ts", type: "harvey/filter-contested" },
-  { file: "aggregate-scores.ts", type: "harvey/aggregate-scores" },
   { file: "merge-disputes.ts", type: "harvey/merge-disputes" },
-  { file: "build-eval-chain.ts", type: "harvey/build-eval-chain" },
-  { file: "criterion-refs.ts", type: "harvey/criterion-refs" },
   // deliverable generation (pandoc / openpyxl) — grantable agent tools so the
   // production prompts' harvey_generate_docx/_xlsx calls work verbatim.
   { file: "generate-docx.ts", type: "harvey/generate-docx" },
   { file: "generate-xlsx.ts", type: "harvey/generate-xlsx" },
+];
+
+// Types this seeder USED to publish. Seeding is additive, so without this a
+// dropped step lingers in every existing workspace (see retireSteps).
+const RETIRED_STEPS = [
+  "harvey/pack-result", // → vein core `pack`
+  "harvey/aggregate-scores", // → eval/aggregate-scores
+  "harvey/build-eval-chain", // → eval/build-eval-chain
+  "harvey/criterion-refs", // → eval/criterion-refs
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -144,4 +150,5 @@ export async function seedHarveySteps(workspace: WorkspaceStore): Promise<void> 
       );
     }
   }
+  await retireSteps(workspace, RETIRED_STEPS, "harvey");
 }

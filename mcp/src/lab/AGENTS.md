@@ -15,6 +15,11 @@ workflows/steps inside it — **not** separate servers. Adding an experiment
 
 - `createLabVein.ts` — the single instance: registry (vein core+lib + all
   experiment steps), merged `services` bag, seeded workflow templates.
+  **Seeding is additive**: dropping a step from a seeder's `SEED_STEPS` does
+  NOT remove it from existing workspaces (graph-backed ones persist, and
+  the author agent keeps discovering it). When you remove or rename a
+  seeded step, add the old type to that seeder's `RETIRED_STEPS` list —
+  `retireSteps` (`seed-opts.ts`) soft-deletes it at boot.
 - `mount.ts` — bridges the vein (Hono) app into Express under `/lab`
   (API + run-streaming SSE). Registered before `express.json()` to keep
   raw request streams. Lazy-initialized so mcp boot isn't coupled to
@@ -458,12 +463,13 @@ completed ingestions, and skip re-merging requirements.
   all-pass ⇒ `EvalSet.recursion=false`), and `harvey-judge-criterion` /
   `harvey-dispute-criterion` (per-criterion agent-in-schema-mode subflows —
   they exist because foreach bodies get no onError; a judge crash scores as
-  an honest FAIL via `harvey/aggregate-scores`' zip, never a pass).
+  an honest FAIL via `eval/aggregate-scores`' zip, never a pass).
 - Steps: `harvey/normalize-documents`, `harvey/ingest-state`,
   `harvey/drafter-plan`, `harvey/validate-deliverables`,
-  `harvey/filter-contested`, `harvey/aggregate-scores`,
-  `harvey/merge-disputes`, `harvey/build-eval-chain`,
-  `harvey/criterion-refs` (pure/plumbing), `harvey/generate-docx` +
+  `harvey/filter-contested`, `harvey/merge-disputes` (pure/plumbing;
+  the generic scoring trio `eval/aggregate-scores`, `eval/build-eval-chain`,
+  `eval/criterion-refs` is shared with other rubric harnesses — see
+  `eval/`), `harvey/generate-docx` +
   `harvey/generate-xlsx` (pandoc / openpyxl deliverable generators,
   granted as agent tools so the production prompts' generate calls work),
   `harvey/graph-sub-agent` — the PINNED read-only graph research sub-agent
@@ -518,7 +524,7 @@ are thin plumbing over `ctx.services.gaia.*`.
 - **Committed harness** (`gaia/seed.ts`, seeded at boot like harvey's):
   steps `gaia/list-tasks`, `gaia/get-task` (stages a task's attached file
   into the run's artifacts dir), `gaia/evaluate` (HARNESS-ONLY), and the
-  combiners `gaia/pack-result` + `gaia/summarize-batch`; workflows
+  combiner `gaia/summarize-batch` (+ vein's core `pack`); workflows
   `gaia-produce` (agent step; the produce system prompt, model, maxSteps: 50
   and agentTools live in `params`; an `onError` fallback scores a blown-up
   agent as an empty wrong answer instead of killing the batch), `gaia-run`
@@ -553,7 +559,7 @@ are thin plumbing over `ctx.services.gaia.*`.
   unmeasured (`baselineSamples: 1`, the pre-Phase-1 behavior).
   Candidate contract: input `{ taskId }`, last step outputs `taskId`,
   `answer` (bare string), `cost`, `steps`; candidates may use
-  `gaia/get-task` / `gaia/pack-result` as steps but NEVER `gaia/evaluate`
+  `gaia/get-task` / `pack` as steps but NEVER `gaia/evaluate`
   (produce-time oracle) and never gaia/*, eval/*, meta/* as agentTools.
   Scores are TRAIN scores — validate the best version on a held-out
   `gaia-batch` slice before promoting. Offline checks:
@@ -600,6 +606,56 @@ are thin plumbing over `ctx.services.gaia.*`.
   git-lfs / gated 403 /
   scorer-hash mismatch / LFS pointer stubs / idempotent re-entry / half-written
   checkout) with `exec` and `fetchText` faked (`npx tsx src/lab/gaia/smoke.ts`).
+
+### `wfbench/` — Workflow Editor Agent Benchmark (stakwork 58313's twin)
+
+The benchmark harness for the workflow-AUTHORING agent, rebuilt as a vein
+workflow (design + step map: `plans/wfbench-harness.md`). One task in
+(`{ task_slug, task_title?, instructions, criteria, workflow_input_json?,
+rerun_expected_output?, webhook_url? }` — Hive's payload shape), one callback
+out. `wfbench-run`: graph roster (EvalSet → EvalRequirement×N, EvalTrigger,
+HAS_BASELINE_TRIGGER on the EvalSet's first trigger else HAS_TRIGGER — 58313's
+ids, written with vein's `graph/*` steps under `input.namespace ||
+params.namespace`; Hive passes the partition its own roster upsert used so
+the writes merge onto its nodes) ‖ the
+author (core `agent` + `agentTools: ["meta/*"]`, editor tool only — 54419's
+twin) builds `wfbench-<slug>` → resolve the version it actually shipped
+(`vpin || vactive`, `published` vs `vbefore` — the gaia-evolve-gen guard) →
+input-key gate (`wfbench/check-input-keys`: the `input.<key>` references in
+the produced YAML vs the launch payload; a mismatch or empty body is a harness
+error, never launched) → rerun via `meta/run-workflow` (57425's twin; own runId
+= 58313's project_id) → `wfbench/classify-run` (a runtime-FAILED rerun is still
+judged; no runId is a harness error) → `meta/validate-workflow` on the produced YAML
+(judge EVIDENCE for structural criteria, never a gate) → `wfbench/build-materials`
+(workflow YAML + custom step sources + validation result + launch payload + run
+output + expected output, inlined as one markdown block) → per-criterion judge (`wfbench-judge-criterion`: agent
+schema mode, nothing to read — a crash packs `{ error }` = honest FAIL) →
+`eval/aggregate-scores` → record `EvalTrigger -HAS_OUTPUT-> EvalTriggerOutput
+-HAS_CRITERION_RESULT-> CriterionResult <-HAS_CRITERION_RESULT- EvalRequirement`
+(`wfbench/build-eval-output`, 58312's ids: `<slug>-<runId>`,
+`<slug>-<runId>-<criterion_id>`) → `wfbench/webhook-body` (58313's 4-way
+`resolve_webhook_payload`: success `{ task_slug, task_title, n_passed, n_total,
+all_pass, pass_rate, judge_model, criteria_results }` or `{ harness_error:
+true, error_type, error }` — no fake 0/N) → POST `webhook_url` → the run's
+output IS that body (+ diagnostics), fixing 58313's set_output divergence.
+
+- Graph writes use only ontology-declared attributes (vein's backend rejects
+  the rest): 58313's `EvalSet.project_id` (an int there) and the `name` on
+  EvalTrigger / EvalTriggerOutput are omitted; 58312's `CriterionResult
+  -HAS_CAUSE-> Workflow_version` is not written (no such relationship in
+  the ontology, and a vein workflow is not a Workflow_version node).
+- Grant discipline: `wfbench/*` is never an agentTool. The author gets
+  `meta/*` (+ `meta/validate-workflow`) and the editor; the judge gets
+  nothing useful; the produced workflow is necessarily publisher `ai`.
+- The author's `params.authorSystem` carries a stakwork→vein translation
+  table, so PORTING a stakwork workflow is just a task whose instructions
+  are the stakwork body (plus a real project's input/output as
+  `workflow_input_json` / `rerun_expected_output`).
+- v1 is create-new only (58313 v1 too). Needs `ANTHROPIC_API_KEY` + the
+  graph; no stakwork credentials.
+- Smoke (offline — seeds, discovers, static-validates both workflows
+  through the authoring capability, drives every pure step, and checks the
+  graph payloads against `JARVIS_ONTOLOGY`): `npx tsx src/lab/wfbench/smoke.ts`.
 
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
@@ -654,6 +710,14 @@ Domain-agnostic eval substrate, shared by every experiment. See
   tasks (byte-identical wrong answer ×≥3 = bias — immune to redundancy and
   prompt nudges; distinct wrong answers = variance). Verdict channel only —
   gold never enters. Smoke: `npx tsx src/lab/eval/matrix-smoke.ts`.
+- `eval/aggregate-scores`, `eval/build-eval-chain`, `eval/criterion-refs` —
+  rubric-judged SCORING plumbing (promoted from `harvey/*`, exercised by
+  `harvey/deliver-smoke.ts`): zip a rubric with per-criterion judge verdicts
+  (same order; null/error = honest FAIL; length mismatch refuses) into
+  scores_json; build the idempotent EvalSet→EvalTrigger→EvalTriggerOutput→
+  CriterionResult(+EvalRequirement) batch-triplet payload for
+  `graph/create-batch-triplet` (`workflow` names the scored workflow);
+  recover the persisted CriterionResult ref_ids from the batch results.
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

@@ -37,7 +37,7 @@ async function main() {
     // step types referenced by the workflows all exist in the registry
     const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     const wanted = [
-      "gaia/list-tasks", "gaia/get-task", "gaia/evaluate", "gaia/pack-result",
+      "gaia/list-tasks", "gaia/get-task", "gaia/evaluate", "pack",
       "gaia/summarize-batch", "gaia/digest-results", "eval/evolve-loop",
       "eval/matrix",
       "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",

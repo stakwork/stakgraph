@@ -46,7 +46,7 @@ vein/
 │   ├── secret-store.ts    # SecretStore iface + FileSecretStore (AES-256-GCM, VEIN_SECRET_KEY) + MemorySecretStore — backs ctx.services.secrets + /secrets endpoints
 │   ├── index.ts           # barrel export — createVein (primary entry), createRegistry, coreRegistry, all types
 │   ├── steps/
-│   │   ├── core/          # 9 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait (static import)
+│   │   ├── core/          # 10 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait, pack (static import)
 │   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — file dynamic-imported at build; heavy SDKs lazy-imported in run() (see "Lib step dependency convention")
 │   │   │   └── graph/     # graph/* knowledge-graph steps over src/graph (the vein-native twins of the mcp lab's jarvis/* steps — same names, inputs, outputs — plus two vein-only ones: create-schema registers/extends a node type, edit-edge patches an edge's properties); _shared.ts lazy-imports the backend; graph-steps.test.ts is a live end-to-end test
 │   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
