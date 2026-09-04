@@ -164,8 +164,59 @@ WebView). Microphone capture stays in the host, not the webview (§4.6).
   1. Desktop connects to a remote/Docker Neo4j (zero code).
   2. Small local vector store for the fs backend (sqlite-vec, or flat file +
      brute-force cosine; 384-dim MiniLM is fine to ~50k vectors).
-  3. Embed Neo4j + JRE in the app (heavy; last resort).
+  3. **Embedded graph DB (LadybugDB)** — a real local graph backend, not just
+     vectors. See §3.1.
+  4. Embed Neo4j + JRE in the app (heavy; last resort).
 - Not required for STT. Defer until a desktop feature actually needs search.
+
+### 3.1 LadybugDB as a local graph backend
+
+Idea, not decided. Needs team discussion.
+
+- **What it is.** [LadybugDB](https://github.com/LadybugDB/ladybug) is the
+  maintained fork of Kuzu (Kuzu was acquired by Apple and archived late 2025;
+  do not build on it). MIT, embedded, single file on disk, Cypher, Node
+  bindings (`@ladybugdb/core`, native addon), disk-based HNSW vector index
+  and full-text search as loadable extensions.
+- **Why it's attractive.** One engine covers the graph workspace store, run
+  projection, `graph/*` steps, and vector + fulltext search, all in a file
+  under the app-support dir. No JVM, no daemon, no port. Strictly more than
+  option 2 for similar packaging cost.
+- **Why it's not a driver swap.** The seam is good: every query goes through
+  `Bolt` (`graph/bolt.ts`), ~50 Cypher call sites across ~11 files, and the
+  `GraphBackend` interface + storage conformance tests already exist. But
+  the Cypher is Neo4j-shaped:
+  - Ladybug is schema-first (`CREATE NODE TABLE`, typed columns, primary
+    key). Vein does schema-less multi-label `MERGE` with labels computed at
+    runtime (`node-writer.ts` ~L568: type + `Node` + `Data_Bank` +
+    `Domain_*`). Ladybug's multi-label patterns are query-side, not a node
+    carrying N labels.
+  - `CREATE CONSTRAINT / VECTOR INDEX / FULLTEXT INDEX`, `CALL db.*`, and
+    the three `apoc.*` uses all need rewriting to Ladybug's
+    `CREATE_VECTOR_INDEX` / `CREATE_FTS_INDEX` and query functions.
+  - Vector and FTS are separate shared libraries loaded at runtime. For an
+    offline desktop they ship beside the binary, same rule as native addons
+    (§0).
+  - Variable-length paths, `UNWIND`, params, and most `MATCH`/`RETURN`
+    shapes should survive with light edits.
+- **Open design question: how much to conform.** Two positions, both live:
+  - *Keep the jarvis-shaped logical model* (`node_key` + `namespace`
+    identity, `Data_Bank` supertype, `Domain_*` labels as a labels column)
+    and translate only inside the backend. Keeps writers/reader/conformance
+    tests unchanged and leaves the door open to syncing a desktop graph to a
+    swarm's Neo4j later.
+  - *Ladybug-native schema.* Cheaper and cleaner if the local graph never
+    needs to interoperate with jarvis; some of what the jarvis model carries
+    (namespace, supertype labels) exists only for a shared server. It may be
+    fine not to conform everything. Cost is a second logical model to
+    maintain and no cheap sync path.
+  - Lean: undecided. Decide with the team before any code.
+- **Suggested order.** Ship phase A on the fs workspace first (graph steps on
+  desktop say "connect a swarm"). Then a one-day spike: run vein's Cypher
+  strings against Ladybug and count what breaks, which also informs the
+  conform-or-not question. Only then a `LadybugBackend` behind
+  `GraphBackend`, gated on a desktop feature that actually needs search or
+  graph. Rough guess for the backend: two to three weeks.
 
 ---
 
@@ -306,8 +357,8 @@ existing SSE event pattern.
 4. **Phase A packaging**: esbuild bundle, Node binary, native dir, a macOS
    host proof-of-concept that spawns vein and shows the UI.
 5. **Kotlin host**, Windows shell override.
-6. Later: single-binary (phase B), local vector store (§3), offline-mobile
-   bindings.
+6. Later: single-binary (phase B), local vector store or LadybugDB backend
+   (§3, §3.1), offline-mobile bindings.
 
 Steps 1–3 are pure vein work and are useful for the hosted product on their
 own.
@@ -326,6 +377,8 @@ own.
   multilingual demand shows up beyond what SenseVoice covers.
 - Speaker diarization and VAD: sherpa ships silero-VAD and speaker
   embedding models. Not in v1; the streaming route's endpointing is enough.
+- LadybugDB local graph (§3.1): do it at all, and if so, jarvis-shaped
+  logical model vs. Ladybug-native schema. Team discussion pending.
 
 ---
 
