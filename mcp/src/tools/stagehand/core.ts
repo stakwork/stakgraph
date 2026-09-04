@@ -1,5 +1,5 @@
 import { Stagehand, Page, AISdkClient } from "@browserbasehq/stagehand";
-import { getProvider } from "./providers.js";
+import { resolveBrowserModel } from "./providers.js";
 import { getModelDetails } from "../../aieo/src/provider.js";
 
 let STATE: {
@@ -57,33 +57,18 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     return STATE[sessionId].stagehand;
   }
 
-  let provider = getProvider();
-  const baseOpts = {
-    env: "LOCAL" as const,
+  const { model: modelName, apiKey } = resolveBrowserModel();
+  console.log("initializing stagehand!", modelName);
+  const { model } = getModelDetails(modelName, apiKey);
+  const sh = new Stagehand({
+    env: "LOCAL",
     domSettleTimeout: 60000,
     localBrowserLaunchOptions: {
       headless: true,
       viewport: { width: 1024, height: 768 },
     },
-  };
-  const override = process.env.STAGEHAND_MODEL;
-  let sh: Stagehand;
-  if (override) {
-    const apiKey = override.startsWith("openrouter/")
-      ? process.env.OPENROUTER_API_KEY
-      : process.env.ANTHROPIC_API_KEY;
-    const { model } = getModelDetails(override, apiKey || "");
-    sh = new Stagehand({ ...baseOpts, llmClient: new AISdkClient({ model: model as any }) });
-  } else {
-    console.log("initializing stagehand!", provider.model);
-    sh = new Stagehand({
-      ...baseOpts,
-      model: {
-        modelName: provider.model,
-        apiKey: process.env[provider.api_key_env_var_name],
-      },
-    });
-  }
+    llmClient: new AISdkClient({ model: model as any }),
+  });
   await sh.init();
 
   // Initialize session state
