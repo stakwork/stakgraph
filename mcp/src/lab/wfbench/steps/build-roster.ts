@@ -5,10 +5,15 @@ import { z, defineStep, type StepContext } from "vein";
  * write-ready payloads — the writes themselves are graph/create-node and
  * graph/create-batch-triplet. Node ids follow 58313 exactly:
  *
- *   EvalSet         id = task_slug                        (55741)
- *   EvalRequirement id = <task_slug>-<criterion_id>       (58114, one per criterion,
+ *   EvalSet         id = task_slug (verbatim)             (55741)
+ *   EvalRequirement id = <task_slug>::<criterion_id>      (one per criterion,
  *                                                          EvalSet -HAS_REQUIREMENT-> it)
  *   EvalTrigger     id = <task_slug>-<project_id>         (55741; project_id = this runId)
+ *
+ * The EvalSet and EvalRequirement ids are Hive's (eval-nodes.ts): Hive upserts
+ * this roster itself before dispatch and its rubrics reader looks the EvalSet
+ * up by the exact slug and the requirements by "<slug>::<id>", so our writes
+ * MERGE onto Hive's nodes by node_key instead of creating a second roster.
  *
  * Properties are limited to what the jarvis ontology declares for each
  * type (vein's graph backend rejects undeclared attributes): 58313's
@@ -20,7 +25,7 @@ import { z, defineStep, type StepContext } from "vein";
 export default defineStep({
   type: "wfbench/build-roster",
   description:
-    "Build the eval roster payloads for one run with 58313's id conventions: EvalSet { id: task_slug }, EvalRequirement { id: <slug>-<criterion_id> } triplets (HAS_REQUIREMENT, edge order), EvalTrigger { id: <slug>-<runId>, workflow_id, workflow_version_id, workflow_input, project_id }. Output: { run_id, evalset_id, trigger_id, evalset: { node_type, node_data }, requirement_triplets, requirement_ids, trigger: { node_type, node_data } }.",
+    "Build the eval roster payloads for one run: EvalSet { id: task_slug (verbatim) }, EvalRequirement { id: <slug>::<criterion_id> } (Hive's eval-nodes ids, so the writes merge onto Hive's roster) triplets (HAS_REQUIREMENT, edge order), EvalTrigger { id: <slug>-<runId>, workflow_id, workflow_version_id, workflow_input, project_id }. Output: { run_id, evalset_id, trigger_id, evalset: { node_type, node_data }, requirement_triplets, requirement_ids, trigger: { node_type, node_data } }.",
   input: z.object({
     task_slug: z.string().min(1),
     task_title: z.string(),
@@ -40,7 +45,7 @@ export default defineStep({
       source_data: { id: slug },
       target_type: "EvalRequirement",
       target_data: {
-        id: `${slug}-${c.id}`,
+        id: `${slug}::${c.id}`,
         name: String(c.title ?? ""),
         description: String(c.match_criteria ?? ""),
         deliverables: Array.isArray(c.deliverables) ? c.deliverables : [],

@@ -614,10 +614,13 @@ workflow (design + step map: `plans/wfbench-harness.md`). One task in
 (`{ task_slug, task_title?, instructions, criteria, workflow_input_json?,
 rerun_expected_output?, webhook_url? }` — Hive's payload shape), one callback
 out. `wfbench-run`: graph roster (EvalSet → EvalRequirement×N, EvalTrigger,
-HAS_BASELINE_TRIGGER on the EvalSet's first trigger else HAS_TRIGGER — 58313's
-ids, written with vein's `graph/*` steps under `input.namespace ||
-params.namespace`; Hive passes the partition its own roster upsert used so
-the writes merge onto its nodes) ‖ the
+HAS_BASELINE_TRIGGER on the EvalSet's first trigger else HAS_TRIGGER — written
+with vein's `graph/*` steps under `input.namespace || params.namespace`,
+default `default`. EvalSet id = the task slug VERBATIM and EvalRequirement id
+= `<slug>::<criterion_id>` — Hive's `eval-nodes.ts` ids, because Hive upserts
+this roster itself before dispatch and its rubrics reader looks it up by
+those; ours merge onto its nodes by node_key. Trigger/output/criterion ids
+follow 58313/58312: `<slug>-<runId>`, `<slug>-<runId>-<criterion_id>`) ‖ the
 author (core `agent` + `agentTools: ["meta/*"]`, editor tool only — 54419's
 twin) builds `wfbench-<slug>` → resolve the version it actually shipped
 (`vpin || vactive`, `published` vs `vbefore` — the gaia-evolve-gen guard) →

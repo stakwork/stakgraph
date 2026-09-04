@@ -7,7 +7,7 @@ import { z, defineStep, type StepContext } from "vein";
  *
  *   EvalTrigger(<slug>-<runId>) -HAS_OUTPUT-> EvalTriggerOutput(<slug>-<runId>)
  *   EvalTriggerOutput -HAS_CRITERION_RESULT-> CriterionResult (one per criterion)
- *   EvalRequirement(<slug>-<criterion_id>) -HAS_CRITERION_RESULT-> CriterionResult
+ *   EvalRequirement(<slug>::<criterion_id>) -HAS_CRITERION_RESULT-> CriterionResult
  *
  * EvalTriggerOutput carries 58312's fields: result, verdict, score,
  * max_score, n_passed, n_total, judge_model (its `name` is not declared on
@@ -78,7 +78,7 @@ export default defineStep({
       });
       triplets.push({
         source_type: "EvalRequirement",
-        source_data: { id: `${slug}-${cid}` },
+        source_data: { id: `${slug}::${cid}` },
         target_type: "CriterionResult",
         target_data: critData,
         edge_type: "HAS_CRITERION_RESULT",

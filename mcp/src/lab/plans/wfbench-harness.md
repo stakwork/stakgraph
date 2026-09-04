@@ -32,7 +32,7 @@ Not a "chat assistant as a step". Reasons:
 | 58313 (stakwork) | vein |
 | --- | --- |
 | `set_var` | workflow `input` + `params` |
-| EvalSet / EvalRequirement / EvalTrigger roster (55741, 58114, 55740, `hop_check_trigger_exists`, `guard_first_run`) | `graph/create-node` (EvalSet), `foreach` → `graph/create-node` (EvalRequirement), `graph/graph-neighbors` + `if` → `graph/create-triplet` with `HAS_BASELINE_TRIGGER` or `HAS_TRIGGER` |
+| EvalSet / EvalRequirement / EvalTrigger roster (55741, 58114, 55740, `hop_check_trigger_exists`, `guard_first_run`) | `graph/create-node` (EvalSet), `graph/create-batch-triplet` (EvalRequirements), `graph/graph-neighbors` + `wfbench/trigger-edge` → `graph/create-triplet` with `HAS_BASELINE_TRIGGER` or `HAS_TRIGGER`. Ids: EvalSet = task slug verbatim, EvalRequirement = `<slug>::<criterion_id>` — Hive's `eval-nodes.ts` convention (Hive upserts the roster before dispatch and reads it back by those ids), not harvey's `<slug>-<id>` |
 | `run_workflow_editor` (54419) | `agent` + `agentTools: ["meta/*"]`, `toolFilter: [str_replace_based_edit_tool]`, schema `{ workflow, version, summary, changes, missingSecrets }` |
 | `extract_artifacts.py`, JSONPath for workflowId/version | schema output; never trust the echo — `meta/get-workflow` pin fallback (`vpin.version || vactive.version`) + the `published` gate vs `vbefore` (copy from `gaia-evolve-gen`) |
 | 58414 WhileLoop ×15 + `api_fallback_fetch` | gone. `meta/publish-workflow` is synchronous; `meta/get-workflow { name, version }` returns the YAML |

@@ -4,7 +4,9 @@ name: wfbench-run
 # / 57425 / 58312). One task in, one Hive callback out:
 #
 #   roster (graph)  EvalSet → EvalRequirement×N, EvalTrigger, HAS_TRIGGER |
-#                   HAS_BASELINE_TRIGGER — 58313's ids, on graph/* steps
+#                   HAS_BASELINE_TRIGGER — on graph/* steps; EvalSet/EvalRequirement
+#                   ids are Hive's (slug verbatim, <slug>::<criterion_id>) so the
+#                   writes merge onto the roster Hive upserts before dispatch
 #   author          the meta/* authoring agent (54419's twin) builds a NEW
 #                   workflow named wfbench-<slug> from the instructions
 #   resolve         pin the version it actually shipped (never its echo)
@@ -136,7 +138,7 @@ steps:
     type: meta/get-workflow
     depends: task
     config:
-      name: "wfbench-{{ task.task_slug }}"
+      name: "wfbench-{{ task.task_key }}"
 
   - id: author
     type: agent
@@ -156,7 +158,7 @@ steps:
         {{ task.instructions }}
 
         Build a NEW vein workflow that does exactly this, and publish it under
-        the EXACT name "wfbench-{{ task.task_slug }}" (meta/publish-workflow;
+        the EXACT name "wfbench-{{ task.task_key }}" (meta/publish-workflow;
         republishing the same name creates a new version — iterate that way).
 
         INPUT CONTRACT: the harness will launch your workflow ONCE with this
@@ -214,13 +216,13 @@ steps:
     type: meta/get-workflow
     depends: author
     config:
-      name: "wfbench-{{ task.task_slug }}"
+      name: "wfbench-{{ task.task_key }}"
 
   - id: vpin
     type: meta/get-workflow
     depends: author
     config:
-      name: "wfbench-{{ task.task_slug }}"
+      name: "wfbench-{{ task.task_key }}"
       version: "{{ author.object.version }}"
 
   - id: cand
@@ -228,7 +230,7 @@ steps:
     depends: [vpin, vactive, vbefore]
     config:
       author: "{{ author }}"
-      candidate: "wfbench-{{ task.task_slug }}"
+      candidate: "wfbench-{{ task.task_key }}"
       vbefore: "{{ vbefore }}"
       vpin: "{{ vpin }}"
       vactive: "{{ vactive }}"
@@ -441,8 +443,10 @@ steps:
 
 params:
   # Graph partition every roster/record write lands in (registered on each
-  # run) unless the run's input.namespace overrides it.
-  namespace: wfbench
+  # run) unless the run's input.namespace overrides it. "default" is the
+  # jarvis/vein default partition — where Hive's own roster upsert lands, so
+  # the EvalSet/EvalRequirement writes merge onto Hive's nodes.
+  namespace: default
   authorModel: claude-sonnet-5
   # An author that reads step docs, drafts, publishes, smoke-tests and fixes
   # burns calls fast; the publish-early rule below protects the budget.
@@ -496,6 +500,9 @@ params:
     HARD CONTRACT (the harness runs it as-is):
     - publish under the EXACT workflow name you were given; the version you
       return must be a real version string from meta/publish-workflow.
+    - every `llm` or `agent` step sets `model` EXPLICITLY (e.g.
+      model: claude-sonnet-5). Never rely on the engine default: graders
+      look for a model identifier in the workflow and fail its absence.
     - the workflow's output is its LAST step's output — make that the
       task's deliverable (structured, not prose).
     - secrets: reference NAMES from meta/list-secrets only (steps read them

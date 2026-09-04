@@ -98,7 +98,8 @@ async function main() {
 
     // ── 3. normalize-task ────────────────────────────────────────────────
     let task: any = await run("wfbench/normalize-task", {
-      task_slug: "Fetch PR Titles!",
+      task_slug: " wfbench/fetch-pr-titles ",
+      task_title: "Fetch PR Titles!",
       instructions: "Given owner/repo, list the titles of open PRs.",
       criteria: JSON.stringify([
         { id: "c1", title: "Uses input keys", match_criteria: "reads owner and repo" },
@@ -108,18 +109,20 @@ async function main() {
       workflow_input_json: '{"owner":"stakwork","repo":"hive"}',
       rerun_expected_output: '{"titles":["a"]}',
     });
-    assert.equal(task.task_slug, "fetch-pr-titles");
+    assert.equal(task.task_slug, "wfbench/fetch-pr-titles"); // verbatim (trimmed) — Hive's EvalSet id
+    assert.equal(task.task_key, "wfbench-fetch-pr-titles"); // slugified — the candidate workflow name
     assert.equal(task.task_title, "Fetch PR Titles!");
     assert.deepEqual(task.criteria.map((c: any) => c.id), ["c1", "c1-2", "c3"]);
     assert.deepEqual(task.criteria[2].deliverables, ["out.json"]);
     assert.deepEqual(task.workflow_input_keys, ["owner", "repo"]);
     assert.deepEqual(task.rerun_expected_output, { titles: ["a"] });
     await assert.rejects(() => run("wfbench/normalize-task", { task_slug: "x", instructions: "y", criteria: "[]" }), /non-empty/);
+    await assert.rejects(() => run("wfbench/normalize-task", { task_slug: "   ", instructions: "y", criteria: [{ id: "a" }] }), /blank/);
     await assert.rejects(
       () => run("wfbench/normalize-task", { task_slug: "x", instructions: "y", criteria: [{ id: "a" }], workflow_input_json: "[1]" }),
       /JSON object/,
     );
-    console.log("✔ normalize-task (slug / criteria ids / JSON strings / hard fails)");
+    console.log("✔ normalize-task (verbatim slug + key / criteria ids / JSON strings / hard fails)");
 
     // ── 4. build-roster (58313 ids, ontology-declared attrs only) ────────
     const roster: any = await run(
@@ -128,29 +131,29 @@ async function main() {
       ctx,
     );
     assert.equal(roster.run_id, "run42");
-    assert.deepEqual(roster.evalset, { node_type: "EvalSet", node_data: { id: "fetch-pr-titles", name: "Fetch PR Titles!" } });
+    assert.deepEqual(roster.evalset, { node_type: "EvalSet", node_data: { id: "wfbench/fetch-pr-titles", name: "Fetch PR Titles!" } });
     assertDeclared("EvalSet", roster.evalset.node_data);
     assert.equal(roster.requirement_triplets.length, 3);
-    assert.deepEqual(roster.requirement_ids, ["fetch-pr-titles-c1", "fetch-pr-titles-c1-2", "fetch-pr-titles-c3"]);
+    assert.deepEqual(roster.requirement_ids, ["wfbench/fetch-pr-titles::c1", "wfbench/fetch-pr-titles::c1-2", "wfbench/fetch-pr-titles::c3"]);
     for (const [i, t] of roster.requirement_triplets.entries()) {
       assert.equal(t.edge_type, "HAS_REQUIREMENT");
-      assert.deepEqual(t.source_data, { id: "fetch-pr-titles" });
+      assert.deepEqual(t.source_data, { id: "wfbench/fetch-pr-titles" });
       assert.equal(t.edge_data.order, i);
       assertDeclared("EvalRequirement", t.target_data);
       assert.ok(edgeAllowed("EvalSet", "HAS_REQUIREMENT", "EvalRequirement"));
     }
     assert.equal(roster.requirement_triplets[0].target_data.description, "reads owner and repo");
-    assert.equal(roster.trigger_id, "fetch-pr-titles-run42");
+    assert.equal(roster.trigger_id, "wfbench/fetch-pr-titles-run42");
     assert.equal(roster.trigger.node_type, "EvalTrigger");
     const trig = roster.trigger.node_data;
-    assert.equal(trig.id, "fetch-pr-titles-run42");
+    assert.equal(trig.id, "wfbench/fetch-pr-titles-run42");
     assert.equal(trig.project_id, "run42");
     assert.equal(trig.workflow_id, "wfbench-run");
     assert.equal(trig.workflow_version_id, "v3");
     assert.equal(trig.workflow_input, task.instructions);
     assertDeclared("EvalTrigger", trig);
     assert.ok(edgeAllowed("EvalSet", "HAS_TRIGGER", "EvalTrigger") && edgeAllowed("EvalSet", "HAS_BASELINE_TRIGGER", "EvalTrigger"));
-    console.log("✔ build-roster (EvalSet / EvalRequirement×3 / EvalTrigger — 58313 ids, declared attrs)");
+    console.log("✔ build-roster (EvalSet / EvalRequirement×3 / EvalTrigger — Hive roster ids, declared attrs)");
 
     // ── 5. trigger-edge (guard_first_run) ────────────────────────────────
     let e: any = await run("wfbench/trigger-edge", { neighbors: [], trigger_ref_id: "t1" });
@@ -241,14 +244,14 @@ async function main() {
     assert.deepEqual([scores.n_passed, scores.n_total, scores.all_pass], [2, 3, false]);
     const chain: any = await run("wfbench/build-eval-output", { task_slug: task.task_slug, scores, trigger_ref_id: "trig-ref", judge_model: "claude-sonnet-5" }, ctx);
     assert.equal(chain.scored, true);
-    assert.equal(chain.output_id, "fetch-pr-titles-run42");
-    assert.equal(chain.trigger_id, "fetch-pr-titles-run42");
+    assert.equal(chain.output_id, "wfbench/fetch-pr-titles-run42");
+    assert.equal(chain.trigger_id, "wfbench/fetch-pr-titles-run42");
     // 1 spine + 2 per criterion
     assert.equal(chain.triplets.length, 1 + 2 * 3);
     const spine = chain.triplets[0];
     assert.deepEqual([spine.source_ref_id, spine.target_type, spine.edge_type], ["trig-ref", "EvalTriggerOutput", "HAS_OUTPUT"]);
     assert.deepEqual(spine.target_data, {
-      id: "fetch-pr-titles-run42", result: "fail", verdict: "fail", score: 2, max_score: 3, n_passed: 2, n_total: 3, judge_model: "claude-sonnet-5",
+      id: "wfbench/fetch-pr-titles-run42", result: "fail", verdict: "fail", score: 2, max_score: 3, n_passed: 2, n_total: 3, judge_model: "claude-sonnet-5",
     });
     assertDeclared("EvalTriggerOutput", spine.target_data);
     assert.ok(edgeAllowed("EvalTrigger", "HAS_OUTPUT", "EvalTriggerOutput"));
@@ -258,9 +261,9 @@ async function main() {
     assert.deepEqual([fromOutput.source_type, fromOutput.edge_type, fromOutput.target_type], ["EvalTriggerOutput", "HAS_CRITERION_RESULT", "CriterionResult"]);
     assert.deepEqual(fromOutput.source_data, spine.target_data); // identical object → batch dedupe hits
     assert.deepEqual([fromReq.source_type, fromReq.edge_type, fromReq.target_type], ["EvalRequirement", "HAS_CRITERION_RESULT", "CriterionResult"]);
-    assert.deepEqual(fromReq.source_data, { id: "fetch-pr-titles-c1" });
+    assert.deepEqual(fromReq.source_data, { id: "wfbench/fetch-pr-titles::c1" });
     assert.deepEqual(fromReq.target_data, fromOutput.target_data);
-    assert.deepEqual(fromOutput.target_data, { id: "fetch-pr-titles-run42-c1", criterion_id: "c1", title: "Uses input keys", verdict: "pass", reasoning: "ok" });
+    assert.deepEqual(fromOutput.target_data, { id: "wfbench/fetch-pr-titles-run42-c1", criterion_id: "c1", title: "Uses input keys", verdict: "pass", reasoning: "ok" });
     assertDeclared("CriterionResult", fromOutput.target_data);
     assert.ok(edgeAllowed("EvalTriggerOutput", "HAS_CRITERION_RESULT", "CriterionResult") && edgeAllowed("EvalRequirement", "HAS_CRITERION_RESULT", "CriterionResult"));
     assert.equal(chain.triplets[3].target_data.verdict, "fail");
@@ -279,9 +282,9 @@ async function main() {
     console.log("✔ build-eval-output (EvalTriggerOutput + CriterionResult×3, 58312 ids, declared attrs, slots→refs)");
 
     // ── 11. webhook-body (resolve_webhook_payload) ───────────────────────
-    const base = { task_slug: "fetch-pr-titles", task_title: "Fetch PR Titles!", judge_model: "claude-sonnet-5" };
+    const base = { task_slug: "wfbench/fetch-pr-titles", task_title: "Fetch PR Titles!", judge_model: "claude-sonnet-5" };
     let body: any = await run("wfbench/webhook-body", { ...base, keys: { keys_match: false, error_type: "input_keys_mismatch", error: "m" }, cls: { launch_ok: false } });
-    assert.deepEqual(body, { task_slug: "fetch-pr-titles", task_title: "Fetch PR Titles!", harness_error: true, error_type: "input_keys_mismatch", error: "m" });
+    assert.deepEqual(body, { task_slug: "wfbench/fetch-pr-titles", task_title: "Fetch PR Titles!", harness_error: true, error_type: "input_keys_mismatch", error: "m" });
     body = await run("wfbench/webhook-body", { ...base, keys: { keys_match: true }, cls: { launch_ok: false, error_type: "launch_refused", error: "r" } });
     assert.deepEqual([body.harness_error, body.error_type, body.n_passed], [true, "launch_refused", undefined]);
     body = await run("wfbench/webhook-body", { ...base, keys: { keys_match: true }, cls: { launch_ok: true }, mats: { n_materials: 0 } });
