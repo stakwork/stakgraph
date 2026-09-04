@@ -10,8 +10,9 @@ export interface ProviderData {
 export const PROVIDER_MODELS: Record<Provider, ProviderData> = {
   anthropic: {
     name: "anthropic",
+    // Frontier model, matched to aieo (MODELS.anthropic.sonnet = "claude-sonnet-5").
     // aieo-format ("provider/model") so it resolves through getModelDetails.
-    model: "anthropic/claude-sonnet-4-5",
+    model: "anthropic/claude-sonnet-5",
     // Computer-use / agent model stays a native Stagehand string (used only by
     // the stagehand_agent CUA path, which does not go through aieo).
     computer_use_model: "claude-sonnet-4-20250514",
@@ -19,7 +20,8 @@ export const PROVIDER_MODELS: Record<Provider, ProviderData> = {
   },
   openai: {
     name: "openai",
-    model: "openai/gpt-4o",
+    // Frontier model, matched to aieo (MODELS.openai.gpt = "gpt-5").
+    model: "openai/gpt-5",
     computer_use_model: "computer-use-preview",
     api_key_env_var_name: "OPENAI_API_KEY",
   },
