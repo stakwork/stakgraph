@@ -238,9 +238,15 @@ graceful pause-then-restart merely avoids re-spending the in-flight
 step. Three crash-specific hardenings:
 
 - **Torn tail.** A process killed mid-append can leave a truncated final
-  JSONL line (step outputs are large; single-write atomicity is not
-  guaranteed). The journal reader must skip an unparseable trailing line
-  — it belongs to an incomplete unit by definition.
+  JSONL line (step outputs are large; `appendFile` writes them in several
+  chunks). The resume endpoint HEALS the log first (`store.repairLog`:
+  truncate to the last newline) so the resumed run's first append starts
+  on a fresh line instead of being glued onto the fragment — which would
+  silently drop that event and leave a merged, unparseable line behind.
+  Independently, the readers (`getRunEvents`, `tailEvents`) skip any
+  corrupt line with a warning rather than throwing: a log that cannot be
+  read is a run that is stuck for good, and a corrupt line never belongs
+  to a completed unit.
 - **Durability policy.** `appendFile` lands in the page cache; a whole-
   SYSTEM crash (not a process kill) can lose recently "written" events.
   Option: fsync on `step.end` / run-level events only (the events worth
@@ -254,9 +260,37 @@ step. Three crash-specific hardenings:
   re-execution contract doing its job; steps whose effects must not
   double need their own idempotency (none in the current lab do).
 
-Optionally, the server can offer auto-resume of summary-less runs on
-boot (off by default — a human choosing Resume on a "stale" run is the
-right v1 ergonomics).
+### 5.3 Boot-time auto-resume
+
+IMPLEMENTED (`autoResumeStaleRuns` in `createVein.ts`; on by default for
+a file-backed store, `VEIN_AUTO_RESUME=0` or `autoResume: false` to
+disable; runs a few seconds after construction). The operational goal:
+a long serial workflow must never need to be started over because the
+server restarted.
+
+**Cut off vs. cancelled is knowable.** Cancel and error always FINALIZE
+(`run.cancelled` / `run.error` + `run.json`), so a run with a log and no
+summary died with its process. Two markers close the remaining gaps:
+`run.cancelling` is appended when cancel is REQUESTED (a run that dies
+before reaching its boundary is finalized as cancelled on boot, not
+resumed), and `run.paused` with no later `run.resumed` means a human
+parked it (left alone, resume by hand).
+
+**Roots only.** `run.start` records `parentRunId` for a nested run
+(derived from the controller tree). Boot resumes only root runs: a
+parent re-executing its launching step relaunches its children (§5.1
+at-least-once), so resuming orphaned children would only duplicate work
+that reports to nobody.
+
+**Per workflow, the newest run only**, newest-first by run id. If the
+newest root run has a summary, nothing was cut off. Guards: a log that
+already ends in a terminal event just gets its missing summary written;
+a run whose last event is older than **7 days** is skipped; a run with
+**5** or more `run.resumed` markers is skipped (a step that
+deterministically kills the server must not loop forever). Every
+decision is logged as `[auto-resume] wf/run: resumed|finalized|skipped —
+reason`, and the same DAG resolution as the endpoint applies (pinned
+version by hash; refused, never forced, when no version matches).
 
 ### 5.2 Resume after failure — retry from the failed step
 
@@ -323,10 +357,13 @@ transcript per tool call and resume mid-session — deliberately out of
 v1, it drags in provider-state questions the rungs below don't need.
 
 **Validity guards.** Resume refuses when: a live controller exists for
-the runId (it's not dead, pause it instead); the workflow's current
-content hash differs from the one recorded at `run.start` (the runner
+the runId (it's not dead, pause it instead); no stored version of the
+workflow matches the content hash recorded at `run.start` (the runner
 must record it there — replaying outputs into a DIFFERENT DAG is
-undefined; power users may override with an explicit flag); or the run
+undefined; power users may override with an explicit flag). When the
+ACTIVE version's hash differs but an older or pinned version still
+matches, resume runs against that version — a long run must not
+dead-end on "content changed" just because someone published since; or the run
 finished successfully with no `from` invalidation (§5.2 — `error` and
 `cancelled` runs ARE resumable). Registry drift (a custom step edited
 between crash and resume) is allowed but WARNED — steps re-executing

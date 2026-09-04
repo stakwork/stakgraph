@@ -147,7 +147,12 @@ export type RunEventType =
   /** Non-terminal markers so parked time is visible in the log (§4), and so a
    *  `run.resumed` after a terminal event reopens tails (§5.2). */
   | "run.paused"
-  | "run.resumed";
+  | "run.resumed"
+  /** Non-terminal marker: cancel was REQUESTED. The run finalizes as
+   *  `run.cancelled` at its next boundary — but if the process dies first,
+   *  this marker is what tells boot-time auto-resume (§5.3) that the run
+   *  was being cancelled, not cut off. */
+  | "run.cancelling";
 
 /** A single event in the run log. */
 export interface RunEvent {
@@ -169,6 +174,11 @@ export interface RunEvent {
    *  re-executes steps with the SAME knob values the original run used. */
   params?: Record<string, unknown>;
   paramOverrides?: Record<string, Record<string, unknown>>;
+  /** The launching run's id, recorded on `run.start` for a NESTED run (one
+   *  attached under a parent controller — RUN_CONTROL_SPEC §2.2). Absent
+   *  for a root run. Boot-time auto-resume (§5.3) resumes only roots: a
+   *  parent re-executing its launching step relaunches its children. */
+  parentRunId?: string;
   /** Graph nodes this step reported touching (the provenance convention,
    *  plans/generic-storage.md "v2") — lifted verbatim from the output's
    *  `_nodes` marker on `step.end`, exempt from any truncation. The graph

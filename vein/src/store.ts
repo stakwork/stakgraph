@@ -20,6 +20,20 @@ function reopensRun(event: RunEvent): boolean {
   return event.type === "run.resumed";
 }
 
+/** Parse one JSONL line, or `undefined` (with a warning) when it is not
+ *  valid JSON. A corrupt line — a torn tail from a crash mid-append, or a
+ *  line another append got glued onto — belongs to no completed unit, so
+ *  readers skip it rather than failing: a run's log must never become
+ *  unreadable, or the run is stuck (unresumable, untailable) for good. */
+function parseJsonlLine<T>(line: string, file: string): T | undefined {
+  try {
+    return JSON.parse(line) as T;
+  } catch {
+    console.warn(`[store] skipping corrupt line in ${file} (${line.length} bytes)`);
+    return undefined;
+  }
+}
+
 /**
  * Generic tail of an append-only JSONL file: yield every parsed line from the
  * start of the file (history), then follow appends (live) until `isTerminal`
@@ -91,7 +105,8 @@ export async function* tailJsonl<T>(
         leftover = leftover.slice(nl + 1);
         for (const line of complete.split("\n")) {
           if (!line) continue;
-          const event = JSON.parse(line) as T;
+          const event = parseJsonlLine<T>(line, file);
+          if (event === undefined) continue; // corrupt line — skip, keep tailing
           yield event;
           if (isTerminal(event)) {
             if (!opts.reopens) return;
@@ -158,6 +173,12 @@ export interface RunStore {
   tailEvents(workflow: string, runId: string, opts?: TailOpts): AsyncGenerator<RunEvent>;
   /** Start time (epoch ms) of the most recent run, or null if never run. */
   lastRunAt(workflow: string): Promise<number | null>;
+  /** Heal a log left torn by a crash mid-append (a truncated final line with
+   *  no newline) so the next append starts on a fresh line instead of being
+   *  glued onto the fragment. Called before a durable resume; returns true
+   *  when something was repaired. Optional — backends whose appends are
+   *  atomic (in-memory, a database row) have nothing to heal. */
+  repairLog?(workflow: string, runId: string): Promise<boolean>;
 }
 
 /**
@@ -373,29 +394,69 @@ export class FileRunStore implements RunStore {
     yield* tailJsonl<RunEvent>(file, isTerminal, { ...opts, reopens: reopensRun });
   }
 
-  /** Read events.jsonl for a specific run. Tolerates a TORN TAIL: a process
-   *  killed mid-append can leave a truncated final line (single-write
-   *  atomicity is not guaranteed for large outputs) — it belongs to an
-   *  incomplete unit by definition, so it is skipped, not fatal (§5.1). */
+  /** Truncate a torn tail (§5.1): a process killed mid-append — `appendFile`
+   *  writes large outputs in several chunks — leaves a partial final line
+   *  with no newline. Left alone, the resumed run's first append would be
+   *  glued onto it, silently losing that event and making the merged line
+   *  unparseable. Drop everything after the last newline; the fragment
+   *  belongs to an incomplete unit by definition. */
+  async repairLog(workflow: string, runId: string): Promise<boolean> {
+    const file = join(this.runDir(workflow, runId), "events.jsonl");
+    let fh;
+    try {
+      fh = await open(file, "r+");
+    } catch {
+      return false; // no log yet — nothing to heal
+    }
+    try {
+      const { size } = await fh.stat();
+      if (size === 0) return false;
+      const tail = Buffer.alloc(1);
+      await fh.read(tail, 0, 1, size - 1);
+      if (tail[0] === 0x0a) return false; // ends in "\n" — intact
+      // Walk back to the last newline (reading in blocks from the end).
+      const block = 64 * 1024;
+      let end = size;
+      let cut = 0;
+      while (end > 0) {
+        const start = Math.max(0, end - block);
+        const buf = Buffer.alloc(end - start);
+        await fh.read(buf, 0, buf.length, start);
+        const nl = buf.lastIndexOf(0x0a);
+        if (nl >= 0) {
+          cut = start + nl + 1;
+          break;
+        }
+        end = start;
+      }
+      await fh.truncate(cut);
+      console.warn(
+        `[store] repaired torn tail of ${workflow}/${runId}: dropped ${size - cut} bytes after the last complete event`,
+      );
+      return true;
+    } finally {
+      await fh.close();
+    }
+  }
+
+  /** Read events.jsonl for a specific run. Tolerates corrupt lines — a
+   *  torn tail from a crash mid-append (§5.1), or any line that failed to
+   *  parse — by skipping them with a warning: an unreadable log would leave
+   *  the run stuck (unresumable, unlistable), and a corrupt line never
+   *  belongs to a completed unit. */
   async getRunEvents(workflow: string, runId: string): Promise<RunEvent[]> {
+    const file = join(this.runDir(workflow, runId), "events.jsonl");
     let raw: string;
     try {
-      raw = await readFile(
-        join(this.runDir(workflow, runId), "events.jsonl"),
-        "utf-8",
-      );
+      raw = await readFile(file, "utf-8");
     } catch {
       return [];
     }
-    const lines = raw.trim().split("\n").filter(Boolean);
     const events: RunEvent[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      try {
-        events.push(JSON.parse(lines[i]!) as RunEvent);
-      } catch (err) {
-        if (i === lines.length - 1) continue; // torn tail — skip
-        throw err; // corruption anywhere else is a real error
-      }
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      const event = parseJsonlLine<RunEvent>(line, file);
+      if (event !== undefined) events.push(event);
     }
     return events;
   }
