@@ -7,6 +7,7 @@ import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
 import { runSingleStep, cassettePath } from "../run-step.js";
 import { generateRunId } from "../store.js";
+import { validateWorkflowYaml } from "../validate.js";
 // The shared authoring core — the same mechanism the meta/* steps' capability
 // sits on (see authoring.ts): publish checks + strict load-verification, and
 // the run-history reads. The chat tools layer their own policy on top (no
@@ -164,6 +165,21 @@ export function buildTools(deps: AiDeps) {
           return { ...rest, warning: `Published but failed to load into the registry: ${loadError}` };
         }
         return result;
+      },
+    }),
+
+    validate_workflow: tool({
+      description:
+        "Statically check workflow YAML WITHOUT publishing — call this before create_workflow / edit_workflow so a typo doesn't become a published version. Errors (would fail or hang at run time): YAML/unquoted-template problems, missing/duplicate/unreferenceable step ids, unknown step types, `depends` on unknown ids, dependency cycles, template references to unknown roots ({{ foo.x }} where foo is not a step id / input / params / a loop variable), config fields that fail the step's schema (template-valued fields are skipped — they resolve at run time), subflows naming a workflow/version that doesn't exist. Warnings: unknown config fields, `when` without an `if` gate among its depends, references to steps that aren't upstream dependencies. Returns { ok, errors: [{path, message}], warnings: [...], summary }.",
+      inputSchema: z.object({
+        yaml: z.string().describe("Full workflow YAML to check"),
+      }),
+      execute: async ({ yaml }) => {
+        const workflows = await deps.workspace.listWorkflows().catch(() => []);
+        return validateWorkflowYaml(yaml, {
+          registry: deps.registry,
+          workflows: workflows.map((w) => ({ name: w.name, versions: w.versions })),
+        });
       },
     }),
 

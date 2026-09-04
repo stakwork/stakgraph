@@ -57,7 +57,8 @@ vein/
 │   │   │                  #                   list_secrets (NAMES only), create_step, edit_step,
 │   │   │                  #                   create_workflow, run_workflow (threads ctx.services),
 │   │   │                  #                   graph_query (read-only Cypher; only when deps.graph is wired),
-│   │   │                  #                   set_active_version (rollback), cancel_run/pause_run/resume_run (when deps.controlRun is wired)
+│   │   │                  #                   set_active_version (rollback), cancel_run/pause_run/resume_run (when deps.controlRun is wired),
+│   │   │                  #                   validate_workflow (static YAML check, no publish — src/validate.ts)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
 │   ├── graph/             # jarvis-compatible Neo4j graph backend over bolt, no jarvis in the loop (plans/jarvis-graph-compat.md). Opt-in via openGraphBackend
