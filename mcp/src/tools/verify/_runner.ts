@@ -7,6 +7,7 @@ import { ToolLoopAgent, stepCountIs, tool, jsonSchema, StopCondition } from "ai"
 import { getModelDetails, getProviderOptions } from "../../aieo/src/provider.js";
 import * as stagehand from "../stagehand/tools.js";
 import * as verify from "./index.js";
+import { selectConcept, conceptHint } from "./concepts.js";
 
 const SCRATCH = process.env.SCRATCH!;
 const APP = process.env.APP_URL || "http://localhost:3000";
@@ -90,10 +91,13 @@ async function main() {
     maxOutputTokens: 64000,
   });
 
+  const concept = selectConcept(cell.prompt, cell.diff || "");
   const userPrompt =
     `Task to verify: ${cell.prompt}\n\n` +
-    `The application is running at ${APP}. The change is exercised at ${APP}${cell.path}. ` +
+    `The application is running at ${APP}. The change is exercised at ${APP}${cell.path}.\n\n` +
+    `${conceptHint(concept)}\n\n` +
     `Verify whether the task actually works, capturing evidence, then call submit_verdict.`;
+  console.error(`[spike] ${cell.id} concept=${concept.id}`);
 
   const started = Date.now();
   try {
