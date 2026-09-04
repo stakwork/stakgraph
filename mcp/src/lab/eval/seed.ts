@@ -28,7 +28,9 @@ import { SEED_OPTS } from "../seed-opts.js";
  *     — rubric-judged scoring plumbing (promoted from harvey/*): zip judge
  *     verdicts into scores_json, build the EvalSet→EvalTrigger→
  *     EvalTriggerOutput→CriterionResult batch-triplet payload, recover the
- *     persisted CriterionResult ref_ids. Used by harvey-score and wfbench.
+ *     persisted CriterionResult ref_ids. harvey-score uses all three;
+ *     wfbench uses aggregate-scores + criterion-refs (its record payload,
+ *     wfbench/build-eval-output, follows stakwork 58312's id conventions).
  */
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [

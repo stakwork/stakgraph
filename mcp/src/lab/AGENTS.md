@@ -602,6 +602,53 @@ are thin plumbing over `ctx.services.gaia.*`.
   scorer-hash mismatch / LFS pointer stubs / idempotent re-entry / half-written
   checkout) with `exec` and `fetchText` faked (`npx tsx src/lab/gaia/smoke.ts`).
 
+### `wfbench/` — Workflow Editor Agent Benchmark (stakwork 58313's twin)
+
+The benchmark harness for the workflow-AUTHORING agent, rebuilt as a vein
+workflow (design + step map: `plans/wfbench-harness.md`). One task in
+(`{ task_slug, task_title?, instructions, criteria, workflow_input_json?,
+rerun_expected_output?, webhook_url? }` — Hive's payload shape), one callback
+out. `wfbench-run`: graph roster (EvalSet → EvalRequirement×N, EvalTrigger,
+HAS_BASELINE_TRIGGER on the EvalSet's first trigger else HAS_TRIGGER — 58313's
+ids, written with vein's `graph/*` steps under `params.namespace`) ‖ the
+author (core `agent` + `agentTools: ["meta/*"]`, editor tool only — 54419's
+twin) builds `wfbench-<slug>` → resolve the version it actually shipped
+(`vpin || vactive`, `published` vs `vbefore` — the gaia-evolve-gen guard) →
+input-key gate (`wfbench/check-input-keys`: the `input.<key>` references in
+the produced YAML vs the launch payload; a mismatch or empty body is a harness
+error, never launched) → rerun via `meta/run-workflow` (57425's twin; own runId
+= 58313's project_id) → `wfbench/classify-run` (a runtime-FAILED rerun is still
+judged; no runId is a harness error) → `wfbench/build-materials` (workflow YAML
++ custom step sources + launch payload + run output + expected output, inlined
+as one markdown block) → per-criterion judge (`wfbench-judge-criterion`: agent
+schema mode, nothing to read — a crash packs `{ error }` = honest FAIL) →
+`eval/aggregate-scores` → record `EvalTrigger -HAS_OUTPUT-> EvalTriggerOutput
+-HAS_CRITERION_RESULT-> CriterionResult <-HAS_CRITERION_RESULT- EvalRequirement`
+(`wfbench/build-eval-output`, 58312's ids: `<slug>-<runId>`,
+`<slug>-<runId>-<criterion_id>`) → `wfbench/webhook-body` (58313's 4-way
+`resolve_webhook_payload`: success `{ task_slug, task_title, n_passed, n_total,
+all_pass, pass_rate, judge_model, criteria_results }` or `{ harness_error:
+true, error_type, error }` — no fake 0/N) → POST `webhook_url` → the run's
+output IS that body (+ diagnostics), fixing 58313's set_output divergence.
+
+- Graph writes use only ontology-declared attributes (vein's backend rejects
+  the rest): 58313's `EvalSet.project_id` (an int there) and the `name` on
+  EvalTrigger / EvalTriggerOutput are omitted; 58312's `CriterionResult
+  -HAS_CAUSE-> Workflow_version` is not written (no such relationship in
+  the ontology, and a vein workflow is not a Workflow_version node).
+- Grant discipline: `wfbench/*` is never an agentTool. The author gets
+  `meta/*` (+ `meta/validate-workflow`) and the editor; the judge gets
+  nothing useful; the produced workflow is necessarily publisher `ai`.
+- The author's `params.authorSystem` carries a stakwork→vein translation
+  table, so PORTING a stakwork workflow is just a task whose instructions
+  are the stakwork body (plus a real project's input/output as
+  `workflow_input_json` / `rerun_expected_output`).
+- v1 is create-new only (58313 v1 too). Needs `ANTHROPIC_API_KEY` + the
+  graph; no stakwork credentials.
+- Smoke (offline — seeds, discovers, static-validates both workflows
+  through the authoring capability, drives every pure step, and checks the
+  graph payloads against `JARVIS_ONTOLOGY`): `npx tsx src/lab/wfbench/smoke.ts`.
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See
