@@ -173,6 +173,15 @@ async function getRepoMap(cwd: string): Promise<string> {
 /** Max chars returned for a file summary before truncation. */
 const FILE_SUMMARY_MAX_CHARS = 12000;
 
+/** Max chars returned by `bash` before truncation. Matched to
+ *  FILE_VIEW_MAX_CHARS: `cat`-ing a file through bash and `view`-ing it are the
+ *  same retrieval, so they get the same budget — the agent legitimately needs
+ *  large output (a lockfile, a full test log, a big JSON response). This is a
+ *  context-budget cap, not a crash guard: the agent loop keeps every tool result
+ *  in the message history for the whole run, so it stays well under the model's
+ *  context window rather than going to a V8-string-limit-sized ceiling. */
+const BASH_MAX_CHARS = 200_000;
+
 /** Is an executable named `bin` on PATH? Unix-style — the agent's tools already
  *  assume a unix env (git/rg/bash). Used to skip a tool whose CLI isn't present
  *  (e.g. `file_summary` when `stakgraph` isn't installed). */
@@ -821,7 +830,7 @@ export default defineStep({
             // 10-minute timeout so the agent can run real installs/builds (not just
             // quick inspection). Note: a non-terminating process (a dev server)
             // still blocks until killed at this timeout.
-            return await runShell(command, cfg.cwd, 600_000, 10000, secretEnv);
+            return await runShell(command, cfg.cwd, 600_000, BASH_MAX_CHARS, secretEnv);
           } catch (e) {
             return `Command execution failed: ${e}`;
           }
