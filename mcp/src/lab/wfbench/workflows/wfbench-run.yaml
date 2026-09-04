@@ -97,11 +97,23 @@ steps:
       node_data: "{{ roster.trigger.node_data }}"
       namespace: "{{ input.namespace || params.namespace }}"
 
+  # graph/* steps return an error STRING instead of throwing (a rejected
+  # write is fail-soft), so a roster that did not land shows up as a missing
+  # ref_id. Gate the hop/edge/link chain on it: without this the neighbors
+  # hop's schema rejects the undefined ref_id and the whole run errors —
+  # after the callback already went out (observed live on swarm38).
+  - id: roster_ok
+    type: if
+    depends: trig
+    config:
+      cond: "{{ evalset.ref_id && trig.ref_id }}"
+
   # hop_check_trigger_exists + guard_first_run: prior triggers ⇒ HAS_TRIGGER,
   # none ⇒ HAS_BASELINE_TRIGGER.
   - id: hop
     type: graph/graph-neighbors
-    depends: trig
+    depends: roster_ok
+    when: true
     config:
       ref_id: "{{ evalset.ref_id }}"
       edge_type: [HAS_TRIGGER, HAS_BASELINE_TRIGGER]
@@ -352,9 +364,11 @@ steps:
       judge_model: "{{ params.judgeModel }}"
 
   # ── record (58312's twin) ─────────────────────────────────────────────
+  # Depends on the gate too, so it runs whether or not the roster landed
+  # (a skipped `link` alone would skip-propagate).
   - id: chain
     type: wfbench/build-eval-output
-    depends: [scores, link]
+    depends: [scores, link, roster_ok]
     config:
       task_slug: "{{ task.task_slug }}"
       scores: "{{ scores }}"
@@ -432,6 +446,8 @@ steps:
       n_materials: "{{ mats.n_materials }}"
       material_warnings: "{{ mats.warnings }}"
       graph:
+        roster_ok: "{{ roster_ok }}"
+        evalset: "{{ evalset }}"
         evalset_ref_id: "{{ evalset.ref_id }}"
         trigger_ref_id: "{{ trig.ref_id }}"
         trigger_id: "{{ roster.trigger_id }}"
