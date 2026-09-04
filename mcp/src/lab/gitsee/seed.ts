@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
+import { SEED_OPTS } from "../seed-opts.js";
 
 /**
  * Workflow + step templates for the `gitsee` experiment (self-contained port of
@@ -71,7 +72,7 @@ export async function seedGitseeWorkflows(workspace: WorkspaceStore): Promise<vo
   for (const name of SEED_WORKFLOWS) {
     try {
       const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
-      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, undefined, "gitsee");
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, undefined, "gitsee", undefined, SEED_OPTS);
       if (changed) console.log(`[gitsee] seeded workflow: ${name} @ ${version}`);
     } catch (err) {
       console.warn(
@@ -87,7 +88,7 @@ export async function seedGitseeSteps(workspace: WorkspaceStore): Promise<void> 
   for (const { file, type } of SEED_STEPS) {
     try {
       const code = await readFile(join(dir, file), "utf-8");
-      const { version, changed } = await workspace.publishStep(type, code, undefined, "gitsee-seed");
+      const { version, changed } = await workspace.publishStep(type, code, undefined, "gitsee-seed", SEED_OPTS);
       if (changed) console.log(`[gitsee] seeded step: ${type} @ ${version}`);
     } catch (err) {
       console.warn(

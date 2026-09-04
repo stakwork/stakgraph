@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
+import { SEED_OPTS } from "../seed-opts.js";
 
 /**
  * GAIA LAB steps + workflows — the harness that scored 5/5 on the first
@@ -79,7 +80,7 @@ export async function seedGaiaWorkflows(workspace: WorkspaceStore): Promise<void
   for (const { name, description } of SEED_WORKFLOWS) {
     try {
       const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
-      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, description, "gaia");
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, description, "gaia", undefined, SEED_OPTS);
       if (changed) console.log(`[gaia] seeded workflow: ${name} @ ${version}`);
     } catch (err) {
       console.warn(`[gaia] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);
@@ -92,7 +93,7 @@ export async function seedGaiaSteps(workspace: WorkspaceStore): Promise<void> {
   for (const { file, type } of SEED_STEPS) {
     try {
       const code = await readFile(join(dir, file), "utf-8");
-      const { version, changed } = await workspace.publishStep(type, code, undefined, "gaia-seed");
+      const { version, changed } = await workspace.publishStep(type, code, undefined, "gaia-seed", SEED_OPTS);
       if (changed) console.log(`[gaia] seeded step: ${type} @ ${version}`);
     } catch (err) {
       console.warn(

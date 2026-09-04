@@ -411,8 +411,9 @@ services bag can override it, same as `http`/`secrets`).
 - **Custom steps are versioned** (like workflows). `publishStep`
   is keyed by content hash (`src/version.ts`) but labeled with
   sequential `vN` ids: identical content re-activates the existing
-  version (no-op if already active), changed content publishes the
-  next `vN`. The active version's source is materialized at
+  version (no-op if already active; `{ reactivateKnown: false }` — what
+  seeders pass — skips the re-activation so UI/API edits survive a
+  reseed), changed content publishes the next `vN`. The active version's source is materialized at
   `steps/custom/<name>.ts` (what the registry loads); every version
   is archived under `steps/_history/<name>/<vid>.ts` for rollback.
   Endpoints: `GET /steps/:type/versions`, `GET /steps/:type/version/:version`,

@@ -526,9 +526,11 @@ are thin plumbing over `ctx.services.gaia.*`.
   produce variant) and `gaia-batch` ({ level, limit }: one
   score call for the whole batch). This is the harness that went 1/5 → 5/5
   on the level-1 batch (EVOLVE_SPEC §1), promoted from the workspace where
-  the assistant authored it. Seeding is content-hash reconciled — the
-  committed copy is authoritative at boot, so a workspace-side evolution
-  survives restarts only once it's ported back here. The from-scratch
+  the assistant authored it. Seeding is content-hash reconciled (`SEED_OPTS`,
+  `seed-opts.ts`) — a CHANGED committed copy wins at boot, an unchanged one
+  leaves a workspace-side edit active, so a workspace-side evolution
+  survives restarts but propagates to other instances only once it's ported
+  back here. The from-scratch
   authoring recipe is kept in `notes/GAIA.md` as an authoring eval; it is no
   longer the path to a working harness.
 

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
+import { SEED_OPTS } from "../seed-opts.js";
 
 /**
  * Harvey LAB verification steps — THIN plumbing only. The actual grader is
@@ -121,7 +122,7 @@ export async function seedHarveyWorkflows(workspace: WorkspaceStore): Promise<vo
   for (const name of SEED_WORKFLOWS) {
     try {
       const yaml = await expandIncludes(await readFile(join(dir, `${name}.yaml`), "utf-8"));
-      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, "harvey-seed", "harvey");
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, "harvey-seed", "harvey", undefined, SEED_OPTS);
       if (changed) console.log(`[harvey] seeded workflow: ${name} @ ${version}`);
     } catch (err) {
       console.warn(`[harvey] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);
@@ -134,7 +135,7 @@ export async function seedHarveySteps(workspace: WorkspaceStore): Promise<void> 
   for (const { file, type } of SEED_STEPS) {
     try {
       const code = await readFile(join(dir, file), "utf-8");
-      const { version, changed } = await workspace.publishStep(type, code, undefined, "harvey-seed");
+      const { version, changed } = await workspace.publishStep(type, code, undefined, "harvey-seed", SEED_OPTS);
       if (changed) console.log(`[harvey] seeded step: ${type} @ ${version}`);
     } catch (err) {
       console.warn(

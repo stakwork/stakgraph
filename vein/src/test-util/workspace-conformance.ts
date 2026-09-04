@@ -92,11 +92,64 @@ export function workspaceConformance(impl: WorkspaceImpl): void {
       assert.equal((await ws.getWorkflow("wf")).params?.["greeting"], "newer");
     });
 
+    it("reactivateKnown: false keeps a workspace edit active across a reseed", async () => {
+      await ws.publishWorkflow("wf", "v1", { steps, params: { greeting: "old" } });
+      const seed = await ws.getWorkflowSource("wf", "v1");
+      const edit = await ws.publishWorkflowByContent("wf", seed.replace("old", "new")); // UI edit → v2
+      // Reseeding the UNCHANGED template must not demote the edit …
+      const reseed = await ws.publishWorkflowByContent("wf", seed, undefined, "cat", "seed", {
+        reactivateKnown: false,
+      });
+      assert.equal(reseed.changed, false);
+      assert.equal(reseed.version, "v1");
+      const meta = await ws.getWorkflowMetadata("wf");
+      assert.equal(meta?.active, edit.version);
+      assert.equal(meta?.category, "cat", "category is still reconciled on the no-op path");
+      // … but a CHANGED template (never-seen hash) still publishes + activates.
+      const updated = await ws.publishWorkflowByContent(
+        "wf",
+        seed.replace("old", "newer"),
+        undefined,
+        undefined,
+        undefined,
+        { reactivateKnown: false },
+      );
+      assert.equal(updated.changed, true);
+      assert.equal((await ws.getWorkflowMetadata("wf"))?.active, updated.version);
+      // Default (author) behavior is unchanged: known content re-activates.
+      const back = await ws.publishWorkflowByContent("wf", seed);
+      assert.equal(back.changed, true);
+      assert.equal((await ws.getWorkflowMetadata("wf"))?.active, "v1");
+    });
+
     it("createWorkflow allocates a fresh name/version and returns it", async () => {
       const a = await ws.createWorkflow("made", { steps });
       const b = await ws.createWorkflow("made", { steps });
       assert.equal(a.name, "made");
       assert.notEqual(b.name, a.name, "a second create under the same name is renamed, not clobbered");
+    });
+
+    it("publishStep reactivateKnown: false keeps a workspace edit active across a reseed", async () => {
+      const v1 = await ws.publishStep("kept", STEP_SRC("kept", "one"), "one", "seed");
+      const edit = await ws.publishStep("kept", STEP_SRC("kept", "two"), "two"); // UI edit → v2
+      const reseed = await ws.publishStep("kept", STEP_SRC("kept", "one"), "one", "seed", {
+        reactivateKnown: false,
+      });
+      assert.equal(reseed.changed, false);
+      assert.equal(reseed.version, v1.version);
+      assert.equal((await ws.listStepVersions("kept")).active, edit.version);
+      assert.ok(
+        (await ws.getStepSource("kept"))?.code.includes("two"),
+        "the materialized (loadable) source is still the edit",
+      );
+      const updated = await ws.publishStep("kept", STEP_SRC("kept", "three"), "three", "seed", {
+        reactivateKnown: false,
+      });
+      assert.equal(updated.changed, true);
+      assert.equal((await ws.listStepVersions("kept")).active, updated.version);
+      const back = await ws.publishStep("kept", STEP_SRC("kept", "one"));
+      assert.equal(back.changed, true);
+      assert.equal((await ws.listStepVersions("kept")).active, v1.version);
     });
 
     it("step publish → list → versions → source → active switching → delete", async () => {
