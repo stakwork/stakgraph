@@ -243,6 +243,32 @@ describe("AI create_step / edit_step tools", () => {
     assert.deepEqual(versions, ["v1", "v2"]);
   });
 
+  it("set_active_version rolls a custom step back and refreshes the registry", async () => {
+    const deps = makeDeps();
+    let refreshed = 0;
+    deps.getRegistry = async () => { refreshed++; return {} as any; };
+    const tools = buildTools(deps) as any;
+    await tools.create_step.execute({ name: "my/step", code: code(1) });
+    await tools.edit_step.execute({ type: "my/step", code: code(2) });
+    const before = refreshed;
+
+    const res = await tools.set_active_version.execute({ kind: "step", name: "my/step", version: "v1" });
+    assert.deepEqual(res, { ok: true, kind: "step", name: "my/step", active: "v1" });
+    assert.equal(refreshed, before + 1);
+    const { active, versions } = await deps.workspace.listStepVersions("my/step");
+    assert.equal(active, "v1");
+    assert.deepEqual(versions, ["v1", "v2"]);
+
+    const bad = await tools.set_active_version.execute({ kind: "step", name: "my/step", version: "v7" });
+    assert.match(bad.error, /Version "v7" not found/);
+  });
+
+  it("set_active_version refuses step rollback when publishing is disabled", async () => {
+    const tools = buildTools(makeDeps({ publishingEnabled: false })) as any;
+    const res = await tools.set_active_version.execute({ kind: "step", name: "my/step", version: "v1" });
+    assert.match(res.error, /disabled/);
+  });
+
   it("create_step rejects an existing step name", async () => {
     const deps = makeDeps();
     const tools = buildTools(deps) as any;
@@ -330,6 +356,26 @@ describe("AI list_workflows / get_workflow tools", () => {
     assert.equal(res.version, "v1");
     assert.equal(res.activeVersion, "v1");
     assert.ok(res.yaml.includes("type: log"));
+  });
+
+  it("set_active_version rolls a workflow back without publishing", async () => {
+    const { ws, deps } = makeDeps();
+    await ws.createWorkflow("alpha", wfYaml("alpha"));
+    await ws.publishWorkflowByContent("alpha", wfYaml("alpha") + "  - id: more\n    type: log\n    config:\n      message: v2\n");
+    const tools = buildTools(deps) as any;
+    assert.equal((await tools.get_workflow.execute({ name: "alpha" })).activeVersion, "v2");
+
+    const res = await tools.set_active_version.execute({ kind: "workflow", name: "alpha", version: "v1" });
+    assert.deepEqual(res, { ok: true, kind: "workflow", name: "alpha", active: "v1" });
+    const after = await tools.get_workflow.execute({ name: "alpha" });
+    assert.equal(after.activeVersion, "v1");
+    assert.deepEqual(after.versions, ["v1", "v2"]); // history kept
+    assert.ok(!after.yaml.includes("message: v2"));
+
+    const bad = await tools.set_active_version.execute({ kind: "workflow", name: "alpha", version: "v9" });
+    assert.match(bad.error, /Version "v9" not found/);
+    const missing = await tools.set_active_version.execute({ kind: "workflow", name: "nope", version: "v1" });
+    assert.match(missing.error, /not found/);
   });
 
   it("get_workflow errors on unknown workflow and unknown version", async () => {
@@ -620,5 +666,36 @@ describe("run_workflow dispatch mode (auto-detach)", () => {
     const res = await tools.run_workflow.execute({ name: "nap", input: {} });
     assert.equal(res.status, "success");
     assert.deepEqual(res.output, { slept: 150 });
+  });
+});
+
+describe("run control tools", () => {
+  function baseDeps() {
+    return {
+      workspace: new WorkspaceManager("/nonexistent-run-control-test"),
+      registry: {} as any,
+      store: new MemoryRunStore(),
+      getRegistry: async () => ({} as any),
+    };
+  }
+
+  it("are absent unless the host wires controlRun", () => {
+    const tools = buildTools(baseDeps());
+    for (const t of ["cancel_run", "pause_run", "resume_run"]) assert.ok(!(t in tools), t);
+  });
+
+  it("relay (workflow, runId, action) to controlRun and return its result verbatim", async () => {
+    const calls: unknown[] = [];
+    const controlRun = async (workflow: string, runId: string, action: "cancel" | "pause" | "resume") => {
+      calls.push([workflow, runId, action]);
+      return action === "resume"
+        ? ({ ok: false, error: "Run already terminal (success)" } as const)
+        : ({ ok: true, runId, state: action === "cancel" ? "cancelling" : "pausing" } as const);
+    };
+    const tools = buildTools({ ...baseDeps(), controlRun }) as any;
+    assert.deepEqual(await tools.cancel_run.execute({ name: "wf", runId: "r1" }), { ok: true, runId: "r1", state: "cancelling" });
+    assert.deepEqual(await tools.pause_run.execute({ name: "wf", runId: "r2" }), { ok: true, runId: "r2", state: "pausing" });
+    assert.deepEqual(await tools.resume_run.execute({ name: "wf", runId: "r3" }), { ok: false, error: "Run already terminal (success)" });
+    assert.deepEqual(calls, [["wf", "r1", "cancel"], ["wf", "r2", "pause"], ["wf", "r3", "resume"]]);
   });
 });

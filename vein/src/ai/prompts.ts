@@ -68,6 +68,16 @@ export interface AiDeps {
     runId: string,
     parentRunId?: string,
   ) => { controller?: import("../run-control.js").RunController; untrack: () => void };
+  /** Control a LIVE run in this process (cancel / pause / resume), the same
+   *  path the HTTP control endpoints take. Enables the chat `cancel_run` /
+   *  `pause_run` / `resume_run` tools — so a builder that launched a run
+   *  (run_workflow auto-detaches long ones) can also stop it. Optional:
+   *  without it the tools aren't offered. */
+  controlRun?: (
+    workflow: string,
+    runId: string,
+    action: "cancel" | "pause" | "resume",
+  ) => Promise<{ ok: true; runId: string; state: string } | { ok: false; error: string }>;
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────
@@ -184,6 +194,8 @@ Tools:
 - list_workflows(): list existing workflows (name, active version, versions, description). Check this before creating a new workflow or referencing one in a subflow.
 - get_workflow("<name>", version?): read an existing workflow's full YAML + version metadata. Call before editing, referencing, or reusing a workflow you didn't just write.
 - create_workflow / edit_workflow: publish a NEW workflow, or a new VERSION of an existing one. edit_workflow is for STRUCTURAL changes (add/remove steps, rewire depends, promote a winning params default). To merely try a different prompt/threshold value, do NOT publish a version — pass params to run_workflow (those are runs, not versions). Both accept an optional category (a sidebar grouping label, e.g. an experiment name) — set it when the user asks or when the workflow clearly belongs with an existing group (list_workflows shows categories in use).
+- set_active_version(kind, "<name>", "<version>"): ROLLBACK — make a prior version of a workflow or custom step the active one (the one runs and the registry use). No new version is published; history is kept. Use this when a new version turns out worse ("go back to v2") instead of republishing old source as a fresh version.
+- cancel_run / pause_run / resume_run("<name>", "<runId>") (when offered): control a run that is LIVE in this process — e.g. a detached run_workflow you launched with the wrong input, or one you want to stop after seeing partial output in get_run. Only live runs; a finished run reports its terminal status instead. resume_run continues a run you paused.
 - set_workflow_category("<name>", category|null): set or clear a workflow's sidebar category without publishing a version. Use for "categorize/group these workflows" requests.
 - run_workflow("<name>", input?, params?, version?): run a published workflow and return its result. LONG RUNS AUTO-DETACH: if the run is still executing after the wait window (~a minute), the call returns { status: "running", detached: true, runId } and the run continues in the background. When it finishes, a "[run-notification]" user message will automatically start your next turn with the outcome (several runs finishing while you work arrive batched in one message). Do NOT poll get_run in a loop while waiting — finish your turn normally, stating what you launched and what you plan to do when the result arrives.
 - list_runs("<name>", limit?): a workflow's past runs (newest first) with status/duration — for inspecting history or comparing experiment runs.

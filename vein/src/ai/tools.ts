@@ -21,6 +21,42 @@ import {
   searchRunEvents,
 } from "../authoring.js";
 
+// ── Run control ────────────────────────────────────────────────────────────
+
+type RunControlAction = "cancel" | "pause" | "resume";
+type ControlRun = NonNullable<AiDeps["controlRun"]>;
+
+function runControlTool(controlRun: ControlRun, action: RunControlAction, description: string) {
+  return tool({
+    description,
+    inputSchema: z.object({
+      name: z.string().describe("Workflow name"),
+      runId: z.string().describe("Run id (from run_workflow's response or list_runs)"),
+    }),
+    execute: async ({ name, runId }) => controlRun(name, runId, action),
+  });
+}
+
+function runControlTools(controlRun: ControlRun) {
+  return {
+    cancel_run: runControlTool(
+      controlRun,
+      "cancel",
+      "Cancel a run that is LIVE in this process — e.g. a detached run_workflow you launched with the wrong input, or one you want to stop after seeing partial output in get_run. Cancellation is cooperative: the run stops at its next step boundary and finalizes as cancelled (a [run-notification] follows for chat-launched runs). A run that already finished reports its terminal status instead.",
+    ),
+    pause_run: runControlTool(
+      controlRun,
+      "pause",
+      "Pause a LIVE run at its next step boundary (in-flight steps finish; no new ones start) so you or the user can inspect it with get_run before deciding to resume_run or cancel_run. Only live runs can be paused.",
+    ),
+    resume_run: runControlTool(
+      controlRun,
+      "resume",
+      "Resume a run you paused with pause_run (in-memory; the run continues from where it parked). For a run cut off by a crash/restart, tell the user to use the UI's durable resume instead.",
+    ),
+  };
+}
+
 // ── Tools ──────────────────────────────────────────────────────────────────
 
 export function buildTools(deps: AiDeps) {
@@ -243,6 +279,34 @@ export function buildTools(deps: AiDeps) {
         } catch (err) {
           return { error: err instanceof Error ? err.message : String(err) };
         }
+      },
+    }),
+
+    set_active_version: tool({
+      description:
+        "ROLLBACK: make a prior version of a workflow or custom step the ACTIVE one — the version runs use (and, for steps, the one loaded in the registry). No new version is published and history is kept; later versions remain available to re-activate. Use this when a newer version turns out worse (\"go back to v2\") instead of republishing old source as yet another version. Call get_workflow / get_step first to see the versions.",
+      inputSchema: z.object({
+        kind: z.enum(["workflow", "step"]).describe("What to roll back: a published workflow or a custom step."),
+        name: z.string().describe("Workflow name, or custom step type (e.g. 'concepts/decide')."),
+        version: z.string().describe("Version label to activate, e.g. 'v2'."),
+      }),
+      execute: async ({ kind, name, version }) => {
+        try {
+          if (kind === "workflow") {
+            await deps.workspace.setActiveVersion(name, version);
+          } else {
+            if (deps.publishingEnabled === false) {
+              return { error: "Step versioning is disabled in this deployment (the registry is provided in code)." };
+            }
+            await deps.workspace.setActiveStepVersion(name, version);
+          }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+        // A step switch changes what's loaded; a workflow switch may change
+        // which custom steps are referenced. Either way, refresh.
+        deps.registry = await deps.getRegistry();
+        return { ok: true, kind, name, active: version };
       },
     }),
 
@@ -492,6 +556,11 @@ export function buildTools(deps: AiDeps) {
         return searchRunEvents(deps.store, name, pattern, { runIds, runLimit, maxMatches, ignoreCase });
       },
     }),
+
+    // Run control — only when the host wires `deps.controlRun` (the standard
+    // server does): the builder can stop/park a live run it launched, not
+    // just launch it. Same code path as the HTTP control endpoints.
+    ...(deps.controlRun ? runControlTools(deps.controlRun) : {}),
 
     // Build-time shell — only offered when the host wires `deps.shell` (the
     // standard server does; embedders/tests without it get no bash tool).
