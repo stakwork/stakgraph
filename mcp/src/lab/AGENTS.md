@@ -615,7 +615,9 @@ workflow (design + step map: `plans/wfbench-harness.md`). One task in
 rerun_expected_output?, webhook_url? }` — Hive's payload shape), one callback
 out. `wfbench-run`: graph roster (EvalSet → EvalRequirement×N, EvalTrigger,
 HAS_BASELINE_TRIGGER on the EvalSet's first trigger else HAS_TRIGGER — 58313's
-ids, written with vein's `graph/*` steps under `params.namespace`) ‖ the
+ids, written with vein's `graph/*` steps under `input.namespace ||
+params.namespace`; Hive passes the partition its own roster upsert used so
+the writes merge onto its nodes) ‖ the
 author (core `agent` + `agentTools: ["meta/*"]`, editor tool only — 54419's
 twin) builds `wfbench-<slug>` → resolve the version it actually shipped
 (`vpin || vactive`, `published` vs `vbefore` — the gaia-evolve-gen guard) →
@@ -623,9 +625,10 @@ input-key gate (`wfbench/check-input-keys`: the `input.<key>` references in
 the produced YAML vs the launch payload; a mismatch or empty body is a harness
 error, never launched) → rerun via `meta/run-workflow` (57425's twin; own runId
 = 58313's project_id) → `wfbench/classify-run` (a runtime-FAILED rerun is still
-judged; no runId is a harness error) → `wfbench/build-materials` (workflow YAML
-+ custom step sources + launch payload + run output + expected output, inlined
-as one markdown block) → per-criterion judge (`wfbench-judge-criterion`: agent
+judged; no runId is a harness error) → `meta/validate-workflow` on the produced YAML
+(judge EVIDENCE for structural criteria, never a gate) → `wfbench/build-materials`
+(workflow YAML + custom step sources + validation result + launch payload + run
+output + expected output, inlined as one markdown block) → per-criterion judge (`wfbench-judge-criterion`: agent
 schema mode, nothing to read — a crash packs `{ error }` = honest FAIL) →
 `eval/aggregate-scores` → record `EvalTrigger -HAS_OUTPUT-> EvalTriggerOutput
 -HAS_CRITERION_RESULT-> CriterionResult <-HAS_CRITERION_RESULT- EvalRequirement`

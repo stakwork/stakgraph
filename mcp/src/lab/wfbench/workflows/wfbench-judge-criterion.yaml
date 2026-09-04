@@ -38,9 +38,9 @@ steps:
         ## Task the workflow author was given
         {{ input.task_desc }}
 
-        ## Materials (the produced workflow, its custom steps, the launch
-        ## payload, the rerun's output and status, and the expected output
-        ## when the task has one)
+        ## Materials (the produced workflow, its custom steps, the engine's
+        ## static validation of it, the launch payload, the rerun's output and
+        ## status, and the expected output when the task has one)
         {{ input.materials_text }}
 
         ## Criterion

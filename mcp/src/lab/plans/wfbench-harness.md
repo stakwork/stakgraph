@@ -39,7 +39,7 @@ Not a "chat assistant as a step". Reasons:
 | `wfbench_check_input_keys.py` | pure step `wfbench/check-input-keys` (declared `input` keys of the produced YAML vs the task's `workflow_input_json`) |
 | 57425 Run Trigger + webhook wait | `meta/run-workflow { name, version, input }` — awaits, own runId, refuses non-`ai` workflows |
 | `wfbench_classify_run_result.py` | pure step `wfbench/classify-run` over `run.status` / `run.output` / `run.runId` |
-| `wfbench_build_produced_materials.py` | pure step `wfbench/build-materials` (produced YAML + agent-authored custom steps via `meta/get-step`, run output via `meta/get-run`, expected output, launch payload) |
+| `wfbench_build_produced_materials.py` | pure step `wfbench/build-materials` (produced YAML + agent-authored custom steps via `meta/get-step`, the engine's static validation via `meta/validate-workflow`, run output, expected output, launch payload) |
 | `guard_materials_present` | `if n_materials > 0`, else harness error `no_materials_produced` |
 | skill `harvey_lab_score_rubric` (all criteria, one call) | `foreach` criteria → subflow `wfbench-judge-criterion` (clone of `harvey-judge-criterion`: agent schema mode, materials in prompt / artifacts dir, NO tools) → `eval/aggregate-scores`. Judge crash = `{ error }` = honest FAIL |
 | `guard_judge_ran`, `guard_valid_score` | `if` on aggregate output, else `judge_failed` |
