@@ -1,3 +1,4 @@
+import type { SttService } from "./audio/stt.js";
 /**
  * Standard "capabilities" — the small, generic, host-owned services that
  * LLM-authored adapter STEPS build on (see AGENTS.md "step vs service").
@@ -281,6 +282,10 @@ export interface VeinCapabilities {
   /** Per-run artifact files. Present on the standard server (rooted in the
    *  workspace); optional because a bare in-code bag may not carry one. */
   artifacts?: ArtifactsCapability;
+  /** Speech-to-text (src/audio). Present on the standard server; a step can
+   *  transcribe through it without importing sherpa. Optional because a
+   *  bare in-code bag may not carry one. */
+  stt?: SttService;
 }
 
 /** The default standard services bag: global-fetch http + secrets. Secrets are

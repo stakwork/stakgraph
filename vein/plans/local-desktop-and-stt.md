@@ -14,11 +14,17 @@ Status: nothing below is built. Findings are from reading the tree as of
 
 ## 0. Decisions up front
 
-- **STT runs inside vein, not in the host app.** One implementation serves
-  every topology (desktop-local, mobile→server, server-side workflows). Native
-  clients only capture audio and send it. The Swift/Kotlin sherpa bindings are
-  reserved for a future offline-only mobile mode, and even then the client must
-  present the same API shape so callers can't tell local from remote.
+- **STT runs inside vein, not in the host app.** Vein is the process we
+  package on every platform, so the recognizer lives there and native clients
+  only capture audio and send it. The Swift/Kotlin sherpa bindings are
+  reserved for a future offline-only mobile mode.
+- **Streaming dictation is the product surface; there is no STT workflow
+  step in v1.** Workflows sit *around* the recognizer as the learning loop
+  ("dream cycles", §4.8), not in front of it. A batch `audio/transcribe`
+  step can come later if a server workflow needs one.
+- **Model family: Zipformer/NeMo transducers.** They are the only sherpa
+  models that accept hotwords (contextual biasing), which is the mechanism
+  the dream cycle drives. Whisper/Moonshine/SenseVoice are out (§4.2).
 - **Desktop ships a Node runtime + a bundled `server.cjs` + `web/dist`**, not a
   single-file executable, for the first cut. Single-file (SEA / Bun / Deno
   compile) is a later optimization once the step loader no longer scans
@@ -37,7 +43,7 @@ Status: nothing below is built. Findings are from reading the tree as of
 |---|---|---|---|
 | Desktop app | child process, `127.0.0.1:<port>` | host captures mic → local HTTP/WS | webview loads `web/dist` from the same origin |
 | Mobile app | remote server | app captures mic → HTTPS/WSS | same routes, different base URL |
-| Server workflow | server | files already on disk / artifacts | `audio/transcribe` step |
+| Server workflow (later) | server | files already on disk / artifacts | batch `audio/transcribe` step, not in v1 |
 | Offline mobile (later) | none | on-device sherpa binding | out of scope; keep API shape identical |
 
 The only client-side difference between rows 1 and 2 is the base URL and how
@@ -222,161 +228,225 @@ Idea, not decided. Needs team discussion.
 
 ## 4. Speech-to-text via sherpa-onnx
 
-### 4.1 Facts
+### 4.1 Facts (measured 2026-09-04 on an M-series Mac, Node 24, sherpa-onnx-node 1.13.7)
 
-- Apache-2.0. CPU-only on desktop (GPU is Jetson/CUDA-Linux only).
-- npm: `sherpa-onnx-node` (currently 1.13.7) with one optional platform
-  package each: `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`,
-  `win-x64`, `win-ia32`; 23–34 MB unpacked each. Native addon.
-- Both **offline** (whole-file) and **streaming** (partial results)
-  recognizers. Model families: Whisper, SenseVoice, Zipformer (streaming +
-  offline), Moonshine, Parakeet (NeMo TDT), Paraformer.
+- Apache-2.0. CPU-only on desktop. npm `sherpa-onnx-node` + one optional
+  platform package (`darwin-arm64`, `darwin-x64`, `linux-x64`,
+  `linux-arm64`, `win-x64`, `win-ia32`; 23–34 MB each). Native addon; on
+  macOS it loads with **no** `DYLD_LIBRARY_PATH` when installed normally.
+- Streaming Zipformer (kroko, 57 MB): recognizer builds in ~0.9 s; decodes
+  7 s of audio in ~100 ms (RTF ≈ 0.015). Output is cased and punctuated.
+  Its exported chunk is 128 frames = **1.28 s**, so partials arrive every
+  ~1.3 s — accurate but not "live". Chunk size is baked into the export.
+- Streaming Zipformer 20M (2023-02, 128 MB): partials every **320 ms**, but
+  uppercase, no punctuation, and noticeably worse accuracy on the same
+  clip. Not worth shipping.
+- NeMo streaming fast-conformer transducers (int8 ≈ 105 MB) measured on
+  the same clip: **480 ms** variant → partials every ~570 ms, decode
+  220 ms / 7 s; **80 ms** variant → partials every ~150–200 ms, decode
+  560 ms / 7 s (RTF 0.08). Lowercase, no punctuation, accuracy on par with
+  kroko ("stack work", "fink swarm", "vain work flow"). Load ≈ 0.4 s.
+- **sherpa's NeMo online transducer is greedy-only** ("Unsupported decoding
+  method: modified_beam_search"), so the NeMo streaming models cannot take
+  hotwords. Fast partials and biased decoding come from different model
+  families — hence the two-recognizer stream in §4.4.
+- Nemotron-speech streaming 0.6B, 80 ms variant (int8, 463 MB): the
+  accuracy ceiling — cased, punctuated, got "Sphinx" right unbiased — but
+  decode is 3.9 s / 7 s on two threads (RTF ≈ 0.55), load ≈ 0.9 s, and it
+  is the same NeMo implementation: **greedy-only, no hotwords**. An option
+  for fast desktops that want a single recognizer without biasing, not the
+  default.
 - Bundles its own `libonnxruntime`. Loading it alongside `onnxruntime-node`
-  in one process risks symbol clashes on Linux. Another reason to run MiniLM
-  on WASM (§3) and drop `onnxruntime-node` from desktop builds.
-- Models are separate downloads (tens to hundreds of MB).
+  in one process risks symbol clashes on Linux. Another reason to run
+  MiniLM on WASM (§3) and drop `onnxruntime-node` from desktop builds.
+- Models are separate `.tar.bz2` downloads. Node has no bzip2; extract by
+  spawning `tar xjf` (bsdtar on macOS/Windows 10+, GNU tar on Linux all
+  handle bz2).
+- **Tail flush:** after the last audio the stream must be fed ~2 s of
+  silence before `inputFinished()`, or the final chunk's words are lost
+  (observed: "post the re" vs "post the results to hive").
+- **A stream's sample rate must never change.** sherpa `exit(-1)`s the whole
+  process on "You changed the input sampling rate" — no exception to catch.
+  The service pads the flush at the stream's own rate and rejects a
+  mid-stream rate change before it reaches the addon.
+- **End to end over the WebSocket** (two-recognizer default, 100 ms frames
+  sent at real-time pace): partials arrive 50–100 ms behind the audio
+  position; the final lands ~300 ms after `end`; wall time ≈ audio length.
+  First connection pays ~1.3 s for recognizer construction, later ones ~3 ms.
 
-### 4.2 Dependency layout in vein
+### 4.2 Hotwords — the mechanism the dream cycle drives
 
-- Add `sherpa-onnx-node` as an **optionalDependency**. Import lazily
-  (`await import("sherpa-onnx-node")`) inside the step's `run()` and the
-  route handlers, matching the existing lazy-SDK pattern. If the import
-  fails, routes return `501 { error: "stt not available" }` and the step
-  fails with a clear message. Server installs without it still boot.
-- New module: `src/audio/stt.ts` — owns recognizer construction, model
-  resolution, and a tiny session registry for streaming. Steps and routes
-  both go through it (AGENTS.md "step vs service": this is a service).
-- Expose it as `ctx.services.stt?` on `VeinCapabilities` (optional, like
-  `artifacts`) so custom steps can transcribe without importing sherpa.
+- Transducer-only, `modified_beam_search` only (greedy ignores them).
+  Cost: decode went 80 → ~100 ms on the 7 s clip. Negligible.
+- **`modelingUnit` must be `"bpe"`.** Unset, sherpa defaults to `cjkchar`
+  and silently splits each hotword into single characters, which the model
+  never emits — hotwords then have no effect at any score. This cost an
+  hour; do not repeat it.
+- `bpe` mode needs a `bpe.vocab` (sentencepiece vocab, `piece\tscore`).
+  The released models don't ship one. **Synthesize it from `tokens.txt`**:
+  every non-special token with a constant score of `-1`; sherpa's unigram
+  encoder then picks the fewest-pieces segmentation. Verified: with this
+  vocab, hotwords `sphinx`/`Sphinx` turned "on this FHIC swarm" into
+  "on the Sphinx swarm" at score 1.5–3.
+- Score is per matched token. 1.5–3 works; 5 over-biases ("Open the
+  Stak | Graph, then …"). Per-phrase `:score` suffix is supported; the
+  dream cycle should set it per term rather than one global number.
+- Casing must match what the model would emit (kroko is cased: "Jarvis"
+  came out capitalized unprompted, unknown names came out lowercase).
+  Emit both forms for proper nouns.
+- Limits: a hotword only helps when the acoustic path is already in the
+  beam. "Stakwork" stayed "stackwork" at every score — the model hears
+  "stack work" and the boosted token path is a different spelling. That is
+  a post-correction case (§4.8 step 4), not a hotwords case.
 
 ### 4.3 Audio contract
 
-- Input to the engine is **16 kHz mono float32 PCM**. Accept:
-  - WAV files (any rate; sherpa's `readWave` handles 8/16/24-bit PCM; we
-    resample to 16 kHz if needed via sherpa's built-in resampler).
-  - Raw PCM16LE at 16 kHz for streaming frames (what native mic capture
-    produces cheaply on every platform).
-- Not accepted in v1: compressed formats (m4a/opus/mp3). Clients decode
-  natively before sending. Revisit if mobile upload sizes hurt.
+- Engine input is 16 kHz mono float32. sherpa resamples other rates itself
+  (verified with a 24 kHz WAV), so accept:
+  - WAV files (any rate, 8/16/24-bit PCM) for the batch route;
+  - raw PCM16LE frames with a declared `sampleRate` for streaming (what
+    native mic capture produces cheaply on every platform).
+- Not accepted in v1: compressed formats. Clients decode natively.
 
 ### 4.4 Surface
 
-**Step** `audio/transcribe` (`src/steps/lib/audio/transcribe.ts`):
+Everything lives in `src/audio/` and is exposed as `ctx.services.stt?`
+(optional, like `artifacts`) so future steps can transcribe without
+importing sherpa. All `sherpa-onnx-node` imports are lazy; without the
+addon the routes return `501 { error: "stt not available" }` and vein boots
+and passes every other test.
 
-```yaml
-- id: words
-  type: audio/transcribe
-  config:
-    path: "{{ steps.download.output.path }}"   # WAV on disk or an artifact ref
-    model: parakeet-tdt-0.6b-v3               # optional; default from settings
-    language: auto                            # for multilingual models
-```
+**`GET /audio/stream`** (WebSocket, `@hono/node-ws`) — live dictation:
 
-Output: `{ text, segments: [{start, end, text}], language?, model, durationMs }`.
-Segments come from the recognizer's timestamps where the model provides them
-(Whisper/Parakeet/SenseVoice do; Zipformer streaming gives word times).
+- Client: `{"type":"start","model":"<id>","sampleRate":16000,"hotwords":"<list name>"|["phrase", …],"session":"<id>"}`
+  then binary PCM16LE frames, then `{"type":"end"}`.
+- Server: `{"type":"ready"}`, `{"type":"partial","text"}` on every change,
+  `{"type":"final","text","words":[{w,start}]}` on endpoint detection and on
+  `end`, `{"type":"error","error"}`.
+- **Two recognizers per stream when `partialModel` is set**: the fast
+  greedy NeMo model produces the partials, the hotword-capable Zipformer
+  produces the finals and owns endpoint detection (both are reset on its
+  endpoint). Partials feel live (~150 ms); finals are biased, cased and
+  punctuated. Combined RTF ≈ 0.1 on M-series. With `partialModel` unset
+  one recognizer does both.
+- One recognizer per (model, hotwords hash, score, endpoint rules), cached;
+  streams are cheap.
+  Decoding is synchronous native work on the event loop, ~1–2 ms per
+  100 ms frame on M-series; move to a worker thread only if a slow target
+  shows it.
+- Auth: `Authorization: Bearer` **or** `?key=` (a webview's WebSocket
+  cannot set headers). HTTP routes below use the normal bearer middleware.
+- This route needs vein's own `listen()` (WebSocket upgrade is injected
+  into the Node server). It does not work through mcp's Express bridge,
+  which is fine: mcp is not the desktop process.
 
-**Route** `POST /audio/transcribe` — multipart or raw `audio/wav` body,
-optional `model`/`language` query. Same output as the step. Gated by
-`VEIN_API_KEY` like everything else. This is what the desktop and mobile apps
-call for push-to-talk and voice memos.
+**`POST /audio/transcribe`** — raw `audio/wav` body, `?model=`,
+`?hotwords=`. Same output as a `final`. Push-to-talk and voice memos.
 
-**Route** `GET /audio/stream` (WebSocket) — live dictation:
+**`GET /audio/models`** — catalog entries with `installed`, size, chunk
+latency, language. **`POST /audio/models/:id/download`** — SSE progress
+(bytes, then extracting, then done); sha256 verified from the catalog.
 
-- Client sends `{"type":"start","model":"zipformer-streaming-en","sampleRate":16000}`
-  then binary frames of PCM16LE, then `{"type":"end"}`.
-- Server sends `{"type":"partial","text":...}` as the streaming recognizer
-  updates and `{"type":"final","text":...,"segments":[...]}` on endpoint
-  detection or `end`.
-- One recognizer stream per socket; recognizer instances are shared per
-  model and reused (they're expensive to construct; streams are cheap).
-- Needs `@hono/node-ws`. This is vein's first client-to-server streaming
-  route; keep it isolated in `src/audio/ws.ts` so the SSE-based rest of the
-  server is untouched.
+**Sessions and hotword lists** (the dream-cycle seam, §4.8):
+- `GET /audio/sessions`, `GET /audio/sessions/:id` — finals per session as
+  JSON, written as `<dataDir>/audio/sessions/<id>.jsonl` by the stream.
+- `POST /audio/sessions/:id/corrections { index, text }` — the user's edit
+  of a final. Highest-signal training data.
+- `GET/PUT/DELETE /audio/hotwords/:name` — a named phrase list (one per
+  line, optional `:score`), stored under `<dataDir>/audio/hotwords/`. The
+  stream's `start.hotwords` names one.
 
-**Route** `GET /audio/models` — installed vs. available models, sizes, and
-download state, so clients can show status and trigger downloads.
-`POST /audio/models/:id/download` starts a download; progress via the
-existing SSE event pattern.
+### 4.5 Model catalog (`src/audio/models.ts`)
 
-### 4.5 Model management
+id → GitHub release URL, sha256, size, file layout, chunk latency, casing.
 
-- `VEIN_MODEL_DIR` (default `~/.cache/vein-models`, same dir MiniLM uses
-  today via `VEIN_MODEL_CACHE` — rename/alias so there's one setting).
-- A small **catalog** in `src/audio/models.ts`: id → download URL (GitHub
-  releases of sherpa-onnx), archive layout, recognizer type, language list,
-  streaming yes/no, approximate size. Start with four entries:
+| id | Size | Partials every | Hotwords | Notes |
+|---|---|---|---|---|
+| `zipformer-en-kroko` | 57 MB | 1.3 s | yes | cased + punctuated; finals model |
+| `nemo-fast-conformer-en-80ms` | 103 MB | ~0.15 s | no (greedy-only) | partials model |
+| `nemo-fast-conformer-en-480ms` | 106 MB | ~0.57 s | no (greedy-only) | middle ground if 80 ms costs too much CPU on a weak target |
+| `nemotron-speech-en-80ms` | 463 MB | ~0.15 s | no (greedy-only) | accuracy ceiling; RTF ≈ 0.55 on 2 threads, cased + punctuated |
 
-| id | Use | Streaming |
-|---|---|---|
-| `parakeet-tdt-0.6b-v3-int8` | English, best offline accuracy | no |
-| `moonshine-base-en-int8` | English, small and fast | no |
-| `sense-voice-multilingual-int8` | zh/en/ja/ko/yue offline | no |
-| `zipformer-streaming-en-int8` | live dictation | yes |
-
-- Default model: `parakeet-tdt-0.6b-v3-int8` for `transcribe`,
-  `zipformer-streaming-en-int8` for `stream`. Overridable by env
-  (`VEIN_STT_MODEL`, `VEIN_STT_STREAM_MODEL`) and per call.
-- Downloads happen on first use or via the route; never at boot. Server
-  images pre-bake models into `VEIN_MODEL_DIR`.
-- Verify a checksum from the catalog after download; extract with Node's
-  `zlib` + a minimal tar reader (no new dep) or `tar` package if we already
-  pull one transitively.
+Defaults: `model` = `zipformer-en-kroko`, `partialModel` =
+`nemo-fast-conformer-en-80ms`. Env `VEIN_STT_MODEL` / `VEIN_STT_PARTIAL_MODEL`
+and per-call overrides. Dropped: the 2023-02 20M Zipformer (fast but weak).
+`VEIN_MODEL_DIR` (default `~/.cache/vein-models`, alias of the existing
+`VEIN_MODEL_CACHE`) holds `stt/<id>/`. Downloads happen on first use or via
+the route, never at boot; server images pre-bake.
 
 ### 4.6 Client responsibilities (Swift / Kotlin)
 
-- Capture the microphone natively (AVAudioEngine / AudioRecord). Convert to
-  16 kHz mono PCM16LE. Do **not** try to use `getUserMedia` inside the
-  webview; permission and device handling are unreliable there.
-- Push-to-talk: buffer, wrap as WAV, `POST /audio/transcribe`.
-- Live: open `/audio/stream`, send frames every ~100 ms, render partials.
-- On desktop the base URL is `http://127.0.0.1:<port>`; on mobile it's the
-  server. Nothing else differs.
+- Capture the microphone natively (AVAudioEngine / AudioRecord), 16 kHz
+  mono PCM16LE. Do **not** use `getUserMedia` inside the webview.
+- Live: open `/audio/stream`, send ~100 ms frames, render partials, replace
+  with finals. Push-to-talk: buffer, wrap as WAV, `POST /audio/transcribe`.
+- Show the user's finals editable; send edits as corrections.
 
 ### 4.7 Testing
 
-- Unit: `stt.ts` model resolution and catalog parsing without the addon
-  (mock the import).
-- Integration (opt-in, `VEIN_TEST_STT=1`, like `VEIN_TEST_NEO`): download the
-  Moonshine model once into a temp dir, transcribe a checked-in 3-second WAV
-  fixture, assert on normalized text. Skip when the addon is missing.
-- Streaming: feed the same fixture as PCM frames over the WS route and assert
-  the final matches the offline result within edit distance.
+- Unit: catalog resolution, hotwords compile (bpe.vocab synthesis +
+  file layout), the WebSocket protocol over a fake engine. No addon needed.
+- Live (opt-in, `VEIN_TEST_STT=1`, like `VEIN_TEST_NEO4J_URI`): download
+  kroko once into a temp model dir, stream its bundled `test_wavs/0.wav`
+  as PCM frames, assert the final; then the same with a hotwords list.
+  Skipped when the addon is missing.
 
----
+### 4.8 Dream cycles — how recognition evolves with a user or company
+
+The recognizer never retrains. What evolves is the **hotwords list** (an
+environment artifact in `EVOLVE_SPEC.md` terms — layer 2: versioned,
+reviewable, changes what every later run sees) and, optionally, a
+correction glossary. Workflows produce both; nothing here is a new step type.
+
+1. **Capture.** The stream logs every final to the session file; the UI
+   sends the user's edits as corrections. Corrections say exactly which
+   words the model gets wrong.
+2. **Dream.** A scheduled workflow reads recent sessions and corrections,
+   optionally company sources via the existing `gdrive/*`, `slack/*`,
+   `github/*` steps, and an `llm` step extracts the lingo: names, product
+   terms, acronyms, each with a suggested boost and both casings. It writes
+   the list with an `http` step to `PUT /audio/hotwords/<name>`.
+3. **Apply.** The next stream that names the list gets a recognizer built
+   with it. Partials are biased directly; no latency cost.
+4. **Correct.** For misses hotwords can't fix (the "stackwork" case), a
+   glossary of `wrong → right` pairs applied to finals only, either as a
+   string replacement or a small fast LLM pass. Finals can afford 100 ms.
+5. **Measure.** Corrections per hundred words per list version. The eval
+   substrate already knows how to score a versioned artifact; a list that
+   makes things worse rolls back like a workflow version.
+
+Open: whether the glossary lives in the same file as the hotwords (one
+artifact per user/company) or beside it. Lean: same artifact, two sections.
 
 ## 5. Order of work
 
-1. **Server prerequisites** (small, ship together): `VEIN_HOST`,
-   `VEIN_WEB_DIST`, structured `ready` line, `GET /health`, `?key=` handoff in
-   the UI, `VEIN_MODEL_DIR` alias.
-2. **STT core**: `src/audio/stt.ts`, catalog, `audio/transcribe` step,
-   `POST /audio/transcribe`, `GET /audio/models`. Testable on a server with
-   no desktop work at all.
-3. **Streaming**: `@hono/node-ws`, `/audio/stream`.
-4. **Phase A packaging**: esbuild bundle, Node binary, native dir, a macOS
-   host proof-of-concept that spawns vein and shows the UI.
-5. **Kotlin host**, Windows shell override.
-6. Later: single-binary (phase B), local vector store or LadybugDB backend
-   (§3, §3.1), offline-mobile bindings.
-
-Steps 1–3 are pure vein work and are useful for the hosted product on their
-own.
-
----
+1. **STT core** (in progress on `vein-stt`): `src/audio/` service, catalog,
+   hotwords compiler, `/audio/stream` WebSocket, `POST /audio/transcribe`,
+   `/audio/models` + download, sessions + hotword lists. Testable on a
+   server with no desktop work at all.
+2. **Model bake-off**: measure the NeMo / Nemotron streaming variants for
+   partial latency and accuracy on the same clips; pick the default.
+3. **Server prerequisites for desktop**: `VEIN_HOST`, `VEIN_WEB_DIST`,
+   structured `ready` line, `?key=` handoff in the UI, `VEIN_MODEL_DIR`
+   alias (the last one lands with step 1).
+4. **First dream cycle**: a sessions → llm → `PUT /audio/hotwords` workflow
+   plus the corrections UI. Proves the loop before packaging.
+5. **Phase A packaging**: esbuild bundle, Node binary, native dir, a macOS
+   host proof-of-concept that spawns vein and streams the mic.
+6. **Kotlin host**, Windows shell override.
+7. Later: single-binary (phase B), local vector store or LadybugDB backend
+   (§3, §3.1), batch `audio/transcribe` step, offline-mobile bindings.
 
 ## 6. Open questions
 
-- WebSocket auth: header (fine for native clients) vs. `?key=` (needed if the
-  webview ever opens the socket). Lean: accept both, same as HTTP.
-- Should `audio/transcribe` also accept an artifact ref from a previous step,
-  or only a path? Lean: both; artifacts are the natural way a `gdrive`/`http`
-  step hands a file forward.
-- Whisper models in the catalog: they're popular but slow on CPU and lack
-  Parakeet's accuracy in English. Include `whisper-small-int8` only if
-  multilingual demand shows up beyond what SenseVoice covers.
+- Hotwords per user vs per company: lists are named, so both exist; the
+  open part is whether a stream can name several and how they merge.
+- Non-English dictation: kroko ships de/es/fr streaming variants and
+  Nemotron 3.5 is multilingual. Catalog entries only; nothing else changes.
 - Speaker diarization and VAD: sherpa ships silero-VAD and speaker
   embedding models. Not in v1; the streaming route's endpointing is enough.
+- Decoding on the event loop vs a worker thread: fine on M-series; decide
+  after measuring an older Intel laptop and Windows.
 - LadybugDB local graph (§3.1): do it at all, and if so, jarvis-shaped
   logical model vs. Ladybug-native schema. Team discussion pending.
 
@@ -384,8 +454,9 @@ own.
 
 ## 7. Decision rules
 
-- Transcription logic lives in `src/audio/`, exposed as a service; steps and
-  routes are thin.
+- Transcription logic lives in `src/audio/`, exposed as a service; routes
+  are thin. No STT step in v1; workflows learn around the recognizer.
+- Hotwords need `modelingUnit: "bpe"` + a synthesized `bpe.vocab`. Always.
 - Everything sherpa is lazy-imported and optional. A vein without the addon
   must boot and run every non-audio test.
 - Native addons are never embedded; ship one platform dir beside the binary.

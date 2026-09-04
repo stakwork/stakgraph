@@ -146,6 +146,24 @@ export {
   type FetchLike,
 } from "./capabilities.js";
 
+// Speech-to-text (src/audio): the service behind /audio/*, the dictation
+// WebSocket attach for hosts that mount `app` themselves, and the catalog.
+export {
+  createStt,
+  loadSherpaEngine,
+  SttUnavailableError,
+  type SttService,
+  type SttStream,
+  type SttStreamOptions,
+  type SttEvent,
+  type SttWord,
+  type TranscribeResult,
+  type SttEngine,
+} from "./audio/stt.js";
+export { attachAudioWebSocket, AUDIO_STREAM_PATH } from "./audio/ws.js";
+export { STT_MODELS, DEFAULT_MODEL as DEFAULT_STT_MODEL, type SttModel } from "./audio/models.js";
+export { parseHotwords, formatHotwords, HotwordsStore, type Hotword } from "./audio/hotwords.js";
+
 // Secret store — deployment-scoped, encrypted credential persistence behind
 // the `secrets` capability + the `/secrets` admin endpoints.
 export {
