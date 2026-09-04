@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
  * wfbench — the Workflow Editor Agent Benchmark harness (the vein port of
@@ -53,6 +53,9 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   },
 ];
 
+// Types this seeder USED to publish (seeding is additive — see retireSteps).
+const RETIRED_STEPS = ["wfbench/pack-result"]; // → vein core `pack`
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export async function seedWfbenchSteps(workspace: WorkspaceStore): Promise<void> {
@@ -66,6 +69,7 @@ export async function seedWfbenchSteps(workspace: WorkspaceStore): Promise<void>
       console.warn(`[wfbench] could not seed step "${type}":`, err instanceof Error ? err.message : err);
     }
   }
+  await retireSteps(workspace, RETIRED_STEPS, "wfbench");
 }
 
 export async function seedWfbenchWorkflows(workspace: WorkspaceStore): Promise<void> {

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "vein";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
  * GAIA LAB steps + workflows — the harness that scored 5/5 on the first
@@ -39,6 +39,9 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "summarize-batch.ts", type: "gaia/summarize-batch" },
   { file: "digest-results.ts", type: "gaia/digest-results" },
 ];
+
+// Types this seeder USED to publish (seeding is additive — see retireSteps).
+const RETIRED_STEPS = ["gaia/pack-result"]; // → vein core `pack`
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -102,4 +105,5 @@ export async function seedGaiaSteps(workspace: WorkspaceStore): Promise<void> {
       );
     }
   }
+  await retireSteps(workspace, RETIRED_STEPS, "gaia");
 }
