@@ -1,8 +1,29 @@
 import { z } from "zod";
 import pg from "pg";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
+
+const execAsync = promisify(exec);
+
+const MUTATING: Array<[RegExp, string]> = [
+  [/\bgit\b[^\n|;&]*\b(commit|push|reset|checkout|merge|rebase|add|clean|stash)\b/, "git write command"],
+  [/\brm\b/, "rm"],
+  [/\bmv\b/, "mv"],
+  [/\b(mkdir|rmdir|truncate|chmod|chown|ln)\b/, "filesystem mutation"],
+  [/\bsed\b[^\n|;&]*-i\b/, "in-place sed"],
+  [/\b(npm|yarn|pnpm|pip|pip3|cargo|apt|apt-get|brew)\b[^\n|;&]*\b(install|add|remove|uninstall|update|upgrade)\b/, "package install"],
+  [/\bkill\b|\bpkill\b/, "process kill"],
+];
+
+function commandRejection(cmd: string): string | undefined {
+  for (const [re, label] of MUTATING) {
+    if (re.test(cmd)) return `run_command rejected: ${label} is not allowed — this tool only inspects, it never mutates.`;
+  }
+  return undefined;
+}
 
 interface EvidenceRecord {
   id: string;
@@ -232,6 +253,43 @@ export async function dbQuery(sessionId: string, args: Record<string, unknown>):
 }
 
 // ---------------------------------------------------------------------------
+// run_command — run a shell command to inspect the running system / a CLI
+// ---------------------------------------------------------------------------
+
+const RunCommandSchema = z.object({
+  cmd: z.string().describe("The shell command to run. Mutating commands (git write, rm, installs, etc.) are rejected."),
+  cwd: z.string().optional().describe("Working directory to run in."),
+  timeoutMs: z.number().optional().describe("Timeout in ms (default 120000)."),
+});
+
+export const RunCommandTool: Tool = {
+  name: "verify_run_command",
+  description:
+    "Run a shell command to inspect the system or exercise a CLI (e.g. run a tool to prove a fix works). Mutating commands are rejected. Returns stdout/stderr/exit code. Captures a command evidence record and returns its id to cite in proof[].",
+  inputSchema: parseSchema(RunCommandSchema),
+};
+
+export async function runCommand(sessionId: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  const { cmd, cwd, timeoutMs } = RunCommandSchema.parse(args);
+  const rejection = commandRejection(cmd);
+  if (rejection) return text(JSON.stringify({ rejected: true, message: rejection }));
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd: cwd || undefined,
+      timeout: timeoutMs && timeoutMs > 0 ? timeoutMs : 120000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const out = `stdout:\n${(stdout || "").slice(0, 4000)}\nstderr:\n${(stderr || "").slice(0, 2000)}`;
+    const id = pushEvidence(sessionId, "command", `run: ${cmd.slice(0, 120)} -> exit 0`, out, true);
+    return text(JSON.stringify({ id, exit: 0, stdout: (stdout || "").slice(0, 4000), stderr: (stderr || "").slice(0, 2000) }));
+  } catch (err: any) {
+    const out = `exit ${err?.code ?? "?"}\nstdout:\n${(err?.stdout || "").slice(0, 4000)}\nstderr:\n${(err?.stderr || err?.message || "").slice(0, 2000)}`;
+    const id = pushEvidence(sessionId, "command", `run: ${cmd.slice(0, 120)} -> exit ${err?.code ?? "?"}`, out, true);
+    return text(JSON.stringify({ id, exit: err?.code ?? 1, stdout: (err?.stdout || "").slice(0, 4000), stderr: (err?.stderr || err?.message || "").slice(0, 2000) }));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // submit_verdict — the shared proof contract (guard + reconcile)
 // ---------------------------------------------------------------------------
 
@@ -309,4 +367,4 @@ export async function submitVerdict(sessionId: string, args: Record<string, unkn
   return text(JSON.stringify(verdict));
 }
 
-export const VERIFY_TOOLS: Tool[] = [HttpRequestTool, SampleTool, DbQueryTool, SubmitVerdictTool];
+export const VERIFY_TOOLS: Tool[] = [HttpRequestTool, SampleTool, DbQueryTool, RunCommandTool, SubmitVerdictTool];

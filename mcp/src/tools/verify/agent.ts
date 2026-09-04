@@ -56,6 +56,8 @@ function buildTools(sessionId: string) {
           result = await verify.sampleUrl(sessionId, args || {});
         } else if (name === verify.DbQueryTool.name) {
           result = await verify.dbQuery(sessionId, args || {});
+        } else if (name === verify.RunCommandTool.name) {
+          result = await verify.runCommand(sessionId, args || {});
         } else if (name === verify.SubmitVerdictTool.name) {
           result = await verify.submitVerdict(sessionId, args || {});
         } else {

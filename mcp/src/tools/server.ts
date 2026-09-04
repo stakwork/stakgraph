@@ -75,6 +75,10 @@ graphServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const sid = extra.sessionId || "default-session-id";
       return await verify.dbQuery(sid, args || {});
     }
+    case verify.RunCommandTool.name: {
+      const sid = extra.sessionId || "default-session-id";
+      return await verify.runCommand(sid, args || {});
+    }
     case verify.SubmitVerdictTool.name: {
       const sid = extra.sessionId || "default-session-id";
       return await verify.submitVerdict(sid, args || {});
