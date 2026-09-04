@@ -7,7 +7,14 @@ import { z, defineStep } from "vein";
  * before any agent budget is spent, exactly where 58313's set_var would
  * have choked.
  *
- * Output: { task_slug, task_title, instructions, criteria, n_criteria,
+ * task_slug is kept VERBATIM: it is the EvalSet id, and Hive's roster upsert
+ * + rubrics reader (eval-nodes.ts / fetchTaskRubricRoster) key the EvalSet on
+ * the exact corpus slug, e.g. "wfbench/generate-capital-city" — slugifying it
+ * would create a second roster Hive never finds. task_key is the slugified
+ * form, used only where a name must be filesystem/URL safe (the candidate
+ * workflow name).
+ *
+ * Output: { task_slug, task_key, task_title, instructions, criteria, n_criteria,
  *           workflow_input, workflow_input_keys, rerun_expected_output }
  *   criteria: [{ id, title, match_criteria, deliverables }] (rubric order kept)
  */
@@ -32,9 +39,9 @@ const parseMaybeJson = (v: unknown): unknown => {
 export default defineStep({
   type: "wfbench/normalize-task",
   description:
-    "Normalize a benchmark task (task_slug, task_title, instructions, criteria as array or JSON string, workflow_input_json as object or JSON string, rerun_expected_output) into the harness shape. Throws on empty/invalid criteria or a non-object workflow input. Output: { task_slug, task_title, instructions, criteria: [{ id, title, match_criteria, deliverables }], n_criteria, workflow_input, workflow_input_keys, rerun_expected_output }.",
+    "Normalize a benchmark task (task_slug, task_title, instructions, criteria as array or JSON string, workflow_input_json as object or JSON string, rerun_expected_output) into the harness shape. task_slug is kept verbatim (the EvalSet id Hive looks up); task_key is its slugified form for workflow names. Throws on empty/invalid criteria or a non-object workflow input. Output: { task_slug, task_key, task_title, instructions, criteria: [{ id, title, match_criteria, deliverables }], n_criteria, workflow_input, workflow_input_keys, rerun_expected_output }.",
   input: z.object({
-    task_slug: z.string().min(1).describe("Task id — slugified; becomes the EvalSet id."),
+    task_slug: z.string().min(1).describe("Task id, kept verbatim — it is the EvalSet id (Hive: the corpus slug, e.g. 'wfbench/generate-capital-city')."),
     task_title: z.string().optional().describe("Human title (defaults to the slug)."),
     instructions: z.string().min(1).describe("The one-line (or longer) English task the author builds a workflow from."),
     criteria: z.any().describe("Rubric: JSON array (or JSON string) of { id, title, match_criteria, deliverables? }."),
@@ -46,8 +53,10 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg) {
-    const task_slug = slugify(cfg.task_slug);
-    if (!task_slug) throw new Error(`wfbench/normalize-task: task_slug "${cfg.task_slug}" slugifies to nothing`);
+    const task_slug = cfg.task_slug.trim();
+    if (!task_slug) throw new Error("wfbench/normalize-task: task_slug is blank");
+    const task_key = slugify(task_slug);
+    if (!task_key) throw new Error(`wfbench/normalize-task: task_slug "${cfg.task_slug}" slugifies to nothing`);
     const task_title = (cfg.task_title ?? "").trim() || cfg.task_slug;
 
     const rawCriteria = parseMaybeJson(cfg.criteria);
@@ -76,6 +85,7 @@ export default defineStep({
 
     return {
       task_slug,
+      task_key,
       task_title,
       instructions: cfg.instructions,
       criteria,
