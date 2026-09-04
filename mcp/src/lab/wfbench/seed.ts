@@ -49,7 +49,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "wfbench-run",
     description:
-      "Workflow Editor Agent Benchmark — Task Runner (stakwork 58313's twin): graph roster (EvalSet/EvalRequirement/EvalTrigger) -> meta/* author builds wfbench-<slug> -> input-key gate -> rerun via meta/run-workflow -> per-criterion judge -> record EvalTriggerOutput/CriterionResult -> POST the Hive callback. Input: { task_slug, task_title?, instructions, criteria, workflow_input_json?, rerun_expected_output?, webhook_url? }.",
+      "Workflow Editor Agent Benchmark — Task Runner (stakwork 58313's twin): graph roster (EvalSet/EvalRequirement/EvalTrigger) -> meta/* author builds wfbench-<slug> -> input-key gate -> rerun via meta/run-workflow -> per-criterion judge -> record EvalTriggerOutput/CriterionResult -> POST the Hive callback. Input: { task_slug, task_title?, instructions, criteria, workflow_input_json?, rerun_expected_output?, webhook_url?, namespace? }.",
   },
 ];
 

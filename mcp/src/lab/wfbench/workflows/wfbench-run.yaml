@@ -22,7 +22,11 @@ name: wfbench-run
 # publisher "ai" — the seeded harness surface can never be graded.
 #
 # Input: { task_slug, task_title?, instructions, criteria, workflow_input_json?,
-#          rerun_expected_output?, webhook_url? }
+#          rerun_expected_output?, webhook_url?, namespace? }
+#   namespace: graph partition for every roster/record write (default
+#   params.namespace). Hive passes the partition its own roster upsert used,
+#   so vein's EvalSet/EvalRequirement writes MERGE onto Hive's nodes by id
+#   instead of creating a second roster.
 #   criteria: [{ id, title, match_criteria, deliverables? }] (or a JSON string)
 #   workflow_input_json: the payload the produced workflow is launched with
 # Output: the callback body + diagnostics (see the `result` step).
@@ -62,7 +66,7 @@ steps:
     type: graph/register-namespace
     depends: roster
     config:
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   - id: evalset
     type: graph/create-node
@@ -70,7 +74,7 @@ steps:
     config:
       node_type: EvalSet
       node_data: "{{ roster.evalset.node_data }}"
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   # One EvalRequirement per criterion (58114), EvalSet -HAS_REQUIREMENT-> it.
   # Inline EvalSet source merges onto the node above (same node_key).
@@ -79,7 +83,7 @@ steps:
     depends: evalset
     config:
       triplets: "{{ roster.requirement_triplets }}"
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   # After the requirements (58313's order) so every roster write is upstream
   # of the record + result steps.
@@ -89,7 +93,7 @@ steps:
     config:
       node_type: EvalTrigger
       node_data: "{{ roster.trigger.node_data }}"
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   # hop_check_trigger_exists + guard_first_run: prior triggers ⇒ HAS_TRIGGER,
   # none ⇒ HAS_BASELINE_TRIGGER.
@@ -100,7 +104,7 @@ steps:
       ref_id: "{{ evalset.ref_id }}"
       edge_type: [HAS_TRIGGER, HAS_BASELINE_TRIGGER]
       node_type: [EvalTrigger]
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   - id: edge
     type: wfbench/trigger-edge
@@ -116,7 +120,7 @@ steps:
       source_ref_id: "{{ evalset.ref_id }}"
       target_ref_id: "{{ trig.ref_id }}"
       edge_type: "{{ edge.edge_type }}"
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   # ── author (54419's twin) ─────────────────────────────────────────────
   - id: dir
@@ -229,6 +233,16 @@ steps:
       vpin: "{{ vpin }}"
       vactive: "{{ vactive }}"
 
+  # Static validation of the produced YAML (the same check the author had via
+  # meta/validate-workflow) — judge EVIDENCE for "structurally valid", not a
+  # gate: a candidate that validates poorly is still launched and judged.
+  - id: valid
+    type: meta/validate-workflow
+    depends: cand
+    config:
+      yaml: "{{ cand.yaml }}"
+      name: "{{ cand.workflow }}"
+
   # Sources of the custom steps the author says it created — judge materials.
   - id: stepsrc
     type: foreach
@@ -280,12 +294,13 @@ steps:
   # ── judge (harvey_lab_score_rubric's twin) ────────────────────────────
   - id: mats
     type: wfbench/build-materials
-    depends: [cls, stepsrc]
+    depends: [cls, stepsrc, valid]
     config:
       workflow: "{{ cand.workflow }}"
       version: "{{ cand.version }}"
       workflow_yaml: "{{ cand.yaml }}"
       custom_steps: "{{ stepsrc }}"
+      validation: "{{ valid }}"
       run_output: "{{ cls.run_output }}"
       execution_status: "{{ cls.execution_status }}"
       project_id: "{{ cls.project_id }}"
@@ -357,7 +372,7 @@ steps:
     when: true
     config:
       triplets: "{{ chain.triplets }}"
-      namespace: "{{ params.namespace }}"
+      namespace: "{{ input.namespace || params.namespace }}"
 
   - id: critrefs
     type: eval/criterion-refs
@@ -425,7 +440,8 @@ steps:
         criterion_refs: "{{ critrefs }}"
 
 params:
-  # Graph partition every roster/record write lands in (registered on each run).
+  # Graph partition every roster/record write lands in (registered on each
+  # run) unless the run's input.namespace overrides it.
   namespace: wfbench
   authorModel: claude-sonnet-5
   # An author that reads step docs, drafts, publishes, smoke-tests and fixes

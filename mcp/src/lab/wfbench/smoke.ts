@@ -71,6 +71,7 @@ async function main() {
       "meta/get-workflow",
       "meta/run-workflow",
       "meta/get-step",
+      "meta/validate-workflow",
       "agent",
     ];
     for (const t of expectedSteps) assert.ok(registry[t], `registry missing ${t}`);
@@ -210,11 +211,14 @@ async function main() {
     let mats: any = await run("wfbench/build-materials", {
       workflow: "wfbench-fetch-pr-titles", version: "v2", workflow_yaml: yaml,
       custom_steps: [{ type: "cand/x", code: "export default 1" }, { type: "cand/y", error: "not found" }],
+      validation: { ok: false, errors: [{ path: "steps[1].type", message: "unknown step type" }], warnings: [], summary: { steps: 2 } },
       run_output: { titles: ["a"] }, execution_status: "completed", project_id: "child1",
       rerun_expected_output: { titles: ["a"] }, launch_payload: { owner: "o" }, instructions: "do it",
     });
     assert.equal(mats.n_materials, 2);
-    assert.deepEqual(mats.materials.map((m: any) => m.type), ["WORKFLOW", "STEP", "LAUNCH_PAYLOAD", "RUN_OUTPUT", "EXPECTED_OUTPUT"]);
+    assert.deepEqual(mats.materials.map((m: any) => m.type), ["WORKFLOW", "STEP", "VALIDATION", "LAUNCH_PAYLOAD", "RUN_OUTPUT", "EXPECTED_OUTPUT"]);
+    assert.match(mats.materials_text, /### VALIDATION: static validation: INVALID \(1 error\(s\), 0 warning\(s\)\)/);
+    assert.match(mats.materials_text, /unknown step type/);
     assert.equal(mats.warnings.length, 1);
     assert.match(mats.materials_text, /### WORKFLOW: wfbench-fetch-pr-titles@v2\n\n```yaml/);
     assert.match(mats.materials_text, /### STEP: cand\/x/);
@@ -222,7 +226,7 @@ async function main() {
     mats = await run("wfbench/build-materials", { workflow: "w", workflow_yaml: "", instructions: "do it" });
     assert.equal(mats.n_materials, 0);
     assert.deepEqual(mats.materials.map((m: any) => m.type), ["LAUNCH_PAYLOAD", "RUN_OUTPUT"]);
-    console.log("✔ build-materials (produced vs context / warnings / none)");
+    console.log("✔ build-materials (produced vs context / validation evidence / warnings / none)");
 
     // ── 10. judge zip → build-eval-output (58312 / 58115 chain) ──────────
     const scores: any = await run("eval/aggregate-scores", {
