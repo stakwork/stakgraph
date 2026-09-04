@@ -78,6 +78,13 @@ describe("shell helpers", () => {
     await assert.rejects(() => runShell("ls /definitely/not/a/path", dir), /Command failed/);
   });
 
+  it("caps oversized stderr on failure", async () => {
+    await assert.rejects(
+      () => runShell("yes x | head -c 200000 1>&2; exit 2", dir, 10_000, 100),
+      (e: Error) => e.message.length < 400 && /truncated/.test(e.message),
+    );
+  });
+
   it("runCmd passes args without shell interpolation", async () => {
     const out = await runCmd("echo", ["$HOME && rm -rf /"], dir);
     assert.equal(out.trim(), "$HOME && rm -rf /");
