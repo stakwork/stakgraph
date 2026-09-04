@@ -31,17 +31,16 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "digest-results.ts", type: "harvey/digest-results" },
   // harvey-deliver pipeline steps (standalone production-style pipeline —
   // rubric as input; NOT part of the benchmark harness): intake, drafting
-  // plan, scoring plumbing, and the pinned read-only graph sub-agent.
+  // plan, scoring plumbing, and the pinned read-only graph sub-agent. The
+  // generic scoring steps (aggregate-scores, build-eval-chain,
+  // criterion-refs) live in eval/* now — seeded by eval/seed.ts.
   { file: "normalize-documents.ts", type: "harvey/normalize-documents" },
   { file: "graph-sub-agent.ts", type: "harvey/graph-sub-agent" },
   { file: "ingest-state.ts", type: "harvey/ingest-state" },
   { file: "drafter-plan.ts", type: "harvey/drafter-plan" },
   { file: "validate-deliverables.ts", type: "harvey/validate-deliverables" },
   { file: "filter-contested.ts", type: "harvey/filter-contested" },
-  { file: "aggregate-scores.ts", type: "harvey/aggregate-scores" },
   { file: "merge-disputes.ts", type: "harvey/merge-disputes" },
-  { file: "build-eval-chain.ts", type: "harvey/build-eval-chain" },
-  { file: "criterion-refs.ts", type: "harvey/criterion-refs" },
   // deliverable generation (pandoc / openpyxl) — grantable agent tools so the
   // production prompts' harvey_generate_docx/_xlsx calls work verbatim.
   { file: "generate-docx.ts", type: "harvey/generate-docx" },

@@ -16,15 +16,17 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { WorkspaceManager, buildRegistry, type StepContext } from "vein";
 import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
+import { seedEvalSteps } from "../eval/seed.js";
 
 async function main() {
   const dir = mkdtempSync(join(process.cwd(), ".harvey-deliver-smoke-"));
   try {
     // ── 1. seed + discover ───────────────────────────────────────────────
     const workspace = new WorkspaceManager(dir);
+    await seedEvalSteps(workspace);
     await seedHarveySteps(workspace);
     await seedHarveyWorkflows(workspace);
-    const { registry } = await buildRegistry(workspace.path);
+    const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
 
     const expectedSteps = [
       "harvey/normalize-documents",
@@ -33,10 +35,10 @@ async function main() {
       "harvey/drafter-plan",
       "harvey/validate-deliverables",
       "harvey/filter-contested",
-      "harvey/aggregate-scores",
+      "eval/aggregate-scores",
       "harvey/merge-disputes",
-      "harvey/build-eval-chain",
-      "harvey/criterion-refs",
+      "eval/build-eval-chain",
+      "eval/criterion-refs",
       "harvey/generate-docx",
       "harvey/generate-xlsx",
       // graph/* are vein LIB steps — discovered from the engine, not seeded.
@@ -176,7 +178,7 @@ async function main() {
     console.log("✔ filter-contested (drop + fail-open)");
 
     // ── 7. aggregate-scores (zip; null = honest fail) ────────────────────
-    out = await run("harvey/aggregate-scores", {
+    out = await run("eval/aggregate-scores", {
       rubric,
       results: [
         { object: { verdict: "pass", reasoning: "ok" }, cost: 0.1 },
@@ -196,7 +198,7 @@ async function main() {
     assert.equal(out.failed[0].match_criteria, "...");
     assert.equal(out.judgeCost, 0.1);
     await assert.rejects(
-      () => run("harvey/aggregate-scores", { rubric, results: [null] }),
+      () => run("eval/aggregate-scores", { rubric, results: [null] }),
       /refusing to zip/,
     );
     console.log("✔ aggregate-scores (zip / honest fail / length guard)");
@@ -245,7 +247,7 @@ async function main() {
     console.log("✔ merge-disputes (left-join + refs + fail-soft + contested)");
 
     // ── 8b. criterion-refs (slot × batch-result zip, fail-soft) ──────────
-    let refs: any = await run("harvey/criterion-refs", {
+    let refs: any = await run("eval/criterion-refs", {
       slots: [
         { criterion_id: "c1", index: 2 },
         { criterion_id: "c2", index: 4 },
@@ -261,17 +263,18 @@ async function main() {
       },
     });
     assert.deepEqual(refs, [{ criterion_id: "c1", ref_id: "cr1" }]); // errored slot dropped
-    refs = await run("harvey/criterion-refs", { slots: "garbage", record: { error: "record failed" } });
+    refs = await run("eval/criterion-refs", { slots: "garbage", record: { error: "record failed" } });
     assert.deepEqual(refs, []);
     console.log("✔ criterion-refs (zip + fail-soft)");
 
     // ── 9. build-eval-chain (ontology shape) ─────────────────────────────
     const ctx = { runId: "run42" } as StepContext;
     const chain: any = await run(
-      "harvey/build-eval-chain",
+      "eval/build-eval-chain",
       {
         evalsetId: "slug",
         task: "a/b",
+        workflow: "harvey-deliver",
         scores: out,
         criteria_results: [
           { id: "c1", criterion_id: "c1", title: "A", verdict: "pass", reasoning: "ok" },

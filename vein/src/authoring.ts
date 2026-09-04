@@ -10,6 +10,7 @@ import type { CassetteMode } from "./cassette.js";
 import type { SecretInfo } from "./secret-store.js";
 import { lsSteps, searchSteps, readStepSource } from "./ai/stepHelpers.js";
 import { zodToFields } from "./ai/schemaHelpers.js";
+import { validateWorkflowYaml, type ValidationResult } from "./validate.js";
 
 /**
  * The AUTHORING core — the workspace's author/test/inspect operations, shared
@@ -354,6 +355,9 @@ export interface AuthoringCapability {
   runStep(type: string, args?: RunStepArgs): Promise<RunStepResult | { error: string }>;
   listWorkflows(): Promise<unknown>;
   getWorkflow(name: string, version?: string): Promise<unknown>;
+  /** Static check of workflow YAML WITHOUT publishing — the chat builder's
+   *  `validate_workflow`, for in-run authors (`meta/validate-workflow`). */
+  validateWorkflow(yaml: string, name?: string): Promise<ValidationResult>;
   publishWorkflow(
     name: string,
     yaml: string,
@@ -521,6 +525,15 @@ export function buildAuthoringCapability(deps: AuthoringDeps): AuthoringCapabili
         publisher: entry.publisher,
         yaml,
       };
+    },
+
+    async validateWorkflow(yaml, name) {
+      const workflows = await workspace.listWorkflows().catch(() => []);
+      return validateWorkflowYaml(yaml, {
+        registry: await deps.getRegistry(),
+        workflows: workflows.map((w) => ({ name: w.name, versions: w.versions })),
+        name,
+      });
     },
 
     async publishWorkflow(name, yaml, description, category) {

@@ -1,7 +1,7 @@
 import { z, defineStep } from "vein";
 
 /**
- * Zip harvey/build-eval-chain's criterion slots with graph/create-batch-
+ * Zip eval/build-eval-chain's criterion slots with graph/create-batch-
  * triplet's per-triplet results to recover each persisted CriterionResult
  * node's ref_id: slots name the triplet-array INDEX of each criterion's
  * HAS_CRITERION_RESULT write, and the batch step returns results in input
@@ -14,13 +14,13 @@ import { z, defineStep } from "vein";
  * then simply run without graph anchoring, never blocking scoring.
  */
 export default defineStep({
-  type: "harvey/criterion-refs",
+  type: "eval/criterion-refs",
   description:
     "Recover persisted CriterionResult ref_ids: zip build-eval-chain's criterionSlots with " +
     "create-batch-triplet's results. Fail-soft ([] on any shape surprise). Output: " +
     "[{ criterion_id, ref_id }].",
   input: z.object({
-    slots: z.any().optional().describe("harvey/build-eval-chain's criterionSlots: [{ criterion_id, index }]."),
+    slots: z.any().optional().describe("eval/build-eval-chain's criterionSlots: [{ criterion_id, index }]."),
     record: z.any().optional().describe("graph/create-batch-triplet's output ({ results: [...] })."),
   }),
   output: z.any(),

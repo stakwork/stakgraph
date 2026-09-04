@@ -458,12 +458,13 @@ completed ingestions, and skip re-merging requirements.
   all-pass ⇒ `EvalSet.recursion=false`), and `harvey-judge-criterion` /
   `harvey-dispute-criterion` (per-criterion agent-in-schema-mode subflows —
   they exist because foreach bodies get no onError; a judge crash scores as
-  an honest FAIL via `harvey/aggregate-scores`' zip, never a pass).
+  an honest FAIL via `eval/aggregate-scores`' zip, never a pass).
 - Steps: `harvey/normalize-documents`, `harvey/ingest-state`,
   `harvey/drafter-plan`, `harvey/validate-deliverables`,
-  `harvey/filter-contested`, `harvey/aggregate-scores`,
-  `harvey/merge-disputes`, `harvey/build-eval-chain`,
-  `harvey/criterion-refs` (pure/plumbing), `harvey/generate-docx` +
+  `harvey/filter-contested`, `harvey/merge-disputes` (pure/plumbing;
+  the generic scoring trio `eval/aggregate-scores`, `eval/build-eval-chain`,
+  `eval/criterion-refs` is shared with other rubric harnesses — see
+  `eval/`), `harvey/generate-docx` +
   `harvey/generate-xlsx` (pandoc / openpyxl deliverable generators,
   granted as agent tools so the production prompts' generate calls work),
   `harvey/graph-sub-agent` — the PINNED read-only graph research sub-agent
@@ -654,6 +655,14 @@ Domain-agnostic eval substrate, shared by every experiment. See
   tasks (byte-identical wrong answer ×≥3 = bias — immune to redundancy and
   prompt nudges; distinct wrong answers = variance). Verdict channel only —
   gold never enters. Smoke: `npx tsx src/lab/eval/matrix-smoke.ts`.
+- `eval/aggregate-scores`, `eval/build-eval-chain`, `eval/criterion-refs` —
+  rubric-judged SCORING plumbing (promoted from `harvey/*`, exercised by
+  `harvey/deliver-smoke.ts`): zip a rubric with per-criterion judge verdicts
+  (same order; null/error = honest FAIL; length mismatch refuses) into
+  scores_json; build the idempotent EvalSet→EvalTrigger→EvalTriggerOutput→
+  CriterionResult(+EvalRequirement) batch-triplet payload for
+  `graph/create-batch-triplet` (`workflow` names the scored workflow);
+  recover the persisted CriterionResult ref_ids from the batch results.
 
 **Naming rule:** `eval/*` = generic. The eval *workflows* that wire these with
 a rubric/task/dataset belong to the experiment and are named `<experiment>-…`.

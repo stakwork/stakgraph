@@ -254,6 +254,7 @@ in-workflow author on iteration one:
 | `meta/create-step`, `meta/edit-step` | `workspace.publishStep` | `create_step` refuses existing names — without edit, every iteration pollutes the registry (`my-fetcher-2`, `-3`, …) |
 | `meta/run-step` | `runSingleStep` + cassettes | the inner loop: test ONE step, offline via record/replay, without paying for a full candidate run |
 | `meta/list-workflows`, `meta/get-workflow` | workflow discovery | read current source before editing |
+| `meta/validate-workflow` | `validateWorkflowYaml` (the chat's `validate_workflow`) | static check before publishing — a typo never becomes a version |
 | `meta/publish-workflow` | create/edit as an explicit upsert | the candidate artifact |
 | `meta/run-workflow` | `runWorkflow` | test the candidate end to end |
 | `meta/list-runs`, `meta/get-run` | run-store reads | debug a failed candidate — **provenance-scoped, see §6** |

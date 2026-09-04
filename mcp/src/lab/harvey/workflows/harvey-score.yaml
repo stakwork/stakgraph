@@ -86,7 +86,7 @@ steps:
             taskDescription: "{{ input.task_description }}"
 
   - id: scores
-    type: harvey/aggregate-scores
+    type: eval/aggregate-scores
     depends: judged
     config:
       rubric: "{{ scorable.rubric }}"
@@ -95,7 +95,7 @@ steps:
       dropped: "{{ scorable.dropped }}"
 
   - id: chain
-    type: harvey/build-eval-chain
+    type: eval/build-eval-chain
     depends: scores
     config:
       evalsetId: "{{ input.evalset_id }}"
@@ -121,7 +121,7 @@ steps:
   # record write failed) — the dispute agents anchor Cause triplets to them
   # and the annotation write-back targets them.
   - id: critrefs
-    type: harvey/criterion-refs
+    type: eval/criterion-refs
     depends: record
     config:
       slots: "{{ chain.criterionSlots }}"

@@ -2,8 +2,9 @@ import { z, defineStep } from "vein";
 
 /**
  * Fold the per-criterion judge verdicts into the run's scores object (the
- * format_results / scores_json equivalent, shaped like the harvey-labs
- * harness: score = number of passes, all-pass gating).
+ * format_results / scores_json equivalent, shaped like the harvey-labs /
+ * stakwork rubric harnesses: score = number of passes, all-pass gating).
+ * Domain-agnostic: any rubric-judged eval (harvey-score, wfbench) uses it.
  *
  * `results` is the judge foreach's output array, IN THE SAME ORDER as
  * `rubric` (vein's foreach preserves input order), so criterion identity
@@ -13,7 +14,7 @@ import { z, defineStep } from "vein";
  * counts as an honest FAIL with the error recorded, never as a pass.
  */
 export default defineStep({
-  type: "harvey/aggregate-scores",
+  type: "eval/aggregate-scores",
   description:
     "Zip rubric criteria with their judge verdicts (same order) into scores_json: { score, max_score, " +
     "n_passed, n_total, pass_rate, all_pass, judge_model, criteria_results, failed, judgeCost }. " +
@@ -30,7 +31,7 @@ export default defineStep({
       // A length mismatch means the zip is unsafe — misattributed verdicts
       // are worse than a loud failure.
       throw new Error(
-        `harvey/aggregate-scores: ${cfg.results.length} results for ${cfg.rubric.length} criteria — refusing to zip`,
+        `eval/aggregate-scores: ${cfg.results.length} results for ${cfg.rubric.length} criteria — refusing to zip`,
       );
     }
     const criteria_results = cfg.rubric.map((c, i) => {
