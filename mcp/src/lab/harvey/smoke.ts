@@ -181,7 +181,7 @@ async function main() {
     const wsDir = join(base, "ws");
     const workspace = new WorkspaceManager(wsDir);
     await seedHarveySteps(workspace);
-    const { registry } = await buildRegistry(workspace.path);
+    const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     assert.ok(registry["harvey/get-task"] && registry["harvey/evaluate"]);
 
     const ctx = {

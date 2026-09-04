@@ -79,7 +79,7 @@ async function main() {
   try {
     const workspace = new WorkspaceManager(dir);
     await seedSheetsSteps(workspace);
-    const { registry } = await buildRegistry(workspace.path);
+    const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     const expected = [
       "sheets/create-spreadsheet", "sheets/update-values", "sheets/batch-update-values",
       "sheets/get-values", "sheets/add-sheet", "sheets/import-spreadsheet",

@@ -57,7 +57,7 @@ async function main() {
   try {
     const workspace = new WorkspaceManager(dir);
     await seedJarvisSteps(workspace);
-    const { registry } = await buildRegistry(workspace.path);
+    const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     const expected = [
       "jarvis/get-ontology", "jarvis/get-ontology-type", "jarvis/graph-search",
       "jarvis/graph-get", "jarvis/graph-get-batched", "jarvis/graph-neighbors",
