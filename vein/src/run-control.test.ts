@@ -837,6 +837,22 @@ describe("durable resume", () => {
 
 // ── Crash hardening: torn tail + tail reopening ────────────────────────────
 
+describe("tree linkage on disk", () => {
+  it("run.start records parentRunId for a nested run, nothing for a root", async () => {
+    const store = new MemoryRunStore();
+    const wf = flow("leaf", { input: z.any(), steps: [step("a", "value", { result: 1 })] });
+    const registry = { value: valueStep } as StepRegistry;
+    const parent = new RunController("parent-run", "parent-wf");
+    const child = new RunController("child-run", "leaf", parent);
+    await runWorkflow(wf, {}, registry, { runId: "child-run", store, controller: child });
+    await runWorkflow(wf, {}, registry, { runId: "root-run", store, controller: parent });
+    const childStart = (await store.getRunEvents("leaf", "child-run")).find((e) => e.type === "run.start")!;
+    const rootStart = (await store.getRunEvents("leaf", "root-run")).find((e) => e.type === "run.start")!;
+    assert.equal(childStart.parentRunId, "parent-run");
+    assert.equal(rootStart.parentRunId, undefined);
+  });
+});
+
 describe("crash hardening", () => {
   it("getRunEvents skips an unparseable trailing line (torn tail)", async () => {
     const dir = join(tmpdir(), `vein-test-${randomUUID()}`);
@@ -978,6 +994,7 @@ describe("run control endpoints", () => {
       registry,
       serveUi: false,
       enableChat: false,
+      autoResume: false, // exercised explicitly via vein.autoResumeStaleRuns()
     });
     const store = vein.store as FileRunStore;
     const cleanup = () => rm(dir, { recursive: true, force: true });
@@ -1278,6 +1295,242 @@ describe("run control endpoints", () => {
     } finally {
       await cleanup();
     }
+  });
+
+  it("POST cancel appends a run.cancelling marker before the run finalizes", async () => {
+    const gate = createGateStep();
+    const { vein, workspace, store, cleanup } = await makeServer({ gate: gate.stepDef });
+    try {
+      await workspace.publishWorkflowByContent(
+        "markme",
+        [
+          "name: markme",
+          "steps:",
+          "  - id: a",
+          "    type: gate",
+          "    config: { name: a }",
+          "  - id: b",
+          "    type: gate",
+          "    config: { name: b }",
+        ].join("\n"),
+      );
+      const launch = await vein.app.request("/workflows/markme/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: {} }),
+      });
+      const { runId } = (await launch.json()) as { runId: string };
+      await gate.waitForStart("a");
+      const res = await vein.app.request(`/workflows/markme/runs/${runId}/cancel`, { method: "POST" });
+      assert.equal(res.status, 202);
+      const types = (await store.getRunEvents("markme", runId)).map((e) => e.type);
+      assert.ok(types.includes("run.cancelling"));
+      assert.ok(!types.includes("run.cancelled")); // still parked in the gate
+      gate.release("a");
+      const summary = await waitForSummary(store, "markme", runId);
+      assert.equal(summary.status, "cancelled");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  describe("boot-time auto-resume", () => {
+    const WF = ["name: boot", "steps:", "  - id: one", "    type: counter", "  - id: two", "    type: flakey"].join("\n");
+
+    /** Fabricate the log a crash leaves behind: run.start (+hash), step one
+     *  done, step two started, no run.json. */
+    async function writeCutOffLog(
+      workspace: WorkspaceManager,
+      store: FileRunStore,
+      runId: string,
+      extra: { ts?: string; parentRunId?: string; markers?: RunEvent["type"][]; terminal?: RunEvent["type"] } = {},
+    ) {
+      const ts = extra.ts ?? new Date().toISOString();
+      const ev = (type: RunEvent["type"], path: string, more: Partial<RunEvent> = {}) =>
+        ({ ts, runId, path, type, ...more }) as RunEvent;
+      const workflowHash = (await workspace.getWorkflowHash("boot")) ?? undefined;
+      await store.append("boot", runId, ev("run.start", "boot", { input: {}, workflowHash, ...(extra.parentRunId ? { parentRunId: extra.parentRunId } : {}) }));
+      await store.append("boot", runId, ev("step.end", "boot/one", { stepType: "counter", output: 1 }));
+      for (const m of extra.markers ?? []) await store.append("boot", runId, ev(m, "boot"));
+      await store.append("boot", runId, ev("step.start", "boot/two", { stepType: "flakey" }));
+      if (extra.terminal) await store.append("boot", runId, ev(extra.terminal, "boot", { output: { done: true } }));
+    }
+
+    async function bootServer() {
+      const counter = createCounterStep();
+      const flakey = createFlakeyStep(0);
+      const made = await makeServer({ counter: counter.stepDef, flakey: flakey.stepDef });
+      await made.workspace.publishWorkflowByContent("boot", WF);
+      return { ...made, counter, flakey };
+    }
+
+    it("resumes the newest cut-off root run: replays `one`, re-runs `two`, finalizes", async () => {
+      const { vein, workspace, store, counter, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000");
+        const report = await vein.autoResumeStaleRuns();
+        assert.deepEqual(report.map((r) => [r.runId, r.action]), [["1000", "resumed"]]);
+        const summary = await waitForSummary(store, "boot", "1000");
+        assert.equal(summary.status, "success");
+        assert.equal(counter.calls(), 0); // replayed
+        assert.equal(flakey.attempts(), 1); // re-executed
+        const types = (await store.getRunEvents("boot", "1000")).map((e) => e.type);
+        assert.ok(types.includes("run.resumed"));
+        // Idempotent: a second scan finds the summary and does nothing.
+        assert.deepEqual(await vein.autoResumeStaleRuns(), []);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("only the newest run counts: an older cut-off run behind a finished one is left alone", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000");
+        // A newer, completed run.
+        const launch = await vein.app.request("/workflows/boot/run", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ input: {} }),
+        });
+        const { runId } = (await launch.json()) as { runId: string };
+        await waitForSummary(store, "boot", runId);
+        const before = flakey.attempts();
+        assert.deepEqual(await vein.autoResumeStaleRuns(), []);
+        assert.equal(flakey.attempts(), before);
+        assert.equal(await store.getRunSummary("boot", "1000"), null);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("skips nested runs (parentRunId) — the parent relaunches them", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "2000", { parentRunId: "some-parent" });
+        await writeCutOffLog(workspace, store, "1000"); // older ROOT run — still resumed
+        const report = await vein.autoResumeStaleRuns();
+        assert.deepEqual(report.map((r) => [r.runId, r.action]), [["1000", "resumed"]]);
+        await waitForSummary(store, "boot", "1000");
+        assert.equal(flakey.attempts(), 1);
+        assert.equal(await store.getRunSummary("boot", "2000"), null);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("finalizes a run that was cancelling when the process died, instead of resuming it", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000", { markers: ["run.cancelling"] });
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "finalized");
+        const summary = await store.getRunSummary("boot", "1000");
+        assert.equal(summary?.status, "cancelled");
+        assert.equal(flakey.attempts(), 0);
+        const types = (await store.getRunEvents("boot", "1000")).map((e) => e.type);
+        assert.equal(types[types.length - 1], "run.cancelled");
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("leaves a paused run parked", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000", { markers: ["run.paused"] });
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "skipped");
+        assert.match(report[0]!.reason, /paused/);
+        assert.equal(flakey.attempts(), 0);
+        assert.equal(await store.getRunSummary("boot", "1000"), null);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("a pause that was later resumed does not count as parked", async () => {
+      const { vein, workspace, store, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000", { markers: ["run.paused", "run.resumed"] });
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "resumed");
+        await waitForSummary(store, "boot", "1000");
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("writes the missing summary when the log already ended in run.end", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000", { terminal: "run.end" });
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "finalized");
+        const summary = await store.getRunSummary("boot", "1000");
+        assert.equal(summary?.status, "success");
+        assert.deepEqual(summary?.output, { done: true });
+        assert.equal(flakey.attempts(), 0);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("skips a run older than the age cap", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        const eightDaysAgo = new Date(Date.now() - 8 * 24 * 3_600_000).toISOString();
+        await writeCutOffLog(workspace, store, "1000", { ts: eightDaysAgo });
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "skipped");
+        assert.match(report[0]!.reason, /age cap/);
+        assert.equal(flakey.attempts(), 0);
+        // A wider cap resumes it.
+        const again = await vein.autoResumeStaleRuns({ maxAgeMs: 30 * 24 * 3_600_000 });
+        assert.equal(again[0]!.action, "resumed");
+        await waitForSummary(store, "boot", "1000");
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("gives up after maxResumes prior resumes (crash-loop guard)", async () => {
+      const { vein, workspace, store, flakey, cleanup } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000", {
+          markers: ["run.resumed", "run.resumed", "run.resumed", "run.resumed", "run.resumed"],
+        });
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "skipped");
+        assert.match(report[0]!.reason, /resumed 5 times/);
+        assert.equal(flakey.attempts(), 0);
+        // Four prior resumes is still under the cap.
+        await writeCutOffLog(workspace, store, "3000", {
+          markers: ["run.resumed", "run.resumed", "run.resumed", "run.resumed"],
+        });
+        const again = await vein.autoResumeStaleRuns();
+        assert.deepEqual(again.map((r) => [r.runId, r.action]), [["3000", "resumed"]]);
+        await waitForSummary(store, "boot", "3000");
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("refuses (never forces) when no stored version matches the recorded hash", async () => {
+      const { vein, workspace, store, flakey, cleanup, dir } = await bootServer();
+      try {
+        await writeCutOffLog(workspace, store, "1000");
+        const file = join(dir, "workflows", "boot", "runs", "1000", "events.jsonl");
+        const raw = await readFile(file, "utf-8");
+        await writeFile(file, raw.replace(/"workflowHash":"[^"]+"/, '"workflowHash":"deadbeef"'), "utf-8");
+        const report = await vein.autoResumeStaleRuns();
+        assert.equal(report[0]!.action, "skipped");
+        assert.match(report[0]!.reason, /no stored version matches/);
+        assert.equal(flakey.attempts(), 0);
+      } finally {
+        await cleanup();
+      }
+    });
   });
 
   it("POST resume with `from` re-runs a completed run from a chosen step", async () => {

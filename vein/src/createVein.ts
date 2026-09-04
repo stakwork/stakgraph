@@ -124,12 +124,37 @@ export interface VeinOptions<TServices = unknown> {
    *  `VEIN_CHAT_MAX_AUTO_TURNS` or 10. */
   chatMaxAutoTurns?: number;
 
+  /** Boot-time auto-resume of runs cut off by a crash/restart
+   *  (RUN_CONTROL_SPEC §5.3). Defaults to ON for a file-backed store unless
+   *  `VEIN_AUTO_RESUME=0`; pass `false` to disable, or an object to tune
+   *  the guards. Only the NEWEST root run per workflow is considered. */
+  autoResume?: boolean | AutoResumeOptions;
+
   /** Directory containing the built web UI (the `dist` folder). Defaults
    *  to vein's own bundled UI resolved relative to this module, so it
    *  works regardless of the host process's CWD. The built UI uses
    *  relative asset paths, so it can be mounted at any sub-path (e.g.
    *  `/lab`) as long as the host serves it with a trailing slash. */
   webDist?: string;
+}
+
+export interface AutoResumeOptions {
+  /** Ignore cut-off runs whose last event is older than this. Default 7 days. */
+  maxAgeMs?: number;
+  /** Give up on a run that has already been resumed this many times — a step
+   *  that deterministically kills the server must not loop forever. Default 5. */
+  maxResumes?: number;
+  /** Delay after construction before the scan runs (lets the host finish
+   *  booting). Default 3000ms; 0 runs it on the next tick. */
+  delayMs?: number;
+}
+
+/** One line of the boot-time auto-resume report. */
+export interface AutoResumeOutcome {
+  workflow: string;
+  runId: string;
+  action: "resumed" | "finalized" | "skipped";
+  reason: string;
 }
 
 /**
@@ -158,6 +183,13 @@ export interface Vein<TServices = unknown> {
   /** Re-scan the workspace for newly-published custom steps. No-op when
    *  the instance was constructed with an explicit `registry`. */
   rebuildRegistry: () => Promise<void>;
+
+  /** Resume every run cut off by the previous process (RUN_CONTROL_SPEC
+   *  §5.3): the newest root run of each workflow that has a log but no
+   *  summary, was not paused or cancelling, is younger than `maxAgeMs`,
+   *  and has fewer than `maxResumes` prior resumes. Runs automatically
+   *  after boot when `autoResume` is enabled; callable directly. */
+  autoResumeStaleRuns: (opts?: AutoResumeOptions) => Promise<AutoResumeOutcome[]>;
 
   /** Run a workflow by name (resolves through the workspace) or by Flow
    *  object. `services` is auto-injected from the instance; pass a
@@ -353,7 +385,7 @@ export async function createVein<TServices = unknown>(
   const appendControlEvent = async (
     workflow: string,
     runId: string,
-    type: "run.paused" | "run.resumed",
+    type: "run.paused" | "run.resumed" | "run.cancelling",
   ) => {
     await store.append(workflow, runId, {
       ts: new Date().toISOString(),
@@ -603,6 +635,224 @@ export async function createVein<TServices = unknown>(
     return null;
   };
 
+  type PreparedResume = {
+    ok: true;
+    name: string;
+    runId: string;
+    flow: Flow;
+    version?: string;
+    journal: Record<string, unknown>;
+    runStart: NonNullable<ReturnType<typeof readRunStart>>;
+    events: RunEvent[];
+  };
+  type ResumeRefusal = { ok: false; status: 400 | 404 | 409; error: string };
+
+  /** Everything a durable resume (§5) needs, or a refusal with the HTTP
+   *  status it maps to. Shared by the resume endpoint and boot-time
+   *  auto-resume (§5.3). Heals a torn log, recovers the run's input/params
+   *  from `run.start`, resolves the DAG the run actually executed, and
+   *  builds (optionally `from`-invalidated) the journal. */
+  const prepareDurableResume = async (
+    name: string,
+    runId: string,
+    body: { from?: string; force?: boolean },
+  ): Promise<PreparedResume | ResumeRefusal> => {
+    // Crash hardening (§5.1): a kill mid-append leaves a torn final line.
+    // Heal it BEFORE reading, or the resumed run's first append would be
+    // glued onto the fragment and the whole log would turn unreadable.
+    if (await store.repairLog?.(name, runId)) {
+      console.warn(`[run ${runId}] repaired a torn event log before resume`);
+    }
+    const events = await store.getRunEvents(name, runId);
+    const runStart = readRunStart(events);
+    if (!runStart) {
+      return { ok: false, status: 409, error: "Run log has no run.start event — cannot resume" };
+    }
+
+    let flow: Flow;
+    let version: string | undefined;
+    try {
+      flow = await workspace.getWorkflow(name);
+    } catch (err) {
+      return { ok: false, status: 404, error: err instanceof Error ? err.message : String(err) };
+    }
+
+    // Validity guard (§5): replaying outputs into a DIFFERENT DAG is
+    // undefined. When the active version's hash differs from the one
+    // recorded at run.start, resume against the version the run actually
+    // executed if it is still on record (a run of a pinned or since-
+    // superseded version must not dead-end on "content changed"); refuse
+    // only when no stored version matches, unless forced.
+    const currentHash = await workspace.getWorkflowHash(name);
+    if (runStart.workflowHash && currentHash && runStart.workflowHash !== currentHash) {
+      const pinned = await findWorkflowVersionByHash(name, runStart.workflowHash);
+      if (pinned) {
+        flow = await workspace.getWorkflowVersion(name, pinned);
+        version = pinned;
+      } else if (!body.force) {
+        return {
+          ok: false,
+          status: 409,
+          error:
+            `Workflow content changed since this run started (recorded ${runStart.workflowHash}, ` +
+            `active ${currentHash}) and no stored version matches — replaying its journal into a ` +
+            `different DAG is refused. Pass { force: true } to override.`,
+        };
+      }
+    }
+    if (!runStart.workflowHash) {
+      console.warn(
+        `[run ${runId}] no workflow hash recorded at run.start (pre-run-control log) — resuming without the DAG guard`,
+      );
+    }
+
+    let journal = buildJournal(events);
+    if (body.from) {
+      try {
+        const inv = await invalidateFrom(journal, body.from, flow, workspace);
+        journal = inv.journal;
+        for (const w of inv.warnings) console.warn(`[run ${runId}] resume from=${body.from}: ${w}`);
+      } catch (err) {
+        return { ok: false, status: 400, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    return { ok: true, name, runId, flow, version, journal, runStart, events };
+  };
+
+  /** Relaunch a prepared durable resume under its ORIGINAL runId (§5). */
+  const launchDurableResume = (p: PreparedResume) => {
+    launchDetached(
+      p.flow,
+      {
+        input: p.runStart.input,
+        runId: p.runId,
+        params: p.runStart.params,
+        paramOverrides: p.runStart.paramOverrides,
+      },
+      { journal: p.journal, resume: true, ...(p.version ? { version: p.version } : {}) },
+    );
+  };
+
+  const isTerminalEvent = (e: RunEvent) =>
+    e.type === "run.end" || e.type === "run.error" || e.type === "run.cancelled";
+
+  /** Write the summary a dead run never got to write: its log already ends
+   *  in a terminal event (crash between the event append and `finalize`),
+   *  or it was cancelling when the process died (finalize as cancelled,
+   *  appending the `run.cancelled` the boundary would have emitted). */
+  const finalizeDeadRun = async (
+    name: string,
+    runId: string,
+    events: RunEvent[],
+    status: "success" | "error" | "cancelled",
+  ) => {
+    const last = events[events.length - 1]!;
+    const start = events.find((e) => e.type === "run.start");
+    if (status === "cancelled" && last.type !== "run.cancelled") {
+      await store.append(name, runId, { ts: new Date().toISOString(), runId, path: name, type: "run.cancelled" });
+    }
+    const startedAt = start?.ts ?? events[0]!.ts;
+    const finishedAt = last.type === "run.end" || last.type === "run.error" || last.type === "run.cancelled"
+      ? last.ts
+      : new Date().toISOString();
+    await store.finalize(name, runId, {
+      runId,
+      workflow: name,
+      startedAt,
+      finishedAt,
+      durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+      status,
+      input: start?.input,
+      ...(status === "success" ? { output: last.output } : {}),
+      ...(status === "error" && last.error ? { error: last.error } : {}),
+    });
+  };
+
+  /** Boot-time auto-resume (RUN_CONTROL_SPEC §5.3). Every run that died
+   *  with the previous process has a log and no summary. For each
+   *  workflow, look only at the NEWEST root run (children are relaunched by
+   *  their parent's re-executed step) and:
+   *    - log already terminal → just write the missing summary;
+   *    - last control marker `run.cancelling` → finalize as cancelled;
+   *    - last control marker `run.paused` → leave parked (a human chose that);
+   *    - older than `maxAgeMs`, or resumed ≥ `maxResumes` times → skip, loudly;
+   *    - otherwise → durable resume, same path as the endpoint. */
+  const autoResumeStaleRuns = async (o: AutoResumeOptions = {}): Promise<AutoResumeOutcome[]> => {
+    const maxAgeMs = o.maxAgeMs ?? 7 * 24 * 60 * 60 * 1000;
+    const maxResumes = o.maxResumes ?? 5;
+    const out: AutoResumeOutcome[] = [];
+    const report = (workflow: string, runId: string, action: AutoResumeOutcome["action"], reason: string) => {
+      out.push({ workflow, runId, action, reason });
+      console.warn(`[auto-resume] ${workflow}/${runId}: ${action} — ${reason}`);
+    };
+
+    let workflows: Array<{ name: string }>;
+    try {
+      workflows = await workspace.listWorkflows();
+    } catch (err) {
+      console.error(`[auto-resume] could not list workflows:`, err);
+      return out;
+    }
+
+    for (const { name } of workflows) {
+      let runIds: string[];
+      try {
+        runIds = await store.listRuns(name); // newest first
+      } catch {
+        continue;
+      }
+      for (const runId of runIds) {
+        if (controllers.has(`${name}/${runId}`)) break; // live in this process
+        if (await store.getRunSummary(name, runId)) break; // newest finished → nothing was cut off
+        await store.repairLog?.(name, runId);
+        const events = await store.getRunEvents(name, runId);
+        const runStart = readRunStart(events);
+        if (!runStart) break; // unreadable / empty — a human's call
+        if (runStart.parentRunId) continue; // nested: its parent relaunches it
+
+        const last = events[events.length - 1]!;
+        if (isTerminalEvent(last)) {
+          const status = last.type === "run.end" ? "success" : last.type === "run.error" ? "error" : "cancelled";
+          await finalizeDeadRun(name, runId, events, status);
+          report(name, runId, "finalized", `log already ended in ${last.type}; wrote the missing summary`);
+          break;
+        }
+        const marker = [...events].reverse().find(
+          (e) => e.type === "run.paused" || e.type === "run.resumed" || e.type === "run.cancelling",
+        );
+        if (marker?.type === "run.cancelling") {
+          await finalizeDeadRun(name, runId, events, "cancelled");
+          report(name, runId, "finalized", "was cancelling when the process died; finalized as cancelled");
+          break;
+        }
+        if (marker?.type === "run.paused") {
+          report(name, runId, "skipped", "was paused when the process died — resume it by hand");
+          break;
+        }
+        const ageMs = Date.now() - Date.parse(last.ts);
+        if (!(ageMs <= maxAgeMs)) {
+          report(name, runId, "skipped", `last event ${Math.round(ageMs / 3_600_000)}h ago exceeds the ${Math.round(maxAgeMs / 3_600_000)}h age cap`);
+          break;
+        }
+        const resumes = events.filter((e) => e.type === "run.resumed").length;
+        if (resumes >= maxResumes) {
+          report(name, runId, "skipped", `already resumed ${resumes} times (cap ${maxResumes}) — a step may be crashing the server; resume by hand`);
+          break;
+        }
+        const prepared = await prepareDurableResume(name, runId, {});
+        if (!prepared.ok) {
+          report(name, runId, "skipped", prepared.error);
+          break;
+        }
+        if (controllers.has(`${name}/${runId}`)) break;
+        launchDurableResume(prepared);
+        report(name, runId, "resumed", `replaying ${Object.keys(prepared.journal).length} journaled step(s)${prepared.version ? ` against version ${prepared.version}` : ""}`);
+        break;
+      }
+    }
+    return out;
+  };
+
   /** Resolve a control request target: its live controller (if any) and
    *  whether the run exists at all. */
   const findRun = async (name: string, runId: string) => {
@@ -623,6 +873,10 @@ export async function createVein<TServices = unknown>(
       );
     }
     controller.cancel();
+    // Marker: if the process dies before the run reaches its boundary and
+    // finalizes as `run.cancelled`, boot-time auto-resume must know this run
+    // was being cancelled, not cut off (§5.3).
+    await appendControlEvent(name, runId, "run.cancelling");
     return c.json({ ok: true, runId, state: controller.state }, 202);
   });
 
@@ -674,82 +928,16 @@ export async function createVein<TServices = unknown>(
       );
     }
 
-    // Crash hardening (§5.1): a kill mid-append leaves a torn final line.
-    // Heal it BEFORE reading, or the resumed run's first append would be
-    // glued onto the fragment and the whole log would turn unreadable.
-    if (await store.repairLog?.(name, runId)) {
-      console.warn(`[run ${runId}] repaired a torn event log before resume`);
-    }
-    const events = await store.getRunEvents(name, runId);
-    const runStart = readRunStart(events);
-    if (!runStart) {
-      return c.json({ error: "Run log has no run.start event — cannot resume" }, 409);
-    }
-
-    let flow: Flow;
-    let version: string | undefined;
-    try {
-      flow = await workspace.getWorkflow(name);
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
-    }
-
-    // Validity guard (§5): replaying outputs into a DIFFERENT DAG is
-    // undefined. When the active version's hash differs from the one
-    // recorded at run.start, resume against the version the run actually
-    // executed if it is still on record (a run of a pinned or since-
-    // superseded version must not dead-end on "content changed"); refuse
-    // only when no stored version matches, unless forced.
-    const currentHash = await workspace.getWorkflowHash(name);
-    if (runStart.workflowHash && currentHash && runStart.workflowHash !== currentHash) {
-      const pinned = await findWorkflowVersionByHash(name, runStart.workflowHash);
-      if (pinned) {
-        flow = await workspace.getWorkflowVersion(name, pinned);
-        version = pinned;
-      } else if (!body.force) {
-        return c.json(
-          {
-            error:
-              `Workflow content changed since this run started (recorded ${runStart.workflowHash}, ` +
-              `active ${currentHash}) and no stored version matches — replaying its journal into a ` +
-              `different DAG is refused. Pass { force: true } to override.`,
-          },
-          409,
-        );
-      }
-    }
-    if (!runStart.workflowHash) {
-      console.warn(
-        `[run ${runId}] no workflow hash recorded at run.start (pre-run-control log) — resuming without the DAG guard`,
-      );
-    }
-
-    let journal = buildJournal(events);
-    if (body.from) {
-      try {
-        const inv = await invalidateFrom(journal, body.from, flow, workspace);
-        journal = inv.journal;
-        for (const w of inv.warnings) console.warn(`[run ${runId}] resume from=${body.from}: ${w}`);
-      } catch (err) {
-        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
-      }
-    }
+    const prepared = await prepareDurableResume(name, runId, body);
+    if (!prepared.ok) return c.json({ error: prepared.error }, prepared.status);
 
     // Re-check liveness after the awaits above: two concurrent resume
     // requests must not both launch onto the same log.
     if (controllers.has(`${name}/${runId}`)) {
       return c.json({ error: "Resume already in flight for this run" }, 409);
     }
-    launchDetached(
-      flow,
-      {
-        input: runStart.input,
-        runId,
-        params: runStart.params,
-        paramOverrides: runStart.paramOverrides,
-      },
-      { journal, resume: true, ...(version ? { version } : {}) },
-    );
+    const { version, journal } = prepared;
+    launchDurableResume(prepared);
     return c.json({
       ok: true,
       runId,
@@ -1675,6 +1863,22 @@ export async function createVein<TServices = unknown>(
     return p;
   }
 
+  // Boot-time auto-resume (§5.3): on by default for a file-backed store
+  // (an in-memory store cannot hold a cut-off run), off with
+  // `VEIN_AUTO_RESUME=0` or `autoResume: false`. Deferred and unref'd so a
+  // host that constructs vein and exits (tests, CLIs) is never held open.
+  const autoResumeEnabled =
+    opts.autoResume === undefined
+      ? fileBacked && process.env["VEIN_AUTO_RESUME"] !== "0"
+      : opts.autoResume !== false;
+  if (autoResumeEnabled) {
+    const o = typeof opts.autoResume === "object" ? opts.autoResume : {};
+    const timer = setTimeout(() => {
+      void autoResumeStaleRuns(o).catch((err) => console.error(`[auto-resume] scan failed:`, err));
+    }, o.delayMs ?? 3000);
+    timer.unref?.();
+  }
+
   return {
     app,
     workspace,
@@ -1684,6 +1888,7 @@ export async function createVein<TServices = unknown>(
     services,
     getRegistry: () => registry,
     rebuildRegistry,
+    autoResumeStaleRuns,
     run,
     listen,
   };

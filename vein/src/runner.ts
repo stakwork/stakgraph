@@ -166,6 +166,9 @@ export async function runWorkflow<TServices = unknown>(
       path: wfName,
       input: parsedInput,
       ...(opts?.workflowHash ? { workflowHash: opts.workflowHash } : {}),
+      // Tree linkage on disk: a nested run names its parent so boot-time
+      // auto-resume can tell roots from children (§5.3).
+      ...(opts?.controller?.parent ? { parentRunId: opts.controller.parent.runId } : {}),
       // Recorded so a durable resume re-executes with the same knob values.
       ...(opts?.params ? { params: opts.params } : {}),
       ...(opts?.paramOverrides ? { paramOverrides: opts.paramOverrides } : {}),

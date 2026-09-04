@@ -260,9 +260,37 @@ step. Three crash-specific hardenings:
   re-execution contract doing its job; steps whose effects must not
   double need their own idempotency (none in the current lab do).
 
-Optionally, the server can offer auto-resume of summary-less runs on
-boot (off by default — a human choosing Resume on a "stale" run is the
-right v1 ergonomics).
+### 5.3 Boot-time auto-resume
+
+IMPLEMENTED (`autoResumeStaleRuns` in `createVein.ts`; on by default for
+a file-backed store, `VEIN_AUTO_RESUME=0` or `autoResume: false` to
+disable; runs a few seconds after construction). The operational goal:
+a long serial workflow must never need to be started over because the
+server restarted.
+
+**Cut off vs. cancelled is knowable.** Cancel and error always FINALIZE
+(`run.cancelled` / `run.error` + `run.json`), so a run with a log and no
+summary died with its process. Two markers close the remaining gaps:
+`run.cancelling` is appended when cancel is REQUESTED (a run that dies
+before reaching its boundary is finalized as cancelled on boot, not
+resumed), and `run.paused` with no later `run.resumed` means a human
+parked it (left alone, resume by hand).
+
+**Roots only.** `run.start` records `parentRunId` for a nested run
+(derived from the controller tree). Boot resumes only root runs: a
+parent re-executing its launching step relaunches its children (§5.1
+at-least-once), so resuming orphaned children would only duplicate work
+that reports to nobody.
+
+**Per workflow, the newest run only**, newest-first by run id. If the
+newest root run has a summary, nothing was cut off. Guards: a log that
+already ends in a terminal event just gets its missing summary written;
+a run whose last event is older than **7 days** is skipped; a run with
+**5** or more `run.resumed` markers is skipped (a step that
+deterministically kills the server must not loop forever). Every
+decision is logged as `[auto-resume] wf/run: resumed|finalized|skipped —
+reason`, and the same DAG resolution as the endpoint applies (pinned
+version by hash; refused, never forced, when no version matches).
 
 ### 5.2 Resume after failure — retry from the failed step
 
