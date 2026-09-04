@@ -174,7 +174,7 @@ steps:
   # always runs. On the no-op branch `canddigest` is skipped, so `digest` is
   # undefined and `noop` tells the loop to score nothing.
   - id: result
-    type: gaia/pack-result
+    type: pack
     depends: [canddigest, published]
     config:
       candidate: "{{ input.candidateName }}"
@@ -310,7 +310,7 @@ params:
       the question/level and stage the task's attached file into the run's
       artifacts dir; give agent steps that dir as cwd via artifacts/dir,
       exactly as the base workflow does.
-    - the LAST step (use gaia/pack-result) must output: taskId, question,
+    - the LAST step (use pack) must output: taskId, question,
       level, answer (the BARE final-answer string), cost, steps.
     - NEVER use gaia/evaluate anywhere in the candidate — self-grading at
       produce time is oracle access, and a candidate that embeds the

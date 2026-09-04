@@ -18,7 +18,7 @@ steps:
       # task is simply scored incorrect instead of aborting every other task.
       onError:
         id: produce_failed
-        type: gaia/pack-result
+        type: pack
         config:
           object: { answer: "" }
           cost: 0
@@ -50,7 +50,7 @@ steps:
         additionalProperties: false
 
   - id: result
-    type: gaia/pack-result
+    type: pack
     config:
       taskId: "{{ task.taskId }}"
       question: "{{ task.question }}"

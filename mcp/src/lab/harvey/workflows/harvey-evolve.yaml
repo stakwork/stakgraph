@@ -97,7 +97,7 @@ steps:
 
   # ── promote: the reviewable report ─────────────────────────────────────
   - id: report
-    type: harvey/pack-result
+    type: pack
     depends: evolve
     config:
       mission: "{{ input.mission }}"
