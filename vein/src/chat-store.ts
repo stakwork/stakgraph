@@ -76,6 +76,8 @@ export interface ChatEvent {
   toolCallId?: string;
   input?: unknown;
   output?: unknown;
+  /** tool-output: the tool threw (output is the error message). */
+  isError?: boolean;
   /** chat.error */
   error?: { message: string };
 }
@@ -113,19 +115,33 @@ export interface ChatStore {
 
 // ── Tool-result truncation (token hygiene for long autonomous loops) ────────
 
+/** Default per-string cap for `truncateToolMessages`. Env
+ *  `VEIN_CHAT_TOOL_RESULT_MAX_CHARS` overrides it; `0` disables truncation. */
+export const DEFAULT_TOOL_RESULT_MAX_CHARS = 50_000;
+
+/** Resolve the tool-result cap from the environment (see above). */
+export function toolResultMaxCharsFromEnv(): number {
+  const raw = process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"];
+  if (raw === undefined || raw === "") return DEFAULT_TOOL_RESULT_MAX_CHARS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_TOOL_RESULT_MAX_CHARS;
+}
+
 /**
  * `messages.jsonl` stays lossless on disk (it's the transcript), but the copy
  * re-fed to the model each turn can balloon: a single `repo_overview` or eval
  * result is huge and the model already processed it. Truncate long strings
  * inside `role: "tool"` messages (tool RESULTS) before sending them back.
  * Conservative: only tool messages, only strings over `maxChars`, structure
- * preserved (we just shorten strings + add a marker). Mirrors
- * `session.ts:truncateToolResult`.
+ * preserved (we just shorten strings + add a marker). Within the turn that
+ * ran the tool the model always sees the full result — this only applies to
+ * HISTORY replayed on later turns. `maxChars` of `0` disables it.
  */
 export function truncateToolMessages(
   messages: StoredMessage[],
-  maxChars = 4000,
+  maxChars = toolResultMaxCharsFromEnv(),
 ): StoredMessage[] {
+  if (maxChars <= 0) return messages;
   const shorten = (s: string): string =>
     s.length > maxChars
       ? `${s.slice(0, maxChars)}\n\n[TRUNCATED: ${s.length} chars — full content is in the chat transcript]`

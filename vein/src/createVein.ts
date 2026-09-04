@@ -1393,6 +1393,15 @@ export async function createVein<TServices = unknown>(
                   output: part.output,
                 });
                 break;
+              case "tool-error":
+                await emit({
+                  type: "tool-output",
+                  toolName: part.toolName,
+                  toolCallId: part.toolCallId,
+                  output: part.error instanceof Error ? part.error.message : String(part.error),
+                  isError: true,
+                });
+                break;
               case "finish-step":
                 await emit({ type: "step.finish" });
                 break;

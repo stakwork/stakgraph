@@ -391,12 +391,16 @@ export interface ChatMessage {
 export interface ToolCallInfo {
   name: string;
   input: any;
+  toolCallId?: string;
 }
 
 export interface ToolResultInfo {
   name: string;
   input: any;
   output: any;
+  toolCallId?: string;
+  /** The tool threw; `output` is the error message. */
+  isError?: boolean;
 }
 
 export interface ChatCallbacks {
@@ -430,6 +434,8 @@ export interface ChatEvent {
   toolCallId?: string;
   input?: any;
   output?: any;
+  /** tool-output: the tool threw (output is the error message). */
+  isError?: boolean;
   error?: { message: string };
 }
 
@@ -538,10 +544,16 @@ function dispatchChatEvent(e: ChatEvent, cb: ChatCallbacks): void {
       if (e.delta) cb.onTextDelta(e.delta);
       break;
     case "tool-input":
-      cb.onToolCall({ name: e.toolName ?? "", input: e.input });
+      cb.onToolCall({ name: e.toolName ?? "", input: e.input, toolCallId: e.toolCallId });
       break;
     case "tool-output":
-      cb.onToolResult?.({ name: e.toolName ?? "", input: e.input, output: e.output });
+      cb.onToolResult?.({
+        name: e.toolName ?? "",
+        input: e.input,
+        output: e.output,
+        toolCallId: e.toolCallId,
+        isError: e.isError,
+      });
       break;
     case "step.finish":
       cb.onStepFinish();
