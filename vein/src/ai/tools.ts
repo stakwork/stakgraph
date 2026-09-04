@@ -7,7 +7,7 @@ import { lsSteps, searchSteps, readStepSource } from "./stepHelpers.js";
 import { zodToFields } from "./schemaHelpers.js";
 import { runSingleStep, cassettePath } from "../run-step.js";
 import { generateRunId } from "../store.js";
-import { validateWorkflowYaml } from "../validate.js";
+import { formatValidationErrors, validateWorkflowYaml } from "../validate.js";
 // The shared authoring core — the same mechanism the meta/* steps' capability
 // sits on (see authoring.ts): publish checks + strict load-verification, and
 // the run-history reads. The chat tools layer their own policy on top (no
@@ -61,6 +61,21 @@ function runControlTools(controlRun: ControlRun) {
 // ── Tools ──────────────────────────────────────────────────────────────────
 
 export function buildTools(deps: AiDeps) {
+  /** The static check behind validate_workflow — also the gate on
+   *  create_workflow / edit_workflow, so an invalid YAML never becomes a
+   *  version. Registry + workflow list come from deps at call time. */
+  const validate = async (yaml: string, name?: string) => {
+    const workflows = await deps.workspace.listWorkflows().catch(() => []);
+    return validateWorkflowYaml(yaml, {
+      registry: deps.registry,
+      workflows: workflows.map((w) => ({ name: w.name, versions: w.versions })),
+      name,
+    });
+  };
+  /** Non-blocking: warnings ride along on a successful publish. */
+  const withWarnings = <T extends object>(result: T, v: { warnings: Array<{ path: string; message: string }> }) =>
+    v.warnings.length ? { ...result, warnings: v.warnings } : result;
+
   return {
     list_steps: tool({
       description:
@@ -173,14 +188,12 @@ export function buildTools(deps: AiDeps) {
         "Statically check workflow YAML WITHOUT publishing — call this before create_workflow / edit_workflow so a typo doesn't become a published version. Errors (would fail or hang at run time): YAML/unquoted-template problems, missing/duplicate/unreferenceable step ids, unknown step types, `depends` on unknown ids, dependency cycles, template references to unknown roots ({{ foo.x }} where foo is not a step id / input / params / a loop variable), config fields that fail the step's schema (template-valued fields are skipped — they resolve at run time), subflows naming a workflow/version that doesn't exist. Warnings: unknown config fields, `when` without an `if` gate among its depends, references to steps that aren't upstream dependencies. Returns { ok, errors: [{path, message}], warnings: [...], summary }.",
       inputSchema: z.object({
         yaml: z.string().describe("Full workflow YAML to check"),
+        name: z
+          .string()
+          .optional()
+          .describe("The name you will publish under (lets a YAML without `name:` pass, as create_workflow stamps it in)."),
       }),
-      execute: async ({ yaml }) => {
-        const workflows = await deps.workspace.listWorkflows().catch(() => []);
-        return validateWorkflowYaml(yaml, {
-          registry: deps.registry,
-          workflows: workflows.map((w) => ({ name: w.name, versions: w.versions })),
-        });
-      },
+      execute: async ({ yaml, name }) => validate(yaml, name),
     }),
 
     create_workflow: tool({
@@ -192,7 +205,10 @@ export function buildTools(deps: AiDeps) {
         "to group the workflow in the UI sidebar (e.g. an experiment or " +
         "project name) — set it when the user asks for one or when the " +
         "workflow clearly belongs to an existing category (see " +
-        "list_workflows for categories already in use).",
+        "list_workflows for categories already in use). The YAML is " +
+        "validated first (same checks as validate_workflow): on errors " +
+        "nothing is published and the error lists them; warnings are " +
+        "returned alongside a successful publish.",
       inputSchema: z.object({
         name: z.string().describe("Workflow name (kebab-case)"),
         yaml: z.string().describe("Full workflow YAML"),
@@ -205,6 +221,8 @@ export function buildTools(deps: AiDeps) {
           ),
       }),
       execute: async ({ name, yaml, description, category }) => {
+        const v = await validate(yaml, name);
+        if (!v.ok) return { error: formatValidationErrors(v), validation: v };
         const { name: finalName, version } = await deps.workspace.createWorkflow(
           name,
           yaml,
@@ -213,13 +231,16 @@ export function buildTools(deps: AiDeps) {
         );
         // Rebuild registry in case the workflow references new patterns
         deps.registry = await deps.getRegistry();
-        return {
-          ok: true,
-          name: finalName,
-          version,
-          renamed: finalName !== name,
-          requested: name,
-        };
+        return withWarnings(
+          {
+            ok: true,
+            name: finalName,
+            version,
+            renamed: finalName !== name,
+            requested: name,
+          },
+          v,
+        );
       },
     }),
 
@@ -232,7 +253,10 @@ export function buildTools(deps: AiDeps) {
         "changes (adding/removing steps, rewiring `depends`, or promoting a " +
         "winning `params` default). To merely try a different prompt or " +
         "threshold value, do NOT publish a version — pass `params` to " +
-        "run_workflow instead (those are runs, not versions).",
+        "run_workflow instead (those are runs, not versions). The YAML is " +
+        "validated first (same checks as validate_workflow): on errors no " +
+        "version is published and the error lists them; warnings ride along " +
+        "on success.",
       inputSchema: z.object({
         name: z.string().describe("Existing workflow name to edit"),
         yaml: z.string().describe("Full updated workflow YAML"),
@@ -253,6 +277,8 @@ export function buildTools(deps: AiDeps) {
             error: `Workflow "${name}" not found. Use create_workflow to author a new one.`,
           };
         }
+        const v = await validate(yaml, name);
+        if (!v.ok) return { error: formatValidationErrors(v), validation: v };
         let result;
         try {
           result = await deps.workspace.publishWorkflowByContent(
@@ -265,12 +291,15 @@ export function buildTools(deps: AiDeps) {
           return { error: err instanceof Error ? err.message : String(err) };
         }
         deps.registry = await deps.getRegistry();
-        return {
-          ok: true,
-          name,
-          version: result.version,
-          changed: result.changed,
-        };
+        return withWarnings(
+          {
+            ok: true,
+            name,
+            version: result.version,
+            changed: result.changed,
+          },
+          v,
+        );
       },
     }),
 

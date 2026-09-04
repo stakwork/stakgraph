@@ -358,6 +358,53 @@ describe("AI list_workflows / get_workflow tools", () => {
     assert.ok(res.yaml.includes("type: log"));
   });
 
+  it("create_workflow / edit_workflow refuse invalid YAML with a readable error; warnings ride along", async () => {
+    const { ws, deps } = makeDeps();
+    const echo = defineStep({ type: "echo", input: z.object({ message: z.string() }), output: z.any(), async run(c) { return c; } });
+    const registry = await createRegistry([echo]);
+    const tools = buildTools({ ...deps, registry, getRegistry: async () => registry }) as any;
+
+    // Cycle + unknown type → refused, nothing written.
+    const bad = await tools.create_workflow.execute({
+      name: "broken",
+      yaml: "name: broken\nsteps:\n  - id: a\n    type: echo\n    config: { message: x }\n    depends: b\n  - id: b\n    type: nope\n    config: {}\n    depends: a\n",
+    });
+    assert.match(bad.error, /^Not published: the workflow YAML has 2 validation errors \(nothing was written; no version was created\)/);
+    assert.match(bad.error, /steps\[1\]\.type: Unknown step type "nope"/);
+    assert.match(bad.error, /Dependency cycle/);
+    assert.match(bad.error, /validate_workflow re-checks without publishing/);
+    assert.equal(bad.validation.ok, false);
+    assert.deepEqual(await ws.listWorkflows(), []);
+
+    // Missing `name:` in YAML is fine — the tool's name is stamped in.
+    // An unknown config field is a warning: published, warning returned.
+    const ok = await tools.create_workflow.execute({
+      name: "fine",
+      yaml: "steps:\n  - id: a\n    type: echo\n    config: { message: x, extra: 1 }\n",
+    });
+    assert.equal(ok.ok, true);
+    assert.equal(ok.version, "v1");
+    assert.equal(ok.warnings.length, 1);
+    assert.match(ok.warnings[0].message, /Unknown config field "extra"/);
+
+    // edit_workflow: same gate; version stays v1 on refusal.
+    const edit = await tools.edit_workflow.execute({
+      name: "fine",
+      yaml: "name: fine\nsteps:\n  - id: a\n    type: echo\n    config: { message: \"{{ nope.x }}\" }\n",
+    });
+    assert.match(edit.error, /^Not published: .*1 validation error /);
+    assert.match(edit.error, /unknown root "nope"/);
+    assert.equal((await tools.get_workflow.execute({ name: "fine" })).activeVersion, "v1");
+
+    const clean = await tools.edit_workflow.execute({
+      name: "fine",
+      yaml: "name: fine\nsteps:\n  - id: a\n    type: echo\n    config: { message: y }\n",
+    });
+    assert.equal(clean.ok, true);
+    assert.equal(clean.version, "v2");
+    assert.equal("warnings" in clean, false);
+  });
+
   it("set_active_version rolls a workflow back without publishing", async () => {
     const { ws, deps } = makeDeps();
     await ws.createWorkflow("alpha", wfYaml("alpha"));

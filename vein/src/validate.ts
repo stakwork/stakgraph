@@ -34,6 +34,21 @@ export interface ValidateOptions {
   registry: StepRegistry;
   /** Published workflows (for subflow targets). Omit to skip that check. */
   workflows?: Array<{ name: string; versions: string[] }>;
+  /** The name the publish will use. When given, a YAML without `name` is
+   *  fine (create_workflow / edit_workflow stamp it in), and a subflow may
+   *  reference it (self-recursion) even before the first publish. */
+  name?: string;
+}
+
+/** Render a result as the one-paragraph refusal a publish tool returns —
+ *  what went wrong, where, and what to do next. */
+export function formatValidationErrors(r: ValidationResult, verb = "published"): string {
+  const list = r.errors.map((e) => (e.path ? `${e.path}: ${e.message}` : e.message)).join("\n- ");
+  return (
+    `Not ${verb}: the workflow YAML has ${r.errors.length} validation error${r.errors.length === 1 ? "" : "s"} ` +
+    `(nothing was written; no version was created).\n- ${list}\n` +
+    `Fix these and call again — validate_workflow re-checks without publishing.`
+  );
 }
 
 /** Step ids must be expression identifiers, or templates can't reference them. */
@@ -62,7 +77,7 @@ export function validateWorkflowYaml(source: string, opts: ValidateOptions): Val
     errors.push({ path: "", message: "Workflow YAML must be a mapping with `name` and `steps`." });
     return done();
   }
-  if (typeof data.name !== "string" || !data.name) {
+  if ((typeof data.name !== "string" || !data.name) && !opts.name) {
     errors.push({ path: "name", message: "`name` is required (kebab-case string)." });
   }
   if (!Array.isArray(data.steps) || data.steps.length === 0) {
@@ -253,7 +268,9 @@ export function validateWorkflowYaml(source: string, opts: ValidateOptions): Val
       const wf = config["workflow"];
       if (typeof wf === "string" && !hasTemplates(wf)) {
         const entry = opts.workflows.find((w) => w.name === wf);
-        if (!entry) {
+        if (!entry && wf === opts.name) {
+          // Self-recursion before/while publishing — resolvable at run time.
+        } else if (!entry) {
           errors.push({ path: `${p}.config.workflow`, message: `Subflow target "${wf}" is not a published workflow (list_workflows to see what exists).` });
         } else {
           const v = config["version"];
