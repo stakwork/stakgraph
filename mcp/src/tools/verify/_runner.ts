@@ -48,8 +48,12 @@ function buildTools(sessionId: string) {
         let result: any;
         if (name.startsWith("stagehand_")) {
           result = verify.tagEvidence(sessionId, name, await stagehand.call(name, args || {}, sessionId));
+        } else if (name === verify.HttpRequestTool.name) {
+          result = await verify.httpRequest(sessionId, args || {});
+        } else if (name === verify.SampleTool.name) {
+          result = await verify.sampleUrl(sessionId, args || {});
         } else if (name === verify.DbQueryTool.name) {
-          result = verify.tagEvidence(sessionId, name, await verify.dbQuery(args || {}));
+          result = await verify.dbQuery(sessionId, args || {});
         } else if (name === verify.SubmitVerdictTool.name) {
           result = await verify.submitVerdict(sessionId, args || {});
         } else {
@@ -70,7 +74,7 @@ const stopAfterVerdict: StopCondition<any> = ({ steps }) => {
 };
 
 async function main() {
-  const cells = JSON.parse(readFileSync(`${SCRATCH}/cells.json`, "utf8"));
+  const cells = JSON.parse(readFileSync(`${SCRATCH}/${process.env.CELLS_FILE || "cells.json"}`, "utf8"));
   const cell = cells.find((c: any) => c.id === CELL_ID);
   if (!cell) throw new Error(`cell ${CELL_ID} not found`);
 

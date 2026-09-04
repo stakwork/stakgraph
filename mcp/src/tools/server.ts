@@ -63,10 +63,17 @@ graphServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     case stakgraph.GetRulesFilesTool.name: {
       return await stakgraph.getRulesFiles();
     }
+    case verify.HttpRequestTool.name: {
+      const sid = extra.sessionId || "default-session-id";
+      return await verify.httpRequest(sid, args || {});
+    }
+    case verify.SampleTool.name: {
+      const sid = extra.sessionId || "default-session-id";
+      return await verify.sampleUrl(sid, args || {});
+    }
     case verify.DbQueryTool.name: {
       const sid = extra.sessionId || "default-session-id";
-      const result = await verify.dbQuery(args || {});
-      return verify.tagEvidence(sid, verify.DbQueryTool.name, result);
+      return await verify.dbQuery(sid, args || {});
     }
     case verify.SubmitVerdictTool.name: {
       const sid = extra.sessionId || "default-session-id";
