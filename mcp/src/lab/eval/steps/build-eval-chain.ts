@@ -9,6 +9,8 @@ import { z, defineStep, type StepContext } from "vein";
  *     -HAS_CRITERION_RESULT-> CriterionResult (one per judged criterion)
  *   EvalRequirement -HAS_TRIGGER-> EvalTrigger (one per judged criterion)
  *
+ * Domain-agnostic (harvey-score, wfbench): the domain passes its EvalSet id
+ * and the workflow name recorded as the trigger's agent.
  * Pure payload construction — the write itself is graph/create-batch-triplet
  * (its inline-node dedupe collapses the repeated EvalTriggerOutput side).
  * Ids are derived from ctx.runId, so a retried write MERGES instead of
@@ -17,21 +19,21 @@ import { z, defineStep, type StepContext } from "vein";
  * criteria_results are passed.
  */
 export default defineStep({
-  type: "harvey/build-eval-chain",
+  type: "eval/build-eval-chain",
   description:
     "Construct the create-batch-triplet payload persisting a scored attempt: EvalSet→EvalTrigger→" +
     "EvalTriggerOutput→CriterionResult(+EvalRequirement links), ids derived from the runId (idempotent " +
     "rewrites). Output: { triplets, trigger_id, output_id }.",
   input: z.object({
     evalsetId: z.string().describe("EvalSet id (the task namespace slug)."),
-    task: z.string().describe("The harvey task id (recorded as the trigger's workflow_input)."),
-    scores: z.any().describe("harvey/aggregate-scores output (criteria_results may carry dispute annotations)."),
+    task: z.string().describe("The task id (recorded as the trigger's workflow_input)."),
+    scores: z.any().describe("eval/aggregate-scores output (criteria_results may carry dispute annotations)."),
     criteria_results: z
       .array(z.any())
       .optional()
-      .describe("Override for scores.criteria_results — pass harvey/merge-disputes' ANNOTATED list."),
+      .describe("Override for scores.criteria_results — e.g. harvey/merge-disputes' ANNOTATED list."),
     judge_model: z.string().optional(),
-    workflow: z.string().default("harvey-deliver").describe("Recorded as EvalTrigger.workflow_id/agent."),
+    workflow: z.string().describe("The scored workflow's name — recorded as EvalTrigger.workflow_id/agent."),
   }),
   output: z.any(),
   async run(cfg, ctx) {
@@ -64,7 +66,7 @@ export default defineStep({
     };
 
     // Position of each criterion's HAS_CRITERION_RESULT triplet in the array
-    // below — harvey/criterion-refs zips these with the batch write's results
+    // below — eval/criterion-refs zips these with the batch write's results
     // to recover the created CriterionResult ref_ids.
     const criterionSlots: Array<{ criterion_id: string; index: number }> = [];
     const triplets: Array<Record<string, any>> = [

@@ -65,6 +65,7 @@ describe("authoring capability (the meta surface)", () => {
       "meta/run-step",
       "meta/list-workflows",
       "meta/get-workflow",
+      "meta/validate-workflow",
       "meta/publish-workflow",
       "meta/run-workflow",
       "meta/list-runs",
@@ -247,6 +248,40 @@ describe("authoring capability (the meta surface)", () => {
     const listed = (await authoring.listWorkflows()) as any;
     const entry = listed.workflows.find((w: any) => w.name === "cand-inrun");
     assert.equal(entry.publisher, "ai");
+  });
+
+  it("validateWorkflow is the static check behind meta/validate-workflow — no publish", async () => {
+    const bad = await authoring.validateWorkflow(
+      "name: cand-invalid\nsteps:\n  - id: a\n    type: no/such-step\n    config: {}\n",
+    );
+    assert.equal(bad.ok, false);
+    assert.ok(bad.errors.some((e) => /no\/such-step/.test(e.message)), JSON.stringify(bad.errors));
+
+    // A YAML without `name:` passes when the publish name is supplied.
+    const good = await authoring.validateWorkflow(
+      "steps:\n  - id: say\n    type: log\n    config:\n      message: hi\n",
+      "cand-valid",
+    );
+    assert.equal(good.ok, true, JSON.stringify(good.errors));
+    assert.equal(good.summary.steps, 1);
+
+    // Nothing was published either way.
+    const listed = (await authoring.listWorkflows()) as any;
+    assert.ok(!listed.workflows.some((w: any) => w.name === "cand-valid" || w.name === "cand-invalid"));
+
+    // ...and the step form reaches it inside a run.
+    const result = await vein.run({
+      name: "meta-validate-test",
+      input: z.any(),
+      steps: [
+        { id: "check", type: "meta/validate-workflow", config: {
+          name: "cand-valid",
+          yaml: "steps:\n  - id: say\n    type: log\n    config:\n      message: hi\n",
+        } },
+      ],
+    });
+    assert.equal(result.status, "success", JSON.stringify(result.error));
+    assert.equal((result.output as any).ok, true);
   });
 
   it("listSecrets returns names only", async () => {

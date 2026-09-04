@@ -33,7 +33,7 @@ export default defineStep({
     "annotates nothing. Output: { criteria_results, annotations, flagged_count, contested_count, " +
     "contested_requirements }.",
   input: z.object({
-    criteria_results: z.array(z.any()).describe("Full criteria_results from harvey/aggregate-scores."),
+    criteria_results: z.array(z.any()).describe("Full criteria_results from eval/aggregate-scores."),
     failed: z.array(z.any()).default([]).describe("The failed subset, in the order disputes ran."),
     disputes: z
       .any()
@@ -42,7 +42,7 @@ export default defineStep({
     criterionRefs: z
       .any()
       .optional()
-      .describe("[{ criterion_id, ref_id }] for the persisted CriterionResult nodes (harvey/criterion-refs output)."),
+      .describe("[{ criterion_id, ref_id }] for the persisted CriterionResult nodes (eval/criterion-refs output)."),
     requirements: z
       .any()
       .optional()

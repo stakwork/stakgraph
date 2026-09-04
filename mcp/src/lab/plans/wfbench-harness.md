@@ -1,0 +1,134 @@
+# wfbench — the Workflow Editor benchmark harness as a vein workflow
+
+Port of stakwork workflow 58313 ("Workflow Editor Agent Benchmark — Task
+Runner", v189235) plus its nested workflows, rebuilt on the lab's existing
+produce → run → judge → record substrate. Second purpose: use the same
+harness to PORT stakwork workflows onto vein one task at a time, with a
+rubric that checks the port is faithful.
+
+## Decision: the author is an `agent` step with `agentTools: ["meta/*"]`
+
+Not a "chat assistant as a step". Reasons:
+
+- The chat builder (`vein/src/ai/tools.ts`) and `meta/*` are the SAME
+  authoring capability (`services.authoring`). `meta/*` is its in-run form.
+  This is exactly how `gaia-evolve-gen` / `harvey-evolve-gen` already author
+  candidates, and it is what EVOLVE_SPEC §5.3.2 prescribes.
+- The chat is a detached background job with its own store, dispatch
+  notifications and auto-turn caps. Wrapping it as a step means polling a
+  chat and parsing prose; the agent step gives schema-mode structured
+  output, `cost`/`steps`, per-tool-call events on the canvas, retry/onError
+  and run-control tree linkage for free.
+- Stakwork 54419 "Workflow Editor JSON" is itself just a wrapper around an
+  agent loop (54517). The vein twin of "54419 as a black box returning
+  artifact pointers" is `agent` + `meta/*` returning `{ workflow, version }`.
+- Chat-only tools the author does NOT need: `bash` (forbidden next to
+  `meta/*`), `graph_query`, run control, `set_active_version`. The one
+  worth adding is `validate_workflow` → new `meta/validate-workflow` step
+  (thin wrapper over the same `validate(yaml, name)`).
+
+## Step map (58313 → vein)
+
+| 58313 (stakwork) | vein |
+| --- | --- |
+| `set_var` | workflow `input` + `params` |
+| EvalSet / EvalRequirement / EvalTrigger roster (55741, 58114, 55740, `hop_check_trigger_exists`, `guard_first_run`) | `graph/create-node` (EvalSet), `foreach` → `graph/create-node` (EvalRequirement), `graph/graph-neighbors` + `if` → `graph/create-triplet` with `HAS_BASELINE_TRIGGER` or `HAS_TRIGGER` |
+| `run_workflow_editor` (54419) | `agent` + `agentTools: ["meta/*"]`, `toolFilter: [str_replace_based_edit_tool]`, schema `{ workflow, version, summary, changes, missingSecrets }` |
+| `extract_artifacts.py`, JSONPath for workflowId/version | schema output; never trust the echo — `meta/get-workflow` pin fallback (`vpin.version || vactive.version`) + the `published` gate vs `vbefore` (copy from `gaia-evolve-gen`) |
+| 58414 WhileLoop ×15 + `api_fallback_fetch` | gone. `meta/publish-workflow` is synchronous; `meta/get-workflow { name, version }` returns the YAML |
+| `wfbench_check_input_keys.py` | pure step `wfbench/check-input-keys` (declared `input` keys of the produced YAML vs the task's `workflow_input_json`) |
+| 57425 Run Trigger + webhook wait | `meta/run-workflow { name, version, input }` — awaits, own runId, refuses non-`ai` workflows |
+| `wfbench_classify_run_result.py` | pure step `wfbench/classify-run` over `run.status` / `run.output` / `run.runId` |
+| `wfbench_build_produced_materials.py` | pure step `wfbench/build-materials` (produced YAML + agent-authored custom steps via `meta/get-step`, run output via `meta/get-run`, expected output, launch payload) |
+| `guard_materials_present` | `if n_materials > 0`, else harness error `no_materials_produced` |
+| skill `harvey_lab_score_rubric` (all criteria, one call) | `foreach` criteria → subflow `wfbench-judge-criterion` (clone of `harvey-judge-criterion`: agent schema mode, materials in prompt / artifacts dir, NO tools) → `eval/aggregate-scores`. Judge crash = `{ error }` = honest FAIL |
+| `guard_judge_ran`, `guard_valid_score` | `if` on aggregate output, else `judge_failed` |
+| 58312 record (EvalTriggerOutput + CriterionResult + edges) | `eval/build-eval-chain` → `graph/create-batch-triplet` (idempotent on runId) |
+| `resolve_webhook_payload` (4-way) + `post_result` | one `wfbench/pack-result` depending on every branch (`||` chain) → `if webhookUrl` → `http POST`. Output == what was posted (fixes the 58313 `set_output` divergence) |
+
+Webhook body: byte-compatible with what Hive parses today
+(`RunnerScoreSchema`): success `{ task_slug, task_title, n_passed, n_total,
+all_pass, pass_rate, judge_model, criteria_results }`, failure
+`{ harness_error: true, error_type }` with no score fields.
+
+## Files
+
+```
+mcp/src/lab/wfbench/
+  seed.ts                          # seedWfbenchSteps / seedWfbenchWorkflows (SEED_OPTS)
+  steps/
+    check-input-keys.ts            # pure
+    classify-run.ts                # pure
+    build-materials.ts             # pure (reads meta/* outputs passed in)
+    pack-result.ts                 # pure passthrough (like harvey/pack-result)
+    stakwork-fetch.ts              # GET jobs.stakwork.com workflow body + one project's
+                                   #   input/output; STAK_CUSTOMER_TOKEN via ctx.services.secrets
+  workflows/
+    wfbench-run.yaml               # the 58313 twin (input below)
+    wfbench-judge-criterion.yaml   # per-criterion judge subflow
+    wfbench-port-task.yaml         # stakwork workflow id → task object (+ derived rubric)
+    wfbench-batch.yaml             # foreach tasks → wfbench-run
+```
+
+`wfbench-run` input: `{ task_slug, task_title, instructions, criteria,
+workflow_input_json, rerun_expected_output?, webhookUrl?, namespace?,
+baseline_workflow? }`. Params: `authorSystem`, `authorModel`,
+`authorMaxSteps`, `judgeSystem`, `judgeModel`, `judgeMaxSteps`.
+
+Registered in `createLabVein.ts` next to gaia. Needs the graph (mcp's
+Neo4j), `ANTHROPIC_API_KEY`, and `STAK_CUSTOMER_TOKEN` in the secret store
+for the port path.
+
+## Grant discipline
+
+- author: `meta/*` + editor tool only. Never bash, never `graph/*`, never
+  `wfbench/*`.
+- judge: no tools (materials are pre-resolved into the prompt). Cheap and
+  non-gameable.
+- produced workflow: runs via `meta/run-workflow` so it is necessarily
+  publisher `ai`; the seeded harness surface can never be graded as a
+  candidate.
+
+## The port use case
+
+Each stakwork workflow becomes ONE task for `wfbench-run`:
+
+- `instructions` = the stakwork body JSON (`data.workflow` from
+  `wfbench/stakwork-fetch`) + "port this to vein" + a translation
+  cheat-sheet in `params.authorSystem`:
+  SetVar → `input`/`params`; JSONBuilder / JSONPathParser / IfElseValue →
+  `{{ }}` templates; Request → `http`; IfElseCondition → `if` + `when`;
+  WhileLoop → `loop`; ForEachCondition → `foreach`; WorkflowRunner →
+  `subflow`; Script → `meta/create-step`; Skill/LLM → `agent` / `llm`;
+  `[#(step).output.x]` → `{{ step.x }}`; `%%SECRET%%` → secret NAMES from
+  `meta/list-secrets` (the harvey seeder already did this mapping by hand
+  for the deliver pipeline — same rules, now given to the agent).
+- `workflow_input_json` + `rerun_expected_output` = one completed stakwork
+  project's real input and output for that workflow (fetched, not
+  invented). Faithfulness is then judged against a real run, not prose.
+- `criteria` = derived once per workflow by `wfbench-port-task` (an agent
+  in schema mode reading the stakwork body: same input keys, every step
+  with a side effect present, same output shape, secrets by name, no
+  hardcoded values) and kept as EvalRequirements after a human glance.
+  Nothing in the produce path ever sees them.
+
+`baseline_workflow` (Hive's v2 edit-existing case): `meta/publish-workflow`
+refuses to overwrite a workflow the agent surface did not author, so the
+harness first republishes the baseline YAML under `<name>-candidate` (now
+publisher `ai`) and points the author at that. Cheap to support from day
+one; 58313 v1 skipped it.
+
+## Small vein/lab changes needed
+
+1. DONE — `meta/validate-workflow` step (wraps the chat's `validate`).
+2. DONE — `harvey/build-eval-chain`, `harvey/aggregate-scores`,
+   `harvey/criterion-refs` promoted to `eval/*` (no aliases: harvey-score
+   and the smoke were re-pointed in the same change; `workflow` is now a
+   required input of build-eval-chain).
+
+## Not ported on purpose
+
+- 58414's polling loop and the `api_fallback_fetch` (no async publish).
+- 57425's webhook wait (`meta/run-workflow` awaits).
+- 54419's `set_metadata` gap on the `workflow_id="new"` path.
+- The graph "Page" blurb calling it a timing page.
