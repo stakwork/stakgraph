@@ -238,9 +238,15 @@ graceful pause-then-restart merely avoids re-spending the in-flight
 step. Three crash-specific hardenings:
 
 - **Torn tail.** A process killed mid-append can leave a truncated final
-  JSONL line (step outputs are large; single-write atomicity is not
-  guaranteed). The journal reader must skip an unparseable trailing line
-  — it belongs to an incomplete unit by definition.
+  JSONL line (step outputs are large; `appendFile` writes them in several
+  chunks). The resume endpoint HEALS the log first (`store.repairLog`:
+  truncate to the last newline) so the resumed run's first append starts
+  on a fresh line instead of being glued onto the fragment — which would
+  silently drop that event and leave a merged, unparseable line behind.
+  Independently, the readers (`getRunEvents`, `tailEvents`) skip any
+  corrupt line with a warning rather than throwing: a log that cannot be
+  read is a run that is stuck for good, and a corrupt line never belongs
+  to a completed unit.
 - **Durability policy.** `appendFile` lands in the page cache; a whole-
   SYSTEM crash (not a process kill) can lose recently "written" events.
   Option: fsync on `step.end` / run-level events only (the events worth
@@ -323,10 +329,13 @@ transcript per tool call and resume mid-session — deliberately out of
 v1, it drags in provider-state questions the rungs below don't need.
 
 **Validity guards.** Resume refuses when: a live controller exists for
-the runId (it's not dead, pause it instead); the workflow's current
-content hash differs from the one recorded at `run.start` (the runner
+the runId (it's not dead, pause it instead); no stored version of the
+workflow matches the content hash recorded at `run.start` (the runner
 must record it there — replaying outputs into a DIFFERENT DAG is
-undefined; power users may override with an explicit flag); or the run
+undefined; power users may override with an explicit flag). When the
+ACTIVE version's hash differs but an older or pinned version still
+matches, resume runs against that version — a long run must not
+dead-end on "content changed" just because someone published since; or the run
 finished successfully with no `from` invalidation (§5.2 — `error` and
 `cancelled` runs ARE resumable). Registry drift (a custom step edited
 between crash and resume) is allowed but WARNED — steps re-executing

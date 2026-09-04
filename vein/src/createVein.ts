@@ -312,7 +312,7 @@ export async function createVein<TServices = unknown>(
   const dataDir =
     opts.dataDir ??
     (fileBacked ? workspace.path : (process.env["VEIN_WORKSPACE"] ?? "./workspace"));
-  const store = opts.store ?? (fileBacked ? new FileRunStore(dataDir) : new MemoryRunStore());
+  const store: RunStore = opts.store ?? (fileBacked ? new FileRunStore(dataDir) : new MemoryRunStore());
   // Controllers for runs currently executing **in this process** (keyed
   // `${workflow}/${runId}`) — RUN_CONTROL_SPEC §2.2. A controller's presence
   // IS "in-flight" (superseding the old `activeRuns` set): detached execution
@@ -588,6 +588,21 @@ export async function createVein<TServices = unknown>(
   // `error`, or `cancelled` run — or, with `from`, re-runs a completed run
   // from a chosen step.
 
+  /** The stored workflow version whose content hash is `hash`, or null.
+   *  Lets a durable resume run against the exact DAG a run executed when
+   *  the active version has since moved on (§5 validity guard). */
+  const findWorkflowVersionByHash = async (name: string, hash: string): Promise<string | null> => {
+    const meta = await workspace.getWorkflowMetadata(name);
+    if (!meta) return null;
+    // Prefer the active version when it matches; then newest first so a
+    // republished identical version wins over an older twin.
+    const labels = Object.keys(meta.versions).sort((a, b) => b.localeCompare(a));
+    for (const v of [meta.active, ...labels]) {
+      if ((await workspace.getWorkflowHash(name, v)) === hash) return v;
+    }
+    return null;
+  };
+
   /** Resolve a control request target: its live controller (if any) and
    *  whether the run exists at all. */
   const findRun = async (name: string, runId: string) => {
@@ -659,6 +674,12 @@ export async function createVein<TServices = unknown>(
       );
     }
 
+    // Crash hardening (§5.1): a kill mid-append leaves a torn final line.
+    // Heal it BEFORE reading, or the resumed run's first append would be
+    // glued onto the fragment and the whole log would turn unreadable.
+    if (await store.repairLog?.(name, runId)) {
+      console.warn(`[run ${runId}] repaired a torn event log before resume`);
+    }
     const events = await store.getRunEvents(name, runId);
     const runStart = readRunStart(events);
     if (!runStart) {
@@ -666,6 +687,7 @@ export async function createVein<TServices = unknown>(
     }
 
     let flow: Flow;
+    let version: string | undefined;
     try {
       flow = await workspace.getWorkflow(name);
     } catch (err) {
@@ -673,18 +695,28 @@ export async function createVein<TServices = unknown>(
     }
 
     // Validity guard (§5): replaying outputs into a DIFFERENT DAG is
-    // undefined — refuse on a content-hash mismatch unless forced.
+    // undefined. When the active version's hash differs from the one
+    // recorded at run.start, resume against the version the run actually
+    // executed if it is still on record (a run of a pinned or since-
+    // superseded version must not dead-end on "content changed"); refuse
+    // only when no stored version matches, unless forced.
     const currentHash = await workspace.getWorkflowHash(name);
-    if (runStart.workflowHash && currentHash && runStart.workflowHash !== currentHash && !body.force) {
-      return c.json(
-        {
-          error:
-            `Workflow content changed since this run started (recorded ${runStart.workflowHash}, ` +
-            `active ${currentHash}) — replaying its journal into a different DAG is refused. ` +
-            `Pass { force: true } to override.`,
-        },
-        409,
-      );
+    if (runStart.workflowHash && currentHash && runStart.workflowHash !== currentHash) {
+      const pinned = await findWorkflowVersionByHash(name, runStart.workflowHash);
+      if (pinned) {
+        flow = await workspace.getWorkflowVersion(name, pinned);
+        version = pinned;
+      } else if (!body.force) {
+        return c.json(
+          {
+            error:
+              `Workflow content changed since this run started (recorded ${runStart.workflowHash}, ` +
+              `active ${currentHash}) and no stored version matches — replaying its journal into a ` +
+              `different DAG is refused. Pass { force: true } to override.`,
+          },
+          409,
+        );
+      }
     }
     if (!runStart.workflowHash) {
       console.warn(
@@ -716,9 +748,15 @@ export async function createVein<TServices = unknown>(
         params: runStart.params,
         paramOverrides: runStart.paramOverrides,
       },
-      { journal, resume: true },
+      { journal, resume: true, ...(version ? { version } : {}) },
     );
-    return c.json({ ok: true, runId, resumed: "journal", replaying: Object.keys(journal).length }, 202);
+    return c.json({
+      ok: true,
+      runId,
+      resumed: "journal",
+      replaying: Object.keys(journal).length,
+      ...(version ? { version } : {}),
+    }, 202);
   });
 
   // Resolve this workflow's declared `promotes` against a run's OUTPUT — the

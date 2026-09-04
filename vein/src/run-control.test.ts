@@ -867,6 +867,54 @@ describe("crash hardening", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("repairLog truncates a torn tail so the next append lands on its own line", async () => {
+    const dir = join(tmpdir(), `vein-test-${randomUUID()}`);
+    const store = new FileRunStore(dir);
+    const ev = (type: RunEvent["type"], path: string, extra: Partial<RunEvent> = {}) =>
+      ({ ts: "t", runId: "r1", path, type, ...extra }) as RunEvent;
+    await store.append("wf", "r1", ev("run.start", "wf", { input: {} }));
+    await store.append("wf", "r1", ev("step.end", "wf/a", { output: 1 }));
+    const file = join(dir, "workflows", "wf", "runs", "r1", "events.jsonl");
+    // SIGKILL mid-append: a large step.end cut off with no newline.
+    await appendFile(file, '{"ts":"t","runId":"r1","path":"wf/b","type":"step.end","output":"' + "x".repeat(200_000), "utf-8");
+
+    assert.equal(await store.repairLog("wf", "r1"), true);
+    assert.equal(await store.repairLog("wf", "r1"), false); // idempotent
+
+    // What a durable resume does next: append past the crash point.
+    await store.append("wf", "r1", ev("run.resumed", "wf"));
+    await store.append("wf", "r1", ev("step.replayed", "wf/a", { output: 1 }));
+    const events = await store.getRunEvents("wf", "r1");
+    assert.deepEqual(
+      events.map((e) => e.type),
+      ["run.start", "step.end", "run.resumed", "step.replayed"],
+    );
+    const tailed: string[] = [];
+    for await (const e of store.tailEvents("wf", "r1", { intervalMs: 10, signal: AbortSignal.timeout(300) })) {
+      tailed.push(e.type);
+    }
+    assert.deepEqual(tailed, ["run.start", "step.end", "run.resumed", "step.replayed"]);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("getRunEvents and tailEvents skip a corrupt line anywhere (a log never becomes unreadable)", async () => {
+    const dir = join(tmpdir(), `vein-test-${randomUUID()}`);
+    const store = new FileRunStore(dir);
+    const ev = (type: RunEvent["type"], path: string) => ({ ts: "t", runId: "r1", path, type }) as RunEvent;
+    await store.append("wf", "r1", ev("run.start", "wf"));
+    const file = join(dir, "workflows", "wf", "runs", "r1", "events.jsonl");
+    // A torn fragment that a later append got glued onto (the pre-repairLog failure mode).
+    await appendFile(file, '{"ts":"t","runId":"r1","path":"wf/b","type":"step.e{"ts":"t","type":"run.resumed"}\n', "utf-8");
+    await store.append("wf", "r1", ev("run.end", "wf"));
+
+    const events = await store.getRunEvents("wf", "r1");
+    assert.deepEqual(events.map((e) => e.type), ["run.start", "run.end"]);
+    const tailed: string[] = [];
+    for await (const e of store.tailEvents("wf", "r1", { intervalMs: 10 })) tailed.push(e.type);
+    assert.deepEqual(tailed, ["run.start", "run.end"]);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("tailEvents scans past run.error when a run.resumed follows (historical reopen)", async () => {
     const dir = join(tmpdir(), `vein-test-${randomUUID()}`);
     const store = new FileRunStore(dir);
@@ -933,7 +981,23 @@ describe("run control endpoints", () => {
     });
     const store = vein.store as FileRunStore;
     const cleanup = () => rm(dir, { recursive: true, force: true });
-    return { vein, workspace, store, cleanup };
+    return { vein, workspace, store, dir, cleanup };
+  }
+
+  /** Poll a run's log until `pred` holds (a resumed run's run.json already
+   *  exists, so completion is observed on the log, not the summary). */
+  async function waitForLog(
+    store: FileRunStore,
+    wf: string,
+    runId: string,
+    pred: (events: RunEvent[]) => boolean,
+  ) {
+    const deadline = Date.now() + 3000;
+    for (;;) {
+      if (pred(await store.getRunEvents(wf, runId))) return;
+      if (Date.now() > deadline) throw new Error("waitForLog timed out");
+      await sleep(10);
+    }
   }
 
   async function waitForSummary(store: FileRunStore, wf: string, runId: string) {
@@ -1058,7 +1122,7 @@ describe("run control endpoints", () => {
   it("POST resume durably resumes a failed run (replay + retry) and enforces the hash guard", async () => {
     const counter = createCounterStep();
     const flakey = createFlakeyStep(1);
-    const { vein, workspace, store, cleanup } = await makeServer({
+    const { vein, workspace, store, dir, cleanup } = await makeServer({
       counter: counter.stepDef,
       flakey: flakey.stepDef,
     });
@@ -1111,7 +1175,11 @@ describe("run control endpoints", () => {
       });
       assert.equal(refuse.status, 400);
 
-      // Hash guard: publish a CHANGED active version → resume with `from` is refused…
+      // Hash guard: publish a CHANGED active version. The run's recorded hash
+      // still matches the stored v1, so resume runs against v1 — the run
+      // must not dead-end on "content changed" just because the active
+      // version moved on.
+      const v1 = (await workspace.getWorkflowMetadata("resumable"))!.active;
       await workspace.publishWorkflowByContent(
         "resumable",
         [
@@ -1126,12 +1194,87 @@ describe("run control endpoints", () => {
           "    config: { result: changed }",
         ].join("\n"),
       );
+      const pinned = await vein.app.request(`/workflows/resumable/runs/${runId}/resume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ from: "resumable/two" }),
+      });
+      assert.equal(pinned.status, 202);
+      assert.equal(((await pinned.json()) as { version?: string }).version, v1);
+      await waitForLog(store, "resumable", runId, (evts) =>
+        evts.filter((e) => e.type === "run.resumed").length === 2 && evts[evts.length - 1]!.type === "run.end");
+      assert.equal(flakey.attempts(), 3);
+      const evts = await store.getRunEvents("resumable", runId);
+      // v1's DAG: no `three` step ran, and the run completed again.
+      assert.ok(!evts.some((e) => e.path === "resumable/three"));
+      assert.equal(evts[evts.length - 1]!.type, "run.end");
+
+      // No stored version matches the recorded hash → refused without force.
+      const file = join(dir, "workflows", "resumable", "runs", runId, "events.jsonl");
+      const raw = await readFile(file, "utf-8");
+      await writeFile(file, raw.replace(/"workflowHash":"[^"]+"/, '"workflowHash":"deadbeef"'), "utf-8");
       const mismatch = await vein.app.request(`/workflows/resumable/runs/${runId}/resume`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ from: "resumable/two" }),
       });
       assert.equal(mismatch.status, 409);
+      const forced = await vein.app.request(`/workflows/resumable/runs/${runId}/resume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ from: "resumable/two", force: true }),
+      });
+      assert.equal(forced.status, 202);
+      await waitForLog(store, "resumable", runId, (evts) =>
+        evts.filter((e) => e.type === "run.resumed").length === 3 && evts[evts.length - 1]!.type === "run.end");
+      assert.equal(flakey.attempts(), 4);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("POST resume heals a torn log (crash mid-append) and the resumed log stays readable", async () => {
+    const counter = createCounterStep();
+    const flakey = createFlakeyStep(1);
+    const { vein, workspace, store, dir, cleanup } = await makeServer({
+      counter: counter.stepDef,
+      flakey: flakey.stepDef,
+    });
+    try {
+      await workspace.publishWorkflowByContent(
+        "torn",
+        ["name: torn", "steps:", "  - id: one", "    type: counter", "  - id: two", "    type: flakey"].join("\n"),
+      );
+      const launch = await vein.app.request("/workflows/torn/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: {} }),
+      });
+      const { runId } = (await launch.json()) as { runId: string };
+      assert.equal((await waitForSummary(store, "torn", runId)).status, "error");
+
+      // Make it look like the process died mid-append: no run.json, torn tail.
+      const runDir = join(dir, "workflows", "torn", "runs", runId);
+      await rm(join(runDir, "run.json"));
+      await appendFile(join(runDir, "events.jsonl"), '{"ts":"t","runId":"' + runId + '","path":"torn/two","type":"step.end","output":{"partial', "utf-8");
+
+      const resume = await vein.app.request(`/workflows/torn/runs/${runId}/resume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      assert.equal(resume.status, 202);
+      const summary = await waitForSummary(store, "torn", runId);
+      assert.equal(summary.status, "success");
+      assert.equal(counter.calls(), 1);
+
+      const types = (await store.getRunEvents("torn", runId)).map((e) => e.type);
+      assert.ok(types.includes("run.resumed"), `run.resumed survived: ${types.join(",")}`);
+      assert.ok(types.includes("step.replayed"));
+      assert.equal(types[types.length - 1], "run.end");
+      // No partial-JSON garbage left in the log.
+      const raw = await readFile(join(runDir, "events.jsonl"), "utf-8");
+      for (const line of raw.split("\n").filter(Boolean)) JSON.parse(line);
     } finally {
       await cleanup();
     }
