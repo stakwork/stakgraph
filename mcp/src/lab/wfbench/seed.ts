@@ -24,7 +24,6 @@ import { SEED_OPTS } from "../seed-opts.js";
  *   wfbench/build-materials    judge materials (wfbench_build_produced_materials.py)
  *   wfbench/build-eval-output  EvalTriggerOutput + CriterionResult triplets (58312)
  *   wfbench/webhook-body       the one Hive callback body (resolve_webhook_payload)
- *   wfbench/pack-result        passthrough combiner / onError pack
  *
  * GRANT DISCIPLINE: none of wfbench/* is ever granted to an agent's
  * agentTools — the author gets meta/* only, the judge gets nothing.
@@ -39,7 +38,6 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "build-materials.ts", type: "wfbench/build-materials" },
   { file: "build-eval-output.ts", type: "wfbench/build-eval-output" },
   { file: "webhook-body.ts", type: "wfbench/webhook-body" },
-  { file: "pack-result.ts", type: "wfbench/pack-result" },
 ];
 
 const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [

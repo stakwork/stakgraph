@@ -26,7 +26,7 @@ steps:
       retry: { max: 1, delayMs: 10000 }
       onError:
         id: judge_failed
-        type: wfbench/pack-result
+        type: pack
         config:
           error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:

@@ -141,7 +141,7 @@ steps:
       retry: { max: 1, delayMs: 15000 }
       onError:
         id: author_failed
-        type: wfbench/pack-result
+        type: pack
         config:
           error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
@@ -326,7 +326,7 @@ steps:
     options:
       onError:
         id: scores_failed
-        type: wfbench/pack-result
+        type: pack
         config:
           error: "{{ $error.message }}"
     config:
@@ -392,7 +392,7 @@ steps:
     options:
       onError:
         id: post_failed
-        type: wfbench/pack-result
+        type: pack
         config:
           error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
@@ -403,7 +403,7 @@ steps:
 
   # The run's output IS the callback body, plus diagnostics for humans.
   - id: result
-    type: wfbench/pack-result
+    type: pack
     depends: [post, have_webhook, body, critrefs]
     config:
       callback: "{{ body }}"

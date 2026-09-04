@@ -50,7 +50,7 @@ async function main() {
       "wfbench/build-materials",
       "wfbench/build-eval-output",
       "wfbench/webhook-body",
-      "wfbench/pack-result",
+      "pack",
       "eval/aggregate-scores",
       "eval/criterion-refs",
       "artifacts/dir",
@@ -283,7 +283,7 @@ async function main() {
     console.log("✔ webhook-body (keys / launch / no materials / judge failed ×2 / success — exact Hive keys)");
 
     // ── 12. pack-result ──────────────────────────────────────────────────
-    assert.deepEqual(await run("wfbench/pack-result", { a: 1, b: { c: 2 } }), { a: 1, b: { c: 2 } });
+    assert.deepEqual(await run("pack", { a: 1, b: { c: 2 } }), { a: 1, b: { c: 2 } });
     console.log("✔ pack-result");
 
     console.log("\nALL WFBENCH SMOKE CHECKS PASSED");

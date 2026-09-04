@@ -44,7 +44,7 @@ Not a "chat assistant as a step". Reasons:
 | skill `harvey_lab_score_rubric` (all criteria, one call) | `foreach` criteria → subflow `wfbench-judge-criterion` (clone of `harvey-judge-criterion`: agent schema mode, materials in prompt / artifacts dir, NO tools) → `eval/aggregate-scores`. Judge crash = `{ error }` = honest FAIL |
 | `guard_judge_ran`, `guard_valid_score` | `if` on aggregate output, else `judge_failed` |
 | 58312 record (EvalTriggerOutput + CriterionResult + edges) | `eval/build-eval-chain` → `graph/create-batch-triplet` (idempotent on runId) |
-| `resolve_webhook_payload` (4-way) + `post_result` | one `wfbench/pack-result` depending on every branch (`||` chain) → `if webhookUrl` → `http POST`. Output == what was posted (fixes the 58313 `set_output` divergence) |
+| `resolve_webhook_payload` (4-way) + `post_result` | one `pack` depending on every branch (`||` chain) → `if webhookUrl` → `http POST`. Output == what was posted (fixes the 58313 `set_output` divergence) |
 
 Webhook body: byte-compatible with what Hive parses today
 (`RunnerScoreSchema`): success `{ task_slug, task_title, n_passed, n_total,

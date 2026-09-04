@@ -206,7 +206,7 @@ steps:
         webhookUrl: "{{ input.webhookUrl }}"
 
   - id: result
-    type: harvey/pack-result
+    type: pack
     depends: score
     config:
       task: "{{ input.task }}"

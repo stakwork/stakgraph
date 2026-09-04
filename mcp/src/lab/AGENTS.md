@@ -519,7 +519,7 @@ are thin plumbing over `ctx.services.gaia.*`.
 - **Committed harness** (`gaia/seed.ts`, seeded at boot like harvey's):
   steps `gaia/list-tasks`, `gaia/get-task` (stages a task's attached file
   into the run's artifacts dir), `gaia/evaluate` (HARNESS-ONLY), and the
-  combiners `gaia/pack-result` + `gaia/summarize-batch`; workflows
+  combiner `gaia/summarize-batch` (+ vein's core `pack`); workflows
   `gaia-produce` (agent step; the produce system prompt, model, maxSteps: 50
   and agentTools live in `params`; an `onError` fallback scores a blown-up
   agent as an empty wrong answer instead of killing the batch), `gaia-run`
@@ -554,7 +554,7 @@ are thin plumbing over `ctx.services.gaia.*`.
   unmeasured (`baselineSamples: 1`, the pre-Phase-1 behavior).
   Candidate contract: input `{ taskId }`, last step outputs `taskId`,
   `answer` (bare string), `cost`, `steps`; candidates may use
-  `gaia/get-task` / `gaia/pack-result` as steps but NEVER `gaia/evaluate`
+  `gaia/get-task` / `pack` as steps but NEVER `gaia/evaluate`
   (produce-time oracle) and never gaia/*, eval/*, meta/* as agentTools.
   Scores are TRAIN scores — validate the best version on a held-out
   `gaia-batch` slice before promoting. Offline checks:

@@ -96,7 +96,7 @@ steps:
 
   # ── promote: the reviewable report ─────────────────────────────────────
   - id: report
-    type: gaia/pack-result
+    type: pack
     depends: evolve
     config:
       mission: "{{ input.mission }}"
