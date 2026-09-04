@@ -61,6 +61,13 @@ vein/
 │   │   │                  #                   validate_workflow (static YAML check, no publish — src/validate.ts)
 │   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
 │   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
+│   ├── audio/             # speech-to-text over sherpa-onnx (plans/local-desktop-and-stt.md §4). Streaming dictation is the product surface; workflows learn AROUND it (hotword lists, "dream cycles" §4.8), no STT step in v1
+│   │   ├── stt.ts         # createStt(): model download+verify, recognizer cache, streams (PCM in → partial/final out), two-recognizer mode (fast greedy partials + hotword-capable finals), batch transcribe; sherpa is an optionalDependency, lazy-imported, fakeable via `engine`
+│   │   ├── models.ts      # catalog: id → release URL + sha256 + chunk latency + hotwords?; VEIN_MODEL_DIR/stt/<id>
+│   │   ├── hotwords.ts    # contextual biasing: list format, synthesized bpe.vocab from tokens.txt (REQUIRED with modelingUnit "bpe" — unset = cjkchar = silent no-op), named lists under <dataDir>/audio/hotwords
+│   │   ├── sessions.ts    # <dataDir>/audio/sessions/<id>.jsonl: finals + user corrections (the dream cycle's training data)
+│   │   ├── ws.ts          # GET /audio/stream WebSocket (raw `ws` on the Node server — @hono/node-ws doesn't support node-server 2.x); Bearer or ?key=
+│   │   └── routes.ts      # /audio/models (+ SSE download), /audio/transcribe (WAV body), /audio/hotwords/:name, /audio/sessions/:id (+ corrections)
 │   ├── graph/             # jarvis-compatible Neo4j graph backend over bolt, no jarvis in the loop (plans/jarvis-graph-compat.md). Opt-in via openGraphBackend
 │   │   ├── bolt.ts        # neo4j-driver wrapper; int() for Integer writes (plain JS numbers write as FLOAT)
 │   │   ├── vein-schemas.ts# the 9 Vein node types + 14-row edge registry (label registry in plans/generic-storage.md); author-time checks
@@ -121,6 +128,11 @@ npm run dev                 # starts Hono server on :3000
 docker run -d --name vein-neo4j-test -p 7688:7687 -e NEO4J_AUTH=neo4j/veintest neo4j:5
 VEIN_TEST_NEO4J_URI=bolt://localhost:7688 VEIN_TEST_NEO4J_PASSWORD=veintest npm run test:graph
 
+# Speech-to-text live test — needs the sherpa addon (optionalDependency,
+# installed by `npm install` on supported platforms) and downloads the 57 MB
+# kroko model into VEIN_TEST_STT_MODEL_DIR (temp dir when unset).
+VEIN_TEST_STT=1 npm run test:stt
+
 # Web UI (dev mode with HMR)
 cd vein/web
 npm install
@@ -151,7 +163,9 @@ cd vein && npm run dev        # serves API + UI on :3000
 | `VEIN_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Vein node is written into |
 | `VEIN_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
 | `VEIN_GRAPH_SEED_ONTOLOGY` | (off)   | `1` seeds the bundled jarvis ontology (151 schemas + edge schemas + indexes, add-only) on first open, so a standalone Neo4j can host jarvis-typed data (Document, EvalSet, Concept, …) with no jarvis process. No-op on a jarvis-seeded DB. |
-| `VEIN_MODEL_CACHE`  | `~/.cache/vein-models` | Where the embedding model's ONNX files are cached |
+| `VEIN_MODEL_DIR`    | `~/.cache/vein-models` | Local model files: MiniLM's ONNX cache and STT models under `stt/<id>/`. `VEIN_MODEL_CACHE` is the older alias. |
+| `VEIN_STT_MODEL`    | `zipformer-en-kroko` | Finals recognizer for `/audio/stream` + `/audio/transcribe` (hotword-capable) |
+| `VEIN_STT_PARTIAL_MODEL` | `nemo-fast-conformer-en-80ms` | Fast greedy recognizer whose output is shown as live partials; `off` for single-recognizer streams |
 
 ## Auth
 

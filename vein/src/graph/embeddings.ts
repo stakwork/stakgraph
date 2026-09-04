@@ -30,7 +30,7 @@ export interface MiniLMOptions {
   /** HF repo id of an ONNX export of all-MiniLM-L6-v2. */
   model?: string;
   /** Where model files are cached. Default `~/.cache/vein-models`
-   *  (override with `VEIN_MODEL_CACHE`). */
+   *  (override with `VEIN_MODEL_DIR`, or the older alias `VEIN_MODEL_CACHE`). */
   cacheDir?: string;
   /** Texts per forward pass. */
   batchSize?: number;
@@ -52,7 +52,7 @@ export class MiniLMEmbedder implements Embedder {
   /** Load (downloading on first use) and self-check the output dimension. */
   static async load(opts: MiniLMOptions = {}): Promise<MiniLMEmbedder> {
     const tf: Transformers = await import("@huggingface/transformers");
-    tf.env.cacheDir = opts.cacheDir ?? process.env["VEIN_MODEL_CACHE"] ?? join(homedir(), ".cache", "vein-models");
+    tf.env.cacheDir = opts.cacheDir ?? process.env["VEIN_MODEL_DIR"] ?? process.env["VEIN_MODEL_CACHE"] ?? join(homedir(), ".cache", "vein-models");
     tf.env.allowLocalModels = false;
     const model = opts.model ?? EMBEDDING_MODEL;
     const [tokenizer, net] = await Promise.all([
