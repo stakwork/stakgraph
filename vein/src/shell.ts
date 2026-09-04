@@ -71,12 +71,17 @@ export function capture(
         finish(() => resolve(cap(stdout)));
       }
     });
-    child.stderr?.on("data", (d) => (stderr += d.toString()));
+    // stderr is capped the same way stdout is: a failing build can emit
+    // megabytes, and an uncapped string here both risks V8's max string
+    // length and dumps the whole thing into a tool result the model reads.
+    child.stderr?.on("data", (d) => {
+      if (stderr.length <= maxBytes) stderr += d.toString();
+    });
     child.on("close", (code) =>
       finish(() => {
         if (code === 0) resolve(cap(stdout));
         else if (code === 1 && !stderr) resolve(cap(stdout) || "No matches found");
-        else reject(new Error(`Command failed (${code}): ${stderr || stdout || "Unknown error"}`));
+        else reject(new Error(`Command failed (${code}): ${cap(stderr || stdout || "Unknown error")}`));
       }),
     );
     child.on("error", (err) => finish(() => reject(err)));
