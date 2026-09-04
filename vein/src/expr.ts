@@ -547,6 +547,40 @@ export function evaluateExpr(
 const TEMPLATE_RE = /\{\{(.*?)\}\}/g;
 
 /**
+ * STATIC analysis for the workflow validator: the scope roots an expression
+ * reads (`fetch.body.x` → `fetch`; `items.map(n => n.id)` → `items`, since
+ * `n` is lambda-bound). Tokenizes only (a bad character throws
+ * `TemplateError`); it does not parse the grammar or evaluate.
+ */
+export function exprRoots(expr: string): string[] {
+  const tokens = tokenize(expr.trim());
+  const bound = new Set<string>();
+  const roots = new Set<string>();
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (t.type !== "ident") continue;
+    if (tokens[i + 1]?.type === "arrow") {
+      bound.add(t.value);
+      continue;
+    }
+    const prev = tokens[i - 1]?.type;
+    if (prev === "dot" || prev === "optionalDot") continue; // member name
+    if (LITERAL_IDENTS.has(t.value) || bound.has(t.value)) continue;
+    roots.add(t.value);
+  }
+  return [...roots];
+}
+const LITERAL_IDENTS = new Set(["true", "false", "null", "undefined"]);
+
+/** Every `{{ expr }}` body in a template string, in order. */
+export function templateExprs(value: string): string[] {
+  const out: string[] = [];
+  TEMPLATE_RE.lastIndex = 0;
+  for (const m of value.matchAll(TEMPLATE_RE)) out.push(m[1]!);
+  return out;
+}
+
+/**
  * Check if a string contains template expressions.
  */
 export function hasTemplates(value: string): boolean {

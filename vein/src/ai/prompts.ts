@@ -2,6 +2,7 @@ import type { StepRegistry, RunResult } from "../core.js";
 import type { WorkspaceStore } from "../workspace.js";
 import type { RunStore } from "../store.js";
 import type { SecretInfo } from "../secret-store.js";
+import type { GraphBackend } from "../graph/backend.js";
 import { lsSteps } from "./stepHelpers.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -33,6 +34,11 @@ export interface AiDeps {
    *  env (see shell.ts — server API keys never reach model-authored
    *  commands). Optional: without it the bash tool isn't offered. */
   shell?: { cwd: string };
+  /** The vein graph backend, when the deployment has one (the graph-backed
+   *  workspace, or any wired Neo4j). Offers the read-only `graph_query`
+   *  tool so the builder can verify what its `graph/*` steps wrote. Optional:
+   *  without it the tool isn't offered. */
+  graph?: GraphBackend;
   /** Offer the anthropic provider-executed web_search tool (same tool the
    *  agent step ships). Chat is anthropic-only, so the standard server sets
    *  this; leave unset for tests / non-anthropic embedders. */
@@ -62,6 +68,16 @@ export interface AiDeps {
     runId: string,
     parentRunId?: string,
   ) => { controller?: import("../run-control.js").RunController; untrack: () => void };
+  /** Control a LIVE run in this process (cancel / pause / resume), the same
+   *  path the HTTP control endpoints take. Enables the chat `cancel_run` /
+   *  `pause_run` / `resume_run` tools — so a builder that launched a run
+   *  (run_workflow auto-detaches long ones) can also stop it. Optional:
+   *  without it the tools aren't offered. */
+  controlRun?: (
+    workflow: string,
+    runId: string,
+    action: "cancel" | "pause" | "resume",
+  ) => Promise<{ ok: true; runId: string; state: string } | { ok: false; error: string }>;
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────
@@ -172,11 +188,15 @@ Tools:
 - list_secrets(): NAMES of credentials in the deployment's secret store (never values). Call before authoring a step that needs auth — reference an existing name in ctx.services.secrets.get("NAME"), or tell the user to add a missing one.
 - create_step / edit_step: author or revise a custom step (see above).
 - bash(command, timeoutMs?): BUILD-TIME shell in the workspace dir (when offered) — probe an API's real response shape with curl before authoring a step, clone a repo into scratch/ to study a format, check a CLI exists, inspect a run's file outputs under artifacts/<runId>/. Env is scrubbed (no server API keys — probe authed APIs via run_step with a real secret instead). NEVER a substitute for ctx.services.http/secrets inside a step: a step that shells out with curl or child_process is wrong — it breaks cassette record/replay and secret scrubbing.
+- graph_query(cypher, params?, maxRows?) (when offered): READ-ONLY raw Cypher against the vein graph — for VERIFYING what a workflow's graph/* steps actually wrote (counts by type, exact properties, edge fan-out) or inspecting graph-backed workspace state. Writes are rejected; go through the graph/* steps to write. Nodes carry their type as a label plus :Node:Data_Bank and {ref_id, node_key, namespace} — filter on namespace. Output is capped (rows/strings/vectors) — aggregate or LIMIT rather than dumping. Not something workflows can call.
 - web_search (when offered): search the web — for API documentation while authoring (endpoint shapes, auth schemes, rate limits), not something workflows can call (give a workflow agent web access via the agent step's built-in web_search instead).
 - run_step("<type>", config?, input?, params?, cassette?, cassetteName?): run ONE step in isolation and get its output — the inner loop for authoring an adapter, no workflow needed. After create_step, call run_step to test it. Use cassette:"record" for the first live run (captures external calls to a fixture, secrets scrubbed), then cassette:"replay" to iterate offline (deterministic, no rate limits, no side effects) while you edit_step.
 - list_workflows(): list existing workflows (name, active version, versions, description). Check this before creating a new workflow or referencing one in a subflow.
 - get_workflow("<name>", version?): read an existing workflow's full YAML + version metadata. Call before editing, referencing, or reusing a workflow you didn't just write.
+- validate_workflow(yaml): STATIC check of workflow YAML without publishing — unknown step types, bad/duplicate ids, depends on unknown ids or cycles, template refs to unknown roots, config that fails the step schema (template-valued fields are skipped), missing subflow targets. Returns errors (would fail/hang at run time) + warnings. create_workflow / edit_workflow run the SAME check and REFUSE to publish on errors (returning them), so use validate_workflow to iterate on a draft; warnings never block but come back with the publish result — consider them.
 - create_workflow / edit_workflow: publish a NEW workflow, or a new VERSION of an existing one. edit_workflow is for STRUCTURAL changes (add/remove steps, rewire depends, promote a winning params default). To merely try a different prompt/threshold value, do NOT publish a version — pass params to run_workflow (those are runs, not versions). Both accept an optional category (a sidebar grouping label, e.g. an experiment name) — set it when the user asks or when the workflow clearly belongs with an existing group (list_workflows shows categories in use).
+- set_active_version(kind, "<name>", "<version>"): ROLLBACK — make a prior version of a workflow or custom step the active one (the one runs and the registry use). No new version is published; history is kept. Use this when a new version turns out worse ("go back to v2") instead of republishing old source as a fresh version.
+- cancel_run / pause_run / resume_run("<name>", "<runId>") (when offered): control a run that is LIVE in this process — e.g. a detached run_workflow you launched with the wrong input, or one you want to stop after seeing partial output in get_run. Only live runs; a finished run reports its terminal status instead. resume_run continues a run you paused.
 - set_workflow_category("<name>", category|null): set or clear a workflow's sidebar category without publishing a version. Use for "categorize/group these workflows" requests.
 - run_workflow("<name>", input?, params?, version?): run a published workflow and return its result. LONG RUNS AUTO-DETACH: if the run is still executing after the wait window (~a minute), the call returns { status: "running", detached: true, runId } and the run continues in the background. When it finishes, a "[run-notification]" user message will automatically start your next turn with the outcome (several runs finishing while you work arrive batched in one message). Do NOT poll get_run in a loop while waiting — finish your turn normally, stating what you launched and what you plan to do when the result arrives.
 - list_runs("<name>", limit?): a workflow's past runs (newest first) with status/duration — for inspecting history or comparing experiment runs.
@@ -187,9 +207,9 @@ Workflow:
 1. Available step types are listed at the end of this prompt. Use search_steps only if you need to find something by keyword; use list_steps only to re-list after creating new custom steps.
 2. Call get_step for EVERY step type you will use. Each has a description with the exact YAML config format — you MUST read it before writing. Do not guess config fields.
 3. If a needed step doesn't exist, author it with create_step (or edit_step to revise one), then it's available by its type. For a step that hits an external API, test it in isolation with run_step BEFORE wiring it into a workflow: run_step(type, config, cassette:"record") once to capture a fixture, then run_step(..., cassette:"replay") + edit_step to iterate offline until the output is right.
-4. Call create_workflow with the final YAML (or edit_workflow to publish a new version of an existing workflow — get_workflow to read it first).
+4. Call validate_workflow on the YAML and fix every error (warnings are judgment calls) — create_workflow / edit_workflow refuse to publish while errors remain. Then call create_workflow with the final YAML (or edit_workflow to publish a new version of an existing workflow — get_workflow to read it first).
 5. Call run_workflow with a sample input to test it — pass "input" as a JSON OBJECT (e.g. { "owner": "vercel", "repo": "next.js", "pull_number": 1 }), NOT a JSON string. Report the result (success/error, output, or which step failed) to the user. If the run auto-detaches (see run_workflow above), report the launch and end your turn — the [run-notification] will bring you back.
-6. To debug a failure or inspect prior behavior, use list_runs + get_run. To build on or reference existing workflows, use list_workflows + get_workflow first.
+6. To debug a failure or inspect prior behavior, use list_runs + get_run. After running a workflow that writes to the graph (graph/create-node, graph/create-triplet, …), verify the result with graph_query (when offered) — count the nodes/edges you expected and read back a sample's properties — rather than trusting the step's status alone. To build on or reference existing workflows, use list_workflows + get_workflow first.
 
 Be concise. Don't over-explain.`;
 

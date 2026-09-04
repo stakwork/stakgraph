@@ -1484,9 +1484,17 @@ body.is-resizing-flyout * {
 }
 .chat-tool-result-head:hover { color: var(--text); }
 .chat-tool-chev {
-  display: inline-block;
-  width: 10px;
-  font-size: 10px;
+  /* Drawn with borders rather than a "\25B8" glyph: the glyph's ink sits
+     off-center in its em box, so it reads low when closed and swings while
+     rotating. A border triangle has exact geometry, so it spins in place. */
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  margin: 0 3px 0 1px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transform-origin: 2px 50%;
   transition: transform 0.12s ease;
 }
 .chat-tool-chev.is-open { transform: rotate(90deg); }

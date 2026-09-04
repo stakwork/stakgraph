@@ -50,7 +50,7 @@ export function ToolResultView(props: {
         onClick={props.onToggle}
         aria-expanded={open}
       >
-        <span class={`chat-tool-chev${open ? " is-open" : ""}`} aria-hidden="true">▸</span>
+        <span class={`chat-tool-chev${open ? " is-open" : ""}`} aria-hidden="true" />
         <span class="chat-tool-result-label">{label}</span>
         <span class="chat-tool-result-size">{formatSize(text.length)}</span>
       </button>
