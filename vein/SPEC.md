@@ -263,6 +263,23 @@ Config:
 - Calls an LLM with the resolved prompt. If `schema` is provided, uses structured output (e.g. `generateObject`).
 - Output: `{ text: string }` (no schema) or the parsed object (with schema).
 
+#### 4.1.7 `pack`
+
+Config: any object. Output: that object, template-resolved. The workflow's
+output is its last step's output, so `pack` is how a workflow returns fields
+from several steps — and how an `onError` fallback packs an explicit failure
+shape instead of killing the run.
+
+```yaml
+- id: result
+  type: pack
+  depends: [fetch, score]
+  config:
+    repo: "{{ input.repo }}"
+    stars: "{{ fetch.body.stargazers_count }}"
+    verdict: "{{ score.all_pass ? 'pass' : 'fail' }}"
+```
+
 ### 4.2 Lib Steps
 
 Lib steps live in `src/steps/lib/<namespace>/` inside the engine itself. They are reusable domain-specific integrations (GitHub, Neo4j, Slack, …) that ship with vein but are kept out of the static dependency graph. Each file is a `defineStep(...)` export, same as core steps.

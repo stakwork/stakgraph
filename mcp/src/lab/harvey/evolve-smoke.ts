@@ -36,7 +36,7 @@ async function main() {
     // step types referenced by the workflows all exist in the registry
     const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     const wanted = [
-      "harvey/get-task", "harvey/evaluate", "harvey/pack-result", "harvey/digest-results",
+      "harvey/get-task", "harvey/evaluate", "pack", "harvey/digest-results",
       "eval/evolve-loop", "artifacts/dir", "meta/run-workflow", "agent", "subflow", "foreach",
     ];
     for (const t of wanted) assert.ok(registry[t], `registry has ${t}`);

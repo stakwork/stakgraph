@@ -54,7 +54,7 @@ steps:
       # deep must exist here (§5.3.5).
       onError:
         id: grade_failed
-        type: gaia/pack-result
+        type: pack
         config:
           taskId: "{{ input.taskId }}"
           isCorrect: false
@@ -68,7 +68,7 @@ steps:
         run: "{{ run }}"
 
   - id: result
-    type: gaia/pack-result
+    type: pack
     depends: grade
     config:
       taskId: "{{ input.taskId }}"

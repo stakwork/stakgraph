@@ -15,8 +15,7 @@ import { SEED_OPTS } from "../seed-opts.js";
  *   producing agents.
  * - `harvey/evaluate` — stage deliverables + run the real eval. Grant ONLY
  *   to harness workflows, never to the producing agent.
- * - `harvey/pack-result` — echo combiner (assemble workflow outputs; onError
- *   fallbacks).
+ * - (the echo combiner is vein's core `pack` step now — not seeded here)
  * - `harvey/digest-results` — aggregate graded results into the propose
  *   digest (verdict channel only; see the step header).
  *
@@ -27,7 +26,6 @@ import { SEED_OPTS } from "../seed-opts.js";
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "get-task.ts", type: "harvey/get-task" },
   { file: "evaluate.ts", type: "harvey/evaluate" },
-  { file: "pack-result.ts", type: "harvey/pack-result" },
   { file: "digest-results.ts", type: "harvey/digest-results" },
   // harvey-deliver pipeline steps (standalone production-style pipeline —
   // rubric as input; NOT part of the benchmark harness): intake, drafting

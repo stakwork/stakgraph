@@ -64,7 +64,7 @@ steps:
       retry: { max: 1, delayMs: 15000 }
       onError:
         id: ingest_failed
-        type: harvey/pack-result
+        type: pack
         config:
           error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
     config:
@@ -121,7 +121,7 @@ steps:
   # skip-propagation never swallows this. Refs into a skipped branch resolve
   # undefined-safe in pack-result.
   - id: result
-    type: harvey/pack-result
+    type: pack
     depends: [mark, needed, docnode]
     config:
       file: "{{ input.file }}"

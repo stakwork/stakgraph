@@ -18,7 +18,8 @@ import { SEED_OPTS } from "../seed-opts.js";
  *   artifacts dir so agent steps (cwd = artifacts dir) can read it.
  * - `gaia/evaluate` — the real leaderboard scorer. HARNESS-ONLY: grant only
  *   to harness workflows, never to a producing agent's `agentTools`.
- * - `gaia/pack-result`, `gaia/summarize-batch` — pure combiners.
+ * - `gaia/summarize-batch` — pure combiner (the echo combiner is vein's core
+ *   `pack` step now).
  * - `gaia/digest-results` — aggregate graded results into the evolve loop's
  *   propose digest (verdict channel only; accuracy as `fitness`).
  *
@@ -35,7 +36,6 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "list-tasks.ts", type: "gaia/list-tasks" },
   { file: "get-task.ts", type: "gaia/get-task" },
   { file: "evaluate.ts", type: "gaia/evaluate" },
-  { file: "pack-result.ts", type: "gaia/pack-result" },
   { file: "summarize-batch.ts", type: "gaia/summarize-batch" },
   { file: "digest-results.ts", type: "gaia/digest-results" },
 ];

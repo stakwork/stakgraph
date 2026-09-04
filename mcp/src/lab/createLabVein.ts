@@ -23,6 +23,7 @@ import { seedSheetsSteps } from "./sheets/seed.js";
 import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
+import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
@@ -184,6 +185,11 @@ export async function createLabVein(
   await seedGaiaWorkflows(workspace);
   // generic artifact plumbing (artifacts/dir — bridge runId → path for cwd).
   await seedArtifactSteps(workspace);
+  // wfbench — the Workflow Editor Agent Benchmark harness (stakwork 58313's
+  // twin; plans/wfbench-harness.md). Pure plumbing steps; never granted to
+  // an agent (the author gets meta/* only).
+  await seedWfbenchSteps(workspace);
+  await seedWfbenchWorkflows(workspace);
 
   const vein = await createVein<LabServices>({
     workspace,
