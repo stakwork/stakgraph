@@ -83,6 +83,8 @@ export {
   MemoryChatStore,
   generateChatId,
   truncateToolMessages,
+  DEFAULT_TOOL_RESULT_MAX_CHARS,
+  toolResultMaxCharsFromEnv,
   isChatTerminal,
 } from "./chat-store.js";
 

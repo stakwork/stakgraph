@@ -9,6 +9,8 @@ import {
   FileChatStore,
   MemoryChatStore,
   truncateToolMessages,
+  DEFAULT_TOOL_RESULT_MAX_CHARS,
+  toolResultMaxCharsFromEnv,
   isChatTerminal,
   generateChatId,
   type ChatEvent,
@@ -195,6 +197,29 @@ describe("truncateToolMessages", () => {
   it("leaves short tool content unchanged", () => {
     const msgs = [{ role: "tool", content: [{ type: "tool-result", output: "ok" }] }];
     assert.deepEqual(truncateToolMessages(msgs, 4000), msgs);
+  });
+
+  it("defaults to 50k chars and can be disabled with 0", () => {
+    const big = "x".repeat(60_000);
+    const msgs = [{ role: "tool", content: [{ type: "tool-result", output: big }] }];
+    assert.equal(DEFAULT_TOOL_RESULT_MAX_CHARS, 50_000);
+    assert.ok(((truncateToolMessages(msgs)[0]!.content as any)[0].output as string).includes("[TRUNCATED"));
+    assert.deepEqual(truncateToolMessages(msgs, 0), msgs);
+  });
+
+  it("reads the cap from VEIN_CHAT_TOOL_RESULT_MAX_CHARS", () => {
+    const prev = process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"];
+    try {
+      process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"] = "10";
+      assert.equal(toolResultMaxCharsFromEnv(), 10);
+      process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"] = "garbage";
+      assert.equal(toolResultMaxCharsFromEnv(), DEFAULT_TOOL_RESULT_MAX_CHARS);
+      delete process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"];
+      assert.equal(toolResultMaxCharsFromEnv(), DEFAULT_TOOL_RESULT_MAX_CHARS);
+    } finally {
+      if (prev === undefined) delete process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"];
+      else process.env["VEIN_CHAT_TOOL_RESULT_MAX_CHARS"] = prev;
+    }
   });
 });
 
