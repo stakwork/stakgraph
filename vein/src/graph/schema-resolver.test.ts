@@ -78,13 +78,35 @@ describe("jarvis ontology + resolver + jarvis-typed writes (live Neo4j)", { skip
     assert.ok(names.constraints.includes("unique_document_node_key"));
   });
 
-  it("resolves types case-insensitively (labels → Schema.type), Vein types exactly", async () => {
+  it("resolves types case-insensitively (Schema.type → labels), Vein types exactly", async () => {
     assert.equal(await resolver.resolveType("evalset"), "EvalSet");
     assert.equal(await resolver.resolveType(" document "), "Document");
     assert.equal(await resolver.resolveType("VeinRun"), "VeinRun");
     assert.equal(await resolver.resolveType("veinrun"), "VeinRun", "falls through to Schema.type like jarvis");
     assert.equal(await resolver.resolveType("Nope"), null);
     assert.equal(await resolver.resolveType("*"), null);
+  });
+
+  it("a LEGACY case-variant label with no Schema never shadows the real type (swarm38's Evalset/EvalSet)", async () => {
+    // A long-lived jarvis graph carries labels from earlier node generations
+    // next to the schema-backed ones (swarm38 lists Evalset/Evaltrigger/…
+    // with zero nodes; Neo4j 5 drops label tokens once unused, so keep one
+    // legacy node per label alive here — the resolver must not be fooled
+    // either way).
+    await bolt.run(`CREATE (a:Evalset {ref_id: "legacy-1"}), (b:Evaltrigger {ref_id: "legacy-2"})`);
+    const labels = await bolt.run(`CALL db.labels() YIELD label WHERE toLower(label) = "evalset" RETURN collect(label) AS l`);
+    assert.deepEqual([...(labels[0]!["l"] as string[])].sort(), ["EvalSet", "Evalset"], "both spellings are registered labels");
+    resolver.invalidate();
+    assert.equal(await resolver.resolveType("EvalSet"), "EvalSet");
+    assert.equal(await resolver.resolveType("evalset"), "EvalSet");
+    assert.equal(await resolver.resolveType("EvalTrigger"), "EvalTrigger");
+    assert.ok(await resolver.schema("EvalSet"), "the EvalSet Schema resolves through the legacy label");
+    // A jarvis-typed write — the exact call that failed on swarm38.
+    const r = await nodes.write({ type: "EvalSet", data: { id: "legacy-label-probe", name: "probe" } }, "create");
+    assert.ok(r.ref_id);
+    const written = await bolt.run(`MATCH (n:EvalSet {id: "legacy-label-probe"}) RETURN labels(n) AS l`);
+    assert.ok((written[0]!["l"] as string[]).includes("EvalSet"));
+    assert.ok(!(written[0]!["l"] as string[]).includes("Evalset"));
   });
 
   it("merges CHILD_OF ancestors, exposes index/domain, forces name optional", async () => {
