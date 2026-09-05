@@ -1,37 +1,33 @@
 /**
- * Unit tests for `listQueryForLabel`'s `$since` filter after the
- * `toFloat(date_added_to_graph)` coercion shim removal.
+ * Unit tests for `listQueryForLabel`'s `$since` filter with mixed stored
+ * timestamp formats.
  *
- * `date_added_to_graph` is a canonical epoch-ms Integer (see ./time.ts), so
- * the property compares directly against an epoch-ms `$since`. These tests:
- *   1. pin the generated query text to the bare, coercion-free predicate;
- *   2. prove the clause's selection semantics on ms-magnitude fixtures —
- *      a recently-added node is selected, a stale one is not;
- *   3. prove a seconds-magnitude `$since` must be normalized (×1000) before
- *      binding — which `nodes_by_type` does via `epochValueToMs`.
+ * Stored `date_added_to_graph` values may be legacy epoch-seconds or new
+ * epoch-ms Integers until the data backfill migration. The generated query
+ * therefore normalizes the stored property via `epochMsExpr` (Cypher mirror
+ * of `toEpochMs`) before comparing against an epoch-ms `$since`.
+ *
+ * `nodes_by_type` also normalizes a seconds-magnitude caller `$since` via
+ * `epochValueToMs` before binding.
  *
  * Runs under NO_DB=true — no Neo4j contacted.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { listQueryForLabel } from "./queries.js";
-import { epochValueToMs } from "./time.js";
+import { epochMsExpr, listQueryForLabel } from "./queries.js";
+import { epochValueToMs, toEpochMs } from "./time.js";
 
 const HOUR_MS = 3600 * 1000;
 
-describe("listQueryForLabel $since filter (post toFloat removal)", () => {
-  it("compares date_added_to_graph directly — no toFloat coercion remains", () => {
+describe("listQueryForLabel $since filter (mixed timestamp formats)", () => {
+  it("normalizes stored date_added_to_graph via epochMsExpr before comparing", () => {
     const q = listQueryForLabel("Function", true);
-    assert.doesNotMatch(
-      q,
-      /toFloat\s*\(/,
-      "toFloat coercion shim must be gone"
-    );
-    assert.match(q, /f\.date_added_to_graph >= \$since/);
+    assert.match(q, /CASE WHEN toFloat\(f\.date_added_to_graph\) <= 1000000000000/);
+    assert.match(q, /f\.date_added_to_graph\) END >= \$since/);
     assert.match(
       q,
-      /ORDER BY coalesce\(f\.date_added_to_graph, 0\) DESC, f\.node_key/
+      /ORDER BY CASE WHEN toFloat\(coalesce\(f\.date_added_to_graph, 0\)\) <= 1000000000000/,
     );
   });
 
@@ -43,14 +39,14 @@ describe("listQueryForLabel $since filter (post toFloat removal)", () => {
   });
 
   /**
-   * Mirror of the generated clause:
-   *   `$since IS NULL OR (f.date_added_to_graph IS NOT NULL
-   *                       AND f.date_added_to_graph >= $since)`
-   * The text assertions above pin the template to this exact predicate, so
-   * the mirror cannot silently drift from what the query actually does.
+   * Mirror of the generated clause after both sides are normalized to ms:
+   *   `$since IS NULL OR (storedMs IS NOT NULL AND storedMs >= sinceMs)`
    */
   function selects(nodeDate: number | null, sinceMs: number | null): boolean {
-    return sinceMs === null || (nodeDate !== null && nodeDate >= sinceMs);
+    if (sinceMs === null) return true;
+    if (nodeDate === null) return false;
+    const storedMs = toEpochMs(nodeDate);
+    return storedMs !== null && storedMs >= sinceMs;
   }
 
   it("selects recently-added (ms-magnitude) nodes and excludes stale ones", () => {
@@ -72,6 +68,27 @@ describe("listQueryForLabel $since filter (post toFloat removal)", () => {
     assert.ok(
       selects(fresh, null) && selects(stale, null),
       "$since IS NULL selects everything"
+    );
+  });
+
+  it("a millisecond $since cursor returns both legacy-seconds and new-ms nodes", () => {
+    const now = Date.now();
+    const sinceMs = now - 24 * HOUR_MS;
+    const legacySeconds = (now - 1 * HOUR_MS) / 1000; // 1h ago, stored as seconds
+    const newMs = now - 2 * HOUR_MS; // 2h ago, stored as ms
+    const tooOldSeconds = (now - 72 * HOUR_MS) / 1000;
+
+    assert.ok(
+      selects(legacySeconds, sinceMs),
+      "legacy-seconds node within the window must match a ms cursor"
+    );
+    assert.ok(
+      selects(newMs, sinceMs),
+      "new-ms node within the window must match the same cursor"
+    );
+    assert.ok(
+      !selects(tooOldSeconds, sinceMs),
+      "legacy-seconds node outside the window must still be excluded"
     );
   });
 
@@ -97,5 +114,12 @@ describe("listQueryForLabel $since filter (post toFloat removal)", () => {
     );
     assert.ok(selects(fresh, sinceMs), "fresh node still selected");
     assert.ok(!selects(stale, sinceMs), "stale node excluded again");
+  });
+
+  it("epochMsExpr uses the same <= 1e12 boundary as toEpochMs", () => {
+    assert.equal(
+      epochMsExpr("f.date_added_to_graph"),
+      "CASE WHEN toFloat(f.date_added_to_graph) <= 1000000000000 THEN toFloat(f.date_added_to_graph) * 1000 ELSE toFloat(f.date_added_to_graph) END",
+    );
   });
 });

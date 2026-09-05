@@ -94,6 +94,10 @@ export const GraphScene = memo(() => {
   const destroy = useSimulation((s) => s.destroy);
   const hasInitialData = useRef(false);
   const isFetchingRef = useRef(false);
+  // `since` delta cursor: sent to the server as-is (whatever magnitude the
+  // API surfaced). The server-side delta filter normalizes stored values
+  // (legacy seconds vs epoch-ms) before comparing, so mixed-format graphs
+  // are reconciled there — no client-side conversion needed.
   const latestTimestampRef = useRef<number | null>(null);
 
   const fetchGraph = useCallback(
