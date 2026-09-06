@@ -1,5 +1,6 @@
-import { Stagehand, Page } from "@browserbasehq/stagehand";
-import { getProvider } from "./providers.js";
+import { Stagehand, Page, AISdkClient } from "@browserbasehq/stagehand";
+import { resolveBrowserModel } from "./providers.js";
+import { getModelDetails } from "../../aieo/src/provider.js";
 
 let STATE: {
   [sessionId: string]: {
@@ -60,7 +61,6 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     return STATE[sessionId].stagehand;
   }
 
-  let provider = getProvider();
   const useBrowserbase =
     (process.env.BROWSER_BACKEND || "").toLowerCase() === "browserbase";
   if (
@@ -71,15 +71,15 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
       "BROWSER_BACKEND=browserbase requires BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID"
     );
   }
-  const model = {
-    modelName: provider.model,
-    apiKey: process.env[provider.api_key_env_var_name],
-  };
+  const { model: modelName, apiKey } = resolveBrowserModel();
+  const { model: aiModel } = getModelDetails(modelName, apiKey);
+  const llmClient = new AISdkClient({ model: aiModel as any });
   const options: ConstructorParameters<typeof Stagehand>[0] = useBrowserbase
     ? {
         env: "BROWSERBASE",
         apiKey: process.env.BROWSERBASE_API_KEY,
         projectId: process.env.BROWSERBASE_PROJECT_ID,
+        disableAPI: true,
         browserbaseSessionCreateParams: {
           projectId: process.env.BROWSERBASE_PROJECT_ID,
           timeout: BROWSERBASE_SESSION_TIMEOUT,
@@ -92,7 +92,7 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
         },
         waitForCaptchaSolves: process.env.BROWSERBASE_SOLVE_CAPTCHAS !== "false",
         domSettleTimeout: 60000,
-        model,
+        llmClient,
       }
     : {
         env: "LOCAL",
@@ -101,12 +101,12 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
           headless: true,
           viewport: { width: 1024, height: 768 },
         },
-        model,
+        llmClient,
       };
   console.log(
     "initializing stagehand!",
     useBrowserbase ? "browserbase" : "local",
-    provider.model
+    modelName
   );
   const sh = new Stagehand(options);
   await sh.init();

@@ -29,3 +29,14 @@ export function getProvider(arg?: "anthropic" | "openai"): ProviderData {
   }
   return provider;
 }
+
+export function resolveBrowserModel(): { model: string; apiKey: string } {
+  const model =
+    process.env.STAGEHAND_MODEL || "anthropic/claude-opus-4-8";
+  const apiKey = model.startsWith("openrouter/")
+    ? process.env.OPENROUTER_API_KEY || ""
+    : model.startsWith("openai/")
+    ? process.env.OPENAI_API_KEY || ""
+    : process.env.ANTHROPIC_API_KEY || "";
+  return { model, apiKey };
+}
