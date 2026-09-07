@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 

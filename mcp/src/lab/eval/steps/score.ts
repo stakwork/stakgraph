@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * GENERIC recall-oriented LLM-as-judge. Domain-agnostic: it matches a PRODUCED
@@ -66,8 +66,8 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg) {
-    const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
-    const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
+    const provider = cfg.provider ?? process.env["STRUT_LLM_PROVIDER"] ?? "anthropic";
+    const modelName = cfg.model ?? process.env["STRUT_LLM_MODEL"];
 
     const { generateObject } = await import("ai");
     let model: any;

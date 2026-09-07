@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext } from "vein";
+import { z, defineStep, type StepContext } from "strut";
 
 /**
  * 58312 "Record Eval Trigger Output and Criterion Results" as a batch-
@@ -13,7 +13,7 @@ import { z, defineStep, type StepContext } from "vein";
  * max_score, n_passed, n_total, judge_model (its `name` is not declared on
  * the ontology and is omitted). 58312's CriterionResult -HAS_CAUSE->
  * Workflow_version edge is NOT written: the ontology has no such
- * relationship and vein's produced workflow is not a Workflow_version node.
+ * relationship and strut's produced workflow is not a Workflow_version node.
  * Ids derive from the runId, so a retried write merges instead of
  * duplicating. `criterionSlots` index each criterion's first
  * HAS_CRITERION_RESULT triplet for eval/criterion-refs.

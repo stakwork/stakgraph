@@ -4,7 +4,7 @@
  * workflows through the authoring capability (the same check the author
  * agent gets via meta/validate-workflow), then drives every pure step with
  * fixtures and asserts the graph payloads match stakwork 58313 / 58312's id
- * conventions and only use attributes the jarvis ontology declares (vein's
+ * conventions and only use attributes the jarvis ontology declares (strut's
  * graph backend rejects undeclared ones).
  *
  *   npx tsx src/lab/wfbench/smoke.ts
@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, createVein, JARVIS_ONTOLOGY, type StepContext } from "vein";
+import { WorkspaceManager, buildRegistry, createStrut, JARVIS_ONTOLOGY, type StepContext } from "strut";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./seed.js";
 import { seedEvalSteps } from "../eval/seed.js";
 import { seedArtifactSteps } from "../artifacts/seed.js";
@@ -39,7 +39,7 @@ async function main() {
     // reseeding must retire it (seeding is additive otherwise).
     await workspace.publishStep(
       "wfbench/pack-result",
-      'import { z, defineStep } from "vein";\nexport default defineStep({ type: "wfbench/pack-result", input: z.any(), output: z.any(), async run(cfg) { return cfg; } });\n',
+      'import { z, defineStep } from "strut";\nexport default defineStep({ type: "wfbench/pack-result", input: z.any(), output: z.any(), async run(cfg) { return cfg; } });\n',
       undefined,
       "old-deploy",
     );
@@ -62,7 +62,7 @@ async function main() {
       "eval/aggregate-scores",
       "eval/criterion-refs",
       "artifacts/dir",
-      // vein lib/core steps the workflows lean on
+      // strut lib/core steps the workflows lean on
       "graph/create-node",
       "graph/create-batch-triplet",
       "graph/create-triplet",
@@ -80,8 +80,8 @@ async function main() {
     console.log(`✔ seeded + discovered ${expectedSteps.length} steps; stale wfbench/pack-result retired`);
 
     // ── 2. static validation (what meta/validate-workflow runs) ──────────
-    const vein = await createVein({ workspace, serveUi: false });
-    const authoring = (vein.services as any).authoring;
+    const strut = await createStrut({ workspace, serveUi: false });
+    const authoring = (strut.services as any).authoring;
     for (const name of ["wfbench-judge-criterion", "wfbench-run"]) {
       const entry = (await workspace.listWorkflows()).find((w) => w.name === name);
       assert.ok(entry, `workflow ${name} not seeded`);

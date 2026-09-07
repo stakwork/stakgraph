@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import yaml from "js-yaml";
-import { coreRegistry } from "vein";
+import { coreRegistry } from "strut";
 import cloneStep from "./steps/clone-workspace.js";
 
 /**
  * Throwaway end-to-end smoke test for the gitsee experiment — runs the gitsee
- * clone step + the vein-core `agent` step directly (real git clone + real
+ * clone step + the strut-core `agent` step directly (real git clone + real
  * Anthropic call), feeding the exact `params` from gitsee-explore-services.yaml.
- * No vein server / Neo4j / seeding needed.
+ * No strut server / Neo4j / seeding needed.
  *
  * Clones a WORKSPACE (one or more repos as siblings). Pass repos as
  * "owner/repo" args (defaults to a single heroku/node-js-getting-started):

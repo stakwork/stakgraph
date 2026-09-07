@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
 import { execFile } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep, dirname } from "node:path";
@@ -24,9 +24,9 @@ wb.save(spec["out"])
 `;
 
 async function artifactsPath(ctx: StepContext | undefined, filename: string): Promise<string> {
-  const c = ctx as StepContext<VeinCapabilities> | undefined;
+  const c = ctx as StepContext<StrutCapabilities> | undefined;
   const artifacts = c?.services?.artifacts;
-  if (!artifacts) throw new Error("artifacts capability unavailable — is this the lab vein?");
+  if (!artifacts) throw new Error("artifacts capability unavailable — is this the lab strut?");
   const base = await artifacts.dir(c!.runId);
   if (isAbsolute(filename) || filename.split(/[\\/]/).includes("..")) {
     throw new Error(`filename must be a relative path without '..': "${filename}"`);

@@ -1,13 +1,13 @@
-import { z, defineStep, type StepContext, type VeinCapabilities, withAccessedNodes } from "vein";
+import { z, defineStep, type StepContext, type StrutCapabilities, withAccessedNodes } from "strut";
 
 /** Resolve the Jarvis base URL + auth via the secrets capability (secret
  *  store → env fallback). Duplicated in every jarvis/* step — see _shared.ts. */
-async function jarvisCtx(ctx?: StepContext<VeinCapabilities>) {
+async function jarvisCtx(ctx?: StepContext<StrutCapabilities>) {
   const http = ctx?.services?.http;
   if (!http) throw new Error("jarvis: ctx.services.http unavailable — run with a services bag");
   const secrets = ctx?.services?.secrets;
   const base = (await secrets?.get("JARVIS_URL"))?.replace(/\/+$/, "");
-  if (!base) throw new Error("jarvis: JARVIS_URL not configured (set it in the mcp env or the vein secret store)");
+  if (!base) throw new Error("jarvis: JARVIS_URL not configured (set it in the mcp env or the strut secret store)");
   const token = (await secrets?.get("API_TOKEN")) ?? "";
   const rawTimeout = Number(await secrets?.get("JARVIS_HTTP_TIMEOUT_MS"));
   const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 180_000;
@@ -66,7 +66,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { base, http, timeout, headers } = await jarvisCtx(ctx as StepContext<VeinCapabilities>);
+    const { base, http, timeout, headers } = await jarvisCtx(ctx as StepContext<StrutCapabilities>);
     // limit=1 keeps Jarvis from materializing the node's whole neighborhood
     // (which can OOM Neo4j for hub nodes) — we only read the node itself.
     const res = await http(`${base}/v2/nodes/${encodeURIComponent(cfg.ref_id)}`, {

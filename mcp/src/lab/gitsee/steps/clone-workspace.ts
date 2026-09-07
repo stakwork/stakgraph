@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
  * SELF-CONTAINED clone of a WORKSPACE — a set of repos cloned as SIBLINGS under
  * one dir (mirroring the pod's `/workspaces/<repo>` layout). A workspace usually
  * has one app to run (the "frontend") plus local-dependency repos it builds
- * against. No internal deps — only `vein` + Node builtins + the `git` binary.
+ * against. No internal deps — only `strut` + Node builtins + the `git` binary.
  * Idempotent: existing clones are reused (per workspace + rev). `token` falls
  * back to the GITHUB_TOKEN env for private repos.
  *

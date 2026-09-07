@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, resolveConfig } from "vein";
+import { WorkspaceManager, buildRegistry, resolveConfig } from "strut";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./seed.js";
 import { seedEvalSteps } from "../eval/seed.js";
 import { seedArtifactSteps } from "../artifacts/seed.js";

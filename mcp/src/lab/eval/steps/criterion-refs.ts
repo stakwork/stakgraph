@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Zip eval/build-eval-chain's criterion slots with graph/create-batch-

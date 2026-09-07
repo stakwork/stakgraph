@@ -1,4 +1,4 @@
-import { z, defineStep, usageFromResult, computeCost } from "vein";
+import { z, defineStep, usageFromResult, computeCost } from "strut";
 
 /**
  * GENERIC optimizer "propose" step: given the CURRENT candidate prompt and the
@@ -77,7 +77,7 @@ function excerpt(s: string, max = 400): string {
 
 /** Explicit shape of a `results[]` entry — annotated so the aggregation
  *  callbacks below don't depend on zod inference flowing through
- *  `defineStep` (which widens to `any` when vein is consumed as built
+ *  `defineStep` (which widens to `any` when strut is consumed as built
  *  `.d.ts` rather than raw `.ts`, tripping noImplicitAny in the prod build). */
 interface Result {
   label?: string;
@@ -106,8 +106,8 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg) {
-    const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
-    const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
+    const provider = cfg.provider ?? process.env["STRUT_LLM_PROVIDER"] ?? "anthropic";
+    const modelName = cfg.model ?? process.env["STRUT_LLM_MODEL"];
 
     const { generateObject } = await import("ai");
     let model: any;

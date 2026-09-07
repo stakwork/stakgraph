@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import type { HarveyServices } from "../service.js";
 
 /**
@@ -22,7 +22,7 @@ export default defineStep({
   output: z.any(),
   async run(cfg, ctx) {
     const harvey = (ctx.services as { harvey?: HarveyServices } | undefined)?.harvey;
-    if (!harvey) throw new Error("harvey service unavailable — is this the lab vein?");
+    if (!harvey) throw new Error("harvey service unavailable — is this the lab strut?");
     return harvey.getTask(cfg.task);
   },
 });

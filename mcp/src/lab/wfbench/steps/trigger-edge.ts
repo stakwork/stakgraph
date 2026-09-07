@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * 58313's guard_first_run: the first EvalTrigger ever linked to an EvalSet

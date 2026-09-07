@@ -1,17 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 
 /**
- * Google Sheets steps, seeded into the vein workspace. Each is a
+ * Google Sheets steps, seeded into the strut workspace. Each is a
  * self-contained port of the matching mcp repo-agent tool
  * (`mcp/src/repo/toolsGoogleSheets.ts`) speaking the same Sheets/Drive REST
  * contract — but routed through `ctx.services.http` + `ctx.services.secrets`
  * (GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_DRIVE_FOLDER_ID, env-backed) so runs
  * are cassette-recordable and credentials stay scrubbed. Reconciled by
- * content hash on boot (edits via the vein UI publish a new active version).
+ * content hash on boot (edits via the strut UI publish a new active version).
  *
  * Grant them to an agent step with `agentTools: ["sheets/*"]` (glob), or an
  * explicit subset (e.g. a read-only child gets just `sheets/get-values`).

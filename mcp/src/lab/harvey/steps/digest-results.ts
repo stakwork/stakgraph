@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Aggregate a batch of graded Harvey results into the compact digest the

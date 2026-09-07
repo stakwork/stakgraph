@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Merge the per-change results from a foreach into a single rollup: union of

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -55,8 +56,8 @@ import { join, resolve, dirname } from "node:path";
  *
  *   The rest, all optional:
  *   GAIA_DIR            — pin the checkout location; defaults to
- *                         <cache>/vein/gaia
- *   VEIN_CACHE_DIR      — cache root override (else XDG_CACHE_HOME, else
+ *                         <cache>/strut/gaia
+ *   STRUT_CACHE_DIR      — cache root override (else XDG_CACHE_HOME, else
  *                         ~/.cache)
  *   GAIA_AUTO_SETUP=0   — disable auto-setup; GAIA_DIR must then already be
  *                         populated (the old behaviour)
@@ -128,7 +129,7 @@ export type BootstrapExecFn = (
 export type FetchTextFn = (url: string) => Promise<string>;
 
 export interface EnsureGaiaOptions {
-  /** Target checkout dir. Defaults to env GAIA_DIR, else <cache>/vein/gaia. */
+  /** Target checkout dir. Defaults to env GAIA_DIR, else <cache>/strut/gaia. */
   dir?: string;
   /** HF token; REQUIRED whenever a clone is needed. Defaults to HF_TOKEN /
    *  HUGGING_FACE_HUB_TOKEN / HF_API_TOKEN. */
@@ -143,13 +144,18 @@ export interface EnsureGaiaOptions {
   log?: (msg: string) => void;
 }
 
-/** Where a checkout lands when GAIA_DIR is unset. */
+/** Where a checkout lands when GAIA_DIR is unset. A checkout materialised
+ *  before the vein→strut rename (`<cache>/vein/gaia`) is reused if the new
+ *  location does not exist yet, so servers keep their dataset volume. */
 export function defaultGaiaDir(): string {
   const cache =
-    process.env["VEIN_CACHE_DIR"] ??
+    process.env["STRUT_CACHE_DIR"] ??
     process.env["XDG_CACHE_HOME"] ??
     join(homedir(), ".cache");
-  return join(cache, "vein", "gaia");
+  const modern = join(cache, "strut", "gaia");
+  const legacy = join(cache, "vein", "gaia");
+  if (!existsSync(modern) && existsSync(legacy)) return legacy;
+  return modern;
 }
 
 function resolveToken(explicit?: string): string | undefined {
@@ -472,7 +478,7 @@ export async function ensureGaiaDataset(
  *   2. `python3` on PATH, IF it can import numpy. This is the prod image: the
  *      agent venv at /usr/src/agent-venv is first on PATH and already carries
  *      numpy, so a container resolves here and never builds anything.
- *   3. A cached venv at <cache>/vein/gaia-venv, created on demand. This is the
+ *   3. A cached venv at <cache>/strut/gaia-venv, created on demand. This is the
  *      dev-box path — macOS system python has no numpy, which is the only
  *      reason GAIA_PYTHON ever had to be set by hand.
  *
@@ -491,7 +497,7 @@ async function importsNumpy(python: string, exec: BootstrapExecFn): Promise<bool
 export interface EnsurePythonOptions {
   /** Explicit interpreter; defaults to env GAIA_PYTHON. Trusted without probing. */
   python?: string;
-  /** Venv location when one must be built. Defaults to <cache>/vein/gaia-venv. */
+  /** Venv location when one must be built. Defaults to <cache>/strut/gaia-venv. */
   venvDir?: string;
   exec?: BootstrapExecFn;
   log?: (msg: string) => void;

@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
- * wfbench — the Workflow Editor Agent Benchmark harness (the vein port of
+ * wfbench — the Workflow Editor Agent Benchmark harness (the strut port of
  * stakwork workflow 58313; see plans/wfbench-harness.md). Pure plumbing
  * steps + the two workflows. Everything here is seeded UNSTAMPED (no
  * publisher arg → not "ai"), so the meta surface — i.e. the author agent
@@ -14,7 +14,7 @@ import { SEED_OPTS, retireSteps } from "../seed-opts.js";
  * wins at boot, an unchanged one leaves a workspace-side edit active.
  *
  * Steps (all pure — no services, no LLM, no graph; the graph writes are
- * vein's graph/* lib steps and the judge is the core agent step):
+ * strut's graph/* lib steps and the judge is the core agent step):
  *   wfbench/normalize-task     the Hive/58313 task payload → canonical task
  *   wfbench/build-roster       EvalSet / EvalRequirement / EvalTrigger payloads (58313 ids)
  *   wfbench/trigger-edge       HAS_BASELINE_TRIGGER vs HAS_TRIGGER (guard_first_run)
@@ -54,7 +54,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
 ];
 
 // Types this seeder USED to publish (seeding is additive — see retireSteps).
-const RETIRED_STEPS = ["wfbench/pack-result"]; // → vein core `pack`
+const RETIRED_STEPS = ["wfbench/pack-result"]; // → strut core `pack`
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

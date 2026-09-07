@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Fold the per-criterion judge verdicts into the run's scores object (the
@@ -7,7 +7,7 @@ import { z, defineStep } from "vein";
  * Domain-agnostic: any rubric-judged eval (harvey-score, wfbench) uses it.
  *
  * `results` is the judge foreach's output array, IN THE SAME ORDER as
- * `rubric` (vein's foreach preserves input order), so criterion identity
+ * `rubric` (strut's foreach preserves input order), so criterion identity
  * comes from the zip — the judge LLM never has to echo ids back. Each entry
  * is a core-agent schema-mode output ({ object: { verdict, reasoning },
  * cost, usage }); a null/malformed entry (judge blew up, onError fallback)
