@@ -32,6 +32,71 @@ export async function fetchJSON<T>(path: string, opts?: RequestInit): Promise<T>
   return res.json() as Promise<T>;
 }
 
+// ── Speech-to-text (src/audio) ─────────────────────────────────────────────
+
+export interface SttModelStatus {
+  id: string;
+  bytes: number;
+  language: string;
+  /** How often partials change (ms). */
+  chunkMs: number;
+  /** Accepts a hotwords list. */
+  hotwords: boolean;
+  cased: boolean;
+  description: string;
+  installed: boolean;
+  /** Which entry the server's env/default resolution picks. */
+  default: "model" | "partialModel" | null;
+}
+
+export interface SttModelsResponse {
+  /** Whether the sherpa addon loads on the server. */
+  available: boolean;
+  modelDir: string;
+  models: SttModelStatus[];
+}
+
+export const listSttModels = () => fetchJSON<SttModelsResponse>("/audio/models");
+
+export type SttDownloadProgress =
+  | { phase: "download"; received: number; total: number }
+  | { phase: "extract" }
+  | { phase: "done" };
+
+/** Download + verify + extract a catalog model on the server; SSE progress. */
+export async function downloadSttModel(
+  id: string,
+  onProgress: (p: SttDownloadProgress) => void,
+): Promise<void> {
+  const res = await fetch(`${BASE}/audio/models/${encodeURIComponent(id)}/download`, { method: "POST" });
+  if (!res.ok || !res.body) throw new Error(`download ${id}: ${res.status} ${res.statusText}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let event = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) {
+        const data = JSON.parse(line.slice(5));
+        if (event === "error") throw new Error(data.error ?? "download failed");
+        onProgress(data as SttDownloadProgress);
+      }
+    }
+  }
+}
+
+/** WebSocket URL for `/audio/stream` on the same origin + mount path. */
+export function sttStreamUrl(): string {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${location.host}${BASE}/audio/stream`;
+}
+
 // ── Workflows ──────────────────────────────────────────────────────────────
 
 export interface WorkflowEntry {

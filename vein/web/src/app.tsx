@@ -14,6 +14,9 @@ import { ChatFlyout } from "./components/ChatFlyout";
 import { CategoryEditor } from "./components/CategoryEditor";
 import { CreateDialog } from "./components/CreateDialog";
 import { SecretsDialog } from "./components/SecretsDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
+import { GearIcon } from "./icons";
+import { sttSettings as sttStore, type SttSettings } from "./storage";
 import { AddStepDialog, StepTypeEntry } from "./components/AddStepDialog";
 import { StepEditFlyout } from "./components/StepEditFlyout";
 import { StepInfoFlyout } from "./components/StepInfoFlyout";
@@ -81,6 +84,9 @@ export function App() {
   const [runDrill, setRunDrill] = useState<DrillFrame[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [sttSettings, setSttSettings] = useState<SttSettings>(() => sttStore.get());
+  const updateStt = (next: SttSettings) => { sttStore.set(next); setSttSettings(next); };
   const [showAddStep, setShowAddStep] = useState(false);
   const [stepTypes, setStepTypes] = useState<StepTypeEntry[]>([]);
   // Sidebar Steps catalog: whether the section is expanded (persisted), and
@@ -885,6 +891,9 @@ export function App() {
           )}
           <button class="btn" onClick={() => setShowSecrets(true)}>Secrets</button>
           <button class="btn" onClick={() => setShowChat(!showChat)}>AI</button>
+          <button class="btn btn-icon" onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">
+            <GearIcon />
+          </button>
         </div>
       </div>
 
@@ -953,6 +962,9 @@ export function App() {
       {/* Create dialog */}
       {showCreate && <CreateDialog onClose={() => setShowCreate(false)} onCreate={handleCreate} categories={categories} />}
       {showSecrets && <SecretsDialog onClose={() => setShowSecrets(false)} />}
+      {showSettings && (
+        <SettingsDialog settings={sttSettings} onChange={updateStt} onClose={() => setShowSettings(false)} />
+      )}
 
       {/* Add step dialog */}
       {showAddStep && <AddStepDialog stepTypes={stepTypes} onSelect={handleAddStepSelect} onClose={() => setShowAddStep(false)} />}
@@ -960,6 +972,7 @@ export function App() {
       {/* Chat flyout */}
       {showChat && (
         <ChatFlyout
+          stt={sttSettings}
           onClose={() => setShowChat(false)}
           onWorkflowCreated={async (name) => {
             await refreshWorkflows();

@@ -39,6 +39,9 @@ import { buildAuthoringCapability } from "./authoring.js";
 import type { CassetteMode } from "./cassette.js";
 // Type-only: the graph backend stays a lazy, opt-in dependency.
 import type { GraphBackend } from "./graph/backend.js";
+import { createStt, type SttService } from "./audio/stt.js";
+import { audioRoutes } from "./audio/routes.js";
+import { attachAudioWebSocket } from "./audio/ws.js";
 // Static import is safe: notifier depends only on chat-store, never the AI
 // SDK (which stays lazy-loaded inside launchChatTurn).
 import { createChatNotifier, formatRunNotification } from "./ai/notifier.js";
@@ -143,6 +146,14 @@ export interface VeinOptions<TServices = unknown> {
    *  relative asset paths, so it can be mounted at any sub-path (e.g.
    *  `/lab`) as long as the host serves it with a trailing slash. */
   webDist?: string;
+
+  /** Speech-to-text (src/audio): the `/audio/*` routes, the `/audio/stream`
+   *  WebSocket (attached by `listen()`), and `ctx.services.stt`. Defaults
+   *  to a service rooted at `dataDir` with models under `VEIN_MODEL_DIR`;
+   *  pass your own, or `false` to mount nothing. The sherpa addon is an
+   *  optionalDependency loaded on first use, so the default costs nothing
+   *  at boot and the routes answer 501 without it. */
+  stt?: SttService | false;
 }
 
 export interface AutoResumeOptions {
@@ -206,6 +217,11 @@ export interface Vein<TServices = unknown> {
     input?: unknown,
     opts?: VeinRunOptions<TServices>,
   ) => Promise<RunResult>;
+
+  /** The speech-to-text service behind `/audio/*` (null when disabled). A
+   *  host that mounts `app` itself must call `attachAudioWebSocket(server,
+   *  vein.stt)` to get the dictation socket; `listen()` does it. */
+  stt: SttService | null;
 
   /** Boot the Hono server with `@hono/node-server`. Resolves to the
    *  bound port. Convenience wrapper — feel free to mount `app` yourself. */
@@ -418,11 +434,15 @@ export async function createVein<TServices = unknown>(
   // store (UI-managed) with `process.env` as fallback. This is what lets an
   // LLM-authored adapter rely on `ctx.services.http` / `ctx.services.secrets`
   // existing out of the box.
+  // Speech-to-text: sessions + hotword lists live under dataDir; models under
+  // VEIN_MODEL_DIR. Nothing loads until a stream or transcribe call.
+  const stt: SttService | null = opts.stt === false ? null : (opts.stt ?? createStt({ dataDir }));
   const services = {
     ...(standardServices({ secretStore }) as unknown as Record<string, unknown>),
     // Per-run artifact files, rooted in the local data dir. A consumer bag
     // can override with its own ArtifactsCapability (spread below wins).
     artifacts: fileArtifactsCapability(join(dataDir, "artifacts")),
+    ...(stt ? { stt } : {}),
     ...((opts.services ?? {}) as Record<string, unknown>),
   } as TServices;
   const artifacts = (services as Record<string, unknown>)["artifacts"] as
@@ -1820,6 +1840,10 @@ export async function createVein<TServices = unknown>(
     });
   });
 
+  // ── Speech-to-text (src/audio) ─────────────────────────────────────────
+
+  if (stt) audioRoutes(app, stt);
+
   // ── Static files (web UI) ────────────────────────────────────────────────
 
   if (serveUi) {
@@ -1831,7 +1855,8 @@ export async function createVein<TServices = unknown>(
         path.startsWith("/workflows") ||
         path.startsWith("/steps") ||
         path.startsWith("/chat") ||
-        path.startsWith("/health")
+        path.startsWith("/health") ||
+        path.startsWith("/audio")
       ) {
         return c.notFound();
       }
@@ -1899,7 +1924,9 @@ export async function createVein<TServices = unknown>(
     );
     console.log(`vein steps: ${Object.keys(registry).length} registered`);
     console.log(`vein server: http://localhost:${p}`);
-    serve({ fetch: app.fetch, port: p });
+    const server = serve({ fetch: app.fetch, port: p });
+    // The dictation socket upgrades on the Node server, not inside Hono.
+    if (stt) attachAudioWebSocket(server as unknown as import("node:http").Server, stt);
     return p;
   }
 
@@ -1930,6 +1957,7 @@ export async function createVein<TServices = unknown>(
     rebuildRegistry,
     autoResumeStaleRuns,
     run,
+    stt,
     listen,
   };
 }
