@@ -115,7 +115,20 @@ vein/
   with zero code change. `import.meta.url` inside the bundle must resolve to
   the bundle's own dir; esbuild's `--inject` of an `import.meta.url` shim or
   `__dirname` replacement handles this.
-- Size estimate: ~150 MB before models. Acceptable.
+- **Built by `npm run package:desktop -- --smoke`** (`scripts/package-desktop.mjs`):
+  tsc + vite, stage `package.json` + `build/` + `web/dist/`, `npm install
+  --omit=dev` in the stage, keep one `sherpa-onnx-<platform>` and only this
+  platform's `onnxruntime-node` binaries, list the `.node` files the host
+  must code-sign, then (`--smoke`) boot the copy from a temp dir with the
+  §2.5 env and a workspace outside the tree holding a step that
+  `import "vein"`, and check `/health`, `/steps`, `/audio/models`
+  (`available: true`) and the UI. `--platform` cross-stages.
+- Measured (darwin-arm64, 2026-09-07): **376 MB** before the Node binary and
+  models. Largest pieces: `onnxruntime-web` 134 MB (MiniLM's WASM backend,
+  a transformers dep; its many wasm variants are the next pruning target),
+  `onnxruntime-node` 36 MB after pruning, sherpa 34 MB, `aieo` 32 MB. The
+  earlier ~150 MB estimate assumed an esbuild bundle, which the step loader
+  rules out for now (§2.4).
 
 ### 2.4 Packaging: phase B (single binary, later)
 
@@ -449,8 +462,9 @@ artifact per user/company) or beside it. Lean: same artifact, two sections.
    alias (the last one lands with step 1).
 4. **First dream cycle**: a sessions → llm → `PUT /audio/hotwords` workflow
    plus the corrections UI. Proves the loop before packaging.
-5. **Phase A packaging**: esbuild bundle, Node binary, native dir, a macOS
-   host proof-of-concept that spawns vein and streams the mic.
+5. **Phase A packaging**: vein side done (`package:desktop` + smoke test);
+   remaining is the macOS host: embed Node + the staged dir, code-sign the
+   listed addons, spawn vein and stream the mic.
 6. **Kotlin host**, Windows shell override.
 7. Later: single-binary (phase B), local vector store or LadybugDB backend
    (§3, §3.1), batch `audio/transcribe` step, offline-mobile bindings.
