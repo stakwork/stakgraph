@@ -51,7 +51,21 @@ export class MiniLMEmbedder implements Embedder {
 
   /** Load (downloading on first use) and self-check the output dimension. */
   static async load(opts: MiniLMOptions = {}): Promise<MiniLMEmbedder> {
-    const tf: Transformers = await import("@huggingface/transformers");
+    let tf: Transformers;
+    try {
+      tf = await import("@huggingface/transformers");
+    } catch (e) {
+      // The desktop package (scripts/package-desktop.mjs) omits the
+      // embeddings stack: MiniLM only serves graph search, which needs a
+      // Neo4j the desktop build doesn't ship. Say so instead of ENOENT.
+      if ((e as { code?: string }).code === "ERR_MODULE_NOT_FOUND") {
+        throw new Error(
+          "embeddings are not available in this vein build (@huggingface/transformers is not installed); " +
+            "graph search needs a server build or `package:desktop --embeddings`",
+        );
+      }
+      throw e;
+    }
     tf.env.cacheDir = opts.cacheDir ?? modelDirFromEnv();
     tf.env.allowLocalModels = false;
     const model = opts.model ?? EMBEDDING_MODEL;

@@ -547,6 +547,28 @@ describe("createVein", () => {
     assert.equal(missing.status, 404);
   });
 
+  it("custom steps can `import \"vein\"` from a workspace outside the package tree", async () => {
+    // tempDir is under the OS tmpdir — no `vein` package is reachable by
+    // walking up from it. The resolve hook (vein-resolver.ts) maps the bare
+    // specifier to this running vein, so the step gets the same defineStep/z.
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishStep(
+      "hook-step",
+      `import { z, defineStep } from "vein";
+       export default defineStep({
+         type: "hook-step",
+         input: z.object({ name: z.string() }),
+         output: z.string(),
+         async run({ input }) { return "hi " + input.name; },
+       });`,
+    );
+    const vein = await createVein({ workspace: ws, store: new MemoryRunStore(), serveUi: false, enableChat: false, stt: false });
+    assert.ok("hook-step" in vein.getRegistry(), "step importing vein loads from an out-of-tree workspace");
+    const { z: ourZ } = await import("zod");
+    const def = vein.getRegistry()["hook-step"]!;
+    assert.ok(def.input instanceof ourZ.ZodObject, "the step's zod is this process's zod (one module instance)");
+  });
+
   it("a non-file WorkspaceStore gets in-memory store defaults and still loads custom steps", async () => {
     const ws = pathlessWorkspace(new WorkspaceManager(tempDir));
     // Import-free step source (the temp dir sits outside the project tree,

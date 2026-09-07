@@ -22,6 +22,7 @@
  * Deletion is soft (`is_deleted = true`) — nothing is ever DETACH DELETEd.
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { ensureEsmScope } from "../workspace.js";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -664,6 +665,7 @@ export class Neo4jWorkspaceStore implements WorkspaceStore {
   async materializeCustomSteps(): Promise<string> {
     const dir = this.materializeDir;
     await mkdir(dir, { recursive: true });
+    await ensureEsmScope(dir);
     const wanted = new Map<string, string>();
     for (const { step, active } of await this.stepsWithActive()) {
       if (active) wanted.set(join(dir, `${step.step_type}.ts`), active.source);
