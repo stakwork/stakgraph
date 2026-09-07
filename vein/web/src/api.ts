@@ -16,10 +16,73 @@ function deriveBase(): string {
 
 const BASE = deriveBase();
 
+// ── API key ────────────────────────────────────────────────────────────────
+// When the server sets VEIN_API_KEY, gated routes need `Authorization:
+// Bearer`. A host that spawns vein (desktop app) hands the per-launch key to
+// the UI as `?key=` on first load; we stash it in sessionStorage and strip
+// it from the URL. A user can also paste one in Settings (localStorage),
+// for a server deployment. sessionStorage (this launch) wins.
+const KEY_STORAGE = "vein/apiKey";
+
+function captureKeyFromUrl(): void {
+  try {
+    const url = new URL(location.href);
+    const key = url.searchParams.get("key");
+    if (!key) return;
+    sessionStorage.setItem(KEY_STORAGE, key);
+    url.searchParams.delete("key");
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  } catch {
+    // no storage / no history API — the key just isn't remembered
+  }
+}
+captureKeyFromUrl();
+
+export function getApiKey(): string {
+  try {
+    return sessionStorage.getItem(KEY_STORAGE) || localStorage.getItem(KEY_STORAGE) || "";
+  } catch {
+    return "";
+  }
+}
+
+/** Save a user-entered key (Settings). Empty clears it. */
+export function setApiKey(key: string): void {
+  try {
+    if (key) localStorage.setItem(KEY_STORAGE, key);
+    else {
+      localStorage.removeItem(KEY_STORAGE);
+      sessionStorage.removeItem(KEY_STORAGE);
+    }
+  } catch {}
+}
+
+/** Where the active key came from, for the Settings hint. */
+export function apiKeySource(): "url" | "settings" | null {
+  try {
+    if (sessionStorage.getItem(KEY_STORAGE)) return "url";
+    if (localStorage.getItem(KEY_STORAGE)) return "settings";
+  } catch {}
+  return null;
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getApiKey();
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
+/** `fetch` against the API base with the key attached. Every call goes
+ *  through here so a gated deployment works without per-call plumbing. */
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [k, v] of Object.entries(authHeaders())) if (!headers.has(k)) headers.set(k, v);
+  return fetch(`${BASE}${path}`, { ...init, headers });
+}
+
 export async function fetchJSON<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+  const res = await apiFetch(path, {
     ...opts,
+    headers: { "Content-Type": "application/json", ...(opts?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -68,7 +131,7 @@ export async function downloadSttModel(
   id: string,
   onProgress: (p: SttDownloadProgress) => void,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/audio/models/${encodeURIComponent(id)}/download`, { method: "POST" });
+  const res = await apiFetch(`/audio/models/${encodeURIComponent(id)}/download`, { method: "POST" });
   if (!res.ok || !res.body) throw new Error(`download ${id}: ${res.status} ${res.statusText}`);
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -91,10 +154,14 @@ export async function downloadSttModel(
   }
 }
 
-/** WebSocket URL for `/audio/stream` on the same origin + mount path. */
+/** WebSocket URL for `/audio/stream` on the same origin + mount path. A
+ *  browser WebSocket can't set headers, so the key rides as `?key=`. */
 export function sttStreamUrl(): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}${BASE}/audio/stream`;
+  const url = new URL(`${proto}//${location.host}${BASE}/audio/stream`);
+  const key = getApiKey();
+  if (key) url.searchParams.set("key", key);
+  return url.toString();
 }
 
 // ── Workflows ──────────────────────────────────────────────────────────────
@@ -121,7 +188,7 @@ export const getWorkflowMeta = (name: string) =>
   fetchJSON<WorkflowMeta>(`/workflows/${name}`);
 
 export const getWorkflowCode = async (name: string, version: string) => {
-  const res = await fetch(`${BASE}/workflows/${name}/${version}`);
+  const res = await apiFetch(`/workflows/${name}/${version}`);
   return res.text();
 };
 
@@ -201,7 +268,7 @@ export const publishWorkflowYaml = (
   });
 
 export const getWorkflowYaml = async (name: string, version: string) => {
-  const res = await fetch(`${BASE}/workflows/${name}/${version}`);
+  const res = await apiFetch(`/workflows/${name}/${version}`);
   return res.text();
 };
 
@@ -234,7 +301,7 @@ export async function launchWorkflow(
   input: unknown,
   params?: Record<string, unknown>,
 ): Promise<{ runId: string }> {
-  const res = await fetch(`${BASE}/workflows/${name}/run`, {
+  const res = await apiFetch(`/workflows/${name}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -258,7 +325,7 @@ export async function streamRun(
 ): Promise<any> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}/workflows/${name}/runs/${runId}/stream`, { signal });
+    res = await apiFetch(`/workflows/${name}/runs/${runId}/stream`, { signal });
   } catch (e) {
     if ((e as Error)?.name === "AbortError") return null;
     throw e;
@@ -516,7 +583,7 @@ export async function sendChat(
   message: string,
   chatId?: string,
 ): Promise<{ chatId: string; turn: number }> {
-  const res = await fetch(`${BASE}/chat`, {
+  const res = await apiFetch(`/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, ...(chatId ? { chatId } : {}) }),
@@ -550,7 +617,7 @@ export async function streamChat(
   // running server-side. Resolves silently (no onFinish) when aborted.
   let res: Response;
   try {
-    res = await fetch(`${BASE}/chat/${chatId}/stream?turn=${turn}`, { signal });
+    res = await apiFetch(`/chat/${chatId}/stream?turn=${turn}`, { signal });
   } catch (err) {
     if (signal?.aborted) return;
     throw err;

@@ -66,9 +66,9 @@ export async function getApp() {
  * await vein.listen(port);
  * ```
  */
-export async function startServer(port?: number): Promise<void> {
+export async function startServer(port?: number, host?: string): Promise<void> {
   const vein = await getDefault();
-  await vein.listen(port);
+  await vein.listen(port, host);
 }
 
 // Run directly when invoked as a script.
