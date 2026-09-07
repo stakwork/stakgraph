@@ -13,7 +13,7 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg && \
+RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg bzip2 && \
     git lfs install --system && \
     ln -s /usr/bin/python3 /usr/bin/python
 
