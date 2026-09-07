@@ -547,6 +547,28 @@ describe("createVein", () => {
     assert.equal(missing.status, 404);
   });
 
+  it("custom steps can `import \"vein\"` from a workspace outside the package tree", async () => {
+    // tempDir is under the OS tmpdir — no `vein` package is reachable by
+    // walking up from it. The resolve hook (vein-resolver.ts) maps the bare
+    // specifier to this running vein, so the step gets the same defineStep/z.
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishStep(
+      "hook-step",
+      `import { z, defineStep } from "vein";
+       export default defineStep({
+         type: "hook-step",
+         input: z.object({ name: z.string() }),
+         output: z.string(),
+         async run({ input }) { return "hi " + input.name; },
+       });`,
+    );
+    const vein = await createVein({ workspace: ws, store: new MemoryRunStore(), serveUi: false, enableChat: false, stt: false });
+    assert.ok("hook-step" in vein.getRegistry(), "step importing vein loads from an out-of-tree workspace");
+    const { z: ourZ } = await import("zod");
+    const def = vein.getRegistry()["hook-step"]!;
+    assert.ok(def.input instanceof ourZ.ZodObject, "the step's zod is this process's zod (one module instance)");
+  });
+
   it("a non-file WorkspaceStore gets in-memory store defaults and still loads custom steps", async () => {
     const ws = pathlessWorkspace(new WorkspaceManager(tempDir));
     // Import-free step source (the temp dir sits outside the project tree,
@@ -675,5 +697,66 @@ describe("createVein", () => {
     const pRes = await vein.app.request(`/workflows/plain/runs/${result.runId}/promotions`);
     assert.equal(pRes.status, 200);
     assert.deepEqual(await pRes.json(), []);
+  });
+});
+
+describe("listen()", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-listen-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("binds an OS-picked port on 0, honors the host, and prints a ready line", async () => {
+    const vein = await createVein({
+      workspace: new WorkspaceManager(tempDir),
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+      stt: false,
+    });
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
+    let port: number;
+    try {
+      port = await vein.listen(0, "127.0.0.1");
+    } finally {
+      console.log = orig;
+    }
+    try {
+      assert.ok(port > 0, `expected a real port, got ${port}`);
+      const ready = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((j) => j?.event === "ready");
+      assert.deepEqual(ready, { event: "ready", port, host: "127.0.0.1" });
+      const res = await fetch(`http://127.0.0.1:${port}/health`);
+      assert.equal(res.status, 200);
+      assert.equal(((await res.json()) as { ok: boolean }).ok, true);
+    } finally {
+      await vein.close();
+    }
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/health`), "server should be closed");
+  });
+
+  it("rejects when the port is taken instead of crashing the process", async () => {
+    const mk = () =>
+      createVein({
+        workspace: new WorkspaceManager(tempDir),
+        store: new MemoryRunStore(),
+        serveUi: false,
+        enableChat: false,
+        stt: false,
+      });
+    const a = await mk();
+    const port = await a.listen(0, "127.0.0.1");
+    const b = await mk();
+    try {
+      await assert.rejects(b.listen(port, "127.0.0.1"), /EADDRINUSE/);
+    } finally {
+      await a.close();
+      await b.close();
+    }
   });
 });

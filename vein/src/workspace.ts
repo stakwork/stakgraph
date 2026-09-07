@@ -845,7 +845,9 @@ export class FileWorkspaceStore implements WorkspaceStore {
   /** Publishing already writes each active custom step to
    *  `<root>/steps/custom/<name>.ts`, so the store IS the materialization. */
   async materializeCustomSteps(): Promise<string> {
-    return this.customStepsDir();
+    const dir = this.customStepsDir();
+    await ensureEsmScope(dir);
+    return dir;
   }
 
   private customStepsDir(): string {
@@ -991,5 +993,23 @@ async function pruneEmptyDirs(startDir: string, stopDir: string): Promise<void> 
       return; // not empty, or doesn't exist
     }
     dir = dirname(dir);
+  }
+}
+
+/**
+ * Custom step files are ESM (`import { defineStep } from "vein"`). Node and
+ * tsx decide a `.ts` file's format from the nearest package.json, and a
+ * workspace outside the vein package tree has none — tsx then falls back to
+ * CommonJS and `require("vein")` bypasses the ESM resolve hook that makes
+ * the bare specifier work (vein-resolve-hook.ts). A one-line package.json
+ * beside the steps pins the format wherever the workspace lives.
+ */
+export async function ensureEsmScope(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  const pkg = join(dir, "package.json");
+  try {
+    await stat(pkg);
+  } catch {
+    await writeFile(pkg, JSON.stringify({ type: "module" }, null, 2) + "\n", "utf-8");
   }
 }
