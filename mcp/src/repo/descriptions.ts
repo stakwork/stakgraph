@@ -144,6 +144,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
     // Loop until cost limit reached or no more nodes
+    let fatalError: Error | null = null;
     while (true) {
       if (totalCost >= cost_limit) {
         console.log(
@@ -231,6 +232,20 @@ ${content.slice(0, 2000)}`;
               });
             } catch (e) {
               console.error(`[describe_nodes] Error on node ${name}:`, e);
+              const err = e as Error;
+              const msg = `${err?.message ?? ""} ${((err as any)?.cause as Error)?.message ?? ""}`.toLowerCase();
+              const isFatal = [
+                "key limit exceeded",
+                "quota",
+                "insufficient",
+                "401",
+                "invalid api key",
+                "invalid_api_key",
+                "unauthorized",
+              ].some((needle) => msg.includes(needle));
+              if (isFatal && !fatalError) {
+                fatalError = err;
+              }
             }
           }),
       );
@@ -239,6 +254,19 @@ ${content.slice(0, 2000)}`;
       for (const r of results) {
         totalCost += r.cost;
         totalUsage = addUsage(totalUsage, r.usage);
+      }
+
+      if (fatalError) {
+        console.error(
+          `[describe_nodes] Fatal error detected (${fatalError.message}). Aborting run.`,
+        );
+        break;
+      }
+      if (nodes.length > 0 && results.length === 0) {
+        console.error(
+          "[describe_nodes] Entire batch failed with no successful descriptions. Aborting to avoid an infinite loop.",
+        );
+        break;
       }
 
       // Bulk write to Neo4j
