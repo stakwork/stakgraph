@@ -391,6 +391,8 @@ the route, never at boot; server images pre-bake.
 
 ### 4.6 Client responsibilities (Swift / Kotlin)
 
+Full client contract, with a Swift sketch: `native-dictation-client.md`.
+
 - Capture the microphone natively (AVAudioEngine / AudioRecord), 16 kHz
   mono PCM16LE. Do **not** use `getUserMedia` inside the webview.
 - Live: open `/audio/stream`, send ~100 ms frames, render partials, replace
