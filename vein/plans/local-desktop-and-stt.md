@@ -76,22 +76,23 @@ the API key is obtained.
    step files ship as real files. It breaks any single-file build. Fix when we
    go single-file: a build-time generated step manifest (static imports) with
    `readdir` only for custom steps.
-3. **Custom steps are materialized to disk and `import "vein"`**
-   (`graph/workspace-store.ts` `materializeCustomSteps`, and the fs workspace's
-   `steps/custom`). Node resolves `vein` by walking up from the file. The app
-   must ensure a resolvable `node_modules/vein` exists above the materialize
-   dir — simplest is to make the data dir live under the app's bundle tree, or
-   write a one-line shim package that re-exports from the running server.
-4. **`web/dist` is resolved relative to the module** (`createVein.ts` ~L450).
-   Add a `VEIN_WEB_DIST` override so the host can pass an absolute path.
-5. **Bind address.** `serve({ fetch, port })` binds all interfaces. Add
-   `VEIN_HOST` (default unchanged for servers; desktop passes `127.0.0.1`).
+3. ~~**Custom steps are materialized to disk and `import "vein"`.**~~ Done:
+   a module resolve hook (`src/vein-resolve-hook.ts`, registered by the
+   step registry) maps the bare specifier to the running vein's own entry,
+   so the workspace can live anywhere (Application Support on desktop) and
+   steps get the same module instance the server runs. A one-line
+   `package.json` (`"type": "module"`) is written beside the custom steps so
+   tsx in dev treats them as ESM out of tree, as Node already does.
+4. ~~**`web/dist` is resolved relative to the module.**~~ Done: `VEIN_WEB_DIST`
+   (or the `webDist` option) overrides it.
+5. ~~**Bind address.**~~ Done: `VEIN_HOST` (default unchanged for servers;
+   desktop passes `127.0.0.1`), and `VEIN_PORT=0` resolves to the bound port.
 6. **Shell steps spawn `bash`** (`shell.ts`). macOS/Linux fine; Windows needs
    either Git-Bash detection or a `VEIN_SHELL` override. Not blocking for a
    macOS-first release.
-7. **Native addons** (`onnxruntime-node` 211 MB all-platforms, `sharp` via
-   transformers). Drop from the desktop build; MiniLM falls back to the WASM
-   backend (§3).
+7. ~~**Native addons** (`onnxruntime-node`, `sharp` via transformers).~~
+   Done: `package:desktop` uninstalls the whole embeddings stack by default
+   (§2.3); sherpa ships its own `libonnxruntime` inside its platform package.
 
 ### 2.3 Packaging: phase A (ship this first)
 
@@ -114,7 +115,24 @@ vein/
   with zero code change. `import.meta.url` inside the bundle must resolve to
   the bundle's own dir; esbuild's `--inject` of an `import.meta.url` shim or
   `__dirname` replacement handles this.
-- Size estimate: ~150 MB before models. Acceptable.
+- **Built by `npm run package:desktop -- --smoke`** (`scripts/package-desktop.mjs`):
+  tsc + vite, stage `package.json` + `build/` + `web/dist/`, `npm install
+  --omit=dev` in the stage, keep one `sherpa-onnx-<platform>` and only this
+  platform's `onnxruntime-node` binaries, list the `.node` files the host
+  must code-sign, then (`--smoke`) boot the copy from a temp dir with the
+  §2.5 env and a workspace outside the tree holding a step that
+  `import "vein"`, and check `/health`, `/steps`, `/audio/models`
+  (`available: true`) and the UI. `--platform` cross-stages.
+- Measured (darwin-arm64, 2026-09-07): **99 MB** before the Node binary and
+  models, with the defaults: the embeddings stack uninstalled
+  (`@huggingface/transformers` + `onnxruntime-web`/`-node` + `sharp`,
+  ~200 MB — MiniLM only serves graph search, which needs Neo4j; `--embeddings`
+  keeps it and `graph/embeddings.ts` fails with a clear message without it)
+  and sourcemaps/typings/docs stripped (~70 MB). Largest pieces left: sherpa
+  34 MB, `aieo` 15 MB (its nested `ai`/`@ai-sdk`/`zod` copies — align
+  versions to dedupe), `react-dom` 7 MB. One `.node` addon to sign. The
+  earlier ~150 MB estimate assumed an esbuild bundle, which the step loader
+  rules out for now (§2.4).
 
 ### 2.4 Packaging: phase B (single binary, later)
 
@@ -141,12 +159,13 @@ Host spawns `node server.cjs` with env:
 
 Protocol:
 
-- vein prints one JSON line on stdout when ready:
-  `{"event":"ready","port":51234}`. Today `listen()` logs a human string; add
-  the structured line (keep the human one).
-- Host loads the webview at `http://127.0.0.1:<port>/` and injects the API key
-  (e.g. via a `?key=` on first load that the UI stores in `sessionStorage`,
-  or a host-set cookie). Decide once; `?key=` is simplest.
+- vein prints one JSON line on stdout when ready (done):
+  `{"event":"ready","port":51234,"host":"127.0.0.1"}`, after the human lines.
+  `listen()` also rejects on a bind failure instead of crashing.
+- Host loads the webview at `http://127.0.0.1:<port>/?key=<VEIN_API_KEY>`
+  (done): the UI stores the key in `sessionStorage`, strips it from the URL,
+  and sends it as a bearer on every request and as `?key=` on the dictation
+  socket. Settings → Connection also accepts a pasted key (`localStorage`).
 - Host kills the child on quit. vein already handles `SIGTERM` via the run
   store's durable resume, so a hard kill is recoverable.
 - Health: `GET /health` (add if missing) so the host can detect a crashed
@@ -391,6 +410,8 @@ the route, never at boot; server images pre-bake.
 
 ### 4.6 Client responsibilities (Swift / Kotlin)
 
+Full client contract, with a Swift sketch: `native-dictation-client.md`.
+
 - Capture the microphone natively (AVAudioEngine / AudioRecord), 16 kHz
   mono PCM16LE. Do **not** use `getUserMedia` inside the webview.
 - Live: open `/audio/stream`, send ~100 ms frames, render partials, replace
@@ -441,13 +462,14 @@ artifact per user/company) or beside it. Lean: same artifact, two sections.
    server with no desktop work at all.
 2. **Model bake-off**: measure the NeMo / Nemotron streaming variants for
    partial latency and accuracy on the same clips; pick the default.
-3. **Server prerequisites for desktop**: `VEIN_HOST`, `VEIN_WEB_DIST`,
-   structured `ready` line, `?key=` handoff in the UI, `VEIN_MODEL_DIR`
-   alias (the last one lands with step 1).
+3. ~~**Server prerequisites for desktop**~~: done — `VEIN_HOST`,
+   `VEIN_WEB_DIST`, `VEIN_PORT=0`, structured `ready` line, `vein.close()`,
+   `?key=` handoff in the UI, `VEIN_MODEL_DIR` / `VEIN_CACHE_DIR` fallback.
 4. **First dream cycle**: a sessions → llm → `PUT /audio/hotwords` workflow
    plus the corrections UI. Proves the loop before packaging.
-5. **Phase A packaging**: esbuild bundle, Node binary, native dir, a macOS
-   host proof-of-concept that spawns vein and streams the mic.
+5. **Phase A packaging**: vein side done (`package:desktop` + smoke test);
+   remaining is the macOS host: embed Node + the staged dir, code-sign the
+   listed addons, spawn vein and stream the mic.
 6. **Kotlin host**, Windows shell override.
 7. Later: single-binary (phase B), local vector store or LadybugDB backend
    (§3, §3.1), batch `audio/transcribe` step, offline-mobile bindings.

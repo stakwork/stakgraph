@@ -77,3 +77,5 @@ vein/build
 vein/node_modules
 vein/web/dist
 vein/web/node_modules
+# vein desktop packaging output (scripts/package-desktop.mjs)
+vein/dist-desktop
