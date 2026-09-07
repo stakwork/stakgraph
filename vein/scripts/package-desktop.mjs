@@ -3,13 +3,20 @@
  * Stage a self-contained vein directory for embedding in a native desktop
  * app (plans/local-desktop-and-stt.md §2.3, "phase A").
  *
- *   npm run package:desktop -- [--platform darwin-arm64] [--out dist-desktop] [--smoke] [--skip-build]
+ *   npm run package:desktop -- [--platform darwin-arm64] [--out dist-desktop] [--smoke] [--skip-build] [--embeddings]
  *
  * Output: <out>/vein/ containing package.json, build/ (server + steps as
  * loose files — the registry scans them), web/dist/, and a production-only
  * node_modules/ with exactly one sherpa-onnx platform package and only this
  * platform's onnxruntime-node binaries. The host adds an official Node
  * binary beside it and runs `node build/server.js` with the env in §2.5.
+ *
+ * Two size cuts, both on by default:
+ *   - the embeddings stack (@huggingface/transformers + onnxruntime-web/-node
+ *     + sharp, ~200 MB) is uninstalled — MiniLM only serves graph search,
+ *     which needs a Neo4j the desktop build doesn't ship; `--embeddings`
+ *     keeps it, and graph/embeddings.ts fails with a clear message without it;
+ *   - sourcemaps, typings, and docs are stripped from node_modules (~100 MB).
  *
  * --smoke boots the staged copy from a temp directory (so nothing can leak
  * in from this checkout), with a workspace outside the package tree that
@@ -36,6 +43,7 @@ const platform = String(flag("platform", `${process.platform === "win32" ? "win"
 const out = resolve(ROOT, String(flag("out", "dist-desktop")));
 const smoke = flag("smoke", false) === true;
 const skipBuild = flag("skip-build", false) === true;
+const embeddings = flag("embeddings", false) === true;
 const stage = join(out, "vein");
 
 const SHERPA_PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "win-x64", "win-ia32"];
@@ -117,7 +125,47 @@ async function installDeps() {
   } catch {
     /* onnxruntime-node absent — nothing to prune */
   }
+  if (!embeddings) {
+    // npm removes the package and everything only it depended on, and drops
+    // it from the staged package.json so the manifest matches the build.
+    log("removing the embeddings stack (@huggingface/transformers and its deps); --embeddings keeps it");
+    run("npm", ["uninstall", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts", "@huggingface/transformers"], stage);
+  }
   await rm(join(nm, ".package-lock.json"), { force: true });
+  await strip(nm);
+}
+
+// Sourcemaps, typings, and docs are dead weight in a shipped app. Licenses
+// stay. Only node_modules is touched (vein's own build/ keeps its .d.ts).
+const STRIP_EXT = [".map", ".d.ts", ".d.mts", ".d.cts", ".md", ".markdown"];
+const STRIP_NAMES = new Set(["CHANGELOG", "CHANGES", "HISTORY", ".github", ".vscode", ".idea"]);
+async function strip(dir) {
+  let files = 0;
+  let bytes = 0;
+  const walk = async (d) => {
+    for (const e of await readdir(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      const base = e.name.replace(/\.(md|txt|markdown)$/i, "");
+      if (STRIP_NAMES.has(base) || STRIP_NAMES.has(e.name)) {
+        bytes += await sizeOf(p);
+        files++;
+        await rm(p, { recursive: true, force: true });
+        continue;
+      }
+      if (e.isDirectory()) {
+        await walk(p);
+        continue;
+      }
+      if (/^licen[cs]e/i.test(e.name)) continue;
+      if (STRIP_EXT.some((x) => e.name.endsWith(x))) {
+        bytes += (await stat(p)).size;
+        files++;
+        await rm(p, { force: true });
+      }
+    }
+  };
+  await walk(dir);
+  log(`stripped ${files} sourcemap/typing/doc files (${mb(bytes)}) from node_modules`);
 }
 
 async function report() {

@@ -123,10 +123,14 @@ vein/
   §2.5 env and a workspace outside the tree holding a step that
   `import "vein"`, and check `/health`, `/steps`, `/audio/models`
   (`available: true`) and the UI. `--platform` cross-stages.
-- Measured (darwin-arm64, 2026-09-07): **376 MB** before the Node binary and
-  models. Largest pieces: `onnxruntime-web` 134 MB (MiniLM's WASM backend,
-  a transformers dep; its many wasm variants are the next pruning target),
-  `onnxruntime-node` 36 MB after pruning, sherpa 34 MB, `aieo` 32 MB. The
+- Measured (darwin-arm64, 2026-09-07): **99 MB** before the Node binary and
+  models, with the defaults: the embeddings stack uninstalled
+  (`@huggingface/transformers` + `onnxruntime-web`/`-node` + `sharp`,
+  ~200 MB — MiniLM only serves graph search, which needs Neo4j; `--embeddings`
+  keeps it and `graph/embeddings.ts` fails with a clear message without it)
+  and sourcemaps/typings/docs stripped (~70 MB). Largest pieces left: sherpa
+  34 MB, `aieo` 15 MB (its nested `ai`/`@ai-sdk`/`zod` copies — align
+  versions to dedupe), `react-dom` 7 MB. One `.node` addon to sign. The
   earlier ~150 MB estimate assumed an esbuild bundle, which the step loader
   rules out for now (§2.4).
 
