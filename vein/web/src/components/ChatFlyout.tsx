@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "preact/hooks";
 import * as api from "../api";
 import * as storage from "../storage";
 import { formatJson } from "../helpers";
-import { CloseIcon, HistoryIcon, CopyIcon, CheckIcon } from "../icons";
+import { CloseIcon, HistoryIcon, CopyIcon, CheckIcon, MicIcon } from "../icons";
+import { startDictation, dictationSupported, type Dictation } from "../dictation";
 import { ToolResultView } from "./ToolResultView";
 import { FlyoutResizer } from "./FlyoutResizer";
 import { Markdown } from "./Markdown";
@@ -214,10 +215,77 @@ export function ChatFlyout(props: {
   onClose: () => void;
   onWorkflowCreated: (name: string) => void;
   onWorkflowRan: (name: string, runId: string) => void;
+  /** Dictation preferences (SettingsDialog). The mic shows once the chosen
+   *  model is confirmed installed on the server. */
+  stt: storage.SttSettings;
 }) {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // ── Dictation ──────────────────────────────────────────────────────────
+  // Finals accumulate into `dictBase`; the live partial is appended after it
+  // and replaced by the next final. Typing while listening takes over.
+  const [micReady, setMicReady] = useState(false);
+  const [listening, setListening] = useState<"starting" | "on" | "stopping" | false>(false);
+  const [micError, setMicError] = useState("");
+  const dictRef = useRef<Dictation | null>(null);
+  const dictBase = useRef("");
+  const { stt } = props;
+  useEffect(() => {
+    let cancelled = false;
+    setMicReady(false);
+    if (!stt.enabled || !stt.model || !dictationSupported()) return;
+    api.listSttModels().then((r) => {
+      if (cancelled) return;
+      const ok = (id: string | null) => !id || !!r.models.find((m) => m.id === id)?.installed;
+      setMicReady(r.available && ok(stt.model) && ok(stt.partialModel));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [stt.enabled, stt.model, stt.partialModel]);
+  useEffect(() => () => dictRef.current?.stop(), []);
+
+  const stopDictation = useCallback(() => {
+    if (!dictRef.current) return;
+    setListening("stopping");
+    dictRef.current.stop();
+  }, []);
+
+  const toggleDictation = useCallback(async () => {
+    if (listening) return stopDictation();
+    setMicError("");
+    setListening("starting");
+    dictBase.current = input.trim() ? input.replace(/\s*$/, " ") : "";
+    try {
+      dictRef.current = await startDictation({
+        model: stt.model!,
+        partialModel: stt.partialModel,
+        hotwords: stt.hotwords.split("\n").map((l) => l.trim()).filter(Boolean),
+        session: chatId ? `chat-${chatId}` : undefined,
+        onReady: () => setListening("on"),
+        onPartial: (text) => setInput(dictBase.current + text),
+        onFinal: (text) => {
+          // The flush on stop can emit a punctuation-only final ("."): attach
+          // it to the previous word instead of leaving "word . ".
+          if (text) {
+            const base = /^[.,!?;:]/.test(text) ? dictBase.current.trimEnd() : dictBase.current;
+            dictBase.current = base + text + " ";
+          }
+          setInput(dictBase.current);
+        },
+        onError: (msg) => setMicError(msg),
+        onClose: () => {
+          dictRef.current = null;
+          setListening(false);
+          inputRef.current?.focus();
+        },
+      });
+    } catch (e) {
+      dictRef.current = null;
+      setListening(false);
+      setMicError(e instanceof Error ? e.message : String(e));
+    }
+  }, [listening, stopDictation, input, stt]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [chatId, setChatId] = useState<string | null>(() =>
     new URLSearchParams(location.search).get(CHAT_URL_PARAM) ??
@@ -449,6 +517,7 @@ export function ChatFlyout(props: {
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || loading) return;
+    if (dictRef.current) stopDictation();
 
     setEntries((prev) => [...prev, { kind: "user", content: text }]);
     setInput("");
@@ -473,7 +542,7 @@ export function ChatFlyout(props: {
       setEntries((prev) => [...prev, { kind: "text", content: "Error connecting to AI." }]);
       setLoading(false);
     }
-  }, [input, loading, chatId, attach, loadChat]);
+  }, [input, loading, chatId, attach, loadChat, stopDictation]);
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -618,16 +687,32 @@ export function ChatFlyout(props: {
         )}
       </div>
       )}
+      {micError && <div class="chat-mic-error">{micError}</div>}
       <div class="chat-input-row">
         <textarea
           ref={inputRef}
           rows={1}
           value={input}
-          onInput={(e) => setInput((e.target as HTMLTextAreaElement).value)}
+          onInput={(e) => {
+            const v = (e.target as HTMLTextAreaElement).value;
+            if (listening) dictBase.current = v.trim() ? v.replace(/\s*$/, " ") : "";
+            setInput(v);
+          }}
           onKeyDown={handleKeyDown}
-          placeholder="Describe your workflow..."
+          placeholder={listening === "on" ? "Listening…" : "Describe your workflow..."}
           disabled={loading}
         />
+        {micReady && (
+          <button
+            class={`btn chat-mic${listening ? " is-listening" : ""}`}
+            onClick={toggleDictation}
+            disabled={loading || listening === "starting" || listening === "stopping"}
+            aria-label={listening ? "Stop dictation" : "Start dictation"}
+            title={listening ? "Stop dictation" : "Dictate"}
+          >
+            <MicIcon />
+          </button>
+        )}
         <button class="btn btn-primary" onClick={send} disabled={loading}>Send</button>
       </div>
     </div>

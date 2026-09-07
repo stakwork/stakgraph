@@ -35,6 +35,23 @@ export function remove(key: string): void {
 
 // ── Typed accessors ────────────────────────────────────────────────────────
 
+/** Dictation (SettingsDialog + the mic in ChatFlyout). Model installation is
+ *  a server fact; this is the browser's choice to use it, and which models. */
+export interface SttSettings {
+  enabled: boolean;
+  /** Finals model id (hotword-capable by default). */
+  model: string | null;
+  /** Fast partials model id; null = the finals model does both. */
+  partialModel: string | null;
+  /** Inline hotwords, one per line, optional ` :score`. */
+  hotwords: string;
+}
+const STT_DEFAULTS: SttSettings = { enabled: false, model: null, partialModel: null, hotwords: "" };
+export const sttSettings = {
+  get: (): SttSettings => ({ ...STT_DEFAULTS, ...load<Partial<SttSettings>>("stt", {}) }),
+  set: (s: SttSettings) => save("stt", s),
+};
+
 /** Most recent run-input form values, keyed by workflow name. */
 export const recentRunInput = {
   get: (workflow: string) =>

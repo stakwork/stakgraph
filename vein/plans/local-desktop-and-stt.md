@@ -340,12 +340,13 @@ and passes every other test.
   into the Node server). It does not work through mcp's Express bridge,
   which is fine: mcp is not the desktop process.
 
-**`GET /audio/try`** — a dependency-free browser page (mic → AudioWorklet →
-PCM16 → `/audio/stream`) for trying dictation with nothing but vein and a
-browser: model picker + download, inline hotwords, editable finals that post
-corrections. Dev/test surface only; the hosts capture audio natively (§4.6).
-Served without the key middleware (the page is inert; everything it calls is
-still gated and it forwards the key as `?key=` / `Bearer`).
+**Web UI client** (`web/src/dictation.ts`, `SettingsDialog`, the mic in
+`ChatFlyout`): mic → AudioWorklet → PCM16 → `/audio/stream`, dictating into
+the AI chat input. Settings (gear icon) has "Enable dictation", which
+downloads the default pair, plus an inline hotwords list for experimenting;
+both are browser-local (`localStorage`), since installation is already a
+server fact. Streams log under `chat-<id>` sessions. The desktop/mobile
+hosts capture natively instead (§4.6).
 
 **`POST /audio/transcribe`** — raw `audio/wav` body, `?model=`,
 `?hotwords=`. Same output as a `final`. Push-to-talk and voice memos.

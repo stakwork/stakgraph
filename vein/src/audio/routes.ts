@@ -8,13 +8,8 @@ import { streamSSE } from "hono/streaming";
 import { requireApiKey } from "../auth.js";
 import { findModel } from "./models.js";
 import { SttUnavailableError, type SttService, type SttStreamOptions } from "./stt.js";
-import { TRY_PAGE_HTML } from "./try-page.js";
 
 export function audioRoutes(app: Hono, stt: SttService): void {
-  // Browser test page (mic → /audio/stream). Registered before the key
-  // middleware so a browser can load it; everything it calls is still gated.
-  app.get("/audio/try", (c) => c.html(TRY_PAGE_HTML));
-
   app.use("/audio/*", requireApiKey);
 
   app.get("/audio/models", async (c) => {
