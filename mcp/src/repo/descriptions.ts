@@ -144,7 +144,9 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
     // Loop until cost limit reached or no more nodes
-    let fatalError: Error | null = null;
+    // Held in a ref so assignments from the per-node callbacks below are not
+    // erased by control-flow narrowing at the read site.
+    const fatal: { error: Error | null } = { error: null };
     while (true) {
       if (totalCost >= cost_limit) {
         console.log(
@@ -243,8 +245,8 @@ ${content.slice(0, 2000)}`;
                 "invalid_api_key",
                 "unauthorized",
               ].some((needle) => msg.includes(needle));
-              if (isFatal && !fatalError) {
-                fatalError = err;
+              if (isFatal && !fatal.error) {
+                fatal.error = err;
               }
             }
           }),
@@ -256,9 +258,9 @@ ${content.slice(0, 2000)}`;
         totalUsage = addUsage(totalUsage, r.usage);
       }
 
-      if (fatalError) {
+      if (fatal.error) {
         console.error(
-          `[describe_nodes] Fatal error detected (${fatalError.message}). Aborting run.`,
+          `[describe_nodes] Fatal error detected (${fatal.error.message}). Aborting run.`,
         );
         break;
       }
