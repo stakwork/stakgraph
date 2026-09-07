@@ -193,10 +193,11 @@ async fn execute_hive_query(body: HiveQueryBody, denylist_mode: DenylistMode) ->
     // Cheap per-request handle — connect() reuses the process-wide shared bolt pool.
     let mut graph_ops = GraphOps::new();
     if let Err(e) = graph_ops.connect().await {
-        tracing::error!(error = %e, "hive_query: failed to connect to Neo4j");
+        let detail = e.to_string();
+        tracing::error!(error = %detail, "hive_query: failed to connect to Neo4j");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "query execution failed"})),
+            Json(json!({"error": "query execution failed", "details": detail})),
         )
             .into_response();
     }
@@ -220,10 +221,11 @@ async fn execute_hive_query(body: HiveQueryBody, denylist_mode: DenylistMode) ->
             read_only_violation_response()
         }
         Err(e) => {
-            tracing::error!(error = %e, "hive_query: Neo4j execution failed");
+            let detail = e.to_string();
+            tracing::error!(error = %detail, "hive_query: Neo4j execution failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "query execution failed"})),
+                Json(json!({"error": "query execution failed", "details": detail})),
             )
                 .into_response()
         }
