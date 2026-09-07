@@ -383,8 +383,10 @@ id → GitHub release URL, sha256, size, file layout, chunk latency, casing.
 Defaults: `model` = `zipformer-en-kroko`, `partialModel` =
 `nemo-fast-conformer-en-80ms`. Env `VEIN_STT_MODEL` / `VEIN_STT_PARTIAL_MODEL`
 and per-call overrides. Dropped: the 2023-02 20M Zipformer (fast but weak).
-`VEIN_MODEL_DIR` (default `~/.cache/vein-models`, alias of the existing
-`VEIN_MODEL_CACHE`) holds `stt/<id>/`. Downloads happen on first use or via
+`VEIN_MODEL_DIR` (alias of the existing `VEIN_MODEL_CACHE`; default
+`<cache root>/vein/models` where the root is `VEIN_CACHE_DIR`, else
+`XDG_CACHE_HOME`, else `~/.cache` — the same root mcp's GAIA checkout uses,
+so a server's `~/.cache/vein` volume persists both) holds `stt/<id>/`. Downloads happen on first use or via
 the route, never at boot; server images pre-bake.
 
 ### 4.6 Client responsibilities (Swift / Kotlin)

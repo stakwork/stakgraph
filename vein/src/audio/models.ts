@@ -8,7 +8,6 @@
  * and the NeMo online transducer in sherpa is greedy-only, so `hotwords`
  * records which entries can be biased.
  */
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface SttModel {
@@ -101,11 +100,8 @@ export function requireModel(id: string): SttModel {
   return m;
 }
 
-/** `VEIN_MODEL_DIR`, else the older `VEIN_MODEL_CACHE` (MiniLM's setting),
- *  else `~/.cache/vein-models`. STT models live under `<dir>/stt/<id>/`. */
-export function modelDirFromEnv(env: Record<string, string | undefined> = process.env): string {
-  return env["VEIN_MODEL_DIR"] ?? env["VEIN_MODEL_CACHE"] ?? join(homedir(), ".cache", "vein-models");
-}
+/** Shared with MiniLM (src/model-dir.ts). STT models live under `<dir>/stt/<id>/`. */
+export { modelDirFromEnv } from "../model-dir.js";
 
 export function sttModelPath(modelDir: string, id: string): string {
   return join(modelDir, "stt", id);
