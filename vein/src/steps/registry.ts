@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { registerVeinResolver } from "../vein-resolver.js";
 import type { AnyStepDef, StepRegistry } from "../core.js";
 
 /** Where a registered step type came from. */
@@ -217,6 +218,8 @@ export async function stepLoadError(filePath: string): Promise<string | null> {
  * report which tier each step came from without guessing from the name.
  */
 export async function buildRegistry(customDir?: string): Promise<RegistryBundle> {
+  // Custom steps `import "vein"`; make that resolve to this vein wherever the workspace lives.
+  registerVeinResolver();
   const registry: StepRegistry = { ...CORE_STEPS };
   const sources: StepSources = {};
 

@@ -76,12 +76,13 @@ the API key is obtained.
    step files ship as real files. It breaks any single-file build. Fix when we
    go single-file: a build-time generated step manifest (static imports) with
    `readdir` only for custom steps.
-3. **Custom steps are materialized to disk and `import "vein"`**
-   (`graph/workspace-store.ts` `materializeCustomSteps`, and the fs workspace's
-   `steps/custom`). Node resolves `vein` by walking up from the file. The app
-   must ensure a resolvable `node_modules/vein` exists above the materialize
-   dir — simplest is to make the data dir live under the app's bundle tree, or
-   write a one-line shim package that re-exports from the running server.
+3. ~~**Custom steps are materialized to disk and `import "vein"`.**~~ Done:
+   a module resolve hook (`src/vein-resolve-hook.ts`, registered by the
+   step registry) maps the bare specifier to the running vein's own entry,
+   so the workspace can live anywhere (Application Support on desktop) and
+   steps get the same module instance the server runs. A one-line
+   `package.json` (`"type": "module"`) is written beside the custom steps so
+   tsx in dev treats them as ESM out of tree, as Node already does.
 4. **`web/dist` is resolved relative to the module** (`createVein.ts` ~L450).
    Add a `VEIN_WEB_DIST` override so the host can pass an absolute path.
 5. **Bind address.** `serve({ fetch, port })` binds all interfaces. Add
