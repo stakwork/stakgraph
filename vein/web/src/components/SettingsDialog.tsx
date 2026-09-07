@@ -23,6 +23,16 @@ export function SettingsDialog(props: {
   const [busy, setBusy] = useState<string | null>(null); // model id being downloaded
   const [progress, setProgress] = useState("");
   const [hotwords, setHotwords] = useState(settings.hotwords);
+  const [apiKey, setApiKeyState] = useState(api.getApiKey());
+  const keySource = api.apiKeySource();
+
+  const saveApiKey = (value: string) => {
+    const v = value.trim();
+    if (v === api.getApiKey()) return;
+    api.setApiKey(v);
+    setApiKeyState(v);
+    refresh();
+  };
 
   const refresh = async () => {
     try {
@@ -94,6 +104,24 @@ export function SettingsDialog(props: {
     >
       <div class="dialog settings-dialog">
         <div class="dialog-title">Settings</div>
+
+        <div class="settings-section-title">Connection</div>
+        <div class="dialog-hint">
+          Only needed when the server sets <code>VEIN_API_KEY</code>. Sent as a bearer
+          token on every request (and as <code>?key=</code> on the dictation socket).
+          {keySource === "url" && " This session's key came from the launch URL."}
+        </div>
+        <div class="dialog-field">
+          <label>API key</label>
+          <input
+            type="password"
+            value={apiKey}
+            placeholder="VEIN_API_KEY (blank in dev)"
+            autocomplete="off"
+            onInput={(e) => setApiKeyState((e.target as HTMLInputElement).value)}
+            onBlur={(e) => saveApiKey((e.target as HTMLInputElement).value)}
+          />
+        </div>
 
         <div class="settings-section-title">Dictation</div>
         <div class="dialog-hint">
