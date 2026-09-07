@@ -336,9 +336,14 @@ and passes every other test.
   shows it.
 - Auth: `Authorization: Bearer` **or** `?key=` (a webview's WebSocket
   cannot set headers). HTTP routes below use the normal bearer middleware.
-- This route needs vein's own `listen()` (WebSocket upgrade is injected
-  into the Node server). It does not work through mcp's Express bridge,
-  which is fine: mcp is not the desktop process.
+- The upgrade happens on the Node server, not inside Hono. Vein's own
+  `listen()` attaches it; a host that mounts `vein.app` itself (mcp's
+  Express bridge under `/lab`) hooks the server's `upgrade` event and hands
+  matching requests to `createAudioUpgradeHandler(stt, { basePath,
+  authorize })` — `authorize` because an upgrade bypasses the host's HTTP
+  auth middleware (mcp applies its Basic `admin:API_TOKEN` rule there;
+  browsers resend cached Basic credentials on same-origin handshakes).
+  See `mcp/src/lab/mount.ts` `attachLabAudio`.
 
 **Web UI client** (`web/src/dictation.ts`, `SettingsDialog`, the mic in
 `ChatFlyout`): mic → AudioWorklet → PCM16 → `/audio/stream`, dictating into

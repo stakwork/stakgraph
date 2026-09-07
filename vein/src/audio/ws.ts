@@ -33,35 +33,61 @@ export interface AttachOptions {
   /** Mount prefix when vein sits under a parent router (e.g. `/lab`). */
   basePath?: string;
   path?: string;
+  /** Replace the default `VEIN_API_KEY` check (Bearer or `?key=`) — a host
+   *  that gates vein behind its own credential applies it here, since an
+   *  upgrade bypasses its HTTP middleware. */
+  authorize?: (req: IncomingMessage, url: URL) => boolean;
+}
+
+export interface AudioUpgradeHandler {
+  /** Route path this handler owns (`basePath + path`). */
+  readonly path: string;
+  /** Handle one `upgrade` event. Returns false (and touches nothing) when
+   *  the request isn't for this path, so the caller can fall through. */
+  handle(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
+  close(): void;
+}
+
+/** The dictation socket's upgrade handler, for hosts that own the Node
+ *  server themselves (e.g. an Express app that bridges `vein.app`). */
+export function createAudioUpgradeHandler(stt: SttService, opts: AttachOptions = {}): AudioUpgradeHandler {
+  const path = (opts.basePath ?? "") + (opts.path ?? AUDIO_STREAM_PATH);
+  const wss = new WebSocketServer({ noServer: true });
+  const authorize =
+    opts.authorize ?? ((req: IncomingMessage, url: URL) => apiKeyMatches(req.headers.authorization, url.searchParams.get("key")));
+  return {
+    path,
+    handle(req, socket, head) {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname !== path) return false;
+      if (!authorize(req, url)) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return true;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => handleSocket(ws, stt));
+      return true;
+    },
+    close: () => wss.close(),
+  };
 }
 
 /** Attach the dictation socket to a Node http server. Returns a detach fn. */
 export function attachAudioWebSocket(server: Server, stt: SttService, opts: AttachOptions = {}): () => void {
-  const path = (opts.basePath ?? "") + (opts.path ?? AUDIO_STREAM_PATH);
-  const wss = new WebSocketServer({ noServer: true });
-
+  const handler = createAudioUpgradeHandler(stt, opts);
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    if (url.pathname !== path) {
-      // Not ours. If nobody else handles upgrades the socket would hang
-      // open forever, so answer 404 when we're the only listener.
-      if (server.listenerCount("upgrade") === 1) {
-        socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
-        socket.destroy();
-      }
-      return;
-    }
-    if (!apiKeyMatches(req.headers.authorization, url.searchParams.get("key"))) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    if (handler.handle(req, socket, head)) return;
+    // Not ours. If nobody else handles upgrades the socket would hang open
+    // forever, so answer 404 when we're the only listener.
+    if (server.listenerCount("upgrade") === 1) {
+      socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       socket.destroy();
-      return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => handleSocket(ws, stt));
   };
   server.on("upgrade", onUpgrade);
   return () => {
     server.off("upgrade", onUpgrade);
-    wss.close();
+    handler.close();
   };
 }
 

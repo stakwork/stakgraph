@@ -160,7 +160,13 @@ export {
   type TranscribeResult,
   type SttEngine,
 } from "./audio/stt.js";
-export { attachAudioWebSocket, AUDIO_STREAM_PATH } from "./audio/ws.js";
+export {
+  attachAudioWebSocket,
+  createAudioUpgradeHandler,
+  AUDIO_STREAM_PATH,
+  type AttachOptions as AudioAttachOptions,
+  type AudioUpgradeHandler,
+} from "./audio/ws.js";
 export { STT_MODELS, DEFAULT_MODEL as DEFAULT_STT_MODEL, type SttModel } from "./audio/models.js";
 export { parseHotwords, formatHotwords, HotwordsStore, type Hotword } from "./audio/hotwords.js";
 

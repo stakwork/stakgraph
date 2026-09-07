@@ -24,7 +24,7 @@ import * as l from "./graph/learnings.js";
 import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
 import * as gitreeProposals from "./gitree/proposals.js";
-import { mountLab } from "./lab/mount.js";
+import { mountLab, attachLabAudio } from "./lab/mount.js";
 import { loadModelPricing } from "./aieo/src/index.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -446,6 +446,9 @@ const server = app.listen(port, host, () => {
     console.error("[turn-backfill] failed:", e),
   );
 });
+
+// Dictation WebSocket for the lab UI (upgrades bypass Express).
+attachLabAudio(server);
 
 process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
