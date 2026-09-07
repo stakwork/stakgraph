@@ -39,14 +39,7 @@ export function warnIfUnconfigured(): void {
  * token matching `VEIN_API_KEY`. Permissive when the env var is unset.
  */
 export async function requireApiKey(c: Context, next: Next) {
-  const expected = configuredKey();
-  if (!expected) return next(); // permissive (dev mode)
-
-  const header = c.req.header("authorization") ?? "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  const got = match?.[1]?.trim();
-
-  if (!got || got !== expected) {
+  if (!apiKeyMatches(c.req.header("authorization"))) {
     return c.json(
       { error: "unauthorized: valid Authorization: Bearer <VEIN_API_KEY> required" },
       401,
@@ -54,6 +47,20 @@ export async function requireApiKey(c: Context, next: Next) {
   }
 
   return next();
+}
+
+/**
+ * Does a request carry the deployment key? Accepts `Authorization: Bearer`
+ * and, when the caller passes it, a `?key=` query value — the WebSocket
+ * dictation route needs the latter because a browser's WebSocket cannot set
+ * headers. Permissive (true) when `VEIN_API_KEY` is unset.
+ */
+export function apiKeyMatches(authorization: string | undefined, queryKey?: string | null): boolean {
+  const expected = configuredKey();
+  if (!expected) return true;
+  const match = (authorization ?? "").match(/^Bearer\s+(.+)$/i);
+  const got = match?.[1]?.trim() || queryKey?.trim();
+  return !!got && got === expected;
 }
 
 /** Test-only: reset the one-time-warning state so tests stay deterministic. */

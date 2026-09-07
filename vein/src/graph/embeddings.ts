@@ -15,7 +15,7 @@
  * between MERGE and vector write is healed by `backfillEmbeddings` at boot —
  * the same NULL-scan idiom jarvis's own migration uses (`migration.py:857`).
  */
-import { homedir } from "node:os";
+import { modelDirFromEnv } from "../model-dir.js";
 import { join } from "node:path";
 import { int, type Bolt } from "./bolt.js";
 import type { Embedder } from "./node-writer.js";
@@ -29,8 +29,8 @@ export const EMBEDDING_MAX_TOKENS = 256;
 export interface MiniLMOptions {
   /** HF repo id of an ONNX export of all-MiniLM-L6-v2. */
   model?: string;
-  /** Where model files are cached. Default `~/.cache/vein-models`
-   *  (override with `VEIN_MODEL_CACHE`). */
+  /** Where model files are cached. See src/model-dir.ts for the default
+   *  (`VEIN_MODEL_DIR`, `VEIN_MODEL_CACHE`, or `<cache root>/vein/models`). */
   cacheDir?: string;
   /** Texts per forward pass. */
   batchSize?: number;
@@ -52,7 +52,7 @@ export class MiniLMEmbedder implements Embedder {
   /** Load (downloading on first use) and self-check the output dimension. */
   static async load(opts: MiniLMOptions = {}): Promise<MiniLMEmbedder> {
     const tf: Transformers = await import("@huggingface/transformers");
-    tf.env.cacheDir = opts.cacheDir ?? process.env["VEIN_MODEL_CACHE"] ?? join(homedir(), ".cache", "vein-models");
+    tf.env.cacheDir = opts.cacheDir ?? modelDirFromEnv();
     tf.env.allowLocalModels = false;
     const model = opts.model ?? EMBEDDING_MODEL;
     const [tokenizer, net] = await Promise.all([
