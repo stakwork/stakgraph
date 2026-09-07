@@ -223,9 +223,18 @@ export interface Vein<TServices = unknown> {
    *  vein.stt)` to get the dictation socket; `listen()` does it. */
   stt: SttService | null;
 
-  /** Boot the Hono server with `@hono/node-server`. Resolves to the
-   *  bound port. Convenience wrapper — feel free to mount `app` yourself. */
-  listen: (port?: number) => Promise<number>;
+  /** Boot the Hono server with `@hono/node-server`. Resolves once the
+   *  socket is listening, to the *bound* port — so `listen(0)` (or
+   *  `VEIN_PORT=0`) lets the OS pick one, which a desktop host that spawns
+   *  vein as a child process relies on. `host` (or `VEIN_HOST`) sets the
+   *  bind address; unset binds every interface, `127.0.0.1` keeps a local
+   *  vein off the LAN. Prints one JSON line on stdout when ready,
+   *  `{"event":"ready","port":N,"host":"…"}`, for hosts to parse.
+   *  Convenience wrapper — feel free to mount `app` yourself. */
+  listen: (port?: number, host?: string) => Promise<number>;
+
+  /** Stop the server started by `listen()` (no-op otherwise). */
+  close: () => Promise<void>;
 }
 
 export interface VeinRunOptions<TServices = unknown> {
@@ -467,6 +476,7 @@ export async function createVein<TServices = unknown>(
     opts.chatMaxAutoTurns ?? Number(process.env["VEIN_CHAT_MAX_AUTO_TURNS"] ?? 10);
   const webDist =
     opts.webDist ??
+    process.env["VEIN_WEB_DIST"] ??
     resolve(dirname(fileURLToPath(import.meta.url)), "../web/dist");
   const registryWasInjected = opts.registry !== undefined;
 
@@ -1914,20 +1924,51 @@ export async function createVein<TServices = unknown>(
 
   // ── Listener ─────────────────────────────────────────────────────────────
 
-  async function listen(port?: number): Promise<number> {
+  let httpServer: import("node:http").Server | null = null;
+
+  async function listen(port?: number, host?: string): Promise<number> {
     warnIfUnconfigured();
-    const p = port ?? parseInt(process.env["VEIN_PORT"] ?? "3000", 10);
+    const requested = port ?? parseInt(process.env["VEIN_PORT"] ?? "3000", 10);
+    const hostname = host ?? process.env["VEIN_HOST"] ?? undefined;
     console.log(
       fileBacked
         ? `vein workspace: ${dataDir}`
         : `vein workspace: ${workspace.constructor.name} (data dir: ${dataDir})`,
     );
     console.log(`vein steps: ${Object.keys(registry).length} registered`);
-    console.log(`vein server: http://localhost:${p}`);
-    const server = serve({ fetch: app.fetch, port: p });
+    const server = serve({ fetch: app.fetch, port: requested, ...(hostname ? { hostname } : {}) }) as unknown as import("node:http").Server;
+    httpServer = server;
     // The dictation socket upgrades on the Node server, not inside Hono.
-    if (stt) attachAudioWebSocket(server as unknown as import("node:http").Server, stt);
-    return p;
+    if (stt) attachAudioWebSocket(server, stt);
+    // Resolve on the *bound* port (requested may be 0) — and surface a bind
+    // failure (EADDRINUSE etc.) as a rejection instead of an unhandled error.
+    const bound = await new Promise<number>((resolvePort, reject) => {
+      const onError = (e: Error) => reject(e);
+      server.once("error", onError);
+      const done = () => {
+        server.off("error", onError);
+        const addr = server.address();
+        resolvePort(addr && typeof addr === "object" ? addr.port : requested);
+      };
+      if (server.listening) done();
+      else server.once("listening", done);
+    });
+    console.log(`vein server: http://${hostname ?? "localhost"}:${bound}`);
+    // Structured ready line for a host that spawned us (desktop app): one
+    // JSON object on its own stdout line, after the human ones.
+    console.log(JSON.stringify({ event: "ready", port: bound, host: hostname ?? "0.0.0.0" }));
+    return bound;
+  }
+
+  async function close(): Promise<void> {
+    const s = httpServer;
+    if (!s) return;
+    httpServer = null;
+    if (!s.listening) return; // bind failed or already closed
+    await new Promise<void>((resolveClose, reject) => {
+      s.close((e) => (e ? reject(e) : resolveClose()));
+      s.closeAllConnections?.();
+    });
   }
 
   // Boot-time auto-resume (§5.3): on by default for a file-backed store
@@ -1959,6 +2000,7 @@ export async function createVein<TServices = unknown>(
     run,
     stt,
     listen,
+    close,
   };
 }
 

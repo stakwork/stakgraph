@@ -83,16 +83,16 @@ the API key is obtained.
    steps get the same module instance the server runs. A one-line
    `package.json` (`"type": "module"`) is written beside the custom steps so
    tsx in dev treats them as ESM out of tree, as Node already does.
-4. **`web/dist` is resolved relative to the module** (`createVein.ts` ~L450).
-   Add a `VEIN_WEB_DIST` override so the host can pass an absolute path.
-5. **Bind address.** `serve({ fetch, port })` binds all interfaces. Add
-   `VEIN_HOST` (default unchanged for servers; desktop passes `127.0.0.1`).
+4. ~~**`web/dist` is resolved relative to the module.**~~ Done: `VEIN_WEB_DIST`
+   (or the `webDist` option) overrides it.
+5. ~~**Bind address.**~~ Done: `VEIN_HOST` (default unchanged for servers;
+   desktop passes `127.0.0.1`), and `VEIN_PORT=0` resolves to the bound port.
 6. **Shell steps spawn `bash`** (`shell.ts`). macOS/Linux fine; Windows needs
    either Git-Bash detection or a `VEIN_SHELL` override. Not blocking for a
    macOS-first release.
-7. **Native addons** (`onnxruntime-node` 211 MB all-platforms, `sharp` via
-   transformers). Drop from the desktop build; MiniLM falls back to the WASM
-   backend (§3).
+7. ~~**Native addons** (`onnxruntime-node`, `sharp` via transformers).~~
+   Done: `package:desktop` uninstalls the whole embeddings stack by default
+   (§2.3); sherpa ships its own `libonnxruntime` inside its platform package.
 
 ### 2.3 Packaging: phase A (ship this first)
 
@@ -159,12 +159,13 @@ Host spawns `node server.cjs` with env:
 
 Protocol:
 
-- vein prints one JSON line on stdout when ready:
-  `{"event":"ready","port":51234}`. Today `listen()` logs a human string; add
-  the structured line (keep the human one).
-- Host loads the webview at `http://127.0.0.1:<port>/` and injects the API key
-  (e.g. via a `?key=` on first load that the UI stores in `sessionStorage`,
-  or a host-set cookie). Decide once; `?key=` is simplest.
+- vein prints one JSON line on stdout when ready (done):
+  `{"event":"ready","port":51234,"host":"127.0.0.1"}`, after the human lines.
+  `listen()` also rejects on a bind failure instead of crashing.
+- Host loads the webview at `http://127.0.0.1:<port>/?key=<VEIN_API_KEY>`
+  (done): the UI stores the key in `sessionStorage`, strips it from the URL,
+  and sends it as a bearer on every request and as `?key=` on the dictation
+  socket. Settings → Connection also accepts a pasted key (`localStorage`).
 - Host kills the child on quit. vein already handles `SIGTERM` via the run
   store's durable resume, so a hard kill is recoverable.
 - Health: `GET /health` (add if missing) so the host can detect a crashed
@@ -461,9 +462,9 @@ artifact per user/company) or beside it. Lean: same artifact, two sections.
    server with no desktop work at all.
 2. **Model bake-off**: measure the NeMo / Nemotron streaming variants for
    partial latency and accuracy on the same clips; pick the default.
-3. **Server prerequisites for desktop**: `VEIN_HOST`, `VEIN_WEB_DIST`,
-   structured `ready` line, `?key=` handoff in the UI, `VEIN_MODEL_DIR`
-   alias (the last one lands with step 1).
+3. ~~**Server prerequisites for desktop**~~: done — `VEIN_HOST`,
+   `VEIN_WEB_DIST`, `VEIN_PORT=0`, structured `ready` line, `vein.close()`,
+   `?key=` handoff in the UI, `VEIN_MODEL_DIR` / `VEIN_CACHE_DIR` fallback.
 4. **First dream cycle**: a sessions → llm → `PUT /audio/hotwords` workflow
    plus the corrections UI. Proves the loop before packaging.
 5. **Phase A packaging**: vein side done (`package:desktop` + smoke test);

@@ -699,3 +699,64 @@ describe("createVein", () => {
     assert.deepEqual(await pRes.json(), []);
   });
 });
+
+describe("listen()", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `vein-listen-${randomUUID()}`);
+    await mkdir(tempDir, { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("binds an OS-picked port on 0, honors the host, and prints a ready line", async () => {
+    const vein = await createVein({
+      workspace: new WorkspaceManager(tempDir),
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+      stt: false,
+    });
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
+    let port: number;
+    try {
+      port = await vein.listen(0, "127.0.0.1");
+    } finally {
+      console.log = orig;
+    }
+    try {
+      assert.ok(port > 0, `expected a real port, got ${port}`);
+      const ready = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((j) => j?.event === "ready");
+      assert.deepEqual(ready, { event: "ready", port, host: "127.0.0.1" });
+      const res = await fetch(`http://127.0.0.1:${port}/health`);
+      assert.equal(res.status, 200);
+      assert.equal(((await res.json()) as { ok: boolean }).ok, true);
+    } finally {
+      await vein.close();
+    }
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/health`), "server should be closed");
+  });
+
+  it("rejects when the port is taken instead of crashing the process", async () => {
+    const mk = () =>
+      createVein({
+        workspace: new WorkspaceManager(tempDir),
+        store: new MemoryRunStore(),
+        serveUi: false,
+        enableChat: false,
+        stt: false,
+      });
+    const a = await mk();
+    const port = await a.listen(0, "127.0.0.1");
+    const b = await mk();
+    try {
+      await assert.rejects(b.listen(port, "127.0.0.1"), /EADDRINUSE/);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+});

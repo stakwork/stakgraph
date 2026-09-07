@@ -148,7 +148,9 @@ cd vein && npm run dev        # serves API + UI on :3000
 | Variable            | Default        | Description                          |
 | ------------------- | -------------- | ------------------------------------ |
 | `VEIN_WORKSPACE`    | `./workspace`  | Persistent volume for workflows/runs |
-| `VEIN_PORT`         | `3000`         | HTTP server port                     |
+| `VEIN_PORT`         | `3000`         | HTTP server port. `0` lets the OS pick; `listen()` resolves to the bound port and prints `{"event":"ready","port":N,"host":…}` on stdout for a host process to parse. |
+| `VEIN_HOST`         | (all interfaces) | Bind address. A desktop host passes `127.0.0.1` to keep a local vein off the LAN. |
+| `VEIN_WEB_DIST`     | `<module>/../web/dist` | Where the built UI is served from, for packagers that relocate it. |
 | `VEIN_API_KEY`      | (unset)        | Deployment-scoped shared secret. See "Auth" below. |
 | `VEIN_SECRET_KEY`   | (unset)        | Encryption key for the secret store (AES-256-GCM). Unset → a default dev key + one-time warning (obfuscated, not secure). See "Secrets". |
 | `VEIN_LLM_PROVIDER` | (inferred from model, else `anthropic`) | Default LLM provider for agent/llm steps (anthropic\|openai\|google\|openrouter\|xai, via aieo) |
@@ -178,6 +180,11 @@ container in the compose (vein and any service that registers steps).
   `GET /steps` and workflow execution are always public.
 - **Set (production):** the gated endpoints require
   `Authorization: Bearer <VEIN_API_KEY>`. Anything else returns `401`.
+  The web UI attaches the key to every request once it has one: a host
+  that spawns vein hands it over as `?key=` on the first page load (stored
+  in `sessionStorage`, stripped from the URL), or a user pastes it under
+  Settings → Connection (`localStorage`). The dictation WebSocket sends it
+  as `?key=`, since browsers can't set headers on an upgrade.
 
 The same secret authenticates **both directions** within a deployment:
 
