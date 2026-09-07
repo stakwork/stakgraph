@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -144,18 +143,13 @@ export interface EnsureGaiaOptions {
   log?: (msg: string) => void;
 }
 
-/** Where a checkout lands when GAIA_DIR is unset. A checkout materialised
- *  before the vein→strut rename (`<cache>/vein/gaia`) is reused if the new
- *  location does not exist yet, so servers keep their dataset volume. */
+/** Where a checkout lands when GAIA_DIR is unset. */
 export function defaultGaiaDir(): string {
   const cache =
     process.env["STRUT_CACHE_DIR"] ??
     process.env["XDG_CACHE_HOME"] ??
     join(homedir(), ".cache");
-  const modern = join(cache, "strut", "gaia");
-  const legacy = join(cache, "vein", "gaia");
-  if (!existsSync(modern) && existsSync(legacy)) return legacy;
-  return modern;
+  return join(cache, "strut", "gaia");
 }
 
 function resolveToken(explicit?: string): string | undefined {

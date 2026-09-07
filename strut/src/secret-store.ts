@@ -73,10 +73,6 @@ export function assertValidSecretName(name: string): void {
 
 const ENV_KEY = "STRUT_SECRET_KEY";
 const DEV_PASSPHRASE = "strut-insecure-dev-key";
-/** Dev passphrase from before the vein→strut rename. Read-only fallback so a
- *  secrets.json written by the old default key still decrypts; values are
- *  re-encrypted under the current key the next time they are set. */
-const LEGACY_DEV_PASSPHRASE = "vein-insecure-dev-key";
 let warnedNoKey = false;
 
 function passphrase(): string {
@@ -118,7 +114,8 @@ function encrypt(value: string, salt: Buffer): { iv: string; tag: string; ct: st
   return { iv: iv.toString("base64"), tag: tag.toString("base64"), ct: ct.toString("base64") };
 }
 
-function decryptWith(enc: EncryptedValue, key: Buffer): string {
+function decrypt(enc: EncryptedValue, salt: Buffer): string {
+  const key = deriveKey(salt);
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(enc.iv, "base64"));
   decipher.setAuthTag(Buffer.from(enc.tag, "base64"));
   const pt = Buffer.concat([
@@ -126,16 +123,6 @@ function decryptWith(enc: EncryptedValue, key: Buffer): string {
     decipher.final(),
   ]);
   return pt.toString("utf-8");
-}
-
-function decrypt(enc: EncryptedValue, salt: Buffer): string {
-  try {
-    return decryptWith(enc, deriveKey(salt));
-  } catch (err) {
-    // Only the default (unset-key) path has a legacy passphrase to fall back to.
-    if (process.env[ENV_KEY]) throw err;
-    return decryptWith(enc, scryptSync(LEGACY_DEV_PASSPHRASE, salt, 32));
-  }
 }
 
 // ── filesystem implementation ────────────────────────────────────────────

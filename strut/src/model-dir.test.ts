@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { modelDirFromEnv, LEGACY_MODEL_DIRS } from "./model-dir.js";
+import { modelDirFromEnv } from "./model-dir.js";
 
 describe("modelDirFromEnv", () => {
   it("prefers STRUT_MODEL_DIR, then the STRUT_MODEL_CACHE alias", () => {
@@ -14,8 +14,7 @@ describe("modelDirFromEnv", () => {
     assert.equal(modelDirFromEnv({ XDG_CACHE_HOME: "/xdg" }), join("/xdg", "strut", "models"));
     assert.equal(modelDirFromEnv({ STRUT_CACHE_DIR: "/r", XDG_CACHE_HOME: "/xdg" }), join("/r", "strut", "models"));
   });
-  it("with nothing set uses ~/.cache/strut/models (or the legacy dir if only that exists)", () => {
-    const got = modelDirFromEnv({});
-    assert.ok(got === join(homedir(), ".cache", "strut", "models") || LEGACY_MODEL_DIRS.includes(got), got);
+  it("with nothing set uses ~/.cache/strut/models", () => {
+    assert.equal(modelDirFromEnv({}), join(homedir(), ".cache", "strut", "models"));
   });
 });

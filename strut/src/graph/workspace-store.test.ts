@@ -141,7 +141,8 @@ describe("Neo4jWorkspaceStore (graph-specific)", { skip: cfg ? false : "STRUT_TE
     await other.deleteStep("drop");
     assert.equal(await ws.materializeCustomSteps(), dir);
     const { readdir } = await import("node:fs/promises");
-    assert.deepEqual((await readdir(dir)).sort(), ["keep.ts"]);
+    // package.json is the ESM-scope marker `ensureEsmScope` pins beside the steps.
+    assert.deepEqual((await readdir(dir)).sort(), ["keep.ts", "package.json"]);
   });
 
   it("helpers (_-prefixed) are stored and materialized but not listed", async () => {
