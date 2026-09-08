@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { usageFromResult, computeCost } from "vein";
+import { usageFromResult, computeCost } from "strut";
 import type { Observations } from "./browser.js";
 import { summarizeObs } from "./browser.js";
 
@@ -32,7 +32,7 @@ export function buildVisionService(): VisionService {
     async assess(pngPath, url, obs, logs, model) {
       const { generateObject } = await import("ai");
       const { anthropic } = await import("@ai-sdk/anthropic");
-      const m = anthropic(model ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-5");
+      const m = anthropic(model ?? process.env["STRUT_LLM_MODEL"] ?? "claude-sonnet-5");
       const schema = z.object({
         working: z
           .boolean()

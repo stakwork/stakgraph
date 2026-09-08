@@ -1,4 +1,4 @@
-import { z, defineStep, usageFromResult, computeCost, addUsage } from "vein";
+import { z, defineStep, usageFromResult, computeCost, addUsage } from "strut";
 import { spawn } from "node:child_process";
 import {
   writeFileSync,
@@ -318,7 +318,7 @@ function frontendApp(apps: Pm2App[]): { app: Pm2App; port: number } | null {
 // ── file editing (str_replace_based_edit_tool) ─────────────────────────────────
 // Inlined copy of mcp `src/repo/textEdit.ts`. Seeded steps are materialized
 // into the lab workspace and loaded from there, so a runtime relative import
-// of mcp source does not resolve (only `vein`, the AI SDK, Node builtins and
+// of mcp source does not resolve (only `strut`, the AI SDK, Node builtins and
 // type-only imports are allowed). Keep in sync with the original.
 
 /** Max chars returned by a `view` before truncation. */
@@ -644,7 +644,7 @@ async function assessScreenshot(
 ): Promise<{ working: boolean; reason: string; usage: ReturnType<typeof usageFromResult>; cost: number }> {
   const { generateObject } = await import("ai");
   const { anthropic } = await import("@ai-sdk/anthropic");
-  const m = anthropic(model ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-5");
+  const m = anthropic(model ?? process.env["STRUT_LLM_MODEL"] ?? "claude-sonnet-5");
   const schema = z.object({
     working: z
       .boolean()
@@ -833,8 +833,8 @@ export default defineStep({
 
     // ── assemble the agent ──────────────────────────────────────────────────────
     const { ToolLoopAgent, tool, stepCountIs, hasToolCall, generateText } = await import("ai");
-    const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
-    const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
+    const provider = cfg.provider ?? process.env["STRUT_LLM_PROVIDER"] ?? "anthropic";
+    const modelName = cfg.model ?? process.env["STRUT_LLM_MODEL"];
     let model: any;
     let textEditorTool: any;
     let providerOptions: any;

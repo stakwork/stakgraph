@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
 import { mkdir } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
@@ -34,7 +34,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const c = ctx as StepContext<VeinCapabilities>;
+    const c = ctx as StepContext<StrutCapabilities>;
     const artifacts = c.services?.artifacts;
     if (!artifacts) throw new Error("artifacts capability unavailable");
     const base = await artifacts.dir(c.runId);

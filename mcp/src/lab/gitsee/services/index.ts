@@ -2,10 +2,10 @@
  * Gitsee lab services bag — the HARNESS that the (future) QA tool-steps reach via
  * `ctx.services.gitsee.*`. Holds per-run BROWSER + STACK session managers and a
  * stateless VISION judge. The matching `onRunEnd(runId)` disposes a run's live
- * browser + booted stack — wired into vein's generic `services.onRunEnd` so
+ * browser + booted stack — wired into strut's generic `services.onRunEnd` so
  * teardown is guaranteed on success AND error (the optimize-loop teardown fix).
  *
- * In-code only (constructed in `createLabVein`), NOT a seeded step — so the
+ * In-code only (constructed in `createLabStrut`), NOT a seeded step — so the
  * tool-steps stay self-contained and swappable (real Playwright ↔ cassette;
  * staklink ↔ inline boot; swap the vision model) without touching the steps.
  */

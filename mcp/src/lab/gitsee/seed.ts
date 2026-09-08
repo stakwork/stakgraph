@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 
 /**
@@ -10,11 +10,11 @@ import { SEED_OPTS } from "../seed-opts.js";
  * — see concepts/seed.ts for the reconciliation contract (unchanged → no-op,
  * edited → new active version, prior versions archived).
  *
- * Steps are self-contained source (they import only `vein`, the third-party AI
+ * Steps are self-contained source (they import only `strut`, the third-party AI
  * SDK, Node builtins, and TYPE-ONLY imports that erase at runtime). The explore +
  * eval steps need no services. The QA tool-steps (gitsee/boot, browser-*, etc.)
  * DO reach a runtime `gitsee` services bag via `ctx.services.gitsee.*` — that bag
- * (`gitsee/services/`) is built + merged into `LabServices` in `createLabVein`,
+ * (`gitsee/services/`) is built + merged into `LabServices` in `createLabStrut`,
  * not seeded here.
  */
 
@@ -33,7 +33,7 @@ const SEED_WORKFLOWS = [
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "clone-workspace.ts", type: "gitsee/clone-workspace" },
-  // Exploration now runs on the vein-core `agent` step (gitsee-explore-services
+  // Exploration now runs on the strut-core `agent` step (gitsee-explore-services
   // wires clone → agent); there's no gitsee-specific explore step anymore.
   // Structured scorer (replaces eval/score for gitsee-eval-score): parses the
   // pm2 + compose pair and scores by name set-diffs vs the gold + an LLM residue.

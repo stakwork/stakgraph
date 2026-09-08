@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import type { GitseeServices } from "../services/index.js";
 
 /** Press a keyboard key on the page (e.g. Enter to submit a focused form).

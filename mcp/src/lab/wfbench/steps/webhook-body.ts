@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * 58313's resolve_webhook_payload (4-way, priority order) as one pure step

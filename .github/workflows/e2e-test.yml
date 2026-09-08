@@ -79,12 +79,12 @@ jobs:
           done'
           echo "Neo4j is healthy!"
 
-      # mcp depends on vein via `file:../vein`; yarn COPIES that dep at
-      # install time, and vein's build/ is gitignored — so vein must be
+      # mcp depends on strut via `file:../strut`; yarn COPIES that dep at
+      # install time, and strut's build/ is gitignored — so strut must be
       # built BEFORE mcp's `yarn install` copies it. (Only the engine
       # build is needed to boot; the /lab web UI isn't exercised here.)
-      - name: Build vein (workflow engine lib)
-        working-directory: ./vein
+      - name: Build strut (workflow engine lib)
+        working-directory: ./strut
         run: |
           yarn install
           yarn build

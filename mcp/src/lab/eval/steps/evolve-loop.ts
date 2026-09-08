@@ -1,4 +1,4 @@
-import { z, defineStep, type RunEvent } from "vein";
+import { z, defineStep, type RunEvent } from "strut";
 
 /**
  * The GENERIC loop over workflow versions (EVOLVE_SPEC §5.3.3 — promoted
@@ -34,7 +34,7 @@ import { z, defineStep, type RunEvent } from "vein";
  *   - `fitnessName`: how briefings name the fitness ("accuracy",
  *     "pass-rate", …).
  *
- * Runs generations through `services.optimizer` (vein.run — same capability
+ * Runs generations through `services.optimizer` (strut.run — same capability
  * eval/optimize uses), each as its own persisted run linked from this
  * step's per-generation progress events. Stops on: stopFitness reached,
  * generations exhausted, a cost/time cap, or two consecutive generation-run
@@ -383,7 +383,7 @@ export default defineStep({
   async run(cfg, ctx) {
     const opt = (ctx.services as { optimizer?: Optimizer } | undefined)?.optimizer;
     if (!opt) {
-      throw new Error("eval/evolve-loop requires a `services.optimizer` capability (injected in createLabVein).");
+      throw new Error("eval/evolve-loop requires a `services.optimizer` capability (injected in createLabStrut).");
     }
 
     const baselineDigest = (cfg.baseline ?? {}) as AnyRec;

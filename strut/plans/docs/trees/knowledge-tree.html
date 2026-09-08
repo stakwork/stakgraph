@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Knowledge Tree — Concepts → Code</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0a0a; }
+      #app { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://unpkg.com/system-canvas-standalone@latest/dist/system-canvas.min.js"></script>
+    <script>
+      // ------------------------------------------------------------------
+      // Palette: one hue per graph label. Freshness drives edge color.
+      // ------------------------------------------------------------------
+      const HUE = {
+        repository: '#f59e0b', // trunk
+        concept:    '#34d399', // canopy
+        file:       '#38bdf8',
+        function:   '#a78bfa',
+        class:      '#e879f9',
+        endpoint:   '#22d3ee',
+        datamodel:  '#fb7185', // fruit
+        pr:         '#94a3b8', // roots
+        commit:     '#94a3b8',
+        clue:       '#fde68a',
+        proposal:   '#fdba74',
+        note:       '#64748b',
+      };
+      const FRESH = { fresh: '#2fa57c', aging: '#fbbf24', stale: '#475569' };
+      const STATUS_LABEL = { fresh: 'FRESH', aging: 'AGING', stale: 'STALE', growing: 'GROWING' };
+
+      const cd = (ctx) => ctx.node.customData || {};
+      const tint = (hex, a) => {
+        const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${a})`;
+      };
+      const statusColor = (ctx) => FRESH[cd(ctx).freshness === 'growing' ? 'fresh' : (cd(ctx).freshness || 'aging')];
+
+      // ------------------------------------------------------------------
+      // Categories == Neo4j labels. Slots surface the scores stored on
+      // the node / edge (importance, cluesCount, created_at, staleness).
+      // ------------------------------------------------------------------
+      const categories = {
+        repository: {
+          defaultWidth: 280, defaultHeight: 96, cornerRadius: 14,
+          fill: tint(HUE.repository, 0.18), stroke: HUE.repository,
+          slots: {
+            header: { kind: 'text', value: ':Repository' },
+            footer: { kind: 'text', value: (c) => `${cd(c).concepts} concepts · ${cd(c).files} files · ${cd(c).entities} entities` },
+            topRightOuter: { kind: 'count', value: (c) => cd(c).prs },
+          },
+        },
+        concept: {
+          defaultWidth: 210, defaultHeight: 92, cornerRadius: 12,
+          fill: tint(HUE.concept, 0.16), stroke: HUE.concept,
+          slots: {
+            header: { kind: 'text', value: ':Concept' },
+            topRight: { kind: 'pill', value: (c) => STATUS_LABEL[cd(c).freshness] || 'AGING', color: statusColor },
+            topRightOuter: { kind: 'count', value: (c) => cd(c).clues, hideWhenEmpty: true },
+            bodyTop: { kind: 'progress', value: (c) => (cd(c).hideBar ? 0 : cd(c).importance), color: statusColor, hideWhenZero: true },
+            footer: { kind: 'text', value: (c) => `created ${cd(c).createdAt} · touched ${cd(c).touched}` },
+          },
+        },
+        file: {
+          defaultWidth: 250, defaultHeight: 78, cornerRadius: 10,
+          fill: tint(HUE.file, 0.14), stroke: HUE.file,
+          slots: {
+            header: { kind: 'text', value: ':File' },
+            topRight: { kind: 'pill', value: (c) => (cd(c).inDocs ? 'IN DOCS' : 'OFF DOCS'), color: (c) => (cd(c).inDocs ? HUE.concept : HUE.note) },
+            bottomEdge: { kind: 'progress', value: (c) => cd(c).importance, color: statusColor },
+            footer: { kind: 'text', value: (c) => `importance ${cd(c).importance.toFixed(2)}` },
+          },
+        },
+        function: {
+          defaultWidth: 170, defaultHeight: 66, cornerRadius: 10,
+          fill: tint(HUE.function, 0.14), stroke: HUE.function,
+          slots: {
+            header: { kind: 'text', value: ':Function' },
+            topRightOuter: { kind: 'count', value: (c) => cd(c).callers, hideWhenEmpty: true },
+          },
+        },
+        class: {
+          defaultWidth: 170, defaultHeight: 66, cornerRadius: 10,
+          fill: tint(HUE.class, 0.14), stroke: HUE.class,
+          slots: { header: { kind: 'text', value: ':Class' } },
+        },
+        endpoint: {
+          defaultWidth: 190, defaultHeight: 66, cornerRadius: 10,
+          fill: tint(HUE.endpoint, 0.14), stroke: HUE.endpoint,
+          slots: { header: { kind: 'text', value: ':Endpoint' } },
+        },
+        datamodel: {
+          defaultWidth: 170, defaultHeight: 66, cornerRadius: 33,
+          fill: tint(HUE.datamodel, 0.18), stroke: HUE.datamodel,
+          slots: { header: { kind: 'text', value: ':Datamodel' } },
+        },
+        pr: {
+          defaultWidth: 200, defaultHeight: 70, cornerRadius: 8,
+          fill: tint(HUE.pr, 0.12), stroke: HUE.pr,
+          slots: {
+            header: { kind: 'text', value: ':PullRequest' },
+            topRight: { kind: 'pill', value: (c) => cd(c).when, color: statusColor },
+          },
+        },
+        commit: {
+          defaultWidth: 200, defaultHeight: 70, cornerRadius: 8,
+          fill: tint(HUE.commit, 0.12), stroke: HUE.commit,
+          slots: {
+            header: { kind: 'text', value: ':Commit' },
+            topRight: { kind: 'pill', value: (c) => cd(c).when, color: statusColor },
+          },
+        },
+        clue: {
+          defaultWidth: 200, defaultHeight: 78, cornerRadius: 8,
+          fill: tint(HUE.clue, 0.12), stroke: HUE.clue,
+          slots: {
+            header: { kind: 'text', value: ':Clue' },
+            footer: { kind: 'text', value: (c) => `usageFrequency ${cd(c).usage}` },
+          },
+        },
+        proposal: {
+          defaultWidth: 200, defaultHeight: 78, cornerRadius: 8,
+          fill: tint(HUE.proposal, 0.12), stroke: HUE.proposal,
+          slots: {
+            header: { kind: 'text', value: ':ConceptProposal' },
+            topRight: { kind: 'pill', value: (c) => cd(c).status, color: HUE.proposal },
+          },
+        },
+        note: {
+          defaultWidth: 300, defaultHeight: 60, cornerRadius: 8,
+          fill: 'rgba(15,23,42,0.55)', stroke: HUE.note,
+        },
+        prop: {
+          defaultWidth: 230, defaultHeight: 150, cornerRadius: 8,
+          fill: 'rgba(15,23,42,0.6)', stroke: '#475569',
+        },
+      };
+
+      // ------------------------------------------------------------------
+      // The tree. Each node: label + category + scores; children below.
+      // rel = relationship type used on the edge into this node.
+      //   Concept  --PARENT_OF-->  Concept
+      //   Concept  --MODIFIES{importance}--> File
+      //   File     --CONTAINS-->  Function | Class | Endpoint | Datamodel
+      //   Function --CALLS-->     Function | Datamodel
+      // ------------------------------------------------------------------
+      const tree = {
+        id: 'repo', category: 'repository', text: 'stakwork/hive',
+        data: { concepts: 5, files: 9, entities: 14, prs: 312 },
+        children: [
+          {
+            id: 'c-workspaces', category: 'concept', text: 'Workspaces', rel: 'CONTAINS',
+            data: { importance: 0.95, freshness: 'fresh', clues: 23, createdAt: '2025-11-02', touched: '2d ago' },
+            children: [
+              {
+                id: 'f-workspace', category: 'file', text: 'src/services/workspace.ts', rel: 'MODIFIES',
+                data: { importance: 0.92, inDocs: true, freshness: 'fresh' },
+                children: [
+                  { id: 'fn-createWorkspace', category: 'function', text: 'createWorkspace()', rel: 'CONTAINS', data: { callers: 6, freshness: 'fresh' },
+                    children: [
+                      { id: 'dm-workspace', category: 'datamodel', text: 'Workspace', rel: 'CALLS', data: { freshness: 'fresh' } },
+                      { id: 'fn-validateSlug', category: 'function', text: 'validateSlug()', rel: 'CALLS', data: { callers: 2, freshness: 'fresh' } },
+                    ] },
+                  { id: 'cl-WorkspaceService', category: 'class', text: 'WorkspaceService', rel: 'CONTAINS', data: { freshness: 'fresh' } },
+                ],
+              },
+              {
+                id: 'f-ws-route', category: 'file', text: 'src/app/api/workspaces/\nroute.ts', rel: 'MODIFIES',
+                data: { importance: 0.81, inDocs: true, freshness: 'fresh' },
+                children: [
+                  { id: 'ep-post-ws', category: 'endpoint', text: 'POST /api/workspaces', rel: 'CONTAINS', data: { freshness: 'fresh' } },
+                ],
+              },
+              {
+                id: 'c-members', category: 'concept', text: 'Workspace Members', rel: 'PARENT_OF',
+                data: { importance: 0.70, freshness: 'growing', clues: 6, createdAt: '2026-06-14', touched: '1d ago', hideBar: true },
+                children: [
+                  {
+                    id: 'f-members', category: 'file', text: 'src/services/workspace/\nmembers.ts', rel: 'MODIFIES',
+                    data: { importance: 0.66, inDocs: true, freshness: 'fresh' },
+                    children: [
+                      { id: 'fn-addMember', category: 'function', text: 'addMember()', rel: 'CONTAINS', data: { callers: 3, freshness: 'fresh' },
+                        children: [
+                          { id: 'dm-member', category: 'datamodel', text: 'WorkspaceMember', rel: 'CALLS', data: { freshness: 'fresh' } },
+                        ] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: 'c-runner', category: 'concept', text: 'Task Runner', rel: 'CONTAINS',
+            data: { importance: 0.88, freshness: 'fresh', clues: 17, createdAt: '2026-01-20', touched: '5h ago' },
+            children: [
+              {
+                id: 'f-pool', category: 'file', text: 'src/lib/runner/pool.ts', rel: 'MODIFIES',
+                data: { importance: 0.87, inDocs: true, freshness: 'fresh' },
+                children: [
+                  { id: 'cl-RunnerPool', category: 'class', text: 'RunnerPool', rel: 'CONTAINS', data: { freshness: 'fresh' },
+                    children: [
+                      { id: 'fn-spawn', category: 'function', text: 'spawn()', rel: 'CONTAINS', data: { callers: 4, freshness: 'fresh' },
+                        children: [
+                          { id: 'dm-task', category: 'datamodel', text: 'Task', rel: 'CALLS', data: { freshness: 'fresh' } },
+                        ] },
+                    ] },
+                ],
+              },
+              {
+                id: 'f-queue', category: 'file', text: 'src/lib/runner/queue.ts', rel: 'MODIFIES',
+                data: { importance: 0.44, inDocs: false, freshness: 'aging' },
+                children: [
+                  { id: 'fn-enqueue', category: 'function', text: 'enqueue()', rel: 'CONTAINS', data: { callers: 1, freshness: 'aging' } },
+                ],
+              },
+            ],
+          },
+          {
+            id: 'c-auth', category: 'concept', text: 'Auth', rel: 'CONTAINS',
+            data: { importance: 0.72, freshness: 'aging', clues: 11, createdAt: '2025-09-08', touched: '3w ago' },
+            children: [
+              {
+                id: 'f-auth', category: 'file', text: 'src/lib/auth.ts', rel: 'MODIFIES',
+                data: { importance: 0.77, inDocs: true, freshness: 'aging' },
+                children: [
+                  { id: 'fn-getSession', category: 'function', text: 'getSession()', rel: 'CONTAINS', data: { callers: 19, freshness: 'aging' },
+                    children: [
+                      { id: 'dm-user', category: 'datamodel', text: 'User', rel: 'CALLS', data: { freshness: 'aging' } },
+                    ] },
+                ],
+              },
+              {
+                id: 'f-middleware', category: 'file', text: 'src/middleware.ts', rel: 'MODIFIES',
+                data: { importance: 0.39, inDocs: false, freshness: 'aging' },
+              },
+            ],
+          },
+          {
+            id: 'c-billing', category: 'concept', text: 'Billing', rel: 'CONTAINS', dim: true,
+            data: { importance: 0.35, freshness: 'stale', clues: 4, createdAt: '2025-08-20', touched: '9mo ago' },
+            children: [
+              {
+                id: 'f-stripe', category: 'file', text: 'src/lib/stripe.ts', rel: 'MODIFIES', dim: true,
+                data: { importance: 0.31, inDocs: false, freshness: 'stale' },
+                children: [
+                  { id: 'fn-createCheckout', category: 'function', text: 'createCheckout()', rel: 'CONTAINS', dim: true, data: { callers: 1, freshness: 'stale' },
+                    children: [
+                      { id: 'dm-subscription', category: 'datamodel', text: 'Subscription', rel: 'CALLS', dim: true, data: { freshness: 'stale' } },
+                    ] },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      // ------------------------------------------------------------------
+      // Layout: top-down tidy tree. Subtree width = sum of children.
+      // ------------------------------------------------------------------
+      const LEVEL_GAP = 175;
+      const SIBLING_GAP = 34;
+      const nodes = [];
+      const edges = [];
+      const idx = {};
+
+      function measure(n) {
+        const cat = categories[n.category];
+        n.w = cat.defaultWidth; n.h = cat.defaultHeight;
+        const kids = n.children || [];
+        kids.forEach(measure);
+        const kidsW = kids.reduce((s, k) => s + k.tw, 0) + Math.max(0, kids.length - 1) * SIBLING_GAP;
+        n.tw = Math.max(n.w, kidsW);
+        return n;
+      }
+      function place(n, cx, depth) {
+        n.x = cx - n.w / 2;
+        n.y = depth * LEVEL_GAP;
+        const kids = n.children || [];
+        const kidsW = kids.reduce((s, k) => s + k.tw, 0) + Math.max(0, kids.length - 1) * SIBLING_GAP;
+        let left = cx - kidsW / 2;
+        kids.forEach((k) => { place(k, left + k.tw / 2, depth + 1); left += k.tw + SIBLING_GAP; });
+      }
+      function edgeFor(parent, child) {
+        const f = child.data.freshness === 'growing' ? 'fresh' : (child.data.freshness || 'aging');
+        const color = FRESH[f];
+        const base = { id: `e-${parent.id}-${child.id}`, fromNode: parent.id, toNode: child.id, fromSide: 'bottom', toSide: 'top', color };
+        switch (child.rel) {
+          case 'MODIFIES': {
+            const imp = child.data.importance;
+            return { ...base, strokeWidth: 1.5 + imp * 7, label: `MODIFIES ${imp.toFixed(2)}`};
+          }
+          case 'PARENT_OF':
+            return { ...base, strokeWidth: 5, label: 'PARENT_OF'};
+          case 'CONTAINS':
+            if (parent.category === 'repository') {
+              const imp = child.data.importance;
+              return { ...base, strokeWidth: 2 + imp * 9, label: `importance ${imp.toFixed(2)}`};
+            }
+            return { ...base, strokeWidth: 2.5, color: f === 'stale' ? FRESH.stale : categories[child.category].stroke, label: 'CONTAINS' };
+          case 'CALLS':
+            return { ...base, strokeWidth: 1.5, color: f === 'stale' ? FRESH.stale : HUE.function, label: 'CALLS' };
+          default:
+            return base;
+        }
+      }
+      function emit(n, parent) {
+        const node = { id: n.id, type: 'text', text: n.text, x: n.x, y: n.y, category: n.category, customData: n.data };
+        if (n.dim) node.color = FRESH.stale;
+        if (n.ref) node.ref = n.ref;
+        nodes.push(node); idx[n.id] = n;
+        if (parent) edges.push(edgeFor(parent, n));
+        (n.children || []).forEach((k) => emit(k, n));
+      }
+      measure(tree);
+      place(tree, 0, 0);
+      emit(tree, null);
+
+      // Cross edges (the graph is a DAG, the layout is a tree)
+      edges.push(
+        { id: 'x-ep-create', fromNode: 'ep-post-ws', toNode: 'fn-createWorkspace', color: HUE.endpoint, strokeWidth: 1.5, label: 'CALLS'},
+        { id: 'x-ep-session', fromNode: 'ep-post-ws', toNode: 'fn-getSession', color: HUE.endpoint, strokeWidth: 1.5, label: 'CALLS' },
+        { id: 'x-add-ws', fromNode: 'fn-addMember', toNode: 'dm-workspace', color: HUE.function, strokeWidth: 1.5, label: 'CALLS' },
+        { id: 'x-spawn-user', fromNode: 'fn-spawn', toNode: 'dm-user', color: HUE.function, strokeWidth: 1.2, label: 'CALLS' },
+      );
+
+      // ------------------------------------------------------------------
+      // Roots: provenance that feeds the concepts (left of the canopy).
+      // ------------------------------------------------------------------
+      const leftX = idx['c-workspaces'].x - 600;
+      const rootY = idx['c-workspaces'].y - 20;
+      nodes.push(
+        { id: 'g-roots', type: 'group', label: 'Provenance · what grows the tree', x: leftX - 40, y: rootY - 90, width: 300, height: 480 },
+        { id: 'pr-412', type: 'text', text: 'PR #412\nAdd workspace invites', x: leftX, y: rootY, category: 'pr', customData: { when: '2d AGO', freshness: 'fresh' } },
+        { id: 'sha-a1b2', type: 'text', text: 'a1b2c3f\nrunner: backpressure', x: leftX, y: rootY + 100, category: 'commit', customData: { when: '5h AGO', freshness: 'fresh' } },
+        { id: 'clue-slug', type: 'text', text: 'Workspace slugs are\nunique per owner', x: leftX, y: rootY + 200, category: 'clue', customData: { usage: 'high' } },
+        { id: 'prop-billing', type: 'text', text: 'Split Billing →\nInvoices + Plans', x: leftX, y: rootY + 305, category: 'proposal', customData: { status: 'PENDING' } },
+      );
+      edges.push(
+        { id: 'r1', fromNode: 'pr-412', toNode: 'c-members', color: FRESH.fresh, strokeWidth: 2.5, label: 'TOUCHES'},
+        { id: 'r2', fromNode: 'pr-412', toNode: 'f-members', color: HUE.pr, strokeWidth: 1.2, label: 'MODIFIES' },
+        { id: 'r3', fromNode: 'sha-a1b2', toNode: 'c-runner', color: FRESH.fresh, strokeWidth: 2.5, label: 'TOUCHES'},
+        { id: 'r4', fromNode: 'clue-slug', toNode: 'c-workspaces', color: HUE.clue, strokeWidth: 2, label: 'RELEVANT_TO' },
+        { id: 'r5', fromNode: 'clue-slug', toNode: 'fn-validateSlug', color: HUE.clue, strokeWidth: 1.2, label: 'REFERENCES' },
+        { id: 'r6', fromNode: 'prop-billing', toNode: 'c-billing', color: HUE.proposal, strokeWidth: 2, label: 'TARGETS' },
+      );
+
+      // ------------------------------------------------------------------
+      // Legend + drill-ins (right of the canopy).
+      // ------------------------------------------------------------------
+      const rightX = idx['c-billing'].x + idx['c-billing'].w + 260;
+      nodes.push(
+        { id: 'g-legend', type: 'group', label: 'How to read the tree', x: rightX - 30, y: rootY - 90, width: 370, height: 700 },
+        { id: 'l1', type: 'text', text: 'Edge weight = MODIFIES.importance\n(0 → hairline, 1 → trunk)', x: rightX, y: rootY, category: 'note' },
+        { id: 'l2', type: 'text', text: 'Edge color = freshness\n🟢 fresh · 🟡 aging · ⚫ stale', x: rightX, y: rootY + 80, category: 'note' },
+        { id: 'l3', type: 'text', text: 'Bright thick edges = fresh and important\n(PR / commit TOUCHES landed recently)', x: rightX, y: rootY + 160, category: 'note' },
+        { id: 'l4', type: 'text', text: 'Bar = importance · badge = cluesCount\nfooter = created_at / last touch', x: rightX, y: rootY + 240, category: 'note' },
+        { id: 'l5', type: 'text', text: 'Pill = IN DOCS / OFF DOCS\n(the two-tier importance split)', x: rightX, y: rootY + 320, category: 'note' },
+        { id: 'schema', type: 'text', text: '⚙ Storage schema\ngraphStorage.ts', x: rightX, y: rootY + 410, width: 300, height: 70, color: HUE.repository, ref: 'schema' },
+        { id: 'scoring', type: 'text', text: '∑ How importance is scored\nlinkConceptsToFiles()', x: rightX, y: rootY + 500, width: 300, height: 70, color: HUE.concept, ref: 'scoring' },
+      );
+
+      const canvas = { theme: { base: 'midnight', categories }, nodes, edges };
+
+      // ------------------------------------------------------------------
+      // Sub-canvas: the actual Neo4j schema written by graphStorage.ts
+      // ------------------------------------------------------------------
+      const P = (id, text, x, y, cat, extra = {}) => ({ id, type: 'text', text, x, y, category: cat, ...extra });
+      const schema = {
+        theme: { base: 'midnight', categories },
+        nodes: [
+          { id: 'sg-bank', type: 'group', label: 'Every node also carries :Data_Bank · indexed by id / name / repo', x: -820, y: -120, width: 1660, height: 720 },
+          P('s-repo', 'Repository', 260, -70, 'repository', { customData: { concepts: '∞', files: '∞', entities: '∞', prs: '' } }),
+          P('s-concept', 'Concept\n:Domain_general', -120, 110, 'concept', { customData: { importance: 1, freshness: 'fresh', clues: '', createdAt: 'date', touched: 'date_added' }, ref: 'concept-props' }),
+          P('s-meta', 'ConceptsMetadata\n{namespace, repo}\ntotal usage · runs', 400, 110, 'prop', { width: 220, height: 92 }),
+          P('s-pr', 'PullRequest\n{number, files[], repo}', -560, 110, 'pr', { customData: { when: '', freshness: 'aging' } }),
+          P('s-commit', 'Commit\n{sha, files[], repo}', -560, 280, 'commit', { customData: { when: '', freshness: 'aging' } }),
+          P('s-clue', 'Clue\n{usageFrequency, relatedConcepts}', 400, 300, 'clue', { customData: { usage: '…' } }),
+          P('s-prop', 'ConceptProposal\n{status, claim}', -560, -70, 'proposal', { customData: { status: 'STATUS' } }),
+          P('s-file', 'File\n{file, name, ref_id}', -120, 300, 'file', { customData: { importance: 1, inDocs: true, freshness: 'fresh' } }),
+          P('s-fn', 'Function\n{start, end}', -420, 470, 'function', { customData: { callers: '' } }),
+          P('s-class', 'Class', -210, 470, 'class'),
+          P('s-ep', 'Endpoint', 0, 470, 'endpoint'),
+          P('s-dm', 'Datamodel', 220, 470, 'datamodel'),
+          P('s-more', 'Var · Page · UnitTest\nIntegrationTest · E2etest', 440, 470, 'note'),
+        ],
+        edges: [
+          { id: 'se1', fromNode: 's-repo', toNode: 's-file', color: HUE.repository, strokeWidth: 3, label: 'CONTAINS', fromSide: 'bottom', toSide: 'right' },
+          { id: 'se2', fromNode: 's-concept', toNode: 's-file', color: HUE.concept, strokeWidth: 6, label: 'MODIFIES {importance}'},
+          { id: 'se3', fromNode: 's-concept', toNode: 's-concept', color: HUE.concept, strokeWidth: 3, label: 'PARENT_OF', fromSide: 'right', toSide: 'top' },
+          { id: 'se4', fromNode: 's-pr', toNode: 's-concept', color: HUE.pr, strokeWidth: 2, label: 'TOUCHES' },
+          { id: 'se5', fromNode: 's-pr', toNode: 's-file', color: HUE.pr, strokeWidth: 1.5, label: 'MODIFIES (backfilled)' },
+          { id: 'se6', fromNode: 's-commit', toNode: 's-concept', color: HUE.commit, strokeWidth: 2, label: 'TOUCHES' },
+          { id: 'se7', fromNode: 's-clue', toNode: 's-concept', color: HUE.clue, strokeWidth: 2, label: 'RELEVANT_TO' },
+          { id: 'se8', fromNode: 's-clue', toNode: 's-fn', color: HUE.clue, strokeWidth: 1.2, label: 'REFERENCES' },
+          { id: 'se8b', fromNode: 's-clue', toNode: 's-dm', color: HUE.clue, strokeWidth: 1.2, label: 'REFERENCES' },
+          { id: 'se9', fromNode: 's-prop', toNode: 's-concept', color: HUE.proposal, strokeWidth: 2, label: 'TARGETS' },
+          { id: 'se10', fromNode: 's-prop', toNode: 's-pr', color: HUE.proposal, strokeWidth: 1.5, label: 'EVIDENCE', fromSide: 'bottom', toSide: 'top' },
+          { id: 'se11', fromNode: 's-file', toNode: 's-fn', color: HUE.function, strokeWidth: 2, label: 'CONTAINS*' },
+          { id: 'se12', fromNode: 's-file', toNode: 's-class', color: HUE.class, strokeWidth: 2, label: 'CONTAINS*' },
+          { id: 'se13', fromNode: 's-file', toNode: 's-ep', color: HUE.endpoint, strokeWidth: 2, label: 'CONTAINS*' },
+          { id: 'se14', fromNode: 's-file', toNode: 's-dm', color: HUE.datamodel, strokeWidth: 2, label: 'CONTAINS*' },
+          { id: 'se15', fromNode: 's-file', toNode: 's-more', color: HUE.note, strokeWidth: 1.5, label: 'CONTAINS*' },
+          { id: 'se16', fromNode: 's-fn', toNode: 's-fn', color: HUE.function, strokeWidth: 1.5, label: 'CALLS', fromSide: 'left', toSide: 'bottom' },
+          { id: 'se17', fromNode: 's-meta', toNode: 's-concept', color: HUE.note, strokeWidth: 1, label: 'per-repo totals' },
+        ],
+      };
+
+      // Sub-sub-canvas: properties written by saveConcept()
+      const conceptProps = {
+        theme: { base: 'midnight', categories },
+        nodes: [
+          P('cp-id', 'Identity\nid = owner/repo/slug\nname · repo · namespace\nref_id (uuid) · node_key (jarvis)', -370, 0, 'prop'),
+          P('cp-know', 'Knowledge\ndescription\ndocs (markdown)\nembeddings (vector)', -120, 0, 'prop'),
+          P('cp-prov', 'Provenance\nprNumbers[] · commitShas[]\ndate · date_added_to_graph', 130, 0, 'prop'),
+          P('cp-score', 'Scores\ncluesCount\ncluesLastAnalyzedAt\ninput/output/total tokens', 380, 0, 'prop'),
+        ],
+        edges: [],
+      };
+
+      // Sub-canvas: importance formula (linkConceptsToFiles)
+      const scoring = {
+        theme: { base: 'midnight', categories },
+        nodes: [
+          P('sc-pr', 'PRs + Commits that\nTOUCH the concept', -700, 0, 'pr', { customData: { when: 'INPUT', freshness: 'aging' } }),
+          P('sc-files', 'UNWIND pr.files\ncount per file', -400, 0, 'file', { customData: { importance: 0, inDocs: true, freshness: 'aging' } }),
+          P('sc-freq', 'frequency =\nchangeCount / totalChanges', -60, 0, 'note'),
+          P('sc-docs', 'file path mentioned\nin concept.docs ?', 330, 0, 'note'),
+          P('sc-hi', 'IN DOCS  →  0.5 + frequency × 0.5\nrange 0.50 … 1.00', 330, -170, 'note', { color: HUE.concept }),
+          P('sc-lo', 'OFF DOCS  →  frequency × 0.49\nrange 0.00 … 0.49', 330, 170, 'note', { color: FRESH.stale }),
+          P('sc-edge', 'MERGE (concept)\n-[:MODIFIES {importance}]->(file)', 740, 0, 'file', { width: 320, height: 100, customData: { importance: 0.75, inDocs: true, freshness: 'fresh' } }),
+          P('sc-manual', 'linkConceptToFilesByPaths()\n→ importance = 1.0 (explicit)', 740, 200, 'note', { width: 320 }),
+        ],
+        edges: [
+          { id: 'sce1', fromNode: 'sc-pr', toNode: 'sc-files', color: HUE.pr, strokeWidth: 2 },
+          { id: 'sce2', fromNode: 'sc-files', toNode: 'sc-freq', color: HUE.file, strokeWidth: 2 },
+          { id: 'sce3', fromNode: 'sc-freq', toNode: 'sc-docs', color: HUE.note, strokeWidth: 2 },
+          { id: 'sce4', fromNode: 'sc-docs', toNode: 'sc-hi', color: FRESH.fresh, strokeWidth: 6, label: 'yes', fromSide: 'top', toSide: 'bottom' },
+          { id: 'sce5', fromNode: 'sc-docs', toNode: 'sc-lo', color: FRESH.stale, strokeWidth: 2, label: 'no', fromSide: 'bottom', toSide: 'top' },
+          { id: 'sce6', fromNode: 'sc-hi', toNode: 'sc-edge', color: FRESH.fresh, strokeWidth: 6, fromSide: 'right', toSide: 'top' },
+          { id: 'sce7', fromNode: 'sc-lo', toNode: 'sc-edge', color: FRESH.stale, strokeWidth: 2, fromSide: 'right', toSide: 'bottom' },
+          { id: 'sce8', fromNode: 'sc-manual', toNode: 'sc-edge', color: HUE.note, strokeWidth: 8, label: 'explicit link', fromSide: 'top', toSide: 'bottom' },
+        ],
+      };
+
+      // Categories must travel on the render-level theme: slots are looked up
+      // on the active theme, not on the per-canvas theme hint.
+      const theme = { ...SystemCanvas.themes.midnight, categories: { ...SystemCanvas.themes.midnight.categories, ...categories } };
+
+      // Deep link: ?canvas=schema | scoring | concept-props opens a drill-in as root.
+      const canvases = { schema, scoring, 'concept-props': conceptProps };
+      const pick = new URLSearchParams(location.search).get('canvas');
+      SystemCanvas.render(document.getElementById('app'), {
+        canvas: (pick && canvases[pick]) || canvas,
+        canvases,
+        theme,
+        edgeStyle: 'bezier',
+        rootLabel: 'Knowledge tree',
+      });
+    </script>
+  </body>
+</html>

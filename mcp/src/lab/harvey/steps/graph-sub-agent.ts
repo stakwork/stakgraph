@@ -1,8 +1,8 @@
-import { z, defineStep, type StepContext } from "vein";
+import { z, defineStep, type StepContext } from "strut";
 
 /**
  * The PINNED graph research sub-agent (the lab equivalent of the repo-agent's
- * `graph_sub_agent` tool). A thin wrapper over the vein-core `agent` step with
+ * `graph_sub_agent` tool). A thin wrapper over the strut-core `agent` step with
  * the child's configuration FIXED in code: read-only graph/* grants, a pinned
  * system frame, and no recursion (the child is never granted `agent` or this
  * step). The parent LLM supplies ONLY the research question — it cannot widen

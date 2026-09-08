@@ -1,17 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 
 /**
- * Jarvis knowledge-graph steps, seeded into the vein workspace. Each is a
+ * Jarvis knowledge-graph steps, seeded into the strut workspace. Each is a
  * self-contained port of the matching mcp repo-agent tool
  * (`mcp/src/repo/toolsJarvis.ts`) speaking the same Jarvis HTTP contract —
  * but routed through `ctx.services.http` + `ctx.services.secrets`
  * (JARVIS_URL / API_TOKEN, env-backed) so runs are cassette-recordable and
  * credentials stay scrubbed. Reconciled by content hash on boot (edits via
- * the vein UI publish a new active version).
+ * the strut UI publish a new active version).
  *
  * Grant them to an agent step with `agentTools: ["jarvis/*"]` (glob), or a
  * read-only subset by listing the read steps explicitly.

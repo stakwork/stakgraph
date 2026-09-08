@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext } from "vein";
+import { z, defineStep, type StepContext } from "strut";
 
 /**
  * Build the batch-triplet payload that persists one scored attempt as the
@@ -77,8 +77,8 @@ export default defineStep({
         target_data: {
           id: trigger_id,
           agent: cfg.workflow,
-          environment: "vein-lab",
-          source: "vein",
+          environment: "strut-lab",
+          source: "strut",
           workflow_id: cfg.workflow,
           workflow_input: JSON.stringify({ task: cfg.task }),
           run_count: 1,

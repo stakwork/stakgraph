@@ -1,20 +1,20 @@
 /**
- * Offline smoke test for the harvey-deliver pipeline scaffold — no vein
+ * Offline smoke test for the harvey-deliver pipeline scaffold — no strut
  * server, no Neo4j, no Jarvis, no LLM. Verifies:
  *   1. seeding: the deliver steps + workflows publish into a temp workspace
  *      and buildRegistry discovers every step from disk;
  *   2. every deliver workflow YAML parses and publishes;
  *   3. the pure/plumbing steps' logic against fixtures (fail-open /
  *      fail-soft / hard-gate semantics). The graph/* steps the pipeline
- *      writes through are vein lib steps with their own live test
- *      (vein/src/steps/lib/graph/graph-steps.test.ts).
+ *      writes through are strut lib steps with their own live test
+ *      (strut/src/steps/lib/graph/graph-steps.test.ts).
  *
  * Run: npx tsx src/lab/harvey/deliver-smoke.ts
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, type StepContext } from "vein";
+import { WorkspaceManager, buildRegistry, type StepContext } from "strut";
 import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
 import { seedEvalSteps } from "../eval/seed.js";
 
@@ -41,7 +41,7 @@ async function main() {
       "eval/criterion-refs",
       "harvey/generate-docx",
       "harvey/generate-xlsx",
-      // graph/* are vein LIB steps — discovered from the engine, not seeded.
+      // graph/* are strut LIB steps — discovered from the engine, not seeded.
       "graph/register-namespace",
       "graph/create-node",
       "graph/create-batch-triplet",

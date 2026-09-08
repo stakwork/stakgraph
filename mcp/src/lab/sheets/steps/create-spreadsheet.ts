@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
 import { createSign } from "node:crypto";
 
 // ── sheets/* preamble — duplicated in every sheets/* step; see _shared.ts ──
@@ -62,7 +62,7 @@ let cachedToken: { email: string; value: string; exp: number } | null = null;
 /** Resolve credentials (cfg wins → secret store → env) and return an
  *  authenticated Sheets/Drive request helper over ctx.services.http. */
 async function sheetsCtx(
-  ctx: StepContext<VeinCapabilities> | undefined,
+  ctx: StepContext<StrutCapabilities> | undefined,
   cfg: { serviceAccount?: unknown; driveFolderId?: string },
 ) {
   const httpMaybe = ctx?.services?.http;
@@ -188,7 +188,7 @@ export default defineStep({
   output: z.any(),
   async run(cfg, ctx) {
     const { api, driveFolderId, clientEmail } = await sheetsCtx(
-      ctx as StepContext<VeinCapabilities>,
+      ctx as StepContext<StrutCapabilities>,
       cfg,
     );
     // A 403/404 here almost always means the folder isn't shared with the SA.

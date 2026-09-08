@@ -9,7 +9,7 @@
  * Run: JARVIS_URL=http://localhost:5001 API_TOKEN=<STAKWORK_SECRET> \
  *        npx tsx src/lab/jarvis/preflight.ts
  */
-import { httpCapability, type StepContext } from "vein";
+import { httpCapability, type StepContext } from "strut";
 import registerNamespace from "./steps/register-namespace.js";
 import getOntology from "./steps/get-ontology.js";
 import createNode from "./steps/create-node.js";

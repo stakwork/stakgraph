@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
 
 /**
  * HARNESS-ONLY plumbing over ctx.services.gaia.score. Never expose this
@@ -41,7 +41,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const c = ctx as StepContext<VeinCapabilities & { gaia?: any }>;
+    const c = ctx as StepContext<StrutCapabilities & { gaia?: any }>;
     const gaia = c.services?.gaia;
     if (!gaia) throw new Error("gaia capability unavailable in this deployment");
     if (!cfg.pairs === !cfg.fromRun) {

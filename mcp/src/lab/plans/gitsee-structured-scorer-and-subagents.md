@@ -87,7 +87,7 @@ spurious[], insight, markdown }` — `eval/optimize`
 
 ### Self-containment rule (do not violate)
 
-gitsee steps import ONLY `vein`, third-party npm (`ai`, `@ai-sdk/anthropic`,
+gitsee steps import ONLY `strut`, third-party npm (`ai`, `@ai-sdk/anthropic`,
 `js-yaml`, `zod`), and Node builtins (`node:vm`, etc.) — NO imports from
 existing `src/` code. (Workspace-seeded `.ts` steps resolve bare specifiers
 against `mcp/node_modules`, so `js-yaml`/`ai` are available; `node:vm` is fine.)
@@ -116,7 +116,7 @@ The goal is still to delete `src/gitsee` eventually.
   `missing`, score drops materially.
 - Re-run `smoke-eval.ts hive` / `heroku-node`; confirm scores are sane and that
   hive's over-provisioning (redis + extra mocks) now shows as concrete spurious
-  items. (`smoke-eval.ts` builds a real lab vein; needs Neo4j + ANTHROPIC_API_KEY
+  items. (`smoke-eval.ts` builds a real lab strut; needs Neo4j + ANTHROPIC_API_KEY
   + GITHUB_TOKEN; hive eval is ~3 min.)
 
 ---
@@ -136,7 +136,7 @@ sub-agents**, each with focused context + its own tool budget:
 - (maybe) `gitsee/explore-deps` — cross-repo `file:`/workspace links among the
   cloned siblings.
 
-An orchestrator workflow runs them in parallel (vein `depends: []`), each emits
+An orchestrator workflow runs them in parallel (strut `depends: []`), each emits
 **structured findings**, and a **synthesis step** assembles the final pm2/compose
 from the findings (the pod contract / `finalAnswer` logic moves here).
 
@@ -232,4 +232,4 @@ loop inline, as `explore-services` already does).
   heroku-node); the canonical hive gold is `mcp/src/lab/gitsee/confs.md` (gitignored).
 - Seeding + self-containment + workspace gotcha: `mcp/src/lab/AGENTS.md`.
 - Dev harnesses: `mcp/src/lab/gitsee/smoke.ts` (steps direct),
-  `smoke-eval.ts <label>` (full `gitsee-eval` via a real lab vein).
+  `smoke-eval.ts <label>` (full `gitsee-eval` via a real lab strut).

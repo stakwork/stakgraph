@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * The task×version MATRIX — the evolve harness's cross-measurement memory

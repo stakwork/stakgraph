@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext, type VeinCapabilities } from "vein";
+import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
 import type { HarveyServices } from "../service.js";
 
 /**
@@ -65,10 +65,10 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const services = ctx.services as ({ harvey?: HarveyServices } & VeinCapabilities) | undefined;
+    const services = ctx.services as ({ harvey?: HarveyServices } & StrutCapabilities) | undefined;
     const harvey = services?.harvey;
-    if (!harvey) throw new Error("harvey service unavailable — is this the lab vein?");
-    const typedCtx = ctx as StepContext<VeinCapabilities>;
+    if (!harvey) throw new Error("harvey service unavailable — is this the lab strut?");
+    const typedCtx = ctx as StepContext<StrutCapabilities>;
     // A produce run's result (meta/run-workflow shape). Extracted in code —
     // template expressions can't guard deep access on a failed run's missing
     // `output`.
@@ -107,7 +107,7 @@ export default defineStep({
       cfg.metrics || Object.keys(runMetrics).length ? { ...runMetrics, ...cfg.metrics } : undefined;
     // Include the step PATH in the benchmark run id: subflows share their
     // parent's runId, so a batch harness (harvey-evolve) grades many times
-    // under one vein runId — a bare `vein-<runId>` would re-stage every grade
+    // under one strut runId — a bare `strut-<runId>` would re-stage every grade
     // into the same results/<id>/output/ dir, leaving the previous task's
     // deliverables mixed in (cp adds, it doesn't clean). The path is unique
     // per step invocation (foreach iterations include `#<i>`); the service
@@ -115,7 +115,7 @@ export default defineStep({
     return harvey.evaluate({
       task: cfg.task,
       sourceDir,
-      runId: `vein-${typedCtx.runId}-${typedCtx.path}`,
+      runId: `strut-${typedCtx.runId}-${typedCtx.path}`,
       metrics,
       judgeModel: cfg.judgeModel,
       dual: cfg.dual,

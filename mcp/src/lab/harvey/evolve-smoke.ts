@@ -10,11 +10,11 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, fileArtifactsCapability, resolveConfig } from "vein";
+import { WorkspaceManager, buildRegistry, fileArtifactsCapability, resolveConfig } from "strut";
 import { seedHarveySteps, seedHarveyWorkflows } from "./seed.js";
 import { seedEvalSteps } from "../eval/seed.js";
 import { seedArtifactSteps } from "../artifacts/seed.js";
-import { createLabVein } from "../createLabVein.js";
+import { createLabStrut } from "../createLabStrut.js";
 
 async function main() {
   const base = mkdtempSync(join(process.cwd(), ".evolve-validate-"));
@@ -223,26 +223,26 @@ async function main() {
     console.log("✔ eval/evolve-loop: aborts after consecutive failures");
 
     // 6. REGRESSION — the optimizer capability must be visible to RUNS.
-    //    createVein SPREADS the caller's services into a fresh bag, so
-    //    createLabVein's post-construction injection must land on
-    //    vein.services (the effective bag), not the local one. This broke
+    //    createStrut SPREADS the caller's services into a fresh bag, so
+    //    createLabStrut's post-construction injection must land on
+    //    strut.services (the effective bag), not the local one. This broke
     //    silently once: eval/optimize and eval/evolve-loop threw
     //    "requires a services.optimizer capability" at run time while the
     //    local bag looked fine (eval/optimize + eval/evolve-loop). Prove it
     //    end to end: boot the real lab
-    //    vein, publish a probe step + workflow, and assert a RUN sees
+    //    strut, publish a probe step + workflow, and assert a RUN sees
     //    services.optimizer.
     // Construction-only requirement: concept services demand a provider key
     // when the bag is built. The probe never calls an LLM — a dummy keeps
     // this smoke offline and keyless.
     const hadKey = process.env.ANTHROPIC_API_KEY;
     if (!hadKey) process.env.ANTHROPIC_API_KEY = "sk-dummy-offline-smoke";
-    const labVein = await createLabVein({ workspacePath: join(base, "lab-ws"), serveUi: false });
+    const labStrut = await createLabStrut({ workspacePath: join(base, "lab-ws"), serveUi: false });
     if (!hadKey) delete process.env.ANTHROPIC_API_KEY;
-    assert.ok((labVein.services as any).optimizer, "vein.services.optimizer must be set");
-    await labVein.workspace.publishStep(
+    assert.ok((labStrut.services as any).optimizer, "strut.services.optimizer must be set");
+    await labStrut.workspace.publishStep(
       "smoke/has-optimizer",
-      `import { z, defineStep } from "vein";
+      `import { z, defineStep } from "strut";
 export default defineStep({
   type: "smoke/has-optimizer",
   description: "probe: report whether ctx.services.optimizer is present",
@@ -257,17 +257,17 @@ export default defineStep({
       undefined,
       "smoke",
     );
-    await labVein.rebuildRegistry();
-    await labVein.workspace.publishWorkflowByContent(
+    await labStrut.rebuildRegistry();
+    await labStrut.workspace.publishWorkflowByContent(
       "smoke-optimizer-probe",
       "name: smoke-optimizer-probe\nsteps:\n  - id: probe\n    type: smoke/has-optimizer\n",
       "smoke",
       "smoke",
     );
-    const probeRun = await labVein.run("smoke-optimizer-probe", {});
+    const probeRun = await labStrut.run("smoke-optimizer-probe", {});
     assert.equal(probeRun.status, "success", `probe run failed: ${JSON.stringify(probeRun.error)}`);
     assert.deepEqual(probeRun.output, { hasOptimizer: true });
-    console.log("✔ services.optimizer reaches runs (createLabVein wiring)");
+    console.log("✔ services.optimizer reaches runs (createLabStrut wiring)");
 
     console.log("\nALL EVOLVE VALIDATION CHECKS PASSED");
   } finally {
@@ -276,7 +276,7 @@ export default defineStep({
 }
 
 main().then(
-  // The lab-vein boot (section 6) leaves live handles (stores, services) —
+  // The lab-strut boot (section 6) leaves live handles (stores, services) —
   // exit explicitly so the smoke terminates instead of idling forever.
   () => process.exit(0),
   (err) => {

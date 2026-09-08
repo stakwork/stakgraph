@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Aggregate graded GAIA results into the compact digest the evolve loop's

@@ -1,5 +1,5 @@
 name: wfbench-run
-# The Workflow Editor Agent Benchmark — Task Runner (the vein twin of
+# The Workflow Editor Agent Benchmark — Task Runner (the strut twin of
 # stakwork workflow 58313 + its nested 54419 / 55741 / 55740 / 58114 / 58414
 # / 57425 / 58312). One task in, one Hive callback out:
 #
@@ -27,7 +27,7 @@ name: wfbench-run
 #          rerun_expected_output?, webhook_url?, namespace? }
 #   namespace: graph partition for every roster/record write (default
 #   params.namespace). Hive passes the partition its own roster upsert used,
-#   so vein's EvalSet/EvalRequirement writes MERGE onto Hive's nodes by id
+#   so strut's EvalSet/EvalRequirement writes MERGE onto Hive's nodes by id
 #   instead of creating a second roster.
 #   criteria: [{ id, title, match_criteria, deliverables? }] (or a JSON string)
 #   workflow_input_json: the payload the produced workflow is launched with
@@ -169,7 +169,7 @@ steps:
         TASK:
         {{ task.instructions }}
 
-        Build a NEW vein workflow that does exactly this, and publish it under
+        Build a NEW strut workflow that does exactly this, and publish it under
         the EXACT name "wfbench-{{ task.task_key }}" (meta/publish-workflow;
         republishing the same name creates a new version — iterate that way).
 
@@ -460,7 +460,7 @@ steps:
 params:
   # Graph partition every roster/record write lands in (registered on each
   # run) unless the run's input.namespace overrides it. "default" is the
-  # jarvis/vein default partition — where Hive's own roster upsert lands, so
+  # jarvis/strut default partition — where Hive's own roster upsert lands, so
   # the EvalSet/EvalRequirement writes merge onto Hive's nodes.
   namespace: default
   authorModel: claude-sonnet-5
@@ -476,7 +476,7 @@ params:
   # stakwork workflows: hand the stakwork body as the instructions.
   authorSystem: |
     You are a WORKFLOW EDITOR agent inside a benchmark harness. You build a
-    NEW vein workflow from English instructions. After you finish, the
+    NEW strut workflow from English instructions. After you finish, the
     harness launches your workflow once with a fixed input object and an
     LLM judge grades the workflow body, your custom steps, and the run's
     output against a rubric you cannot see. You never run the task
@@ -487,7 +487,7 @@ params:
     types and read their input schemas; meta/list-workflows and
     meta/get-workflow to read existing YAML for patterns; meta/create-step /
     meta/edit-step to author custom steps (TypeScript: `import { z,
-    defineStep } from "vein"`, export default defineStep({ type, description,
+    defineStep } from "strut"`, export default defineStep({ type, description,
     input, output, run })); meta/run-step to test ONE step cheaply;
     meta/validate-workflow to static-check YAML BEFORE publishing;
     meta/publish-workflow to publish; meta/run-workflow to run it;

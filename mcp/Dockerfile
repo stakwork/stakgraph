@@ -1,9 +1,9 @@
 # docker buildx build --platform linux/amd64,linux/arm64 -t repo2graph .
 #
-# NOTE: mcp depends on vein (`file:../vein`), which lives OUTSIDE this build
-# context (`./mcp`). Stage vein's source into the context first so it can be
+# NOTE: mcp depends on strut (`file:../strut`), which lives OUTSIDE this build
+# context (`./mcp`). Stage strut's source into the context first so it can be
 # COPY'd and built in-image:
-#     yarn stage-vein   # (from mcp/) — copies ../vein into ./.vein
+#     yarn stage-strut   # (from mcp/) — copies ../strut into ./.strut
 # CI does this in .github/workflows/publish-mcp.yml before the build.
 
 # Use an official Node.js runtime as a parent image
@@ -86,7 +86,7 @@ ENV PATH="/usr/src/agent-venv/bin:$PATH"
 # pdf / mp3 files should be.
 #
 # Mount a volume at the cache dir so the ~205MB clone happens once rather than
-# per container:  -v gaia-cache:/root/.cache/vein  (override with VEIN_CACHE_DIR
+# per container:  -v gaia-cache:/root/.cache/strut  (override with STRUT_CACHE_DIR
 # or pin the checkout outright with GAIA_DIR).
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
@@ -121,22 +121,22 @@ RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/m
 RUN npx -y playwright install-deps
 RUN npx -y playwright install
 
-# Build vein (engine + web UI). mcp consumes it as `file:../vein` and serves
-# its UI under /lab. `.vein` is vein's source staged into this context (see
-# the header note / publish-mcp.yml). Built at /usr/src/vein so that
-# `file:../vein` from /usr/src/app resolves to it.
+# Build strut (engine + web UI). mcp consumes it as `file:../strut` and serves
+# its UI under /lab. `.strut` is strut's source staged into this context (see
+# the header note / publish-mcp.yml). Built at /usr/src/strut so that
+# `file:../strut` from /usr/src/app resolves to it.
 #
-# vein KEEPS its own runtime node_modules: Node resolves a package's imports
-# from the real path of the file, so /usr/src/vein/build/index.js looks for its
-# deps (zod, hono, ai, ...) under /usr/src/vein/node_modules — it never reaches
-# /usr/src/app/node_modules. Sharing mcp's tree would also be wrong: vein needs
+# strut KEEPS its own runtime node_modules: Node resolves a package's imports
+# from the real path of the file, so /usr/src/strut/build/index.js looks for its
+# deps (zod, hono, ai, ...) under /usr/src/strut/node_modules — it never reaches
+# /usr/src/app/node_modules. Sharing mcp's tree would also be wrong: strut needs
 # zod@3 while mcp pins zod@4. We drop only devDependencies (npm prune) and the
 # web build's node_modules (web is built to web/dist and served as static).
-COPY ./.vein /usr/src/vein
+COPY ./.strut /usr/src/strut
 # `npm install` (not `npm ci`): package-lock.json is gitignored repo-wide, so
-# it isn't present in the staged `.vein` source — `npm ci` would fail. Matches
+# it isn't present in the staged `.strut` source — `npm ci` would fail. Matches
 # the `npm install` used elsewhere in this Dockerfile (web, benchmark).
-RUN cd /usr/src/vein && npm install && npm run build && \
+RUN cd /usr/src/strut && npm install && npm run build && \
     npm --prefix web install && npm --prefix web run build && \
     rm -rf web/node_modules && npm prune --omit=dev
 
@@ -157,13 +157,13 @@ RUN yarn
 # package.json here and ignores yarn's `resolutions`. Without a matching npm
 # `overrides` entry it re-nests fastembed's declared onnxruntime-node 1.21.0
 # under node_modules/fastembed/node_modules, and at runtime that older
-# libonnxruntime.so.1 loads first and vein's 1.24.3 binding (same soname)
+# libonnxruntime.so.1 loads first and strut's 1.24.3 binding (same soname)
 # fails with "version VERS_1.24.3 not found". package.json carries both
 # `resolutions` (yarn) and `overrides` (npm) pinned to the same version; the
 # check below fails the build, not /lab at runtime, if a second copy sneaks in.
 RUN npm install --force --os=linux --cpu=x64 @anush008/tokenizers-linux-x64-gnu@0.0.0
-RUN extra="$(find node_modules -mindepth 2 -type d -name onnxruntime-node -not -path 'node_modules/onnxruntime-node' -not -path 'node_modules/vein/*')"; \
-    if [ -n "$extra" ]; then echo "duplicate onnxruntime-node copies (soname clash with vein):"; echo "$extra"; exit 1; fi
+RUN extra="$(find node_modules -mindepth 2 -type d -name onnxruntime-node -not -path 'node_modules/onnxruntime-node' -not -path 'node_modules/strut/*')"; \
+    if [ -n "$extra" ]; then echo "duplicate onnxruntime-node copies (soname clash with strut):"; echo "$extra"; exit 1; fi
 
 # Copy the rest of your application code
 COPY ./tsconfig.json ./tsconfig.json
@@ -240,6 +240,6 @@ EXPOSE 3000
 WORKDIR /usr/src/app
 
 # Define the command to run your app.
-# `--import tsx` registers a TypeScript loader so vein can dynamically import
+# `--import tsx` registers a TypeScript loader so strut can dynamically import
 # `.ts` custom steps at runtime (the lab seeds steps as TS source).
 CMD ["node", "--import", "tsx", "build/index.js"]
