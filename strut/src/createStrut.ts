@@ -229,7 +229,9 @@ export interface Strut<TServices = unknown> {
    *  strut as a child process relies on. `host` (or `STRUT_HOST`) sets the
    *  bind address; unset binds every interface, `127.0.0.1` keeps a local
    *  strut off the LAN. Prints one JSON line on stdout when ready,
-   *  `{"event":"ready","port":N,"host":"…"}`, for hosts to parse.
+   *  `{"event":"ready","port":N,"host":"…"}`, for hosts to parse; with
+   *  `STRUT_READY_KEY=1` the line also carries `key` (the `STRUT_API_KEY`),
+   *  so a host that spawned strut reads port and credential from one line.
    *  Convenience wrapper — feel free to mount `app` yourself. */
   listen: (port?: number, host?: string) => Promise<number>;
 
@@ -1956,7 +1958,8 @@ export async function createStrut<TServices = unknown>(
     console.log(`strut server: http://${hostname ?? "localhost"}:${bound}`);
     // Structured ready line for a host that spawned us (desktop app): one
     // JSON object on its own stdout line, after the human ones.
-    console.log(JSON.stringify({ event: "ready", port: bound, host: hostname ?? "0.0.0.0" }));
+    const readyKey = process.env["STRUT_READY_KEY"] ? process.env["STRUT_API_KEY"] : undefined;
+    console.log(JSON.stringify({ event: "ready", port: bound, host: hostname ?? "0.0.0.0", ...(readyKey ? { key: readyKey } : {}) }));
     return bound;
   }
 

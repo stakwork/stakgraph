@@ -66,9 +66,9 @@ export async function getApp() {
  * await strut.listen(port);
  * ```
  */
-export async function startServer(port?: number, host?: string): Promise<void> {
+export async function startServer(port?: number, host?: string): Promise<number> {
   const strut = await getDefault();
-  await strut.listen(port, host);
+  return strut.listen(port, host);
 }
 
 // Run directly when invoked as a script.
