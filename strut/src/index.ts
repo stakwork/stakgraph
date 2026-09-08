@@ -247,6 +247,7 @@ export {
   type AttrType,
 } from "./graph/strut-schemas.js";
 export { seedStrutDomain, type SeedReport } from "./graph/schema-seed.js";
+export { migrateVeinToStrut, VeinMigrationCollision, type VeinMigrationReport } from "./graph/vein-migration.js";
 export {
   NodeWriter,
   GraphValidationError,
