@@ -3,8 +3,9 @@
  * the reader, and (optionally) the local embedder — opened once per
  * config and cached, with the boot-time obligations run on open:
  *
- *   1. `seedStrutDomain` — schema meta-graph, constraints, indexes (§4);
- *   2. `backfillEmbeddings` — heal any NULL vectors left by a crash (§2).
+ *   1. `migrateVeinToStrut` — one-shot rename of pre-#1664 `Vein*` names;
+ *   2. `seedStrutDomain` — schema meta-graph, constraints, indexes (§4);
+ *   3. `backfillEmbeddings` — heal any NULL vectors left by a crash (§2).
  *
  * Consumers (the `graph/*` lab steps, a future `Neo4jWorkspaceStore` and
  * run projector) call `openGraphBackend(cfg)` and share the instance.
@@ -17,6 +18,7 @@ import { seedJarvisOntology, type OntologySeedReport } from "./ontology-seed.js"
 import { SchemaResolver } from "./schema-resolver.js";
 import { seedStrutDomain, type SeedReport } from "./schema-seed.js";
 import { GraphReader } from "./search.js";
+import { migrateVeinToStrut, type VeinMigrationReport } from "./vein-migration.js";
 
 export interface GraphBackendOptions {
   /** `false` disables embeddings entirely (vectors stay NULL, search is
@@ -43,6 +45,7 @@ export interface GraphBackend {
   readonly embedder: Embedder | undefined;
   /** What the boot-time seed did (undefined when skipped). */
   readonly seed: SeedReport | undefined;
+  readonly veinMigration: VeinMigrationReport | undefined;
   readonly ontologySeed: OntologySeedReport | undefined;
   readonly backfill: BackfillReport | undefined;
   close(): Promise<void>;
@@ -104,9 +107,18 @@ async function open(cfg: GraphConfig, opts: GraphBackendOptions): Promise<GraphB
     const embedder: Embedder | undefined =
       opts.embeddings === false ? undefined : typeof opts.embeddings === "object" ? opts.embeddings : await MiniLMEmbedder.load();
     let seed: SeedReport | undefined;
+    let veinMigration: VeinMigrationReport | undefined;
     let ontologySeed: OntologySeedReport | undefined;
     let backfill: BackfillReport | undefined;
     if (!opts.skipBoot) {
+      // Legacy names first, so the seed below extends the renamed Schema
+      // nodes instead of creating twins beside them.
+      veinMigration = await migrateVeinToStrut(bolt);
+      if (veinMigration.status === "migrated") {
+        console.warn(`[graph] renamed legacy Vein* graph data to Strut*: ${JSON.stringify(veinMigration)}`);
+      } else if (veinMigration.strays > 0) {
+        console.warn(`[graph] ${veinMigration.strays} Domain_vein node(s) carry no Vein type label and were left alone`);
+      }
       // Ontology first so a standalone DB gets jarvis's own Thing (with its
       // ref_id) before the Strut domain hangs off it.
       if (opts.seedOntology) ontologySeed = await seedJarvisOntology(bolt);
@@ -123,6 +135,7 @@ async function open(cfg: GraphConfig, opts: GraphBackendOptions): Promise<GraphB
       schemas,
       embedder,
       seed,
+      veinMigration,
       ontologySeed,
       backfill,
       async close() {

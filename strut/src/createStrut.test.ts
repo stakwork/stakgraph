@@ -569,6 +569,24 @@ describe("createStrut", () => {
     assert.ok(def.input instanceof ourZ.ZodObject, "the step's zod is this process's zod (one module instance)");
   });
 
+  it("custom steps published before the rename can still `import \"vein\"`", async () => {
+    // Pre-#1664 step versions live in the graph verbatim (their content hash
+    // is their identity), so the resolve hook keeps the old bare specifier.
+    const ws = new WorkspaceManager(tempDir);
+    await ws.publishStep(
+      "legacy-hook-step",
+      `import { z, defineStep } from "vein";
+       export default defineStep({
+         type: "legacy-hook-step",
+         input: z.object({}),
+         output: z.string(),
+         async run() { return "still here"; },
+       });`,
+    );
+    const strut = await createStrut({ workspace: ws, store: new MemoryRunStore(), serveUi: false, enableChat: false, stt: false });
+    assert.ok("legacy-hook-step" in strut.getRegistry(), "step importing the old package name loads");
+  });
+
   it("a non-file WorkspaceStore gets in-memory store defaults and still loads custom steps", async () => {
     const ws = pathlessWorkspace(new WorkspaceManager(tempDir));
     // Import-free step source (the temp dir sits outside the project tree,

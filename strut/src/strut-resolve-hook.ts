@@ -17,8 +17,14 @@
  * Node's hooks thread; keep it dependency-free. Everything that isn't exactly
  * `"strut"` falls through to the next resolver (tsx in dev, Node's default in
  * prod), so subpaths and every other package behave as before.
+ *
+ * `"vein"` is the pre-rename package name (#1664) and resolves the same way:
+ * step versions published before the rename live in the graph verbatim —
+ * their content hash is their identity — and still `import "vein"`.
  */
 let entry = "";
+
+const SELF_SPECIFIERS = new Set(["strut", "vein"]);
 
 export function initialize(data: { entry: string }): void {
   entry = data.entry;
@@ -29,6 +35,6 @@ type ResolveResult = { url: string; format?: string | null; shortCircuit?: boole
 type NextResolve = (specifier: string, context: ResolveContext) => Promise<ResolveResult>;
 
 export async function resolve(specifier: string, context: ResolveContext, next: NextResolve): Promise<ResolveResult> {
-  if (specifier === "strut" && entry) return { url: entry, shortCircuit: true };
+  if (entry && SELF_SPECIFIERS.has(specifier)) return { url: entry, shortCircuit: true };
   return next(specifier, context);
 }
