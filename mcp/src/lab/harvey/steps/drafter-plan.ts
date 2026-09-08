@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * The drafting fan-out plan (the derive_basename + build_drafter_plan

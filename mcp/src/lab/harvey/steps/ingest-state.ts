@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Boolean GATE for the ingest-doc workflow: does this Document node still

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stadeum architecture</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0a0a; }
+      #app { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://unpkg.com/system-canvas-standalone@latest/dist/system-canvas.min.js"></script>
+    <script>
+      // Stadeum: graph-native agents that continually learn.
+      // Root = the four components organized around the graph. Drill into any
+      // node (corner indicator) for its internals, and into "Agents" / "Learning
+      // loop" for the two abstractions.
+
+      const categories = {
+        graph:     { defaultWidth: 260, defaultHeight: 100, fill: 'rgba(76,29,149,0.45)', stroke: '#a78bfa' },   // the graph (Swarm)
+        component: { defaultWidth: 210, defaultHeight: 80,  fill: 'rgba(6,78,59,0.4)',    stroke: '#34d399' },   // platform components
+        oracle:    { defaultWidth: 210, defaultHeight: 80,  fill: 'rgba(120,53,15,0.4)',  stroke: '#fbbf24' },   // Jamie
+        human:     { defaultWidth: 170, defaultHeight: 70,  fill: 'rgba(30,41,59,0.5)',   stroke: '#94a3b8' },   // people
+        agent:     { defaultWidth: 230, defaultHeight: 80,  fill: 'rgba(30,64,175,0.4)',  stroke: '#60a5fa' },   // agents
+        process:   { defaultWidth: 170, defaultHeight: 70,  fill: 'rgba(22,78,99,0.4)',   stroke: '#22d3ee' },   // steps / loops
+        gnode:     { defaultWidth: 170, defaultHeight: 70,  fill: 'rgba(131,24,67,0.4)',  stroke: '#f472b6',     // things stored as graph nodes
+                     slots: { header: { kind: 'text', value: 'NODE' } } },
+        server:    { defaultWidth: 220, defaultHeight: 80,  fill: 'rgba(76,29,149,0.3)',  stroke: '#c4b5fd',     // federated domain servers
+                     slots: { header: { kind: 'text', value: 'SERVER' } } },
+        note:      { defaultWidth: 200, defaultHeight: 60,  fill: 'rgba(15,23,42,0.3)',   stroke: '#475569' },   // plain annotations
+      };
+
+      const theme = { base: 'midnight', categories };
+
+      // ---------------------------------------------------------------- root
+      const canvas = {
+        theme,
+        nodes: [
+          { id: 'humans', type: 'text', text: 'Humans',                                          x: -85,  y: -455, category: 'human' },
+          { id: 'hive',   type: 'text', text: 'Hive\nwhere the work happens',                    x: -545, y: -250, category: 'component', ref: 'hive' },
+          { id: 'jamie',  type: 'text', text: 'Jamie\nthe oracle',                               x: 335,  y: -250, category: 'oracle',    ref: 'jamie' },
+          { id: 'swarm',  type: 'text', text: 'Swarm\nthe graph, federated by domain',           x: -130, y: -50,  category: 'graph',     ref: 'swarm' },
+          { id: 'strut',  type: 'text', text: 'Strut\nworkflow engine',                          x: -545, y: 170,  category: 'component', ref: 'strut' },
+          { id: 'agents', type: 'text', text: 'Agents\nthe graph is the harness',                x: 325,  y: 170,  category: 'agent',     ref: 'harness' },
+          { id: 'loop',   type: 'text', text: 'Learning loop\nevery task leaves the graph smarter', x: -160, y: 380, category: 'process', ref: 'loop', width: 320, height: 80 },
+        ],
+        edges: [
+          { id: 'e1',  fromNode: 'humans', toNode: 'hive',   label: 'watch · approve · steer' },
+          { id: 'e2',  fromNode: 'humans', toNode: 'jamie',  label: 'judgment, on any channel' },
+          { id: 'e3',  fromNode: 'hive',   toNode: 'strut',  label: 'controls workflows' },
+          { id: 'e4',  fromNode: 'hive',   toNode: 'swarm',  label: 'controls swarms' },
+          { id: 'e5',  fromNode: 'strut',  toNode: 'swarm',  label: 'workflow = node · run = trace' },
+          { id: 'e6',  fromNode: 'jamie',  toNode: 'swarm',  label: 'reads any graph · proposals become structure' },
+          { id: 'e7',  fromNode: 'jamie',  toNode: 'agents', label: 'spawns any sub-agent' },
+          { id: 'e8',  fromNode: 'swarm',  toNode: 'agents', label: 'assembles prompt · tools · skills · context' },
+          { id: 'e9',  fromNode: 'agents', toNode: 'loop',   label: 'check plan · act · write back' },
+          { id: 'e10', fromNode: 'loop',   toNode: 'swarm',  label: 'grows with every task' },
+        ],
+      };
+
+      // -------------------------------------------------------- sub-canvases
+      const canvases = {
+        // Swarm: the graph itself, federated across servers, plus the machinery closest to it.
+        swarm: {
+          theme,
+          nodes: [
+            { id: 'fed',     type: 'group', label: 'Federated graph — one server per domain, each in its own vocabulary', x: -40, y: -70, width: 900, height: 190 },
+            { id: 'code',    type: 'text', text: "Code server\nan organization's code",          x: 0,   y: 20,  category: 'server' },
+            { id: 'law',     type: 'text', text: 'Law server\na body of law',                    x: 300, y: 20,  category: 'server' },
+            { id: 'kb',      type: 'text', text: 'Knowledge server\na general knowledge base',   x: 600, y: 20,  category: 'server' },
+            { id: 'mach',    type: 'group', label: 'Machinery that lives closest to the graph',  x: -40, y: 240, width: 900, height: 150 },
+            { id: 'harness', type: 'text', text: 'Agent harnesses\nassembled from nodes',        x: 0,   y: 290, category: 'agent' },
+            { id: 'improve', type: 'text', text: 'Self-improvement loops\nconsolidate what was learned', x: 270, y: 290, category: 'process', width: 260, height: 80 },
+            { id: 'watch',   type: 'text', text: 'Log-stream agents\nwatch, then write back',    x: 600, y: 290, category: 'agent' },
+            { id: 'logs',    type: 'text', text: 'Log streams',                                  x: 615, y: 460, category: 'note' },
+          ],
+          edges: [
+            { id: 'e1', fromNode: 'harness', toNode: 'fed', label: 'walks the graph at run time' },
+            { id: 'e2', fromNode: 'improve', toNode: 'fed', label: 'reads, then rewrites' },
+            { id: 'e3', fromNode: 'watch',   toNode: 'fed', label: 'writes what it sees' },
+            { id: 'e4', fromNode: 'logs',    toNode: 'watch' },
+          ],
+        },
+
+        // Strut: workflows are objects agents create, curate, run, and optimize.
+        strut: {
+          theme,
+          nodes: [
+            { id: 'agent',   type: 'text', text: 'Agents',                                       x: -400, y: 0,   category: 'agent' },
+            { id: 'note',    type: 'text', text: 'Procedures are objects,\nnot plans reinvented on each attempt', x: -450, y: 190, category: 'note', width: 320, height: 70 },
+            { id: 'inswarm', type: 'group', label: 'Lives in Swarm — the procedure and its track record, inspectable in one place', x: -40, y: -80, width: 760, height: 380 },
+            { id: 'wf',      type: 'text', text: 'Workflow\na node in Swarm',                    x: 0,   y: 0,   category: 'gnode', width: 190, height: 80 },
+            { id: 'steps',   type: 'text', text: 'Workflow steps\nnodes as well',                x: 0,   y: 195, category: 'gnode', width: 190, height: 80 },
+            { id: 'run',     type: 'text', text: 'Run\na trace in Swarm',                        x: 480, y: 0,   category: 'gnode', width: 190, height: 80 },
+            { id: 'opt',     type: 'text', text: 'Optimize\nloops over the track record',        x: 300, y: 195, category: 'process', width: 250, height: 80 },
+          ],
+          edges: [
+            { id: 'e1', fromNode: 'agent', toNode: 'wf',    label: 'create · curate · run' },
+            { id: 'e2', fromNode: 'wf',    toNode: 'steps', label: 'multi-step' },
+            { id: 'e3', fromNode: 'wf',    toNode: 'run',   label: 'each run leaves a trace' },
+            { id: 'e4', fromNode: 'run',   toNode: 'opt',   label: 'history' },
+            { id: 'e5', fromNode: 'opt',   toNode: 'wf',    label: 'improve the procedure' },
+          ],
+        },
+
+        // Hive: plans → tasks → code in sandboxes; humans watch, approve, steer.
+        hive: {
+          theme,
+          nodes: [
+            { id: 'humans', type: 'text', text: 'Humans',                                        x: -320, y: -260, category: 'human' },
+            { id: 'ctl',    type: 'text', text: 'Swarm & workflow\ncontrols',                    x: -330, y: 220,  category: 'process', width: 190, height: 80 },
+            { id: 'work',   type: 'group', label: 'Work — visible across many repositories and initiatives at once', x: -40, y: -70, width: 860, height: 180 },
+            { id: 'plan',   type: 'text', text: 'Feature plan',                                  x: 0,   y: 0,   category: 'process' },
+            { id: 'tasks',  type: 'text', text: 'Tasks',                                         x: 275, y: 0,   category: 'process' },
+            { id: 'code',   type: 'text', text: 'Code\nin a cloud sandbox',                      x: 550, y: -5,  category: 'agent' },
+            { id: 'setup',  type: 'text', text: 'Setup agents\ndistill docs + code',             x: 245, y: 220, category: 'agent' },
+            { id: 'env',    type: 'text', text: 'Environment config\npersists per repo',         x: 550, y: 220, category: 'gnode', width: 230, height: 80 },
+          ],
+          edges: [
+            { id: 'e1', fromNode: 'plan',   toNode: 'tasks', label: 'become' },
+            { id: 'e2', fromNode: 'tasks',  toNode: 'code',  label: 'become' },
+            { id: 'e3', fromNode: 'setup',  toNode: 'env',   label: 'distill once' },
+            { id: 'e4', fromNode: 'env',    toNode: 'code',  label: 'no sandbox set up from scratch twice' },
+            { id: 'e5', fromNode: 'humans', toNode: 'work',  label: 'watch · approve · steer' },
+            { id: 'e6', fromNode: 'humans', toNode: 'ctl',   label: 'control' },
+          ],
+        },
+
+        // Jamie: the one agent whose context is the entire system.
+        jamie: {
+          theme,
+          nodes: [
+            { id: 'jamie',     type: 'text', text: 'Jamie\ncontext = the entire system',         x: -130, y: -50,  category: 'oracle', width: 260, height: 100 },
+            { id: 'proposal',  type: 'text', text: 'Proposal\nto change the system',             x: -580, y: -40,  category: 'process', width: 210, height: 80 },
+            { id: 'structure', type: 'text', text: 'Structure\nthe change lands in the graph',   x: 380,  y: -50,  category: 'graph' },
+            { id: 'graphs',    type: 'text', text: 'Any graph',                                  x: -420, y: -280, category: 'graph', width: 180, height: 80 },
+            { id: 'subagents', type: 'text', text: 'Any sub-agent',                              x: -440, y: 200,  category: 'agent' },
+            { id: 'humans',    type: 'text', text: 'Human judgment',                             x: 240,  y: -275, category: 'human' },
+            { id: 'channels',  type: 'text', text: 'Any channel',                                x: 240,  y: 210,  category: 'note', width: 180, height: 70 },
+          ],
+          edges: [
+            { id: 'e1', fromNode: 'proposal', toNode: 'jamie',     label: 'every proposal passes through' },
+            { id: 'e2', fromNode: 'jamie',    toNode: 'structure', label: 'on its way to becoming structure' },
+            { id: 'e3', fromNode: 'jamie',    toNode: 'graphs',    label: 'reads' },
+            { id: 'e4', fromNode: 'jamie',    toNode: 'subagents', label: 'spawns' },
+            { id: 'e5', fromNode: 'humans',   toNode: 'jamie',     label: 'where the platform meets human judgment' },
+            { id: 'e6', fromNode: 'jamie',    toNode: 'channels',  label: 'communicates on' },
+          ],
+        },
+
+        // Abstraction 1: the graph is the harness.
+        harness: {
+          theme,
+          nodes: [
+            { id: 'task',     type: 'text', text: 'Task',                                        x: -700, y: 65,  category: 'process' },
+            { id: 'walk',     type: 'text', text: 'Walk the graph\nselect nodes for the task at hand', x: -470, y: 60, category: 'process', width: 300, height: 80 },
+            { id: 'swarmg',   type: 'group', label: 'Swarm — what an agent knows and what an agent is, stored as nodes and maintained by the same process', x: -40, y: -60, width: 820, height: 290 },
+            { id: 'prompt',   type: 'text', text: 'Prompt elements',                             x: 0,   y: 0,   category: 'gnode' },
+            { id: 'tools',    type: 'text', text: 'Tools',                                       x: 190, y: 0,   category: 'gnode' },
+            { id: 'skills',   type: 'text', text: 'Skills',                                      x: 380, y: 0,   category: 'gnode' },
+            { id: 'context',  type: 'text', text: 'Context',                                     x: 570, y: 0,   category: 'gnode' },
+            { id: 'code',     type: 'text', text: 'Code',                                        x: 0,   y: 130, category: 'gnode' },
+            { id: 'steps',    type: 'text', text: 'Workflow steps',                              x: 190, y: 130, category: 'gnode' },
+            { id: 'tooldesc', type: 'text', text: 'Tool descriptions',                          x: 380, y: 130, category: 'gnode' },
+            { id: 'logs',     type: 'text', text: 'Logs',                                        x: 570, y: 130, category: 'gnode' },
+            { id: 'agent',    type: 'text', text: 'Agent\nassembled at run time',                x: 890, y: 60,  category: 'agent', width: 240 },
+            { id: 'sub',      type: 'text', text: 'Sub-agents\nrecursive language models',       x: 890, y: 250, category: 'agent', width: 240 },
+            { id: 'note',     type: 'text', text: 'No configuration to drift out of sync with the knowledge:\nthe configuration is the knowledge', x: 120, y: 340, category: 'note', width: 500, height: 70 },
+          ],
+          edges: [
+            { id: 'e1', fromNode: 'task',   toNode: 'walk' },
+            { id: 'e2', fromNode: 'walk',   toNode: 'swarmg', label: 'fetched at run time, not from files' },
+            { id: 'e3', fromNode: 'swarmg', toNode: 'agent',  label: 'assembles' },
+            { id: 'e4', fromNode: 'agent',  toNode: 'sub',    label: 'spawns, built the same way' },
+          ],
+        },
+
+        // Abstraction 2: every task leaves the graph smarter.
+        loop: {
+          theme,
+          nodes: [
+            { id: 'graph',  type: 'text', text: 'The graph\nsmarter after every task',           x: -130, y: -50,  category: 'graph' },
+            { id: 'plan',   type: 'text', text: 'Plan',                                          x: -465, y: -35,  category: 'process' },
+            { id: 'check',  type: 'text', text: 'Check the plan\nagainst structure + history',    x: -125, y: -300, category: 'process', width: 250, height: 80 },
+            { id: 'act',    type: 'text', text: 'Act',                                           x: 295,  y: -35,  category: 'process' },
+            { id: 'write',  type: 'text', text: 'Write back\nwhat was learned',                  x: -100, y: 220,  category: 'process', width: 200, height: 80 },
+            { id: 'scales', type: 'group', label: 'The same loop runs at every scale',           x: 560,  y: -200, width: 320, height: 380 },
+            { id: 's1',     type: 'text', text: 'A single task',                                 x: 600,  y: -130, category: 'note', width: 240 },
+            { id: 's2',     type: 'text', text: "A workflow's track record",                     x: 600,  y: -30,  category: 'note', width: 240 },
+            { id: 's3',     type: 'text', text: 'System-wide consolidation',                     x: 600,  y: 70,   category: 'note', width: 240 },
+          ],
+          edges: [
+            { id: 'e1', fromNode: 'plan',  toNode: 'check', label: 'before acting' },
+            { id: 'e2', fromNode: 'check', toNode: 'graph', label: 'reads' },
+            { id: 'e3', fromNode: 'check', toNode: 'act' },
+            { id: 'e4', fromNode: 'act',   toNode: 'write', label: 'when finished' },
+            { id: 'e5', fromNode: 'write', toNode: 'graph', label: 'adds to it' },
+            { id: 'e6', fromNode: 'write', toNode: 'plan',  label: 'the next task starts smarter' },
+          ],
+        },
+      };
+
+      SystemCanvas.render(document.getElementById('app'), {
+        canvas, canvases,
+        theme,
+        edgeStyle: 'bezier',
+        rootLabel: 'Stadeum',
+      });
+    </script>
+  </body>
+</html>

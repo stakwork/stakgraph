@@ -1,5 +1,5 @@
 /**
- * Offline smoke test for the jarvis/* steps — no vein server, no Neo4j, no
+ * Offline smoke test for the jarvis/* steps — no strut server, no Neo4j, no
  * live Jarvis. Verifies:
  *   1. seeding: seedJarvisSteps publishes into a temp workspace and
  *      buildRegistry discovers every step from disk;
@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, type StepContext, type HttpResponse } from "vein";
+import { WorkspaceManager, buildRegistry, type StepContext, type HttpResponse } from "strut";
 import { seedJarvisSteps } from "./seed.js";
 
 // ── fake ctx: canned Jarvis over ctx.services.http ─────────────────────────
@@ -51,7 +51,7 @@ function makeCtx(routes: Parameters<typeof fakeHttp>[0]): StepContext {
 async function main() {
   // ── 1. seed + discover ───────────────────────────────────────────────────
   // Under the mcp dir (not os tmpdir) so the seeded steps' dynamic
-  // `import "vein"` resolves via mcp/node_modules — same as the real
+  // `import "strut"` resolves via mcp/node_modules — same as the real
   // lab-workspace location.
   const dir = mkdtempSync(join(process.cwd(), ".jarvis-smoke-"));
   try {

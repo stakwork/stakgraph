@@ -4,7 +4,7 @@ name: gitsee-setup-and-run
 # observes failures (console + network 4xx/5xx + server logs), fixes the
 # config/repo, reboots, and repeats until the frontend is genuinely functional.
 #
-# This is the DECOMPOSED boot-and-exercise. The agent loop is the vein-core
+# This is the DECOMPOSED boot-and-exercise. The agent loop is the strut-core
 # `agent` step; the QA capabilities (boot / browser / observe / assess / logs)
 # are gitsee TOOL-STEPS exposed as `agentTools`, each reaching the per-run
 # browser + stack + vision HARNESS via `ctx.services.gitsee.*` (keyed by runId).

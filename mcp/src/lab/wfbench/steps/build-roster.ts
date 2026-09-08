@@ -1,4 +1,4 @@
-import { z, defineStep, type StepContext } from "vein";
+import { z, defineStep, type StepContext } from "strut";
 
 /**
  * The graph ROSTER for one benchmark run (stakwork 58313 steps 2–6), as
@@ -16,7 +16,7 @@ import { z, defineStep, type StepContext } from "vein";
  * MERGE onto Hive's nodes by node_key instead of creating a second roster.
  *
  * Properties are limited to what the jarvis ontology declares for each
- * type (vein's graph backend rejects undeclared attributes): 58313's
+ * type (strut's graph backend rejects undeclared attributes): 58313's
  * EvalSet.project_id (an int there) and EvalTrigger.name are therefore
  * omitted; the trigger's `agent` carries the harness name so the node has
  * a title. The EvalSet→EvalTrigger edge (HAS_TRIGGER vs
@@ -60,8 +60,8 @@ export default defineStep({
       node_data: {
         id: trigger_id,
         agent: cfg.workflow,
-        source: "vein",
-        environment: "vein-lab",
+        source: "strut",
+        environment: "strut-lab",
         workflow_id: cfg.workflow,
         workflow_version_id: cfg.workflow_version == null ? "" : String(cfg.workflow_version),
         workflow_input: cfg.instructions,

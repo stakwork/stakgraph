@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>Graph diagram series</title>
+<style>
+  body { margin: 0; background: #0a0a0a; color: #e2e8f0; font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 32px; }
+  h1 { font-size: 18px; margin: 0 0 6px; } p { color: #94a3b8; margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 20px; }
+  .card { display: block; border: 1px solid #1e293b; border-radius: 10px; overflow: hidden; background: #0f172a; text-decoration: none; color: inherit; }
+  .card:hover { border-color: #34d399; }
+  .card img { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; background: #0a0a0a; }
+  .meta { padding: 12px 14px; display: grid; gap: 4px; } .meta span { color: #94a3b8; } .meta small { color: #64748b; }
+</style></head><body>
+<h1>Everything goes in the graph</h1>
+<p>Concepts (3-4 nodes) → Code (7-10) → Agent trace (&gt;12). Click a card for the interactive canvas; the big tree is <a href="knowledge-tree.html" style="color:#34d399">knowledge-tree.html</a>.</p>
+<div class="grid">
+      <a class="card" href="01-concepts-hierarchy.html">
+        <img src="01-concepts-hierarchy.png" alt="Concepts: hierarchy" loading="lazy" />
+        <div class="meta"><b>Concepts: hierarchy</b><span>A repo owns concepts; concepts nest (PARENT_OF). 4 nodes.</span><small>4 nodes · 3 edges</small></div>
+      </a>
+      <a class="card" href="02-concepts-provenance.html">
+        <img src="02-concepts-provenance.png" alt="Concepts: what grows one" loading="lazy" />
+        <div class="meta"><b>Concepts: what grows one</b><span>A PR and a commit TOUCH a concept; the concept MODIFIES a file. 4 nodes.</span><small>4 nodes · 3 edges</small></div>
+      </a>
+      <a class="card" href="03-concepts-freshness.html">
+        <img src="03-concepts-freshness.png" alt="Concepts: scores on the edge" loading="lazy" />
+        <div class="meta"><b>Concepts: scores on the edge</b><span>Same repo, three concepts. Edge weight = importance, color = freshness. 4 nodes.</span><small>4 nodes · 3 edges</small></div>
+      </a>
+      <a class="card" href="04-concepts-everything-is-a-node.html">
+        <img src="04-concepts-everything-is-a-node.png" alt="Everything is a node" loading="lazy" />
+        <div class="meta"><b>Everything is a node</b><span>The four kinds of thing the graph holds, and how they point at each other. 4 nodes.</span><small>4 nodes · 5 edges</small></div>
+      </a>
+      <a class="card" href="05-code-vertical-slice.html">
+        <img src="05-code-vertical-slice.png" alt="Code: one concept, all the way down" loading="lazy" />
+        <div class="meta"><b>Code: one concept, all the way down</b><span>Concept → File → Function/Class/Endpoint → Datamodel. 8 nodes.</span><small>8 nodes · 8 edges</small></div>
+      </a>
+      <a class="card" href="06-code-two-branches.html">
+        <img src="06-code-two-branches.png" alt="Code: two branches of the tree" loading="lazy" />
+        <div class="meta"><b>Code: two branches of the tree</b><span>Repository → two concepts → files → functions, one fresh and one stale. 9 nodes.</span><small>9 nodes · 8 edges</small></div>
+      </a>
+      <a class="card" href="07-code-with-provenance.html">
+        <img src="07-code-with-provenance.png" alt="Code: a concept with its evidence" loading="lazy" />
+        <div class="meta"><b>Code: a concept with its evidence</b><span>PRs, a clue and a proposal on the left; the code it maps to on the right. 10 nodes.</span><small>10 nodes · 11 edges</small></div>
+      </a>
+      <a class="card" href="08-trace-one-run.html">
+        <img src="08-trace-one-run.png" alt="Agent trace: one run" loading="lazy" />
+        <div class="meta"><b>Agent trace: one run</b><span>Chat spawns a run; the run executes a workflow version; each step is a session; each tool call ACCESSED the nodes it read. 14 nodes.</span><small>14 nodes · 17 edges</small></div>
+      </a>
+      <a class="card" href="09-trace-on-the-tree.html">
+        <img src="09-trace-on-the-tree.png" alt="Agent trace: a run reading the tree" loading="lazy" />
+        <div class="meta"><b>Agent trace: a run reading the tree</b><span>The knowledge tree on the right; a run's steps and tool calls on the left, each pointing at the node it read. Reflection writes back. 16 nodes.</span><small>16 nodes · 18 edges</small></div>
+      </a>
+</div>
+</body></html>

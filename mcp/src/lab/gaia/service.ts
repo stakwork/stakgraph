@@ -40,7 +40,7 @@ import { ensureGaiaDataset, ensureGaiaPython, SCORER_SHA256 } from "./bootstrap.
  *                        the HF website; that click-through cannot be
  *                        automated. Only an already-populated checkout
  *                        removes the need for it. The rest are optional:
- *   GAIA_DIR           — pin the checkout location (default <cache>/vein/gaia)
+ *   GAIA_DIR           — pin the checkout location (default <cache>/strut/gaia)
  *   GAIA_SCORER_SHA256 — override the in-repo scorer pin (SCORER_SHA256)
  *   GAIA_PYTHON        — python interpreter (default "python3"; needs numpy)
  *   GAIA_AUTO_SETUP=0  — disable auto-setup; GAIA_DIR must be pre-populated

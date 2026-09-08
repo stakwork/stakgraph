@@ -72,7 +72,7 @@ app.get("/health", (_req: Request, res: Response) => {
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
 
-// Lab experiments (vein workflows) — bridged before body parsing so vein
+// Lab experiments (strut workflows) — bridged before body parsing so strut
 // receives raw request streams for SSE + POST bodies.
 mountLab(app);
 

@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * Normalize one benchmark task (the Hive payload / stakwork 58313 set_var

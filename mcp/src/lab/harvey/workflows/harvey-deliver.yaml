@@ -16,7 +16,7 @@ name: harvey-deliver
 # Phase orchestration lives in subflows. The VERBATIM production prompts
 # live as markdown files in harvey/prompts/, spliced into the step configs at
 # seed time via @@include markers (see seed.ts) with their stakwork
-# interpolation tokens translated to vein {{ … }} templates; models and
+# interpolation tokens translated to strut {{ … }} templates; models and
 # fan-out knobs stay in each workflow's params (override per run with
 # paramOverrides keyed by workflow name):
 #   harvey-ingest-doc   — per-document parse+ingest (agent, graph writes)

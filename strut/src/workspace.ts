@@ -1,0 +1,1015 @@
+import { readFile, writeFile, readdir, mkdir, stat, unlink, rmdir, rm } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
+import yaml from "js-yaml";
+import { z } from "zod";
+import type { Flow } from "./core.js";
+import type { SubflowResolver } from "./runner.js";
+import { readStepSourceFromDisk, type StepSource } from "./steps/registry.js";
+import { contentHash, nextVersionLabel } from "./version.js";
+import { evaluateExpr } from "./expr.js";
+
+// Match a `{{ params.<path> }}` reference (and ONLY a params reference) so we can
+// resolve param-to-param references at load time without touching `{{ input.* }}`
+// or step-output references (which don't exist until run time).
+const PARAM_SELF_REF = /\{\{\s*(params(?:\.[\w$]+|\[[^\]]+\])+)\s*\}\}/g;
+
+/**
+ * Validate a workflow's YAML before it's published. Catches the single most
+ * common authoring footgun: an **unquoted** template value, e.g.
+ *
+ *   pull_number: {{ input.pull_number }}     # WRONG
+ *
+ * A leading `{{` is parsed by YAML as a flow-mapping, so the value silently
+ * becomes an object (which stringifies to `[object Object]`) instead of the
+ * template string. Downstream this surfaces as a baffling "expected number,
+ * received object". We detect it on the PARSED structure (so we don't false-
+ * positive on `{{ }}` inside block-scalar message bodies) and throw a clear,
+ * actionable error pointing at the fix: quote the template.
+ */
+export function assertValidWorkflowYaml(yamlStr: string): void {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(yamlStr);
+  } catch (err) {
+    throw new Error(
+      `Invalid workflow YAML: ${err instanceof Error ? err.message : String(err)}. ` +
+        `A common cause is an unquoted template — always wrap templates in quotes, ` +
+        `e.g. pull_number: "{{ input.pull_number }}".`,
+    );
+  }
+  // An unquoted `{{ ... }}` value parses to an object used as a map key, which
+  // serializes as the literal "[object Object]". No legitimate config contains
+  // that string, so it's a reliable corruption signature.
+  if (JSON.stringify(parsed ?? null).includes("[object Object]")) {
+    throw new Error(
+      `Workflow YAML has an unquoted template value: a "{{ ... }}" was parsed as a ` +
+        `YAML object instead of a string. Wrap every template in quotes, ` +
+        `e.g. pull_number: "{{ input.pull_number }}".`,
+    );
+  }
+}
+
+/**
+ * Resolve `{{ params.* }}` references that appear INSIDE other param values, so a
+ * workflow can factor a shared value into one param and reuse it (e.g. a base
+ * `podDomain` referenced by a big prompt param). Walks the params deeply; for
+ * each string it substitutes only `params.*` templates (evaluated against the
+ * params themselves), leaving every other template intact for run-time
+ * resolution. One pass over the ORIGINAL params — chained references aren't
+ * re-expanded, and the substitution uses the param DEFAULTS (a per-run override
+ * of a referenced param won't retro-edit a value that embedded it). Unknown/erroring
+ * refs are left verbatim rather than throwing.
+ */
+function resolveParamSelfReferences(params: Record<string, unknown>): Record<string, unknown> {
+  const resolveStr = (s: string): string =>
+    s.replace(PARAM_SELF_REF, (whole, expr: string) => {
+      try {
+        const val = evaluateExpr(expr, { params });
+        if (val === null || val === undefined) return "";
+        return typeof val === "object" ? JSON.stringify(val) : String(val);
+      } catch {
+        return whole; // leave unresolved on any error
+      }
+    });
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") return v.includes("{{") ? resolveStr(v) : v;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = walk(val);
+      return out;
+    }
+    return v;
+  };
+  return walk(params) as Record<string, unknown>;
+}
+
+/** Parse a stored workflow version's YAML into a runnable `Flow` — the one
+ *  loader every `WorkspaceStore` backend shares (param self-references are
+ *  resolved once here, at load). */
+export function flowFromYaml(name: string, version: string, raw: string): Flow {
+  const data = yaml.load(raw) as any;
+  if (!data || !data.steps) {
+    throw new Error(`Invalid workflow YAML for "${name}" version "${version}"`);
+  }
+  return {
+    name: data.name ?? name,
+    input: z.any(),
+    steps: data.steps,
+    // Resolve param-to-param references (`{{ params.* }}` nested inside another
+    // param) once at load, so a shared value can be factored into one knob.
+    ...(data.params != null ? { params: resolveParamSelfReferences(data.params) } : {}),
+    ...(Array.isArray(data.promotes) ? { promotes: data.promotes } : {}),
+  };
+}
+
+/** Render publish content (a steps object or raw YAML) to the YAML string
+ *  that gets stored — shared by every backend so hashes agree. */
+export function renderWorkflowYaml(
+  name: string,
+  content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+): string {
+  return typeof content === "string"
+    ? content
+    : yaml.dump(
+        {
+          name,
+          steps: content.steps,
+          ...(content.params != null ? { params: content.params } : {}),
+          ...(content.promotes != null ? { promotes: content.promotes } : {}),
+        },
+        { lineWidth: 120, noRefs: true },
+      );
+}
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+export interface WorkflowVersionInfo {
+  createdAt: string;
+  description?: string;
+  /** Content hash of this version's source — internal dedup key for
+   *  content-hash publishing. Not the user-facing version id. */
+  hash?: string;
+}
+
+export interface WorkflowMetadata {
+  active: string;
+  versions: Record<string, WorkflowVersionInfo>;
+  /** Optional grouping label (e.g. an experiment name). Workflow-level, not
+   *  version-level: it survives publishes and can be changed at any time via
+   *  `setWorkflowCategory`. */
+  category?: string;
+  /** Optional identifier of the service that published this workflow
+   *  (parallels `StepInfo.publisher`). Workflow-level provenance: the
+   *  authoring capability stamps everything it publishes `"ai"` and its
+   *  publish/run/run-history operations are closed over that stamped set —
+   *  see `authoring.ts` and EVOLVE_SPEC §6 (run-history scoping). */
+  publisher?: string;
+}
+
+export interface StepVersionInfo {
+  createdAt: string;
+  description?: string;
+  /** Content hash of this version's source — internal dedup key. */
+  hash?: string;
+}
+
+export interface StepInfo {
+  /** Active version id (a content hash, e.g. "c-1a2b3c4d5e"). The active
+   *  version's source is materialized at `custom/<name>.ts` for the registry
+   *  loader; every version (incl. active) is archived under
+   *  `steps/_history/<name>/<vid>.ts`. */
+  active: string;
+  /** All known versions, keyed by content-hash version id. */
+  versions: Record<string, StepVersionInfo>;
+  /** Optional identifier of the service that published this step.
+   *  Used by `deleteStepsByPublisher` for bulk lifecycle ops. */
+  publisher?: string;
+}
+
+export interface StepDirMetadata {
+  /** Keys are full step names with optional slashes (e.g. "gitree/save-feature"). */
+  steps: Record<string, StepInfo>;
+}
+
+/** Options for the content-hash publishers (`publishWorkflowByContent`,
+ *  `publishStep`). */
+export interface PublishByContentOptions {
+  /** What to do when the content matches an OLDER, non-active version.
+   *  `true` (default) re-points active at it — "this exact content should be
+   *  live" (the author's intent). `false` leaves the active pointer alone —
+   *  the boot-time seeder's setting, so an edit made through the UI/API
+   *  survives every reseed until the committed template itself changes (a
+   *  never-seen hash still publishes the next `vN` and activates it). */
+  reactivateKnown?: boolean;
+}
+
+export interface StepVersionsResult {
+  active: string;
+  versions: string[];
+}
+
+export interface WorkflowListEntry {
+  name: string;
+  activeVersion: string;
+  versions: string[];
+  description?: string;
+  /** Grouping label, if the workflow has one (see WorkflowMetadata.category). */
+  category?: string;
+  /** Provenance stamp, if any (see WorkflowMetadata.publisher). */
+  publisher?: string;
+  /** Start time (epoch ms) of the most recent run, if any. Not produced by
+   *  the workspace itself (runs are the run store's records) — the server's
+   *  `GET /workflows` decorates entries from `RunStore.lastRunAt`. */
+  lastRunAt?: number;
+}
+
+export interface StepListEntry {
+  type: string;
+  description?: string;
+  createdAt?: string;
+  publisher?: string;
+}
+
+// ── Workspace store boundary ───────────────────────────────────────────────
+
+/**
+ * The persistence boundary for workflows and steps — everything the server,
+ * the authoring capability, and the chat builder need from "the workspace",
+ * with no filesystem in the contract. `FileWorkspaceStore` is the default
+ * implementation; a graph-backed one implements the same surface.
+ *
+ * Two things a workspace deliberately does NOT own: run records (the
+ * `RunStore`) and local scratch (artifacts, cassettes, shell cwd — the
+ * server's `dataDir`). Custom steps are executable code, so the boundary
+ * exposes them two ways: as source text (`getStepSource`) and as an
+ * importable directory (`materializeCustomSteps`) for the module loader.
+ */
+export interface WorkspaceStore extends SubflowResolver {
+  // ── Workflows ──
+  /** Every workflow with its version list. `lastRunAt` is NOT populated
+   *  here (runs belong to the run store — the server composes it). */
+  listWorkflows(): Promise<WorkflowListEntry[]>;
+  getWorkflow(name: string): Promise<Flow>;
+  getWorkflowVersion(name: string, version: string): Promise<Flow>;
+  /** Raw YAML source of a workflow version (throws when missing). */
+  getWorkflowSource(name: string, version: string): Promise<string>;
+  /** Content hash of a version's source (active when omitted), or null. */
+  getWorkflowHash(name: string, version?: string): Promise<string | null>;
+  /** The workflow's metadata record (active version, versions, category,
+   *  publisher), or null when the workflow doesn't exist. */
+  getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null>;
+  createWorkflow(
+    name: string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<{ name: string; version: string }>;
+  publishWorkflow(
+    name: string,
+    version: string,
+    content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<void>;
+  publishWorkflowByContent(
+    name: string,
+    yamlStr: string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+    opts?: PublishByContentOptions,
+  ): Promise<{ version: string; changed: boolean }>;
+  setWorkflowCategory(name: string, category: string | null): Promise<void>;
+  setActiveVersion(name: string, version: string): Promise<void>;
+  setParam(
+    name: string,
+    param: string,
+    value: unknown,
+  ): Promise<{ version: string; before: unknown; after: unknown }>;
+
+  // ── Steps (custom tier) ──
+  listSteps(filter?: { publisher?: string }): Promise<StepListEntry[]>;
+  publishStep(
+    name: string,
+    code: string,
+    description?: string,
+    publisher?: string,
+    opts?: PublishByContentOptions,
+  ): Promise<{ version: string; changed: boolean }>;
+  listStepVersions(name: string): Promise<StepVersionsResult>;
+  getStepVersionSource(name: string, version: string): Promise<string>;
+  setActiveStepVersion(name: string, version: string): Promise<void>;
+  deleteStep(name: string): Promise<boolean>;
+  deleteStepsByPublisher(publisher: string): Promise<string[]>;
+
+  // ── Step source + code loading ──
+  /** A step's source text across all tiers (core / lib ship with the
+   *  engine; custom is this store's), or null when none is on record. */
+  getStepSource(type: string): Promise<{ code: string; origin: StepSource } | null>;
+  /** Ensure every ACTIVE custom step exists as an importable file and
+   *  return the directory root — what `buildRegistry(customDir)` loads. A
+   *  file-backed store already has it; other backends write to scratch. */
+  materializeCustomSteps(): Promise<string>;
+}
+
+// ── Filesystem implementation ──────────────────────────────────────────────
+
+export class FileWorkspaceStore implements WorkspaceStore {
+  private root: string;
+
+  constructor(root?: string) {
+    this.root = root ?? process.env["STRUT_WORKSPACE"] ?? "./workspace";
+  }
+
+  /** The filesystem root — an implementation detail of THIS store, not part
+   *  of `WorkspaceStore`. The server's local scratch (`dataDir`) defaults to
+   *  it so file-backed deployments keep one directory. */
+  get path(): string {
+    return this.root;
+  }
+
+  // ── Workflows ──────────────────────────────────────────────────────────
+
+  async listWorkflows(): Promise<WorkflowListEntry[]> {
+    const workflowsDir = join(this.root, "workflows");
+    const entries = await safeReaddir(workflowsDir);
+    const results: WorkflowListEntry[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const meta = await this.readWorkflowMetadata(entry.name);
+      if (meta) {
+        const activeDesc = meta.versions[meta.active]?.description;
+        results.push({
+          name: entry.name,
+          activeVersion: meta.active,
+          versions: Object.keys(meta.versions),
+          description: activeDesc,
+          ...(meta.category ? { category: meta.category } : {}),
+          ...(meta.publisher ? { publisher: meta.publisher } : {}),
+        });
+      }
+    }
+
+    return results;
+  }
+
+  async getWorkflowMetadata(name: string): Promise<WorkflowMetadata | null> {
+    return this.readWorkflowMetadata(name);
+  }
+
+  /** Load the active version of a workflow. */
+  async getWorkflow(name: string): Promise<Flow> {
+    const meta = await this.readWorkflowMetadata(name);
+    if (!meta) {
+      throw new Error(`Workflow "${name}" not found`);
+    }
+    return this.loadFlowYaml(name, meta.active);
+  }
+
+  /** Load a specific version of a workflow. */
+  async getWorkflowVersion(name: string, version: string): Promise<Flow> {
+    return this.loadFlowYaml(name, version);
+  }
+
+  /** Get the raw YAML source for a workflow version. */
+  async getWorkflowSource(name: string, version: string): Promise<string> {
+    const dir = join(this.root, "workflows", name);
+    return readFile(join(dir, `${version}.yaml`), "utf-8");
+  }
+
+  /** Content hash of a workflow version's source (active version when
+   *  omitted) — recorded on `run.start` so resume can refuse to replay a
+   *  journal into a different DAG (RUN_CONTROL_SPEC §5). Null when the
+   *  workflow/version is unknown: hash recording degrades gracefully for
+   *  runs launched from a bare Flow object. */
+  async getWorkflowHash(name: string, version?: string): Promise<string | null> {
+    try {
+      const meta = await this.readWorkflowMetadata(name);
+      if (!meta) return null;
+      const v = version ?? meta.active;
+      const recorded = meta.versions[v]?.hash;
+      if (recorded) return recorded;
+      return contentHash(await this.getWorkflowSource(name, v));
+    } catch {
+      return null;
+    }
+  }
+
+  private async loadFlowYaml(name: string, version: string): Promise<Flow> {
+    const dir = join(this.root, "workflows", name);
+    const raw = await readFile(join(dir, `${version}.yaml`), "utf-8");
+    return flowFromYaml(name, version, raw);
+  }
+
+  /**
+   * Create a brand-new workflow at v1. If `<workspace>/workflows/<name>/`
+   * already exists, a numeric suffix is appended (`<name>-2`, `<name>-3`, ...)
+   * until a free slot is found. Returns the actual name written.
+   *
+   * Use this for "create" intents (UI's Create Workflow dialog, AI's
+   * `create_workflow` tool). For adding a new version to an existing workflow,
+   * call `publishWorkflow` directly with the existing name and the next version.
+   */
+  async createWorkflow(
+    name: string,
+    content: { steps: any[]; params?: Record<string, unknown> } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<{ name: string; version: string }> {
+    const workflowsDir = join(this.root, "workflows");
+    let finalName = name;
+    let n = 2;
+    while (await pathExists(join(workflowsDir, finalName))) {
+      finalName = `${name}-${n++}`;
+    }
+
+    // If the YAML embeds a `name:` field, rewrite it so the on-disk name
+    // matches the directory — runner.ts keys run storage off `workflow.name`.
+    let resolvedContent = content;
+    if (finalName !== name && typeof content === "string") {
+      const parsed = yaml.load(content) as any;
+      if (parsed && typeof parsed === "object") {
+        parsed.name = finalName;
+        resolvedContent = yaml.dump(parsed, { lineWidth: 120, noRefs: true });
+      }
+    }
+
+    await this.publishWorkflow(finalName, "v1", resolvedContent, description, category, publisher);
+    return { name: finalName, version: "v1" };
+  }
+
+  /** Publish a new workflow version. Accepts steps array or raw YAML string.
+   *  `category` (when provided) updates the workflow-level grouping label;
+   *  `publisher` (when provided) sets the workflow-level provenance stamp. */
+  async publishWorkflow(
+    name: string,
+    version: string,
+    content: { steps: any[]; params?: Record<string, unknown>; promotes?: unknown[] } | string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+  ): Promise<void> {
+    const dir = join(this.root, "workflows", name);
+    await mkdir(dir, { recursive: true });
+
+    const yamlStr = renderWorkflowYaml(name, content);
+    assertValidWorkflowYaml(yamlStr);
+
+    await writeFile(join(dir, `${version}.yaml`), yamlStr, "utf-8");
+
+    // Update metadata
+    const meta = (await this.readWorkflowMetadata(name)) ?? {
+      active: version,
+      versions: {},
+    };
+
+    meta.versions[version] = {
+      createdAt: new Date().toISOString(),
+      description,
+      hash: contentHash(yamlStr),
+    };
+    meta.active = version;
+    if (category !== undefined) meta.category = category;
+    if (publisher !== undefined) meta.publisher = publisher;
+
+    await writeFile(
+      join(dir, "_metadata.json"),
+      JSON.stringify(meta, null, 2),
+      "utf-8",
+    );
+  }
+
+  /**
+   * Set (or clear, with null/"") a workflow's grouping category. Metadata-only:
+   * no new version is published and the YAML content is untouched.
+   */
+  async setWorkflowCategory(name: string, category: string | null): Promise<void> {
+    const meta = await this.readWorkflowMetadata(name);
+    if (!meta) throw new Error(`Workflow "${name}" not found`);
+    if (category) meta.category = category;
+    else delete meta.category;
+    await writeFile(
+      join(this.root, "workflows", name, "_metadata.json"),
+      JSON.stringify(meta, null, 2),
+      "utf-8",
+    );
+  }
+
+  async setActiveVersion(name: string, version: string): Promise<void> {
+    const meta = await this.readWorkflowMetadata(name);
+    if (!meta) {
+      throw new Error(`Workflow "${name}" not found`);
+    }
+    if (!(version in meta.versions)) {
+      throw new Error(
+        `Version "${version}" not found for workflow "${name}". Available: ${Object.keys(meta.versions).join(", ")}`,
+      );
+    }
+
+    meta.active = version;
+    const dir = join(this.root, "workflows", name);
+    await writeFile(
+      join(dir, "_metadata.json"),
+      JSON.stringify(meta, null, 2),
+      "utf-8",
+    );
+  }
+
+  /**
+   * GENERIC promote primitive: set ONE `param` default on a workflow and
+   * publish it as the next sequential version (`vN+1`). Reads the active
+   * version's raw YAML and round-trips the WHOLE object (so `steps`, other
+   * `params`, and any `promotes` block survive), overwriting only
+   * `params[param]`. Returns the new version id plus the `before`/`after`
+   * values (the diff surface). This is what "promote a winner" calls once a
+   * human approves — nothing here is automatic.
+   */
+  async setParam(
+    name: string,
+    param: string,
+    value: unknown,
+  ): Promise<{ version: string; before: unknown; after: unknown }> {
+    const meta = await this.readWorkflowMetadata(name);
+    if (!meta) throw new Error(`Workflow "${name}" not found`);
+
+    const raw = await this.getWorkflowSource(name, meta.active);
+    const obj = (yaml.load(raw) as Record<string, unknown>) ?? {};
+    if (!obj["name"]) obj["name"] = name;
+    const params =
+      obj["params"] && typeof obj["params"] === "object"
+        ? (obj["params"] as Record<string, unknown>)
+        : {};
+    const before = params[param];
+    params[param] = value;
+    obj["params"] = params;
+
+    const yamlStr = yaml.dump(obj, { lineWidth: 120, noRefs: true });
+    const next = nextVersionLabel(Object.keys(meta.versions));
+    await this.publishWorkflow(name, next, yamlStr);
+    return { version: next, before, after: value };
+  }
+
+  /**
+   * Publish a workflow keyed by content hash but labeled with a friendly,
+   * sequential version id (`v1`, `v2`, …). The hash is an internal dedup key;
+   * the version id is what the UI shows. Idempotent: identical content that's
+   * already active is a no-op; identical content of an older version re-points
+   * active at it (no new version); changed content publishes the next `vN` and
+   * activates it, retaining prior versions. This is the content-hash seeder's
+   * primitive. Returns the version id and whether anything changed.
+   * `opts.reactivateKnown: false` turns the "re-points active" case into a
+   * no-op (see `PublishByContentOptions`).
+   */
+  async publishWorkflowByContent(
+    name: string,
+    yamlStr: string,
+    description?: string,
+    category?: string,
+    publisher?: string,
+    opts?: PublishByContentOptions,
+  ): Promise<{ version: string; changed: boolean }> {
+    const hash = contentHash(yamlStr);
+    const meta = await this.readWorkflowMetadata(name);
+
+    if (meta) {
+      // Category is metadata-level, so reconcile it even when the content is
+      // a no-op — this is how seeders retrofit categories onto existing
+      // workspaces at boot.
+      if (category !== undefined && meta.category !== category) {
+        await this.setWorkflowCategory(name, category);
+      }
+      const match = Object.entries(meta.versions).find(
+        ([, info]) => info.hash === hash,
+      );
+      if (match) {
+        const [vid] = match;
+        if (meta.active === vid || opts?.reactivateKnown === false) {
+          return { version: vid, changed: false };
+        }
+        await this.setActiveVersion(name, vid);
+        return { version: vid, changed: true };
+      }
+    }
+
+    const next = nextVersionLabel(meta ? Object.keys(meta.versions) : []);
+    // `publisher` is only ever applied when a version is actually written —
+    // never reconciled on the identical-content no-op path above, so
+    // republishing a workflow's existing content verbatim cannot re-stamp
+    // (and thereby claim) a workflow someone else published.
+    await this.publishWorkflow(name, next, yamlStr, description, category, publisher);
+    return { version: next, changed: true };
+  }
+
+  // ── Steps ──────────────────────────────────────────────────────────────
+
+  /**
+   * List user-authored custom steps from `<workspace>/steps/custom/`,
+   * recursively. Files starting with `_` are treated as helpers (importable
+   * by sibling steps but not registered as their own step type) and are
+   * omitted from the result.
+   *
+   * Lib steps live in the engine source tree and are not listed here.
+   *
+   * Pass `filter.publisher` to limit results to a specific publisher.
+   */
+  async listSteps(filter?: { publisher?: string }): Promise<StepListEntry[]> {
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    const results: StepListEntry[] = [];
+
+    const files = await findStepFilesRecursive(customDir);
+    for (const file of files) {
+      const stepName = stepNameFromFile(file, customDir);
+      const info = meta?.steps[stepName];
+      if (filter?.publisher && info?.publisher !== filter.publisher) continue;
+      const activeVer = info ? info.versions[info.active] : undefined;
+      results.push({
+        type: stepName,
+        description: activeVer?.description,
+        createdAt: activeVer?.createdAt,
+        publisher: info?.publisher,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Publish a custom step, keyed by content hash but labeled with a friendly,
+   * sequential version id (`v1`, `v2`, …). Writes the active source to
+   * `<workspace>/steps/custom/<name>.ts` (what the registry loads) and
+   * archives every version under `steps/_history/<name>/<vid>.ts`.
+   *
+   * `name` may contain slashes to nest the file under subdirectories
+   * (e.g. `"gitree/save-feature"` writes to `custom/gitree/save-feature.ts`).
+   * Names starting with `_` (or with any path segment starting with `_`)
+   * are treated as helper files: they're saved and importable by sibling
+   * steps but are skipped by registry discovery.
+   *
+   * Idempotent by content hash: republishing identical content that's already
+   * active is a no-op; identical content of an older version re-activates it
+   * (no new version); changed content publishes the next `vN` and activates it
+   * while prior versions are retained for rollback.
+   *
+   * Returns the version id and whether anything changed.
+   *
+   * Lib steps cannot be published at runtime — they ship with the engine.
+   */
+  async publishStep(
+    name: string,
+    code: string,
+    description?: string,
+    publisher?: string,
+    opts?: PublishByContentOptions,
+  ): Promise<{ version: string; changed: boolean }> {
+    validateStepName(name);
+
+    const customDir = join(this.root, "steps", "custom");
+    const filePath = join(customDir, `${name}.ts`);
+    const hash = contentHash(code);
+
+    const meta = (await this.readStepMetadata(customDir)) ?? { steps: {} };
+    const existing = meta.steps[name];
+
+    // Content already known → no-op (if active) or re-activate that version
+    // (unless the caller opted out of re-activation).
+    if (existing) {
+      const match = Object.entries(existing.versions).find(
+        ([, info]) => info.hash === hash,
+      );
+      if (match) {
+        const [vid] = match;
+        let changed = false;
+        if (existing.active !== vid && opts?.reactivateKnown !== false) {
+          const archived = await readFile(this.stepVersionPath(name, vid), "utf-8");
+          await mkdir(dirname(filePath), { recursive: true });
+          await writeFile(filePath, archived, "utf-8");
+          existing.active = vid;
+          changed = true;
+        }
+        if (publisher !== undefined && existing.publisher !== publisher) {
+          existing.publisher = publisher;
+          await this.writeStepMetadata(customDir, meta);
+        } else if (changed) {
+          await this.writeStepMetadata(customDir, meta);
+        }
+        return { version: vid, changed };
+      }
+    }
+
+    // New content → next sequential version. Materialize active source for the
+    // registry loader + archive it.
+    const vid = nextVersionLabel(existing ? Object.keys(existing.versions) : []);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, code, "utf-8");
+    const archivePath = this.stepVersionPath(name, vid);
+    await mkdir(dirname(archivePath), { recursive: true });
+    await writeFile(archivePath, code, "utf-8");
+
+    meta.steps[name] = {
+      active: vid,
+      versions: {
+        ...(existing?.versions ?? {}),
+        [vid]: {
+          createdAt: new Date().toISOString(),
+          hash,
+          ...(description !== undefined ? { description } : {}),
+        },
+      },
+      ...(publisher !== undefined
+        ? { publisher }
+        : existing?.publisher !== undefined
+          ? { publisher: existing.publisher }
+          : {}),
+    };
+
+    await this.writeStepMetadata(customDir, meta);
+    return { version: vid, changed: true };
+  }
+
+  /** Absolute path to an archived step version source file. */
+  private stepVersionPath(name: string, version: string): string {
+    return join(this.root, "steps", "_history", name, `${version}.ts`);
+  }
+
+  private async writeStepMetadata(
+    customDir: string,
+    meta: StepDirMetadata,
+  ): Promise<void> {
+    await writeFile(
+      join(customDir, "_metadata.json"),
+      JSON.stringify(meta, null, 2),
+      "utf-8",
+    );
+  }
+
+  /** List a step's versions and its active version id. */
+  async listStepVersions(name: string): Promise<StepVersionsResult> {
+    validateStepName(name);
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    const info = meta?.steps[name];
+    if (!info) throw new Error(`Step "${name}" not found`);
+    return { active: info.active, versions: Object.keys(info.versions) };
+  }
+
+  /** Get the archived source for a specific step version. */
+  async getStepVersionSource(name: string, version: string): Promise<string> {
+    validateStepName(name);
+    return readFile(this.stepVersionPath(name, version), "utf-8");
+  }
+
+  /**
+   * Switch a step's active version. Copies the archived version's source
+   * into the flat `custom/<name>.ts` the registry loads, and updates the
+   * active pointer in metadata.
+   */
+  async setActiveStepVersion(name: string, version: string): Promise<void> {
+    validateStepName(name);
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    const info = meta?.steps[name];
+    if (!meta || !info) throw new Error(`Step "${name}" not found`);
+    if (!(version in info.versions)) {
+      throw new Error(
+        `Version "${version}" not found for step "${name}". Available: ${Object.keys(info.versions).join(", ")}`,
+      );
+    }
+    const code = await readFile(this.stepVersionPath(name, version), "utf-8");
+    const filePath = join(customDir, `${name}.ts`);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, code, "utf-8");
+    info.active = version;
+    await this.writeStepMetadata(customDir, meta);
+  }
+
+  /**
+   * Delete a single custom step by name. Removes the source file, its
+   * version archive, and its metadata entry, then cleans up any empty parent
+   * directories within `steps/custom/` so namespace directories disappear
+   * once their last step is removed.
+   *
+   * No-ops silently if the step does not exist.
+   */
+  async deleteStep(name: string): Promise<boolean> {
+    validateStepName(name);
+
+    const customDir = join(this.root, "steps", "custom");
+    const filePath = join(customDir, `${name}.ts`);
+
+    let removed = false;
+    try {
+      await unlink(filePath);
+      removed = true;
+    } catch (err: any) {
+      if (err?.code !== "ENOENT") throw err;
+    }
+
+    // Remove the version archive dir for this step (best-effort).
+    await rm(join(this.root, "steps", "_history", name), {
+      recursive: true,
+      force: true,
+    });
+
+    const meta = await this.readStepMetadata(customDir);
+    if (meta && meta.steps[name]) {
+      delete meta.steps[name];
+      await writeFile(
+        join(customDir, "_metadata.json"),
+        JSON.stringify(meta, null, 2),
+        "utf-8",
+      );
+      removed = true;
+    }
+
+    if (removed) {
+      await pruneEmptyDirs(dirname(filePath), customDir);
+    }
+
+    return removed;
+  }
+
+  /**
+   * Bulk delete all custom steps published by `publisher`. Returns the list
+   * of step names that were removed. Useful for service shutdown:
+   * `await ws.deleteStepsByPublisher("mcp-gitree")` on SIGTERM tears down
+   * everything a service registered in one call.
+   */
+  async deleteStepsByPublisher(publisher: string): Promise<string[]> {
+    const customDir = join(this.root, "steps", "custom");
+    const meta = await this.readStepMetadata(customDir);
+    if (!meta) return [];
+
+    const toDelete = Object.entries(meta.steps)
+      .filter(([, info]) => info.publisher === publisher)
+      .map(([name]) => name);
+
+    for (const name of toDelete) {
+      await this.deleteStep(name);
+    }
+
+    return toDelete;
+  }
+
+  // ── Step source + code loading ─────────────────────────────────────────
+
+  async getStepSource(type: string): Promise<{ code: string; origin: StepSource } | null> {
+    return readStepSourceFromDisk(type, this.customStepsDir());
+  }
+
+  /** Publishing already writes each active custom step to
+   *  `<root>/steps/custom/<name>.ts`, so the store IS the materialization. */
+  async materializeCustomSteps(): Promise<string> {
+    const dir = this.customStepsDir();
+    await ensureEsmScope(dir);
+    return dir;
+  }
+
+  private customStepsDir(): string {
+    return join(this.root, "steps", "custom");
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────
+
+  private async readWorkflowMetadata(
+    name: string,
+  ): Promise<WorkflowMetadata | null> {
+    try {
+      const raw = await readFile(
+        join(this.root, "workflows", name, "_metadata.json"),
+        "utf-8",
+      );
+      return JSON.parse(raw) as WorkflowMetadata;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readStepMetadata(
+    dir: string,
+  ): Promise<StepDirMetadata | null> {
+    try {
+      const raw = await readFile(join(dir, "_metadata.json"), "utf-8");
+      return JSON.parse(raw) as StepDirMetadata;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Back-compat name for `FileWorkspaceStore` (embedders and docs). */
+export { FileWorkspaceStore as WorkspaceManager };
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+async function safeReaddir(dir: string) {
+  try {
+    return await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate a custom step name. Allows nested names with slashes
+ * (e.g. `gitree/save-feature`) and helper names with leading underscores
+ * (e.g. `gitree/_shared`). Rejects path traversal and absolute paths.
+ */
+export function validateStepName(name: string): void {
+  if (!name) {
+    throw new Error("Step name cannot be empty");
+  }
+  if (name.startsWith("/") || name.includes("\\")) {
+    throw new Error(`Invalid step name "${name}": must not contain absolute or back-slash paths`);
+  }
+  if (name.includes("//") || name.endsWith("/") || name.startsWith("/")) {
+    throw new Error(`Invalid step name "${name}": malformed path`);
+  }
+  const segments = name.split("/");
+  for (const seg of segments) {
+    if (!seg || seg === "." || seg === "..") {
+      throw new Error(`Invalid step name "${name}": path traversal not allowed`);
+    }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(seg)) {
+      throw new Error(
+        `Invalid step name "${name}": each segment must match [a-zA-Z_][a-zA-Z0-9_-]*`,
+      );
+    }
+  }
+}
+
+/**
+ * Recursively find step files (`.ts` / `.js`) under `dir`, skipping helper
+ * files (`_*`), hidden files, and test files. Returns absolute paths.
+ *
+ * This mirrors the registry's discovery rules so `listSteps` shows exactly
+ * what the registry will load.
+ */
+async function findStepFilesRecursive(dir: string): Promise<string[]> {
+  const results: string[] = [];
+
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) {
+      if (e.name.startsWith("_") || e.name.startsWith(".")) continue;
+      const nested = await findStepFilesRecursive(full);
+      results.push(...nested);
+    } else if (e.isFile()) {
+      if (
+        e.name.startsWith("_") ||
+        e.name.startsWith(".") ||
+        !(e.name.endsWith(".ts") || e.name.endsWith(".js")) ||
+        e.name.endsWith(".test.ts") ||
+        e.name.endsWith(".spec.ts")
+      ) continue;
+      results.push(full);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Convert an absolute file path under `baseDir` to a slash-separated step
+ * name (extension stripped). E.g. `<base>/gitree/save-feature.ts` → `"gitree/save-feature"`.
+ */
+function stepNameFromFile(filePath: string, baseDir: string): string {
+  const rel = relative(baseDir, filePath).replace(/\.(ts|js)$/, "");
+  return rel.split(sep).join("/");
+}
+
+/**
+ * Walk upward from `startDir` removing empty directories, stopping when
+ * `stopDir` is reached (inclusive boundary — we never remove `stopDir`).
+ * Silently ignores non-empty dirs and any errors.
+ */
+async function pruneEmptyDirs(startDir: string, stopDir: string): Promise<void> {
+  let dir = startDir;
+  while (dir.startsWith(stopDir) && dir !== stopDir) {
+    try {
+      await rmdir(dir);
+    } catch {
+      return; // not empty, or doesn't exist
+    }
+    dir = dirname(dir);
+  }
+}
+
+/**
+ * Custom step files are ESM (`import { defineStep } from "strut"`). Node and
+ * tsx decide a `.ts` file's format from the nearest package.json, and a
+ * workspace outside the strut package tree has none — tsx then falls back to
+ * CommonJS and `require("strut")` bypasses the ESM resolve hook that makes
+ * the bare specifier work (strut-resolve-hook.ts). A one-line package.json
+ * beside the steps pins the format wherever the workspace lives.
+ */
+export async function ensureEsmScope(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  const pkg = join(dir, "package.json");
+  try {
+    await stat(pkg);
+  } catch {
+    await writeFile(pkg, JSON.stringify({ type: "module" }, null, 2) + "\n", "utf-8");
+  }
+}

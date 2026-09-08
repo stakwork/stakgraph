@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 
 /**
- * GENERIC, domain-agnostic eval primitives (STEPS only), seeded into the vein
+ * GENERIC, domain-agnostic eval primitives (STEPS only), seeded into the strut
  * workspace. Reconciled by content hash on boot, so edits publish a new active
  * version (see concepts/seed.ts for the reconciliation contract).
  *

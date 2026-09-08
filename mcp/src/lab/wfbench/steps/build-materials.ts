@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * 58313's wfbench_build_produced_materials.py: turn the produced artifacts

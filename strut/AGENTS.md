@@ -1,0 +1,871 @@
+GOAL: AS SIMPLE AS POSSIBLE!
+
+# strut
+
+Minimal workflow engine with HTTP API and web UI. See `SPEC.md` for
+the full design spec (sections 1-15). This file covers how to work
+on the codebase.
+
+Companion specs: `EVAL_SPEC.md` — how a run gets scored (the measurement
+substrate). `EVOLVE_SPEC.md` — what varies between measured runs: the three
+self-evolution layers (prompts / environment / structure), what promotes to a
+versioned artifact, and what must never evolve.
+
+## Stack
+
+| Concern     | Choice                                                                     |
+| ----------- | -------------------------------------------------------------------------- |
+| Engine      | TypeScript (Node 22+), Zod for schemas, custom expression evaluator        |
+| HTTP        | Hono + @hono/node-server                                                   |
+| Persistence | One interface per layer — `WorkspaceStore` (workflows/steps), `RunStore` (runs), `ChatStore`, `SecretStore` — with File + Memory impls; local blobs (artifacts/cassettes/shell scratch) live under an explicit `dataDir` |
+| Web UI      | Preact + Vite + system-canvas-react. Vanilla CSS, no Tailwind              |
+| Tests       | Node native test runner (`node:test`) via tsx                              |
+| LLM step    | Vercel AI SDK (ai + @ai-sdk/anthropic + @ai-sdk/openai) — lazy-loaded      |
+| AI builder  | Vercel AI SDK `ToolLoopAgent` + Anthropic; detached + persisted, reattach via `/chat/:id/stream` SSE |
+
+## Layout
+
+```
+strut/
+├── SPEC.md                # full design spec — read this first
+├── package.json           # engine deps (hono, zod, ai sdk)
+├── tsconfig.json          # strict, Node16 module, types: ["node"]
+├── src/
+│   ├── core.ts            # flow(), step(), defineStep(), services bag, all types
+│   ├── expr.ts            # {{ }} template evaluator (recursive descent; whitelisted array methods + arrow lambdas)
+│   ├── runner.ts          # execution engine: DAG (topological), retry, onError, control flow, journal replay
+│   ├── run-control.ts     # RunController: cooperative cancel/pause/resume for run TREES (RUN_CONTROL_SPEC.md)
+│   ├── journal.ts         # resume journal: step.end outputs → {path→output}; `from` invalidation
+│   ├── store.ts           # RunStore interface (writes + reads + tail) + FileRunStore + MemoryRunStore + tailJsonl / tailFromPolling
+│   ├── chat-store.ts      # ChatStore interface + FileChatStore + MemoryChatStore (chats/<id>/: meta.json + messages.jsonl + events.jsonl) + truncateToolMessages
+│   ├── workspace.ts       # WorkspaceStore interface + FileWorkspaceStore (alias WorkspaceManager): versioning, _metadata.json, YAML loading
+│   ├── storage-conformance.test.ts  # the storage boundary's spec: one suite per layer, run over every impl
+│   ├── createStrut.ts      # createStrut() factory: Hono HTTP API + detached run launch + SSE run reattach (tail) + detached /chat (launch+reattach) + static serving; injectable registry/store/chatStore/services
+│   ├── server.ts          # thin wrapper over createStrut() (getApp/startServer) — default filesystem-backed server
+│   ├── auth.ts            # requireApiKey middleware + warnIfUnconfigured (STRUT_API_KEY shared secret)
+│   ├── secret-store.ts    # SecretStore iface + FileSecretStore (AES-256-GCM, STRUT_SECRET_KEY) + MemorySecretStore — backs ctx.services.secrets + /secrets endpoints
+│   ├── index.ts           # barrel export — createStrut (primary entry), createRegistry, coreRegistry, all types
+│   ├── steps/
+│   │   ├── core/          # 10 built-in steps: http, log, if, loop, foreach, subflow, llm, agent, wait, pack (static import)
+│   │   ├── lib/           # built-in domain integrations (github/fetch-pr, ...) — file dynamic-imported at build; heavy SDKs lazy-imported in run() (see "Lib step dependency convention")
+│   │   │   └── graph/     # graph/* knowledge-graph steps over src/graph (the strut-native twins of the mcp lab's jarvis/* steps — same names, inputs, outputs — plus two strut-only ones: create-schema registers/extends a node type, edit-edge patches an edge's properties); _shared.ts lazy-imports the backend; graph-steps.test.ts is a live end-to-end test
+│   │   └── registry.ts    # auto-discovery: buildRegistry() core (static) + lib (dynamic) + workspace custom/ (dynamic); createRegistry() for in-code steps
+│   ├── ai/                # AI workflow-builder backend (used by POST /chat)
+│   │   ├── index.ts       # barrel export
+│   │   ├── prompts.ts     # SYSTEM prompt + buildSystem(deps) (pre-seeds steps tree); AiDeps carries `services` + `secrets` (read-only names)
+│   │   ├── tools.ts       # buildTools(deps): list_steps, search_steps, get_step,
+│   │   │                  #                   list_secrets (NAMES only), create_step, edit_step,
+│   │   │                  #                   create_workflow, run_workflow (threads ctx.services),
+│   │   │                  #                   graph_query (read-only Cypher; only when deps.graph is wired),
+│   │   │                  #                   set_active_version (rollback), cancel_run/pause_run/resume_run (when deps.controlRun is wired),
+│   │   │                  #                   validate_workflow (static YAML check, no publish — src/validate.ts)
+│   │   ├── stepHelpers.ts # lsSteps / searchSteps / readStepSource (filesystem-style browser)
+│   │   └── schemaHelpers.ts # Zod → FieldDesc[] (for get_step schema rendering)
+│   ├── audio/             # speech-to-text over sherpa-onnx (plans/local-desktop-and-stt.md §4). Streaming dictation is the product surface; workflows learn AROUND it (hotword lists, "dream cycles" §4.8), no STT step in v1
+│   │   ├── stt.ts         # createStt(): model download+verify, recognizer cache, streams (PCM in → partial/final out), two-recognizer mode (fast greedy partials + hotword-capable finals), batch transcribe; sherpa is an optionalDependency, lazy-imported, fakeable via `engine`
+│   │   ├── models.ts      # catalog: id → release URL + sha256 + chunk latency + hotwords?; STRUT_MODEL_DIR/stt/<id>
+│   │   ├── hotwords.ts    # contextual biasing: list format, synthesized bpe.vocab from tokens.txt (REQUIRED with modelingUnit "bpe" — unset = cjkchar = silent no-op), named lists under <dataDir>/audio/hotwords
+│   │   ├── sessions.ts    # <dataDir>/audio/sessions/<id>.jsonl: finals + user corrections (the dream cycle's training data)
+│   │   ├── ws.ts          # GET /audio/stream WebSocket (raw `ws` on the Node server — @hono/node-ws doesn't support node-server 2.x); Bearer or ?key=
+│   │   └── routes.ts      # /audio/models (+ SSE download), /audio/transcribe (WAV body), /audio/hotwords/:name, /audio/sessions/:id (+ corrections)
+│   ├── graph/             # jarvis-compatible Neo4j graph backend over bolt, no jarvis in the loop (plans/jarvis-graph-compat.md). Opt-in via openGraphBackend
+│   │   ├── bolt.ts        # neo4j-driver wrapper; int() for Integer writes (plain JS numbers write as FLOAT)
+│   │   ├── strut-schemas.ts# the 9 Strut node types + 14-row edge registry (label registry in plans/generic-storage.md); author-time checks
+│   │   ├── schema-seed.ts # idempotent domain registration: Thing root, Schema nodes, CHILD_OF, constraints, vector/fulltext indexes, migration stamp
+│   │   ├── node-writer.ts # §6 validation gate + node_key composition + Data_Bank + MERGE (create/upsert/restore/update), UNWIND batches
+│   │   ├── edge-writer.ts # edge MERGE by ref_id with IS_ALIAS rewrite (ON CREATE only); closed (source, edge, target) registry; update() = jarvis PATCH /v2/edges/:ref_id (stamps protected)
+│   │   ├── schema-crud.ts # createNodeSchema(): register a non-Strut node type like jarvis POST /v2/schema (parent, attribute grammar, node_key, CHILD_OF, constraint) or add-only extend an existing one
+│   │   ├── embeddings.ts  # local all-MiniLM-L6-v2 via transformers.js, tokenized like sentence-transformers (256 incl. specials); NULL-scan backfill
+│   │   ├── search.ts      # the read surface: hybrid search (RRF + title boost + usage tiebreak), get/neighbors/counts, ontology, namespaces
+│   │   ├── backend.ts     # openGraphBackend(): cached per config; runs seed + backfill on first open
+│   │   ├── query.ts       # readQuery(): read-only raw Cypher for the chat builder's graph_query — keyword pre-check + READ tx, streamed row cap, tx timeout, strings/vectors compacted; a chat tool, deliberately not a step
+│   │   ├── test-util.ts   # live-test helpers (wipe, canonical graph snapshot) — only ever point at a throwaway Neo4j
+│   │   └── fixtures/      # Python-produced MiniLM golden vectors + jarvis sanitize_node_key parity cases
+│   └── *.test.ts          # 622 unit tests across 25 files (+ 127 live graph tests under src/graph/ and steps/lib/graph/, opt-in)
+└── web/
+    ├── package.json       # preact, system-canvas, vite
+    ├── vite.config.ts     # preact preset, dev proxy to :3000 (/workflows, /steps, /chat, /health)
+    ├── index.html
+    └── src/
+        ├── main.tsx       # entry: renders <App/>
+        ├── app.tsx        # shell: sidebar, topbar, canvas, events panel, dialog/flyout orchestration
+        ├── api.ts         # typed fetch wrapper for all API endpoints (+ run SSE tail; chat: sendChat/streamChat/getChat reattach)
+        ├── flow-to-canvas.ts  # Flow → CanvasData; STEP_COLORS → categories; childRefForStep/stepWorkflow (container nav)
+        ├── helpers.ts     # normalizeSteps, formatJson, etc.
+        ├── icons.tsx      # inline SVG icons
+        ├── storage.ts     # crash-safe localStorage wrapper (UI prefs, session state)
+        ├── components/
+        │   ├── AddStepDialog.tsx     # searchable Add Step picker (core / lib / custom)
+        │   ├── ChatFlyout.tsx        # AI workflow-builder chat (detached launch + reattach; chatId in localStorage)
+        │   ├── ConfigField.tsx       # field renderer driven by Zod-derived FieldDesc
+        │   ├── CreateDialog.tsx      # new-workflow dialog
+        │   ├── EventsPanel.tsx       # bottom run-events panel
+        │   ├── EventsResizer.tsx     # drag handle for events panel height
+        │   ├── Markdown.tsx          # tiny markdown renderer for chat output
+        │   ├── RunInputPopover.tsx   # input-payload editor when triggering a run
+        │   ├── SecretsDialog.tsx     # manage deployment secrets (write-only values; names+meta listed)
+        │   ├── StepEditFlyout.tsx    # edit step (id / type / config / depends / options)
+        │   ├── StepRunFlyout.tsx     # view a step's run I/O (leaf: input/output; container: aggregate summary)
+        │   └── FlyoutResizer.tsx     # drag handle for flyout width
+        └── styles/
+            ├── base.css       # palette (CSS vars on :root), reset, type
+            └── components.css # shell grid, sidebar, flyout, dialog, events, chat, badges
+```
+
+## Running
+
+```bash
+# Engine
+cd strut
+npm install
+npm test                    # 622 tests, ~1s
+npm run dev                 # starts Hono server on :3000
+
+# Graph backend tests — LIVE, against a THROWAWAY Neo4j (they wipe it).
+# Skipped entirely when STRUT_TEST_NEO4J_URI is unset. Add
+# STRUT_TEST_EMBEDDINGS=1 to also run the real-model parity case (downloads
+# ~90MB of ONNX weights into ~/.cache/strut-models on first run).
+docker run -d --name strut-neo4j-test -p 7688:7687 -e NEO4J_AUTH=neo4j/struttest neo4j:5
+STRUT_TEST_NEO4J_URI=bolt://localhost:7688 STRUT_TEST_NEO4J_PASSWORD=struttest npm run test:graph
+
+# Speech-to-text live test — needs the sherpa addon (optionalDependency,
+# installed by `npm install` on supported platforms) and downloads the 57 MB
+# kroko model into STRUT_TEST_STT_MODEL_DIR (temp dir when unset).
+STRUT_TEST_STT=1 npm run test:stt
+
+# Web UI (dev mode with HMR)
+cd strut/web
+npm install
+npm run dev                 # Vite on :5173, proxies API to :3000
+
+# Web UI (production build, served by engine)
+cd strut/web && npm run build  # outputs web/dist/
+cd strut && npm run dev        # serves API + UI on :3000
+```
+
+## Environment
+
+| Variable            | Default        | Description                          |
+| ------------------- | -------------- | ------------------------------------ |
+| `STRUT_WORKSPACE`    | `./workspace`  | Persistent volume for workflows/runs |
+| `STRUT_PORT`         | `3000`         | HTTP server port. `0` lets the OS pick; `listen()` resolves to the bound port and prints `{"event":"ready","port":N,"host":…}` on stdout for a host process to parse. |
+| `STRUT_HOST`         | (all interfaces) | Bind address. A desktop host passes `127.0.0.1` to keep a local strut off the LAN. |
+| `STRUT_WEB_DIST`     | `<module>/../web/dist` | Where the built UI is served from, for packagers that relocate it. |
+| `STRUT_API_KEY`      | (unset)        | Deployment-scoped shared secret. See "Auth" below. |
+| `STRUT_SECRET_KEY`   | (unset)        | Encryption key for the secret store (AES-256-GCM). Unset → a default dev key + one-time warning (obfuscated, not secure). See "Secrets". |
+| `STRUT_LLM_PROVIDER` | (inferred from model, else `anthropic`) | Default LLM provider for agent/llm steps (anthropic\|openai\|google\|openrouter\|xai, via aieo) |
+| `STRUT_LLM_MODEL`    | (per-provider) | Override model name                  |
+| `STRUT_CHAT_MODEL`   | `claude-sonnet-5` | Anthropic model for the AI-builder chat agent |
+| `STRUT_CHAT_MAX_STEPS` | `30`         | Max agent tool-call iterations per chat turn |
+| `STRUT_CHAT_RUN_WAIT_MS` | `60000`    | How long the chat's `run_workflow` waits before a run auto-detaches (dispatch mode) |
+| `STRUT_CHAT_TOOL_RESULT_MAX_CHARS` | `50000` | Per-string cap on tool RESULTS in the history re-fed to the model on later turns (the turn that ran the tool always sees the full result; disk stays lossless). `0` disables. |
+| `STRUT_CHAT_MAX_AUTO_TURNS` | `10`    | Max consecutive notification-triggered chat turns before the chat parks (runaway guard) |
+| `STRUT_AUTO_RESUME` | `1` (file-backed) | Boot-time auto-resume of runs cut off by a crash/restart (RUN_CONTROL_SPEC §5.3): the newest root run per workflow with a log but no summary, unless paused/cancelling, older than 7 days, or already resumed 5 times. `0` disables. |
+| `NEO4J_URI` / `NEO4J_HOST` | (unset) / `localhost:7687` | Graph backend connection — same names and defaults as mcp's own Neo4j client: `NEO4J_URI` wins, else `bolt://<NEO4J_HOST>`; `NEO4J_USER`/`NEO4J_PASSWORD` default `neo4j`/`testtest`; optional `NEO4J_DATABASE`. The `graph/*` lib steps read these via the secrets capability (secret store → env) and need nothing configured for a local Neo4j; `openGraphBackendFromEnv` stays opt-in (null when neither is set). |
+| `STRUT_GRAPH_NAMESPACE` | `default`   | jarvis namespace every Strut node is written into |
+| `STRUT_GRAPH_EMBEDDINGS` | (on)       | `off` disables the local MiniLM embedder (vectors stay NULL; search is fulltext-only) |
+| `STRUT_GRAPH_SEED_ONTOLOGY` | (off)   | `1` seeds the bundled jarvis ontology (151 schemas + edge schemas + indexes, add-only) on first open, so a standalone Neo4j can host jarvis-typed data (Document, EvalSet, Concept, …) with no jarvis process. No-op on a jarvis-seeded DB. |
+| `STRUT_MODEL_DIR`    | `~/.cache/strut-models` | Local model files: MiniLM's ONNX cache and STT models under `stt/<id>/`. `STRUT_MODEL_CACHE` is the older alias. |
+| `STRUT_STT_MODEL`    | `zipformer-en-kroko` | Finals recognizer for `/audio/stream` + `/audio/transcribe` (hotword-capable) |
+| `STRUT_STT_PARTIAL_MODEL` | `nemo-fast-conformer-en-80ms` | Fast greedy recognizer whose output is shown as live partials; `off` for single-recognizer streams |
+
+## Auth
+
+`STRUT_API_KEY` is a **deployment-scoped shared secret**. Set it on every
+container in the compose (strut and any service that registers steps).
+
+- **Unset (dev mode):** registration mutations (`POST /steps`,
+  `DELETE /steps/:name`, `DELETE /steps?publisher=X`) are unauthenticated.
+  Strut logs a one-time warning at boot so the lax posture is visible.
+  `GET /steps` and workflow execution are always public.
+- **Set (production):** the gated endpoints require
+  `Authorization: Bearer <STRUT_API_KEY>`. Anything else returns `401`.
+  The web UI attaches the key to every request once it has one: a host
+  that spawns strut hands it over as `?key=` on the first page load (stored
+  in `sessionStorage`, stripped from the URL), or a user pastes it under
+  Settings → Connection (`localStorage`). The dictation WebSocket sends it
+  as `?key=`, since browsers can't set headers on an upgrade.
+
+The same secret authenticates **both directions** within a deployment:
+
+1. Mcp → strut: registers steps with `Authorization: Bearer $STRUT_API_KEY`.
+2. Step files inside strut → mcp: read `process.env.STRUT_API_KEY` and send
+   it on callbacks to `mcp/gitree/cmd` (mcp validates the same value).
+
+This is sufficient when both services live in the same trust domain
+(same compose, same private network). Per-publisher keys can be added
+later without breaking this contract — they'd be additive env vars
+(`STRUT_API_KEY_<NAMESPACE>`) checked in addition to the shared key.
+
+## Secrets
+
+Steps reach credentials through one boundary — `ctx.services.secrets.get("NAME")`
+— never `process.env` directly. That boundary is backed by a **deployment-scoped
+secret store** (`src/secret-store.ts`) so credentials can be managed from the UI
+instead of baked into env at deploy time.
+
+- **Store:** `SecretStore` interface (parallel to `RunStore`/`ChatStore`).
+  Default `FileSecretStore` persists `<workspace>/secrets.json`, **encrypted at
+  rest** (AES-256-GCM, key derived from `STRUT_SECRET_KEY`). `MemorySecretStore`
+  for tests / in-memory deployments. The default `secrets` capability reads the
+  store first, then falls back to `process.env` (so existing env-provided keys
+  keep working). Injectable via `createStrut({ secretStore })`.
+
+- **Scope is deployment-global**, NOT per-user — matching the `STRUT_API_KEY`
+  single-trust-domain model. (Per-user secrets would need an identity model strut
+  doesn't have.)
+
+- **Endpoints** (gated by `STRUT_API_KEY`, permissive in dev): `GET /secrets`
+  returns **names + metadata only — never values** (write-only credentials);
+  `PUT /secrets/:name { value }` creates/overwrites; `DELETE /secrets/:name`.
+  If the consumer injects their own `services.secrets`, these return **501**
+  (strut doesn't own that store).
+
+- **UI:** the topbar **Secrets** button opens `SecretsDialog` — list (names +
+  "updated" date), add (name + value, value can be multi-line e.g. a
+  service-account JSON), delete. The stored value is never sent back to the
+  browser. The UI assumes dev / same-trust-domain (no `Authorization` header),
+  exactly like the existing `/steps` mutations.
+
+- **`STRUT_SECRET_KEY`:** set it in production. Unset → values are encrypted with
+  a fixed dev key and a one-time warning logs (obfuscation, not real security).
+
+- **AI builder access:** the chat agent has a read-only `list_secrets` tool
+  (names + metadata only — never values) so it can reference existing
+  credentials when authoring steps and prompt the user to add missing ones. It
+  has no write access; adding/removing secrets stays a human action.
+
+- **No OAuth.** This is a paste-a-key / service-account store by design. For
+  Google Drive, paste a **service-account JSON** as `GOOGLE_SERVICE_ACCOUNT_JSON`
+  (no expiry, no refresh) — far simpler than an OAuth flow for a server-side
+  engine. If interactive per-end-user OAuth is ever needed, the **host app**
+  (mcp) should own the OAuth dance and deposit/refresh tokens *into* this store;
+  strut's `secrets` capability stays generic and provider-agnostic.
+
+## Lib step credentials
+
+Lib steps read credentials through the secrets capability, with explicit step
+config taking precedence:
+
+```ts
+const token = cfg.token ?? (await ctx?.services?.secrets?.get("GITHUB_TOKEN"));
+```
+
+- **`cfg.<field>` wins** (a workflow can pass a token via `{{ input.x }}`),
+  otherwise fall through to the managed secret store / env.
+- Type `ctx` as `StepContext<StrutCapabilities>` (import both from the relative
+  `core.js` / `capabilities.js`) so `ctx.services.secrets` is typed. Use
+  optional chaining — a bare `runWorkflow` without a services bag has no
+  `secrets`.
+- This also gets the step **cassette scrubbing for free**: every value read
+  through `secrets.get()` is scrubbed from recorded fixtures.
+- `github/fetch-pr` (`GITHUB_TOKEN`) and `gdrive/export-file`
+  (`GOOGLE_ACCESS_TOKEN` or `GOOGLE_SERVICE_ACCOUNT_JSON`) are the reference
+  examples.
+
+## Artifacts (per-run files)
+
+`ctx.services.artifacts` (`ArtifactsCapability`, `capabilities.ts`) is per-run
+file storage for the files a run produces that later steps — and humans —
+reference. Backed by `fileArtifactsCapability` rooted at
+`<workspace>/artifacts/<runId>/`, auto-injected by `createStrut` (a consumer
+services bag can override it, same as `http`/`secrets`).
+
+- **Convention:** a step writes a file (`write(ctx.runId, relPath, content)`)
+  and puts the RELATIVE path in its output; downstream steps resolve it via
+  `read`/`dir`. Point an `agent` step's `cwd` at `dir(ctx.runId)` and the
+  built-in file tools (`str_replace_based_edit_tool`, `bash`) see the same
+  files — that's how agents in a workflow hand files to each other.
+- **Isolation:** paths are guarded per run — a relPath cannot escape its
+  run's directory (so one run can't reach another's files). Invalid runIds
+  (path separators, `..`) are rejected.
+- **Retention:** artifacts survive the run (they're part of its record);
+  `onRunEnd` does not touch them.
+- **HTTP:** `GET /artifacts/:runId` lists (recursive relative paths);
+  `GET /artifacts/:runId/<path>` serves the file (minimal content-type map).
+  Read-only — steps are the only writers.
+
+## Key concepts
+
+- **`createStrut()` is the primary entry point** (`src/createStrut.ts`).
+  It builds a configured instance — Hono `app`, `workspace`, `store`,
+  `services`, plus `run()`/`listen()`/`rebuildRegistry()` helpers — and
+  mounts every route (`/workflows`, `/steps`, `/secrets`, `/chat` +
+  `/chats`, `/health`, static UI). Everything is injectable via
+  `StrutOptions`: pass your own `workspace` (any `WorkspaceStore`),
+  `registry` (disables step discovery + publishing), `store` (e.g.
+  `MemoryRunStore`), `chatStore`, `secretStore`, `services` bag,
+  `dataDir`, or toggle `serveUi`/`enableChat`.
+  **Storage boundary:** nothing outside `workspace.ts` reads a workspace
+  directory. `WorkspaceStore` exposes custom step code two ways —
+  `getStepSource(type)` (text, all tiers) and `materializeCustomSteps()`
+  (an importable dir for `buildRegistry`). The inherently-local things —
+  run artifacts, step cassettes, the chat builder's shell cwd + scratch/ —
+  hang off `dataDir` (default: the file workspace's root, so a
+  file-backed deployment keeps one directory). Unspecified store defaults
+  follow the workspace's kind (file → file stores under `dataDir`; any
+  other impl → memory); an explicitly passed store always wins, and no
+  capability is gated on a concrete class. `storage-conformance.test.ts`
+  is the boundary's spec — a new backend passes by running it.
+  **Graph backend:** `Neo4jWorkspaceStore` (`src/graph/workspace-store.ts`)
+  keeps workflows/steps as `StrutWorkflow`/`StrutWorkflowVersion`/`StrutStep`/
+  `StrutStepVersion` nodes (content-addressed versions; soft deletes;
+  `USES_STEP`/`DEPENDS_ON` edges) and passes the same conformance suite
+  (`npm run test:graph`, live). It is the default server's workspace
+  (`src/graph/wiring.ts`; connection from `NEO4J_URI` / `NEO4J_HOST` /
+  `NEO4J_USER` / `NEO4J_PASSWORD`, defaulting to localhost:7687 / neo4j /
+  testtest like the mcp host — so Neo4j is a boot dependency);
+  `STRUT_WORKSPACE_BACKEND=fs` opts back into the file workspace. Runs/chats stay in
+  their stores; `src/graph/projector.ts` (or the `graph/project` step)
+  projects them into `StrutRun`/`StrutAgentSession`/`StrutToolCall`/
+  `StrutChat`/`StrutTurn` with `EXECUTED`/`IN_RUN`/`IN_SESSION`/`SPAWNED`/
+  `IN_CHAT` edges — summaries + `log_ref` pointers, never payloads,
+  idempotent upserts. **Provenance convention:** a graph-touching step
+  marks its output with `withAccessedNodes(output, [{ ref_id, node_type? }])`
+  (`core.ts`; a non-enumerable marker — invisible to the model, `{{ }}`
+  expressions, and JSON). `wrapToolsWithEmit` lifts it onto the tool call's
+  `step.end` event as `nodes`, untruncated, and the projector writes one
+  `ACCESSED` edge per ref the graph holds (`StrutToolCall → any node`). Every
+  `graph/*` (and mcp `jarvis/*`) node-touching step does this; a step that
+  reports nothing gets no edges — never inferred from prose.
+  `server.ts` is a thin wrapper (`getApp`/`startServer`) over
+  `createStrut()` — graph workspace by default, file stores for the rest.
+
+- **`services` bag** is a consumer-defined capabilities object exposed to
+  every step via `ctx.services` (typed by `defineStep`, untyped at
+  runtime). Inject env-specific implementations (Neo4j vs in-memory,
+  real vs fake LLM) without touching workflows or the registry. Threaded
+  through `createStrut({ services })` / `strut.run(wf, input, { services })`
+  / `runWorkflow(flow, input, registry, { services })`.
+  - **`services.onRunEnd(runId)`** — an OPTIONAL generic per-run teardown
+    hook the runner calls in a `finally` around `executeFlow` in
+    `runWorkflow` (so it fires on success AND error, for every run path,
+    once per top-level run; a throw in it can't mask the run result). Lets a
+    services bag dispose per-run resources keyed by `runId` (e.g. mcp `/lab`'s
+    gitsee browser + booted docker stack). A hard `SIGKILL` still skips it
+    (in-process `finally`), so that case stays out-of-band.
+
+- **`ctx.registry`** — the step registry, populated by the runner in
+  `dispatchStep`. Lets a step that orchestrates OTHER steps look them up by
+  type without being promoted to a runner-handled container step — the seam
+  the `agent` step uses for `agentTools` ("tools are steps"). Optional (absent
+  outside the runner, e.g. unit tests); read-only by convention.
+
+- **`createRegistry(steps)`** builds a registry from in-code step defs
+  layered on core + lib (no filesystem custom/ discovery) — the
+  library-usage counterpart to `buildRegistry(customDir)`. User
+  steps may shadow core/lib steps (with a warning); duplicates throw.
+  Like `buildRegistry`, it imports every lib step *file* at build time
+  (cheap: schema + metadata only) — heavy SDK deps load lazily in `run()`
+  per the "Lib step dependency convention".
+
+- **Workflows are YAML**. One format everywhere — no `.ts` workflows,
+  no JSON workflows. The API accepts either a `steps` array (server
+  serializes to YAML) or a raw `yaml` string. Files are stored as
+  `<version>.yaml` in the workflow directory. `js-yaml` for parsing.
+
+- **`params` = the experiment surface.** A workflow may declare a
+  top-level `params:` block of tunable default knobs (prompts,
+  thresholds, sample sizes). Step configs reference them via
+  `{{ params.* }}`, parsed in `workspace.ts:loadFlowYaml` and seeded
+  into runner scope as `{ ...flow.params, ...runOverride }` (see
+  `executeFlow` in `runner.ts`). Deliberately distinct from `input`:
+  `input` is the run *subject* (validated, no defaults), `params` is
+  *how* it's processed (all defaults, sparsely overridden per run via
+  `POST /run { params }` / `runWorkflow({ params })`). Override
+  precedence: step Zod `.default()` < `params` default < per-run
+  override. Subflows use their own `params`; the parent override does
+  not propagate. This is what lets overnight experiments sweep 100
+  prompt variants as 100 **runs** (logged in `run.json`) rather than
+  100 workflow versions — promote a winner by editing the `params`
+  default and publishing one new version.
+
+- **DAG execution via `depends`**. Steps have an optional `depends`
+  field (`string | string[]`). If set, the step waits for those
+  dependencies before running. If omitted, the step implicitly
+  depends on the previous step in the array (sequential by default).
+  `depends: []` means no dependencies — the step runs immediately
+  in parallel with others. The runner launches all steps via
+  `Promise.all`, each waiting on its own deps internally.
+
+- **No `parallel` step type**. Parallelism is expressed purely via
+  `depends`. Two steps with the same `depends` run concurrently.
+  A downstream step with `depends: ["a", "b"]` waits for both.
+
+- **Control flow steps** (`if`, `loop`, `subflow`) are intercepted
+  by the runner before registry lookup. Their config is NOT
+  pre-resolved by `executeStep` — they manage their own template
+  resolution (see `SELF_RESOLVING_STEPS` set in `runner.ts`). This
+  is because `loop`'s `until` references `$current` which doesn't
+  exist until iteration time.
+
+- **Expression evaluator** (`expr.ts`) is a one-pass recursive
+  descent parser. It does NOT short-circuit `&&`/`||` — both sides
+  are always evaluated. No function calls in v1.
+
+- **The global regex issue**: `TEMPLATE_RE` is a module-level
+  `/g` regex. `resolveTemplate` uses a non-regex check
+  (`indexOf("{{")`) for the single-expression fast path to avoid
+  the greedy backtracking bug with multi-segment templates.
+
+- **Templates must be quoted in YAML.** A value starting with `{{`
+  is parsed by YAML as a flow-mapping, so `pull_number: {{ input.x }}`
+  silently becomes an object (`{ "[object Object]": null }`) → the step
+  fails with a baffling "expected number, received object". Always write
+  `pull_number: "{{ input.x }}"`. A sole `"{{ expr }}"` still preserves
+  the value's real type (number stays number). `publishWorkflow`
+  **lints for this** (`workspace.ts:assertValidWorkflowYaml`, detects the
+  parsed `[object Object]` corruption signature — so it doesn't
+  false-positive on `{{ }}` inside block-scalar message bodies) and throws
+  an actionable error instead of writing a broken workflow. The AI builder's
+  system prompt also carries the quoting rule.
+
+- **AI tool args may arrive as JSON strings.** LLMs sometimes pass an
+  object-valued tool arg (e.g. `run_workflow`'s `input`) as a JSON
+  *string*; the template engine then sees a string and `{{ input.* }}`
+  resolves to `undefined`. `buildTools` (`ai/tools.ts:coerceJsonArg`)
+  defensively `JSON.parse`s string args that look like objects/arrays for
+  `run_workflow` + `run_step` (`input`/`params`/`config`).
+
+- **`_metadata.json`** in each workflow dir tracks versions and the
+  active version. In `steps/custom/_metadata.json` it tracks
+  per-step `{ active, versions, publisher? }` keyed by full
+  slash-name (e.g. `"gitree/save-feature"`), where `versions` maps
+  each version id (`v1`, `v2`, …) to `{ createdAt, description?, hash }`.
+  The engine can run without these files but the UI needs them.
+
+- **Custom steps are versioned** (like workflows). `publishStep`
+  is keyed by content hash (`src/version.ts`) but labeled with
+  sequential `vN` ids: identical content re-activates the existing
+  version (no-op if already active; `{ reactivateKnown: false }` — what
+  seeders pass — skips the re-activation so UI/API edits survive a
+  reseed), changed content publishes the next `vN`. The active version's source is materialized at
+  `steps/custom/<name>.ts` (what the registry loads); every version
+  is archived under `steps/_history/<name>/<vid>.ts` for rollback.
+  Endpoints: `GET /steps/:type/versions`, `GET /steps/:type/version/:version`,
+  `PUT /steps/:type/active`. Versioning is disabled when the registry
+  is injected at construction time.
+
+- **Custom steps are loaded as `.ts` via dynamic `import()`**
+  (`registry.ts:loadStepFile`), so the **host process must run with a
+  TypeScript-capable loader** — fine in dev (`tsx`), but a plain
+  `node build/index.js` can't import `.ts`. Hosts that serve
+  filesystem custom steps in production must register a loader (mcp runs
+  `node --import tsx build/index.js`). Consumers using only core/lib or an
+  in-code `createRegistry([...])` don't need this.
+
+- **Step registration is filesystem-based.** External services
+  register steps by `POST /steps { name, code, description?, publisher? }`.
+  Names may be nested (`"gitree/save-feature"` writes
+  `steps/custom/gitree/save-feature.ts`) and helper files use a
+  leading `_` (`"gitree/_shared"`) — these are saved and importable
+  by sibling steps but skipped by registry discovery. A service
+  cleans up on shutdown via `DELETE /steps?publisher=X`, which
+  removes every step it owns and prunes empty namespace dirs.
+  Namespaces are pure naming convention (just slashes in the name) —
+  no ownership enforcement, last writer wins.
+
+- **`buildRegistry()` returns `{ registry, sources }`.** The
+  `sources` map records where each step was loaded from
+  (`"core" | "lib" | "custom"`). Always use this map instead of
+  guessing from the name — a custom step like `gitree/save-feature`
+  has a slash but is `custom`, not `lib`. The `/steps` endpoint
+  uses this map.
+
+- **Runs are stored per-workflow** under
+  `workflows/<name>/runs/<runId>/`. Run IDs are millisecond
+  timestamps (not UUIDs) for natural sort order and easy
+  pagination. Listing runs for a workflow is a single `readdir`.
+
+- **Runs launch detached; viewing is reattach-by-tail** (the
+  background-job model, `EVAL_SPEC.md` §8). `POST /workflows/:name/run`
+  (and `/:version/run`) does **not** stream — it kicks off
+  `runWorkflow` **without awaiting it in the request** (`launchDetached`
+  in `createStrut.ts`) and returns `{ runId }` (202) immediately. The
+  run executes server-side and persists every event to the
+  append-only `events.jsonl`; its liveness is decoupled from any
+  connection (closing the client, proxy timeouts, etc. can't kill it).
+  To watch a run — live **or** after it finished — open
+  `GET /workflows/:name/runs/:runId/stream` (SSE). That endpoint calls
+  `RunStore.tailEvents`; the file store **tails the events file**: replay
+  from byte offset 0 → EOF (history), then follow appends (polling
+  `intervalMs`, default 250ms) until the terminal event
+  (`run.end`/`run.error`), then sends a final `done` carrying the
+  RunResult. Because the append-only log is the ordered source of
+  truth, the history→live join is **race-free** (read to EOF, follow
+  from EOF — no sequence numbers, no dedupe), and **one code path
+  serves completed and in-flight runs**. Pass an `AbortSignal` (wired
+  to `stream.onAbort` on client disconnect) to stop the tail early.
+  `RunStore` is the FULL contract (append/finalize + listRuns/
+  getRunSummary/getRunEvents/tailEvents/lastRunAt): no endpoint
+  capability-gates on the concrete class. A backend without a native
+  tail delegates `tailEvents` to `tailFromPolling` (re-read + index
+  cursor) — `MemoryRunStore` does, so memory-mode strut has run history,
+  SSE reattach, durable resume, and promotions. **Crash caveat:** in-flight *execution* is in-memory, so a
+  crash mid-run loses the remaining work (the log up to the crash
+  survives); true resume is a later add. The web UI's
+  `api.runWorkflow` hides the two steps — it POSTs to launch, then
+  `streamRun(name, runId)` reattaches to the tail — so callers see the
+  same `(onEvent, → RunResult)` interface as before.
+
+- **Run control** (`RUN_CONTROL_SPEC.md`, `src/run-control.ts` +
+  `src/journal.ts`). Every launch site registers a `RunController`
+  (createStrut's `trackRun` — superseding the old `activeRuns` set); nested
+  launches attach to the parent's controller via `parentRunId` (set by
+  meta/run-workflow + the lab's optimizer from `ctx.runId`), so
+  cancel/pause apply to WHOLE SUBTREES. All control is cooperative: the
+  runner awaits `checkpoint()` between DAG steps / loop+foreach iterations /
+  retry attempts; the agent step checkpoints between tool calls
+  (`prepareStep`); code steps with long loops opt in via
+  `ctx.control?.checkpoint()`. Endpoints:
+  `POST /workflows/:name/runs/:runId/{cancel,pause,resume}`. Cancel
+  finalizes honestly as `status: "cancelled"` (never the error path).
+  Durable resume replays the journal (`step.end` outputs keyed by path →
+  `step.replayed` events, zero cost) and re-executes from the first
+  incomplete path — valid for stale (crashed), error, and cancelled runs;
+  a successful run needs `from: <stepPath>` ("re-run from here", which
+  drops the target + transitive dependents + later loop iterations).
+  `run.start` records the workflow content hash (resume refuses a changed
+  DAG unless forced) and per-run params. Iterative code steps consume
+  `ctx.journal` to resume completed iterations (harvey/evolve-loop does).
+
+- **`RunStore.append/finalize`** take `(workflow, runId, ...)`
+  — the workflow name is the first param. `MemoryRunStore` keys
+  by `"workflow/runId"` internally; use `store.getEvents(wf, id)`
+  and `store.getSummary(wf, id)` in tests.
+
+- **Flyout has two modes**: when no run is selected, clicking a
+  canvas node opens the step editor (edit id, type, config). When
+  a run is selected, it opens run results (input, output, error,
+  duration). No backdrop — flyout stays open when clicking between
+  nodes for smooth transitions. Clicking is always **inspect**;
+  entering a container's children is the **arrow's** job (below).
+
+- **Container nodes & navigation** (`flow-to-canvas.ts` +
+  `app.tsx`). `subflow`/`foreach`/`loop` steps that target a child
+  workflow (`stepWorkflow()` resolves a name — a subflow's
+  `config.workflow`, or a foreach/loop whose `body` is a subflow)
+  get a navigable **ref arrow** (`childRefForStep` sets
+  `node.ref = "wf:<name>"`; `refCorner: "topRight"` so it clears the
+  left-aligned name label). The arrow means different things by mode
+  (we use system-canvas's `externalNavigation` so a ref click only
+  fires `onNavigate`, never the lib's internal drill):
+  - **Edit view** → **go-to-definition**: `handleNavigate` switches
+    the selected workflow (the target is a standalone, separately
+    editable workflow — not an inline sub-canvas).
+  - **Run view** → **drill into this run's nested execution**: a
+    read-only sub-canvas built from the child's steps + the run's
+    events **re-keyed** to the nested path prefix. Subflows execute
+    inline under one `runId` with hierarchical event paths
+    (`wf/subflowId/childId`, `wf/foreachId#i/...`), so
+    `viewEvents` strips the `<prefix>/` and re-prefixes with the
+    child workflow name — the existing path-based status overlay +
+    flyout lookups then work unchanged at any depth. A `runDrill`
+    frame stack + breadcrumb bar handles back-navigation. foreach/
+    loop frames carry an **iteration count + selected `iter`**
+    (`framePrefix` appends `#<iter>`), surfaced as a dropdown in the
+    drill bar (`countIterations` derives N from the events).
+  - **Container I/O is the "summary"**: a leaf's flyout shows its
+    `input → output`; a container's shows its aggregate (subflow:
+    child input → child result; foreach: items array → results
+    array). The runner emits these as the container's `step.start`
+    input (`subflow` → `config.input`, `foreach` → resolved
+    `items`); `loop` has no natural input.
+
+- **`canvas` and `flyoutEvents` are derived** (`useMemo`) from a
+  **view context** — root (`selectedWf` + `localSteps` + `events`)
+  or the deepest `runDrill` child (its workflow + steps + re-keyed
+  events). There is no imperative `rebuildCanvas`; setting
+  `localSteps`/`events`/`runDrill` recomputes the canvas. A
+  `running` flag drives the pending-status overlay during a live
+  streamed run (events are still empty at run start).
+
+- **AI workflow builder** (`src/ai/` + `POST /chat`). A
+  `ToolLoopAgent` (Vercel AI SDK + Anthropic) that can browse step
+  types (`list_steps`, `search_steps`, `get_step`), author/revise
+  custom steps (`create_step`, `edit_step`), publish workflows
+  (`create_workflow`), and test them (`run_workflow`). `run_workflow`
+  threads `ctx.services` (via `AiDeps.services`), so the agent can
+  run workflows whose steps reach external systems (Neo4j, the lab's
+  `optimizer`, …) — not just service-free core/lib ones. The system
+  prompt is built per-request by `buildSystem(deps)` (pre-seeds the
+  steps tree).
+
+- **`list_secrets` tool** (`AiDeps.secrets`). The agent can list the
+  **names** of available credentials (never values — it's the same
+  names-only view as `GET /secrets`) so when it authors a step it
+  references an existing secret name in `ctx.services.secrets.get("NAME")`
+  rather than guessing, and tells the user which secret to add when one
+  is missing. Deliberately **read-only**: the agent has no
+  set/delete — writing a value through the model would defeat the
+  write-only design, and adding a secret is a human action. Wired only
+  when strut owns the secret store (absent when the consumer injected
+  their own `services.secrets`; the tool then returns an error).
+
+- **Chat is a detached background job** (`src/chat-store.ts`), NOT a
+  connection-bound stream — the same launch+reattach model as runs
+  (§8). `POST /chat { chatId?, message }` appends the user message,
+  launches the turn server-side **without awaiting it** (a
+  `launchChatTurn` mirroring `launchDetached`), and returns
+  `{ chatId, turn }` (202). The turn consumes the agent's `fullStream`
+  and persists each part; close the browser and it keeps running.
+  Watch/reattach via `GET /chat/:id/stream` (SSE tail), load the
+  transcript via `GET /chat/:id`, list sessions via `GET /chats`.
+  Each chat lives in `chats/<id>/` with the deliberate **two-file
+  split** (borrowed from `mcp/src/repo/session.ts`): `messages.jsonl`
+  is the lossless, **replayable** conversation (re-fed to the agent
+  next turn + rendered as transcript — whole `ModelMessage`s, never
+  deltas); `events.jsonl` is the fine-grained **observability** stream
+  the SSE tail follows (text deltas, tool calls/results, step/turn
+  boundaries — never re-sent to the model); `meta.json` tracks
+  `{ status, currentTurn, … }`. A chat is long-lived across turns, so
+  the launch+tail unit is a **turn**: each turn's events carry
+  `turn: N` and end with `chat.end`/`chat.error`, and `tailEvents`
+  replays a multi-turn log but stops at the requested turn's terminal
+  (race-free, like the run tail). The shared tail engine is
+  `tailJsonl` in `store.ts` (used by both `FileRunStore.tailEvents`
+  and `FileChatStore`). `messages.jsonl` stays lossless on disk;
+  `truncateToolMessages` trims long `role:"tool"` results only in the
+  copy re-fed to the model on LATER turns (token hygiene for long
+  autonomous loops; env `STRUT_CHAT_TOOL_RESULT_MAX_CHARS`, default 50000,
+  `0` disables).
+  `chatMaxSteps` (env `STRUT_CHAT_MAX_STEPS`, default 30) bounds the
+  per-turn agent loop. The browser (`web/src/api.ts`: `sendChat` +
+  `streamChat` + `getChat`) persists the active `chatId` in
+  localStorage and reattaches to a still-live turn on reopen.
+
+- **Dispatch-mode `run_workflow` + run notifications**
+  (`src/ai/notifier.ts`, `plans/dispatch-run-notifications.md`). The chat
+  agent's `run_workflow` tool races the run against a wait window
+  (`chatRunWaitMs`, env `STRUT_CHAT_RUN_WAIT_MS`, default 60s): a fast run
+  returns synchronously as before; a run that outlives the window converts
+  to DETACHED — the tool returns a `{ status: "running", detached: true,
+  runId }` stub (a well-formed tool RESULT, so `messages.jsonl` never has a
+  dangling tool call), the run is tracked in `activeRuns`, and when it
+  settles the notifier WAKES the chat: it appends a slim user-role
+  `[run-notification]` message (status, duration, truncated output — the
+  agent has `get_run` for the rest) and launches the next turn through the
+  same `launchChatTurn` path a human message uses. Notifications arriving
+  while a turn is live queue and drain into ONE wake-up turn (via
+  `launchChatTurn`'s `finally` → `notifier.turnEnded`). Liveness is an
+  in-process set (not `meta.status` — stale after a crash; pending
+  notifications die with the process, same crash posture as runs). Runaway
+  guard: `ChatMeta.autoTurns` counts consecutive machine-triggered turns
+  since the last human message (`POST /chat` resets it); at
+  `chatMaxAutoTurns` (env `STRUT_CHAT_MAX_AUTO_TURNS`, default 10) the chat
+  PARKS — notifications still append to the transcript but no turn
+  launches until a human replies. The seam is `AiDeps.detach` (absent →
+  the tool awaits to completion, unchanged for tests/embedders). The
+  flyout polls `GET /chat/:id` (~4s, idle+open only) to notice
+  server-initiated turns and renders `[run-notification]` messages as a
+  dashed notice, not a user bubble.
+
+- **`agent` core step** (`src/steps/core/agent.ts`). A general
+  tool-using agent loop (AI SDK `ToolLoopAgent`) — distinct from the
+  workflow-*builder* chat above. It explores a working dir (`cwd`)
+  with built-in general tools (`repo_overview` — adaptive, token-capped
+  dir tree with build/dep/migration dirs collapsed; `fulltext_search`;
+  `bash`; `str_replace_based_edit_tool` — view/create/str_replace/insert
+  files, sandboxed to `cwd` (the anthropic provider-defined text-editor
+  tool, with a generic-`tool()` fallback for other providers; pure handler
+  `textEdit()` is unit-tested offline); + anthropic `web_search`; +
+  `file_summary`, an AST structural summary that's only registered when the
+  `stakgraph` CLI is on PATH), filterable via `toolFilter`, and returns one
+  of three shapes: a
+  `final_answer` tool's
+  text (set `finalAnswer` to its description), a STRUCTURED object (set
+  `schema` to a JSON Schema → `Output.object`, read off `res.output`), or
+  the final assistant text. Provider-direct via aieo
+  (anthropic|openai|google|openrouter|xai — inferred from the model
+  name, which may be an alias like `sonnet`/`grok` or slash format like
+  `openrouter/moonshotai/kimi-k2.6`), lazy-loaded; needs the provider
+  key in env + `git`/`rg` on PATH. Returns
+  `{ result, object?, steps, usage, cost }`. The full session
+  (`messages`) is the seam for a future fork/sub-agent capability, but
+  it's **opt-in** (`returnMessages`, default false): it's huge and the
+  runner persists every step's output, so returning it by default bloats
+  `events.jsonl`/`run.json` and buries `result`. Anything domain-
+  specific lives in the CALLER's prompts, not the step (e.g. mcp's
+  `/lab` `gitsee-explore-services` wires `clone → agent`).
+  - **`agentTools` — "tools are steps"** (`buildRegistryTools`). Beyond the
+    built-ins, a caller can expose any REGISTRY step-types as extra LLM tools
+    via `agentTools: ["gitsee/boot", "gitsee/read-logs", …]`: each step's
+    `input` schema becomes the tool schema and its `run` is the executor,
+    invoked with the agent's `ctx` (so tool-steps reach `ctx.services`).
+    Resolved through the runner-populated **`ctx.registry`** (see Key
+    concepts) — keeps the AI-SDK loop in the step rather than promoting `agent`
+    to a container step. Merged ON TOP of the built-ins (not subject to
+    `toolFilter`); unknown types are skipped. This is what lets mcp's `/lab`
+    `gitsee-setup-and-run` drive a QA harness (boot/browser/observe/assess) as
+    the core `agent` instead of a forked loop.
+    Entries may be **glob patterns** (`expandAgentTools`): `"jarvis/*"` grants
+    every registry step in that namespace (matches sorted, deduped; a pattern
+    matching nothing warns). `"agent"` itself is grantable — that's the
+    sub-agent primitive: recursion depth is controlled by whether the child's
+    own `agentTools` list includes `"agent"` again, not by a numeric cap.
+  - **Every tool call emits a nested run event** (`wrapToolsWithEmit`, applied
+    to built-ins AND `agentTools` with one shared counter): a
+    `step.start`/`step.end` (or `step.error`) at `<agentPath>/NNN-<tool>` with
+    `stepType: "tool:<name>"`, I/O truncated for the log. So the otherwise
+    opaque agent loop is **visible in the events panel / run drill-down** —
+    each iteration's tool calls show in order. No-op without a runner `ctx`
+    (in-code/test); skips `final_answer` + provider-executed tools (no
+    `execute`). `agent.run` now consumes `ctx` (registry + emit).
+
+## Conventions
+
+- **Vanilla CSS** with custom properties. Two files only:
+  `base.css` (palette + reset) and `components.css` (all
+  component classes). No JS styles, no CSS-in-JS, no Tailwind.
+  Same pattern as `gateway/internal/adminapi/ui/`.
+
+- **`system-canvas`** for flow visualization **and editing**. The
+  canvas is `editable={true}` when not viewing a run. Each step
+  type is a theme **category** (`step-http`, `step-log`, etc.)
+  with a `header` slot showing the uppercase type and a run-status
+  slot (checkmark = success, X = error, dot = running, clock =
+  pending) — `topRight` for leaves, `bottomRight` for container
+  nodes (whose `topRight` carries the ref arrow). Container
+  categories also add a `body` text slot (the workflow name, small,
+  left-aligned, ellipsized) and set `refCorner: "topRight"`. Nodes
+  carry `customData: { stepId, stepIndex, status, stepType }`.
+  Interactive features: drag-to-connect creates `depends` edges,
+  the "+" FAB opens a searchable Add Step dialog (core/lib/custom),
+  delete key removes nodes/edges. `panMode="trackpad"` for
+  Figma-style two-finger-scroll panning.
+
+- **`system-canvas` is a sibling library** at
+  `/Users/evanfeenstra/code/sphinx2/system-canvas` (its own repo,
+  published to npm in lockstep as `system-canvas` +
+  `system-canvas-react`). strut consumes the **published** version
+  (`web/package.json`). Features strut relies on: `node.ref` +
+  `externalNavigation` (ref click fires `onNavigate` only, no
+  internal drill), per-node/category `refCorner`, category `slots`.
+  To land a lib change: edit the lib, `npm run build`, push to
+  `main` (auto-release bumps the patch), then `npm install
+  system-canvas@<v> system-canvas-react@<v>` in `web/` and rebuild.
+  (For local iteration you can copy the built `dist/` into
+  `web/node_modules/...`, but a fresh `npm install` overwrites it.)
+
+- **Add Step dialog** opens from the canvas FAB button. Fetches
+  all available step types from the `/steps` API, groups them
+  by source (core / library / custom), and supports type-ahead
+  search. Selecting a type adds the step with `depends: []` and
+  opens the flyout for configuration.
+
+- **Tests** use `node:test` + `assert/strict`. Each test file
+  creates its own helper step definitions (echo, value, fail,
+  counter, flakey). `MemoryRunStore` for unit tests,
+  `FileRunStore` with tmp dirs for integration tests.
+
+- **Step definitions** use `defineStep()` which returns the def
+  as-is (identity function for type inference). `AnyStepDef` is
+  the type-erased version used in the runtime registry.
+
+## When adding a new core step
+
+1. Create `src/steps/core/<name>.ts` with a `defineStep()` default export.
+2. Import it in `src/steps/registry.ts` and add to `CORE_STEPS`.
+3. If it's control flow, add to `SELF_RESOLVING_STEPS` in `runner.ts`
+   and handle it in `dispatchStep`.
+4. Add a color entry in `STEP_COLORS` in `web/src/flow-to-canvas.ts`
+   (categories are auto-generated from this map via `buildCategories()`;
+   the Add Step dialog discovers types via the `/steps` API).
+5. Write tests in the appropriate test file.
+6. Run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
+
+## When adding a lib step (domain integration)
+
+Lib steps (`src/steps/lib/<namespace>/<name>.ts`) are engine-shipped
+domain integrations (github, slack, google-docs, dropbox, …). They're
+auto-discovered by `buildRegistry()`/`createRegistry()` — no manual
+registration — but they follow a strict **dependency convention** so
+adding a hundred adapters doesn't bloat every consumer's startup.
+
+### Lib step dependency convention
+
+**Rule: schema + metadata at module top level; heavy SDKs `await import()`-ed
+INSIDE `run()`.**
+
+```ts
+import { z } from "zod";                       // ✅ light, already a core dep
+import { defineStep } from "../../../core.js"; // ✅ engine
+// ❌ NEVER: import { Octokit } from "@octokit/rest";  (top-level heavy SDK)
+
+export default defineStep({
+  type: "github/fetch-pr",
+  description: "...",
+  input: z.object({ /* ... */ }),   // top level — needed by /steps + UI
+  output: z.object({ /* ... */ }),
+  async run(cfg) {
+    const { Octokit } = await import("@octokit/rest"); // ✅ lazy, first-use only
+    const octokit = new Octokit(/* ... */);
+    // ...
+  },
+});
+```
+
+**Why.** `loadStepsFrom(LIB_DIR)` does `await import()` on *every* lib
+file at registry-build time (which `createStrut()` does eagerly at
+construction). A **top-level** `import` of an SDK therefore loads that
+SDK at startup for **every** consumer — even ones that never use the
+step. Moving the SDK import into `run()` keeps registry-build cheap (only
+schema + metadata execute), so the SDK only loads the first time its step
+actually runs. This is the "monolith, lazy-loaded" model (same shape as
+n8n's node catalog): all adapter code ships in strut, but unused SDKs are
+never *loaded* — though they are still *installed* in `node_modules`
+(an in-tree integration's deps are unavoidably listed in
+`strut/package.json`). If install footprint ever becomes the problem,
+split heavy adapters into companion packages registered via
+`createRegistry([...])`; the lazy-in-`run()` pattern is forward-compatible
+with that move.
+
+**Checklist for a new lib step:**
+1. Create `src/steps/lib/<namespace>/<name>.ts` with a `defineStep()`
+   default export. Use a `<namespace>/<name>` type (e.g. `slack/post-message`).
+2. Keep ALL `import`s at the top light (zod, core, sibling `_helpers`).
+   `await import()` every third-party SDK inside `run()`.
+3. Add the SDK to `strut/package.json` dependencies.
+4. Read credentials via `cfg.<field> ?? await ctx?.services?.secrets?.get("NAME")`
+   (type `ctx` as `StepContext<StrutCapabilities>`) — never `process.env`
+   directly. See "Lib step credentials".
+5. Shared helpers go in a leading-underscore file (`lib/<ns>/_shared.ts`) —
+   imported by siblings, skipped by registry discovery.
+6. Add a `STEP_COLORS` entry in `web/src/flow-to-canvas.ts` if you want a
+   distinct node color (optional; the Add Step dialog discovers the type
+   regardless via `/steps`).
+7. Write tests; run `npm test` and `cd web && npx tsc --noEmit && npx vite build`.
+
+## When adding an API endpoint
+
+1. Add the route in `src/createStrut.ts` (inside the `createStrut()`
+   factory, where all routes are mounted). Watch route ordering —
+   specific paths like `/workflows/:name/flow` must come BEFORE
+   catch-all params like `/workflows/:name/:version`.
+2. Add the typed function in `web/src/api.ts`.
+3. Wire it into `web/src/app.tsx`.
+4. The Vite dev proxy in `web/vite.config.ts` only proxies known
+   prefixes (`/workflows`, `/steps`, `/secrets`, `/chat`, `/health`). Runs are
+   under `/workflows/` and chat reattach under `/chat/` so they're
+   already proxied. SSE responses get `cache-control: no-cache` +
+   `x-accel-buffering: no` injected by the shared `sseConfigure` —
+   wired onto both `/workflows` and `/chat` (the two SSE prefixes).
+   Add new prefixes if needed.
+
+## When modifying the web UI
+
+- Edit `web/src/styles/components.css` for styling — never use JS
+  style objects.
+- The shell layout is a CSS grid:
+  `grid-template-areas: "sidebar topbar" / "sidebar canvas" / "sidebar events"`.
+- The flyout is `position: fixed` on the right, no backdrop (so
+  canvas clicks pass through for node-to-node transitions).
+- Rebuild with `cd web && npm run build` before testing against the
+  engine server.
+- strut is also embedded by **mcp** under `/lab` (it consumes strut as a
+  copied `file:../strut` dep, UI bundled into `web/dist`). After a web
+  change, `mcp`'s `yarn dev` runs `refresh-strut` (rebuild strut + web,
+  reinstall into mcp) before starting on `:3355` — so changes only reach
+  `/lab` after that, not on a bare vite rebuild. (The refresh is **skipped
+  when `$CI` is set** — CI installs/builds strut separately and doesn't have
+  `web/` deps, so running `vite` there would fail.)
