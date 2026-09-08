@@ -27,7 +27,7 @@ Four components make up the platform, and all of them are organized around the g
 
 The rest of this post follows the loop. We start with what is in the graph, then how an agent reads it, does its work, and writes back, and finally why the result compounds.
 
-## Wwarm: The Graph
+## Swarm: The Graph
 
 Everything Stadeum knows is a node. Concepts, code entities, documents, pull requests, evals, prompts, tools, skills, workflows, and the traces of every agent run live in the same graph, along with the Schemas that define each of them. A graph that will grow to hold an unbounded number of concepts needs discipline to stay legible, to agents and to humans, so the foundational layer of swarm is the ontology.
 
@@ -45,7 +45,7 @@ Because pull requests, evals, and traces are nodes rather than metadata, swarm h
 
 ### Federation
 
-The graph is federated, and each can have its own set of schemas, or share schemas with other doamins. When a question spans two of them, an agent spawns a graph walker on the other server; that walker already knows how its own graph is built and reports back the nodes that matter. Each domain keeps its own vocabulary and its own consolidation loop, and a mess in one cannot leak into another.
+The graph is federated, and each can have its own set of schemas, or share schemas with other domains. When a question spans two of them, an agent spawns a graph walker on the other server; that walker already knows how its own graph is built and reports back the nodes that matter. Each domain keeps its own vocabulary and its own consolidation loop, and a mess in one cannot leak into another.
 
 ## Reading the Graph: Reality Checkpoints
 
