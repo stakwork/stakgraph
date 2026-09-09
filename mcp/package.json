@@ -26,12 +26,10 @@
     "onnxruntime-node": "1.24.3"
   },
   "scripts": {
-    "dev": "([ -n \"$CI\" ] || npm run refresh-strut); tsx src/index.ts",
+    "dev": "tsx src/index.ts",
     "build": "tsc && node scripts/copy-lab-assets.mjs",
     "start": "node --import tsx build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
-    "refresh-strut": "cd ../strut && npm run build && npm run build:web && cd ../mcp && rm -rf node_modules/strut && yarn install --force",
-    "stage-strut": "rm -rf .strut && rsync -a --exclude node_modules --exclude web/node_modules --exclude build --exclude web/dist --exclude .git --exclude .env --exclude workspace ../strut/ .strut/",
     "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
     "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\" \"src/graph/**/*.test.ts\" \"src/gitree/**/*.test.ts\" \"src/__tests__/tools.test.ts\" \"src/__tests__/skills.test.ts\"",
@@ -89,7 +87,7 @@
     "simple-git": "3.30.0",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
-    "strut": "file:../strut",
+    "strut": "git+https://github.com/stakwork/strut.git#404851171f43a4977e9b90794c932a479599b1e3",
     "zod": "4.3.6"
   },
   "devDependencies": {

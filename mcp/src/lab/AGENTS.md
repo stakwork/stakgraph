@@ -3,7 +3,7 @@
 A sandbox for **strut workflow experiments**. The goal: take pipelines that
 are normally hardcoded TS and express them as editable strut workflows
 (YAML + step config) so we can iterate on flows and prompts without code
-changes. See `../../../strut/AGENTS.md` for the engine itself.
+changes. See `AGENTS.md` in the strut repo (github.com/stakwork/strut) for the engine itself.
 
 ## Model
 
@@ -663,7 +663,7 @@ output IS that body (+ diagnostics), fixing 58313's set_output divergence.
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See
-`strut/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
+strut's `specs/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
 
 - `eval/steps/score.ts` (`eval/score`) — match a produced set vs an expected
   gold set by a `rubric`; recall-weighted F-beta score.
@@ -748,13 +748,19 @@ adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
 - Workflow YAML templates are seeded into the workspace
   (`STRUT_LAB_WORKSPACE`, default `./lab-workspace`) on first boot, then
   edited/versioned via the strut UI.
-- strut is consumed as a `file:` dep, which **yarn copies** (not symlinks):
-  changes to `../../../strut` (engine or `web/`) only reach `/lab` after a
-  rebuild + reinstall. `yarn dev` runs `refresh-strut` automatically before
-  starting (**skipped when `$CI` is set** — CI has no `web/` deps, so `vite`
-  would fail), so a plain local `yarn dev` picks up strut changes; run
-  `yarn refresh-strut` by hand to refresh without a restart. CI builds strut
-  before `mcp` install for the same reason.
+- strut is a **git dependency**: `package.json` pins
+  `git+https://github.com/stakwork/strut.git#<commit>`, and `yarn install`
+  clones it and runs its `prepare` (engine `tsc` + `web/` vite build), so no
+  strut checkout is needed to boot. To bump: edit the pinned commit, `yarn
+  install`, commit `yarn.lock`. The GitHub shorthand (`stakwork/strut#sha`)
+  does NOT work — yarn fetches those as a source tarball and skips `prepare`.
+  `mcp/.yarnrc` sets `network-concurrency 1` and must stay: yarn 1 runs a
+  nested install for the `prepare`, and with parallel fetches on a cold cache
+  the two installs corrupt each other's cache entries (see the comment there).
+- To hack on strut and mcp together: `yarn link` in a strut checkout, then
+  `yarn link strut` here (yarn keeps the symlink across installs). Rebuild
+  strut (`npm run build`, `npm run build:web`) and restart mcp to pick up
+  changes; `yarn unlink strut && yarn install --force` returns to the pin.
 - The strut UI is path-agnostic (relative assets + runtime API base), so it
   works under `/lab` (with the `/lab` → `/lab/` redirect in `mount.ts`).
 - Trigger a run: `POST /lab/workflows/bootstrap-then-process/run` with
@@ -767,14 +773,11 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
 1. **Neo4j**: `cd mcp && docker compose -f neo4j.yaml up -d` (wait healthy).
 2. **Env**: `GITHUB_TOKEN`, `ANTHROPIC_API_KEY` (and `NEO4J_HOST`/`NEO4J_USER`/
    `NEO4J_PASSWORD` if not default).
-3. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`). Locally, `dev`
-   runs `refresh-strut` first, so strut (engine + `web/`) is rebuilt and
-   reinstalled automatically — no separate build step needed. (Skipped when
-   `$CI` is set.)
+3. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`).
 4. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
    then `curl localhost:3355/lab/workflows` to confirm the 3 workflows
    seeded.
-5. **Run** (detached launch + reattach — see `strut/EVAL_SPEC.md` §8). The
+5. **Run** (detached launch + reattach — see strut's `specs/EVAL_SPEC.md` §8). The
    `POST …/run` returns `{ runId }` immediately (the run executes server-side);
    reattach to its SSE event tail to watch it:
    ```

@@ -56,6 +56,3 @@ knowledge-base/
 .reqs/
 
 lab-workspace
-
-# Strut source staged into the Docker build context (see Dockerfile / stage-strut)
-.strut/
