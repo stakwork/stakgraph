@@ -11,6 +11,51 @@ Source of truth for the protocol: `strut/src/audio/ws.ts` (socket),
 
 ---
 
+## 0. Getting a strut to talk to
+
+Two ways to have one running locally. Both need Node 20 or newer on the
+machine; the package does not include Node.
+
+- **Download.** The `strut-v*` GitHub release has `strut-darwin-arm64.tar.gz`
+  and `strut-darwin-x64.tar.gz`. Unpack and run `./strut --open`: the web UI
+  it opens has dictation built in, so you can try the recognizer before
+  writing a line of client code.
+- **Build.** In `strut/` of a checkout: `yarn install`, `npm --prefix web
+  install`, then `npm run package:desktop -- --smoke --tar`. Same layout at
+  `dist-desktop/strut/`, and the tarball beside it.
+
+The directory is `package.json`, `build/`, `web/dist/`, `node_modules/`
+(one `sherpa-onnx-<platform>` package; the script prints the single `.node`
+addon the app must code-sign), plus two entry points: `desktop.js`, which a
+host spawns, and `strut`, a shell wrapper over it.
+
+A host runs `node <dir>/desktop.js` from any cwd with **no required env**.
+The launcher defaults to the filesystem workspace (no Neo4j), binds
+`127.0.0.1` on an OS-picked port, keeps the workspace under the platform
+app-support dir and models under the platform cache dir, and generates an
+API key per launch. It prints a few human lines, then one JSON line on
+stdout:
+
+```
+{"event":"ready","port":51234,"host":"127.0.0.1","key":"3f9a…"}
+```
+
+That line is the base URL and the credential for everything below. Every
+default is an env override:
+
+| Var | Launcher default |
+|---|---|
+| `STRUT_WORKSPACE` | `~/Library/Application Support/strut/workspace` (XDG / `%APPDATA%` elsewhere) |
+| `STRUT_CACHE_DIR` | `~/Library/Caches` — models land at `<cache>/strut/models` |
+| `STRUT_API_KEY` | random per launch; set your own to skip parsing it |
+| `STRUT_HOST` / `STRUT_PORT` | `127.0.0.1` / `0` |
+| `STRUT_WORKSPACE_BACKEND` | `fs`. The graph backend needs a Neo4j and is not for desktop. |
+| `STRUT_SECRET_KEY` | unset: the secrets file is only obfuscated, with a boot warning. A shipping host keeps a stable one in the keychain. |
+| `ANTHROPIC_API_KEY` etc. | not needed for dictation; only workflows and chat use them |
+
+The host kills the child on quit; strut handles `SIGTERM`. `GET /health` is
+unauthenticated, for liveness polling.
+
 ## 1. The moving parts
 
 | Piece | Where | Notes |
@@ -22,15 +67,16 @@ Source of truth for the protocol: `strut/src/audio/ws.ts` (socket),
 | Model install | HTTP, once | `GET /audio/models`, `POST /audio/models/:id/download` (SSE progress) |
 | Learning loop | HTTP | sessions, corrections, named hotword lists |
 
-Base URL is whatever the app spawned or was configured with, e.g.
-`http://127.0.0.1:<port>` for a local child process (the port comes from strut's
-`{"event":"ready","port":N}` stdout line) or `https://host/lab` behind mcp.
-Every `/audio/*` route and the socket sit under that base.
+Base URL is whatever the app spawned or was configured with:
+`http://127.0.0.1:<port>` for a local child process (port and key from the
+ready line, §0) or `https://host/lab` behind mcp. Every `/audio/*` route and
+the socket sit under that base.
 
 ## 2. Auth
 
-If strut runs with `STRUT_API_KEY` set (a desktop host should generate one per
-launch), every `/audio/*` request and the socket upgrade must carry it:
+If strut runs with `STRUT_API_KEY` set (the desktop launcher generates one per
+launch and puts it on the ready line, §0), every `/audio/*` request and the
+socket upgrade must carry it:
 
 - HTTP and WebSocket: `Authorization: Bearer <STRUT_API_KEY>` — a
   `URLSessionWebSocketTask` / OkHttp socket can set request headers, so use the
@@ -206,7 +252,7 @@ nouns both ways.
 
 | Situation | What you see | Do |
 |---|---|---|
-| strut not up yet | connection refused | wait for the `ready` stdout line / `GET /health` |
+| strut not up yet | connection refused | wait for the `ready` stdout line (§0) or poll `GET /health` |
 | sherpa addon missing on that strut | `501 {"error":"stt not available"}`; socket `error` then close `1011` | tell the user; it's an install problem |
 | bad credential | HTTP `401`; upgrade refused | fix the key |
 | unknown model / list | socket `error` (`unknown stt model "x"` / `unknown hotwords list "x"`), close `1011` | check `GET /audio/models`, `GET /audio/hotwords` |

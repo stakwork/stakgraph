@@ -758,6 +758,37 @@ describe("listen()", () => {
     await assert.rejects(fetch(`http://127.0.0.1:${port}/health`), "server should be closed");
   });
 
+  it("puts the API key on the ready line only when STRUT_READY_KEY is set", async () => {
+    const strut = await createStrut({
+      workspace: new WorkspaceManager(tempDir),
+      store: new MemoryRunStore(),
+      serveUi: false,
+      enableChat: false,
+      stt: false,
+    });
+    const lines: string[] = [];
+    const orig = console.log;
+    const prevKey = process.env["STRUT_API_KEY"];
+    const prevReady = process.env["STRUT_READY_KEY"];
+    process.env["STRUT_API_KEY"] = "launch-key";
+    process.env["STRUT_READY_KEY"] = "1";
+    console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
+    let port: number;
+    try {
+      port = await strut.listen(0, "127.0.0.1");
+    } finally {
+      console.log = orig;
+      if (prevKey === undefined) delete process.env["STRUT_API_KEY"]; else process.env["STRUT_API_KEY"] = prevKey;
+      if (prevReady === undefined) delete process.env["STRUT_READY_KEY"]; else process.env["STRUT_READY_KEY"] = prevReady;
+    }
+    try {
+      const ready = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((j) => j?.event === "ready");
+      assert.deepEqual(ready, { event: "ready", port, host: "127.0.0.1", key: "launch-key" });
+    } finally {
+      await strut.close();
+    }
+  });
+
   it("rejects when the port is taken instead of crashing the process", async () => {
     const mk = () =>
       createStrut({

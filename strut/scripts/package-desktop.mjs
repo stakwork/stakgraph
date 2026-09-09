@@ -3,13 +3,18 @@
  * Stage a self-contained strut directory for embedding in a native desktop
  * app (plans/local-desktop-and-stt.md §2.3, "phase A").
  *
- *   npm run package:desktop -- [--platform darwin-arm64] [--out dist-desktop] [--smoke] [--skip-build] [--embeddings]
+ *   npm run package:desktop -- [--platform darwin-arm64] [--out dist-desktop] [--smoke] [--tar] [--skip-build] [--embeddings]
  *
  * Output: <out>/strut/ containing package.json, build/ (server + steps as
- * loose files — the registry scans them), web/dist/, and a production-only
+ * loose files — the registry scans them), web/dist/, a production-only
  * node_modules/ with exactly one sherpa-onnx platform package and only this
- * platform's onnxruntime-node binaries. The host adds an official Node
- * binary beside it and runs `node build/server.js` with the env in §2.5.
+ * platform's onnxruntime-node binaries, and two entry points: `desktop.js`
+ * (what a host spawns: fs workspace, 127.0.0.1:0, app-support dirs, a
+ * generated API key on the ready line — every default an env override) and
+ * `strut` (shell wrapper over it for people who downloaded the tarball).
+ * Node itself is not included; the host provides one (20 or newer).
+ * `--tar` also writes <out>/strut-<platform>.tar.gz — the release asset
+ * (.github/workflows/strut-desktop.yml).
  *
  * Two size cuts, both on by default:
  *   - the embeddings stack (@huggingface/transformers + onnxruntime-web/-node
@@ -18,17 +23,17 @@
  *     keeps it, and graph/embeddings.ts fails with a clear message without it;
  *   - sourcemaps, typings, and docs are stripped from node_modules (~100 MB).
  *
- * --smoke boots the staged copy from a temp directory (so nothing can leak
- * in from this checkout), with a workspace outside the package tree that
- * holds a custom step importing "strut", and checks /health, /audio/models
- * (`available: true` = the sherpa addon loaded) and that the step registered.
+ * --smoke boots the staged copy via desktop.js from a temp directory (so
+ * nothing can leak in from this checkout) with only STRUT_WORKSPACE and
+ * STRUT_CACHE_DIR set, parses the ready line for port + key, and checks
+ * /health, /audio/models (`available: true` = the sherpa addon loaded) and
+ * that a custom step importing "strut" from that workspace registered.
  *
  * Not a single-file build on purpose: the step loader scans directories and
  * the sherpa addon must be a real file beside the binary either way (§2.4).
  */
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +47,7 @@ const flag = (name, dflt) => {
 const platform = String(flag("platform", `${process.platform === "win32" ? "win" : process.platform}-${process.arch}`));
 const out = resolve(ROOT, String(flag("out", "dist-desktop")));
 const smoke = flag("smoke", false) === true;
+const tar = flag("tar", false) === true;
 const skipBuild = flag("skip-build", false) === true;
 const embeddings = flag("embeddings", false) === true;
 const stage = join(out, "strut");
@@ -55,10 +61,15 @@ if (!SHERPA_PLATFORMS.includes(platform)) {
 const [ortOs, ortArch] = platform.replace(/^win-/, "win32-").split("-");
 
 const log = (m) => console.log(`[package-desktop] ${m}`);
-const run = (cmd, cmdArgs, cwd = ROOT) => {
-  const r = spawnSync(cmd, cmdArgs, { cwd, stdio: "inherit", env: process.env });
+const run = (cmd, cmdArgs, cwd = ROOT, env = process.env) => {
+  const r = spawnSync(cmd, cmdArgs, { cwd, stdio: "inherit", env });
   if (r.status !== 0) throw new Error(`${cmd} ${cmdArgs.join(" ")} failed (${r.status})`);
 };
+// Every npm call inside the stage resolves optional platform packages for the
+// *target*, not this machine (npm ≥ 9.6.3 `os`/`cpu` config). Without this a
+// cross-stage silently ships the host's sherpa addon, and even a same-platform
+// `npm uninstall` later would reconcile the tree back to the host's.
+const npmStage = (cmdArgs) => run("npm", cmdArgs, stage, { ...process.env, npm_config_os: ortOs, npm_config_cpu: ortArch });
 const sizeOf = async (p) => {
   const s = await stat(p);
   if (!s.isDirectory()) return s.size;
@@ -86,14 +97,18 @@ async function stageFiles() {
   await writeFile(join(stage, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   await cp(join(ROOT, "build"), join(stage, "build"), { recursive: true });
   await cp(join(ROOT, "web", "dist"), join(stage, "web", "dist"), { recursive: true });
-  log(`staged build/ + web/dist/ → ${stage}`);
+  for (const f of ["desktop.js", "strut"]) {
+    await cp(join(ROOT, "scripts", f), join(stage, f));
+    await chmod(join(stage, f), 0o755);
+  }
+  log(`staged build/ + web/dist/ + desktop.js + strut → ${stage}`);
 }
 
 async function installDeps() {
   log("installing production dependencies (npm install --omit=dev)");
   // optionalDependencies (sherpa-onnx-node + its platform packages) come along;
   // the other platforms are removed below.
-  run("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts"], stage);
+  npmStage(["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts"]);
   const nm = join(stage, "node_modules");
 
   // One sherpa platform package.
@@ -107,7 +122,7 @@ async function installDeps() {
   } catch {
     log(`sherpa-onnx-${platform} isn't installed on this machine's npm view; fetching it explicitly`);
     const ver = JSON.parse(await readFile(join(nm, "sherpa-onnx-node", "package.json"), "utf-8")).version;
-    run("npm", ["install", "--no-save", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts", "--force", `sherpa-onnx-${platform}@${ver}`], stage);
+    npmStage(["install", "--no-save", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts", "--force", `sherpa-onnx-${platform}@${ver}`]);
   }
 
   // Only this platform's onnxruntime binaries (the package ships all of them).
@@ -129,9 +144,15 @@ async function installDeps() {
     // npm removes the package and everything only it depended on, and drops
     // it from the staged package.json so the manifest matches the build.
     log("removing the embeddings stack (@huggingface/transformers and its deps); --embeddings keeps it");
-    run("npm", ["uninstall", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts", "@huggingface/transformers"], stage);
+    npmStage(["uninstall", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock", "--ignore-scripts", "@huggingface/transformers"]);
   }
   await rm(join(nm, ".package-lock.json"), { force: true });
+  // Never emit a package for the wrong platform: exactly the target's sherpa
+  // package, and only it, must be present.
+  const present = (await readdir(nm)).filter((d) => /^sherpa-onnx-(darwin|linux|win)-/.test(d));
+  if (present.length !== 1 || present[0] !== `sherpa-onnx-${platform}`) {
+    throw new Error(`expected only sherpa-onnx-${platform} in the stage, found: ${present.join(", ") || "none"} (npm ≥ 9.6.3 needed for cross-staging)`);
+  }
   await strip(nm);
 }
 
@@ -194,16 +215,6 @@ async function report() {
   for (const a of addons) console.log(`    ${a}`);
 }
 
-const freePort = () =>
-  new Promise((res, rej) => {
-    const s = createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address();
-      s.close(() => res(port));
-    });
-    s.on("error", rej);
-  });
-
 async function smokeTest() {
   // Run from a temp copy so resolution can't fall back into this checkout.
   const tmp = await mkdtemp(join(tmpdir(), "strut-desktop-"));
@@ -224,37 +235,38 @@ export default defineStep({
 });
 `,
   );
-  const port = await freePort();
-  const key = "smoke-key";
-  const env = {
-    ...process.env,
-    STRUT_HOST: "127.0.0.1",
-    STRUT_PORT: String(port),
-    STRUT_WORKSPACE: workspace,
-    STRUT_WORKSPACE_BACKEND: "fs",
-    STRUT_API_KEY: key,
-    STRUT_CACHE_DIR: cache,
-  };
-  log(`smoke: node build/server.js on 127.0.0.1:${port} (workspace + cache under ${tmp})`);
-  const child = spawn(process.execPath, ["build/server.js"], { cwd: app, env, stdio: ["ignore", "pipe", "pipe"] });
+  // Only the two dirs, so the launcher's own defaults (fs backend, loopback,
+  // port 0, generated key) are what gets tested. Strip any STRUT_* from the
+  // developer's shell so they can't paper over a missing default.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("STRUT_")));
+  env.STRUT_WORKSPACE = workspace;
+  env.STRUT_CACHE_DIR = cache;
+  log(`smoke: node desktop.js from a foreign cwd (workspace + cache under ${tmp})`);
+  const child = spawn(process.execPath, [join(app, "desktop.js")], { cwd: tmp, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
-  child.stdout.on("data", (d) => (output += d));
+  let stdout = "";
+  child.stdout.on("data", (d) => ((output += d), (stdout += d)));
   child.stderr.on("data", (d) => (output += d));
-  const base = `http://127.0.0.1:${port}`;
-  const headers = { authorization: `Bearer ${key}` };
   const deadline = Date.now() + 30_000;
-  let up = false;
-  while (Date.now() < deadline && !up) {
+  let ready = null;
+  while (Date.now() < deadline && !ready) {
     if (child.exitCode !== null) break;
-    try {
-      up = (await fetch(`${base}/health`)).ok;
-    } catch {
-      await new Promise((r) => setTimeout(r, 250));
-    }
+    ready = stdout
+      .split("\n")
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+      .find((j) => j?.event === "ready");
+    if (!ready) await new Promise((r) => setTimeout(r, 100));
   }
   const failures = [];
   try {
-    if (!up) throw new Error(`server did not come up:\n${output}`);
+    if (!ready) throw new Error(`no ready line within 30 s:\n${output}`);
+    if (ready.host !== "127.0.0.1") failures.push(`ready.host ${ready.host}, expected 127.0.0.1`);
+    if (!(ready.port > 0)) failures.push(`ready.port ${ready.port}`);
+    if (typeof ready.key !== "string" || ready.key.length < 32) failures.push(`ready.key missing or short: ${JSON.stringify(ready.key)}`);
+    const { port, key } = ready;
+    const base = `http://127.0.0.1:${port}`;
+    const headers = { authorization: `Bearer ${key}` };
+    if (!output.includes(`strut ui: ${base}/?key=${key}`)) failures.push("launcher did not print the UI URL on stderr");
     const health = await (await fetch(`${base}/health`)).json();
     if (!health.ok) failures.push("health not ok");
     if (health.dataDir !== workspace) failures.push(`dataDir ${health.dataDir} != ${workspace}`);
@@ -281,7 +293,13 @@ export default defineStep({
     console.error(`[package-desktop] SMOKE FAILED\n - ${failures.join("\n - ")}`);
     process.exit(1);
   }
-  log("smoke: OK — boots from an unrelated path, addon loads, out-of-tree custom step resolves, UI serves");
+  log("smoke: OK — desktop.js boots with no STRUT_* env beyond the two dirs, ready line carries port + key, addon loads, out-of-tree custom step resolves, UI serves");
+}
+
+async function tarball() {
+  const name = `strut-${platform}.tar.gz`;
+  run("tar", ["-czf", join(out, name), "-C", out, "strut"]);
+  log(`wrote ${join(out, name)} (${mb((await stat(join(out, name))).size)})`);
 }
 
 await build();
@@ -289,4 +307,5 @@ await stageFiles();
 await installDeps();
 await report();
 if (smoke) await smokeTest();
-log(`done. Host contract: plans/local-desktop-and-stt.md §2.5; run \`node build/server.js\` inside ${stage}`);
+if (tar) await tarball();
+log(`done. Host contract: plans/native-dictation-client.md §0; spawn \`node ${join(stage, "desktop.js")}\` or run \`${join(stage, "strut")} --open\``);

@@ -7,8 +7,11 @@ whether strut is that local child process or a server that a mobile app talks
 to. This doc covers both: what it takes to package strut for local use, and how
 STT lands in strut via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx).
 
-Status: nothing below is built. Findings are from reading the tree as of
-2026-09-04.
+Status: §2 (desktop packaging + host contract) and §4 (STT) are built on
+`main`; §3 and §4.8 are not. Struck-through items are done. Findings are from
+reading the tree as of 2026-09-04, updated 2026-09-08. The client-facing
+contract, including how to obtain and spawn strut, is
+`native-dictation-client.md`.
 
 ---
 
@@ -25,8 +28,9 @@ Status: nothing below is built. Findings are from reading the tree as of
 - **Model family: Zipformer/NeMo transducers.** They are the only sherpa
   models that accept hotwords (contextual biasing), which is the mechanism
   the dream cycle drives. Whisper/Moonshine/SenseVoice are out (§4.2).
-- **Desktop ships a Node runtime + a bundled `server.cjs` + `web/dist`**, not a
-  single-file executable, for the first cut. Single-file (SEA / Bun / Deno
+- **Desktop ships strut as a staged directory** (`build/` + `node_modules/` +
+  `web/dist/` + a `desktop.js` launcher) run by a Node the host provides, not
+  a single-file executable, for the first cut. Single-file (SEA / Bun / Deno
   compile) is a later optimization once the step loader no longer scans
   directories next to the running module (§2.2).
 - **Desktop defaults to the filesystem workspace** (`STRUT_WORKSPACE_BACKEND=fs`).
@@ -100,29 +104,31 @@ Inside the app bundle (macOS `Contents/Resources/strut/`, similar on others):
 
 ```
 strut/
-  node                     # official Node binary for the platform (~110 MB)
-  server.cjs               # esbuild bundle of build/server.js + deps
-  steps/                   # build/steps/** as files (registry scans these)
+  desktop.js               # launcher: desktop defaults, then build/server.js
+  strut                    # sh wrapper over desktop.js (tarball users)
+  package.json
+  build/                   # tsc output; steps as loose files (registry scans them)
   web/dist/                # Vite output
-  native/
-    sherpa-onnx-<platform>/  # the one optionalDependency for this OS/arch
+  node_modules/            # --omit=dev; one sherpa-onnx-<platform> package
 ```
 
-- esbuild: `platform=node`, `format=cjs`, mark `sherpa-onnx-node` and any
-  `.node`-bearing package as `external`, and set `NODE_PATH` (or a small
-  resolver shim) so `require("sherpa-onnx-node")` finds `native/`.
-- Keep `steps/` as loose files so `LIB_DIR`/`CORE_DIR` scanning keeps working
-  with zero code change. `import.meta.url` inside the bundle must resolve to
-  the bundle's own dir; esbuild's `--inject` of an `import.meta.url` shim or
-  `__dirname` replacement handles this.
-- **Built by `npm run package:desktop -- --smoke`** (`scripts/package-desktop.mjs`):
-  tsc + vite, stage `package.json` + `build/` + `web/dist/`, `npm install
-  --omit=dev` in the stage, keep one `sherpa-onnx-<platform>` and only this
-  platform's `onnxruntime-node` binaries, list the `.node` files the host
-  must code-sign, then (`--smoke`) boot the copy from a temp dir with the
-  §2.5 env and a workspace outside the tree holding a step that
-  `import "strut"`, and check `/health`, `/steps`, `/audio/models`
-  (`available: true`) and the UI. `--platform` cross-stages.
+plus a Node binary the host provides (not staged; 20 or newer). No esbuild
+bundle: the step loader scans `build/steps/**`, and the sherpa addon has to
+be a real file anyway, so there is nothing to gain from bundling yet (§2.4).
+
+- **Built by `npm run package:desktop -- --smoke --tar`** (`scripts/package-desktop.mjs`):
+  tsc + vite, stage `package.json` + `build/` + `web/dist/` + the two entry
+  points, `npm install --omit=dev` in the stage, keep one
+  `sherpa-onnx-<platform>` and only this platform's `onnxruntime-node`
+  binaries, list the `.node` files the host must code-sign, then (`--smoke`)
+  spawn `desktop.js` from a temp dir with only `STRUT_WORKSPACE` and
+  `STRUT_CACHE_DIR` set, parse the ready line for port + key, and check
+  `/health`, `/steps` (a workspace step that `import "strut"`),
+  `/audio/models` (`available: true`) and the UI. `--tar` writes
+  `strut-<platform>.tar.gz`; `--platform` cross-stages.
+- **Released by `.github/workflows/strut-desktop.yml`** on a `strut-v*` tag:
+  darwin-arm64 (smoke-tested on the runner) and darwin-x64 (cross-staged)
+  tarballs as release assets.
 - Measured (darwin-arm64, 2026-09-07): **99 MB** before the Node binary and
   models, with the defaults: the embeddings stack uninstalled
   (`@huggingface/transformers` + `onnxruntime-web`/`-node` + `sharp`,
@@ -143,32 +149,36 @@ start this until phase A is in users' hands.
 
 ### 2.5 Host ↔ strut contract
 
-Host spawns `node server.cjs` with env:
+Host spawns `node <dir>/desktop.js` (done). The launcher applies these
+defaults; each is an env override, so a host can set none of them:
 
-| Var | Desktop value |
-|---|---|
-| `STRUT_HOST` | `127.0.0.1` |
-| `STRUT_PORT` | `0` (let the OS pick) |
-| `STRUT_WORKSPACE` | app-support dir, e.g. `~/Library/Application Support/<App>/strut` |
-| `STRUT_WORKSPACE_BACKEND` | `fs` |
-| `STRUT_WEB_DIST` | absolute path to bundled `web/dist` |
-| `STRUT_API_KEY` | random per launch, generated by the host |
-| `STRUT_SECRET_KEY` | stable per install, stored in the OS keychain by the host |
-| `STRUT_MODEL_DIR` | app-support `models/` (shared by MiniLM and sherpa, §4.5) |
-| `ANTHROPIC_API_KEY` etc. | from the host's settings UI |
+| Var | Launcher default | Host override |
+|---|---|---|
+| `STRUT_HOST` | `127.0.0.1` | — |
+| `STRUT_PORT` | `0` (let the OS pick) | — |
+| `STRUT_WORKSPACE` | `~/Library/Application Support/strut/workspace` (XDG / `%APPDATA%` elsewhere) | `<App>`-specific dir if wanted |
+| `STRUT_WORKSPACE_BACKEND` | `fs` | — |
+| `STRUT_WEB_DIST` | the staged `web/dist` | — |
+| `STRUT_CACHE_DIR` | `~/Library/Caches` (models at `<cache>/strut/models`, shared by MiniLM and sherpa, §4.5) | or `STRUT_MODEL_DIR` |
+| `STRUT_API_KEY` | random per launch, printed on the ready line | host-generated key |
+| `STRUT_SECRET_KEY` | unset (secrets file only obfuscated; boot warning) | stable per install, from the OS keychain |
+| `ANTHROPIC_API_KEY` etc. | unset | from the host's settings UI |
 
 Protocol:
 
 - strut prints one JSON line on stdout when ready (done):
-  `{"event":"ready","port":51234,"host":"127.0.0.1"}`, after the human lines.
-  `listen()` also rejects on a bind failure instead of crashing.
+  `{"event":"ready","port":51234,"host":"127.0.0.1","key":"…"}`, after the
+  human lines (`key` is present because the launcher sets `STRUT_READY_KEY=1`;
+  a plain `node build/server.js` omits it). The launcher also prints the UI
+  URL with `?key=` on stderr, and `--open` launches it in the browser.
+  `listen()` rejects on a bind failure instead of crashing.
 - Host loads the webview at `http://127.0.0.1:<port>/?key=<STRUT_API_KEY>`
   (done): the UI stores the key in `sessionStorage`, strips it from the URL,
   and sends it as a bearer on every request and as `?key=` on the dictation
   socket. Settings → Connection also accepts a pasted key (`localStorage`).
 - Host kills the child on quit. strut already handles `SIGTERM` via the run
   store's durable resume, so a hard kill is recoverable.
-- Health: `GET /health` (add if missing) so the host can detect a crashed
+- Health: `GET /health` (unauthenticated) so the host can detect a crashed
   child and restart it.
 
 Webview notes: WKWebView allows plain HTTP to localhost without ATS
@@ -339,9 +349,9 @@ and passes every other test.
 
 - Client: `{"type":"start","model":"<id>","sampleRate":16000,"hotwords":"<list name>"|["phrase", …],"session":"<id>"}`
   then binary PCM16LE frames, then `{"type":"end"}`.
-- Server: `{"type":"ready"}`, `{"type":"partial","text"}` on every change,
-  `{"type":"final","text","words":[{w,start}]}` on endpoint detection and on
-  `end`, `{"type":"error","error"}`.
+- Server: `{"type":"ready",model,partialModel,hotwords}`, `{"type":"partial","text"}`
+  on every change, `{"type":"final","index","text","words":[{text,start}]}` on
+  endpoint detection and on `end`, `{"type":"error","error"}`.
 - **Two recognizers per stream when `partialModel` is set**: the fast
   greedy NeMo model produces the partials, the hotword-capable Zipformer
   produces the finals and owns endpoint detection (both are reset on its
@@ -412,8 +422,9 @@ the route, never at boot; server images pre-bake.
 
 Full client contract, with a Swift sketch: `native-dictation-client.md`.
 
-- Capture the microphone natively (AVAudioEngine / AudioRecord), 16 kHz
-  mono PCM16LE. Do **not** use `getUserMedia` inside the webview.
+- Capture the microphone natively (AVAudioEngine / AudioRecord), mono
+  PCM16LE at the device's native rate — declare it in `start`, strut
+  resamples. Do **not** use `getUserMedia` inside the webview.
 - Live: open `/audio/stream`, send ~100 ms frames, render partials, replace
   with finals. Push-to-talk: buffer, wrap as WAV, `POST /audio/transcribe`.
 - Show the user's finals editable; send edits as corrections.
@@ -456,20 +467,19 @@ artifact per user/company) or beside it. Lean: same artifact, two sections.
 
 ## 5. Order of work
 
-1. **STT core** (in progress on `strut-stt`): `src/audio/` service, catalog,
-   hotwords compiler, `/audio/stream` WebSocket, `POST /audio/transcribe`,
-   `/audio/models` + download, sessions + hotword lists. Testable on a
-   server with no desktop work at all.
-2. **Model bake-off**: measure the NeMo / Nemotron streaming variants for
-   partial latency and accuracy on the same clips; pick the default.
+1. ~~**STT core**~~: done (`src/audio/` service, catalog, hotwords compiler,
+   `/audio/stream` WebSocket, `POST /audio/transcribe`, `/audio/models` +
+   download, sessions + hotword lists).
+2. ~~**Model bake-off**~~: done (§4.1); kroko finals + NeMo 80 ms partials.
 3. ~~**Server prerequisites for desktop**~~: done — `STRUT_HOST`,
    `STRUT_WEB_DIST`, `STRUT_PORT=0`, structured `ready` line, `strut.close()`,
    `?key=` handoff in the UI, `STRUT_MODEL_DIR` / `STRUT_CACHE_DIR` fallback.
 4. **First dream cycle**: a sessions → llm → `PUT /audio/hotwords` workflow
    plus the corrections UI. Proves the loop before packaging.
-5. **Phase A packaging**: strut side done (`package:desktop` + smoke test);
-   remaining is the macOS host: embed Node + the staged dir, code-sign the
-   listed addons, spawn strut and stream the mic.
+5. **Phase A packaging**: strut side done (`package:desktop` + `desktop.js`
+   launcher + smoke test + release tarballs); remaining is the macOS host:
+   embed Node + the staged dir, code-sign the listed addon, spawn
+   `desktop.js` and stream the mic (`native-dictation-client.md`).
 6. **Kotlin host**, Windows shell override.
 7. Later: single-binary (phase B), local vector store or LadybugDB backend
    (§3, §3.1), batch `audio/transcribe` step, offline-mobile bindings.
