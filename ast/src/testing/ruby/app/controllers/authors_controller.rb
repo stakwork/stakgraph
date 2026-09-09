@@ -1,9 +1,11 @@
 class AuthorsController < ApplicationController
+  # @ast node: Function "index"
   def index
     authors = Author.all
     render json: authors, status: :ok
   end
 
+  # @ast node: Function "create"
   def create
     author = Author.new(author_params)
     if author.save
@@ -13,6 +15,7 @@ class AuthorsController < ApplicationController
     end
   end
 
+  # @ast node: Function "show"
   def show
     author = Author.find(params[:id])
     render json: author, status: :ok
@@ -20,6 +23,7 @@ class AuthorsController < ApplicationController
 
   private
 
+  # @ast node: Function "author_params"
   def author_params
     params.require(:author).permit(:name, :bio)
   end
