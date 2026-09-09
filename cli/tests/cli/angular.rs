@@ -32,9 +32,12 @@ fn parse_stats_angular_dir() {
     let dir = fixture_path("src/testing/angular");
     let out = run_stakgraph(&["--stats", &dir]);
 
+    // Now that .ts files in this angular.json project are correctly parsed
+    // with the Angular query stack (not generic Typescript), server.ts's
+    // Express route is no longer misread as an Endpoint — angular.rs has no
+    // endpoint_finders of its own.
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("Endpoint             1"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             14"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             11"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                6"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             4"), "stdout: {}", out.stdout);
 }
@@ -45,8 +48,7 @@ fn parse_type_filter_endpoint_angular() {
     let out = run_stakgraph(&["--type", "Endpoint", &dir]);
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert_eq!(count_prefix(&out.stdout, "Endpoint:"), 1);
-    assert!(out.stdout.contains("Endpoint: GET **"), "stdout: {}", out.stdout);
+    assert_eq!(count_prefix(&out.stdout, "Endpoint:"), 0);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────
@@ -57,8 +59,11 @@ fn search_angular_get_endpoint() {
     let out = run_stakgraph(&["search", "GET", "--type", "Endpoint", &dir]);
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("1 result"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Endpoint: GET **"), "stdout: {}", out.stdout);
+    assert!(
+        out.stdout.contains("No nodes matching"),
+        "stdout: {}",
+        out.stdout
+    );
 }
 
 // ── deps ──────────────────────────────────────────────────────────────────────
