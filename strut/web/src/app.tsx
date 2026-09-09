@@ -25,7 +25,8 @@ import { EventsResizer } from "./components/EventsResizer";
 import { StepRunFlyout } from "./components/StepRunFlyout";
 import { ParamsFlyout } from "./components/ParamsFlyout";
 import { PromoteFlyout } from "./components/PromoteFlyout";
-import { RunInputPopover, deriveInputBindings } from "./components/RunInputPopover";
+import { RunInputPopover } from "./components/RunInputPopover";
+import { deriveInputBindings, stepTypesIn, type InputBinding } from "./run-inputs";
 
 // A nested run-execution the user has drilled into. `pathPrefix` is the
 // original event-path prefix this child lives under (e.g. `wf/subflowId`),
@@ -106,7 +107,7 @@ export function App() {
   const [showChat, setShowChat] = useState(() =>
     new URLSearchParams(location.search).has("chat"),
   );
-  const [runBindings, setRunBindings] = useState<ReturnType<typeof deriveInputBindings> | null>(null);
+  const [runBindings, setRunBindings] = useState<InputBinding[] | null>(null);
   // The selected workflow's `params` defaults (tunable knobs). `wfParams` is
   // the published baseline; `localParams` is the editable working copy. Editing
   // a param and publishing = a new workflow version (params live in the YAML).
@@ -543,19 +544,25 @@ export function App() {
 
   const handleRun = useCallback(async () => {
     if (!selectedWf || !localSteps || localSteps.length === 0) return;
-    const first = localSteps[0]!;
-    try {
-      const { fields } = await api.getStepSchema(first.type);
-      const bindings = deriveInputBindings(first, fields);
-      const hasParams = localParams != null && Object.keys(localParams).length > 0;
-      if (bindings.length === 0 && !hasParams) {
-        await submitRun({});
-      } else {
-        setRunBindings(bindings);
-      }
-    } catch {
-      // If we can't load the schema, fall back to running with no input.
+    // Inputs are referenced wherever they're consumed, so every step's schema
+    // is consulted — not just the first's (see run-inputs.ts). A type whose
+    // schema fails to load still contributes its refs, as untyped fields.
+    const schemas = new Map<string, api.FieldDesc[]>();
+    await Promise.all(
+      stepTypesIn(localSteps).map(async (type) => {
+        try {
+          schemas.set(type, (await api.getStepSchema(type)).fields);
+        } catch {
+          // untyped
+        }
+      }),
+    );
+    const bindings = deriveInputBindings(localSteps, (type) => schemas.get(type));
+    const hasParams = localParams != null && Object.keys(localParams).length > 0;
+    if (bindings.length === 0 && !hasParams) {
       await submitRun({});
+    } else {
+      setRunBindings(bindings);
     }
   }, [selectedWf, localSteps, submitRun, localParams]);
 
@@ -851,6 +858,20 @@ export function App() {
           {isDirty && <span class="dirty-dot" style="margin-left:8px;" />}
         </span>
         <div class="topbar-actions">
+          {selectedWf && !viewingOld && (
+            <div class="run-anchor">
+              <button class="btn btn-primary" onClick={handleRun}>Run</button>
+              {runBindings && selectedWf && (
+                <RunInputPopover
+                  workflow={selectedWf}
+                  bindings={runBindings}
+                  params={localParams}
+                  onSubmit={submitRun}
+                  onClose={() => setRunBindings(null)}
+                />
+              )}
+            </div>
+          )}
           {/* Run control: cancel/pause a live run tree; resume a paused or
               dead (stale/error/cancelled) one — RUN_CONTROL_SPEC §3–§5. */}
           {selectedRun && runIsLive && runControlStatus !== "cancelling" && (
@@ -875,22 +896,8 @@ export function App() {
               onClick={() => { setShowParams((s) => !s); setShowPromote(false); setInfoStep(null); setFlyoutStepId(null); }}
             >Params</button>
           )}
-          {selectedWf && !viewingOld && (
-            <div class="run-anchor">
-              <button class="btn btn-primary" onClick={handleRun}>Run</button>
-              {runBindings && selectedWf && (
-                <RunInputPopover
-                  workflow={selectedWf}
-                  bindings={runBindings}
-                  params={localParams}
-                  onSubmit={submitRun}
-                  onClose={() => setRunBindings(null)}
-                />
-              )}
-            </div>
-          )}
           <button class="btn" onClick={() => setShowSecrets(true)}>Secrets</button>
-          <button class="btn" onClick={() => setShowChat(!showChat)}>AI</button>
+          <button class={`btn btn-ai${showChat ? " is-active" : ""}`} onClick={() => setShowChat(!showChat)}>AI</button>
           <button class="btn btn-icon" onClick={() => setShowSettings(true)} aria-label="Settings" title="Settings">
             <GearIcon />
           </button>

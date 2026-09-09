@@ -89,11 +89,11 @@ export function StepInfoFlyout(props: {
 
         {/* Step source (lazily fetched, read-only) */}
         <div class="flyout-section">
-          <button class="flyout-source-toggle" onClick={toggleSource} type="button">
-            <span class={`flyout-source-caret${sourceOpen ? " open" : ""}`}>▶</span>
+          <button class="flyout-toggle" onClick={toggleSource} type="button">
+            <span class={`flyout-toggle-caret${sourceOpen ? " open" : ""}`}>▶</span>
             Source
             {source?.origin && (
-              <span class="flyout-source-origin">{source.origin}</span>
+              <span class="flyout-toggle-note">{source.origin}</span>
             )}
           </button>
           {sourceOpen && (
