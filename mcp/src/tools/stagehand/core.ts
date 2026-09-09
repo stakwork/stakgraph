@@ -1,5 +1,6 @@
-import { Stagehand, Page } from "@browserbasehq/stagehand";
-import { getProvider } from "./providers.js";
+import { Stagehand, Page, AISdkClient } from "@browserbasehq/stagehand";
+import { resolveBrowserModel } from "./providers.js";
+import { getModelDetails } from "../../aieo/src/provider.js";
 
 let STATE: {
   [sessionId: string]: {
@@ -44,7 +45,11 @@ export interface NetworkEntry {
 
 const MAX_LOGS = parseInt(process.env.STAGEHAND_MAX_CONSOLE_LOGS || "1000");
 const MAX_NETWORK_ENTRIES = parseInt(process.env.STAGEHAND_MAX_NETWORK_ENTRIES || "500");
-const MAX_SESSIONS = 25; // LRU limit for stagehand instances
+const MAX_SESSIONS = parseInt(process.env.BROWSER_MAX_SESSIONS || "25"); // LRU limit for stagehand instances
+const SESSION_IDLE_MS = parseInt(process.env.BROWSER_SESSION_IDLE_MS || "600000");
+const BROWSERBASE_SESSION_TIMEOUT = parseInt(
+  process.env.BROWSERBASE_SESSION_TIMEOUT || "900"
+);
 
 export async function getOrCreateStagehand(sessionIdMaybe?: string) {
   const sessionId = sessionIdMaybe || "default-session-id";
@@ -56,20 +61,54 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     return STATE[sessionId].stagehand;
   }
 
-  let provider = getProvider();
-  console.log("initializing stagehand!", provider.model);
-  const sh = new Stagehand({
-    env: "LOCAL",
-    domSettleTimeout: 60000,
-    localBrowserLaunchOptions: {
-      headless: true,
-      viewport: { width: 1024, height: 768 },
-    },
-    model: {
-      modelName: provider.model,
-      apiKey: process.env[provider.api_key_env_var_name],
-    },
-  });
+  const useBrowserbase =
+    (process.env.BROWSER_BACKEND || "").toLowerCase() === "browserbase";
+  if (
+    useBrowserbase &&
+    !(process.env.BROWSERBASE_API_KEY && process.env.BROWSERBASE_PROJECT_ID)
+  ) {
+    throw new Error(
+      "BROWSER_BACKEND=browserbase requires BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID"
+    );
+  }
+  const { model: modelName, apiKey } = resolveBrowserModel();
+  const { model: aiModel } = getModelDetails(modelName, apiKey);
+  const llmClient = new AISdkClient({ model: aiModel as any });
+  const options: ConstructorParameters<typeof Stagehand>[0] = useBrowserbase
+    ? {
+        env: "BROWSERBASE",
+        apiKey: process.env.BROWSERBASE_API_KEY,
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+        disableAPI: true,
+        browserbaseSessionCreateParams: {
+          projectId: process.env.BROWSERBASE_PROJECT_ID,
+          timeout: BROWSERBASE_SESSION_TIMEOUT,
+          proxies: process.env.BROWSERBASE_PROXIES === "true",
+          browserSettings: {
+            solveCaptchas: process.env.BROWSERBASE_SOLVE_CAPTCHAS !== "false",
+            recordSession: process.env.BROWSERBASE_RECORD !== "false",
+            viewport: { width: 1024, height: 768 },
+          },
+        },
+        waitForCaptchaSolves: process.env.BROWSERBASE_SOLVE_CAPTCHAS !== "false",
+        domSettleTimeout: 60000,
+        llmClient,
+      }
+    : {
+        env: "LOCAL",
+        domSettleTimeout: 60000,
+        localBrowserLaunchOptions: {
+          headless: true,
+          viewport: { width: 1024, height: 768 },
+        },
+        llmClient,
+      };
+  console.log(
+    "initializing stagehand!",
+    useBrowserbase ? "browserbase" : "local",
+    modelName
+  );
+  const sh = new Stagehand(options);
   await sh.init();
 
   // Initialize session state
@@ -99,6 +138,8 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
   // Note: Network monitoring via request/response events is not available
   // in the new Stagehand V3 API. The Page class only exposes "console" events.
   // Network monitoring would need to be implemented via CDP directly if needed.
+
+  startIdleSweep();
 
   // Check if we need to evict old sessions (LRU)
   if (Object.keys(STATE).length > MAX_SESSIONS) {
@@ -154,6 +195,33 @@ export function clearNetworkEntries(sessionId: string): void {
   }
 }
 
+async function closeSession(sessionId: string): Promise<void> {
+  const entry = STATE[sessionId];
+  if (!entry) return;
+  try {
+    await entry.stagehand.close();
+  } catch (error) {
+    console.error(`Error closing stagehand for session ${sessionId}:`, error);
+  }
+  delete STATE[sessionId];
+}
+
+let idleSweepStarted = false;
+function startIdleSweep(): void {
+  if (idleSweepStarted) return;
+  idleSweepStarted = true;
+  const timer = setInterval(() => {
+    const now = Date.now();
+    for (const sessionId of Object.keys(STATE)) {
+      if (now - STATE[sessionId].last_used.getTime() > SESSION_IDLE_MS) {
+        console.log(`[idle] closing idle session: ${sessionId}`);
+        void closeSession(sessionId);
+      }
+    }
+  }, 60000);
+  timer.unref?.();
+}
+
 async function evictOldestSession(): Promise<void> {
   const sessionIds = Object.keys(STATE);
   if (sessionIds.length === 0) return;
@@ -164,20 +232,7 @@ async function evictOldestSession(): Promise<void> {
   );
 
   console.log(`[LRU] Evicting oldest session: ${oldestSessionId}`);
-
-  // Properly close the stagehand browser instance
-  try {
-    await STATE[oldestSessionId].stagehand.close();
-  } catch (error) {
-    console.error(
-      `[LRU] Error closing stagehand for session ${oldestSessionId}:`,
-      error
-    );
-  }
-
-  // Remove from STATE
-  delete STATE[oldestSessionId];
-
+  await closeSession(oldestSessionId);
   console.log(
     `[LRU] Sessions after eviction: ${
       Object.keys(STATE).length
