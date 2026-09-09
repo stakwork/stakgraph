@@ -125,6 +125,9 @@ impl Stack for Java {
                         )
                     )?
                 )@{CLASS_DEFINITION}
+                (enum_declaration
+                    name: (identifier)@{CLASS_NAME}
+                )@{CLASS_DEFINITION}
                 "#
         )
     }
@@ -408,6 +411,9 @@ impl Stack for Java {
                 name: (identifier) @{STRUCT_NAME}
                 ) @{STRUCT}
                 (record_declaration
+                name: (identifier) @{STRUCT_NAME}
+                ) @{STRUCT}
+                (enum_declaration
                 name: (identifier) @{STRUCT_NAME}
                 ) @{STRUCT}
                 (class_declaration
