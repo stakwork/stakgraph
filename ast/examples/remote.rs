@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ast::utils::{logger, print_json};
 use ast::{self, repo::Repo};
+use lsp::git::CloneOpts;
 
 /*
 cargo run --example remote
@@ -15,7 +16,7 @@ async fn main() -> Result<()> {
         .unwrap_or("https://github.com/pypa/sampleproject".to_string());
 
     let repos =
-        Repo::new_clone_multi_detect(&url, None, None, Vec::new(), Vec::new(), None, None, None)
+        Repo::new_clone_multi_detect(&url, None, None, Vec::new(), Vec::new(), None, None, None, &CloneOpts::default())
             .await?;
     let graph = repos.build_graphs().await?;
 

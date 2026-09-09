@@ -1,4 +1,6 @@
 package com.kotlintestapp.viewModels
+// @ast node: Class "ApiClient"
+// @ast edge: Operand -> Function "fetchPeople" "PersonViewModel.kt"
 // @ast node: Class "PersonViewModel"
 // @ast edge: Operand -> Function "fetchAndStorePersons" "PersonViewModel.kt"
 // @ast edge: Operand -> Function "fetchPersonsFromApi" "PersonViewModel.kt"

@@ -1,6 +1,8 @@
 import { SimpleGitOptions, SimpleGit, simpleGit } from "simple-git";
 import path from "path";
 import fs from "fs";
+import { redactCredentials } from "./utils.js";
+import { withRepoLock } from "./repo_lock.js";
 
 // Fail immediately on credential prompts instead of blocking on a TTY
 process.env.GIT_TERMINAL_PROMPT = "0";
@@ -29,9 +31,6 @@ function cloneWithTimeout(promise: Promise<string>, label: string): Promise<stri
   ]);
 }
 
-// Lock map to prevent concurrent clones to the same directory
-const cloneLocks = new Map<string, Promise<string>>();
-
 /**
  * Clone or update one or more repositories.
  * If repoUrls is a comma-separated list, clones all repos to /tmp/owner/repo each
@@ -58,7 +57,10 @@ export async function cloneOrUpdateRepo(
 }
 
 /**
- * Clone a single repository (original behavior)
+ * Clone a single repository (original behavior).
+ * Uses withRepoLock so that concurrent clone operations for the same directory
+ * run sequentially — preventing doCloneOrUpdate's fs.rmSync from destroying
+ * .git/worktrees metadata under an in-flight PR run.
  */
 async function cloneSingleRepo(
   repoUrl: string,
@@ -75,29 +77,17 @@ async function cloneSingleRepo(
   // Create directory structure: /tmp/owner/repo
   const cloneDir = path.join("/tmp", owner, repoName);
 
-  // Check if there's already a clone operation in progress for this directory
-  const existingLock = cloneLocks.get(cloneDir);
-  if (existingLock) {
-    console.log(`Clone already in progress for ${cloneDir}, waiting...`);
-    return existingLock;
-  }
-
   if (abortSignal?.aborted) {
     return Promise.reject(new Error(`[clone] Aborted before start: ${cloneDir}`));
   }
 
-  const clonePromise = cloneWithTimeout(
-    doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit, abortSignal),
-    cloneDir
-  );
-  cloneLocks.set(cloneDir, clonePromise);
-
   console.log("===> cloning into", cloneDir);
-  try {
-    return await clonePromise;
-  } finally {
-    cloneLocks.delete(cloneDir);
-  }
+  return withRepoLock(cloneDir, () =>
+    cloneWithTimeout(
+      doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit, abortSignal),
+      cloneDir
+    )
+  );
 }
 
 /**
@@ -130,7 +120,10 @@ async function cloneMultipleRepos(
     if (result.status === "fulfilled") {
       succeeded.push(url);
     } else {
-      const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      // `msg` is raw git stderr, which carries the inlined PAT.
+      const msg = redactCredentials(
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      );
       failed.push({ url, error: msg });
       console.warn(`[clone] Failed to clone ${url}: ${msg}`);
     }

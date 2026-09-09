@@ -1,9 +1,9 @@
 import "dotenv/config";
 import { join } from "node:path";
-import { createLabVein } from "../createLabVein.js";
+import { createLabStrut } from "../createLabStrut.js";
 
 /**
- * Throwaway integration test for the gitsee EVAL harness: builds a real lab vein
+ * Throwaway integration test for the gitsee EVAL harness: builds a real lab strut
  * (seeds the gitsee workflows/steps) and runs `gitsee-eval` end-to-end —
  * produce (clone workspace + explore via gitsee-explore-services) → score
  * (eval/score with the gold-files rubric). Validates subflow wiring + scoring,
@@ -22,11 +22,11 @@ const label = process.argv[2] || "heroku-node";
 
 async function main() {
   // The canonical lab workspace (gitignored, inside the mcp tree so the seeded
-  // steps' bare `import "vein"` resolves against mcp/node_modules — the
+  // steps' bare `import "strut"` resolves against mcp/node_modules — the
   // AGENTS.md workspace gotcha).
   const workspacePath = join(process.cwd(), "lab-workspace");
   console.log("workspace:", workspacePath);
-  const vein = await createLabVein({ serveUi: false, workspacePath });
+  const strut = await createLabStrut({ serveUi: false, workspacePath });
 
   // Pull the workspace entry (repos + gold) from the optimize dataset.
   const here = dirname(fileURLToPath(import.meta.url));
@@ -37,7 +37,7 @@ async function main() {
   if (!entry) throw new Error(`no dataset entry with label "${label}"`);
 
   console.log(`\n=== run gitsee-eval on workspace "${label}" (${entry.repos.length} repo(s)) ===`);
-  const res = await vein.run("gitsee-eval", {
+  const res = await strut.run("gitsee-eval", {
     label: entry.label,
     repos: entry.repos,
     expected: entry.expected,

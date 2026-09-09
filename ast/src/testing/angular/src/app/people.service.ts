@@ -16,6 +16,9 @@ import { Person } from './models/person.model';
 // @ast edge: Calls -> Request "this.peopleSubject.next" "people.service.ts"
 // @ast node: Function "getPeople"
 // @ast node: Import "import-imports-srctestingangularsrcapppeopleservicets-2"
+// @ast node: Var "peopleSubject"
+// @ast node: Var "people$"
+// @ast node: Var "people"
 
 function LogMethod(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
   const originalMethod = descriptor.value;

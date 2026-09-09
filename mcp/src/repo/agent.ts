@@ -4,6 +4,7 @@ import {
   ToolLoopAgent,
   ModelMessage,
   StopCondition,
+  StepResult,
   ToolSet,
   jsonSchema,
   stepCountIs,
@@ -15,14 +16,31 @@ import {
   getModelDetails,
   getProviderOptions,
   normalizeUsage,
+  withProviderCacheUsage,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, redactToolsConfig } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector, toolConfigEnabled, graphWriteEnabled, redactToolsConfig } from "./tools.js";
+import {
+  withConceptCollection,
+  normalizeConceptReads,
+  runReflection,
+  reflectEnabled,
+  reflectPromptOverride,
+  sessionPendingProposals,
+  fileReflectionProposals,
+  type ConceptCollector,
+  type ReflectConfig,
+} from "./concepts.js";
+import type { ConceptProposal } from "../gitree/types.js";
 import { SKILLS, enabledEntries, renderSkillIndex } from "./skills.js";
 import { type SubAgent, subAgentRepoNames } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
   logStep,
   extractFinalAnswer,
+  maxOutputTokensFor,
+  needsContinuation,
+  isContinuationNudge,
+  timeBudgetNudge,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
@@ -35,6 +53,7 @@ import {
   getCurrentDateSnippet,
 } from "./utils.js";
 import { LanguageModel } from "ai";
+import { BUSY_TIMEOUT_MINUTES } from "../busy.js";
 import {
   createSession as createNewSession,
   appendSessionEnd,
@@ -46,10 +65,13 @@ import {
   sessionExists,
   saveSessionConfig,
   saveSessionMetadata,
+  mergeReflection,
   SessionConfig,
   StepMeta,
+  type SessionReflection,
 } from "./session.js";
-import { McpServer, getMcpTools } from "./mcpServers.js";
+import { emitUserTurn, emitStepTurns } from "./turns.js";
+import { McpServer, getMcpTools, McpToolsResult } from "./mcpServers.js";
 import type { GoogleSheetsToolsOptions } from "./toolsGoogleSheets.js";
 import {
   resolveCurrentTurnAttachments,
@@ -63,7 +85,11 @@ import {
 import type { TextPart } from "ai";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
+  const antiStall = `Never end your turn on a plan or a statement of intent. If you are about to write "Let me now..." or "Next I will...", do those things in this same turn by calling the tools instead of describing them. End your turn only once your final answer is written${qs ? ", or you have called ask_clarifying_questions" : ""}.`;
+
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
+
+  ${antiStall}
 
   Write your answer directly as text and end with [END_OF_ANSWER].`;
   
@@ -84,7 +110,9 @@ function SYSTEM_PROMPT_END(qs: boolean) {
   - Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
   - Color picker: Use questionArtifact with type "color_swatch" to show a color picker
   
-  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`
+  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.
+
+  ${antiStall}`
 
   return qs ? qsEnd : normalEnd;
 }
@@ -202,20 +230,23 @@ Other rules:
  * (search-then-write) instead of minting duplicates.
  */
 const GRAPH_WRITE_GUIDANCE = `
-### Graph Writes (create_triplet — enabled)
-You can assert facts into the graph as DATA: source node -[edge]-> target node. Writes apply live to the graph immediately.
-- **Reuse before you create.** For each side of the triplet, \`graph_search\` for the entity first and pass its \`ref_id\`. Only create a node inline (\`*_type\` + \`*_data\`) when the entity genuinely does not exist yet — duplicate nodes fragment the graph.
+### Graph Writes (enabled)
+You can write DATA into the graph (instances, not schema). Writes apply live to the graph immediately.
+- \`create_triplet\` / \`create_batch_triplet\` — assert facts as source node -[edge]-> target node.
+- \`create_node\` — create (or merge) a single node with no edge. Prefer \`create_triplet\` when the new node should be connected to something — free-floating nodes are rarely useful.
+- \`edit_node\` — partial-update an existing node by ref_id: \`node_data\` merges over current properties, \`properties_to_be_deleted\` removes them. Inspect the node with \`graph_get\` before editing it.
+- **Reuse before you create.** \`graph_search\` for the entity first and pass its \`ref_id\`. Only create a node (inline \`*_type\` + \`*_data\`, or \`create_node\`) when the entity genuinely does not exist yet — duplicate nodes fragment the graph.
 - Node types and the edge type must exist in the ontology — verify with \`get_ontology\` (\`include_edges: true\` to see valid relationships). \`create_schema_if_missing\` auto-creates a missing edge schema; use it sparingly, and never to paper over a typo in \`edge_type\`.
 - Pass \`namespace\` when writing into a specific data partition.
-- Writes are create-or-merge: re-asserting an existing triplet is safe and returns the existing ref_ids (reported as a Warning).
-- After a write, report exactly what was created (source, edge, target ref_ids).
+- Creates are create-or-merge: re-asserting an existing triplet or node is safe and returns the existing ref_ids (reported as a Warning).
+- After a write, report exactly what was created or changed (ref_ids, properties).
 `;
 
 function GRAPH_SYSTEM(toolsConfig?: ToolsConfig) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
-  const graphWrite = toolConfigEnabled(toolsConfig?.create_triplet);
+  const graphWrite = graphWriteEnabled(toolsConfig);
 
   return `${getCurrentDateSnippet()}
 
@@ -251,7 +282,7 @@ function WORKFLOW_SYSTEM(toolsConfig?: ToolsConfig, hasRunTools?: boolean) {
 
   const qs = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
   const ontologyEdit = toolConfigEnabled(toolsConfig?.ontology_edit);
-  const graphWrite = toolConfigEnabled(toolsConfig?.create_triplet);
+  const graphWrite = graphWriteEnabled(toolsConfig);
   const runStepEnabled = Boolean(hasRunTools) && toolConfigEnabled(toolsConfig?.stakwork_run_step);
 
   const runStepGuidance = runStepEnabled
@@ -402,6 +433,25 @@ export interface GetContextOptions {
   apiKey?: string;
   baseUrl?: string;
   pat?: string | undefined;
+  /** GitHub username claimed by the caller (verified against PAT in create_pr mode) */
+  username?: string;
+  /** Base branch for create_pr worktree (resolved from GitHub API if omitted) */
+  base?: string;
+  /** Resolved worktree + identity for create_pr runs; undefined on standard runs */
+  prMode?: {
+    handle: import("./git_pr.js").WorktreeHandle;
+    identity: import("./git_pr.js").AgentIdentity;
+    env: NodeJS.ProcessEnv;
+    githubClient: import("./git_pr.js").GitHubClient;
+  };
+  /**
+   * Ephemeral throwaway-worktree run (read-only preview isolation). Arms the
+   * same bash/editor confinement as prMode — no git write commands, no ambient
+   * GitHub tokens — with `baseCheckoutPath` (the shared clone) rejected in
+   * bash commands. The caller acquires/releases the worktree; repoPath must
+   * already point inside it.
+   */
+  ephemeral?: { baseCheckoutPath: string };
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
   // Selects the base system prompt persona. "graph" uses a generalized
@@ -421,6 +471,9 @@ export interface GetContextOptions {
   repos?: string[];
   // Skills support
   skills?: SkillsConfig;
+  // Comma-separated Jarvis ontology domains (e.g. "Legal,Entity,Content") used
+  // as the default scope for get_ontology. Unset => every domain is returned.
+  ontologyDomains?: string;
   // Sub-agents: remote agent instances this agent can delegate to
   subAgents?: SubAgent[];
   // GGNN integration
@@ -437,6 +490,11 @@ export interface GetContextOptions {
   onStepEvent?: (content: any[]) => void;
   // Source label persisted to the session file
   source?: string;
+  // Caller-assigned agent identity (e.g. "repair-agent-147813394"): stamped
+  // on the AgentSession node as agent_name and used as the turn_id label so
+  // a workflow's many agents are distinguishable in the graph. Orchestrators
+  // embed the run id in the name, which groups a run's sessions.
+  agentName?: string;
   // Write messages to the session but don't load prior messages as context
   isolatedContext?: boolean;
   // Abort signal for cancelling in-flight requests
@@ -453,6 +511,12 @@ export interface GetContextOptions {
   commitList?: string[];
   // Skip prepending repo info to the first prompt (handler-level; recorded in config)
   ignoreRepoInfo?: boolean;
+  // Concept reflection. Concepts a run READ are always recorded to the
+  // session's reflection sidecar; this opt-in additionally asks the agent,
+  // once the run is over, to rank them by how load-bearing they were.
+  // `{ prompt }` overrides the instruction text — the list of concepts read
+  // is appended by us either way, since a caller can't know what was read.
+  reflect?: ReflectConfig;
   // Replay mode: `prompt` is a full ModelMessage[] (including the system turn)
   // that is run verbatim. No system prompt is generated, no enrichment blocks
   // are appended, no session history is loaded, no attachments are resolved,
@@ -474,8 +538,38 @@ interface PreparedAgent {
   startTime: number;
   stepMetas: StepMeta[];
   turnIndex: number;
+  // Live view of the in-flight step's message array (updated by prepareStep);
+  // used to resume from the exact failure point on a 400 retry.
+  messagesRef: MessagesRef;
+  // Whether the ask_clarifying_questions tool is available this run; selects
+  // the escape hatch offered in the continuation nudge.
+  askQuestionsEnabled: boolean;
   provenanceCollector: ProvenanceCollector;
+  prCollector: import("./tools.js").PrCollector;
+  conceptCollector: ConceptCollector;
   abortSignal: AbortSignal | undefined;
+  mcpClients: McpToolsResult["clients"];
+  // The run's system prompt and tool set, kept so the reflect pass can re-send
+  // them byte-identical and hit the provider's prompt cache.
+  instructions: string | undefined;
+  tools: ToolSet;
+}
+
+/**
+ * Append the API response body to an error's message when the message alone
+ * is uninformative (e.g. a bare "Bad Request"). Mutates the error so every
+ * downstream consumer of err.message — session end records, async request
+ * records, webhooks — sees the real reason.
+ */
+function enrichErrorMessage(err: unknown): void {
+  if (!(err instanceof Error)) return;
+  const body =
+    (err as any)?.responseBody ?? (err as any)?.cause?.responseBody;
+  if (!body) return;
+  const detail = String(body).slice(0, 600);
+  if (!err.message.includes(detail.slice(0, 40))) {
+    err.message = `${err.message} — ${detail}`;
+  }
 }
 
 /** Returns true if the error was caused by an AbortSignal. */
@@ -488,6 +582,30 @@ function isAbortError(err: unknown): boolean {
     if (/abort/i.test(err.message)) return true;
   }
   return false;
+}
+
+/**
+ * Terminal `pr` field for a run. When create_pr was enabled, an absent
+ * collector result becomes an explicit `create_pr_not_called` sentinel, so a
+ * receiver can distinguish "the tool never ran" from a malformed payload —
+ * exactly the confusion the 2026-08-19 incident presented as.
+ */
+export function terminalPrResult(
+  collectorResult: import("./git_pr.js").LandChangeResult | undefined,
+  toolsConfig: ToolsConfig | undefined,
+  prMode: GetContextOptions["prMode"],
+): import("./git_pr.js").LandChangeResult | undefined {
+  if (collectorResult) return collectorResult;
+  if (!toolConfigEnabled(toolsConfig?.create_pr)) return undefined;
+  const branchNote = prMode?.handle?.branch
+    ? ` The run's worktree branch '${prMode.handle.branch}' was never pushed.`
+    : "";
+  return {
+    ok: false,
+    failure: "create_pr_not_called",
+    diff: "",
+    error: `The run completed without invoking the create_pr tool; this run opened no PR.${branchNote}`,
+  };
 }
 
 // Exported for tests.
@@ -518,11 +636,22 @@ export async function prepareAgent(
   // code-generated system prompt, enrichment, session history, attachments,
   // or persistence. The system turn must live inside the messages array.
   const transparent = opts.transparent === true;
-  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers);
+  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn, baseUrl, opts.headers, opts.abortSignal);
   console.log("===> model", modelId, "provider", provider, "contextLimit", contextLimit);
+
+  // Fail closed: a run that asked for create_pr but has no armed worktree
+  // must error, never degrade into an unconfined shared-checkout run with a
+  // live push token (see the 2026-08-19 incident: an agent hand-rolled a PR
+  // with bash + gh because nothing was confined and create_pr had no handle).
+  if (toolConfigEnabled(toolsConfig?.create_pr) && !opts.prMode) {
+    throw new Error(
+      "create_pr was requested but no worktree/identity was armed for this run — refusing to run unconfined",
+    );
+  }
 
   const messagesRef: MessagesRef = { current: [] };
   const provenanceCollector: ProvenanceCollector = { entries: [] };
+  const prCollector: import("./tools.js").PrCollector = { result: undefined };
   let tools = await get_tools(
     repoPath,
     apiKey,
@@ -538,17 +667,48 @@ export async function prepareAgent(
     opts.stakwork,
     opts.googleSheets,
     skills,
+    opts.ontologyDomains,
+    // Parent session id for graph_sub_agent child-session linkage. The
+    // resolved sessionId (set below) is always inputSessionId when defined,
+    // so passing it here is safe even though tools are built first.
+    transparent ? undefined : inputSessionId,
+    // Thread the run's AbortSignal so Jarvis HTTP calls honour abort/timeout.
+    opts.abortSignal,
+    // create_pr path: worktree handle, collector, and base checkout guard.
+    // Ephemeral path: confinement only — same guards, no create_pr tool.
+    opts.prMode
+      ? {
+          prCollector,
+          prMode: opts.prMode,
+          baseCheckoutPath: `/tmp/${opts.prMode.handle.owner}/${opts.prMode.handle.repo}`,
+        }
+      : opts.ephemeral
+        ? {
+            ephemeral: true,
+            baseCheckoutPath: opts.ephemeral.baseCheckoutPath,
+          }
+        : undefined,
   );
 
-  // Load and merge MCP server tools if configured
+  // Load and merge MCP server tools if configured.
+  // mcpClients is captured here so it can be closed in a finally after the run.
   let orgAgentToolNames: string[] = [];
+  let mcpClients: McpToolsResult["clients"] = [];
   if (mcpServers && mcpServers.length > 0) {
-    const mcpTools = await getMcpTools(mcpServers);
-    tools = { ...tools, ...mcpTools };
-    console.log(`[MCP] Merged ${Object.keys(mcpTools).length} MCP tools`);
+    const mcpResult = await getMcpTools(mcpServers, repoPath);
+    tools = { ...tools, ...mcpResult.tools };
+    mcpClients = mcpResult.clients;
+    console.log(`[MCP] Merged ${Object.keys(mcpResult.tools).length} MCP tools`);
     // Detect any "*_org_agent" tools (e.g. stakwork_org_agent, evanfeenstra_org_agent)
-    orgAgentToolNames = Object.keys(mcpTools).filter(name => /_org_agent$/i.test(name));
+    orgAgentToolNames = Object.keys(mcpResult.tools).filter(name => /_org_agent$/i.test(name));
   }
+
+  // Record every gitree Concept whose body a tool hands back. Wrapping the
+  // assembled tool set here (rather than threading a collector through
+  // get_tools' argument list) keeps the concern in one place; the wrapper
+  // preserves each tool's description, which the session config reads below.
+  const conceptCollector: ConceptCollector = { reads: [] };
+  tools = withConceptCollection(tools, conceptCollector) as typeof tools;
 
   let instructions = systemOverride
     ? `${systemOverride}\n\n${SYSTEM_PROMPT_END(false)}`
@@ -674,10 +834,18 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
       previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
     } else {
-      sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
+      sessionId = createNewSession(
+        inputSessionId,
+        instructions,
+        opts.source,
+        repoLabel,
+        undefined,
+        opts.agentName,
+      );
       saveSessionConfig(sessionId, {
         model: modelId,
         provider,
+        agentName: opts.agentName,
         systemOverride: opts.systemOverride,
         mode: opts.mode,
         // Redacted: toolsConfig may carry google_sheets service-account creds
@@ -694,13 +862,18 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
         ),
         providerConfig: getProviderOptions(provider as any, undefined, modelId),
         baseUrl: opts.baseUrl,
-        // Redact secrets before persisting
-        mcpServers: opts.mcpServers?.map(({ token, headers, ...rest }) => rest),
+        // Redact secrets (token, headers, env) before persisting.
+        // command/args are retained as the non-secret server identifier
+        // (analogous to url for HTTP servers, which is likewise kept).
+        // IMPORTANT: secrets must be placed in env (stripped here), never in args/command.
+        mcpServers: opts.mcpServers?.map(({ token, headers, env, ...rest }: any) => rest),
         subAgents: opts.subAgents?.map(({ apiToken, ...rest }) => rest),
         ggnn: opts.ggnn,
         skills: opts.skills,
+        ontologyDomains: opts.ontologyDomains,
         commitList: opts.commitList,
         ignoreRepoInfo: opts.ignoreRepoInfo,
+        reflect: opts.reflect,
       });
       hasSystemTurn = true;
     }
@@ -732,9 +905,17 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
   const stepMetas: StepMeta[] = [];
   let cumInput = 0;
   let cumOutput = 0;
+  const askQuestionsEnabled = toolConfigEnabled(toolsConfig?.ask_clarifying_questions);
+  const firedTimeNudges = new Set<number>();
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length +
-    (hasSystemTurn ? 2 : 1);
+    previousMessages.filter(
+      (m) => m.role === "user" && !isContinuationNudge(m)
+    ).length + (hasSystemTurn ? 2 : 1);
+
+  // Seed the per-step interval clock *after* cacheAttachments (a network
+  // download) completes, so step 0's elapsedMs excludes setup/network latency.
+  // This is intentionally separate from startTime which feeds total duration_ms.
+  let lastStepTime = Date.now();
 
   const agent = new ToolLoopAgent({
     model,
@@ -745,28 +926,61 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
-      logStep(sf.content);
+      const now = Date.now();
+      const elapsedMs = now - lastStepTime;
+      lastStepTime = now;
+      logStep(sf.content, sessionId ?? "none", elapsedMs);
+      if (sessionId) emitStepTurns(sessionId, opts.agentName || opts.source, sf.content);
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = normalizeUsage(sf.usage);
+      const u = withProviderCacheUsage(
+        normalizeUsage(sf.usage),
+        sf.providerMetadata as Record<string, any> | undefined
+      );
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
+        finishReason: sf.finishReason,
+        rawFinishReason: sf.rawFinishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
         timestamp: new Date().toISOString(),
+        sessionId,
+        elapsedMs,
       });
     },
     prepareStep: async ({ steps, messages }) => {
       messagesRef.current = messages as ModelMessage[];
+      // Time-budget nudge: model-facing only (appended per step, not
+      // persisted), so it must not leak into messagesRef used by the
+      // 400-retry resume.
+      const timeNudge = timeBudgetNudge(
+        Date.now() - startTime,
+        BUSY_TIMEOUT_MINUTES,
+        firedTimeNudges,
+        askQuestionsEnabled
+      );
+      if (timeNudge) {
+        console.warn(`===> time-budget nudge injected: ${timeNudge}`);
+      }
+      const withNudge: ModelMessage[] = timeNudge
+        ? [
+            ...(messages as ModelMessage[]),
+            {
+              role: "user",
+              content: timeNudge,
+              providerOptions: { stakgraph: { timeNudge: true } },
+            },
+          ]
+        : (messages as ModelMessage[]);
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
-      const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
+      const truncated = await truncateOldToolResults(withNudge, inputTokens, contextLimit);
       if (truncated === messages) return undefined;
       return { messages: truncated };
     },
@@ -802,6 +1016,13 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     storageUserMessage = userMessage;
   }
 
+  // Mirror this run's user turn into the graph before the loop starts, so
+  // the chain grows in real time from turn 0. Uses the storage copy —
+  // attachment placeholders, not image bytes. The agent label prefers the
+  // caller-assigned agentName ("repair-agent-<runid>"), falling back to the
+  // spawn source; either way it's fixed by the session's first emission.
+  if (sessionId) emitUserTurn(sessionId, opts.agentName || opts.source, storageUserMessage);
+
   return {
     agent,
     model,
@@ -816,16 +1037,206 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     startTime,
     stepMetas,
     turnIndex,
+    messagesRef,
+    askQuestionsEnabled,
     provenanceCollector,
+    prCollector,
+    conceptCollector,
     abortSignal: opts.abortSignal,
+    mcpClients,
+    instructions: transparent ? undefined : instructions,
+    tools,
   };
+}
+
+/**
+ * Record which gitree Concepts this run read, and — when `reflect` is on —
+ * ask the agent to rank them and to propose knowledge-base changes its work
+ * supports (filed as human-reviewed ConceptProposals, one evolving draft per
+ * (session, target)).
+ *
+ * Called after the session has been persisted, so it is the last thing a run
+ * does. Two properties it must keep:
+ *
+ *  - The deterministic half survives the model half. The read list is written
+ *    whether or not `reflect` is set and whether or not the reflect call
+ *    succeeds; a failed call leaves any ranking from a previous turn intact.
+ *  - It never fails the run. The answer has already been produced (and in the
+ *    streaming path, already delivered), so every error here is logged and
+ *    swallowed.
+ *
+ * `messages` must be the MODEL-facing transcript, not the stored one: with
+ * `truncateToolResults` on, the persisted copy is lossy, and any divergence
+ * from what was actually sent costs the prompt-cache hit that makes replaying
+ * the transcript affordable.
+ */
+async function reflectOnConcepts(
+  prepared: PreparedAgent,
+  opts: GetContextOptions,
+  messages: ModelMessage[],
+): Promise<SessionReflection | undefined> {
+  const { sessionId, conceptCollector } = prepared;
+  if (!sessionId || conceptCollector.reads.length === 0) return undefined;
+
+  // A single repo scopes the id lookup; with several in play, resolve against
+  // every concept the graph holds.
+  const repo = opts.repos?.length === 1 ? opts.repos[0] : undefined;
+  let concepts: Awaited<ReturnType<typeof normalizeConceptReads>>;
+  try {
+    concepts = await normalizeConceptReads(conceptCollector.reads, repo);
+  } catch (e) {
+    console.error("[concepts] could not normalize concept reads:", e);
+    return undefined;
+  }
+  if (concepts.length === 0) return undefined;
+
+  const unranked = concepts.map((c) => ({
+    id: c.id,
+    ref_id: c.ref_id,
+    repo: c.repo,
+    name: c.name,
+    rank: null,
+  }));
+  const recordReadsOnly = (): SessionReflection | undefined => {
+    try {
+      return mergeReflection(sessionId, { concepts: unranked });
+    } catch (e) {
+      console.error("[concepts] could not record concept reads:", e);
+      return undefined;
+    }
+  };
+
+  if (!reflectEnabled(opts.reflect)) return recordReadsOnly();
+
+  // The session's standing draft proposals from earlier turns, shown to the
+  // model so it revises them instead of re-filing. Best-effort: reflection
+  // still runs (and files fresh proposals) when the lookup fails.
+  let drafts: ConceptProposal[] = [];
+  try {
+    drafts = await sessionPendingProposals(sessionId, repo);
+  } catch (e) {
+    console.error("[concepts] could not load session proposal drafts:", e);
+  }
+
+  try {
+    console.log(`===> reflecting on ${concepts.length} concept(s) for session ${sessionId}`);
+    const result = await runReflection({
+      model: prepared.model,
+      modelId: prepared.modelId,
+      provider: prepared.provider,
+      system: prepared.instructions,
+      tools: prepared.tools as Record<string, any>,
+      messages,
+      concepts,
+      drafts,
+      promptOverride: reflectPromptOverride(opts.reflect),
+    });
+
+    // Proposals are the side-channel half: file them create-or-revise keyed on
+    // (session, target), and never let a filing failure cost the ranking.
+    if (result.proposals.length > 0) {
+      try {
+        const applied = await fileReflectionProposals({
+          sessionId,
+          repo,
+          proposals: result.proposals,
+          drafts,
+          known: concepts,
+        });
+        console.log(
+          `===> reflection proposals for session ${sessionId}: ` +
+            `${applied.filed.length} filed, ${applied.revised.length} revised, ${applied.withdrawn.length} withdrawn`,
+        );
+      } catch (e) {
+        console.error("[concepts] could not file reflection proposals:", e);
+      }
+    }
+
+    return mergeReflection(sessionId, {
+      concepts: result.concepts,
+      raw: result.raw,
+    });
+  } catch (e) {
+    console.error("[concepts] reflection failed:", e);
+    // The ranking is the optional half — keep the read record regardless.
+    return recordReadsOnly();
+  }
+}
+
+/**
+ * Continuation allowances after the model ends its turn without a proper
+ * termination (no [END_OF_ANSWER], no ask_clarifying_questions, no pending
+ * tool calls). Voluntary stalls (raw "end_turn" — a text-only "Let me
+ * now..." plan) get few nudges: a model still narrating after two won't be
+ * fixed by a third. Token-limit truncations ("length") get more, because
+ * each continuation verifiably extends the answer and a large deliverable
+ * may need several segments; a progress gate in the loop stops empty ones.
+ */
+const MAX_STALL_NUDGES = 2;
+const MAX_LENGTH_CONTINUATIONS = 5;
+
+/**
+ * The two stall types need different instructions. After a token-limit
+ * truncation ("length"), telling the model to "write the final answer" makes
+ * it restart the answer from the top and re-truncate; it must instead pick up
+ * from the cutoff (partial text is already in the conversation and in the
+ * extracted answer, so repeating it duplicates; a cut-off tool call never
+ * executed, so it must be re-issued). After a voluntary stop ("end_turn"),
+ * the nudge must also leave a legitimate way to ask the user something:
+ * without it, a model that stalled because it genuinely needs input gets
+ * pushed toward fabricating an answer instead of asking.
+ */
+type ContinuationKind = "stall" | "length" | "error";
+
+function continuationNudge(
+  askQuestionsEnabled: boolean,
+  kind: ContinuationKind,
+  maxOutputTokens: number
+): string {
+  if (kind === "error") {
+    return "Your previous message was interrupted mid-stream by a transient connection error; nothing after the interruption was received. Continue from where the conversation actually is: any tool call you were about to make never executed — issue it now, and do not repeat text already written. When the answer is complete, end with [END_OF_ANSWER].";
+  }
+  if (kind === "length") {
+    return `Your previous message was cut off by the output token limit (${maxOutputTokens} tokens per message, thinking included). Continue from where the conversation actually is: if a tool call was cut off, it never executed — re-issue it, splitting large writes into several calls each well under that limit. If you were writing your final answer, continue from the exact point it was cut off — do not repeat anything already written. When the answer is complete, end with [END_OF_ANSWER].`;
+  }
+  const askPath = askQuestionsEnabled
+    ? "call ask_clarifying_questions"
+    : "ask your question and end with [END_OF_ANSWER]";
+  return `You ended your turn without completing the task. Do not stop to describe a plan or intention — execute it now: make the tool calls you described, and when you have the final answer, write it followed by [END_OF_ANSWER]. If you are blocked on information only the user can provide, ${askPath} instead of guessing.`;
+}
+
+/** The exact messages sent to the model on the initial call (model-facing, not storage). */
+function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
+  const { finalPrompt, previousMessages, userMessage } = prepared;
+  if (previousMessages.length > 0) {
+    return typeof finalPrompt === "string"
+      ? [...previousMessages, userMessage]
+      : [...previousMessages, ...finalPrompt];
+  }
+  return typeof finalPrompt === "string"
+    ? [{ role: "user", content: finalPrompt }]
+    : [...finalPrompt];
+}
+
+/** Call params for a continuation retry: full conversation so far + nudge. */
+function continueCallParams(prepared: PreparedAgent, messages: ModelMessage[]) {
+  const { provider, modelId, abortSignal } = prepared;
+  const providerOptions = getProviderOptions(provider as any, undefined, modelId);
+  const maxOutputTokens = maxOutputTokensFor(provider);
+  const base = abortSignal
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
+  return { messages, ...base };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
 function buildCallParams(prepared: PreparedAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
-  const base = abortSignal ? { providerOptions, abortSignal } : { providerOptions };
+  const maxOutputTokens = maxOutputTokensFor(provider);
+  const base = abortSignal
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
   if (previousMessages.length > 0) {
     const messagesToSend =
       typeof finalPrompt === "string"
@@ -862,14 +1273,173 @@ export async function get_context(
 
   let steps: Awaited<ReturnType<typeof agent.generate>>["steps"] = [];
   let streamTotalUsage: LanguageModelUsage | undefined;
+  // The exact conversation the model last saw, for the post-run reflect pass.
+  let modelFacingMessages: ModelMessage[] = [];
+  let reflection: SessionReflection | undefined;
+  // Each segment pairs the user-facing message that started it (the real user
+  // message, then continuation nudges) with the steps it produced, so session
+  // persistence can interleave them faithfully. priorMessages holds messages
+  // recovered from a 400-retried attempt (see runWithBadRequestRetry).
+  const segments: {
+    userMessage: ModelMessage;
+    priorMessages: ModelMessage[];
+    steps: StepResult<ToolSet>[];
+  }[] = [];
+
+  // Retry a model call once when the API rejects it with a 400 mid-run. The
+  // AI SDK only auto-retries 408/409/429/5xx, so a transient 400 sixty steps
+  // into a run otherwise kills it outright (observed in prod; replaying the
+  // identical conversation succeeded). prepareStep keeps messagesRef.current
+  // pointed at the exact messages of the in-flight step, so the retry resumes
+  // from the failure point — prompt caching makes the re-send cheap. Returns
+  // the messages generated during the failed attempt (recovered) so
+  // persistence and later continuations can account for them.
+  let badRequestRetried = false;
+  const runWithBadRequestRetry = async (
+    params: ReturnType<typeof buildCallParams>,
+    sentMessages: ModelMessage[]
+  ): Promise<{
+    streamResult: Awaited<ReturnType<typeof agent.stream>>;
+    segSteps: StepResult<ToolSet>[];
+    effectiveSent: ModelMessage[];
+  }> => {
+    try {
+      const streamResult = await agent.stream(params);
+      const segSteps = [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])];
+      return { streamResult, segSteps, effectiveSent: sentMessages };
+    } catch (err) {
+      const statusCode =
+        (err as any)?.statusCode ?? (err as any)?.cause?.statusCode;
+      const current = prepared.messagesRef.current as ModelMessage[];
+      if (badRequestRetried || statusCode !== 400 || current.length <= sentMessages.length) {
+        throw err;
+      }
+      badRequestRetried = true;
+      console.warn(
+        `===> model call rejected with 400 at message ${current.length} (sent ${sentMessages.length}); retrying once from the failure point`
+      );
+      const retryMessages = [...current];
+      const streamResult = await agent.stream(
+        continueCallParams(prepared, retryMessages)
+      );
+      const segSteps = [...(((await streamResult.steps) as StepResult<ToolSet>[]) ?? [])];
+      return { streamResult, segSteps, effectiveSent: retryMessages };
+    }
+  };
+
   try {
-    const streamResult = await agent.stream(buildCallParams(prepared));
-    steps = (await streamResult.steps) ?? [];
-    streamTotalUsage = await streamResult.totalUsage;
+    let sent = initialModelMessages(prepared);
+    let run = await runWithBadRequestRetry(buildCallParams(prepared), sent);
+    segments.push({
+      userMessage: prepared.storageUserMessage,
+      priorMessages: run.effectiveSent.slice(sent.length),
+      steps: run.segSteps,
+    });
+    sent = run.effectiveSent;
+    streamTotalUsage = await run.streamResult.totalUsage;
+
+    // The model occasionally ends its turn with a text-only statement of
+    // intent ("Let me now run X...") without emitting the tool calls, or a
+    // step gets truncated by the output token limit — either way the tool
+    // loop exits with no real answer. Nudge it to continue. The two cases
+    // get separate allowances: a truncation continuation verifiably makes
+    // forward progress (each segment appends answer text), so a large
+    // deliverable may legitimately need several; a voluntary stall that two
+    // nudges didn't fix won't be fixed by a third.
+    let stallNudges = 0;
+    let lengthContinuations = 0;
+    for (;;) {
+      const allSteps = segments.flatMap((s) => s.steps);
+      if (!needsContinuation(allSteps)) break;
+      const lastFinish = allSteps[allSteps.length - 1]?.finishReason;
+      const kind: ContinuationKind =
+        lastFinish === "length"
+          ? "length"
+          : lastFinish === "error"
+            ? "error"
+            : "stall";
+      // Involuntary interruptions (truncation, mid-stream connection errors)
+      // share the larger progress-gated allowance; only voluntary stalls are
+      // capped at MAX_STALL_NUDGES.
+      if (kind !== "stall") {
+        if (lengthContinuations >= MAX_LENGTH_CONTINUATIONS) break;
+        lengthContinuations++;
+      } else {
+        if (stallNudges >= MAX_STALL_NUDGES) break;
+        stallNudges++;
+      }
+      const generated = (await run.streamResult.response).messages as ModelMessage[];
+      // Tagged via providerOptions so session consumers (transcript rendering,
+      // turn counting) can tell this synthetic message from a real user turn;
+      // model providers only read their own providerOptions key and ignore it.
+      const nudge: ModelMessage = {
+        role: "user",
+        content: continuationNudge(
+          prepared.askQuestionsEnabled,
+          kind,
+          maxOutputTokensFor(prepared.provider)
+        ),
+        providerOptions: { stakgraph: { continuationNudge: true } },
+      };
+      const convo = [...sent, ...generated, nudge];
+      console.warn(
+        `===> agent ended turn without finishing (finishReason: ${lastFinish}, raw: ${
+          allSteps[allSteps.length - 1]?.rawFinishReason
+        }); ${
+          kind !== "stall"
+            ? `${kind} continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
+            : `stall nudge ${stallNudges}/${MAX_STALL_NUDGES}`
+        }`
+      );
+      run = await runWithBadRequestRetry(
+        continueCallParams(prepared, convo),
+        convo
+      );
+      segments.push({
+        userMessage: nudge,
+        priorMessages: run.effectiveSent.slice(convo.length),
+        steps: run.segSteps,
+      });
+      sent = run.effectiveSent;
+      streamTotalUsage = await run.streamResult.totalUsage;
+      // Progress gate: a continuation that generated nothing new will not do
+      // better next round — stop rather than loop on empty segments.
+      const segmentOutput = run.segSteps.reduce(
+        (n, s) => n + (s.usage?.outputTokens ?? 0),
+        0
+      );
+      if (segmentOutput === 0) {
+        console.warn(
+          "===> continuation produced no output tokens; stopping continuation loop"
+        );
+        break;
+      }
+    }
+
+    steps = segments.flatMap((s) => s.steps);
+    // The final call's own messages plus what it generated — byte-identical to
+    // what the provider cached, unlike the (possibly truncated) stored copy.
+    modelFacingMessages = [
+      ...sent,
+      ...(((await run.streamResult.response)?.messages ?? []) as ModelMessage[]),
+    ];
   } catch (err) {
     const aborted = isAbortError(err);
+    // Surface the API's error detail: some failures (e.g. 400s) carry only a
+    // generic statusText in err.message while the real reason is in the
+    // response body. Enrich the error itself so both the session record and
+    // the async-request record (which persist err.message) get the detail.
+    enrichErrorMessage(err);
     if (sessionId) {
       const endTime = new Date();
+      // Mirror the success path's token_usage computation so a failed run still
+      // records however many tokens were spent before the throw. Falls back to
+      // streamTotalUsage when no step-metas were recorded (normalizeUsage
+      // tolerates undefined), matching the success path below.
+      const errorUsage =
+        stepMetas.length > 0
+          ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+          : normalizeUsage(streamTotalUsage);
       await appendSessionEnd(sessionId, {
         end_time: endTime.toISOString(),
         model: modelId,
@@ -877,9 +1447,17 @@ export async function get_context(
         duration_ms: endTime.getTime() - startTime,
         status: aborted ? "aborted" : "error",
         error_message: err instanceof Error ? err.message : String(err),
+        token_usage: errorUsage,
       });
     }
     throw err;
+  } finally {
+    // Close all MCP clients (HTTP and stdio) after the run.
+    // Each close is wrapped individually so one failure doesn't block the others.
+    // This is essential for stdio servers to avoid leaking child processes.
+    for (const client of prepared.mcpClients) {
+      try { await client.close(); } catch {}
+    }
   }
 
   const usage = stepMetas.length > 0
@@ -889,13 +1467,18 @@ export async function get_context(
   const endTime = Date.now();
   const duration = endTime - startTime;
 
-  // Save to session if enabled
+  // Save to session if enabled. Extract per segment: each continuation call's
+  // response messages only cover that call, and the nudge user messages must
+  // be interleaved for the transcript to replay correctly.
   if (sessionId) {
-    const newMessages = extractMessagesFromSteps(
-      storageUserMessage,
-      steps,
-      sessionConfig
-    );
+    const newMessages = segments.flatMap((seg) => {
+      const extracted = extractMessagesFromSteps(seg.userMessage, seg.steps, sessionConfig);
+      // Messages recovered from a 400-retried attempt sit between the user
+      // message and the retry call's own response messages.
+      return seg.priorMessages.length > 0
+        ? [extracted[0], ...seg.priorMessages, ...extracted.slice(1)]
+        : extracted;
+    });
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);
     if (provenanceCollector.entries.length > 0) {
@@ -910,6 +1493,7 @@ export async function get_context(
       status: "success",
       token_usage: usage,
     });
+    reflection = await reflectOnConcepts(prepared, opts, modelFacingMessages);
   }
 
   const final = extractFinalAnswer(steps);
@@ -942,6 +1526,8 @@ export async function get_context(
     },
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
+    reflection,
+    pr: terminalPrResult(prepared.prCollector.result, opts.toolsConfig, opts.prMode),
   };
 }
 
@@ -970,6 +1556,14 @@ export async function stream_context(
 
   return {
     streamResult,
+    prCollector: prepared.prCollector,
+    async closeMcpClients() {
+      // Close all MCP clients (HTTP and stdio) after the stream is consumed.
+      // Each close is wrapped individually so one failure doesn't block the others.
+      for (const client of prepared.mcpClients) {
+        try { await client.close(); } catch {}
+      }
+    },
     async finalizeSession() {
       if (!sessionId) return;
       try {
@@ -998,13 +1592,36 @@ export async function stream_context(
           status: "success",
           token_usage: stepUsage,
         });
+        // The stream is already consumed and the answer already delivered, so
+        // the reflect call costs the caller no latency — and the provider's
+        // cache of this transcript is still warm. Kept in its own try so a
+        // failure here is never reported as a session-persistence failure.
+        try {
+          const responseMessages =
+            ((await (streamResult as any).response)?.messages ?? []) as ModelMessage[];
+          await reflectOnConcepts(prepared, opts, [
+            ...initialModelMessages(prepared),
+            ...responseMessages,
+          ]);
+        } catch (e) {
+          console.error("[concepts] could not assemble transcript for reflection:", e);
+        }
       } catch (e) {
         const aborted = isAbortError(e);
+        enrichErrorMessage(e);
         if (aborted) {
           console.log("[stream_context] Stream aborted by client");
         } else {
           console.error("[stream_context] Failed to finalize session:", e);
         }
+        // Mirror the success path's token_usage computation: prefer step-metas
+        // (accumulated during the run) over the stream's own usage (which may
+        // itself have thrown and is therefore unavailable in this scope).
+        // normalizeUsage tolerates undefined, so the no-step-meta fallback is safe.
+        const errorUsage =
+          stepMetas.length > 0
+            ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+            : normalizeUsage(undefined);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
@@ -1012,6 +1629,7 @@ export async function stream_context(
           duration_ms: Date.now() - startTime,
           status: aborted ? "aborted" : "error",
           error_message: e instanceof Error ? e.message : String(e),
+          token_usage: errorUsage,
         }).catch(() => {});
       }
     },

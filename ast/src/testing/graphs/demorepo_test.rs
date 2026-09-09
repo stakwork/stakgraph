@@ -230,6 +230,7 @@ async fn test_demorepo() {
         None,
         None,
         use_lsp,
+        &lsp::git::CloneOpts::default(),
     )
     .await
     .unwrap();

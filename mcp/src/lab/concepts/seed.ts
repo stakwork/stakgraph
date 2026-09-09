@@ -1,20 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "strut";
+import { SEED_OPTS } from "../seed-opts.js";
 
 /**
  * Workflow + step templates shipped with the concepts experiment. They are
  * the canonical, committed source of truth in this repo; on boot they're
  * reconciled into the workspace by **content hash**:
  *
- *   - unchanged template  → same version id → no-op (no churn)
+ *   - unchanged template  → same version id → no-op (no churn); an edit made
+ *                            in the UI/API meanwhile stays active
  *   - edited template      → new version id  → published + activated, while
  *                            prior versions are retained for rollback
  *
  * This is what makes "edit here, commit, redeploy/reseed → propagates to
- * every vein instance" work, without clobbering local experiment history.
- * (See vein `publishWorkflowByContent` / `publishStep`.)
+ * every strut instance" work, without clobbering local experiment history.
+ * (See strut `publishWorkflowByContent` / `publishStep` + `SEED_OPTS`.)
  */
 
 const SEED_WORKFLOWS = [
@@ -60,7 +62,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * content hash. Idempotent; edits publish a new active version.
  */
 export async function seedConceptWorkflows(
-  workspace: WorkspaceManager,
+  workspace: WorkspaceStore,
 ): Promise<void> {
   const dir = join(HERE, "workflows");
   for (const name of SEED_WORKFLOWS) {
@@ -69,6 +71,10 @@ export async function seedConceptWorkflows(
       const { version, changed } = await workspace.publishWorkflowByContent(
         name,
         yaml,
+        undefined,
+        "concepts",
+        undefined,
+        SEED_OPTS,
       );
       if (changed) console.log(`[concepts] seeded workflow: ${name} @ ${version}`);
     } catch (err) {
@@ -83,11 +89,11 @@ export async function seedConceptWorkflows(
 /**
  * Reconcile the bundled self-contained step templates into the workspace's
  * `custom/` tier by content hash, so the registry discovers them from disk
- * (and they become editable/versioned through the vein API + UI). Idempotent;
+ * (and they become editable/versioned through the strut API + UI). Idempotent;
  * edits publish a new active version while prior versions are archived.
  */
 export async function seedConceptSteps(
-  workspace: WorkspaceManager,
+  workspace: WorkspaceStore,
 ): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {
@@ -98,6 +104,7 @@ export async function seedConceptSteps(
         code,
         undefined,
         "concepts-seed",
+        SEED_OPTS,
       );
       if (changed) console.log(`[concepts] seeded step: ${type} @ ${version}`);
     } catch (err) {

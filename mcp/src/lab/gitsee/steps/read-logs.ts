@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import type { GitseeServices } from "../services/index.js";
 
 /** Read the booted frontend's recent server logs (stdout+stderr). Use to find

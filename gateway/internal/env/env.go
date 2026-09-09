@@ -15,6 +15,7 @@ package env
 
 import (
 	"os"
+	"strings"
 )
 
 // Variable names. Kept as constants so a typo in a getter doesn't
@@ -84,6 +85,20 @@ const (
 	// "Namespace" for the keyspace contract.
 	RedisURL = "BIFROST_PLUGIN_REDIS_URL"
 
+	// PricingURL overrides where the model-price datasheet is
+	// fetched from. Default is bifrost's own published sheet — the
+	// same file bifrost-http prices logs.db rows from, so
+	// enforcement and reporting agree. Set to "off" to disable
+	// network fetch entirely (air-gapped deployments run from the
+	// persisted cache + config model_pricing).
+	PricingURL = "BIFROST_PLUGIN_PRICING_URL"
+
+	// PricingCache is the on-disk location of the last successfully
+	// fetched datasheet, loaded at boot so a restart during a network
+	// outage still prices from the last known-good table. Defaults
+	// next to trust.json on the data volume.
+	PricingCache = "BIFROST_PLUGIN_PRICING_CACHE"
+
 	// Production, when truthy, forces the `Secure` attribute on the
 	// session cookie regardless of the incoming request's scheme.
 	// Set in swarm/prod; left unset in dev so localhost HTTP works.
@@ -130,6 +145,15 @@ const (
 
 	// DefaultTrustReconcile is the safe default — see TrustReconcile.
 	DefaultTrustReconcile = "ignore"
+
+	// DefaultPricingURL is bifrost's published pricing datasheet —
+	// see framework/modelcatalog (DefaultPricingURL) in the bifrost
+	// source for the upstream twin of this constant.
+	DefaultPricingURL = "https://getbifrost.ai/datasheet"
+
+	// DefaultPricingCache sits on the same data volume as trust.json
+	// and logs.db.
+	DefaultPricingCache = "/app/data/pricing-datasheet.json"
 
 	// DefaultHiveOrigin is production Hive. Override via HIVE_ORIGIN
 	// for staging / dev (e.g. `http://localhost:8080`).
@@ -187,6 +211,21 @@ func TrustPathValue() string { return GetOr(TrustPath, DefaultTrustPath) }
 // validating it against the known set ("ignore", "overwrite",
 // "refuse") — keeping the env package free of policy logic.
 func TrustReconcileValue() string { return GetOr(TrustReconcile, DefaultTrustReconcile) }
+
+// PricingURLValue returns the datasheet URL, "" when fetch is
+// explicitly disabled with the "off" sentinel, and the default sheet
+// otherwise.
+func PricingURLValue() string {
+	v := GetOr(PricingURL, DefaultPricingURL)
+	if strings.EqualFold(v, "off") {
+		return ""
+	}
+	return v
+}
+
+// PricingCachePath returns the persisted-datasheet path, falling
+// back to DefaultPricingCache.
+func PricingCachePath() string { return GetOr(PricingCache, DefaultPricingCache) }
 
 // RedisURLValue returns (url, ok). `ok` is false when unset — callers
 // should treat that as "observability mode" and skip wiring the

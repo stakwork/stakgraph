@@ -175,31 +175,14 @@ func revokeCodeFor(i int) string {
 	}
 }
 
-// uaIATFromClaims pulls the user_authorization.iat out of the verified
-// claims. Pure verifier doesn't surface ua.iat directly on Claims
-// today — Claims.IAT is the invocation's iat — but the cutoff
-// comparison is against ua.iat per phase 6.
-//
-// We can fetch it because Claims.Nonces[0] = ua.nonce, and the wire
-// format requires that ua block to live on the original macaroon. We
-// kept the original bytes during peekOrgID; storing them on Claims
-// would be cleaner but would require modifying the pure verifier.
-// Instead, we re-derive at check time from what we have on the wire.
-//
-// For phase 4 the simpler answer is: surface ua.iat on Claims. Until
-// that lands, this helper exists as a no-op that uses Claims.IAT —
-// which is invocation.iat. This is technically more lenient than the
-// spec (a revoke cutoff between ua.iat and invocation.iat will let
-// the macaroon through), but in the common case where ua is re-used
-// across many invocations the difference is hours-to-days, well below
-// the operator-driven cutoff granularity (cutoffs are set when a user
-// is offboarded or a key rotated, both human-scale events).
-//
-// Phase 6's full implementation surfaces ua.iat as Claims.UAIAT —
-// that's a small addition to the pure verifier and is left as a
-// follow-up that doesn't block the adapter from landing.
+// uaIATFromClaims pulls the user_authorization.iat out of the
+// verified claims — the phase-6 comparison axis for
+// revoke_user_before (NOT the invocation's iat: user-level
+// revocation invalidates org-issued user authorizations, and an
+// invocation signed after the cutoff against a re-issued UA is
+// fine). The pure verifier surfaces it as Claims.UAIAT.
 func uaIATFromClaims(claims *macaroon.Claims) (time.Time, error) {
-	return time.Parse(time.RFC3339, claims.IAT)
+	return time.Parse(time.RFC3339, claims.UAIAT)
 }
 
 // redactNonce shortens a 32-char hex nonce to its first 8 chars +

@@ -32,6 +32,73 @@ function countTokens(text: string): number {
   return Math.ceil(text.length / 3);
 }
 
+/**
+ * Hard ceiling on per-step output tokens (thinking + text). Without an
+ * explicit value the provider falls back to its own per-model default —
+ * 4096 for any model id missing from its capability table — which can
+ * truncate a deep thinking pass mid-step and silently end the tool loop
+ * with no answer.
+ */
+/**
+ * Per-call output-token cap. An explicit MAX_OUTPUT_TOKENS env always wins.
+ * Otherwise the default is provider-aware: Anthropic runs at 128k because
+ * @ai-sdk/anthropic clamps known models down to their true per-model max
+ * (e.g. Opus 5 at 128k) instead of erroring, while OpenAI-compatible hosts
+ * (OpenRouter et al) reject max_tokens above the model limit rather than
+ * clamping, so they keep the conservative 64k default. Thinking tokens count
+ * against this same budget, so headroom matters more than the visible text
+ * length suggests.
+ */
+export function maxOutputTokensFor(provider?: string): number {
+  const env = Number(process.env.MAX_OUTPUT_TOKENS);
+  if (env > 0) return env;
+  return provider === "anthropic" ? 128_000 : 64_000;
+}
+
+/**
+ * Strip the userinfo section out of any URL embedded in `text`.
+ *
+ * `cloneRepo` inlines the caller's PAT into the clone URL, and git echoes the
+ * whole remote back in its stderr on failure — which reaches the HTTP
+ * response, the `.reqs/*.json` files, `GET /progress`, and the webhook.
+ *
+ * Extended to also strip:
+ *   - Bare GitHub token patterns (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_)
+ *   - Authorization header values (Basic <b64> and token <t>)
+ *   - A literal `pat` string when supplied as a second argument
+ */
+export function redactCredentials(text: string, pat?: string): string {
+  let out = text;
+
+  // 1. URL-embedded userinfo: https://user:token@host or https://token@host
+  out = out.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s/@]*@/g, "$1***@");
+
+  // 2. Bare GitHub personal access tokens (various prefix families)
+  //    Match the prefix followed by alphanumeric/underscore chars.
+  out = out.replace(
+    /\b(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]+/g,
+    "[REDACTED]"
+  );
+
+  // 3. Authorization header values:
+  //    "Authorization: Basic <base64>" and "Authorization: token <tok>"
+  //    (case-insensitive header name; value runs to end of token / whitespace)
+  out = out.replace(
+    /\bauthorization:\s*(basic|token|bearer)\s+[^\s,;"']+/gi,
+    "authorization: [REDACTED]"
+  );
+
+  // 4. Literal PAT substring — catches raw tokens that slip through pattern matching
+  //    (e.g. a token with an unusual prefix echoed verbatim by git stderr)
+  if (pat && pat.length >= 4) {
+    // Escape the literal string for use in a regexp
+    const escaped = pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(escaped, "g"), "[REDACTED]");
+  }
+
+  return out;
+}
+
 export function createHasEndMarkerCondition<
   T extends ToolSet
 >(): StopCondition<T> {
@@ -45,6 +112,123 @@ export function createHasEndMarkerCondition<
     }
     return false;
   };
+}
+
+/**
+ * True when a run ended without a proper termination and should be nudged to
+ * continue. Proper terminations are: an ask_clarifying_questions call, or the
+ * [END_OF_ANSWER] marker — present in text, or matched as a stop sequence
+ * (surfaced as rawFinishReason "stop_sequence"). A run whose last step has no
+ * tool calls and none of those is either a voluntary early stop (raw
+ * "end_turn" — the model narrated a plan or emitted only reasoning and quit)
+ * or a truncation ("length"); both are recoverable by asking it to continue.
+ *
+ * Detection relies on the raw provider stop reason: a proper Anthropic finish
+ * hits the [END_OF_ANSWER] stop sequence (raw "stop_sequence") while a stall
+ * ends with raw "end_turn". OpenAI-compatible providers report a plain "stop"
+ * either way, so their stalls are not detectable this way and are left alone.
+ */
+/**
+ * True when the step cap ended a run mid-work, rather than the model finishing.
+ *
+ * The exact complement of `needsContinuation`, which returns false as soon as
+ * the last step holds tool calls — a loop stopped by stopWhen is not a model
+ * stall, so that function correctly ignores it. But it IS an incomplete result:
+ * the loop was cut off before the model ever reached a synthesis turn, so the
+ * only text present is intermediate narration. `extractFinalAnswer` will still
+ * return that narration (via its text-after-last-tool fallback), and it reads
+ * exactly like a finished answer unless the caller is told otherwise.
+ */
+export function hitStepCap(
+  steps: StepResult<ToolSet>[],
+  maxSteps: number,
+): boolean {
+  if (maxSteps <= 0 || steps.length < maxSteps) return false;
+  const last = steps[steps.length - 1];
+  return (last?.toolCalls?.length ?? 0) > 0;
+}
+
+export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
+  const last = steps[steps.length - 1];
+  if (!last) return false;
+  // stopWhen (e.g. maxTurns) ended the loop mid-work; not a model stall
+  if ((last.toolCalls?.length ?? 0) > 0) return false;
+  for (const step of steps) {
+    for (const item of step.content) {
+      if (
+        item.type === "tool-result" &&
+        item.toolName === "ask_clarifying_questions"
+      ) {
+        return false;
+      }
+      if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
+        return false;
+      }
+    }
+  }
+  if (last.rawFinishReason === "stop_sequence") return false; // hit [END_OF_ANSWER]
+  return (
+    last.rawFinishReason === "end_turn" ||
+    last.finishReason === "length" ||
+    // A mid-step stream error (observed with Kimi via OpenRouter: the stream
+    // dies right after a reasoning block, before tool calls) is surfaced by
+    // the SDK as a final step with finishReason "error" instead of a thrown
+    // exception — the loop exits and the run would report success with a
+    // garbage answer. The conversation up to the error is intact, so it is
+    // the most recoverable stall of all.
+    last.finishReason === "error"
+  );
+}
+
+/**
+ * Time-budget status nudges, injected between steps as a run approaches the
+ * busy-timeout hard kill (which aborts the stream and discards all work).
+ * Thresholds are fractions of the total budget so they track
+ * BUSY_TIMEOUT_MINUTES overrides: at 120 minutes they fall at 60 / 90 / ~110.
+ * Returns the message for the highest threshold that elapsed time has
+ * crossed and that hasn't fired yet, or null. Crossing a threshold also
+ * marks all lower ones fired, so a single slow step can't queue up stale
+ * lower-urgency nudges behind the current one. The final warning fires with
+ * ~8% of budget left (about 10 minutes at 120) so at least one more step
+ * boundary should occur before the kill.
+ */
+export function timeBudgetNudge(
+  elapsedMs: number,
+  totalMinutes: number,
+  fired: Set<number>,
+  askQuestionsEnabled: boolean
+): string | null {
+  const elapsedMin = Math.floor(elapsedMs / 60_000);
+  const fractions = [0.92, 0.75, 0.5];
+  for (const f of fractions) {
+    if (fired.has(f) || elapsedMin < totalMinutes * f) continue;
+    for (const g of fractions) if (g <= f) fired.add(g);
+    if (f === 0.5) {
+      return `Time status: ${elapsedMin} of ${totalMinutes} minutes elapsed. Pace yourself accordingly.`;
+    }
+    if (f === 0.75) {
+      return `Time status: ${elapsedMin} of ${totalMinutes} minutes elapsed. Start converging: prioritize the essential remaining work and begin producing your deliverables.`;
+    }
+    const remaining = Math.max(totalMinutes - elapsedMin, 1);
+    const askPath = askQuestionsEnabled
+      ? " If you are blocked on information only the user can provide, call ask_clarifying_questions immediately instead."
+      : "";
+    return `Time status: only ~${remaining} minutes remain before this run is forcibly terminated and unfinished work is lost. Stop exploring NOW and write your final answer with what you already have, ending with [END_OF_ANSWER].${askPath}`;
+  }
+  return null;
+}
+
+/**
+ * True for the synthetic "continue" user messages injected after a stall
+ * (see continuationNudge in agent.ts). They are persisted to the session for
+ * transparent replay but are not real user turns: transcript rendering and
+ * turn counting should skip them.
+ */
+export function isContinuationNudge(m: ModelMessage): boolean {
+  return (
+    (m.providerOptions as Record<string, any> | undefined)?.stakgraph
+      ?.continuationNudge === true
+  );
 }
 
 export function createHasAskQuestionsCondition<
@@ -121,14 +305,15 @@ function formatToolInput(input: unknown, max = 160): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-export function logStep(contents: any): void {
+export function logStep(contents: any, sessionId: string, elapsedMs: number): void {
   if (!Array.isArray(contents)) return;
+  const prefix = `sessionId=${sessionId} elapsedMs=${elapsedMs}`;
   for (const item of contents) {
     if (item.type === "tool-call") {
       const args = formatToolInput(item.input);
-      console.log(`[repo_agent] tool_call: ${item.toolName}${args ? ` ${args}` : ""}`);
+      console.log(`[repo_agent] ${prefix} tool_call: ${item.toolName}${args ? ` ${args}` : ""}`);
     } else if (item.type === "text" && item.text) {
-      console.log(`[repo_agent] text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
+      console.log(`[repo_agent] ${prefix} text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
     }
   }
 }

@@ -48,7 +48,7 @@ async fn assert_request_calls_endpoint(
 async fn test_graph_update() {
     use ast::lang::Graph;
     use ast::repo::{clone_repo, Repo};
-    use lsp::git::get_changed_files_between;
+    use lsp::git::{get_changed_files_between, CloneOpts};
     use tracing::info;
 
     let repo_url = "https://github.com/fayekelmith/graph-update";
@@ -114,9 +114,17 @@ async fn test_graph_update() {
         .unwrap();
     info!("==>>Changed files: {:?}", changed_files);
 
-    clone_repo(&repo_url, &repo_path, None, None, Some(after_commit), None)
-        .await
-        .unwrap();
+    clone_repo(
+        &repo_url,
+        &repo_path,
+        None,
+        None,
+        Some(after_commit),
+        None,
+        &CloneOpts::default(),
+    )
+    .await
+    .unwrap();
 
     let (nodes_after, edges_after) = graph_ops
         .update_incremental(
@@ -190,7 +198,7 @@ async fn test_graph_update() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_muted_node_preservation() {
     use ast::repo::{clone_repo, Repo};
-    use lsp::git::get_changed_files_between;
+    use lsp::git::{get_changed_files_between, CloneOpts};
 
     let repo_url = "https://github.com/fayekelmith/graph-update";
     let repo_path = Repo::get_path_from_url(repo_url).unwrap();
@@ -231,9 +239,17 @@ async fn test_muted_node_preservation() {
         .unwrap();
     println!("Changed files: {:?}", changed_files);
 
-    clone_repo(&repo_url, &repo_path, None, None, Some(after_commit), None)
-        .await
-        .unwrap();
+    clone_repo(
+        &repo_url,
+        &repo_path,
+        None,
+        None,
+        Some(after_commit),
+        None,
+        &CloneOpts::default(),
+    )
+    .await
+    .unwrap();
 
     graph_ops
         .update_incremental(

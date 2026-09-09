@@ -1,0 +1,92 @@
+name: harvey-run
+# Single-task Harvey harness: PRODUCE (subflow, swappable by ref) → GRADE
+# with the REAL benchmark eval → pack one result object.
+#
+# The produce half lives in `harvey-produce` (EVOLVE_SPEC §5 split): this
+# harness invokes it as a subflow and stages EXACTLY the outputDir the
+# produce run reports. `input.produceWorkflow` swaps in a different produce
+# workflow by name — e.g. an agent-authored candidate (published via
+# meta/publish-workflow) — to A/B a structural variant against the same
+# grader. The ref runs at its ACTIVE version; for a version-pinned candidate
+# run use harvey-candidate-run (which also runs the candidate under its own
+# runId via meta/run-workflow).
+#
+# The producing agent NEVER sees the rubric and is never granted
+# harvey/evaluate — grading happens here, after the agent finishes.
+#
+# NOTE — params moved: the produce knobs (model, system, maxSteps,
+# toolFilter, agentTools, graphGuidance, …) now live on `harvey-produce`.
+# Override them per run with paramOverrides KEYED BY WORKFLOW NAME, which
+# reaches params at any subflow depth:
+#   { "input": { "task": "…" },
+#     "paramOverrides": { "harvey-produce": { "graphGuidance": "…" } } }
+#
+# Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR (+ uv, git, pandoc on PATH).
+# Input:  { task, workdir?, produceWorkflow? }
+# Output: { task, produceWorkflow, score, max_score, all_pass, summary,
+#           criteria_results, benchmarkRev, reportPath, outputDir,
+#           produceCost, produceSteps, produceError?, gradeError? }
+steps:
+  - id: produced
+    type: subflow
+    config:
+      workflow: "{{ input.produceWorkflow || 'harvey-produce' }}"
+      input:
+        task: "{{ input.task }}"
+        workdir: "{{ input.workdir }}"
+
+  - id: grade
+    type: harvey/evaluate
+    depends: produced
+    # Retry: the judge pass is long (dozens of LLM calls); staging is
+    # idempotent (same staged dir re-copied), so a retry is safe.
+    # onError: a grading failure must not kill a batch run (harvey-evolve
+    # runs this per task via foreach → subflow) — record an explicit zero
+    # with the error instead. gradeError distinguishes "grader crashed" from
+    # "graded and failed" so the digest doesn't misattribute infra failures.
+    options:
+      retry: { max: 1, delayMs: 15000 }
+      onError:
+        id: grade_failed
+        type: pack
+        config:
+          score: 0
+          all_pass: false
+          gradeError: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      task: "{{ input.task }}"
+      dir: "{{ produced.outputDir }}"
+      # NOTE: no guards here — the template evaluator does not short-circuit,
+      # so these rely on harvey-produce ALWAYS packing usage (an {} on its
+      # onError path) and outputDir.
+      metrics:
+        input_tokens: "{{ produced.usage.inputTokens }}"
+        output_tokens: "{{ produced.usage.outputTokens }}"
+        produce_cost: "{{ produced.cost }}"
+        produce_steps: "{{ produced.steps }}"
+      dual: "{{ params.dual }}"
+      timeoutMs: "{{ params.evalTimeoutMs }}"
+
+  - id: result
+    type: pack
+    depends: grade
+    config:
+      task: "{{ input.task }}"
+      produceWorkflow: "{{ input.produceWorkflow || 'harvey-produce' }}"
+      score: "{{ grade.score }}"
+      max_score: "{{ grade.max_score }}"
+      all_pass: "{{ grade.all_pass }}"
+      summary: "{{ grade.summary }}"
+      criteria_results: "{{ grade.criteria_results }}"
+      benchmarkRev: "{{ grade.benchmarkRev }}"
+      reportPath: "{{ grade.reportPath }}"
+      outputDir: "{{ produced.outputDir }}"
+      produceCost: "{{ produced.cost }}"
+      produceSteps: "{{ produced.steps }}"
+      produceError: "{{ produced.produceError }}"
+      gradeError: "{{ grade.gradeError }}"
+
+params:
+  dual: false
+  # 59-criterion tasks with parallel judges can take a while.
+  evalTimeoutMs: 2400000

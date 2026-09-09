@@ -12,6 +12,7 @@ import XCTest
 // @ast edge: Calls -> Function "updatePeopleProfileWith" "API.swift"
 // @ast edge: Calls -> Function "createRequest" "API.swift"
 // @ast node: Import "import-imports-srctestingswiftlegacyappintegrationtestsapiintegrationtestsswift-0"
+// @ast node: Var "mockAPI"
 
 final class APIIntegrationTests: XCTestCase {
     

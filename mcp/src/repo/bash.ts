@@ -2,6 +2,8 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024; // 8 MB cap to stay well under V8 max string length
+
 // Execute ripgrep with args array directly
 function execRipgrepCommandDirect(
   args: string[],
@@ -28,16 +30,15 @@ function execRipgrepCommandDirect(
 
     process.stdout.on("data", (data) => {
       stdout += data.toString();
-
-      if (stdout.length > 10000) {
-        process.kill("SIGKILL");
+      if (stdout.length > MAX_OUTPUT_BYTES) {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
-          const truncated =
-            stdout.substring(0, 10000) +
-            "\n\n[... output truncated due to size limit ...]";
-          resolve(truncated);
+          process.kill("SIGKILL");
+          resolve(
+            stdout.substring(0, MAX_OUTPUT_BYTES) +
+              "\n\n[... output truncated due to size limit ...]"
+          );
         }
         return;
       }
@@ -53,14 +54,7 @@ function execRipgrepCommandDirect(
         clearTimeout(timeout);
 
         if (code === 0) {
-          if (stdout.length > 10000) {
-            const truncated =
-              stdout.substring(0, 10000) +
-              "\n\n[... output truncated to 10,000 characters ...]";
-            resolve(truncated);
-          } else {
-            resolve(stdout);
-          }
+          resolve(stdout);
         } else if (code === 1) {
           resolve("No matches found");
         } else {
@@ -108,16 +102,15 @@ function execShellCommand(
 
     process.stdout.on("data", (data) => {
       stdout += data.toString();
-
-      if (stdout.length > 10000) {
-        process.kill("SIGKILL");
+      if (stdout.length > MAX_OUTPUT_BYTES) {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
-          const truncated =
-            stdout.substring(0, 10000) +
-            "\n\n[... output truncated due to size limit ...]";
-          resolve(truncated);
+          process.kill("SIGKILL");
+          resolve(
+            stdout.substring(0, MAX_OUTPUT_BYTES) +
+              "\n\n[... output truncated due to size limit ...]"
+          );
         }
         return;
       }
@@ -132,13 +125,7 @@ function execShellCommand(
         resolved = true;
         clearTimeout(timeout);
 
-        // Truncate if needed
         let output = stdout;
-        if (output.length > 10000) {
-          output =
-            output.substring(0, 10000) +
-            "\n\n[... output truncated to 10,000 characters ...]";
-        }
 
         if (code === 0) {
           resolve(output);
@@ -313,13 +300,12 @@ export async function fulltextSearch(
       )
       .join("\n");
 
-    // Limit the result to 10,000 characters to prevent overwhelming output
-    if (output.length > 10000) {
-      return (
-        output.substring(0, 10000) +
-        "\n\n[... output truncated to 10,000 characters ...]"
-      );
-    }
+    // if (output.length > 10000) {
+    //   return (
+    //     output.substring(0, 10000) +
+    //     "\n\n[... output truncated to 10,000 characters ...]"
+    //   );
+    // }
 
     return output || `No matches found for "${query}"`;
   } catch (error: any) {
@@ -337,6 +323,22 @@ export async function fulltextSearch(
 
 // testFulltextSearch();
 
+/**
+ * Linux caps a single argv entry at MAX_ARG_STRLEN (32 * 4096 = 131072 bytes),
+ * and `shell: true` hands the whole command to /bin/sh as one such entry — so an
+ * oversized command dies with an opaque `spawn E2BIG` having executed nothing.
+ * Guard below the real ceiling so the model gets a message it can act on instead
+ * of a failure it has to reverse-engineer (it has already paid to generate the
+ * command by this point; the least we can do is make the retry cheap).
+ */
+const MAX_COMMAND_BYTES = 120_000;
+
+const OVERSIZE_HINT =
+  "Nothing was executed — no file was written and no side effect occurred. " +
+  "Split the work across several commands: `cat > file` for the first chunk, " +
+  "`cat >> file` for each one after, keeping every command under ~40KB. " +
+  "Do not retry this command as-is; it will fail identically.";
+
 // Execute arbitrary bash command
 export async function executeBashCommand(
   command: string,
@@ -352,10 +354,28 @@ export async function executeBashCommand(
     return "Repository not cloned yet";
   }
 
+  // Byte length, not string length: the OS limit is on bytes, and prose with
+  // em-dashes / smart quotes runs well over one byte per character.
+  const commandBytes = Buffer.byteLength(command, "utf8");
+  if (commandBytes > MAX_COMMAND_BYTES) {
+    return (
+      `Command rejected: ${commandBytes} bytes exceeds the ${MAX_COMMAND_BYTES}-byte ` +
+      `limit for a single bash command (the OS hard limit is 131072). ${OVERSIZE_HINT}`
+    );
+  }
+
   try {
     const result = await execShellCommand(command, repoPath, timeoutMs, env);
     return result;
   } catch (error: any) {
+    // Backstop: the guard above should catch this first, but the true ceiling
+    // varies with the environment block, which counts toward the same budget.
+    if (error?.code === "E2BIG" || /\bE2BIG\b/.test(error?.message ?? "")) {
+      return (
+        `Error executing command: too long for the OS to execute ` +
+        `(${commandBytes} bytes, E2BIG). ${OVERSIZE_HINT}`
+      );
+    }
     return `Error executing command: ${error.message}`;
   }
 }

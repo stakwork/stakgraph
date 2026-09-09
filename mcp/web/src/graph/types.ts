@@ -11,7 +11,7 @@ export interface GraphNode {
     docs?: string;
     [key: string]: unknown;
   };
-  date_added_to_graph?: string | number;
+  date_added_to_graph?: number;
 }
 
 export interface NodeRelation {

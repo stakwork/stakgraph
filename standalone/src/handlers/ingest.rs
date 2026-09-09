@@ -20,7 +20,7 @@ pub async fn sync_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> impl IntoResponse {
-    let (_repo_paths, repo_urls, username, pat, _, _branch) = match resolve_repo(&body) {
+    let (_repo_paths, repo_urls, username, pat, _, _branch, _) = match resolve_repo(&body) {
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
@@ -294,7 +294,7 @@ pub async fn ingest_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> impl IntoResponse {
-    let (_repo_paths, repo_urls, username, pat, _, _branch) = match resolve_repo(&body) {
+    let (_repo_paths, repo_urls, username, pat, _, _branch, _) = match resolve_repo(&body) {
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({

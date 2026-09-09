@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
 import {
   buildToolFrequency,
   usageOf,
-  getRangeStart,
 } from "../utils";
 import { parseTrace } from "../trace/parse";
 import { analyzeTrace } from "../trace/analyze";
@@ -13,15 +12,18 @@ import type { ParsedTrace, TraceAnalysis, IssueKind } from "../trace/types";
 import type { ProductionRun, TokenUsage } from "../types";
 import type { Annotation, AnnotationMarker } from "../components/Annotations";
 
+export const PAGE_LIMIT = 100;
+
 export interface SessionsState {
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   runs: ProductionRun[];
-  filteredRuns: ProductionRun[];
   selected: ProductionRun | null;
   annotations: Annotation[];
   repoSearch: string;
   sourceFilter: string;
-  rangeFilter: "24h" | "7d" | "30d" | "all";
+  rangeFilter: "24h" | "7d" | "30d" | "3m" | "1y" | "all";
   dayFilter: string;
   repoOptions: string[];
   sourceOptions: string[];
@@ -35,6 +37,7 @@ export interface SessionsState {
   answer: string;
   showSessionAnnotationForm: boolean;
   load: () => void;
+  loadMore: () => void;
   loadDetail: (run: ProductionRun) => void;
   handleAnnotate: (
     marker: AnnotationMarker,
@@ -44,7 +47,7 @@ export interface SessionsState {
   handleTurnToggle: (turnId: string) => void;
   setRepoSearch: (v: string) => void;
   setSourceFilter: (v: string) => void;
-  setRangeFilter: (v: "24h" | "7d" | "30d" | "all") => void;
+  setRangeFilter: (v: "24h" | "7d" | "30d" | "3m" | "1y" | "all") => void;
   setDayFilter: (v: string) => void;
   clearFilters: () => void;
   setShowSessionAnnotationForm: (v: boolean) => void;
@@ -62,35 +65,122 @@ const EMPTY_PARSED: ParsedTrace = {
 export function useSessionsState(): SessionsState {
   const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<ProductionRun[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState<ProductionRun | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [showSessionAnnotationForm, setShowSessionAnnotationForm] =
     useState(false);
   const [loading, setLoading] = useState(true);
-  const [repoSearch, setRepoSearch] = useState(
+  const [repoSearch, setRepoSearchRaw] = useState(
     searchParams.get("repo") || "",
   );
+  const [debouncedRepo, setDebouncedRepo] = useState(repoSearch);
   const [sourceFilter, setSourceFilter] = useState(
     searchParams.get("source") || "all",
   );
   const [rangeFilter, setRangeFilter] = useState<
-    "24h" | "7d" | "30d" | "all"
-  >((searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all");
+    "24h" | "7d" | "30d" | "3m" | "1y" | "all"
+  >((searchParams.get("range") as "24h" | "7d" | "30d" | "3m" | "1y" | "all") || "all");
   const [dayFilter, setDayFilter] = useState(searchParams.get("day") || "");
   const [openTurnId, setOpenTurnId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const sessions = await api.sessions.list();
-      setRuns(sessions);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading(false);
-    }
+  // Facets (full-dataset repo/source options)
+  const [repoOptions, setRepoOptions] = useState<string[]>([]);
+  const [sourceOptions, setSourceOptions] = useState<string[]>([]);
+
+  // Request generation counter — incremented on filter reset to cancel
+  // in-flight loadMore calls that would otherwise append stale pages.
+  const genRef = useRef(0);
+
+  // Debounce repo search input (300ms) to avoid a request per keystroke
+  const repoDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setRepoSearch = useCallback((v: string) => {
+    setRepoSearchRaw(v);
+    if (repoDebounceTimer.current) clearTimeout(repoDebounceTimer.current);
+    repoDebounceTimer.current = setTimeout(() => setDebouncedRepo(v), 300);
   }, []);
 
+  // Fetch facets once on mount
+  useEffect(() => {
+    api.sessions
+      .facets()
+      .then(({ repos, sources }) => {
+        setRepoOptions(repos.filter(Boolean));
+        setSourceOptions(sources.filter(Boolean));
+      })
+      .catch(() => {
+        // non-fatal — dropdowns will be empty
+      });
+  }, []);
+
+  /**
+   * Load the first page (offset=0), replacing the `runs` array.
+   * Called on mount and whenever a filter changes.
+   */
+  const load = useCallback(async () => {
+    const gen = ++genRef.current;
+    setLoading(true);
+    setOffset(0);
+    setHasMore(true);
+    try {
+      const page = await api.sessions.list({
+        limit: PAGE_LIMIT,
+        offset: 0,
+        source: sourceFilter !== "all" ? sourceFilter : undefined,
+        repo: debouncedRepo || undefined,
+        range: rangeFilter !== "all" ? rangeFilter : undefined,
+        day: dayFilter || undefined,
+      });
+      if (gen !== genRef.current) return; // stale
+      setRuns(page);
+      setHasMore(page.length === PAGE_LIMIT);
+      setOffset(page.length);
+    } catch (e: any) {
+      if (gen !== genRef.current) return;
+      toast.error(e.message);
+    } finally {
+      if (gen === genRef.current) setLoading(false);
+    }
+  }, [sourceFilter, debouncedRepo, rangeFilter, dayFilter]);
+
+  /**
+   * Append the next page. Called by the IntersectionObserver sentinel.
+   * Uses a generation counter to discard responses from stale requests.
+   */
+  const loadMore = useCallback(async () => {
+    if (loading || loadingMore || !hasMore) return;
+    const gen = genRef.current;
+    setLoadingMore(true);
+    try {
+      const currentOffset = offset;
+      const page = await api.sessions.list({
+        limit: PAGE_LIMIT,
+        offset: currentOffset,
+        source: sourceFilter !== "all" ? sourceFilter : undefined,
+        repo: debouncedRepo || undefined,
+        range: rangeFilter !== "all" ? rangeFilter : undefined,
+        day: dayFilter || undefined,
+      });
+      if (gen !== genRef.current) return; // filter changed mid-flight
+      setRuns((prev) => {
+        // De-dup by id in case new sessions arrived between pages
+        const seen = new Set(prev.map((r) => r.id));
+        const fresh = page.filter((r) => !seen.has(r.id));
+        return [...prev, ...fresh];
+      });
+      setHasMore(page.length === PAGE_LIMIT);
+      setOffset((prev) => prev + page.length);
+    } catch (e: any) {
+      if (gen !== genRef.current) return;
+      toast.error(e.message);
+    } finally {
+      if (gen === genRef.current) setLoadingMore(false);
+    }
+  }, [loading, loadingMore, hasMore, offset, sourceFilter, debouncedRepo, rangeFilter, dayFilter]);
+
+  // Reload page-1 whenever filters change
   useEffect(() => {
     load();
   }, [load]);
@@ -155,21 +245,13 @@ export function useSessionsState(): SessionsState {
     [diagnostics.steps],
   );
 
-  const repoOptions = useMemo(
-    () => [...new Set(runs.map((r) => r.repo))].sort(),
-    [runs],
-  );
-
-  const sourceOptions = useMemo(
-    () => [...new Set(runs.map((r) => r.source || "unknown"))].sort(),
-    [runs],
-  );
-
+  // Sync URL search params ↔ filter state
   useEffect(() => {
-    setRepoSearch(searchParams.get("repo") || "");
+    setRepoSearchRaw(searchParams.get("repo") || "");
+    setDebouncedRepo(searchParams.get("repo") || "");
     setSourceFilter(searchParams.get("source") || "all");
     setRangeFilter(
-      (searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all",
+      (searchParams.get("range") as "24h" | "7d" | "30d" | "3m" | "1y" | "all") || "all",
     );
     setDayFilter(searchParams.get("day") || "");
   }, [searchParams]);
@@ -193,29 +275,6 @@ export function useSessionsState(): SessionsState {
     setOpenTurnId(preferredTurn.id);
   }, [selected?.id, parsed.turns]);
 
-  const filteredRuns = useMemo(
-    () =>
-      runs.filter((r) => {
-        if (sourceFilter !== "all" && (r.source || "unknown") !== sourceFilter)
-          return false;
-        if (
-          repoSearch &&
-          !r.repo.toLowerCase().includes(repoSearch.toLowerCase())
-        )
-          return false;
-        if (
-          dayFilter &&
-          new Date(r.timestamp).toISOString().slice(0, 10) !== dayFilter
-        )
-          return false;
-        const rangeStart = getRangeStart(rangeFilter);
-        if (rangeStart && new Date(r.timestamp).getTime() < rangeStart)
-          return false;
-        return true;
-      }),
-    [runs, dayFilter, repoSearch, rangeFilter, sourceFilter],
-  );
-
   const clearFilters = () => {
     setRepoSearch("");
     setSourceFilter("all");
@@ -225,8 +284,9 @@ export function useSessionsState(): SessionsState {
 
   return {
     loading,
+    loadingMore,
+    hasMore,
     runs,
-    filteredRuns,
     selected,
     annotations,
     repoSearch,
@@ -245,6 +305,7 @@ export function useSessionsState(): SessionsState {
     answer,
     showSessionAnnotationForm,
     load,
+    loadMore,
     loadDetail,
     handleAnnotate,
     handleTurnToggle,

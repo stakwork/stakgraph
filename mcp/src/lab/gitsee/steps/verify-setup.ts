@@ -1,4 +1,4 @@
-import { z, defineStep, usageFromResult, computeCost } from "vein";
+import { z, defineStep, usageFromResult, computeCost } from "strut";
 import { spawn } from "node:child_process";
 import { writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -39,7 +39,7 @@ import yaml from "js-yaml";
  * Output: { booted, rendered, port, httpStatus, title, reason, logs,
  *   screenshotPath }. `booted`/`rendered` feed score-setup's dominant gate.
  *
- * Self-contained: imports only `vein`, `@playwright/test` (lazy), and Node
+ * Self-contained: imports only `strut`, `@playwright/test` (lazy), and Node
  * builtins. Needs `git` (clone, upstream), `docker` (compose), and — when
  * `useStaklink` — network access for `npx staklink`. Playwright browsers must be
  * installed (`npx playwright install chromium`) for the render check.
@@ -269,7 +269,7 @@ async function judgeRender(
 ): Promise<{ working: boolean; reason: string; usage: ReturnType<typeof usageFromResult>; cost: number }> {
   const { generateObject } = await import("ai");
   const { anthropic } = await import("@ai-sdk/anthropic");
-  const model = anthropic(visionModel ?? process.env["VEIN_LLM_MODEL"] ?? "claude-sonnet-5");
+  const model = anthropic(visionModel ?? process.env["STRUT_LLM_MODEL"] ?? "claude-sonnet-5");
   const schema = z.object({
     working: z
       .boolean()

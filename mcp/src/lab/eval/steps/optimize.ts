@@ -1,4 +1,4 @@
-import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, coerceUsage } from "vein";
+import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, coerceUsage } from "strut";
 
 /**
  * GENERIC self-improving LOOP (EVAL_SPEC §7/§11.4). Runs the optimize cycle as a
@@ -24,8 +24,8 @@ import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, co
  * publishing a new version (a separate, explicit action).
  *
  * A leaf step has no runner, so the host injects a tiny `services.optimizer`
- * capability (a closure over `vein.run` + `workspace.getWorkflow`) — see
- * `createLabVein`. Each eval/reflect is its own `vein.run`, because the
+ * capability (a closure over `strut.run` + `workspace.getWorkflow`) — see
+ * `createLabStrut`. Each eval/reflect is its own `strut.run`, because the
  * candidate prompt varies per generation via `paramOverrides` (run-global).
  *
  * MULTI-EXAMPLE (the real overfitting fix, §11.2): a generation evals the
@@ -71,7 +71,7 @@ interface Optimizer {
   run(
     name: string,
     input: unknown,
-    opts?: { paramOverrides?: Record<string, Record<string, unknown>> },
+    opts?: { paramOverrides?: Record<string, Record<string, unknown>>; parentRunId?: string },
   ): Promise<RunResultLike>;
   getParams(name: string): Promise<Record<string, unknown>>;
 }
@@ -137,7 +137,7 @@ export default defineStep({
     const opt = (ctx.services as { optimizer?: Optimizer })?.optimizer;
     if (!opt) {
       throw new Error(
-        "eval/optimize requires a `services.optimizer` capability — inject it in createLabVein (run + getParams over vein).",
+        "eval/optimize requires a `services.optimizer` capability — inject it in createLabStrut (run + getParams over strut).",
       );
     }
 
@@ -212,6 +212,10 @@ export default defineStep({
     let fromReflect: RunRef | undefined;
 
     for (let gen = 0; gen < cfg.maxGenerations; gen++) {
+      // Cooperative boundary between generations (RUN_CONTROL_SPEC §2.1
+      // code-step opt-in): pause parks here; cancel stops the loop here.
+      await ctx.control?.checkpoint();
+
       const genStart = Date.now();
       await emitGen(gen, {
         type: "step.start",
@@ -224,7 +228,9 @@ export default defineStep({
         // prompt is injected into all of them via the same paramOverrides.
         const paramOverrides = { [cfg.targetWorkflow]: { [cfg.promptParam]: candidate } };
         const evalRuns = await mapLimit(dataset, cfg.concurrency, async (datum, i) => {
-          const run = await opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides });
+          // parentRunId: nested eval runs attach under this run's controller
+          // (cancel/pause the optimize run → its eval runs follow).
+          const run = await opt.run(cfg.evalWorkflow, datum ?? {}, { paramOverrides, parentRunId: ctx.runId });
           if (run.status !== "success") {
             throw new Error(`eval run for "${labelFor(datum, i)}" failed: ${run.error?.message ?? "unknown"}`);
           }
@@ -317,7 +323,7 @@ export default defineStep({
             insight: r.insight,
           })),
           history,
-        });
+        }, { parentRunId: ctx.runId });
         if (reflectRun.status !== "success") {
           throw new Error(`reflect run failed: ${reflectRun.error?.message ?? "unknown"}`);
         }

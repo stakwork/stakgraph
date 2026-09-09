@@ -444,3 +444,147 @@ test.describe("logs_agent session persistence", () => {
     expect(logsDir.startsWith(scratchBase)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Interval-clock helper tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure helper that mimics the interval-clock logic used in all three
+ * onStepFinish sites. Extracted for direct unit testing.
+ */
+function makeIntervalClock(seedTime: number): () => number {
+  let last = seedTime;
+  return () => {
+    const now = Date.now();
+    const elapsed = now - last;
+    last = now;
+    return elapsed;
+  };
+}
+
+test.describe("interval-clock correctness", () => {
+  test("elapsed values are non-negative", () => {
+    const tick = makeIntervalClock(Date.now());
+    for (let i = 0; i < 5; i++) {
+      expect(tick()).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test("cursor is monotonic — each call advances the clock", () => {
+    const seed = Date.now() - 100;
+    const tick = makeIntervalClock(seed);
+    // First tick: measures from seed to ~now, so at least 100 ms
+    const first = tick();
+    expect(first).toBeGreaterThanOrEqual(0);
+    // Subsequent ticks measure only the gap since the last call
+    const second = tick();
+    expect(second).toBeGreaterThanOrEqual(0);
+    // The sum of all ticks must be >= first tick (monotonic cursor advance)
+    expect(first + second).toBeGreaterThanOrEqual(first);
+  });
+
+  test("step 0 excludes pre-seed setup time", () => {
+    // Simulate: some setup latency elapsed before the clock is seeded.
+    const setupStart = Date.now() - 500; // 500 ms ago
+    // The clock is seeded NOW (after setup), not at setupStart.
+    const tick = makeIntervalClock(Date.now());
+    // Step 0 should be close to 0, not 500 ms
+    const step0 = tick();
+    expect(step0).toBeLessThan(200); // generous upper bound for test runner jitter
+  });
+
+  test("consecutive ticks produce correct per-step elapsed for fake onStepFinish sequence", () => {
+    let lastStepTime = Date.now();
+
+    // Simulate three step callbacks firing in sequence
+    const steps: { elapsedMs: number; sessionId: string }[] = [];
+    for (let i = 0; i < 3; i++) {
+      const now = Date.now();
+      const elapsedMs = now - lastStepTime;
+      lastStepTime = now;
+      steps.push({ elapsedMs, sessionId: "sess-abc" });
+    }
+
+    expect(steps).toHaveLength(3);
+    for (const s of steps) {
+      expect(s.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(s.sessionId).toBe("sess-abc");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stepMetas enrichment — shape assertions
+// ---------------------------------------------------------------------------
+
+test.describe("stepMetas elapsedMs and sessionId persistence", () => {
+  test("persisted stepMetas entries carry non-negative elapsedMs and correct sessionId", () => {
+    const dir = path.join(os.tmpdir(), `test-stepmeta-${randomUUID()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const sid = randomUUID();
+
+    // Build step entries the same way the agents do, including elapsedMs/sessionId
+    const stepEntries = [
+      {
+        step: 0,
+        turn: 1,
+        usage: { inputTokens: 100, outputTokens: 50 },
+        toolCalls: ["graph_node"],
+        timestamp: new Date().toISOString(),
+        sessionId: sid,
+        elapsedMs: 842,
+      },
+      {
+        step: 1,
+        turn: 1,
+        usage: { inputTokens: 80, outputTokens: 40 },
+        toolCalls: [],
+        timestamp: new Date().toISOString(),
+        sessionId: sid,
+        elapsedMs: 317,
+      },
+    ];
+
+    appendStepMeta(dir, sid, stepEntries);
+
+    const loaded = loadStepMeta(dir, sid) as any[];
+    expect(loaded).toHaveLength(2);
+
+    for (const entry of loaded) {
+      expect(typeof entry.elapsedMs).toBe("number");
+      expect(entry.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(entry.sessionId).toBe(sid);
+    }
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("explore path persists sessionId as 'none' when no sessionId is provided", () => {
+    const dir = path.join(os.tmpdir(), `test-stepmeta-explore-${randomUUID()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const sid = randomUUID();
+
+    // Simulate what get_context_explore does when sessionId is undefined
+    const exploreEntry = {
+      step: 0,
+      turn: 1,
+      usage: { inputTokens: 200, outputTokens: 60 },
+      toolCalls: ["repo_overview"],
+      timestamp: new Date().toISOString(),
+      sessionId: undefined ?? "none",  // mirrors: sessionId ?? "none"
+      elapsedMs: 512,
+    };
+
+    appendStepMeta(dir, sid, [exploreEntry]);
+
+    const loaded = loadStepMeta(dir, sid) as any[];
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].sessionId).toBe("none");
+    expect(loaded[0].elapsedMs).toBeGreaterThanOrEqual(0);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+

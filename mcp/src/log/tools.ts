@@ -96,7 +96,10 @@ export function get_log_tools(
           const truncNote = result.truncated
             ? " NOTE: results may be incomplete (fetch hit the wall-clock cap or the query timed out on AWS) — narrow the filter_pattern, log_stream_names, or minutes to get complete results."
             : "";
-          return `Fetched ${result.lineCount} log lines from ${result.logGroup} (${result.timeRange.startTime} to ${result.timeRange.endTime}). Saved to file: ${result.file}. Use bash to search through it (e.g. rg, grep, head, tail, awk).${truncNote}`;
+          const hydrateNote = result.hydratedLines
+            ? ` ${result.hydratedLines} long line(s) were recovered to full length via GetLogRecord (Logs Insights truncates long messages in query results).`
+            : "";
+          return `Fetched ${result.lineCount} log lines from ${result.logGroup} (${result.timeRange.startTime} to ${result.timeRange.endTime}). Saved to file: ${result.file}. Use bash to search through it (e.g. rg, grep, head, tail, awk).${hydrateNote}${truncNote}`;
         } catch (e: any) {
           return `Failed to fetch CloudWatch logs: ${e.message}`;
         }
@@ -259,7 +262,7 @@ export function get_log_tools(
 
     tools.fetch_workflow_run = tool({
       description:
-        "Fetch logs for a Stakwork workflow run. Pick the projectId from the list of recent runs provided in the prompt. Returns logs in reverse chronological order. Supports filtering by step name, status, and pagination.",
+        'Fetch logs for a Stakwork workflow run. Pick the projectId from the list of recent runs provided in the prompt. Returns logs in reverse chronological order. Supports filtering by step name, status, and pagination. NOTE: messages are truncated to 1000 chars per line (ending in "... (continued)") — the full untruncated lines live in the CloudWatch log group "/stakwork/production", searchable with fetch_cloudwatch using filter_pattern "project_id_<projectId>".',
       inputSchema: z.object({
         project_id: z
           .string()

@@ -22,6 +22,9 @@ import SwiftyJSON
 // @ast node: Request "/people"
 // @ast node: Request "/person"
 // @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappapiswift-7"
+// @ast node: Var "sharedInstance"
+// @ast node: Var "instance"
+// @ast node: Var "host"
 
 class API {
     class var sharedInstance : API {

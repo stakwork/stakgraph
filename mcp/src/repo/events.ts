@@ -1,10 +1,19 @@
 import { EventEmitter } from "events";
 import jwt from "jsonwebtoken";
 import { Response } from "express";
+import { BUSY_TIMEOUT_MINUTES } from "../busy.js";
 
-// ── JWT helpers ──────────────────────────────────────────────────────────
+// ── Bus / JWT lifetime constants ─────────────────────────────────────────
 
-const JWT_EXPIRY = "1h";
+/** Extra buffer beyond BUSY_TIMEOUT_MINUTES so the bus and JWT outlast the run. */
+const MARGIN_MS = 5 * 60_000; // 5 minutes in ms
+const MARGIN_SECONDS = 5 * 60; // 5 minutes in seconds
+
+/**
+ * Expiry in seconds for the events JWT — must stay valid at least as long as
+ * the bus TTL so a reconnect within the permitted run duration never 401s.
+ */
+const JWT_EXPIRY_SECONDS = BUSY_TIMEOUT_MINUTES * 60 + MARGIN_SECONDS;
 
 function getSecret(): string {
   const secret = process.env.API_TOKEN;
@@ -18,10 +27,10 @@ export interface EventsTokenPayload {
   exp?: number;
 }
 
-/** Sign a short-lived JWT scoped to a single request_id. */
+/** Sign a JWT scoped to a single request_id, valid for the full run lifetime. */
 export function signEventsToken(request_id: string): string {
   return jwt.sign({ request_id } as EventsTokenPayload, getSecret(), {
-    expiresIn: JWT_EXPIRY,
+    expiresIn: JWT_EXPIRY_SECONDS,
   });
 }
 
@@ -82,15 +91,30 @@ export interface StepEvent {
   timestamp: string;
 }
 
+/** Default bus TTL: aligned to the real run bound plus a safety margin. */
+const DEFAULT_BUS_TTL_MS = BUSY_TIMEOUT_MINUTES * 60_000 + MARGIN_MS;
+
 class RequestEventBus {
   private emitter = new EventEmitter();
   /** Auto-cleanup timer */
   private timeout: ReturnType<typeof setTimeout> | null = null;
   private _ended = false;
 
-  constructor(private ttlMs: number = 60 * 60 * 1000) {
-    // Auto-destroy after TTL even if nobody listens
-    this.timeout = setTimeout(() => this.destroy(), this.ttlMs);
+  constructor(private ttlMs: number = DEFAULT_BUS_TTL_MS) {
+    // Auto-destroy after TTL — emit a terminal event so SSE subscribers
+    // receive a clean close rather than silently losing the stream.
+    this.timeout = setTimeout(() => {
+      console.warn(
+        `[events] Bus TTL expired (${this.ttlMs}ms) with run still live — emitting terminal error event`,
+      );
+      this.emit({
+        type: "error",
+        error: "run exceeded permitted duration",
+        timestamp: new Date().toISOString(),
+      });
+      // emit() already sets _ended=true and schedules destroy() after 5 s,
+      // giving SSE subscribers time to flush before listeners are removed.
+    }, this.ttlMs);
   }
 
   get ended() {
@@ -150,15 +174,18 @@ export function registerAbortController(
   key: string,
   controller?: AbortController,
 ): AbortController {
-  // If a stale controller exists for this key, abort it first (only when
-  // we're creating a fresh one — aliasing should not abort an existing run).
-  if (!controller) {
-    const existing = abortControllers.get(key);
-    if (existing && !existing.signal.aborted) {
-      try { existing.abort(); } catch (_) {}
-    }
-  }
   const ctl = controller ?? new AbortController();
+  // Abort whatever else held this key. The guard is controller *identity*, not
+  // "were we passed one": re-registering the same controller (the sessionId
+  // alias of a run already keyed by request_id) must not abort the run it
+  // belongs to, but a genuinely different run on the same sessionId must be
+  // stopped. Without this, a caller retrying a session while the original was
+  // still alive left both runs appending to the same transcript.
+  const existing = abortControllers.get(key);
+  if (existing && existing !== ctl && !existing.signal.aborted) {
+    console.log(`[events] Aborting superseded run for key ${key}`);
+    try { existing.abort(); } catch (_) {}
+  }
   abortControllers.set(key, ctl);
   return ctl;
 }
@@ -167,7 +194,17 @@ export function getAbortController(key: string): AbortController | undefined {
   return abortControllers.get(key);
 }
 
-export function unregisterAbortController(key: string): void {
+/**
+ * Remove a key from the registry. Pass the controller you registered so a
+ * superseded run's cleanup can't evict the entry belonging to the run that
+ * replaced it — that would silently make /repo/agent/abort a no-op for the
+ * live run. Omitting it deletes unconditionally (legacy behavior).
+ */
+export function unregisterAbortController(
+  key: string,
+  controller?: AbortController,
+): void {
+  if (controller && abortControllers.get(key) !== controller) return;
   abortControllers.delete(key);
 }
 

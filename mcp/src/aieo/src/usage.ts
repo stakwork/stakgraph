@@ -24,6 +24,9 @@ type RawUsage = {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
   };
+  // OpenAI-compatible providers (xAI/Grok, OpenAI chat) surface cached prompt
+  // tokens as a flat `cachedInputTokens` instead of inputTokenDetails.
+  cachedInputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
 };
@@ -57,7 +60,8 @@ export function normalizeUsage(raw?: RawUsage | null): AiUsageWithLegacy {
   const cache_read =
     raw?.cache_read !== undefined
       ? tokenCount(raw.cache_read)
-      : tokenCount(raw?.inputTokenDetails?.cacheReadTokens);
+      : tokenCount(raw?.inputTokenDetails?.cacheReadTokens) ||
+        tokenCount(raw?.cachedInputTokens);
   const cache_write =
     raw?.cache_write !== undefined
       ? tokenCount(raw.cache_write)
@@ -84,6 +88,29 @@ export function normalizeUsage(raw?: RawUsage | null): AiUsageWithLegacy {
     cache_write,
     output,
     total,
+  });
+}
+
+/**
+ * Fold provider-metadata cache info into a normalized usage. The v6-alpha
+ * OpenRouter provider drops inputTokensDetails from the SDK usage object
+ * (cached-token counts survive only in providerMetadata.openrouter.usage),
+ * so without this every OpenRouter step reports cache_read 0 regardless of
+ * whether the upstream host actually cached.
+ */
+export function withProviderCacheUsage(
+  usage: AiUsageWithLegacy,
+  providerMetadata?: Record<string, any> | null
+): AiUsageWithLegacy {
+  const cached =
+    providerMetadata?.openrouter?.usage?.promptTokensDetails?.cachedTokens;
+  if (typeof cached !== "number" || cached <= 0 || usage.cache_read > 0) {
+    return usage;
+  }
+  return withLegacyUsage({
+    ...usage,
+    input: Math.max(usage.input - cached, 0),
+    cache_read: cached,
   });
 }
 

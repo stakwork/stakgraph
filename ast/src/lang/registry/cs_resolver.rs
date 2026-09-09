@@ -87,6 +87,7 @@ fn walk_for_class_fields(node: Node, source: &[u8], out: &mut HashMap<String, Ha
             if let Some(name_node) = node.child_by_field_name("name") {
                 if let Ok(class_name) = name_node.utf8_text(source) {
                     let mut fields = HashMap::new();
+                    extract_fields_from_primary_ctor(node, source, &mut fields);
                     if let Some(body) = node.child_by_field_name("body") {
                         extract_fields_from_body(body, source, &mut fields);
                         for i in 0..body.named_child_count() {
@@ -107,6 +108,38 @@ fn walk_for_class_fields(node: Node, source: &[u8], out: &mut HashMap<String, Ha
                     walk_for_class_fields(child, source, out);
                 }
             }
+        }
+    }
+}
+
+/// Collect primary-constructor parameters (C# 12: `class Foo(IBar bar) { ... }`)
+/// as implicit fields — `parameter_list` is a positional child of
+/// class/record/struct_declaration, not a named field, so it must be found by kind.
+fn extract_fields_from_primary_ctor(node: Node, source: &[u8], fields: &mut HashMap<String, String>) {
+    let Some(params) = (0..node.named_child_count())
+        .filter_map(|i| node.named_child(i))
+        .find(|n| n.kind() == "parameter_list")
+    else {
+        return;
+    };
+    for i in 0..params.named_child_count() {
+        let Some(param) = params.named_child(i) else {
+            continue;
+        };
+        if param.kind() != "parameter" {
+            continue;
+        }
+        let Some(name_node) = param.child_by_field_name("name") else {
+            continue;
+        };
+        let Ok(name) = name_node.utf8_text(source) else {
+            continue;
+        };
+        let Some(type_node) = param.child_by_field_name("type") else {
+            continue;
+        };
+        if let Some(t) = strip_cs_type(type_node, source) {
+            fields.insert(name.to_string(), t);
         }
     }
 }

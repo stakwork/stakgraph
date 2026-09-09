@@ -1,0 +1,79 @@
+name: wfbench-judge-criterion
+# LLM-as-judge for ONE rubric criterion (the harvey_lab_score_rubric shape
+# 58313 calls once for all criteria — here one call per criterion, run by
+# wfbench-run's foreach in rubric order; eval/aggregate-scores zips the
+# verdicts back onto the rubric by position). This subflow exists because
+# foreach bodies get no onError of their own: a judge crash returns
+# { error } and is scored as an honest FAIL, never a pass.
+#
+# The judge is the core agent step in SCHEMA mode with NO useful tools —
+# every material is already inlined in the prompt by wfbench/build-materials
+# (the editor tool is the smallest built-in subset; its cwd is empty).
+#
+# Input:  { criterion: { id, title, match_criteria }, task_desc, materials_text }
+# Output: agent schema-mode result { object: { verdict, reasoning }, cost,
+#         usage, steps } — or { error } from the onError pack.
+steps:
+  - id: dir
+    type: artifacts/dir
+    config:
+      sub: judge
+
+  - id: judge
+    type: agent
+    depends: dir
+    options:
+      retry: { max: 1, delayMs: 10000 }
+      onError:
+        id: judge_failed
+        type: pack
+        config:
+          error: "{{ $error.cause ? $error.message + ' (cause: ' + $error.cause + ')' : $error.message }}"
+    config:
+      cwd: "{{ dir.path }}"
+      system: "{{ params.judgeSystem }}"
+      prompt: |
+        {{ params.judgePrompt }}
+
+        ## Task the workflow author was given
+        {{ input.task_desc }}
+
+        ## Materials (the produced workflow, its custom steps, the engine's
+        ## static validation of it, the launch payload, the rerun's output and
+        ## status, and the expected output when the task has one)
+        {{ input.materials_text }}
+
+        ## Criterion
+        **{{ input.criterion.title }}**
+
+        {{ input.criterion.match_criteria }}
+      model: "{{ params.judgeModel }}"
+      maxSteps: "{{ params.judgeMaxSteps }}"
+      toolFilter: ["str_replace_based_edit_tool"]
+      schema:
+        type: object
+        properties:
+          verdict:
+            type: string
+            enum: [pass, fail]
+          reasoning:
+            type: string
+            description: Brief explanation of the verdict, grounded in the materials.
+        required: [verdict, reasoning]
+        additionalProperties: false
+
+params:
+  judgeModel: claude-sonnet-5
+  judgeMaxSteps: 5
+  judgeSystem: |
+    You are evaluating a workflow that an AI workflow-editor agent authored
+    from English instructions, against ONE specific quality criterion. Read
+    every material fully before judging: the workflow YAML, any custom step
+    source, the input it was launched with, what the run produced (and
+    whether it completed), and the expected output when one is given. PASS
+    means the materials satisfy the criterion as described; FAIL means they
+    do not. Judge only the stated criterion — not general quality — and
+    ground your reasoning in what the materials actually contain. Answer
+    directly with the structured verdict; you have no files to read.
+  judgePrompt: |
+    Evaluate the produced workflow and its rerun against the criterion below.

@@ -91,7 +91,17 @@ impl Stack for Kotlin {
                         (user_type)@{CLASS_PARENT}
                     )
                 )?
-                
+
+            )@{CLASS_DEFINITION}
+            (object_declaration
+                (modifiers (annotation)*)? @{ATTRIBUTES}
+                (type_identifier)@{CLASS_NAME}
+                (delegation_specifier
+                    (constructor_invocation
+                        (user_type)@{CLASS_PARENT}
+                    )
+                )?
+
             )@{CLASS_DEFINITION}
         "#
         )
@@ -120,6 +130,19 @@ impl Stack for Kotlin {
         format!(
             "(
                 (class_declaration
+                    (type_identifier)? @{PARENT_TYPE}
+                    (class_body
+                    (function_declaration
+                        (modifiers (annotation)*)? @{ATTRIBUTES}
+                        (simple_identifier) @{FUNCTION_NAME}
+                        (function_value_parameters) @{ARGUMENTS}
+                    ) @{FUNCTION_DEFINITION}
+                    )
+                )
+                )
+
+                (
+                (object_declaration
                     (type_identifier)? @{PARENT_TYPE}
                     (class_body
                     (function_declaration
@@ -260,6 +283,9 @@ impl Stack for Kotlin {
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             "(class_declaration
+                (type_identifier) @{STRUCT_NAME}
+            ) @{STRUCT}
+            (object_declaration
                 (type_identifier) @{STRUCT_NAME}
             ) @{STRUCT}"
         ))

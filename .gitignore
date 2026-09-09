@@ -71,9 +71,11 @@ out.txt
 #Local AI files
 .github/copilot-*
 
-# Vein
-vein/workspace
-vein/build
-vein/node_modules
-vein/web/dist
-vein/web/node_modules
+# Strut
+strut/workspace
+strut/build
+strut/node_modules
+strut/web/dist
+strut/web/node_modules
+# strut desktop packaging output (scripts/package-desktop.mjs)
+strut/dist-desktop*

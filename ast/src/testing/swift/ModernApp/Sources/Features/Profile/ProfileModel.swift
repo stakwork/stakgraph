@@ -1,6 +1,11 @@
 import Foundation
 // @ast node: Class "Profile"
 // @ast node: Class "Status"
+// @ast node: Var "id"
+// @ast node: Var "username"
+// @ast node: Var "bio"
+// @ast node: Var "avatarURL"
+// @ast node: Var "status"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofilemodelswift-0"
 
 struct Profile: Codable, Identifiable {

@@ -15,6 +15,9 @@ export default defineConfig({
     port: 3366,
     proxy: {
       "/api": "http://localhost:3355",
+      // Concept documentation lives behind auth on the main app, not on the
+      // (public) sessions router — see api.ts.
+      "/gitree": "http://localhost:3355",
     },
   },
 });

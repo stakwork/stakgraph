@@ -1,0 +1,146 @@
+name: harvey-evolve
+# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4), harvey instance of the
+# generic eval/evolve-loop (§5.3.3): baseline once, then up to
+# maxGenerations author→run→grade cycles, each generation briefed with the
+# EVIDENCE so far — the task list, a task×version grid of every version
+# graded (baseline first), and each attempt's approach and failed criteria.
+# The author chooses for itself which version to build on.
+#
+#   capture   run the BASELINE produce workflow over the task set, grade it
+#             with the real benchmark eval, digest the aggregate misses
+#   loop      eval/evolve-loop (generic) runs harvey-evolve-gen per generation:
+#             an authoring agent (meta/* only — §5.3.2) publishes a new
+#             version of the candidate, the harness runs it pinned over the
+#             same tasks and digests the grades; the loop folds the result
+#             into the next generation's briefing
+#   promote   the report: the top version(s) + pass-rate vs baseline, the
+#             full generation history, costs. Promotion stays a HUMAN act —
+#             point harvey-run's input.produceWorkflow at a top version,
+#             or fold its diff into the seeded harvey-produce, after review.
+#
+# MEASUREMENT DISCIPLINE (EVOLVE_SPEC §6/§7):
+#   - Authors see pass/fail VERDICTS + truncated judge reasoning for failed
+#     criteria — never the rubric. Hill-climbing against verdicts is the
+#     train-set problem: every score in this report is a TRAIN score on the
+#     very tasks the candidates were tuned against. Validate the best
+#     version on held-out tasks before believing the delta.
+#   - The fitness is criteria pass-RATE (harvey/digest-results) — the
+#     benchmark's binary all-pass score has no gradient. Every version is
+#     graded ONCE; ±0.02 (one criterion on a 50-criterion task) is judge
+#     noise — the grid shows the author every column and the author reads
+#     patterns across them, no margin machinery tries to outguess it.
+#   - Authors cannot grade: grading happens in the harness after each
+#     author finishes, and candidates run under their OWN runIds via
+#     meta/run-workflow (harvey-candidate-run).
+#
+# COST: roughly (1 + generations) × |tasks| × (produce + judge) + each
+# generation's author (incl. its ≤2 smoke runs). With maxGenerations 5 and
+# one task, expect tens of dollars. Start small; raise input.generations
+# (cap 20) to let it rip.
+#
+# Needs: ANTHROPIC_API_KEY, HARVEY_LABS_DIR (+ uv, git, pandoc on PATH).
+# Input:  { tasks: [taskId, …], mission, generations? }
+#   mission:     the standing gap statement handed to every generation's
+#                author (the digest evidence rides alongside it and, per
+#                the author method, outranks it).
+#   generations: override params.maxGenerations for this run (e.g. 10).
+#   maxCost:     dollar ceiling (author + produce) — the loop stops before
+#                starting the generation that would cross it.
+#   maxMinutes:  wall-clock ceiling, same between-generations semantics.
+#                Both default to params (null = uncapped). Prefer these over
+#                guessing a generation count: cost and time per generation
+#                GROW as authors evolve more expensive architectures.
+# Output: { candidate, topVersions, bestGen, bestVersion, bestPassRate,
+#           baselinePassRate, improved, generations, totalKnownCost,
+#           stopReason, baseline, … }
+steps:
+  # ── capture: baseline over the task set ────────────────────────────────
+  - id: baseline
+    type: foreach
+    config:
+      items: "{{ input.tasks }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: harvey-run
+          input:
+            task: "{{ $current }}"
+            workdir: "{{ $current }}"
+
+  - id: basedigest
+    type: harvey/digest-results
+    depends: baseline
+    config:
+      results: "{{ baseline }}"
+      maxCriteria: "{{ params.digestMaxCriteria }}"
+
+  # ── the hill-climb: author → run → grade, up to N generations ──────────
+  # The loop is the GENERIC eval/evolve-loop; harvey's fitness is criteria
+  # pass-rate (the digest's meanPassRate — binary all-pass has no gradient).
+  - id: evolve
+    type: eval/evolve-loop
+    depends: basedigest
+    config:
+      tasks: "{{ input.tasks }}"
+      mission: "{{ input.mission }}"
+      baseline: "{{ basedigest }}"
+      candidateName: "{{ params.candidateName }}"
+      baseWorkflow: "{{ params.baseWorkflow }}"
+      genWorkflow: "{{ params.genWorkflow }}"
+      fitnessName: pass-rate
+      maxGenerations: "{{ input.generations || params.maxGenerations }}"
+      stopFitness: "{{ params.stopPassRate }}"
+      genParams: "{{ params.genParams }}"
+      maxCost: "{{ input.maxCost || params.maxCost }}"
+      maxMinutes: "{{ input.maxMinutes || params.maxMinutes }}"
+
+  # ── promote: the reviewable report ─────────────────────────────────────
+  - id: report
+    type: pack
+    depends: evolve
+    config:
+      mission: "{{ input.mission }}"
+      tasks: "{{ input.tasks }}"
+      candidate: "{{ evolve.candidate }}"
+      # Every version that reached the top pass-rate, oldest first.
+      topVersions: "{{ evolve.topVersions }}"
+      bestGen: "{{ evolve.bestGen }}"
+      bestVersion: "{{ evolve.bestVersion }}"
+      bestPassRate: "{{ evolve.bestFitness }}"
+      baselinePassRate: "{{ evolve.baselineFitness }}"
+      passRateDelta: "{{ evolve.bestFitness - evolve.baselineFitness }}"
+      improved: "{{ evolve.improved }}"
+      generations: "{{ evolve.generations }}"
+      totalKnownCost: "{{ evolve.totalKnownCost }}"
+      stopReason: "{{ evolve.stopReason }}"
+      baseline: "{{ basedigest.results }}"
+      note: "{{ evolve.note }}"
+
+params:
+  # The produce workflow the baseline runs and generation-0 authors start
+  # from (read via meta/get-workflow).
+  baseWorkflow: harvey-produce
+  # The candidate's name. Every generation republishes it — a NEW VERSION
+  # each time, so one evolve run leaves a versioned lineage (and the report
+  # pins the best version, which may not be the latest).
+  candidateName: harvey-produce-ai
+  # The one-generation workflow the loop runs (author → candidate eval →
+  # digest). Its own params (authorModel, authorMaxSteps, authorSystem, …)
+  # are the author's experiment surface — override per run via genParams.
+  genWorkflow: harvey-evolve-gen
+  maxGenerations: 5
+  # Stop early once a generation's mean pass-rate reaches this (1 = every
+  # criterion on every task — rarely reached; generations are the real cap).
+  stopPassRate: 1
+  digestMaxCriteria: 6
+  # Param overrides for harvey-evolve-gen (e.g. { authorModel: "...",
+  # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.
+  genParams: {}
+  # BUDGET CAPS (checked between generations, so they bound when the loop
+  # STOPS, never kill a generation mid-flight). Generation count alone is a
+  # poor budget: authors evolve toward more expensive architectures, so a
+  # run that starts at ~1h and ~$3 per generation can end at 2.5h and $8.
+  # Null = uncapped (generations remain the only limit).
+  maxCost: null
+  maxMinutes: null

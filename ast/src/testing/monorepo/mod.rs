@@ -1,5 +1,6 @@
 use crate::lang::{BTreeMapGraph, EdgeType, Graph, NodeType};
 use crate::repo::Repo;
+use lsp::git::CloneOpts;
 
 use shared::error::Result;
 use std::path::Path;
@@ -342,6 +343,7 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         None,
         None,
         Some(false),
+        &CloneOpts::default(),
     )
     .await?;
 
@@ -435,6 +437,7 @@ async fn test_remote_monorepo_comprehensive_graph() -> Result<()> {
         None,
         None,
         Some(false),
+        &CloneOpts::default(),
     )
     .await?;
 
@@ -581,6 +584,7 @@ async fn test_polyglot_monorepo() -> Result<()> {
         None,
         None,
         Some(false),
+        &CloneOpts::default(),
     )
     .await?;
 
@@ -741,6 +745,7 @@ async fn test_simple_api_non_monorepo() -> Result<()> {
         None,
         None,
         Some(false),
+        &CloneOpts::default(),
     )
     .await?;
 

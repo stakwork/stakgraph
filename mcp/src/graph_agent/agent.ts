@@ -9,6 +9,7 @@ import {
 import {
   addUsage,
   normalizeUsage,
+  withProviderCacheUsage,
   getModelDetails,
   getProviderOptions,
   ModelName,
@@ -31,6 +32,7 @@ import {
   createHasEndMarkerCondition,
   extractMessagesFromSteps,
   truncateOldToolResults,
+  maxOutputTokensFor,
 } from "../repo/utils.js";
 import { get_graph_tools, GraphToolsConfig } from "./tools.js";
 
@@ -70,12 +72,13 @@ function isAbortError(err: unknown): boolean {
   return false;
 }
 
-function logStep(content: any[]): void {
+function logStep(content: any[], sessionId: string, elapsedMs: number): void {
+  const prefix = `sessionId=${sessionId} elapsedMs=${elapsedMs}`;
   for (const item of content) {
     if (item.type === "tool-call") {
-      console.log(`[graph_agent] tool_call: ${item.toolName}`);
+      console.log(`[graph_agent] ${prefix} tool_call: ${item.toolName}`);
     } else if (item.type === "text" && item.text) {
-      console.log(`[graph_agent] text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
+      console.log(`[graph_agent] ${prefix} text: ${item.text.slice(0, 120).replace(/\n/g, " ")}...`);
     }
   }
 }
@@ -192,6 +195,10 @@ async function prepareGraphAgent(
     previousMessages.filter((m) => m.role === "user").length +
     (hasSystemTurn ? 2 : 1);
 
+  // Seed the per-step interval clock *after* any setup work (tool loading,
+  // context building) so step 0's elapsedMs reflects only its own execution.
+  let lastStepTime = Date.now();
+
   const agent = new ToolLoopAgent({
     model,
     instructions: systemPrompt,
@@ -199,21 +206,31 @@ async function prepareGraphAgent(
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
-      logStep(sf.content);
+      const now = Date.now();
+      const elapsedMs = now - lastStepTime;
+      lastStepTime = now;
+      logStep(sf.content, sessionId ?? "none", elapsedMs);
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = normalizeUsage(sf.usage);
+      const u = withProviderCacheUsage(
+        normalizeUsage(sf.usage),
+        sf.providerMetadata as Record<string, any> | undefined
+      );
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
+        finishReason: sf.finishReason,
+        rawFinishReason: sf.rawFinishReason,
         usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
         timestamp: new Date().toISOString(),
+        sessionId: sessionId ?? "none",
+        elapsedMs,
       });
     },
     prepareStep: async ({ steps, messages }) => {
@@ -255,7 +272,10 @@ async function prepareGraphAgent(
 function buildCallParams(prepared: PreparedGraphAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any, undefined, modelId);
-  const base = abortSignal ? { providerOptions, abortSignal } : { providerOptions };
+  const maxOutputTokens = maxOutputTokensFor(provider);
+  const base = abortSignal
+    ? { providerOptions, abortSignal, maxOutputTokens }
+    : { providerOptions, maxOutputTokens };
 
   if (previousMessages.length > 0) {
     const messagesToSend =
@@ -292,6 +312,14 @@ export async function get_context(opts: GraphAgentOptions): Promise<{
       `[graph_agent] graph_agent_run_end requestId=${prepared.requestId} sessionId=${sessionId ?? "none"} model=${modelId} duration=${duration}ms status=${aborted ? "aborted" : "error"}`,
     );
     if (sessionId) {
+      // Mirror the success path's token_usage computation so a failed run still
+      // records however many tokens were spent before the throw. The generate
+      // call threw, so there is no result.totalUsage here; with no step-metas
+      // recorded, fall back to empty usage (normalizeUsage tolerates undefined).
+      const errorUsage =
+        stepMetas.length > 0
+          ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+          : normalizeUsage(undefined);
       await appendSessionEnd(sessionId, {
         end_time: new Date().toISOString(),
         model: modelId,
@@ -299,6 +327,7 @@ export async function get_context(opts: GraphAgentOptions): Promise<{
         duration_ms: duration,
         status: aborted ? "aborted" : "error",
         error_message: err instanceof Error ? err.message : String(err),
+        token_usage: errorUsage,
       });
     }
     throw err;
@@ -400,6 +429,14 @@ export async function stream_context(opts: GraphAgentOptions) {
         } else {
           console.error(`[graph_agent] Failed to finalize session:`, e);
         }
+        // Mirror the success path's token_usage computation: prefer step-metas
+        // (accumulated during the run) over the stream's own usage (which may
+        // itself have thrown and is therefore unavailable in this scope).
+        // normalizeUsage tolerates undefined, so the no-step-meta fallback is safe.
+        const errorUsage =
+          stepMetas.length > 0
+            ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+            : normalizeUsage(undefined);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
@@ -407,6 +444,7 @@ export async function stream_context(opts: GraphAgentOptions) {
           duration_ms: Date.now() - startTime,
           status: aborted ? "aborted" : "error",
           error_message: e instanceof Error ? e.message : String(e),
+          token_usage: errorUsage,
         }).catch(() => {});
         console.log(
           `[graph_agent] graph_agent_run_end (stream) requestId=${prepared.requestId} sessionId=${sessionId} model=${modelId} status=${aborted ? "aborted" : "error"}`,

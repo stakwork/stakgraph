@@ -8,7 +8,9 @@ interface TrackedOperation {
   externalAbortController?: AbortController;
 }
 
-const TIMEOUT_MS = 30 * 60 * 1000;
+export const BUSY_TIMEOUT_MINUTES = parseInt(process.env.BUSY_TIMEOUT_MINUTES || "", 10) || 120;
+const TIMEOUT_MINUTES = BUSY_TIMEOUT_MINUTES;
+const TIMEOUT_MS = TIMEOUT_MINUTES * 60 * 1000;
 const activeOperations = new Map<string, TrackedOperation>();
 let operationCounter = 0;
 
@@ -35,7 +37,7 @@ export function startTracking(
   const operationId = generateOperationId(routeName);
   const timeout = setTimeout(() => {
     console.warn(
-      `[busy] TIMEOUT: Operation ${operationId} (${routeName}) exceeded 30 minutes, forcing cleanup`
+      `[busy] TIMEOUT: Operation ${operationId} (${routeName}) exceeded ${TIMEOUT_MINUTES} minutes, forcing cleanup`
     );
     const op = activeOperations.get(operationId);
     if (op?.externalAbortController && !op.externalAbortController.signal.aborted) {

@@ -5,7 +5,7 @@ name: gitsee-explore-services
 # workspace's FRONTEND up and running.
 #
 # The agent loop + its general tools (repo_overview, file_summary, fulltext_search,
-# bash, web_search) now live in vein core (`agent` step). Only the gitsee-specific
+# bash, web_search) now live in strut core (`agent` step). Only the gitsee-specific
 # clone remains a custom step. The `system`/`prompt`/`finalAnswer` prompts live in
 # `params` (the experiment surface, ready for gitsee-optimize to sweep) — the agent
 # injects a neutral working-dir listing, so the prompts stay repo-agnostic.
@@ -56,14 +56,14 @@ steps:
 
 # ── params: the prompt experiment surface (workspace-aware, frontend-focused) ───
 params:
-  model: claude-sonnet-4-6
+  model: claude-sonnet-5
   # Agent step budget. Generous for hard multi-repo workspaces (mikeoss, hive)
   # that need a lot of exploration before producing; a forced final-answer turn
   # (in the agent step) still guarantees output if even this is exhausted.
   maxSteps: 200
   # The pod's base domain. Public URLs are https://<$POD_ID>[-<port>].<podDomain>.
   # Factored out here (single source of truth) and referenced via
-  # {{ params.podDomain }} inside the finalAnswer contract below — vein resolves
+  # {{ params.podDomain }} inside the finalAnswer contract below — strut resolves
   # param-to-param refs at load. Change this one knob to retarget a cluster.
   podDomain: workspaces.sphinx.chat
   prompt: |-

@@ -1,25 +1,30 @@
 import { test, expect } from "../testkit.js";
 import { logStep } from "./utils.js";
 
+const SESSION = "test-session-id";
+const ELAPSED = 123;
+
 /** Capture console.log for the duration of one logStep call. */
-function capture(contents: any): string[] {
+function capture(contents: any, sessionId = SESSION, elapsedMs = ELAPSED): string[] {
   const lines: string[] = [];
   const orig = console.log;
   console.log = (...args: any[]) => { lines.push(args.join(" ")); };
   try {
-    logStep(contents);
+    logStep(contents, sessionId, elapsedMs);
   } finally {
     console.log = orig;
   }
   return lines;
 }
 
+const PREFIX = `sessionId=${SESSION} elapsedMs=${ELAPSED}`;
+
 test.describe("logStep tool-call arguments", () => {
   test("logs which skill was loaded, not just the tool name", () => {
     const [line] = capture([
       { type: "tool-call", toolName: "load_skill", input: { name: "commercial-legal/nda-review" } },
     ]);
-    expect(line).toBe('[repo_agent] tool_call: load_skill {"name":"commercial-legal/nda-review"}');
+    expect(line).toBe(`[repo_agent] ${PREFIX} tool_call: load_skill {"name":"commercial-legal/nda-review"}`);
   });
 
   test("omits empty and absent inputs rather than printing {}", () => {
@@ -29,9 +34,9 @@ test.describe("logStep tool-call arguments", () => {
       { type: "tool-call", toolName: "repo_overview" },
     ]);
     expect(lines).toEqual([
-      "[repo_agent] tool_call: list_skills",
-      "[repo_agent] tool_call: repo_overview",
-      "[repo_agent] tool_call: repo_overview",
+      `[repo_agent] ${PREFIX} tool_call: list_skills`,
+      `[repo_agent] ${PREFIX} tool_call: repo_overview`,
+      `[repo_agent] ${PREFIX} tool_call: repo_overview`,
     ]);
   });
 
@@ -40,7 +45,7 @@ test.describe("logStep tool-call arguments", () => {
       { type: "tool-call", toolName: "bash", input: { command: "x".repeat(500) } },
     ]);
     expect(line.endsWith("…")).toBe(true);
-    expect(line.length).toBeLessThan(220);
+    expect(line.length).toBeLessThan(280);
   });
 
   test("a multi-line object input stays on one log line", () => {
@@ -60,14 +65,14 @@ test.describe("logStep tool-call arguments", () => {
       { type: "tool-call", toolName: "bash", input: "line1\nline2\n\tline3" },
     ]);
     expect(line.includes("\n")).toBe(false);
-    expect(line).toBe("[repo_agent] tool_call: bash line1 line2 line3");
+    expect(line).toBe(`[repo_agent] ${PREFIX} tool_call: bash line1 line2 line3`);
   });
 
   test("an unserializable input still logs the tool name", () => {
     const circular: any = {};
     circular.self = circular;
     const [line] = capture([{ type: "tool-call", toolName: "weird", input: circular }]);
-    expect(line).toBe("[repo_agent] tool_call: weird");
+    expect(line).toBe(`[repo_agent] ${PREFIX} tool_call: weird`);
   });
 
   test("non-tool-call content is unaffected", () => {
@@ -75,11 +80,23 @@ test.describe("logStep tool-call arguments", () => {
       { type: "text", text: "hello there" },
       { type: "reasoning", text: "ignored" },
     ]);
-    expect(lines).toEqual(["[repo_agent] text: hello there..."]);
+    expect(lines).toEqual([`[repo_agent] ${PREFIX} text: hello there...`]);
   });
 
   test("non-array content is a no-op", () => {
     expect(capture(undefined)).toEqual([]);
     expect(capture({ type: "tool-call", toolName: "x" })).toEqual([]);
+  });
+
+  test("sessionId and elapsedMs appear in the emitted line prefix", () => {
+    const sid = "my-session-42";
+    const ms = 999;
+    const [line] = capture(
+      [{ type: "tool-call", toolName: "some_tool", input: {} }],
+      sid,
+      ms
+    );
+    expect(line).toContain(`sessionId=${sid}`);
+    expect(line).toContain(`elapsedMs=${ms}`);
   });
 });

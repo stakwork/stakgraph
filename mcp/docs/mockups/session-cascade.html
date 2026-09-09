@@ -1,0 +1,577 @@
+<meta charset="utf-8">
+<title>Session Cascade</title>
+<style>
+  /* ── Tokens: dark-first (a trace tool lives in the terminal's world) ── */
+  :root {
+    --bg: #0b1014;
+    --surface: #121a20;
+    --ink: #d9e4e2;
+    --muted: #74868b;
+    --faint: #24323a;
+    --lane0: #5fb0c9;   /* main agent — steel cyan */
+    --lane1: #9a86e8;   /* child sub-agent — violet */
+    --lane2: #c77ca8;   /* grandchild — rose */
+    --concept: #d8a44c; /* knowledge — amber */
+    --concept-ink: #0b1014;
+    --ok: #7fbf8e;
+    --chip-bg: #d8a44c1f;
+    --pill-bg: #ffffff09;
+    --hover: #ffffff08;
+    --tooltip-bg: #0e1519;
+    --shadow: 0 8px 28px #00000066;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f2f5f5;
+      --surface: #ffffff;
+      --ink: #1c2a2e;
+      --muted: #5d7077;
+      --faint: #d5dfe1;
+      --lane0: #1f7c9c;
+      --lane1: #6a53cc;
+      --lane2: #a84e7f;
+      --concept: #a87420;
+      --concept-ink: #ffffff;
+      --ok: #3d8a52;
+      --chip-bg: #a874201a;
+      --pill-bg: #00000007;
+      --hover: #00000006;
+      --tooltip-bg: #ffffff;
+      --shadow: 0 8px 28px #4a606822;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f5f5;
+    --surface: #ffffff;
+    --ink: #1c2a2e;
+    --muted: #5d7077;
+    --faint: #d5dfe1;
+    --lane0: #1f7c9c;
+    --lane1: #6a53cc;
+    --lane2: #a84e7f;
+    --concept: #a87420;
+    --concept-ink: #ffffff;
+    --ok: #3d8a52;
+    --chip-bg: #a874201a;
+    --pill-bg: #00000007;
+    --hover: #00000006;
+    --tooltip-bg: #ffffff;
+    --shadow: 0 8px 28px #4a606822;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0 20px 64px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  /* ── Header ── */
+  header { padding: 34px 4px 10px; }
+  .eyebrow {
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  h1 {
+    font-family: system-ui, "Segoe UI", "Helvetica Neue", sans-serif;
+    font-size: 26px; font-weight: 650; letter-spacing: -0.01em;
+    margin: 0 0 4px; text-wrap: balance;
+  }
+  h1 .sid { color: var(--muted); font-weight: 400; }
+  .statline {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+    margin-top: 12px; font-size: 12px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .statline b { color: var(--ink); font-weight: 600; }
+  .live { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-weight: 600; }
+  .live .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+    animation: pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+    70% { box-shadow: 0 0 0 9px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  .hbtn {
+    margin-left: auto;
+    font: inherit; font-size: 11.5px; letter-spacing: 0.06em;
+    color: var(--ink); background: none;
+    border: 1px solid var(--faint); border-radius: 6px;
+    padding: 5px 14px; cursor: pointer;
+  }
+  .hbtn + .hbtn { margin-left: 8px; }
+  .hbtn:hover { border-color: var(--muted); }
+  .hbtn:focus-visible { outline: 2px solid var(--lane0); outline-offset: 2px; }
+
+  /* ── Trace ── */
+  .trace-scroll { overflow-x: auto; }
+  #trace {
+    position: relative;
+    min-width: 980px;
+    margin-top: 18px;
+    border-top: 1px solid var(--faint);
+    padding-top: 8px;
+  }
+  #tracesvg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+
+  .row {
+    position: absolute; left: 0; right: 0; height: 34px;
+    display: flex; align-items: center;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+  }
+  .row.anim { opacity: 0; transform: translateY(-6px); transition: opacity 0.35s ease, transform 0.35s ease, background 0.15s ease; }
+  .row.anim.shown { opacity: 1; transform: none; }
+  .row:hover { background: var(--hover); }
+
+  .t {
+    position: absolute; left: 4px; width: 52px;
+    font-size: 10px; color: var(--muted); text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .lbl {
+    position: absolute; right: 250px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 12.5px;
+  }
+  .lbl.user { color: var(--ink); font-weight: 600; }
+  .lbl.response { font-weight: 650; }
+  .lbl.detail { color: var(--muted); font-size: 11.5px; }
+  .lbl.detail .tool { font-weight: 650; }
+  .lbl.reason { color: var(--muted); font-style: italic; font-size: 12px; }
+  .agentname { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; }
+  .agentname .sid { color: var(--muted); font-weight: 400; letter-spacing: 0.04em; text-transform: none; }
+
+  /* tool-block pill */
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--pill-bg);
+    border: 1px solid var(--faint);
+    border-radius: 14px; padding: 3px 13px;
+    font-size: 11.5px; color: var(--muted);
+    cursor: pointer; user-select: none;
+  }
+  .pill:hover { border-color: var(--muted); color: var(--ink); }
+  .pill b { color: var(--ink); font-weight: 650; }
+  .pill .car { font-size: 9px; opacity: 0.8; }
+
+  /* concept action row + rail chip */
+  .caction { font-size: 11px; letter-spacing: 0.1em; font-weight: 700; color: var(--concept); }
+  .caction .cvia { color: var(--muted); font-weight: 400; letter-spacing: 0.02em; text-transform: none; }
+  .chip {
+    position: absolute; right: 8px; width: 224px; height: 26px;
+    display: flex; align-items: center; gap: 7px;
+    background: var(--chip-bg);
+    border: 1px solid color-mix(in srgb, var(--concept) 45%, transparent);
+    border-radius: 13px; padding: 0 11px;
+    font-size: 11px; color: var(--concept);
+    cursor: default;
+  }
+  .chip .cname { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .verb { margin-left: auto; font-size: 9px; letter-spacing: 0.12em; opacity: 0.85; white-space: nowrap; flex: none; }
+  .chip.created { background: var(--concept); color: var(--concept-ink); border-color: var(--concept); }
+
+  .anim.chipanim { opacity: 0; transform: translateX(8px); transition: opacity 0.4s ease, transform 0.4s ease; }
+  .anim.chipanim.shown { opacity: 1; transform: none; }
+  .sv.anim { opacity: 0; transition: opacity 0.4s ease; }
+  .sv.anim.shown { opacity: 1; }
+
+  #head {
+    position: absolute; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--lane0); margin: -5px;
+    animation: pulse 1.6s ease-out infinite;
+  }
+
+  #tip {
+    position: fixed; z-index: 10; max-width: 420px;
+    background: var(--tooltip-bg); border: 1px solid var(--faint);
+    border-radius: 8px; box-shadow: var(--shadow);
+    padding: 10px 13px; font-size: 11.5px; line-height: 1.55;
+    pointer-events: none; display: none;
+  }
+  #tip .tk { color: var(--muted); font-size: 10px; margin-bottom: 3px; }
+  #tip .tc { word-break: break-all; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px 26px; align-items: center;
+    margin-top: 26px; padding: 16px 4px;
+    border-top: 1px solid var(--faint);
+    font-size: 11px; color: var(--muted);
+  }
+  .legend .k { display: inline-flex; align-items: center; gap: 8px; }
+  .notes {
+    font-family: system-ui, "Segoe UI", "Helvetica Neue", sans-serif;
+    font-size: 13.5px; color: var(--muted); max-width: 68ch;
+    margin-top: 10px; padding: 0 4px;
+  }
+  .notes b { color: var(--ink); font-weight: 600; }
+  .notes p { margin: 0 0 10px; }
+  .notes code { font-family: ui-monospace, monospace; font-size: 12px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anim, .anim.shown { transition: none; }
+    .live .dot, #head { animation: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Session Cascade · UI mockup · stakgraph /sessions</div>
+    <h1>Ingest the Q3 vendor contracts and map them to the ontology <span class="sid">· 151409512</span></h1>
+    <div class="statline">
+      <span class="live"><span class="dot"></span>running</span>
+      <span>repo <b>stakwork/hive</b></span>
+      <span>model <b>claude-sonnet-5</b></span>
+      <span><b id="st-turns">–</b> turns</span>
+      <span><b id="st-calls">–</b> tool calls</span>
+      <span><b>2</b> sub-agents</span>
+      <span><b>4</b> concepts</span>
+      <span><b>412k</b> tok</span>
+      <button class="hbtn" id="expandall">expand all</button>
+      <button class="hbtn" id="replay">↺ replay</button>
+    </div>
+  </header>
+
+  <div class="trace-scroll">
+    <div id="trace"></div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="notes">
+    <p><b>Overview-first:</b> a session with hundreds of turns collapses to its story — <b>who ran</b> (each lane is one AgentSession; click an agent to see the prompt it was handed, its chain's <code>user_input</code> turn 0), and <b>what it did to knowledge</b> (amber concept actions never collapse). Everything between folds into one <code>(N turns)</code> pill — tool calls, results, and the agent's reasoning text alike; click to unroll that slice of the chain, click again to fold it back.</p>
+    <p>The pill is honest about the data: it spans a contiguous run of Turn nodes (<code>order 14–121</code> in its tooltip), so expanding is just fetching that slice of the NEXT-chain. Live mode appends to the bottom pill in place — the count ticks up without the page growing.</p>
+  </div>
+</div>
+
+<div id="tip"><div class="tk"></div><div class="tc"></div></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ROW = 34, TOP = 10;
+  var LANE_X = [96, 176, 248];
+  var RAIL_LEFT = 980 - 240;
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ── The session, overview-first ──────────────────────────
+  // user | agent (fork header) | tools (collapsible pill) | concept | response
+  // Every item spans real Turn orders [o0, o1] so the UI stays honest to the chain.
+  var S = [
+    { k:"user",     l:0, text:"“Ingest the Q3 vendor contracts and map every clause to the WFA ontology. Reuse existing Concepts where they apply.”", ts:"0:00" },
+    { k:"tools",    l:0, calls:9,  texts:["Loading the ontology and scanning for existing contract Concepts…","7 clause types already modeled — checking coverage against the Q3 docs."], dur:"0.4m", mix:"get_ontology ×1 · stakgraph_search ×3 · graph_get ×5" },
+    { k:"concept",  l:0, verb:"READ", name:"wfa-ontology", via:"graph_get", ts:"0:02" },
+    { k:"tools",    l:0, calls:6,  texts:["Opening the contract docs to enumerate clauses."], dur:"0.3m", mix:"docx_open_document ×2 · docx_search_text ×4" },
+    { k:"agent",    l:1, name:"graph_sub_agent", sid:"151409512-sub-587d8b9c", prompt:"Map every clause in the 12 Q3 vendor contracts to WFA ontology types. Report unmatched clauses with ref_ids. The contracts are already ingested as Document nodes.", ts:"0:05" },
+    { k:"tools",    l:1, calls:41, texts:["Sweeping clause candidates contract by contract…","Indemnification language doesn't match any existing type.","Cross-checking graph neighbors for near-miss types."], dur:"2.6m", mix:"graph_search ×14 · graph_get_batched ×11 · graph_neighbors ×16" },
+    { k:"concept",  l:1, verb:"READ", name:"contract-clauses", via:"graph_get_batched" },
+    { k:"agent",    l:2, name:"graph_sub_agent", sid:"…-sub-587d8b9c-sub-9c2f", prompt:"Resolve these 14 liability-clause ref_ids and classify each against the liability-terms taxonomy. Report any clause that fits no bucket.", ts:"0:09" },
+    { k:"tools",    l:2, calls:12, texts:["Classifying each clause against the taxonomy…"], dur:"0.8m", mix:"graph_get_batched ×7 · graph_neighbors ×5" },
+    { k:"concept",  l:2, verb:"READ", name:"liability-terms", via:"graph_get" },
+    { k:"response", l:2, text:"“Liability clauses cluster under 3 existing types; 2 have no home…”", merge:true, ts:"0:12" },
+    { k:"response", l:1, text:"“Clause map complete: 61 of 74 clauses match existing Concepts…”", merge:true },
+    { k:"tools",    l:0, calls:83, texts:["Writing clause triplets in batches…","Batch 4/9 — merging duplicates against existing nodes.","Two clause families need a Concept of their own."], dur:"6.1m", mix:"create_triplet ×68 · create_batch_triplet ×9 · edit_node ×6", ts:"0:15" },
+    { k:"concept",  l:0, verb:"+ CREATED", name:"indemnification-scope", via:"create_triplet", created:true },
+    { k:"tools",    l:0, calls:14, texts:["Syncing the mapping sheet…"], dur:"0.9m", mix:"bash ×6 · sheets_update_values ×8", ts:"0:22" }
+    // …head pulses below: the last pill is still counting up
+  ];
+
+  // Assign real turn-order spans. A pill spans ALL its turns: each tool call
+  // is a call+result pair, plus the reasoning text turns between them.
+  var order = 0;
+  S.forEach(function (s) {
+    s.o0 = order;
+    if (s.k === "tools") { s.turns = s.calls * 2 + s.texts.length; order += s.turns; }
+    else order += 1;
+    s.o1 = order - 1;
+  });
+  var TOTAL_TURNS = order;
+  var TOTAL_CALLS = S.reduce(function (a, s) { return a + (s.calls || 0); }, 0);
+  document.getElementById("st-turns").textContent = TOTAL_TURNS;
+  document.getElementById("st-calls").textContent = TOTAL_CALLS;
+
+  // Fake detail turns for an expanded pill: cycle the block's tool mix and
+  // intersperse its reasoning texts, like a real transcript.
+  function detailTurns(s) {
+    var tools = s.mix.split("·").map(function (m) { return m.trim().split(" ")[0]; });
+    var every = Math.ceil(s.calls / (s.texts.length + 1));
+    var out = [], o = s.o0, ti = 0;
+    for (var i = 0; i < s.calls; i++) {
+      if (ti < s.texts.length && i > 0 && i % every === 0) {
+        out.push({ kind: "text", text: s.texts[ti++], o: o++ });
+      }
+      var tool = tools[i % tools.length];
+      out.push({ tool: tool, kind: "call",   o: o++ });
+      out.push({ tool: tool, kind: "result", o: o++ });
+    }
+    while (ti < s.texts.length) out.push({ kind: "text", text: s.texts[ti++], o: o++ });
+    return out;
+  }
+
+  var LANE = ["--lane0", "--lane1", "--lane2"];
+  function lc(i) { return "var(" + LANE[i] + ")"; }
+  var NS = "http://www.w3.org/2000/svg";
+  function el(name, attrs) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  var trace = document.getElementById("trace");
+  var tip = document.getElementById("tip");
+  var tipK = tip.querySelector(".tk"), tipC = tip.querySelector(".tc");
+  var expanded = {};   // tools index in S -> true
+  var promptOpen = {}; // agent index in S -> true (reveal its user_input turn)
+  var animate = true;  // cascade only on load / replay
+
+  function tipShow(k, c) { tipK.textContent = k; tipC.textContent = c; tip.style.display = "block"; }
+  function tipMove(ev) {
+    tip.style.left = Math.max(8, Math.min(ev.clientX + 16, window.innerWidth - 440)) + "px";
+    tip.style.top = (ev.clientY + 18) + "px";
+  }
+  function tipHide() { tip.style.display = "none"; }
+  function hoverable(node, k, c) {
+    node.addEventListener("mouseenter", function () { tipShow(k, c); });
+    node.addEventListener("mousemove", tipMove);
+    node.addEventListener("mouseleave", tipHide);
+  }
+
+  function render() {
+    trace.innerHTML = "";
+    tipHide();
+
+    // ── Build view rows ──
+    var rows = []; // {s, si, sub?, prompt?} — sub = detail turn, prompt = agent's turn 0
+    S.forEach(function (s, si) {
+      rows.push({ s: s, si: si });
+      if (s.k === "agent" && promptOpen[si]) {
+        rows.push({ s: s, si: si, prompt: true });
+      }
+      if (s.k === "tools" && expanded[si]) {
+        detailTurns(s).forEach(function (d) { rows.push({ s: s, si: si, sub: d }); });
+      }
+    });
+
+    var H = TOP + rows.length * ROW + 44;
+    trace.style.height = H + "px";
+    var svg = el("svg", { id: "tracesvg", width: "100%", height: H });
+    trace.appendChild(svg);
+
+    function y(i) { return TOP + i * ROW + ROW / 2; }
+    var reveal = [];
+    function mark(node, i) {
+      if (animate) { node.classList.add("anim"); reveal.push([i, node]); }
+      svg.appendChild ? null : null;
+    }
+    function sv(node, i) { mark(node, i); svg.appendChild(node); }
+
+    // lane spines per contiguous segment
+    var segs = [];
+    rows.forEach(function (r, i) {
+      var l = r.s.l;
+      var last = segs[segs.length - 1];
+      if (last && last.l === l && last.end === i - 1) last.end = i;
+      else segs.push({ l: l, start: i, end: i });
+    });
+    segs.forEach(function (sg, gi) {
+      sv(el("line", { x1: LANE_X[sg.l], y1: y(sg.start), x2: LANE_X[sg.l], y2: y(sg.end), stroke: lc(sg.l), "stroke-width": 2 }), sg.start);
+      for (var gj = gi + 1; gj < segs.length; gj++) {
+        if (segs[gj].l === sg.l) {
+          sv(el("line", { x1: LANE_X[sg.l], y1: y(sg.end), x2: LANE_X[sg.l], y2: y(segs[gj].start), stroke: lc(sg.l), "stroke-width": 1.5, "stroke-dasharray": "2 5", opacity: 0.45 }), sg.end + 1);
+          break;
+        }
+      }
+    });
+
+    // fork + merge curves
+    rows.forEach(function (r, i) {
+      if (r.sub || r.prompt) return;
+      var s = r.s;
+      if (s.k === "agent") {
+        var xp = LANE_X[s.l - 1], xc = LANE_X[s.l];
+        sv(el("path", { d: "M" + xp + " " + y(i - 1) + " C " + xp + " " + (y(i - 1) + ROW * 0.7) + ", " + xc + " " + (y(i) - ROW * 0.7) + ", " + xc + " " + y(i), fill: "none", stroke: lc(s.l), "stroke-width": 2 }), i);
+      }
+      if (s.k === "response" && s.merge) {
+        var xm = LANE_X[s.l], xr = LANE_X[rows[i + 1] ? rows[i + 1].s.l : s.l - 1];
+        sv(el("path", { d: "M" + xm + " " + y(i) + " C " + xm + " " + (y(i) + ROW * 0.7) + ", " + xr + " " + (y(i + 1) - ROW * 0.7) + ", " + xr + " " + y(i + 1), fill: "none", stroke: lc(s.l), "stroke-width": 2 }), i + 1);
+      }
+    });
+
+    // markers + labels + chips
+    rows.forEach(function (r, i) {
+      var s = r.s, cx = LANE_X[s.l], cy = y(i), color = lc(s.l);
+
+      var row = document.createElement("div");
+      row.className = "row" + (animate ? " anim" : "");
+      row.style.top = (TOP + i * ROW) + "px";
+      if (!r.sub && s.ts) {
+        var t = document.createElement("div");
+        t.className = "t"; t.textContent = s.ts;
+        row.appendChild(t);
+      }
+
+      if (r.prompt) {
+        // the agent's own turn 0: the prompt it was handed
+        sv(el("rect", { x: cx - 4, y: cy - 4, width: 8, height: 8, rx: 2, fill: "var(--ink)" }), i);
+        var lpr = document.createElement("div");
+        lpr.className = "lbl user";
+        lpr.style.left = (cx + 40) + "px";
+        lpr.textContent = "“" + s.prompt + "”";
+        row.appendChild(lpr);
+        hoverable(row, s.sid + " · turn 0 · user_input", s.prompt);
+      } else if (r.sub) {
+        // expanded detail turn
+        var d = r.sub;
+        if (d.kind === "text") {
+          sv(el("circle", { cx: cx, cy: cy, r: 4, fill: "var(--bg)", stroke: color, "stroke-width": 2 }), i);
+          var lt = document.createElement("div");
+          lt.className = "lbl reason";
+          lt.style.left = (cx + 40) + "px";
+          lt.textContent = d.text;
+          row.appendChild(lt);
+          hoverable(row, "turn " + d.o + " · reasoning", d.text);
+        } else {
+          sv(el("circle", { cx: cx, cy: cy, r: d.kind === "call" ? 4 : 2.5, fill: color, opacity: d.kind === "call" ? 1 : 0.7 }), i);
+          var lbl = document.createElement("div");
+          lbl.className = "lbl detail";
+          lbl.style.left = (cx + 40) + "px";
+          lbl.innerHTML = '<span class="tool" style="color:' + color + '"></span> <span></span>';
+          lbl.children[0].textContent = d.tool;
+          lbl.children[1].textContent = d.kind === "call" ? "tool_call" : "→ tool_result";
+          row.appendChild(lbl);
+          hoverable(row, "turn " + d.o + " · " + (d.kind === "call" ? "tool_call" : "tool_result") + " · " + d.tool, "node_key turn-…turn" + d.o + " — full content in the expanded fetch");
+        }
+      } else if (s.k === "user") {
+        sv(el("rect", { x: cx - 4.5, y: cy - 4.5, width: 9, height: 9, rx: 2, fill: "var(--ink)" }), i);
+        var lu = document.createElement("div");
+        lu.className = "lbl user"; lu.style.left = (cx + 26) + "px"; lu.textContent = s.text;
+        row.appendChild(lu);
+        hoverable(row, "turn 0 · user_input", s.text);
+      } else if (s.k === "agent") {
+        sv(el("circle", { cx: cx, cy: cy, r: 5.5, fill: "var(--bg)", stroke: color, "stroke-width": 2.5 }), i);
+        var la = document.createElement("div");
+        la.className = "lbl"; la.style.left = (cx + 26) + "px";
+        la.style.cursor = "pointer";
+        la.innerHTML = '<span class="agentname" style="color:' + color + '"><span class="car"></span> <span></span> <span class="sid"></span></span>';
+        la.querySelector(".car").textContent = promptOpen[r.si] ? "▾" : "▸";
+        la.querySelector(".agentname span + span").textContent = s.name;
+        la.querySelector(".sid").textContent = "· " + s.sid;
+        la.addEventListener("click", function () {
+          promptOpen[r.si] = !promptOpen[r.si];
+          animate = false;
+          render();
+        });
+        row.appendChild(la);
+        hoverable(row, "AgentSession · " + s.sid, "SPAWNED by parent · own HAS_TURN chain · click to see the prompt it was given");
+      } else if (s.k === "tools") {
+        sv(el("circle", { cx: cx, cy: cy, r: 4.5, fill: color }), i);
+        var lp = document.createElement("div");
+        lp.style.position = "absolute"; lp.style.left = (cx + 26) + "px";
+        var pill = document.createElement("span");
+        pill.className = "pill";
+        pill.innerHTML = '<span class="car"></span><b></b><span>turns</span><span class="dur"></span>';
+        pill.querySelector(".car").textContent = expanded[r.si] ? "▾" : "▸";
+        pill.querySelector("b").textContent = s.turns;
+        pill.querySelector(".dur").textContent = "· " + s.dur;
+        pill.addEventListener("click", function () {
+          expanded[r.si] = !expanded[r.si];
+          animate = false;
+          render();
+        });
+        hoverable(pill, "turns " + s.o0 + "–" + s.o1 + " · " + s.calls + " tool calls · " + s.texts.length + " reasoning · " + s.dur, s.mix);
+        lp.appendChild(pill);
+        row.appendChild(lp);
+      } else if (s.k === "concept") {
+        // diamond on the lane — concept actions never collapse
+        var g = el("g", { transform: "translate(" + cx + " " + cy + ") rotate(45)" });
+        g.appendChild(el("rect", { x: -4.5, y: -4.5, width: 9, height: 9, fill: s.created ? "var(--concept)" : "var(--bg)", stroke: "var(--concept)", "stroke-width": 2 }));
+        sv(g, i);
+        sv(el("line", { x1: cx + 10, y1: cy, x2: RAIL_LEFT, y2: cy, stroke: "var(--concept)", "stroke-width": 1, "stroke-dasharray": "2 4", opacity: 0.7 }), i);
+        var chip = document.createElement("div");
+        chip.className = "chip" + (s.created ? " created" : "") + (animate ? " anim chipanim" : "");
+        chip.style.top = (TOP + i * ROW + 4) + "px";
+        chip.innerHTML = '<svg width="11" height="11" viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" transform="rotate(45 6 6)" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="cname"></span><span class="verb"></span>';
+        chip.querySelector(".cname").textContent = s.name;
+        chip.querySelector(".verb").textContent = s.verb;
+        trace.appendChild(chip);
+        if (animate) reveal.push([i, chip]);
+        hoverable(row, "turn " + s.o0 + " · READ_CONCEPT edge · via " + s.via, "(Turn)-[:READ_CONCEPT]->(Concept " + s.name + ")" + (s.created ? " — node created this turn" : ""));
+      } else if (s.k === "response") {
+        var gr = el("g", {});
+        gr.appendChild(el("circle", { cx: cx, cy: cy, r: 6, fill: "none", stroke: color, "stroke-width": 1.5 }));
+        gr.appendChild(el("circle", { cx: cx, cy: cy, r: 2.8, fill: color }));
+        sv(gr, i);
+        var lr = document.createElement("div");
+        lr.className = "lbl response"; lr.style.left = (cx + 26) + "px";
+        lr.style.color = color; lr.textContent = s.text;
+        row.appendChild(lr);
+        hoverable(row, "turn " + s.o0 + " · response", s.text);
+      }
+
+      trace.appendChild(row);
+    });
+
+    // live head at the end of lane 0
+    var lastY = y(rows.length - 1);
+    sv(el("line", { x1: LANE_X[0], y1: lastY, x2: LANE_X[0], y2: lastY + ROW * 0.8, stroke: lc(0), "stroke-width": 2, opacity: 0.6 }), rows.length);
+    var head = document.createElement("div");
+    head.id = "head";
+    head.style.left = LANE_X[0] + "px";
+    head.style.top = (lastY + ROW * 0.8) + "px";
+    if (animate) { head.classList.add("sv", "anim"); reveal.push([rows.length, head]); }
+    trace.appendChild(head);
+
+    // cascade reveal
+    if (animate) {
+      var htmlRows = Array.prototype.slice.call(trace.querySelectorAll(".row"));
+      var step = reduced ? 0 : 110;
+      htmlRows.forEach(function (r, i) {
+        setTimeout(function () {
+          r.classList.add("shown");
+          reveal.forEach(function (p) { if (p[0] === i) p[1].classList.add("shown"); });
+        }, 150 + i * step);
+      });
+      setTimeout(function () {
+        reveal.forEach(function (p) { p[1].classList.add("shown"); });
+      }, 150 + (htmlRows.length + 1) * step);
+    }
+  }
+
+  document.getElementById("replay").addEventListener("click", function () {
+    expanded = {}; promptOpen = {}; animate = true; render();
+  });
+  document.getElementById("expandall").addEventListener("click", function () {
+    var any = Object.keys(expanded).length > 0;
+    expanded = {};
+    if (!any) S.forEach(function (s, si) { if (s.k === "tools") expanded[si] = true; });
+    this.textContent = any ? "expand all" : "collapse all";
+    animate = false; render();
+  });
+
+  render();
+
+  // legend
+  var legend = document.getElementById("legend");
+  function key(svgStr, label) {
+    var k = document.createElement("span");
+    k.className = "k";
+    k.innerHTML = svgStr + "<span></span>";
+    k.lastChild.textContent = label;
+    legend.appendChild(k);
+  }
+  key('<svg width="12" height="12"><rect x="2" y="2" width="8" height="8" rx="2" fill="var(--ink)"/></svg>', "user_input");
+  key('<svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--lane1)" stroke-width="2.5"/></svg>', "sub-agent session (click for its prompt)");
+  key('<svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--lane0)"/></svg>', "activity pill (click ×N turns to unroll)");
+  key('<svg width="14" height="14"><rect x="4" y="4" width="6.4" height="6.4" transform="rotate(45 7 7)" fill="none" stroke="var(--concept)" stroke-width="2"/></svg>', "concept READ");
+  key('<svg width="14" height="14"><rect x="4" y="4" width="6.4" height="6.4" transform="rotate(45 7 7)" fill="var(--concept)"/></svg>', "concept CREATED");
+  key('<svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--lane0)" stroke-width="1.5"/><circle cx="7" cy="7" r="2.5" fill="var(--lane0)"/></svg>', "response");
+})();
+</script>

@@ -1,0 +1,213 @@
+import { describe, it, before, after, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { Bolt, int } from "./bolt.js";
+import { seedStrutDomain } from "./schema-seed.js";
+import { GraphValidationError, NodeWriter } from "./node-writer.js";
+import { EdgeWriter, edgeKeyFor, isRegisteredEdge, typeLabelOf } from "./edge-writer.js";
+import { graphSnapshot, testGraphConfig, wipeGraph } from "./test-util.js";
+
+const cfg = testGraphConfig();
+
+describe("edge registry checks (pure)", () => {
+  it("resolves the type label from jarvis's label set", () => {
+    assert.equal(typeLabelOf(["Data_Bank", "Domain_strut", "Node", "StrutRun"]), "StrutRun");
+    assert.equal(typeLabelOf(["Node", "Data_Bank", "Concept", "Domain_general"]), "Concept");
+    assert.equal(typeLabelOf(["Node", "Data_Bank"]), undefined);
+  });
+  it("matches registry rows; ACCESSED accepts any target", () => {
+    assert.equal(isRegisteredEdge("IN_RUN", "StrutAgentSession", "StrutRun"), true);
+    assert.equal(isRegisteredEdge("IN_RUN", "StrutRun", "StrutAgentSession"), false);
+    assert.equal(isRegisteredEdge("VERSION_OF", "StrutStepVersion", "StrutStep"), true);
+    assert.equal(isRegisteredEdge("VERSION_OF", "StrutStepVersion", "StrutWorkflow"), false);
+    assert.equal(isRegisteredEdge("ACCESSED", "StrutToolCall", "Concept"), true);
+    assert.equal(isRegisteredEdge("ACCESSED", "StrutToolCall", ""), true);
+    assert.equal(isRegisteredEdge("ACCESSED", "StrutRun", "Concept"), false);
+    assert.equal(isRegisteredEdge("HAS_TURN", "StrutChat", "StrutTurn"), false);
+  });
+  it("edge_key is the lowercased type", () => {
+    assert.equal(edgeKeyFor("IN_RUN"), "in_run");
+  });
+});
+
+describe("EdgeWriter (live Neo4j)", { skip: cfg ? false : "STRUT_TEST_NEO4J_URI not set" }, () => {
+  let bolt: Bolt;
+  let nodes: NodeWriter;
+  let edges: EdgeWriter;
+  let run: string;
+  let session: string;
+  let call: string;
+  before(async () => {
+    bolt = new Bolt(cfg!);
+    await bolt.verify();
+  });
+  after(async () => {
+    await bolt?.close();
+  });
+  beforeEach(async () => {
+    await wipeGraph(bolt);
+    await seedStrutDomain(bolt);
+    nodes = new NodeWriter(bolt);
+    edges = new EdgeWriter(bolt);
+    const rs = await nodes.writeMany([
+      { type: "StrutRun", data: { run_id: "r1", workflow_name: "wf", status: "ok", started_at: 1 } },
+      { type: "StrutAgentSession", data: { run_id: "r1", path: "wf/agent" } },
+      { type: "StrutToolCall", data: { run_id: "r1", path: "wf/agent", seq: 0, tool_name: "search" } },
+    ]);
+    [run, session, call] = rs.map((r) => r.ref_id) as [string, string, string];
+  });
+
+  async function rel(ref_id: string) {
+    const rows = await bolt.run(
+      `MATCH (a)-[r {ref_id: $r}]->(b)
+       RETURN type(r) AS type, properties(r) AS props, a.ref_id AS src, b.ref_id AS tgt,
+              valueType(r.weight) AS weightType, valueType(r.date_added_to_graph) AS dateType`,
+      { r: ref_id },
+    );
+    return rows[0]!;
+  }
+
+  it("creates with jarvis stamps, no namespace, and never mutates an existing edge", async () => {
+    const t0 = Date.now();
+    const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, properties: { note: "x" } });
+    assert.equal(a.created, true);
+    assert.equal(a.edge_key, "in_run");
+    assert.equal(a.source_ref_id, session);
+    assert.equal(a.target_ref_id, run);
+    const r = await rel(a.ref_id);
+    assert.equal(r["type"], "IN_RUN");
+    const p = r["props"] as Record<string, unknown>;
+    assert.deepEqual(Object.keys(p).sort(), ["date_added_to_graph", "edge_key", "note", "ref_id", "weight"]);
+    assert.equal(p["weight"], 1);
+    assert.equal(r["weightType"], "INTEGER NOT NULL");
+    assert.equal(r["dateType"], "INTEGER NOT NULL");
+    assert.ok((p["date_added_to_graph"] as number) >= t0);
+    assert.ok(!("namespace" in p));
+
+    const snap = await graphSnapshot(bolt);
+    const b = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, properties: { note: "CHANGED" } });
+    assert.equal(b.created, false);
+    assert.equal(b.ref_id, a.ref_id);
+    assert.deepEqual(await graphSnapshot(bolt), snap);
+    const count = await bolt.run(`MATCH (:StrutAgentSession)-[r:IN_RUN]->(:StrutRun) RETURN count(r) AS c`);
+    assert.equal(count[0]!["c"], 1);
+  });
+
+  it("rejects unknown types, unregistered triples, stamp overrides, and unresolvable endpoints — writing nothing", async () => {
+    const snap = await graphSnapshot(bolt);
+    const cases: Array<[Parameters<EdgeWriter["write"]>[0], string]> = [
+      [{ edge: "HAS_TURN", source_ref_id: session, target_ref_id: run }, "WRONG_TYPE"],
+      [{ edge: "in_run", source_ref_id: session, target_ref_id: run }, "UNKNOWN_TYPE"],
+      [{ edge: "IN_RUN", source_ref_id: run, target_ref_id: session }, "WRONG_TYPE"],
+      [{ edge: "IN_SESSION", source_ref_id: call, target_ref_id: run }, "WRONG_TYPE"],
+      [{ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, properties: { ref_id: "x" } }, "UNKNOWN_ATTRIBUTE"],
+      [{ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, properties: { "bad-name": 1 } }, "UNKNOWN_ATTRIBUTE"],
+      [{ edge: "IN_RUN", source_ref_id: session, target_ref_id: randomUUID() }, "MISSING_REQUIRED"],
+      [{ edge: "IN_RUN", source_ref_id: "", target_ref_id: run }, "MISSING_REQUIRED"],
+    ];
+    for (const [input, code] of cases) {
+      await assert.rejects(edges.write(input), (e: unknown) => e instanceof GraphValidationError && e.code === code, `${JSON.stringify(input)} → ${code}`);
+    }
+    // Batch: one bad row poisons the whole batch.
+    await assert.rejects(
+      edges.writeMany([
+        { edge: "IN_RUN", source_ref_id: session, target_ref_id: run },
+        { edge: "IN_SESSION", source_ref_id: call, target_ref_id: run },
+      ]),
+      GraphValidationError,
+    );
+    assert.deepEqual(await graphSnapshot(bolt), snap);
+  });
+
+  it("update patches an existing edge by ref_id or by triple; stamps stay protected", async () => {
+    const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, properties: { note: "x", strength: 0.5 } });
+    const stamped = (await rel(a.ref_id))["props"] as Record<string, unknown>;
+
+    const u = await edges.update({ ref_id: a.ref_id }, { set: { strength: -0.75, weight: 3 }, remove: ["note"] });
+    assert.deepEqual(u, { ref_id: a.ref_id, edge: "IN_RUN", source_ref_id: session, target_ref_id: run, updated: ["strength", "weight"], removed: ["note"] });
+    let r = await rel(a.ref_id);
+    let p = r["props"] as Record<string, unknown>;
+    assert.equal(p["strength"], -0.75);
+    assert.equal(p["weight"], 3);
+    assert.equal(r["weightType"], "INTEGER NOT NULL", "integral weight stays an Integer");
+    assert.ok(!("note" in p));
+    for (const k of ["ref_id", "edge_key", "date_added_to_graph"]) assert.equal(p[k], stamped[k], `${k} untouched`);
+
+    // By triple (case-insensitive edge type), undefined values skipped.
+    const t = await edges.update({ edge: "in run", source_ref_id: session, target_ref_id: run }, { set: { strength: 0.4, skipped: undefined } });
+    assert.equal(t.ref_id, a.ref_id);
+    assert.deepEqual(t.updated, ["strength"]);
+    p = (await rel(a.ref_id))["props"] as Record<string, unknown>;
+    assert.equal(p["strength"], 0.4);
+
+    const cases: Array<[Parameters<EdgeWriter["update"]>, string]> = [
+      [[{ ref_id: a.ref_id }, { set: { ref_id: "y" } }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { set: { edge_key: "y" } }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { remove: ["date_added_to_graph"] }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { remove: ["weight"] }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, { set: { "bad-name": 1 } }], "UNKNOWN_ATTRIBUTE"],
+      [[{ ref_id: a.ref_id }, {}], "MISSING_REQUIRED"],
+      [[{ ref_id: randomUUID() }, { set: { x: 1 } }], "NOT_FOUND"],
+      [[{ edge: "IN_RUN", source_ref_id: run, target_ref_id: session }, { set: { x: 1 } }], "NOT_FOUND"],
+      [[{ edge: "in_run!", source_ref_id: session, target_ref_id: run }, { set: { x: 1 } }], "UNKNOWN_TYPE"],
+    ];
+    for (const [args, code] of cases) {
+      await assert.rejects(edges.update(...args), (e: unknown) => e instanceof GraphValidationError && e.code === code, `${JSON.stringify(args)} → ${code}`);
+    }
+    // A muted edge is invisible to the triple lookup.
+    await edges.mute(a.ref_id);
+    await assert.rejects(edges.update({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run }, { set: { x: 1 } }), (e: any) => e.code === "NOT_FOUND");
+  });
+
+  it("ACCESSED may point at any node, including a jarvis-owned one; source must still be a Strut node", async () => {
+    // A jarvis-style Concept node: no Strut label, plain Data_Bank ref_id.
+    const concept = randomUUID();
+    await bolt.run(`CREATE (:Concept:Node:Data_Bank:Domain_general {ref_id: $r, node_key: "concept-x", namespace: "default", name: "x"})`, { r: concept });
+    const a = await edges.write({ edge: "ACCESSED", source_ref_id: call, target_ref_id: concept });
+    assert.equal(a.created, true);
+    assert.equal((await rel(a.ref_id))["tgt"], concept);
+    await assert.rejects(edges.write({ edge: "ACCESSED", source_ref_id: concept, target_ref_id: call }), GraphValidationError);
+  });
+
+  it("IS_ALIAS rewrite lands the edge on the canonical node", async () => {
+    const canonical = (await nodes.write({ type: "StrutRun", data: { run_id: "canon", workflow_name: "wf", status: "ok", started_at: 1 } })).ref_id;
+    // Park `run` as an alias of `canonical` (what jarvis node-merge does).
+    await bolt.run(`MATCH (a:Data_Bank {ref_id: $a}), (c:Data_Bank {ref_id: $c}) CREATE (a)-[:IS_ALIAS {ref_id: $e}]->(c)`, { a: run, c: canonical, e: randomUUID() });
+    const r = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run });
+    assert.equal(r.target_ref_id, canonical);
+    assert.equal((await rel(r.ref_id))["tgt"], canonical);
+    const direct = await bolt.run(`MATCH (:StrutAgentSession)-[r:IN_RUN]->(t:StrutRun {ref_id: $t}) RETURN count(r) AS c`, { t: run });
+    assert.equal(direct[0]!["c"], 0);
+  });
+
+  it("writeMany: mixed edge types in one tx, input-order results; explicit ints pass through", async () => {
+    const rs = await edges.writeMany([
+      { edge: "IN_SESSION", source_ref_id: call, target_ref_id: session, properties: { seq: int(3) } },
+      { edge: "IN_RUN", source_ref_id: session, target_ref_id: run },
+      { edge: "IN_SESSION", source_ref_id: call, target_ref_id: session },
+    ]);
+    assert.deepEqual(rs.map((r) => [r.edge_key, r.created]), [["in_session", true], ["in_run", true], ["in_session", false]]);
+    assert.equal(rs[0]!.ref_id, rs[2]!.ref_id);
+    const p = (await rel(rs[0]!.ref_id))["props"] as Record<string, unknown>;
+    assert.equal(p["seq"], 3);
+    const vt = await bolt.run(`MATCH ()-[r {ref_id: $r}]->() RETURN valueType(r.seq) AS t`, { r: rs[0]!.ref_id });
+    assert.equal(vt[0]!["t"], "INTEGER NOT NULL");
+  });
+
+  it("caller weight overrides the stamp", async () => {
+    const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run, weight: 3 });
+    const r = await rel(a.ref_id);
+    assert.equal((r["props"] as Record<string, unknown>)["weight"], 3);
+    assert.equal(r["weightType"], "INTEGER NOT NULL");
+    await edges.mute(a.ref_id);
+    const b = await edges.write({ edge: "IN_SESSION", source_ref_id: call, target_ref_id: session, weight: 0.5 });
+    assert.equal((await rel(b.ref_id))["weightType"], "FLOAT NOT NULL");
+  });
+
+  it("mute is the edge soft delete", async () => {
+    const a = await edges.write({ edge: "IN_RUN", source_ref_id: session, target_ref_id: run });
+    assert.equal(await edges.mute(a.ref_id), true);
+    assert.equal(((await rel(a.ref_id))["props"] as Record<string, unknown>)["is_muted"], true);
+    assert.equal(await edges.mute("nope"), false);
+  });
+});

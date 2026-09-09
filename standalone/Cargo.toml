@@ -34,3 +34,8 @@ once_cell = "1"
 [features]
 neo4j = ["ast/neo4j"]
 fulltest = ["ast/fulltest"]
+
+[dev-dependencies]
+# Direct (write-mode) bolt connection for the hive read-only integration test:
+# it verifies the database itself rejected the write and left no trace.
+neo4rs = "0.9.0-rc.10"

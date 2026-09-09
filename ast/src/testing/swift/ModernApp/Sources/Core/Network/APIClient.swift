@@ -5,6 +5,7 @@ import Foundation
 // @ast edge: Operand -> Function "post" "APIClient.swift"
 // @ast node: Function "fetch"
 // @ast node: Function "post"
+// @ast node: Var "session"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcescorenetworkapiclientswift-0"
 
 enum APIError: Error {

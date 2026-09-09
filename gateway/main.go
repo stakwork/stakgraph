@@ -27,6 +27,7 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
 	"github.com/stakwork/stakgraph/gateway/internal/hooks"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/stakgraph/gateway/internal/pricing"
 	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
 	"github.com/stakwork/stakgraph/gateway/internal/trust"
 )
@@ -88,6 +89,13 @@ func Init(config any) error {
 	auth.SetTrustRegistry(reg)
 	pluginlog.Logf("auth: macaroon adapter wired enforce=%t", auth.GetConfig().EnforceMacaroons)
 
+	// Model-price catalog for the phase-6 accumulator: loads the
+	// persisted datasheet, then fetches bifrost's published sheet in
+	// the background and refreshes daily. Never fatal — with no
+	// cache and no network, pricing falls through to the config
+	// model_pricing table.
+	pricing.Init()
+
 	return adminapi.Start()
 }
 
@@ -100,6 +108,7 @@ func GetName() string { return PluginName }
 // clean error rather than the goroutine leak go-redis produces on
 // abrupt process exit; then stop the admin server.
 func Cleanup() error {
+	pricing.Stop()
 	if err := redisclient.Close(); err != nil {
 		pluginlog.Warnf("redis: close: %v", err)
 	}

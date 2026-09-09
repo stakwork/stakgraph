@@ -1,0 +1,36 @@
+name: gaia-batch
+# Batch harness: list tasks at a level -> take the first `limit` -> produce
+# an answer per task (agent, no gaia/* tools) -> ONE score call with every
+# pair -> merge into a report.
+# Input:  { level, limit }
+# Output: { accuracy, correct, total, byLevel, totalCost, totalSteps,
+#           benchmarkRev, perTask: [{taskId, level, question, answer,
+#           correct, cost, steps}] }
+steps:
+  - id: list
+    type: gaia/list-tasks
+    config:
+      level: "{{ input.level }}"
+
+  - id: produced
+    type: foreach
+    config:
+      items: "{{ list.tasks.slice(0, input.limit) }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: gaia-produce
+          input:
+            taskId: "{{ $current.taskId }}"
+
+  - id: score
+    type: gaia/evaluate
+    config:
+      pairs: "{{ produced }}"
+
+  - id: result
+    type: gaia/summarize-batch
+    config:
+      produced: "{{ produced }}"
+      score: "{{ score }}"

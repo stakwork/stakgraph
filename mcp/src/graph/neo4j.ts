@@ -1,8 +1,11 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
+import neo4j, { Session } from "neo4j-driver";
 import {
-  createNeo4jDriver,
   withNeo4jRetry,
   ResilientSession,
+  sharedResilientSession,
+  getSharedNeo4jDriver,
+  setSharedNeo4jDriver,
+  closeSharedNeo4jDriver,
 } from "../utils/neo4jRetry.js";
 import fs from "fs";
 import readline from "readline";
@@ -26,6 +29,7 @@ import {
   nameFileOnly,
 } from "./utils.js";
 import * as Q from "./queries.js";
+import { nowEpochMs, epochValueToMs } from "./time.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { createByModelName } from "@microsoft/tiktokenizer";
@@ -67,22 +71,10 @@ if (!no_db) {
 }
 
 class Db {
-  private driver: Driver;
-
-  constructor() {
-    this.driver = createNeo4jDriver();
-    const host = process.env.NEO4J_HOST || "localhost:7687";
-    const user = process.env.NEO4J_USER || "neo4j";
-    console.log("===> connecting to", `bolt://${host}`, user);
-  }
-
+  // Shares the process-wide driver with the gitree/lab storages, so the
+  // server holds exactly one Neo4j connection pool.
   private resilientSession(): ResilientSession {
-    return new ResilientSession(
-      () => this.driver,
-      (d) => {
-        this.driver = d;
-      },
-    );
+    return sharedResilientSession();
   }
 
   async get_pkg_files(): Promise<Neo4jNode[]> {
@@ -114,7 +106,11 @@ class Db {
       const r = await session.run(Q.listQueryForLabel(safe, since != null), {
         extensions,
         limit,
-        since: since ?? null,
+        // `date_added_to_graph` is a canonical epoch-ms Integer (see ./time.ts).
+        // Normalize a seconds-magnitude `since` to ms here — the single bind
+        // site for `listQueryForLabel` — so every caller's "recently added"
+        // filter is guaranteed to compare ms against ms.
+        since: since == null ? null : epochValueToMs(since),
       });
       return r.records.map((record) => deser_node(record, "f"));
     } finally {
@@ -174,8 +170,8 @@ class Db {
     return results
       .flat()
       .sort((a, b) => {
-        const at = Number(a.properties.date_added_to_graph || 0);
-        const bt = Number(b.properties.date_added_to_graph || 0);
+        const at = a.properties.date_added_to_graph || 0;
+        const bt = b.properties.date_added_to_graph || 0;
         return bt - at;
       })
       .slice(0, limit_total);
@@ -384,10 +380,8 @@ class Db {
   async build_graph_from_files(node_file: string, edge_file: string) {
     try {
       await withNeo4jRetry(
-        () => this.driver,
-        (d) => {
-          this.driver = d;
-        },
+        getSharedNeo4jDriver,
+        setSharedNeo4jDriver,
         async (session) => {
           console.log("Processing nodes...", node_file);
           await process_file(session, node_file, (data) =>
@@ -570,7 +564,7 @@ class Db {
         body: answer,
         question,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
         persona,
       });
       const r = await session.run(Q.GET_HINT_QUERY, { node_key });
@@ -617,7 +611,7 @@ class Db {
         body: JSON.stringify(files),
         description,
         mocked,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const r = await session.run(Q.GET_MOCK_QUERY, { node_key });
       const record = r.records[0];
@@ -808,14 +802,17 @@ class Db {
         },
       } as Node);
 
-      const now = Date.now();
-
-      const { ref_id, ...properties } = node_data;
+      const { ref_id, date_added_to_graph: _legacyDateAdded, ...rest } =
+        node_data;
 
       await session.run(Q.ADD_NODE_QUERY(node_type), {
         node_key,
-        properties: { ...properties, node_key },
-        now,
+        // date_added_to_graph is deliberately excluded from the property bag:
+        // ADD_NODE_QUERY stamps it from $dateAddedToGraph (nowEpochMs) under
+        // ON CREATE only, so re-merging an existing node_key never re-stamps
+        // it and callers can't inject legacy formats.
+        properties: { ...rest, node_key },
+        dateAddedToGraph: nowEpochMs(),
       });
 
       const result = await session.run(
@@ -910,7 +907,7 @@ class Db {
         body: answer,
         question,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const r = await session.run(Q.GET_PROMPT_QUERY, { node_key });
       const record = r.records[0];
@@ -946,7 +943,7 @@ class Db {
         docs,
         number,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const r = await session.run(Q.GET_PULL_REQUEST_QUERY, { node_key });
       const record = r.records[0];
@@ -981,7 +978,7 @@ class Db {
         rule,
         reason: reason || null,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const n = result.records[0].get("n");
       return { ref_id: n.properties.ref_id, node_key };
@@ -1008,7 +1005,7 @@ class Db {
         name,
         node_key,
         embeddings,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
       const s = result.records[0].get("s");
       return { ref_id: s.properties.ref_id };
@@ -1156,15 +1153,68 @@ class Db {
       await session.run(Q.FULLTEXT_NAME_INDEX_QUERY);
       await session.run(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
       await session.run(Q.VECTOR_INDEX_QUERY);
+      // No standalone index on (:AgentSession).node_key — the uniqueness
+      // constraint created below is backed by its own index, and Neo4j
+      // refuses to create the constraint while a separate index covers the
+      // same label/property.
+      // Turn.session_id backs the polling endpoint's flat per-session lookup.
       await session.run(
-        "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)",
+        "CREATE INDEX turn_session_id_index IF NOT EXISTS FOR (n:Turn) ON (n.session_id)",
       );
+      await this.ensureAgentSessionUnique(session);
     } finally {
       if (session) {
         await session.close();
       }
     }
   }
+
+  /**
+   * Guarantee one AgentSession node per session id.
+   *
+   * Constraint creation fails outright when existing data violates it, so a
+   * failure here is the signal that duplicates are present: fold them (see
+   * DEDUPE_AGENT_SESSIONS_QUERY — edges are re-pointed, nothing is orphaned)
+   * and retry once. Doing the dedupe only on that failure means the
+   * destructive half never runs on a healthy graph, and never again once the
+   * constraint exists to prevent new duplicates.
+   *
+   * Never throws: a graph that can't take the constraint is a graph that
+   * keeps working exactly as it did before, and index setup must not be able
+   * to stop the service from booting.
+   */
+  private async ensureAgentSessionUnique(session: ResilientSession): Promise<void> {
+    try {
+      // Migration: earlier versions created a standalone index on this exact
+      // label/property. Neo4j will not create the constraint while it exists,
+      // so drop it first — a no-op on graphs that never had it.
+      await session.run("DROP INDEX agent_session_id_index IF EXISTS");
+    } catch (e) {
+      console.warn("[neo4j] could not drop legacy agent_session_id_index:", e);
+    }
+    try {
+      await session.run(Q.AGENT_SESSION_KEY_CONSTRAINT_QUERY);
+      return;
+    } catch (e) {
+      console.warn(
+        "[neo4j] AgentSession uniqueness constraint rejected (duplicate node_keys present); deduping…",
+      );
+    }
+    try {
+      const result = await session.run(Q.DEDUPE_AGENT_SESSIONS_QUERY);
+      const removed = result.records[0]?.get("removed");
+      const n = removed?.toNumber?.() ?? Number(removed ?? 0);
+      console.log(`[neo4j] removed ${n} duplicate AgentSession node(s)`);
+      await session.run(Q.AGENT_SESSION_KEY_CONSTRAINT_QUERY);
+      console.log("[neo4j] AgentSession uniqueness constraint created");
+    } catch (e) {
+      console.error(
+        "[neo4j] could not create the AgentSession uniqueness constraint:",
+        e,
+      );
+    }
+  }
+
   async get_rules_files(): Promise<Neo4jNode[]> {
     const session = this.resilientSession();
     try {
@@ -1246,7 +1296,6 @@ class Db {
       await session.run(Q.UPDATE_REPO_DOCS_QUERY, {
         ref_id,
         documentation,
-        ts: Date.now() / 1000,
       });
     } finally {
       await session.close();
@@ -1636,10 +1685,209 @@ class Db {
     }
   }
 
-  async upsert_agent_session(params: {
+  /**
+   * Create the AgentSession node at session START (status 'running') so the
+   * turn chain has a HAS_TURN anchor from the first step and in-flight
+   * sessions are watchable. Also creates the (parent)-[:SPAWNED]->(child)
+   * edge when a parent session id is given. upsert_agent_session finalizes
+   * the same node at session end.
+   */
+  async create_agent_session_stub(params: {
     session_id: string;
+    parent_session_id: string;
     source: string;
     repo: string;
+    agent_name: string;
+    spawn_tool_call_id: string;
+    start_time: number;
+  }): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.CREATE_AGENT_SESSION_STUB_QUERY, {
+        ...params,
+        ts: nowEpochMs(),
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Write a batch of Turn nodes for a session, chaining each to its
+   * predecessor with NEXT and anchoring turn 0 to the AgentSession with
+   * HAS_TURN. Idempotent: node_keys are deterministic, so re-emitting a
+   * turn updates it in place. Also bumps turn_count / last_turn_at on the
+   * session node in the same query.
+   *
+   * Returns how many turns were written. 0 with a non-empty batch means the
+   * AgentSession node doesn't exist — the query anchors on it, so chains are
+   * never written orphaned.
+   */
+  async upsert_turns(
+    session_id: string,
+    turns: Array<{
+      node_key: string;
+      prev_node_key: string | null;
+      turn_id: string;
+      turn_type: string;
+      order: number;
+      content: string;
+      tool: string | null;
+      tool_call_id: string | null;
+      timestamp: number | null;
+    }>,
+  ): Promise<number> {
+    if (turns.length === 0) return 0;
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.UPSERT_TURNS_QUERY, {
+        session_id,
+        turns,
+        ts: nowEpochMs(),
+      });
+      const written = result.records[0]?.get("written");
+      return written?.toNumber?.() ?? Number(written ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Link tool_result Turns to the Concepts they read, as they happen.
+   * Unmatched concepts are skipped, not errors — same posture as the
+   * session-level edge sync.
+   */
+  async upsert_turn_concept_edges(
+    links: Array<{
+      turn_node_key: string;
+      ref_id: string | null;
+      id: string | null;
+      /** Repo of a bare (unprefixed) gitree id, so `repo/id` also resolves. */
+      repo?: string | null;
+    }>,
+  ): Promise<number> {
+    if (links.length === 0) return 0;
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.UPSERT_TURN_CONCEPT_EDGES_QUERY, {
+        links: links.map((l) => ({ repo: null, ...l })),
+      });
+      const linked = result.records[0]?.get("linked");
+      return linked?.toNumber?.() ?? Number(linked ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * A session's turns after a cursor, in order, each with the Concepts it
+   * read. `after: -1` returns the chain from the start.
+   */
+  async get_session_turns(
+    session_id: string,
+    after: number,
+    limit: number,
+  ): Promise<
+    Array<{
+      order: number;
+      turn_id: string;
+      turn_type: string;
+      tool: string | null;
+      tool_call_id: string | null;
+      content: string;
+      timestamp: number | null;
+      concepts: Array<{ ref_id?: string; id?: string; name?: string }>;
+    }>
+  > {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.GET_SESSION_TURNS_QUERY, {
+        session_id,
+        after: neo4j.int(after),
+        limit: neo4j.int(limit),
+      });
+      return result.records.map((rec) => {
+        const t = rec.get("t").properties;
+        const ts = toNum(t.timestamp);
+        return {
+          order: toNum(t.order),
+          turn_id: String(t.turn_id ?? ""),
+          turn_type: String(t.turn_type ?? ""),
+          tool: t.tool != null ? String(t.tool) : null,
+          tool_call_id: t.tool_call_id != null ? String(t.tool_call_id) : null,
+          content: String(t.content ?? ""),
+          timestamp: ts > 0 ? ts : null,
+          concepts: rec.get("concepts") ?? [],
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * The session's highest-order Turn, or null when it has none yet. The
+   * order cursor for out-of-process agents posting turns over HTTP.
+   */
+  async get_turn_chain_head(
+    session_id: string,
+  ): Promise<{ turn_id: string; max_order: number } | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.GET_TURN_CHAIN_HEAD_QUERY, {
+        session_id,
+      });
+      const rec = result.records[0];
+      if (!rec) return null;
+      return {
+        turn_id: String(rec.get("turn_id") ?? ""),
+        max_order: toNum(rec.get("max_order")),
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Retype the session's last 'reasoning' Turn to 'response'. Same effect as
+   * finalize_turn_response, for callers with no emitter state to name the
+   * node. Returns the retyped node_key, or null when there was none.
+   */
+  async finalize_last_reasoning_turn(
+    session_id: string,
+  ): Promise<string | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.FINALIZE_LAST_REASONING_TURN_QUERY, {
+        session_id,
+      });
+      const nodeKey = result.records[0]?.get("node_key");
+      return nodeKey ? String(nodeKey) : null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Retype a run's final reasoning Turn to 'response' (matching the
+   * post-hoc workflow, which retypes the last assistant text turn).
+   */
+  async finalize_turn_response(node_key: string): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(Q.FINALIZE_TURN_RESPONSE_QUERY, { node_key });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async upsert_agent_session(params: {
+    session_id: string;
+    parent_session_id: string;
+    source: string;
+    repo: string;
+    agent_name: string;
+    spawn_tool_call_id: string;
     model: string;
     provider: string;
     start_time: number;
@@ -1657,17 +1905,112 @@ class Db {
     try {
       await session.run(Q.UPSERT_AGENT_SESSION_QUERY, {
         ...params,
-        ts: Date.now() / 1000,
+        ts: nowEpochMs(),
       });
     } finally {
       await session.close();
     }
   }
 
-  async list_agent_sessions(): Promise<any[]> {
+  /**
+   * Mirror a session's reflection sidecar into the graph as
+   * (AgentSession)-[:READ_CONCEPT]->(Concept) edges. Idempotent, and a no-op
+   * for sessions whose AgentSession node doesn't exist yet — so it is safe to
+   * call from either side of the session-node upsert. Returns how many
+   * concepts were linked (unmatched ones are skipped, not errors).
+   */
+  async upsert_session_concept_edges(
+    session_id: string,
+    concepts: Array<{
+      id?: string;
+      ref_id?: string;
+      /** Repo of a bare (unprefixed) gitree id, so `repo/id` also resolves. */
+      repo?: string;
+      read_order?: number;
+      rank?: number | null;
+      evidence?: string;
+      contradicts?: string;
+    }>,
+  ): Promise<number> {
     const session = this.resilientSession();
     try {
-      const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY);
+      const result = await session.run(Q.UPSERT_SESSION_CONCEPT_EDGES_QUERY, {
+        session_id,
+        concepts: concepts.map((c) => ({
+          id: c.id ?? null,
+          ref_id: c.ref_id ?? null,
+          repo: c.repo ?? null,
+          read_order: c.read_order ?? null,
+          rank: c.rank ?? null,
+          evidence: c.evidence ?? null,
+          contradicts: c.contradicts ?? null,
+        })),
+      });
+      const linked = result.records[0]?.get("linked");
+      return linked?.toNumber?.() ?? Number(linked) ?? 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async list_agent_sessions(opts: {
+    limit?: number;
+    offset?: number;
+    source?: string | null;
+    repo?: string | null;
+    agent_name_contains?: string | null;
+    since?: number | null;
+    until?: number | null;
+  } = {}): Promise<Array<any & { child_count: number }>> {
+    const {
+      limit = 100,
+      offset = 0,
+      source = null,
+      repo = null,
+      agent_name_contains = null,
+      since = null,
+      until = null,
+    } = opts;
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY, {
+        limit: neo4j.int(limit),
+        offset: neo4j.int(offset),
+        source: source ?? null,
+        repo: repo ?? null,
+        agent_name_contains: agent_name_contains ?? null,
+        since: since != null ? neo4j.int(since) : null,
+        until: until != null ? neo4j.int(until) : null,
+      });
+      return result.records.map((r) => ({
+        ...r.get("n").properties,
+        child_count: r.get("child_count").toNumber?.() ?? Number(r.get("child_count")),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async list_session_facets(): Promise<{ repos: string[]; sources: string[] }> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.LIST_SESSION_FACETS_QUERY);
+      if (!result.records.length) return { repos: [], sources: [] };
+      const rec = result.records[0];
+      const repos = (rec.get("repos") as string[]).filter(Boolean).sort();
+      const sources = (rec.get("sources") as string[]).filter(Boolean).sort();
+      return { repos, sources };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async list_descendant_agent_sessions(session_id: string): Promise<any[]> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.LIST_DESCENDANT_AGENT_SESSIONS_QUERY, {
+        session_id,
+      });
       return result.records.map((r) => ({
         ...r.get("n").properties,
       }));
@@ -1711,8 +2054,9 @@ class Db {
     }
   }
 
+  /** For process shutdown only — the driver is shared process-wide. */
   async close() {
-    await this.driver.close();
+    await closeSharedNeo4jDriver();
     console.log("===> driver closed");
   }
 }

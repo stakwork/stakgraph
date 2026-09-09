@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mcp",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["--cwd", "mcp", "dev"],
+      "port": 3355
+    }
+  ]
+}

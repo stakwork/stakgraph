@@ -8,26 +8,31 @@
 //
 // What's in scope here
 // --------------------
-//   - config.go       enforce_macaroons flag (shadow → enforce rollout)
+//   - config.go       enforce_macaroons flag (shadow → enforce rollout),
+//     agent_budgets, model_pricing
 //   - verifier.go     Verify() — header extraction + trust lookup + pure verify
 //   - revocation.go   CheckRevocations() — bifrost:revoke:* / revoke_user_before:*
-//   - ttl.go          clamp(exp-now+1h, 1h, 7d) shared with phase-6 accumulators
+//   - ttl.go          clamp(exp-now+1h, 1h, 7d) shared by revocation + accumulators
 //   - enforcement.go  Evaluate() + ApplyToLLMPre() — hook glue
+//   - accumulator.go  ApplyToLLMPost() — phase-6 PostLLMHook pipeline:
+//     cost:run / steps:run per chain layer, cost:ua envelope,
+//     cost:agent windowed buckets, tools:run history
+//   - pricing.go      PriceCall() — model_pricing table → dollars
 //   - admin.go        admin endpoints (revoke management — minimal scope)
 //
-// What's out of scope (phase 6)
-// -----------------------------
-//   - Per-run cost cap walk (cost:run:<run_id> with ancestor walking)
-//   - Per-UA cumulative spend (cost:ua:<ua_nonce>)
-//   - Per-agent windowed budgets (cost:agent:<name>:<bucket_key>)
-//   - Step counters / tool-loop detection
-//   - Kill switches (kill:<run_id>, kill:agent:<name>)
-//   - PostLLMHook accumulator pipelines
+// What's still out of scope (phase 6 read side)
+// ---------------------------------------------
+//   - Per-run cost/step cap walk in PreLLMHook (reads the
+//     accumulators this package now writes)
+//   - ua_budget / realm_budget / agent budget 402 rejections
+//   - Tool-loop detection (reads tools:run)
+//   - Kill switches (kill:<run_id>, kill:agent:<name>) + admin routes
 //
-// All of the above land in a follow-up PR against this same package.
-// The Claims surfaced here already carry everything that work needs
-// (RunID, UANonce, UABudget, EffectiveCaveats); the missing piece is
-// just the Redis pipeline plumbing.
+// The write side landing first is deliberate: accumulators are
+// shadow-safe (they reject nothing), they light up the phase-8
+// budget endpoint that currently falls back to logs.db, and the cap
+// walk needs weeks of real accumulated state to validate against
+// before it starts rejecting.
 //
 // Operational posture
 // -------------------

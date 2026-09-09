@@ -111,11 +111,12 @@ func TestCheckRevocations_UserCutoff_RejectsOldUA(t *testing.T) {
 	claims := &macaroon.Claims{
 		UserID: testUserID,
 		Nonces: []string{"aaaa000000000000000000000000aaaa"},
-		// UA issued before the cutoff (Claims.IAT is invocation.iat
-		// in the current pure verifier, but for revocation purposes
-		// we're comparing against the same time the UA's iat would
-		// most likely match — see uaIATFromClaims doc comment).
-		IAT: "2025-12-01T00:00:00Z",
+		// UA issued before the cutoff. The comparison axis is
+		// ua.iat (Claims.UAIAT), not the invocation's iat — an
+		// invocation signed after the cutoff against a re-issued
+		// UA is fine.
+		UAIAT: "2025-12-01T00:00:00Z",
+		IAT:   "2026-06-15T00:00:00Z",
 	}
 	err := CheckRevocations(context.Background(), claims)
 	if err == nil {
@@ -133,7 +134,8 @@ func TestCheckRevocations_UserCutoff_AcceptsNewerUA(t *testing.T) {
 	claims := &macaroon.Claims{
 		UserID: testUserID,
 		Nonces: []string{"aaaa000000000000000000000000aaaa"},
-		IAT:    "2026-06-15T00:00:00Z", // after cutoff
+		UAIAT:  "2026-06-15T00:00:00Z", // after cutoff
+		IAT:    "2026-06-15T00:00:00Z",
 	}
 	if err := CheckRevocations(context.Background(), claims); err != nil {
 		t.Fatalf("post-cutoff UA should pass, got %+v", err)
@@ -150,6 +152,7 @@ func TestCheckRevocations_UserCutoff_MalformedFailsOpen(t *testing.T) {
 	claims := &macaroon.Claims{
 		UserID: testUserID,
 		Nonces: []string{"aaaa000000000000000000000000aaaa"},
+		UAIAT:  "2026-06-15T00:00:00Z",
 		IAT:    "2026-06-15T00:00:00Z",
 	}
 	if err := CheckRevocations(context.Background(), claims); err != nil {

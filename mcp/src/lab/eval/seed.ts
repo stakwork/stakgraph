@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceManager } from "vein";
+import type { WorkspaceStore } from "strut";
+import { SEED_OPTS } from "../seed-opts.js";
 
 /**
- * GENERIC, domain-agnostic eval primitives (STEPS only), seeded into the vein
+ * GENERIC, domain-agnostic eval primitives (STEPS only), seeded into the strut
  * workspace. Reconciled by content hash on boot, so edits publish a new active
  * version (see concepts/seed.ts for the reconciliation contract).
  *
@@ -12,25 +13,45 @@ import type { WorkspaceManager } from "vein";
  * config. An experiment supplies its own eval WORKFLOWS that wire these steps
  * with its rubric / task / dataset (e.g. the concepts experiment ships
  * `concepts-eval*` in concepts/workflows, seeded by concepts/seed.ts):
- *   - `eval/score`    — match produced vs expected by a `rubric`, recall-weighted.
- *   - `eval/reflect`  — propose a better prompt from AGGREGATED results.
- *   - `eval/optimize` — eval → keep best → reflect loop (a detached job).
+ *   - `eval/score`       — match produced vs expected by a `rubric`, recall-weighted.
+ *   - `eval/reflect`     — propose a better prompt from AGGREGATED results.
+ *   - `eval/optimize`    — eval → keep best → reflect loop (a detached job).
+ *   - `eval/evolve-loop` — hill-climb candidate WORKFLOW VERSIONS over
+ *     generations (EVOLVE_SPEC §5.3.3 generalized): a domain supplies its
+ *     one-generation workflow + a digest with a `fitness`; harvey-evolve and
+ *     gaia-evolve are the two instances.
+ *   - `eval/matrix`      — the task×version matrix across MEASUREMENTS:
+ *     bands (floor/movable/ceiling), the empirical noise floor from
+ *     same-version re-runs, and bias-vs-variance tags for never-correct
+ *     tasks (plans/evolve-scoreboard-and-task-matrix.md, Phase 1).
+ *   - `eval/aggregate-scores`, `eval/build-eval-chain`, `eval/criterion-refs`
+ *     — rubric-judged scoring plumbing (promoted from harvey/*): zip judge
+ *     verdicts into scores_json, build the EvalSet→EvalTrigger→
+ *     EvalTriggerOutput→CriterionResult batch-triplet payload, recover the
+ *     persisted CriterionResult ref_ids. harvey-score uses all three;
+ *     wfbench uses aggregate-scores + criterion-refs (its record payload,
+ *     wfbench/build-eval-output, follows stakwork 58312's id conventions).
  */
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "score.ts", type: "eval/score" },
   { file: "reflect.ts", type: "eval/reflect" },
   { file: "optimize.ts", type: "eval/optimize" },
+  { file: "evolve-loop.ts", type: "eval/evolve-loop" },
+  { file: "matrix.ts", type: "eval/matrix" },
+  { file: "aggregate-scores.ts", type: "eval/aggregate-scores" },
+  { file: "build-eval-chain.ts", type: "eval/build-eval-chain" },
+  { file: "criterion-refs.ts", type: "eval/criterion-refs" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export async function seedEvalSteps(workspace: WorkspaceManager): Promise<void> {
+export async function seedEvalSteps(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "steps");
   for (const { file, type } of SEED_STEPS) {
     try {
       const code = await readFile(join(dir, file), "utf-8");
-      const { version, changed } = await workspace.publishStep(type, code, undefined, "eval-seed");
+      const { version, changed } = await workspace.publishStep(type, code, undefined, "eval-seed", SEED_OPTS);
       if (changed) console.log(`[eval] seeded step: ${type} @ ${version}`);
     } catch (err) {
       console.warn(

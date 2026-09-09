@@ -23,7 +23,8 @@ import * as r from "./graph/routes.js";
 import * as l from "./graph/learnings.js";
 import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
-import { mountLab } from "./lab/mount.js";
+import * as gitreeProposals from "./gitree/proposals.js";
+import { mountLab, attachLabAudio } from "./lab/mount.js";
 import { loadModelPricing } from "./aieo/src/index.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -42,6 +43,8 @@ import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import * as ga from "./graph_agent/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
+import { backfillConceptReads, backfillConceptEdges } from "./repo/conceptBackfill.js";
+import { backfillTurns } from "./repo/turnBackfill.js";
 import { pruneExpiredArtifacts } from "./repo/artifacts.js";
 import {
   getBus,
@@ -69,7 +72,7 @@ app.get("/health", (_req: Request, res: Response) => {
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
 
-// Lab experiments (vein workflows) — bridged before body parsing so vein
+// Lab experiments (strut workflows) — bridged before body parsing so strut
 // receives raw request streams for SSE + POST bodies.
 mountLab(app);
 
@@ -301,6 +304,20 @@ app.post("/gitree/search-clues", gitree.gitree_search_clues);
 app.post("/gitree/search-concepts", gitree.gitree_search_concepts);
 app.post("/gitree/provenance", gitree.gitree_provenance);
 
+// Concept proposals — pending create/update/delete/merge changes to Concepts,
+// reviewed by a human before they land
+app.post("/gitree/proposals", gitreeProposals.gitree_create_proposal);
+app.get("/gitree/proposals", gitreeProposals.gitree_list_proposals);
+app.get("/gitree/proposals/:id", gitreeProposals.gitree_get_proposal);
+app.post(
+  "/gitree/proposals/:id/accept",
+  gitreeProposals.gitree_accept_proposal,
+);
+app.post(
+  "/gitree/proposals/:id/reject",
+  gitreeProposals.gitree_reject_proposal,
+);
+
 // Legacy `/gitree/features*` aliases (deprecated) — kept so existing API
 // consumers keep working after the Feature->Concept rename. Remove once all
 // clients have migrated to the `/gitree/concepts*` paths.
@@ -349,7 +366,48 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 const port = parseInt(process.env.PORT || "3355", 10);
 const host = process.env.HOST || "0.0.0.0";
-app.listen(port, host, () => {
+
+// How long to wait for in-flight webhook deliveries before giving up and
+// exiting. Default leaves ~2s of headroom inside Docker's 10s stop grace.
+const DRAIN_DEADLINE_MS = parseInt(
+  process.env.DRAIN_DEADLINE_MS || "8000",
+  10,
+);
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Re-entrancy guard: a SIGINT arriving after SIGTERM must not start a second
+// drain (which would try to flip already-failed records again).
+let shutdownInProgress = false;
+
+async function gracefulShutdown(sig: string): Promise<void> {
+  if (shutdownInProgress) {
+    console.log(`[shutdown] ${sig} received but shutdown already in progress — ignoring`);
+    return;
+  }
+  shutdownInProgress = true;
+  console.log(`[shutdown] ${sig} received — starting graceful shutdown (deadline ${DRAIN_DEADLINE_MS}ms)`);
+
+  // Stop accepting new connections; existing keep-alive sockets stay open
+  // until they naturally close or the process exits.
+  server.close();
+
+  const drained = rr.drainForShutdown();
+  const deadline = delay(DRAIN_DEADLINE_MS).then(() => "deadline");
+
+  const winner = await Promise.race([drained.then(() => "drained"), deadline]);
+  if (winner === "deadline") {
+    console.warn(
+      `[shutdown] Drain deadline hit after ${DRAIN_DEADLINE_MS}ms — exiting before all webhooks delivered`,
+    );
+  } else {
+    console.log("[shutdown] Drain complete — exiting cleanly");
+  }
+
+  process.exit(0);
+}
+
+const server = app.listen(port, host, () => {
   console.log(`Server started at http://${host}:${port}`);
 
   loadModelPricing();
@@ -364,6 +422,35 @@ app.listen(port, host, () => {
 
   // Mark requests orphaned by the restart as failed and fire their webhooks
   rr.sweepOrphanedRuns();
+
+  // Remove worktree dirs orphaned by the restart and prune stale git
+  // worktree registrations so future `git worktree add` calls aren't poisoned
+  rr.sweepOrphanedWorktrees();
+
+  // Recover which Concepts recent sessions read, for runs that predate
+  // collection. Marker-guarded, so this is a single small file read once the
+  // sweep has completed. Never awaited — a backfill must not delay boot, and
+  // it needs Neo4j, which may not be up yet (it retries on the next boot).
+  void backfillConceptReads()
+    .catch((e) => console.error("[concept-backfill] failed:", e))
+    // After the sidecar sweep: index pre-existing reflections as READ_CONCEPT
+    // edges. Sessions the sweep above just wrote synced their own edges via
+    // mergeReflection; this catches sidecars that predate edge syncing.
+    .then(() => backfillConceptEdges())
+    .catch((e) => console.error("[concept-edge-backfill] failed:", e));
+
+  // Backfill Turn chains for sessions that ran before live emission. Same
+  // posture as the concept backfills: marker-guarded, never awaited, retried
+  // next boot if Neo4j wasn't up.
+  void backfillTurns().catch((e) =>
+    console.error("[turn-backfill] failed:", e),
+  );
 });
+
+// Dictation WebSocket for the lab UI (upgrades bypass Express).
+attachLabAudio(server);
+
+process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
 
 //

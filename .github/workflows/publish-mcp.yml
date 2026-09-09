@@ -15,11 +15,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Stage vein into the mcp build context
-        # mcp depends on `file:../vein`, which is outside the ./mcp build
+      - name: Stage strut into the mcp build context
+        # mcp depends on `file:../strut`, which is outside the ./mcp build
         # context. Copy its source in so the Dockerfile can build it in-image.
         run: |
-          rm -rf mcp/.vein
+          rm -rf mcp/.strut
           rsync -a \
             --exclude node_modules \
             --exclude web/node_modules \
@@ -28,7 +28,7 @@ jobs:
             --exclude .git \
             --exclude .env \
             --exclude workspace \
-            vein/ mcp/.vein/
+            strut/ mcp/.strut/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -62,9 +62,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Stage vein into the mcp build context
+      - name: Stage strut into the mcp build context
         run: |
-          rm -rf mcp/.vein
+          rm -rf mcp/.strut
           rsync -a \
             --exclude node_modules \
             --exclude web/node_modules \
@@ -73,7 +73,7 @@ jobs:
             --exclude .git \
             --exclude .env \
             --exclude workspace \
-            vein/ mcp/.vein/
+            strut/ mcp/.strut/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

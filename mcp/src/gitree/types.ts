@@ -201,6 +201,51 @@ export interface Clue {
 }
 
 /**
+ * ConceptProposal - a pending create/update/delete/merge of a Concept,
+ * awaiting human review. Decided proposals are kept in the graph as an
+ * audit trail of Concept changes.
+ */
+export type ConceptProposalAction = "create" | "update" | "delete" | "merge";
+
+export type ConceptProposalStatus = "pending" | "accepted" | "rejected";
+
+export interface ConceptProposal {
+  id: string; // uuid — proposals are not repo-slug addressed (many can target one concept)
+  action: ConceptProposalAction;
+  status: ConceptProposalStatus;
+  repo?: string; // Repository identifier "owner/repo"
+
+  // Targets (update/delete/merge). For merge, conceptId is absorbed into mergeIntoConceptId.
+  conceptId?: string;
+  mergeIntoConceptId?: string;
+
+  // Proposed content
+  name?: string; // create only
+  description?: string; // create/update/merge — optional description change
+  documentation?: string; // create/update/merge — full proposed documentation
+  parent?: string; // create only — optional parent concept id
+
+  // Snapshots captured at propose time, for diff rendering and staleness
+  // detection at accept time (target may have drifted while pending).
+  baseDocs?: string; // docs of the edited concept (update/delete: target; merge: the surviving concept)
+  absorbedDocs?: string; // merge only — docs of the concept that will be deleted
+
+  // Review metadata
+  rationale?: string; // why this change is proposed (shown to the reviewer)
+  source?: string; // producer identifier (e.g. workflow name, "pr-merge", "agent")
+  prNumbers?: number[]; // evidence: PRs that motivated this proposal
+  sessionIds?: string[]; // evidence: agent sessions that motivated this proposal
+
+  // Decision
+  decidedBy?: string;
+  decisionReason?: string;
+  decidedAt?: Date;
+  createdConceptId?: string; // set when an accepted "create" lands, for deep-linking
+
+  createdAt: Date;
+}
+
+/**
  * Result from clue analysis
  */
 export interface ClueAnalysisResult {

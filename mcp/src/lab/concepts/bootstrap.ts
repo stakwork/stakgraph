@@ -110,7 +110,7 @@ function classifyRepo(fileCount: number): {
  * (`workflows/bootstrap-then-process.yaml`) and is passed in via the
  * `concepts/bootstrap-explore` step config (mirrors how `concepts/decide`
  * sources its prompt). This keeps the big prompt visible + editable + tunable
- * in the vein UI rather than hidden in code.
+ * in the strut UI rather than hidden in code.
  *
  *   - `system`   — the system override (no placeholders).
  *   - `template` — the exploration prompt, with `{slot}` placeholders the step
@@ -124,7 +124,7 @@ export interface BootstrapPromptConfig {
 
 /**
  * Fill the `{slot}` placeholders in a bootstrap prompt template with the
- * runtime-computed sizing values. (Single-brace slots, distinct from vein's
+ * runtime-computed sizing values. (Single-brace slots, distinct from strut's
  * `{{ }}` templates, so they survive config resolution untouched.)
  */
 function fillBootstrapPrompt(

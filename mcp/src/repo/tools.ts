@@ -17,7 +17,14 @@ import { getProviderTool, Provider, ModelName, getGatewayBaseURL } from "../aieo
 import { log_agent_context } from "../log/agent.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "../log/utils.js";
 import { RepoAnalyzer } from "gitsee/server";
-import { listConcepts, getConceptDocumentation } from "../gitree/service.js";
+import {
+  listConcepts,
+  getConceptDocumentation,
+  createProposal,
+  listProposals,
+  HttpError,
+} from "../gitree/service.js";
+import { GraphStorage as GitreeGraphStorage } from "../gitree/store/index.js";
 import { scanSkills, listPack, loadSkill, type IndexEntry } from "./skills.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, subAgentRepoNames, type SubAgent } from "./subagent.js";
@@ -33,13 +40,29 @@ import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
 import type { SearchProvenance } from "../graph/graph.js";
 import { relevant_node_types } from "../graph/types.js";
+import {
+  landChange,
+  type LandChangeResult,
+  type WorktreeHandle,
+  type AgentIdentity,
+  type GitHubClient,
+} from "./git_pr.js";
 
 /**
  * Allowed write roots for the text-editor tool. The tool sandbox refuses any
  * path outside these (see resolveInCwd in textEdit.ts): the cloned repo, the
  * OS temp dir (scratch), and — when configured — the durable artifacts dir.
+ *
+ * When `strict` is true (create_pr path), the OS temp dir is omitted so
+ * str_replace_based_edit_tool / apply_patch cannot write into the shared
+ * /tmp/<owner>/<repo> checkout when a worktree is active.
  */
-export function editorRoots(repoPath: string): string[] {
+export function editorRoots(repoPath: string, strict?: boolean): string[] {
+  if (strict) {
+    const roots = [repoPath];
+    if (AGENT_ARTIFACTS_DIR) roots.push(AGENT_ARTIFACTS_DIR);
+    return roots;
+  }
   const roots = [repoPath, os.tmpdir()];
   if (AGENT_ARTIFACTS_DIR) roots.push(AGENT_ARTIFACTS_DIR);
   return roots;
@@ -54,6 +77,10 @@ export interface ProvenanceEntry {
 
 export interface ProvenanceCollector {
   entries: ProvenanceEntry[];
+}
+
+export interface PrCollector {
+  result: LandChangeResult | undefined;
 }
 
 export interface GgnnTool {
@@ -74,6 +101,72 @@ export interface MessagesRef {
   current: ModelMessage[];
 }
 
+export interface GetToolsOptions {
+  /** create_pr path: collector that receives the landChange result */
+  prCollector?: PrCollector;
+  /** create_pr path: worktree + identity handle for landChange */
+  prMode?: {
+    handle: WorktreeHandle;
+    identity: AgentIdentity;
+    env: NodeJS.ProcessEnv;
+    githubClient: GitHubClient;
+  };
+  /** create_pr path: base checkout path (shared clone) to reject in bash commands */
+  baseCheckoutPath?: string;
+  /**
+   * Ephemeral (throwaway-worktree) run: arms the same bash/editor confinement
+   * as prMode — no git write commands, no ambient GitHub tokens, strict editor
+   * roots — without a create_pr tool. Used by read-only preview runs.
+   */
+  ephemeral?: boolean;
+}
+
+/** Whether this run is confined to a per-run worktree (PR run or ephemeral preview). */
+function confinedRun(options?: GetToolsOptions): boolean {
+  return Boolean(options?.prMode || options?.ephemeral);
+}
+
+/**
+ * Bash confinement for worktree-confined runs. Returns a rejection message,
+ * or undefined when the command is allowed.
+ *
+ * A guard, not a sandbox — the backstops are the withheld GitHub tokens and,
+ * on the create_pr path, base-dirty detection. `git push` must be blocked even
+ * with tokens withheld because the shared clone's origin URL embeds the PAT
+ * (clone.ts inlines credentials), and a worktree shares the base repo's
+ * remote config.
+ */
+export function confinedBashRejection(
+  command: string,
+  options?: GetToolsOptions,
+): string | undefined {
+  if (options?.baseCheckoutPath && command.includes(options.baseCheckoutPath)) {
+    return (
+      `bash command rejected: references the shared checkout '${options.baseCheckoutPath}'. ` +
+      `Your current working directory is an isolated worktree of the same repo — rerun the command there using relative paths.`
+    );
+  }
+  if (!confinedRun(options)) return undefined;
+  // [regex, label]: the char class stops at command separators so a match
+  // never spans two piped/chained commands ("git log | grep push" is fine —
+  // each chained command gets its own `\bgit\b … \bpush\b` evaluation).
+  const blocked: Array<[RegExp, string]> = [
+    [/\bgit\b[^\n|;&]*\bpush\b/, "git push"],
+    [/\bgit\b[^\n|;&]*\bcommit\b/, "git commit"],
+    [/\bgit\b[^\n|;&]*\bremote\b/, "git remote"],
+    [/\bgh\s+(pr|api|repo|release)\b/, "gh write commands"],
+  ];
+  for (const [re, label] of blocked) {
+    if (re.test(command)) {
+      const hint = options?.prMode
+        ? "Commit/push/PR creation happen exclusively through the create_pr tool."
+        : "This is a read-only preview run — no remote writes.";
+      return `bash command rejected: ${label} is not allowed on this run. ${hint}`;
+    }
+  }
+  return undefined;
+}
+
 type ToolName =
   | "repo_overview"
   | "file_summary"
@@ -87,6 +180,8 @@ type ToolName =
   | "list_concepts"
   | "learn_concept"
   | "learn_concepts"
+  | "propose_concept_change"
+  | "list_concept_proposals"
   | "list_skills"
   | "load_skill"
   | "list_workflows"
@@ -100,6 +195,8 @@ type ToolName =
   | "graph_sub_agent"
   | "ontology_edit"
   | "create_triplet"
+  | "create_node"
+  | "edit_node"
   | "logs_agent"
   | "str_replace_based_edit_tool"
   | "apply_patch"
@@ -111,7 +208,9 @@ type ToolName =
   | "sheets_update_values"
   | "sheets_batch_update_values"
   | "sheets_get_values"
-  | "sheets_add_sheet";
+  | "sheets_add_sheet"
+  | "sheets_import_spreadsheet"
+  | "create_pr";
 
 /**
  * Object form of a per-tool config value. Lets a caller pass a description
@@ -201,6 +300,20 @@ export function isToolConfigObject(v: unknown): v is ToolConfigObject {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Whether the graph DATA write tool family (create_triplet,
+ * create_batch_triplet, create_node, edit_node) is enabled. Any one of the
+ * family's toolsConfig keys turns on the whole family — they share one
+ * registration gate.
+ */
+export function graphWriteEnabled(toolsConfig?: ToolsConfig): boolean {
+  return (
+    toolConfigEnabled(toolsConfig?.create_triplet) ||
+    toolConfigEnabled(toolsConfig?.create_node) ||
+    toolConfigEnabled(toolsConfig?.edit_node)
+  );
+}
+
 /** Whether a tool-config value should count as "on" (for opt-in tools). */
 export function toolConfigEnabled(v: ToolConfigValue | undefined): boolean {
   if (v === undefined || v === null) return false;
@@ -222,15 +335,17 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "repo_overview", "file_summary", "recent_commits", "recent_contributions",
   "fulltext_search", "web_search", "bash", "final_answer",
   "ask_clarifying_questions", "list_concepts", "learn_concept",
-  "learn_concepts", "list_skills", "load_skill",
+  "learn_concepts", "propose_concept_change", "list_concept_proposals",
+  "list_skills", "load_skill",
   "list_workflows", "learn_workflow", "read_workflow_json",
   "vector_search", "stakgraph_search", "stakgraph_map", "stakgraph_code",
-  "graph_sub_agent", "ontology_edit", "create_triplet",
+  "graph_sub_agent", "ontology_edit", "create_triplet", "create_node", "edit_node",
   "str_replace_based_edit_tool", "apply_patch",
   "generate_docx", "generate_xlsx", "generate_xlsx_computed",
   "stakwork_run_step",
   "sheets_create_spreadsheet", "sheets_update_values", "sheets_batch_update_values",
-  "sheets_get_values", "sheets_add_sheet",
+  "sheets_get_values", "sheets_add_sheet", "sheets_import_spreadsheet",
+  "create_pr",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -247,7 +362,12 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   fulltext_search:
     "Search the entire codebase for a specific term, using ripgrep (rg). Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
   web_search: "Search the web for information",
-  bash: "Execute bash commands",
+  bash:
+    "Execute a bash command in the working directory. " +
+    "Keep the whole command under ~40KB (roughly 6,000 words of text). A single command over " +
+    "~128KB is rejected by the OS with `spawn E2BIG` before it runs — nothing executes and " +
+    "everything you generated for it is lost. When writing a large file, split it across " +
+    "several commands: `cat > file` for the first chunk, `cat >> file` for each one after.",
   final_answer: `Provide the final answer to the user. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
 CRITICAL: Put your ENTIRE response inside the 'answer' parameter as a well-formatted string. Do NOT call this tool with an empty object or without the answer field.
 
@@ -320,6 +440,10 @@ Rules:
   learn_concept:
     "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
   learn_concepts: '', // this is just for naming, to enable the above 2.
+  propose_concept_change:
+    "Propose a change to the Concept knowledge base: create a new concept, update or delete an existing one, or merge two duplicate concepts. The change is NOT applied — it goes into a review queue where a human accepts or rejects it, with a diff of the documentation. For update/merge, first read the current docs with learn_concept and submit the FULL revised documentation (it replaces the whole body). Always give a rationale — the reviewer sees it. Check list_concept_proposals first so you don't file a duplicate of a proposal that is already pending.",
+  list_concept_proposals:
+    "List proposed changes to the Concept knowledge base (pending review by default). Use this before propose_concept_change to avoid filing a duplicate of a proposal that is already awaiting review.",
   list_skills:
     "List available skills. Called with no argument, returns every skill and skill pack installed — including packs not listed in your system prompt. Pass `pack` to expand one pack into its individual skills with their descriptions. This returns names and descriptions only; use load_skill to read a skill's actual instructions.",
   load_skill:
@@ -336,7 +460,9 @@ Rules:
   jarvis: '', // deprecated: Jarvis tools now auto-register whenever JARVIS_URL is set.
   graph_sub_agent: '', // default lives in toolsJarvis.ts; string value here overrides it.
   ontology_edit: '', // group gate: registers the ontology write tools (defaults live in toolsJarvis.ts).
-  create_triplet: '', // gate: registers the graph data-write tool (default lives in toolsJarvis.ts).
+  create_triplet: '', // gate: registers the graph data-write tools (defaults live in toolsJarvis.ts). Any one of create_triplet/create_node/edit_node enables the whole family.
+  create_node: '', // gate: same graph data-write family as create_triplet.
+  edit_node: '', // gate: same graph data-write family as create_triplet.
   logs_agent:
     "Query runtime logs (CloudWatch / Quickwit). Use when the user asks about errors, performance, or runtime behaviour. Pass a focused, specific question.",
   str_replace_based_edit_tool:
@@ -348,10 +474,23 @@ Rules:
     "Apply a unified-diff patch string to the cloned repo via `git apply`. " +
     "Patch must be valid unified-diff format. Returns success message or error details.",
   generate_docx:
-    "Generate a Word (.docx) document from Markdown content using Pandoc. " +
-    "Input: { markdown: string; template?: string } where 'template' is an optional " +
-    "bundled reference-doc name for styling. Writes the file to the durable artifacts " +
-    "directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
+    "Generate a Word (.docx) document from Markdown using Pandoc. " +
+    "Input: { markdown?: string; markdownPath?: string; template?: string } — provide exactly one " +
+    "of 'markdown' (inline content) or 'markdownPath' (path to a .md file; relative paths resolve " +
+    "against the repo directory). " +
+    "For anything longer than a couple of pages, ALWAYS use markdownPath: a large inline 'markdown' " +
+    "argument has to fit in one message and will be cut off. " +
+    "Build the .md file with a series of bash writes — `cat > file` for the first chunk, `cat >> file` " +
+    "for each one after — keeping every command under the ~40KB bash limit, then convert it. That " +
+    "applies to the FIRST write exactly as much as to the appends; do not emit a whole document in " +
+    "one call. The byte count `wc -c` returns is the file's cumulative size, not the size of your " +
+    "last command — a growing file is fine, an oversized single command is not. " +
+    "'template' is an optional bundled reference-doc name for styling. Pass template: 'court' for US " +
+    "court-filing format (Times New Roman 12pt throughout, double-spaced body, single-spaced footnotes, " +
+    "1-inch margins, Letter size) — ALWAYS use this for court filings instead of post-editing fonts, " +
+    "spacing, or margins in the .docx. Never modify docx XML internals via bash/python; regenerate " +
+    "from the .md with the right template instead. Writes the file to the durable " +
+    "artifacts directory and returns a download path: 'Generated: /repo/agent/file?path=...' " +
     "On failure returns a non-fatal 'generate_docx failed: ...' string.",
   generate_xlsx:
     "Generate an Excel (.xlsx) workbook from a structured definition using openpyxl. " +
@@ -384,6 +523,14 @@ Rules:
   sheets_batch_update_values: '',
   sheets_get_values: '',
   sheets_add_sheet: '',
+  sheets_import_spreadsheet: '',
+  // Gated inside toolsConfig branch only — never added to allTools unconditionally.
+  create_pr:
+    "Commit all staged changes and open a pull request on GitHub. " +
+    "Input: { title: string, body: string }. " +
+    "Returns the PR URL, branch, diff, and files-changed count on success, " +
+    "or a classified failure mode with diff on error. " +
+    "Call this at the end of your work when all file edits are complete.",
 };
 
 export async function get_tools(
@@ -401,6 +548,10 @@ export async function get_tools(
   stakwork?: StakworkToolsOptions,
   googleSheets?: GoogleSheetsToolsOptions,
   skills?: SkillsConfig,
+  ontologyDomains?: string,
+  sessionId?: string,
+  abortSignal?: AbortSignal,
+  options?: GetToolsOptions,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -588,9 +739,30 @@ export async function get_tools(
 
   // Per-request GitHub auth for the `gh` CLI (and any tool reading GH_TOKEN).
   // Scoped to this request's PAT so `gh` acts as the requesting user.
-  const ghEnv: NodeJS.ProcessEnv | undefined = pat
-    ? { GH_TOKEN: pat, GITHUB_TOKEN: pat }
-    : undefined;
+  //
+  // Confined runs (create_pr worktree or ephemeral preview) get the tokens
+  // BLANKED instead: executeBashCommand spreads process.env under this
+  // overlay, so an empty string is the only way to also mask any ambient
+  // container token. On the create_pr path landChange() supplies its own
+  // credentialed env via gitEnv() — bash never needs a push token.
+  const ghEnv: NodeJS.ProcessEnv | undefined = confinedRun(options)
+    ? { GH_TOKEN: "", GITHUB_TOKEN: "" }
+    : pat
+      ? { GH_TOKEN: pat, GITHUB_TOKEN: pat }
+      : undefined;
+
+  const executeGuardedBash = async ({ command }: { command: string }) => {
+    const rejection = confinedBashRejection(command, options);
+    if (rejection) {
+      console.log(`[bash-guard] rejected: ${command.slice(0, 200)}`);
+      return rejection;
+    }
+    try {
+      return await executeBashCommand(command, repoPath, 60000, ghEnv);
+    } catch (e) {
+      return `Command execution failed: ${e}`;
+    }
+  };
 
   // Always register bash tool — Anthropic uses native provider tool, others use executeBashCommand
   if (bash_tool) {
@@ -600,13 +772,7 @@ export async function get_tools(
       inputSchema: z.object({
         command: z.string().describe("The bash command to execute"),
       }),
-      execute: async ({ command }: { command: string }) => {
-        try {
-          return await executeBashCommand(command, repoPath, undefined, ghEnv);
-        } catch (e) {
-          return `Command execution failed: ${e}`;
-        }
-      },
+      execute: executeGuardedBash,
     });
   } else {
     // Non-Anthropic: use executeBashCommand directly
@@ -615,13 +781,7 @@ export async function get_tools(
       inputSchema: z.object({
         command: z.string().describe("The bash command to execute"),
       }),
-      execute: async ({ command }: { command: string }) => {
-        try {
-          return await executeBashCommand(command, repoPath, undefined, ghEnv);
-        } catch (e) {
-          return `Command execution failed: ${e}`;
-        }
-      },
+      execute: executeGuardedBash,
     });
   }
 
@@ -919,12 +1079,26 @@ export async function get_tools(
             : undefined,
           modelName,
           apiKey,
+          // Links each sub-agent run back to the owning session so it appears
+          // as its own inspectable session in /sessions.
+          parentSessionId: sessionId,
+          repo:
+            repos && repos.length > 0
+              ? repos.join(", ")
+              : repoPath.replace(/\/+$/, "").split("/").slice(-2).join("/"),
         }
       : undefined,
     // Opt-in ontology write tools (create/update/delete node & edge types).
     ontologyEdit: toolConfigEnabled(toolsConfig?.ontology_edit),
-    // Opt-in graph data-write tool (assert source -[edge]-> target triplets).
-    graphWrite: toolConfigEnabled(toolsConfig?.create_triplet),
+    // Opt-in graph data-write tools (triplets + generic node create/edit).
+    // Any one of the family's keys enables all of them.
+    graphWrite: graphWriteEnabled(toolsConfig),
+    // Scope get_ontology to the caller's `ontologyDomains`, unless the model
+    // asks for specific `domains` itself. Unset => no filter, all domains.
+    defaultDomains: ontologyDomains,
+    // Thread the run's AbortSignal so Jarvis HTTP calls can be cancelled when
+    // the busy safety-timeout or /repo/agent/abort fires.
+    abortSignal,
   });
 
   // Register Stakwork run-research tools (read-only, gated on the caller
@@ -1218,7 +1392,7 @@ export async function get_tools(
         const baseURL = getGatewayBaseURL("anthropic");
         const ant = createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
         allTools.str_replace_based_edit_tool = ant.tools.textEditor_20250728({
-          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath)),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, confinedRun(options))),
         }) as any as Tool<any, any>;
       } else {
         // Generic fallback for OpenAI / other providers
@@ -1236,7 +1410,7 @@ export async function get_tools(
             insert_text: z.string().optional(),
             view_range: z.array(z.number().int()).length(2).optional(),
           }),
-          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath)),
+          execute: async (input) => textEdit(input as TextEditInput, editorRoots(repoPath, confinedRun(options))),
         });
       }
     }
@@ -1269,6 +1443,70 @@ export async function get_tools(
         },
       });
     }
+    // create_pr — opt-in write path: stage, scan, commit, push, open PR.
+    // Gated strictly inside the toolsConfig branch so flagless callers never
+    // see it (the "if (!toolsConfig) return allTools" early-return above means
+    // unconditional registrations in allTools would leak to every caller).
+    if (toolConfigEnabled(toolsConfig.create_pr)) {
+      const prOpts = options?.prMode;
+      const prColl = options?.prCollector;
+      allTools.create_pr = tool({
+        description:
+          toolConfigDescription(toolsConfig.create_pr) ??
+          defaultDescriptions.create_pr,
+        // No branch_hint: the branch is created (and named) at acquireWorktree
+        // time, before the model runs, so a hint here could never take effect.
+        inputSchema: z.object({
+          title: z.string().describe("PR title"),
+          body: z.string().describe("PR body / description"),
+        }),
+        execute: async ({
+          title,
+          body,
+        }: {
+          title: string;
+          body: string;
+        }) => {
+          if (!prOpts) {
+            console.error("[create_pr] invoked with no worktree handle — refusing");
+            return "create_pr is not available: no worktree handle was resolved for this run";
+          }
+          console.log(
+            `[create_pr] invoked: runId=${prOpts.handle.runId} branch=${prOpts.handle.branch} title=${JSON.stringify(title.slice(0, 120))}`,
+          );
+          const result = await landChange({
+            handle: prOpts.handle,
+            identity: prOpts.identity,
+            env: prOpts.env,
+            githubClient: prOpts.githubClient,
+            title,
+            body,
+          });
+          if (prColl) {
+            prColl.result = result;
+          }
+          console.log(
+            result.ok
+              ? `[create_pr] landed: ${result.url} (${result.filesChanged} files)`
+              : `[create_pr] failed: ${result.failure} — ${result.error.slice(0, 300)}`,
+          );
+          if (result.ok) {
+            return (
+              `PR created successfully!\n` +
+              `URL: ${result.url}\n` +
+              `Branch: ${result.branch}\n` +
+              `Files changed: ${result.filesChanged}\n\n` +
+              `Diff (first 4000 chars):\n${result.diff.slice(0, 4000)}`
+            );
+          } else {
+            return (
+              `PR creation failed (${result.failure}): ${result.error}\n\n` +
+              `Diff (first 4000 chars):\n${result.diff.slice(0, 4000)}`
+            );
+          }
+        },
+      });
+    }
     // generate_docx — Pandoc-based Word document generation
     if (toolConfigEnabled(toolsConfig.generate_docx)) {
       allTools.generate_docx = tool({
@@ -1276,10 +1514,11 @@ export async function get_tools(
           toolConfigDescription(toolsConfig.generate_docx) ??
           defaultDescriptions.generate_docx,
         inputSchema: z.object({
-          markdown: z.string().describe("Markdown content to convert to .docx"),
-          template: z.string().optional().describe("Optional bundled reference-doc template name for styling"),
+          markdown: z.string().optional().describe("Inline Markdown content to convert to .docx (small documents only)"),
+          markdownPath: z.string().optional().describe("Path to a Markdown file to convert (preferred for large documents — build it incrementally with bash first); relative paths resolve against the repo directory"),
+          template: z.string().optional().describe("Optional bundled reference-doc template name for styling. 'court' = US court-filing format (Times New Roman 12pt, double-spaced, 1-inch margins)"),
         }),
-        execute: async (input) => runDocx(input),
+        execute: async (input) => runDocx(input, repoPath),
       });
     }
     // generate_xlsx — openpyxl-based Excel workbook generation
@@ -1393,6 +1632,123 @@ export async function get_tools(
         },
       });
     }
+    // concept proposals (human-reviewed writes; propose tool is opt-in)
+    if (
+      toolConfigEnabled(toolsConfig.propose_concept_change) ||
+      toolConfigEnabled(toolsConfig.list_concept_proposals)
+    ) {
+      allTools.list_concept_proposals = tool({
+        description: defaultDescriptions.list_concept_proposals,
+        inputSchema: z.object({
+          status: z
+            .enum(["pending", "accepted", "rejected"])
+            .optional()
+            .default("pending")
+            .describe("Filter by proposal status (default: pending)"),
+        }),
+        execute: async ({ status }) => {
+          try {
+            const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
+            const proposals = await listProposals(repo, status);
+            return {
+              proposals: proposals.map((p) => ({
+                id: p.id,
+                action: p.action,
+                status: p.status,
+                conceptId: p.conceptId,
+                mergeIntoConceptId: p.mergeIntoConceptId,
+                name: p.name,
+                rationale: p.rationale,
+                source: p.source,
+                createdAt: p.createdAt,
+              })),
+              count: proposals.length,
+              repo,
+            };
+          } catch (e) {
+            console.error("Error listing concept proposals:", e);
+            return "Could not retrieve concept proposals";
+          }
+        },
+      });
+    }
+    if (toolConfigEnabled(toolsConfig.propose_concept_change)) {
+      allTools.propose_concept_change = tool({
+        description: defaultDescriptions.propose_concept_change,
+        inputSchema: z.object({
+          action: z
+            .enum(["create", "update", "delete", "merge"])
+            .describe(
+              "create a new concept, update or delete an existing one, or merge concept_id into merge_into_concept_id"
+            ),
+          concept_id: z
+            .string()
+            .optional()
+            .describe(
+              "Target concept id (required for update/delete; for merge, the concept that will be absorbed and deleted). Use ids from list_concepts — never fabricate."
+            ),
+          merge_into_concept_id: z
+            .string()
+            .optional()
+            .describe("merge only: the surviving concept's id"),
+          name: z
+            .string()
+            .optional()
+            .describe("create only: human-readable name for the new concept"),
+          description: z
+            .string()
+            .optional()
+            .describe("Optional one-line description (new or replacement)"),
+          documentation: z
+            .string()
+            .optional()
+            .describe(
+              "Full markdown documentation (required for create/update/merge). Replaces the entire body — for updates, start from learn_concept's current docs."
+            ),
+          rationale: z
+            .string()
+            .describe(
+              "Why this change should be made — shown to the human reviewer"
+            ),
+          pr_numbers: z
+            .array(z.number())
+            .optional()
+            .describe("PR numbers that motivated this proposal (evidence)"),
+        }),
+        execute: async (input) => {
+          try {
+            const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
+            const storage = new GitreeGraphStorage();
+            await storage.initialize();
+            const proposal = await createProposal(storage, {
+              action: input.action,
+              repo,
+              conceptId: input.concept_id,
+              mergeIntoConceptId: input.merge_into_concept_id,
+              name: input.name,
+              description: input.description,
+              documentation: input.documentation,
+              rationale: input.rationale,
+              source: "agent",
+              prNumbers: input.pr_numbers,
+            });
+            return {
+              status: "pending_review",
+              proposalId: proposal.id,
+              action: proposal.action,
+              message:
+                "Proposal filed. It will only take effect if a human reviewer accepts it.",
+            };
+          } catch (e: any) {
+            if (e instanceof HttpError) {
+              return { error: e.message, ...(e.extra || {}) };
+            }
+            console.error("Error proposing concept change:", e);
+            return { error: e?.message || "Could not create proposal" };
+          }
+        },
+      });
+    }
   }
 
   // Start with all tools, then apply config to customize or exclude
@@ -1443,7 +1799,14 @@ export function normalizeToolsConfig(
     let i = 0;
     while (i < tokens.length) {
       const key = tokens[i];
-      if (!TOOL_NAMES.has(key)) { i++; continue; }
+      if (!TOOL_NAMES.has(key)) {
+        // Skip family-config extra keys silently; warn on truly unknown keys
+        if (!(TOOLS_CONFIG_EXTRA_KEYS as string[]).includes(key)) {
+          console.warn(`[normalizeToolsConfig] Unknown toolsConfig key dropped: "${key}"`);
+        }
+        i++;
+        continue;
+      }
       const next = tokens[i + 1];
       if (next === "true") {
         (config as any)[key] = true;

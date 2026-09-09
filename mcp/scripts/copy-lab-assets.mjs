@@ -1,11 +1,11 @@
 // Copy runtime assets that `tsc` does not emit into `build/`.
 //
-// The lab seeds workflow templates and step sources into the vein workspace
+// The lab seeds workflow templates and step sources into the strut workspace
 // at boot, locating them relative to the compiled module (`import.meta.url`).
 // `tsc` only emits `.js`, so without this step the prod build (`node
 // build/index.js`) can't find:
 //   - `*.yaml` workflow templates
-//   - `steps/*.ts` step sources (read as text, published as vein custom steps)
+//   - `steps/*.ts` step sources (read as text, published as strut custom steps)
 //
 // The docgen tools (generate_xlsx / generate_docx) likewise locate their
 // bundled assets relative to the compiled module (`build/repo/`):
@@ -37,10 +37,13 @@ async function* walk(dir) {
 
 function isAsset(path) {
   if (path.endsWith(".yaml") || path.endsWith(".yml")) return true;
-  // Step sources are read as text and published as vein custom steps.
+  // Step sources are read as text and published as strut custom steps.
   if (path.endsWith(".ts") && !path.endsWith(".test.ts") && path.split(sep).includes("steps")) {
     return true;
   }
+  // Prompt bodies expanded into workflow YAML at seed time (@@include(...)
+  // markers — see harvey/seed.ts).
+  if (path.endsWith(".md") && path.split(sep).includes("prompts")) return true;
   return false;
 }
 

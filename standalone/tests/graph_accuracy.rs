@@ -4,6 +4,7 @@ use ast::lang::graphs::graph_ops::GraphOps;
 use ast::lang::graphs::{BTreeMapGraph, EdgeType};
 use ast::lang::{Graph, NodeType};
 use ast::repo::{clone_repo, Repo};
+use lsp::git::CloneOpts;
 use lsp::git::get_changed_files_between;
 use tracing::info;
 
@@ -146,9 +147,17 @@ fn assert_after<G: Graph>(graph: &G) {
 async fn test_graph_accuracy() {
     let repo_path = Repo::get_path_from_url(REPO_URL).unwrap();
 
-    clone_repo(REPO_URL, &repo_path, None, None, Some(BEFORE_COMMIT), None)
-        .await
-        .unwrap();
+    clone_repo(
+        REPO_URL,
+        &repo_path,
+        None,
+        None,
+        Some(BEFORE_COMMIT),
+        None,
+        &CloneOpts::default(),
+    )
+    .await
+    .unwrap();
 
     let repos = Repo::new_multi_detect(
         &repo_path,
@@ -183,9 +192,17 @@ async fn test_graph_accuracy() {
         assert_before(&graph_ops.graph);
     }
 
-    clone_repo(REPO_URL, &repo_path, None, None, Some(AFTER_COMMIT), None)
-        .await
-        .unwrap();
+    clone_repo(
+        REPO_URL,
+        &repo_path,
+        None,
+        None,
+        Some(AFTER_COMMIT),
+        None,
+        &CloneOpts::default(),
+    )
+    .await
+    .unwrap();
 
     let changed_files = get_changed_files_between(&repo_path, BEFORE_COMMIT, AFTER_COMMIT)
         .await

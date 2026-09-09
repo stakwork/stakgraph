@@ -82,6 +82,11 @@ pub trait Stack {
         None
     }
     fn class_definition_query(&self) -> String;
+    // Discriminator (e.g. "extension") for a CLASS_DEFINITION node, for grammars
+    // that reuse one node kind for several declaration forms.
+    fn class_declaration_kind(&self, _node: TreeNode, _code: &str) -> Option<String> {
+        None
+    }
     fn instance_definition_query(&self) -> Option<String> {
         None
     }

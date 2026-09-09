@@ -1,12 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 import { NodeType, NodeData } from "./types.js";
 
-function getTimestamp(): string {
-  const seconds = Date.now() / 1000;
-  const ts = seconds.toFixed(7);
-  console.log(`Generated timestamp: ${ts}`);
-  return ts;
-}
+// NOTE: node_data carries NO date_added_to_graph here. The write path
+// (db.add_node → ADD_NODE_QUERY) stamps it via the shared nowEpochMs()
+// helper under ON CREATE only — callers must never compute timestamps
+// inline (that's how the 7-decimal-string format crept in).
 
 interface GitSeeRepository {
   id: string;
@@ -43,7 +41,6 @@ export function prepareGitHubRepoNode(repo: GitSeeRepository): {
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: getTimestamp(),
       Data_Bank: fullName,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -68,7 +65,6 @@ export function prepareContributorNode(contributor: GitSeeContributor): {
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: getTimestamp(),
       Data_Bank: contributor.login,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -96,7 +92,6 @@ export function prepareStarsNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-stars`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -121,7 +116,6 @@ export function prepareCommitsNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-commits`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -146,7 +140,6 @@ export function prepareAgeNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-age`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -171,7 +164,6 @@ export function prepareIssuesNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-issues`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",

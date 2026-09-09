@@ -6,6 +6,7 @@ import { recomposeAnswer, RecomposedAnswer } from "./answer.js";
 import { LEARN_HTML } from "./learn.js";
 import * as G from "../../graph/graph.js";
 import { db } from "../../graph/neo4j.js";
+import { dateAddedAgeHours } from "../../graph/time.js";
 import { vectorizeQuery } from "../../vector/index.js";
 
 /**
@@ -122,8 +123,7 @@ export async function ask_prompt(
       } else if (cacheControl?.maxAgeHours) {
         const nodeAge = top.properties.date_added_to_graph;
         if (nodeAge) {
-          const currentTime = Date.now() / 1000; // Convert to seconds
-          const ageInHours = (currentTime - nodeAge) / 3600; // Convert to hours
+          const ageInHours = dateAddedAgeHours(nodeAge);
 
           if (ageInHours > cacheControl.maxAgeHours) {
             console.log(

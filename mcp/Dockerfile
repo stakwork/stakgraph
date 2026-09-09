@@ -1,9 +1,9 @@
 # docker buildx build --platform linux/amd64,linux/arm64 -t repo2graph .
 #
-# NOTE: mcp depends on vein (`file:../vein`), which lives OUTSIDE this build
-# context (`./mcp`). Stage vein's source into the context first so it can be
+# NOTE: mcp depends on strut (`file:../strut`), which lives OUTSIDE this build
+# context (`./mcp`). Stage strut's source into the context first so it can be
 # COPY'd and built in-image:
-#     yarn stage-vein   # (from mcp/) — copies ../vein into ./.vein
+#     yarn stage-strut   # (from mcp/) — copies ../strut into ./.strut
 # CI does this in .github/workflows/publish-mcp.yml before the build.
 
 # Use an official Node.js runtime as a parent image
@@ -13,11 +13,81 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 pandoc python3-pip && \
+RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg bzip2 && \
+    git lfs install --system && \
     ln -s /usr/bin/python3 /usr/bin/python
 
 # Install openpyxl for generate_xlsx tool (--break-system-packages required under Debian bookworm PEP 668)
 RUN pip install --break-system-packages openpyxl
+
+# Install docx-mcp-server for stdio MCP Word document editing (tracked changes, comments, audit).
+# A plain pip install places the `docx-mcp-server` console-script on PATH at
+# /usr/local/bin/docx-mcp-server — callers should attach this server as:
+#   { name: "docx", command: "docx-mcp-server" }
+# Verified against v0.7.4: all 14 tools in the default filter exist in the package.
+# NOTE: convert_to_pdf is deliberately excluded from the default tool filter —
+# it requires LibreOffice/soffice which is NOT installed here to keep the image lean.
+#
+# Pin: docx-mcp-server 0.7.4 declares no upper bound on `mcp`, and mcp 2.0.0
+# (2026-07-28) removed `mcp.server.fastmcp` (FastMCP -> MCPServer). Keep mcp on
+# the 1.x line so docx-mcp's `from mcp.server.fastmcp import FastMCP` resolves.
+# docx-mcp-server itself is pinned to the version this image is validated against,
+# since it is otherwise fully unpinned and a future release that raises its own
+# floor to mcp>=2.0.0 would make `mcp<2.0.0` unsatisfiable and turn this into a
+# hard pip-resolver build failure instead of a controlled one.
+# Both packages co-resolved in one invocation so the mcp<2.0.0 constraint is
+# honoured up front (a separate later pip install could leave 2.0.0 in place).
+RUN pip install --break-system-packages "docx-mcp-server==0.7.4" "mcp<2.0.0"
+
+# Print resolved versions of key packages for a durable audit record.
+# Uses pip freeze + grep so the step never fails due to an absent package name.
+RUN pip freeze | grep -Ei 'mcp|httpx|pydantic|starlette|sse'
+
+# Fail the build (not runtime) if the docx-mcp import chain doesn't load.
+# Separate, unredirected steps so the real traceback surfaces in the build log.
+RUN python -c "from mcp.server.fastmcp import FastMCP"
+
+# Agent python venv — the python that agent-step `bash` (and the lab's GAIA
+# scorer) sees. A SEPARATE venv, not the system env: the system python carries
+# the pinned docx-mcp/mcp<2.0.0 resolution above, and mixing data-science deps
+# into it risks resolver conflicts on future builds; the venv also can't be
+# broken by a future docx-mcp pin change. Prepending its bin to PATH makes
+# `python3`/`python` resolve here for agent bash and for docgen's
+# build_workbook.py (openpyxl included for exactly that); docx-mcp-server is
+# unaffected (its console script pins the system interpreter via shebang).
+# Contents: PDF text extraction (pypdf, pdfplumber; pdftotext comes from
+# poppler-utils), spreadsheets (openpyxl, pandas), numerics (numpy — also
+# needed by the GAIA scorer), images (pillow), scraping (requests, bs4), and
+# yt-dlp (with ffmpeg from apt) for media tasks.
+RUN python3 -m venv /usr/src/agent-venv && \
+    /usr/src/agent-venv/bin/pip install --no-cache-dir \
+      numpy pandas openpyxl pypdf pdfplumber pillow requests beautifulsoup4 yt-dlp && \
+    /usr/src/agent-venv/bin/python -c "import numpy, pandas, openpyxl, pypdf, pdfplumber, PIL, requests, bs4"
+ENV PATH="/usr/src/agent-venv/bin:$PATH"
+
+# NOTE (lab / GAIA): the dataset is deliberately NOT baked into the image —
+# GAIA's terms forbid resharing it outside a gated/private repo, and a
+# published image is neither. It is fetched at runtime by
+# src/lab/gaia/bootstrap.ts.
+#
+# HF_TOKEN is REQUIRED at runtime: the dataset is gated and the fetch is
+# refused without credentials (anonymous `git ls-remote` succeeding against
+# the repo is a red herring — `git-upload-pack` is what's gated). Supply a
+# READ token from an account that has accepted GAIA's terms; no username is
+# needed (HF takes the token as the password with any username). Only a
+# pre-populated checkout mounted at GAIA_DIR removes the need for it.
+#
+# GAIA_PYTHON is unnecessary here: the agent venv above is first on PATH and
+# carries the numpy the scorer needs. GAIA_SCORER_SHA256 is unnecessary too —
+# the pin lives in the repo (bootstrap.ts SCORER_SHA256).
+#
+# git-lfs (installed above) is REQUIRED: GAIA's attachments are LFS-backed and
+# a clone without it silently yields ~130-byte pointer stubs where the xlsx /
+# pdf / mp3 files should be.
+#
+# Mount a volume at the cache dir so the ~205MB clone happens once rather than
+# per container:  -v gaia-cache:/root/.cache/strut  (override with STRUT_CACHE_DIR
+# or pin the checkout outright with GAIA_DIR).
 
 # Install GitHub CLI (gh) from the official apt repo (supports x64 and arm64)
 RUN wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
@@ -51,22 +121,22 @@ RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/m
 RUN npx -y playwright install-deps
 RUN npx -y playwright install
 
-# Build vein (engine + web UI). mcp consumes it as `file:../vein` and serves
-# its UI under /lab. `.vein` is vein's source staged into this context (see
-# the header note / publish-mcp.yml). Built at /usr/src/vein so that
-# `file:../vein` from /usr/src/app resolves to it.
+# Build strut (engine + web UI). mcp consumes it as `file:../strut` and serves
+# its UI under /lab. `.strut` is strut's source staged into this context (see
+# the header note / publish-mcp.yml). Built at /usr/src/strut so that
+# `file:../strut` from /usr/src/app resolves to it.
 #
-# vein KEEPS its own runtime node_modules: Node resolves a package's imports
-# from the real path of the file, so /usr/src/vein/build/index.js looks for its
-# deps (zod, hono, ai, ...) under /usr/src/vein/node_modules — it never reaches
-# /usr/src/app/node_modules. Sharing mcp's tree would also be wrong: vein needs
+# strut KEEPS its own runtime node_modules: Node resolves a package's imports
+# from the real path of the file, so /usr/src/strut/build/index.js looks for its
+# deps (zod, hono, ai, ...) under /usr/src/strut/node_modules — it never reaches
+# /usr/src/app/node_modules. Sharing mcp's tree would also be wrong: strut needs
 # zod@3 while mcp pins zod@4. We drop only devDependencies (npm prune) and the
 # web build's node_modules (web is built to web/dist and served as static).
-COPY ./.vein /usr/src/vein
+COPY ./.strut /usr/src/strut
 # `npm install` (not `npm ci`): package-lock.json is gitignored repo-wide, so
-# it isn't present in the staged `.vein` source — `npm ci` would fail. Matches
+# it isn't present in the staged `.strut` source — `npm ci` would fail. Matches
 # the `npm install` used elsewhere in this Dockerfile (web, benchmark).
-RUN cd /usr/src/vein && npm install && npm run build && \
+RUN cd /usr/src/strut && npm install && npm run build && \
     npm --prefix web install && npm --prefix web run build && \
     rm -rf web/node_modules && npm prune --omit=dev
 
@@ -82,7 +152,18 @@ COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 RUN yarn
 
 # Install linux x64 tokenizer bindings (required for fastembed in Docker)
+#
+# This is an `npm install` on top of a yarn tree, so npm re-resolves
+# package.json here and ignores yarn's `resolutions`. Without a matching npm
+# `overrides` entry it re-nests fastembed's declared onnxruntime-node 1.21.0
+# under node_modules/fastembed/node_modules, and at runtime that older
+# libonnxruntime.so.1 loads first and strut's 1.24.3 binding (same soname)
+# fails with "version VERS_1.24.3 not found". package.json carries both
+# `resolutions` (yarn) and `overrides` (npm) pinned to the same version; the
+# check below fails the build, not /lab at runtime, if a second copy sneaks in.
 RUN npm install --force --os=linux --cpu=x64 @anush008/tokenizers-linux-x64-gnu@0.0.0
+RUN extra="$(find node_modules -mindepth 2 -type d -name onnxruntime-node -not -path 'node_modules/onnxruntime-node' -not -path 'node_modules/strut/*')"; \
+    if [ -n "$extra" ]; then echo "duplicate onnxruntime-node copies (soname clash with strut):"; echo "$extra"; exit 1; fi
 
 # Copy the rest of your application code
 COPY ./tsconfig.json ./tsconfig.json
@@ -159,6 +240,6 @@ EXPOSE 3000
 WORKDIR /usr/src/app
 
 # Define the command to run your app.
-# `--import tsx` registers a TypeScript loader so vein can dynamically import
+# `--import tsx` registers a TypeScript loader so strut can dynamically import
 # `.ts` custom steps at runtime (the lab seeds steps as TS source).
 CMD ["node", "--import", "tsx", "build/index.js"]

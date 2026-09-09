@@ -7,6 +7,8 @@ package main
 // @ast node: Function "Push"
 // @ast node: Function "Pop"
 // @ast node: Function "Map"
+// @ast node: Function "UseMap"
+// @ast edge: Calls -> Function "Map" "generics.go"
 
 // Stack is a generic stack implementation
 type Stack[T any] struct {
@@ -36,4 +38,10 @@ func Map[T any, U any](input []T, f func(T) U) []U {
 		result[i] = f(v)
 	}
 	return result
+}
+
+// UseMap calls Map with an explicit type instantiation.
+func UseMap() []string {
+	nums := []int{1, 2, 3}
+	return Map[int, string](nums, func(n int) string { return "" })
 }

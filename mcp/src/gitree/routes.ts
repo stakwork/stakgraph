@@ -16,7 +16,7 @@ import {
 } from "../aieo/src/provider.js";
 import { generateObject, jsonSchema } from "ai";
 import { formatConceptWithDetails } from "./utils.js";
-import { listConcepts } from "./service.js";
+import { listConcepts, createConceptDirect, HttpError } from "./service.js";
 import {
   toReturnNode,
   toReturnNodeNoBody,
@@ -92,7 +92,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * Accepts: owner/repo, https://github.com/owner/repo, etc.
  * Returns normalized "owner/repo" format or undefined
  */
-function parseRepoParam(req: Request): string | undefined {
+export function parseRepoParam(req: Request): string | undefined {
   const repoParam = req.query.repo as string | undefined;
   if (!repoParam) return undefined;
   
@@ -1147,112 +1147,38 @@ export async function gitree_create_concept_direct(
   try {
     const { name, documentation, description, repo, parent } = req.body;
 
-    if (!name || typeof name !== "string" || !name.trim()) {
-      res.status(400).json({ error: "name is required" });
-      return;
-    }
-    if (typeof documentation !== "string") {
-      res
-        .status(400)
-        .json({ error: "documentation is required and must be a string" });
-      return;
-    }
-
-    const slug = generateSlug(name);
-    if (!slug) {
-      res
-        .status(400)
-        .json({ error: "name must contain alphanumeric characters" });
-      return;
-    }
-    const repoId =
-      typeof repo === "string" && repo.trim() ? repo.trim() : undefined;
-    const conceptId = repoId ? makeRepoId(repoId, slug) : slug;
-    const parentId =
-      typeof parent === "string" && parent.trim() ? parent.trim() : undefined;
-
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const existing = await storage.getConcept(conceptId, repoId);
-    if (existing) {
-      res.status(409).json({
-        error: `Concept ${conceptId} already exists`,
-        conceptId,
-      });
-      return;
-    }
-
-    // Validate parent before any persistence — a bad parent must never leave
-    // a partially-created concept behind.
-    let parentConcept = null;
-    if (parentId) {
-      parentConcept = await storage.getConcept(parentId, repoId);
-      if (!parentConcept) {
-        res
-          .status(400)
-          .json({ error: `Parent concept ${parentId} not found` });
-        return;
-      }
-      if (parentConcept.id === conceptId) {
-        res.status(400).json({ error: "A concept cannot be its own parent" });
-        return;
-      }
-    }
-
-    const now = new Date();
-    const concept: Concept = {
-      id: conceptId,
-      repo: repoId,
-      name: name.trim(),
-      description: typeof description === "string" ? description : "",
-      prNumbers: [],
-      commitShas: [],
-      createdAt: now,
-      lastUpdated: now,
+    const { concept, parentId } = await createConceptDirect(storage, {
+      name,
       documentation,
-    };
+      description,
+      repo,
+      parent,
+    });
 
-    await storage.saveConcept(concept);
-    await storage.saveDocumentation(conceptId, documentation);
-
-    // Link to parent if provided — compensating rollback on failure.
-    if (parentId && parentConcept) {
-      try {
-        await storage.linkConceptParent(parentConcept.id, conceptId);
-        console.log(
-          `🔗 Linked concept ${conceptId} under parent ${parentConcept.id}`
-        );
-      } catch (linkErr: any) {
-        try {
-          await storage.deleteConcept(conceptId, repoId);
-        } catch (rollbackErr: any) {
-          console.error(
-            `Rollback failed for orphaned concept ${conceptId}:`,
-            rollbackErr
-          );
-        }
-        return res.status(500).json({
-          error: `Concept created but parent link failed; rolled back: ${linkErr.message}`,
-        });
-      }
-    }
-
-    console.log(`✅ Concept created (direct): ${conceptId}`);
+    console.log(`✅ Concept created (direct): ${concept.id}`);
 
     res.json({
       status: "success",
-      message: `Created concept ${conceptId}`,
+      message: `Created concept ${concept.id}`,
       concept: {
         id: concept.id,
         repo: concept.repo,
         name: concept.name,
         description: concept.description,
         documentation: concept.documentation,
-        ...(parentConcept ? { parent: parentConcept.id } : {}),
+        ...(parentId ? { parent: parentId } : {}),
       },
     });
   } catch (error: any) {
+    if (error instanceof HttpError) {
+      res
+        .status(error.statusCode)
+        .json({ error: error.message, ...(error.extra || {}) });
+      return;
+    }
     console.error("Error creating concept (direct):", error);
     res
       .status(500)

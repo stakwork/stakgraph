@@ -169,6 +169,9 @@ export async function get_context_explore(
   const stepMetas: StepMeta[] = [];
   let cumInput = 0;
   let cumOutput = 0;
+  // Seed per-step interval clock after setup, before first step.
+  // explore has no startTime or sessionId guarantee — use a local cursor.
+  let lastStepTime = Date.now();
   const { steps, totalUsage } = await generateText({
     model,
     tools,
@@ -179,6 +182,9 @@ export async function get_context_explore(
     onStepFinish: (sf) => {
       // console.log("step", JSON.stringify(sf.content, null, 2));
       logStep(sf.content);
+      const now = Date.now();
+      const elapsedMs = now - lastStepTime;
+      lastStepTime = now;
       const usage = normalizeUsage(sf.usage);
       cumInput += usage.inputTokens ?? 0;
       cumOutput += usage.outputTokens ?? 0;
@@ -190,6 +196,8 @@ export async function get_context_explore(
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
         timestamp: new Date().toISOString(),
+        sessionId: sessionId ?? "none",
+        elapsedMs,
       });
     },
   });

@@ -39,6 +39,17 @@ type Config struct {
 	// budget column / progress bar. Empty map ⇒ no agent has a
 	// cap, every request passes the budget check.
 	AgentBudgets map[string]AgentBudget `json:"agent_budgets"`
+
+	// ModelPricing is the per-model token pricing the phase-6
+	// accumulator uses to turn usage into dollars when the provider
+	// response doesn't carry its own cost (Usage.Cost is populated
+	// by only a handful of providers — Anthropic and OpenAI chat
+	// responses don't have it in bifrost core v1.5.x). Keys are
+	// resolved model names as Bifrost reports them, with or without
+	// the "provider/" prefix. A model with no entry accumulates $0
+	// and logs loudly — undercounting is visible in the daily
+	// logs.db reconciliation rather than silently guessed at.
+	ModelPricing map[string]ModelPrice `json:"model_pricing"`
 }
 
 // AgentBudget is one row in `agent_budgets`. Window uses the Bifrost
@@ -51,6 +62,14 @@ type AgentBudget struct {
 	Window string  `json:"window"`
 }
 
+// ModelPrice is one row of `model_pricing`: dollars per million
+// tokens, the unit every provider publishes prices in. The phase-6
+// accumulator computes prompt*input/1e6 + completion*output/1e6.
+type ModelPrice struct {
+	InputPerMTok  float64 `json:"input_per_mtok"`
+	OutputPerMTok float64 `json:"output_per_mtok"`
+}
+
 // pluginConfigEnvelope mirrors the shape pluginlog.Init receives. We
 // don't import its internal type; this is a private decoder for the
 // subset of fields auth cares about. Bifrost passes the raw `config`
@@ -59,6 +78,7 @@ type AgentBudget struct {
 type pluginConfigEnvelope struct {
 	EnforceMacaroons bool                   `json:"enforce_macaroons"`
 	AgentBudgets     map[string]AgentBudget `json:"agent_budgets"`
+	ModelPricing     map[string]ModelPrice  `json:"model_pricing"`
 }
 
 var (
@@ -121,5 +141,6 @@ func parseConfig(raw any) (Config, error) {
 	return Config{
 		EnforceMacaroons: env.EnforceMacaroons,
 		AgentBudgets:     env.AgentBudgets,
+		ModelPricing:     env.ModelPricing,
 	}, nil
 }

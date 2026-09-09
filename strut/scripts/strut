@@ -1,0 +1,27 @@
+#!/bin/sh
+# Runs the staged strut with desktop defaults (see desktop.js). Needs Node 20
+# or newer on PATH — the tarball does not include Node.
+set -e
+dir=$(cd "$(dirname "$0")" && pwd)
+if ! command -v node >/dev/null 2>&1; then
+  echo "strut: node not found on PATH (Node 20 or newer required): https://nodejs.org" >&2
+  exit 127
+fi
+major=$(node -p 'process.versions.node.split(".")[0]')
+if [ "$major" -lt 20 ]; then
+  echo "strut: Node $(node -v) is too old; 20 or newer required" >&2
+  exit 1
+fi
+# A browser download is quarantined, and Archive Utility marks every extracted
+# file. Loading the (ad-hoc signed, unnotarized) speech addon then blocks the
+# whole process on a Gatekeeper prompt instead of failing — refuse up front.
+if [ "$(uname)" = "Darwin" ]; then
+  q=$(find "$dir/node_modules" -path '*/sherpa-onnx-darwin-*/*' -type f -xattrname com.apple.quarantine 2>/dev/null | head -1)
+  if [ -n "$q" ]; then
+    echo "strut: this download is quarantined by macOS; loading the speech addon would hang on a Gatekeeper prompt." >&2
+    echo "strut: clear it once, then rerun:" >&2
+    echo "  xattr -dr com.apple.quarantine \"$dir\"" >&2
+    exit 1
+  fi
+fi
+exec node "$dir/desktop.js" "$@"

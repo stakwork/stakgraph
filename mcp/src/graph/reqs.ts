@@ -11,7 +11,7 @@ import {
 import path from "path";
 
 const REQS_DIR = process.env.REQS_DIR || ".reqs";
-const MAX_REQS = 100;
+const MAX_REQS = parseInt(process.env.MAX_REQS ?? "", 10) || 100;
 
 type Status = "pending" | "completed" | "failed";
 
@@ -29,20 +29,33 @@ interface Request {
   result?: any;
   error?: any;
   progress?: any;
+  // Whether re-submitting the same request is expected to help. True only for
+  // infrastructure failures (a restart orphaning an in-flight run), never for
+  // agent errors or user aborts. Callers key their retry policy off this
+  // instead of string-matching the error text.
+  retryable?: boolean;
   // Caller's terminal callback, persisted so the startup sweep can still
   // notify the receiver about runs orphaned by a process restart.
   webhookUrl?: string;
 }
 
 function ensureDir(): string {
-  const dir = path.join(process.cwd(), REQS_DIR);
+  const dir = path.isAbsolute(REQS_DIR)
+    ? REQS_DIR
+    : path.join(process.cwd(), REQS_DIR);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   return dir;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function reqFile(id: string): string {
+  if (!UUID_RE.test(id)) {
+    throw new Error(`Invalid request id: ${id}`);
+  }
   return path.join(ensureDir(), `${id}.json`);
 }
 
@@ -72,16 +85,49 @@ function deleteFromDisk(id: string): void {
   } catch (_) {}
 }
 
+/**
+ * Evict the oldest terminal (completed/failed) entry from the registry.
+ *
+ * Scans REQ_ORDER in insertion order for the first entry whose status is not
+ * "pending", splices it out (O(n) — acceptable at realistic cap sizes), removes
+ * its META entry, and deletes its on-disk file.
+ *
+ * If every registered entry is still pending, no eviction occurs — the registry
+ * is allowed to grow past MAX_REQS rather than drop a live run. An escalating
+ * console.error alarm is emitted so operators know to raise MAX_REQS.
+ */
+function evictOldestCompleted(): void {
+  const idx = REQ_ORDER.findIndex(
+    (id) => META[id] && META[id].status !== "pending"
+  );
+
+  if (idx === -1) {
+    // All entries are still live — alarm and do not evict
+    console.error(
+      `[reqs] ALARM: registry is at/over cap (${REQ_ORDER.length} entries) ` +
+        `but every entry is still pending. No eviction performed. ` +
+        `Raise MAX_REQS (currently ${MAX_REQS}) for this deployment's concurrency.`
+    );
+    return;
+  }
+
+  const evictedId = REQ_ORDER[idx];
+  const evictedStatus = META[evictedId]?.status;
+  REQ_ORDER.splice(idx, 1);
+  delete META[evictedId];
+  deleteFromDisk(evictedId);
+  console.log(
+    `[reqs] Evicted oldest terminal entry ${evictedId} (status: ${evictedStatus}) ` +
+      `to stay within cap of ${MAX_REQS}.`
+  );
+}
+
 export function startReq(webhookUrl?: string): string {
   const key = uuid.v4();
 
-  // Evict oldest if at limit
+  // Evict oldest terminal entry if at limit (never evicts a pending run)
   if (REQ_ORDER.length >= MAX_REQS) {
-    const oldestKey = REQ_ORDER.shift();
-    if (oldestKey) {
-      delete META[oldestKey];
-      deleteFromDisk(oldestKey);
-    }
+    evictOldestCompleted();
   }
 
   META[key] = { status: "pending" };
@@ -95,10 +141,14 @@ export function startReq(webhookUrl?: string): string {
 export interface OrphanedReq {
   request_id: string;
   error: string;
+  /** Always true — a restart-orphaned run lost no durable state, so a
+   * re-submit of the same request picks up from the last completed turn. */
+  retryable: true;
   webhookUrl?: string;
 }
 
 const RESTART_ORPHAN_ERROR = "server restarted while request was in-flight";
+export const SHUTDOWN_ORPHAN_ERROR = "server shut down while request was in-flight";
 
 /**
  * Startup reconciliation for the on-disk request store. The in-memory META /
@@ -140,21 +190,18 @@ export function sweepOrphanedReqs(): OrphanedReq[] {
     if (!data) continue;
 
     if (data.status === "pending") {
-      failReq(id, RESTART_ORPHAN_ERROR);
+      failReq(id, RESTART_ORPHAN_ERROR, true);
       orphaned.push({
         request_id: id,
         error: RESTART_ORPHAN_ERROR,
+        retryable: true,
         ...(data.webhookUrl && { webhookUrl: data.webhookUrl }),
       });
     }
 
     if (!META[id]) {
       if (REQ_ORDER.length >= MAX_REQS) {
-        const oldestKey = REQ_ORDER.shift();
-        if (oldestKey) {
-          delete META[oldestKey];
-          deleteFromDisk(oldestKey);
-        }
+        evictOldestCompleted();
       }
       META[id] = { status: data.status === "pending" ? "failed" : data.status };
       REQ_ORDER.push(id);
@@ -169,6 +216,38 @@ export function sweepOrphanedReqs(): OrphanedReq[] {
   return orphaned;
 }
 
+/**
+ * Shutdown reconciliation: flip every still-pending in-flight request to
+ * `failed` / `retryable:true` and return the descriptors so the caller can
+ * deliver their terminal webhooks before the process exits.
+ *
+ * Reads `webhookUrl` from disk (exactly as `sweepOrphanedReqs` does) because
+ * `ReqMeta` carries only `{ status }` in memory. Calling `failReq` writes
+ * `status:"failed"` to disk, so the next boot's `sweepOrphanedReqs` (which
+ * only re-fires on `status === "pending"`) skips these records — preserving
+ * cross-boot idempotency (no double webhook across a restart).
+ */
+export function failPendingReqs(errorMsg: string): OrphanedReq[] {
+  const orphaned: OrphanedReq[] = [];
+  for (const [id, meta] of Object.entries(META)) {
+    if (meta.status !== "pending") continue;
+    const data = readFromDisk(id);
+    failReq(id, errorMsg, true);
+    orphaned.push({
+      request_id: id,
+      error: errorMsg,
+      retryable: true,
+      ...(data?.webhookUrl && { webhookUrl: data.webhookUrl }),
+    });
+  }
+  if (orphaned.length > 0) {
+    console.log(
+      `[reqs] Shutdown sweep marked ${orphaned.length} pending request(s) as failed`,
+    );
+  }
+  return orphaned;
+}
+
 // Terminal writes always hit disk, even when the in-memory META entry was
 // evicted (long run outliving MAX_REQS churn) or wiped (process restart):
 // the .reqs file is the source of truth a late poller reads.
@@ -178,14 +257,16 @@ export function finishReq(id: string, result: any) {
   writeToDisk(id, { status: "completed", result });
 }
 
-export function failReq(id: string, error: any) {
+export function failReq(id: string, error: any, retryable = false) {
   if (META[id]) META[id].status = "failed";
   // Serialize error safely — Error objects don't JSON.stringify well
   const serializedError =
     error instanceof Error
       ? { message: error.message, stack: error.stack }
       : error;
-  writeToDisk(id, { status: "failed", error: serializedError });
+  // Always written (not just when true) so a caller reading /progress never
+  // has to distinguish "not retryable" from "this build predates the field".
+  writeToDisk(id, { status: "failed", error: serializedError, retryable });
 }
 
 export function updateReq(id: string, progress: any) {

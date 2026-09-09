@@ -2,14 +2,20 @@ import { Request, Response } from "express";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { db } from "../graph/neo4j.js";
+import { toNum } from "../graph/types.js";
 import {
   loadStepMeta,
   loadSearchProvenance,
   loadAnnotations,
+  loadReflection,
   appendAnnotation,
+  loadSession,
+  sessionExists,
   type Annotation,
   type AnnotationMarker,
 } from "../repo/session.js";
+import { turnsFromTranscript } from "../repo/turns.js";
+import { backfillAgentLabel } from "../repo/turnBackfill.js";
 import {
   getProviderForModel,
   computeSessionCost,
@@ -19,29 +25,50 @@ import { addUsage, emptyUsage, normalizeUsage } from "../aieo/src/usage.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
+/**
+ * Usage/timing recovered from the `.meta.jsonl` sidecar, for sessions with no
+ * readable Neo4j node. The sidecar holds provider-reported per-step usage, so
+ * this is real data — not an estimate. Shared by the list and detail endpoints
+ * so the two can't drift (they did: the detail endpoint used to hardcode zeros
+ * here, silently zeroing every session whose node lookup missed).
+ */
+function deriveFromStepMeta(id: string, mtime: Date) {
+  const steps = loadStepMeta(id);
+  if (steps.length === 0) {
+    return {
+      usage: emptyUsage(),
+      duration_ms: 0,
+      timestamp: mtime.toISOString(),
+    };
+  }
+  return {
+    usage: addUsage(...steps.map((step) => normalizeUsage(step.usage))),
+    duration_ms:
+      new Date(steps[steps.length - 1].timestamp).getTime() -
+      new Date(steps[0].timestamp).getTime(),
+    timestamp: steps[0].timestamp,
+  };
+}
+
 function buildOrphanRun(dir: string, file: string) {
   const id = file.replace(/\.jsonl$/, "");
   const fullPath = path.join(dir, file);
   const stat = statSync(fullPath);
   const { userPromptPreview, answerPreview, toolSequence, toolCallCount, messageCount } =
     parseSessionMessages(fullPath);
-  const steps = loadStepMeta(id);
-  let usage = emptyUsage();
-  let duration_ms = 0;
-  if (steps.length > 0) {
-    usage = addUsage(...steps.map((step) => normalizeUsage(step.usage)));
-    const first = steps[0];
-    const last = steps[steps.length - 1];
-    duration_ms =
-      new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime();
-  }
+  const { usage, duration_ms, timestamp } = deriveFromStepMeta(id, stat.mtime);
   return {
     id,
+    // Sub-agent sessions are named `<parent>-sub-<hex>`; recover the link
+    // even when the Neo4j node is missing.
+    parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
+    agent_name: "",
+    spawn_tool_call_id: "",
     provider: "",
     model: "",
     repo: "",
-    timestamp: steps.length > 0 ? steps[0].timestamp : stat.mtime.toISOString(),
+    timestamp,
     duration_ms,
     token_usage: {
       input: usage.input,
@@ -53,6 +80,8 @@ function buildOrphanRun(dir: string, file: string) {
     cost_usd: 0,
     status: "success",
     error_message: "",
+    turn_count: 0,
+    last_turn_at: null as number | null,
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
     message_count: messageCount,
@@ -140,13 +169,6 @@ function parseSessionMessages(filePath: string): {
   };
 }
 
-function toNum(v: any): number {
-  if (v == null) return 0;
-  if (typeof v === "object" && typeof v.toNumber === "function")
-    return v.toNumber();
-  return Number(v) || 0;
-}
-
 function calcCost(
   model: string,
   providerHint: string,
@@ -171,148 +193,284 @@ function calcCost(
   }
 }
 
-export async function list_sessions(_req: Request, res: Response) {
-  const dir = sessionsDir();
+// Summary row for an AgentSession Neo4j node — the shape used by the
+// /sessions list and by the `children` field on the detail endpoint.
+function buildRunFromNode(s: any, dir: string) {
+  const id = String(s.node_key ?? s.name ?? "");
+  const filePath = path.join(dir, `${id}.jsonl`);
+  const {
+    userPromptPreview,
+    answerPreview,
+    toolSequence,
+    toolCallCount,
+    messageCount,
+  } = existsSync(filePath)
+    ? parseSessionMessages(filePath)
+    : {
+        userPromptPreview: "",
+        answerPreview: "",
+        toolSequence: [],
+        // No local transcript file for this node (e.g. sessions written by
+        // hive's agent-logs webhook) — fall back to the counts it sent
+        // directly on the AgentSession node.
+        toolCallCount: toNum(s.tool_call_count),
+        messageCount: toNum(s.message_count),
+      };
+  const startTimeMs = toNum(s.start_time);
+  const input = toNum(s.input_tokens);
+  const cache_read = toNum(s.cache_read_tokens);
+  const cache_write = toNum(s.cache_write_tokens);
+  const output = toNum(s.output_tokens);
+  const total = toNum(s.total_tokens);
+  const prov = String(s.provider ?? "");
+  const mod = String(s.model ?? "");
+  return {
+    id,
+    parent_session_id: String(s.parent_session_id ?? ""),
+    source: String(s.source ?? "unknown"),
+    agent_name: String(s.agent_name ?? ""),
+    // Sub-agents only: the parent tool call that spawned this run. Joins to
+    // the Turn in the parent's chain carrying the same tool_call_id.
+    spawn_tool_call_id: String(s.spawn_tool_call_id ?? ""),
+    repo: String(s.repo ?? ""),
+    provider: prov,
+    model: mod,
+    timestamp: startTimeMs
+      ? new Date(startTimeMs).toISOString()
+      : new Date().toISOString(),
+    duration_ms: toNum(s.duration_ms),
+    token_usage: { input, cache_read, cache_write, output, total },
+    // Heuristic (text-length) estimate from hive's agent-logs webhook —
+    // kept out of token_usage/cost_usd since it isn't provider-reported.
+    estimated_tokens: toNum(s.estimated_tokens),
+    cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+    status: String(s.status ?? "success"),
+    error_message: String(s.error_message ?? ""),
+    // Version counter for polling UIs: unchanged turn_count means nothing new.
+    turn_count: toNum(s.turn_count),
+    last_turn_at: toNum(s.last_turn_at) || null,
+    tool_sequence: toolSequence,
+    tool_call_count: toolCallCount,
+    message_count: messageCount,
+    user_prompt_preview: userPromptPreview,
+    answer_preview: answerPreview,
+  };
+}
 
-  // Try Neo4j first
+/** True for primary conversation JSONL files (skips every sidecar variant). */
+function isSessionFile(file: string): boolean {
+  return (
+    file.endsWith(".jsonl") &&
+    !file.endsWith(".meta.jsonl") &&
+    !file.endsWith(".provenance.jsonl") &&
+    !file.endsWith(".annotations.jsonl")
+  );
+}
+
+/**
+ * Summary rows for every descendant of a session, any depth, sorted oldest
+ * first. Merges Neo4j nodes (name-prefix + parent_session_id match) with
+ * orphan `<id>-sub-*` transcript files that have no node.
+ */
+async function collectDescendantRuns(dir: string, id: string) {
+  const byId = new Map<string, ReturnType<typeof buildRunFromNode>>();
   if (db) {
     try {
-      const sessions = await db.list_agent_sessions();
-      const runs = sessions.map((s) => {
-        const id = String(s.node_key ?? s.name ?? "");
-        const filePath = path.join(dir, `${id}.jsonl`);
-        const {
-          userPromptPreview,
-          answerPreview,
-          toolSequence,
-          toolCallCount,
-          messageCount,
-        } = existsSync(filePath)
-          ? parseSessionMessages(filePath)
-          : {
-              userPromptPreview: "",
-              answerPreview: "",
-              toolSequence: [],
-              // No local transcript file for this node (e.g. sessions written by
-              // hive's agent-logs webhook) — fall back to the counts it sent
-              // directly on the AgentSession node.
-              toolCallCount: toNum(s.tool_call_count),
-              messageCount: toNum(s.message_count),
-            };
-        const startTimeMs = toNum(s.start_time);
-        const input = toNum(s.input_tokens);
-        const cache_read = toNum(s.cache_read_tokens);
-        const cache_write = toNum(s.cache_write_tokens);
-        const output = toNum(s.output_tokens);
-        const total = toNum(s.total_tokens);
-        const prov = String(s.provider ?? "");
-        const mod = String(s.model ?? "");
-        return {
-          id,
-          source: String(s.source ?? "unknown"),
-          repo: String(s.repo ?? ""),
-          provider: prov,
-          model: mod,
-          timestamp: startTimeMs
-            ? new Date(startTimeMs).toISOString()
-            : new Date().toISOString(),
-          duration_ms: toNum(s.duration_ms),
-          token_usage: { input, cache_read, cache_write, output, total },
-          // Heuristic (text-length) estimate from hive's agent-logs webhook —
-          // kept out of token_usage/cost_usd since it isn't provider-reported.
-          estimated_tokens: toNum(s.estimated_tokens),
-          cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
-          status: String(s.status ?? "success"),
-          error_message: String(s.error_message ?? ""),
-          tool_sequence: toolSequence,
-          tool_call_count: toolCallCount,
-          message_count: messageCount,
-          user_prompt_preview: userPromptPreview,
-          answer_preview: answerPreview,
-        };
-      });
-      const neo4jIds = new Set(runs.map((r) => r.id));
-      const isGhost = (r: (typeof runs)[number]) =>
-        r.source === "unknown" &&
-        r.token_usage.total === 0 &&
-        r.duration_ms === 0;
-      const liveRuns = runs.filter((r) => !isGhost(r));
-      if (existsSync(dir)) {
-        for (const file of readdirSync(dir)) {
-          if (
-            !file.endsWith(".jsonl") ||
-            file.endsWith(".meta.jsonl") ||
-            file.endsWith(".provenance.jsonl") ||
-            file.endsWith(".annotations.jsonl")
-          )
-            continue;
-          const id = file.replace(/\.jsonl$/, "");
-          if (neo4jIds.has(id)) continue;
-          liveRuns.push(buildOrphanRun(dir, file));
-        }
+      for (const s of await db.list_descendant_agent_sessions(id)) {
+        const run = buildRunFromNode(s, dir);
+        if (run.id) byId.set(run.id, run);
       }
-      liveRuns.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-      res.json(liveRuns);
+    } catch (e) {
+      console.error("[sessions] Neo4j descendant query failed:", e);
+    }
+  }
+  if (existsSync(dir)) {
+    for (const file of readdirSync(dir)) {
+      if (!isSessionFile(file)) continue;
+      const fid = file.replace(/\.jsonl$/, "");
+      if (!fid.startsWith(`${id}-sub-`) || byId.has(fid)) continue;
+      byId.set(fid, buildOrphanRun(dir, file));
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp),
+  );
+}
+
+/** Stamp each run with the number of direct children present in `runs`. */
+function withChildCounts<T extends { id: string; parent_session_id: string }>(
+  runs: T[],
+): (T & { child_count: number })[] {
+  const counts = new Map<string, number>();
+  for (const r of runs) {
+    if (r.parent_session_id) {
+      counts.set(r.parent_session_id, (counts.get(r.parent_session_id) ?? 0) + 1);
+    }
+  }
+  return runs.map((r) => ({ ...r, child_count: counts.get(r.id) ?? 0 }));
+}
+
+const MAX_LIMIT = 500;
+const MAX_OFFSET = 100_000;
+
+/**
+ * Parse a YYYY-MM-DD string to the start of that UTC day in epoch ms.
+ * Returns null if the string is not a valid date.
+ */
+function dayToUtcMs(day: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const ts = Date.parse(`${day}T00:00:00.000Z`);
+  return isNaN(ts) ? null : ts;
+}
+
+/**
+ * Parse a range string (24h/7d/30d/3m/1y) to epoch ms start from now.
+ */
+function rangeToSinceMs(range: string): number | null {
+  const now = Date.now();
+  switch (range) {
+    case "24h": return now - 24 * 60 * 60 * 1000;
+    case "7d":  return now - 7 * 24 * 60 * 60 * 1000;
+    case "30d": return now - 30 * 24 * 60 * 60 * 1000;
+    case "3m":  return now - 90 * 24 * 60 * 60 * 1000;
+    case "1y":  return now - 365 * 24 * 60 * 60 * 1000;
+    default:    return null;
+  }
+}
+
+export async function list_sessions(req: Request, res: Response) {
+  const dir = sessionsDir();
+
+  // Parse and clamp pagination params (DoS guard)
+  const rawLimit = parseInt(String(req.query.limit ?? "100"), 10);
+  const rawOffset = parseInt(String(req.query.offset ?? "0"), 10);
+  const limit = Math.min(isNaN(rawLimit) || rawLimit < 1 ? 100 : rawLimit, MAX_LIMIT);
+  const offset = Math.max(0, Math.min(isNaN(rawOffset) ? 0 : rawOffset, MAX_OFFSET));
+
+  // Parse filter params
+  const sourceParam = req.query.source ? String(req.query.source) : null;
+  const repoParam = req.query.repo ? String(req.query.repo) : null;
+  // Substring match on the caller-assigned agent_name. Orchestrators embed
+  // the run id in agent names ("repair-agent-147813394"), so this is how a
+  // UI fetches every session of one benchmark run.
+  const agentNameParam = req.query.agent_name_contains
+    ? String(req.query.agent_name_contains)
+    : null;
+  const rangeParam = req.query.range ? String(req.query.range) : null;
+  const dayParam = req.query.day ? String(req.query.day) : null;
+
+  // Derive since/until from range or day, in UTC epoch milliseconds
+  let since: number | null = null;
+  let until: number | null = null;
+  if (dayParam) {
+    since = dayToUtcMs(dayParam);
+    if (since !== null) until = since + 24 * 60 * 60 * 1000;
+  } else if (rangeParam) {
+    since = rangeToSinceMs(rangeParam);
+  }
+
+  // Try Neo4j first — paging is driven entirely by the query; no per-page
+  // orphan disk-merge on the Neo4j-up path (correct paging can't span DB +
+  // arbitrary disk files).
+  if (db) {
+    try {
+      const sessions = await db.list_agent_sessions({
+        limit,
+        offset,
+        source: sourceParam,
+        repo: repoParam,
+        agent_name_contains: agentNameParam,
+        since,
+        until,
+      });
+      // child_count is already computed page-independently in the Cypher query
+      const runs = sessions.map((s) => {
+        const run = buildRunFromNode(s, dir);
+        return { ...run, child_count: s.child_count ?? 0 };
+      });
+      res.json(runs);
       return;
     } catch (e) {
       console.error("[sessions] Neo4j query failed, falling back to JSONL:", e);
     }
   }
 
-  // Fallback: JSONL-only (no Neo4j)
+  // Fallback: JSONL-only (no Neo4j) — filter+sort+slice for stable paging
   if (!existsSync(dir)) {
     res.json([]);
     return;
   }
 
-  const files = readdirSync(dir).filter(
-    (f) =>
-      f.endsWith(".jsonl") &&
-      !f.endsWith(".meta.jsonl") &&
-      !f.endsWith(".provenance.jsonl") &&
-      !f.endsWith(".annotations.jsonl"),
-  );
+  const files = readdirSync(dir).filter(isSessionFile);
+  let runs = files.map((file) => buildOrphanRun(dir, file));
 
-  const runs = files.map((file) => buildOrphanRun(dir, file));
+  // Apply filters in the fallback path
+  if (sourceParam) runs = runs.filter((r) => r.source === sourceParam);
+  if (repoParam) runs = runs.filter((r) => r.repo.toLowerCase().includes(repoParam.toLowerCase()));
+  if (since !== null) runs = runs.filter((r) => new Date(r.timestamp).getTime() >= since!);
+  if (until !== null) runs = runs.filter((r) => new Date(r.timestamp).getTime() < until!);
 
   runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  res.json(runs);
+  const page = runs.slice(offset, offset + limit);
+  res.json(withChildCounts(page));
 }
 
-export async function get_session(req: Request, res: Response) {
-  const id = String(req.params.id);
-  if (!id || id.includes("..") || id.includes("/")) {
-    res.status(400).json({ error: "Invalid session id" });
+export async function list_session_facets(_req: Request, res: Response) {
+  if (!db) {
+    res.json({ repos: [], sources: [] });
     return;
   }
+  try {
+    const facets = await db.list_session_facets();
+    res.json(facets);
+  } catch (e) {
+    console.error("[sessions] facets query failed:", e);
+    res.status(500).json({ error: "Failed to fetch facets" });
+  }
+}
 
-  const dir = sessionsDir();
+/**
+ * Full session object (metadata + trace + sidecars) for the detail endpoint
+ * and for `?recursive=true` descendants. Returns null when the session exists
+ * nowhere (no transcript file AND no Neo4j node). A node without a local
+ * transcript (e.g. hive's agent-logs webhook) resolves with an empty trace
+ * instead of failing.
+ */
+async function buildFullSession(
+  dir: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
   const filePath = path.join(dir, `${id}.jsonl`);
-  if (!existsSync(filePath)) {
-    res.status(404).json({ error: "Session not found" });
-    return;
+  const hasFile = existsSync(filePath);
+
+  let trace: unknown[] = [];
+  let userPromptPreview = "";
+  let answerPreview = "";
+  let toolSequence: string[] = [];
+  let toolCallCount = 0;
+  if (hasFile) {
+    const content = readFileSync(filePath, "utf-8");
+    trace = content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    ({ userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+      parseSessionMessages(filePath));
   }
-
-  // Read trace from JSONL
-  const content = readFileSync(filePath, "utf-8");
-  const trace = content
-    .split("\n")
-    .filter((l) => l.trim())
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
-    parseSessionMessages(filePath);
 
   const step_meta = loadStepMeta(id);
   const search_provenance = loadSearchProvenance(id);
   const annotations = loadAnnotations(id);
+  // Which gitree Concepts this session read, in read order, plus the agent's
+  // ranking when the run asked for one. Null for sessions that read none.
+  const reflection = loadReflection(id);
 
   if (db) {
     try {
@@ -326,10 +484,13 @@ export async function get_session(req: Request, res: Response) {
         const total = toNum(s.total_tokens);
         const prov = String(s.provider ?? "");
         const mod = String(s.model ?? "");
-        res.json({
+        return {
           id,
+          parent_session_id: String(s.parent_session_id ?? ""),
           source: String(s.source ?? "unknown"),
-            repo: String(s.repo ?? ""),
+          agent_name: String(s.agent_name ?? ""),
+          spawn_tool_call_id: String(s.spawn_tool_call_id ?? ""),
+          repo: String(s.repo ?? ""),
           provider: prov,
           model: mod,
           timestamp: startTimeMs
@@ -340,6 +501,8 @@ export async function get_session(req: Request, res: Response) {
           cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
           status: String(s.status ?? "success"),
           error_message: String(s.error_message ?? ""),
+          turn_count: toNum(s.turn_count),
+          last_turn_at: toNum(s.last_turn_at) || null,
           tool_sequence: toolSequence,
           tool_call_count: toolCallCount,
           user_prompt_preview: userPromptPreview,
@@ -347,30 +510,37 @@ export async function get_session(req: Request, res: Response) {
           step_meta,
           search_provenance,
           annotations,
+          reflection,
           trace,
-        });
-        return;
+        };
       }
     } catch (e) {
       console.error("[sessions] Neo4j get_session failed, falling back:", e);
     }
   }
 
+  if (!hasFile) return null;
+
   const stat = statSync(filePath);
-  res.json({
+  // No Neo4j node — recover usage/timing from the step-meta sidecar rather
+  // than reporting zeros. cost_usd stays 0: pricing needs the model/provider,
+  // which only the node carries.
+  const { usage, duration_ms, timestamp } = deriveFromStepMeta(id, stat.mtime);
+  return {
     id,
+    parent_session_id: id.match(/^(.+)-sub-[0-9a-f]{8}$/)?.[1] ?? "",
     source: "unknown",
-      repo: "",
+    repo: "",
     provider: "",
     model: "",
-    timestamp: stat.mtime.toISOString(),
-    duration_ms: 0,
+    timestamp,
+    duration_ms,
     token_usage: {
-      input: 0,
-      cache_read: 0,
-      cache_write: 0,
-      output: 0,
-      total: 0,
+      input: usage.input,
+      cache_read: usage.cache_read,
+      cache_write: usage.cache_write,
+      output: usage.output,
+      total: usage.total,
     },
     cost_usd: 0,
     status: "success",
@@ -382,8 +552,109 @@ export async function get_session(req: Request, res: Response) {
     step_meta,
     search_provenance,
     annotations,
+    reflection,
     trace,
+  };
+}
+
+/**
+ * Polling endpoint for the live-session UI: a session's Turn chain after a
+ * cursor, plus enough session state to know when to stop polling.
+ *
+ *   GET /api/sessions/:id/turns?after=<order>&limit=<n>
+ *
+ * Protocol: first call with after=-1 (default) loads history; subsequent
+ * calls pass the highest `order` seen and receive only what's new; a
+ * `status` other than 'running' means the session is done and polling can
+ * stop. Clients dedupe by `order`, so overlap is always harmless.
+ *
+ * Graph-first with a transcript fallback: when Neo4j is unavailable (or the
+ * chain hasn't landed yet) the same classifier that feeds live emission and
+ * the backfill re-derives turns from the stored JSONL — identical orders and
+ * types, though concept links then carry no resolved names and `status` is
+ * 'unknown'.
+ */
+export async function get_session_turns(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!id || id.includes("..") || id.includes("/")) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+  const afterRaw = Number(req.query.after);
+  const after = Number.isFinite(afterRaw) ? Math.trunc(afterRaw) : -1;
+  const limitRaw = Number(req.query.limit);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 2000)
+    : 1000;
+
+  if (db) {
+    try {
+      const [node, turns] = await Promise.all([
+        db.get_agent_session(id),
+        db.get_session_turns(id, after, limit),
+      ]);
+      if (node || turns.length > 0) {
+        res.json({
+          session_id: id,
+          status: String(node?.status ?? "unknown"),
+          turn_count: toNum(node?.turn_count),
+          last_turn_at: toNum(node?.last_turn_at) || null,
+          turns,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("[sessions] Neo4j get_session_turns failed, falling back:", e);
+    }
+  }
+
+  if (!sessionExists(id)) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  const all = turnsFromTranscript(id, backfillAgentLabel(id), loadSession(id));
+  const turns = all
+    .filter((t) => t.order > after)
+    .slice(0, limit)
+    .map(({ node_key: _nk, prev_node_key: _pk, ...t }) => t);
+  res.json({
+    session_id: id,
+    status: "unknown",
+    turn_count: all.length,
+    last_turn_at: null,
+    turns,
   });
+}
+
+export async function get_session(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!id || id.includes("..") || id.includes("/")) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+
+  const dir = sessionsDir();
+  const session = await buildFullSession(dir, id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  // Sub-agent runs spawned by this session (see graph_sub_agent). `children`
+  // is always present as summary rows; `?recursive=true` additionally inlines
+  // every descendant (any depth) as a full session object, flat — each carries
+  // its own parent_session_id so callers can rebuild the tree.
+  const descendants = await collectDescendantRuns(dir, id);
+  session.children = descendants.filter((r) => r.parent_session_id === id);
+
+  const recursive = ["true", "1"].includes(String(req.query.recursive ?? ""));
+  if (recursive && descendants.length > 0) {
+    session.descendants = (
+      await Promise.all(descendants.map((d) => buildFullSession(dir, d.id)))
+    ).filter(Boolean);
+  }
+
+  res.json(session);
 }
 
 export async function add_annotation(req: Request, res: Response) {

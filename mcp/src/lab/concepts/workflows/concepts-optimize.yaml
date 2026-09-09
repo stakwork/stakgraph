@@ -115,7 +115,7 @@ params:
 
         CLI for parsing files and directories into LLM-ready textual summaries of the core capabilities in a piece of code.
 
-        ## Vein Workflow Engine
+        ## Strut Workflow Engine
 
         Dynamic workflow engine that can be edited and executed directly by an AI Agent Assistant.
 

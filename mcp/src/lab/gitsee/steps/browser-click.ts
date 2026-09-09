@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import type { GitseeServices } from "../services/index.js";
 
 /** Click an element by its `@eN` ref from the latest snapshot. Per-run browser

@@ -15,10 +15,21 @@ import path from "path";
 import { db } from "../graph/neo4j.js";
 import { getProviderForModel } from "../aieo/src/provider.js";
 import { AiUsage, AiUsageWithLegacy } from "../aieo/src/usage.js";
+import { finalizeTurns, deleteTurnState } from "./turns.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
-const sessionMeta = new Map<string, { source: string; start_time: string; repo?: string }>();
+const sessionMeta = new Map<
+  string,
+  {
+    source: string;
+    start_time: string;
+    repo?: string;
+    parent_session_id?: string;
+    agent_name?: string;
+    spawn_tool_call_id?: string;
+  }
+>();
 
 export interface Session {
   id: string;
@@ -34,6 +45,8 @@ export interface SessionConfig {
 export interface SessionInitConfig {
   model?: string;
   provider?: string;
+  /** Caller-assigned agent identity (e.g. "repair-agent-147813394"). */
+  agentName?: string;
   systemOverride?: string;
   mode?: "graph" | "workflow";
   toolsConfig?: { [key: string]: any };
@@ -51,19 +64,36 @@ export interface SessionInitConfig {
   subAgents?: { [key: string]: any }[];     // secrets (apiToken) redacted
   ggnn?: { [key: string]: any };
   skills?: { [key: string]: any };
+  /** Comma-separated ontology domains scoping get_ontology (e.g. "Legal,Entity,Content"). */
+  ontologyDomains?: string;
   commitList?: string[];
   ignoreRepoInfo?: boolean;
+  /**
+   * Whether the post-run concept reflection was requested, and any prompt
+   * override. Recorded so an absent reflection sidecar can be read correctly:
+   * with `reflect` on, no file means the run read no concepts.
+   */
+  reflect?: boolean | { prompt?: string };
 }
 
 export interface StepMeta {
   step: number;
   turn: number;
   label?: string;
+  finishReason?: string;
+  // Raw provider stop reason (e.g. Anthropic "end_turn" vs "stop_sequence") —
+  // the unified finishReason maps both to "stop", hiding the difference
+  // between a proper [END_OF_ANSWER] finish and a stall.
+  rawFinishReason?: string;
   usage: AiUsageWithLegacy;
   cumulativeInput: number;
   cumulativeOutput: number;
   toolCalls: string[];
   timestamp: string;
+  /** Session that produced this step; "none" for explore-path sub-calls. */
+  sessionId?: string;
+  /** Wall-clock ms from previous step boundary (or run start for step 0). */
+  elapsedMs?: number;
 }
 
 /**
@@ -89,13 +119,42 @@ export function createSession(
   system?: string,
   source?: string,
   repo?: string,
+  parentSessionId?: string,
+  agentName?: string,
+  /**
+   * For sub-agent sessions: the id of the parent's tool call that spawned
+   * this run. Pins the child to the exact Turn in the parent's chain (Turn
+   * nodes carry `tool_call_id`), which a prompt-text match can only
+   * approximate — two sub-agents can be handed identical prompts.
+   */
+  spawnToolCallId?: string,
 ): string {
-  const sessionId = id || randomUUID();
+  // Defense in depth against non-string ids from callers that skipped the
+  // route-level coercion — a numeric id poisons the Neo4j node_key type.
+  const sessionId = String(id ?? "") || randomUUID();
   sessionMeta.set(sessionId, {
     source: source || "unknown",
     start_time: new Date().toISOString(),
     repo,
+    parent_session_id: parentSessionId,
+    agent_name: agentName,
+    spawn_tool_call_id: spawnToolCallId,
   });
+  // Stub the AgentSession node now (status 'running') rather than waiting for
+  // appendSessionEnd: live turn chains need a HAS_TURN anchor, sub-agents get
+  // their SPAWNED edge while still running, and in-flight sessions become
+  // watchable. Fire-and-forget — the graph is an index, not the record.
+  db
+    ?.create_agent_session_stub({
+      session_id: sessionId,
+      parent_session_id: parentSessionId || "",
+      source: source || "unknown",
+      repo: repo || "",
+      agent_name: agentName || "",
+      spawn_tool_call_id: spawnToolCallId || "",
+      start_time: Date.now(),
+    })
+    .catch((e) => console.error("[sessions] Neo4j stub creation failed:", e));
   const filePath = getSessionFile(sessionId);
   if (system) {
     const systemMsg: ModelMessage = { role: "system", content: system };
@@ -110,7 +169,7 @@ export function createSession(
  * Append end-of-session metadata (timing, model, token usage).
  */
 export async function appendSessionEnd(
-  sessionId: string,
+  rawSessionId: string,
   opts: {
     end_time: string;
     model?: string;
@@ -121,6 +180,9 @@ export async function appendSessionEnd(
     error_message?: string;
   },
 ): Promise<void> {
+  // Must match the coercion in createSession(): the sessionMeta key and the
+  // Neo4j node_key are both string-typed, and Cypher equality is type-strict.
+  const sessionId = String(rawSessionId ?? "");
   console.log(`[session] end session_id=${sessionId} model=${opts.model ?? ""} status=${opts.status ?? "success"} tokens=${opts.token_usage?.total ?? 0} duration_ms=${opts.duration_ms ?? 0}`);
 
   const stored = sessionMeta.get(sessionId);
@@ -134,8 +196,11 @@ export async function appendSessionEnd(
   await db
     ?.upsert_agent_session({
       session_id: sessionId,
+      parent_session_id: stored.parent_session_id || "",
       source: stored.source,
       repo: stored.repo || "",
+      agent_name: stored.agent_name || "",
+      spawn_tool_call_id: stored.spawn_tool_call_id || "",
       model: opts.model || "",
       provider: resolvedProvider,
       start_time,
@@ -150,6 +215,14 @@ export async function appendSessionEnd(
       error_message: opts.error_message || "",
     })
     .catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
+  // Retype this run's final reasoning Turn to 'response' now that the run is
+  // over and "final" is knowable.
+  finalizeTurns(sessionId);
+  // Now that the AgentSession node exists, index any reflection that was
+  // merged before it did (sub-agent runs reflect before appendSessionEnd —
+  // see toolsJarvis — and earlier turns' syncs no-oped without the node).
+  const reflection = loadReflection(sessionId);
+  if (reflection) syncReflectionEdges(sessionId, reflection.concepts);
 }
 
 /**
@@ -229,6 +302,11 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(metadataPath)) {
     unlinkSync(metadataPath);
   }
+  const reflectionPath = getReflectionFile(sessionId);
+  if (existsSync(reflectionPath)) {
+    unlinkSync(reflectionPath);
+  }
+  deleteTurnState(sessionId);
   deleteAttachments(sessionId);
 }
 
@@ -384,6 +462,172 @@ export function loadSearchProvenance(
   } catch {
     return [];
   }
+}
+
+// ── Concept reflection ───────────────────────────────────────────────
+// Which gitree Concepts a session actually read, in the order it read them.
+// That much is recorded for every session with no model involved and no flag
+// to set. `reflect` adds a second layer on top: the agent's own ranking of
+// how load-bearing each one turned out to be.
+//
+// Cumulative over the whole session rather than per-run — the reflect call
+// sees the entire transcript, so its latest ranking supersedes the previous
+// one, while read order is assigned once and left alone.
+
+export interface ReflectedConcept {
+  id?: string;
+  ref_id?: string;
+  repo?: string;
+  name?: string;
+  /**
+   * 1-based order this concept was first read in the session. Always set, with
+   * no model involved — reading a concept is enough to earn an entry.
+   * Assigned once and never revised, so it stays stable as later turns append.
+   */
+  read_order?: number;
+  /**
+   * How load-bearing the concept was, 1 = most. Only ever set by the `reflect`
+   * pass; null means nothing has judged it, not that it was useless.
+   *
+   * Deliberately distinct from `read_order`: one field carrying "read first"
+   * on some sessions and "mattered most" on others can't be aggregated, since
+   * a consumer can't tell which meaning it has.
+   */
+  rank: number | null;
+  /** One line on which turn used it and what it changed. */
+  evidence?: string;
+  /**
+   * What this concept claims vs. what the agent found in the source, when the
+   * two disagreed. A review flag, not grounds for automatic invalidation —
+   * the agent may have misread, or the concept may be accurate about an older
+   * state of the repo.
+   */
+  contradicts?: string;
+}
+
+export interface SessionReflection {
+  session_id: string;
+  updated_at: string;
+  concepts: ReflectedConcept[];
+  /** Raw model output, kept only when it didn't parse into the shape above. */
+  raw?: string;
+}
+
+function getReflectionFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.reflection.json`);
+}
+
+export function loadReflection(sessionId: string): SessionReflection | null {
+  const filePath = getReflectionFile(sessionId);
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8")) as SessionReflection;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge this run's concepts into the session's reflection sidecar.
+ *
+ * Union by identity (`ref_id`, falling back to `id`). An incoming entry only
+ * overwrites `rank`/`evidence`/`contradicts` when it actually carries them, so
+ * a failed reflect call — or a turn that ran without `reflect` at all — adds
+ * its newly-read concepts without clobbering the ranking from a previous turn
+ * that succeeded. New concepts get the next `read_order`; existing ones keep
+ * the one they already have.
+ */
+export function mergeReflection(
+  sessionId: string,
+  incoming: {
+    concepts: ReflectedConcept[];
+    raw?: string;
+  },
+): SessionReflection {
+  const existing = loadReflection(sessionId);
+  const byKey = new Map<string, ReflectedConcept>();
+  // ref_id leads: it is the only identifier every Concept node carries (see
+  // conceptKey in concepts.ts). An id-first key double-counts a concept that
+  // was recorded ref_id-only on one turn and id+ref_id on another.
+  const keyOf = (c: ReflectedConcept) => c.ref_id ?? c.id ?? c.name ?? "";
+
+  for (const c of existing?.concepts ?? []) byKey.set(keyOf(c), c);
+  for (const c of incoming.concepts) {
+    const key = keyOf(c);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, c);
+      continue;
+    }
+    byKey.set(key, {
+      ...prev,
+      ...c,
+      // First read wins: a concept re-read on a later turn keeps its position.
+      read_order: prev.read_order ?? c.read_order,
+      rank: c.rank ?? prev.rank,
+      evidence: c.evidence ?? prev.evidence,
+      contradicts: c.contradicts ?? prev.contradicts,
+    });
+  }
+
+  // Stamp read order on anything that doesn't have it yet, continuing from the
+  // highest already assigned. Map iteration is existing-then-incoming, so a
+  // concept keeps the position it first got no matter how many turns follow.
+  let nextOrder = 1;
+  for (const c of byKey.values()) {
+    if (typeof c.read_order === "number") nextOrder = Math.max(nextOrder, c.read_order + 1);
+  }
+  for (const c of byKey.values()) {
+    if (typeof c.read_order !== "number") c.read_order = nextOrder++;
+  }
+
+  // Judged concepts first, most load-bearing at the top; everything else falls
+  // back to the order it was read in.
+  const concepts = [...byKey.values()].sort((a, b) => {
+    if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
+    if (a.rank === null && b.rank !== null) return 1;
+    if (a.rank !== null && b.rank === null) return -1;
+    return (a.read_order ?? 0) - (b.read_order ?? 0);
+  });
+
+  const reflection: SessionReflection = {
+    session_id: sessionId,
+    updated_at: new Date().toISOString(),
+    concepts,
+  };
+  if (incoming.raw) reflection.raw = incoming.raw;
+
+  writeFileSync(getReflectionFile(sessionId), JSON.stringify(reflection, null, 2));
+  syncReflectionEdges(sessionId, reflection.concepts);
+  return reflection;
+}
+
+/**
+ * Fire-and-forget mirror of a session's reflection into the graph as
+ * (AgentSession)-[:READ_CONCEPT]->(Concept) edges, so concept usage is
+ * queryable (and outlives the 30-day sidecar pruning, which the node does).
+ * The sidecar file remains the source of truth: edges are an index over it,
+ * and every failure mode — db down, AgentSession node not created yet,
+ * concept regenerated under a new ref_id, concept recorded name-only — is
+ * silently absorbed rather than propagated. Runs from mergeReflection (node
+ * already exists on the main agent path) and again from appendSessionEnd
+ * (catches reflections merged before the node existed).
+ */
+export function syncReflectionEdges(
+  sessionId: string,
+  concepts: ReflectedConcept[],
+): void {
+  const linkable = concepts.filter((c) => c.ref_id || c.id);
+  if (linkable.length === 0) return;
+  db
+    ?.upsert_session_concept_edges(sessionId, linkable)
+    .catch((e) => console.error("[concepts] READ_CONCEPT edge sync failed:", e));
 }
 
 export type AnnotationMarker =
@@ -544,6 +788,9 @@ export function pruneExpiredSessions(): number {
         if (existsSync(annPath)) unlinkSync(annPath);
         const configPath = filePath.replace(/\.jsonl$/, ".config.json");
         if (existsSync(configPath)) unlinkSync(configPath);
+        const reflectionPath = filePath.replace(/\.jsonl$/, ".reflection.json");
+        if (existsSync(reflectionPath)) unlinkSync(reflectionPath);
+        deleteTurnState(sessionId);
         deleteAttachments(sessionId);
         pruned++;
       }
@@ -555,6 +802,58 @@ export function pruneExpiredSessions(): number {
     console.log(`[sessions] pruned ${pruned} expired session(s)`);
   }
   return pruned;
+}
+
+/**
+ * Every primary conversation file on disk, with its id and last-write time.
+ *
+ * Shares the sidecar exclusion list with pruneExpiredSessions — `.jsonl` alone
+ * doesn't identify a conversation, since the meta/provenance/annotation/
+ * attachment sidecars use the same extension.
+ */
+export function listSessionFiles(): {
+  sessionId: string;
+  filePath: string;
+  mtimeMs: number;
+}[] {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) return [];
+
+  const out: { sessionId: string; filePath: string; mtimeMs: number }[] = [];
+  for (const file of readdirSync(sessionDir)) {
+    if (
+      !file.endsWith(".jsonl") ||
+      file.endsWith(".meta.jsonl") ||
+      file.endsWith(".provenance.jsonl") ||
+      file.endsWith(".annotations.jsonl") ||
+      file.endsWith(".attachments.jsonl")
+    )
+      continue;
+    const filePath = path.join(sessionDir, file);
+    try {
+      out.push({
+        sessionId: file.replace(/\.jsonl$/, ""),
+        filePath,
+        mtimeMs: statSync(filePath).mtimeMs,
+      });
+    } catch {
+      // ignore files that vanish or can't be stat'd mid-scan
+    }
+  }
+  return out;
+}
+
+/** Path to a marker file in the sessions dir, used by one-off backfills. */
+export function sessionsDirFile(name: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, name);
 }
 
 /**

@@ -58,6 +58,40 @@ export interface SearchProvenanceEntry {
   };
 }
 
+/**
+ * One gitree Concept the session read. `read_order` is always present (it is
+ * recorded with no model involved); everything from `rank` down only appears
+ * when the run was started with `reflect`.
+ */
+export interface ReflectedConcept {
+  id?: string;
+  ref_id?: string;
+  repo?: string;
+  name?: string;
+  read_order?: number;
+  rank: number | null;
+  evidence?: string;
+  contradicts?: string;
+}
+
+export interface SessionReflection {
+  session_id: string;
+  updated_at: string;
+  concepts: ReflectedConcept[];
+  gap?: string | null;
+  raw?: string;
+}
+
+/** Full concept as `GET /gitree/concepts/:id` serves it. */
+export interface ConceptDetail {
+  concept: {
+    id: string;
+    name?: string;
+    description?: string;
+    documentation?: string;
+  };
+}
+
 export interface ProductionRun {
   id: string;
   source: string;
@@ -77,5 +111,6 @@ export interface ProductionRun {
   step_meta?: StepMeta[];
   search_provenance?: SearchProvenanceEntry[];
   annotations?: Annotation[];
+  reflection?: SessionReflection | null;
   trace?: unknown;
 }

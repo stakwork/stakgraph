@@ -179,6 +179,7 @@ mod tests {
 // @ast node: Class "StringContainer"
 // @ast edge: Implements -> Trait "Container" "traits.rs"
 // @ast node: Class "SimpleProcessor"
+// @ast edge: Implements -> Trait "Processor" "traits.rs"
 // @ast node: Function "greet"
 // @ast node: Function "greet"
 // @ast node: Function "log"

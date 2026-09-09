@@ -19,6 +19,7 @@ import UIKit
 // @ast node: Function "sceneWillResignActive"
 // @ast node: Function "sceneWillEnterForeground"
 // @ast node: Function "sceneDidEnterBackground"
+// @ast node: Var "window"
 // @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappscenedelegateswift-7"
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {

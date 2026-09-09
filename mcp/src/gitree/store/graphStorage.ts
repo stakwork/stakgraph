@@ -1,9 +1,12 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
-import { createNeo4jDriver, ResilientSession } from "../../utils/neo4jRetry.js";
+import neo4j from "neo4j-driver";
+import { ResilientSession, sharedResilientSession } from "../../utils/neo4jRetry.js";
+import { nowEpochMs } from "../../graph/time.js";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
   Concept,
+  ConceptProposal,
+  ConceptProposalStatus,
   PRRecord,
   CommitRecord,
   Clue,
@@ -11,14 +14,45 @@ import {
   ChronologicalCheckpoint,
   Usage,
 } from "../types.js";
-import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding } from "./utils.js";
+import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, computeConceptEmbedding, conceptEmbeddingText, jarvisConceptNodeKey } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
+import { jarvisRedisEnabled, pushJarvisEmbeddingJob } from "./jarvis.js";
 
 const Data_Bank = "Data_Bank";
 
 function numberOrUndefined(value: any): number | undefined {
   if (value == null) return undefined;
   return value?.toNumber ? value.toNumber() : value;
+}
+
+const EPOCH_MILLIS_THRESHOLD = 1e12;
+
+// Nodes written by older/alternate pipelines store dates as epoch seconds,
+// epoch millis, numeric strings, or ISO strings — and some lack the property
+// entirely. Always return a valid Date so downstream toISOString() can't throw.
+function safeDate(value: any): Date {
+  const fallback = new Date(0);
+  if (value == null) return fallback;
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? fallback : value;
+  }
+  const raw = value?.toNumber ? value.toNumber() : value;
+  let ms: number;
+  if (typeof raw === "number") {
+    ms = raw > EPOCH_MILLIS_THRESHOLD ? raw : raw * 1000;
+  } else if (typeof raw === "string" && raw.trim() !== "") {
+    const num = Number(raw);
+    if (!isNaN(num)) {
+      ms = num > EPOCH_MILLIS_THRESHOLD ? num : num * 1000;
+    } else {
+      ms = Date.parse(raw);
+    }
+  } else {
+    // Neo4j temporal types (DateTime/Date) stringify to ISO
+    ms = Date.parse(String(raw));
+  }
+  const date = new Date(ms);
+  return isNaN(date.getTime()) ? fallback : date;
 }
 
 function usageParams(usage?: Usage) {
@@ -62,28 +96,27 @@ function usageFromProps(props: any): Usage | undefined {
   });
 }
 
+// Index creation and the migrations/backfills below are process-wide, one-time
+// work, but every request builds its own GraphStorage. Memoize across
+// instances so the schema pass runs once per process instead of once per
+// request. Cleared on failure so a Neo4j blip can't poison the process.
+let initializePromise: Promise<void> | null = null;
+
 /**
  * Neo4j graph-based storage implementation for concepts and PRs
  */
 export class GraphStorage extends Storage {
-  private driver: Driver;
-
-  constructor() {
-    super();
-    this.driver = createNeo4jDriver();
-    const host = process.env.NEO4J_HOST || "localhost:7687";
-    const user = process.env.NEO4J_USER || "neo4j";
-    console.log("===> GraphStorage connecting to", `bolt://${host}`, user);
-  }
-
+  // Handlers construct a GraphStorage per request, so this type must stay
+  // cheap: no per-instance driver, just sessions off the process-wide pool.
   private resilientSession(): ResilientSession {
-    return new ResilientSession(() => this.driver, (d) => { this.driver = d; });
+    return sharedResilientSession();
   }
 
   /**
-   * Initialize indexes for better query performance
+   * Create indexes and run migrations. Idempotent and shared across every
+   * instance — see `initialize()`.
    */
-  async initialize(): Promise<void> {
+  private async runInitialize(): Promise<void> {
     // Rename legacy :Feature labels/properties to :Concept BEFORE anything else,
     // so index creation and the multi-repo migration operate on the new schema.
     await this.migrateFeatureToConcept();
@@ -93,6 +126,11 @@ export class GraphStorage extends Storage {
         // Create indexes on id/number/sha for fast lookups
         await session.run(
           "CREATE INDEX concept_id_index IF NOT EXISTS FOR (f:Concept) ON (f.id)"
+        );
+        // READ_CONCEPT edge syncing resolves concepts by ref_id (the
+        // Data_Bank ref_id index doesn't apply to a :Concept-label match)
+        await session.run(
+          "CREATE INDEX concept_ref_id_index IF NOT EXISTS FOR (f:Concept) ON (f.ref_id)"
         );
         await session.run(
           "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
@@ -140,6 +178,15 @@ export class GraphStorage extends Storage {
           "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
         );
         await session.run(
+          "CREATE INDEX concept_proposal_id_index IF NOT EXISTS FOR (p:ConceptProposal) ON (p.id)"
+        );
+        await session.run(
+          "CREATE INDEX concept_proposal_repo_index IF NOT EXISTS FOR (p:ConceptProposal) ON (p.repo)"
+        );
+        await session.run(
+          "CREATE INDEX concept_proposal_status_index IF NOT EXISTS FOR (p:ConceptProposal) ON (p.status)"
+        );
+        await session.run(
           "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
         );
 
@@ -156,6 +203,26 @@ export class GraphStorage extends Storage {
 
     // Backfill embeddings for concepts created before semantic search existed.
     await this.backfillConceptEmbeddings();
+
+    // Label + queue jarvis text_embeddings for concepts written before the
+    // jarvis interop existed (see jarvis.ts).
+    await this.backfillJarvisConceptInterop();
+  }
+
+  /**
+   * Initialize indexes for better query performance.
+   *
+   * Safe to call from every handler: the underlying work runs once per
+   * process, and later callers await the same promise.
+   */
+  async initialize(): Promise<void> {
+    if (!initializePromise) {
+      initializePromise = this.runInitialize().catch((error) => {
+        initializePromise = null; // allow a retry on the next request
+        throw error;
+      });
+    }
+    return initializePromise;
   }
 
   /**
@@ -171,6 +238,7 @@ export class GraphStorage extends Storage {
       const result = await session.run(`
         MATCH (c:Concept)
         WHERE c.embeddings IS NULL
+          AND c.id IS NOT NULL
           AND (
             (c.name IS NOT NULL AND c.name <> "") OR
             (c.description IS NOT NULL AND c.description <> "")
@@ -210,6 +278,59 @@ export class GraphStorage extends Storage {
       console.log(`[gitree] Backfilled embeddings for ${updated} concept(s).`);
     } catch (error) {
       console.error("[gitree] Error backfilling concept embeddings:", error);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Make pre-existing Concepts visible to jarvis (see jarvis.ts):
+   * apply the Domain_general label so they fall inside jarvis's domain-scoped
+   * vector index, and queue text_embeddings jobs for concepts that lack them.
+   * Runs on every `initialize()`; both steps short-circuit to no-op scans
+   * once the graph is caught up (the embedding step re-queues until jarvis's
+   * worker writes text_embeddings back, which is idempotent).
+   */
+  private async backfillJarvisConceptInterop(): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const labelResult = await session.run(`
+        MATCH (c:${Data_Bank}:Concept)
+        WHERE NOT c:Domain_general
+        SET c:Domain_general
+      `);
+      const labelsAdded =
+        labelResult.summary.counters.updates().labelsAdded || 0;
+      if (labelsAdded > 0) {
+        console.log(
+          `[gitree] Applied Domain_general label to ${labelsAdded} concept(s).`
+        );
+      }
+
+      if (!jarvisRedisEnabled()) return;
+
+      const pending = await session.run(`
+        MATCH (c:${Data_Bank}:Concept)
+        WHERE c.text_embeddings IS NULL AND c.ref_id IS NOT NULL
+        RETURN c.ref_id AS refId, c.name AS name, c.description AS description
+      `);
+      let queued = 0;
+      for (const record of pending.records) {
+        const text = conceptEmbeddingText({
+          name: record.get("name") || "",
+          description: record.get("description") || "",
+        });
+        if (await pushJarvisEmbeddingJob(record.get("refId"), text)) {
+          queued++;
+        }
+      }
+      if (queued > 0) {
+        console.log(
+          `[gitree] Queued jarvis text_embeddings for ${queued} concept(s).`
+        );
+      }
+    } catch (error) {
+      console.error("[gitree] Error backfilling jarvis concept interop:", error);
     } finally {
       await session.close();
     }
@@ -469,18 +590,18 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Close the Neo4j driver connection
+   * No-op. The Neo4j driver is process-wide and shared with every other
+   * in-flight request, so a finished request must not close it. Use
+   * `closeSharedNeo4jDriver()` at process shutdown instead.
    */
-  async close(): Promise<void> {
-    await this.driver.close();
-  }
+  async close(): Promise<void> {}
 
   // Concepts
 
   async saveConcept(concept: Concept): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const dateTimestamp = Math.floor(concept.lastUpdated.getTime() / 1000);
       const cluesLastAnalyzedAtTimestamp = concept.cluesLastAnalyzedAt
         ? Math.floor(concept.cluesLastAnalyzedAt.getTime() / 1000)
@@ -500,10 +621,11 @@ export class GraphStorage extends Storage {
         );
       }
 
-      await session.run(
+      const result = await session.run(
         `
         MERGE (f:${Data_Bank}:Concept {id: $id})
-        SET f.name = $name,
+        SET f:Domain_general,
+            f.name = $name,
             f.repo = $repo,
             f.description = $description,
             f.embeddings = $embeddings,
@@ -544,6 +666,53 @@ export class GraphStorage extends Storage {
           dateAddedToGraph: now,
         }
       );
+
+      // Stamp jarvis's identity onto the node: its create-or-merge resolves
+      // Concepts by MERGE (node:Concept:Node {node_key, namespace}), not by
+      // our id slug, so without these a jarvis-side write of the same
+      // concept forks a duplicate. Kept out of the MERGE above and made
+      // best-effort deliberately: node_key carries a (node_key, namespace)
+      // uniqueness constraint, and a rename that computes an already-taken
+      // key must not fail the content save. The NOT EXISTS guards skip the
+      // stamp when another node holds the key (leaving the old node_key in
+      // place, so the node stays jarvis-addressable under its prior name);
+      // a lost race with a concurrent writer throws on the constraint and
+      // is caught the same way.
+      try {
+        const nodeKey = jarvisConceptNodeKey(concept.name);
+        const keyResult = await session.run(
+          `
+          MATCH (f:Concept {id: $id})
+          WHERE NOT EXISTS {
+              MATCH (o:Node {node_key: $nodeKey, namespace: $namespace})
+              WHERE o <> f
+            }
+            AND NOT EXISTS {
+              MATCH (o:Concept {node_key: $nodeKey, namespace: $namespace})
+              WHERE o <> f
+            }
+          SET f:Node, f.node_key = $nodeKey
+          RETURN f
+          `,
+          { id: concept.id, nodeKey, namespace: "default" }
+        );
+        if (keyResult.records.length === 0) {
+          console.warn(
+            `Concept ${concept.id}: node_key '${nodeKey}' is held by another node — left unstamped (jarvis writes to this name will target that node)`
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `Concept ${concept.id}: failed to stamp jarvis node_key:`,
+          error
+        );
+      }
+
+      // jarvis's vector search reads text_embeddings, which only its Redis
+      // embedding worker writes — queue a job so this concept shows up there.
+      const savedRefId =
+        result.records[0]?.get("f")?.properties?.ref_id ?? null;
+      await pushJarvisEmbeddingJob(savedRefId, conceptEmbeddingText(concept));
 
       // Create TOUCHES relationships from PRs to this Concept
       // Match PRs by repo-prefixed id or by number+repo combo
@@ -623,10 +792,12 @@ export class GraphStorage extends Storage {
       
       const result = await session.run(
         `
-        MATCH (f:Concept {id: $id})
+        MATCH (f:Concept)
+        WHERE f.id = $id OR f.node_key = $rawId OR f.ref_id = $rawId
         RETURN f
+        LIMIT 1
         `,
-        { id: fullId }
+        { id: fullId, rawId: id }
       );
 
       if (result.records.length === 0) {
@@ -653,9 +824,18 @@ export class GraphStorage extends Storage {
         { repo: repo || null }
       );
 
-      return result.records.map((record) =>
-        this.nodeToConcept(record.get("f"))
-      );
+      return result.records.flatMap((record) => {
+        const node = record.get("f");
+        try {
+          return [this.nodeToConcept(node)];
+        } catch (error) {
+          console.warn(
+            `Skipping malformed Concept node ${node?.properties?.id}:`,
+            error
+          );
+          return [];
+        }
+      });
     } finally {
       await session.close();
     }
@@ -684,7 +864,7 @@ export class GraphStorage extends Storage {
   async savePR(pr: PRRecord): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const dateTimestamp = Math.floor(pr.mergedAt.getTime() / 1000);
       const docs = await formatPRMarkdown(pr, this);
       
@@ -799,7 +979,7 @@ export class GraphStorage extends Storage {
   async saveCommit(commit: CommitRecord): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const dateTimestamp = Math.floor(commit.committedAt.getTime() / 1000);
       const docs = await formatCommitMarkdown(commit, this);
       
@@ -917,7 +1097,7 @@ export class GraphStorage extends Storage {
   async saveClue(clue: Clue): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
       const createdAtTimestamp = Math.floor(clue.createdAt.getTime() / 1000);
       const updatedAtTimestamp = Math.floor(clue.updatedAt.getTime() / 1000);
 
@@ -1299,7 +1479,7 @@ export class GraphStorage extends Storage {
   async setLastProcessedPR(repo: string, number: number): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -1354,7 +1534,7 @@ export class GraphStorage extends Storage {
   async setLastProcessedCommit(repo: string, sha: string): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -1412,7 +1592,7 @@ export class GraphStorage extends Storage {
   ): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -1470,7 +1650,7 @@ export class GraphStorage extends Storage {
   ): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -1498,7 +1678,7 @@ export class GraphStorage extends Storage {
   async addThemes(repo: string, themes: string[]): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       // Get current themes
       const result = await session.run(
@@ -1620,7 +1800,7 @@ export class GraphStorage extends Storage {
   async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
     const session = this.resilientSession();
     try {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowEpochMs();
 
       await session.run(
         `
@@ -1742,21 +1922,24 @@ export class GraphStorage extends Storage {
 
   private nodeToConcept(node: any): Concept {
     const props = node.properties;
-    
+
     return {
-      id: props.id,
+      // Concepts written by other clients (e.g. Jarvis /v2/nodes) may lack
+      // an id property — fall back to their node_key/ref_id so consumers
+      // always get a usable identifier.
+      id: props.id ?? props.node_key ?? props.Data_Bank ?? props.ref_id,
       repo: props.repo || undefined,
       ref_id: props.ref_id,
       name: props.name,
       description: props.description,
       prNumbers: props.prNumbers || [],
       commitShas: props.commitShas || [],
-      createdAt: new Date(props.date * 1000),
-      lastUpdated: new Date(props.date * 1000),
+      createdAt: safeDate(props.date),
+      lastUpdated: safeDate(props.date),
       documentation: props.docs || undefined,
-      cluesCount: props.cluesCount || undefined,
+      cluesCount: numberOrUndefined(props.cluesCount),
       cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
-        ? new Date(props.cluesLastAnalyzedAt * 1000)
+        ? safeDate(props.cluesLastAnalyzedAt)
         : undefined,
       usage: usageFromProps(props),
       embedding: props.embeddings || undefined,
@@ -1772,7 +1955,7 @@ export class GraphStorage extends Storage {
       repo: props.repo || undefined,
       title: props.title,
       summary: props.summary,
-      mergedAt: new Date(props.date * 1000),
+      mergedAt: safeDate(props.date),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -1791,7 +1974,7 @@ export class GraphStorage extends Storage {
       message: props.message,
       summary: props.summary,
       author: props.author,
-      committedAt: new Date(props.date * 1000),
+      committedAt: safeDate(props.date),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -1819,8 +2002,8 @@ export class GraphStorage extends Storage {
       relatedConcepts: props.relatedConcepts || [],
       relatedClues: props.relatedClues || [],
       dependsOn: props.dependsOn || [],
-      createdAt: new Date(props.createdAt * 1000),
-      updatedAt: new Date(props.updatedAt * 1000),
+      createdAt: safeDate(props.createdAt),
+      updatedAt: safeDate(props.updatedAt),
     };
   }
 
@@ -2522,5 +2705,351 @@ export class GraphStorage extends Storage {
     } finally {
       await session.close();
     }
+  }
+
+  // Concept Proposals
+
+  async saveProposal(proposal: ConceptProposal): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const now = nowEpochMs();
+      await session.run(
+        `
+        MERGE (p:${Data_Bank}:ConceptProposal {id: $id})
+        SET p.action = $action,
+            p.status = $status,
+            p.repo = $repo,
+            p.conceptId = $conceptId,
+            p.mergeIntoConceptId = $mergeIntoConceptId,
+            p.name = $name,
+            p.description = $description,
+            p.documentation = $documentation,
+            p.parent = $parent,
+            p.baseDocs = $baseDocs,
+            p.absorbedDocs = $absorbedDocs,
+            p.rationale = $rationale,
+            p.source = $source,
+            p.prNumbers = $prNumbers,
+            p.sessionIds = $sessionIds,
+            p.namespace = $namespace,
+            p.Data_Bank = $dataBankName,
+            p.ref_id = COALESCE(p.ref_id, $refId),
+            p.createdAt = COALESCE(p.createdAt, $createdAt),
+            p.date_added_to_graph = COALESCE(p.date_added_to_graph, $now)
+        RETURN p
+        `,
+        {
+          id: proposal.id,
+          action: proposal.action,
+          status: proposal.status,
+          repo: proposal.repo || null,
+          conceptId: proposal.conceptId || null,
+          mergeIntoConceptId: proposal.mergeIntoConceptId || null,
+          name: proposal.name || null,
+          description: proposal.description ?? null,
+          documentation: proposal.documentation ?? null,
+          parent: proposal.parent || null,
+          baseDocs: proposal.baseDocs ?? null,
+          absorbedDocs: proposal.absorbedDocs ?? null,
+          rationale: proposal.rationale || null,
+          source: proposal.source || null,
+          prNumbers: proposal.prNumbers || [],
+          sessionIds: proposal.sessionIds || [],
+          namespace: "default",
+          dataBankName: proposal.id,
+          refId: uuidv4(),
+          createdAt: Math.floor(proposal.createdAt.getTime() / 1000),
+          now,
+        }
+      );
+
+      await this.writeProposalEdges(session, proposal);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Revise a PENDING proposal's content in place. Deliberately never touches
+   * status/decision fields, and the pending guard is part of the match — so a
+   * reviewer deciding the proposal concurrently wins and this returns false.
+   */
+  async updateProposal(proposal: ConceptProposal): Promise<boolean> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id, status: 'pending'})
+        SET p.action = $action,
+            p.repo = $repo,
+            p.conceptId = $conceptId,
+            p.mergeIntoConceptId = $mergeIntoConceptId,
+            p.name = $name,
+            p.description = $description,
+            p.documentation = $documentation,
+            p.parent = $parent,
+            p.baseDocs = $baseDocs,
+            p.absorbedDocs = $absorbedDocs,
+            p.rationale = $rationale,
+            p.source = $source,
+            p.prNumbers = $prNumbers,
+            p.sessionIds = $sessionIds
+        RETURN p
+        `,
+        {
+          id: proposal.id,
+          action: proposal.action,
+          repo: proposal.repo || null,
+          conceptId: proposal.conceptId || null,
+          mergeIntoConceptId: proposal.mergeIntoConceptId || null,
+          name: proposal.name || null,
+          description: proposal.description ?? null,
+          documentation: proposal.documentation ?? null,
+          parent: proposal.parent || null,
+          baseDocs: proposal.baseDocs ?? null,
+          absorbedDocs: proposal.absorbedDocs ?? null,
+          rationale: proposal.rationale || null,
+          source: proposal.source || null,
+          prNumbers: proposal.prNumbers || [],
+          sessionIds: proposal.sessionIds || [],
+        }
+      );
+      if (result.records.length === 0) return false;
+
+      // A revision can retarget (create -> update, or a different concept), so
+      // rebuild the evidence edges from scratch.
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})-[r:TARGETS|EVIDENCE]->()
+        DELETE r
+        `,
+        { id: proposal.id }
+      );
+      await this.writeProposalEdges(session, proposal);
+      return true;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * TARGETS + EVIDENCE edges for a proposal. Shared by saveProposal and
+   * updateProposal; assumes the ConceptProposal node already exists.
+   */
+  private async writeProposalEdges(
+    session: any,
+    proposal: ConceptProposal
+  ): Promise<void> {
+    // TARGETS edges to the concept(s) this proposal wants to change. For
+    // merge, both targets get an edge with a role so the UI can tell which
+    // concept survives.
+    const targets: Array<{ conceptId: string; role: string | null }> = [];
+    if (proposal.conceptId) {
+      targets.push({
+        conceptId: proposal.conceptId,
+        role: proposal.action === "merge" ? "absorb" : null,
+      });
+    }
+    if (proposal.mergeIntoConceptId) {
+      targets.push({ conceptId: proposal.mergeIntoConceptId, role: "into" });
+    }
+    for (const target of targets) {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        MATCH (c:Concept {id: $conceptId})
+        MERGE (p)-[r:TARGETS]->(c)
+        ON CREATE SET r.ref_id = randomUUID()
+        SET r.role = $role
+        `,
+        { id: proposal.id, conceptId: target.conceptId, role: target.role }
+      );
+    }
+
+    // EVIDENCE edges to the PRs that motivated this proposal (same matching
+    // pattern as the TOUCHES edges in saveConcept).
+    if (proposal.prNumbers && proposal.prNumbers.length > 0 && proposal.repo) {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        UNWIND $prNumbers as prNumber
+        MATCH (pr:PullRequest)
+        WHERE (pr.repo = $repo AND pr.number = prNumber) OR pr.id = $repo + '/pr-' + toString(prNumber)
+        MERGE (p)-[r:EVIDENCE]->(pr)
+        ON CREATE SET r.ref_id = randomUUID()
+        `,
+        {
+          id: proposal.id,
+          prNumbers: proposal.prNumbers,
+          repo: proposal.repo,
+        }
+      );
+    }
+  }
+
+  async getProposal(id: string): Promise<ConceptProposal | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal)
+        WHERE p.id = $id OR p.ref_id = $id
+        RETURN p
+        LIMIT 1
+        `,
+        { id }
+      );
+      if (result.records.length === 0) return null;
+      return this.nodeToProposal(result.records[0].get("p"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllProposals(
+    repo?: string,
+    status?: ConceptProposalStatus
+  ): Promise<ConceptProposal[]> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal)
+        WHERE ($repo IS NULL OR p.repo = $repo)
+          AND ($status IS NULL OR p.status = $status)
+        RETURN p
+        ORDER BY p.createdAt DESC
+        `,
+        { repo: repo || null, status: status || null }
+      );
+      return result.records.flatMap((record) => {
+        const node = record.get("p");
+        try {
+          return [this.nodeToProposal(node)];
+        } catch (error) {
+          console.warn(
+            `Skipping malformed ConceptProposal node ${node?.properties?.id}:`,
+            error
+          );
+          return [];
+        }
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Atomically move a pending proposal to a decided status. Returns false if
+   * the proposal was not in "pending" (already decided by a concurrent
+   * request) — callers use this as a claim so a proposal can never be
+   * applied twice.
+   */
+  async claimProposal(
+    id: string,
+    status: "accepted" | "rejected",
+    decidedBy?: string,
+    decisionReason?: string
+  ): Promise<boolean> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id, status: 'pending'})
+        SET p.status = $status,
+            p.decidedBy = $decidedBy,
+            p.decisionReason = $decisionReason,
+            p.decidedAt = $decidedAt
+        RETURN p
+        `,
+        {
+          id,
+          status,
+          decidedBy: decidedBy || null,
+          decisionReason: decisionReason || null,
+          decidedAt: Math.floor(Date.now() / 1000),
+        }
+      );
+      return result.records.length > 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Roll a claimed proposal back to pending — used when applying an accepted
+   * proposal fails (stale base, target vanished) so the reviewer can retry.
+   */
+  async releaseProposalClaim(id: string): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        SET p.status = 'pending',
+            p.decidedBy = null,
+            p.decisionReason = null,
+            p.decidedAt = null
+        `,
+        { id }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Record the concept minted by an accepted "create" proposal, and link the
+   * proposal to it so the decided proposal doubles as change history.
+   */
+  async setProposalCreatedConcept(
+    id: string,
+    conceptId: string
+  ): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      await session.run(
+        `
+        MATCH (p:ConceptProposal {id: $id})
+        SET p.createdConceptId = $conceptId
+        WITH p
+        MATCH (c:Concept {id: $conceptId})
+        MERGE (p)-[r:TARGETS]->(c)
+        ON CREATE SET r.ref_id = randomUUID()
+        `,
+        { id, conceptId }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  private nodeToProposal(node: any): ConceptProposal {
+    const props = node.properties;
+    return {
+      id: props.id,
+      action: props.action,
+      status: props.status,
+      repo: props.repo || undefined,
+      conceptId: props.conceptId || undefined,
+      mergeIntoConceptId: props.mergeIntoConceptId || undefined,
+      name: props.name || undefined,
+      description: props.description ?? undefined,
+      documentation: props.documentation ?? undefined,
+      parent: props.parent || undefined,
+      baseDocs: props.baseDocs ?? undefined,
+      absorbedDocs: props.absorbedDocs ?? undefined,
+      rationale: props.rationale || undefined,
+      source: props.source || undefined,
+      prNumbers: (props.prNumbers || []).map((n: any) =>
+        n?.toNumber ? n.toNumber() : n
+      ),
+      sessionIds: props.sessionIds || [],
+      decidedBy: props.decidedBy || undefined,
+      decisionReason: props.decisionReason || undefined,
+      decidedAt: props.decidedAt != null ? safeDate(props.decidedAt) : undefined,
+      createdConceptId: props.createdConceptId || undefined,
+      createdAt: safeDate(props.createdAt),
+    };
   }
 }

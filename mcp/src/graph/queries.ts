@@ -105,7 +105,7 @@ RETURN n
 
 export const UPDATE_REPO_DOCS_QUERY = `
 MATCH (r:Repository {ref_id: $ref_id})
-SET r.documentation = $documentation, r.date_added_to_graph = $ts
+SET r.documentation = $documentation
 RETURN r
 `;
 
@@ -218,7 +218,7 @@ RETURN count(n) as deleted_count
 
 export const ADD_NODE_QUERY = (nodeType: string) => `
 MERGE (n:${nodeType}:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n += $properties, n.namespace = 'default'
+ON CREATE SET n += $properties, n.date_added_to_graph = $dateAddedToGraph, n.namespace = 'default'
 ON MATCH SET n += $properties
 RETURN n.ref_id as ref_id
 `;
@@ -315,11 +315,17 @@ MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
   n.source = $source, n.repo = $repo, n.model = $model, n.provider = $provider,
+  n.agent_name = $agent_name, n.spawn_tool_call_id = $spawn_tool_call_id,
   n.start_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'success', n.error_message = ''
-SET n.end_time = toInteger($end_time),
+SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+    n.model = CASE WHEN $model = '' THEN coalesce(n.model, '') ELSE $model END,
+    n.provider = CASE WHEN $provider = '' THEN coalesce(n.provider, '') ELSE $provider END,
+    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
+    n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END,
+    n.end_time = toInteger($end_time),
     n.repo = $repo,
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
     n.cache_read_tokens = coalesce(n.cache_read_tokens, 0) + toInteger($cache_read_tokens),
@@ -332,15 +338,266 @@ SET n.end_time = toInteger($end_time),
 RETURN n
 `;
 
+// Stub created at createSession() time (not session end) so the node exists
+// while the run is live: turn chains have a HAS_TURN anchor from the first
+// step, and in-flight sessions are visible with status 'running'.
+// UPSERT_AGENT_SESSION_QUERY finalizes the same node at session end — its
+// ON CREATE branch simply never fires when the stub got there first.
+export const CREATE_AGENT_SESSION_STUB_QUERY = `
+MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
+  n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
+  n.source = $source, n.repo = $repo, n.model = '', n.provider = '',
+  n.agent_name = $agent_name, n.spawn_tool_call_id = $spawn_tool_call_id,
+  n.start_time = toInteger($start_time), n.end_time = toInteger($start_time),
+  n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
+  n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
+  n.status = 'running', n.error_message = ''
+SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+    n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
+    n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END
+WITH n
+OPTIONAL MATCH (p:AgentSession {node_key: $parent_session_id})
+FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END | MERGE (p)-[:SPAWNED]->(n))
+RETURN n
+`;
+
+// Turn nodes mirror the shape of the post-hoc build_trace_edges workflow so
+// live-emitted chains and backfilled ones are indistinguishable: labels
+// :Data_Bank:Turn:Node, node_key 'turn-' + sanitized turn_id, and a
+// NEXT-linked chain anchored to the AgentSession by HAS_TURN on turn 0.
+// Both NEXT endpoints are MERGEd by node_key (deterministic), so a batch
+// whose predecessor write was lost re-creates the link instead of leaving
+// the chain permanently split. SET n.tool = t.tool relies on null-SET
+// removing the property: non-tool turns carry no 'tool' key, like prod.
+export const UPSERT_TURNS_QUERY = `
+MATCH (s:AgentSession {node_key: $session_id})
+UNWIND $turns AS t
+MERGE (n:Turn:${Data_Bank} {node_key: t.node_key})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default'
+SET n:Node,
+    n.session_id = $session_id,
+    n.turn_id = t.turn_id,
+    n.turn_type = t.turn_type,
+    n.order = toInteger(t.order),
+    n.content = t.content,
+    n.tool = t.tool,
+    n.tool_call_id = t.tool_call_id,
+    n.timestamp = toInteger(t.timestamp)
+FOREACH (_ IN CASE WHEN t.prev_node_key IS NULL THEN [] ELSE [1] END |
+  MERGE (p:Turn:${Data_Bank} {node_key: t.prev_node_key})
+  MERGE (p)-[pr:NEXT]->(n)
+  SET pr.weight = 1
+)
+FOREACH (_ IN CASE WHEN toInteger(t.order) = 0 THEN [1] ELSE [] END |
+  MERGE (s)-[h:HAS_TURN]->(n)
+  SET h.weight = 1
+)
+WITH s, n, t
+WITH s, count(n) AS written,
+     max(toInteger(t.order)) AS max_order,
+     max(toInteger(t.timestamp)) AS last_ts
+SET s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
+                        THEN max_order + 1 ELSE s.turn_count END,
+    s.last_turn_at = coalesce(last_ts, s.last_turn_at)
+RETURN written
+`;
+
+// How a caller's concept identifier is resolved to a Concept node.
+//
+// Mirrors GraphStorage.getConcept — the resolution every gitree read already
+// goes through (`f.id = <repo-prefixed id> OR f.node_key OR f.ref_id`), so an
+// identifier that reached a Concept's body can also reach its edge. That
+// matters most for out-of-process callers: `GET /gitree/concepts/:id` returns
+// no ref_id, so an external agent (hive) only ever holds the gitree id it
+// read with — which may be a bare slug, a node_key, or a ref_id, all of which
+// that endpoint accepts. Under a strict `c.id = link.id` match those reads
+// silently produced no edge.
+//
+// Preference order is strictest-first (exact ref_id, then exact id, then the
+// looser forms) so a widened match can never outrank an exact one.
+const CONCEPT_LINK_MATCH = `
+WHERE (link.ref_id IS NOT NULL AND c.ref_id = link.ref_id)
+   OR (link.id IS NOT NULL AND (
+         c.id = link.id
+         OR c.node_key = link.id
+         OR c.ref_id = link.id
+         OR (link.repo IS NOT NULL AND c.id = link.repo + '/' + link.id)))
+`;
+const CONCEPT_LINK_PICK = `
+head([m IN matches WHERE link.ref_id IS NOT NULL AND m.ref_id = link.ref_id]
+   + [m IN matches WHERE link.id IS NOT NULL AND m.id = link.id]
+   + matches)
+`;
+
+// Live per-turn provenance: WHICH moment of the session read a Concept.
+// Complements the session-level ranked rollup (UPSERT_SESSION_CONCEPT_EDGES_
+// QUERY) — same concept matching, but no judgment props: the turn edge
+// records the fact, the session edge the reflection's verdict.
+export const UPSERT_TURN_CONCEPT_EDGES_QUERY = `
+UNWIND $links AS link
+MATCH (t:Turn {node_key: link.turn_node_key})
+OPTIONAL MATCH (c:Concept)
+${CONCEPT_LINK_MATCH}
+WITH t, link, collect(c) AS matches
+WITH t, ${CONCEPT_LINK_PICK} AS c
+WHERE c IS NOT NULL
+MERGE (t)-[r:READ_CONCEPT]->(c)
+ON CREATE SET r.weight = 1
+RETURN count(r) AS linked
+`;
+
+// Highest-order Turn of a session — the chain head. External ingest reads it
+// to place the next batch (and to recover the agent label from turn_id), so
+// the graph itself is the order cursor for out-of-process agents: no sidecar,
+// no server-side session state, and a caller that crashes mid-run resumes
+// exactly where it stopped.
+export const GET_TURN_CHAIN_HEAD_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+RETURN t.turn_id AS turn_id, toInteger(t.order) AS max_order
+ORDER BY toInteger(t.order) DESC
+LIMIT 1
+`;
+
+// finalizeTurns' counterpart for sessions with no in-process emitter state:
+// find this session's last 'reasoning' turn in the graph and retype it, so an
+// ingested chain ends in a 'response' like every other one.
+export const FINALIZE_LAST_REASONING_TURN_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+WHERE t.turn_type = 'reasoning'
+WITH t ORDER BY toInteger(t.order) DESC LIMIT 1
+SET t.turn_type = 'response'
+RETURN t.node_key AS node_key
+`;
+
+// The backfill workflow retypes the last assistant text turn from 'reasoning'
+// to 'response'. Live emission can't know a turn is last until the run ends,
+// so this runs from session end against the exact node the emitter tracked.
+// The WHERE guard makes it idempotent and refuses to clobber other types.
+export const FINALIZE_TURN_RESPONSE_QUERY = `
+MATCH (n:Turn {node_key: $node_key})
+WHERE n.turn_type = 'reasoning'
+SET n.turn_type = 'response'
+RETURN count(n) AS updated
+`;
+
+// Polling workhorse for the live-session UI: everything after a cursor, in
+// order, with the Concepts each turn read. A flat indexed lookup on
+// Turn.session_id rather than a HAS_TURN/NEXT traversal — cheaper on every
+// poll and robust to chain gaps. Only turns our emitters wrote carry
+// session_id; the legacy workflow's orphan chains (never session-anchored
+// anyway) are invisible here by construction.
+export const GET_SESSION_TURNS_QUERY = `
+MATCH (t:Turn {session_id: $session_id})
+WHERE toInteger(t.order) > toInteger($after)
+OPTIONAL MATCH (t)-[:READ_CONCEPT]->(c:Concept)
+WITH t, [x IN collect(c) WHERE x IS NOT NULL | {ref_id: x.ref_id, id: x.id, name: x.name}] AS concepts
+RETURN t, concepts
+ORDER BY toInteger(t.order) ASC
+LIMIT toInteger($limit)
+`;
+
 export const LIST_AGENT_SESSIONS_QUERY = `
 MATCH (n:AgentSession)
 WHERE n.file = 'session://generated'
-RETURN n
+  AND ($source IS NULL OR n.source = $source)
+  AND ($repo IS NULL OR toLower(n.repo) CONTAINS toLower($repo))
+  AND ($agent_name_contains IS NULL OR toLower(coalesce(n.agent_name, '')) CONTAINS toLower($agent_name_contains))
+  AND ($since IS NULL OR n.start_time >= toInteger($since))
+  AND ($until IS NULL OR n.start_time < toInteger($until))
+  AND NOT (n.source = 'unknown' AND n.total_tokens = 0 AND n.duration_ms = 0)
+OPTIONAL MATCH (c:AgentSession)
+WHERE c.parent_session_id = n.node_key
+WITH n, count(c) AS child_count
+RETURN n, child_count
 ORDER BY n.start_time DESC
+SKIP toInteger($offset) LIMIT toInteger($limit)
+`;
+
+// One AgentSession node per session id. `node_key` has only an index, and
+// MERGE is not atomic across concurrent transactions without a constraint —
+// so a retried write that had actually committed (or two racing writes for
+// the same session) could leave two nodes with the same key, which then show
+// up as duplicate sessions and duplicate HAS_TURN anchors.
+export const AGENT_SESSION_KEY_CONSTRAINT_QUERY = `
+CREATE CONSTRAINT agent_session_key_unique IF NOT EXISTS
+FOR (n:AgentSession) REQUIRE n.node_key IS UNIQUE
+`;
+
+// Fold pre-existing duplicate AgentSession nodes into one, so the uniqueness
+// constraint above can be created. Runs only when that creation fails.
+//
+// The survivor is the node with the most relationships (duplicates are
+// otherwise identical — same start_time, same totals — since they come from
+// one logical write landing twice). Every edge type this codebase creates on
+// an AgentSession is re-pointed to the survivor with its properties intact
+// before the duplicate is removed, so no anchor, spawn link, or concept
+// edge is lost. MERGE makes re-pointing idempotent: an edge the survivor
+// already has is left alone.
+export const DEDUPE_AGENT_SESSIONS_QUERY = `
+MATCH (s:AgentSession)
+WITH s.node_key AS key, collect(s) AS nodes
+WHERE size(nodes) > 1
+UNWIND nodes AS n
+WITH key, n, size([(n)--() | 1]) AS deg
+ORDER BY deg DESC
+WITH key, collect(n) AS ranked
+WITH head(ranked) AS keeper, tail(ranked) AS dupes
+UNWIND dupes AS d
+CALL {
+  WITH keeper, d
+  MATCH (d)-[r:HAS_TURN]->(t)
+  MERGE (keeper)-[k:HAS_TURN]->(t)
+  SET k += properties(r)
+  RETURN count(*) AS moved_turns
+}
+CALL {
+  WITH keeper, d
+  MATCH (d)-[r:READ_CONCEPT]->(c)
+  MERGE (keeper)-[k:READ_CONCEPT]->(c)
+  SET k += properties(r)
+  RETURN count(*) AS moved_concepts
+}
+CALL {
+  WITH keeper, d
+  MATCH (d)-[r:SPAWNED]->(child)
+  MERGE (keeper)-[k:SPAWNED]->(child)
+  SET k += properties(r)
+  RETURN count(*) AS moved_children
+}
+CALL {
+  WITH keeper, d
+  MATCH (p)-[r:SPAWNED]->(d)
+  MERGE (p)-[k:SPAWNED]->(keeper)
+  SET k += properties(r)
+  RETURN count(*) AS moved_parents
+}
+WITH DISTINCT d
+DETACH DELETE d
+RETURN count(*) AS removed
+`;
+
+export const LIST_SESSION_FACETS_QUERY = `
+MATCH (n:AgentSession)
+WHERE n.file = 'session://generated'
+RETURN collect(DISTINCT n.repo) AS repos, collect(DISTINCT n.source) AS sources
 `;
 
 export const GET_AGENT_SESSION_QUERY = `
 MATCH (n:AgentSession {node_key: $session_id}) RETURN n
+`;
+
+// All descendants of a session, any depth. Sub-agent ids embed their full
+// ancestry (`<parent>-sub-<hex>`, `<parent>-sub-<hex>-sub-<hex>`, ...) so a
+// name-prefix match returns the whole subtree in one query; the
+// parent_session_id clause additionally catches direct children written by
+// other sources that link a parent without following the naming scheme.
+export const LIST_DESCENDANT_AGENT_SESSIONS_QUERY = `
+MATCH (n:AgentSession)
+WHERE n.node_key STARTS WITH ($session_id + '-sub-')
+   OR n.parent_session_id = $session_id
+RETURN n
+ORDER BY n.start_time ASC
 `;
 
 export const GET_SESSION_STATS_QUERY = `
@@ -351,6 +608,30 @@ WHERE n.file = 'session://generated'
   AND ($provider IS NULL OR n.provider = $provider)
   AND ($model IS NULL OR n.model = $model)
 RETURN n
+`;
+
+// Index a session's concept reflection as edges. The reflection sidecar file
+// is the source of truth; these edges mirror its fully-merged state on every
+// sync, so plain SET (not coalesce) is correct here — a null rank clears the
+// edge property exactly as the sidecar says. Matching is CONCEPT_LINK_MATCH,
+// shared with the per-turn edges; a concept regenerated under a new ref_id
+// simply stops matching (the sidecar still holds the record), and the MATCH on
+// the session node (never MERGE — see the guard in appendSessionEnd) makes the
+// whole write a no-op until the AgentSession node exists.
+export const UPSERT_SESSION_CONCEPT_EDGES_QUERY = `
+MATCH (s:AgentSession {node_key: $session_id})
+UNWIND $concepts AS link
+OPTIONAL MATCH (c:Concept)
+${CONCEPT_LINK_MATCH}
+WITH s, link, collect(c) AS matches
+WITH s, link, ${CONCEPT_LINK_PICK} AS c
+WHERE c IS NOT NULL
+MERGE (s)-[r:READ_CONCEPT]->(c)
+SET r.read_order = toInteger(link.read_order),
+    r.rank = toInteger(link.rank),
+    r.evidence = link.evidence,
+    r.contradicts = link.contradicts
+RETURN count(r) AS linked
 `;
 
 export const CREATE_SIBLING_EDGE_QUERY = `
@@ -416,11 +697,15 @@ export function listQueryForLabel(
   label: string,
   withSince: boolean = false,
 ): string {
+  // `date_added_to_graph` is a canonical epoch-ms Integer (see ./time.ts), so
+  // it compares directly against an epoch-ms `$since` — no toFloat coercion.
+  // `nodes_by_type` normalizes caller-supplied `since` values to ms via
+  // `epochValueToMs` before binding.
   const sinceClause = withSince
-    ? `AND ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND toFloat(f.date_added_to_graph) >= $since))`
+    ? `AND ($since IS NULL OR (f.date_added_to_graph IS NOT NULL AND f.date_added_to_graph >= $since))`
     : "";
   const orderBy = withSince
-    ? `ORDER BY coalesce(toFloat(f.date_added_to_graph), 0) DESC, f.node_key`
+    ? `ORDER BY coalesce(f.date_added_to_graph, 0) DESC, f.node_key`
     : "";
   return `
 MATCH (f:${label})
@@ -1033,7 +1318,7 @@ export const UPSERT_WORKFLOW_DOCUMENTATION_QUERY = `
 MATCH (w:Workflow {ref_id: $workflow_ref_id})
 MERGE (d:Workflow_documentation {node_key: $node_key})
 ON CREATE SET d.ref_id = randomUUID(), d.date_added_to_graph = $ts, d.namespace = 'default'
-SET d.name = $name, d.body = $body, d.date_added_to_graph = $ts, d.namespace = 'default'
+SET d.name = $name, d.body = $body, d.namespace = 'default'
 MERGE (d)-[:DOCUMENTS]->(w)
 RETURN d.ref_id AS ref_id
 `;

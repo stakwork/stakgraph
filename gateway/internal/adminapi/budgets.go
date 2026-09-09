@@ -2,15 +2,14 @@ package adminapi
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
+	"github.com/stakwork/stakgraph/gateway/internal/duration"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
 )
@@ -225,61 +224,15 @@ func (h *budgetHandlers) readSpentFromLogs(
 }
 
 // bucketBounds derives (period_start, period_end, redis_bucket_key)
-// for a given window string, anchored to `now`. Mirrors the per-window
-// formats in phase-6 §"Bucket-key format by window suffix" — keep this
-// in lockstep with the plugin-side PostLLMHook (gateway/internal/auth/
-// ttl.go) so the same key written there is read here.
-//
-// Phase 8 only needs `1h`/`1d`/`1w`/`1M` for the dashboard. Other
-// suffixes return ok=false and the handler degrades gracefully. The
-// full grammar is phase-6's concern.
+// for a given window string, anchored to `now`. Thin adapter over
+// gateway/internal/duration — the same package the phase-6
+// PostLLMHook accumulator uses to compute the key it writes, so
+// reader and writer can't drift.
 func bucketBounds(window string, now time.Time) (start, end time.Time, key string, ok bool) {
-	switch window {
-	case "1h":
-		// Sub-day rolling: bucket starts on the hour boundary.
-		start = now.Truncate(time.Hour)
-		end = start.Add(time.Hour)
-		key = formatEpochBucket(start)
-	case "1d":
-		// Calendar day, UTC midnight.
-		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-		end = start.AddDate(0, 0, 1)
-		key = start.Format("2006-01-02")
-	case "1w":
-		// ISO week starting Monday.
-		// Go's Weekday: Sunday=0..Saturday=6; ISO wants Monday=1..Sunday=7.
-		wd := int(now.Weekday())
-		if wd == 0 {
-			wd = 7
-		}
-		start = time.Date(now.Year(), now.Month(), now.Day()-(wd-1), 0, 0, 0, 0, time.UTC)
-		end = start.AddDate(0, 0, 7)
-		y, w := start.ISOWeek()
-		key = formatISOWeek(y, w)
-	case "1M":
-		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		end = start.AddDate(0, 1, 0)
-		key = start.Format("2006-01")
-	case "1Y":
-		start = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
-		end = start.AddDate(1, 0, 0)
-		key = start.Format("2006")
-	default:
+	w, err := duration.Parse(window)
+	if err != nil {
 		return time.Time{}, time.Time{}, "", false
 	}
-	return start, end, key, true
-}
-
-// formatEpochBucket returns the bucket-start unix-epoch as a
-// decimal string. Per phase-6 §"Bucket-key format by window suffix":
-// sub-day windows use the unix epoch of the window start (rounded
-// to the unit), not a human date.
-func formatEpochBucket(t time.Time) string {
-	return strconv.FormatInt(t.Unix(), 10)
-}
-
-// formatISOWeek returns "YYYY-Www" zero-padded — matches the bucket
-// key format spelled out in the phase-6 schema table.
-func formatISOWeek(year, week int) string {
-	return fmt.Sprintf("%04d-W%02d", year, week)
+	start, end = w.Bounds(now)
+	return start, end, w.BucketKey(now), true
 }

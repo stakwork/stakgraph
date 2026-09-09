@@ -6,6 +6,7 @@ import {
   DescribeLogStreamsCommand,
   StartQueryCommand,
   GetQueryResultsCommand,
+  GetLogRecordCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { fromIni } from "@aws-sdk/credential-providers";
 import * as fs from "fs";
@@ -33,6 +34,16 @@ function getClient(): CloudWatchLogsClient {
 const MAX_FETCH_PAGES = 200;
 const MAX_FETCH_WALL_MS = 60_000;
 
+// GetQueryResults truncates long field values (~1000 chars for @message).
+// Each result row carries a @ptr whose GetLogRecord response contains the
+// complete event, so any message at/over this length is suspect and gets
+// re-fetched ("hydrated") individually.
+export const HYDRATE_MIN_MSG_LEN = 950;
+const MAX_HYDRATE_RECORDS = 500;
+const HYDRATE_BATCH_SIZE = 5;
+const HYDRATE_BATCH_INTERVAL_MS = 500; // 5 calls / 500ms keeps GetLogRecord under ~10 TPS
+const MAX_HYDRATE_WALL_MS = 30_000;
+
 /** Sanitize a log group name into a safe filename */
 function safeFilename(logGroup: string): string {
   return logGroup.replace(/^\/+/, "").replace(/\//g, "-");
@@ -54,6 +65,8 @@ export interface FetchCloudwatchResult {
   logGroup: string;
   timeRange: { startTime: string; endTime: string };
   truncated: boolean;
+  /** Lines whose full text was recovered via GetLogRecord (Insights path only). */
+  hydratedLines?: number;
 }
 
 /**
@@ -281,19 +294,26 @@ export async function fetchCloudwatchLogsInsights(
     await sleep(1000);
   }
 
-  // Map result rows → `[ISO_TIMESTAMP] [logStream] message`
-  const lines = results.map((row) => {
+  // Map result rows, keeping each row's @ptr so truncated messages can be
+  // hydrated to their full text below.
+  const rows = results.map((row) => {
     let timestamp = "";
     let logStream = "";
     let message = "";
+    let ptr = "";
     for (const field of row) {
       if (field.field === "@timestamp") timestamp = field.value ?? "";
       else if (field.field === "@logStream") logStream = field.value ?? "";
       else if (field.field === "@message") message = (field.value ?? "").trimEnd();
+      else if (field.field === "@ptr") ptr = field.value ?? "";
     }
     const isoTime = timestamp ? new Date(timestamp).toISOString() : "unknown";
-    return `[${isoTime}] [${logStream}] ${message}`;
+    return { isoTime, logStream, message, ptr };
   });
+
+  const hydratedLines = await hydrateTruncatedMessages(rows, client, abortSignal);
+
+  const lines = rows.map((r) => `[${r.isoTime}] [${r.logStream}] ${r.message}`);
 
   // Write to file — same naming convention as fetchCloudwatchLogs
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -310,7 +330,77 @@ export async function fetchCloudwatchLogsInsights(
       endTime: new Date(endTimeMs).toISOString(),
     },
     truncated,
+    hydratedLines,
   };
+}
+
+/**
+ * Re-fetch suspected-truncated messages via GetLogRecord (the row's @ptr).
+ * Mutates `rows` in place; returns how many messages were replaced with a
+ * longer full-text version. Failures leave the truncated message untouched.
+ */
+async function hydrateTruncatedMessages(
+  rows: { message: string; ptr: string }[],
+  client: CloudWatchLogsClient,
+  abortSignal?: AbortSignal
+): Promise<number> {
+  const suspects = rows.filter(
+    (r) => r.ptr && r.message.length >= HYDRATE_MIN_MSG_LEN
+  );
+  if (suspects.length === 0) return 0;
+
+  const toHydrate = suspects.slice(0, MAX_HYDRATE_RECORDS);
+  if (suspects.length > toHydrate.length) {
+    console.warn(
+      `[cloudwatch] ${suspects.length} suspected-truncated lines; hydrating only the first ${MAX_HYDRATE_RECORDS}`
+    );
+  }
+
+  const deadline = Date.now() + MAX_HYDRATE_WALL_MS;
+  let hydrated = 0;
+  let failed = 0;
+
+  for (let i = 0; i < toHydrate.length; i += HYDRATE_BATCH_SIZE) {
+    if (abortSignal?.aborted || Date.now() > deadline) break;
+    const batch = toHydrate.slice(i, i + HYDRATE_BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (row) => {
+        try {
+          const resp = await client.send(
+            new GetLogRecordCommand({ logRecordPointer: row.ptr }),
+            { abortSignal: abortSignal as any }
+          );
+          const full = (resp.logRecord?.["@message"] ?? "").trimEnd();
+          if (full.length > row.message.length) {
+            row.message = full;
+            hydrated++;
+          }
+        } catch {
+          failed++;
+        }
+      })
+    );
+    if (i + HYDRATE_BATCH_SIZE < toHydrate.length) {
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, HYDRATE_BATCH_INTERVAL_MS);
+        abortSignal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            resolve();
+          },
+          { once: true }
+        );
+      });
+    }
+  }
+
+  if (failed > 0) {
+    console.warn(
+      `[cloudwatch] failed to hydrate ${failed} truncated line(s) via GetLogRecord`
+    );
+  }
+  return hydrated;
 }
 
 export interface ListLogGroupsResult {

@@ -85,6 +85,23 @@ export function verify(
     now,
   );
 
+  // Chain: every budgeted layer, outermost first. Mirrors the Go
+  // verifier — the last element is always the leaf (run_id above).
+  const chain = [
+    {
+      run_id: m.invocation.run_id,
+      max_cost_usd: m.invocation.max_cost_usd,
+      max_steps: m.invocation.max_steps,
+      exp: m.invocation.exp,
+    },
+    ...m.attenuations.map((att) => ({
+      run_id: att.caveats.run_id,
+      max_cost_usd: att.caveats.max_cost_usd,
+      max_steps: att.caveats.max_steps,
+      exp: att.caveats.exp,
+    })),
+  ];
+
   return {
     org_id: m.org_id,
     user_id: m.user_authorization.user_id,
@@ -93,6 +110,9 @@ export function verify(
     effective_caveats: effective,
     ua_nonce: m.user_authorization.nonce,
     ua_budget: m.user_authorization.budget ?? null,
+    ua_iat: m.user_authorization.iat,
+    ua_exp: m.user_authorization.exp,
+    chain,
     permitted_realms: permittedRealms(effective),
     nonces: [m.user_authorization.nonce, m.invocation.nonce, ...nonces],
     iat: m.invocation.iat,

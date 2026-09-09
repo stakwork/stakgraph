@@ -1,6 +1,7 @@
 import Foundation
 // @ast node: Class "String"
 // @ast node: Function "isValidEmail"
+// @ast node: Var "localized"
 // @ast node: Import "import-imports-srctestingswiftmodernappsourcescoreextensionsstringextensionsswift-0"
 
 extension String {

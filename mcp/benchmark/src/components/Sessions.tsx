@@ -8,8 +8,9 @@ export function Sessions() {
     <div style={{ display: "flex", gap: "16px", flex: 1, minHeight: 0 }}>
       <SessionSidebar
         loading={state.loading}
+        loadingMore={state.loadingMore}
+        hasMore={state.hasMore}
         runs={state.runs}
-        filteredRuns={state.filteredRuns}
         selected={state.selected}
         repoSearch={state.repoSearch}
         sourceFilter={state.sourceFilter}
@@ -18,6 +19,7 @@ export function Sessions() {
         repoOptions={state.repoOptions}
         sourceOptions={state.sourceOptions}
         load={state.load}
+        loadMore={state.loadMore}
         loadDetail={state.loadDetail}
         setRepoSearch={state.setRepoSearch}
         setSourceFilter={state.setSourceFilter}

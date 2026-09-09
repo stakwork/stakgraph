@@ -18,6 +18,7 @@ import CoreData
 // @ast node: Function "saveContext"
 // @ast node: Var "Name"
 // @ast node: Var "Version"
+// @ast node: Var "persistentContainer"
 // @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappappdelegateswift-7"
 
 let Name = "StakGraph"

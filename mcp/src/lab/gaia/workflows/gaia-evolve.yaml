@@ -1,0 +1,150 @@
+name: gaia-evolve
+# The AUTHORING HARNESS (EVOLVE_SPEC §5.2 / §9.4) for GAIA — the gaia
+# instance of the generic eval/evolve-loop: baseline once, then up to
+# maxGenerations author→run→grade cycles. Each generation's author is
+# briefed with the EVIDENCE so far — the task list, a task×version grid of
+# every version graded in this run (baseline first), and each attempt's
+# approach summary and misses — and chooses for itself which version to
+# build on (it can read any of them with meta/get-workflow).
+#
+#   capture   run the BASELINE produce workflow once over the task set,
+#             score it with the real leaderboard scorer, digest it — the
+#             grid's first column
+#   loop      eval/evolve-loop runs gaia-evolve-gen per generation: an
+#             authoring agent (meta/* only — §5.3.2) publishes a new
+#             version of the candidate, the harness runs it pinned over the
+#             same tasks and digests the scores; the loop folds the result
+#             into the next generation's briefing
+#   promote   the report: the top version(s) + accuracy vs baseline, the
+#             full generation history, costs. Promotion stays a HUMAN act —
+#             point gaia-run's input.produceWorkflow at a top version, or
+#             fold its diff into the seeded gaia-produce, after review.
+#             Review must also check the candidate never embeds
+#             gaia/evaluate (produce-time oracle access — §6).
+#
+# MEASUREMENT (EVOLVE_SPEC §6/§7): scoring is exact-match, so there is no
+# judge noise, but the same YAML re-run flips a task or two by produce-
+# sampling luck alone. Every version here is graded ONCE — there is no
+# noise margin or best-so-far machinery trying to outguess that; the grid
+# shows the author every column and the author reads patterns across them.
+# Every score is a TRAIN score on the very tasks the candidates were tuned
+# against: validate a top version on held-out tasks (gaia-batch over a
+# different slice) before believing the delta.
+#
+# COST: roughly (1 + generations) × |tasks| × produce + each generation's
+# author (incl. its ≤2 smoke runs). Scoring is a local python subprocess —
+# free. produceConcurrency shrinks wall-clock, not dollars.
+#
+# Needs: ANTHROPIC_API_KEY, HF_TOKEN (or a populated GAIA_DIR checkout;
+# git-lfs for attachments).
+# Input:  { tasks: [taskId, …], mission, generations? }
+#   mission:     the standing gap statement handed to every generation's
+#                author (the grid evidence rides alongside it and, per the
+#                author method, outranks it).
+#   generations: override params.maxGenerations for this run (e.g. 10).
+#   maxCost:     dollar ceiling (author + produce) — the loop stops before
+#                starting the generation that would cross it.
+#   maxMinutes:  wall-clock ceiling, same between-generations semantics.
+#                Both default to params (null = uncapped). Prefer these over
+#                guessing a generation count: cost and time per generation
+#                GROW as authors evolve more expensive architectures.
+# Output: { candidate, topVersions, bestGen, bestVersion, bestAccuracy,
+#           baselineAccuracy, improved, generations, totalKnownCost,
+#           stopReason, baseline, … }
+steps:
+  # ── capture: the baseline over the task set ────────────────────────────
+  - id: baseline
+    type: foreach
+    config:
+      items: "{{ input.tasks }}"
+      # Tasks hit rate-limited targets (observed 429s) — keep this low.
+      concurrency: "{{ params.produceConcurrency }}"
+      body:
+        id: one
+        type: subflow
+        config:
+          workflow: gaia-run
+          input:
+            taskId: "{{ $current }}"
+
+  # The same digest every generation produces — per-task verdicts, the
+  # produced answers, and the questions — so the baseline is just the
+  # grid's first column.
+  - id: basedigest
+    type: gaia/digest-results
+    depends: baseline
+    config:
+      results: "{{ baseline }}"
+
+  # ── the loop: author → run → grade, up to N generations ────────────────
+  - id: evolve
+    type: eval/evolve-loop
+    depends: basedigest
+    config:
+      tasks: "{{ input.tasks }}"
+      mission: "{{ input.mission }}"
+      baseline: "{{ basedigest }}"
+      candidateName: "{{ params.candidateName }}"
+      baseWorkflow: "{{ params.baseWorkflow }}"
+      genWorkflow: "{{ params.genWorkflow }}"
+      fitnessName: accuracy
+      maxGenerations: "{{ input.generations || params.maxGenerations }}"
+      stopFitness: "{{ params.stopAccuracy }}"
+      genParams: "{{ params.genParams }}"
+      maxCost: "{{ input.maxCost || params.maxCost }}"
+      maxMinutes: "{{ input.maxMinutes || params.maxMinutes }}"
+
+  # ── promote: the reviewable report ─────────────────────────────────────
+  - id: report
+    type: pack
+    depends: evolve
+    config:
+      mission: "{{ input.mission }}"
+      tasks: "{{ input.tasks }}"
+      candidate: "{{ evolve.candidate }}"
+      # Every version that reached the top accuracy, oldest first — a tie on
+      # one noisy run is no reason to hide one of them.
+      topVersions: "{{ evolve.topVersions }}"
+      bestGen: "{{ evolve.bestGen }}"
+      bestVersion: "{{ evolve.bestVersion }}"
+      bestAccuracy: "{{ evolve.bestFitness }}"
+      baselineAccuracy: "{{ evolve.baselineFitness }}"
+      accuracyDelta: "{{ evolve.bestFitness - evolve.baselineFitness }}"
+      improved: "{{ evolve.improved }}"
+      generations: "{{ evolve.generations }}"
+      totalKnownCost: "{{ evolve.totalKnownCost }}"
+      stopReason: "{{ evolve.stopReason }}"
+      # The baseline's per-task verdicts, answers, and questions — the
+      # report's evidence base.
+      baseline: "{{ basedigest.results }}"
+      note: "{{ evolve.note }}"
+
+params:
+  # The produce workflow the baseline runs and generation-0 authors start
+  # from (read via meta/get-workflow).
+  baseWorkflow: gaia-produce
+  # The candidate's name. Every generation republishes it — a NEW VERSION
+  # each time, so one evolve run leaves a versioned lineage (and the report
+  # names the top version(s), which may not be the latest).
+  candidateName: gaia-produce-ai
+  # The one-generation workflow the loop runs (author → candidate eval →
+  # digest). Its own params (authorModel, authorMaxSteps, authorSystem, …)
+  # are the author's experiment surface — override per run via genParams.
+  genWorkflow: gaia-evolve-gen
+  maxGenerations: 5
+  # Stop early once a generation's accuracy reaches this (1 = every task —
+  # reachable on tuned-against train sets; generations are the real cap).
+  stopAccuracy: 1
+  # Parallel produce runs per pass (foreach concurrency). Tasks hit
+  # rate-limited targets (metmuseum/NIST 429s observed) — keep low.
+  produceConcurrency: 3
+  # Param overrides for gaia-evolve-gen (e.g. { authorModel: "...",
+  # authorMaxSteps: 120, authorGuidance: "..." }). Empty = its defaults.
+  genParams: {}
+  # BUDGET CAPS (checked between generations, so they bound when the loop
+  # STOPS, never kill a generation mid-flight). Generation count alone is a
+  # poor budget: authors evolve toward more expensive architectures, so a
+  # run that starts at ~1h and ~$3 per generation can end at 2.5h and $8.
+  # Null = uncapped (generations remain the only limit).
+  maxCost: null
+  maxMinutes: null

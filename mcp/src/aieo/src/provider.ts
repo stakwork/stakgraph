@@ -4,11 +4,12 @@ import {
   GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { createXai } from "@ai-sdk/xai";
 import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
-import { createOpenRouter, OpenRouterModelOptions } from "@openrouter/ai-sdk-provider";
+import { createOpenRouter, OpenRouterChatSettings } from "@openrouter/ai-sdk-provider";
 
-export type Provider = "anthropic" | "google" | "openai" | "openrouter";
+export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai";
 
 /**
  * Optional LLM gateway URL (e.g. Bifrost: https://github.com/maximhq/bifrost,
@@ -25,12 +26,15 @@ const LLM_GATEWAY_URL = process.env.LLM_GATEWAY_URL?.replace(/\/$/, "");
  * NOTE: OpenRouter has no dedicated Bifrost route and rides the OpenAI
  * path. If you spawn an agent in a way where the runtime would override
  * the model to an OpenRouter model, you want the OpenAI suffix here too.
+ * xAI likewise rides the OpenAI-compat path (model id prefixed `xai/`
+ * in getModel), since Bifrost has no dedicated Grok route.
  */
 export const GATEWAY_PATHS: Record<Provider, string> = {
   anthropic: "/anthropic/v1",
   google: "/genai/v1beta",
   openai: "/openai/v1",
   openrouter: "/openai/v1",
+  xai: "/openai/v1",
 };
 
 export function getGatewayBaseURL(provider: Provider): string | undefined {
@@ -138,10 +142,11 @@ export const PROVIDERS: Provider[] = [
   "google",
   "openai",
   "openrouter",
+  "xai",
 ];
 
 // shortcuts to latest models
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "grok";
 
 type ModelId = string;
 
@@ -159,7 +164,10 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   },
   openrouter: {
     kimi: "moonshotai/kimi-k2.6"
-  }
+  },
+  xai: {
+    grok: "grok-4",
+  },
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
@@ -167,6 +175,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   google: MODELS.google.gemini!,
   openai: MODELS.openai.gpt!,
   openrouter: MODELS.openrouter.kimi!,
+  xai: MODELS.xai.grok!,
 };
 
 // Light/cheap models for batch operations (descriptions, learnings, etc.)
@@ -175,6 +184,7 @@ const LIGHT_MODELS: Record<Provider, string> = {
   google: "gemini-2.0-flash",
   openai: "gpt-4.1-mini",
   openrouter: "moonshotai/kimi-k2.6",
+  xai: "grok-4-fast-non-reasoning",
 };
 
 export function getLightModelForProvider(provider: Provider): string {
@@ -227,6 +237,8 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "google";
     case "gpt":
       return "openai";
+    case "grok":
+      return "xai";
     // Full model IDs
     case "claude-sonnet-5":
     case "claude-opus-4-6":
@@ -239,6 +251,13 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
     case "gpt-4.1-mini":
       return "openai";
     default:
+      // Any bare Grok model id (grok-4, grok-4-fast-non-reasoning,
+      // grok-code-fast-1, ...) goes to xAI. OpenRouter-hosted Grok is
+      // namespaced ("openrouter/x-ai/grok-4") and handled by the prefix
+      // parse above, so this only catches direct-API ids.
+      if (typeof modelName === "string" && modelName.toLowerCase().startsWith("grok")) {
+        return "xai";
+      }
       if (
         process.env.LLM_PROVIDER &&
         PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)
@@ -249,20 +268,38 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
   }
 }
 
+/**
+ * Treat blank/whitespace-only keys as absent.
+ *
+ * A truthy-but-blank key (a request body with `apiKey: " "`, an env var set to
+ * an empty-ish value) otherwise sails past every `!!key` check and reaches the
+ * provider SDK, which happily builds `Authorization: Bearer ` and gets a
+ * confusing 401 ("Missing Authentication header" from OpenRouter) on every
+ * single call instead of failing fast. Also trims stray whitespace so a key
+ * pasted with a trailing space still authenticates.
+ */
+export function normalizeApiKey(key?: string | null): string | undefined {
+  if (typeof key !== "string") return undefined;
+  const trimmed = key.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function lookupApiKeyForProvider(
   provider: Provider | string,
 ): string | undefined {
   switch (provider) {
     case "anthropic":
-      return process.env.ANTHROPIC_API_KEY;
+      return normalizeApiKey(process.env.ANTHROPIC_API_KEY);
     case "google":
-      return process.env.GOOGLE_API_KEY;
+      return normalizeApiKey(process.env.GOOGLE_API_KEY);
     case "openai":
-      return process.env.OPENAI_API_KEY;
+      return normalizeApiKey(process.env.OPENAI_API_KEY);
     case "openrouter":
-      return process.env.OPENROUTER_API_KEY;
+      return normalizeApiKey(process.env.OPENROUTER_API_KEY);
+    case "xai":
+      return normalizeApiKey(process.env.XAI_API_KEY);
     case "claude_code":
-      return process.env.CLAUDE_CODE_API_KEY;
+      return normalizeApiKey(process.env.CLAUDE_CODE_API_KEY);
     default:
       return undefined;
   }
@@ -292,6 +329,150 @@ export interface GetModelOptions {
    * to the LLM endpoint. Useful for gateway auth, tenant IDs, etc.
    */
   headers?: Record<string, string>;
+  /**
+   * AbortSignal from the run's AbortController. When fired (busy timeout /
+   * `/repo/agent/abort`), in-flight model calls and streams are cancelled.
+   * Stays armed for the entire request/stream lifetime.
+   */
+  abortSignal?: AbortSignal;
+  /**
+   * Per-request timeout in milliseconds for the connect / first-response
+   * phase only. Once the provider replies with headers the timer is disarmed,
+   * so a slow-but-progressing stream is never killed. Defaults to the
+   * `LLM_HTTP_TIMEOUT_MS` env var when not supplied.
+   */
+  timeoutMs?: number;
+}
+
+/**
+ * Default first-response timeout: how long we wait for the provider to reply
+ * with HTTP headers before giving up. The timer is disarmed once headers
+ * arrive, so only the connect/stall phase is bounded — not the stream body.
+ *
+ * 5 min covers slow gateways and — crucially — non-streaming `generateText`
+ * calls, where the provider sends nothing (headers included) until the whole
+ * message is generated, so an adaptive-thinking call can legitimately need
+ * minutes. Still well below the 2-hour busy watchdog. Ops can tune via
+ * `LLM_HTTP_TIMEOUT_MS`.
+ */
+const DEFAULT_LLM_HTTP_TIMEOUT_MS =
+  parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 300_000;
+
+/**
+ * Extra attempts after a connect-phase timeout. The timeout aborts via an
+ * AbortController, so the AI SDK sees a DOMException AbortError and treats it
+ * as an intentional cancellation — its built-in 408/409/429/5xx retry ladder
+ * never fires. Retrying here, inside the fetch wrapper, is safe because no
+ * headers arrived (nothing was consumed) and the request body is a JSON
+ * string. Set `LLM_HTTP_TIMEOUT_RETRIES=0` to disable.
+ */
+const LLM_HTTP_TIMEOUT_RETRIES = (() => {
+  const parsed = parseInt(process.env.LLM_HTTP_TIMEOUT_RETRIES || "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2;
+})();
+
+/**
+ * Combine any number of AbortSignals (skipping null/undefined) without
+ * requiring `AbortSignal.any` (Node ≥20.3). Returns a signal that aborts when
+ * any input fires. Gracefully handles an already-aborted input.
+ */
+function combineSignals(
+  signals: Array<AbortSignal | null | undefined>,
+): AbortSignal | undefined {
+  const live = signals.filter((s): s is AbortSignal => !!s);
+  if (live.length === 0) return undefined;
+  if (live.length === 1) return live[0];
+  // Use native AbortSignal.any when available (Node ≥20.3).
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(live);
+  }
+  // Manual fallback for older Node 20.x runners.
+  const ctrl = new AbortController();
+  if (live.some((s) => s.aborted)) { ctrl.abort(); return ctrl.signal; }
+  const abort = () => { try { ctrl.abort(); } catch (_) {} };
+  for (const s of live) s.addEventListener("abort", abort, { once: true });
+  return ctrl.signal;
+}
+
+/**
+ * Build a `fetch`-compatible wrapper that:
+ * 1. Gates the *connect / first-response* phase with a per-request timeout.
+ * 2. Disarms the timeout once the provider replies with HTTP headers, so a
+ *    slow-but-progressing stream body is never cut mid-flight.
+ * 3. Keeps the caller's `runSignal` armed for the full request/stream so a
+ *    genuine parent abort (busy timeout / `/repo/agent/abort`) still tears
+ *    down an in-flight stream. The AI SDK's own per-request `init.signal`
+ *    (from `streamText`/`generateText` abortSignal and internal teardown) is
+ *    preserved by folding it into the combined signal rather than overwriting.
+ * 4. Logs and re-throws on timeout (`ETIMEDOUT`) or abort (`AbortError`) with
+ *    a clear reason string so callers can surface the right error to the agent.
+ * 5. Retries pure connect-phase timeouts up to `LLM_HTTP_TIMEOUT_RETRIES`
+ *    extra attempts — the AI SDK won't, because the timeout surfaces as an
+ *    AbortError, which it treats as a deliberate cancellation. Genuine aborts
+ *    (run signal / SDK signal) are never retried.
+ *
+ * @param timeoutMs  Milliseconds to wait for headers before aborting.
+ * @param runSignal  The per-run AbortSignal (may be undefined).
+ */
+function buildTimeoutFetch(
+  timeoutMs: number,
+  runSignal?: AbortSignal,
+): typeof fetch {
+  return async (input, init) => {
+    const url = typeof input === "string" ? input : (input as Request).url;
+    const sdkSignal = init?.signal;
+    // A retry re-sends the request from scratch, which is only sound when the
+    // body can be replayed: a plain-string body (the AI SDK always sends JSON
+    // strings) via a string/URL input. A Request object's body stream may have
+    // been consumed by the failed attempt.
+    const canResend =
+      (typeof input === "string" || input instanceof URL) &&
+      (init?.body == null || typeof init.body === "string");
+    const maxAttempts = canResend ? 1 + LLM_HTTP_TIMEOUT_RETRIES : 1;
+
+    for (let attempt = 1; ; attempt++) {
+      const startMs = Date.now();
+
+      // ── timeout controller — only guards the connect/first-response phase ──
+      const timeoutCtrl = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+        timeoutCtrl.abort();
+      }, timeoutMs);
+
+      const clearTimer = () => {
+        if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+      };
+
+      // Combine the per-request timeout signal, the run signal (if any), and
+      // the AI SDK's own per-request signal (if any) — overwriting init.signal
+      // would silently detach SDK-initiated cancellations from the socket.
+      const combinedSignal = combineSignals([
+        sdkSignal,
+        runSignal,
+        timeoutCtrl.signal,
+      ]);
+
+      try {
+        const response = await fetch(input, { ...init, signal: combinedSignal });
+        // Headers received — disarm the timeout so the streaming body is never killed by it.
+        clearTimer();
+        return response;
+      } catch (err: any) {
+        clearTimer();
+        const elapsedMs = Date.now() - startMs;
+        // Classify: the timeout timer fired, and neither the run signal nor the
+        // SDK's own signal was the cause.
+        const isTimeout =
+          timeoutCtrl.signal.aborted && !runSignal?.aborted && !sdkSignal?.aborted;
+        const reason = isTimeout ? "timeout" : "aborted";
+        console.warn(
+          `[llm-fetch] ${reason} after ${elapsedMs}ms (attempt ${attempt}/${maxAttempts}): ${url} — ${err?.message ?? String(err)}`,
+        );
+        if (isTimeout && attempt < maxAttempts) continue;
+        throw err;
+      }
+    }
+  };
 }
 
 function getModelForProvider(provider: Provider, modelName: ModelName): string {
@@ -317,22 +498,29 @@ export function getModelDetails(
   apiKeyIn?: string,
   baseUrl?: string,
   headers?: Record<string, string>,
+  abortSignal?: AbortSignal,
+  timeoutMs?: number,
 ): ModelDetails {
   const provider = getProviderForModel(modelName);
-  const apiKey = apiKeyIn || getApiKeyForProvider(provider);
+  const callerKey = normalizeApiKey(apiKeyIn);
+  const apiKey = callerKey || getApiKeyForProvider(provider);
   console.log("===> getModelDetails", {
     provider,
     modelName: modelName || "(default)",
-    keySource: apiKeyIn ? "request body" : "env var",
+    keySource: callerKey ? "request body" : "env var",
     apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
     baseUrl: baseUrl || "(default)",
     headerKeys: headers ? Object.keys(headers) : [],
+    hasAbortSignal: !!abortSignal,
+    timeoutMs: timeoutMs ?? DEFAULT_LLM_HTTP_TIMEOUT_MS,
   });
   const model = getModel(provider, {
     modelName,
     apiKey,
     baseUrl,
     headers,
+    abortSignal,
+    timeoutMs,
   });
   // Resolve the actual modelId to look up context limit
   let modelId: string;
@@ -365,8 +553,8 @@ export function getModel(
   if (typeof opts === "string") {
     opts = { apiKey: opts };
   }
-  const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
-  
+  const apiKey = normalizeApiKey(opts?.apiKey) || getApiKeyForProvider(provider);
+
   // Handle slash format: extract modelId from "provider/model" or "provider/org/model"
   let modelId: string;
   if (opts?.modelName && opts.modelName.includes("/")) {
@@ -384,6 +572,7 @@ export function getModel(
       "gemini",
       "gpt",
       "kimi",
+      "grok",
     ];
     if (knownShortcuts.includes(opts.modelName)) {
       modelId = getModelForProvider(provider, opts.modelName as ModelName);
@@ -415,12 +604,22 @@ export function getModel(
   if (extraHeaders) {
     console.log(`[headers] attaching ${Object.keys(extraHeaders).length} custom header(s) to ${provider} client`);
   }
+
+  // Build the timeout/abort-aware fetch wrapper. When neither abortSignal nor
+  // timeoutMs is provided (e.g. callers that don't pass them), the default
+  // LLM_HTTP_TIMEOUT_MS still applies so stalled connections are bounded.
+  const timeoutFetch = buildTimeoutFetch(
+    opts?.timeoutMs ?? DEFAULT_LLM_HTTP_TIMEOUT_MS,
+    opts?.abortSignal,
+  );
+
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return anthropic(modelId);
     case "google": {
@@ -444,12 +643,14 @@ export function getModel(
           apiKey,
           baseURL: openaiCompatBase,
           ...(extraHeaders && { headers: extraHeaders }),
+          fetch: timeoutFetch,
         });
         return googleCompat.chat(`gemini/${modelId}`);
       }
       const google = createGoogleGenerativeAI({
         apiKey,
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return google(modelId);
     }
@@ -458,15 +659,56 @@ export function getModel(
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
       return openai(modelId);
-    case "openrouter":
+    case "openrouter": {
       const openrouter = createOpenRouter({
         apiKey,
         ...(baseURL && { baseURL }),
         ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
       });
-      return openrouter(modelId);
+      // Kimi models are served by many OpenRouter hosts (Fireworks, Together,
+      // Chutes, ...) but only Moonshot's own endpoint has automatic prompt
+      // caching (reads at 0.25x, writes free). Left unpinned, long agentic
+      // runs get routed to non-caching hosts and re-pay the full conversation
+      // on every step. Prefer Moonshot, keep fallbacks for availability.
+      // usage.include surfaces cached-token counts in the response usage.
+      const isMoonshot =
+        modelId.startsWith("moonshotai/") ||
+        modelId.toLowerCase().includes("kimi");
+      const settings: OpenRouterChatSettings = {
+        usage: { include: true },
+        ...(isMoonshot
+          ? { provider: { order: ["moonshotai"], allow_fallbacks: true } }
+          : {}),
+      };
+      return openrouter(modelId, settings);
+    }
+    case "xai": {
+      // Gatewayed Grok rides the OpenAI-compat route (GATEWAY_PATHS.xai is
+      // /openai/v1) with an `xai/`-prefixed model id, mirroring the google
+      // branch above. Direct calls use the official xAI provider, which maps
+      // usage (incl. cached prompt tokens) and hits https://api.x.ai/v1.
+      // Grok prompt caching is automatic prefix caching — nothing to set here;
+      // just keep the request prefix byte-stable across steps.
+      if (baseURL) {
+        const xaiCompat = createOpenAI({
+          apiKey,
+          baseURL,
+          ...(extraHeaders && { headers: extraHeaders }),
+          fetch: timeoutFetch,
+        });
+        return xaiCompat.chat(`xai/${modelId}`);
+      }
+      const xai = createXai({
+        apiKey,
+        ...(extraHeaders && { headers: extraHeaders }),
+        fetch: timeoutFetch,
+      });
+      return xai(modelId);
+    }
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -504,17 +746,47 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gemini-3-pro-preview": 1_000_000,
   "gemini-2.0-flash": 1_000_000,
   // OpenAI
-  "gpt-5": 128_000,
+  "gpt-5": 400_000,
+  "gpt-5.5": 1_050_000,
+  "gpt-5.6-terra": 1_050_000,
+  "gpt-5.6-luna": 1_050_000,
+  "gpt-5.6-sol": 1_050_000,
   "gpt-4.1-mini": 1_000_000,
-  // OpenRouter
-  "moonshotai/kimi-k2.6": 128_000,
+  // OpenRouter — values from the OpenRouter model catalog
+  // (https://openrouter.ai/api/v1/models, context_length).
+  "stealth/ox-alpha": 1_048_576,
+  "openai/gpt-5": 400_000,
+  "openai/gpt-5.5": 1_050_000,
+  "openai/gpt-5.6-terra": 1_050_000,
+  "openai/gpt-5.6-luna": 1_050_000,
+  "openai/gpt-5.6-sol": 1_050_000,
+  "moonshotai/kimi-k3": 1_048_576,
+  "moonshotai/kimi-k2.7-code": 262_144,
+  "moonshotai/kimi-k2.6": 262_144,
+  "moonshotai/kimi-k2.5": 262_144,
+  "moonshotai/kimi-k2-thinking": 262_144,
+  "moonshotai/kimi-k2": 131_072,
+  // xAI (and the same models via OpenRouter as x-ai/...). Getting these
+  // right matters beyond display: contextLimit drives truncateOldToolResults,
+  // and premature truncation rewrites old messages — which invalidates Grok's
+  // automatic prefix cache on every subsequent step.
+  "grok-4": 256_000,
+  "grok-4-fast": 2_000_000,
+  "grok-4-fast-reasoning": 2_000_000,
+  "grok-4-fast-non-reasoning": 2_000_000,
+  "grok-code-fast-1": 256_000,
+  "x-ai/grok-4": 256_000,
+  "x-ai/grok-4-fast": 2_000_000,
+  "x-ai/grok-code-fast-1": 256_000,
 };
 
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
   anthropic: 1_000_000,
   google: 1_000_000,
-  openai: 128_000,
-  openrouter: 128_000,
+  // gpt-5.x models are all 400k+; only legacy chat models are smaller
+  openai: 400_000,
+  openrouter: 256_000,
+  xai: 256_000,
 };
 
 // Conservative fallback if both model and provider lookups miss
@@ -545,6 +817,15 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
   openrouter: {
     inputTokenPrice: 0.6,
     outputTokenPrice: 3.0,
+  },
+  // grok-4 rates. cacheReadPrice matters: computeSessionCost bills cache
+  // reads at full input price when it's absent, and Grok discounts cached
+  // prompt tokens 4x. (Grok has no cache-write charge — writes are billed
+  // as ordinary input, so no cacheWritePrice here.)
+  xai: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+    cacheReadPrice: 0.75,
   },
 };
 
@@ -660,7 +941,13 @@ export function getProviderOptions(
       };
     case "openrouter":
       return {
-        openrouter: { usage: { include: true } } satisfies OpenRouterModelOptions,
+        openrouter: { usage: { include: true } } satisfies OpenRouterChatSettings,
+      };
+    case "xai":
+      // Grok prompt caching is automatic (prefix-based, no breakpoints), so
+      // there is no cacheControl analog to send.
+      return {
+        xai: {},
       };
     default:
       throw new Error(`Unsupported provider: ${provider}`);
@@ -698,11 +985,12 @@ export function resolveLLMConfig(opts?: {
       (process.env.LLM_PROVIDER as Provider | undefined) ||
       getProviderForModel();
 
-  console.log(
-    `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light}`,
-  );
+  const callerKey = normalizeApiKey(opts?.apiKey);
+  const apiKey = callerKey || getApiKeyForProvider(provider);
 
-  const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
+  console.log(
+    `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light} keySource=${callerKey ? "request body" : "env var"} apiKeyPrefix=${apiKey.slice(0, 8)}...`,
+  );
 
   let effectiveModelName = modelName;
   if (!effectiveModelName && opts?.light) {

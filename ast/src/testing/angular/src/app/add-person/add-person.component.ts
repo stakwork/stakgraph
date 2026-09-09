@@ -10,6 +10,7 @@ import { FormsModule } from '@angular/forms';
 // @ast edge: Calls -> Request "this.router.navigate" "add-person.component.ts"
 // @ast node: Import "import-imports-srctestingangularsrcappaddpersonaddpersoncomponentts-0"
 // @ast node: Page "AddPersonComponent"
+// @ast node: Var "name"
 
 
 @Component({

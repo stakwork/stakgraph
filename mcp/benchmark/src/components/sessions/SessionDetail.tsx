@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { CopyableBlock, shortId } from "../ui";
 import { MetaPill, SourceBadge } from "./SessionBadges";
+import { ConceptsPill, ConceptsPanel } from "./SessionConcepts";
 import { TurnCard } from "./TurnCard";
 import { EntryRow } from "./EntryRow";
 import { AnnotationBadge, AnnotationForm } from "../Annotations";
@@ -115,6 +117,12 @@ export function SessionDetail({
   showSessionAnnotationForm,
   setShowSessionAnnotationForm,
 }: SessionDetailProps) {
+  // Closed by default — the pill is the resting state, the list is opt-in.
+  // Collapses again when you switch sessions.
+  const [conceptsOpen, setConceptsOpen] = useState(false);
+  useEffect(() => setConceptsOpen(false), [selected?.id]);
+  const concepts = selected?.reflection?.concepts ?? [];
+
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto" }}>
       {selected ? (
@@ -232,18 +240,27 @@ export function SessionDetail({
                 )}
               </div>
             </div>
-            {(diagnostics.counts.oversized > 0 ||
+            {(concepts.length > 0 ||
+              diagnostics.counts.oversized > 0 ||
               diagnostics.counts.fallback > 0 ||
               diagnostics.counts.repeat > 0 ||
               diagnostics.counts.empty > 0) && (
               <div
                 style={{
                   display: "flex",
+                  alignItems: "center",
                   gap: "8px",
                   flexWrap: "wrap",
                   marginTop: "8px",
                 }}
               >
+                {concepts.length > 0 && (
+                  <ConceptsPill
+                    count={concepts.length}
+                    open={conceptsOpen}
+                    onToggle={() => setConceptsOpen((v) => !v)}
+                  />
+                )}
                 {(
                   [
                     {
@@ -287,6 +304,9 @@ export function SessionDetail({
                     </span>
                   ))}
               </div>
+            )}
+            {conceptsOpen && selected.reflection && concepts.length > 0 && (
+              <ConceptsPanel reflection={selected.reflection} />
             )}
             <div
               style={{

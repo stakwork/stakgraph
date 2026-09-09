@@ -50,6 +50,9 @@ pub enum Error {
     #[error("Dependency error: {0}")]
     Dependency(String),
 
+    #[error("Read-only violation: {0}")]
+    ReadOnlyViolation(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 

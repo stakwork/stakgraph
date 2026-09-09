@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import type { ConceptServices } from "../services.js";
 import type {
   Concept,

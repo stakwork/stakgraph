@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { Concept, PRRecord, CommitRecord } from "../types.js";
 import { Storage } from "./index.js";
 
@@ -99,6 +100,36 @@ export function generateSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+/**
+ * Compute the node_key jarvis would assign this Concept.
+ *
+ * Jarvis's create-or-merge resolves nodes by
+ * `MERGE (node:Concept:Node {node_key, namespace})` — never by our `id`
+ * slug — so a Concept written here without a node_key is invisible to it,
+ * and any jarvis-side write of the "same" concept forks a duplicate node.
+ * Stamping the key (and the :Node label) at save time gives both writers
+ * one identity.
+ *
+ * This must reproduce jarvis's `sanitize_node_key` + `_compose_node_key`
+ * (api/helper/schema_validation.py) byte-for-byte, since the value is
+ * matched by equality and covered by a (node_key, namespace) uniqueness
+ * constraint. Its steps for the `concept-name` key: trim, remove spaces,
+ * lowercase, strip anything outside [a-zA-Z0-9\s], prefix "concept-";
+ * past 200 chars the value portion is replaced by the first 32 hex chars
+ * of its sha256. Verified against 670 jarvis-written keys in prod.
+ */
+export function jarvisConceptNodeKey(name: string): string {
+  const value = name
+    .trim()
+    .replace(/ /g, "")
+    .toLowerCase()
+    .replace(/[^a-zA-Z0-9\s]/g, "");
+  const composed = `concept-${value}`;
+  if (composed.length <= 200) return composed;
+  const digest = createHash("sha256").update(value, "utf-8").digest("hex");
+  return `concept-${digest.slice(0, 32)}`;
 }
 
 /**

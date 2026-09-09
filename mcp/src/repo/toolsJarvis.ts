@@ -1,6 +1,9 @@
-import { tool, Tool, ToolLoopAgent, stepCountIs } from "ai";
+import { tool, Tool, ToolLoopAgent, stepCountIs, type StepResult, type ToolSet } from "ai";
 import { z } from "zod";
 import axios from "axios";
+import { randomUUID } from "crypto";
+import PQueueModule from "p-queue";
+const PQueue = (PQueueModule as any).default ?? PQueueModule;
 import {
   getModelDetails,
   getProviderOptions,
@@ -9,7 +12,29 @@ import {
 import {
   extractFinalAnswer,
   createHasEndMarkerCondition,
+  extractMessagesFromSteps,
+  hitStepCap,
+  logStep,
 } from "./utils.js";
+import {
+  createSession,
+  appendMessages,
+  appendStepMeta,
+  appendSessionEnd,
+  mergeReflection,
+  type StepMeta,
+} from "./session.js";
+import { emitUserTurn, emitStepTurns } from "./turns.js";
+import {
+  withConceptCollection,
+  normalizeConceptReads,
+  type ConceptCollector,
+} from "./concepts.js";
+import {
+  addUsage,
+  normalizeUsage,
+  withProviderCacheUsage,
+} from "../aieo/src/usage.js";
 
 function appendNamespace(params: URLSearchParams, namespace?: string): void {
   if (namespace && namespace.length > 0) {
@@ -17,46 +42,187 @@ function appendNamespace(params: URLSearchParams, namespace?: string): void {
   }
 }
 
-async function jarvisFetch(url: string, headers: Record<string, string>) {
-  const resp = await axios.get(url, { headers, validateStatus: () => true, responseType: "text" });
-  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
-  return {
-    ok: resp.status >= 200 && resp.status < 300,
-    status: resp.status,
-    text: async () => text,
-    json: async () => JSON.parse(text) as unknown,
-  };
+/**
+ * Default Jarvis HTTP request timeout in milliseconds.
+ * Override with the JARVIS_HTTP_TIMEOUT_MS environment variable.
+ */
+const DEFAULT_JARVIS_TIMEOUT_MS = 180_000;
+
+function getJarvisTimeoutMs(): number {
+  const raw = process.env.JARVIS_HTTP_TIMEOUT_MS;
+  if (raw) {
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_JARVIS_TIMEOUT_MS;
+}
+
+/** Options shared by jarvisFetch and jarvisMutate. */
+interface JarvisRequestOpts {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Classify an axios error as "timeout" (ECONNABORTED — the axios timeout
+ * deadline fired) or "aborted" (ERR_CANCELED — an AbortSignal fired).
+ * Returns null when the error is neither.
+ */
+function classifyAxiosError(err: any): "timeout" | "aborted" | null {
+  if (!err) return null;
+  const code = err?.code ?? "";
+  if (code === "ECONNABORTED") return "timeout";
+  if (code === "ERR_CANCELED") return "aborted";
+  // Fallback: inspect the message for signal-abort strings.
+  if (typeof err?.message === "string" && err.message.includes("canceled")) return "aborted";
+  return null;
+}
+
+async function jarvisFetch(
+  url: string,
+  headers: Record<string, string>,
+  opts?: JarvisRequestOpts,
+) {
+  const timeoutMs = opts?.timeoutMs ?? getJarvisTimeoutMs();
+  const signal = opts?.signal;
+
+  // Short-circuit immediately if the signal is already aborted.
+  if (signal?.aborted) {
+    throw Object.assign(new Error("Jarvis request aborted before start"), { code: "ERR_CANCELED" });
+  }
+
+  const startTime = Date.now();
+  try {
+    const resp = await axios.get(url, {
+      headers,
+      validateStatus: () => true,
+      responseType: "text",
+      timeout: timeoutMs,
+      signal: signal as any,
+    });
+    const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+    return {
+      ok: resp.status >= 200 && resp.status < 300,
+      status: resp.status,
+      text: async () => text,
+      json: async () => JSON.parse(text) as unknown,
+    };
+  } catch (err: any) {
+    const kind = classifyAxiosError(err);
+    const elapsed = Date.now() - startTime;
+    if (kind === "timeout") {
+      console.warn(`[jarvis] timeout after ${elapsed}ms: GET ${url}`);
+      throw Object.assign(new Error(`Jarvis request timed out after ${elapsed}ms: ${url}`), { code: "ECONNABORTED" });
+    }
+    if (kind === "aborted") {
+      console.warn(`[jarvis] aborted after ${elapsed}ms: GET ${url}`);
+      throw Object.assign(new Error(`Jarvis request aborted after ${elapsed}ms: ${url}`), { code: "ERR_CANCELED" });
+    }
+    throw err;
+  }
 }
 
 /**
  * Perform a write (POST/PUT/DELETE) against Jarvis. Mirrors `jarvisFetch` but
  * for mutations. Never throws on non-2xx (validateStatus) so the tool can
  * surface Jarvis's `errorCode`/`message` body back to the agent verbatim.
+ *
+ * IMPORTANT: Because Jarvis (Flask/gunicorn) has no cooperative cancellation,
+ * a timeout or abort may occur AFTER the write has already been applied
+ * server-side. Callers must treat such failures as "possibly-applied" and
+ * keep any retry logic idempotent (Jarvis uses MERGE semantics).
  */
 async function jarvisMutate(
   method: "post" | "put" | "delete",
   url: string,
   headers: Record<string, string>,
   body?: unknown,
+  opts?: JarvisRequestOpts,
 ) {
-  const resp = await axios.request({
-    method,
-    url,
-    headers,
-    data: body,
-    validateStatus: () => true,
-    responseType: "text",
-  });
-  const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
-  return {
-    ok: resp.status >= 200 && resp.status < 300,
-    status: resp.status,
-    text,
-  };
+  const timeoutMs = opts?.timeoutMs ?? getJarvisTimeoutMs();
+  const signal = opts?.signal;
+
+  // Short-circuit immediately if the signal is already aborted.
+  if (signal?.aborted) {
+    throw Object.assign(new Error("Jarvis mutation aborted before start"), { code: "ERR_CANCELED" });
+  }
+
+  const startTime = Date.now();
+  try {
+    const resp = await axios.request({
+      method,
+      url,
+      headers,
+      data: body,
+      validateStatus: () => true,
+      responseType: "text",
+      timeout: timeoutMs,
+      signal: signal as any,
+    });
+    const text: string = typeof resp.data === "string" ? resp.data : JSON.stringify(resp.data);
+    return {
+      ok: resp.status >= 200 && resp.status < 300,
+      status: resp.status,
+      text,
+    };
+  } catch (err: any) {
+    const kind = classifyAxiosError(err);
+    const elapsed = Date.now() - startTime;
+    if (kind === "timeout") {
+      console.warn(`[jarvis] mutation possibly-applied — timeout after ${elapsed}ms: ${method.toUpperCase()} ${url}`);
+      throw Object.assign(
+        new Error(
+          `Jarvis mutation possibly already applied — request timed out after ${elapsed}ms. ` +
+          `Retries are safe (idempotent MERGE). URL: ${url}`,
+        ),
+        { code: "ECONNABORTED" },
+      );
+    }
+    if (kind === "aborted") {
+      console.warn(`[jarvis] mutation possibly-applied — aborted after ${elapsed}ms: ${method.toUpperCase()} ${url}`);
+      throw Object.assign(
+        new Error(
+          `Jarvis mutation possibly already applied — request was aborted after ${elapsed}ms. ` +
+          `Retries are safe (idempotent MERGE). URL: ${url}`,
+        ),
+        { code: "ERR_CANCELED" },
+      );
+    }
+    throw err;
+  }
 }
 
 /** Max neighbors returned in a single hop — keeps tool output within budget. */
 const KG_NEIGHBOR_CAP = 50;
+
+/**
+ * Max ref_ids honoured by one `graph_get_batched` call. Anything beyond this is
+ * reported back as `omitted_ref_ids` rather than dropped silently, so the agent
+ * can issue a follow-up call for the remainder instead of inferring the gap.
+ */
+const KG_BATCH_GET_MAX = 50;
+
+/**
+ * In-flight node fetches per batched call. Each ref_id costs three Jarvis
+ * requests (the node, its connection-counts, its ancestors), so this is ~3x
+ * this many sockets against Jarvis at once.
+ */
+const KG_BATCH_GET_CONCURRENCY = 8;
+
+/**
+ * Hierarchy edge `graph_get` walks toward the root(s) via Jarvis
+ * `/v2/nodes/:ref_id/ancestors`. Concept/Class/Claim all use
+ * `(parent)-[:PARENT_OF]->(child)`, so the walk follows incoming edges.
+ */
+const KG_ANCESTOR_EDGE_TYPE = "PARENT_OF";
+const KG_ANCESTOR_MAX_DEPTH = 10;
+
+/**
+ * Cap on ancestor entries attached to one node. The live Concept graph tops
+ * out at 27 ancestors (depth 3), so this only bites on a pathological
+ * hierarchy; nearest ancestors are kept because Jarvis orders by depth.
+ */
+const KG_ANCESTOR_CAP = 60;
 
 /** Max length of a derived label so a single row doesn't flood the context. */
 const LABEL_MAX = 160;
@@ -86,6 +252,47 @@ export function collapseConnectionCounts(
   for (const c of counts ?? []) {
     if (!c?.edge_type) continue;
     out[c.edge_type] = (out[c.edge_type] ?? 0) + Number(c.count ?? 0);
+  }
+  return out;
+}
+
+/** One entry of the `ancestors` list attached to graph_get / graph_get_batched nodes. */
+export interface NodeAncestor {
+  ref_id: string;
+  name: string;
+  node_type: string;
+  /** Shortest hop count from the resolved node; 1 = direct parent. */
+  depth: number;
+  /** ref_ids of this ancestor's own direct parents; empty means it is a root. */
+  parents: string[];
+}
+
+/**
+ * Normalize the Jarvis `/v2/nodes/:ref_id/ancestors` payload into the compact
+ * list attached to a node. Concept PARENT_OF is many-to-many, so this is a
+ * flat DAG (each entry carries its own `parents`) rather than a single chain.
+ * Drops malformed rows, keeps Jarvis' depth-then-name ordering, and truncates
+ * at `KG_ANCESTOR_CAP` so a runaway hierarchy cannot flood the context.
+ */
+export function normalizeAncestors(data: any, cap: number = KG_ANCESTOR_CAP): NodeAncestor[] {
+  const rows: any[] = Array.isArray(data?.ancestors) ? data.ancestors : [];
+  const out: NodeAncestor[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (!r || typeof r.ref_id !== "string" || r.ref_id.length === 0) continue;
+    if (seen.has(r.ref_id)) continue;
+    seen.add(r.ref_id);
+    const depth = Number(r.depth);
+    out.push({
+      ref_id: r.ref_id,
+      name: typeof r.name === "string" ? r.name.slice(0, LABEL_MAX) : "",
+      node_type: typeof r.node_type === "string" ? r.node_type : "unknown",
+      depth: Number.isFinite(depth) && depth >= 1 ? depth : 1,
+      parents: Array.isArray(r.parents)
+        ? r.parents.filter((p: unknown): p is string => typeof p === "string" && p.length > 0)
+        : [],
+    });
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -151,7 +358,7 @@ function deriveNodeName(node: any, properties: Record<string, any>): string {
 // re-verification.
 export interface OntologyNodeType {
   type: string;
-  domain: string | null;
+  /** Domain is conveyed by the grouping key in `node_types[<domain>]`; null-domain types land in the "ungrouped" bucket. */
   description: string;
   attributes?: Record<string, string>;
   inherited_attributes?: Record<string, string>;
@@ -174,7 +381,8 @@ export interface OntologyPayload {
  * enriched ontology payload that `get_ontology` returns.
  *
  * - Filters out `type === "*"` and `is_deleted` schema entries.
- * - Lowercases the per-entry `domain` so it matches `graph_search`'s `domains` param.
+ * - Lowercases each schema entry's domain locally for grouping and `domains` derivation
+ *   (not emitted per entry — domain is conveyed by the `node_types[<domain>]` key).
  * - Groups node types by domain; null-domain types land in the `"ungrouped"` bucket.
  * - `domains` list is the distinct, non-null, lowercased, sorted set.
  * - Edges are omitted by default (they dominate the payload); pass
@@ -188,32 +396,39 @@ export function buildOntologyPayload(
   const schemas: any[] = schemaData?.schemas ?? [];
   const rawEdges: any[] = schemaData?.edges ?? [];
 
-  // Build node type list
-  const nodeTypes: OntologyNodeType[] = schemas
+  // Build node type list; compute lowercased domain locally for grouping only (not emitted per entry)
+  type SchemaWithDomain = OntologyNodeType & { _domain: string | null };
+  const nodeTypes: SchemaWithDomain[] = schemas
     .filter((s: any) => s.type && s.type !== "*" && !s.is_deleted)
-    .map((s: any) => ({
-      type: s.type as string,
-      domain: s.domain ? (s.domain as string).toLowerCase() : null,
-      description: (s.description as string) ?? "",
-      ...(includeAttributes && {
-        attributes: (s.attributes ?? {}) as Record<string, string>,
-        inherited_attributes: (s.inherited_attributes ?? {}) as Record<string, string>,
-      }),
-    }));
+    .map((s: any) => {
+      const td = (s.type_description as string) ?? "";
+      const desc = (s.description as string) ?? "";
+      const description = td.trim() !== "" ? td : desc;
+      const _domain = s.domain ? (s.domain as string).toLowerCase() : null;
+      return {
+        type: s.type as string,
+        _domain,
+        description,
+        ...(includeAttributes && {
+          attributes: (s.attributes ?? {}) as Record<string, string>,
+          inherited_attributes: (s.inherited_attributes ?? {}) as Record<string, string>,
+        }),
+      };
+    });
 
   // Derive canonical domains list (distinct, non-null, sorted)
   const domainsSet = new Set<string>();
   for (const nt of nodeTypes) {
-    if (nt.domain !== null) domainsSet.add(nt.domain);
+    if (nt._domain !== null) domainsSet.add(nt._domain);
   }
   const domains = Array.from(domainsSet).sort();
 
-  // Group node types by domain (null → "ungrouped")
+  // Group node types by domain (null → "ungrouped"); strip the internal _domain field before emitting
   const grouped: Record<string, OntologyNodeType[]> = {};
-  for (const nt of nodeTypes) {
-    const key = nt.domain ?? "ungrouped";
+  for (const { _domain, ...entry } of nodeTypes) {
+    const key = _domain ?? "ungrouped";
     if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(nt);
+    grouped[key].push(entry as OntologyNodeType);
   }
 
   if (!includeEdges) {
@@ -240,11 +455,48 @@ export function buildOntologyPayload(
   return { domains, node_types: grouped, edges };
 }
 
+/**
+ * Fields of a single `/v2/schema/<type>` response that `get_ontology_type`
+ * forwards to the model. Everything else the endpoint returns is either UI
+ * chrome (icon, shape, primary_color, secondary_color), a key the agent never
+ * addresses a node by (ref_id, node_key, title_key, description_key, index),
+ * or already available from `get_ontology` (type, domain, parent, description,
+ * type_description) — together ~65% of the response.
+ *
+ * `inherited_attributes` is dropped too: on THIS endpoint `attributes` is the
+ * complete own+inherited set and `inherited_attributes` is an overlapping
+ * read-only view of the inherited subset, so it is pure duplication (verified
+ * as a strict subset across every observed response).
+ *
+ * WARNING: the bulk `/v2/schema` endpoint behind `get_ontology` does NOT share
+ * this shape — there the two buckets are non-overlapping (`attributes` is
+ * own-only), so applying the same trim in buildOntologyPayload would silently
+ * drop every inherited field. See the note above OntologyNodeType.
+ */
+export const ONTOLOGY_TYPE_FIELDS = ["attributes"] as const;
+
+/**
+ * Pure transform: trim a raw `/v2/schema/<type>` response down to the attribute
+ * schema the model actually reasons about.
+ *
+ * If NEITHER field is present the raw object is returned untouched, so an
+ * unexpected response shape stays debuggable rather than being flattened into
+ * `{}` — which the model would read as "this type has no attributes" and act on.
+ */
+export function buildOntologyTypePayload(data: any): any {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const kept: Record<string, any> = {};
+  for (const f of ONTOLOGY_TYPE_FIELDS) {
+    if (data[f] !== undefined) kept[f] = data[f];
+  }
+  return Object.keys(kept).length > 0 ? kept : data;
+}
+
 /** Default recursion depth for nested `graph_sub_agent` spawning. */
 const DEFAULT_SUBAGENT_MAX_DEPTH = 2;
 
 /** Default tool-loop step cap for a single sub-agent run. */
-const DEFAULT_SUBAGENT_MAX_STEPS = 20;
+const DEFAULT_SUBAGENT_MAX_STEPS = 1000;
 
 /**
  * Config for the recursive `graph_sub_agent` tool. When present (see
@@ -269,6 +521,16 @@ export interface JarvisSubAgentConfig {
   baseUrl?: string;
   headers?: Record<string, string>;
   /**
+   * Session id of the agent that owns this tool. When set, each sub-agent run
+   * is persisted as a first-class session (`<parentSessionId>-sub-<rand>`)
+   * with a `parent_session_id` link, so it shows up in /sessions like any
+   * other run. When unset (parent runs without session persistence),
+   * sub-agent runs are not persisted either.
+   */
+  parentSessionId?: string;
+  /** Repo label stamped on persisted sub-agent sessions. */
+  repo?: string;
+  /**
    * Current recursion depth. Internal — callers should leave this unset (0);
    * it is incremented automatically as sub-agents spawn sub-agents.
    */
@@ -291,22 +553,49 @@ export interface JarvisToolsOptions {
    */
   ontologyEdit?: boolean;
   /**
-   * When true, registers the `create_triplet` graph DATA write tool, which
-   * asserts source -[edge]-> target instance facts (creating/merging nodes as
-   * needed) via Jarvis `/v2/nodes` + `/v2/edges`. Distinct from `ontologyEdit`
-   * (schema writes). Opt-in and off by default.
+   * When true, registers the graph DATA write tools: `create_triplet` /
+   * `create_batch_triplet` (assert source -[edge]-> target instance facts,
+   * creating/merging nodes as needed), `create_node` (create/merge a single
+   * node without an edge) and `edit_node` (partial-update an existing node by
+   * ref_id) — all via Jarvis `/v2/nodes` + `/v2/edges`. Distinct from
+   * `ontologyEdit` (schema writes). Opt-in and off by default.
    */
   graphWrite?: boolean;
+  /**
+   * Comma-separated ontology domains to scope `get_ontology` to when the model
+   * omits the `domains` argument (e.g. "Legal,Entity,Content"). Set from the
+   * `ontologyDomains` request field so a legal-only session never pays for the
+   * CodeArtifact and Workflow halves of the ontology.
+   *
+   * Omit to send no `domains` to Jarvis at all, leaving every domain available.
+   * A model-supplied `domains` always wins over this default. Jarvis
+   * `/v2/schema` applies the filter to BOTH `schemas` and `edges`, so this
+   * trims the edge list too (edges are ~80% of the payload).
+   */
+  defaultDomains?: string;
+  /**
+   * The run's AbortSignal (from the per-run AbortController). When set, every
+   * Jarvis HTTP call (reads and writes) will be cancelled when this signal
+   * fires — e.g. via the [busy] safety-timeout or /repo/agent/abort endpoint.
+   */
+  abortSignal?: AbortSignal;
+  /**
+   * Per-request Jarvis HTTP timeout in milliseconds. Overrides the
+   * JARVIS_HTTP_TIMEOUT_MS environment variable for this registration.
+   */
+  timeoutMs?: number;
 }
 
 const DEFAULT_SUBAGENT_DESCRIPTION =
   "Spawn a focused child agent to explore the Jarvis knowledge graph and report back. " +
-  "The child has its own copy of the graph tools (get_ontology, get_ontology_type, graph_search, graph_get, graph_neighbors) " +
+  "The child has its own copy of the graph tools (get_ontology, get_ontology_type, graph_search, graph_get, graph_get_batched, graph_neighbors) " +
   "and runs an independent exploration loop, returning a synthesized text summary of its findings. " +
   "Use this to parallelize or delegate: after you locate a few key nodes, fan out one sub-agent per " +
   "node/subtopic with a specific, self-contained prompt (include the relevant ref_ids and exactly what " +
   "to find), then collate their answers. Each prompt must stand alone — the child does not see this " +
-  "conversation. Prefer a handful of targeted sub-agents over one broad one.";
+  "conversation. Prefer a handful of targeted sub-agents over one broad one. " +
+  "Do NOT spawn sub-agents merely to fetch a list of ref_ids — that is what graph_get_batched is for. " +
+  "Delegate reasoning and open-ended search, not bulk retrieval.";
 
 /** System prompt for a spawned graph exploration sub-agent. */
 const GRAPH_SUBAGENT_SYSTEM = `You are a focused knowledge-graph exploration sub-agent. A parent agent has delegated a specific exploration task to you. Answer ONLY the task you were given — do not expand scope.
@@ -315,8 +604,9 @@ You traverse a knowledge graph of interconnected entities (people, topics, episo
 - \`get_ontology\` — list node types (grouped by domain) and valid \`domains\`. Call FIRST if you don't already know the relevant types.
 - \`get_ontology_type\` — fetch the full schema for a single node type (attributes + required/optional). Use when you need field-level detail for one type instead of the whole ontology.
 - \`graph_search\` — keyword search. Returns compact results (ref_id, name, node_type, description, edges). Scope with \`type\`/\`domains\`, and \`namespace\` (data partition) when one applies.
+- \`graph_get_batched\` — resolve up to ${KG_BATCH_GET_MAX} ref_ids in ONE call. Always use this instead of calling \`graph_get\` repeatedly.
 - \`graph_neighbors\` — nodes one hop away, with \`edge_type\` and \`direction\`. This is how you follow relationships.
-- \`graph_get\` — resolve a single ref_id to its full content.
+- \`graph_get\` — resolve a single ref_id to its full content (plus \`ancestors\`, its PARENT_OF hierarchy up to the root, when it has one).
 - \`graph_sub_agent\` (only if available) — delegate an even more focused subtask to a further child agent.
 
 Workflow:
@@ -339,6 +629,9 @@ function registerGraphSubAgentTool(
   allTools: Record<string, Tool<any, any>>,
   sub: JarvisSubAgentConfig,
   depth: number,
+  defaultDomains?: string,
+  parentAbortSignal?: AbortSignal,
+  parentTimeoutMs?: number,
 ): void {
   allTools.graph_sub_agent = tool({
     description: sub.description ?? DEFAULT_SUBAGENT_DESCRIPTION,
@@ -351,37 +644,239 @@ function registerGraphSubAgentTool(
           "The child cannot see this conversation.",
         ),
     }),
-    execute: async ({ prompt }: { prompt: string }) => {
+    execute: async ({ prompt }: { prompt: string }, options?: { toolCallId?: string }) => {
       const childTools: Record<string, Tool<any, any>> = {};
+      // Persist the child run as its own session (linked to the parent) only
+      // when the parent itself is session-backed. Grandchildren link to the
+      // child, giving a full chain back to the top-level session.
+      const childSessionId = sub.parentSessionId
+        ? `${sub.parentSessionId}-sub-${randomUUID().slice(0, 8)}`
+        : undefined;
       // Recurse with depth+1 so nested sub-agents stop at maxDepth.
       registerJarvisTools(childTools, {
-        subAgent: { ...sub, depth: depth + 1 },
+        subAgent: { ...sub, depth: depth + 1, parentSessionId: childSessionId },
+        // Children inherit the parent's ontology scope; otherwise a sub-agent's
+        // get_ontology would pull the full unfiltered payload back in.
+        defaultDomains,
+        // Thread the parent's abort signal so aborting the parent also cancels
+        // any in-flight Jarvis calls made by this child agent.
+        abortSignal: parentAbortSignal,
+        timeoutMs: parentTimeoutMs,
       });
 
+      // Record every Concept whose body a child tool hands back, exactly like
+      // the top-level run in agent.ts. Reads persist deterministically in
+      // endSession; sub-agents never get a reflect/ranking pass.
+      const conceptCollector: ConceptCollector = { reads: [] };
+      const runTools = withConceptCollection(childTools, conceptCollector);
+
+      if (childSessionId) {
+        // The toolCallId is the exact link back to the parent's Turn chain:
+        // the parent's `graph_sub_agent` tool_call turn carries the same id.
+        // It must be captured here because that Turn does not exist yet — a
+        // step's turns are emitted when the step finishes, which is after
+        // this child has already run to completion.
+        createSession(
+          childSessionId,
+          GRAPH_SUBAGENT_SYSTEM,
+          "graph_sub_agent",
+          sub.repo,
+          sub.parentSessionId,
+          undefined,
+          options?.toolCallId,
+        );
+        emitUserTurn(childSessionId, "graph_sub_agent", {
+          role: "user",
+          content: prompt,
+        });
+      }
+
+      const startTime = Date.now();
+      let lastStepTime = startTime;
+      const stepMetas: StepMeta[] = [];
+      // Incremental capture of every finished StepResult for error-path transcript
+      // recovery. On throw, capturedSteps lets us reconstruct the transcript via
+      // extractMessagesFromSteps without waiting for agent.generate to resolve.
+      // Fidelity notes (all three are load-bearing — see the catch block):
+      //   (a) Only *completed* steps are captured; the in-flight step whose model
+      //       call throws mid-request is not represented in any StepResult, so
+      //       recovery reflects completed steps only, not the failing one.
+      //   (b) extractMessagesFromSteps reads steps[steps.length - 1].response.messages
+      //       which is cumulative within a single agent.generate call. This gives
+      //       full fidelity (verbatim tool-call inputs + reasoning). By contrast,
+      //       Turn-chain reconstruction caps every tool_result at
+      //       TOOL_RESULT_MAX_CHARS = 100 chars (turns.ts ~line 40), losing detail.
+      //   (c) Recovery is correct only because graph_sub_agent makes exactly ONE
+      //       agent.generate call per run. If continuation logic (multiple generate
+      //       calls, as in repo/agent.ts's get_context) is ever added here, the
+      //       last-step-only extraction would silently drop earlier segments.
+      const capturedSteps: StepResult<ToolSet>[] = [];
+      let cumInput = 0;
+      let cumOutput = 0;
+      let modelId = "";
+      let provider: string | undefined;
+
+      const endSession = async (
+        status: "success" | "error",
+        errorMessage?: string,
+      ) => {
+        if (!childSessionId) return;
+        // Best-effort, like reflectOnConcepts' read-only path: a failure here
+        // must never eat the child's answer or its session-end record.
+        if (conceptCollector.reads.length > 0) {
+          try {
+            const concepts = await normalizeConceptReads(
+              conceptCollector.reads,
+              sub.repo,
+            );
+            if (concepts.length > 0) {
+              mergeReflection(childSessionId, {
+                concepts: concepts.map((c) => ({
+                  id: c.id,
+                  ref_id: c.ref_id,
+                  repo: c.repo,
+                  name: c.name,
+                  rank: null,
+                })),
+              });
+            }
+          } catch (e) {
+            console.error("[concepts] could not record sub-agent concept reads:", e);
+          }
+        }
+        appendStepMeta(childSessionId, stepMetas);
+        await appendSessionEnd(childSessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status,
+          error_message: errorMessage,
+          token_usage:
+            stepMetas.length > 0
+              ? normalizeUsage(addUsage(...stepMetas.map((s) => s.usage)))
+              : undefined,
+        });
+      };
+
       try {
-        const { model, provider, modelId } = getModelDetails(
+        // parentAbortSignal is the run's AbortSignal (threaded via
+        // JarvisToolsOptions.abortSignal, including through recursive
+        // grandchild registrations) — aborting the parent run cancels
+        // in-flight sub-agent model calls too.
+        const details = getModelDetails(
           sub.modelName,
           sub.apiKey,
           sub.baseUrl,
           sub.headers,
+          parentAbortSignal,
         );
+        const model = details.model;
+        provider = details.provider;
+        modelId = details.modelId;
         const maxSteps = sub.maxSteps ?? DEFAULT_SUBAGENT_MAX_STEPS;
-        const hasEndMarker = createHasEndMarkerCondition<typeof childTools>();
+        const hasEndMarker = createHasEndMarkerCondition<typeof runTools>();
         const agent = new ToolLoopAgent({
           model,
           instructions: GRAPH_SUBAGENT_SYSTEM,
-          tools: childTools,
-          providerOptions: getProviderOptions(provider, undefined, modelId) as any,
+          tools: runTools,
+          providerOptions: getProviderOptions(details.provider, undefined, modelId) as any,
           stopWhen: maxSteps > 0 ? [hasEndMarker, stepCountIs(maxSteps)] : hasEndMarker,
           stopSequences: ["[END_OF_ANSWER]"],
+          onStepFinish: (sf) => {
+            if (!childSessionId) return;
+            const now = Date.now();
+            const elapsedMs = now - lastStepTime;
+            lastStepTime = now;
+            logStep(sf.content, childSessionId, elapsedMs);
+            emitStepTurns(childSessionId, "graph_sub_agent", sf.content);
+            const u = withProviderCacheUsage(
+              normalizeUsage(sf.usage),
+              sf.providerMetadata as Record<string, any> | undefined,
+            );
+            cumInput += u.inputTokens ?? 0;
+            cumOutput += u.outputTokens ?? 0;
+            stepMetas.push({
+              step: stepMetas.length,
+              turn: 1,
+              finishReason: sf.finishReason,
+              rawFinishReason: sf.rawFinishReason,
+              usage: u,
+              cumulativeInput: cumInput,
+              cumulativeOutput: cumOutput,
+              toolCalls: (sf.toolCalls ?? []).map(
+                (tc: { toolName: string }) => tc.toolName,
+              ),
+              timestamp: new Date().toISOString(),
+              sessionId: childSessionId,
+              elapsedMs,
+            });
+            // Capture the full StepResult for error-path transcript recovery
+            // (see capturedSteps declaration above for fidelity tradeoffs).
+            capturedSteps.push(sf);
+          },
         });
         console.log(
-          `[graph_sub_agent] depth=${depth + 1} spawning child: ${prompt.slice(0, 200)}`,
+          `[graph_sub_agent] depth=${depth + 1}${childSessionId ? ` session=${childSessionId}` : ""} spawning child: ${prompt.slice(0, 200)}`,
         );
         const result = await agent.generate({ prompt });
+        if (childSessionId) {
+          appendMessages(
+            childSessionId,
+            extractMessagesFromSteps({ role: "user", content: prompt }, result.steps),
+          );
+        }
+        await endSession("success");
         const final = extractFinalAnswer(result.steps);
-        return final.answer || "Sub-agent returned no findings.";
+        const answer = final.answer || "Sub-agent returned no findings.";
+        // A child cut off by the step cap never reaches its synthesis turn, so
+        // `answer` here is intermediate working notes that read exactly like a
+        // finished report. Say so, or the parent folds partial coverage into its
+        // findings as though it were complete.
+        if (!hitStepCap(result.steps, maxSteps)) return answer;
+        console.warn(
+          `[graph_sub_agent] PARTIAL: ${childSessionId ?? "child"} hit the ${maxSteps}-step cap mid-investigation`,
+        );
+        return (
+          `[PARTIAL — this sub-agent hit its ${maxSteps}-step limit mid-investigation and never ` +
+          `reached a synthesis step. What follows is its intermediate working notes, NOT a ` +
+          `complete answer: coverage is incomplete and nothing below should be treated as ` +
+          `exhaustive or as a negative finding. Re-delegate a narrower subtask if you need ` +
+          `full coverage of this area.]\n\n${answer}`
+        );
       } catch (err: any) {
+        // Best-effort transcript recovery: persist whatever completed steps we
+        // captured before the throw, so the .jsonl is not left with only the
+        // initial user message. Wrapped in its own try/catch — a recovery
+        // failure must never mask the original error or prevent endSession.
+        // See capturedSteps declaration above for the three fidelity tradeoffs
+        // that make this safe without over-promising completeness.
+        try {
+          if (childSessionId && capturedSteps.length > 0) {
+            const recovered = extractMessagesFromSteps(
+              { role: "user", content: prompt },
+              capturedSteps,
+              // No sessionConfig/truncation arg — matches the success path at
+              // ~line 765 which also omits it, keeping recovery symmetric
+              // (full-fidelity, untruncated tool results).
+            );
+            appendMessages(childSessionId, recovered);
+            console.warn(
+              `[graph_sub_agent] recovered ${recovered.length} transcript messages for failed child ${childSessionId}`,
+            );
+          } else if (childSessionId) {
+            // Zero completed steps: nothing to reconstruct. This is the
+            // documented lower bound — the agent threw before any StepResult
+            // was emitted (e.g. model call failed before first response).
+            console.warn(
+              `[graph_sub_agent] failed child ${childSessionId} had no completed steps to recover; transcript contains only the initial user message`,
+            );
+          }
+        } catch (recoveryErr) {
+          // Recovery is best-effort: log and continue to endSession.
+          console.error("[graph_sub_agent] transcript recovery failed (non-fatal):", recoveryErr);
+        }
+        await endSession("error", err?.message ?? String(err));
         return `graph_sub_agent failed: ${err?.message ?? String(err)}`;
       }
     },
@@ -421,6 +916,7 @@ function registerOntologyWriteTools(
   allTools: Record<string, Tool<any, any>>,
   jarvisUrl: string,
   jarvisHeaders: Record<string, string>,
+  reqOpts?: JarvisRequestOpts,
 ): void {
   const schemaUrl = `${jarvisUrl}/v2/schema`;
 
@@ -465,7 +961,7 @@ function registerOntologyWriteTools(
     }) => {
       console.log(`[ontology_create_type] type=${input.type} parent=${input.parent}`);
       try {
-        const res = await jarvisMutate("post", schemaUrl, jarvisHeaders, input);
+        const res = await jarvisMutate("post", schemaUrl, jarvisHeaders, input, reqOpts);
         return formatMutationResult(`create node type '${input.type}'`, res);
       } catch (err: any) {
         return `ontology_create_type failed: ${err?.message ?? String(err)}`;
@@ -502,7 +998,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_update_type] ref_id=${ref_id}`);
       try {
         const url = `${schemaUrl}/${encodeURIComponent(ref_id)}`;
-        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        const res = await jarvisMutate("put", url, jarvisHeaders, body, reqOpts);
         return formatMutationResult(`update node type ${ref_id}`, res);
       } catch (err: any) {
         return `ontology_update_type failed: ${err?.message ?? String(err)}`;
@@ -524,7 +1020,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_delete_type] ${ref_id_or_type}`);
       try {
         const url = `${schemaUrl}/${encodeURIComponent(ref_id_or_type)}`;
-        const res = await jarvisMutate("delete", url, jarvisHeaders);
+        const res = await jarvisMutate("delete", url, jarvisHeaders, undefined, reqOpts);
         return formatMutationResult(`delete node type '${ref_id_or_type}'`, res);
       } catch (err: any) {
         return `ontology_delete_type failed: ${err?.message ?? String(err)}`;
@@ -570,7 +1066,7 @@ function registerOntologyWriteTools(
       );
       try {
         const url = `${schemaUrl}/edge`;
-        const res = await jarvisMutate("post", url, jarvisHeaders, input);
+        const res = await jarvisMutate("post", url, jarvisHeaders, input, reqOpts);
         return formatMutationResult(
           `create edge '${input.source}-[${input.edge_type}]->${input.target}'`,
           res,
@@ -608,7 +1104,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_update_edge] ref_id=${ref_id}`);
       try {
         const url = `${schemaUrl}/edge/${encodeURIComponent(ref_id)}`;
-        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        const res = await jarvisMutate("put", url, jarvisHeaders, body, reqOpts);
         return formatMutationResult(`update edge ${ref_id}`, res);
       } catch (err: any) {
         return `ontology_update_edge failed: ${err?.message ?? String(err)}`;
@@ -627,7 +1123,7 @@ function registerOntologyWriteTools(
       console.log(`[ontology_delete_edge] ref_id=${ref_id}`);
       try {
         const url = `${schemaUrl}/edge/${encodeURIComponent(ref_id)}`;
-        const res = await jarvisMutate("delete", url, jarvisHeaders);
+        const res = await jarvisMutate("delete", url, jarvisHeaders, undefined, reqOpts);
         return formatMutationResult(`delete edge ${ref_id}`, res);
       } catch (err: any) {
         return `ontology_delete_edge failed: ${err?.message ?? String(err)}`;
@@ -656,7 +1152,7 @@ function registerOntologyWriteTools(
       );
       try {
         const url = `${schemaUrl}/${encodeURIComponent(ref_id)}/attribute`;
-        const res = await jarvisMutate("put", url, jarvisHeaders, body);
+        const res = await jarvisMutate("put", url, jarvisHeaders, body, reqOpts);
         return formatMutationResult(
           `rename attribute '${input.current_attribute}'→'${input.new_attribute}' on ${ref_id}`,
           res,
@@ -700,6 +1196,82 @@ export function validateTripletSide(
 }
 
 /**
+ * Build a stable dedup key for an inline node side so identical sides across a
+ * batch collapse to a single resolution call. Key = node_type + canonical JSON
+ * of node_data with object keys sorted recursively — key order in node_data is
+ * ignored, matching Jarvis's own identity semantics.
+ */
+export function buildNodeDedupKey(
+  nodeType: string,
+  nodeData: Record<string, any>,
+): string {
+  function sortedJson(v: any): any {
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return v;
+    const sorted: Record<string, any> = {};
+    for (const k of Object.keys(v).sort()) {
+      sorted[k] = sortedJson(v[k]);
+    }
+    return sorted;
+  }
+  return `${nodeType}::${JSON.stringify(sortedJson(nodeData))}`;
+}
+
+/**
+ * Resolved triplet for the edge pass — all three fields are guaranteed
+ * non-empty when the triplet reaches this stage.
+ */
+export interface ResolvedTriplet {
+  /** original input index */
+  index: number;
+  source_ref_id: string;
+  target_ref_id: string;
+  edge_type: string;
+  edge_data?: Record<string, any>;
+  weight?: number;
+  create_schema_if_missing: boolean;
+}
+
+/**
+ * Match returned edges from the bulk `POST /v2/edges` response back to the
+ * originating triplets.  Matching key = (source_ref_id, target_ref_id,
+ * edge_type).  Each returned edge is consumed **at most once** in input order
+ * so duplicate keys (same triple but different edge_data/weight) are
+ * disambiguated deterministically.
+ *
+ * Returns `{ matched: Map<index, edgeRefId>, unmatched: ResolvedTriplet[] }`.
+ */
+export function matchEdgeResults(
+  triplets: ResolvedTriplet[],
+  returnedEdges: Array<{ ref_id: string; source?: string; target?: string; edge_type?: string }>,
+): { matched: Map<number, string>; unmatched: ResolvedTriplet[] } {
+  // Build a pool of returned edges grouped by (src, tgt, edge_type) key.
+  // Each pool entry is a queue; we shift() one per matched triplet so each
+  // returned edge is consumed at most once.
+  const pool = new Map<string, string[]>();
+  for (const e of returnedEdges) {
+    if (!e?.ref_id) continue;
+    const key = `${e.source ?? ""}|${e.target ?? ""}|${e.edge_type ?? ""}`;
+    if (!pool.has(key)) pool.set(key, []);
+    pool.get(key)!.push(e.ref_id);
+  }
+
+  const matched = new Map<number, string>();
+  const unmatched: ResolvedTriplet[] = [];
+
+  for (const t of triplets) {
+    const key = `${t.source_ref_id}|${t.target_ref_id}|${t.edge_type}`;
+    const queue = pool.get(key);
+    if (queue && queue.length > 0) {
+      matched.set(t.index, queue.shift()!);
+    } else {
+      unmatched.push(t);
+    }
+  }
+
+  return { matched, unmatched };
+}
+
+/**
  * Pull the created/merged node ref_id out of a Jarvis `POST /v2/nodes`
  * response body. Both plain success and the "Node already exists in the graph"
  * warning carry `data.ref_id` (merge semantics); anything else is a failure.
@@ -720,8 +1292,10 @@ export function extractEdgeRefId(body: any): string | undefined {
 }
 
 /**
- * Register the graph DATA write tool (`create_triplet`): assert a fact as
- * source -[edge]-> target instance data (not schema). Gated by
+ * Register the graph DATA write tools: `create_triplet`/`create_batch_triplet`
+ * (assert a fact as source -[edge]-> target instance data, not schema),
+ * `create_node` (create/merge one node without an edge) and `edit_node`
+ * (partial-update an existing node by ref_id). Gated by
  * `JarvisToolsOptions.graphWrite`.
  *
  * Inline nodes are pre-created via `POST /v2/nodes` and the edge is then
@@ -734,6 +1308,7 @@ function registerGraphWriteTools(
   allTools: Record<string, Tool<any, any>>,
   jarvisUrl: string,
   jarvisHeaders: Record<string, string>,
+  reqOpts?: JarvisRequestOpts,
 ): void {
   allTools.create_triplet = tool({
     description:
@@ -744,7 +1319,12 @@ function registerGraphWriteTools(
       "REUSE existing nodes wherever possible: search first, and only create inline when the entity " +
       "genuinely doesn't exist yet — duplicate nodes fragment the graph. " +
       "Node types and the edge type must already exist in the ontology (check with get_ontology); " +
-      "create_schema_if_missing auto-creates a missing edge schema as a last resort.",
+      "create_schema_if_missing auto-creates a missing edge schema as a last resort. " +
+      "WILDCARD EDGE MATCHING: when checking source_type/target_type against get_ontology's edges for validity, " +
+      "an edge entry with \"*\" on either side matches any concrete type on that side — do not require an exact string match. " +
+      "IMPORTANT: \"*\" is valid to SEE in get_ontology's edge output, but is NEVER a valid value to SUPPLY as " +
+      "source_type or target_type when calling create_triplet — supplying \"*\" would create a node of type \"*\", " +
+      "which is an unintended backend sentinel, not a real node type.",
     inputSchema: z.object({
       source_ref_id: z
         .string()
@@ -803,13 +1383,24 @@ function registerGraphWriteTools(
         .default(false)
         .describe(
           "Auto-create the edge schema when the (source_type, edge_type, target_type) relationship " +
-          "is not yet in the ontology. Last resort — prefer defining it deliberately with ontology_create_edge.",
+          "is not yet in the ontology. Last resort — prefer defining it deliberately with ontology_create_edge. " +
+          "Before enabling, check get_ontology's edges for an existing wildcard (\"*\") rule covering the same " +
+          "edge_type — a wildcard schema already matches any concrete type pair, so creating a new concrete-type " +
+          "schema on top of it would produce a redundant, overlapping rule.",
         ),
       namespace: z
         .string()
         .optional()
         .describe(
           "Jarvis namespace (data partition) for inline node creation. Not an access-control boundary.",
+        ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt in to Jarvis's scratchpad fallback: when a node write is rejected (unknown node type, " +
+          "data that fails schema validation) the payload is preserved as a ScratchpadEntry instead of " +
+          "returning a 400, and the response comes back with status \"scratchpad\". Off by default.",
         ),
     }),
     execute: async (input: {
@@ -824,6 +1415,7 @@ function registerGraphWriteTools(
       weight?: number;
       create_schema_if_missing?: boolean;
       namespace?: string;
+      allow_scratchpad?: boolean;
     }) => {
       const {
         source_ref_id,
@@ -837,6 +1429,7 @@ function registerGraphWriteTools(
         weight,
         create_schema_if_missing = false,
         namespace,
+        allow_scratchpad,
       } = input;
 
       for (const err of [
@@ -867,7 +1460,8 @@ function registerGraphWriteTools(
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type: nodeType,
           node_data: nodeData,
-        });
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+        }, reqOpts);
         let body: any;
         try {
           body = JSON.parse(res.text);
@@ -897,7 +1491,8 @@ function registerGraphWriteTools(
           source: { ref_id: sourceRef },
           target: { ref_id: targetRef },
           create_schema_if_missing,
-        });
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+        }, reqOpts);
         let body: any;
         try {
           body = JSON.parse(res.text);
@@ -929,6 +1524,620 @@ function registerGraphWriteTools(
   });
 
   console.log("===> registered graph write tool: create_triplet");
+
+  // ── create_batch_triplet ──────────────────────────────────────────────────
+  // Accepts an array of triplet specs and asserts all of them in one call,
+  // returning a per-triplet result array in input order.
+  allTools.create_batch_triplet = tool({
+    description:
+      "Assert MANY facts into the Jarvis knowledge graph in a single call. " +
+      "Each item in `triplets` has the same shape as `create_triplet` (source/target as ref_id or inline " +
+      "node_type+node_data, plus edge_type and optional edge_data/weight/create_schema_if_missing). " +
+      "A single top-level `namespace` applies to all inline node creation. " +
+      "REUSE existing nodes wherever possible: supply ref_ids from graph_search when entities already exist — " +
+      "inline creation is a last resort. Identical inline sides across the batch are resolved once (deduped). " +
+      "Returns one result entry per input triplet in input order; a failed item does not abort the rest. " +
+      "Use `create_triplet` for a single fact; use this tool when asserting multiple related facts at once " +
+      "to avoid redundant round-trips.",
+    inputSchema: z.object({
+      triplets: z
+        .array(
+          z.object({
+            source_ref_id: z
+              .string()
+              .optional()
+              .describe(
+                "ref_id of an EXISTING source node. Preferred over inline creation.",
+              ),
+            source_type: z
+              .string()
+              .optional()
+              .describe(
+                "Node type for an INLINE source node. Requires source_data; omit when source_ref_id is set.",
+              ),
+            source_data: z
+              .record(z.string(), z.any())
+              .optional()
+              .describe(
+                "Properties for an INLINE source node. Must satisfy the type's schema.",
+              ),
+            target_ref_id: z
+              .string()
+              .optional()
+              .describe(
+                "ref_id of an EXISTING target node. Preferred over inline creation.",
+              ),
+            target_type: z
+              .string()
+              .optional()
+              .describe(
+                "Node type for an INLINE target node. Requires target_data; omit when target_ref_id is set.",
+              ),
+            target_data: z
+              .record(z.string(), z.any())
+              .optional()
+              .describe(
+                "Properties for an INLINE target node. Must satisfy the type's schema.",
+              ),
+            edge_type: z
+              .string()
+              .describe(
+                "The relationship type, e.g. 'WORKS_AT'. Must exist in the ontology unless " +
+                "create_schema_if_missing is set.",
+              ),
+            edge_data: z
+              .record(z.string(), z.any())
+              .optional()
+              .describe("Optional properties to set on the edge."),
+            weight: z.number().optional().describe("Optional edge weight."),
+            create_schema_if_missing: z
+              .boolean()
+              .optional()
+              .default(false)
+              .describe(
+                "Auto-create the edge schema when the relationship type is not yet in the ontology. " +
+                "Last resort — prefer defining it deliberately with ontology_create_edge.",
+              ),
+          }),
+        )
+        .describe("Array of triplet specs to assert."),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) for inline node creation. Applies to all items. " +
+          "Not an access-control boundary.",
+        ),
+      return_edge_ids: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Include `edge_ref_id` on each successful result. OFF by default and rarely needed — " +
+          "the ref_ids of the NODES you created are always returned, and those are what you use " +
+          "to build further triplets. Enable ONLY if you will address specific edges by ref_id " +
+          "later in this session (e.g. to update or delete an individual edge). Leaving it off " +
+          "keeps results small, which matters because every tool result stays in context.",
+        ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt in to Jarvis's scratchpad fallback: when a node write is rejected (unknown node type, " +
+          "data that fails schema validation) the payload is preserved as a ScratchpadEntry instead of " +
+          "returning a 400, and the response comes back with status \"scratchpad\". Off by default.",
+        ),
+    }),
+    execute: async (input: {
+      triplets: Array<{
+        source_ref_id?: string;
+        source_type?: string;
+        source_data?: Record<string, any>;
+        target_ref_id?: string;
+        target_type?: string;
+        target_data?: Record<string, any>;
+        edge_type: string;
+        edge_data?: Record<string, any>;
+        weight?: number;
+        create_schema_if_missing?: boolean;
+      }>;
+      namespace?: string;
+      return_edge_ids?: boolean;
+      allow_scratchpad?: boolean;
+    }) => {
+      const { triplets, namespace, return_edge_ids = false, allow_scratchpad } = input;
+      console.log(
+        `[create_batch_triplet] count=${triplets.length} namespace=${namespace ?? "-"}`,
+      );
+
+      // ── Phase 0: per-item validation ────────────────────────────────────
+      // Keep a parallel array tracking failures so a bad item doesn't abort
+      // the rest. null = still alive.
+      const failures: Array<string | null> = triplets.map(() => null);
+
+      for (let i = 0; i < triplets.length; i++) {
+        const t = triplets[i];
+        const srcErr = validateTripletSide(
+          "source",
+          t.source_ref_id,
+          t.source_type,
+          t.source_data,
+        );
+        const tgtErr = validateTripletSide(
+          "target",
+          t.target_ref_id,
+          t.target_type,
+          t.target_data,
+        );
+        const err = srcErr ?? tgtErr;
+        if (err) failures[i] = `invalid input — ${err}`;
+      }
+
+      // ── Phase 1: dedup + resolve inline node sides ───────────────────────
+      // Collect all unique (node_type, node_data) pairs across the batch and
+      // resolve each once via single-object POST /v2/nodes.
+      //
+      // Map: dedupKey → resolved ref_id (or Error if resolution failed).
+      const resolvedNodes = new Map<string, string | Error>();
+      // Which dedupKeys still need to be fetched.
+      const toResolve = new Map<string, { nodeType: string; nodeData: Record<string, any> }>();
+
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i]) continue;
+        const t = triplets[i];
+        for (const [refId, nodeType, nodeData] of [
+          [t.source_ref_id, t.source_type, t.source_data],
+          [t.target_ref_id, t.target_type, t.target_data],
+        ] as [string | undefined, string | undefined, Record<string, any> | undefined][]) {
+          const hasRef = typeof refId === "string" && refId.length > 0;
+          if (hasRef || !nodeType || !nodeData) continue; // ref_id side — no resolution needed
+          const key = buildNodeDedupKey(nodeType, nodeData);
+          if (!resolvedNodes.has(key) && !toResolve.has(key)) {
+            toResolve.set(key, { nodeType, nodeData });
+          }
+        }
+      }
+
+      // Resolve each unique inline side sequentially.
+      let uniqueNodesResolved = 0;
+      for (const [key, { nodeType, nodeData }] of toResolve) {
+        try {
+          const params = new URLSearchParams();
+          appendNamespace(params, namespace);
+          const qs = params.toString();
+          const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
+          const res = await jarvisMutate("post", url, jarvisHeaders, {
+            node_type: nodeType,
+            node_data: nodeData,
+            ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+          }, reqOpts);
+          let body: any;
+          try {
+            body = JSON.parse(res.text);
+          } catch {
+            // non-JSON — will fail below
+          }
+          const ref = extractNodeRefId(body);
+          if (!ref) {
+            resolvedNodes.set(
+              key,
+              new Error(
+                `could not create/merge node type=${nodeType} (HTTP ${res.status}): ${res.text}`,
+              ),
+            );
+          } else {
+            resolvedNodes.set(key, ref);
+            uniqueNodesResolved++;
+          }
+        } catch (err: any) {
+          resolvedNodes.set(
+            key,
+            new Error(`could not create/merge node type=${nodeType}: ${err?.message ?? String(err)}`),
+          );
+        }
+      }
+
+      // Propagate node-resolution failures to every dependent triplet and
+      // build the concrete ref_id pair for surviving triplets.
+      const sourceRefs: Array<string | null> = triplets.map(() => null);
+      const targetRefs: Array<string | null> = triplets.map(() => null);
+
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i]) continue;
+        const t = triplets[i];
+
+        // Source side
+        const srcHasRef = typeof t.source_ref_id === "string" && t.source_ref_id.length > 0;
+        if (srcHasRef) {
+          sourceRefs[i] = t.source_ref_id!;
+        } else {
+          const key = buildNodeDedupKey(t.source_type!, t.source_data!);
+          const r = resolvedNodes.get(key);
+          if (r instanceof Error) {
+            failures[i] = `source node resolution failed: ${r.message}`;
+          } else {
+            sourceRefs[i] = r ?? null;
+          }
+        }
+
+        if (failures[i]) continue;
+
+        // Target side
+        const tgtHasRef = typeof t.target_ref_id === "string" && t.target_ref_id.length > 0;
+        if (tgtHasRef) {
+          targetRefs[i] = t.target_ref_id!;
+        } else {
+          const key = buildNodeDedupKey(t.target_type!, t.target_data!);
+          const r = resolvedNodes.get(key);
+          if (r instanceof Error) {
+            failures[i] = `target node resolution failed: ${r.message}`;
+          } else {
+            targetRefs[i] = r ?? null;
+          }
+        }
+      }
+
+      // ── Phase 2: bulk edge write ─────────────────────────────────────────
+      // Build the edge list for all triplets that survived validation +
+      // node resolution.
+      const resolvedTriplets: ResolvedTriplet[] = [];
+      for (let i = 0; i < triplets.length; i++) {
+        if (failures[i] || !sourceRefs[i] || !targetRefs[i]) continue;
+        const t = triplets[i];
+        resolvedTriplets.push({
+          index: i,
+          source_ref_id: sourceRefs[i]!,
+          target_ref_id: targetRefs[i]!,
+          edge_type: t.edge_type,
+          edge_data: t.edge_data,
+          weight: t.weight,
+          create_schema_if_missing: t.create_schema_if_missing ?? false,
+        });
+      }
+
+      // Per-triplet edge ref_id accumulator (index → edge_ref_id).
+      const edgeResults = new Map<number, string>();
+      const bulkStatusMessages: string[] = [];
+
+      if (resolvedTriplets.length > 0) {
+        // Build list-body for sequential bulk endpoint.
+        const edgeList = resolvedTriplets.map((rt) => ({
+          edge: {
+            edge_type: rt.edge_type,
+            ...(rt.weight !== undefined ? { weight: rt.weight } : {}),
+            ...(rt.edge_data ? { edge_data: rt.edge_data } : {}),
+          },
+          source: { ref_id: rt.source_ref_id },
+          target: { ref_id: rt.target_ref_id },
+          create_schema_if_missing: rt.create_schema_if_missing,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+        }));
+
+        const edgeParams = new URLSearchParams();
+        appendNamespace(edgeParams, namespace);
+        const edgeQs = edgeParams.toString();
+        const edgeUrl = `${jarvisUrl}/v2/edges${edgeQs ? `?${edgeQs}` : ""}`;
+
+        let bulkBody: any;
+        try {
+          const bulkRes = await jarvisMutate("post", edgeUrl, jarvisHeaders, edgeList, reqOpts);
+          try {
+            bulkBody = JSON.parse(bulkRes.text);
+          } catch {
+            // non-JSON — treat as total failure; every triplet will fall back
+          }
+        } catch (err: any) {
+          // Network / timeout — every edge will fall through to the fallback.
+        }
+
+        const returnedEdges: Array<{
+          ref_id: string;
+          source?: string;
+          target?: string;
+          edge_type?: string;
+        }> = Array.isArray(bulkBody?.edges) ? bulkBody.edges : [];
+
+        if (Array.isArray(bulkBody?.status_messages)) {
+          bulkStatusMessages.push(...bulkBody.status_messages);
+        }
+
+        const { matched, unmatched } = matchEdgeResults(resolvedTriplets, returnedEdges);
+
+        // Record matched edges.
+        for (const [idx, refId] of matched) {
+          edgeResults.set(idx, refId);
+        }
+
+        // Fallback: re-issue each unmatched triplet as a single-object POST.
+        for (const rt of unmatched) {
+          try {
+            const res = await jarvisMutate("post", edgeUrl, jarvisHeaders, {
+              edge: {
+                edge_type: rt.edge_type,
+                ...(rt.weight !== undefined ? { weight: rt.weight } : {}),
+                ...(rt.edge_data ? { edge_data: rt.edge_data } : {}),
+              },
+              source: { ref_id: rt.source_ref_id },
+              target: { ref_id: rt.target_ref_id },
+              create_schema_if_missing: rt.create_schema_if_missing,
+              ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+            }, reqOpts);
+            let body: any;
+            try {
+              body = JSON.parse(res.text);
+            } catch {
+              // non-JSON — edgeRef will be undefined
+            }
+            const edgeRef = extractEdgeRefId(body);
+            if (edgeRef) {
+              edgeResults.set(rt.index, edgeRef);
+            } else {
+              failures[rt.index] =
+                `edge write failed (HTTP ${res.status}): ${res.text}`;
+            }
+          } catch (err: any) {
+            failures[rt.index] =
+              `edge write failed: ${err?.message ?? String(err)}`;
+          }
+        }
+      }
+
+      // ── Phase 3: assemble results in input order ─────────────────────────
+      const results = triplets.map((t, i) => {
+        if (failures[i]) {
+          return {
+            status: "Error",
+            index: i,
+            edge_type: t.edge_type,
+            error: failures[i],
+          };
+        }
+        const edgeRef = edgeResults.get(i);
+        if (!edgeRef) {
+          return {
+            status: "Error",
+            index: i,
+            edge_type: t.edge_type,
+            error: "edge ref_id could not be recovered",
+          };
+        }
+        // Successful entries return only what the caller does NOT already have.
+        // `edge_ref_id` was measured across four production traces: 1,426 returned,
+        // 0 ever referenced in a later call — so it is opt-in via `return_edge_ids`.
+        // `edge_type` is echoed straight back from the request and is always dropped.
+        // Both are kept on the Error branches, where the context is worth the tokens
+        // and the volume is negligible.
+        return {
+          status: "Success",
+          source_ref_id: sourceRefs[i]!,
+          target_ref_id: targetRefs[i]!,
+          ...(return_edge_ids ? { edge_ref_id: edgeRef } : {}),
+        };
+      });
+
+      const failedCount = results.filter((r) => r.status === "Error").length;
+      const bulkMatched = resolvedTriplets.length - (
+        resolvedTriplets.filter((rt) => !edgeResults.has(rt.index) || failures[rt.index]).length
+      );
+      const fallbackRecovered = results.filter(
+        (r) => r.status === "Success",
+      ).length - Math.max(0, bulkMatched);
+
+      console.log(
+        `[create_batch_triplet] resolvedNodes=${uniqueNodesResolved} edgesWritten=${bulkMatched} edgesMerged=${fallbackRecovered} failed=${failedCount}`,
+      );
+
+      return JSON.stringify({
+        results,
+        ...(bulkStatusMessages.length > 0 ? { status_messages: bulkStatusMessages } : {}),
+      });
+    },
+  });
+
+  // ── create_node ───────────────────────────────────────────────────────────
+  allTools.create_node = tool({
+    description:
+      "Create (or merge) a SINGLE node in the Jarvis knowledge graph as DATA, with no edge " +
+      "(to assert a relationship at the same time, use create_triplet instead). Writes live to the graph. " +
+      "REUSE existing nodes: graph_search first, and only create when the entity genuinely doesn't exist yet — " +
+      "duplicate nodes fragment the graph. The node type must already exist in the ontology " +
+      "(check with get_ontology; get_ontology_type shows its attributes and which are required). " +
+      "Create-or-merge semantics: if a node with the same identity key already exists, its ref_id is " +
+      "returned (reported as a Warning) instead of creating a duplicate — so re-running is safe.",
+    inputSchema: z.object({
+      node_type: z
+        .string()
+        .describe(
+          "Node type (must exist in the ontology — see get_ontology). " +
+          "Never pass the wildcard sentinel \"*\".",
+        ),
+      node_data: z
+        .record(z.string(), z.any())
+        .describe(
+          'Properties for the node, e.g. {"name": "Alice"}. ' +
+          "Must satisfy the type's schema, including its node_key attribute.",
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) to create the node in. Not an access-control boundary.",
+        ),
+      allow_scratchpad: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt in to Jarvis's scratchpad fallback: when a node write is rejected (unknown node type, " +
+          "data that fails schema validation) the payload is preserved as a ScratchpadEntry instead of " +
+          "returning a 400, and the response comes back with status \"scratchpad\". Off by default.",
+        ),
+    }),
+    execute: async (input: {
+      node_type: string;
+      node_data: Record<string, any>;
+      namespace?: string;
+      allow_scratchpad?: boolean;
+    }) => {
+      const { node_type, node_data, namespace, allow_scratchpad } = input;
+      console.log(`[create_node] type=${node_type} namespace=${namespace ?? "-"}`);
+      try {
+        const params = new URLSearchParams();
+        appendNamespace(params, namespace);
+        const qs = params.toString();
+        const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
+        const res = await jarvisMutate("post", url, jarvisHeaders, {
+          node_type,
+          node_data,
+          ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
+        }, reqOpts);
+        let body: any;
+        try {
+          body = JSON.parse(res.text);
+        } catch {
+          // non-JSON body — fall through to the error below
+        }
+        const refId = extractNodeRefId(body);
+        if (!refId) {
+          return `create_node failed — HTTP ${res.status}: ${res.text}`;
+        }
+        return JSON.stringify({
+          // "Warning" here means the node already existed (idempotent merge).
+          status: body?.status ?? "Success",
+          ref_id: refId,
+          node_type,
+          ...(Array.isArray(body?.status_messages) && body.status_messages.length > 0
+            ? { messages: body.status_messages }
+            : {}),
+        });
+      } catch (err: any) {
+        return `create_node failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  // ── edit_node ─────────────────────────────────────────────────────────────
+  allTools.edit_node = tool({
+    description:
+      "Update an EXISTING node in the Jarvis knowledge graph by ref_id (writes live to the graph). " +
+      "PARTIAL update: properties in node_data are merged over the node's current properties " +
+      "(validated against the type's schema) — properties you omit are left untouched. " +
+      "Use properties_to_be_deleted to remove properties entirely. " +
+      "Get the ref_id from graph_search, and inspect the node with graph_get first so you know its " +
+      "current state before changing it. " +
+      "Pass node_type ONLY to change the node's type (with type_to_be_deleted listing the old type " +
+      "label(s) to remove); omit both for normal property edits. " +
+      "If the update would change the node's identity key to collide with another node, the write " +
+      "fails with 'Node already exists in the graph'.",
+    inputSchema: z.object({
+      ref_id: z.string().describe("The ref_id of the node to update (from graph_search/graph_get)."),
+      node_data: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe(
+          'Properties to set/overwrite, e.g. {"description": "..."}. Merged over the node\'s ' +
+          "existing properties — omitted properties are untouched. Must satisfy the type's schema.",
+        ),
+      properties_to_be_deleted: z
+        .array(z.string())
+        .optional()
+        .describe("Property names to REMOVE from the node."),
+      node_type: z
+        .string()
+        .optional()
+        .describe(
+          "New node type — pass ONLY when changing the node's type (must exist in the ontology). " +
+          "Omit for property-only edits; the current type is inferred.",
+        ),
+      type_to_be_deleted: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "When changing the node's type: the old type label(s) to remove from the node.",
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Jarvis namespace (data partition) the node lives in. Not an access-control boundary.",
+        ),
+    }),
+    execute: async (input: {
+      ref_id: string;
+      node_data?: Record<string, any>;
+      properties_to_be_deleted?: string[];
+      node_type?: string;
+      type_to_be_deleted?: string[];
+      namespace?: string;
+    }) => {
+      const {
+        ref_id,
+        node_data,
+        properties_to_be_deleted,
+        node_type,
+        type_to_be_deleted,
+        namespace,
+      } = input;
+
+      const hasSet = node_data && Object.keys(node_data).length > 0;
+      const hasDelete = properties_to_be_deleted && properties_to_be_deleted.length > 0;
+      if (!hasSet && !hasDelete && !node_type) {
+        return (
+          "edit_node invalid input — pass at least one change: node_data (properties to set), " +
+          "properties_to_be_deleted, or node_type"
+        );
+      }
+
+      console.log(
+        `[edit_node] ref_id=${ref_id} set=${Object.keys(node_data ?? {}).length} ` +
+        `delete=${properties_to_be_deleted?.length ?? 0} namespace=${namespace ?? "-"}`,
+      );
+      try {
+        const params = new URLSearchParams();
+        appendNamespace(params, namespace);
+        const qs = params.toString();
+        const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}${qs ? `?${qs}` : ""}`;
+        // Always send node_data (even empty) — its presence selects Jarvis's
+        // modern schema-validated update path over the legacy flat-property one.
+        const res = await jarvisMutate("post", url, jarvisHeaders, {
+          node_data: node_data ?? {},
+          ...(hasDelete ? { properties_to_be_deleted } : {}),
+          ...(node_type ? { node_type } : {}),
+          ...(type_to_be_deleted && type_to_be_deleted.length > 0
+            ? { type_to_be_deleted }
+            : {}),
+        }, reqOpts);
+        let body: any;
+        try {
+          body = JSON.parse(res.text);
+        } catch {
+          // non-JSON body — fall through to the error below
+        }
+        // Jarvis returns HTTP 200 with {status: "fail", message} on some write
+        // failures (e.g. node_key collision), so res.ok alone is not enough.
+        const succeeded = res.ok && body?.status === "success";
+        if (!succeeded) {
+          const detail = body?.message ?? body?.errorCode ?? res.text;
+          return `edit_node failed — HTTP ${res.status}: ${detail}`;
+        }
+        // Compact confirmation — deliberately NOT the full updated node, whose
+        // properties include bulky derived fields (Data_Bank search text etc.).
+        // The agent can graph_get the node if it needs to verify contents.
+        return JSON.stringify({
+          status: "Success",
+          ref_id,
+          ...(hasSet ? { updated: Object.keys(node_data!) } : {}),
+          ...(hasDelete ? { deleted: properties_to_be_deleted } : {}),
+          ...(node_type ? { node_type } : {}),
+        });
+      } catch (err: any) {
+        return `edit_node failed: ${err?.message ?? String(err)}`;
+      }
+    },
+  });
+
+  console.log(
+    "===> registered graph write tools: create_triplet + create_batch_triplet + create_node + edit_node",
+  );
 }
 
 /**
@@ -955,21 +2164,51 @@ export function registerJarvisTools(
     return;
   }
 
+  const { defaultDomains } = options;
+
+  // Build request-level opts once and pass to every jarvisFetch/jarvisMutate call.
+  const reqOpts: JarvisRequestOpts = {
+    signal: options.abortSignal,
+    timeoutMs: options.timeoutMs,
+  };
+
   const jarvisHeaders = {
     "Content-Type": "application/json",
     "X-Api-Token": process.env.API_TOKEN ?? "",
   };
 
+  // Wildcard sentinel: jarvis-backend uses a real Schema node with type="*" to
+  // mean "this edge type applies to any node type on that side." This sentinel
+  // is created by `_ensure_wildcard_sentinel`, honoured by `create_edge_schema`
+  // (which skips existence checks when source/target is "*"), and used as a
+  // fallback in `get_schema_edge_by_edge_type` — all in
+  // jarvis-backend/api/helper/schema_crud.py. The descriptions below explain
+  // this convention to agents so they can interpret wildcard edges correctly.
   allTools.get_ontology = tool({
     description:
-      "Fetch the ontology of the Jarvis knowledge graph: node types (with their domain) " +
+      "Fetch the ontology of the Jarvis knowledge graph: node types grouped by domain " +
       "and the canonical list of valid `domains`. " +
       "Call this once before graph_search to discover valid values for both the `type` and `domains` parameters. " +
-      "Node types are grouped by domain; types in the `ungrouped` bucket have no domain and cannot be scoped with `domains`. " +
+      "Node types are grouped by domain key in `node_types[<domain>]`; types with no domain land in the `ungrouped` bucket and cannot be scoped with `domains`. " +
+      "Pass `domains` to filter results to one or more specific domains (comma-separated, e.g. 'Legal,Entity'); omit to receive all domains. " +
       "Relationship edges are omitted by default — graph_neighbors returns edge types live as you traverse. " +
       "Set `include_edges` to also get the full relationship map (source_type -> target_type triples). " +
-      "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status).",
+      "Set `include_attributes` to also get each node type's attribute schema (field names, types, required/optional status). " +
+      "WILDCARD EDGES: when include_edges is true, an edge entry whose source_type and/or target_type is \"*\" " +
+      "means that edge type applies to ANY node type on that side (use \"*\" for source or target to define a wildcard relationship rule). " +
+      "\"*\" is intentionally absent from node_types — it is a backend sentinel, not a real type. " +
+      "Wildcard edges are guaranteed to appear only via the default fetch path; if the backend route applies " +
+      "visibility filtering (get_all_schemas in jarvis-backend filters edges to those whose source/target are " +
+      "in visible_types, silently dropping wildcards), wildcard edges are omitted rather than passed through.",
     inputSchema: z.object({
+      domains: z
+        .string()
+        .optional()
+        .describe(
+          "Comma-separated list of domains to filter results to (e.g. 'Legal,Entity'). " +
+          "Omit to receive node types from all domains. " +
+          "Values are matched case-insensitively against the domain grouping keys returned by this tool."
+        ),
       include_edges: z
         .boolean()
         .optional()
@@ -977,7 +2216,8 @@ export function registerJarvisTools(
         .describe(
           "Include the full list of relationship edges (source_type/edge_type/target_type triples). " +
           "Off by default — the edge list is large and graph_neighbors surfaces edge types live. " +
-          "Only enable when you need the complete relationship map up front."
+          "Only enable when you need the complete relationship map up front. " +
+          "Edges may include \"*\" as a wildcard source_type/target_type — see the tool description above for what this means."
         ),
       include_attributes: z
         .boolean()
@@ -991,18 +2231,42 @@ export function registerJarvisTools(
         ),
     }),
     execute: async ({
+      domains,
       include_edges = false,
       include_attributes = false,
     }: {
+      domains?: string;
       include_edges?: boolean;
       include_attributes?: boolean;
     }) => {
-      const url = `${jarvisUrl}/v2/schema`;
+      // Forward include_edges and include_attributes to jarvis unconditionally (always-set,
+      // mirroring the graph_search pattern). NOTE: jarvis-backend currently only parses
+      // `include_deleted`, `concise`, and `visible_only` on GET /v2/schema — a separate
+      // in-flight jarvis task will add support for these two params. The param names
+      // (`include_edges`, `include_attributes`) are a cross-repo contract with that task
+      // and must stay in sync with it. Client-side trimming in buildOntologyPayload
+      // remains the source of truth until jarvis honors these params.
+      //
+      // `domains` IS honoured by jarvis today, and it filters both `schemas` and
+      // `edges`. An explicit model-supplied value always wins; otherwise we fall
+      // back to the caller's request-level scope (options.defaultDomains). With
+      // neither set, no `domains` param is sent and every domain comes back.
+      const effectiveDomains =
+        domains && domains.trim() !== ""
+          ? domains.trim()
+          : (defaultDomains ?? "").trim();
+      const params = new URLSearchParams();
+      params.set("include_edges", String(include_edges));
+      params.set("include_attributes", String(include_attributes));
+      if (effectiveDomains !== "") {
+        params.set("domains", effectiveDomains);
+      }
+      const url = `${jarvisUrl}/v2/schema?${params.toString()}`;
       console.log(
-        `[get_ontology] fetching ${url} include_edges=${include_edges} include_attributes=${include_attributes}`
+        `[get_ontology] fetching ${url} domains=${effectiveDomains}${domains ? "" : " (default)"} include_edges=${include_edges} include_attributes=${include_attributes}`
       );
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -1017,15 +2281,13 @@ export function registerJarvisTools(
 
   allTools.get_ontology_type = tool({
     description:
-      "Fetch the full schema for a SINGLE ontology node type: its core fields " +
-      "(parent, domain, description, etc.) plus `attributes` and `inherited_attributes`. " +
+      "Fetch the attribute schema for a SINGLE ontology node type. Returns exactly " +
+      "one field — `attributes` — and nothing else; for a type's domain, parent or " +
+      "description, use get_ontology. " +
       "Each attribute value is a type string (e.g. 'string', 'int'); a `?` prefix " +
       "(e.g. '?string') means the attribute is OPTIONAL, no prefix means REQUIRED. " +
-      "`attributes` already includes both the type's own attributes AND everything " +
-      "inherited from parent types (kept together for backward compatibility); " +
-      "`inherited_attributes` is a separate, redundant view containing only the " +
-      "inherited subset — use it if you specifically need to distinguish inherited " +
-      "vs. own fields, otherwise `attributes` alone is complete. " +
+      "`attributes` is complete: it already includes both the type's own attributes " +
+      "AND everything inherited from parent types, so it is the only field you need. " +
       "Lookup is case-insensitive for every type EXCEPT the root type 'Thing', which " +
       "must be passed with exact casing. You may also pass a schema ref_id instead " +
       "of a type name — the lookup falls back to ref_id resolution automatically. " +
@@ -1042,13 +2304,13 @@ export function registerJarvisTools(
       const url = `${jarvisUrl}/v2/schema/${encodeURIComponent(type)}`;
       console.log(`[get_ontology_type] fetching ${url}`);
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
         }
         const data = (await resp.json()) as any;
-        return JSON.stringify(data);
+        return JSON.stringify(buildOntologyTypePayload(data));
       } catch (err: any) {
         return `get_ontology_type failed: ${err?.message ?? String(err)}`;
       }
@@ -1149,7 +2411,7 @@ export function registerJarvisTools(
         `[graph_search] q=${q ?? "-"} input_q=${input_q ?? "-"} output_q=${output_q ?? "-"} type=${type ?? "*"} domains=${domains ?? "*"} limit=${limit} namespace=${namespace ?? "*"}`,
       );
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -1190,13 +2452,128 @@ export function registerJarvisTools(
     },
   });
 
+  /**
+   * Resolve one ref_id to the node shape both `graph_get` and
+   * `graph_get_batched` return. Yields a discriminated result rather than
+   * throwing or returning a string, so the batched caller can report a
+   * per-node failure without sinking the whole call.
+   */
+  async function fetchGraphNode(
+    ref_id: string,
+    namespace?: string,
+    nodeReqOpts?: JarvisRequestOpts,
+  ): Promise<
+    | { ok: true; node: Record<string, any> }
+    | { ok: false; error: string }
+  > {
+    // Short-circuit immediately if the signal is already aborted.
+    if (nodeReqOpts?.signal?.aborted) {
+      return { ok: false, error: "graph_get aborted before start" };
+    }
+    // limit=1 keeps Jarvis from materializing the node's whole neighborhood
+    // (which can OOM Neo4j for hub nodes) — we only read the node itself.
+    const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
+    try {
+      const resp = await jarvisFetch(url, jarvisHeaders, nodeReqOpts);
+      if (!resp.ok) {
+        const text = await resp.text();
+        return { ok: false, error: `HTTP ${resp.status}: ${text}` };
+      }
+      const data = (await resp.json()) as any;
+      // Deployed Jarvis wraps the node in `{ nodes, edges, status }`; some
+      // builds return the node directly. Handle both shapes.
+      const raw = Array.isArray(data?.nodes)
+        ? data.nodes.find((n: any) => n.ref_id === ref_id) ?? data.nodes[0]
+        : data;
+      if (!raw || !raw.ref_id) return { ok: false, error: `node not found: ${ref_id}` };
+      const properties = (raw.properties ?? {}) as Record<string, any>;
+
+      // Two cheap side lookups, fired together:
+      //  - connection-counts: edge-type connectivity (counts only, no neighbor
+      //    materialization), collapsed into a {EDGE_TYPE: count} map so
+      //    graph_get and graph_search present connectivity identically.
+      //  - ancestors: the PARENT_OF hierarchy above the node as a flat DAG,
+      //    so the agent knows which parents to read next without walking
+      //    graph_neighbors one hop at a time (Concepts have up to ~6 parents).
+      //    An older Jarvis without the endpoint 404s, which is treated as
+      //    "no ancestors".
+      // Both are best effort — never fail the whole call if a lookup errors.
+      // EXCEPTION: abort/timeout is rethrown so the caller sees a genuine
+      // cancellation rather than a silently degraded node.
+      const rethrowIfCancelled = (err: any) => {
+        const kind = classifyAxiosError(err);
+        if (kind === "timeout" || kind === "aborted" || nodeReqOpts?.signal?.aborted) {
+          throw err;
+        }
+      };
+      const fetchEdges = async (): Promise<Record<string, number>> => {
+        try {
+          const ccParams = new URLSearchParams();
+          appendNamespace(ccParams, namespace);
+          const ccQuery = ccParams.toString();
+          const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
+          const ccResp = await jarvisFetch(ccUrl, jarvisHeaders, nodeReqOpts);
+          if (ccResp.ok) {
+            const ccData = (await ccResp.json()) as any;
+            return collapseConnectionCounts(ccData?.counts ?? []);
+          }
+        } catch (ccErr: any) {
+          rethrowIfCancelled(ccErr);
+          // Genuine non-cancellation edge-fetch failure — best effort, edges stays {}
+        }
+        return {};
+      };
+      const fetchAncestors = async (): Promise<NodeAncestor[]> => {
+        try {
+          const anParams = new URLSearchParams({
+            edge_type: KG_ANCESTOR_EDGE_TYPE,
+            direction: "in",
+            max_depth: String(KG_ANCESTOR_MAX_DEPTH),
+          });
+          const anUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/ancestors?${anParams.toString()}`;
+          const anResp = await jarvisFetch(anUrl, jarvisHeaders, nodeReqOpts);
+          if (anResp.ok) {
+            return normalizeAncestors((await anResp.json()) as any);
+          }
+        } catch (anErr: any) {
+          rethrowIfCancelled(anErr);
+          // Genuine non-cancellation failure — best effort, no ancestors attached
+        }
+        return [];
+      };
+      const [edges, ancestors] = await Promise.all([fetchEdges(), fetchAncestors()]);
+
+      return {
+        ok: true,
+        node: {
+          ref_id: raw.ref_id,
+          node_type: raw.node_type,
+          name: deriveNodeName(raw, properties),
+          properties: raw.properties,
+          edges,
+          // Only attached when the node sits under something, so leaf/flat
+          // nodes (the vast majority) don't pay for an empty field.
+          ...(ancestors.length > 0 ? { ancestors } : {}),
+        },
+      };
+    } catch (err: any) {
+      return { ok: false, error: `graph_get failed: ${err?.message ?? String(err)}` };
+    }
+  }
+
   allTools.graph_get = tool({
     description:
       "Resolve a single node in the Jarvis knowledge graph to its full content by ref_id. " +
       "Use the ref_id from graph_search or graph_neighbors results. " +
       "Returns the node's ref_id, node_type, derived name, properties, and an " +
       "`edges` map ({EDGE_TYPE: count}) showing how connected the node is and " +
-      "which relationship types you can traverse next with graph_neighbors.",
+      "which relationship types you can traverse next with graph_neighbors. " +
+      "When the node sits in a PARENT_OF hierarchy (e.g. a Concept), it also carries " +
+      "`ancestors`: every node above it up to the root(s), each with {ref_id, name, node_type, depth, parents}. " +
+      "`depth` 1 = direct parent; `parents` is that ancestor's own parents (empty = root). " +
+      "A node can have several parents, so treat it as a DAG, not a chain — read the " +
+      "depth-1 entries first, then graph_get whichever ancestor's docs you need. " +
+      "To resolve several ref_ids at once, use graph_get_batched instead.",
     inputSchema: z.object({
       ref_id: z.string().describe("The ref_id of the node to resolve."),
       namespace: z
@@ -1214,55 +2591,95 @@ export function registerJarvisTools(
       ref_id: string;
       namespace?: string;
     }) => {
-      // limit=1 keeps Jarvis from materializing the node's whole neighborhood
-      // (which can OOM Neo4j for hub nodes) — we only read the node itself.
-      const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}?limit=1`;
-      console.log(`[graph_get] fetching ${url}`);
-      try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
-        if (!resp.ok) {
-          const text = await resp.text();
-          return `HTTP ${resp.status}: ${text}`;
-        }
-        const data = (await resp.json()) as any;
-        // Deployed Jarvis wraps the node in `{ nodes, edges, status }`; some
-        // builds return the node directly. Handle both shapes.
-        const raw = Array.isArray(data?.nodes)
-          ? data.nodes.find((n: any) => n.ref_id === ref_id) ?? data.nodes[0]
-          : data;
-        if (!raw || !raw.ref_id) return `node not found: ${ref_id}`;
-        const properties = (raw.properties ?? {}) as Record<string, any>;
+      console.log(`[graph_get] fetching ${ref_id}`);
+      const res = await fetchGraphNode(ref_id, namespace, reqOpts);
+      return res.ok ? JSON.stringify(res.node) : res.error;
+    },
+  });
 
-        // Fetch edge-type connectivity from the dedicated aggregation endpoint
-        // (cheap: counts only, no neighbor materialization). Collapse the
-        // (edge_type, target_type) breakdown into a {EDGE_TYPE: count} map so
-        // graph_get and graph_search present connectivity identically. Best
-        // effort — never fail the whole call if this lookup errors.
-        let edges: Record<string, number> = {};
-        try {
-          const ccParams = new URLSearchParams();
-          appendNamespace(ccParams, namespace);
-          const ccQuery = ccParams.toString();
-          const ccUrl = `${jarvisUrl}/v2/nodes/${encodeURIComponent(ref_id)}/connection-counts${ccQuery ? `?${ccQuery}` : ""}`;
-          const ccResp = await jarvisFetch(ccUrl, jarvisHeaders);
-          if (ccResp.ok) {
-            const ccData = (await ccResp.json()) as any;
-            edges = collapseConnectionCounts(ccData?.counts ?? []);
-          }
-        } catch {
-          // ignore — edges stays {}
-        }
-
+  allTools.graph_get_batched = tool({
+    description:
+      `Resolve up to ${KG_BATCH_GET_MAX} nodes in one call by ref_id — the batched form of graph_get. ` +
+      "ALWAYS prefer this over calling graph_get in a loop, and over delegating a list of " +
+      "ref_ids to sub-agents: it fetches them concurrently in a single tool call. " +
+      "Returns `{ requested, returned, truncated, omitted_ref_ids, nodes }`, where each entry in " +
+      "`nodes` is either the full node (ref_id, node_type, name, properties, edges, and " +
+      "`ancestors` when it sits under a PARENT_OF hierarchy — see graph_get) or " +
+      "`{ ref_id, error }` if that one could not be resolved — one bad ref_id never fails the rest. " +
+      `If you pass more than ${KG_BATCH_GET_MAX} ref_ids, the excess comes back in ` +
+      "`omitted_ref_ids` and `truncated` is true; call again with those to finish the job.",
+    inputSchema: z.object({
+      ref_ids: z
+        .array(z.string())
+        .min(1)
+        .describe(
+          `The ref_ids to resolve, in the order you want them back. Up to ${KG_BATCH_GET_MAX} per call.`,
+        ),
+      namespace: z
+        .string()
+        .optional()
+        .describe(
+          "Scope edge-count computation to a Jarvis namespace (data partition). " +
+          "Only affects each node's `edges` map. Not an access-control boundary."
+        ),
+    }),
+    execute: async ({
+      ref_ids,
+      namespace,
+    }: {
+      ref_ids: string[];
+      namespace?: string;
+    }) => {
+      // Dedupe while preserving the caller's ordering — a repeated ref_id is a
+      // wasted round trip, not a second entry.
+      const unique = Array.from(new Set(ref_ids.filter((r) => r && r.trim())));
+      if (unique.length === 0) {
         return JSON.stringify({
-          ref_id: raw.ref_id,
-          node_type: raw.node_type,
-          name: deriveNodeName(raw, properties),
-          properties: raw.properties,
-          edges,
+          requested: ref_ids.length,
+          returned: 0,
+          truncated: false,
+          omitted_ref_ids: [],
+          nodes: [],
+          note: "no usable ref_ids supplied",
         });
-      } catch (err: any) {
-        return `graph_get failed: ${err?.message ?? String(err)}`;
       }
+
+      const selected = unique.slice(0, KG_BATCH_GET_MAX);
+      const omitted = unique.slice(KG_BATCH_GET_MAX);
+      console.log(
+        `[graph_get_batched] resolving ${selected.length} ref_ids (requested ${ref_ids.length}, omitted ${omitted.length}) namespace=${namespace ?? "*"}`,
+      );
+
+      const batchSignal = reqOpts?.signal;
+      const queue = new PQueue({ concurrency: KG_BATCH_GET_CONCURRENCY });
+
+      // When the run's signal fires: drop queued-but-unstarted tasks immediately,
+      // then let already-in-flight fetchGraphNode calls cancel via their own signal.
+      if (batchSignal) {
+        batchSignal.addEventListener("abort", () => { queue.clear(); }, { once: true });
+      }
+
+      const nodes = await Promise.all(
+        selected.map((ref_id) =>
+          queue.add(async () => {
+            // Per-task guard: if the signal already fired while this task was queued,
+            // skip the network call and return a consistent aborted-error shape.
+            if (batchSignal?.aborted) {
+              return { ref_id, error: "graph_get_batched aborted" };
+            }
+            const res = await fetchGraphNode(ref_id, namespace, reqOpts);
+            return res.ok ? res.node : { ref_id, error: res.error };
+          }),
+        ),
+      );
+
+      return JSON.stringify({
+        requested: ref_ids.length,
+        returned: nodes.length,
+        truncated: omitted.length > 0,
+        omitted_ref_ids: omitted,
+        nodes,
+      });
     },
   });
 
@@ -1327,7 +2744,7 @@ export function registerJarvisTools(
         `[graph_neighbors] ref_id=${ref_id} edge_type=${edge_type?.join(",") ?? "*"} node_type=${node_type?.join(",") ?? "*"}`,
       );
       try {
-        const resp = await jarvisFetch(url, jarvisHeaders);
+        const resp = await jarvisFetch(url, jarvisHeaders, reqOpts);
         if (!resp.ok) {
           const text = await resp.text();
           return `HTTP ${resp.status}: ${text}`;
@@ -1386,7 +2803,7 @@ export function registerJarvisTools(
   });
 
   console.log(
-    "===> registered graph_search + get_ontology + get_ontology_type + graph_get + graph_neighbors tools",
+    "===> registered graph_search + get_ontology + get_ontology_type + graph_get + graph_get_batched + graph_neighbors tools",
   );
 
   // Recursive sub-agent tool, gated by config + depth so children can't spawn
@@ -1397,20 +2814,20 @@ export function registerJarvisTools(
     const depth = sub.depth ?? 0;
     const maxDepth = sub.maxDepth ?? DEFAULT_SUBAGENT_MAX_DEPTH;
     if (depth < maxDepth) {
-      registerGraphSubAgentTool(allTools, sub, depth);
+      registerGraphSubAgentTool(allTools, sub, depth, defaultDomains, options.abortSignal, options.timeoutMs);
     }
   }
 
   // Ontology write tools — opt-in via toolsConfig.ontology_edit. Off by default
   // so the standard posture stays read-only.
   if (options.ontologyEdit) {
-    registerOntologyWriteTools(allTools, jarvisUrl, jarvisHeaders);
+    registerOntologyWriteTools(allTools, jarvisUrl, jarvisHeaders, reqOpts);
   }
 
   // Graph data-write tool — opt-in via toolsConfig.create_triplet. Off by
   // default so the standard posture stays read-only.
   if (options.graphWrite) {
-    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders);
+    registerGraphWriteTools(allTools, jarvisUrl, jarvisHeaders, reqOpts);
   }
 }
 

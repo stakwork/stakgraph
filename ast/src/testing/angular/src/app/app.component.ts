@@ -3,6 +3,7 @@ import { RouterOutlet } from '@angular/router';
 // @ast node: Class "AppComponent"
 // @ast node: Import "import-imports-srctestingangularsrcappappcomponentts-0"
 // @ast node: Page "AppComponent"
+// @ast node: Var "title"
 
 @Component({
   selector: 'app-root',

@@ -2,17 +2,19 @@ import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context, stream_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig, editorRoots } from "./tools.js";
 import { resolveInCwd } from "./textEdit.js";
+import { redactCredentials } from "./utils.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { ModelMessage } from "ai";
 import { randomUUID } from "crypto";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
+import { SHUTDOWN_ORPHAN_ERROR } from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
-import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, sessionExists } from "./session.js";
+import { SessionConfig, loadSession, loadSessionConfig, loadSessionMetadata, loadReflection, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
@@ -25,6 +27,20 @@ import {
   abortRequest,
 } from "./events.js";
 import { db } from "../graph/neo4j.js";
+import {
+  acquireWorktree,
+  acquireEphemeralWorktree,
+  releaseWorktree,
+  resolveIdentity,
+  gitEnv,
+  branchName,
+  OctokitGitHubClient,
+  type WorktreeHandle,
+} from "./git_pr.js";
+import { withRepoLock } from "./repo_lock.js";
+import fs from "fs";
+import { spawnSync } from "child_process";
+import { toolConfigEnabled } from "./tools.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
@@ -73,6 +89,28 @@ function resolveRepoDir(repoList: string[]): string {
     }
   }
   return "/tmp";
+}
+
+/**
+ * Confined-run variant of prependRepoInfo. The standard block advertises the
+ * shared clones under /tmp/{owner}/{repo} — exactly where a confined run must
+ * NOT work (the bash guard rejects any command referencing that path). Live
+ * testing showed the model dutifully cd-ing into the shared checkout for every
+ * command because the preamble told it to. This block points it at its
+ * worktree cwd instead.
+ */
+function prependWorktreeInfo(prompt: any, repo: string): any {
+  const info =
+    `You are working in an isolated git worktree checkout of ${repo}. ` +
+    `It is your current working directory — use relative paths for every file and git operation. ` +
+    `Do NOT cd into or reference /tmp/${repo} (the shared checkout); commands referencing it are rejected.\n\n`;
+  if (typeof prompt === "string") return info + prompt;
+  if (Array.isArray(prompt)) {
+    return prompt.map((msg: any, i: number) =>
+      i === 0 && msg.role === "user" ? { ...msg, content: info + msg.content } : msg,
+    );
+  }
+  return prompt;
 }
 
 function prependRepoInfo(prompt: any, clonedRepos: string[], graphRepos: string[]): any {
@@ -139,11 +177,19 @@ function parseAgentBody(req: Request) {
   const apiKey = req.body.apiKey as string | undefined;
   const baseUrl = req.body.baseUrl as string | undefined;
   const logs = req.body.logs as boolean | undefined;
-  const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
+  // Coerce, don't cast: external clients send numeric ids as JSON numbers
+  // (e.g. {"sessionId": 151395375}). A bare `as string` is compile-time only,
+  // so the number reached Neo4j and MERGE stored node_key as a Float — which
+  // then never matched the string id used on lookup.
+  const sessionId = String(req.body.sessionId ?? "") || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const mcpServers = (req.body.mcpServers as McpServer[] | undefined)?.map((s) => ({
     ...s,
-    headers: s.headers ? { ...s.headers } : s.headers,
+    // Shallow-copy mutable fields so caller-supplied objects are never mutated
+    // by downstream code. Guards use "in" narrowing across the union variants.
+    headers: "headers" in s && s.headers ? { ...s.headers } : (s as any).headers,
+    env: "env" in s && (s as any).env ? { ...(s as any).env } : (s as any).env,
+    args: "args" in s && (s as any).args ? [...(s as any).args] : (s as any).args,
   }));
   const systemOverride = req.body.systemOverride as string | undefined;
   const mode =
@@ -151,6 +197,12 @@ function parseAgentBody(req: Request) {
     req.body.mode === "workflow" ? "workflow" as const :
     undefined;
   const skills = req.body.skills as SkillsConfig | undefined;
+  // Comma-separated Jarvis ontology domains scoping get_ontology by default
+  // (e.g. "Legal,Entity,Content"). Omit to leave every domain available.
+  const ontologyDomains =
+    typeof req.body.ontologyDomains === "string" && req.body.ontologyDomains.trim()
+      ? (req.body.ontologyDomains as string).trim()
+      : undefined;
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
   const ggnn = req.body.ggnn as GgnnConfig | undefined;
@@ -182,6 +234,16 @@ function parseAgentBody(req: Request) {
       )
     : undefined;
   const _metadata = req.body._metadata as unknown;
+  // Caller-assigned agent identity (e.g. "repair-agent-147813394"). Stamped
+  // on the AgentSession node and used as the turn_id label, so a workflow
+  // running many agents through this endpoint can tell them apart in the
+  // graph. Orchestrators embed the run id in the name, which is what groups
+  // a run's sessions together.
+  const agentName =
+    typeof req.body.agentName === "string" && req.body.agentName.trim()
+      ? req.body.agentName.trim()
+      : undefined;
+  const reflect = normalizeReflect(req.body.reflect);
   // Optional terminal-result callback (non-streaming path only). When set,
   // the run's terminal payload — the same shape GET /progress serves, plus
   // request_id — is POSTed to this URL on completion/failure, so callers
@@ -190,6 +252,11 @@ function parseAgentBody(req: Request) {
     typeof req.body.webhookUrl === "string" && req.body.webhookUrl.trim()
       ? req.body.webhookUrl.trim()
       : undefined;
+  // Run the agent in a throwaway detached worktree of the (single) repo and
+  // discard everything on completion. For read-only preview runs that apply a
+  // diff locally: the shared checkout stays clean, and the run gets the same
+  // bash/editor confinement as a create_pr run (no git writes, no tokens).
+  const ephemeral = req.body.ephemeral === true;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -199,11 +266,26 @@ function parseAgentBody(req: Request) {
   return {
     repoUrl, username, pat, commitList, prompt, messages, toolsConfig, schema,
     modelName, apiKey, baseUrl, logs, sessionId, sessionConfig, mcpServers,
-    systemOverride, mode, skills, subAgents, ggnn, stream, repoList, maxTurns, headers,
-    ignoreRepoInfo, attachments, _metadata, webhookUrl,
+    systemOverride, mode, skills, ontologyDomains, subAgents, ggnn, stream, repoList, maxTurns, headers,
+    ignoreRepoInfo, attachments, _metadata, agentName, webhookUrl, reflect, ephemeral,
     stakwork: stakworkApiKey ? { apiKey: stakworkApiKey, baseUrl: stakworkBaseUrl } : undefined,
     googleSheets,
   };
+}
+
+/**
+ * Coerce a request-body `reflect` value. Accepts `true` or `{ prompt }`;
+ * anything else (including `false`) turns reflection off. The prompt override
+ * replaces the instruction text only — the list of concepts the run read is
+ * appended by the server either way.
+ */
+function normalizeReflect(input: unknown): boolean | { prompt?: string } | undefined {
+  if (input === true) return true;
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    const prompt = (input as { prompt?: unknown }).prompt;
+    return typeof prompt === "string" && prompt.trim() ? { prompt: prompt.trim() } : true;
+  }
+  return undefined;
 }
 
 /**
@@ -230,7 +312,21 @@ function normalizeHeaders(input: unknown): Record<string, string> | undefined {
  */
 type TerminalWebhookPayload =
   | { request_id: string; status: "completed"; result: unknown }
-  | { request_id: string; status: "failed"; error: unknown };
+  // `retryable` is required on the failed variant so every caller gets an
+  // explicit signal: true only for infrastructure failures (a restart
+  // orphaning an in-flight run), where re-submitting the same request resumes
+  // from the last completed turn. Agent errors and aborts are false.
+  | { request_id: string; status: "failed"; error: unknown; retryable: boolean };
+
+// Module-level shutdown guard. Set by drainForShutdown() before it begins
+// flipping pending records and delivering webhooks. Gates the three terminal
+// side-effect sites in the repo_agent background chain so that a still-running
+// chain reaching .then/.catch after the drain does NOT emit a second webhook or
+// overwrite the failed/retryable:true disk record.
+let shuttingDown = false;
+export function setShuttingDown(): void {
+  shuttingDown = true;
+}
 
 const WEBHOOK_RETRY_DELAYS_MS = [0, 5_000, 30_000];
 const WEBHOOK_TIMEOUT_MS = 15_000;
@@ -279,22 +375,178 @@ async function postTerminalWebhook(
 }
 
 /**
+ * Single-attempt webhook delivery for graceful shutdown. Does NOT use the
+ * WEBHOOK_RETRY_DELAYS_MS ladder (which can exceed 35s — far past the ~10s
+ * Docker stop grace window). One fetch with a 3s timeout; never throws.
+ */
+async function postTerminalWebhookOnce(
+  url: string,
+  payload: TerminalWebhookPayload,
+  timeoutMs = 3000,
+): Promise<void> {
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (resp.ok) {
+      console.log(
+        `[repo_agent] Shutdown webhook delivered (${payload.status}) for ${payload.request_id}`,
+      );
+    } else {
+      console.error(
+        `[repo_agent] Shutdown webhook got ${resp.status} for ${payload.request_id}`,
+      );
+    }
+  } catch (e: any) {
+    console.error(
+      `[repo_agent] Shutdown webhook failed for ${payload.request_id}:`,
+      e?.message || e,
+    );
+  }
+}
+
+/**
+ * Deliver terminal webhooks for orphaned runs, parameterised by delivery fn.
+ * Boot uses `postTerminalWebhook` (full retry ladder); shutdown uses
+ * `postTerminalWebhookOnce` (single attempt, 3s timeout).
+ */
+function notifyOrphans(
+  orphans: asyncReqs.OrphanedReq[],
+  deliver: (url: string, payload: TerminalWebhookPayload) => Promise<void>,
+): Promise<PromiseSettledResult<void>[]> {
+  const deliveries = orphans
+    .filter((o) => o.webhookUrl)
+    .map((orphan) =>
+      deliver(orphan.webhookUrl!, {
+        request_id: orphan.request_id,
+        status: "failed",
+        error: orphan.error,
+        retryable: orphan.retryable,
+      }),
+    );
+  return Promise.allSettled(deliveries);
+}
+
+/**
  * Startup reconciliation: mark runs orphaned by a process restart as failed
  * (their driving work died with the old process) and deliver the terminal
  * webhook for any that registered a webhookUrl, so callers waiting on a
  * callback instead of polling still hear about the failure.
  */
 export function sweepOrphanedRuns(): void {
-  for (const orphan of asyncReqs.sweepOrphanedReqs()) {
-    if (orphan.webhookUrl) {
-      void postTerminalWebhook(orphan.webhookUrl, {
-        request_id: orphan.request_id,
-        status: "failed",
-        error: orphan.error,
-      });
+  void notifyOrphans(asyncReqs.sweepOrphanedReqs(), postTerminalWebhook);
+}
+
+/**
+ * Boot-time reconciliation: remove orphaned worktree directories and prune
+ * stale git worktree registrations left behind by a SIGKILL / OOM / crash.
+ *
+ * Mirrors `sweepOrphanedRuns` — called once at process start so future
+ * `git worktree add` calls on any base repo are not poisoned by dangling
+ * .git/worktrees entries from the previous process.
+ *
+ * The roots are parameterized for tests only (test files run in parallel
+ * processes, so a test sweeping the real roots races concurrent worktree
+ * tests — and wipes live state on a dev machine). Production callers use
+ * the defaults.
+ */
+export function sweepOrphanedWorktrees(
+  swarmRoot = "/tmp/.swarm-work",
+  reposRoot = "/tmp"
+): void {
+  // Remove all per-run worktree directories.
+  try {
+    if (fs.existsSync(swarmRoot)) {
+      const entries = fs.readdirSync(swarmRoot);
+      for (const entry of entries) {
+        const fullPath = path.join(swarmRoot, entry);
+        try {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+          console.log(`[sweepOrphanedWorktrees] Removed stale worktree dir: ${fullPath}`);
+        } catch (e: any) {
+          console.warn(`[sweepOrphanedWorktrees] Failed to remove ${fullPath}:`, e?.message);
+        }
+      }
     }
+  } catch (e: any) {
+    console.warn("[sweepOrphanedWorktrees] Failed to scan swarm-work root:", e?.message);
+  }
+
+  // Prune stale git worktree registrations on every base repo under
+  // <reposRoot>/<owner>/<repo>.
+  try {
+    const tmpEntries = fs.readdirSync(reposRoot);
+    for (const ownerEntry of tmpEntries) {
+      if (ownerEntry.startsWith(".")) continue;
+      const ownerPath = path.join(reposRoot, ownerEntry);
+      try {
+        const repoEntries = fs.readdirSync(ownerPath);
+        for (const repoEntry of repoEntries) {
+          const repoPath = path.join(ownerPath, repoEntry);
+          const gitDir = path.join(repoPath, ".git");
+          if (!fs.existsSync(gitDir)) continue;
+          const result = spawnSync("git", ["worktree", "prune"], {
+            cwd: repoPath,
+            shell: false,
+            env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: "/tmp", GIT_TERMINAL_PROMPT: "0" },
+          });
+          if (result.status === 0) {
+            console.log(`[sweepOrphanedWorktrees] Pruned worktrees for ${repoPath}`);
+          }
+        }
+      } catch {
+        // ignore per-entry errors
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[sweepOrphanedWorktrees] Failed to scan ${reposRoot} for repos:`, e?.message);
   }
 }
+
+/**
+ * Graceful-shutdown drain. Sets the `shuttingDown` guard (preventing
+ * still-running background chains from firing a second terminal webhook),
+ * flips all pending requests to failed/retryable:true on disk, and delivers
+ * their webhooks in parallel with a single 3s attempt each.
+ *
+ * Called from the signal handler in index.ts; raced against a deadline there.
+ * Never throws.
+ */
+export async function drainForShutdown(): Promise<void> {
+  setShuttingDown();
+  const orphans = asyncReqs.failPendingReqs(SHUTDOWN_ORPHAN_ERROR);
+  await notifyOrphans(orphans, postTerminalWebhookOnce);
+}
+
+// In-process per-identity + per-owner/repo rate limit for PR landings.
+// 10 PRs/hour per login+repo combination. Per-container only — not a substitute
+// for a gateway-level limit. Resets on process restart.
+const PR_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const PR_RATE_MAX = 10;
+const prRateCounts = new Map<string, { count: number; windowStart: number }>();
+
+/**
+ * Returns true if the landing is within the rate limit (and records it).
+ * Returns false if the limit has been exceeded.
+ */
+function checkPrRateLimit(login: string, owner: string, repo: string): boolean {
+  const key = `${login}:${owner}/${repo}`;
+  const now = Date.now();
+  const entry = prRateCounts.get(key);
+  if (!entry || now - entry.windowStart > PR_RATE_WINDOW_MS) {
+    prRateCounts.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= PR_RATE_MAX) return false;
+  entry.count++;
+  return true;
+}
+
+// Active worktree handles keyed by runId — used for teardown on shutdown.
+const activeWorktrees = new Map<string, WorktreeHandle>();
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
 export async function repo_agent(req: Request, res: Response) {
@@ -338,7 +590,89 @@ export async function repo_agent(req: Request, res: Response) {
     ),
   });
 
+  // Generate a per-run UUID once, used for both the streaming and non-streaming
+  // paths. Do NOT reuse sessionId (caller-controlled, reused across turns) or
+  // request_id (only exists on the non-streaming path).
+  const runId = randomUUID();
+
   const body = parseAgentBody(req);
+
+  // ── create_pr admission checks ────────────────────────────────────────
+  // All checks happen here — before any git/GitHub call — to fail loudly
+  // rather than deep inside the git pipeline.
+  let prResolvedIdentity: Awaited<ReturnType<typeof resolveIdentity>> | undefined;
+  let prOwner = "";
+  let prRepo = "";
+  let prWorktreeHandle: WorktreeHandle | undefined;
+
+  // ── ephemeral admission checks ────────────────────────────────────────
+  if (body.ephemeral) {
+    // create_pr manages its own worktree; combining the two is ambiguous.
+    if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+      res.status(400).json({ error: "ephemeral cannot be combined with toolsConfig.create_pr" });
+      return;
+    }
+    // The worktree is created from one base checkout — no multi-repo runs.
+    if (body.repoList.length !== 1) {
+      res.status(400).json({ error: "ephemeral requires exactly one explicit repo_url" });
+      return;
+    }
+  }
+
+  if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+    // 1. Auth bypass guard: authMiddleware returns next() when API_TOKEN is unset.
+    //    A git write path must never be reachable via that bypass.
+    if (!process.env.API_TOKEN) {
+      res.status(401).json({ error: "create_pr requires API_TOKEN to be configured" });
+      return;
+    }
+    // 2. PAT required: without a PAT we cannot authenticate as the user.
+    if (!body.pat || body.pat.trim().length === 0) {
+      res.status(400).json({ error: "create_pr requires a non-empty pat" });
+      return;
+    }
+    // 3. Exactly one explicit repo_url: never fall back to the graph repo list.
+    if (body.repoList.length !== 1) {
+      res.status(400).json({
+        error: "create_pr requires exactly one explicit repo_url (no comma-separated list, no omission)",
+      });
+      return;
+    }
+    const repoParts = body.repoList[0].split("/");
+    if (repoParts.length < 2) {
+      res.status(400).json({ error: "create_pr: repo_url must be in owner/repo form" });
+      return;
+    }
+    prOwner = repoParts[repoParts.length - 2];
+    prRepo = repoParts[repoParts.length - 1];
+
+    // 4. Identity resolution: the token's own login is authoritative.
+    const githubClient = new OctokitGitHubClient(body.pat);
+    try {
+      const identityResult = await resolveIdentity(githubClient, body.pat, body.username);
+      if (!identityResult.ok) {
+        res.status(400).json({ error: identityResult.error, failure: identityResult.failure });
+        return;
+      }
+      prResolvedIdentity = identityResult;
+
+      // 5. Push permission check.
+      const repoData = await githubClient.repos.get({ owner: prOwner, repo: prRepo });
+      if (!repoData.data.permissions?.push) {
+        res.status(403).json({ error: "no_push_permission: PAT does not have push access to this repo", failure: "no_push_permission" });
+        return;
+      }
+
+      // 6. Rate limit check (per-container; not a substitute for a gateway limit).
+      if (!checkPrRateLimit(identityResult.identity.login, prOwner, prRepo)) {
+        res.status(429).json({ error: "rate_limited: too many PRs landed in this hour", failure: "rate_limited" });
+        return;
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: redactCredentials(`create_pr admission failed: ${e?.message || e}`, body.pat) });
+      return;
+    }
+  }
 
   // Transparent replay: `messages` is a full transcript run verbatim. It takes
   // the place of `prompt` and disables all enrichment/history/persistence.
@@ -354,11 +688,16 @@ export async function repo_agent(req: Request, res: Response) {
   // Only prepend repo info on the first message of a session (or when there's no session).
   // In transparent mode the replayed messages are sent verbatim — no repo info.
   const isExistingSession = body.sessionId && sessionExists(body.sessionId);
+  // Confined runs (create_pr or ephemeral) work in a per-run worktree — the
+  // standard repo-info block would misdirect them to the shared checkout.
+  const confinedRun = body.ephemeral || toolConfigEnabled(body.toolsConfig?.create_pr);
   const promptInput: string | ModelMessage[] = transparent
     ? body.messages!
-    : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph" || body.mode === "workflow")
-      ? body.prompt
-      : prependRepoInfo(body.prompt, body.repoList, graphRepos);
+    : confinedRun && body.repoList.length === 1
+      ? prependWorktreeInfo(body.prompt, body.repoList[0])
+      : (isExistingSession || body.ignoreRepoInfo || body.mode === "graph" || body.mode === "workflow")
+        ? body.prompt
+        : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   // ── Streaming path: direct SSE response ──────────────────────────────
   if (body.stream) {
     // Register abort controller keyed by sessionId so a separate request can cancel it
@@ -368,15 +707,87 @@ export async function repo_agent(req: Request, res: Response) {
       ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commitList, abortController.signal)
       : Promise.resolve(resolveRepoDir(effectiveRepos));
     try {
-      const repoDir = await repoDirPromise;
+      let repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
-      const { streamResult, finalizeSession } = await stream_context(
+      // create_pr path: acquire a per-run worktree and use it as the agent's
+      // working directory so all file edits are isolated from the shared clone.
+      let streamPrMode: Parameters<typeof stream_context>[2]["prMode"] | undefined;
+      let streamEphemeral: Parameters<typeof stream_context>[2]["ephemeral"] | undefined;
+      if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+        // Fail closed: admission sets prResolvedIdentity for every create_pr
+        // run, so its absence here means the run would otherwise proceed
+        // unconfined in the shared checkout with a live push token. Refuse.
+        if (!prResolvedIdentity?.ok) {
+          endTracking(opId);
+          unregisterAbortController(body.sessionId, abortController);
+          res.status(500).json({
+            error: "create_pr was requested but identity resolution did not complete — refusing unconfined run",
+          });
+          return;
+        }
+        const identity = prResolvedIdentity.identity;
+        const githubClient = new OctokitGitHubClient(body.pat!);
+        const baseDir = repoDir;
+        const worktreeResult = await acquireWorktree({
+          baseDir,
+          owner: prOwner,
+          repo: prRepo,
+          runId,
+          pat: body.pat!,
+          githubClient,
+          signal: abortController.signal,
+        });
+        if (!worktreeResult.ok) {
+          endTracking(opId);
+          unregisterAbortController(body.sessionId, abortController);
+          res.status(500).json({ error: worktreeResult.error, failure: worktreeResult.failure });
+          return;
+        }
+        prWorktreeHandle = worktreeResult.handle;
+        activeWorktrees.set(runId, prWorktreeHandle);
+        repoDir = worktreeResult.handle.worktreePath;
+        console.log(
+          `[repo_agent] prMode armed (stream): runId=${runId} worktree=${prWorktreeHandle.worktreePath} branch=${prWorktreeHandle.branch}`,
+        );
+        streamPrMode = {
+          handle: worktreeResult.handle,
+          identity,
+          env: gitEnv(identity, body.pat!, worktreeResult.handle.runHome),
+          githubClient,
+        };
+      } else if (body.ephemeral) {
+        const baseDir = repoDir;
+        const parts = baseDir.split(path.sep).filter(Boolean);
+        const ephResult = await acquireEphemeralWorktree({
+          baseDir,
+          owner: parts[parts.length - 2] ?? "repo",
+          repo: parts[parts.length - 1] ?? "repo",
+          runId,
+          signal: abortController.signal,
+        });
+        if (!ephResult.ok) {
+          endTracking(opId);
+          unregisterAbortController(body.sessionId, abortController);
+          res.status(500).json({ error: ephResult.error, failure: ephResult.failure });
+          return;
+        }
+        prWorktreeHandle = ephResult.handle;
+        activeWorktrees.set(runId, prWorktreeHandle);
+        repoDir = ephResult.handle.worktreePath;
+        console.log(
+          `[repo_agent] ephemeral worktree armed (stream): runId=${runId} worktree=${repoDir} base=${baseDir}`,
+        );
+        streamEphemeral = { baseCheckoutPath: baseDir };
+      }
+
+      const { streamResult, prCollector, finalizeSession, closeMcpClients } = await stream_context(
         promptInput,
         repoDir,
         {
           transparent,
           pat: body.pat,
+          username: body.username,
           toolsConfig: body.toolsConfig,
           schema: body.schema,
           modelName: body.modelName,
@@ -390,6 +801,7 @@ export async function repo_agent(req: Request, res: Response) {
           systemOverride: body.systemOverride,
           mode: body.mode,
           skills: body.skills,
+          ontologyDomains: body.ontologyDomains,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
           stakwork: body.stakwork,
@@ -400,8 +812,12 @@ export async function repo_agent(req: Request, res: Response) {
           headers: body.headers,
           attachments: body.attachments,
           _metadata: body._metadata,
+          agentName: body.agentName,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
+          reflect: body.reflect,
+          prMode: streamPrMode,
+          ephemeral: streamEphemeral,
         },
       );
 
@@ -418,6 +834,13 @@ export async function repo_agent(req: Request, res: Response) {
       const reader = streamResponse.body?.getReader();
       if (!reader) {
         res.status(500).json({ error: "No stream body" });
+        // Teardown: release worktree even on this early return path
+        if (prWorktreeHandle) {
+          activeWorktrees.delete(runId);
+          releaseWorktree(prWorktreeHandle).catch((e) =>
+            console.error("[repo_agent] releaseWorktree (no-reader) failed:", e)
+          );
+        }
         endTracking(opId);
         return;
       }
@@ -452,17 +875,35 @@ export async function repo_agent(req: Request, res: Response) {
         .finally(async () => {
           res.off("close", onClientClose);
           await finalizeSession();
-          unregisterAbortController(body.sessionId);
+          // After finalizeSession: it awaits streamResult.steps/.usage.
+          await closeMcpClients();
+          // Teardown: release worktree on all pump exits (success + error).
+          if (prWorktreeHandle) {
+            activeWorktrees.delete(runId);
+            await releaseWorktree(prWorktreeHandle).catch((e) =>
+              console.error("[repo_agent] releaseWorktree (pump.finally) failed:", e)
+            );
+          }
+          unregisterAbortController(body.sessionId, abortController);
           endTracking(opId);
         });
 
       return;
     } catch (error: any) {
       console.error("[repo_agent] Stream setup error:", error);
-      unregisterAbortController(body.sessionId);
+      // Teardown: release worktree when stream_context throws during setup.
+      if (prWorktreeHandle) {
+        activeWorktrees.delete(runId);
+        releaseWorktree(prWorktreeHandle).catch((e) =>
+          console.error("[repo_agent] releaseWorktree (stream-catch) failed:", e)
+        );
+      }
+      unregisterAbortController(body.sessionId, abortController);
       endTracking(opId);
       if (!res.headersSent) {
-        res.status(500).json({ error: error.message || "Internal server error" });
+        res.status(500).json({
+          error: redactCredentials(error.message || "Internal server error"),
+        });
       }
       return;
     }
@@ -487,6 +928,8 @@ export async function repo_agent(req: Request, res: Response) {
   const repoDirPromise = body.repoUrl
     ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commitList, abortController.signal)
     : Promise.resolve(resolveRepoDir(effectiveRepos));
+  // Track non-streaming worktree handle for teardown in .finally().
+  let nonStreamWorktreeHandle: WorktreeHandle | undefined;
 
   // Generate a short-lived JWT scoped to this request_id (only if API_TOKEN is set)
   let events_token: string | undefined;
@@ -498,12 +941,71 @@ export async function repo_agent(req: Request, res: Response) {
 
   try {
     repoDirPromise
-      .then((repoDir) => {
+      .then(async (repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(promptInput, repoDir, {
+        // create_pr path: acquire worktree for the non-streaming agent run.
+        let effectiveRepoDir = repoDir;
+        let nonStreamPrMode: Parameters<typeof get_context>[2]["prMode"] | undefined;
+        let nonStreamEphemeral: Parameters<typeof get_context>[2]["ephemeral"] | undefined;
+        if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
+          // Fail closed: never degrade a create_pr run into an unconfined
+          // shared-checkout run (admission guarantees prResolvedIdentity; if
+          // that invariant ever breaks, the run must error, not proceed).
+          if (!prResolvedIdentity?.ok) {
+            throw new Error(
+              "create_pr was requested but identity resolution did not complete — refusing unconfined run",
+            );
+          }
+          const identity = prResolvedIdentity.identity;
+          const githubClient = new OctokitGitHubClient(body.pat!);
+          const wResult = await acquireWorktree({
+            baseDir: repoDir,
+            owner: prOwner,
+            repo: prRepo,
+            runId,
+            pat: body.pat!,
+            githubClient,
+            signal: abortController.signal,
+          });
+          if (!wResult.ok) throw new Error(`${wResult.failure}: ${wResult.error}`);
+          nonStreamWorktreeHandle = wResult.handle;
+          prWorktreeHandle = wResult.handle;
+          activeWorktrees.set(runId, wResult.handle);
+          effectiveRepoDir = wResult.handle.worktreePath;
+          console.log(
+            `[repo_agent] prMode armed: request_id=${request_id} runId=${runId} worktree=${effectiveRepoDir} branch=${wResult.handle.branch}`,
+          );
+          nonStreamPrMode = {
+            handle: wResult.handle,
+            identity,
+            env: gitEnv(identity, body.pat!, wResult.handle.runHome),
+            githubClient,
+          };
+        } else if (body.ephemeral) {
+          const parts = repoDir.split(path.sep).filter(Boolean);
+          const ephResult = await acquireEphemeralWorktree({
+            baseDir: repoDir,
+            owner: parts[parts.length - 2] ?? "repo",
+            repo: parts[parts.length - 1] ?? "repo",
+            runId,
+            signal: abortController.signal,
+          });
+          if (!ephResult.ok) throw new Error(`${ephResult.failure}: ${ephResult.error}`);
+          nonStreamWorktreeHandle = ephResult.handle;
+          activeWorktrees.set(runId, ephResult.handle);
+          effectiveRepoDir = ephResult.handle.worktreePath;
+          console.log(
+            `[repo_agent] ephemeral worktree armed: request_id=${request_id} runId=${runId} worktree=${effectiveRepoDir} base=${repoDir}`,
+          );
+          nonStreamEphemeral = { baseCheckoutPath: repoDir };
+        }
+        return get_context(promptInput, effectiveRepoDir, {
           transparent,
           pat: body.pat,
+          username: body.username,
           toolsConfig: body.toolsConfig,
+          prMode: nonStreamPrMode,
+          ephemeral: nonStreamEphemeral,
           schema: body.schema,
           modelName: body.modelName,
           apiKey: body.apiKey,
@@ -516,6 +1018,7 @@ export async function repo_agent(req: Request, res: Response) {
           systemOverride: body.systemOverride,
           mode: body.mode,
           skills: body.skills,
+          ontologyDomains: body.ontologyDomains,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
           stakwork: body.stakwork,
@@ -526,8 +1029,10 @@ export async function repo_agent(req: Request, res: Response) {
           headers: body.headers,
           attachments: body.attachments,
           _metadata: body._metadata,
+          agentName: body.agentName,
           commitList: body.commitList,
           ignoreRepoInfo: body.ignoreRepoInfo,
+          reflect: body.reflect,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
@@ -535,6 +1040,9 @@ export async function repo_agent(req: Request, res: Response) {
         });
       })
       .then((result) => {
+        // Guard: if drainForShutdown() has already flipped this record and
+        // delivered a failed/retryable:true webhook, do not overwrite.
+        if (shuttingDown) return;
         const terminalResult = {
           success: true,
           final_answer: result.final,
@@ -543,6 +1051,12 @@ export async function repo_agent(req: Request, res: Response) {
           usage: result.usage,
           logs: result.logs,
           sessionId: result.sessionId,
+          // Present when the run read any Concepts. The run is held open for
+          // the reflect call, so deliver its result here rather than making
+          // the caller follow up with GET /repo/agent/session for it.
+          reflection: result.reflection,
+          // Present when create_pr was enabled; structured result from landChange().
+          pr: result.pr,
         };
         asyncReqs.finishReq(request_id, terminalResult);
         // Post-completion side effects are isolated: if one throws it must
@@ -551,7 +1065,7 @@ export async function repo_agent(req: Request, res: Response) {
         try {
           bus.emit({
             type: "done",
-            result: { final_answer: result.final, usage: result.usage },
+            result: { final_answer: result.final, usage: result.usage, pr: result.pr },
             timestamp: new Date().toISOString(),
           });
         } catch (e) {
@@ -566,10 +1080,15 @@ export async function repo_agent(req: Request, res: Response) {
         }
       })
       .catch((error) => {
+        // Guard: drainForShutdown() is the sole owner of terminal state during
+        // shutdown — skip both the disk write and webhook so the caller gets
+        // exactly one webhook (failed/retryable:true from the drain).
+        if (shuttingDown) return;
         const aborted = abortController.signal.aborted;
+        // Persisted to `.reqs/<id>.json` and POSTed to the caller's webhook.
         const errorMessage = aborted
           ? "aborted"
-          : error.message || error.toString();
+          : redactCredentials(error.message || error.toString());
         if (aborted) {
           console.log(`[repo_agent] Run aborted: ${request_id}`);
         } else {
@@ -590,24 +1109,47 @@ export async function repo_agent(req: Request, res: Response) {
             request_id,
             status: "failed",
             error: errorMessage,
+            retryable: false,
           });
         }
       })
-      .finally(() => {
+      .finally(async () => {
+        // Teardown: release worktree on all non-streaming exits.
+        if (nonStreamWorktreeHandle) {
+          activeWorktrees.delete(runId);
+          await releaseWorktree(nonStreamWorktreeHandle).catch((e) =>
+            console.error("[repo_agent] releaseWorktree (non-stream.finally) failed:", e)
+          );
+        }
         unregisterAbortController(request_id);
         if (body.sessionId && body.sessionId !== request_id) {
-          unregisterAbortController(body.sessionId);
+          unregisterAbortController(body.sessionId, abortController);
         }
         endTracking(opId);
       });
-    res.json({ request_id, status: "pending", sessionId: body.sessionId, ...(events_token && { events_token }) });
+    res.json({
+      request_id,
+      status: "pending",
+      sessionId: body.sessionId,
+      ...(events_token && { events_token }),
+      // create_pr runs: the exact branch landChange will push, deterministic
+      // from the per-run runId. Returned because request_id is NOT the runId —
+      // a caller cannot derive the branch itself, and GitHub's `head` filter
+      // is an exact match, so reconciliation needs the real name.
+      ...(toolConfigEnabled(body.toolsConfig?.create_pr) && {
+        pr_branch: branchName(runId, "swarm-change"),
+      }),
+    });
   } catch (error) {
     console.log("===> error");
-    asyncReqs.failReq(request_id, error);
+    // Guard: skip terminal disk write + webhook during shutdown; drain owns them.
+    if (!shuttingDown) {
+      asyncReqs.failReq(request_id, error);
+    }
     console.error("Error in repo_agent", error);
     unregisterAbortController(request_id);
     if (body.sessionId && body.sessionId !== request_id) {
-      unregisterAbortController(body.sessionId);
+      unregisterAbortController(body.sessionId, abortController);
     }
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);
@@ -672,7 +1214,10 @@ export async function get_agent_session(req: Request, res: Response) {
     const messages = loadSession(sessionId);
     const config = loadSessionConfig(sessionId);
     const _metadata = loadSessionMetadata(sessionId);
-    res.json({ sessionId, messages, config, _metadata });
+    // Null when the session read no concepts (or predates the sidecar);
+    // `config.reflect` says whether a ranking was ever asked for.
+    const reflection = loadReflection(sessionId);
+    res.json({ sessionId, messages, config, _metadata, reflection });
   } catch (e) {
     console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });
@@ -763,5 +1308,33 @@ export async function get_agent_file(req: Request, res: Response) {
     return;
   }
 
-  res.sendFile(resolved);
+  // Deny /tmp/.swarm-work explicitly — the "/tmp" root above admits every
+  // path beneath it, so worktrees (in-progress PR changes) would otherwise be
+  // readable by guessing/replaying a runId through this handler. Both sides
+  // are canonicalized (resolveInCwd does not follow symlinks, and /tmp itself
+  // is a symlink on macOS), so a symlink elsewhere under /tmp cannot alias
+  // into the worktree root.
+  const swarmRoot = "/tmp/.swarm-work";
+  let swarmRootReal = swarmRoot;
+  try {
+    swarmRootReal = fs.realpathSync(swarmRoot);
+  } catch {
+    // swarm root doesn't exist — no worktrees to protect, literal check still applies
+  }
+  let real: string;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+  const underSwarm = (p: string) =>
+    p === swarmRoot || p.startsWith(swarmRoot + path.sep) ||
+    p === swarmRootReal || p.startsWith(swarmRootReal + path.sep);
+  if (underSwarm(resolved) || underSwarm(real)) {
+    res.status(403).json({ error: "Path outside allowed roots" });
+    return;
+  }
+
+  res.sendFile(real);
 }

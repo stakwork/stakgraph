@@ -67,6 +67,25 @@ func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
 	nonces = append(nonces, m.UserAuthorization.Nonce, m.Invocation.Nonce)
 	nonces = append(nonces, attNonces...)
 
+	// Chain: every budgeted layer, outermost first. The enforcement
+	// adapter walks this for the per-run accumulators and the cap
+	// walk; the last element is always the leaf (== runID above).
+	chain := make([]ChainLayer, 0, 1+len(m.Attenuations))
+	chain = append(chain, ChainLayer{
+		RunID:      m.Invocation.RunID,
+		MaxCostUSD: m.Invocation.MaxCostUSD,
+		MaxSteps:   m.Invocation.MaxSteps,
+		Exp:        m.Invocation.Exp,
+	})
+	for _, att := range m.Attenuations {
+		chain = append(chain, ChainLayer{
+			RunID:      att.Caveats.RunID,
+			MaxCostUSD: att.Caveats.MaxCostUSD,
+			MaxSteps:   att.Caveats.MaxSteps,
+			Exp:        att.Caveats.Exp,
+		})
+	}
+
 	return &Claims{
 		OrgID:            m.OrgID,
 		UserID:           m.UserAuthorization.UserID,
@@ -75,6 +94,9 @@ func VerifyJSON(raw []byte, policy Policy, now time.Time) (*Claims, error) {
 		EffectiveCaveats: effective,
 		UANonce:          m.UserAuthorization.Nonce,
 		UABudget:         m.UserAuthorization.Budget,
+		UAIAT:            m.UserAuthorization.IAT,
+		UAExp:            m.UserAuthorization.Exp,
+		Chain:            chain,
 		PermittedRealms:  permittedRealms(&effective),
 		Nonces:           nonces,
 		IAT:              m.Invocation.IAT,
