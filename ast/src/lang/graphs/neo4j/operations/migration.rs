@@ -159,6 +159,29 @@ impl Neo4jGraph {
         Ok(incoming)
     }
 
+    pub async fn get_incoming_edge_source_files(
+        &self,
+        file_paths: &[String],
+    ) -> Result<Vec<String>> {
+        if file_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let connection = self.ensure_connected().await?;
+        let (query_str, params) = incoming_edge_source_files_query(file_paths);
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+        let mut result = connection.execute(query_obj).await?;
+        let mut files = Vec::new();
+        while let Some(row) = result.next().await? {
+            if let Ok(file) = row.get::<String>("file") {
+                files.push(file);
+            }
+        }
+        Ok(files)
+    }
+
     pub async fn clear_existing_graph(&self, root: &str) -> Result<()> {
         let connection = self.ensure_connected().await?;
         info!("Clearing existing graph for root: {}", root);
@@ -312,6 +335,23 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     let query = "MATCH (r:Repository) 
                  WHERE r.name CONTAINS $repo_name 
                  RETURN r.hash as hash";
+
+    (query.to_string(), params)
+}
+
+pub fn incoming_edge_source_files_query(file_paths: &[String]) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    let files: Vec<neo4rs::BoltType> = file_paths
+        .iter()
+        .map(|p| neo4rs::BoltType::String(p.clone().into()))
+        .collect();
+    boltmap_insert_list(&mut params, "files", files);
+
+    let query = "
+        MATCH (src:Data_Bank)-[r]->(dst:Data_Bank)
+        WHERE dst.file IN $files AND NOT src.file IN $files AND type(r) <> 'CONTAINS'
+        RETURN DISTINCT src.file as file
+    ";
 
     (query.to_string(), params)
 }
