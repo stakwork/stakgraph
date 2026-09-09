@@ -19,15 +19,23 @@ machine; the package does not include Node.
 - **Download.** The `strut-v*` GitHub release has `strut-darwin-arm64.tar.gz`
   and `strut-darwin-x64.tar.gz`. Unpack and run `./strut --open`: the web UI
   it opens has dictation built in, so you can try the recognizer before
-  writing a line of client code.
+  writing a line of client code. If the browser downloaded it, macOS
+  quarantines every extracted file and loading the unnotarized speech addon
+  would hang the process on a Gatekeeper prompt; `./strut` detects that and
+  tells you to run `xattr -dr com.apple.quarantine <dir>` once. A `curl`
+  download has no quarantine.
 - **Build.** In `strut/` of a checkout: `yarn install`, `npm --prefix web
   install`, then `npm run package:desktop -- --smoke --tar`. Same layout at
   `dist-desktop/strut/`, and the tarball beside it.
 
 The directory is `package.json`, `build/`, `web/dist/`, `node_modules/`
-(one `sherpa-onnx-<platform>` package; the script prints the single `.node`
-addon the app must code-sign), plus two entry points: `desktop.js`, which a
-host spawns, and `strut`, a shell wrapper over it.
+(one `sherpa-onnx-<platform>` package), plus two entry points: `desktop.js`,
+which a host spawns, and `strut`, a shell wrapper over it. The packaging
+script prints the native binaries the app must code-sign and notarize: the
+`sherpa-onnx.node` addon and the three dylibs beside it (`libonnxruntime`,
+`libsherpa-onnx-c-api`, `libsherpa-onnx-cxx-api`). They ship ad-hoc signed,
+which is why an unsigned download trips Gatekeeper; inside a signed,
+notarized app bundle there is no prompt.
 
 A host runs `node <dir>/desktop.js` from any cwd with **no required env**.
 The launcher defaults to the filesystem workspace (no Neo4j), binds
