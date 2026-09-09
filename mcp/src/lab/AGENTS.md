@@ -754,6 +754,9 @@ adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
   strut checkout is needed to boot. To bump: edit the pinned commit, `yarn
   install`, commit `yarn.lock`. The GitHub shorthand (`stakwork/strut#sha`)
   does NOT work — yarn fetches those as a source tarball and skips `prepare`.
+  `mcp/.yarnrc` sets `network-concurrency 1` and must stay: yarn 1 runs a
+  nested install for the `prepare`, and with parallel fetches on a cold cache
+  the two installs corrupt each other's cache entries (see the comment there).
 - To hack on strut and mcp together: `yarn link` in a strut checkout, then
   `yarn link strut` here (yarn keeps the symlink across installs). Rebuild
   strut (`npm run build`, `npm run build:web`) and restart mcp to pick up

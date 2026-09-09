@@ -123,6 +123,9 @@ RUN npx -y playwright install
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json
 COPY ./yarn.lock ./yarn.lock
+# .yarnrc sets network-concurrency 1; without it the `yarn` below dies on a
+# cold cache (see the comment in .yarnrc).
+COPY ./.yarnrc ./.yarnrc
 
 # Copy workspace package.json files (required for yarn workspaces)
 COPY ./src/aieo/package.json ./src/aieo/package.json
