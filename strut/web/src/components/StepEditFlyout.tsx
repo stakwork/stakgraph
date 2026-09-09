@@ -24,6 +24,7 @@ export function StepEditFlyout(props: {
   const [when, setWhen] = useState<boolean | undefined>(props.step.when);
   const [fields, setFields] = useState<api.FieldDesc[]>([]);
   const [error, setError] = useState("");
+  const [dependsOpen, setDependsOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [source, setSource] = useState<api.StepSourceResponse | null>(null);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -59,6 +60,7 @@ export function StepEditFlyout(props: {
     setConfig({ ...props.step.config });
     const deps = props.step.depends == null ? [] : Array.isArray(props.step.depends) ? [...props.step.depends] : [props.step.depends];
     setDepends(deps);
+    setDependsOpen(false);
     setWhen(props.step.when);
     setError("");
   }, [props.step]);
@@ -161,11 +163,22 @@ export function StepEditFlyout(props: {
           </div>
         )}
 
-        {/* Depends */}
+        {/* Depends — collapsed by default. The toggle row names the current
+            deps, so the checkbox list only needs opening to change them. */}
         {otherStepIds.length > 0 && (
           <div class="flyout-section">
-            <div class="flyout-section-title">Depends on</div>
-            <div class="flyout-checkbox-group">
+            <button
+              class="flyout-toggle"
+              onClick={() => setDependsOpen((o) => !o)}
+              type="button"
+              aria-expanded={dependsOpen}
+            >
+              <span class={`flyout-toggle-caret${dependsOpen ? " open" : ""}`}>▶</span>
+              Depends on
+              <span class="flyout-toggle-note">{depends.length > 0 ? depends.join(", ") : "none"}</span>
+            </button>
+            {dependsOpen && (
+            <div class="flyout-checkbox-group flyout-toggle-body">
               {otherStepIds.map((sid) => {
                 const dep = props.allSteps.find((s) => s.id === sid);
                 const isGate = dep?.type === "if";
@@ -186,6 +199,7 @@ export function StepEditFlyout(props: {
                 );
               })}
             </div>
+            )}
           </div>
         )}
 
@@ -217,11 +231,11 @@ export function StepEditFlyout(props: {
 
         {/* Step source (lazily fetched, read-only) */}
         <div class="flyout-section">
-          <button class="flyout-source-toggle" onClick={toggleSource} type="button">
-            <span class={`flyout-source-caret${sourceOpen ? " open" : ""}`}>▶</span>
+          <button class="flyout-toggle" onClick={toggleSource} type="button">
+            <span class={`flyout-toggle-caret${sourceOpen ? " open" : ""}`}>▶</span>
             Source
             {source?.origin && (
-              <span class="flyout-source-origin">{source.origin}</span>
+              <span class="flyout-toggle-note">{source.origin}</span>
             )}
           </button>
           {sourceOpen && (

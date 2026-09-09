@@ -1,84 +1,14 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import * as api from "../api";
 import { ConfigField } from "./ConfigField";
 import { recentRunInput } from "../storage";
-import type { StepData } from "../flow-to-canvas";
+import type { InputBinding } from "../run-inputs";
 
 // ── Run Input Popover ──────────────────────────────────────────────────────
 //
-// When the first step has any config slots templated as "{{ input.X }}",
-// render a small form anchored under the Run button so the user can supply
-// those values. Field metadata (type, required, default) is borrowed from
-// the step's own schema — the popover is just a typed pass-through.
-
-/** Match `{{ input.<ident> }}` with optional whitespace, and nothing else. */
-const SINGLE_INPUT_RE = /^\s*\{\{\s*input\.([a-zA-Z_$][\w$]*)\s*\}\}\s*$/;
-
-/** Match every `input.<ident>` reference anywhere in a string (nested objects,
- *  multi-segment templates, expressions). Used to surface input keys that a
- *  flat single-template field check misses — e.g. a workflow that passes input
- *  through a nested object like `eval/optimize`'s `evalInput: { owner, repo }`. */
-const ANY_INPUT_RE = /input\.([a-zA-Z_$][\w$]*)/g;
-
-/** Recursively collect distinct `input.X` keys referenced anywhere in a value. */
-function collectInputRefs(value: unknown, out: string[] = []): string[] {
-  if (typeof value === "string") {
-    for (const m of value.matchAll(ANY_INPUT_RE)) out.push(m[1]!);
-  } else if (Array.isArray(value)) {
-    for (const v of value) collectInputRefs(v, out);
-  } else if (value && typeof value === "object") {
-    for (const v of Object.values(value)) collectInputRefs(v, out);
-  }
-  return out;
-}
-
-interface InputBinding {
-  /** Name of the input key the user supplies (e.g. "owner"). */
-  inputKey: string;
-  /** Schema descriptor cloned from the host step's field. */
-  field: api.FieldDesc;
-}
-
-/**
- * Find every config field on `step` whose value is exactly `{{ input.X }}`,
- * and pair it with the matching FieldDesc from the step's schema.
- */
-export function deriveInputBindings(
-  step: StepData,
-  fields: api.FieldDesc[],
-): InputBinding[] {
-  const bindings: InputBinding[] = [];
-  const seen = new Set<string>();
-
-  // 1. Typed bindings: a config field whose value is exactly `{{ input.X }}`
-  //    borrows that field's schema descriptor (so number/enum widgets work).
-  for (const field of fields) {
-    const raw = step.config?.[field.name];
-    if (typeof raw !== "string") continue;
-    const match = raw.match(SINGLE_INPUT_RE);
-    if (!match) continue;
-    const inputKey = match[1]!;
-    if (seen.has(inputKey)) continue;
-    seen.add(inputKey);
-    bindings.push({
-      inputKey,
-      field: { ...field, name: inputKey },
-    });
-  }
-
-  // 2. Any other input refs anywhere in the config (nested objects, arrays,
-  //    multi-segment templates, expressions) — surfaced as plain string fields,
-  //    optional (we can't infer type/requiredness from a nested ref). Without
-  //    this, a workflow that passes input through a nested object never prompts
-  //    for those keys and runs with them undefined.
-  for (const inputKey of collectInputRefs(step.config)) {
-    if (seen.has(inputKey)) continue;
-    seen.add(inputKey);
-    bindings.push({ inputKey, field: { name: inputKey, kind: "string", required: false } });
-  }
-
-  return bindings;
-}
+// A small form anchored under the Run button: the workflow's inputs (inferred
+// from every step's `{{ input.X }}` references — see run-inputs.ts) on top,
+// its `params` knobs below. Field metadata for inputs is borrowed from the
+// consuming step's own schema — the popover is just a typed pass-through.
 
 export function RunInputPopover(props: {
   workflow: string;
@@ -160,14 +90,19 @@ export function RunInputPopover(props: {
     <div class="run-popover" ref={ref}>
       <div class="run-popover-title">Run input</div>
       <div class="run-popover-body">
-        {props.bindings.map((b) => (
-          <ConfigField
-            key={b.inputKey}
-            field={b.field}
-            value={values[b.inputKey]}
-            onChange={(v) => setValues((prev) => ({ ...prev, [b.inputKey]: v }))}
-          />
-        ))}
+        {props.bindings.length > 0 && (
+          <div class="run-popover-inputs">
+            <div class="run-popover-subtitle">Inputs</div>
+            {props.bindings.map((b) => (
+              <ConfigField
+                key={b.inputKey}
+                field={b.field}
+                value={values[b.inputKey]}
+                onChange={(v) => setValues((prev) => ({ ...prev, [b.inputKey]: v }))}
+              />
+            ))}
+          </div>
+        )}
         {paramKeys.length > 0 && (
           <div class="run-popover-params">
             <div class="run-popover-subtitle">Params</div>

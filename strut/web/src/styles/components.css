@@ -23,12 +23,28 @@
 
 .shell-topbar {
   grid-area: topbar;
+  position: relative; /* containing block for the lifted .run-anchor */
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 0 var(--sp-4);
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* A flyout (chat, params, step edit, …) is fixed to the window's right edge
+   and covers the topbar's action group. Only Run escapes: while a flyout is
+   open it is lifted out of the group and pinned just left of the flyout's
+   edge. The resizer writes --flyout-width on .shell live during a drag, so
+   Run tracks it. The other buttons stay put underneath. */
+.shell:has(.flyout) .run-anchor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(min(var(--flyout-width, 420px), 95vw) + var(--sp-4));
+  display: flex;
+  align-items: center;
+  z-index: 1;
 }
 
 .shell-canvas {
@@ -439,6 +455,26 @@ body.is-resizing-events * {
 }
 .btn-primary:hover {
   background: var(--accent-strong);
+}
+/* AI chat toggle — purple→blue gradient, brighter on hover, glowing while
+   the chat flyout is open. */
+.btn-ai {
+  --ai-from: #8b5cf6;
+  --ai-to: #3b82f6;
+  background: linear-gradient(135deg, var(--ai-from), var(--ai-to));
+  border-color: transparent;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  transition: filter 80ms, box-shadow 120ms;
+}
+.btn-ai:hover {
+  background: linear-gradient(135deg, var(--ai-from), var(--ai-to));
+  filter: brightness(1.12) saturate(1.1);
+}
+.btn-ai.is-active {
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.6), 0 0 14px rgba(99, 130, 255, 0.45);
 }
 .btn-danger {
   border-color: var(--danger, #b3423f);
@@ -1097,7 +1133,7 @@ body.is-resizing-flyout * {
   color: var(--text-muted);
 }
 
-.flyout-source-toggle {
+.flyout-toggle {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -1114,23 +1150,27 @@ body.is-resizing-flyout * {
   color: var(--text-muted);
 }
 
-.flyout-source-toggle:hover {
+.flyout-toggle:hover {
   color: var(--text);
 }
 
-.flyout-source-caret {
+.flyout-toggle-caret {
   display: inline-block;
   font-size: 9px;
   transition: transform 0.12s ease;
   color: var(--text-dim);
 }
 
-.flyout-source-caret.open {
+.flyout-toggle-caret.open {
   transform: rotate(90deg);
 }
 
-.flyout-source-origin {
+.flyout-toggle-note {
   margin-left: auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0;
@@ -1139,6 +1179,9 @@ body.is-resizing-flyout * {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   padding: 1px var(--sp-2);
+}
+.flyout-toggle-body {
+  margin-top: var(--sp-2);
 }
 
 .flyout-source-code {
@@ -1634,6 +1677,11 @@ body.is-resizing-flyout * {
   gap: var(--sp-2);
   margin-top: var(--sp-3);
   flex-shrink: 0;
+}
+.run-popover-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
 }
 .run-popover-params {
   display: flex;
