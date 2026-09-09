@@ -6275,8 +6275,9 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@file:../strut":
+"strut@git+https://github.com/stakwork/strut.git#404851171f43a4977e9b90794c932a479599b1e3":
   version "0.1.0"
+  resolved "git+https://github.com/stakwork/strut.git#404851171f43a4977e9b90794c932a479599b1e3"
   dependencies:
     "@ai-sdk/anthropic" "3.0.92"
     "@ai-sdk/openai" "^3.0.67"

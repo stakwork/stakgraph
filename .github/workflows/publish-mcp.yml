@@ -15,21 +15,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Stage strut into the mcp build context
-        # mcp depends on `file:../strut`, which is outside the ./mcp build
-        # context. Copy its source in so the Dockerfile can build it in-image.
-        run: |
-          rm -rf mcp/.strut
-          rsync -a \
-            --exclude node_modules \
-            --exclude web/node_modules \
-            --exclude build \
-            --exclude web/dist \
-            --exclude .git \
-            --exclude .env \
-            --exclude workspace \
-            strut/ mcp/.strut/
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -61,19 +46,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Stage strut into the mcp build context
-        run: |
-          rm -rf mcp/.strut
-          rsync -a \
-            --exclude node_modules \
-            --exclude web/node_modules \
-            --exclude build \
-            --exclude web/dist \
-            --exclude .git \
-            --exclude .env \
-            --exclude workspace \
-            strut/ mcp/.strut/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
