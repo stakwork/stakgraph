@@ -61,9 +61,14 @@ export function createTestPage(options: {
     `
     : '';
 
-  // Inline the staktrak bundle for data URLs
+  // The bundle assigns a module namespace, so the API sits under `.default`.
   const staktrakScript = includeStaktrak
-    ? `<script>${getStaktrakBundle()}</script>`
+    ? `<script>${getStaktrakBundle()}</script>
+    <script>
+      if (window.userBehaviour && window.userBehaviour.default) {
+        window.userBehaviour = window.userBehaviour.default;
+      }
+    </script>`
     : '';
 
   const defaultContent = `
@@ -96,6 +101,18 @@ export function createTestPage(options: {
 }
 
 /**
+ * Serve html from a real origin instead of data:/about:blank, which are
+ * opaque: sessionStorage is denied and location.origin is "null". Port 3000
+ * matches the origin tests pushState to. Fulfilled from memory, no server.
+ */
+export async function servePage(page: Page, html: string): Promise<void> {
+  await page.route('**/staktrak-test.html', (route) =>
+    route.fulfill({ contentType: 'text/html', body: html }),
+  );
+  await page.goto('http://localhost:3000/staktrak-test.html');
+}
+
+/**
  * Load staktrak in a page and wait for it to be ready
  */
 export async function loadStaktrakInPage(page: Page, options: {
@@ -104,9 +121,8 @@ export async function loadStaktrakInPage(page: Page, options: {
   customContent?: string;
 } = {}): Promise<void> {
   const html = createTestPage({ includeStaktrak: true, ...options });
-  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 
-  await page.goto(dataUrl);
+  await servePage(page, html);
 
   // Wait for staktrak to be fully initialized
   await page.waitForFunction(() => {
@@ -249,7 +265,6 @@ export function validateAction(action: any): boolean {
  * Wait for condition with timeout (page context)
  */
 export async function waitForCondition(
-  page: Page,
   condition: () => boolean | Promise<boolean>,
   timeout: number = 5000,
   interval: number = 100

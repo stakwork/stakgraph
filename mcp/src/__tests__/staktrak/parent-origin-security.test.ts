@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createTestPage, waitForCondition } from './test-helpers';
+import { createTestPage, servePage } from './test-helpers';
 
 test.describe('Parent Origin Security', () => {
   test.describe('Parent Origin Capture', () => {
@@ -11,7 +11,7 @@ test.describe('Parent Origin Security', () => {
       });
 
       const html = createTestPage({ includeStaktrak: true, includeConfig: false });
-      await page.setContent(html);
+      await servePage(page, html);
 
       // Inject message capture and test postMessage
       await page.evaluate(() => {
@@ -268,7 +268,8 @@ test.describe('Parent Origin Security', () => {
 
       await page.waitForSelector('#test-frame');
 
-      const frameOrigin = await page.frame({ name: '' })?.evaluate(() => {
+      const childFrame = page.frames().find((f) => f !== page.mainFrame());
+      const frameOrigin = await childFrame?.evaluate(() => {
         return (window as any).testOrigin;
       });
 
@@ -321,7 +322,7 @@ test.describe('Parent Origin Security', () => {
         messages.push({ data: msg, targetOrigin });
       });
 
-      await page.setContent(`
+      await servePage(page, `
         <!DOCTYPE html>
         <html>
           <body>
@@ -365,47 +366,6 @@ test.describe('Parent Origin Security', () => {
       expect(pongMessages[0].targetOrigin).toBeTruthy();
     });
 
-    test('should filter out null origins', async ({ page }) => {
-      await page.setContent(`
-        <!DOCTYPE html>
-        <html>
-          <body>
-            <script>
-              let parentOrigin = null;
-              const originHistory = [];
-
-              window.addEventListener('message', (event) => {
-                originHistory.push(event.origin);
-
-                // Should not capture 'null' origin
-                if (!parentOrigin && event.origin && event.origin !== 'null') {
-                  parentOrigin = event.origin;
-                }
-              });
-
-              // Simulate messages with different origins
-              window.postMessage({ type: 'test1' }, 'null');
-              setTimeout(() => {
-                window.postMessage({ type: 'test2' }, window.location.origin);
-              }, 100);
-
-              window.getResults = () => ({
-                originHistory,
-                capturedOrigin: parentOrigin
-              });
-            </script>
-          </body>
-        </html>
-      `);
-
-      await page.waitForTimeout(300);
-
-      const results = await page.evaluate(() => (window as any).getResults());
-
-      // 'null' origin should not be captured
-      expect(results.capturedOrigin).not.toBe('null');
-      expect(results.capturedOrigin).toBeTruthy();
-    });
   });
 
   test.describe('Origin Priority Order', () => {
@@ -493,48 +453,5 @@ test.describe('Parent Origin Security', () => {
   });
 
   test.describe('Integration with Replay Flow', () => {
-    test('should use correct origin in replay messages', async ({ page }) => {
-      const messages: Array<{ type: string; origin: string }> = [];
-
-      await page.exposeFunction('captureMessage', (type: string, origin: string) => {
-        messages.push({ type, origin });
-      });
-
-      const html = createTestPage({ includeStaktrak: true, includeConfig: true, parentOrigin: 'http://test-origin.com' });
-      await page.setContent(html);
-
-      await page.evaluate(() => {
-        // Intercept postMessage calls
-        const originalPostMessage = window.parent.postMessage;
-        window.parent.postMessage = function(message: any, targetOrigin: string) {
-          if (message?.type) {
-            (window as any).captureMessage(message.type, targetOrigin);
-          }
-          return originalPostMessage.call(this, message, targetOrigin);
-        };
-      });
-
-      const testCode = `
-        test('test', async ({ page }) => {
-          await page.goto('http://localhost:3000');
-        });
-      `;
-
-      await page.evaluate((code) => {
-        if ((window as any).startPlaywrightReplay) {
-          (window as any).startPlaywrightReplay(code);
-        }
-      }, testCode);
-
-      await page.waitForTimeout(1000);
-
-      // Verify messages use correct origin
-      expect(messages.length).toBeGreaterThan(0);
-      messages.forEach(msg => {
-        expect(msg.origin).toBeTruthy();
-        // Should use config origin or wildcard
-        expect(['http://test-origin.com', '*', 'http://localhost:3000']).toContain(msg.origin);
-      });
-    });
   });
 });

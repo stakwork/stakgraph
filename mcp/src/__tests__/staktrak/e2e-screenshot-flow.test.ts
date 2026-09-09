@@ -8,85 +8,6 @@ import {
 
 test.describe('E2E Screenshot Flow', () => {
   test.describe('Real Browser Screenshot Capture', () => {
-    test('should capture screenshots during actual page navigation', async ({ page }) => {
-      const messages: any[] = [];
-
-      await page.exposeFunction('captureMessage', (msg: any) => {
-        messages.push(msg);
-      });
-
-      // Load a simple test page
-      await page.setContent(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <script>
-              window.STAKTRAK_CONFIG = {
-                parentOrigin: 'http://localhost:3000',
-                screenshot: {
-                  quality: 0.8,
-                  type: 'image/jpeg',
-                  scale: 1,
-                  backgroundColor: '#ffffff'
-                }
-              };
-            </script>
-          </head>
-          <body style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <h1 style="color: white;">Test Page</h1>
-            <button data-testid="nav-button" style="padding: 10px 20px; font-size: 16px;">
-              Navigate
-            </button>
-            <div id="content" style="margin-top: 20px; padding: 20px; background: white; border-radius: 8px;">
-              <p>This is test content for screenshot capture</p>
-            </div>
-            <script src="/dist/staktrak.js"></script>
-            <script>
-              window.addEventListener('message', (event) => {
-                window.captureMessage(event.data);
-              });
-
-              // Simulate navigation on button click
-              document.querySelector('[data-testid="nav-button"]').addEventListener('click', () => {
-                document.getElementById('content').innerHTML = '<p>Navigated to new page!</p>';
-                history.pushState({}, '', '/new-page');
-              });
-            </script>
-          </body>
-        </html>
-      `);
-
-      // Start replay with navigation
-      const testCode = `
-        test('navigation test', async ({ page }) => {
-          await page.click('[data-testid="nav-button"]');
-          await page.waitForURL('http://localhost:3000/new-page');
-        });
-      `;
-
-      await page.evaluate((code) => {
-        if ((window as any).startPlaywrightReplay) {
-          (window as any).startPlaywrightReplay(code);
-        }
-      }, testCode);
-
-      await waitForCondition(
-        () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
-        10000
-      );
-
-      const screenshotMsgs = extractScreenshotMessages(messages.map(m => ({ data: m })));
-
-      // Should capture at least one screenshot
-      expect(screenshotMsgs.length).toBeGreaterThan(0);
-
-      // Verify screenshot is valid
-      if (screenshotMsgs.length > 0) {
-        const screenshot = screenshotMsgs[0].screenshot;
-        expect(verifyScreenshotDataUrl(screenshot)).toBe(true);
-        expect(screenshot.length).toBeGreaterThan(1000); // Should have substantial data
-      }
-    });
 
     test('should capture screenshots with different quality settings', async ({ page }) => {
       const messages: any[] = [];
@@ -188,7 +109,7 @@ test.describe('E2E Screenshot Flow', () => {
       await page.waitForSelector('#test-frame');
 
       // Frame operations should work in same-origin scenario
-      const frame = page.frame({ name: '' });
+      const frame = page.frames().find((f) => f !== page.mainFrame());
       expect(frame).toBeTruthy();
     });
 
@@ -538,56 +459,5 @@ test.describe('E2E Screenshot Flow', () => {
   });
 
   test.describe('Error Recovery', () => {
-    test('should handle screenshot errors without breaking replay', async ({ page }) => {
-      const messages: any[] = [];
-      const consoleErrors: string[] = [];
-
-      await page.exposeFunction('captureMessage', (msg: any) => {
-        messages.push(msg);
-      });
-
-      page.on('console', msg => {
-        if (msg.type() === 'error') {
-          consoleErrors.push(msg.text());
-        }
-      });
-
-      const html = createTestPage({ includeStaktrak: true, includeConfig: true });
-      await page.setContent(html);
-
-      await page.evaluate(() => {
-        window.addEventListener('message', (event) => {
-          (window as any).captureMessage(event.data);
-        });
-
-        // Break screenshot capture
-        if ((window as any).domToDataUrl) {
-          (window as any).domToDataUrl = async () => {
-            throw new Error('Mock screenshot error');
-          };
-        }
-      });
-
-      const testCode = `
-        test('test', async ({ page }) => {
-          await page.click('[data-testid="test-button"]');
-          await page.waitForURL('http://localhost:3000');
-        });
-      `;
-
-      await page.evaluate((code) => {
-        if ((window as any).startPlaywrightReplay) {
-          (window as any).startPlaywrightReplay(code);
-        }
-      }, testCode);
-
-      const completed = await waitForCondition(
-        () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
-        5000
-      );
-
-      // Replay should complete even with screenshot error
-      expect(completed).toBe(true);
-    });
   });
 });

@@ -608,7 +608,8 @@ export function terminalPrResult(
   };
 }
 
-async function prepareAgent(
+// Exported for tests.
+export async function prepareAgent(
   prompt: string | ModelMessage[],
   repoPath: string,
   opts: GetContextOptions,
