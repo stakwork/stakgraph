@@ -17,13 +17,20 @@ Two ways to have one running locally. Both need Node 20 or newer on the
 machine; the package does not include Node.
 
 - **Download.** The `strut-v*` GitHub release has `strut-darwin-arm64.tar.gz`
-  and `strut-darwin-x64.tar.gz`. Unpack and run `./strut --open`: the web UI
-  it opens has dictation built in, so you can try the recognizer before
-  writing a line of client code. If the browser downloaded it, macOS
-  quarantines every extracted file and loading the unnotarized speech addon
-  would hang the process on a Gatekeeper prompt; `./strut` detects that and
-  tells you to run `xattr -dr com.apple.quarantine <dir>` once. A `curl`
-  download has no quarantine.
+  and `strut-darwin-x64.tar.gz`. Fetch and unpack from the terminal, then run
+  `./strut --open`: the web UI it opens has dictation built in, so you can
+  try the recognizer before writing a line of client code.
+
+  ```sh
+  curl -L https://github.com/stakwork/stakgraph/releases/latest/download/strut-darwin-arm64.tar.gz | tar xz
+  ./strut/strut --open
+  ```
+
+  Use `curl`, not the browser: a browser download is quarantined by macOS,
+  Archive Utility marks every extracted file, and loading the unnotarized
+  speech addon would then hang the process on a Gatekeeper prompt. `./strut`
+  detects that case and tells you to run `xattr -dr com.apple.quarantine
+  <dir>` once, but the `curl` path never hits it.
 - **Build.** In `strut/` of a checkout: `yarn install`, `npm --prefix web
   install`, then `npm run package:desktop -- --smoke --tar`. Same layout at
   `dist-desktop/strut/`, and the tarball beside it.
