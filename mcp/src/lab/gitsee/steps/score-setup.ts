@@ -1,4 +1,4 @@
-import { z, defineStep, usageFromResult, computeCost, addUsage, coerceUsage } from "vein";
+import { z, defineStep, usageFromResult, computeCost, addUsage, coerceUsage } from "strut";
 import vm from "node:vm";
 import yaml from "js-yaml";
 
@@ -45,7 +45,7 @@ import yaml from "js-yaml";
  * it): output `{ score, recall, precision, matched, missing, spurious, reason,
  * insight, markdown }`.
  *
- * Self-contained: imports only `vein`, `js-yaml`, `node:vm`, and (lazily, only
+ * Self-contained: imports only `strut`, `js-yaml`, `node:vm`, and (lazily, only
  * when the LLM tier is on) `ai` + `@ai-sdk/anthropic`. No imports from `src/`.
  */
 
@@ -207,8 +207,8 @@ interface JudgeResult {
 async function judgeSemantics(
   cfg: { actual: string; expected: string; rubric?: string; provider?: string; model?: string },
 ): Promise<JudgeResult> {
-  const provider = cfg.provider ?? process.env["VEIN_LLM_PROVIDER"] ?? "anthropic";
-  const modelName = cfg.model ?? process.env["VEIN_LLM_MODEL"];
+  const provider = cfg.provider ?? process.env["STRUT_LLM_PROVIDER"] ?? "anthropic";
+  const modelName = cfg.model ?? process.env["STRUT_LLM_MODEL"];
   const { generateObject } = await import("ai");
   let model: unknown;
   switch (provider) {

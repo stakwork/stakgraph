@@ -1,16 +1,16 @@
-# wfbench — the Workflow Editor benchmark harness as a vein workflow
+# wfbench — the Workflow Editor benchmark harness as a strut workflow
 
 Port of stakwork workflow 58313 ("Workflow Editor Agent Benchmark — Task
 Runner", v189235) plus its nested workflows, rebuilt on the lab's existing
 produce → run → judge → record substrate. Second purpose: use the same
-harness to PORT stakwork workflows onto vein one task at a time, with a
+harness to PORT stakwork workflows onto strut one task at a time, with a
 rubric that checks the port is faithful.
 
 ## Decision: the author is an `agent` step with `agentTools: ["meta/*"]`
 
 Not a "chat assistant as a step". Reasons:
 
-- The chat builder (`vein/src/ai/tools.ts`) and `meta/*` are the SAME
+- The chat builder (`strut/src/ai/tools.ts`) and `meta/*` are the SAME
   authoring capability (`services.authoring`). `meta/*` is its in-run form.
   This is exactly how `gaia-evolve-gen` / `harvey-evolve-gen` already author
   candidates, and it is what EVOLVE_SPEC §5.3.2 prescribes.
@@ -20,16 +20,16 @@ Not a "chat assistant as a step". Reasons:
   output, `cost`/`steps`, per-tool-call events on the canvas, retry/onError
   and run-control tree linkage for free.
 - Stakwork 54419 "Workflow Editor JSON" is itself just a wrapper around an
-  agent loop (54517). The vein twin of "54419 as a black box returning
+  agent loop (54517). The strut twin of "54419 as a black box returning
   artifact pointers" is `agent` + `meta/*` returning `{ workflow, version }`.
 - Chat-only tools the author does NOT need: `bash` (forbidden next to
   `meta/*`), `graph_query`, run control, `set_active_version`. The one
   worth adding is `validate_workflow` → new `meta/validate-workflow` step
   (thin wrapper over the same `validate(yaml, name)`).
 
-## Step map (58313 → vein)
+## Step map (58313 → strut)
 
-| 58313 (stakwork) | vein |
+| 58313 (stakwork) | strut |
 | --- | --- |
 | `set_var` | workflow `input` + `params` |
 | EvalSet / EvalRequirement / EvalTrigger roster (55741, 58114, 55740, `hop_check_trigger_exists`, `guard_first_run`) | `graph/create-node` (EvalSet), `graph/create-batch-triplet` (EvalRequirements), `graph/graph-neighbors` + `wfbench/trigger-edge` → `graph/create-triplet` with `HAS_BASELINE_TRIGGER` or `HAS_TRIGGER`. Ids: EvalSet = task slug verbatim, EvalRequirement = `<slug>::<criterion_id>` — Hive's `eval-nodes.ts` convention (Hive upserts the roster before dispatch and reads it back by those ids), not harvey's `<slug>-<id>` |
@@ -85,7 +85,7 @@ workflow_input_json?, rerun_expected_output?, webhook_url? }`. Params:
 `authorMaxSteps`, `judgeModel`, `judgeConcurrency` (+ `judgeSystem` /
 `judgePrompt` / `judgeMaxSteps` on the judge subflow).
 
-Registered in `createLabVein.ts` after the artifact steps. Needs the graph
+Registered in `createLabStrut.ts` after the artifact steps. Needs the graph
 (mcp's Neo4j) and `ANTHROPIC_API_KEY`.
 
 ## Grant discipline
@@ -105,7 +105,7 @@ Registered in `createLabVein.ts` after the artifact steps. Needs the graph
 Each stakwork workflow becomes ONE task for `wfbench-run`:
 
 - `instructions` = the stakwork body JSON (`data.workflow` from
-  `wfbench/stakwork-fetch`) + "port this to vein" + a translation
+  `wfbench/stakwork-fetch`) + "port this to strut" + a translation
   cheat-sheet in `params.authorSystem`:
   SetVar → `input`/`params`; JSONBuilder / JSONPathParser / IfElseValue →
   `{{ }}` templates; Request → `http`; IfElseCondition → `if` + `when`;
@@ -129,7 +129,7 @@ harness first republishes the baseline YAML under `<name>-candidate` (now
 publisher `ai`) and points the author at that. Cheap to support from day
 one; 58313 v1 skipped it.
 
-## Small vein/lab changes needed
+## Small strut/lab changes needed
 
 1. DONE — `meta/validate-workflow` step (wraps the chat's `validate`).
 2. DONE — `harvey/build-eval-chain`, `harvey/aggregate-scores`,
@@ -139,12 +139,12 @@ one; 58313 v1 skipped it.
 
 ## Graph writes vs 58313 / 58312 (what differs, and why)
 
-vein's graph backend rejects attributes the ontology does not declare, so:
-`EvalSet.project_id` (an int in stakwork; vein runIds are strings) and the
+strut's graph backend rejects attributes the ontology does not declare, so:
+`EvalSet.project_id` (an int in stakwork; strut runIds are strings) and the
 `name` on EvalTrigger / EvalTriggerOutput are omitted (EvalTrigger gets
 `agent: wfbench-run` as its title). 58312's `CriterionResult -HAS_CAUSE->
 Workflow_version(material_ref_id)` is not written: the ontology has no
-such relationship and the produced vein workflow is not a Workflow_version
+such relationship and the produced strut workflow is not a Workflow_version
 node. Everything else — ids, edge types, EvalTriggerOutput's score fields,
 CriterionResult's verdict/reasoning — matches, and the smoke asserts it.
 

@@ -2,17 +2,17 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
-import { createAudioUpgradeHandler, type AudioUpgradeHandler } from "vein";
-import { createLabVein } from "./createLabVein.js";
+import { createAudioUpgradeHandler, type AudioUpgradeHandler } from "strut";
+import { createLabStrut } from "./createLabStrut.js";
 
-/** The one lab vein, built on first use (HTTP request or dictation upgrade). */
-let labVeinP: ReturnType<typeof createLabVein> | null = null;
-function labVein() {
-  return (labVeinP ??= createLabVein({ serveUi: true }));
+/** The one lab strut, built on first use (HTTP request or dictation upgrade). */
+let labStrutP: ReturnType<typeof createLabStrut> | null = null;
+function labStrut() {
+  return (labStrutP ??= createLabStrut({ serveUi: true }));
 }
 
 /**
- * Bridge a (lazily-built) vein Hono app into Express. The instance is
+ * Bridge a (lazily-built) strut Hono app into Express. The instance is
  * created on the first request to its mount path, so mcp boot is never
  * coupled to an experiment's Neo4j / LLM-key dependencies — and a broken
  * experiment can't take down the whole server at startup.
@@ -25,7 +25,7 @@ function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
     const p =
       listenerP ??
       (listenerP = factory().then(
-        (vein) => getRequestListener(vein.app.fetch) as NodeListener,
+        (strut) => getRequestListener(strut.app.fetch) as NodeListener,
       ));
     p.then((listener) => listener(req, res)).catch(next);
   };
@@ -49,16 +49,16 @@ function labAuthorized(req: { header(name: string): string | undefined }): boole
 }
 
 /**
- * Mount the single lab vein under `/lab` (API + run-streaming SSE). All
+ * Mount the single lab strut under `/lab` (API + run-streaming SSE). All
  * experiments share this one instance — they're groups of workflows
  * inside it, not separate servers.
  *
- * The vein UI is served too: its build uses relative asset paths and a
+ * The strut UI is served too: its build uses relative asset paths and a
  * runtime-derived API base, so it works under `/lab` as long as we
  * redirect `/lab` → `/lab/` (so relative `./assets/...` resolve under the
  * mount dir).
  *
- * Registration MUST happen before `express.json()` so vein receives the
+ * Registration MUST happen before `express.json()` so strut receives the
  * raw request stream (same constraint as the graph SSE routes).
  */
 /**
@@ -80,31 +80,31 @@ export function mountLab(app: Express): void {
   // Express routing is non-strict, so `/lab` also matches `/lab/`; guard
   // against redirecting `/lab/` to itself (an infinite 308 loop) by only
   // redirecting the exact, slash-less path and letting `/lab/` fall through
-  // to the vein bridge below.
+  // to the strut bridge below.
   app.get("/lab", (req, res, next) => {
     if (req.path === "/lab/") return next();
     res.redirect(308, "/lab/");
   });
-  app.use("/lab", labAuth, bridge(labVein));
+  app.use("/lab", labAuth, bridge(labStrut));
 }
 
 const LAB_AUDIO_STREAM = "/lab/audio/stream";
 
 /**
- * Dictation over `/lab/audio/stream` (vein `src/audio/ws.ts`). A WebSocket
+ * Dictation over `/lab/audio/stream` (strut `src/audio/ws.ts`). A WebSocket
  * upgrade never enters Express, so the bridge above can't carry it: hook the
  * Node server's `upgrade` event, apply the lab credential (browsers resend
  * cached Basic auth on same-origin handshakes, so the UI's one-time prompt
- * covers it), then hand the socket to vein. Built lazily like the bridge —
- * the first dictation boots the lab vein if a request hasn't already.
+ * covers it), then hand the socket to strut. Built lazily like the bridge —
+ * the first dictation boots the lab strut if a request hasn't already.
  * Other upgrade paths get a 404 rather than a socket left hanging.
  */
 export function attachLabAudio(server: Server): void {
   let handlerP: Promise<AudioUpgradeHandler | null> | null = null;
   const handler = () =>
-    (handlerP ??= labVein().then((vein) =>
-      vein.stt
-        ? createAudioUpgradeHandler(vein.stt, { basePath: "/lab", authorize: () => true })
+    (handlerP ??= labStrut().then((strut) =>
+      strut.stt
+        ? createAudioUpgradeHandler(strut.stt, { basePath: "/lab", authorize: () => true })
         : null,
     ));
   const reject = (socket: Duplex, status: string) => {

@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
  * The harvey_lab_filter_contested_criteria equivalent: drop rubric criteria

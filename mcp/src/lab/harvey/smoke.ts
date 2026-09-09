@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { WorkspaceManager, buildRegistry, fileArtifactsCapability, type StepContext } from "vein";
+import { WorkspaceManager, buildRegistry, fileArtifactsCapability, type StepContext } from "strut";
 import { buildHarveyServices, type ExecFn, type ExecResult } from "./service.js";
 import { seedHarveySteps } from "./seed.js";
 
@@ -153,7 +153,7 @@ async function main() {
     const result = await harvey.evaluate({
       task: TASK,
       sourceDir: join(artifactsRoot, "run42", "output"),
-      runId: "vein-run42",
+      runId: "strut-run42",
       metrics: { input_tokens: 100, output_tokens: 50 },
     });
     assert.equal(result.all_pass, true);
@@ -161,13 +161,13 @@ async function main() {
     assert.ok(String(result.reportPath).endsWith("report.html"));
     // staged where the harness looks
     assert.equal(
-      readFileSync(join(checkout, "results", "vein-run42", "output", "memo.md"), "utf-8"),
+      readFileSync(join(checkout, "results", "strut-run42", "output", "memo.md"), "utf-8"),
       "memo mentioning X",
     );
     // CLI invoked correctly
     const uvCall = log.find((c) => c.cmd === "uv")!;
     assert.deepEqual(uvCall.args.slice(0, 4), ["run", "python", "-m", "evaluation.run_eval"]);
-    assert.ok(uvCall.args.includes("vein-run42") && uvCall.args.includes(TASK));
+    assert.ok(uvCall.args.includes("strut-run42") && uvCall.args.includes(TASK));
     console.log("✔ evaluate: staging + CLI + scores + benchmarkRev");
 
     // runId sanitization

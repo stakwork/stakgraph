@@ -1,4 +1,4 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -22,7 +22,7 @@ import { join } from "node:path";
  * the agent created show as additions) then `git diff`. Output `{ result, usage,
  * cost, steps, diff, changedRepos, changed }`.
  *
- * Self-contained: imports only `vein` + Node builtins. Needs `git` on PATH.
+ * Self-contained: imports only `strut` + Node builtins. Needs `git` on PATH.
  */
 
 function git(args: string[], cwd: string, timeoutMs = 30000): Promise<string> {

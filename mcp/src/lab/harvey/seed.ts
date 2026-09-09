@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
@@ -15,7 +15,7 @@ import { SEED_OPTS, retireSteps } from "../seed-opts.js";
  *   producing agents.
  * - `harvey/evaluate` — stage deliverables + run the real eval. Grant ONLY
  *   to harness workflows, never to the producing agent.
- * - (the echo combiner is vein's core `pack` step now — not seeded here)
+ * - (the echo combiner is strut's core `pack` step now — not seeded here)
  * - `harvey/digest-results` — aggregate graded results into the propose
  *   digest (verdict channel only; see the step header).
  *
@@ -48,7 +48,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
 // Types this seeder USED to publish. Seeding is additive, so without this a
 // dropped step lingers in every existing workspace (see retireSteps).
 const RETIRED_STEPS = [
-  "harvey/pack-result", // → vein core `pack`
+  "harvey/pack-result", // → strut core `pack`
   "harvey/aggregate-scores", // → eval/aggregate-scores
   "harvey/build-eval-chain", // → eval/build-eval-chain
   "harvey/criterion-refs", // → eval/criterion-refs
@@ -92,8 +92,8 @@ const SEED_WORKFLOWS = [
 /**
  * The prompt files are VERBATIM copies of the stakwork production prompts,
  * which name the repo-agent's jarvis tools (`jarvis_graph_search`, …). The
- * lab pipeline runs on the vein-native `graph/*` steps (same shapes, backed
- * by vein's own Neo4j graph backend — no jarvis process), whose agent tool
+ * lab pipeline runs on the strut-native `graph/*` steps (same shapes, backed
+ * by strut's own Neo4j graph backend — no jarvis process), whose agent tool
  * names are `graph_*`. Translate the tool names at seed time so the prompt
  * files stay byte-identical to production while the agents call the tools
  * they were actually granted.

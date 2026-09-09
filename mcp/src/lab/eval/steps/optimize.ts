@@ -1,4 +1,4 @@
-import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, coerceUsage } from "vein";
+import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, coerceUsage } from "strut";
 
 /**
  * GENERIC self-improving LOOP (EVAL_SPEC §7/§11.4). Runs the optimize cycle as a
@@ -24,8 +24,8 @@ import { z, defineStep, type RunEvent, type TokenUsage, emptyUsage, addUsage, co
  * publishing a new version (a separate, explicit action).
  *
  * A leaf step has no runner, so the host injects a tiny `services.optimizer`
- * capability (a closure over `vein.run` + `workspace.getWorkflow`) — see
- * `createLabVein`. Each eval/reflect is its own `vein.run`, because the
+ * capability (a closure over `strut.run` + `workspace.getWorkflow`) — see
+ * `createLabStrut`. Each eval/reflect is its own `strut.run`, because the
  * candidate prompt varies per generation via `paramOverrides` (run-global).
  *
  * MULTI-EXAMPLE (the real overfitting fix, §11.2): a generation evals the
@@ -137,7 +137,7 @@ export default defineStep({
     const opt = (ctx.services as { optimizer?: Optimizer })?.optimizer;
     if (!opt) {
       throw new Error(
-        "eval/optimize requires a `services.optimizer` capability — inject it in createLabVein (run + getParams over vein).",
+        "eval/optimize requires a `services.optimizer` capability — inject it in createLabStrut (run + getParams over strut).",
       );
     }
 

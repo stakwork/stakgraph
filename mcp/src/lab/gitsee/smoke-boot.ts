@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import yaml from "js-yaml";
-import { coreRegistry } from "vein";
+import { coreRegistry } from "strut";
 import cloneStep from "./steps/clone-workspace.js";
 import bootExerciseStep from "./steps/boot-and-exercise.js";
 
@@ -11,7 +11,7 @@ import bootExerciseStep from "./steps/boot-and-exercise.js";
  * Throwaway end-to-end smoke for the boot-and-exercise loop. Clones a workspace,
  * runs the core `agent` to PRODUCE an initial setup (reusing the exact
  * gitsee-explore-services prompts), then runs `gitsee/boot-and-exercise` to BOOT
- * + DRIVE + FIX it until the frontend works. No vein server / Neo4j / seeding.
+ * + DRIVE + FIX it until the frontend works. No strut server / Neo4j / seeding.
  *
  *   npx tsx src/lab/gitsee/smoke-boot.ts [workspace] [owner/repo ...]
  *

@@ -9,7 +9,7 @@ import type { Concept, Usage } from "./types.js";
  * Capabilities bag injected into every concepts step via `ctx.services`.
  *
  * This is the single seam for environment-specific implementations and the
- * boundary that keeps steps **self-contained**: steps import only `vein` and
+ * boundary that keeps steps **self-contained**: steps import only `strut` and
  * reach every external capability through here, so their source can live as
  * an editable, portable file in the workspace (`steps/custom/`).
  *

@@ -2,7 +2,7 @@
  * NOT a seeded step — the canonical description of the per-step preamble for
  * the sheets/* steps.
  *
- * Seeded steps must be SELF-CONTAINED (value-imports from "vein" and node
+ * Seeded steps must be SELF-CONTAINED (value-imports from "strut" and node
  * builtins only), so each step file inlines its own copy of the auth/request
  * preamble (`sheetsCtx` + helpers below). If you change the contract, update
  * every step in this directory — they are deliberately duplicated, not shared.

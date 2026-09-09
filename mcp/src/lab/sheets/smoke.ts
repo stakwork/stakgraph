@@ -1,5 +1,5 @@
 /**
- * Offline smoke test for the sheets/* steps — no vein server, no live Google.
+ * Offline smoke test for the sheets/* steps — no strut server, no live Google.
  * Verifies:
  *   1. seeding: seedSheetsSteps publishes into a temp workspace and
  *      buildRegistry discovers every step from disk;
@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { generateKeyPairSync, createVerify } from "node:crypto";
-import { WorkspaceManager, buildRegistry, type StepContext, type HttpResponse } from "vein";
+import { WorkspaceManager, buildRegistry, type StepContext, type HttpResponse } from "strut";
 import { seedSheetsSteps } from "./seed.js";
 
 const TOKEN_URI = "https://oauth2.googleapis.com/token";
@@ -73,7 +73,7 @@ const tokenCalls = () => calls.filter((c) => c.url === TOKEN_URI);
 async function main() {
   // ── 1. seed + discover ───────────────────────────────────────────────────
   // Under the mcp dir (not os tmpdir) so the seeded steps' dynamic
-  // `import "vein"` resolves via mcp/node_modules — same as the real
+  // `import "strut"` resolves via mcp/node_modules — same as the real
   // lab-workspace location.
   const dir = mkdtempSync(join(process.cwd(), ".sheets-smoke-"));
   try {

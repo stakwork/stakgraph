@@ -1,7 +1,7 @@
-import { z, defineStep } from "vein";
+import { z, defineStep } from "strut";
 
 /**
- * 58313's wfbench_check_input_keys.py, for vein: a vein workflow declares
+ * 58313's wfbench_check_input_keys.py, for strut: a strut workflow declares
  * no input schema in YAML — its input contract is the set of `input.<key>`
  * references inside its {{ }} templates. Compare those against the task's
  * workflow_input keys:

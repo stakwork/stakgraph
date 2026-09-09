@@ -14,7 +14,7 @@ name: harvey-knowledge
 # The cross-check agent is the FACT BASE BUILDER: it reads ONLY graph nodes —
 # never the raw source documents (that blindness is the point: facts that
 # didn't survive ingestion must surface as gaps here, not be quietly patched
-# from the source). Enforced by tooling as far as vein allows (no bash) plus
+# from the source). Enforced by tooling as far as strut allows (no bash) plus
 # the prompt's own discipline. Its unregistered findings land as
 # ScratchpadEntry nodes via create_triplet's allow_scratchpad.
 #
@@ -154,7 +154,7 @@ steps:
   # items and sharpens existing text in place (never supersedes the stage-1
   # skeleton), then checklist.md is FROZEN for all downstream agents.
   # Depends on the gates too, so it runs even when both optional agents were
-  # skipped (vein only skip-propagates when EVERY dep skipped).
+  # skipped (strut only skip-propagates when EVERY dep skipped).
   - id: tailor
     type: agent
     depends: [write_checklist, use_cross_check, use_case_law, cross_check, case_law]

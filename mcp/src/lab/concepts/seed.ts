@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 
 /**
@@ -15,8 +15,8 @@ import { SEED_OPTS } from "../seed-opts.js";
  *                            prior versions are retained for rollback
  *
  * This is what makes "edit here, commit, redeploy/reseed → propagates to
- * every vein instance" work, without clobbering local experiment history.
- * (See vein `publishWorkflowByContent` / `publishStep` + `SEED_OPTS`.)
+ * every strut instance" work, without clobbering local experiment history.
+ * (See strut `publishWorkflowByContent` / `publishStep` + `SEED_OPTS`.)
  */
 
 const SEED_WORKFLOWS = [
@@ -89,7 +89,7 @@ export async function seedConceptWorkflows(
 /**
  * Reconcile the bundled self-contained step templates into the workspace's
  * `custom/` tier by content hash, so the registry discovers them from disk
- * (and they become editable/versioned through the vein API + UI). Idempotent;
+ * (and they become editable/versioned through the strut API + UI). Idempotent;
  * edits publish a new active version while prior versions are archived.
  */
 export async function seedConceptSteps(

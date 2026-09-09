@@ -11,9 +11,9 @@ name: harvey-ingest-doc
 #
 # The ingestion agent runs the verbatim HARVEY_DOCUMENT_INGESTION_PROMPT
 # (prompts/, spliced in at seed time via @@include; interpolation tokens are
-# now vein templates, and the docx-MCP/pre-parsed-text sections were adapted
+# now strut templates, and the docx-MCP/pre-parsed-text sections were adapted
 # to bash+pandoc since the agent reads the document itself — prompt size
-# stays flat). Writes go through the graph/* triplet tools (vein's own Neo4j backend —
+# stays flat). Writes go through the graph/* triplet tools (strut's own Neo4j backend —
 # no jarvis process; allow_scratchpad is accepted but has no effect); graph *methodology* questions go through the pinned read-only
 # harvey/graph-sub-agent.
 #

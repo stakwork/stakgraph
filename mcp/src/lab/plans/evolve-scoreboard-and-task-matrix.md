@@ -124,7 +124,7 @@ Mirrors the gitsee plan's ordering argument: until measurement is sharp,
 every other change optimizes against noise, and you can't even *verify* the
 later phases helped.
 
-1. **`foreach` concurrency** (vein `runner.ts`): a `concurrency` config on
+1. **`foreach` concurrency** (strut `runner.ts`): a `concurrency` config on
    the step, bounded worker pool. Iteration paths are already `#i`-keyed and
    journal-replayed individually, so durable resume is unaffected; candidate
    runs already execute under their own runIds with their own artifacts dirs
@@ -143,7 +143,7 @@ later phases helped.
    flip rates, identical-answer flags) for briefings.
 4. **Incremental persistence**: write the run summary after every top-level
    step / generation, not at `run.end`. A dead process should cost one
-   generation, not the report. (vein-level fix; the `liveStatus` fallback on
+   generation, not the report. (strut-level fix; the `liveStatus` fallback on
    the list endpoint already proves the store can serve partials.)
 
 ## Phase 2 — the scoreboard loop

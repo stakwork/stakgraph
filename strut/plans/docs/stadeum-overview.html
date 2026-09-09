@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stadeum overview</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000000; }
+      #app { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://unpkg.com/system-canvas-standalone@latest/dist/system-canvas.min.js"></script>
+    <script>
+      // Stadeum, top level only: the four components organized around the graph.
+      // Midnight theme by default. Open with ?theme=light for a print version,
+      // and ?export=0 to hide the export button (e.g. for a headless screenshot).
+
+      const params = new URLSearchParams(location.search);
+      const baseName = params.get('theme') || 'midnight';
+      const base = SystemCanvas.themes[baseName] || SystemCanvas.themes.midnight;
+      const isLight = baseName === 'light' || baseName === 'warm';
+
+      // All text sizes are the theme's defaults times this factor (midnight: 11px node text → 22px).
+      const FONT = 2;
+      // Edge labels get their own factor (midnight: 8px → 22px, matching node text).
+      const EDGE_FONT = 2.75;
+
+      // Box widths are sized for ~13.5px per character at 22px JetBrains Mono, plus padding.
+      // The Swarm group gets a subtle violet tint (groups are styled by theme.group, not by category).
+      const groupStyle = isLight
+        ? { fill: 'rgba(124,58,237,0.07)', stroke: '#8b5cf6', labelColor: '#6d28d9' }
+        : { fill: 'rgba(124,58,237,0.13)', stroke: '#7c3aed', labelColor: '#c4b5fd' };
+      // Brighter, thicker edges so the connections read at a glance (theme default is #374151 at 1px).
+      const edgeStyle = isLight
+        ? { stroke: '#64748b', strokeWidth: 2, labelColor: '#475569' }
+        : { stroke: '#94a3b8', strokeWidth: 2, labelColor: '#9ca3af' };
+      const categories = isLight ? {
+        graph:     { defaultWidth: 230, defaultHeight: 90,  fill: 'rgba(124,58,237,0.12)', stroke: '#6d28d9' },  // domain graphs
+        component: { defaultWidth: 370, defaultHeight: 110, fill: 'rgba(16,185,129,0.12)', stroke: '#047857' },  // Strut, Hive
+        oracle:    { defaultWidth: 370, defaultHeight: 110, fill: 'rgba(245,158,11,0.14)', stroke: '#b45309' },  // Jamie
+        human:     { defaultWidth: 220, defaultHeight: 90,  fill: 'rgba(100,116,139,0.12)', stroke: '#475569' }, // people
+        agent:     { defaultWidth: 400, defaultHeight: 110, fill: 'rgba(59,130,246,0.12)', stroke: '#1d4ed8' },  // agents
+        process:   { defaultWidth: 550, defaultHeight: 110, fill: 'rgba(6,182,212,0.12)',  stroke: '#0e7490' },  // the learning loop
+      } : {
+        graph:     { defaultWidth: 230, defaultHeight: 90,  fill: 'rgba(76,29,149,0.45)',  stroke: '#a78bfa' },
+        component: { defaultWidth: 370, defaultHeight: 110, fill: 'rgba(6,78,59,0.4)',     stroke: '#34d399' },
+        oracle:    { defaultWidth: 370, defaultHeight: 110, fill: 'rgba(120,53,15,0.4)',   stroke: '#fbbf24' },
+        human:     { defaultWidth: 220, defaultHeight: 90,  fill: 'rgba(30,41,59,0.5)',    stroke: '#94a3b8' },
+        agent:     { defaultWidth: 400, defaultHeight: 110, fill: 'rgba(30,64,175,0.4)',   stroke: '#60a5fa' },
+        process:   { defaultWidth: 550, defaultHeight: 110, fill: 'rgba(22,78,99,0.4)',    stroke: '#22d3ee' },
+      };
+
+      // Spread the named theme: a bare { base, categories } object is merged over the dark theme and ignores `base`.
+      const theme = {
+        ...base,
+        node:  { ...base.node,  fontSize: Math.round(base.node.fontSize * FONT), sublabelFontSize: Math.round(base.node.sublabelFontSize * FONT) },
+        edge:  { ...base.edge,  ...edgeStyle, labelFontSize: Math.round(base.edge.labelFontSize * EDGE_FONT), arrowSize: Math.round(base.edge.arrowSize * FONT) },
+        group: { ...base.group, ...groupStyle, labelFontSize: Math.round(base.group.labelFontSize * FONT) },
+        categories,
+      };
+      document.body.style.background = theme.background;
+
+      const canvas = {
+        theme,
+        nodes: [
+          { id: 'humans',   type: 'text', text: 'Humans',                                           x: -110,  y: -665, category: 'human' },
+          { id: 'hive',     type: 'text', text: 'Hive\nwhere the work happens',                     x: -1045, y: -435, category: 'component' },
+          { id: 'jamie',    type: 'text', text: 'Jamie\nthe oracle',                                x: 675,   y: -435, category: 'oracle' },
+
+          // Swarm: one federated graph, one server per domain.
+          { id: 'swarm',    type: 'group', label: 'Swarm — the graph, federated by domain',        x: -495, y: -160, width: 990, height: 280 },
+          { id: 'law',      type: 'text', text: 'Law',                                              x: -405, y: -10,  category: 'graph' },
+          { id: 'software', type: 'text', text: 'Software',                                         x: -115, y: -10,  category: 'graph' },
+          { id: 'research', type: 'text', text: 'AI Research',                                      x: 175,  y: -10,  category: 'graph' },
+
+          { id: 'strut',    type: 'text', text: 'Strut\nworkflow engine',                           x: -1045, y: 325,  category: 'component' },
+          { id: 'agents',   type: 'text', text: 'Agents\nthe graph is the harness',                 x: 660,   y: 325,  category: 'agent' },
+          { id: 'loop',     type: 'text', text: 'Learning loop\nevery task leaves the graph smarter', x: -275, y: 565, category: 'process' },
+        ],
+        edges: [
+          { id: 'e1',  fromNode: 'humans', toNode: 'hive',   label: 'watch · approve · steer' },
+          { id: 'e2',  fromNode: 'humans', toNode: 'jamie',  label: 'judgment, on any channel' },
+          { id: 'e3',  fromNode: 'hive',   toNode: 'strut',  label: 'controls workflows' },
+          { id: 'e4',  fromNode: 'hive',   toNode: 'swarm',  label: 'controls swarms' },
+          { id: 'e5',  fromNode: 'strut',  toNode: 'swarm',  label: 'workflow = node · run = trace' },
+          { id: 'e6',  fromNode: 'jamie',  toNode: 'swarm',  label: 'reads any graph · proposals become structure' },
+          { id: 'e7',  fromNode: 'jamie',  toNode: 'agents', label: 'spawns any sub-agent' },
+          { id: 'e8',  fromNode: 'swarm',  toNode: 'agents', label: 'assembles prompt · tools · skills · context' },
+          { id: 'e9',  fromNode: 'agents', toNode: 'loop',   label: 'check plan · act · write back' },
+          { id: 'e10', fromNode: 'loop',   toNode: 'swarm',  label: 'grows with every task' },
+        ],
+      };
+
+      SystemCanvas.render(document.getElementById('app'), {
+        canvas,
+        theme,
+        edgeStyle: 'bezier',
+        rootLabel: 'Stadeum',
+        showExportButton: params.get('export') !== '0', // PNG / SVG export menu; ?export=0 hides it
+      });
+    </script>
+  </body>
+</html>

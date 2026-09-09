@@ -1,26 +1,26 @@
 # lab
 
-A sandbox for **vein workflow experiments**. The goal: take pipelines that
-are normally hardcoded TS and express them as editable vein workflows
+A sandbox for **strut workflow experiments**. The goal: take pipelines that
+are normally hardcoded TS and express them as editable strut workflows
 (YAML + step config) so we can iterate on flows and prompts without code
-changes. See `../../../vein/AGENTS.md` for the engine itself.
+changes. See `../../../strut/AGENTS.md` for the engine itself.
 
 ## Model
 
-One vein instance for the whole lab (`createLabVein.ts`), mounted into the
+One strut instance for the whole lab (`createLabStrut.ts`), mounted into the
 Express app at **`/lab`** (`mount.ts`). Experiments are just groups of
 workflows/steps inside it — **not** separate servers. Adding an experiment
 = register its steps + merge its services + seed its workflows in
-`createLabVein`.
+`createLabStrut`.
 
-- `createLabVein.ts` — the single instance: registry (vein core+lib + all
+- `createLabStrut.ts` — the single instance: registry (strut core+lib + all
   experiment steps), merged `services` bag, seeded workflow templates.
   **Seeding is additive**: dropping a step from a seeder's `SEED_STEPS` does
   NOT remove it from existing workspaces (graph-backed ones persist, and
   the author agent keeps discovering it). When you remove or rename a
   seeded step, add the old type to that seeder's `RETIRED_STEPS` list —
   `retireSteps` (`seed-opts.ts`) soft-deletes it at boot.
-- `mount.ts` — bridges the vein (Hono) app into Express under `/lab`
+- `mount.ts` — bridges the strut (Hono) app into Express under `/lab`
   (API + run-streaming SSE). Registered before `express.json()` to keep
   raw request streams. Lazy-initialized so mcp boot isn't coupled to
   Neo4j / LLM keys.
@@ -34,7 +34,7 @@ A clue-free, Graph-only port of `mcp/src/gitree` (renamed `Feature` →
 Walks a repo's PRs + commits chronologically, LLM-classifies each into
 concepts, summarizes, and links to code files.
 
-- `concepts/steps/` — the in-code vein steps (one unit of work each).
+- `concepts/steps/` — the in-code strut steps (one unit of work each).
 - `concepts/workflows/` — `process-change`, `process-repo-chronological`,
   `bootstrap-then-process` (the entry workflow).
 - `concepts/services.ts` — `ConceptServices` bag `{ storage, octokit, llm,
@@ -59,8 +59,8 @@ Experimentation seams (edit without touching code):
 A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
 `pm2.config.js` + `docker-compose.yml` to set up a project). No import from
 existing code (`src/gitsee`), so that dir can eventually be deleted. The agent
-loop itself is **not** gitsee code anymore — it's the **vein-core `agent`
-step** (see `vein/AGENTS.md`); gitsee supplies the clone + the prompts, and (for
+loop itself is **not** gitsee code anymore — it's the **strut-core `agent`
+step** (see `strut/AGENTS.md`); gitsee supplies the clone + the prompts, and (for
 the product loop) a `gitsee` **`services` bag** (`gitsee/services/`: per-run
 browser + stack managers + a vision judge) that its thin tool-steps reach via
 `ctx.services.gitsee.*` — see "The product loop" below.
@@ -78,14 +78,14 @@ the frontend running*, so the gold is the frontend's pm2 + the shared services.
   fresh — discarding the prior explore agent's edits + created files (keeps
   gitignored `node_modules` for speed). Output `{ workspacePath, repos }`. **The
   only gitsee-specific producer step.**
-- Exploration is the **core `agent` step** (`vein/src/steps/core/agent.ts`),
+- Exploration is the **core `agent` step** (`strut/src/steps/core/agent.ts`),
   pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
   `fulltext_search`, `bash`, `str_replace_based_edit_tool` — view/create/edit
   files in the cloned workspace (lets the agent make a repo local-first, e.g.
   flip a `USE_MOCKS` default or patch a hardcoded cloud URL), anthropic
   `web_search`, + `file_summary` — the `stakgraph` AST CLI, only offered when
   `stakgraph` is on PATH) + the agent loop
-  live in vein core now — what was the old inlined `gitsee/explore-services` step
+  live in strut core now — what was the old inlined `gitsee/explore-services` step
   (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
   structured-`schema` mode is intentionally unused here for now. (For the
   `file_summary` tool, `stakgraph` must be on PATH; the agent falls back to
@@ -157,18 +157,18 @@ wired into the scored `gitsee-optimize` loop (fixing in place erases the gradien
 that teaches the explorer); the deliverable is a known-good `setup` + `diff` +
 `report`, not a grade.
 
-**Architecture: this is now DECOMPOSED onto the vein-core `agent` step** (it used
+**Architecture: this is now DECOMPOSED onto the strut-core `agent` step** (it used
 to be one ~1050-line `gitsee/boot-and-exercise` step that forked the whole agent
-loop). See `vein/plans/agentic-loop-as-workflow.md` for the full design. The
+loop). See `strut/plans/agentic-loop-as-workflow.md` for the full design. The
 pieces:
 
 - **The QA harness = a gitsee `services` bag** (`gitsee/services/`, in-code,
-  merged into `LabServices` by `createLabVein`; NOT seeded): `BrowserManager` +
+  merged into `LabServices` by `createLabStrut`; NOT seeded): `BrowserManager` +
   `StackManager` (per-run sessions keyed by `runId`) + a stateless `vision` judge.
   `_infra.ts` holds the shell/pm2/compose/pod-url/port/log helpers; the
   per-run state (browser page, booted stack, last vision verdict) lives on the
   session. **Teardown is automatic**: `LabServices.onRunEnd(runId)` (the generic
-  vein hook the runner calls in a `finally`, success OR error) disposes the run's
+  strut hook the runner calls in a `finally`, success OR error) disposes the run's
   browser + booted stack — no teardown code in any step. (`cleanup.ts` is still
   the rescue for a hard `SIGKILL`, which skips the in-process `finally`.)
 - **The capabilities = thin seeded tool-steps** (`gitsee/steps/`) reaching the
@@ -191,7 +191,7 @@ pieces:
   workflow's `params` (the harness/policy split — a future `gitsee-setup-optimize`
   can sweep the prompt with the harness fixed).
 
-  *Why agent-orchestrated, not a deterministic `loop` step:* vein's `loop` THROWS
+  *Why agent-orchestrated, not a deterministic `loop` step:* strut's `loop` THROWS
   on `maxIterations`-without-convergence (`runner.ts`), which would error the run
   and yield NO deliverable when an app can't be fixed; and QA control flow is
   inherently dynamic. The agent's own tool loop still gives per-iteration
@@ -279,7 +279,7 @@ matched, missing, spurious, reason, insight, markdown }` that `eval/optimize` +
 cost, summed into the optimize output's `{ totalCost, totalUsage }` (and each
 `generations[]` entry's own `{ cost, usage }`). The chain: the core `agent` step
 returns `{ usage, cost }` (aggregated across its whole tool loop, priced via
-`vein/src/pricing.ts` — table copied from `aieo/src/provider.ts`); gitsee-eval
+`strut/src/pricing.ts` — table copied from `aieo/src/provider.ts`); gitsee-eval
 threads that into `gitsee/score-setup`, which folds in its OWN semantic-judge
 tokens+$ so each eval's `cost` is explorer + judge; `eval/reflect` returns its
 reflection's cost; `eval/optimize` sums eval runs + reflections per generation
@@ -300,12 +300,12 @@ entirely. Trigger:
 `{ input: { workspace, repos: [{owner,repo,rev?}], token? } }`, or launch
 `gitsee-optimize` detached with `{ input: {} }`. Dev smoke harnesses (not
 seeded/built): `src/lab/gitsee/smoke.ts` (steps direct, no server) and
-`smoke-eval.ts` (full `gitsee-eval` via a real lab vein).
+`smoke-eval.ts` (full `gitsee-eval` via a real lab strut).
 
 ### `jarvis/` — knowledge-graph steps (NOT an experiment)
 
 Self-contained ports of the mcp repo-agent's Jarvis tools
-(`mcp/src/repo/toolsJarvis.ts`) as seeded vein steps — same endpoints, same
+(`mcp/src/repo/toolsJarvis.ts`) as seeded strut steps — same endpoints, same
 schemas, same LLM-facing descriptions — so workflows (and agent steps) can
 read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
 `type: "Concept"` on search/neighbors), so no concept-specific steps exist.
@@ -316,7 +316,7 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
 - **Writes:** `jarvis/create-node`, `jarvis/edit-node`,
   `jarvis/create-triplet`, `jarvis/create-batch-triplet`. The ontology CRUD
   family is deliberately NOT ported (schema editing stays a human/setup
-  activity). Vein's own `graph/*` twins go one step further: vein-only
+  activity). Strut's own `graph/*` twins go one step further: strut-only
   `graph/create-schema` (register/extend a node type) and `graph/edit-edge`
   (patch an edge's properties) exist there, with no jarvis/* counterpart.
 - **Config is automatic:** each step resolves `JARVIS_URL` + `API_TOKEN`
@@ -325,23 +325,23 @@ read/write the Jarvis knowledge graph. **Concepts are Jarvis nodes** (filter
   runs are cassette-recordable and credentials are scrubbed from fixtures.
   Steps are ALWAYS seeded; without `JARVIS_URL` they fail loudly per run
   rather than silently missing.
-- **Granting to agents:** `agentTools: ["jarvis/*"]` (glob, vein-core
+- **Granting to agents:** `agentTools: ["jarvis/*"]` (glob, strut-core
   `expandAgentTools`) for everything, or list the read steps explicitly for a
   read-only child. Sub-agents = grant `"agent"` itself and pass the child a
   narrower `agentTools` list (recursion depth is whether the child gets
   `"agent"` again).
 - **Self-contained duplication is deliberate:** each step file inlines its
-  small `jarvisCtx` preamble (seeded steps may only value-import `"vein"`);
+  small `jarvisCtx` preamble (seeded steps may only value-import `"strut"`);
   the contract is documented once in `jarvis/steps/_shared.ts` — change it
   there AND in every step.
 - **Smoke:** `npx tsx src/lab/jarvis/smoke.ts` — offline; seeds into a temp
   workspace, verifies registry discovery, and runs every step against a fake
   `ctx.services.http` Jarvis.
 
-The vein-native twins of these steps — `graph/*`, same names, inputs, and
-output shapes, backed by vein's own Neo4j-over-bolt graph layer with no
-jarvis in the loop — are NOT lab steps: they ship inside vein as lib steps
-(`vein/src/steps/lib/graph/`, auto-discovered by the registry) and only
+The strut-native twins of these steps — `graph/*`, same names, inputs, and
+output shapes, backed by strut's own Neo4j-over-bolt graph layer with no
+jarvis in the loop — are NOT lab steps: they ship inside strut as lib steps
+(`strut/src/steps/lib/graph/`, auto-discovered by the registry) and only
 need `NEO4J_URI` (+ `NEO4J_USER`/`NEO4J_PASSWORD`) in the env or secret
 store. A workflow swaps backends by step type (`jarvis/graph-search` ↔
 `graph/graph-search`); grant with `agentTools: ["graph/*"]`.
@@ -350,7 +350,7 @@ store. A workflow swaps backends by step type (`jarvis/graph-search` ↔
 
 Self-contained ports of the mcp repo-agent's Google Sheets tools
 (`mcp/src/repo/toolsGoogleSheets.ts` — untouched; it stays the production
-repo-agent implementation) as seeded vein steps — same Sheets/Drive REST
+repo-agent implementation) as seeded strut steps — same Sheets/Drive REST
 endpoints, same schemas, same LLM-facing descriptions — so workflows (and
 agent steps) can create spreadsheets and read/write cell values and live
 formulas.
@@ -376,12 +376,12 @@ formulas.
   silently missing. API errors come back as teaching strings (e.g. a 403 on
   create names the folder and client_email to share it with), never throws
   at the LLM.
-- **Granting to agents:** `agentTools: ["sheets/*"]` (glob, vein-core
+- **Granting to agents:** `agentTools: ["sheets/*"]` (glob, strut-core
   `expandAgentTools`) for everything, or an explicit subset — e.g. a
   read-only child gets just `sheets/get-values`.
 - **Self-contained duplication is deliberate:** each step file inlines its
   `sheetsCtx` auth/request preamble (seeded steps may only value-import
-  `"vein"` + node builtins); the contract is documented once in
+  `"strut"` + node builtins); the contract is documented once in
   `sheets/steps/_shared.ts` — change it there AND in every step.
 - **Smoke:** `npx tsx src/lab/sheets/smoke.ts` — offline; seeds into a temp
   workspace, verifies registry discovery, then runs every step against a
@@ -412,7 +412,7 @@ over `ctx.services.harvey.*`; editing them can only break plumbing.
   grant to producers.
 - `harvey/evaluate` — stages this run's artifact deliverables (subdir `from`,
   default `output`, of `ctx.services.artifacts.dir(ctx.runId)`) into the
-  checkout's `results/vein-<runId>/output/`, runs the real eval (single judge
+  checkout's `results/strut-<runId>/output/`, runs the real eval (single judge
   or `dual`), and returns the harness's own `scores.json` (all-pass scoring,
   `criteria_results`, …) + `benchmarkRev` + `reportPath` (the harness's
   `report.html`, kept in the checkout's `results/` as the run's record).
@@ -476,8 +476,8 @@ completed ingestions, and skip re-merging requirements.
   (wraps the core `agent` step via ctx.registry with fixed system frame +
   read-only `graph/*` grants; parents supply only the question, so a role
   agent can never widen the child's tools). Graph reads/writes go through
-  vein's `graph/*` LIB steps (`vein/src/steps/lib/graph/`, the twins of the
-  lab's `jarvis/*` steps) — vein's own Neo4j backend, NO jarvis process:
+  strut's `graph/*` LIB steps (`strut/src/steps/lib/graph/`, the twins of the
+  lab's `jarvis/*` steps) — strut's own Neo4j backend, NO jarvis process:
   jarvis-typed nodes (Document, EvalSet, EvalTrigger, …) validate against
   the live `:Schema` meta-graph exactly as jarvis would, and
   `create_schema_if_missing` works; `allow_scratchpad` is accepted but has
@@ -488,7 +488,7 @@ completed ingestions, and skip re-merging requirements.
   `@@include(FILE.md)` markers (`expandIncludes` in `harvey/seed.ts`,
   indentation-aware; the content hash covers the expanded YAML, so editing
   a prompt file re-seeds its workflows). Stakwork `[$(step).output.*]`
-  interpolation tokens were translated to vein `{{ … }}` templates (which
+  interpolation tokens were translated to strut `{{ … }}` templates (which
   is why prompt bodies live in step CONFIG, not params — template
   resolution is single-pass, so a `{{ }}` inside a params value never
   resolves), tool names to the lab step names (`harvey_graph_sub_agent`,
@@ -507,8 +507,8 @@ completed ingestions, and skip re-merging requirements.
   `NEO4J_URI`), defaulting to `localhost:7687`/`neo4j`/`testtest` — nothing
   to set locally, and prod's existing vars are picked up. That is the
   jarvis Neo4j (shared mode — Concept methodology lives there); a fresh
-  Neo4j works too with `VEIN_GRAPH_SEED_ONTOLOGY=1` (standalone — the
-  jarvis ontology is seeded from vein's bundled snapshot; no Concept
+  Neo4j works too with `STRUT_GRAPH_SEED_ONTOLOGY=1` (standalone — the
+  jarvis ontology is seeded from strut's bundled snapshot; no Concept
   content). Smoke (offline, no LLM/graph):
   `npx tsx src/lab/harvey/deliver-smoke.ts`.
 
@@ -524,7 +524,7 @@ are thin plumbing over `ctx.services.gaia.*`.
 - **Committed harness** (`gaia/seed.ts`, seeded at boot like harvey's):
   steps `gaia/list-tasks`, `gaia/get-task` (stages a task's attached file
   into the run's artifacts dir), `gaia/evaluate` (HARNESS-ONLY), and the
-  combiner `gaia/summarize-batch` (+ vein's core `pack`); workflows
+  combiner `gaia/summarize-batch` (+ strut's core `pack`); workflows
   `gaia-produce` (agent step; the produce system prompt, model, maxSteps: 50
   and agentTools live in `params`; an `onError` fallback scores a blown-up
   agent as an empty wrong answer instead of killing the batch), `gaia-run`
@@ -566,7 +566,7 @@ are thin plumbing over `ctx.services.gaia.*`.
   `npx tsx src/lab/gaia/evolve-smoke.ts`.
 
 - **Setup**: automatic (`gaia/bootstrap.ts`) — the one required env var is
-  **`HF_TOKEN`**. First use materialises the dataset into `<cache>/vein/gaia`, installs the
+  **`HF_TOKEN`**. First use materialises the dataset into `<cache>/strut/gaia`, installs the
   leaderboard Space's `scorer.py` (verified against the in-repo
   `SCORER_SHA256`), and resolves a numpy-capable python: `python3` in the prod
   image (the agent venv is on PATH), else a cached venv built on demand.
@@ -587,7 +587,7 @@ are thin plumbing over `ctx.services.gaia.*`.
 - **git-lfs is required**: GAIA's attachments are LFS-backed and a checkout
   without it silently yields ~130-byte pointer stubs. Checked before fetching
   and detected after.
-- Overrides, all optional: `GAIA_DIR`, `VEIN_CACHE_DIR`, `GAIA_PYTHON`, `GAIA_SCORER_SHA256`, `GAIA_AUTO_SETUP=0`. The dataset is NOT
+- Overrides, all optional: `GAIA_DIR`, `STRUT_CACHE_DIR`, `GAIA_PYTHON`, `GAIA_SCORER_SHA256`, `GAIA_AUTO_SETUP=0`. The dataset is NOT
   baked into the image (the terms forbid resharing outside a gated/private
   repo); mount a volume at the cache dir in prod.
 - **Integrity invariant** (per grade): dataset checkout must be a CLEAN git
@@ -609,13 +609,13 @@ are thin plumbing over `ctx.services.gaia.*`.
 
 ### `wfbench/` — Workflow Editor Agent Benchmark (stakwork 58313's twin)
 
-The benchmark harness for the workflow-AUTHORING agent, rebuilt as a vein
+The benchmark harness for the workflow-AUTHORING agent, rebuilt as a strut
 workflow (design + step map: `plans/wfbench-harness.md`). One task in
 (`{ task_slug, task_title?, instructions, criteria, workflow_input_json?,
 rerun_expected_output?, webhook_url? }` — Hive's payload shape), one callback
 out. `wfbench-run`: graph roster (EvalSet → EvalRequirement×N, EvalTrigger,
 HAS_BASELINE_TRIGGER on the EvalSet's first trigger else HAS_TRIGGER — written
-with vein's `graph/*` steps under `input.namespace || params.namespace`,
+with strut's `graph/*` steps under `input.namespace || params.namespace`,
 default `default`. EvalSet id = the task slug VERBATIM and EvalRequirement id
 = `<slug>::<criterion_id>` — Hive's `eval-nodes.ts` ids, because Hive upserts
 this roster itself before dispatch and its rubrics reader looks it up by
@@ -642,15 +642,15 @@ all_pass, pass_rate, judge_model, criteria_results }` or `{ harness_error:
 true, error_type, error }` — no fake 0/N) → POST `webhook_url` → the run's
 output IS that body (+ diagnostics), fixing 58313's set_output divergence.
 
-- Graph writes use only ontology-declared attributes (vein's backend rejects
+- Graph writes use only ontology-declared attributes (strut's backend rejects
   the rest): 58313's `EvalSet.project_id` (an int there) and the `name` on
   EvalTrigger / EvalTriggerOutput are omitted; 58312's `CriterionResult
   -HAS_CAUSE-> Workflow_version` is not written (no such relationship in
-  the ontology, and a vein workflow is not a Workflow_version node).
+  the ontology, and a strut workflow is not a Workflow_version node).
 - Grant discipline: `wfbench/*` is never an agentTool. The author gets
   `meta/*` (+ `meta/validate-workflow`) and the editor; the judge gets
   nothing useful; the produced workflow is necessarily publisher `ai`.
-- The author's `params.authorSystem` carries a stakwork→vein translation
+- The author's `params.authorSystem` carries a stakwork→strut translation
   table, so PORTING a stakwork workflow is just a task whose instructions
   are the stakwork body (plus a real project's input/output as
   `workflow_input_json` / `rerun_expected_output`).
@@ -663,7 +663,7 @@ output IS that body (+ diagnostics), fixing 58313's set_output divergence.
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See
-`vein/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
+`strut/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
 
 - `eval/steps/score.ts` (`eval/score`) — match a produced set vs an expected
   gold set by a `rubric`; recall-weighted F-beta score.
@@ -671,7 +671,7 @@ Domain-agnostic eval substrate, shared by every experiment. See
   AGGREGATED results across a dataset (multi-example → avoids overfitting).
 - `eval/steps/optimize.ts` (`eval/optimize`) — the `eval → keep best → reflect`
   loop, run as a single detached "background job" (EVAL_SPEC §8). Runs
-  sub-workflows via an injected `services.optimizer` (closure over `vein.run`).
+  sub-workflows via an injected `services.optimizer` (closure over `strut.run`).
   Multi-example: takes a dataset (`evalInputs[]`), evals the candidate over
   every entry per generation and AVERAGES the scores (the overfitting fix,
   §11.2) — the per-example results array is fed to reflect. Each entry carries
@@ -731,31 +731,31 @@ adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
 
 ## Running / gotchas
 
-- **The `/lab` AI chat can now run experiments autonomously.** vein threads the
+- **The `/lab` AI chat can now run experiments autonomously.** strut threads the
   lab `services` bag into the chat agent's `run_workflow` tool, so the builder
   can launch `gitsee-explore-services`, `gitsee-eval`, or the `gitsee-optimize`
   loop (which needs `services.optimizer`) — not just service-free core/lab
-  workflows. And chat is a detached background job (see `vein/AGENTS.md`):
+  workflows. And chat is a detached background job (see `strut/AGENTS.md`):
   describe an eval, tell it to "try it and report back", close the browser, and
   the turn keeps running server-side (persisted to `chats/<id>/`). Reopen to
   reattach. Long runs DISPATCH: a `run_workflow` still executing after
-  `VEIN_CHAT_RUN_WAIT_MS` (default 60s) auto-detaches — the tool returns
+  `STRUT_CHAT_RUN_WAIT_MS` (default 60s) auto-detaches — the tool returns
   `{ status: "running", runId }`, the agent ends its turn, and when the run
   finishes a `[run-notification]` message wakes the chat with the result
-  (capped at `VEIN_CHAT_MAX_AUTO_TURNS` consecutive machine-triggered turns;
-  a human reply resets the cap). See `vein/plans/dispatch-run-notifications.md`.
+  (capped at `STRUT_CHAT_MAX_AUTO_TURNS` consecutive machine-triggered turns;
+  a human reply resets the cap). See `strut/plans/dispatch-run-notifications.md`.
 - Needs **Neo4j** + `GITHUB_TOKEN` + an LLM key (e.g. `ANTHROPIC_API_KEY`).
 - Workflow YAML templates are seeded into the workspace
-  (`VEIN_LAB_WORKSPACE`, default `./lab-workspace`) on first boot, then
-  edited/versioned via the vein UI.
-- vein is consumed as a `file:` dep, which **yarn copies** (not symlinks):
-  changes to `../../../vein` (engine or `web/`) only reach `/lab` after a
-  rebuild + reinstall. `yarn dev` runs `refresh-vein` automatically before
+  (`STRUT_LAB_WORKSPACE`, default `./lab-workspace`) on first boot, then
+  edited/versioned via the strut UI.
+- strut is consumed as a `file:` dep, which **yarn copies** (not symlinks):
+  changes to `../../../strut` (engine or `web/`) only reach `/lab` after a
+  rebuild + reinstall. `yarn dev` runs `refresh-strut` automatically before
   starting (**skipped when `$CI` is set** — CI has no `web/` deps, so `vite`
-  would fail), so a plain local `yarn dev` picks up vein changes; run
-  `yarn refresh-vein` by hand to refresh without a restart. CI builds vein
+  would fail), so a plain local `yarn dev` picks up strut changes; run
+  `yarn refresh-strut` by hand to refresh without a restart. CI builds strut
   before `mcp` install for the same reason.
-- The vein UI is path-agnostic (relative assets + runtime API base), so it
+- The strut UI is path-agnostic (relative assets + runtime API base), so it
   works under `/lab` (with the `/lab` → `/lab/` redirect in `mount.ts`).
 - Trigger a run: `POST /lab/workflows/bootstrap-then-process/run` with
   `{ input: { owner, repo, token } }`, or use the UI at `/lab/`.
@@ -768,13 +768,13 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
 2. **Env**: `GITHUB_TOKEN`, `ANTHROPIC_API_KEY` (and `NEO4J_HOST`/`NEO4J_USER`/
    `NEO4J_PASSWORD` if not default).
 3. **Start mcp**: `cd mcp && yarn dev` (serves on `:3355`). Locally, `dev`
-   runs `refresh-vein` first, so vein (engine + `web/`) is rebuilt and
+   runs `refresh-strut` first, so strut (engine + `web/`) is rebuilt and
    reinstalled automatically — no separate build step needed. (Skipped when
    `$CI` is set.)
 4. **Init + seed** (lazy on first hit): `curl localhost:3355/lab/health`,
    then `curl localhost:3355/lab/workflows` to confirm the 3 workflows
    seeded.
-5. **Run** (detached launch + reattach — see `vein/EVAL_SPEC.md` §8). The
+5. **Run** (detached launch + reattach — see `strut/EVAL_SPEC.md` §8). The
    `POST …/run` returns `{ runId }` immediately (the run executes server-side);
    reattach to its SSE event tail to watch it:
    ```
@@ -787,7 +787,7 @@ Nothing is automated yet — no CI job exercises `/lab`. Manual steps:
    Use a **tiny repo** first (LLM cost/time per PR+commit).
 6. **Verify**: query Neo4j directly — `MATCH (c:Concept) RETURN c.name,
    c.description` — or watch the reattached SSE `step.*` events. (There is no
-   concept-listing HTTP endpoint yet; vein only exposes `/workflows`.)
+   concept-listing HTTP endpoint yet; strut only exposes `/workflows`.)
 
 **Prerequisite gap for file linking:** `concepts/link-files` connects
 concepts to `File` nodes, which only exist if the repo's **code graph has
@@ -803,7 +803,7 @@ in the `build` script. Add new lab assets under a `workflows/` (`.yaml`) or
 `steps/` (`.ts`) dir and they're picked up automatically.
 
 **Prod runs with a TS loader.** Seeded steps are published as `.ts` source
-into the workspace and vein loads them via dynamic `import()`. Plain `node`
+into the workspace and strut loads them via dynamic `import()`. Plain `node`
 can't import `.ts`, so the prod server runs as `node --import tsx
 build/index.js` (`start` script + Docker `CMD`); `tsx` is a runtime
 dependency. This is what lets agents/users author steps in TypeScript and

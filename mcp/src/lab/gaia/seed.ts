@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "vein";
+import type { WorkspaceStore } from "strut";
 import { SEED_OPTS, retireSteps } from "../seed-opts.js";
 
 /**
@@ -18,7 +18,7 @@ import { SEED_OPTS, retireSteps } from "../seed-opts.js";
  *   artifacts dir so agent steps (cwd = artifacts dir) can read it.
  * - `gaia/evaluate` — the real leaderboard scorer. HARNESS-ONLY: grant only
  *   to harness workflows, never to a producing agent's `agentTools`.
- * - `gaia/summarize-batch` — pure combiner (the echo combiner is vein's core
+ * - `gaia/summarize-batch` — pure combiner (the echo combiner is strut's core
  *   `pack` step now).
  * - `gaia/digest-results` — aggregate graded results into the evolve loop's
  *   propose digest (verdict channel only; accuracy as `fitness`).
@@ -41,7 +41,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
 ];
 
 // Types this seeder USED to publish (seeding is additive — see retireSteps).
-const RETIRED_STEPS = ["gaia/pack-result"]; // → vein core `pack`
+const RETIRED_STEPS = ["gaia/pack-result"]; // → strut core `pack`
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

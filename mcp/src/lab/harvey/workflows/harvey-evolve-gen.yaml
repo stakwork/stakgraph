@@ -164,7 +164,7 @@ steps:
       maxCriteria: "{{ params.digestMaxCriteria }}"
 
   # Depends on the GATE as well as the digest so it runs on both branches:
-  # vein only skip-propagates when EVERY dep was skipped, and `published`
+  # strut only skip-propagates when EVERY dep was skipped, and `published`
   # always runs. On the no-op branch `canddigest` is skipped, so `digest` is
   # undefined and `noop` tells the loop to score nothing.
   - id: result
@@ -223,7 +223,7 @@ params:
     meta/get-workflow and meta/list-workflows to read existing YAML;
     meta/list-steps, meta/search-steps, meta/get-step to discover step
     types; meta/create-step / meta/edit-step to author new custom steps
-    (TypeScript, defineStep, imports from "vein" and node builtins);
+    (TypeScript, defineStep, imports from "strut" and node builtins);
     meta/run-step to test ONE step cheaply; meta/publish-workflow to publish
     the candidate; meta/run-workflow to run it; meta/list-runs,
     meta/get-run, meta/search-runs to inspect those runs; meta/list-secrets
