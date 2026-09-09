@@ -207,11 +207,14 @@ async function report() {
     for (const e of await readdir(d, { withFileTypes: true })) {
       const p = join(d, e.name);
       if (e.isDirectory()) await walk(p);
-      else if (e.name.endsWith(".node")) addons.push(p.slice(nm.length + 1));
+      else if (/\.(node|dylib|so|dll)$/.test(e.name)) addons.push(p.slice(nm.length + 1));
     }
   };
   await walk(nm);
-  log(`native addons the host must code-sign (${addons.length}):`);
+  // The addon plus the shared libraries it links (sherpa ships libonnxruntime
+  // and its C/C++ API dylibs beside sherpa-onnx.node). All of them must be
+  // signed and notarized inside the app bundle, not just the .node.
+  log(`native binaries the host must code-sign (${addons.length}):`);
   for (const a of addons) console.log(`    ${a}`);
 }
 
