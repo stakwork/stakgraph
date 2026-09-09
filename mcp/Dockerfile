@@ -1,10 +1,9 @@
 # docker buildx build --platform linux/amd64,linux/arm64 -t repo2graph .
 #
-# NOTE: mcp depends on strut (`file:../strut`), which lives OUTSIDE this build
-# context (`./mcp`). Stage strut's source into the context first so it can be
-# COPY'd and built in-image:
-#     yarn stage-strut   # (from mcp/) — copies ../strut into ./.strut
-# CI does this in .github/workflows/publish-mcp.yml before the build.
+# NOTE: mcp depends on strut as a git dependency (see package.json). `yarn`
+# below clones github.com/stakwork/strut at the pinned commit and runs its
+# `prepare` (engine tsc + web UI build) in-image, so the build needs network
+# access to github.com and `git` (installed below). Nothing to stage.
 
 # Use an official Node.js runtime as a parent image
 FROM node:22-bookworm-slim
@@ -121,34 +120,21 @@ RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/m
 RUN npx -y playwright install-deps
 RUN npx -y playwright install
 
-# Build strut (engine + web UI). mcp consumes it as `file:../strut` and serves
-# its UI under /lab. `.strut` is strut's source staged into this context (see
-# the header note / publish-mcp.yml). Built at /usr/src/strut so that
-# `file:../strut` from /usr/src/app resolves to it.
-#
-# strut KEEPS its own runtime node_modules: Node resolves a package's imports
-# from the real path of the file, so /usr/src/strut/build/index.js looks for its
-# deps (zod, hono, ai, ...) under /usr/src/strut/node_modules — it never reaches
-# /usr/src/app/node_modules. Sharing mcp's tree would also be wrong: strut needs
-# zod@3 while mcp pins zod@4. We drop only devDependencies (npm prune) and the
-# web build's node_modules (web is built to web/dist and served as static).
-COPY ./.strut /usr/src/strut
-# `npm install` (not `npm ci`): package-lock.json is gitignored repo-wide, so
-# it isn't present in the staged `.strut` source — `npm ci` would fail. Matches
-# the `npm install` used elsewhere in this Dockerfile (web, benchmark).
-RUN cd /usr/src/strut && npm install && npm run build && \
-    npm --prefix web install && npm --prefix web run build && \
-    rm -rf web/node_modules && npm prune --omit=dev
-
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json
 COPY ./yarn.lock ./yarn.lock
+# .yarnrc sets network-concurrency 1; without it the `yarn` below dies on a
+# cold cache (see the comment in .yarnrc).
+COPY ./.yarnrc ./.yarnrc
 
 # Copy workspace package.json files (required for yarn workspaces)
 COPY ./src/aieo/package.json ./src/aieo/package.json
 COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 
-# Install dependencies
+# Install dependencies. This also clones strut (git dep in package.json) and
+# runs its `prepare`, which builds the engine and the /lab web UI; the packed
+# result lands in node_modules/strut with build/ and web/dist. strut's own
+# deps are resolved into this tree, so the `resolutions` above apply to it.
 RUN yarn
 
 # Install linux x64 tokenizer bindings (required for fastembed in Docker)
