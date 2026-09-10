@@ -54,8 +54,10 @@ const PluginName = "stakgraph-gateway"
 //     and falls back to observability mode. See
 //     gateway/plans/phases/phase-6-plugin-enforcement.md "Namespace".
 //  5. auth.Init + auth.SetTrustRegistry — parses the plugin's
-//     enforce_macaroons flag from the config block and wires the
-//     trust registry into the verifier. See
+//     enforce_macaroons flag from the config block (overridable via
+//     BIFROST_PLUGIN_ENFORCE_MACAROONS; an unparseable value logs an
+//     ERROR and is ignored) and wires the trust registry into the
+//     verifier. See
 //     gateway/plans/phases/phase-4-macaroon-shape.md ("Bifrost-
 //     plugin adapter").
 //  6. adminapi.Start — boots the loopback HTTP server.
@@ -87,7 +89,8 @@ func Init(config any) error {
 		return err
 	}
 	auth.SetTrustRegistry(reg)
-	pluginlog.Logf("auth: macaroon adapter wired enforce=%t", auth.GetConfig().EnforceMacaroons)
+	authCfg := auth.GetConfig()
+	pluginlog.Logf("auth: macaroon adapter wired enforce=%t source=%s", authCfg.EnforceMacaroons, authCfg.EnforceMacaroonsSource)
 
 	// Model-price catalog for the phase-6 accumulator: loads the
 	// persisted datasheet, then fetches bifrost's published sheet in
