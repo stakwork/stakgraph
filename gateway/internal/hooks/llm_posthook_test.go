@@ -60,24 +60,24 @@ func TestResolveCost_Precedence(t *testing.T) {
 		TotalTokens:      2000,
 		Cost:             &schemas.BifrostCost{TotalCost: 0.5},
 	}
-	if got := resolveCost(chat, usage, dims); got != 0.5 {
+	if got := chatCost(chat, usage, dims); got != 0.5 {
 		t.Fatalf("provider cost should win, got %v", got)
 	}
 
 	// 2. Falls back to the pricing table: 1000*1/1e6 + 1000*10/1e6 = 0.011.
 	usage.Cost = nil
-	if got := resolveCost(chat, usage, dims); got != 0.011 {
+	if got := chatCost(chat, usage, dims); got != 0.011 {
 		t.Fatalf("table cost = %v, want 0.011", got)
 	}
 
 	// 3. Unpriced model → 0.
 	chat.Model = "mystery-model"
-	if got := resolveCost(chat, usage, dims); got != 0 {
+	if got := chatCost(chat, usage, dims); got != 0 {
 		t.Fatalf("unpriced model cost = %v, want 0", got)
 	}
 
 	// Nil usage → 0.
-	if got := resolveCost(chat, nil, dims); got != 0 {
+	if got := chatCost(chat, nil, dims); got != 0 {
 		t.Fatalf("nil usage cost = %v, want 0", got)
 	}
 }
@@ -95,7 +95,7 @@ func TestResolveCost_PrefersResolvedModel(t *testing.T) {
 		},
 	}
 	usage := &schemas.BifrostLLMUsage{PromptTokens: 500, CompletionTokens: 500, TotalTokens: 1000}
-	if got := resolveCost(chat, usage, map[string]string{}); got != 0.001 {
+	if got := chatCost(chat, usage, map[string]string{}); got != 0.001 {
 		t.Fatalf("resolved-model cost = %v, want 0.001", got)
 	}
 }
@@ -123,20 +123,28 @@ func TestResolveCost_ProviderNamespacedCatalog(t *testing.T) {
 			RoutingInfo:       schemas.RoutingInfo{Provider: schemas.XAI, Model: "grok-4"},
 		},
 	}
-	if got := resolveCost(chat, usage, map[string]string{}); got != 0.001 {
+	if got := chatCost(chat, usage, map[string]string{}); got != 0.001 {
 		t.Fatalf("RoutingInfo provider cost = %v, want 0.001", got)
 	}
 
 	// Older chunks only carry the deprecated ExtraFields.Provider.
 	chat.ExtraFields.RoutingInfo = schemas.RoutingInfo{}
 	chat.ExtraFields.Provider = schemas.XAI
-	if got := resolveCost(chat, usage, map[string]string{}); got != 0.001 {
+	if got := chatCost(chat, usage, map[string]string{}); got != 0.001 {
 		t.Fatalf("deprecated provider field cost = %v, want 0.001", got)
 	}
 
 	// No provider anywhere → the namespaced row is unreachable → $0.
 	chat.ExtraFields.Provider = ""
-	if got := resolveCost(chat, usage, map[string]string{}); got != 0 {
+	if got := chatCost(chat, usage, map[string]string{}); got != 0 {
 		t.Fatalf("provider-less cost = %v, want 0", got)
 	}
+}
+
+// chatCost prices a chat-shaped response the way LLMPost does, with
+// the usage supplied separately so the precedence cases can vary it.
+func chatCost(chat *schemas.BifrostChatResponse, usage *schemas.BifrostLLMUsage, dims map[string]string) float64 {
+	call := chatCallUsage(chat)
+	call.usage = usage
+	return resolveCost(call, dims)
 }
