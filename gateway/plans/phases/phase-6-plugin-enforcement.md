@@ -5,10 +5,17 @@
 > writes `cost:run` / `steps:run` per chain layer (each with its own
 > layer-exp TTL), `cost:ua` when the UA carries a budget,
 > `cost:agent:<name>:<bucket>` for configured agents, and
-> `tools:run` history (non-streaming responses only for now).
-> Streaming requests account on the final usage-bearing chunk in
-> `hooks/stream_chunk.go`; `pluginctx.MarkAccounted` guards
-> double-counting. Bucket keys come from `gateway/internal/duration`
+> `tools:run` history (non-streaming responses, plus Responses-API
+> streams, whose terminal event carries the assembled output).
+> Usage is read from whichever shape core populated — Chat, or
+> Responses (the Anthropic-native `/anthropic/v1/messages`
+> integration routes as `RequestType = "responses"` in core v1.6, so
+> Claude calls made with the Anthropic SDK arrive with `ChatResponse`
+> nil). Streaming requests account on the final usage-bearing chunk
+> in `hooks/stream_chunk.go` — for Responses streams that is the
+> terminal `response.completed` event, never `response.created`,
+> which only carries `message_start`'s input usage;
+> `pluginctx.MarkAccounted` guards double-counting. Bucket keys come from `gateway/internal/duration`
 > (shared with the adminapi budget endpoint, so reader and writer
 > can't drift). Cost source: provider-computed `Usage.Cost` when
 > present, else the `model_pricing` config table (operator
