@@ -86,6 +86,10 @@ jobs:
 
       - name: Prepare Node Server
         working-directory: ./mcp
+        # No GPU on runners: skip the CUDA EP download that onnxruntime-node
+        # otherwise fetches from nuget.org (twice, once for the nested strut install).
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: yarn install
 
       - name: Install dependencies in src/aieo

@@ -139,15 +139,21 @@ RUN yarn
 
 # Install linux x64 tokenizer bindings (required for fastembed in Docker)
 #
-# This is an `npm install` on top of a yarn tree, so npm re-resolves
-# package.json here and ignores yarn's `resolutions`. Without a matching npm
-# `overrides` entry it re-nests fastembed's declared onnxruntime-node 1.21.0
-# under node_modules/fastembed/node_modules, and at runtime that older
-# libonnxruntime.so.1 loads first and strut's 1.24.3 binding (same soname)
-# fails with "version VERS_1.24.3 not found". package.json carries both
-# `resolutions` (yarn) and `overrides` (npm) pinned to the same version; the
-# check below fails the build, not /lab at runtime, if a second copy sneaks in.
-RUN npm install --force --os=linux --cpu=x64 @anush008/tokenizers-linux-x64-gnu@0.0.0
+# Fetched with `npm pack` + tar rather than `npm install`: an `npm install`
+# on top of the yarn tree makes npm re-resolve all of package.json, and with
+# strut as a git dependency npm would re-clone and re-build strut its own way
+# (and did fail doing so: the `--os/--cpu` flags leak into that nested build
+# and vite gets the wrong rollup binary on arm64). `npm pack` only downloads
+# the one tarball, so node_modules stays exactly what yarn produced.
+#
+# The onnxruntime-node check below stays: yarn's `resolutions` pin it to one
+# copy (strut's binding and fastembed's must share one libonnxruntime.so, same
+# soname), and the build should fail, not /lab at runtime, if a second copy
+# ever sneaks in.
+RUN mkdir -p node_modules/@anush008/tokenizers-linux-x64-gnu && \
+    npm pack @anush008/tokenizers-linux-x64-gnu@0.0.0 --pack-destination /tmp >/dev/null && \
+    tar xzf /tmp/anush008-tokenizers-linux-x64-gnu-0.0.0.tgz --strip-components=1 -C node_modules/@anush008/tokenizers-linux-x64-gnu && \
+    rm /tmp/anush008-tokenizers-linux-x64-gnu-0.0.0.tgz
 RUN extra="$(find node_modules -mindepth 2 -type d -name onnxruntime-node -not -path 'node_modules/onnxruntime-node' -not -path 'node_modules/strut/*')"; \
     if [ -n "$extra" ]; then echo "duplicate onnxruntime-node copies (soname clash with strut):"; echo "$extra"; exit 1; fi
 
