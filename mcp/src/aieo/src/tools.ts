@@ -1,22 +1,24 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { Provider, getGatewayBaseURL } from "./provider.js";
 import { createWebSearch } from "./search.js";
+import { createWebFetch } from "./fetch.js";
 
-export type ProviderTool = "webSearch" | "bash";
+export type ProviderTool = "webSearch" | "webFetch" | "bash";
 
 /**
  * Provider-native tool by name.
  *
- * `webSearch` is special: only Anthropic has a native one, so every
- * other provider gets the Exa-backed shim from `./search.js` instead of
- * an exception. That keeps the tool available (and named `web_search`)
- * on any model. This entry point returns the bare tool — for citation
- * indices and the matching prompt snippet, call `createWebSearch`
- * directly.
+ * `webSearch` and `webFetch` are special: only Anthropic has native
+ * ones, so every other provider gets a shim of the same name and result
+ * shape instead of an exception — Exa-backed search from `./search.js`,
+ * a guarded HTTP GET from `./fetch.js`. That keeps both tools available
+ * (as `web_search` / `web_fetch`) on any model. This entry point returns
+ * the bare tool — for the result bookkeeping, citation indices and
+ * prompt snippet, call `createWebSearch` / `createWebFetch` directly.
  *
- * Returns `undefined` for `webSearch` when the chosen backend has no key
+ * Returns `undefined` for those two when the chosen backend has no key
  * configured; callers should drop the tool rather than fail the request.
- * Non-`webSearch` tools still throw for unsupported providers.
+ * Other tools still throw for unsupported providers.
  */
 export function getProviderTool(
   provider: Provider,
@@ -25,6 +27,9 @@ export function getProviderTool(
 ): any {
   if (toolName === "webSearch") {
     return createWebSearch({ provider, apiKey }).tool;
+  }
+  if (toolName === "webFetch") {
+    return createWebFetch({ provider, apiKey }).tool;
   }
   switch (provider) {
     case "anthropic":
