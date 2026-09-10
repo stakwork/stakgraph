@@ -14,6 +14,7 @@
 package env
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -73,6 +74,18 @@ const (
 	// registry. Defaults to /app/data/trust.json so it sits next to
 	// logs.db on the same data volume.
 	TrustPath = "BIFROST_PLUGIN_TRUST_PATH"
+
+	// EnforceMacaroons overrides the plugin config block's
+	// `enforce_macaroons` flag (gateway/data/config.json). config.json
+	// is baked into the image and re-seeded on every boot, so without
+	// this there is no way to flip a single swarm from shadow to
+	// enforce mode short of shipping a new image. Truthy: 1/true/yes/on;
+	// falsy: 0/false/no/off (case-insensitive). Unset or empty ⇒ the
+	// config.json value stands. Any other value is logged at ERROR and
+	// ignored (config.json value stands; boot line reports
+	// source=env-invalid) — see internal/auth.Init for why that beats
+	// failing the plugin.
+	EnforceMacaroons = "BIFROST_PLUGIN_ENFORCE_MACAROONS"
 
 	// RedisURL is the connection string for the macaroon-enforcement
 	// Redis. In sphinx-swarm this points at the shared redis.sphinx
@@ -234,6 +247,25 @@ func PricingCachePath() string { return GetOr(PricingCache, DefaultPricingCache)
 func RedisURLValue() (string, bool) {
 	u := os.Getenv(RedisURL)
 	return u, u != ""
+}
+
+// EnforceMacaroonsValue parses BIFROST_PLUGIN_ENFORCE_MACAROONS.
+// set=false when the variable is unset or empty (caller keeps the
+// config.json value). err is non-nil for any value outside the
+// recognised truthy/falsy sets — the caller decides what to do with
+// a typo; this package never guesses which way it was meant.
+func EnforceMacaroonsValue() (value bool, set bool, err error) {
+	raw := strings.TrimSpace(os.Getenv(EnforceMacaroons))
+	if raw == "" {
+		return false, false, nil
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on":
+		return true, true, nil
+	case "0", "false", "no", "off":
+		return false, true, nil
+	}
+	return false, true, fmt.Errorf("%s=%q: want one of 1/true/yes/on or 0/false/no/off", EnforceMacaroons, raw)
 }
 
 // IsProduction reports whether the plugin is running in a

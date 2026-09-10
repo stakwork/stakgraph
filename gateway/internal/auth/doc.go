@@ -46,7 +46,12 @@
 //
 // With enforce_macaroons=true the failure path becomes 401/402 with
 // a stable AdapterError.Code. Operators flip the flag per-swarm once
-// the shadow-mode logs show no false positives. See
+// the shadow-mode logs show no false positives — either in the
+// config.json plugin block or, without rebuilding the image, via the
+// BIFROST_PLUGIN_ENFORCE_MACAROONS env var (which wins when set; an
+// unparseable value is logged at ERROR and ignored, because a plugin
+// that fails Init leaves bifrost-http serving with no verification at
+// all — see Init). See
 // gateway/plans/phases/phase-4-macaroon-shape.md ("Verifier
 // algorithm → Bifrost-plugin adapter").
 //
