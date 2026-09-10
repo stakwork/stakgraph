@@ -24,10 +24,11 @@ const LLM_GATEWAY_URL = process.env.LLM_GATEWAY_URL?.replace(/\/$/, "");
  * URLs without hand-rolling the suffix.
  *
  * NOTE: OpenRouter has no dedicated Bifrost route and rides the OpenAI
- * path. If you spawn an agent in a way where the runtime would override
- * the model to an OpenRouter model, you want the OpenAI suffix here too.
- * xAI likewise rides the OpenAI-compat path (model id prefixed `xai/`
- * in getModel), since Bifrost has no dedicated Grok route.
+ * path (model id prefixed `openrouter/` in getModel so Bifrost routes it
+ * upstream). If you spawn an agent in a way where the runtime would
+ * override the model to an OpenRouter model, you want the OpenAI suffix
+ * here too. xAI likewise rides the OpenAI-compat path (model id prefixed
+ * `xai/` in getModel), since Bifrost has no dedicated Grok route.
  */
 export const GATEWAY_PATHS: Record<Provider, string> = {
   anthropic: "/anthropic/v1",
@@ -684,7 +685,23 @@ export function getModel(
           ? { provider: { order: ["moonshotai"], allow_fallbacks: true } }
           : {}),
       };
-      return openrouter(modelId, settings);
+      // Gatewayed OpenRouter rides the OpenAI-compat route
+      // (GATEWAY_PATHS.openrouter is /openai/v1). Bifrost picks the upstream
+      // provider from a known "<provider>/" prefix on the model id and
+      // otherwise defaults to OpenAI on that route. OpenRouter ids carry
+      // their own org prefix ("moonshotai/kimi-k2-0905"), which Bifrost
+      // doesn't recognise, so the bare id we stripped above would be sent
+      // to OpenAI and 404. Re-add the prefix for gateway calls, mirroring
+      // the google and xai branches. Bifrost splits on the first "/" only,
+      // so OpenRouter's own "openrouter/auto"-style ids survive the extra
+      // hop. Direct calls keep the bare id.
+      //
+      // Bifrost's OpenAI-compat parser keeps only the fields it knows, so
+      // the OpenRouter-only settings above (provider pinning, usage.include)
+      // are dropped on the gateway path and only take effect on direct
+      // calls.
+      const gatewayModelId = baseURL ? `openrouter/${modelId}` : modelId;
+      return openrouter(gatewayModelId, settings);
     }
     case "xai": {
       // Gatewayed Grok rides the OpenAI-compat route (GATEWAY_PATHS.xai is
