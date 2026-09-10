@@ -26,10 +26,14 @@
 #     in the bifrost container logs
 #   - a logs row written with the dim-header values present
 #
+# To exercise enforce mode instead, start the gateway with
+# BIFROST_PLUGIN_ENFORCE_MACAROONS=true (env override of the config.json
+# flag; see docker-compose.yml) — a bad or missing macaroon then 401s
+# while the good-macaroon call below still 200s.
+#
 # Later iterations of this script will add:
 #   - attenuation chain (parent → child macaroons)
-#   - enforce-mode (BIFROST_PLUGIN_ENFORCE_MACAROONS=true → 401 on bad
-#     macaroon, 200 on good)
+#   - enforce-mode assertions (401 on bad macaroon, 200 on good)
 #   - per-run cost cap exceeded (Redis-side accumulator check)
 #   - kill switch (POST /_plugin/runs/:id/kill → next call 402s)
 #

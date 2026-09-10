@@ -30,7 +30,8 @@
 # the local docker-compose); the log line tells us what the adapter
 # would have done in enforce mode. Promoting these checks to "block
 # the request and assert HTTP status" is a one-line flip of
-# enforce_macaroons in gateway/data/config.json.
+# enforce_macaroons in gateway/data/config.json, or start the gateway
+# with BIFROST_PLUGIN_ENFORCE_MACAROONS=true).
 #
 # Usage
 # -----
