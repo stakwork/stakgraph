@@ -35,6 +35,16 @@
         }
       ]
     },
+    "gemini": {
+      "keys": [
+        {
+          "name": "gemini-key-1",
+          "value": "env.GOOGLE_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ]
+    },
     "xai": {
       "keys": [
         {
