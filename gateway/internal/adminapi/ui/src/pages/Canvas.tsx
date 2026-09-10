@@ -17,10 +17,9 @@
 //     requestCount are summed over all that user's pairings.
 //   - Gateway: singleton. customData.totalCost = swarm-wide total
 //     (sum of every row's cost).
-//   - Providers: hardcoded 4 — anthropic / openai / openrouter /
-//     google — pulled from gateway/docker-compose.yml env. Real
-//     per-provider spend lands when the matrix endpoint grows a
-//     provider dimension.
+//   - Providers: hardcoded 5 — anthropic / openai / openrouter /
+//     gemini / xai. customData.totalCost + requestCount come from
+//     the per-row `providers[]` slice the matrix endpoint returns.
 //
 // The canvas takes over the full shell-main area; the WindowPicker
 // floats in the top-right corner as the only chrome. No numeric
@@ -57,11 +56,16 @@ const fmtInt = (v: number) =>
   new Intl.NumberFormat("en-US").format(Math.round(v));
 
 // Hardcoded provider list — these ids match Bifrost's `provider`
-// column on every log row (`gateway/data/config.json`'s `providers`
-// map), so the per-provider rollup from the matrix endpoint
-// dispatches against `customData.icon` cleanly. The order here is
-// the vertical render order in the providers column.
-const PROVIDERS = ["anthropic", "openai", "openrouter", "gemini"];
+// column on every log row, so the per-provider rollup from the
+// matrix endpoint dispatches against `customData.icon` cleanly.
+// Deliberately a superset of `gateway/data/config.json`'s current
+// `providers` map: a provider that's been dropped from (or not yet
+// added to) the seed config still gets a card showing $0, rather
+// than having its historical spend silently vanish from the column.
+// Every id here needs a PROVIDER_DISPLAY entry in canvasTheme.ts.
+// The order here is the vertical render order in the providers
+// column.
+const PROVIDERS = ["anthropic", "openai", "openrouter", "gemini", "xai"];
 
 // Column x-coordinates (canvas-space, centered around 0). Spacing
 // picked so even the widest columns (gateway 220) don't touch their
