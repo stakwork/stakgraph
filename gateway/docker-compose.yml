@@ -82,6 +82,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
       # Optional S3 offload of LLM request/response bodies. Unset
       # BIFROST_S3_BUCKET ⇒ local SQLite logs only (today's behaviour).
       # When set, the wrapper injects logs_store.object_storage into

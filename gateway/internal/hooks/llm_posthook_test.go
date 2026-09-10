@@ -6,6 +6,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
+	"github.com/stakwork/stakgraph/gateway/internal/pricing"
 )
 
 func strPtr(s string) *string { return &s }
@@ -96,5 +97,46 @@ func TestResolveCost_PrefersResolvedModel(t *testing.T) {
 	usage := &schemas.BifrostLLMUsage{PromptTokens: 500, CompletionTokens: 500, TotalTokens: 1000}
 	if got := resolveCost(chat, usage, map[string]string{}); got != 0.001 {
 		t.Fatalf("resolved-model cost = %v, want 0.001", got)
+	}
+}
+
+// The xAI case: bifrost resolves the wire model bare ("grok-4") and
+// reports the provider on RoutingInfo; the datasheet keys the row as
+// "xai/grok-4". The hook must hand the provider to the price lookup
+// or every Grok call accumulates at $0.
+func TestResolveCost_ProviderNamespacedCatalog(t *testing.T) {
+	auth.SetConfigForTest(auth.Config{})
+	pricing.SetTableForTest(map[string]pricing.Price{
+		"xai/grok-4": {InputPerMTok: 1.0, OutputPerMTok: 1.0},
+	})
+	t.Cleanup(func() {
+		pricing.SetTableForTest(nil)
+		auth.SetConfigForTest(auth.Config{})
+	})
+
+	usage := &schemas.BifrostLLMUsage{PromptTokens: 500, CompletionTokens: 500, TotalTokens: 1000}
+
+	chat := &schemas.BifrostChatResponse{
+		Model: "grok-4",
+		ExtraFields: schemas.BifrostResponseExtraFields{
+			ResolvedModelUsed: "grok-4",
+			RoutingInfo:       schemas.RoutingInfo{Provider: schemas.XAI, Model: "grok-4"},
+		},
+	}
+	if got := resolveCost(chat, usage, map[string]string{}); got != 0.001 {
+		t.Fatalf("RoutingInfo provider cost = %v, want 0.001", got)
+	}
+
+	// Older chunks only carry the deprecated ExtraFields.Provider.
+	chat.ExtraFields.RoutingInfo = schemas.RoutingInfo{}
+	chat.ExtraFields.Provider = schemas.XAI
+	if got := resolveCost(chat, usage, map[string]string{}); got != 0.001 {
+		t.Fatalf("deprecated provider field cost = %v, want 0.001", got)
+	}
+
+	// No provider anywhere → the namespaced row is unreachable → $0.
+	chat.ExtraFields.Provider = ""
+	if got := resolveCost(chat, usage, map[string]string{}); got != 0 {
+		t.Fatalf("provider-less cost = %v, want 0", got)
 	}
 }
