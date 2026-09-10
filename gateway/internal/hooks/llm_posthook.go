@@ -96,9 +96,12 @@ func isStreamRequest(resp *schemas.BifrostResponse) bool {
 // per the phase-6 accumulator design:
 //
 //  1. Provider-computed Usage.Cost.TotalCost (only some providers).
-//  2. auth.PriceCall on the resolved model name — operator
-//     model_pricing config first, then the internal/pricing catalog
-//     (bifrost's own datasheet, refreshed daily).
+//  2. auth.PriceCall on the (provider, resolved model) pair —
+//     operator model_pricing config first, then the internal/pricing
+//     catalog (bifrost's own datasheet, refreshed daily). The
+//     provider matters: the datasheet keys some providers' rows as
+//     "<provider>/<model>" ("xai/grok-4") while Bifrost reports the
+//     wire model bare ("grok-4").
 //  3. $0, with a loud log — an unpriced model must be visible in
 //     `docker logs`, not silently guessed at.
 func resolveCost(chat *schemas.BifrostChatResponse, usage *schemas.BifrostLLMUsage, dims map[string]string) float64 {
@@ -108,22 +111,35 @@ func resolveCost(chat *schemas.BifrostChatResponse, usage *schemas.BifrostLLMUsa
 	if usage.Cost != nil && usage.Cost.TotalCost > 0 {
 		return usage.Cost.TotalCost
 	}
-	model := ""
+	model, provider := "", ""
 	if chat != nil {
 		if model = chat.ExtraFields.ResolvedModelUsed; model == "" {
 			model = chat.Model
 		}
+		provider = responseProvider(chat)
 	}
-	if cost, ok := auth.PriceCall(model, usage.PromptTokens, usage.CompletionTokens); ok {
+	if cost, ok := auth.PriceCall(provider, model, usage.PromptTokens, usage.CompletionTokens); ok {
 		return cost
 	}
 	if usage.TotalTokens > 0 {
 		pluginlog.Warnf(
-			"accounting: no price for model=%q (run_id=%s) — %d tokens accumulated as $0; add a model_pricing entry",
-			model, dims[pluginctx.DimRunID], usage.TotalTokens,
+			"accounting: no price for provider=%q model=%q (run_id=%s) — %d tokens accumulated as $0; add a model_pricing entry",
+			provider, model, dims[pluginctx.DimRunID], usage.TotalTokens,
 		)
 	}
 	return 0
+}
+
+// responseProvider returns the Bifrost provider id that actually
+// served a chat response. RoutingInfo.Provider is the current field;
+// ExtraFields.Provider is its deprecated twin, still populated by
+// core v1.6 and kept as the fallback for chunks that only carry the
+// old shape.
+func responseProvider(chat *schemas.BifrostChatResponse) string {
+	if p := chat.ExtraFields.RoutingInfo.Provider; p != "" {
+		return string(p)
+	}
+	return string(chat.ExtraFields.Provider)
 }
 
 // toolCallNames collects the tool names invoked in a non-streaming

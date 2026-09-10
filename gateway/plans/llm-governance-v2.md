@@ -135,7 +135,7 @@ Bifrost natively enforces:
 | Daily $ budget     | Customer (per user) | $1000/day                                              |
 | Rate limit RPM     | Customer (per user) | 1000 RPM                                               |
 | Rate limit TPM     | Customer (per user) | 5M TPM                                                 |
-| Provider allowlist | VK                  | `[anthropic, openai, openrouter, gemini]`, all `["*"]` |
+| Provider allowlist | VK                  | `[anthropic, openai, openrouter, xai]`, all `["*"]` |
 | Model allowlist    | VK                  | `["*"]` initially                                      |
 | `is_active`        | Customer (per user) | `true` by default; `false` disables account org-wide   |
 
@@ -173,7 +173,7 @@ POST /api/governance/virtual-keys
       { provider: "anthropic", allowed_models: ["*"] },
       { provider: "openai",    allowed_models: ["*"] },
       { provider: "openrouter",allowed_models: ["*"] },
-      { provider: "gemini",    allowed_models: ["*"] },
+      { provider: "xai",       allowed_models: ["*"] },
     ]
   }
 ```

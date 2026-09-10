@@ -7,10 +7,10 @@ Runs Bifrost locally on `http://localhost:8181` so MCP can be tested with
 ## Layout
 
 - `docker-compose.yml` — Bifrost service, host port `8181 -> container 8080`.
-- `data/config.json` — seed config: Anthropic + OpenAI + OpenRouter + Gemini
+- `data/config.json` — seed config: Anthropic + OpenAI + OpenRouter + xAI
   providers, API keys read from `env.*`, `config_store` enabled (SQLite) so the
-  Web UI works. (Bifrost calls Google's public Gemini API `gemini`; the MCP
-  client side calls the same thing `google`.)
+  Web UI works. (xAI has no dedicated Bifrost route; the MCP client sends Grok
+  through `/openai/v1` with an `xai/`-prefixed model id.)
 - `data/config.db`, `data/logs.db` — created on first boot; gitignored.
 - `.env` — symlinked to `../../.env` (the MCP `.env`) so docker-compose picks up
   `ANTHROPIC_API_KEY` etc. without copy-paste.
