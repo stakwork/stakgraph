@@ -309,6 +309,17 @@ const OPENROUTER_PATHS: IconPathData = [
   },
 ];
 
+// xAI has no simple-icons glyph, so this is a geometric stand-in
+// rather than the trademark: the two strokes of an "X" in a 24-unit
+// box, the right-hand stroke pulled apart into a long diagonal plus
+// a short cap the way the wordmark reads. Stroked (not filled) so it
+// renders at the same visual weight as the OpenRouter curves.
+const XAI_PATHS: IconPathData = [
+  { d: "M4 4L20 20", mode: "stroke", strokeWidth: 3 },
+  { d: "M20 4L11.5 12.5", mode: "stroke", strokeWidth: 3 },
+  { d: "M4 20L8.5 15.5", mode: "stroke", strokeWidth: 3 },
+];
+
 // Person + bot glyphs in a 24-unit source box. The `l 0.001 0` segments
 // are degenerate dots — at stroke-linecap='round' they render as filled
 // discs of diameter = stroke-width.
@@ -341,6 +352,7 @@ const PROVIDER_ICON_META: Record<
   openai: { mode: "fill", viewBox: 24 },
   gemini: { mode: "fill", viewBox: 24 },
   openrouter: { mode: "fill", viewBox: 512 },
+  xai: { mode: "stroke", viewBox: 24 },
 };
 
 // ---------------------------------------------------------------------------
@@ -358,6 +370,7 @@ const PROVIDER_ICON_META: Record<
 //   - OpenAI:    mint, used across their docs + simple-icons
 //   - Gemini:    simple-icons "Google Gemini" (#8E75B2)
 //   - OpenRouter: openrouter.ai brand
+//   - xAI:       monochrome wordmark; a light neutral reads on midnight
 export const PROVIDER_DISPLAY: Record<
   string,
   { label: string; icon: string; color: string }
@@ -366,6 +379,7 @@ export const PROVIDER_DISPLAY: Record<
   openai: { label: "OpenAI", icon: "openai", color: "#10A37F" },
   gemini: { label: "Gemini", icon: "gemini", color: "#8E75B2" },
   openrouter: { label: "OpenRouter", icon: "openrouter", color: "#6467F2" },
+  xai: { label: "xAI", icon: "xai", color: "#D4D4D8" },
 };
 
 export function providerIcon(name: string): string {
@@ -386,6 +400,7 @@ export const canvasTheme: CanvasTheme = resolveTheme(
       openai: OPENAI_PATHS,
       gemini: GEMINI_PATHS,
       openrouter: OPENROUTER_PATHS,
+      xai: XAI_PATHS,
     },
     categories: {
       // ─── agent ───────────────────────────────────────────────────

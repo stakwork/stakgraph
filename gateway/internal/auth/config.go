@@ -3,6 +3,9 @@ package auth
 import (
 	"encoding/json"
 	"sync"
+
+	"github.com/stakwork/stakgraph/gateway/internal/env"
+	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 )
 
 // Config is the auth subset of the plugin's config block in
@@ -25,6 +28,12 @@ import (
 // Existing swarms running an old config.json will pick up the new
 // adapter in shadow mode without any operator action — that is the
 // whole point of the flag. Flip to true per-swarm as rollout proceeds.
+//
+// The env var BIFROST_PLUGIN_ENFORCE_MACAROONS (see internal/env)
+// overrides the config.json value when set, so a swarm can be flipped
+// through its environment without rebuilding the image that carries
+// config.json. EnforceMacaroonsSource records which one won so the
+// boot log can say so.
 type Config struct {
 	// EnforceMacaroons gates whether verification failures actually
 	// reject the request. When false (default, shadow mode), the
@@ -32,6 +41,15 @@ type Config struct {
 	// mismatches loudly, but lets the request continue. When true,
 	// failures short-circuit with a bifrost.Error.
 	EnforceMacaroons bool `json:"enforce_macaroons"`
+
+	// EnforceMacaroonsSource is where EnforceMacaroons came from:
+	// "env" (BIFROST_PLUGIN_ENFORCE_MACAROONS set and valid), "config"
+	// (the key is present in the plugin config block), "default"
+	// (neither — zero value, shadow mode), or "env-invalid" (the env
+	// var was set to something unparseable, an ERROR was logged, and
+	// the config/default value stands). Diagnostic only; never
+	// persisted — grep the boot line for it.
+	EnforceMacaroonsSource string `json:"-"`
 
 	// AgentBudgets is the per-agent windowed spend cap declared
 	// in plugin.yaml. Phase 6's PreLLMHook reads these to gate
@@ -75,8 +93,11 @@ type ModelPrice struct {
 // subset of fields auth cares about. Bifrost passes the raw `config`
 // JSON object verbatim, so json.Marshal+Unmarshal round-trips through
 // whatever shape it actually has.
+//
+// EnforceMacaroons is a pointer so "key absent" (source=default) and
+// "key present and false" (source=config) stay distinguishable.
 type pluginConfigEnvelope struct {
-	EnforceMacaroons bool                   `json:"enforce_macaroons"`
+	EnforceMacaroons *bool                  `json:"enforce_macaroons"`
 	AgentBudgets     map[string]AgentBudget `json:"agent_budgets"`
 	ModelPricing     map[string]ModelPrice  `json:"model_pricing"`
 }
@@ -94,7 +115,17 @@ var (
 // to flip enforce_macaroons mid-suite without restarting the package.
 //
 // Safe to call with raw == nil; in that case the zero-value Config
-// (shadow mode) is cached.
+// (shadow mode) is cached — unless the env override is set, which
+// applies on top of whatever the block held, nil included.
+//
+// Only malformed config JSON is an error. An unparseable
+// BIFROST_PLUGIN_ENFORCE_MACAROONS value is deliberately NOT fatal:
+// a plugin Init error does not stop bifrost-http, it just drops this
+// plugin — the wrapper then serves inference with no macaroon
+// verification, no claim canonicalization, and /_plugin/* down,
+// which is strictly worse than shadow mode. So the typo is logged at
+// ERROR, the boot line says source=env-invalid, and the config.json
+// value stands.
 func Init(raw any) error {
 	parsed, err := parseConfig(raw)
 	if err != nil {
@@ -125,22 +156,36 @@ func SetConfigForTest(c Config) {
 }
 
 func parseConfig(raw any) (Config, error) {
-	if raw == nil {
-		return Config{}, nil
+	cfg := Config{EnforceMacaroonsSource: "default"}
+	if raw != nil {
+		// Round-trip through JSON so we accept whatever map shape
+		// Bifrost decoded the block into. No reflection on field names.
+		buf, err := json.Marshal(raw)
+		if err != nil {
+			return Config{}, err
+		}
+		var envelope pluginConfigEnvelope
+		if err := json.Unmarshal(buf, &envelope); err != nil {
+			return Config{}, err
+		}
+		cfg.AgentBudgets = envelope.AgentBudgets
+		cfg.ModelPricing = envelope.ModelPricing
+		if envelope.EnforceMacaroons != nil {
+			cfg.EnforceMacaroons = *envelope.EnforceMacaroons
+			cfg.EnforceMacaroonsSource = "config"
+		}
 	}
-	// Round-trip through JSON so we accept whatever map shape
-	// Bifrost decoded the block into. No reflection on field names.
-	buf, err := json.Marshal(raw)
-	if err != nil {
-		return Config{}, err
+	// Env override wins over the config block. A value we can't
+	// parse keeps the plugin alive on the config value (see Init for
+	// why fatal would be worse) but must be impossible to miss: an
+	// ERROR line here and "source=env-invalid" on the boot line.
+	if v, set, err := env.EnforceMacaroonsValue(); err != nil {
+		pluginlog.Errf("auth: %v — ignoring the override; enforce_macaroons=%t from %s stands",
+			err, cfg.EnforceMacaroons, cfg.EnforceMacaroonsSource)
+		cfg.EnforceMacaroonsSource = "env-invalid"
+	} else if set {
+		cfg.EnforceMacaroons = v
+		cfg.EnforceMacaroonsSource = "env"
 	}
-	var env pluginConfigEnvelope
-	if err := json.Unmarshal(buf, &env); err != nil {
-		return Config{}, err
-	}
-	return Config{
-		EnforceMacaroons: env.EnforceMacaroons,
-		AgentBudgets:     env.AgentBudgets,
-		ModelPricing:     env.ModelPricing,
-	}, nil
+	return cfg, nil
 }

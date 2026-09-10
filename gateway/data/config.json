@@ -51,6 +51,16 @@
           "weight": 1.0
         }
       ]
+    },
+    "xai": {
+      "keys": [
+        {
+          "name": "xai-key-1",
+          "value": "env.XAI_API_KEY",
+          "models": ["*"],
+          "weight": 1.0
+        }
+      ]
     }
   },
   "plugins": [

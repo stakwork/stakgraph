@@ -72,6 +72,15 @@ services:
       # (`bifrost:login_attempts:*`). Without it, /_plugin/login
       # returns 503 and the admin dashboard is unreachable.
       BIFROST_PLUGIN_REDIS_URL: redis://redis:6379/0
+      # Overrides the plugin's `enforce_macaroons` flag from
+      # data/config.json (baked into the image and re-seeded on every
+      # boot, so this is the only way to flip a running deployment
+      # without shipping a new image). Unset ⇒ config.json value
+      # (false: shadow mode — verify + log, never reject). true ⇒
+      # missing/invalid macaroons short-circuit with 401. Anything
+      # other than 1/true/yes/on or 0/false/no/off is logged at ERROR
+      # and ignored (boot line shows source=env-invalid).
+      BIFROST_PLUGIN_ENFORCE_MACAROONS: ${BIFROST_PLUGIN_ENFORCE_MACAROONS:-}
       # PRODUCTION=1 forces the `Secure` attribute on the session
       # cookie regardless of the request scheme. Leave unset in dev
       # so localhost HTTP can keep its cookie; flip to 1 behind a
@@ -82,6 +91,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
     depends_on:
       redis:
         condition: service_healthy

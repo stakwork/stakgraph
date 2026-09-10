@@ -255,7 +255,7 @@ Filters available on this endpoint (lines 369-380 of governance.go):
           "budgets": [],
           "rate_limit": null
         }
-        // … openai, openrouter, gemini
+        // … openai, openrouter, gemini, xai
       ],
       "mcp_configs": [],
       "budgets": [],
@@ -306,7 +306,8 @@ Content-Type: application/json
     { "provider": "anthropic",  "allowed_models": ["*"], "key_ids": ["*"] },
     { "provider": "openai",     "allowed_models": ["*"], "key_ids": ["*"] },
     { "provider": "openrouter", "allowed_models": ["*"], "key_ids": ["*"] },
-    { "provider": "gemini",     "allowed_models": ["*"], "key_ids": ["*"] }
+    { "provider": "gemini",     "allowed_models": ["*"], "key_ids": ["*"] },
+    { "provider": "xai",        "allowed_models": ["*"], "key_ids": ["*"] }
   ]
 }
 ```
