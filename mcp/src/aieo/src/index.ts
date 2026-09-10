@@ -5,6 +5,7 @@ export * from "./usage.js";
 export * from "./prompt.js";
 export * from "./tools.js";
 export * from "./search.js";
+export * from "./fetch.js";
 
 export type { ModelMessage } from "ai";
 export type { Tool, ToolSet } from "ai";
