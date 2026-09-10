@@ -14,7 +14,7 @@
 #   - Multiple agent names (browser / coder / chat / reviewer)
 #   - Multiple users (alice / bob / carol) and workspaces (w1 / w2)
 #   - Spread across ≥2 minute buckets via sleeps
-#   - Multiple providers (anthropic / openai / openrouter) and models
+#   - Multiple providers (anthropic / openai / openrouter / xai) and models
 #   - One streaming request
 #   - One error request (bad model name)
 #   - One request with NO dim headers (graceful absence check)
@@ -140,6 +140,9 @@ M_HAIKU="anthropic/claude-haiku-4-5-20251001"
 M_MINI="openai/gpt-4o-mini"
 M_NANO="openai/gpt-4.1-nano"
 M_KIMI="openrouter/moonshotai/kimi-k2-0905"
+# xAI retires model ids aggressively; with allowed_models ["*"] Bifrost only
+# admits ids present in api.x.ai's live /v1/models, so keep this current.
+M_GROK="xai/grok-4.3"
 
 # --- batch 1: minute N ----------------------------------------------------
 
@@ -163,6 +166,7 @@ echo "# batch 2 — minute N+1"
 call_llm chat      u_carol  w2  "$SESS_CAROL_W2" "$M_HAIKU" 'two-word greeting'
 call_llm reviewer  u_carol  w1  "$SESS_CAROL_W1" "$M_NANO"  'reply in 3 words'
 call_llm reviewer  u_carol  w1  "$SESS_CAROL_W1" "$M_KIMI"  'reply in 3 words'
+call_llm reviewer  u_carol  w1  "$SESS_CAROL_W1" "$M_GROK"  'reply in 3 words'
 
 echo
 echo "# streaming request (verify final-chunk cost lands)"

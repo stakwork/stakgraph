@@ -71,21 +71,49 @@ var (
 	retryBaseDelay = time.Second
 )
 
-// Lookup returns the catalog price for a model: exact key first,
-// then the name with any "provider/" prefix stripped (Bifrost
-// resolved names are usually bare, but callers occasionally hold the
-// prefixed form). ok=false when the catalog has no entry — the
-// caller falls through to its next price source.
-func Lookup(model string) (Price, bool) {
+// Keys returns the lookup candidates for a (provider, model) pair,
+// most specific first:
+//
+//  1. model as given — the datasheet keys most first-party rows
+//     bare ("claude-sonnet-5", "gpt-5.2"), which is also the wire
+//     model Bifrost reports in ResolvedModelUsed.
+//  2. "<provider>/<model>" — the datasheet namespaces some
+//     providers' rows under the provider id ("xai/grok-4",
+//     "openrouter/moonshotai/kimi-k2-0905") while Bifrost still
+//     reports the wire model bare ("grok-4"). Without this step
+//     every Grok and OpenRouter call priced at $0.
+//  3. the last path segment of model — callers occasionally hold a
+//     prefixed form ("anthropic/claude-sonnet-5").
+//
+// Shared by the catalog and the operator model_pricing table so the
+// two sources can't disagree on what a model name means.
+func Keys(provider, model string) []string {
+	if model == "" {
+		return nil
+	}
+	keys := []string{model}
+	if provider != "" && !strings.HasPrefix(model, provider+"/") {
+		keys = append(keys, provider+"/"+model)
+	}
+	if i := strings.LastIndexByte(model, '/'); i >= 0 && i+1 < len(model) {
+		keys = append(keys, model[i+1:])
+	}
+	return keys
+}
+
+// Lookup returns the catalog price for a model, trying each Keys
+// candidate in order. provider is the Bifrost provider id that
+// served the call ("xai", "openrouter", …); pass "" when unknown
+// and only the bare and prefix-stripped forms are tried. ok=false
+// when the catalog has no entry — the caller falls through to its
+// next price source.
+func Lookup(provider, model string) (Price, bool) {
 	m := table.Load()
-	if m == nil || model == "" {
+	if m == nil {
 		return Price{}, false
 	}
-	if p, ok := (*m)[model]; ok {
-		return p, true
-	}
-	if i := strings.LastIndexByte(model, '/'); i >= 0 {
-		if p, ok := (*m)[model[i+1:]]; ok {
+	for _, k := range Keys(provider, model) {
+		if p, ok := (*m)[k]; ok {
 			return p, true
 		}
 	}
