@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent Mothership — request path</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0a0a; }
+      #app { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://unpkg.com/system-canvas-standalone@latest/dist/system-canvas.min.js"></script>
+    <script>
+      // Option B — "the request path".
+      //
+      // Left to right: the credentials get minted, handed to an agent,
+      // narrowed for a sub-agent, and presented to the Mothership, which
+      // is the only thing that ever touches a real provider key. Click
+      // the Mothership's corner tab to open its internals.
+
+      const kicker = (fallback) => ({
+        kind: 'text',
+        value: (ctx) => ctx.node.customData?.kicker ?? fallback,
+      });
+
+      const categories = {
+        principal: {
+          defaultWidth: 300, defaultHeight: 84,
+          fill: 'rgba(76,29,149,0.35)', stroke: '#a78bfa',
+          slots: { leftEdge: { kind: 'color', extent: 'full' }, header: kicker('PRINCIPAL') },
+        },
+        issuer: {
+          defaultWidth: 280, defaultHeight: 84,
+          fill: 'rgba(6,78,59,0.35)', stroke: '#34d399',
+          slots: { header: kicker('ISSUER') },
+        },
+        agent: {
+          defaultWidth: 300, defaultHeight: 84,
+          fill: 'rgba(8,51,68,0.45)', stroke: '#22d3ee',
+          slots: { leftEdge: { kind: 'color', extent: 'full' }, header: kicker('AGENT') },
+        },
+        gateway: {
+          defaultWidth: 310, defaultHeight: 104,
+          fill: 'rgba(124,45,18,0.35)', stroke: '#fb923c',
+          slots: { topEdge: { kind: 'color', extent: 'full' }, header: kicker('AGENT MOTHERSHIP') },
+        },
+        provider: {
+          defaultWidth: 200, defaultHeight: 60,
+          fill: 'rgba(30,41,59,0.45)', stroke: '#94a3b8',
+          slots: { rightEdge: { kind: 'color', extent: 'full' } },
+        },
+        ledger: {
+          defaultWidth: 280, defaultHeight: 84,
+          fill: 'rgba(120,53,15,0.35)', stroke: '#fbbf24',
+          slots: { header: kicker('IMMUTABLE LOG') },
+        },
+        component: { defaultWidth: 260, defaultHeight: 76, fill: 'rgba(124,45,18,0.25)', stroke: '#fb923c' },
+        store:     { defaultWidth: 260, defaultHeight: 76, fill: 'rgba(76,29,149,0.30)', stroke: '#a78bfa' },
+      };
+
+      const theme = { base: 'blueprint', categories };
+
+      const canvas = {
+        theme,
+        nodes: [
+          { id: 'org', type: 'text', category: 'principal', x: 0, y: -220,
+            text: 'Organization\nsecp256k1 root · m-of-n multisig',
+            customData: { kicker: 'ORG' } },
+          { id: 'human', type: 'text', category: 'principal', x: 0, y: 20,
+            text: 'Human\nEd25519 · child of their xpub',
+            customData: { kicker: 'HUMAN' } },
+
+          { id: 'issuer', type: 'text', category: 'issuer', x: 380, y: -100,
+            text: 'Macaroon issuer\nassembles the signed chain',
+            customData: { kicker: 'MINT' } },
+
+          { id: 'agent', type: 'text', category: 'agent', x: 760, y: -100,
+            text: 'Agent process\nproxy key + macaroon',
+            customData: { kicker: 'AGENT' } },
+          { id: 'subagent', type: 'text', category: 'agent', x: 760, y: 100,
+            text: 'Sub-agent\nattenuations[] += {caveats, hmac}',
+            customData: { kicker: 'SUB-AGENT' } },
+
+          { id: 'approvers', type: 'text', category: 'principal', x: 1160, y: -320,
+            text: 'Quorum of humans\nm-of-n approval signature',
+            customData: { kicker: 'APPROVE' } },
+          { id: 'mothership', type: 'text', category: 'gateway', x: 1160, y: -110, ref: 'mothership',
+            text: 'Agent Mothership',
+            customData: { kicker: 'VERIFY · ENFORCE · SWAP KEY · LOG' } },
+          { id: 'log', type: 'text', category: 'ledger', x: 1160, y: 140,
+            text: 'signed log\nhash-linked rows · SHA-256',
+            customData: { kicker: 'IMMUTABLE LOG' } },
+
+          { id: 'anthropic',  type: 'text', category: 'provider', x: 1600, y: -260, text: 'Anthropic' },
+          { id: 'openai',     type: 'text', category: 'provider', x: 1600, y: -140, text: 'OpenAI' },
+          { id: 'gemini',     type: 'text', category: 'provider', x: 1600, y: -20,  text: 'Gemini' },
+          { id: 'xai',        type: 'text', category: 'provider', x: 1600, y: 100,  text: 'xAI · OpenRouter' },
+        ],
+        edges: [
+          { id: 'e1', fromNode: 'org',        toNode: 'issuer',     label: 'user_authorization · org_sig' },
+          { id: 'e2', fromNode: 'human',      toNode: 'issuer',     label: 'invocation · user_sig (Ed25519)' },
+          { id: 'e3', fromNode: 'issuer',     toNode: 'agent',      label: 'macaroon · base64url(JCS)' },
+          { id: 'e4', fromNode: 'agent',      toNode: 'subagent',   label: 'attenuate · HMAC-SHA256 · only narrows' },
+          { id: 'e5', fromNode: 'agent',      toNode: 'mothership', label: 'proxy key + macaroon · every call' },
+          { id: 'e6', fromNode: 'subagent',   toNode: 'mothership', label: 'narrower macaroon' },
+          { id: 'e7', fromNode: 'approvers',  toNode: 'mothership', label: 'gates high-stakes calls' },
+          { id: 'e8', fromNode: 'mothership', toNode: 'log',        label: 'append · every call · signed' },
+          { id: 'e9',  fromNode: 'mothership', toNode: 'anthropic', label: 'real provider key' },
+          { id: 'e10', fromNode: 'mothership', toNode: 'openai' },
+          { id: 'e11', fromNode: 'mothership', toNode: 'gemini' },
+          { id: 'e12', fromNode: 'mothership', toNode: 'xai' },
+        ],
+      };
+
+      const canvases = {
+        mothership: {
+          theme,
+          nodes: [
+            { id: 'ingress',  type: 'text', category: 'component', x: 0,    y: 0,    text: 'ingress\nsplits key from macaroon' },
+            { id: 'lookup',   type: 'text', category: 'component', x: 360,  y: 0,    text: 'proxy key lookup\nresolves key → human' },
+            { id: 'trust',    type: 'text', category: 'store',     x: 720,  y: -170, text: 'trust registry\norg pubkeys · key rotation' },
+            { id: 'verify',   type: 'text', category: 'component', x: 720,  y: 0,    text: 'verifier\norg_sig → user_sig → hmac[]' },
+            { id: 'state',    type: 'text', category: 'store',     x: 720,  y: 170,  text: 'hot state\nbudget · kill · revocation' },
+            { id: 'quorum',   type: 'text', category: 'store',     x: 1080, y: -170, text: 'approval quorum\nm-of-n humans' },
+            { id: 'swap',     type: 'text', category: 'component', x: 1080, y: 0,    text: 'key swap\nproxy key → real key' },
+            { id: 'ledger',   type: 'text', category: 'component', x: 1080, y: 170,  text: 'signed log\nSHA-256(prev ‖ row) · signed' },
+            { id: 'upstream', type: 'text', category: 'provider',  x: 1440, y: 8,    text: 'Providers' },
+          ],
+          edges: [
+            { id: 'm1', fromNode: 'ingress', toNode: 'lookup',   label: 'macaroon out' },
+            { id: 'm2', fromNode: 'lookup',  toNode: 'verify',   label: 'every call' },
+            { id: 'm3', fromNode: 'trust',   toNode: 'verify',   label: 'org policy' },
+            { id: 'm4', fromNode: 'verify',  toNode: 'state',    label: 'caps · kill · revoke' },
+            { id: 'm5', fromNode: 'verify',  toNode: 'swap',     label: 'user == key owner' },
+            { id: 'm6', fromNode: 'quorum',  toNode: 'swap',     label: 'gates big calls' },
+            { id: 'm7', fromNode: 'swap',    toNode: 'upstream', label: 'real key' },
+            { id: 'm8', fromNode: 'swap',    toNode: 'ledger',   label: 'cost' },
+            { id: 'm9', fromNode: 'state',   toNode: 'ledger',   label: 'accumulators' },
+          ],
+        },
+      };
+
+      SystemCanvas.render(document.getElementById('app'), {
+        canvas,
+        canvases,
+        theme: { ...SystemCanvas.themes.blueprint, categories: { ...SystemCanvas.themes.blueprint.categories, ...categories } },
+        edgeStyle: 'orthogonal',
+        rootLabel: 'Request path',
+      });
+    </script>
+  </body>
+</html>

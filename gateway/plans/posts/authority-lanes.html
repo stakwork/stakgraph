@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent Mothership — authority lanes</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #f6f5f2; }
+      #app { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://unpkg.com/system-canvas-standalone@latest/dist/system-canvas.min.js"></script>
+    <script>
+      // Option C — "authority lanes".
+      //
+      // Rows are the principals. Columns are the moments at which each
+      // principal signs something. Read left to right for the lifecycle
+      // of one agent run; read top to bottom for who is on the hook.
+
+      const ROW_H = 180;
+      const rows = [
+        { id: 'org',   label: 'Organization',     start: 0,         size: ROW_H },
+        { id: 'human', label: 'Human',            start: ROW_H,     size: ROW_H },
+        { id: 'agent', label: 'Agent',            start: ROW_H * 2, size: ROW_H },
+        { id: 'ms',    label: 'Agent Mothership', start: ROW_H * 3, size: ROW_H },
+      ];
+      const columns = [
+        { id: 'onboard',  label: 'Onboard · once',            start: 0,    size: 320 },
+        { id: 'launch',   label: 'Launch · per run',          start: 320,  size: 320 },
+        { id: 'delegate', label: 'Delegate · per sub-agent',  start: 640,  size: 320 },
+        { id: 'execute',  label: 'Execute · per LLM call',    start: 960,  size: 920 },
+        { id: 'approve',  label: 'Approve · when it matters', start: 1880, size: 320 },
+      ];
+
+      const W = 280, H = 84;
+      const at = (row, x) => ({ x, y: row * ROW_H + (ROW_H - H) / 2 });
+
+      const kicker = (fallback) => ({
+        kind: 'text',
+        value: (ctx) => ctx.node.customData?.kicker ?? fallback,
+      });
+
+      const categories = {
+        org:   { defaultWidth: W, defaultHeight: H, fill: 'rgba(167,139,250,0.18)', stroke: '#7c3aed',
+                 slots: { leftEdge: { kind: 'color', extent: 'full' }, header: kicker('ORG') } },
+        human: { defaultWidth: W, defaultHeight: H, fill: 'rgba(34,211,238,0.16)',  stroke: '#0891b2',
+                 slots: { leftEdge: { kind: 'color', extent: 'full' }, header: kicker('HUMAN') } },
+        agent: { defaultWidth: W, defaultHeight: H, fill: 'rgba(52,211,153,0.18)',  stroke: '#059669',
+                 slots: { leftEdge: { kind: 'color', extent: 'full' }, header: kicker('AGENT') } },
+        ms:    { defaultWidth: W, defaultHeight: H, fill: 'rgba(251,146,60,0.18)',  stroke: '#ea580c',
+                 slots: { topEdge: { kind: 'color', extent: 'full' }, header: kicker('MOTHERSHIP') } },
+      };
+
+      const theme = { base: 'light', categories };
+
+      const canvas = {
+        theme,
+        rows,
+        columns,
+        nodes: [
+          // Onboard
+          { id: 'org-sign',   type: 'text', category: 'org',   ...at(0, 40),
+            text: 'Signs user_authorization\nsecp256k1 · m-of-n multisig' },
+          { id: 'human-key',  type: 'text', category: 'human', ...at(1, 40),
+            text: 'Derives Ed25519 user key\nchild of their xpub' },
+          { id: 'ms-trust',   type: 'text', category: 'ms',    ...at(3, 40),
+            text: 'Trust registry\nstores the org pubkey' },
+
+          // Launch
+          { id: 'human-inv',  type: 'text', category: 'human', ...at(1, 360),
+            text: 'Signs invocation\nrun_id · max_cost_usd · exp' },
+          { id: 'agent-recv', type: 'text', category: 'agent', ...at(2, 360),
+            text: 'Receives credentials\nproxy key + macaroon' },
+
+          // Delegate
+          { id: 'agent-att',  type: 'text', category: 'agent', ...at(2, 680),
+            text: 'Attenuates for sub-agent\nHMAC-SHA256 · only narrows' },
+
+          // Execute
+          { id: 'agent-call', type: 'text', category: 'agent', ...at(2, 980),
+            text: 'Calls the model\nmacaroon on every request' },
+          { id: 'ms-verify',  type: 'text', category: 'ms',    ...at(3, 980),
+            text: 'Verifies the chain\norg_sig → user_sig → hmac[]' },
+          { id: 'ms-swap',    type: 'text', category: 'ms',    ...at(3, 1280),
+            text: 'Swaps proxy key for real key\nbudget · kill · revocation' },
+          { id: 'ms-log',     type: 'text', category: 'ms',    ...at(3, 1580),
+            text: 'Appends signed log row\nSHA-256(prev_hash ‖ row)' },
+
+          // Approve
+          { id: 'human-approve', type: 'text', category: 'human', ...at(1, 1900),
+            text: 'Quorum signs approval\nm-of-n humans' },
+          { id: 'ms-release',    type: 'text', category: 'ms',    ...at(3, 1900),
+            text: 'Releases gated action\nafter checking the quorum' },
+        ],
+        edges: [
+          { id: 'c1',  fromNode: 'org-sign',   toNode: 'human-key',     label: 'embeds user_pubkey' },
+          { id: 'c2',  fromNode: 'org-sign',   toNode: 'ms-trust',      label: 'registers org pubkey' },
+          { id: 'c3',  fromNode: 'human-key',  toNode: 'human-inv',     label: 'signs with' },
+          { id: 'c4',  fromNode: 'human-inv',  toNode: 'agent-recv',    label: 'issued macaroon' },
+          { id: 'c5',  fromNode: 'agent-recv', toNode: 'agent-att',     label: 'spawns' },
+          { id: 'c6',  fromNode: 'agent-att',  toNode: 'agent-call',    label: 'narrower macaroon' },
+          { id: 'c7',  fromNode: 'agent-call', toNode: 'ms-verify',     label: 'proxy key + macaroon' },
+          { id: 'c8',  fromNode: 'ms-trust',   toNode: 'ms-verify',     label: 'org policy' },
+          { id: 'c9',  fromNode: 'ms-verify',  toNode: 'ms-swap' },
+          { id: 'c10', fromNode: 'ms-swap',    toNode: 'ms-log' },
+          { id: 'c11', fromNode: 'ms-log',     toNode: 'human-approve', label: 'high-stakes call waits' },
+          { id: 'c12', fromNode: 'human-approve', toNode: 'ms-release', label: 'approval macaroon' },
+        ],
+      };
+
+      SystemCanvas.render(document.getElementById('app'), {
+        canvas,
+        theme: { ...SystemCanvas.themes.light, categories: { ...SystemCanvas.themes.light.categories, ...categories } },
+        edgeStyle: 'orthogonal',
+        laneHeaders: 'pinned',
+        rootLabel: 'Authority lanes',
+      });
+    </script>
+  </body>
+</html>
