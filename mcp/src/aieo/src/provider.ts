@@ -147,7 +147,7 @@ export const PROVIDERS: Provider[] = [
 ];
 
 // shortcuts to latest models
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "grok";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "glm" | "grok";
 
 type ModelId = string;
 
@@ -158,13 +158,16 @@ export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
     haiku: "claude-haiku-4-5",
   },
   google: {
-    gemini: "gemini-3-pro-preview",
+    gemini: "gemini-3.8-flash",
   },
   openai: {
     gpt: "gpt-5.6-luna",
   },
   openrouter: {
     kimi: "moonshotai/kimi-k3",
+    // OpenRouter rolling alias (the leading "~" is part of the id): always
+    // the newest GLM Flash. The plain "z-ai/glm-flash-latest" 404s.
+    glm: "~z-ai/glm-flash-latest",
   },
   xai: {
     grok: "grok-4.6",
@@ -227,6 +230,7 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
   }
   switch (modelName) {
     case "kimi":
+    case "glm":
       return "openrouter";
     case "sonnet":
       return "anthropic";
@@ -246,6 +250,7 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
     case "claude-opus-4-6":
     case "claude-haiku-4-5":
       return "anthropic";
+    case "gemini-3.8-flash":
     case "gemini-3-pro-preview":
     case "gemini-2.0-flash":
       return "google";
@@ -588,6 +593,7 @@ export function getModel(
       "gemini",
       "gpt",
       "kimi",
+      "glm",
       "grok",
     ];
     if (knownShortcuts.includes(opts.modelName)) {
@@ -776,6 +782,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "claude-opus-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   // Google — Gemini's "1M" is 2^20.
+  "gemini-3.8-flash": 1_048_576,
   "gemini-3-pro-preview": 1_048_576,
   "gemini-2.0-flash": 1_048_576,
   // OpenAI — 5.4+ is 1,050,000; the 4.1 family is 1,047,576; 5 through 5.3 are 400k.
@@ -796,6 +803,10 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "openai/gpt-5.6-luna": 1_050_000,
   "openai/gpt-5.6-sol": 1_050_000,
   "moonshotai/kimi-k3": 1_048_576,
+  // Z.ai via OpenRouter. "~…-latest" is OpenRouter's rolling-alias form.
+  "~z-ai/glm-flash-latest": 1_310_720,
+  "z-ai/glm-5.3-flash": 1_310_720,
+  "z-ai/glm-5.3": 1_310_720,
   "moonshotai/kimi-k2.7-code": 262_144,
   "moonshotai/kimi-k2.6": 262_144,
   "moonshotai/kimi-k2.5": 262_144,
