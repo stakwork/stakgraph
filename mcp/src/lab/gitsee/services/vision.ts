@@ -6,7 +6,8 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { usageFromResult, computeCost } from "strut";
+import { usageFromResult } from "strut";
+import { costOf } from "../../cost.js";
 import type { Observations } from "./browser.js";
 import { summarizeObs } from "./browser.js";
 
@@ -66,7 +67,7 @@ ${logs ? logs.slice(-6000) : "(none)"}`,
       });
       const usage = usageFromResult(rawUsage);
       const o = object as { working: boolean; reason: string };
-      return { working: o.working, reason: o.reason, usage, cost: computeCost("anthropic", usage) };
+      return { working: o.working, reason: o.reason, usage, cost: costOf("anthropic", usage) };
     },
   };
 }

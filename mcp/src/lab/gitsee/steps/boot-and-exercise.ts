@@ -1,4 +1,5 @@
-import { z, defineStep, usageFromResult, computeCost, addUsage } from "strut";
+import { z, defineStep, usageFromResult, addUsage } from "strut";
+import { costOf } from "../../cost.js";
 import { spawn } from "node:child_process";
 import {
   writeFileSync,
@@ -678,7 +679,7 @@ ${logs ? logs.slice(-6000) : "(none)"}`,
   });
   const usage = usageFromResult(rawUsage);
   const o = object as { working: boolean; reason: string };
-  return { working: o.working, reason: o.reason, usage, cost: computeCost("anthropic", usage) };
+  return { working: o.working, reason: o.reason, usage, cost: costOf("anthropic", usage) };
 }
 
 // ── step ──────────────────────────────────────────────────────────────────────
@@ -1061,7 +1062,7 @@ Rules:
       const res = await agent.generate({ prompt });
       steps = (res.steps ?? []).length;
       usage = usageFromResult(res.totalUsage ?? res.usage);
-      cost = computeCost(provider, usage);
+      cost = costOf(provider, usage);
 
       // Extract the final_answer text (else salvage the last reasoning text).
       const allSteps = res.steps ?? [];
@@ -1093,7 +1094,7 @@ Rules:
           report = (forced.text ?? "").trim();
           const fu = usageFromResult(forced.totalUsage ?? forced.usage);
           usage = addUsage(usage, fu);
-          cost += computeCost(provider, fu);
+          cost += costOf(provider, fu);
         } catch {
           report = lastText || "(agent produced no final report)";
         }
