@@ -43,11 +43,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -287,9 +287,10 @@ func appDirFromArgs(args []string) string {
 	return defaultAppDir
 }
 
-// syncSeedConfig copies the image-baked config.json seed into the
-// app-dir volume, replacing any stale copy left there by a previous
-// image. Idempotent and safe to run on every boot.
+// syncSeedConfig materialises config.json into the app-dir volume
+// from the image-baked seed, optionally injecting a
+// logs_store.object_storage block when BIFROST_S3_BUCKET is set
+// (see s3config.go). Idempotent and safe to run on every boot.
 //
 // Why this exists
 // ---------------
@@ -335,87 +336,37 @@ func syncSeedConfig(logger *log.Logger, seedPath, appDir string) error {
 
 	dstPath := filepath.Join(appDir, "config.json")
 
-	// Skip the write when source and destination are byte-identical
-	// to avoid bumping mtime on every boot (which would mask "did the
-	// new image actually deploy" debugging by always showing a recent
-	// mtime).
-	if same, err := filesEqual(seedPath, dstPath); err == nil && same {
-		logger.Printf("config.json already in sync with seed at %s", dstPath)
+	seed, err := os.ReadFile(seedPath)
+	if err != nil {
+		return fmt.Errorf("read seed: %w", err)
+	}
+
+	// Desired final config is the seed plus an optional logs_store
+	// object_storage block when BIFROST_S3_BUCKET is set (see
+	// s3config.go). Comparing *this* against the on-disk file (not
+	// the raw seed) keeps the no-op/mtime-skip intact in both the
+	// S3-on and S3-off cases.
+	desired, info, err := materializeConfig(seed, appDir)
+	if err != nil {
+		// Hostile/invalid S3 env must not be written into config.json.
+		// Fall back to the seed so the gateway still boots with local
+		// logs; the WARNING makes the misconfiguration visible.
+		logger.Printf("WARNING: S3 log offload config rejected: %v; continuing without object_storage", err)
+		desired = seed
+		info = s3OffloadInfo{}
+	}
+	logS3Offload(logger, info)
+
+	if existing, err := os.ReadFile(dstPath); err == nil && bytes.Equal(existing, desired) {
+		logger.Printf("config.json already in sync at %s", dstPath)
 		return nil
 	}
 
-	// Write via temp file + rename for atomicity. A torn write here
-	// would leave Bifrost trying to parse half a JSON file on the
-	// next boot.
-	tmpPath := dstPath + ".tmp"
-	src, err := os.Open(seedPath)
-	if err != nil {
-		return fmt.Errorf("open seed: %w", err)
-	}
-	defer src.Close()
-
-	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("create temp %s: %w", tmpPath, err)
-	}
-	if _, err := io.Copy(dst, src); err != nil {
-		_ = dst.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("copy seed -> temp: %w", err)
-	}
-	if err := dst.Sync(); err != nil {
-		_ = dst.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("fsync temp: %w", err)
-	}
-	if err := dst.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("close temp: %w", err)
-	}
-	if err := os.Rename(tmpPath, dstPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename temp -> %s: %w", dstPath, err)
+	if err := writeFileAtomic(dstPath, desired, 0o644); err != nil {
+		return err
 	}
 	logger.Printf("synced config.json from seed (%d bytes) -> %s", srcInfo.Size(), dstPath)
 	return nil
-}
-
-// filesEqual compares two files by content. Returns (false, nil) if
-// either file is missing or differs in size; surfaces other I/O
-// errors. Used to no-op syncSeedConfig when the volume copy already
-// matches the seed.
-func filesEqual(a, b string) (bool, error) {
-	aInfo, err := os.Stat(a)
-	if err != nil {
-		return false, err
-	}
-	bInfo, err := os.Stat(b)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	if aInfo.Size() != bInfo.Size() {
-		return false, nil
-	}
-	aData, err := os.ReadFile(a)
-	if err != nil {
-		return false, err
-	}
-	bData, err := os.ReadFile(b)
-	if err != nil {
-		return false, err
-	}
-	if len(aData) != len(bData) {
-		return false, nil
-	}
-	for i := range aData {
-		if aData[i] != bData[i] {
-			return false, nil
-		}
-	}
-	return true, nil
 }
 
 // newProxy builds the public HTTP handler. Routes `/_plugin/*` to the

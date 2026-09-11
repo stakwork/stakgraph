@@ -41,8 +41,10 @@ gateway/
 │   ├── ratelimit/     # (stub) per-(agent|user|session) rate limits — coming soon
 │   └── auth/          # macaroon verifier adapter wiring (phases 4–6)
 └── wrapper/
-    ├── go.mod         # stdlib-only Go module (separate from plugin's bifrost dep)
-    └── main.go        # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
+    ├── go.mod           # stdlib-only Go module (separate from plugin's bifrost dep)
+    ├── main.go          # PID-1 binary: owns :8181, fronts bifrost + /_plugin/*
+    ├── authsplit.go     # bearer-concat VK.macaroon split
+    └── s3config.go      # opt-in logs_store.object_storage injection at boot
 ```
 
 ## Process layout inside the container
@@ -107,6 +109,56 @@ rebuild the image, then `docker compose down && docker compose up -d`.
 Bifrost detects the new `env.*` reference and re-hashes; existing
 sessions get flushed (matches `loadAuthConfig` behaviour in
 bifrost-http).
+
+## S3 log offload (opt-in)
+
+By default Bifrost keeps every LLM request/response payload in the local
+SQLite `logs.db`. To offload the heavy bodies to durable AWS S3 (keeping
+searchable metadata and signature-bound identity dims — `run-id`, `user-id`,
+`agent-name`, `org-id` — in `logs.db`), set these env vars on the container:
+
+| Env | Required | Purpose |
+| --- | -------- | ------- |
+| `BIFROST_S3_BUCKET` | yes (the on-switch) | Target bucket. Absent ⇒ local logs only, config.json byte-identical to the seed. |
+| `BIFROST_S3_REGION` | recommended | AWS region (e.g. `us-east-1`). |
+| `BIFROST_S3_ACCESS_KEY_ID` / `BIFROST_S3_SECRET_ACCESS_KEY` | no | Static credentials. Omit both to use the default AWS credential chain (instance role / IRSA). |
+| `BIFROST_S3_PREFIX` | no | S3 key prefix. Default `bifrost`. Set to `bifrost/<org-id>` so a future per-org authorization fix does not require a data migration. Bifrost stores objects at `{prefix}/logs/YYYY/MM/DD/HH/{id}.json.gz`. |
+| `BIFROST_S3_ENDPOINT` | no | Custom S3-compatible endpoint (MinIO / LocalStack / R2). |
+| `BIFROST_S3_FORCE_PATH_STYLE` | no | `1`/`true`/`yes` to use path-style URLs (required for MinIO). |
+
+The wrapper injects a `logs_store.object_storage` block into `/app/data/config.json`
+on boot. Credentials are written as Bifrost `env.BIFROST_S3_*` references, never
+as plaintext, so the 0644 config file on the volume carries no secret material.
+
+`client.log_retention_days` is **36500** (~100 years). That is the single
+retention knob — do not also set `logs_store.retention_days` (Bifrost's cleaner
+treats values `< 1` as "use the 365-day default", which would silently re-enable
+purge). Existing payloads already in `logs.db` are **not** retroactively moved;
+offload applies to new traffic only.
+
+### Bucket-side requirements (mandatory)
+
+Full LLM payloads bound to identity dims are sensitive. The target bucket MUST
+have:
+
+- **SSE-KMS** encryption
+- **S3 Block Public Access** enabled
+- a **deny-non-TLS** bucket policy
+- **S3 Object Lock (compliance mode)** or a **deny-`DeleteObject`** policy, so
+  traces cannot be deleted by the injected credential
+- the IAM user/role scoped to **least privilege**: `s3:PutObject` and
+  `s3:GetObject` on this bucket+prefix only (no `s3:DeleteObject`)
+
+Bifrost's hybrid log store does **not** delete S3 objects when the metadata
+purge runs; it expects a bucket lifecycle. Object Lock / deny-DeleteObject is
+what actually keeps signed traces around.
+
+### Known limitation (pre-existing, out of scope)
+
+`/_plugin/runs/` and `/_plugin/users/` read payloads via a single shared admin
+credential to Bifrost's `/api/logs`, with no per-org ownership check. S3 offload
+does not change that authorization surface. Structure `BIFROST_S3_PREFIX` with
+an org/realm id now so a future per-org fix does not require a data migration.
 
 ## The `/_plugin/*` namespace
 

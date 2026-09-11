@@ -65,6 +65,11 @@ jobs:
       # -------------------- Java / Kotlin --------------------
       - name: Install OpenJDK 17 and jq
         run: |
+          # GH ubuntu runners ship Google Chrome's apt repo, which flakes
+          # with Hash Sum mismatch. This job does not need Chrome.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome*.list \
+                     /etc/apt/sources.list.d/google-chrome*.sources
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk jq unzip curl
 
@@ -107,6 +112,11 @@ jobs:
       # -------------------- Ruby --------------------
       - name: Install Ruby and dependencies
         run: |
+          # Same Chrome-repo flake as the OpenJDK step — drop it again in
+          # case a later runner image re-adds the source.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome*.list \
+                     /etc/apt/sources.list.d/google-chrome*.sources
           sudo apt-get update
           sudo apt-get install -y ruby-full build-essential
 
