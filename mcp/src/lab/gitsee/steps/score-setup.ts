@@ -1,4 +1,5 @@
-import { z, defineStep, usageFromResult, computeCost, addUsage, coerceUsage } from "strut";
+import { z, defineStep, usageFromResult, addUsage, coerceUsage } from "strut";
+import { costOf } from "../../cost.js";
 import vm from "node:vm";
 import yaml from "js-yaml";
 
@@ -253,7 +254,7 @@ ${cfg.actual}`;
 
   const { object, usage: rawUsage } = await generateObject({ model: model as any, prompt, schema: schema as any });
   const usage = usageFromResult(rawUsage);
-  return { semantic: object as Semantic, usage, cost: computeCost(provider, usage) };
+  return { semantic: object as Semantic, usage, cost: costOf(provider, usage) };
 }
 
 // ── step ──────────────────────────────────────────────────────────────────────
