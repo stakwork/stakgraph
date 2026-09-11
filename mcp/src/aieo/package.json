@@ -1,6 +1,6 @@
 {
   "name": "aieo",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "main": "./dist/index.js",
   "type": "module",
   "module": "./dist/index.mjs",
@@ -12,7 +12,7 @@
   "repository": "https://github.com/stakwork/stakgraph",
   "scripts": {
     "build": "tsup",
-    "test": "tsx ./src/__tests__/search.test.ts && tsx ./src/__tests__/fetch.test.ts && tsx ./src/__tests__/provider.test.ts && tsx ./src/__tests__/gateway.test.ts",
+    "test": "tsx ./src/__tests__/search.test.ts && tsx ./src/__tests__/fetch.test.ts && tsx ./src/__tests__/provider.test.ts && tsx ./src/__tests__/gateway.test.ts && tsx ./src/__tests__/resolve.test.ts",
     "try": "ts-node ./src/test/try.ts",
     "try-anthropic": "ts-node ./src/test/try-anthropic.ts",
     "try-kimi": "ts-node ./src/test/try-kimi.ts",
