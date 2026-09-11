@@ -151,7 +151,7 @@ export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" 
 
 type ModelId = string;
 
-const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
+export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   anthropic: {
     sonnet: "claude-sonnet-5",
     opus: "claude-opus-4-6",
@@ -171,7 +171,7 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   },
 };
 
-const DEFAULT_MODELS: Record<Provider, string> = {
+export const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: MODELS.anthropic.sonnet!,
   google: MODELS.google.gemini!,
   openai: MODELS.openai.gpt!,
@@ -285,25 +285,26 @@ export function normalizeApiKey(key?: string | null): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * The env var each provider's API key is read from. Exported so a host with
+ * its own secret store knows which NAME to look up (see resolve.ts).
+ */
+export const API_KEY_ENV: Record<Provider, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_API_KEY",
+  openai: "OPENAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  xai: "XAI_API_KEY",
+};
+
 function lookupApiKeyForProvider(
   provider: Provider | string,
 ): string | undefined {
-  switch (provider) {
-    case "anthropic":
-      return normalizeApiKey(process.env.ANTHROPIC_API_KEY);
-    case "google":
-      return normalizeApiKey(process.env.GOOGLE_API_KEY);
-    case "openai":
-      return normalizeApiKey(process.env.OPENAI_API_KEY);
-    case "openrouter":
-      return normalizeApiKey(process.env.OPENROUTER_API_KEY);
-    case "xai":
-      return normalizeApiKey(process.env.XAI_API_KEY);
-    case "claude_code":
-      return normalizeApiKey(process.env.CLAUDE_CODE_API_KEY);
-    default:
-      return undefined;
+  if (provider === "claude_code") {
+    return normalizeApiKey(process.env.CLAUDE_CODE_API_KEY);
   }
+  if (!PROVIDERS.includes(provider as Provider)) return undefined;
+  return normalizeApiKey(process.env[API_KEY_ENV[provider as Provider]]);
 }
 
 export function hasApiKeyForProvider(provider: Provider | string): boolean {
