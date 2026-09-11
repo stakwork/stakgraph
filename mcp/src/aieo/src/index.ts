@@ -1,5 +1,6 @@
 export * from "./store.js";
 export * from "./provider.js";
+export * from "./resolve.js";
 export * from "./stream.js";
 export * from "./usage.js";
 export * from "./prompt.js";
