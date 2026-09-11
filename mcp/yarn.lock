@@ -6275,9 +6275,9 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#404851171f43a4977e9b90794c932a479599b1e3":
+"strut@git+https://github.com/stakwork/strut.git#518e713e0bf430d3e00a5fe7dee757ea45bc1b87":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#404851171f43a4977e9b90794c932a479599b1e3"
+  resolved "git+https://github.com/stakwork/strut.git#518e713e0bf430d3e00a5fe7dee757ea45bc1b87"
   dependencies:
     "@ai-sdk/anthropic" "3.0.92"
     "@ai-sdk/openai" "^3.0.67"
@@ -6286,7 +6286,7 @@ strnum@^2.1.2:
     "@huggingface/transformers" "^4.1.0"
     "@octokit/rest" "^22.0.1"
     ai "^6.0.196"
-    aieo "^0.1.34"
+    aieo "^0.1.41"
     hono "^4.12.23"
     html-to-text "^10.0.1"
     js-yaml "^4.1.1"
