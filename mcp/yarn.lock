@@ -105,7 +105,7 @@
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.26"
 
-"@ai-sdk/openai@2.0.89", "@ai-sdk/openai@3.0.0-beta.74", "@ai-sdk/openai@3.0.61", "@ai-sdk/openai@^2.0.53", "@ai-sdk/openai@^3.0.67":
+"@ai-sdk/openai@2.0.89", "@ai-sdk/openai@3.0.0-beta.74", "@ai-sdk/openai@3.0.61", "@ai-sdk/openai@^2.0.53":
   version "3.0.61"
   resolved "https://registry.npmjs.org/@ai-sdk/openai/-/openai-3.0.61.tgz"
   integrity sha512-L5FdlTo+7IBOdXbnTZqVzowRdLGWnxPn01vHe4leLPp0G4ydoXhySu0tp0ttkoO0ZSzPjHo7iiAkYoT0J91Q8Q==
@@ -2803,7 +2803,7 @@ agentkeepalive@^4.2.1:
   dependencies:
     humanize-ms "^1.2.1"
 
-ai@6.0.0-beta.124, ai@6.0.175, ai@6.0.72, ai@^5.0.0, ai@^6.0.196:
+ai@6.0.0-beta.124, ai@6.0.175, ai@6.0.72, ai@^5.0.0:
   version "6.0.175"
   resolved "https://registry.npmjs.org/ai/-/ai-6.0.175.tgz"
   integrity sha512-6fFFHzbh6FIZnYc31V6osOxq25ABJYCShfG0O6ajHiA4FB/DgnPi1mP8cO5aAU3HNSbQHiMazdlh9bIsp97mVA==
@@ -6275,17 +6275,14 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#518e713e0bf430d3e00a5fe7dee757ea45bc1b87":
+"strut@git+https://github.com/stakwork/strut.git#f776fb30a6f41f63a1cb06713533016851529084":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#518e713e0bf430d3e00a5fe7dee757ea45bc1b87"
+  resolved "git+https://github.com/stakwork/strut.git#f776fb30a6f41f63a1cb06713533016851529084"
   dependencies:
-    "@ai-sdk/anthropic" "3.0.92"
-    "@ai-sdk/openai" "^3.0.67"
     "@googleapis/drive" "^20.2.0"
     "@hono/node-server" "^2.0.4"
     "@huggingface/transformers" "^4.1.0"
     "@octokit/rest" "^22.0.1"
-    ai "^6.0.196"
     aieo "^0.1.41"
     hono "^4.12.23"
     html-to-text "^10.0.1"
@@ -6295,7 +6292,6 @@ strnum@^2.1.2:
     system-canvas-react "^0.2.22"
     uuid "^11.1.0"
     ws "^8.21.3"
-    zod "^4.3.6"
   optionalDependencies:
     sherpa-onnx-node "^1.13.7"
 
@@ -6792,8 +6788,3 @@ zod@^3.22.4, zod@^3.25.32:
   version "3.25.76"
   resolved "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz"
   integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==
-
-zod@^4.3.6:
-  version "4.5.4"
-  resolved "https://registry.yarnpkg.com/zod/-/zod-4.5.4.tgz#e215c62420c528dd7951e31fb52c5438f1fd184a"
-  integrity sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==

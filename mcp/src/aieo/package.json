@@ -1,6 +1,6 @@
 {
   "name": "aieo",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "main": "./dist/index.js",
   "type": "module",
   "module": "./dist/index.mjs",
@@ -33,15 +33,19 @@
     "@ai-sdk/google": "3.0.67",
     "@ai-sdk/openai": "3.0.61",
     "@ai-sdk/xai": "3.0.88",
-    "@openrouter/ai-sdk-provider": "2.10.0",
-    "ai": "6.0.175",
-    "zod": "4.3.6"
+    "@openrouter/ai-sdk-provider": "2.10.0"
   },
   "devDependencies": {
     "@types/json-schema": "7.0.15",
     "@types/node": "24.3.0",
+    "ai": "6.0.175",
     "ts-node": "10.9.2",
     "tsup": "8.5.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
+  },
+  "peerDependencies": {
+    "ai": "^6.0.175",
+    "zod": "^4.3.6"
   }
 }
