@@ -1,4 +1,5 @@
-import { z, defineStep, usageFromResult, computeCost } from "strut";
+import { z, defineStep, usageFromResult } from "strut";
+import { costOf } from "../../cost.js";
 
 /**
  * GENERIC optimizer "propose" step: given the CURRENT candidate prompt and the
@@ -185,6 +186,6 @@ these examples. Rules:
     const { object, usage: rawUsage } = await generateObject({ model, prompt, schema: ProposalSchema as any });
     const p = object as Proposal;
     const usage = usageFromResult(rawUsage);
-    return { prompt: p.prompt, rationale: p.rationale, usage, cost: computeCost(provider, usage) };
+    return { prompt: p.prompt, rationale: p.rationale, usage, cost: costOf(provider, usage) };
   },
 });

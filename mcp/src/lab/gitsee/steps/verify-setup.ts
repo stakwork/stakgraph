@@ -1,4 +1,5 @@
-import { z, defineStep, usageFromResult, computeCost } from "strut";
+import { z, defineStep, usageFromResult } from "strut";
+import { costOf } from "../../cost.js";
 import { spawn } from "node:child_process";
 import { writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -301,7 +302,7 @@ ${logTail}`,
   });
   const usage = usageFromResult(rawUsage);
   const o = object as { working: boolean; reason: string };
-  return { working: o.working, reason: o.reason, usage, cost: computeCost("anthropic", usage) };
+  return { working: o.working, reason: o.reason, usage, cost: costOf("anthropic", usage) };
 }
 
 /** Load the booted app in headless chromium, screenshot it, then judge whether it

@@ -147,27 +147,30 @@ export const PROVIDERS: Provider[] = [
 ];
 
 // shortcuts to latest models
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "grok";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi" | "glm" | "grok";
 
 type ModelId = string;
 
 export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   anthropic: {
     sonnet: "claude-sonnet-5",
-    opus: "claude-opus-4-6",
+    opus: "claude-opus-5",
     haiku: "claude-haiku-4-5",
   },
   google: {
-    gemini: "gemini-3-pro-preview",
+    gemini: "gemini-3.8-flash",
   },
   openai: {
-    gpt: "gpt-5",
+    gpt: "gpt-5.6-luna",
   },
   openrouter: {
-    kimi: "moonshotai/kimi-k2.6"
+    kimi: "moonshotai/kimi-k3",
+    // OpenRouter rolling alias (the leading "~" is part of the id): always
+    // the newest GLM Flash. The plain "z-ai/glm-flash-latest" 404s.
+    glm: "~z-ai/glm-flash-latest",
   },
   xai: {
-    grok: "grok-4",
+    grok: "grok-4.6",
   },
 };
 
@@ -227,6 +230,7 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
   }
   switch (modelName) {
     case "kimi":
+    case "glm":
       return "openrouter";
     case "sonnet":
       return "anthropic";
@@ -242,13 +246,19 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "xai";
     // Full model IDs
     case "claude-sonnet-5":
+    case "claude-opus-5":
     case "claude-opus-4-6":
     case "claude-haiku-4-5":
       return "anthropic";
+    case "gemini-3.8-flash":
     case "gemini-3-pro-preview":
     case "gemini-2.0-flash":
       return "google";
     case "gpt-5":
+    case "gpt-5.5":
+    case "gpt-5.6-luna":
+    case "gpt-5.6-sol":
+    case "gpt-5.6-terra":
     case "gpt-4.1-mini":
       return "openai";
     default:
@@ -264,6 +274,15 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
         PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)
       ) {
         return process.env.LLM_PROVIDER as Provider;
+      }
+      // Last resort before the anthropic default: the vendor's own id prefix.
+      // A bare "gpt-5.6-sol" or "gemini-3.1-pro-preview" used to be sent to
+      // anthropic and 404. Kept BELOW LLM_PROVIDER so a deployment that routes
+      // bare ids through a gateway provider keeps doing so.
+      if (typeof modelName === "string") {
+        const m = modelName.toLowerCase();
+        if (m.startsWith("gpt-")) return "openai";
+        if (m.startsWith("gemini-")) return "google";
       }
       return "anthropic";
   }
@@ -574,6 +593,7 @@ export function getModel(
       "gemini",
       "gpt",
       "kimi",
+      "glm",
       "grok",
     ];
     if (knownShortcuts.includes(opts.modelName)) {
@@ -756,29 +776,37 @@ export function getModel(
 // Context window sizes (input token limits) per model.
 // For models not listed here, falls back to provider default.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  // Anthropic
+  // Anthropic — 1M is the default and the max on the 5-series; Haiku 4.5 is 200k.
   "claude-sonnet-5": 1_000_000,
+  "claude-opus-5": 1_000_000,
   "claude-opus-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
-  // Google
-  "gemini-3-pro-preview": 1_000_000,
-  "gemini-2.0-flash": 1_000_000,
-  // OpenAI
+  // Google — Gemini's "1M" is 2^20.
+  "gemini-3.8-flash": 1_048_576,
+  "gemini-3-pro-preview": 1_048_576,
+  "gemini-2.0-flash": 1_048_576,
+  // OpenAI — 5.4+ is 1,050,000; the 4.1 family is 1,047,576; 5 through 5.3 are 400k.
   "gpt-5": 400_000,
   "gpt-5.5": 1_050_000,
   "gpt-5.6-terra": 1_050_000,
   "gpt-5.6-luna": 1_050_000,
   "gpt-5.6-sol": 1_050_000,
-  "gpt-4.1-mini": 1_000_000,
+  "gpt-4.1-mini": 1_047_576,
   // OpenRouter — values from the OpenRouter model catalog
   // (https://openrouter.ai/api/v1/models, context_length).
   "stealth/ox-alpha": 1_048_576,
+  "anthropic/claude-opus-5": 1_000_000,
+  "anthropic/claude-sonnet-5": 1_000_000,
   "openai/gpt-5": 400_000,
   "openai/gpt-5.5": 1_050_000,
   "openai/gpt-5.6-terra": 1_050_000,
   "openai/gpt-5.6-luna": 1_050_000,
   "openai/gpt-5.6-sol": 1_050_000,
   "moonshotai/kimi-k3": 1_048_576,
+  // Z.ai via OpenRouter. "~…-latest" is OpenRouter's rolling-alias form.
+  "~z-ai/glm-flash-latest": 1_310_720,
+  "z-ai/glm-5.3-flash": 1_310_720,
+  "z-ai/glm-5.3": 1_310_720,
   "moonshotai/kimi-k2.7-code": 262_144,
   "moonshotai/kimi-k2.6": 262_144,
   "moonshotai/kimi-k2.5": 262_144,
@@ -788,11 +816,17 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // right matters beyond display: contextLimit drives truncateOldToolResults,
   // and premature truncation rewrites old messages — which invalidates Grok's
   // automatic prefix cache on every subsequent step.
+  "grok-4.6": 500_000,
+  "grok-4.5": 500_000,
+  "grok-4.3": 1_000_000,
   "grok-4": 256_000,
   "grok-4-fast": 2_000_000,
   "grok-4-fast-reasoning": 2_000_000,
   "grok-4-fast-non-reasoning": 2_000_000,
   "grok-code-fast-1": 256_000,
+  "x-ai/grok-4.6": 500_000,
+  "x-ai/grok-4.5": 500_000,
+  "x-ai/grok-4.3": 1_000_000,
   "x-ai/grok-4": 256_000,
   "x-ai/grok-4-fast": 2_000_000,
   "x-ai/grok-code-fast-1": 256_000,

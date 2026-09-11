@@ -64,12 +64,18 @@ async function test(label: string, fn: () => unknown | Promise<unknown>) {
 
 await test("listModels: one entry per alias, PROVIDERS order, defaults flagged", () => {
   const all = listModels();
-  eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "grok"], "aliases");
+  eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "glm", "grok"], "aliases");
   eq(all.filter((m) => m.default).map((m) => m.provider), PROVIDERS, "exactly one default per provider");
   const sonnet = all.find((m) => m.alias === "sonnet")!;
   eq([sonnet.provider, sonnet.modelId, sonnet.default], ["anthropic", "claude-sonnet-5", true], "sonnet");
   eq(all.find((m) => m.alias === "opus")!.default, false, "opus is not the default");
-  eq(all.find((m) => m.alias === "kimi")!.modelId, "moonshotai/kimi-k2.6", "kimi keeps its org/ id");
+  eq(all.find((m) => m.alias === "kimi")!.modelId, "moonshotai/kimi-k3", "kimi keeps its org/ id");
+  eq(all.find((m) => m.alias === "opus")!.modelId, "claude-opus-5", "opus");
+  eq(all.find((m) => m.alias === "grok")!.modelId, "grok-4.6", "grok");
+  eq(all.find((m) => m.alias === "gpt")!.modelId, "gpt-5.6-luna", "gpt");
+  eq(all.find((m) => m.alias === "gemini")!.modelId, "gemini-3.8-flash", "gemini");
+  eq(all.find((m) => m.alias === "glm")!.modelId, "~z-ai/glm-flash-latest", "glm");
+  eq(all.find((m) => m.alias === "glm")!.default, false, "kimi stays the openrouter default");
 });
 
 await test("API_KEY_ENV covers every provider", () => {
@@ -107,12 +113,22 @@ const canonCases: [string | undefined, string | undefined, [string, string, stri
   ["openrouter/openrouter/auto", undefined, ["openrouter", "openrouter/auto", "openrouter/openrouter/auto"]],
   ["openrouter/openai/gpt-5", undefined, ["openrouter", "openai/gpt-5", "openrouter/openai/gpt-5"]],
   ["openai/gpt-5", undefined, ["openai", "gpt-5", "openai/gpt-5"]],
-  ["kimi", undefined, ["openrouter", "moonshotai/kimi-k2.6", "openrouter/moonshotai/kimi-k2.6"]],
+  ["kimi", undefined, ["openrouter", "moonshotai/kimi-k3", "openrouter/moonshotai/kimi-k3"]],
+  ["opus", undefined, ["anthropic", "claude-opus-5", "anthropic/claude-opus-5"]],
+  ["grok", undefined, ["xai", "grok-4.6", "xai/grok-4.6"]],
+  ["claude-opus-5", undefined, ["anthropic", "claude-opus-5", "anthropic/claude-opus-5"]],
   ["grok-4-fast", undefined, ["xai", "grok-4-fast", "xai/grok-4-fast"]],
   ["claude-opus-4-8", undefined, ["anthropic", "claude-opus-4-8", "anthropic/claude-opus-4-8"]], // unknown id passes through
   [undefined, undefined, ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"]],       // nothing → anthropic default
-  [undefined, "openai", ["openai", "gpt-5", "openai/gpt-5"]],                                      // provider only → its default
-  ["openrouter/", undefined, ["openrouter", "moonshotai/kimi-k2.6", "openrouter/moonshotai/kimi-k2.6"]],
+  [undefined, "openai", ["openai", "gpt-5.6-luna", "openai/gpt-5.6-luna"]],                        // provider only → its default
+  ["gpt", undefined, ["openai", "gpt-5.6-luna", "openai/gpt-5.6-luna"]],
+  ["gpt-5.6-sol", undefined, ["openai", "gpt-5.6-sol", "openai/gpt-5.6-sol"]],                   // exact-match list
+  ["gpt-5.4-mini", undefined, ["openai", "gpt-5.4-mini", "openai/gpt-5.4-mini"]],                 // vendor-prefix fallback
+  ["gemini-3.1-pro-preview", undefined, ["google", "gemini-3.1-pro-preview", "google/gemini-3.1-pro-preview"]],
+  ["gemini", undefined, ["google", "gemini-3.8-flash", "google/gemini-3.8-flash"]],
+  ["glm", undefined, ["openrouter", "~z-ai/glm-flash-latest", "openrouter/~z-ai/glm-flash-latest"]],
+  ["openrouter/~z-ai/glm-flash-latest", undefined, ["openrouter", "~z-ai/glm-flash-latest", "openrouter/~z-ai/glm-flash-latest"]],
+  ["openrouter/", undefined, ["openrouter", "moonshotai/kimi-k3", "openrouter/moonshotai/kimi-k3"]],
   ["moonshotai/kimi-k2.6", "openrouter", ["openrouter", "moonshotai/kimi-k2.6", "openrouter/moonshotai/kimi-k2.6"]], // explicit provider
   ["anthropic/claude-sonnet-5", "openai", ["openai", "claude-sonnet-5", "openai/claude-sonnet-5"]], // explicit provider wins (mirrors getModel)
 ];
@@ -138,6 +154,15 @@ await test("canonicalModelName: the OpenRouter no-prefix trap throws with the fi
 
 await test("canonicalModelName: trap also catches org-prefixed grok", () =>
   throwsWith(() => canonicalModelName("x-ai/grok-4"), '"x-ai" is not a provider', "trap"));
+
+await test("canonicalModelName: LLM_PROVIDER outranks the vendor-prefix fallback for bare ids", () => {
+  process.env.LLM_PROVIDER = "openrouter";
+  try {
+    eq(canonicalModelName("gpt-5.4-mini").provider, "openrouter", "bare gpt id under a gateway provider");
+  } finally {
+    delete process.env.LLM_PROVIDER;
+  }
+});
 
 await test("canonicalModelName: LLM_PROVIDER env disarms the trap (it names the provider)", () => {
   process.env.LLM_PROVIDER = "openrouter";
@@ -172,6 +197,23 @@ await test("resolveModel: alias → concrete model, context limit, output cap", 
   eq(r.contextLimit, 1_000_000, "contextLimit");
   eq(r.maxOutputTokens, 128_000, "maxOutputTokens");
   eq(r.apiKey, "k", "apiKey");
+});
+
+await test("resolveModel: context limits for the alias targets", async () => {
+  const limit = async (model: string) => (await resolveModel({ model, apiKey: "k" })).contextLimit;
+  eq(await limit("opus"), 1_000_000, "claude-opus-5");
+  eq(await limit("gpt"), 1_050_000, "gpt-5.6-luna");
+  eq(await limit("grok"), 500_000, "grok-4.6");
+  eq(await limit("kimi"), 1_048_576, "moonshotai/kimi-k3");
+  eq(await limit("gemini"), 1_048_576, "gemini-3.8-flash");
+  eq(await limit("glm"), 1_310_720, "~z-ai/glm-flash-latest");
+  eq(await limit("openrouter/anthropic/claude-opus-5"), 1_000_000, "opus via OpenRouter");
+  eq(await limit("openrouter/x-ai/grok-4.6"), 500_000, "grok via OpenRouter");
+});
+
+await test("resolveModel: the ~rolling-alias id reaches the SDK intact", async () => {
+  const r = await resolveModel({ model: "glm", apiKey: "k" });
+  eq((r.model as { modelId?: string }).modelId, "~z-ai/glm-flash-latest", "SDK model id");
 });
 
 await test("resolveModel: OpenRouter own-namespace id survives the single prefix strip", async () => {
