@@ -122,6 +122,8 @@ export async function ask_prompt(
         existingRefIdToReplace = top.ref_id;
       } else if (cacheControl?.maxAgeHours) {
         const nodeAge = top.properties.date_added_to_graph;
+        // Mixed legacy-seconds / new-ms values are normalized inside
+        // dateAddedAgeHours → toEpochMs until the data backfill runs.
         if (nodeAge) {
           const ageInHours = dateAddedAgeHours(nodeAge);
 
