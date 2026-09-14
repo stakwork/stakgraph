@@ -6,6 +6,12 @@
       "runtimeExecutable": "yarn",
       "runtimeArgs": ["--cwd", "mcp", "dev"],
       "port": 3355
+    },
+    {
+      "name": "gateway-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "gateway/internal/adminapi/ui", "run", "dev"],
+      "port": 5173
     }
   ]
 }

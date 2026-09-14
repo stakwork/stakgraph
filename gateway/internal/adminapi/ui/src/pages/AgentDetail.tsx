@@ -15,9 +15,13 @@ import { Link } from "wouter-preact";
 import { CostHistogram } from "../components/charts/CostHistogram";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { WindowPicker } from "../components/controls/WindowPicker";
+import { KillConfirmModal } from "../components/KillConfirmModal";
+import { StatusBadge, deriveAgentStatus } from "../components/StatusBadge";
+import { StopIcon } from "../components/icons";
 import type {
   AgentBudgetResponse,
   AgentCatalogResponse,
+  AgentStateResponse,
   CatalogPrompt,
   CatalogSkill,
   CatalogTool,
@@ -27,9 +31,12 @@ import {
   useAgentBudget,
   useAgentCatalog,
   useAgentEvals,
+  useAgentState,
   useHistogramCost,
+  useKillAgent,
   useToggleSkill,
   useToggleTool,
+  useUnkillAgent,
 } from "../api/queries";
 import type { HistogramCostResponse, Window } from "../api/types";
 import { windowToSeconds } from "../api/window";
@@ -104,6 +111,10 @@ export function AgentDetail({ name }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
   const catalog = useAgentCatalog(name);
   const evals = useAgentEvals(name);
+  // Redis hot state: kill flag + current-bucket spend vs cap. `null`
+  // when the swarm has no Redis (badge hidden, switch disabled).
+  const state = useAgentState(name);
+  const agentStatus = state.data ? deriveAgentStatus(state.data) : null;
   // 503 ⇒ neo4j not wired on this swarm: the catalog tabs render a
   // "not configured" notice rather than an error banner.
   const catalogUnavailable =
@@ -125,11 +136,15 @@ export function AgentDetail({ name }: Props) {
                 {cat.default_model}
               </span>
             ) : null}
+            {agentStatus ? <StatusBadge status={agentStatus} /> : null}
           </h1>
         </div>
-        {tab === "overview" ? (
-          <WindowPicker value={window} onChange={setWindow} />
-        ) : null}
+        <div class="page-actions">
+          {tab === "overview" ? (
+            <WindowPicker value={window} onChange={setWindow} />
+          ) : null}
+          <KillAgentSwitch name={name} state={state.data} />
+        </div>
       </div>
 
       <nav class="tabs" role="tablist">
@@ -329,6 +344,78 @@ function BudgetCard({ data }: { data: AgentBudgetResponse }) {
         />
       </div>
     </section>
+  );
+}
+
+// ─── kill switch ───────────────────────────────────────────────────
+//
+// Kill / Unkill for the whole agent, swarm-wide. `state` is the
+// /agents/:name/state snapshot: undefined while loading, null when the
+// swarm has no Redis (switch disabled with a tooltip — no hot state
+// means no kill keys either). Typed confirmation in the modal because
+// the blast radius is every run of this agent, not just the ones on
+// this page.
+function KillAgentSwitch({
+  name,
+  state,
+}: {
+  name: string;
+  state: AgentStateResponse | null | undefined;
+}) {
+  const kill = useKillAgent(name);
+  const unkill = useUnkillAgent(name);
+  const [modal, setModal] = useState<"kill" | "unkill" | null>(null);
+  const active = modal === "kill" ? kill : unkill;
+  const unavailable = state === null;
+
+  const open = (which: "kill" | "unkill") => {
+    kill.reset();
+    unkill.reset();
+    setModal(which);
+  };
+
+  return (
+    <>
+      {state?.killed ? (
+        <button
+          type="button"
+          class="btn"
+          title="Clear the swarm-wide kill; runs of this agent resume on their next LLM call"
+          onClick={() => open("unkill")}
+        >
+          Unkill agent
+        </button>
+      ) : (
+        <button
+          type="button"
+          class="btn btn-icon is-danger-solid"
+          disabled={!state}
+          title={
+            unavailable
+              ? "Hot state unavailable on this swarm (no Redis) — kill switches are off"
+              : "Stop every run of this agent, swarm-wide"
+          }
+          onClick={() => open("kill")}
+        >
+          <StopIcon />
+          Kill agent
+        </button>
+      )}
+      {modal ? (
+        <KillConfirmModal
+          target={{ kind: "agent", name }}
+          action={modal}
+          pending={active.isPending}
+          error={active.isError ? getErrorMessage(active.error) : null}
+          onConfirm={() => {
+            const done = { onSuccess: () => setModal(null) };
+            if (modal === "kill") kill.mutate(undefined, done);
+            else unkill.mutate(undefined, done);
+          }}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
