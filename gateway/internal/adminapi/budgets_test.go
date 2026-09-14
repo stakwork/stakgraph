@@ -146,12 +146,11 @@ func TestBudget_HourlyWindow(t *testing.T) {
 
 func TestBudget_404OnDeepPath(t *testing.T) {
 	srv, _ := newBudgetTestServer(t, nil)
-	// phase-9 will own /:name/state and /:name/kill; phase-8 only
-	// owns /:name/budget. Anything else under /_plugin/agents/
-	// should 404.
+	// /:name/{budget,state,kill,catalog,tools,skills,evals} are
+	// owned; anything else under /_plugin/agents/ should 404.
 	for _, p := range []string{
 		"/_plugin/agents/coder",
-		"/_plugin/agents/coder/state",
+		"/_plugin/agents/coder/other",
 		"/_plugin/agents/coder/budget/extra",
 		"/_plugin/agents//budget",
 	} {

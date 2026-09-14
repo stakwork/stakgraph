@@ -82,9 +82,9 @@ func Evaluate(ctx context.Context, rawMacaroon string) Decision {
 	// still tentatively-rejected until all post-verify checks pass.
 	d.PostVerifyClaims = claims
 
-	// Note this is the only Redis touch in the phase-4 adapter;
-	// phase 6 adds cost/steps cap-walks and per-agent budget reads
-	// here.
+	// Phase-6 PIPELINE 1: revocations + kill switches in one Redis
+	// round-trip. The cost/steps cap walk (PIPELINE 2) is still to
+	// come and slots in after this.
 	if revErr := CheckRevocations(ctx, claims); revErr != nil {
 		d.Err = revErr
 		return d
@@ -235,7 +235,15 @@ func shortCircuitFromError(e *AdapterError) *schemas.LLMPluginShortCircuit {
 	if status == 0 {
 		status = 401
 	}
+	// 401s are verification failures (bad/missing/revoked
+	// macaroon); 402s are enforcement decisions against a valid
+	// macaroon (kill switches today, budget caps once the cap walk
+	// lands). Distinct Type so clients can tell "re-issue the
+	// macaroon" apart from "an operator or a cap stopped you".
 	errType := "macaroon_verification_failed"
+	if status == 402 {
+		errType = "enforcement_rejected"
+	}
 	return &schemas.LLMPluginShortCircuit{
 		Error: &schemas.BifrostError{
 			IsBifrostError: false, // it's an auth error, not a transport error
