@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +35,12 @@ const (
 	killAgentTTL = 24 * time.Hour
 )
 
-// RunState is a snapshot of one run's phase-6 Redis accumulators.
+// RunState is a snapshot of one run's phase-6 Redis accumulators,
+// plus the static shape the accumulator recorded in meta:run:<id>
+// (caps, expiry, parent, and — for the run's own calls — agent and
+// user). HasMeta is false when the run has never been accounted
+// through this gateway; the cap fields are then zero and mean
+// "unknown", not "uncapped".
 type RunState struct {
 	RunID      string
 	CostUSD    float64  // HGET cost:run:<id> total (0 when absent)
@@ -42,6 +48,14 @@ type RunState struct {
 	Tools      []string // LRANGE tools:run:<id> 0 9, most recent first
 	Killed     bool     // EXISTS kill:<id>
 	TTLSeconds int64    // TTL cost:run:<id>; -2 when the key is absent, -1 when no expiry
+
+	HasMeta    bool    // meta:run:<id> present
+	MaxCostUSD float64 // macaroon layer cap; 0 = no cap
+	MaxSteps   int64   // macaroon layer cap; 0 = no cap
+	Exp        string  // layer exp, RFC3339
+	Parent     string  // next layer outward; "" for the invocation
+	AgentName  string  // leaf agent (only stamped by the run's own calls)
+	UserID     string  // user the macaroon was issued to
 }
 
 // AgentState is a snapshot of one agent's current-bucket spend and
@@ -136,8 +150,19 @@ func GetRunState(ctx context.Context, runID string) (RunState, error) {
 	toolsCmd := pipe.LRange(octx, redisclient.Key(toolsRunPrefix+runID), 0, toolHistoryLen-1)
 	killCmd := pipe.Exists(octx, redisclient.Key(killRunPrefix+runID))
 	ttlCmd := pipe.TTL(octx, costKey)
+	metaCmd := pipe.HGetAll(octx, redisclient.Key(metaRunPrefix+runID))
 	if _, err := pipe.Exec(octx); err != nil && !errors.Is(err, redis.Nil) {
 		return st, fmt.Errorf("redis pipeline: %w", err)
+	}
+
+	if meta, err := metaCmd.Result(); err == nil && len(meta) > 0 {
+		st.HasMeta = true
+		st.MaxCostUSD, _ = strconv.ParseFloat(meta["max_cost_usd"], 64)
+		st.MaxSteps, _ = strconv.ParseInt(meta["max_steps"], 10, 64)
+		st.Exp = meta["exp"]
+		st.Parent = meta["parent"]
+		st.AgentName = meta["agent"]
+		st.UserID = meta["user"]
 	}
 
 	if v, err := costCmd.Float64(); err == nil {
@@ -232,4 +257,43 @@ func validateKillID(field, v string) error {
 		return fmt.Errorf("%s contains whitespace or '/'", field)
 	}
 	return nil
+}
+
+// ListUserRuns returns the run_ids the accumulator indexed under
+// runs:user:<user_id> whose macaroon layer had not expired at `now`,
+// newest-expiring first, capped at `limit`. Expired members are
+// pruned on the way out so the index stays bounded without a
+// separate sweeper. Absent key ⇒ empty list, not an error.
+func ListUserRuns(ctx context.Context, userID string, now time.Time, limit int64) ([]string, error) {
+	if err := validateKillID("user_id", userID); err != nil {
+		return nil, err
+	}
+	rdb := redisclient.Client()
+	if rdb == nil {
+		return nil, ErrRedisUnavailable
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	octx, cancel := context.WithTimeout(ctx, adminTimeout)
+	defer cancel()
+
+	key := redisclient.Key(runsUserPrefix + userID)
+	nowScore := strconv.FormatInt(now.Unix(), 10)
+	pipe := rdb.Pipeline()
+	pipe.ZRemRangeByScore(octx, key, "-inf", "("+nowScore)
+	listCmd := pipe.ZRevRangeByScore(octx, key, &redis.ZRangeBy{
+		Min: nowScore, Max: "+inf", Offset: 0, Count: limit,
+	})
+	if _, err := pipe.Exec(octx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis pipeline: %w", err)
+	}
+	ids, err := listCmd.Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("runs:user: %w", err)
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return ids, nil
 }

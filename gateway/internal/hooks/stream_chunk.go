@@ -62,13 +62,16 @@ func StreamChunk(
 	dims := pluginctx.Dims(ctx)
 	costUSD := resolveCost(call, dims)
 	auth.ApplyToLLMPost(claims, costUSD, call.tools)
+	tokens := tokensOf(call.usage)
 	pluginlog.Logf(
-		"StreamChunk accounted run_id=%s agent=%s prompt_tokens=%d completion_tokens=%d total_tokens=%d cost_usd=%.6f",
+		"StreamChunk accounted run_id=%s agent=%s prompt_tokens=%d completion_tokens=%d total_tokens=%d cache_read=%d cache_write=%d cost_usd=%.6f",
 		dims[pluginctx.DimRunID],
 		dims[pluginctx.DimAgentName],
-		call.usage.PromptTokens,
-		call.usage.CompletionTokens,
+		tokens.Prompt,
+		tokens.Completion,
 		call.usage.TotalTokens,
+		tokens.CacheRead,
+		tokens.CacheWrite,
 		costUSD,
 	)
 	return chunk, nil

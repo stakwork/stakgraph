@@ -136,6 +136,12 @@ func (w Window) TTL() time.Duration {
 	return 2 * w.length()
 }
 
+// Length is the window's span as a plain duration, using the same
+// 30d / 365d approximations for months and years as TTL. Rolling
+// analytics windows ("the last 1d of calls") subtract this from now;
+// calendar bucketing goes through Bounds instead.
+func (w Window) Length() time.Duration { return w.length() }
+
 func (w Window) length() time.Duration {
 	n := time.Duration(w.N)
 	switch w.Unit {

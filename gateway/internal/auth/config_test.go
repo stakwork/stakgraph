@@ -128,13 +128,13 @@ func TestInit_EnvOverride_PreservesOtherFields(t *testing.T) {
 	raw := map[string]any{
 		"enforce_macaroons": false,
 		"agent_budgets":     map[string]any{"coder": map[string]any{"cap_usd": 5, "window": "1d"}},
-		"model_pricing":     map[string]any{"m": map[string]any{"input_per_mtok": 1, "output_per_mtok": 2}},
+		"model_pricing":     map[string]any{"m": map[string]any{"input_per_mtok": 1, "output_per_mtok": 2, "cache_read_per_mtok": 0.1}},
 	}
 	if err := Init(raw); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
 	got := GetConfig()
-	if !got.EnforceMacaroons || got.AgentBudgets["coder"].CapUSD != 5 || got.ModelPricing["m"].OutputPerMTok != 2 {
+	if !got.EnforceMacaroons || got.AgentBudgets["coder"].CapUSD != 5 || got.ModelPricing["m"].OutputPerMTok != 2 || got.ModelPricing["m"].CacheReadPerMTok != 0.1 {
 		t.Fatalf("override must not drop sibling fields: %+v", got)
 	}
 }

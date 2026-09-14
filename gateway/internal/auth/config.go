@@ -97,11 +97,20 @@ type AgentBudget struct {
 }
 
 // ModelPrice is one row of `model_pricing`: dollars per million
-// tokens, the unit every provider publishes prices in. The phase-6
-// accumulator computes prompt*input/1e6 + completion*output/1e6.
+// tokens, the unit every provider publishes prices in. The cache
+// rates are optional and follow bifrost's own fallbacks when left
+// out — cache reads and writes at the input rate, 1h writes at the
+// cache-write rate — so a row WITHOUT them bills every cached prompt
+// token at full price, and a config row beats the catalog even when
+// the catalog knows the cache rates. Rows for models with prompt
+// caching (every Claude model) should carry all three. The formula
+// itself is pricing.Price.Cost.
 type ModelPrice struct {
-	InputPerMTok  float64 `json:"input_per_mtok"`
-	OutputPerMTok float64 `json:"output_per_mtok"`
+	InputPerMTok        float64 `json:"input_per_mtok"`
+	OutputPerMTok       float64 `json:"output_per_mtok"`
+	CacheReadPerMTok    float64 `json:"cache_read_per_mtok,omitempty"`
+	CacheWritePerMTok   float64 `json:"cache_write_per_mtok,omitempty"`
+	CacheWrite1hPerMTok float64 `json:"cache_write_1h_per_mtok,omitempty"`
 }
 
 // pluginConfigEnvelope mirrors the shape pluginlog.Init receives. We

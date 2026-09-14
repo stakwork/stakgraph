@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+
 	macaroon "github.com/stakwork/stakgraph/gateway/auth/go"
 )
 
@@ -154,7 +156,8 @@ func TestAccumulate_AgentBucket_OnlyWhenConfigured(t *testing.T) {
 	if err := accumulate(context.Background(), claims, 0.30, nil, testNow()); err != nil {
 		t.Fatal(err)
 	}
-	if keys := mr.Keys(); len(keys) != 2 { // cost:run + steps:run only
+	// cost:run + steps:run + meta:run + runs:user — no cost:agent.
+	if keys := mr.Keys(); len(keys) != 4 || mr.Exists("bifrost:cost:agent:coder:2026-05-14") {
 		t.Fatalf("unexpected keys without agent budget: %v", keys)
 	}
 
@@ -254,4 +257,140 @@ func TestAccumulate_UAEnvelope_WrittenForRealmCap(t *testing.T) {
 	if mr.Exists("bifrost:cost:ua:" + claims.UANonce) {
 		t.Fatal("cost:ua written for a realm cap that isn't this swarm's")
 	}
+}
+
+func TestAccumulate_RunMetaAndUserIndex(t *testing.T) {
+	mr := newMiniRedis(t)
+	claims := chainClaims(
+		[]string{"r_parent", "r_child"},
+		[]string{"2026-05-14T18:00:00Z", "2026-05-14T10:30:00Z"},
+	)
+	claims.Chain[0].MaxCostUSD = 20
+	claims.Chain[0].MaxSteps = 500
+	claims.Chain[1].MaxCostUSD = 2.5
+	claims.Chain[1].MaxSteps = 40
+
+	if err := accumulate(context.Background(), claims, 0.10, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Leaf: caps, exp, parent link, and — only here — agent/user.
+	leaf := hgetall(mr, "bifrost:meta:run:r_child")
+	want := map[string]string{
+		"max_cost_usd": "2.5", "max_steps": "40",
+		"exp": "2026-05-14T10:30:00Z", "parent": "r_parent",
+		"agent": "coder", "user": testUserID,
+	}
+	for k, v := range want {
+		if leaf[k] != v {
+			t.Errorf("meta:run:r_child[%s] = %q, want %q", k, leaf[k], v)
+		}
+	}
+
+	// Ancestor: its own caps, no parent (invocation), and no agent —
+	// the child's chain doesn't know what agent the parent runs as.
+	par := hgetall(mr, "bifrost:meta:run:r_parent")
+	if par["max_cost_usd"] != "20" || par["max_steps"] != "500" || par["parent"] != "" {
+		t.Errorf("meta:run:r_parent = %v", par)
+	}
+	if _, ok := par["agent"]; ok {
+		t.Errorf("ancestor meta must not carry the leaf's agent: %v", par)
+	}
+
+	// Meta shares the accumulator's TTL axis per layer.
+	if got, want := mr.TTL("bifrost:meta:run:r_child"), mr.TTL("bifrost:cost:run:r_child"); got != want {
+		t.Errorf("meta:run:r_child ttl %v != cost:run ttl %v", got, want)
+	}
+
+	// Per-user index: leaf run scored by its exp, key TTL'd at 7d.
+	members, err := mr.ZMembers("bifrost:runs:user:" + testUserID)
+	if err != nil || len(members) != 1 || members[0] != "r_child" {
+		t.Fatalf("runs:user members = %v (%v)", members, err)
+	}
+	score, err := mr.ZScore("bifrost:runs:user:"+testUserID, "r_child")
+	if err != nil || int64(score) != parseRFC3339("2026-05-14T10:30:00Z").Unix() {
+		t.Errorf("runs:user score = %v (%v)", score, err)
+	}
+	if got := mr.TTL("bifrost:runs:user:" + testUserID); got != runsUserTTL {
+		t.Errorf("runs:user ttl = %v, want %v", got, runsUserTTL)
+	}
+}
+
+func TestAccumulate_NoChainSynthesizesLeafMeta(t *testing.T) {
+	mr := newMiniRedis(t)
+	claims := chainClaims([]string{"r_solo"}, []string{"2026-05-14T12:00:00Z"})
+	claims.Chain = nil // older callers: leaf comes from RunID + EffectiveCaveats
+
+	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	if got := mr.HGet("bifrost:cost:run:r_solo", "total"); got != "0.25" {
+		t.Errorf("cost:run:r_solo = %q", got)
+	}
+	meta := hgetall(mr, "bifrost:meta:run:r_solo")
+	if meta["max_cost_usd"] != "5" || meta["max_steps"] != "100" || meta["agent"] != "coder" {
+		t.Errorf("meta:run:r_solo = %v", meta)
+	}
+}
+
+func TestGetRunState_ReadsMeta_And_ListUserRuns(t *testing.T) {
+	mr := newMiniRedis(t)
+	claims := chainClaims(
+		[]string{"r_parent", "r_child"},
+		[]string{"2026-05-14T18:00:00Z", "2026-05-14T10:30:00Z"},
+	)
+	if err := accumulate(context.Background(), claims, 0.4, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := GetRunState(context.Background(), "r_child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.HasMeta || st.MaxCostUSD != 5 || st.MaxSteps != 100 || st.Parent != "r_parent" ||
+		st.AgentName != "coder" || st.UserID != testUserID || st.Exp != "2026-05-14T10:30:00Z" {
+		t.Errorf("run state: %+v", st)
+	}
+	par, err := GetRunState(context.Background(), "r_parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !par.HasMeta || par.Parent != "" || par.AgentName != "" || par.CostUSD != 0.4 {
+		t.Errorf("parent state: %+v", par)
+	}
+
+	// Never-seen run: no meta, zero caps.
+	none, err := GetRunState(context.Background(), "r_never")
+	if err != nil || none.HasMeta {
+		t.Errorf("unknown run: %+v (%v)", none, err)
+	}
+
+	// Index lists the leaf while its exp is in the future ...
+	ids, err := ListUserRuns(context.Background(), testUserID, testNow(), 10)
+	if err != nil || len(ids) != 1 || ids[0] != "r_child" {
+		t.Fatalf("ListUserRuns = %v (%v)", ids, err)
+	}
+	// ... prunes it once the exp has passed ...
+	ids, err = ListUserRuns(context.Background(), testUserID, testNow().Add(2*time.Hour), 10)
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("ListUserRuns after exp = %v (%v)", ids, err)
+	}
+	if members, _ := mr.ZMembers("bifrost:runs:user:" + testUserID); len(members) != 0 {
+		t.Errorf("expired member not pruned: %v", members)
+	}
+	// ... and an unknown user is an empty list, not an error.
+	ids, err = ListUserRuns(context.Background(), "u_nobody", testNow(), 10)
+	if err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("ListUserRuns unknown user = %v (%v)", ids, err)
+	}
+}
+
+// hgetall is the HGETALL miniredis doesn't expose on its handle.
+func hgetall(mr *miniredis.Miniredis, key string) map[string]string {
+	out := map[string]string{}
+	keys, _ := mr.HKeys(key)
+	for _, k := range keys {
+		out[k] = mr.HGet(key, k)
+	}
+	return out
 }

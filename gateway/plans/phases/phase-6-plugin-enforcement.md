@@ -485,6 +485,14 @@ pipeline (see "Pipelining and atomicity" below).
 ```
 PreLLMHook(ctx, req) → response | bifrost.Error:
 
+  0. REQUEST-TYPE GATE
+     - list_models (GET /v1/models; Bifrost fans ListAllModels out as
+       one list_models request per provider through this same hook)
+       is a catalogue read, not inference — no spend, no run, and
+       callers enumerate models before they hold a macaroon. Return
+       early; none of the steps below apply. Every other request
+       type continues.
+
   1. CRYPTOGRAPHIC VERIFICATION (in-process, no I/O)
      - Extract x-macaroon header.
      - If missing → 401 macaroon_required.

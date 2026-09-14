@@ -364,3 +364,64 @@ func TestRevokeUser_DefaultsToNow(t *testing.T) {
 		t.Fatalf("cutoff %v not ≈ now", got)
 	}
 }
+
+func TestRunState_CapsAndAncestors(t *testing.T) {
+	srv, mr := newBudgetTestServer(t, nil)
+	// Chain: r_root (invocation) → r_mid → r_leaf. Only the leaf has
+	// been seen as a leaf, so only it carries agent/user.
+	mr.HSet("bifrost:meta:run:r_root", "max_cost_usd", "20", "max_steps", "500", "exp", "2026-05-14T18:00:00Z", "parent", "")
+	mr.HSet("bifrost:cost:run:r_root", "total", "3.5")
+	mr.HSet("bifrost:steps:run:r_root", "total", "40")
+	mr.HSet("bifrost:meta:run:r_mid", "max_cost_usd", "5", "max_steps", "0", "exp", "2026-05-14T12:00:00Z", "parent", "r_root")
+	mr.HSet("bifrost:cost:run:r_mid", "total", "1.5")
+	mr.HSet("bifrost:steps:run:r_mid", "total", "12")
+	mr.Set("bifrost:kill:r_mid", "1")
+	mr.HSet("bifrost:meta:run:r_leaf", "max_cost_usd", "2", "max_steps", "50", "exp", "2026-05-14T10:30:00Z",
+		"parent", "r_mid", "agent", "coder", "user", "u_alice")
+	mr.HSet("bifrost:cost:run:r_leaf", "total", "0.75")
+	mr.HSet("bifrost:steps:run:r_leaf", "total", "3")
+
+	var st RunStateResponse
+	decodeBody(t, bearerDo(t, srv, http.MethodGet, "/_plugin/runs/r_leaf/state", ""), &st)
+	if st.MaxCostUSD == nil || *st.MaxCostUSD != 2 || st.MaxSteps == nil || *st.MaxSteps != 50 {
+		t.Fatalf("leaf caps: %+v", st)
+	}
+	if st.Exp != "2026-05-14T10:30:00Z" || st.AgentName != "coder" || st.UserID != "u_alice" {
+		t.Errorf("leaf identity: %+v", st)
+	}
+	if len(st.Ancestors) != 2 {
+		t.Fatalf("ancestors: %+v", st.Ancestors)
+	}
+	mid, root := st.Ancestors[0], st.Ancestors[1]
+	if mid.RunID != "r_mid" || mid.CostUSD != 1.5 || mid.Steps != 12 || !mid.Killed ||
+		mid.MaxCostUSD == nil || *mid.MaxCostUSD != 5 || mid.MaxSteps != nil {
+		t.Errorf("mid (max_steps 0 must read as null): %+v", mid)
+	}
+	if root.RunID != "r_root" || root.CostUSD != 3.5 || root.MaxSteps == nil || *root.MaxSteps != 500 || root.Killed {
+		t.Errorf("root: %+v", root)
+	}
+
+	// A run with no meta: caps null, ancestors empty (not null).
+	var none RunStateResponse
+	decodeBody(t, bearerDo(t, srv, http.MethodGet, "/_plugin/runs/r_never/state", ""), &none)
+	if none.MaxCostUSD != nil || none.MaxSteps != nil || none.Ancestors == nil || len(none.Ancestors) != 0 {
+		t.Errorf("no-meta run: %+v", none)
+	}
+
+	// A dangling parent (its keys expired) ends the walk quietly.
+	mr.HSet("bifrost:meta:run:r_orphan", "max_cost_usd", "1", "max_steps", "1", "exp", "", "parent", "r_gone")
+	var orphan RunStateResponse
+	decodeBody(t, bearerDo(t, srv, http.MethodGet, "/_plugin/runs/r_orphan/state", ""), &orphan)
+	if len(orphan.Ancestors) != 0 {
+		t.Errorf("dangling parent: %+v", orphan.Ancestors)
+	}
+
+	// A parent cycle terminates.
+	mr.HSet("bifrost:meta:run:r_a", "max_cost_usd", "1", "max_steps", "1", "exp", "", "parent", "r_b")
+	mr.HSet("bifrost:meta:run:r_b", "max_cost_usd", "1", "max_steps", "1", "exp", "", "parent", "r_a")
+	var cyc RunStateResponse
+	decodeBody(t, bearerDo(t, srv, http.MethodGet, "/_plugin/runs/r_a/state", ""), &cyc)
+	if len(cyc.Ancestors) != 1 || cyc.Ancestors[0].RunID != "r_b" {
+		t.Errorf("cycle: %+v", cyc.Ancestors)
+	}
+}

@@ -41,6 +41,13 @@ type KillAgentResponse struct {
 // RunStateResponse is the wire shape for GET /_plugin/runs/:id/state —
 // the run's live phase-6 accumulators. A run that has never made a
 // call reads as all-zero with ttl_seconds = -2 (no key), not 404.
+//
+// The cap fields come from meta:run:<id>, which the accumulator
+// stamps from the verified macaroon chain. `null` means the run has
+// no state yet or the layer declared no cap — either way there is
+// nothing to draw a meter against. `ancestors` walks the parent
+// links outward (nearest parent first), one entry per budgeted run
+// above this one, so the UI can render a meter per layer.
 type RunStateResponse struct {
 	RunID   string   `json:"run_id"`
 	CostUSD float64  `json:"cost_usd"`
@@ -50,7 +57,36 @@ type RunStateResponse struct {
 	// TTLSeconds is the remaining lifetime of the cost accumulator:
 	// -2 when the run has no state yet, -1 when it has no expiry.
 	TTLSeconds int64 `json:"ttl_seconds"`
+
+	MaxCostUSD *float64 `json:"max_cost_usd"`
+	MaxSteps   *int64   `json:"max_steps"`
+	// Exp is the macaroon layer's expiry (RFC3339); empty when the
+	// run has no meta yet.
+	Exp string `json:"exp,omitempty"`
+	// AgentName / UserID are recorded by the run's own calls. An
+	// ancestor that has only been seen through a child's chain has
+	// neither.
+	AgentName string             `json:"agent_name,omitempty"`
+	UserID    string             `json:"user_id,omitempty"`
+	Ancestors []RunAncestorState `json:"ancestors"`
 }
+
+// RunAncestorState is one budgeted run above the requested one in
+// its macaroon chain: the same accumulators and caps, minus the tool
+// history. Nearest parent first.
+type RunAncestorState struct {
+	RunID      string   `json:"run_id"`
+	CostUSD    float64  `json:"cost_usd"`
+	Steps      int64    `json:"steps"`
+	Killed     bool     `json:"killed"`
+	MaxCostUSD *float64 `json:"max_cost_usd"`
+	MaxSteps   *int64   `json:"max_steps"`
+}
+
+// maxAncestorHops bounds the parent walk. Macaroon chains are a
+// handful of layers deep in practice; the bound guards against a
+// corrupted parent link forming a cycle.
+const maxAncestorHops = 8
 
 // AgentStateResponse is the wire shape for GET /_plugin/agents/:name/state.
 type AgentStateResponse struct {
@@ -102,14 +138,64 @@ func (h *hotStateHandlers) runState(w http.ResponseWriter, r *http.Request, runI
 		writeHotStateErr(w, err, "runs.state")
 		return
 	}
-	writeJSON(w, http.StatusOK, RunStateResponse{
+	out := RunStateResponse{
 		RunID:      st.RunID,
 		CostUSD:    st.CostUSD,
 		Steps:      st.Steps,
 		Tools:      st.Tools,
 		Killed:     st.Killed,
 		TTLSeconds: st.TTLSeconds,
-	})
+		MaxCostUSD: capUSD(st),
+		MaxSteps:   capSteps(st),
+		Exp:        st.Exp,
+		AgentName:  st.AgentName,
+		UserID:     st.UserID,
+		Ancestors:  []RunAncestorState{},
+	}
+
+	// Walk the parent links. A missing ancestor (its keys expired
+	// before the child's) ends the walk rather than erroring: the
+	// meters we can draw are still worth returning.
+	seen := map[string]bool{runID: true}
+	for parent := st.Parent; parent != "" && !seen[parent] && len(out.Ancestors) < maxAncestorHops; {
+		seen[parent] = true
+		ps, err := auth.GetRunState(r.Context(), parent)
+		if err != nil {
+			writeHotStateErr(w, err, "runs.state.ancestor")
+			return
+		}
+		if !ps.HasMeta {
+			break
+		}
+		out.Ancestors = append(out.Ancestors, RunAncestorState{
+			RunID:      ps.RunID,
+			CostUSD:    ps.CostUSD,
+			Steps:      ps.Steps,
+			Killed:     ps.Killed,
+			MaxCostUSD: capUSD(ps),
+			MaxSteps:   capSteps(ps),
+		})
+		parent = ps.Parent
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// capUSD / capSteps turn the accumulator's "0 = no cap, and also 0 =
+// unknown" into the wire's explicit null.
+func capUSD(st auth.RunState) *float64 {
+	if !st.HasMeta || st.MaxCostUSD <= 0 {
+		return nil
+	}
+	v := st.MaxCostUSD
+	return &v
+}
+
+func capSteps(st auth.RunState) *int64 {
+	if !st.HasMeta || st.MaxSteps <= 0 {
+		return nil
+	}
+	v := st.MaxSteps
+	return &v
 }
 
 func (h *hotStateHandlers) agentKill(w http.ResponseWriter, r *http.Request, name string) {

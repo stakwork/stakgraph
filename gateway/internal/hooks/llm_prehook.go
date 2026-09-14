@@ -39,6 +39,24 @@ func LLMPre(
 		dims[pluginctx.DimSessionID],
 	)
 
+	// Catalogue reads are not inference. `GET /v1/models` reaches this
+	// hook as one list_models request per configured provider (Bifrost
+	// fans ListAllModels out through the same plugin pipeline), with
+	// no model, no run, no spend to attribute and — for the callers
+	// that enumerate models before they have a run in hand — no
+	// macaroon. Gating them would 401 every model list the moment
+	// enforce_macaroons flips, and buy nothing: there is nothing to
+	// verify a budget or a kill switch against. So the gate is
+	// skipped outright rather than logged as a miss; before this, a
+	// single /v1/models call showed up in the shadow tally as five
+	// "no x-macaroon header" lines, indistinguishable from a real
+	// caller that forgot the header.
+	if macaroonExempt(req.RequestType) {
+		pluginlog.Logf("auth: skip macaroon gate request_type=%s provider=%s (not inference)",
+			req.RequestType, provider)
+		return req, nil, nil
+	}
+
 	// Macaroon adapter — verifies + stamps claims + decides shadow
 	// vs enforce. Returns nil short-circuit on pass-through (success
 	// or shadow-mode failure); non-nil short-circuit when
@@ -83,4 +101,15 @@ func LLMPre(
 	}
 
 	return req, nil, nil
+}
+
+// macaroonExempt reports whether a request type bypasses the macaroon
+// gate entirely. Only list_models today: it is the one request type
+// Bifrost routes through PreLLMHook that performs no inference and
+// incurs no provider spend. Everything billable — chat, responses,
+// embeddings, speech, transcription, image and video generation —
+// stays gated. Keep this list short and justified; every entry is a
+// request shape a caller can make without presenting identity.
+func macaroonExempt(rt schemas.RequestType) bool {
+	return rt == schemas.ListModelsRequest
 }

@@ -95,6 +95,34 @@ type logstoreLog struct {
 	// "metadata"). Decoding as map[string]string covers every dim
 	// header the plugin canonicalises.
 	Metadata map[string]string `json:"metadata"`
+
+	// TokenUsage is Bifrost's provider-reported usage. The list
+	// endpoint selects the denormalised prompt/completion/total
+	// columns and its AfterFind hook rebuilds `token_usage` from them
+	// (framework/logstore/tables.go), so every row that had usage
+	// carries it here; rows without (errors, embeddings) decode nil.
+	TokenUsage *logstoreTokenUsage `json:"token_usage,omitempty"`
+}
+
+// logstoreTokenUsage is the slice of schemas.BifrostLLMUsage the
+// aggregations read. Cached-token splits stay on the detail row.
+type logstoreTokenUsage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+}
+
+// tokens returns the row's total token count, 0 when Bifrost
+// recorded no usage. Prompt + completion is used when the provider
+// left total_tokens at zero (some streaming responses do).
+func (l logstoreLog) tokens() int64 {
+	if l.TokenUsage == nil {
+		return 0
+	}
+	if l.TokenUsage.TotalTokens > 0 {
+		return l.TokenUsage.TotalTokens
+	}
+	return l.TokenUsage.PromptTokens + l.TokenUsage.CompletionTokens
 }
 
 // logstoreSearchResult is the trimmed shape of /api/logs.
@@ -297,6 +325,49 @@ type logstoreUserRanking struct {
 // want surfaced through phase 8's clean shape. Kept here, with the
 // matching JSON shape, so phase 9 can swap in if it wants the
 // trend deltas.
+
+// ─── governance (bifrost customer budgets) ───────────────────────────
+
+// logstoreCustomer mirrors the slice of Bifrost's TableCustomer that
+// /_plugin/users/:id/quota reads: the customer's budgets (Hive's
+// reconciler provisions one per (workspace × user), see
+// llm-governance-v2.md §"Hive as credential broker"). Same loopback
+// admin API and Basic auth as /api/logs, so the client is shared even
+// though the name says "logstore".
+type logstoreCustomer struct {
+	ID      string           `json:"id"`
+	Name    string           `json:"name"`
+	Budgets []logstoreBudget `json:"budgets"`
+}
+
+// logstoreBudget mirrors Bifrost's TableBudget: a cap, the window it
+// resets on (Bifrost duration vocabulary), and the running usage
+// Bifrost's governance plugin maintains.
+type logstoreBudget struct {
+	ID            string  `json:"id"`
+	MaxLimit      float64 `json:"max_limit"`
+	ResetDuration string  `json:"reset_duration"`
+	LastReset     string  `json:"last_reset"`
+	CurrentUsage  float64 `json:"current_usage"`
+}
+
+// customer fetches GET /api/governance/customers/{id}. Returns
+// (nil, nil) on 404 — a user without a provisioned Customer is a
+// normal state (pre-reconciler traffic), not an upstream failure.
+func (c *logstoreClient) customer(ctx context.Context, id string) (*logstoreCustomer, error) {
+	var out struct {
+		Customer *logstoreCustomer `json:"customer"`
+	}
+	err := c.getJSON(ctx, "/api/governance/customers/"+url.PathEscape(id), &out)
+	if err != nil {
+		var ue *upstreamError
+		if errors.As(err, &ue) && ue.status == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return out.Customer, nil
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────
 
