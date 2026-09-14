@@ -38,7 +38,8 @@ import {
   useToggleTool,
   useUnkillAgent,
 } from "../api/queries";
-import type { HistogramCostResponse, Window } from "../api/types";
+import type { HistogramCostResponse } from "../api/types";
+import type { Window } from "../api/manual";
 import { windowToSeconds } from "../api/window";
 import { EvalsView } from "./EvalsView";
 

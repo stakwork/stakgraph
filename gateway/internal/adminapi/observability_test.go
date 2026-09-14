@@ -60,6 +60,27 @@ type fakeBifrost struct {
 	authPass     string
 	requireAuth  bool
 	failNextWith int // if non-zero, the next call returns this status
+
+	// customers backs GET /api/governance/customers/{id} (phase-7
+	// quota). Keyed by customer id; a miss is a 404 like Bifrost's.
+	customers map[string]fakeCustomer
+}
+
+// fakeCustomer is the slice of Bifrost's TableCustomer the quota
+// endpoint reads, wrapped in the `{"customer": …}` envelope the
+// governance handler emits.
+type fakeCustomer struct {
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Budgets []fakeBudget `json:"budgets"`
+}
+
+type fakeBudget struct {
+	ID            string  `json:"id"`
+	MaxLimit      float64 `json:"max_limit"`
+	ResetDuration string  `json:"reset_duration"`
+	LastReset     string  `json:"last_reset"`
+	CurrentUsage  float64 `json:"current_usage"`
 }
 
 func newFakeBifrost(t *testing.T, logs []fakeLog) *fakeBifrost {
@@ -94,9 +115,23 @@ func (f *fakeBifrost) handle(w http.ResponseWriter, r *http.Request) {
 		f.serveLogs(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/logs/"):
 		f.serveLogByID(w, r, strings.TrimPrefix(r.URL.Path, "/api/logs/"))
+	case strings.HasPrefix(r.URL.Path, "/api/governance/customers/"):
+		f.serveCustomer(w, strings.TrimPrefix(r.URL.Path, "/api/governance/customers/"))
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+// serveCustomer mimics Bifrost's GET /api/governance/customers/{id}.
+func (f *fakeBifrost) serveCustomer(w http.ResponseWriter, id string) {
+	c, ok := f.customers[id]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, `{"error":"Customer not found"}`)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"customer": c})
 }
 
 // serveLogByID mimics Bifrost's GET /api/logs/{id} — returns the
@@ -153,10 +188,20 @@ func (f *fakeBifrost) serveLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	page := rows[start:end]
 
-	// Compute stats over the *filtered* set (matches Bifrost).
+	// Compute stats over the *filtered* set (matches Bifrost). Tokens
+	// come from token_usage the way Bifrost's SearchStats sums the
+	// denormalised total_tokens column.
 	var totalCost float64
+	var totalTokens int64
 	for _, l := range rows {
 		totalCost += l.Cost
+		if len(l.TokenUsage) > 0 {
+			var tu struct {
+				TotalTokens int64 `json:"total_tokens"`
+			}
+			_ = json.Unmarshal(l.TokenUsage, &tu)
+			totalTokens += tu.TotalTokens
+		}
 	}
 
 	resp := map[string]any{
@@ -169,7 +214,7 @@ func (f *fakeBifrost) serveLogs(w http.ResponseWriter, r *http.Request) {
 		"stats": map[string]any{
 			"total_requests": total,
 			"total_cost":     totalCost,
-			"total_tokens":   int64(0),
+			"total_tokens":   totalTokens,
 		},
 		"has_logs": total > 0,
 	}

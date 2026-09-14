@@ -683,12 +683,18 @@ packages:
       time.Time: "string"
 ```
 
-`make tygo` runs the codegen; CI runs `make tygo && git diff --exit-code`
-to catch drift.
+`make tygo` runs the codegen; CI (`.github/workflows/gateway-check.yml`,
+job `tygo-check`) installs the pinned tygo, regenerates, and fails on
+any diff. Only the `adminapi` package is in `tygo.yaml` — the `auth`
+entry above never shipped; the SPA reads `auth`'s state through
+`adminapi`'s named response structs. Types with no Go struct behind
+them (the `Window` / `Bucket` / `Dimension` unions, the error
+envelope, the `trust` mirrors, Bifrost's chat / usage shapes that Go
+carries as `json.RawMessage`) are hand-maintained in
+`ui/src/api/manual.ts`.
 
-Types that are not response shapes (internal-only structs) are
-either kept out of the codegen by living in non-exported packages or
-explicitly excluded in `tygo.yaml`.
+Types that are not response shapes (internal-only structs) are kept
+out of the codegen by being unexported.
 
 The handlers in `adminapi/` declare named response types
 (`type RunStateResponse struct { ... }`) rather than returning
