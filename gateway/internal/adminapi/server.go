@@ -263,9 +263,16 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 		mux.HandleFunc("/_plugin/spend/by-user", cookieOrBearer(obs.spendByUser))
 		mux.HandleFunc("/_plugin/spend/by-agent-user", cookieOrBearer(obs.spendByAgentUser))
 		mux.HandleFunc("/_plugin/histogram/cost", cookieOrBearer(obs.histogramCost))
-		// /_plugin/users/ takes a trailing path segment as user-id.
-		// Phase-8 only exposes the rollup (KPIs + agents-used +
-		// runs); phase-9 adds /:id/quota for spend-vs-cap.
+		// Phase-7 remainder: the session / model rollups, token and
+		// latency histograms, and the session drill-down.
+		mux.HandleFunc("/_plugin/spend/by-session", cookieOrBearer(obs.spendBySession))
+		mux.HandleFunc("/_plugin/spend/by-model", cookieOrBearer(obs.spendByModel))
+		mux.HandleFunc("/_plugin/histogram/tokens", cookieOrBearer(obs.histogramTokens))
+		mux.HandleFunc("/_plugin/histogram/latency", cookieOrBearer(obs.histogramLatency))
+		mux.HandleFunc("/_plugin/sessions/", cookieOrBearer(obs.sessions))
+		// /_plugin/users/ subtree: `<id>` is the phase-8 rollup,
+		// `<id>/spend` the windowed totals, `<id>/quota` the Bifrost
+		// customer budget blended with the user's in-flight runs.
 		mux.HandleFunc("/_plugin/users/", cookieOrBearer(obs.userDetail))
 	}
 
@@ -326,6 +333,17 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 		}
 		if len(parts) == 2 && parts[0] != "" && parts[1] == "state" {
 			hot.agentState(w, r, parts[0])
+			return
+		}
+		// `<name>/spend` (GET): the agent's windowed totals from
+		// logs.db — phase 7. 404 when the logstore isn't configured,
+		// like the /runs/ drill-down.
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "spend" {
+			if obs == nil {
+				http.NotFound(w, r)
+				return
+			}
+			obs.agentSpend(w, r, parts[0])
 			return
 		}
 		// `/_plugin/agents/catalog` (single segment) is the catalog

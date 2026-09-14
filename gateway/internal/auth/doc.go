@@ -54,7 +54,11 @@
 //
 // With enforce_macaroons=true the failure path becomes 401 (bad,
 // missing or revoked macaroon) or 402 (valid macaroon, but the run
-// or agent was killed) with a stable AdapterError.Code. Spend caps
+// or agent was killed) with a stable AdapterError.Code. One request
+// type never reaches the gate in either mode: list_models
+// (`GET /v1/models`, fanned out per provider) is a catalogue read
+// with no spend to govern, and hooks.LLMPre returns before calling
+// ApplyToLLMPre for it — see macaroonExempt there. Spend caps
 // are a second knob: enforce_budgets=true (only effective alongside
 // enforce_macaroons) turns the cap walk's "budget shadow" log lines
 // into 402s. Operators flip the flags per-swarm once

@@ -22,7 +22,8 @@ import { WindowPicker } from "../components/controls/WindowPicker";
 import { BotIcon, UserIcon } from "../components/icons";
 import { getErrorMessage } from "../api/client";
 import { useHistogramCost, useUserDetail } from "../api/queries";
-import type { UserAgentUsage, UserRunSummary, Window } from "../api/types";
+import type { UserAgentUsage, UserRunSummary } from "../api/types";
+import type { Window } from "../api/manual";
 import { windowToSeconds } from "../api/window";
 
 interface Props {

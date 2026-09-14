@@ -583,21 +583,21 @@ GET /_plugin/runs/:run_id
   Returns: { run_id, logs: [ <Log> ... ], stats: <SearchStats> }
 ```
 
-Two endpoints from phase 7's full inventory are intentionally
-**not** included in phase 8 even though they could technically
-ship: `GET /_plugin/spend/by-realm` and
-`GET /_plugin/spend/by-session`. They're easy to add when needed,
-but the four pages phase 8 ships don't need them yet, and shipping
-unused endpoints invites premature use.
+`GET /_plugin/spend/by-session` was intentionally **not** included
+in phase 8 even though it could technically ship: the four pages
+phase 8 ships didn't need it, and shipping unused endpoints invites
+premature use. (`by-realm` was dropped outright by phase 11.)
 
 ### What's deferred
 
-Phase 9 adds the rest of phase 7 plus the mutations:
-- `/_plugin/spend/by-{realm,session,model}`
+The rest of phase 7 has since shipped (see its wire-up checklist):
+- `/_plugin/spend/by-{session,model}`
 - `/_plugin/histogram/{tokens,latency}`
 - `/_plugin/sessions/:id`, `/_plugin/sessions/:id/summary`
 - `/_plugin/users/:id/spend`, `/_plugin/users/:id/quota`
 - `/_plugin/agents/:name/spend`
+
+Phase 9 adds the mutations and the pages over them.
 - All phase 6 kill/state mutations
 - All phase 9 config mutations
 

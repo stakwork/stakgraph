@@ -8,6 +8,7 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/stakgraph/gateway/internal/pricing"
 )
 
 // LLMPost is the body of PostLLMHook. It fires after the upstream
@@ -38,10 +39,12 @@ func LLMPost(
 	// Pull usage/cost from whichever response shape the provider
 	// populated (Chat or Responses — see callUsageOf).
 	call := callUsageOf(resp)
-	var promptTokens, completionTokens, totalTokens int
+	var (
+		tokens      pricing.Usage
+		totalTokens int
+	)
 	if call.usage != nil {
-		promptTokens = call.usage.PromptTokens
-		completionTokens = call.usage.CompletionTokens
+		tokens = tokensOf(call.usage)
 		totalTokens = call.usage.TotalTokens
 	}
 
@@ -65,14 +68,16 @@ func LLMPost(
 	}
 
 	pluginlog.Logf(
-		"PostLLMHook run_id=%s agent=%s had_resp=%t had_err=%t prompt_tokens=%d completion_tokens=%d total_tokens=%d cost_usd=%.6f elapsed_ms=%d",
+		"PostLLMHook run_id=%s agent=%s had_resp=%t had_err=%t prompt_tokens=%d completion_tokens=%d total_tokens=%d cache_read=%d cache_write=%d cost_usd=%.6f elapsed_ms=%d",
 		dims[pluginctx.DimRunID],
 		dims[pluginctx.DimAgentName],
 		hadResp,
 		hadErr,
-		promptTokens,
-		completionTokens,
+		tokens.Prompt,
+		tokens.Completion,
 		totalTokens,
+		tokens.CacheRead,
+		tokens.CacheWrite,
 		costUSD,
 		elapsed.Milliseconds(),
 	)
@@ -149,26 +154,42 @@ func responsesCallUsage(r *schemas.BifrostResponsesResponse, ef *schemas.Bifrost
 }
 
 // responsesUsage maps ResponsesResponseUsage onto the chat-shaped
-// BifrostLLMUsage the pricing path consumes: input→prompt,
-// output→completion, total→total, provider-computed Cost verbatim.
-// Bifrost already folds cached tokens into InputTokens (same
-// convention as PromptTokens on the chat shape), so there is no
-// cache arithmetic to do here. TotalTokens is recomputed only when
-// the provider left it zero.
+// BifrostLLMUsage the pricing path consumes, through core's own
+// converter: input→prompt, output→completion, the cached-token
+// breakdown (input_tokens_details→prompt_tokens_details), and the
+// provider-computed Cost verbatim. Bifrost folds cached tokens into
+// InputTokens (same convention as PromptTokens on the chat shape);
+// the details block is what lets resolveCost price them at their own
+// rates instead of the full input rate — a hand-rolled mapping that
+// dropped it is exactly how cache reads came to bill at 10×.
+// TotalTokens is recomputed only when the provider left it zero.
 func responsesUsage(u *schemas.ResponsesResponseUsage) *schemas.BifrostLLMUsage {
 	if u == nil {
 		return nil
 	}
-	total := u.TotalTokens
-	if total == 0 {
-		total = u.InputTokens + u.OutputTokens
+	usage := u.ToBifrostLLMUsage()
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
-	return &schemas.BifrostLLMUsage{
-		PromptTokens:     u.InputTokens,
-		CompletionTokens: u.OutputTokens,
-		TotalTokens:      total,
-		Cost:             u.Cost,
+	return usage
+}
+
+// tokensOf flattens a BifrostLLMUsage into the breakdown the pricing
+// formula consumes. Core folds cache reads and writes into
+// PromptTokens and reports the split on PromptTokensDetails — the
+// Anthropic provider fills it from cache_read / cache_creation (with
+// the 5m/1h TTL split), OpenAI-compatible ones from cached_tokens. A
+// usage without the details block is all fresh prompt.
+func tokensOf(u *schemas.BifrostLLMUsage) pricing.Usage {
+	t := pricing.Usage{Prompt: u.PromptTokens, Completion: u.CompletionTokens}
+	if d := u.PromptTokensDetails; d != nil {
+		t.CacheRead = d.CachedReadTokens
+		t.CacheWrite = d.CachedWriteTokens
+		if d.CachedWriteTokenDetails != nil {
+			t.CacheWrite1h = d.CachedWriteTokenDetails.CachedWriteTokens1h
+		}
 	}
+	return t
 }
 
 // resolveCost turns a call's usage into dollars. Precedence per the
@@ -180,7 +201,9 @@ func responsesUsage(u *schemas.ResponsesResponseUsage) *schemas.BifrostLLMUsage 
 //     catalog (bifrost's own datasheet, refreshed daily). The
 //     provider matters: the datasheet keys some providers' rows as
 //     "<provider>/<model>" ("xai/grok-4") while Bifrost reports the
-//     wire model bare ("grok-4").
+//     wire model bare ("grok-4"). The call's cached-token breakdown
+//     goes along (tokensOf) so cache reads and writes price at their
+//     own rates.
 //  3. $0, with a loud log — an unpriced model must be visible in
 //     `docker logs`, not silently guessed at.
 func resolveCost(call callUsage, dims map[string]string) float64 {
@@ -191,7 +214,7 @@ func resolveCost(call callUsage, dims map[string]string) float64 {
 	if usage.Cost != nil && usage.Cost.TotalCost > 0 {
 		return usage.Cost.TotalCost
 	}
-	if cost, ok := auth.PriceCall(call.provider, call.model, usage.PromptTokens, usage.CompletionTokens); ok {
+	if cost, ok := auth.PriceCall(call.provider, call.model, tokensOf(usage)); ok {
 		return cost
 	}
 	if usage.TotalTokens > 0 {

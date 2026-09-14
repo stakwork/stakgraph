@@ -9,10 +9,13 @@
 //   killed    state.killed. The kill key is set; the run's (or the
 //             agent's runs') next LLM call is rejected when the swarm
 //             has enforce_macaroons=true, logged otherwise.
-//   exceeded  agents only: current_spend_usd >= configured_cap_usd.
-//             Runs carry their caps inside the macaroon, which /state
-//             doesn't surface — a run that hit its cap simply stops
-//             making calls and reads as "done".
+//   exceeded  agents: current_spend_usd >= configured_cap_usd.
+//             runs: cost or steps at/over the macaroon layer's cap
+//             (/state surfaces max_cost_usd / max_steps from the
+//             accumulator's meta:run record), or any ancestor over
+//             its own cap — the cap walk rejects the child for that
+//             too. Only enforced when enforce_budgets=true; in shadow
+//             it is the operator's cue, not a hard stop.
 //   running   a call landed within RUN_ACTIVE_WINDOW_MS (either the
 //             newest call-log row or the /state step counter moving
 //             between polls). This is a heuristic: a run idling in a
@@ -30,12 +33,15 @@ export const RUN_ACTIVE_WINDOW_MS = 5 * 60_000;
 
 export function deriveRunStatus(args: {
   killed: boolean;
+  /** Cost or steps at/over a cap on this run or an ancestor. */
+  exceeded?: boolean;
   /** Epoch ms of the most recent evidence of activity, if any. */
   lastActivityMs?: number;
   now?: number;
 }): Status {
-  const { killed, lastActivityMs, now = Date.now() } = args;
+  const { killed, exceeded = false, lastActivityMs, now = Date.now() } = args;
   if (killed) return "killed";
+  if (exceeded) return "exceeded";
   if (
     lastActivityMs !== undefined &&
     now - lastActivityMs < RUN_ACTIVE_WINDOW_MS

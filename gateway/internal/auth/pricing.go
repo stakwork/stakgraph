@@ -4,9 +4,10 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/pricing"
 )
 
-// PriceCall converts token usage into dollars. Returns (cost, true)
-// when a price source knows the model, (0, false) when none does —
-// the caller decides how loudly to complain about an unpriced model.
+// PriceCall converts one call's token usage into dollars. Returns
+// (cost, true) when a price source knows the model, (0, false) when
+// none does — the caller decides how loudly to complain about an
+// unpriced model.
 //
 // Source precedence (the hook layer sits one level above this: a
 // provider-computed Usage.Cost.TotalCost wins over everything here):
@@ -18,27 +19,42 @@ import (
 //     bifrost prices logs.db rows from, so enforcement dollars and
 //     reported dollars agree.
 //
+// Whichever source wins, the dollars come from pricing.Price.Cost,
+// which prices cached prompt tokens at their own rates. Bifrost
+// folds cache reads and writes into the prompt count, so pricing
+// that count flat at the input rate — what this did before — billed
+// cache-heavy Claude runs several times their real spend.
+//
 // Model matching follows pricing.Keys: the bare name, then
 // "<provider>/<model>", then the name with any "provider/" prefix
 // stripped — so "claude-sonnet-5", "anthropic/claude-sonnet-5", and
 // ("xai", "grok-4") → "xai/grok-4" all resolve against either source
 // whichever form the caller holds. provider is the Bifrost provider
 // id that served the call; "" is allowed and skips the second form.
-func PriceCall(provider, model string, promptTokens, completionTokens int) (float64, bool) {
+func PriceCall(provider, model string, usage pricing.Usage) (float64, bool) {
 	keys := pricing.Keys(provider, model)
 	if len(keys) == 0 {
 		return 0, false
 	}
-	const mtok = 1_000_000
 	if entry, ok := configPrice(keys); ok {
-		return float64(promptTokens)*entry.InputPerMTok/mtok +
-			float64(completionTokens)*entry.OutputPerMTok/mtok, true
+		return entry.price().Cost(usage), true
 	}
 	if p, ok := pricing.Lookup(provider, model); ok {
-		return float64(promptTokens)*p.InputPerMTok/mtok +
-			float64(completionTokens)*p.OutputPerMTok/mtok, true
+		return p.Cost(usage), true
 	}
 	return 0, false
+}
+
+// price converts an operator row into the catalog's Price so both
+// sources go through the one cost formula.
+func (m ModelPrice) price() pricing.Price {
+	return pricing.Price{
+		InputPerMTok:        m.InputPerMTok,
+		OutputPerMTok:       m.OutputPerMTok,
+		CacheReadPerMTok:    m.CacheReadPerMTok,
+		CacheWritePerMTok:   m.CacheWritePerMTok,
+		CacheWrite1hPerMTok: m.CacheWrite1hPerMTok,
+	}
 }
 
 func configPrice(keys []string) (ModelPrice, bool) {

@@ -90,10 +90,13 @@ ui: ui-install ui-build
 
 # ─── tygo (Go -> TS struct codegen) ───────────────────────────────────
 #
-# Install once per dev machine:
-#   go install github.com/gzuidhof/tygo@latest
+# Install once per dev machine (CI pins the same version in
+# .github/workflows/gateway-check.yml — bump both together):
+#   go install github.com/gzuidhof/tygo@v0.2.21
 
 tygo:
+	@command -v tygo >/dev/null 2>&1 || { \
+		echo "tygo not found: go install github.com/gzuidhof/tygo@v0.2.21"; exit 1; }
 	tygo generate
 
 # CI hook: regenerate, then fail the build if the diff is non-empty.

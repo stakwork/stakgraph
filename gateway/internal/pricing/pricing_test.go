@@ -23,7 +23,9 @@ const sampleSheet = `{
     "provider": "anthropic", "mode": "chat",
     "input_cost_per_token": 2e-06,
     "output_cost_per_token": 1e-05,
-    "cache_read_input_token_cost": 2e-07
+    "cache_read_input_token_cost": 2e-07,
+    "cache_creation_input_token_cost": 2.5e-06,
+    "cache_creation_input_token_cost_above_1hr": 4e-06
   },
   "gpt-5.2": {
     "provider": "openai", "mode": "chat",
@@ -52,6 +54,55 @@ func TestParseDatasheet_ConvertsToPerMTok(t *testing.T) {
 	if diff := math.Abs(sonnet.CacheReadPerMTok - 0.2); diff > 1e-9 {
 		t.Fatalf("claude-sonnet-5 cache read = %v, want ≈0.2", sonnet.CacheReadPerMTok)
 	}
+	if diff := math.Abs(sonnet.CacheWritePerMTok - 2.5); diff > 1e-9 {
+		t.Fatalf("claude-sonnet-5 cache write = %v, want ≈2.5", sonnet.CacheWritePerMTok)
+	}
+	if diff := math.Abs(sonnet.CacheWrite1hPerMTok - 4.0); diff > 1e-9 {
+		t.Fatalf("claude-sonnet-5 cache write 1h = %v, want ≈4.0", sonnet.CacheWrite1hPerMTok)
+	}
+	// A row without cache fields parses to zero rates, which Cost
+	// resolves through bifrost's fallbacks.
+	gpt := m["gpt-5.2"]
+	if gpt.CacheReadPerMTok != 0 || gpt.CacheWritePerMTok != 0 || gpt.CacheWrite1hPerMTok != 0 {
+		t.Fatalf("gpt-5.2 cache rates = %+v, want zero", gpt)
+	}
+}
+
+func TestPrice_Cost(t *testing.T) {
+	approx := func(t *testing.T, what string, got, want float64) {
+		t.Helper()
+		if math.Abs(got-want) > 1e-12 {
+			t.Fatalf("%s = %v, want %v", what, got, want)
+		}
+	}
+	// Sonnet 5 list rates.
+	sonnet := Price{InputPerMTok: 2, OutputPerMTok: 10, CacheReadPerMTok: 0.2, CacheWritePerMTok: 2.5, CacheWrite1hPerMTok: 4}
+
+	// No cache detail: prompt×input + completion×output, as before.
+	approx(t, "plain", sonnet.Cost(Usage{Prompt: 1000, Completion: 500}), 0.007)
+
+	// A typical agent turn: 87k prompt of which 80k cache reads and
+	// 5k cache writes (1k on the 1h TTL), 1k out.
+	//   2000×2 + 80000×0.2 + 4000×2.5 + 1000×4 + 1000×10 = 0.044
+	turn := Usage{Prompt: 87000, Completion: 1000, CacheRead: 80000, CacheWrite: 5000, CacheWrite1h: 1000}
+	approx(t, "cache-aware", sonnet.Cost(turn), 0.044)
+	// The same turn with no cache rates known is what the gateway
+	// billed before: 87000×2 + 1000×10 = 0.184, 4.2× over.
+	approx(t, "flat", Price{InputPerMTok: 2, OutputPerMTok: 10}.Cost(turn), 0.184)
+
+	// Fallback chain, per bifrost: no 1h rate ⇒ the write rate; no
+	// write rate ⇒ input; no read rate ⇒ input.
+	approx(t, "1h→write", Price{InputPerMTok: 2, OutputPerMTok: 10, CacheWritePerMTok: 2.5}.Cost(Usage{Prompt: 1000, CacheWrite: 1000, CacheWrite1h: 1000}), 0.0025)
+	approx(t, "write→input", Price{InputPerMTok: 2, OutputPerMTok: 10, CacheReadPerMTok: 0.2}.Cost(Usage{Prompt: 1000, CacheWrite: 1000}), 0.002)
+	approx(t, "read→input", Price{InputPerMTok: 2, OutputPerMTok: 10, CacheWritePerMTok: 2.5}.Cost(Usage{Prompt: 1000, CacheRead: 1000}), 0.002)
+
+	// Clamps: cached counts never exceed what the prompt holds, in
+	// bifrost's order — reads, then writes, then the 1h subset.
+	approx(t, "read clamp", sonnet.Cost(Usage{Prompt: 100, CacheRead: 500}), 100*0.2/1e6)
+	// read=60, write=min(60, 40)=40, 1h=min(100, 40)=40 ⇒ 60×0.2 + 40×4.
+	approx(t, "write/1h clamp", sonnet.Cost(Usage{Prompt: 100, CacheRead: 60, CacheWrite: 60, CacheWrite1h: 100}), (60*0.2+40*4)/1e6)
+	// Negative garbage never bills below the fresh-prompt figure.
+	approx(t, "negative", sonnet.Cost(Usage{Prompt: 100, CacheRead: -5, CacheWrite: -5}), 100*2/1e6)
 }
 
 func TestParseDatasheet_RejectsGarbage(t *testing.T) {

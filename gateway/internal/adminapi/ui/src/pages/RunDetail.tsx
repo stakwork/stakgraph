@@ -26,15 +26,18 @@ import {
   useUnkillRun,
 } from "../api/queries";
 import type {
-  CacheDebug,
   CallDetailResponse,
+  RunLogEntry,
+  RunStateResponse,
+} from "../api/types";
+import type {
+  CacheDebug,
   ChatContentBlock,
   ChatMessage,
   ChatToolCall,
-  RunLogEntry,
   TokenUsage,
   TrustOrg,
-} from "../api/types";
+} from "../api/manual";
 
 interface Props {
   runID: string;
@@ -374,7 +377,16 @@ function LiveStateCard({
     (v): v is number => v !== undefined && !Number.isNaN(v),
   );
   const lastActivityMs = evidence.length ? Math.max(...evidence) : undefined;
-  const status = deriveRunStatus({ killed: !!st?.killed, lastActivityMs, now });
+  // Over cap on this run or any ancestor: the cap walk rejects the
+  // child for a parent's exhausted budget too.
+  const exceeded =
+    !!st && (overCap(st) || (st.ancestors ?? []).some((a) => overCap(a)));
+  const status = deriveRunStatus({
+    killed: !!st?.killed,
+    exceeded,
+    lastActivityMs,
+    now,
+  });
   useEffect(() => setInFlight(status === "running"), [status]);
 
   const unavailable = st === null;
@@ -477,6 +489,7 @@ function LiveStateCard({
               tone={st.killed ? "danger" : undefined}
             />
           </div>
+          {noState ? null : <CapMeters st={st} />}
           <div class="hotstate-tools">
             <span class="text-dim" style="font-size: 12px">
               Last tools:
@@ -499,6 +512,14 @@ function LiveStateCard({
               macaroon-bearing call through this gateway, or its
               accumulator has expired. Killing is still allowed; the flag
               catches the run's next call.
+            </div>
+          ) : null}
+          {exceeded && !st.killed ? (
+            <div class="hotstate-note tone-danger">
+              Over cap. The run's <strong>next LLM call</strong> is rejected
+              with 402 when the swarm has{" "}
+              <span class="mono">enforce_budgets=true</span>; in shadow mode
+              the overrun is logged and the call goes through.
             </div>
           ) : null}
           {st.killed ? (
@@ -527,6 +548,160 @@ function LiveStateCard({
         />
       ) : null}
     </section>
+  );
+}
+
+// ─── CapMeters ───────────────────────────────────────────────────────
+//
+// "Cost vs max_cost_usd, steps vs max_steps, one meter per ancestor"
+// (phase 9 "Run detail"). The caps come from the macaroon chain: the
+// accumulator records each layer's caveats in meta:run:<id> and
+// /state serves them back as max_cost_usd / max_steps plus the
+// ancestors walk. A null cap means the layer declared none — the
+// meter cell says so rather than drawing an empty bar. Ancestors are
+// nearest-parent first; each links to its own run page.
+
+type Capped = Pick<
+  RunStateResponse,
+  "run_id" | "cost_usd" | "steps" | "max_cost_usd" | "max_steps"
+>;
+
+function overCap(c: Capped): boolean {
+  return (
+    (c.max_cost_usd != null && c.cost_usd >= c.max_cost_usd) ||
+    (c.max_steps != null && c.steps >= c.max_steps)
+  );
+}
+
+function meterTone(ratio: number): "ok" | "warning" | "danger" {
+  return ratio >= 1 ? "danger" : ratio >= 0.8 ? "warning" : "ok";
+}
+
+function CapMeters({ st }: { st: RunStateResponse }) {
+  const ancestors = st.ancestors ?? [];
+  const leafHasCap = st.max_cost_usd != null || st.max_steps != null;
+  if (!leafHasCap && ancestors.length === 0) {
+    return (
+      <div class="capmeter-none" style="margin-top: var(--sp-4)">
+        No caps recorded for this run — its macaroon declared neither
+        max_cost_usd nor max_steps.
+      </div>
+    );
+  }
+  return (
+    <div class="capmeters">
+      <CapRow who="this run" run={st} />
+      {ancestors.map((a, i) => (
+        <CapRow
+          key={a.run_id}
+          who={i === 0 ? "parent" : `ancestor ${i + 1}`}
+          run={a}
+          link
+          killed={a.killed}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CapRow({
+  who,
+  run,
+  link,
+  killed,
+}: {
+  who: string;
+  run: Capped;
+  link?: boolean;
+  killed?: boolean;
+}) {
+  return (
+    <div class={"capmeter-run" + (link ? " is-ancestor" : "")}>
+      <div class="capmeter-who">
+        <span>
+          {who}
+          {killed ? (
+            <>
+              {" "}
+              <span class="text-danger">· killed</span>
+            </>
+          ) : null}
+        </span>
+        {link ? (
+          <Link href={`/runs/${encodeURIComponent(run.run_id)}`}>
+            <span class="mono" title={run.run_id}>
+              {run.run_id}
+            </span>
+          </Link>
+        ) : (
+          <span class="mono" title={run.run_id}>
+            {run.run_id}
+          </span>
+        )}
+      </div>
+      <CapMeter
+        label="Cost"
+        value={run.cost_usd}
+        cap={run.max_cost_usd}
+        fmt={fmtUSD}
+      />
+      <CapMeter
+        label="Steps"
+        value={run.steps}
+        cap={run.max_steps}
+        fmt={fmtInt}
+      />
+    </div>
+  );
+}
+
+function CapMeter({
+  label,
+  value,
+  cap,
+  fmt,
+}: {
+  label: string;
+  value: number;
+  cap: number | null | undefined;
+  fmt: (v: number) => string;
+}) {
+  if (cap == null) {
+    return (
+      <div class="capmeter">
+        <div class="capmeter-figures">
+          <span>{label}</span>
+          <span>
+            <span class="mono">{fmt(value)}</span> · no cap
+          </span>
+        </div>
+        <div class="budget-meter budget-meter-lg" aria-hidden="true" />
+      </div>
+    );
+  }
+  const ratio = cap > 0 ? value / cap : 0;
+  const pct = Math.min(100, Math.max(0, ratio * 100));
+  const tone = meterTone(ratio);
+  return (
+    <div class="capmeter">
+      <div class="capmeter-figures">
+        <span>{label}</span>
+        <span class={"tone-" + tone}>
+          <span class="mono">{fmt(value)}</span> of{" "}
+          <span class="mono">{fmt(cap)}</span> ({(ratio * 100).toFixed(0)}%)
+        </span>
+      </div>
+      <div
+        class="budget-meter budget-meter-lg"
+        role="meter"
+        aria-label={`${label}: ${fmt(value)} of ${fmt(cap)}`}
+        aria-valuemin={0}
+        aria-valuemax={cap}
+        aria-valuenow={value}
+      >
+        <div class={`budget-meter-bar tone-${tone}`} style={`width:${pct}%`} />
+      </div>
+    </div>
   );
 }
 
