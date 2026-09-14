@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"math"
 	"testing"
 
 	"github.com/maximhq/bifrost/core/schemas"
@@ -147,4 +148,56 @@ func chatCost(chat *schemas.BifrostChatResponse, usage *schemas.BifrostLLMUsage,
 	call := chatCallUsage(chat)
 	call.usage = usage
 	return resolveCost(call, dims)
+}
+
+func TestTokensOf(t *testing.T) {
+	plain := tokensOf(&schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 5})
+	if plain != (pricing.Usage{Prompt: 10, Completion: 5}) {
+		t.Fatalf("plain usage = %+v", plain)
+	}
+	cached := tokensOf(&schemas.BifrostLLMUsage{
+		PromptTokens: 87000, CompletionTokens: 1000,
+		PromptTokensDetails: &schemas.ChatPromptTokensDetails{
+			CachedReadTokens:        80000,
+			CachedWriteTokens:       5000,
+			CachedWriteTokenDetails: &schemas.ChatCachedWriteTokenDetails{CachedWriteTokens5m: 4000, CachedWriteTokens1h: 1000},
+		},
+	})
+	want := pricing.Usage{Prompt: 87000, Completion: 1000, CacheRead: 80000, CacheWrite: 5000, CacheWrite1h: 1000}
+	if cached != want {
+		t.Fatalf("cached usage = %+v, want %+v", cached, want)
+	}
+}
+
+// Cache reads and writes on the chat shape (core fills
+// PromptTokensDetails for Anthropic and for OpenAI cached_tokens)
+// price at their own rates; a config row without cache rates falls
+// back to the input rate the way bifrost does.
+func TestResolveCost_CacheTokens(t *testing.T) {
+	auth.SetConfigForTest(auth.Config{ModelPricing: map[string]auth.ModelPrice{
+		"claude-sonnet-5": {InputPerMTok: 2, OutputPerMTok: 10, CacheReadPerMTok: 0.2, CacheWritePerMTok: 2.5, CacheWrite1hPerMTok: 4},
+	}})
+	t.Cleanup(func() { auth.SetConfigForTest(auth.Config{}) })
+
+	chat := &schemas.BifrostChatResponse{Model: "claude-sonnet-5"}
+	usage := &schemas.BifrostLLMUsage{
+		PromptTokens: 87000, CompletionTokens: 1000, TotalTokens: 88000,
+		PromptTokensDetails: &schemas.ChatPromptTokensDetails{
+			CachedReadTokens:        80000,
+			CachedWriteTokens:       5000,
+			CachedWriteTokenDetails: &schemas.ChatCachedWriteTokenDetails{CachedWriteTokens5m: 4000, CachedWriteTokens1h: 1000},
+		},
+	}
+	// 2000×2 + 80000×0.2 + 4000×2.5 + 1000×4 + 1000×10 = 0.044.
+	if got := chatCost(chat, usage, nil); math.Abs(got-0.044) > 1e-12 {
+		t.Fatalf("cache-aware cost = %v, want 0.044", got)
+	}
+	// No cache rates on the row: 87000×2 + 1000×10 = 0.184 (the
+	// pre-fix figure, 4.2× over).
+	auth.SetConfigForTest(auth.Config{ModelPricing: map[string]auth.ModelPrice{
+		"claude-sonnet-5": {InputPerMTok: 2, OutputPerMTok: 10},
+	}})
+	if got := chatCost(chat, usage, nil); math.Abs(got-0.184) > 1e-12 {
+		t.Fatalf("flat-rate fallback cost = %v, want 0.184", got)
+	}
 }

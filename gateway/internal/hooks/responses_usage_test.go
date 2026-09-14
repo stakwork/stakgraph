@@ -55,6 +55,21 @@ func TestResponsesUsage_MapsOntoChatShape(t *testing.T) {
 	if got.TotalTokens != 10 {
 		t.Fatalf("total fallback = %d, want 10", got.TotalTokens)
 	}
+	// The cached-token breakdown must survive the mapping — it is
+	// what lets resolveCost price cache reads at a tenth of input.
+	got = responsesUsage(&schemas.ResponsesResponseUsage{
+		InputTokens: 87000, OutputTokens: 1000, TotalTokens: 88000,
+		InputTokensDetails: &schemas.ResponsesResponseInputTokens{
+			CachedReadTokens:        80000,
+			CachedWriteTokens:       5000,
+			CachedWriteTokenDetails: &schemas.ChatCachedWriteTokenDetails{CachedWriteTokens5m: 4000, CachedWriteTokens1h: 1000},
+		},
+	})
+	d := got.PromptTokensDetails
+	if d == nil || d.CachedReadTokens != 80000 || d.CachedWriteTokens != 5000 ||
+		d.CachedWriteTokenDetails == nil || d.CachedWriteTokenDetails.CachedWriteTokens1h != 1000 {
+		t.Fatalf("cache breakdown lost in mapping: %+v", got.PromptTokensDetails)
+	}
 }
 
 func TestResponsesToolCallNames(t *testing.T) {
@@ -369,4 +384,40 @@ func TestStreamChunk_ChatFinalChunk_StillAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForAccounting(t, mr, 0.5, nil)
+}
+
+// The Anthropic-native path end to end: a cache-heavy Responses
+// result (core's mapping of a Claude turn with cache_read /
+// cache_creation) must accumulate the cache-aware dollars, not the
+// flat prompt×input figure that tripped $100 caps at ~$23 of real
+// spend. Rates are Sonnet 5 list ×1000 so the total is an exact
+// float: 44, where the flat formula gave 184.
+func TestLLMPost_ResponsesShape_PricesCacheTokens(t *testing.T) {
+	mr := newMiniRedis(t)
+	auth.SetConfigForTest(auth.Config{ModelPricing: map[string]auth.ModelPrice{
+		"claude-sonnet-5": {InputPerMTok: 2000, OutputPerMTok: 10000, CacheReadPerMTok: 200, CacheWritePerMTok: 2500, CacheWrite1hPerMTok: 4000},
+	}})
+	t.Cleanup(func() { auth.SetConfigForTest(auth.Config{}) })
+	ctx := newClaimsContext()
+
+	resp := &schemas.BifrostResponse{ResponsesResponse: &schemas.BifrostResponsesResponse{
+		Model: "claude-sonnet-5",
+		Usage: &schemas.ResponsesResponseUsage{
+			InputTokens: 87000, OutputTokens: 1000, TotalTokens: 88000,
+			InputTokensDetails: &schemas.ResponsesResponseInputTokens{
+				CachedReadTokens:        80000,
+				CachedWriteTokens:       5000,
+				CachedWriteTokenDetails: &schemas.ChatCachedWriteTokenDetails{CachedWriteTokens5m: 4000, CachedWriteTokens1h: 1000},
+			},
+		},
+		ExtraFields: schemas.BifrostResponseExtraFields{
+			RequestType: schemas.ResponsesRequest,
+			RoutingInfo: schemas.RoutingInfo{Provider: schemas.Anthropic, Model: "claude-sonnet-5"},
+		},
+	}}
+	if _, _, err := LLMPost(ctx, resp, nil); err != nil {
+		t.Fatal(err)
+	}
+	// 2000×2000 + 80000×200 + 4000×2500 + 1000×4000 + 1000×10000, /1e6.
+	waitForAccounting(t, mr, 44, nil)
 }

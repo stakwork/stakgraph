@@ -46,13 +46,105 @@ import (
 )
 
 // Price is one model's rates in dollars per million tokens — the
-// unit providers publish prices in. CacheReadPerMTok is carried for
-// the future cache-aware refinement (BifrostLLMUsage exposes cached
-// token counts); the current PriceCall uses only input/output.
+// unit providers publish prices in. The three cache rates are
+// optional in both sources (datasheet and operator config); a zero
+// rate falls back the way bifrost's own cost calculator does — see
+// Cost.
 type Price struct {
-	InputPerMTok     float64
-	OutputPerMTok    float64
+	InputPerMTok  float64
+	OutputPerMTok float64
+
+	// CacheReadPerMTok prices prompt tokens served from the
+	// provider's prompt cache (Anthropic cache_read_input_tokens,
+	// OpenAI cached_tokens). Zero ⇒ InputPerMTok.
 	CacheReadPerMTok float64
+	// CacheWritePerMTok prices prompt tokens written into the cache
+	// with the default 5-minute TTL (Anthropic
+	// cache_creation_input_tokens). Zero ⇒ InputPerMTok.
+	CacheWritePerMTok float64
+	// CacheWrite1hPerMTok prices the subset of cache writes made
+	// with the 1-hour TTL, which Anthropic bills higher. Zero ⇒
+	// CacheWritePerMTok.
+	CacheWrite1hPerMTok float64
+}
+
+// Usage is one call's token breakdown as Cost consumes it. It follows
+// Bifrost's convention, where Prompt already INCLUDES every cached
+// token: CacheRead and CacheWrite are subsets of Prompt, and
+// CacheWrite1h is the subset of CacheWrite made with the 1-hour TTL.
+// Callers pass the counts as the provider reported them; Cost clamps
+// inconsistent payloads rather than billing negative tokens.
+type Usage struct {
+	Prompt       int
+	Completion   int
+	CacheRead    int
+	CacheWrite   int
+	CacheWrite1h int
+}
+
+// Cost prices one call in dollars. The formula mirrors bifrost's own
+// computeTextCost (framework/modelcatalog/datasheet/cost.go at the
+// transports tag the Dockerfile builds) so the accumulator and the
+// logs.db cost column agree:
+//
+//	fresh prompt      × input
+//	cache reads       × cache read     (input when the rate is unknown)
+//	5m cache writes   × cache write    (input when unknown)
+//	1h cache writes   × cache write 1h (cache write when unknown)
+//	completion        × output
+//
+// Before this the whole prompt count priced at the input rate, which
+// billed Claude cache reads at ten times their real cost and tripped
+// per-run caps several times early on cache-heavy runs.
+//
+// Cached counts are clamped to what Prompt can hold, in the order
+// bifrost clamps them: reads first, then writes, then the 1h subset.
+func (p Price) Cost(u Usage) float64 {
+	const mtok = 1_000_000
+	read := clamp(u.CacheRead, 0, u.Prompt)
+	write := clamp(u.CacheWrite, 0, u.Prompt-read)
+	write1h := clamp(u.CacheWrite1h, 0, write)
+	fresh := u.Prompt - read - write
+
+	cost := float64(fresh)*p.InputPerMTok/mtok + float64(u.Completion)*p.OutputPerMTok/mtok
+	if read > 0 {
+		cost += float64(read) * p.cacheReadRate() / mtok
+	}
+	if write-write1h > 0 {
+		cost += float64(write-write1h) * p.cacheWriteRate() / mtok
+	}
+	if write1h > 0 {
+		cost += float64(write1h) * p.cacheWrite1hRate() / mtok
+	}
+	return cost
+}
+
+func (p Price) cacheReadRate() float64 {
+	if p.CacheReadPerMTok > 0 {
+		return p.CacheReadPerMTok
+	}
+	return p.InputPerMTok
+}
+
+func (p Price) cacheWriteRate() float64 {
+	if p.CacheWritePerMTok > 0 {
+		return p.CacheWritePerMTok
+	}
+	return p.InputPerMTok
+}
+
+func (p Price) cacheWrite1hRate() float64 {
+	if p.CacheWrite1hPerMTok > 0 {
+		return p.CacheWrite1hPerMTok
+	}
+	return p.cacheWriteRate()
+}
+
+func clamp(v, lo, hi int) int {
+	if hi < lo {
+		hi = lo
+	}
+	return min(max(v, lo), hi)
 }
 
 const (
@@ -225,9 +317,11 @@ func fetchOnce(ctx context.Context, url string) ([]byte, error) {
 // consumes. Costs are dollars PER TOKEN in the sheet; we convert to
 // per-Mtok at parse time.
 type datasheetEntry struct {
-	InputCostPerToken  float64 `json:"input_cost_per_token"`
-	OutputCostPerToken float64 `json:"output_cost_per_token"`
-	CacheReadPerToken  float64 `json:"cache_read_input_token_cost"`
+	InputCostPerToken    float64 `json:"input_cost_per_token"`
+	OutputCostPerToken   float64 `json:"output_cost_per_token"`
+	CacheReadPerToken    float64 `json:"cache_read_input_token_cost"`
+	CacheWritePerToken   float64 `json:"cache_creation_input_token_cost"`
+	CacheWrite1hPerToken float64 `json:"cache_creation_input_token_cost_above_1hr"`
 }
 
 func parseDatasheet(raw []byte) (map[string]Price, error) {
@@ -242,9 +336,11 @@ func parseDatasheet(raw []byte) (map[string]Price, error) {
 		}
 		const mtok = 1_000_000
 		m[model] = Price{
-			InputPerMTok:     e.InputCostPerToken * mtok,
-			OutputPerMTok:    e.OutputCostPerToken * mtok,
-			CacheReadPerMTok: e.CacheReadPerToken * mtok,
+			InputPerMTok:        e.InputCostPerToken * mtok,
+			OutputPerMTok:       e.OutputCostPerToken * mtok,
+			CacheReadPerMTok:    e.CacheReadPerToken * mtok,
+			CacheWritePerMTok:   e.CacheWritePerToken * mtok,
+			CacheWrite1hPerMTok: e.CacheWrite1hPerToken * mtok,
 		}
 	}
 	if len(m) == 0 {
