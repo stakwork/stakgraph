@@ -4,17 +4,22 @@
 // "should the dashboard poll every 30s" stays a one-line edit.
 
 import {
+  queryOptions,
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 
-import { apiFetch, ApiCallError } from "./client";
+import { apiFetch, ApiCallError, getErrorMessage } from "./client";
 import type {
   AgentBudgetResponse,
   AgentCatalogResponse,
   AgentEvalsResponse,
+  AgentStateResponse,
+  KillAgentResponse,
+  KillRunResponse,
+  RunStateResponse,
   EvalRefResponse,
   EvalSetDetailResponse,
   CatalogListResponse,
@@ -327,6 +332,195 @@ export function useUserDetail(userID: string | undefined, window: Window) {
     enabled: !!userID,
     refetchInterval: 30_000,
     staleTime: 10_000,
+  });
+}
+
+// ─── hot state: /runs/:id/state · /agents/:name/state ──────────────
+//
+// Phase-9 live state over the phase-6 Redis routes. Both endpoints
+// 503 when the swarm has no Redis. That is a property of the swarm,
+// not a transient failure, so the hooks fold it into `data === null`
+// (pages render an inline "hot state unavailable" note and disable
+// the kill switch) and slow polling to a 60s retry so the card
+// recovers on its own once the link is up. `undefined` = in flight.
+//
+// Cadence (phase 9 "Data-fetching contract"), all at the hook level:
+//
+//   run state    2s while the run is in flight, 30s once terminal,
+//                500ms for KILL_BOOST_MS right after a kill/unkill so
+//                the operator watches the flag flip.
+//   agent state  10s on AgentDetail ("agent current bucket state"),
+//                30s per row on the Agents list (list cadence).
+//
+// "Is the run in flight" is the page's call — it has the call log
+// and the step counter (see RunDetail's LiveStateCard); the hook just
+// takes the boolean.
+
+const KILL_BOOST_MS = 30_000;
+
+// "<kind>:<id>" → epoch-ms until which that target's /state polls at
+// 500ms. Module-level rather than React state so the mutation hooks
+// and the state hooks share it without threading props through the
+// pages. Entries lapse on read.
+const killBoostUntil = new Map<string, number>();
+
+function boosted(key: string): boolean {
+  const until = killBoostUntil.get(key);
+  if (until === undefined) return false;
+  if (Date.now() >= until) {
+    killBoostUntil.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function boost(key: string) {
+  killBoostUntil.set(key, Date.now() + KILL_BOOST_MS);
+}
+
+async function fetchHotState<T>(path: string): Promise<T | null> {
+  try {
+    return await apiFetch<T>(path);
+  } catch (e) {
+    if (e instanceof ApiCallError && e.status === 503) {
+      return null; // redis not configured on this swarm
+    }
+    throw e;
+  }
+}
+
+const runStateKey = (runID: string) => ["runs", runID, "state"] as const;
+const agentStateKey = (name: string) => ["agents", name, "state"] as const;
+
+export function useRunState(
+  runID: string | undefined,
+  opts: { inFlight?: boolean } = {},
+) {
+  const { inFlight = false } = opts;
+  return useQuery({
+    queryKey: runStateKey(runID ?? ""),
+    queryFn: () =>
+      fetchHotState<RunStateResponse>(
+        `/runs/${encodeURIComponent(runID!)}/state`,
+      ),
+    enabled: !!runID,
+    refetchInterval: (q) => {
+      if (q.state.data === null) return 60_000; // redis off: slow retry
+      if (runID && boosted("run:" + runID)) return 500;
+      return inFlight ? 2_000 : 30_000;
+    },
+    staleTime: 0,
+    retry: false, // 503 is folded into data; 400 (bad id) won't improve
+  });
+}
+
+// Shared by useAgentState (detail page) and useAgentStates (list
+// fan-out) so both observe the same cache entry — a kill from the
+// detail page updates the list's badge for free.
+function agentStateOptions(name: string, idleInterval: number) {
+  return queryOptions({
+    queryKey: agentStateKey(name),
+    queryFn: () =>
+      fetchHotState<AgentStateResponse>(
+        `/agents/${encodeURIComponent(name)}/state`,
+      ),
+    refetchInterval: (q) => {
+      if (q.state.data === null) return 60_000;
+      if (boosted("agent:" + name)) return 500;
+      return idleInterval;
+    },
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+export function useAgentState(name: string | undefined) {
+  return useQuery({
+    ...agentStateOptions(name ?? "", 10_000),
+    enabled: !!name,
+  });
+}
+
+// Per-row fan-out for the Agents list — one /state query per visible
+// agent, same idiom as useAgentBudgets. The list is small; a batch
+// endpoint is a later optimisation. `data`: `null` ⇒ redis off (every
+// row will be null in that case), `undefined` ⇒ in flight. `error`
+// carries a per-row failure (a 400 on a name the kill routes reject)
+// so the column can show "—" with a reason instead of a forever "…".
+export function useAgentStates(names: string[]) {
+  const queries = useQueries({
+    queries: names.map((n) => agentStateOptions(n, 30_000)),
+  });
+  const data: Record<string, AgentStateResponse | null | undefined> = {};
+  const error: Record<string, string | undefined> = {};
+  names.forEach((n, i) => {
+    data[n] = queries[i]?.data;
+    error[n] = queries[i]?.isError ? getErrorMessage(queries[i].error) : undefined;
+  });
+  return { data, error };
+}
+
+// ─── POST/DELETE /runs/:id/kill · /agents/:name/kill ────────────────
+//
+// Destructive mutations (phase 9 "Destructive"): no optimistic update
+// — the operator clicks Kill to *see* the kill land, so the badge
+// only flips once /state says so. On settle we invalidate the
+// matching state query and arm the 500ms poll boost. Agent kills
+// invalidate `["agents", name, "state"]`, which is the same cache
+// entry the Agents list's per-row column observes, so the list
+// updates too. `apiFetch` already sends the `X-Bifrost-CSRF` header
+// on every request; nothing extra is needed for the cookie session.
+
+export function useKillRun(runID: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<KillRunResponse>(`/runs/${encodeURIComponent(runID)}/kill`, {
+        method: "POST",
+      }),
+    retry: false,
+    onSuccess: () => boost("run:" + runID),
+    onSettled: () => qc.invalidateQueries({ queryKey: runStateKey(runID) }),
+  });
+}
+
+export function useUnkillRun(runID: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/runs/${encodeURIComponent(runID)}/kill`, {
+        method: "DELETE",
+      }),
+    retry: false,
+    onSuccess: () => boost("run:" + runID),
+    onSettled: () => qc.invalidateQueries({ queryKey: runStateKey(runID) }),
+  });
+}
+
+export function useKillAgent(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<KillAgentResponse>(
+        `/agents/${encodeURIComponent(name)}/kill`,
+        { method: "POST" },
+      ),
+    retry: false,
+    onSuccess: () => boost("agent:" + name),
+    onSettled: () => qc.invalidateQueries({ queryKey: agentStateKey(name) }),
+  });
+}
+
+export function useUnkillAgent(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/agents/${encodeURIComponent(name)}/kill`, {
+        method: "DELETE",
+      }),
+    retry: false,
+    onSuccess: () => boost("agent:" + name),
+    onSettled: () => qc.invalidateQueries({ queryKey: agentStateKey(name) }),
   });
 }
 

@@ -3,16 +3,19 @@
 // (anything that produced calls in the window). A seeded agent with
 // no traffic still shows; an agent with traffic but no catalog entry
 // still shows (tagged "traffic only"). Each row links to AgentDetail.
+// Phase 9 adds a kill-state column read from /agents/:name/state.
 
 import { useMemo, useState } from "preact/hooks";
 import { Link, useLocation } from "wouter-preact";
 
 import { DataTable } from "../components/tables/DataTable";
 import { WindowPicker } from "../components/controls/WindowPicker";
+import { StatusBadge, deriveAgentStatus } from "../components/StatusBadge";
 import { getErrorMessage } from "../api/client";
 import {
   useAgentBudgets,
   useAgentCatalogList,
+  useAgentStates,
   useSpendByAgent,
 } from "../api/queries";
 import type { Window } from "../api/types";
@@ -104,6 +107,9 @@ export function Agents() {
   // reset their polling clocks).
   const agentNames = useMemo(() => rows.map((r) => r.agent_name), [rows]);
   const budgets = useAgentBudgets(agentNames);
+  // Kill state per row, same fan-out idiom. `null` for a name means
+  // the swarm has no Redis (every row is null in that case).
+  const states = useAgentStates(agentNames);
 
   return (
     <>
@@ -213,6 +219,48 @@ export function Agents() {
                   <span class="text-dim">—</span>
                 ),
               sort: (r) => r.request_count,
+            },
+            {
+              key: "state",
+              header: "Kill state",
+              cell: (r) => {
+                const s = states.data[r.agent_name];
+                const err = states.error[r.agent_name];
+                if (err) {
+                  return (
+                    <span class="text-dim" title={err}>
+                      —
+                    </span>
+                  );
+                }
+                if (s === undefined) return <span class="text-dim">…</span>;
+                if (s === null) {
+                  return (
+                    <span
+                      class="text-dim"
+                      title="Hot state unavailable on this swarm (no Redis)"
+                    >
+                      —
+                    </span>
+                  );
+                }
+                const status = deriveAgentStatus(s);
+                return status ? (
+                  <StatusBadge status={status} />
+                ) : (
+                  <span class="text-dim" title="No kill flag; spend under cap">
+                    —
+                  </span>
+                );
+              },
+              // killed > exceeded > clear, so a desc sort floats the
+              // rows that need attention.
+              sort: (r) => {
+                const s = states.data[r.agent_name];
+                if (!s) return -1;
+                const status = deriveAgentStatus(s);
+                return status === "killed" ? 2 : status === "exceeded" ? 1 : 0;
+              },
             },
           ]}
           defaultSortKey="agent"
