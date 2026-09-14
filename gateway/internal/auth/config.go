@@ -51,6 +51,22 @@ type Config struct {
 	// persisted — grep the boot line for it.
 	EnforceMacaroonsSource string `json:"-"`
 
+	// EnforceBudgets gates the phase-6 cap walk (capwalk.go). When
+	// false (default) a request over any spend cap is logged as
+	// "budget shadow: would reject" and continues; when true it
+	// short-circuits with 402. Separate from EnforceMacaroons on
+	// purpose: the cap walk is only as good as the accumulators it
+	// reads, and a swarm that already enforces macaroons must be
+	// able to watch its budget decisions before they bite.
+	//
+	// Only effective together with EnforceMacaroons — see
+	// BudgetsEnforced. Env override: BIFROST_PLUGIN_ENFORCE_BUDGETS.
+	EnforceBudgets bool `json:"enforce_budgets"`
+
+	// EnforceBudgetsSource mirrors EnforceMacaroonsSource for the
+	// budgets flag.
+	EnforceBudgetsSource string `json:"-"`
+
 	// AgentBudgets is the per-agent windowed spend cap declared
 	// in plugin.yaml. Phase 6's PreLLMHook reads these to gate
 	// inference; phase 8's dashboard reads them to render the
@@ -98,6 +114,7 @@ type ModelPrice struct {
 // "key present and false" (source=config) stay distinguishable.
 type pluginConfigEnvelope struct {
 	EnforceMacaroons *bool                  `json:"enforce_macaroons"`
+	EnforceBudgets   *bool                  `json:"enforce_budgets"`
 	AgentBudgets     map[string]AgentBudget `json:"agent_budgets"`
 	ModelPricing     map[string]ModelPrice  `json:"model_pricing"`
 }
@@ -155,8 +172,16 @@ func SetConfigForTest(c Config) {
 	cfgMu.Unlock()
 }
 
+// BudgetsEnforced reports whether the cap walk should reject. Both
+// flags must be on: with macaroons in shadow mode a caller can skip
+// the macaroon entirely, so a budget 402 would be trivially
+// bypassable and only punish the callers doing the right thing.
+func (c Config) BudgetsEnforced() bool {
+	return c.EnforceMacaroons && c.EnforceBudgets
+}
+
 func parseConfig(raw any) (Config, error) {
-	cfg := Config{EnforceMacaroonsSource: "default"}
+	cfg := Config{EnforceMacaroonsSource: "default", EnforceBudgetsSource: "default"}
 	if raw != nil {
 		// Round-trip through JSON so we accept whatever map shape
 		// Bifrost decoded the block into. No reflection on field names.
@@ -174,18 +199,34 @@ func parseConfig(raw any) (Config, error) {
 			cfg.EnforceMacaroons = *envelope.EnforceMacaroons
 			cfg.EnforceMacaroonsSource = "config"
 		}
+		if envelope.EnforceBudgets != nil {
+			cfg.EnforceBudgets = *envelope.EnforceBudgets
+			cfg.EnforceBudgetsSource = "config"
+		}
 	}
-	// Env override wins over the config block. A value we can't
+	// Env overrides win over the config block. A value we can't
 	// parse keeps the plugin alive on the config value (see Init for
 	// why fatal would be worse) but must be impossible to miss: an
 	// ERROR line here and "source=env-invalid" on the boot line.
-	if v, set, err := env.EnforceMacaroonsValue(); err != nil {
-		pluginlog.Errf("auth: %v — ignoring the override; enforce_macaroons=%t from %s stands",
-			err, cfg.EnforceMacaroons, cfg.EnforceMacaroonsSource)
-		cfg.EnforceMacaroonsSource = "env-invalid"
-	} else if set {
-		cfg.EnforceMacaroons = v
-		cfg.EnforceMacaroonsSource = "env"
+	applyEnvOverride("enforce_macaroons", env.EnforceMacaroonsValue, &cfg.EnforceMacaroons, &cfg.EnforceMacaroonsSource)
+	applyEnvOverride("enforce_budgets", env.EnforceBudgetsValue, &cfg.EnforceBudgets, &cfg.EnforceBudgetsSource)
+
+	if cfg.EnforceBudgets && !cfg.EnforceMacaroons {
+		pluginlog.Warnf("auth: enforce_budgets=true has no effect while enforce_macaroons=false — cap walk stays in shadow")
 	}
 	return cfg, nil
+}
+
+// applyEnvOverride layers one strict-bool env var over a config
+// value, recording where the final value came from.
+func applyEnvOverride(name string, read func() (bool, bool, error), dst *bool, source *string) {
+	v, set, err := read()
+	switch {
+	case err != nil:
+		pluginlog.Errf("auth: %v — ignoring the override; %s=%t from %s stands", err, name, *dst, *source)
+		*source = "env-invalid"
+	case set:
+		*dst = v
+		*source = "env"
+	}
 }

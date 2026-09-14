@@ -50,6 +50,14 @@ type Decision struct {
 	// hooks. nil when the pure verifier itself failed (no claims
 	// to enrich with) or when the request had no header at all.
 	PostVerifyClaims *macaroon.Claims
+
+	// CapErr is the cap-walk verdict (capwalk.go), set only when
+	// Claims is non-nil: auth passed, but the run / user / realm /
+	// agent is over a spend cap. Kept apart from Err because it is
+	// gated by its own flag — ApplyToLLMPre rejects on it only when
+	// Config.BudgetsEnforced(), and otherwise logs "would reject"
+	// and lets the request through with claims stamped.
+	CapErr *AdapterError
 }
 
 // Evaluate runs the full verify pipeline (signature + revocation +
@@ -101,6 +109,15 @@ func Evaluate(ctx context.Context, rawMacaroon string) Decision {
 	}
 
 	d.Claims = claims
+
+	// Phase-6 PIPELINE 2: the cap walk. Auth has passed by now, so
+	// the verdict goes in CapErr rather than Err — the caller
+	// decides whether budgets are enforced or shadowed.
+	var realmID string
+	if registry != nil {
+		realmID = registry.RealmID()
+	}
+	d.CapErr = CheckCaps(ctx, claims, realmID, now)
 	return d
 }
 
@@ -197,12 +214,18 @@ func ApplyToLLMPre(bctx *schemas.BifrostContext) *schemas.LLMPluginShortCircuit 
 	decision := Evaluate(bctx, rawMacaroon)
 	cfg := GetConfig()
 
-	logDecision(decision, cfg.EnforceMacaroons)
+	logDecision(decision, cfg.EnforceMacaroons, cfg.BudgetsEnforced())
 
 	switch {
+	case decision.Claims != nil && decision.CapErr != nil && cfg.BudgetsEnforced():
+		// Verified, but over a spend cap and budgets are live.
+		return shortCircuitFromError(decision.CapErr)
+
 	case decision.Claims != nil:
-		// Happy path. Always stamp claims, in both modes — shadow
-		// mode wants downstream hooks to see the verified shape.
+		// Happy path (or budget shadow). Always stamp claims, in
+		// both modes — shadow mode wants downstream hooks to see
+		// the verified shape, and the accumulator must keep
+		// counting a run that is over cap in shadow.
 		StampClaims(bctx, decision.Claims)
 		return nil
 
@@ -258,12 +281,25 @@ func shortCircuitFromError(e *AdapterError) *schemas.LLMPluginShortCircuit {
 	}
 }
 
-func logDecision(d Decision, enforce bool) {
+func logDecision(d Decision, enforce, enforceBudgets bool) {
 	mode := "shadow"
 	if enforce {
 		mode = "enforce"
 	}
 	switch {
+	case d.Claims != nil && d.CapErr != nil:
+		// Verified but over cap. In budget shadow this line is the
+		// whole point of the rollout — it's what operators grep
+		// for before flipping enforce_budgets.
+		budgetMode := "shadow"
+		if enforceBudgets {
+			budgetMode = "enforce"
+		}
+		pluginlog.Warnf(
+			"auth: budget %s code=%s status=%d org=%s user=%s agent=%s run_id=%s detail=%q",
+			budgetMode, d.CapErr.Code, d.CapErr.HTTPStatus,
+			d.Claims.OrgID, d.Claims.UserID, d.Claims.AgentName, d.Claims.RunID, d.CapErr.Message,
+		)
 	case d.Claims != nil:
 		pluginlog.Logf(
 			"auth: verify ok mode=%s org=%s user=%s agent=%s run_id=%s permitted_realms=%v",
