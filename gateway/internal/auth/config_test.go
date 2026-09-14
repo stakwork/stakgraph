@@ -161,3 +161,47 @@ func TestInit_EnvOverride_GarbageFallsBackToConfig(t *testing.T) {
 		t.Fatalf("nil config + garbage env: got enforce=%v source=%q, want false/env-invalid", got.EnforceMacaroons, got.EnforceMacaroonsSource)
 	}
 }
+
+// --- enforce_budgets + BIFROST_PLUGIN_ENFORCE_BUDGETS -------------------
+
+func TestInit_EnforceBudgets_ConfigAndEnv(t *testing.T) {
+	t.Cleanup(func() { SetConfigForTest(Config{}) })
+
+	if err := Init(map[string]any{"enforce_budgets": true}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	got := GetConfig()
+	if !got.EnforceBudgets || got.EnforceBudgetsSource != "config" {
+		t.Fatalf("config: got %v/%q, want true/config", got.EnforceBudgets, got.EnforceBudgetsSource)
+	}
+	if got.BudgetsEnforced() {
+		t.Fatal("enforce_budgets alone must not enforce (macaroons in shadow)")
+	}
+
+	t.Setenv(env.EnforceBudgets, "off")
+	if err := Init(map[string]any{"enforce_macaroons": true, "enforce_budgets": true}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	got = GetConfig()
+	if got.EnforceBudgets || got.EnforceBudgetsSource != "env" {
+		t.Fatalf("env off over config true: got %v/%q, want false/env", got.EnforceBudgets, got.EnforceBudgetsSource)
+	}
+
+	t.Setenv(env.EnforceBudgets, "1")
+	if err := Init(map[string]any{"enforce_macaroons": true}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	got = GetConfig()
+	if !got.BudgetsEnforced() || got.EnforceBudgetsSource != "env" {
+		t.Fatalf("env on + macaroons on: got effective=%v source=%q", got.BudgetsEnforced(), got.EnforceBudgetsSource)
+	}
+
+	t.Setenv(env.EnforceBudgets, "yep")
+	if err := Init(map[string]any{"enforce_budgets": true}); err != nil {
+		t.Fatalf("Init must not fail on a bad override: %v", err)
+	}
+	got = GetConfig()
+	if !got.EnforceBudgets || got.EnforceBudgetsSource != "env-invalid" {
+		t.Fatalf("garbage env: got %v/%q, want true/env-invalid", got.EnforceBudgets, got.EnforceBudgetsSource)
+	}
+}

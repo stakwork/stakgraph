@@ -222,3 +222,36 @@ func TestApplyToLLMPost_NilClaimsOrNoRedis_NoOp(t *testing.T) {
 		t.Fatalf("nil claims wrote keys: %v", keys)
 	}
 }
+
+func TestAccumulate_UAEnvelope_WrittenForRealmCap(t *testing.T) {
+	mr := newMiniRedis(t)
+	reg := newTestRegistry(t)
+	if _, err := reg.SetRealmID("w1"); err != nil {
+		t.Fatal(err)
+	}
+	SetTrustRegistry(reg)
+	t.Cleanup(func() { SetTrustRegistry(nil) })
+
+	// No org-wide max_total_usd, but a cap for this swarm's realm:
+	// the cap walk compares cost:ua against it, so it must be written.
+	claims := chainClaims([]string{"r_1"}, []string{"2026-05-14T11:00:00Z"})
+	claims.EffectiveCaveats.Budget = &macaroon.Budget{
+		RealmBudgets: map[string]macaroon.RealmBudget{"w1": {MaxTotalUSD: 3}},
+	}
+	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	if got := mr.HGet("bifrost:cost:ua:"+claims.UANonce, "total"); got != "0.25" {
+		t.Errorf("cost:ua total = %q, want 0.25", got)
+	}
+
+	// A realm cap for some other swarm doesn't count here.
+	mr.FlushAll()
+	claims.EffectiveCaveats.Budget.RealmBudgets = map[string]macaroon.RealmBudget{"w2": {MaxTotalUSD: 3}}
+	if err := accumulate(context.Background(), claims, 0.25, nil, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	if mr.Exists("bifrost:cost:ua:" + claims.UANonce) {
+		t.Fatal("cost:ua written for a realm cap that isn't this swarm's")
+	}
+}

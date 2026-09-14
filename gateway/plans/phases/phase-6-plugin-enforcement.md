@@ -40,9 +40,27 @@
 > hotstate.go`, `revoke.go`): `/_plugin/runs/:id/{kill,state}`,
 > `/_plugin/agents/:name/{kill,state}` (cookie-or-bearer, CSRF on
 > cookie mutations) and `/_plugin/revoke/{nonce,user}/:id`
-> (bearer-only). Still open: the PreLLMHook cost/step cap walk
-> (PIPELINE 2) and its 402s, tool-loop detection, and the
-> `/_plugin/config/*` override layer.
+> (bearer-only).
+>
+> **Status (cap walk landed):** PIPELINE 2 is implemented in
+> `gateway/internal/auth/capwalk.go` — `CheckCaps` reads
+> `cost:run` / `steps:run` for every chain layer (leaf first, then
+> ancestors; steps are walked like cost, one step stronger than the
+> leaf-only check below), `cost:ua` when the UA carries a
+> `max_total_usd` **or** a `realm_budgets` cap for this swarm's
+> realm (phase 11 — the accumulator now writes `cost:ua` in that
+> case too), and `cost:agent:<name>:<bucket>` for configured
+> agents. Rejection codes are as listed under "Hot path" step 3
+> plus `realm_budget_exceeded`; Redis errors ⇒ 402
+> `budget_check_unavailable`. An `agent_budgets` entry with
+> `cap_usd: 0` blocks the agent outright (the permanent form of
+> `kill:agent`). The walk is gated by a **separate** flag,
+> `enforce_budgets` (config key or `BIFROST_PLUGIN_ENFORCE_BUDGETS`),
+> effective only alongside `enforce_macaroons`; off, it logs
+> `auth: budget shadow code=… detail=…` and lets the call through
+> with claims stamped so accounting continues. Still open:
+> tool-loop detection, `hard_ceiling`, the `user_id == customer_id`
+> cross-check, and the `/_plugin/config/*` override layer.
 >
 > **Status (phase 11 cutover):** Redis bucket keys and hot-path
 > flow are unchanged from the description below. Phase 11
