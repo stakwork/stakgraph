@@ -44,7 +44,9 @@ ui/
     │   ├── charts/       # UplotChart + CostHistogram
     │   ├── tables/       # DataTable (sortable)
     │   ├── controls/     # WindowPicker
-    │   ├── icons.tsx     # UserIcon, BotIcon (inline SVG)
+    │   ├── icons.tsx     # UserIcon, BotIcon, StopIcon (inline SVG)
+    │   ├── KillConfirmModal.tsx  # kill / unkill confirm; typed for agents
+    │   ├── StatusBadge.tsx       # running/killed/exceeded/done + derivation
     │   ├── EmptyState.tsx
     │   └── ErrorBoundary.tsx
     ├── pages/
@@ -52,9 +54,9 @@ ui/
     │   ├── Dashboard.tsx      # KPIs + cost-by-agent chart + top-5 tables
     │   ├── People.tsx         # users in the window
     │   ├── UserDetail.tsx     # one user's KPIs + chart + agents-used + runs
-    │   ├── Agents.tsx         # agents in the window, with budget meter
-    │   ├── AgentDetail.tsx    # one agent's chart + budget card + runs
-    │   ├── RunDetail.tsx      # Provenance card + paginated call log + per-call drawer
+    │   ├── Agents.tsx         # agents in the window: budget meter + kill-state column
+    │   ├── AgentDetail.tsx    # one agent's chart + budget card + runs + agent kill switch
+    │   ├── RunDetail.tsx      # Live-state card + kill switch, Provenance card, call log + drawer
     │   └── NotFound.tsx
     └── styles/
         ├── base.css       # palette + reset (CSS variables on :root)
@@ -75,7 +77,14 @@ npm run dev                  # Vite dev server on :5173 with HMR
 
 Open <http://localhost:5173/_plugin/ui/>. The Vite proxy means
 cookies set by `POST /_plugin/login` flow through to the SPA without
-CORS.
+CORS. The proxy rule bypasses `/_plugin/ui/*` so the shell and source
+modules come from Vite — without that, the gateway's *embedded*
+production bundle wins and local edits never show. `GATEWAY_URL`
+points the proxy at a gateway on another port:
+
+```bash
+GATEWAY_URL=http://localhost:8182 npm run dev
+```
 
 ## Building for the Docker image
 
@@ -127,6 +136,33 @@ index-<hash>.js`) bust browser cache automatically on every redeploy.
 - **Currency formatting** scales digits with magnitude — values
   under 1¢ render with 6 decimals, otherwise 2. Helper duplicated
   across pages (cheap; not worth a util module yet).
+
+## Kill switches (phase 9)
+
+`RunDetail` and `AgentDetail` drive the phase-6 hot-state routes
+(`/_plugin/runs/:id/{state,kill}`, `/_plugin/agents/:name/{state,kill}`)
+through `useRunState` / `useAgentState` / `useAgentStates` and the
+four mutation hooks (`useKillRun`, `useUnkillRun`, `useKillAgent`,
+`useUnkillAgent`) in `api/queries.ts`.
+
+- **503 ⇒ `data === null`, not an error.** A swarm without Redis has
+  no hot state; pages render an inline "unavailable" note and disable
+  the switch. Polling drops to a 60s retry so the card recovers on its
+  own once Redis is up.
+- **Cadence lives in the hooks:** run state 2s while in flight, 30s
+  once done, 500ms for 30s right after a kill/unkill; agent state 10s
+  on the detail page, 30s per row on the list.
+- **Confirmation is `KillConfirmModal`** — plain confirm for runs,
+  typed agent name for agents (swarm-wide blast radius). No
+  `window.confirm()` (Hive's iframe sandbox suppresses it) and no
+  optimistic update: the modal closes only on 200.
+- **Status derivation is `StatusBadge.deriveRunStatus` /
+  `deriveAgentStatus`.** Keep new pages on the same derivation rather
+  than inventing a second notion of "running".
+- Cookie-authed mutations need the `X-Bifrost-CSRF` header; `apiFetch`
+  sets it on every request, so per-call code does nothing extra.
+- Not exposed: `enforce_macaroons` / `enforce_budgets`. The modal
+  carries a static "only enforced when enforce_macaroons=true" hint.
 
 ## Auth model the SPA expects
 

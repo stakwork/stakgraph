@@ -1,0 +1,92 @@
+// StatusBadge — the run / agent kill-state pill, plus the two tiny
+// derivations that decide which one to show.
+//
+// The derivation is deliberately shallow and lives here so every
+// page agrees on what "running" means. Inputs are things the SPA
+// already has (the /state snapshot and the newest call timestamp
+// from the call log) — no new backend.
+//
+//   killed    state.killed. The kill key is set; the run's (or the
+//             agent's runs') next LLM call is rejected when the swarm
+//             has enforce_macaroons=true, logged otherwise.
+//   exceeded  agents only: current_spend_usd >= configured_cap_usd.
+//             Runs carry their caps inside the macaroon, which /state
+//             doesn't surface — a run that hit its cap simply stops
+//             making calls and reads as "done".
+//   running   a call landed within RUN_ACTIVE_WINDOW_MS (either the
+//             newest call-log row or the /state step counter moving
+//             between polls). This is a heuristic: a run idling in a
+//             long tool call reads as "done" until its next LLM call.
+//   done      none of the above.
+
+import type { AgentStateResponse } from "../api/types";
+
+export type Status = "running" | "killed" | "exceeded" | "done";
+
+/** How recent the last LLM call must be for a run to count as
+ *  in-flight. Five minutes covers the long tool calls we see in
+ *  practice without keeping a finished run "running" all afternoon. */
+export const RUN_ACTIVE_WINDOW_MS = 5 * 60_000;
+
+export function deriveRunStatus(args: {
+  killed: boolean;
+  /** Epoch ms of the most recent evidence of activity, if any. */
+  lastActivityMs?: number;
+  now?: number;
+}): Status {
+  const { killed, lastActivityMs, now = Date.now() } = args;
+  if (killed) return "killed";
+  if (
+    lastActivityMs !== undefined &&
+    now - lastActivityMs < RUN_ACTIVE_WINDOW_MS
+  ) {
+    return "running";
+  }
+  return "done";
+}
+
+/** Agents have no "running"/"done" — an agent is a name, not a
+ *  process — so only the two blocking states get a badge. `null`
+ *  means "nothing to flag". */
+export function deriveAgentStatus(
+  state: AgentStateResponse,
+): Extract<Status, "killed" | "exceeded"> | null {
+  if (state.killed) return "killed";
+  if (
+    state.configured_cap_usd != null &&
+    state.current_spend_usd >= state.configured_cap_usd
+  ) {
+    return "exceeded";
+  }
+  return null;
+}
+
+const TONE: Record<Status, string> = {
+  running: "badge-accent",
+  killed: "badge-danger",
+  exceeded: "badge-warning",
+  done: "badge-dim",
+};
+
+const DEFAULT_TITLE: Record<Status, string> = {
+  running: "A call landed within the last few minutes.",
+  killed:
+    "Kill flag set. Rejected on the next LLM call when enforce_macaroons=true; logged only in shadow mode.",
+  exceeded: "Current-bucket spend is at or over the configured cap.",
+  done: "No recent calls.",
+};
+
+export function StatusBadge({
+  status,
+  title,
+}: {
+  status: Status;
+  title?: string;
+}) {
+  return (
+    <span class={"badge " + TONE[status]} title={title ?? DEFAULT_TITLE[status]}>
+      {status === "running" ? <span class="badge-pulse" /> : null}
+      {status}
+    </span>
+  );
+}

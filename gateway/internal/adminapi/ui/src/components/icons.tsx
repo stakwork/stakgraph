@@ -81,3 +81,16 @@ export function BotIcon(props: IconProps) {
     </svg>
   );
 }
+
+/** StopIcon — ring with a filled square. Used by the kill switch on
+ *  RunDetail / AgentDetail and the confirm button in KillConfirmModal.
+ *  The square is filled (not stroked) so it reads as a solid "stop"
+ *  glyph at 1em without the corners smearing. */
+export function StopIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <circle cx="12" cy="12" r="9" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

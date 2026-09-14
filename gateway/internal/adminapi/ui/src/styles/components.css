@@ -1291,3 +1291,214 @@ tr.is-disabled td.text-dim {
   gap: 6px;
   font-size: 12px;
 }
+
+/* ─── kill switch: status badges ─────────────────────────────── */
+/*
+ * StatusBadge tones. `badge-ok` / `badge-warning` above already cover
+ * trusted / exceeded; these add the killed (danger), running (accent,
+ * with a pulsing dot) and done (dim) states.
+ */
+.badge-danger {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+.badge-accent {
+  background: rgba(110, 168, 255, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(110, 168, 255, 0.3);
+}
+.badge-dim {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+}
+.badge-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  margin-right: 6px;
+  animation: badge-pulse 1.4s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+/* Badge riding inside an h1 (AgentDetail header). */
+h1 .badge {
+  margin-left: var(--sp-3);
+  vertical-align: middle;
+  font-family: var(--font-sans);
+  letter-spacing: 0.02em;
+}
+
+/* ─── kill switch: buttons ───────────────────────────────────── */
+/* Solid danger — the primary action of the kill modal and the Kill
+ * button on run / agent pages. The outlined `.is-danger` above is
+ * the *armed* state of two-step buttons and stays as-is. */
+.btn.is-danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #0b0f14;
+}
+.btn.is-danger-solid:hover {
+  background: #ff8585;
+}
+.btn.is-danger-solid:disabled:hover {
+  background: var(--danger);
+}
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Page-header right side: window picker + kill button side by side. */
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+/* ─── kill switch: confirm modal ─────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 50;
+  display: grid;
+  place-items: center;
+}
+.modal {
+  width: min(520px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+.modal-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: 13px;
+}
+.modal-target {
+  font-family: var(--font-mono);
+  word-break: break-all;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.modal-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.modal-note strong,
+.modal-callout strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.modal-callout {
+  padding: var(--sp-3);
+  border: 1px solid rgba(245, 184, 108, 0.35);
+  background: rgba(245, 184, 108, 0.08);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.modal-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.modal-label .mono {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.modal-body .error-banner {
+  margin-bottom: 0;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--border);
+}
+
+/* ─── kill switch: live-state card (RunDetail) ───────────────── */
+/* Figures reuse the budget-figure classes — same label/value idiom,
+ * no reason to fork it. */
+.hotstate {
+  margin-bottom: var(--sp-5);
+}
+.hotstate-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.hotstate-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.hotstate-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+}
+.hotstate-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+.hotstate-note {
+  margin-top: var(--sp-4);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.hotstate-note.tone-danger {
+  padding: var(--sp-3);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.08);
+  border-radius: var(--r-md);
+}
+.hotstate-note .mono {
+  color: var(--text);
+}

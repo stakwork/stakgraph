@@ -71,8 +71,17 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/_plugin": {
-        target: "http://localhost:8181",
+        // GATEWAY_URL lets a developer point the SPA at a gateway on
+        // another port (a second compose stack, a mock, a tunnel).
+        target: process.env.GATEWAY_URL ?? "http://localhost:8181",
         changeOrigin: false,
+        // The SPA's own base is /_plugin/ui/. Without this bypass the
+        // prefix rule above would forward the shell and every source
+        // module to the gateway, which happily serves its *embedded*
+        // production bundle — and the dev server never shows a local
+        // edit. Returning the URL tells Vite to serve it itself.
+        bypass: (req) =>
+          req.url?.startsWith("/_plugin/ui") ? req.url : undefined,
       },
     },
   },

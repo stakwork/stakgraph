@@ -1,17 +1,30 @@
-// RunDetail — provenance + summary + paginated call log for one run.
+// RunDetail — live state + kill switch, provenance, summary, and the
+// paginated call log for one run.
 //
-// Read-only; phase 9 grows the kill button and live-state panel
-// (both of which depend on Redis hot state that phase 8 doesn't
-// surface). Phase-8.5 adds the Provenance card, which is a pure
-// frontend rearrangement of fields already on logs.metadata.
+// Phase 9 adds the LiveStateCard (Redis hot state via /runs/:id/state,
+// polled at 2s while the run is in flight) and the Kill / Unkill
+// switch behind KillConfirmModal. The call log and Provenance card
+// are unchanged and still read-only. Phase-8.5 added the Provenance
+// card, which is a pure frontend rearrangement of fields already on
+// logs.metadata.
 
 import { useEffect, useState } from "preact/hooks";
 import { Link } from "wouter-preact";
 
 import { DataTable } from "../components/tables/DataTable";
-import { BotIcon, UserIcon } from "../components/icons";
+import { BotIcon, StopIcon, UserIcon } from "../components/icons";
+import { KillConfirmModal } from "../components/KillConfirmModal";
+import { StatusBadge, deriveRunStatus } from "../components/StatusBadge";
 import { getErrorMessage } from "../api/client";
-import { useRunCall, useRunDetail, useTrustOrg, useTrustStatus } from "../api/queries";
+import {
+  useKillRun,
+  useRunCall,
+  useRunDetail,
+  useRunState,
+  useTrustOrg,
+  useTrustStatus,
+  useUnkillRun,
+} from "../api/queries";
 import type {
   CacheDebug,
   CallDetailResponse,
@@ -128,6 +141,8 @@ export function RunDetail({ runID }: Props) {
           <h1 class="mono">{runID}</h1>
         </div>
       </div>
+
+      <LiveStateCard runID={runID} lastCallISO={firstLog?.timestamp} />
 
       {q.isError ? (
         <div class="error-banner">{getErrorMessage(q.error)}</div>
@@ -315,6 +330,264 @@ function Kpi({
       <div class={"kpi-value" + (mono ? " mono" : "")}>{value}</div>
     </div>
   );
+}
+
+// ─── LiveStateCard ───────────────────────────────────────────────────
+//
+// The "stop this thing" card. Reads the run's Redis hot state
+// (/runs/:id/state) and owns the Kill / Unkill switch. Three
+// non-error shapes to render:
+//
+//   data === null       swarm has no Redis ⇒ inline "unavailable"
+//                       note, switch disabled. Not an error page —
+//                       the rest of RunDetail is log-backed and fine.
+//   ttl_seconds === -2  Redis is up but this run has no state yet
+//                       (never made a macaroon-bearing call, or the
+//                       accumulator expired). Kill still allowed:
+//                       KillRun doesn't need prior state.
+//   otherwise           figures + last tools + TTL countdown.
+//
+// Status (StatusBadge.deriveRunStatus) needs "when did this run last
+// do anything". Two sources, whichever is newer: the newest call-log
+// row (fetched once — useRunDetail doesn't poll) and the /state step
+// counter moving between polls (useStepActivity). The result also
+// drives the poll cadence: 2s while running, 30s once done, 500ms
+// for 30s after a kill (see useRunState).
+function LiveStateCard({
+  runID,
+  lastCallISO,
+}: {
+  runID: string;
+  lastCallISO?: string;
+}) {
+  const [inFlight, setInFlight] = useState(false);
+  const stateQ = useRunState(runID, { inFlight });
+  const kill = useKillRun(runID);
+  const unkill = useUnkillRun(runID);
+  const [modal, setModal] = useState<"kill" | "unkill" | null>(null);
+  const now = useNow(15_000);
+
+  const st = stateQ.data; // undefined: loading · null: redis off
+  const stepActivityMs = useStepActivity(st?.steps);
+  const lastCallMs = lastCallISO ? Date.parse(lastCallISO) : undefined;
+  const evidence = [lastCallMs, stepActivityMs].filter(
+    (v): v is number => v !== undefined && !Number.isNaN(v),
+  );
+  const lastActivityMs = evidence.length ? Math.max(...evidence) : undefined;
+  const status = deriveRunStatus({ killed: !!st?.killed, lastActivityMs, now });
+  useEffect(() => setInFlight(status === "running"), [status]);
+
+  const unavailable = st === null;
+  const canAct = !!st && !stateQ.isError;
+  const active = modal === "kill" ? kill : unkill;
+  const tools = st?.tools ?? [];
+  const noState = !!st && st.ttl_seconds === -2;
+
+  const open = (which: "kill" | "unkill") => {
+    // Clear any stale error from a previous attempt so the modal
+    // opens clean.
+    kill.reset();
+    unkill.reset();
+    setModal(which);
+  };
+  // Two explicit branches (not `(a ? kill : unkill).mutate(...)`):
+  // the two mutations have different result types, so TS can't type
+  // `mutate` on their union.
+  const confirm = () => {
+    const done = { onSuccess: () => setModal(null) };
+    if (modal === "kill") kill.mutate(undefined, done);
+    else unkill.mutate(undefined, done);
+  };
+
+  return (
+    <section class="card hotstate">
+      <div class="card-header">
+        <div class="hotstate-title">
+          <div class="card-title">Live state</div>
+          {st ? (
+            <StatusBadge
+              status={status}
+              title={
+                status === "running" && lastActivityMs !== undefined
+                  ? "Last activity " +
+                    fmtRelative(new Date(lastActivityMs).toISOString())
+                  : undefined
+              }
+            />
+          ) : null}
+        </div>
+        <div class="hotstate-actions">
+          <div class="text-dim mono" style="font-size: 11px">
+            {unavailable ? "redis off" : "redis hot state"}
+          </div>
+          {st?.killed ? (
+            <button
+              type="button"
+              class="btn"
+              disabled={!canAct}
+              title="Clear the kill flag; the run resumes on its next LLM call"
+              onClick={() => open("unkill")}
+            >
+              Unkill
+            </button>
+          ) : (
+            <button
+              type="button"
+              class="btn btn-icon is-danger-solid"
+              disabled={!canAct}
+              title={
+                unavailable
+                  ? "Hot state unavailable on this swarm (no Redis) — kill switches are off"
+                  : "Stop this run and every sub-agent it spawned"
+              }
+              onClick={() => open("kill")}
+            >
+              <StopIcon />
+              Kill run
+            </button>
+          )}
+        </div>
+      </div>
+
+      {unavailable ? (
+        <div class="hotstate-note">
+          Hot state unavailable on this swarm — the gateway has no Redis
+          configured (<span class="mono">BIFROST_PLUGIN_REDIS_URL</span>),
+          so there are no live accumulators and no kill switch here. The
+          call log below is unaffected.
+        </div>
+      ) : stateQ.isError ? (
+        <div class="error-banner" style="margin-bottom: 0">
+          {getErrorMessage(stateQ.error)}
+        </div>
+      ) : !st ? (
+        <div class="loading">Loading…</div>
+      ) : (
+        <>
+          <div class="hotstate-row">
+            <Figure
+              label="Cost (live)"
+              value={noState ? "—" : fmtUSD(st.cost_usd)}
+            />
+            <Figure label="Steps" value={noState ? "—" : fmtInt(st.steps)} />
+            <Figure label="State expires in" value={fmtTTL(st.ttl_seconds)} />
+            <Figure
+              label="Kill flag"
+              value={st.killed ? "set" : "clear"}
+              tone={st.killed ? "danger" : undefined}
+            />
+          </div>
+          <div class="hotstate-tools">
+            <span class="text-dim" style="font-size: 12px">
+              Last tools:
+            </span>
+            {tools.length === 0 ? (
+              <span class="text-dim" style="font-size: 12px">
+                none recorded
+              </span>
+            ) : (
+              tools.map((t, i) => (
+                <span key={i} class="pill mono" title={i === 0 ? "most recent" : undefined}>
+                  {t}
+                </span>
+              ))
+            )}
+          </div>
+          {noState ? (
+            <div class="hotstate-note">
+              No hot state for this run yet — it hasn't made a
+              macaroon-bearing call through this gateway, or its
+              accumulator has expired. Killing is still allowed; the flag
+              catches the run's next call.
+            </div>
+          ) : null}
+          {st.killed ? (
+            <div class="hotstate-note tone-danger">
+              Kill flag set
+              {kill.data ? ` at ${fmtTs(kill.data.killed_at)}` : ""}. It
+              takes effect on the run's <strong>next LLM call</strong>;
+              sub-agents this run spawned are killed with it. If calls
+              keep landing, the swarm is most likely in shadow mode (
+              <span class="mono">enforce_macaroons=false</span>), where
+              kills are logged but not enforced. The flag expires on its
+              own after 1 hour.
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {modal ? (
+        <KillConfirmModal
+          target={{ kind: "run", id: runID }}
+          action={modal}
+          pending={active.isPending}
+          error={active.isError ? getErrorMessage(active.error) : null}
+          onConfirm={confirm}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function Figure({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "danger";
+}) {
+  return (
+    <div class="budget-figure">
+      <div class="budget-figure-label">{label}</div>
+      <div class={"budget-figure-val" + (tone ? " tone-" + tone : "")}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// Re-render tick so time-relative derivations (running → done after
+// RUN_ACTIVE_WINDOW_MS of silence) move even when the polled data
+// itself doesn't change between polls.
+function useNow(everyMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(t);
+  }, [everyMs]);
+  return now;
+}
+
+// Turns the /state step counter into "when did it last move". The
+// first observation is a baseline, not evidence of activity; only a
+// change between polls counts.
+function useStepActivity(steps: number | undefined): number | undefined {
+  const [seen, setSeen] = useState<{ steps: number; at: number } | undefined>();
+  useEffect(() => {
+    if (steps === undefined) return;
+    setSeen((prev) => {
+      if (!prev) return { steps, at: 0 };
+      if (prev.steps === steps) return prev;
+      return { steps, at: Date.now() };
+    });
+  }, [steps]);
+  return seen && seen.at > 0 ? seen.at : undefined;
+}
+
+// TTL of the cost accumulator (auth/accumulator.go: clamp(exp − now +
+// 1h, 1h, 7d), refreshed on every write). -2 = no key, -1 = no expiry.
+function fmtTTL(s: number): string {
+  if (s === -2) return "—";
+  if (s === -1) return "never";
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}h ${rm}m` : `${h}h`;
 }
 
 function ProvField({
