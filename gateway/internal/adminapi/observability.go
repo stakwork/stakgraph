@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stakwork/stakgraph/gateway/internal/duration"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 )
 
@@ -260,7 +261,7 @@ func (h *observabilityHandlers) spendByAgent(w http.ResponseWriter, r *http.Requ
 
 	type agg struct {
 		cost   float64
-		tokens int64 // not in our trimmed Log; left 0 in phase 8
+		tokens int64
 		count  int64
 	}
 	by := map[string]*agg{}
@@ -273,6 +274,7 @@ func (h *observabilityHandlers) spendByAgent(w http.ResponseWriter, r *http.Requ
 			by[name] = &agg{}
 		}
 		by[name].cost += l.Cost
+		by[name].tokens += l.tokens()
 		by[name].count++
 	}
 
@@ -353,6 +355,7 @@ func (h *observabilityHandlers) spendByUser(w http.ResponseWriter, r *http.Reque
 			by[uid] = &agg{}
 		}
 		by[uid].cost += l.Cost
+		by[uid].tokens += l.tokens()
 		by[uid].count++
 	}
 
@@ -443,6 +446,7 @@ func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.
 			by[k] = a
 		}
 		a.cost += l.Cost
+		a.tokens += l.tokens()
 		a.count++
 		// Provider is recorded on every Bifrost log row; unattributed
 		// rows would skip the loop above before reaching here.
@@ -625,8 +629,8 @@ func dimensionValue(l logstoreLog, dim string) string {
 // Routed under `/_plugin/runs/` (subtree); the trailing segments
 // dispatch by shape:
 //
-//   /_plugin/runs/{run_id}                       → runDetail (list)
-//   /_plugin/runs/{run_id}/calls/{call_id}       → runCallDetail (body)
+//	/_plugin/runs/{run_id}                       → runDetail (list)
+//	/_plugin/runs/{run_id}/calls/{call_id}       → runCallDetail (body)
 //
 // /:id/state and /:id/kill live under the same prefix but are
 // routed to the phase-6 hot-state handlers before this one runs
@@ -713,12 +717,12 @@ func (h *observabilityHandlers) runDetailList(w http.ResponseWriter, r *http.Req
 // (Bifrost's primary key is the call id), but we verify it matches
 // `metadata.run-id` on the row before returning. Two reasons:
 //
-//   1. Defence in depth — keeps the call-detail URL self-describing
-//      and prevents the SPA from being tricked into enumerating
-//      call IDs across runs.
-//   2. Symmetric with /_plugin/runs/{id} which is already run-scoped.
-//      Operators reasonably expect /runs/A/calls/X and /runs/B/calls/X
-//      to give 404 for whichever doesn't actually contain X.
+//  1. Defence in depth — keeps the call-detail URL self-describing
+//     and prevents the SPA from being tricked into enumerating
+//     call IDs across runs.
+//  2. Symmetric with /_plugin/runs/{id} which is already run-scoped.
+//     Operators reasonably expect /runs/A/calls/X and /runs/B/calls/X
+//     to give 404 for whichever doesn't actually contain X.
 func (h *observabilityHandlers) runCallDetail(w http.ResponseWriter, r *http.Request, runID, callID string) {
 	log, err := h.logs.findByID(r.Context(), callID)
 	if err != nil {
@@ -740,38 +744,45 @@ func (h *observabilityHandlers) runCallDetail(w http.ResponseWriter, r *http.Req
 	}
 
 	writeJSON(w, http.StatusOK, CallDetailResponse{
-		ID:               log.ID,
-		RunID:            runID,
-		Timestamp:        log.Timestamp,
-		Provider:         log.Provider,
-		Model:            log.Model,
-		Status:           log.Status,
-		Cost:             log.Cost,
-		Latency:          log.Latency,
-		CustomerID:       log.CustomerID,
-		Metadata:         log.Metadata,
+		ID:              log.ID,
+		RunID:           runID,
+		Timestamp:       log.Timestamp,
+		Provider:        log.Provider,
+		Model:           log.Model,
+		Status:          log.Status,
+		Cost:            log.Cost,
+		Latency:         log.Latency,
+		CustomerID:      log.CustomerID,
+		Metadata:        log.Metadata,
 		StopReason:      log.StopReason,
 		Stream:          log.Stream,
 		NumberOfRetries: log.NumberOfRetries,
 		FallbackIndex:   log.FallbackIndex,
 		TokenUsage:      log.TokenUsage,
 		CacheDebug:      log.CacheDebug,
-		InputHistory:     log.InputHistory,
-		OutputMessage:    log.OutputMessage,
-		Params:           log.Params,
-		Tools:            log.Tools,
-		ErrorDetails:     log.ErrorDetails,
-		RawRequest:       log.RawRequest,
-		RawResponse:      log.RawResponse,
-		ContentSummary:   log.ContentSummary,
+		InputHistory:    log.InputHistory,
+		OutputMessage:   log.OutputMessage,
+		Params:          log.Params,
+		Tools:           log.Tools,
+		ErrorDetails:    log.ErrorDetails,
+		RawRequest:      log.RawRequest,
+		RawResponse:     log.RawResponse,
+		ContentSummary:  log.ContentSummary,
 	})
 }
 
 // ─── parameter parsing ───────────────────────────────────────────────
 
-// parseWindow reads ?window=1h|24h|7d|30d and returns the canonical
-// label plus the resolved start/end pair (UTC). 24h is the default
-// when unset.
+// parseWindow reads ?window= and returns the label plus the resolved
+// start/end pair (UTC). Any Bifrost duration is accepted (phase 7
+// "Query parameters": 1h, 6h, 24h, 1d, 7d, 1w, 30d, 1M, 1Y — see
+// internal/duration for the vocabulary); the SPA's picker uses a
+// four-option subset. Analytics windows are rolling — "1d" is the
+// last 24 hours ending now, not the calendar day — which is what
+// "what happened recently" dashboards expect. Calendar alignment is
+// the agent-budget bucket's concern (budgets.go), not this one's.
+// 24h is the default when unset; 1Y is the ceiling (the 200k-row
+// scan cap bounds the work regardless).
 //
 // Returns (window, start, end, ok). When ok is false the handler
 // has already written a 400 and must return.
@@ -780,31 +791,22 @@ func parseWindow(w http.ResponseWriter, r *http.Request) (string, time.Time, tim
 	if q == "" {
 		q = "24h"
 	}
-	now := time.Now().UTC()
-	var from time.Time
-	switch q {
-	case "1h":
-		from = now.Add(-time.Hour)
-	case "6h":
-		from = now.Add(-6 * time.Hour)
-	case "24h":
-		from = now.Add(-24 * time.Hour)
-	case "7d":
-		from = now.AddDate(0, 0, -7)
-	case "30d":
-		from = now.AddDate(0, 0, -30)
-	default:
+	d, err := duration.Parse(q)
+	if err != nil || d.Length() > 366*24*time.Hour {
 		writeError(w, http.StatusBadRequest, "bad_request",
-			"window must be one of: 1h, 6h, 24h, 7d, 30d")
+			"window must be a Bifrost duration (e.g. 1h, 6h, 24h, 1d, 7d, 1w, 30d, 1M), at most 1Y")
 		return "", time.Time{}, time.Time{}, false
 	}
-	return q, from, now, true
+	now := time.Now().UTC()
+	return q, now.Add(-d.Length()), now, true
 }
 
-// parseBucket reads ?bucket=… and enforces a small whitelist. Must
-// not exceed the window (otherwise a 7d window with a 30d bucket
-// would produce one point — useless, and the kind of silent
-// degradation that's confusing to debug).
+// parseBucket reads ?bucket=… (any Bifrost duration; 1h default) and
+// rejects buckets shorter than a minute or longer than the window
+// (otherwise a 7d window with a 30d bucket would produce one point —
+// useless, and the kind of silent degradation that's confusing to
+// debug). Buckets are aligned to the unix epoch, never the calendar,
+// so "1d" here is 86400-second slots.
 func parseBucket(w http.ResponseWriter, r *http.Request, window time.Duration) (time.Duration, bool) {
 	q := r.URL.Query().Get("bucket")
 	if q == "" {
@@ -812,25 +814,18 @@ func parseBucket(w http.ResponseWriter, r *http.Request, window time.Duration) (
 		// today" use case the dashboard does on first paint.
 		q = "1h"
 	}
-	d, ok := map[string]time.Duration{
-		"1m":  time.Minute,
-		"5m":  5 * time.Minute,
-		"10m": 10 * time.Minute,
-		"1h":  time.Hour,
-		"6h":  6 * time.Hour,
-		"1d":  24 * time.Hour,
-	}[q]
-	if !ok {
+	d, err := duration.Parse(q)
+	if err != nil || d.Length() < time.Minute {
 		writeError(w, http.StatusBadRequest, "bad_request",
-			"bucket must be one of: 1m, 5m, 10m, 1h, 6h, 1d")
+			"bucket must be a Bifrost duration of at least 1m (e.g. 1m, 5m, 10m, 1h, 6h, 1d)")
 		return 0, false
 	}
-	if d > window {
+	if d.Length() > window {
 		writeError(w, http.StatusBadRequest, "bad_request",
 			"bucket must be ≤ window")
 		return 0, false
 	}
-	return d, true
+	return d.Length(), true
 }
 
 // parseDimensionParam reads ?dimension=… and enforces the set of

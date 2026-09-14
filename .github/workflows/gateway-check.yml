@@ -1,0 +1,98 @@
+name: Gateway Checks
+
+# Guards the gateway plugin on every change under gateway/:
+#   - go: build + vet + unit tests for the plugin packages (auth,
+#     adminapi, hooks, …). The root package is a Go plugin (no main
+#     func; -buildmode=plugin, CGO, pinned Bifrost checkout), so the
+#     plugin binary itself is only built by the Dockerfile — a plain
+#     `go build .` fails by design. ./internal/... is the compile
+#     surface that matters for review.
+#   - tygo-check: regenerates ui/src/api/types.ts from the Go structs
+#     in gateway/internal/adminapi and fails on any diff, so a Go
+#     response-shape change can't land without its committed TS
+#     counterpart (phase-8 ship gate; drift would silently break the
+#     dashboard's typed fetch layer).
+#   - ui: type-checks (tsc -b) and bundles the SPA, catching imports
+#     the regenerated types.ts no longer satisfies.
+
+on:
+  pull_request:
+    paths:
+      - "gateway/**"
+      - ".github/workflows/gateway-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "gateway/**"
+      - ".github/workflows/gateway-check.yml"
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+
+      - name: Build
+        run: go build ./internal/...
+
+      - name: Vet
+        run: go vet ./internal/...
+
+      - name: Test
+        run: go test ./internal/...
+
+  tygo-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+
+      # Pinned so the generated output is byte-stable — a tygo release
+      # changing its formatting would otherwise fail every PR. Bump in
+      # lockstep with the version noted in gateway/Makefile and
+      # gateway/tygo.yaml.
+      - name: Install tygo
+        run: go install github.com/gzuidhof/tygo@v0.2.21
+
+      - name: Check generated TS types are up to date
+        run: make tygo-check
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          # package-lock.json is git-ignored for this SPA, so key the
+          # npm cache on package.json instead.
+          cache-dependency-path: gateway/internal/adminapi/ui/package.json
+
+      - name: Install SPA dependencies
+        run: make ui-install
+
+      - name: Type-check and build SPA
+        run: make ui-build

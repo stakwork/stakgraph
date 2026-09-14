@@ -12,7 +12,7 @@
 // or auth-refresh logic here lights the trap of having two HTTP
 // stacks; Tanstack Query gives us all of that one layer up.
 
-import type { ApiError } from "./types";
+import type { ApiError } from "./manual";
 
 const PLUGIN_PREFIX = "/_plugin";
 

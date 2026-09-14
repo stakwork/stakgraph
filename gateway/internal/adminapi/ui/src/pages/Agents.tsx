@@ -18,7 +18,7 @@ import {
   useAgentStates,
   useSpendByAgent,
 } from "../api/queries";
-import type { Window } from "../api/types";
+import type { Window } from "../api/manual";
 
 // A merged agent row: spend metrics (zeroed when registry-only) plus
 // catalog identity/counts (absent when traffic-only).
