@@ -87,6 +87,15 @@ const (
 	// failing the plugin.
 	EnforceMacaroons = "BIFROST_PLUGIN_ENFORCE_MACAROONS"
 
+	// EnforceBudgets overrides the plugin config block's
+	// `enforce_budgets` flag: whether the phase-6 cap walk (per-run /
+	// UA / realm / agent spend caps) rejects with 402 or only logs
+	// "would reject". Same grammar and error handling as
+	// EnforceMacaroons. Only effective when macaroons are enforced
+	// too — without that, a caller bypasses budgets by omitting the
+	// macaroon.
+	EnforceBudgets = "BIFROST_PLUGIN_ENFORCE_BUDGETS"
+
 	// RedisURL is the connection string for the macaroon-enforcement
 	// Redis. In sphinx-swarm this points at the shared redis.sphinx
 	// instance; in docker-compose it points at the sidecar `redis`
@@ -255,7 +264,20 @@ func RedisURLValue() (string, bool) {
 // recognised truthy/falsy sets — the caller decides what to do with
 // a typo; this package never guesses which way it was meant.
 func EnforceMacaroonsValue() (value bool, set bool, err error) {
-	raw := strings.TrimSpace(os.Getenv(EnforceMacaroons))
+	return strictBool(EnforceMacaroons)
+}
+
+// EnforceBudgetsValue parses BIFROST_PLUGIN_ENFORCE_BUDGETS with the
+// same contract as EnforceMacaroonsValue.
+func EnforceBudgetsValue() (value bool, set bool, err error) {
+	return strictBool(EnforceBudgets)
+}
+
+// strictBool reads a boolean env var that must be spelled one of the
+// recognised ways — unlike IsProduction, a typo is surfaced rather
+// than silently read as false, because these flip enforcement.
+func strictBool(name string) (value bool, set bool, err error) {
+	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
 		return false, false, nil
 	}
@@ -265,7 +287,7 @@ func EnforceMacaroonsValue() (value bool, set bool, err error) {
 	case "0", "false", "no", "off":
 		return false, true, nil
 	}
-	return false, true, fmt.Errorf("%s=%q: want one of 1/true/yes/on or 0/false/no/off", EnforceMacaroons, raw)
+	return false, true, fmt.Errorf("%s=%q: want one of 1/true/yes/on or 0/false/no/off", name, raw)
 }
 
 // IsProduction reports whether the plugin is running in a

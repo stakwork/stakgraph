@@ -628,8 +628,9 @@ func dimensionValue(l logstoreLog, dim string) string {
 //   /_plugin/runs/{run_id}                       → runDetail (list)
 //   /_plugin/runs/{run_id}/calls/{call_id}       → runCallDetail (body)
 //
-// Phase 6 will add /:id/state and /:id/kill under the same prefix;
-// any other shape returns 404. We don't pull in a router library
+// /:id/state and /:id/kill live under the same prefix but are
+// routed to the phase-6 hot-state handlers before this one runs
+// (see runsSubtree in server.go); any other shape returns 404. We don't pull in a router library
 // since the dispatch fits in a switch.
 func (h *observabilityHandlers) runDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -651,8 +652,9 @@ func (h *observabilityHandlers) runDetail(w http.ResponseWriter, r *http.Request
 	case len(parts) == 3 && parts[1] == "calls" && parts[2] != "":
 		h.runCallDetail(w, r, parts[0], parts[2])
 	default:
-		// Anything else (e.g. /:id/state, /:id/kill, trailing slash,
-		// 4-segment paths) is phase-6 territory or malformed; 404.
+		// /:id/state and /:id/kill are peeled off by the runs
+		// dispatcher in server.go before we get here; anything
+		// else (trailing slash, 4-segment paths) is malformed; 404.
 		http.NotFound(w, r)
 	}
 }

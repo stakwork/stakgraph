@@ -8,31 +8,39 @@
 //
 // What's in scope here
 // --------------------
-//   - config.go       enforce_macaroons flag (shadow → enforce rollout),
-//     agent_budgets, model_pricing
+//   - config.go       enforce_macaroons + enforce_budgets flags (shadow →
+//     enforce rollout, each with an env override), agent_budgets,
+//     model_pricing
 //   - verifier.go     Verify() — header extraction + trust lookup + pure verify
-//   - revocation.go   CheckRevocations() — bifrost:revoke:* / revoke_user_before:*
+//   - revocation.go   CheckRevocations() — phase-6 PIPELINE 1:
+//     bifrost:revoke:* / revoke_user_before:* (401) and the
+//     kill:<run_id> (every chain layer) / kill:agent:<name> switches (402)
+//   - kill.go         KillRun/KillAgent + Unkill*, GetRunState/GetAgentState —
+//     the admin primitives behind /_plugin/{runs,agents}/:id/{kill,state}
+//   - capwalk.go      CheckCaps() — phase-6 PIPELINE 2: per-run cost/steps
+//     for every chain layer, UA envelope, realm cap, agent bucket (402s;
+//     gated by enforce_budgets)
 //   - ttl.go          clamp(exp-now+1h, 1h, 7d) shared by revocation + accumulators
 //   - enforcement.go  Evaluate() + ApplyToLLMPre() — hook glue
 //   - accumulator.go  ApplyToLLMPost() — phase-6 PostLLMHook pipeline:
 //     cost:run / steps:run per chain layer, cost:ua envelope,
 //     cost:agent windowed buckets, tools:run history
 //   - pricing.go      PriceCall() — model_pricing table → dollars
-//   - admin.go        admin endpoints (revoke management — minimal scope)
+//   - admin.go        revoke primitives behind /_plugin/revoke/*
 //
-// What's still out of scope (phase 6 read side)
-// ---------------------------------------------
-//   - Per-run cost/step cap walk in PreLLMHook (reads the
-//     accumulators this package now writes)
-//   - ua_budget / realm_budget / agent budget 402 rejections
+// What's still out of scope (phase 6)
+// -----------------------------------
 //   - Tool-loop detection (reads tools:run)
-//   - Kill switches (kill:<run_id>, kill:agent:<name>) + admin routes
+//   - hard_ceiling defense-in-depth + the user_id == customer_id cross-check
+//   - tool_loop config + the /_plugin/config/* overrides
 //
-// The write side landing first is deliberate: accumulators are
-// shadow-safe (they reject nothing), they light up the phase-8
-// budget endpoint that currently falls back to logs.db, and the cap
-// walk needs weeks of real accumulated state to validate against
-// before it starts rejecting.
+// Rollout order was deliberate: accumulators first (shadow-safe,
+// they reject nothing), then kill switches (no dependency on
+// accumulated state), then the cap walk behind its own
+// enforce_budgets flag — it needs real accumulated spend to validate
+// against before it starts rejecting, and a swarm that already
+// enforces macaroons must be able to watch "budget shadow: would
+// reject" lines before flipping it.
 //
 // Operational posture
 // -------------------
@@ -44,8 +52,12 @@
 //   - LOGS LOUDLY when a macaroon would have been rejected.
 //   - Does NOT reject — the request continues to the provider.
 //
-// With enforce_macaroons=true the failure path becomes 401/402 with
-// a stable AdapterError.Code. Operators flip the flag per-swarm once
+// With enforce_macaroons=true the failure path becomes 401 (bad,
+// missing or revoked macaroon) or 402 (valid macaroon, but the run
+// or agent was killed) with a stable AdapterError.Code. Spend caps
+// are a second knob: enforce_budgets=true (only effective alongside
+// enforce_macaroons) turns the cap walk's "budget shadow" log lines
+// into 402s. Operators flip the flags per-swarm once
 // the shadow-mode logs show no false positives — either in the
 // config.json plugin block or, without rebuilding the image, via the
 // BIFROST_PLUGIN_ENFORCE_MACAROONS env var (which wins when set; an
