@@ -13,9 +13,10 @@ import (
 )
 
 // Admin-side helpers for managing revocation state. The HTTP routes
-// that expose these (POST /_plugin/admin/revoke, etc.) live in
-// gateway/internal/adminapi and call into this file. Phase-6 will
-// grow the kill-switch and per-run/state endpoints alongside these.
+// that expose these (`/_plugin/revoke/nonce/:nonce`,
+// `/_plugin/revoke/user/:user_id`) live in gateway/internal/adminapi
+// (revoke.go) and call into this file. The kill-switch and per-run /
+// per-agent state primitives live next door in kill.go.
 //
 // These helpers exist now so a swarm operator can:
 //
@@ -57,6 +58,15 @@ func RevokeNonce(ctx context.Context, nonce string, ttl time.Duration) error {
 	octx, cancel := context.WithTimeout(ctx, adminTimeout)
 	defer cancel()
 	return rdb.Set(octx, redisclient.Key(revokePrefix+nonce), "1", ttl).Err()
+}
+
+// RevocationTTL computes the tombstone TTL for a nonce whose layer
+// expires at `layerExp` — the same clamp(exp-now+1h, 1h, 7d) formula
+// the accumulators use, so a revoke outlives the macaroon by the
+// grace hour and never lingers past the 7d ceiling. Exported for the
+// adminapi revoke handler.
+func RevocationTTL(layerExp, now time.Time) time.Duration {
+	return runKeyTTL(layerExp, now)
 }
 
 // UnrevokeNonce removes a revocation tombstone. Mostly for operator

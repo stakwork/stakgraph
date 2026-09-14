@@ -24,6 +24,15 @@ const (
 	// timestamp. Any user_authorization.iat strictly before it is
 	// rejected (covers org-level offboarding / user re-issuance).
 	revokeUserBeforePrefix = "revoke_user_before:"
+
+	// killRunPrefix + <run_id> is the per-run kill switch. Checked
+	// for the leaf run AND every ancestor in the chain, so killing a
+	// parent kills every descendant. TTL 1h (hot operational state).
+	killRunPrefix = "kill:"
+
+	// killAgentPrefix + <agent_name> halts every run whose leaf agent
+	// (Claims.AgentName, i.e. agents[last]) matches. TTL 24h.
+	killAgentPrefix = "kill:agent:"
 )
 
 // pipelineTimeout bounds a single revocation pipeline round-trip.
@@ -32,9 +41,12 @@ const (
 // so we'd rather fail-closed quickly than block.
 const pipelineTimeout = 500 * time.Millisecond
 
-// CheckRevocations runs the Redis revocation pipeline against the
-// claims produced by Verify. Returns nil on "all clear", or an
-// *AdapterError describing which nonce / user-level rule rejected.
+// CheckRevocations runs the Redis revocation + kill-switch pipeline
+// (phase-6 "Hot path" PIPELINE 1) against the claims produced by
+// Verify. Returns nil on "all clear", or an *AdapterError describing
+// which nonce / user-level rule / kill switch rejected. Revocations
+// are 401s; kills are 402s (the macaroon is still valid — an
+// operator chose to stop the run).
 //
 // Observability mode: when redisclient.Client() returns nil (no
 // REDIS_URL configured, or startup ping failed), CheckRevocations
@@ -81,6 +93,19 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 		nonceCmds[n] = pipe.Exists(pctx, redisclient.Key(revokePrefix+n))
 	}
 	userBeforeCmd := pipe.Get(pctx, redisclient.Key(revokeUserBeforePrefix+claims.UserID))
+
+	// Kill switches ride the same round-trip. One EXISTS per distinct
+	// run_id in the chain (outermost first, so a parent kill reports
+	// the parent's id), plus one for the leaf agent name.
+	runIDs := chainRunIDs(claims)
+	killRunCmds := make([]*redis.IntCmd, len(runIDs))
+	for i, id := range runIDs {
+		killRunCmds[i] = pipe.Exists(pctx, redisclient.Key(killRunPrefix+id))
+	}
+	var killAgentCmd *redis.IntCmd
+	if claims.AgentName != "" {
+		killAgentCmd = pipe.Exists(pctx, redisclient.Key(killAgentPrefix+claims.AgentName))
+	}
 
 	if _, err := pipe.Exec(pctx); err != nil && !errors.Is(err, redis.Nil) {
 		// Exec returns the first non-Nil error; redis.Nil is the
@@ -152,7 +177,65 @@ func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterErro
 		// revocations above still apply).
 	}
 
+	// Kill switches, after revocation so a revoked-and-killed
+	// macaroon reports the stronger (auth) reason. Per-run first,
+	// then per-agent, matching phase-6 "Hot path" step 2.
+	for i, cmd := range killRunCmds {
+		exists, err := cmd.Result()
+		if err != nil {
+			return &AdapterError{
+				Code:       "revocation_check_unavailable",
+				HTTPStatus: 401,
+				Message:    fmt.Sprintf("redis exists kill:%s: %v", runIDs[i], err),
+			}
+		}
+		if exists == 1 {
+			return &AdapterError{
+				Code:       "run_killed",
+				HTTPStatus: 402,
+				Message:    fmt.Sprintf("run %s was killed by an operator", runIDs[i]),
+			}
+		}
+	}
+	if killAgentCmd != nil {
+		exists, err := killAgentCmd.Result()
+		if err != nil {
+			return &AdapterError{
+				Code:       "revocation_check_unavailable",
+				HTTPStatus: 401,
+				Message:    fmt.Sprintf("redis exists kill:agent:%s: %v", claims.AgentName, err),
+			}
+		}
+		if exists == 1 {
+			return &AdapterError{
+				Code:       "agent_killed",
+				HTTPStatus: 402,
+				Message:    fmt.Sprintf("agent %s was killed by an operator", claims.AgentName),
+			}
+		}
+	}
+
 	return nil
+}
+
+// chainRunIDs returns every distinct run_id in the verified chain,
+// outermost (invocation) first, leaf last. Falls back to Claims.RunID
+// when the chain is empty so callers that only populate the leaf
+// still get their kill checked.
+func chainRunIDs(claims *macaroon.Claims) []string {
+	ids := make([]string, 0, len(claims.Chain)+1)
+	seen := make(map[string]bool, len(claims.Chain)+1)
+	for _, layer := range claims.Chain {
+		if layer.RunID == "" || seen[layer.RunID] {
+			continue
+		}
+		seen[layer.RunID] = true
+		ids = append(ids, layer.RunID)
+	}
+	if claims.RunID != "" && !seen[claims.RunID] {
+		ids = append(ids, claims.RunID)
+	}
+	return ids
 }
 
 // revokeCodeFor maps the position of a revoked nonce in the

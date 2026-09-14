@@ -28,8 +28,20 @@
 > core exposes no pricing manager to plugins — the canonical
 > logs.db cost is computed by the framework after our hook.)
 > The verifier now surfaces `Claims.UAIAT` / `UAExp` / `Chain` for
-> this. Still open: the PreLLMHook cost/step cap walk and its 402s,
-> tool-loop detection, kill switches + admin routes, and the
+> this.
+>
+> **Status (kill switches landed):** PIPELINE 1 is complete —
+> `CheckRevocations` now also issues `EXISTS bifrost:kill:<run_id>`
+> for every distinct run_id in `Claims.Chain` and
+> `EXISTS bifrost:kill:agent:<agents[last]>`, rejecting with
+> 402 `run_killed` / `agent_killed` (revocation 401s win when both
+> apply). Gated by `enforce_macaroons` like everything else in the
+> hook; shadow mode logs. Admin routes (`gateway/internal/adminapi/
+> hotstate.go`, `revoke.go`): `/_plugin/runs/:id/{kill,state}`,
+> `/_plugin/agents/:name/{kill,state}` (cookie-or-bearer, CSRF on
+> cookie mutations) and `/_plugin/revoke/{nonce,user}/:id`
+> (bearer-only). Still open: the PreLLMHook cost/step cap walk
+> (PIPELINE 2) and its 402s, tool-loop detection, and the
 > `/_plugin/config/*` override layer.
 >
 > **Status (phase 11 cutover):** Redis bucket keys and hot-path
