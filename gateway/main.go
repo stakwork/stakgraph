@@ -90,7 +90,9 @@ func Init(config any) error {
 	}
 	auth.SetTrustRegistry(reg)
 	authCfg := auth.GetConfig()
-	pluginlog.Logf("auth: macaroon adapter wired enforce=%t source=%s", authCfg.EnforceMacaroons, authCfg.EnforceMacaroonsSource)
+	pluginlog.Logf("auth: macaroon adapter wired enforce=%t source=%s enforce_budgets=%t source=%s (effective=%t)",
+		authCfg.EnforceMacaroons, authCfg.EnforceMacaroonsSource,
+		authCfg.EnforceBudgets, authCfg.EnforceBudgetsSource, authCfg.BudgetsEnforced())
 
 	// Model-price catalog for the phase-6 accumulator: loads the
 	// persisted datasheet, then fetches bifrost's published sheet in

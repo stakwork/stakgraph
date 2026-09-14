@@ -108,10 +108,20 @@ func accumulate(
 		pipe.Expire(ctx, stepsKey, ttl)
 	}
 
-	// UA cumulative envelope — only when the org actually set one.
-	// No bucket ⇒ no enforcement; per-invocation caps are checked at
-	// signature time and need no Redis state.
-	if claims.UABudget != nil && claims.UABudget.MaxTotalUSD > 0 && claims.UANonce != "" {
+	// UA cumulative envelope — only when the org actually set one,
+	// either as an org-wide max_total_usd or (phase 11) a cap for
+	// this swarm's realm; the cap walk reads the same counter for
+	// both. No bucket ⇒ no enforcement; per-invocation caps are
+	// checked at signature time and need no Redis state.
+	var uaCap float64
+	if claims.UABudget != nil {
+		uaCap = claims.UABudget.MaxTotalUSD
+	}
+	var realmID string
+	if reg := getRegistry(); reg != nil {
+		realmID = reg.RealmID()
+	}
+	if claims.UANonce != "" && (uaCap > 0 || realmCapFor(claims, realmID) > 0) {
 		uaKey := redisclient.Key(costUAPrefix + claims.UANonce)
 		uaTTL := runKeyTTL(parseRFC3339(claims.UAExp), now)
 		pipe.HIncrByFloat(ctx, uaKey, "total", costUSD)

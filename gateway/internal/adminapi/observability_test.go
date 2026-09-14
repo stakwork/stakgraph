@@ -472,10 +472,12 @@ func TestRunDetail_FiltersByRunID(t *testing.T) {
 func TestRunDetail_404OnSubpath(t *testing.T) {
 	bf := newFakeBifrost(t, nil)
 	srv := newObservabilityTestServer(t, bf)
-	resp := bearerGet(t, srv, "/_plugin/runs/r1/state")
+	// /:id/state and /:id/kill are phase-6 hot state (hotstate_test);
+	// any other subpath is malformed.
+	resp := bearerGet(t, srv, "/_plugin/runs/r1/other")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("want 404 on /:id/state (phase-6 territory), got %d", resp.StatusCode)
+		t.Fatalf("want 404 on unknown subpath, got %d", resp.StatusCode)
 	}
 }
 

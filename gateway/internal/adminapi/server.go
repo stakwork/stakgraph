@@ -189,10 +189,12 @@ func methodMuxedAuth(
 // Auth model
 // ----------
 //   - `/_plugin/health`, `/_plugin/login`: anonymous.
-//   - `/_plugin/admin-credentials`, `/_plugin/trust/*`: bearer only
-//     (Hive's machine-to-plugin path; cookies are not honoured).
-//   - Everything else (observability, /me, /logout): cookie OR
-//     bearer, with cookie tried first.
+//   - `/_plugin/admin-credentials`, `/_plugin/trust/*`,
+//     `/_plugin/revoke/*`: bearer only (Hive's machine-to-plugin
+//     path; cookies are not honoured).
+//   - Everything else (observability, kill/state, /me, /logout):
+//     cookie OR bearer, with cookie tried first. Cookie-authed
+//     mutations (kill, unkill, toggles) need the CSRF header.
 //
 // The /_plugin/ui/* SPA is also cookie-or-bearer so curl with a
 // bearer can pull it for diagnostics, but browsers always reach it
@@ -248,20 +250,53 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	mux.HandleFunc("/_plugin/auth/ticket", bearer(ticketH.mint))
 	mux.HandleFunc("/_plugin/auth/redeem", ticketH.redeem) // anon; ticket IS the proof
 
+	// Phase-6 hot state: kill switches + Redis snapshots. Registered
+	// unconditionally (they need Redis, not the logstore) and
+	// dispatched from the shared /runs/ and /agents/ subtrees below.
+	hot := newHotStateHandlers()
+
 	// Cookie-or-bearer routes: phase-7 observability subset.
+	var obs *observabilityHandlers
 	if deps.logstore != nil {
-		obs := newObservabilityHandlers(deps.logstore)
+		obs = newObservabilityHandlers(deps.logstore)
 		mux.HandleFunc("/_plugin/spend/by-agent", cookieOrBearer(obs.spendByAgent))
 		mux.HandleFunc("/_plugin/spend/by-user", cookieOrBearer(obs.spendByUser))
 		mux.HandleFunc("/_plugin/spend/by-agent-user", cookieOrBearer(obs.spendByAgentUser))
 		mux.HandleFunc("/_plugin/histogram/cost", cookieOrBearer(obs.histogramCost))
-		// /_plugin/runs/ takes a trailing path segment as run-id
-		mux.HandleFunc("/_plugin/runs/", cookieOrBearer(obs.runDetail))
 		// /_plugin/users/ takes a trailing path segment as user-id.
 		// Phase-8 only exposes the rollup (KPIs + agents-used +
 		// runs); phase-9 adds /:id/quota for spend-vs-cap.
 		mux.HandleFunc("/_plugin/users/", cookieOrBearer(obs.userDetail))
 	}
+
+	// The `/_plugin/runs/` subtree: `<id>/kill` and `<id>/state` are
+	// phase-6 hot state; everything else (`<id>`, `<id>/calls/<cid>`)
+	// is the phase-7 logs.db drill-down, which 404s when the logstore
+	// isn't configured.
+	runsSubtree := func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/_plugin/runs/")
+		parts := strings.Split(rest, "/")
+		if len(parts) == 2 && parts[0] != "" {
+			switch parts[1] {
+			case "kill":
+				hot.runKill(w, r, parts[0])
+				return
+			case "state":
+				hot.runState(w, r, parts[0])
+				return
+			}
+		}
+		if obs == nil {
+			http.NotFound(w, r)
+			return
+		}
+		obs.runDetail(w, r)
+	}
+	mux.HandleFunc("/_plugin/runs/", cookieOrBearer(runsSubtree))
+
+	// Revocation admin (bearer-only; issuer territory).
+	rv := newRevokeHandlers()
+	mux.HandleFunc(revokePrefixPath, bearer(rv.dispatch))
 
 	// Phase-8.5 per-agent budget view. Reads cap from plugin config
 	// (auth.GetConfig().AgentBudgets) and current-bucket spend from
@@ -269,8 +304,7 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// fallback to summing `logs.db` rows when phase 6's PostHook
 	// hasn't filled the Redis hash yet. Subtree routing on
 	// `/_plugin/agents/`; the handler enforces the `<name>/budget`
-	// shape and 404s on anything else (phase-9 `:name/state` and
-	// `:name/kill` live under the same prefix later).
+	// shape and 404s on anything else.
 	bgt := newBudgetHandlers(deps.logstore)
 	cat := newCatalogHandlers(deps.graph)
 	hiveCb := newHiveCallbackHandlers()
@@ -278,13 +312,22 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 
 	// The `/_plugin/agents/` subtree is shared: ServeMux allows only
 	// one handler per pattern, so a small dispatcher fans the trailing
-	// `<name>/<view>` segment out to the budget (phase-8.5) or catalog
-	// (agent-catalog) read. Both are cookie-or-bearer reads. Anything
-	// else under the prefix 404s, preserving the budget handler's
-	// existing contract.
+	// `<name>/<view>` segment out to the budget (phase-8.5), catalog
+	// (agent-catalog), or hot-state (phase-6 kill/state) handler. All
+	// cookie-or-bearer. Anything else under the prefix 404s,
+	// preserving the budget handler's existing contract.
 	agentsSubtree := func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/_plugin/agents/")
 		parts := strings.Split(rest, "/")
+		// `<name>/kill` (POST/DELETE) and `<name>/state` (GET).
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "kill" {
+			hot.agentKill(w, r, parts[0])
+			return
+		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "state" {
+			hot.agentState(w, r, parts[0])
+			return
+		}
 		// `/_plugin/agents/catalog` (single segment) is the catalog
 		// list — every registry agent, traffic or not. Distinct from
 		// `<name>/catalog` (two segments) which is one agent's detail.
