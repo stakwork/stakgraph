@@ -466,3 +466,47 @@ export type Dimension =
   | "run-id"
   | "session-id"
   | "user-id";
+
+// ─── hot state (phase-6 kill switches, phase-9 UI) ──────────────────
+// Mirrors gateway/internal/adminapi/hotstate.go. Redis-backed live
+// state: a run's phase-6 accumulators + kill flag, and an agent's
+// current-bucket spend + kill flag. Every route 503s when the swarm
+// has no Redis; the hooks in queries.ts fold that into `null` data.
+
+// POST /_plugin/runs/:id/kill
+export interface KillRunResponse {
+  run_id: string;
+  killed_at: string; // RFC3339 UTC
+}
+
+// POST /_plugin/agents/:name/kill
+export interface KillAgentResponse {
+  agent_name: string;
+  killed_at: string; // RFC3339 UTC
+}
+
+// GET /_plugin/runs/:id/state — the run's live phase-6 accumulators.
+// A run that has never made a call reads as all-zero with
+// ttl_seconds = -2 (no key), not 404.
+export interface RunStateResponse {
+  run_id: string;
+  cost_usd: number;
+  steps: number;
+  tools: string[]; // last 10 tool names, most recent first
+  killed: boolean;
+  /** Remaining lifetime of the cost accumulator: -2 when the run has
+   *  no state yet, -1 when it has no expiry. */
+  ttl_seconds: number;
+}
+
+// GET /_plugin/agents/:name/state?window=1d
+export interface AgentStateResponse {
+  agent_name: string;
+  window: string;
+  bucket_key: string;
+  current_spend_usd: number;
+  /** null when the agent has no agent_budgets entry; then `window`
+   *  is informational (?window= or "1d"). */
+  configured_cap_usd: number | null;
+  killed: boolean;
+}
