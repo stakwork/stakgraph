@@ -135,12 +135,6 @@ export function TlogCard() {
           </dl>
         </>
       )}
-
-      <div class="tlog-note">
-        Every accounted call is a leaf. Witnessing (countersigned heads)
-        lives in Hive; this card shows only what the gateway itself can
-        attest.
-      </div>
     </section>
   );
 }

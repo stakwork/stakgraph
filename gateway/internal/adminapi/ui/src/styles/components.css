@@ -1566,8 +1566,9 @@ h1 .badge {
  * Dashboard card for the gateway's own view of its Merkle log. Sits
  * under the ranking tables; the header carries the Logging /
  * Disabled / Unavailable badge and the leaf-file path, the body is a
- * kvgrid of local facts, and the note under it says what the card
- * deliberately does not claim (witnessing is Hive's).
+ * kvgrid of local facts. What the card deliberately does not claim
+ * (witnessing is Hive's) is documented in TlogCard.tsx, not on the
+ * card.
  */
 .tlog {
   margin-top: var(--sp-5);
@@ -1589,10 +1590,4 @@ h1 .badge {
   font-family: var(--font-sans);
   font-size: 11px;
   margin-left: var(--sp-1);
-}
-.tlog-note {
-  margin-top: var(--sp-4);
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--text-muted);
 }
