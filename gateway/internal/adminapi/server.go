@@ -192,7 +192,8 @@ func methodMuxedAuth(
 //   - `/_plugin/admin-credentials`, `/_plugin/trust/*`,
 //     `/_plugin/revoke/*`, `/_plugin/tlog/sth`: bearer only (Hive's
 //     machine-to-plugin path; cookies are not honoured).
-//   - Everything else (observability, kill/state, /me, /logout):
+//   - Everything else (observability, kill/state, tlog/status, /me,
+//     /logout):
 //     cookie OR bearer, with cookie tried first. Cookie-authed
 //     mutations (kill, unkill, toggles) need the CSRF header.
 //
@@ -215,7 +216,14 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// purpose — a dashboard cookie must never be able to pull material
 	// Hive then org-signs. Registered unconditionally; the handler
 	// answers 503 while the log is disabled or not initialized.
-	mux.HandleFunc(tlogSthPath, bearer(newTlogHandlers().sth))
+	tl := newTlogHandlers()
+	mux.HandleFunc(tlogSthPath, bearer(tl.sth))
+	// The dashboard's read of the same log: local facts only (size,
+	// root, per-boot key, newest leaf, up/down) — no leaves, no STH
+	// signature — so it can sit with the other cookie-or-bearer
+	// dashboard reads below. Always 200; the card renders the
+	// disabled state from the body.
+	mux.HandleFunc(tlogStatusPath, cookieOrBearer(tl.status))
 
 	if deps.trust != nil {
 		th := newTrustHandlers(deps.trust)
