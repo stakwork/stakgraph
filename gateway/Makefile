@@ -74,8 +74,12 @@ docker-logs:
 
 UI_DIR = internal/adminapi/ui
 
+# `npm ci`: install exactly what package-lock.json says (the lockfile is
+# committed; the Dockerfile's plugin-ui-builder stage runs the same).
+# Local dev that wants to bump a dependency runs `npm install` in
+# $(UI_DIR) by hand and commits the lockfile change.
 ui-install:
-	cd $(UI_DIR) && npm install --no-audit --no-fund
+	cd $(UI_DIR) && npm ci --no-audit --no-fund
 
 ui-build:
 	cd $(UI_DIR) && npm run build
