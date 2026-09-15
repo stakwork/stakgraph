@@ -55,6 +55,10 @@ ecosystem.config.js
 
 # Root level package-lock (empty, already ignored in mcp/)
 package-lock.json
+# The gateway admin SPA is npm-only and its image build runs `npm ci`
+# from this lockfile so local, gateway-check CI and the release image
+# all install the same tree (see gateway/Dockerfile plugin-ui-builder).
+!gateway/internal/adminapi/ui/package-lock.json
 
 .neo4j
 .neo4j-*
