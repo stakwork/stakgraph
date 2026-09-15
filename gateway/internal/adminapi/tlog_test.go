@@ -316,3 +316,234 @@ func TestTlogSth_LeavesServedVerbatim(t *testing.T) {
 		t.Fatal("single served leaf does not hash to the root")
 	}
 }
+
+// ─── /_plugin/tlog/status ─────────────────────────────────────────────
+
+func getTlogStatus(t *testing.T, srv *httptest.Server, bearer string) (*http.Response, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+tlogStatusPath, nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	return resp, body
+}
+
+func decodeStatus(t *testing.T, body []byte) TlogStatusResponse {
+	t.Helper()
+	var st TlogStatusResponse
+	if err := json.Unmarshal(body, &st); err != nil {
+		t.Fatalf("decode status: %v\n%s", err, body)
+	}
+	return st
+}
+
+func TestTlogStatus_RequiresAuth_AcceptsBearer(t *testing.T) {
+	srv, _ := newTlogTestServer(t)
+	if resp, _ := getTlogStatus(t, srv, ""); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no auth: want 401, got %d", resp.StatusCode)
+	}
+	if resp, _ := getTlogStatus(t, srv, "wrong-token"); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad bearer: want 401, got %d", resp.StatusCode)
+	}
+	resp, body := getTlogStatus(t, srv, testToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("bearer: want 200, got %d: %s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("content-type = %q", ct)
+	}
+}
+
+// Unlike /sth, the status read is meant for the dashboard: the
+// session cookie is enough.
+func TestTlogStatus_AcceptsDashboardCookie(t *testing.T) {
+	l := openTestTlog(t)
+	srv, client := newAuthTestServer(t)
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/_plugin/login", nil)
+	req.Header.Set("Authorization", basicHeader("admin", "hunter2"))
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	resp, err = client.Get(srv.URL + tlogStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tlog/status with cookie: want 200, got %d: %s", resp.StatusCode, body)
+	}
+	if st := decodeStatus(t, body); !st.Healthy || st.LogPubkey != l.PubkeyHex() {
+		t.Fatalf("status via cookie = %+v", st)
+	}
+	// …while the witness route still refuses the same cookie.
+	resp, err = client.Get(srv.URL + tlogSthPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("tlog/sth with cookie: want 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestTlogStatus_EmptyLog(t *testing.T) {
+	srv, l := newTlogTestServer(t)
+	resp, body := getTlogStatus(t, srv, testToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", resp.StatusCode, body)
+	}
+	// Nulls are explicit on the wire so the card can distinguish
+	// "no leaf yet" from a missing field.
+	for _, want := range []string{`"error":null`, `"last_leaf_ts":null`, `"tree_size":0`} {
+		if !bytes.Contains(body, []byte(want)) {
+			t.Errorf("body lacks %s: %s", want, body)
+		}
+	}
+	st := decodeStatus(t, body)
+	empty := tlog.EmptyRoot()
+	if !st.Healthy || st.Error != nil || st.TreeSize != 0 || st.LastLeafTS != nil {
+		t.Errorf("empty status = %+v", st)
+	}
+	if st.RootHash != hex.EncodeToString(empty[:]) {
+		t.Errorf("root_hash = %s, want the empty root %x", st.RootHash, empty)
+	}
+	if st.LogPubkey != l.PubkeyHex() || st.Path != l.Path() {
+		t.Errorf("pubkey/path = %s / %s", st.LogPubkey, st.Path)
+	}
+}
+
+func TestTlogStatus_AfterAppends(t *testing.T) {
+	srv, l := newTlogTestServer(t)
+	appendLeaves(t, l, 3)
+
+	_, body := getTlogStatus(t, srv, testToken)
+	st := decodeStatus(t, body)
+	if !st.Healthy || st.TreeSize != 3 {
+		t.Fatalf("status = %+v", st)
+	}
+
+	// The root the card shows is the root over the leaves the
+	// witness is served.
+	_, pageBody := getSth(t, srv, "", testToken)
+	page := decodePage(t, pageBody)
+	var hashes []tlog.Hash
+	for _, raw := range page.Leaves {
+		hashes = append(hashes, tlog.LeafHash(raw))
+	}
+	root := tlog.RootFromLeafHashes(hashes)
+	if st.RootHash != hex.EncodeToString(root[:]) || st.RootHash != page.STH.RootHash {
+		t.Errorf("root_hash = %s, want %x (sth says %s)", st.RootHash, root, page.STH.RootHash)
+	}
+
+	// last_leaf_ts is the newest leaf's own ts.
+	var newest tlog.Leaf
+	if err := json.Unmarshal(page.Leaves[len(page.Leaves)-1], &newest); err != nil {
+		t.Fatal(err)
+	}
+	if st.LastLeafTS == nil || *st.LastLeafTS != newest.TS {
+		t.Errorf("last_leaf_ts = %v, want %q", st.LastLeafTS, newest.TS)
+	}
+
+	// Another append moves it.
+	if _, err := l.Append(tlogLeaf(3, "coder")); err != nil {
+		t.Fatal(err)
+	}
+	_, body = getTlogStatus(t, srv, testToken)
+	next := decodeStatus(t, body)
+	if next.TreeSize != 4 || next.RootHash == st.RootHash || next.LastLeafTS == nil {
+		t.Errorf("status after append = %+v", next)
+	}
+}
+
+// The status route never 503s: the card renders the broken state
+// from healthy:false + error.
+func TestTlogStatus_UnhealthyIs200WithReason(t *testing.T) {
+	srv, _ := newTlogTestServer(t)
+
+	tlog.SetDefaultForTest(nil)
+	resp, body := getTlogStatus(t, srv, testToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("uninitialized: want 200, got %d: %s", resp.StatusCode, body)
+	}
+	st := decodeStatus(t, body)
+	if st.Healthy || st.Error == nil || !strings.Contains(*st.Error, "not initialized") {
+		t.Fatalf("uninitialized status = %+v", st)
+	}
+	empty := tlog.EmptyRoot()
+	if st.TreeSize != 0 || st.RootHash != hex.EncodeToString(empty[:]) || st.LastLeafTS != nil {
+		t.Errorf("uninitialized numbers = %+v", st)
+	}
+
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := tlog.Open(filepath.Join(blocker, "leaves.jsonl"))
+	if err == nil {
+		t.Fatal("expected open to fail")
+	}
+	tlog.SetDefaultForTest(disabled)
+	resp, body = getTlogStatus(t, srv, testToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disabled: want 200, got %d: %s", resp.StatusCode, body)
+	}
+	st = decodeStatus(t, body)
+	if st.Healthy || st.Error == nil || !strings.Contains(*st.Error, "log disabled") {
+		t.Fatalf("disabled status = %+v", st)
+	}
+	if st.Path != disabled.Path() || st.LogPubkey != disabled.PubkeyHex() {
+		t.Errorf("disabled status keeps path/pubkey: %+v", st)
+	}
+}
+
+// A cookie session reads this route, so it must carry nothing the
+// witness org-signs: no leaves, no signed head, no proof.
+func TestTlogStatus_CarriesNoWitnessMaterial(t *testing.T) {
+	srv, l := newTlogTestServer(t)
+	appendLeaves(t, l, 2)
+	_, body := getTlogStatus(t, srv, testToken)
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(body, &keys); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"sig", "sth", "leaves", "consistency_proof", "signed_at", "next"} {
+		if _, ok := keys[forbidden]; ok {
+			t.Errorf("status body carries %q: %s", forbidden, body)
+		}
+	}
+	for _, k := range []string{"healthy", "error", "tree_size", "root_hash", "log_pubkey", "path", "last_leaf_ts"} {
+		if _, ok := keys[k]; !ok {
+			t.Errorf("status body lacks %q: %s", k, body)
+		}
+	}
+	if len(keys) != 7 {
+		t.Errorf("status body has %d keys, want 7: %s", len(keys), body)
+	}
+	if bytes.Contains(body, []byte(`"org_id"`)) || bytes.Contains(body, []byte(`"leaf_id"`)) {
+		t.Errorf("status body leaks leaf fields: %s", body)
+	}
+}
+
+func TestTlogStatus_MethodNotAllowed(t *testing.T) {
+	srv, _ := newTlogTestServer(t)
+	for _, m := range []string{http.MethodPost, http.MethodDelete} {
+		resp := bearerDo(t, srv, m, tlogStatusPath, "")
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed || resp.Header.Get("Allow") != "GET" {
+			t.Fatalf("%s: %d allow=%q", m, resp.StatusCode, resp.Header.Get("Allow"))
+		}
+	}
+}

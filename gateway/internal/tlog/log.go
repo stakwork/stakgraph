@@ -71,6 +71,12 @@ type Log struct {
 	key  *logKey
 	sth  *STH // cached head; valid while sth.TreeSize == tree.size()
 
+	// lastTS is the ts of the newest leaf ("" while empty). Set on
+	// Append and recovered from the last valid line at rebuild, so
+	// the status card can say "last leaf 12s ago" without a signed
+	// head, a page read, or a full parse of the file.
+	lastTS string
+
 	now func() time.Time
 	err error // non-nil ⇒ disabled, with the reason
 }
@@ -182,6 +188,10 @@ func (l *Log) scan(r io.Reader) (int64, error) {
 	br := bufio.NewReaderSize(r, 1<<20)
 	var offset int64
 	badAt := int64(-1)
+	// ReadBytes hands back a fresh copy per line, so holding the
+	// newest valid one costs nothing extra; only that one line is
+	// parsed, after the loop.
+	var lastGood []byte
 	for {
 		line, err := br.ReadBytes('\n')
 		if len(line) > 0 {
@@ -198,6 +208,7 @@ func (l *Log) scan(r io.Reader) (int64, error) {
 			} else {
 				l.offsets = append(l.offsets, offset)
 				l.tree.append(LeafHash(body))
+				lastGood = body
 			}
 			offset += int64(len(line))
 		}
@@ -208,12 +219,30 @@ func (l *Log) scan(r io.Reader) (int64, error) {
 			return -1, fmt.Errorf("tlog: read %s: %w", l.path, err)
 		}
 	}
+	l.lastTS = leafTS(lastGood)
 	if badAt >= 0 {
 		l.end = badAt
 		return badAt, nil
 	}
 	l.end = offset
 	return -1, nil
+}
+
+// leafTS pulls the ts field out of one canonical leaf line. A line
+// the tree accepted but that carries no ts (valid JSON, not a leaf
+// object) yields "" — the status then reports no last leaf rather
+// than refusing to rebuild over a field the tree never needed.
+func leafTS(line []byte) string {
+	if len(line) == 0 {
+		return ""
+	}
+	var probe struct {
+		TS string `json:"ts"`
+	}
+	if err := json.Unmarshal(line, &probe); err != nil {
+		return ""
+	}
+	return probe.TS
 }
 
 // Append canonicalizes leaf, writes it as one line, and folds its
@@ -266,6 +295,7 @@ func (l *Log) Append(leaf Leaf) (uint64, error) {
 	l.offsets = append(l.offsets, l.end)
 	l.end += int64(n)
 	l.tree.append(LeafHash(raw))
+	l.lastTS = leaf.TS
 	return index, nil
 }
 
@@ -405,6 +435,40 @@ func (l *Log) RootAt(n uint64) (Hash, error) {
 		return Hash{}, ErrOutOfRange
 	}
 	return l.tree.rootAt(n), nil
+}
+
+// Status is the snapshot behind GET /_plugin/tlog/status: every
+// local fact the dashboard card shows, read under one lock. Nothing
+// here is signed, synced, or read from disk — status must be free on
+// a hot gateway, and a cookie session must never receive material
+// the witness countersigns (leaves, the STH signature), so those
+// stay on Head/Page.
+type Status struct {
+	Size      uint64
+	Root      Hash   // RFC 9162 empty root at size 0
+	PubkeyHex string // this boot's log key; "" only if key generation failed
+	Path      string
+	LastTS    string // ts of the newest leaf; "" while empty
+	Err       error  // non-nil ⇒ disabled, with the reason
+}
+
+// Status returns the current snapshot. Safe on a disabled log: the
+// numbers are whatever was rebuilt before it refused, and Err says
+// why.
+func (l *Log) Status() Status {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	st := Status{
+		Size:   l.tree.size(),
+		Root:   l.tree.root(),
+		Path:   l.path,
+		LastTS: l.lastTS,
+		Err:    l.err,
+	}
+	if l.key != nil {
+		st.PubkeyHex = l.key.pubHex
+	}
+	return st
 }
 
 // Size is the current number of leaves.
