@@ -190,8 +190,8 @@ func methodMuxedAuth(
 // ----------
 //   - `/_plugin/health`, `/_plugin/login`: anonymous.
 //   - `/_plugin/admin-credentials`, `/_plugin/trust/*`,
-//     `/_plugin/revoke/*`: bearer only (Hive's machine-to-plugin
-//     path; cookies are not honoured).
+//     `/_plugin/revoke/*`, `/_plugin/tlog/sth`: bearer only (Hive's
+//     machine-to-plugin path; cookies are not honoured).
 //   - Everything else (observability, kill/state, /me, /logout):
 //     cookie OR bearer, with cookie tried first. Cookie-authed
 //     mutations (kill, unkill, toggles) need the CSRF header.
@@ -210,6 +210,12 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	// Bearer-only routes (Hive's territory).
 	mux.HandleFunc("/_plugin/admin-credentials",
 		bearer(adminCredentialsHandler(deps.adminUser, deps.adminPass)))
+
+	// Phase-12 transparency log: the witness pull. Bearer-only on
+	// purpose — a dashboard cookie must never be able to pull material
+	// Hive then org-signs. Registered unconditionally; the handler
+	// answers 503 while the log is disabled or not initialized.
+	mux.HandleFunc(tlogSthPath, bearer(newTlogHandlers().sth))
 
 	if deps.trust != nil {
 		th := newTrustHandlers(deps.trust)

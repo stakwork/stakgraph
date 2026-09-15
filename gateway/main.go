@@ -25,10 +25,12 @@ import (
 
 	"github.com/stakwork/stakgraph/gateway/internal/adminapi"
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
+	"github.com/stakwork/stakgraph/gateway/internal/env"
 	"github.com/stakwork/stakgraph/gateway/internal/hooks"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 	"github.com/stakwork/stakgraph/gateway/internal/pricing"
 	"github.com/stakwork/stakgraph/gateway/internal/redisclient"
+	"github.com/stakwork/stakgraph/gateway/internal/tlog"
 	"github.com/stakwork/stakgraph/gateway/internal/trust"
 )
 
@@ -60,7 +62,14 @@ const PluginName = "stakgraph-gateway"
 //     verifier. See
 //     gateway/plans/phases/phase-4-macaroon-shape.md ("Bifrost-
 //     plugin adapter").
-//  6. adminapi.Start — boots the loopback HTTP server.
+//  6. tlog.Init — rebuilds the phase-12 transparency log from
+//     BIFROST_PLUGIN_TLOG_PATH and generates this boot's log key.
+//     Never fatal: a failure leaves the log disabled (appends are
+//     refused, /_plugin/tlog/sth answers 503 with the reason) and
+//     the witness alerts on staleness, which beats dropping the
+//     whole plugin and serving inference ungoverned. See
+//     gateway/plans/phases/phase-12-transparency-log.md.
+//  7. adminapi.Start — boots the loopback HTTP server.
 func Init(config any) error {
 	pluginlog.Init(PluginName, config)
 
@@ -101,6 +110,10 @@ func Init(config any) error {
 	// model_pricing table.
 	pricing.Init()
 
+	if err := tlog.Init(env.TlogPathValue()); err != nil {
+		pluginlog.Errf("tlog: %v — transparency log DISABLED: no leaves will be appended and /_plugin/tlog/sth will 503", err)
+	}
+
 	return adminapi.Start()
 }
 
@@ -114,6 +127,9 @@ func GetName() string { return PluginName }
 // abrupt process exit; then stop the admin server.
 func Cleanup() error {
 	pricing.Stop()
+	if err := tlog.Close(); err != nil {
+		pluginlog.Warnf("tlog: close: %v", err)
+	}
 	if err := redisclient.Close(); err != nil {
 		pluginlog.Warnf("redis: close: %v", err)
 	}

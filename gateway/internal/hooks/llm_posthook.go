@@ -9,6 +9,7 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
 	"github.com/stakwork/stakgraph/gateway/internal/pricing"
+	"github.com/stakwork/stakgraph/gateway/internal/tlog"
 )
 
 // LLMPost is the body of PostLLMHook. It fires after the upstream
@@ -23,6 +24,10 @@ import (
 // auth.ApplyToLLMPost. An errored call accounts cost=0 but still
 // counts the step — the run burned a call slot even if the provider
 // returned nothing billable.
+//
+// Phase-12 transparency log: the same two sites, under the same
+// gate, append one leaf per call (appendTlogLeaf). Errored calls get
+// a leaf with status "error".
 func LLMPost(
 	ctx *schemas.BifrostContext,
 	resp *schemas.BifrostResponse,
@@ -58,11 +63,13 @@ func LLMPost(
 		case hadErr:
 			if pluginctx.MarkAccounted(ctx) {
 				auth.ApplyToLLMPost(claims, 0, nil)
+				appendTlogLeaf(ctx, claims, call, 0, tlog.StatusError)
 			}
 		case hadResp && !isStreamRequest(resp):
 			if pluginctx.MarkAccounted(ctx) {
 				costUSD = resolveCost(call, dims)
 				auth.ApplyToLLMPost(claims, costUSD, call.tools)
+				appendTlogLeaf(ctx, claims, call, costUSD, tlog.StatusOK)
 			}
 		}
 	}

@@ -29,6 +29,11 @@ func LLMPre(
 	provider, model, _ := req.GetRequestFields()
 	dims := pluginctx.Dims(ctx)
 
+	// Remembered for the transparency-log leaf: the response carries
+	// the resolved model on success, but an errored call has nothing
+	// else to name the model it was for.
+	pluginctx.SetRequestModel(ctx, string(provider), model)
+
 	pluginlog.Logf(
 		"PreLLMHook provider=%s model=%s request_type=%s run_id=%s agent=%s session_id=%s",
 		provider,

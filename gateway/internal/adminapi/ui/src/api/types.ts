@@ -749,6 +749,27 @@ export interface TicketResponse {
 }
 
 //////////
+// source: tlog.go
+
+/**
+ * TlogAheadResponse is the 409 body: the witness's stored head is
+ * past this tree, which after a power loss means the witness must
+ * stop and an operator must reset its head. Never silently restart.
+ */
+export interface TlogAheadResponse {
+  error: string;
+  since: number /* uint64 */;
+  tree_size: number /* uint64 */;
+}
+/**
+ * TlogUnavailableResponse is the 503 body.
+ */
+export interface TlogUnavailableResponse {
+  error: string;
+  detail: string;
+}
+
+//////////
 // source: trust.go
 
 
