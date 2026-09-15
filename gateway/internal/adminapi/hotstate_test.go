@@ -220,6 +220,8 @@ func TestHotState_RedisUnconfigured503(t *testing.T) {
 		{http.MethodPost, "/_plugin/agents/coder/kill"},
 		{http.MethodGet, "/_plugin/agents/coder/state"},
 		{http.MethodPost, "/_plugin/revoke/nonce/aaaa000000000000000000000000aaaa"},
+		{http.MethodPut, "/_plugin/revoke/user/u_1"},
+		{http.MethodGet, "/_plugin/revoke/users"},
 	} {
 		resp := bearerDo(t, srv, c.method, c.path, "")
 		resp.Body.Close()
@@ -236,6 +238,9 @@ func TestHotState_RequiresAuth(t *testing.T) {
 		{http.MethodGet, "/_plugin/runs/r_1/state"},
 		{http.MethodPost, "/_plugin/agents/coder/kill"},
 		{http.MethodPost, "/_plugin/revoke/nonce/aaaa000000000000000000000000aaaa"},
+		{http.MethodPut, "/_plugin/revoke/user/u_1"},
+		{http.MethodGet, "/_plugin/revoke/user/u_1"},
+		{http.MethodGet, "/_plugin/revoke/users"},
 	} {
 		req, _ := http.NewRequest(c.method, srv.URL+c.path, nil)
 		resp, err := srv.Client().Do(req)

@@ -412,8 +412,8 @@ The full operator-relevant surface, by page:
 | Run detail | `/runs/:id`, `/runs/:id/state` | `/runs/:id/kill`, `/runs/:id/kill` (DELETE) |
 | Agents list | `/spend/by-agent`, `/agents/:name/state` per row | — |
 | Agent detail | `/agents/:name/spend`, `/histogram/cost?dimension=agent-name`, `/agents/:name/state` | `/agents/:name/kill`, `/agents/:name/kill` (DELETE), `/config/agent_budgets/:name` (PUT — *new endpoint, see below*) |
-| Users | `/spend/by-user` | — |
-| User detail | `/users/:id/spend`, `/users/:id/quota` | — |
+| Users | `/spend/by-user`, `/revoke/users` | — |
+| User detail | `/users/:id/spend`, `/users/:id/quota`, `/revoke/user/:id` | `/revoke/user/:id` (PUT), `/revoke/user/:id` (DELETE) |
 | Sessions | `/spend/by-session` | — |
 | Session detail | `/sessions/:id`, `/sessions/:id/summary` | — |
 | Config | `/config` (new GET — see below) | `/config/agent_budgets/:name` (PUT), `/config/hard_ceiling` (PUT), `/config/tool_loop` (PUT) |
@@ -561,15 +561,32 @@ Refresh: 60s for histograms, 10s for current bucket state.
 
 ### Users (`/users`)
 
-Same shape as Agents but keyed on `user-id`. Less interactive
-because there's nothing to kill or edit at the user level — quotas
-are governed by Bifrost's customer caps, not the plugin.
+Same shape as Agents but keyed on `user-id`. Quotas are governed by
+Bifrost's customer caps, not the plugin, so there is nothing to edit
+at the user level — but there is something to kill: a **Revoked**
+column (the user-axis twin of the Agents list's kill-state column)
+reads every cutoff on the swarm in one call from
+`GET /_plugin/revoke/users`.
 
 ### User detail (`/users/:id`)
 
+- **Authorization card + Revoke user switch.** The third kill axis
+  after run and agent. `PUT /_plugin/revoke/user/:id` sets
+  `revoke_user_before:<id>` = now; the hot path then rejects every
+  macaroon whose user authorization was issued before it — all of
+  the user's in-flight runs, whatever agent carries them, and new
+  spawns under the current authorization — until Hive re-issues.
+  Per swarm, no TTL, `DELETE` clears. Typed confirmation (the user
+  id) because the blast radius is every run of one principal, same
+  class as an agent kill; the modal spells out the in-flight runs
+  from `/_plugin/users/:id/quota`. The card says "issued before <t>
+  are rejected" rather than "revoked": after Hive re-issues, the
+  cutoff is still set and still true. Cookie-or-bearer like the kill
+  routes; nonce revocation stays bearer-only with no UI.
 - **Quota panel:** daily budget, spent today, remaining today,
   list of in-flight runs the user owns. Hits
-  `/_plugin/users/:id/quota`.
+  `/_plugin/users/:id/quota`. (Not built; the in-flight half feeds
+  the revoke modal.)
 - **Recent runs:** small table.
 - **Per-user histograms:** cost over time.
 
@@ -646,8 +663,9 @@ Query mutations, but the UX is different.
 
 1. User clicks Kill.
 2. KillConfirmModal opens. For run kills: "Type 'kill' to confirm."
-   For agent kills: "Type the agent name to confirm." (Higher friction
-   for higher blast radius.)
+   For agent kills: "Type the agent name to confirm." For user
+   revokes: "Type the user id to confirm." (Higher friction for
+   higher blast radius.)
 3. On confirm, mutation fires. The button shows a spinner.
 4. On 200: close modal, invalidate the relevant queries (run state,
    agents list), bump the run-state polling cadence to 500ms for 30s

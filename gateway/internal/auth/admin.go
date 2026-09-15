@@ -14,21 +14,36 @@ import (
 
 // Admin-side helpers for managing revocation state. The HTTP routes
 // that expose these (`/_plugin/revoke/nonce/:nonce`,
-// `/_plugin/revoke/user/:user_id`) live in gateway/internal/adminapi
-// (revoke.go) and call into this file. The kill-switch and per-run /
-// per-agent state primitives live next door in kill.go.
+// `/_plugin/revoke/user/:user_id`, `/_plugin/revoke/users`) live in
+// gateway/internal/adminapi (revoke.go) and call into this file. The
+// kill-switch and per-run / per-agent state primitives live next door
+// in kill.go.
 //
-// These helpers exist now so a swarm operator can:
+// These helpers exist so a swarm operator (or Hive, fanning out) can:
 //
 //   - Revoke a specific nonce (any layer: UA, invocation, attenuation)
 //     before its natural exp. Use case: an employee leaves mid-week
 //     and the org leader pushes a kill before re-issuing.
 //   - Set a user-level cutoff (revoke_user_before) so every macaroon
-//     issued before time T for that user is rejected. Use case: full
-//     user offboarding regardless of how many UAs are out.
+//     issued before time T for that user is rejected. This is the
+//     dashboard's third kill axis next to run and agent: every
+//     in-flight run and every new spawn under the user's current
+//     authorization stops on its next LLM call, until Hive issues a
+//     fresh authorization. Per swarm, like the other two.
 //
 // Every helper is a thin wrapper around the redis ops described in
 // gateway/plans/phases/phase-6-plugin-enforcement.md "Redis schema".
+
+// revokeUsersIndexKey is the ZSET that lists every user with a cutoff
+// set: member = user_id, score = cutoff as unix seconds. Maintained by
+// SetUserRevokeCutoff / ClearUserRevokeCutoff so the dashboard's
+// People list and Hive's reconcile sweep can read "who is revoked on
+// this swarm" in one round trip instead of scanning the keyspace. The
+// per-user string key stays the source of truth — the hot path never
+// reads the index, and ListUserRevokeCutoffs re-reads the string keys
+// and prunes members whose key is gone (a direct Redis DEL, or a
+// cutoff written before this index existed and cleared since).
+const revokeUsersIndexKey = "revoke_users"
 
 // adminTimeout bounds a single admin Redis op. These run outside the
 // request hot path so we can afford to be more generous than
@@ -91,9 +106,12 @@ func UnrevokeNonce(ctx context.Context, nonce string) error {
 // permanent state until explicitly cleared (phase-6 schema).
 //
 // `cutoff` is normalized to UTC and serialized as RFC 3339.
+//
+// Also records the user in the revoke_users index (score = cutoff)
+// so ListUserRevokeCutoffs can enumerate without a keyspace scan.
 func SetUserRevokeCutoff(ctx context.Context, userID string, cutoff time.Time) error {
-	if userID == "" {
-		return errors.New("user_id is required")
+	if err := validateKillID("user_id", userID); err != nil {
+		return err
 	}
 	rdb := redisclient.Client()
 	if rdb == nil {
@@ -101,18 +119,26 @@ func SetUserRevokeCutoff(ctx context.Context, userID string, cutoff time.Time) e
 	}
 	octx, cancel := context.WithTimeout(ctx, adminTimeout)
 	defer cancel()
-	return rdb.Set(octx,
+	cutoff = cutoff.UTC()
+	pipe := rdb.Pipeline()
+	pipe.Set(octx,
 		redisclient.Key(revokeUserBeforePrefix+userID),
-		cutoff.UTC().Format(time.RFC3339),
+		cutoff.Format(time.RFC3339),
 		0,
-	).Err()
+	)
+	pipe.ZAdd(octx, redisclient.Key(revokeUsersIndexKey), redis.Z{
+		Score:  float64(cutoff.Unix()),
+		Member: userID,
+	})
+	_, err := pipe.Exec(octx)
+	return err
 }
 
 // ClearUserRevokeCutoff removes the revoke_user_before:<user_id>
 // entry, re-allowing macaroons issued before the previous cutoff.
 func ClearUserRevokeCutoff(ctx context.Context, userID string) error {
-	if userID == "" {
-		return errors.New("user_id is required")
+	if err := validateKillID("user_id", userID); err != nil {
+		return err
 	}
 	rdb := redisclient.Client()
 	if rdb == nil {
@@ -120,15 +146,19 @@ func ClearUserRevokeCutoff(ctx context.Context, userID string) error {
 	}
 	octx, cancel := context.WithTimeout(ctx, adminTimeout)
 	defer cancel()
-	return rdb.Del(octx, redisclient.Key(revokeUserBeforePrefix+userID)).Err()
+	pipe := rdb.Pipeline()
+	pipe.Del(octx, redisclient.Key(revokeUserBeforePrefix+userID))
+	pipe.ZRem(octx, redisclient.Key(revokeUsersIndexKey), userID)
+	_, err := pipe.Exec(octx)
+	return err
 }
 
 // GetUserRevokeCutoff returns the currently configured cutoff for
 // `userID`, or zero time + ok=false if none is set. Useful for the
 // admin dashboard and for reconciler verification.
 func GetUserRevokeCutoff(ctx context.Context, userID string) (time.Time, bool, error) {
-	if userID == "" {
-		return time.Time{}, false, errors.New("user_id is required")
+	if err := validateKillID("user_id", userID); err != nil {
+		return time.Time{}, false, err
 	}
 	rdb := redisclient.Client()
 	if rdb == nil {
@@ -148,6 +178,80 @@ func GetUserRevokeCutoff(ctx context.Context, userID string) (time.Time, bool, e
 		return time.Time{}, false, fmt.Errorf("malformed cutoff %q: %w", raw, err)
 	}
 	return t, true, nil
+}
+
+// UserRevokeCutoff is one entry of the revoke_users index, re-read
+// from its authoritative string key.
+type UserRevokeCutoff struct {
+	UserID string
+	Before time.Time
+}
+
+// maxUserRevokeList caps ListUserRevokeCutoffs. A swarm with more
+// revoked users than this has an offboarding problem the dashboard
+// isn't the tool for; Hive can page by user instead.
+const maxUserRevokeList = 500
+
+// ListUserRevokeCutoffs returns every user with a cutoff set on this
+// swarm, newest cutoff first, capped at `limit` (≤ 0 ⇒ the default
+// cap). Reads the revoke_users index for the members, then the
+// per-user string keys for the values: the string key is what the
+// hot path enforces, so it wins. Members whose string key is gone
+// are dropped from the result and pruned from the index in the same
+// call, which keeps the index honest against direct Redis writes
+// without a separate sweeper.
+//
+// Absent index ⇒ empty list, not an error. Users whose cutoff was
+// written before the index existed are not listed until re-set.
+func ListUserRevokeCutoffs(ctx context.Context, limit int64) ([]UserRevokeCutoff, error) {
+	rdb := redisclient.Client()
+	if rdb == nil {
+		return nil, ErrRedisUnavailable
+	}
+	if limit <= 0 || limit > maxUserRevokeList {
+		limit = maxUserRevokeList
+	}
+	octx, cancel := context.WithTimeout(ctx, adminTimeout)
+	defer cancel()
+
+	indexKey := redisclient.Key(revokeUsersIndexKey)
+	ids, err := rdb.ZRevRange(octx, indexKey, 0, limit-1).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("revoke_users index: %w", err)
+	}
+	out := make([]UserRevokeCutoff, 0, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = redisclient.Key(revokeUserBeforePrefix + id)
+	}
+	vals, err := rdb.MGet(octx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("revoke_user_before mget: %w", err)
+	}
+
+	var stale []any
+	for i, id := range ids {
+		raw, ok := vals[i].(string)
+		if !ok {
+			stale = append(stale, id)
+			continue
+		}
+		// The hot path fails open on a malformed cutoff; the list is
+		// a diagnostic surface, so a key that exists but won't parse
+		// is still listed, with a zero Before, rather than hidden.
+		t, _ := time.Parse(time.RFC3339, raw)
+		out = append(out, UserRevokeCutoff{UserID: id, Before: t})
+	}
+	if len(stale) > 0 {
+		// Best effort: a failed prune leaves the index slightly
+		// over-full, which the next list call retries.
+		_ = rdb.ZRem(octx, indexKey, stale...).Err()
+	}
+	return out, nil
 }
 
 // validateNonce rejects obviously-malformed nonces before they reach
