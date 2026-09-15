@@ -87,9 +87,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          # package-lock.json is git-ignored for this SPA, so key the
-          # npm cache on package.json instead.
-          cache-dependency-path: gateway/internal/adminapi/ui/package.json
+          cache-dependency-path: gateway/internal/adminapi/ui/package-lock.json
 
       - name: Install SPA dependencies
         run: make ui-install

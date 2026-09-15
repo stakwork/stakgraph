@@ -41,11 +41,16 @@ export function People() {
   const q = useSpendByUser(window);
   const revoked = useRevokedUsers();
   // user_id → cutoff. `null` ⇒ redis off on this swarm (every cell
-  // renders "—" with a reason), `undefined` ⇒ still loading.
-  const cutoffs = useMemo(() => {
-    if (!revoked.data) return revoked.data;
+  // renders "—" with a reason), `undefined` ⇒ still loading. The
+  // explicit return type and local binding keep the narrowing stable
+  // across TS / react-query versions (the CI image build failed to
+  // narrow `revoked.data` through the truthiness check).
+  const cutoffs = useMemo((): Map<string, string> | null | undefined => {
+    const d = revoked.data;
+    if (d === undefined) return undefined;
+    if (d === null) return null;
     const m = new Map<string, string>();
-    for (const u of revoked.data.users) m.set(u.user_id, u.before);
+    for (const u of d.users) m.set(u.user_id, u.before);
     return m;
   }, [revoked.data]);
 
