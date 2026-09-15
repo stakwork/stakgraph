@@ -234,6 +234,14 @@ GET /_plugin/users/:user_id/quota
 GET /_plugin/agents/:name/spend?window=24h
   MetadataFilters: {"agent-name": <name>}; SearchStats, one limit=1 call
   returns: { agent_name, window, total_cost, total_tokens, request_count }
+
+GET /_plugin/agents/:name/runs?window=24h&limit=50&offset=0
+  MetadataFilters: {"agent-name": <name>}; paged scan, grouped by run-id in Go
+  returns: { agent_name, window, total,
+             runs: [ { run_id, user_id, models, total_cost, total_tokens,
+                       request_count, first_seen, last_seen } ] }
+  Newest last_seen first; `models` most-used first; `total` is the run
+  count before paging. Backs the AgentDetail "Recent runs" table.
 ```
 
 ## Query parameters
@@ -332,6 +340,9 @@ Error codes:
       `hotstate.go`.
 - [x] `GET /_plugin/agents/:name/spend` (dispatched from the shared
       `/_plugin/agents/` subtree in `server.go`).
+- [x] `GET /_plugin/agents/:name/runs` (`agentruns.go`) — per-run
+      rollup (user, models, spend, first/last seen) for the AgentDetail
+      "Recent runs" table; same subtree dispatch.
 - [x] Route registration in `server.go` — `routeDeps.logstore`;
       every read route is cookie-or-bearer.
 

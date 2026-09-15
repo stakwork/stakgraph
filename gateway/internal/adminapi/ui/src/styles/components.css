@@ -215,6 +215,35 @@ table.table {
   text-align: right;
   font-family: var(--font-mono);
 }
+/* Truncating id cell: a run uuid clips with an ellipsis instead of
+ * stretching the table; the full id rides on the cell's `title` for
+ * hover-to-copy. `max-width` is what makes text-overflow bite inside
+ * a table cell. */
+.table td.cell-trunc {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* One-line note under a table (e.g. "showing 50 of 120 runs"). */
+.table-wrap .table-foot {
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+/* Model column of the runs table: primary model + optional "+N".
+ * One line — a wrapped model id reads as two models. */
+.model-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+/* Relative-time cell ("14m ago") and its header never wrap. */
+.table td.cell-when,
+.table th.cell-when {
+  white-space: nowrap;
+}
 .table .pager {
   display: flex;
   justify-content: space-between;

@@ -323,7 +323,7 @@ auth middleware. The wrapper + loopback server solves both.
 | `/_plugin/health`, `/_plugin/admin-credentials` | 3 | Swarm bootstrap |
 | `/_plugin/trust/*` | 5 | Trust registry CRUD |
 | `/_plugin/runs/:id/{state,kill}`, `/_plugin/agents/:name/{state,kill}` | 6 | Hot-state kill switches and Redis snapshots |
-| `/_plugin/spend/by-*`, `/_plugin/histogram/*`, `/_plugin/sessions/:id`, `/_plugin/users/:id/*`, `/_plugin/agents/:name/spend`, `/_plugin/runs/:id` (drill-down) | 7 | Per-dim analytics over `logs.db` |
+| `/_plugin/spend/by-*`, `/_plugin/histogram/*`, `/_plugin/sessions/:id`, `/_plugin/users/:id/*`, `/_plugin/agents/:name/{spend,runs}`, `/_plugin/runs/:id` (drill-down) | 7 | Per-dim analytics over `logs.db` |
 
 Aggregations call Bifrost's `/api/logs` over loopback
 (`http://127.0.0.1:8080/api/logs`), composing
