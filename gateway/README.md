@@ -87,8 +87,23 @@ binary, and produces a single Alpine runtime image with all three.
 
 The dashboard UI and Bifrost's `/api/*` admin endpoints (governance,
 config, logs) require HTTP Basic auth. Inference endpoints (`/v1/*`,
-`/openai/*`, `/anthropic/*`, etc.) stay open so existing agents work
-unchanged.
+`/openai/*`, `/anthropic/*`, etc.) require a valid virtual key
+(`enforce_auth_on_inference: true` in config.json's `client` block);
+existing agents pass one already.
+
+### Realtime endpoints are blocked at the wrapper
+
+The wrapper refuses bifrost's realtime routes (`/realtime`,
+`/v1/realtime`, `/openai/**/realtime`, and their `/calls`,
+`/client_secrets`, `/sessions` subpaths) with a `403` before they reach
+bifrost-http. Bifrost's realtime WebSocket / WebRTC handlers dial the
+upstream provider — with the account's real key — during connection
+setup, which runs *before* the per-turn virtual-key check. So an
+unauthenticated caller can open provider sockets on the account (quota
+exhaustion, key-validity probing) even though the mandatory-VK check
+still blocks actual token generation. Hive's agents are text-only, so
+the whole family is disabled by default. Set `BIFROST_ENABLE_REALTIME=1`
+to opt back in if a swarm ever needs voice.
 
 Credentials come from two env vars that get resolved at boot by
 Bifrost itself (config.json references `env.BIFROST_ADMIN_USER` and

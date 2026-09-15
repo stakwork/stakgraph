@@ -378,17 +378,40 @@ func syncSeedConfig(logger *log.Logger, seedPath, appDir string) error {
 // headers can deliver both VK and macaroon in a single API-key field.
 // The plugin proxy intentionally does NOT run that rewrite — its
 // /_plugin/* admin surface uses a different auth scheme entirely.
+//
+// Unless BIFROST_ENABLE_REALTIME is truthy, the realtime family of
+// routes is refused here at the wrapper (see isRealtimePath / blockRealtime).
 func newProxy(logger *log.Logger, pluginReady bool) http.Handler {
 	bifrostURL := mustParseURL(bifrostUpstream)
 	bifrostProxy := newSingleHostReverseProxy(bifrostURL, logger, "bifrost")
 	installAuthRewrite(bifrostProxy)
 
-	var pluginProxy *httputil.ReverseProxy
+	// pluginProxy is an interface (not *httputil.ReverseProxy) so newRouter
+	// stays unit-testable with fake upstreams; nil means "no plugin server".
+	var pluginProxy http.Handler
 	if pluginReady {
 		pluginURL := mustParseURL(pluginUpstream)
 		pluginProxy = newSingleHostReverseProxy(pluginURL, logger, "plugin")
 	}
 
+	realtimeBlocked := !realtimeEnabled()
+	if realtimeBlocked {
+		logger.Printf("realtime endpoints DISABLED at the wrapper " +
+			"(/realtime, /v1/realtime, /openai/**/realtime and their " +
+			"/calls, /client_secrets, /sessions subpaths return 403); " +
+			"set BIFROST_ENABLE_REALTIME=1 to allow")
+	} else {
+		logger.Printf("realtime endpoints ENABLED (BIFROST_ENABLE_REALTIME is set)")
+	}
+
+	return newRouter(bifrostProxy, pluginProxy, realtimeBlocked, logger)
+}
+
+// newRouter builds the request router the public listener serves. Split
+// out from newProxy so the routing decisions (plugin vs realtime-block vs
+// bifrost) can be unit-tested against fake upstream handlers without
+// dialing the real loopback services.
+func newRouter(bifrostProxy, pluginProxy http.Handler, realtimeBlocked bool, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, pluginPathPrefix) {
 			if pluginProxy == nil {
@@ -403,8 +426,68 @@ func newProxy(logger *log.Logger, pluginReady bool) http.Handler {
 			pluginProxy.ServeHTTP(w, r)
 			return
 		}
+		// Refuse realtime routes before they can reach bifrost-http. This
+		// matters because bifrost's realtime WebSocket / WebRTC handlers
+		// dial the upstream provider (with the org's real key) during the
+		// connection setup that runs BEFORE the per-turn governance check —
+		// so an unauthenticated caller can open provider sockets on the
+		// account (quota exhaustion / key-validity oracle) even though the
+		// mandatory-virtual-key check later blocks actual token generation.
+		// The gateway's macaroon plugin never sees realtime either (it hooks
+		// PreLLMHook; realtime runs its own turn pipeline). Hive uses text
+		// agents, not voice, so the whole family is disabled by default.
+		if realtimeBlocked && isRealtimePath(r.URL.Path) {
+			blockRealtime(w, r, logger)
+			return
+		}
 		bifrostProxy.ServeHTTP(w, r)
 	})
+}
+
+// isRealtimePath reports whether p is one of bifrost's realtime API
+// routes. Every realtime route bifrost registers carries a `realtime`
+// path segment regardless of its integration prefix — the WebSocket
+// endpoints (`/v1/realtime`, `/realtime`, `/openai/realtime`,
+// `/openai/v1/realtime`), the WebRTC SDP exchange (`.../realtime/calls`),
+// and the ephemeral-secret aliases (`.../realtime/client_secrets`,
+// `.../realtime/sessions`). Matching on the segment blocks the whole
+// family and stays correct if bifrost adds another prefix variant.
+//
+// The match is exact per segment (case-insensitive), so a hypothetical
+// unrelated route like `/v1/realtimeless` is NOT blocked.
+func isRealtimePath(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if strings.EqualFold(seg, "realtime") {
+			return true
+		}
+	}
+	return false
+}
+
+// blockRealtime refuses a realtime request with 403 and a small JSON
+// body, and logs the attempt so operators can see probing. Returning
+// here means bifrost-http's realtime handler never runs, so no upstream
+// provider socket is opened.
+func blockRealtime(w http.ResponseWriter, r *http.Request, logger *log.Logger) {
+	logger.Printf("blocked realtime request method=%s path=%s remote=%s",
+		r.Method, r.URL.Path, r.RemoteAddr)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w,
+		`{"error":{"code":"realtime_disabled","message":"realtime endpoints are disabled on this gateway"}}`)
+}
+
+// realtimeEnabled reports whether BIFROST_ENABLE_REALTIME opts back into
+// bifrost's realtime routes. Default (unset / empty / anything not
+// truthy) is disabled. Truthy: 1/true/yes/on (case-insensitive) — the
+// same loose grammar the plugin's env readers use.
+func realtimeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("BIFROST_ENABLE_REALTIME"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // newSingleHostReverseProxy builds an httputil.ReverseProxy targeting
