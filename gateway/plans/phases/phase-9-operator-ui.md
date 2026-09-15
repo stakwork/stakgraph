@@ -1,5 +1,15 @@
-# Phase 8 — Operator UI: Embedded Console for Kill, Budgets, and Analytics
+# Phase 9 — Operator UI: Embedded Console for Kill, Budgets, and Analytics
 
+> **Status (2026-09-15):** slices 1–4 have shipped — session auth,
+> dashboard, run kill + live state + cap meters (PRs #1685, #1686),
+> agent kill + the kill-state column. Still open: the `/runs` list,
+> `Sessions` / `SessionDetail`, the `/users/:id/quota` panel, the
+> inline budget editor, `BucketPicker` / `DimensionPicker`, and the
+> whole `/_plugin/config/*` override layer with its `Config` page
+> (`agent_budgets`, `hard_ceiling`, `tool_loop` are still YAML-only,
+> so gate 2 at the bottom is unmet). The wire-up checklist reflects
+> this.
+>
 > Operator-facing single-page app served by the plugin at
 > `/_plugin/ui/*`. Companion to `phase-6-plugin-enforcement.md` (which
 > defines the kill/state/budget mutation endpoints the UI drives) and
@@ -32,7 +42,7 @@ But:
   scheme, one binary, no cross-origin headache), and the wrapper
   already proxies it.
 
-Phase 8 decides:
+Phase 9 decides:
 
 - The UI's framework stack, build pipeline, and embed mechanism.
 - The auth model (basic-auth handoff to plugin-issued session cookies
@@ -65,14 +75,14 @@ After this:
 | Phase 5 | Which orgs the swarm trusts |
 | Phase 6 | How the plugin enforces caveats against Redis state |
 | Phase 7 | Read-only per-dim analytics over `logs.db` |
-| **Phase 8** | **Operator UI on top of phases 6 + 7** |
+| **Phase 9** | **Operator UI on top of phases 6 + 7** |
 
-Phase 8 has a hard dependency on phases 6 and 7 because every UI
+Phase 9 has a hard dependency on phases 6 and 7 because every UI
 view it ships reads or writes one of their endpoints. If phase 6 or
 7 changes a response shape, the typed UI client breaks at compile
 time — by design.
 
-Phase 8 does **not** depend on Hive shipping anything; the swarm
+Phase 9 does **not** depend on Hive shipping anything; the swarm
 operator UI is fully self-contained inside the plugin. Hive
 integration (single-sign-on from Hive's dashboard, cross-workspace
 fan-out) is a follow-on phase.
@@ -93,12 +103,12 @@ fan-out) is a follow-on phase.
   Hive-side job that fans out to each plugin's `/_plugin/spend/*`.
 - **Macaroon inspector / debugger view.** Speculative; not in v1. The
   HTTP endpoints exist (`/api/logs` carries the raw `x-macaroon`
-  header in metadata if logged) but the UI for it is not phase 8.
+  header in metadata if logged) but the UI for it is not phase 9.
 - **WebSocket live tail.** Phase 7 explicitly excluded this; Hive can
   connect to Bifrost's `ws://...:8080/ws` directly if it wants real
-  log streams. Phase 8 polls at the cadences specified in
+  log streams. Phase 9 polls at the cadences specified in
   "Data-fetching cadence" below.
-- **Mobile / responsive layout.** Phase 8 targets desktop browsers
+- **Mobile / responsive layout.** Phase 9 targets desktop browsers
   ≥1280px wide. Operators use this from a workstation, not a phone.
 
 ## Framework stack
@@ -374,7 +384,7 @@ The client IP is read from `X-Forwarded-For` (the swarm ingress sets
 it). Without an X-Forwarded-For header, the remote-addr from the
 wrapper is used, which in production is always `127.0.0.1` and
 makes the limiter degenerate — operators running without an ingress
-proxy in front are explicitly out of phase 8's threat model.
+proxy in front are explicitly out of phase 9's threat model.
 
 ## Endpoint surface (additions in phase 8)
 
@@ -412,7 +422,7 @@ The full operator-relevant surface, by page:
 
 The Config page edits `agent_budgets`, `hard_ceiling`, and
 `tool_loop` from `plugin.yaml`. Phase 6 specified these as YAML-only
-configuration. Phase 8 adds HTTP equivalents:
+configuration. Phase 9 adds HTTP equivalents:
 
 ```
 GET    /_plugin/config                          → full config (read-only fields redacted)
@@ -422,7 +432,7 @@ PUT    /_plugin/config/hard_ceiling             { per_invocation_cost_usd, per_i
 PUT    /_plugin/config/tool_loop                { window, threshold } → 204
 ```
 
-**Overrides are persisted in Redis, not in a new SQL table.** Phase 8
+**Overrides are persisted in Redis, not in a new SQL table.** Phase 9
 introduces no new SQL storage. The plugin already owns Redis (phase 6
 hot state, phase 8 sessions); config overrides live there too:
 
@@ -434,7 +444,7 @@ bifrost:config:tool_loop                HASH    { window, threshold }     no TTL
 
 These three key shapes extend phase 6's schema (the canonical schema
 list in `phase-6-plugin-enforcement.md` "Redis schema" should be
-updated to include them when phase 8 lands).
+updated to include them when phase 9 lands).
 
 **Precedence at runtime:**
 
@@ -465,7 +475,7 @@ Listing this here rather than in phase 6 because phase 6 has been
 operational on YAML-only for as long as the plugin has existed.
 Adding HTTP mutability is a UI-driven need; the Redis key shapes
 above belong logically in phase 6's schema and should be folded
-back in when phase 8 lands.
+back in when phase 9 lands.
 
 ## View inventory
 
@@ -754,69 +764,81 @@ authenticated calls after submission.
 
 **Backend — sessions (`gateway/internal/sessions/`):**
 
-- [ ] `store.go`: `SessionStore` interface; Redis implementation.
-- [ ] `store_test.go`: miniredis-backed tests covering create, get,
+- [x] `store.go`: `SessionStore` interface; Redis implementation.
+- [x] `store_test.go`: miniredis-backed tests covering create, get,
       refresh, delete, kick-all-for-user, TTL expiry.
 
 **Backend — adminapi (`gateway/internal/adminapi/`):**
 
-- [ ] `session.go`: middleware combining session-cookie and
+- [x] `session.go`: middleware combining session-cookie and
       bearer-token auth; `allowAnon` list.
-- [ ] `login.go`: `POST /_plugin/login` (Basic-in, cookie-out),
+- [x] `login.go`: `POST /_plugin/login` (Basic-in, cookie-out),
       `POST /_plugin/logout`, `GET /_plugin/me`.
-- [ ] `ratelimit.go`: per-IP login attempt counter.
+- [x] `ratelimit.go`: per-IP login attempt counter.
 - [ ] `config.go`: `GET /_plugin/config` and the PUT/DELETE
       endpoints for `agent_budgets`, `hard_ceiling`, `tool_loop`.
       Persists overrides to Redis under `bifrost:config:*` (no new
       SQL table). Composes YAML baseline + Redis overrides into an
       in-memory effective config that PreLLMHook reads.
-- [ ] `ui.go`: `//go:embed ui/dist` + SPA fallback handler.
-- [ ] Route registration in `server.go`, with `/_plugin/ui/*`
+- [x] `ui.go`: `//go:embed ui/dist` + SPA fallback handler.
+- [x] Route registration in `server.go`, with `/_plugin/ui/*`
       behind the session middleware and `/_plugin/health`,
       `/_plugin/login` in `allowAnon`.
 
 **Backend — type codegen (`gateway/`):**
 
-- [ ] `tygo.yaml` covering `internal/adminapi` and any response
-      types in `internal/auth`.
-- [ ] `make tygo` target invoking the codegen.
-- [ ] CI step: `make tygo && git diff --exit-code internal/adminapi/ui/src/api/types.ts`.
+- [x] `tygo.yaml` covering `internal/adminapi` (every type the SPA
+      decodes is declared there; nothing in `internal/auth` is
+      decoded directly).
+- [x] `make tygo` target invoking the codegen.
+- [x] CI step: `make tygo-check` in `.github/workflows/gateway-check.yml`.
 
 **Frontend (`gateway/internal/adminapi/ui/`):**
 
-- [ ] Vite + Preact + TS scaffold; `package.json`, `vite.config.ts`,
+- [x] Vite + Preact + TS scaffold; `package.json`, `vite.config.ts`,
       `tsconfig.json`, `index.html`.
-- [ ] `src/api/client.ts`: typed fetch wrapper, 401 redirect.
-- [ ] `src/api/queries.ts` + `mutations.ts`: one hook per endpoint.
-- [ ] `src/app.tsx`: wouter routes, QueryClient provider, global
+- [x] `src/api/client.ts`: typed fetch wrapper, 401 redirect.
+- [x] `src/api/queries.ts`: one hook per endpoint, mutations included
+      (no separate `mutations.ts`).
+- [x] `src/app.tsx`: wouter routes, QueryClient provider, global
       auth-error handler.
-- [ ] `src/components/layout/Shell.tsx` + `Sidebar` + `Topbar`.
-- [ ] `src/components/charts/UplotChart.tsx`: generic wrapper.
-- [ ] `src/components/tables/DataTable.tsx`: sortable, paginated.
-- [ ] `src/components/controls/*`: WindowPicker, BucketPicker,
-      DimensionPicker, KillButton, BudgetEditor.
-- [ ] `src/pages/Login.tsx`, `Dashboard.tsx`, `Runs.tsx`,
-      `RunDetail.tsx`, `Agents.tsx`, `AgentDetail.tsx`,
-      `Users.tsx`, `UserDetail.tsx`, `Sessions.tsx`,
-      `SessionDetail.tsx`, `Config.tsx`, `NotFound.tsx`.
-- [ ] `src/styles/base.css` + `components.css`.
+- [x] `src/components/layout/Shell.tsx` + `Sidebar` + `Topbar`.
+- [x] `src/components/charts/UplotChart.tsx`: generic wrapper.
+- [x] `src/components/tables/DataTable.tsx`: sortable. **Not paginated**
+      (see the phase-8 checklist: the run call log truncates at the
+      server's 50-row default with no pager).
+- [x] `src/components/controls/WindowPicker.tsx`; kill triggers are
+      inlined in `RunDetail` / `AgentDetail` behind
+      `components/KillConfirmModal.tsx` (no standalone `KillButton`).
+- [ ] `BucketPicker`, `DimensionPicker` (bucket is derived from the
+      window; dimension is hardcoded to `agent-name`).
+- [ ] `BudgetEditor` (blocked on the `/_plugin/config/*` layer above).
+- [x] `src/pages/Login.tsx`, `Dashboard.tsx`, `RunDetail.tsx`,
+      `Agents.tsx`, `AgentDetail.tsx`, `People.tsx` (the plan's
+      `Users.tsx`), `UserDetail.tsx`, `NotFound.tsx` — plus
+      `Canvas.tsx` (landing page) and `EvalsView.tsx`, both beyond
+      this phase's scope.
+- [ ] `Runs.tsx` (no `/runs` list; runs are reached from agent / user
+      detail), `Sessions.tsx`, `SessionDetail.tsx` (backend routes
+      exist, nothing queries them), `Config.tsx`.
+- [x] `src/styles/base.css` + `components.css`.
 
 **Dockerfile:**
 
-- [ ] `ui-builder` stage running `npm ci && npm run build`.
-- [ ] `COPY --from=ui-builder /ui/dist` into the Go build context
+- [x] `plugin-ui-builder` stage running `npm ci && npm run build`.
+- [x] `COPY --from=plugin-ui-builder /pui/dist` into the Go build context
       before `go build`.
 
 **Docs:**
 
-- [ ] Update `gateway/README.md` with the operator-UI bullet (URL,
+- [x] Update `gateway/README.md` with the operator-UI bullet (URL,
       default creds in dev).
-- [ ] Update `phase-3-swarm-handoff.md` to note that admin creds now
+- [x] Update `phase-3-swarm-handoff.md` to note that admin creds now
       drive both `/api/*` and the operator UI.
-- [ ] Forward-pointer from `llm-governance-v2.md` §"Plugin" to this
-      phase.
+- [x] Forward-pointer from `llm-governance-v2.md` to this phase (in
+      its authoritative-spec table).
 
-**Gate:** phase 8 ships when:
+**Gate:** phase 9 ships when:
 
 1. Login → dashboard → kill a test run → see the run state freeze
    end-to-end against a real Bifrost+plugin+Redis stack.
