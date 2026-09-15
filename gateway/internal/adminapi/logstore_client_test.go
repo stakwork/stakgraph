@@ -259,6 +259,76 @@ func TestLogstoreLog_Tokens(t *testing.T) {
 	}
 }
 
+// Bifrost's logging plugin stamps non-string values into metadata
+// (`realtime: true` on realtime turns, `isAsyncRequest: true` on
+// x-bf-async jobs). One such row on a page used to fail the whole
+// decode and 502 every rollup for the window. Strings must survive
+// verbatim, scalars as their JSON text, and nested/null values must
+// simply be dropped — never an error.
+func TestMetadataMap_ToleratesNonStringValues(t *testing.T) {
+	var l logstoreLog
+	err := json.Unmarshal([]byte(`{
+		"id": "rt1",
+		"metadata": {
+			"run-id": "r1",
+			"agent-name": "canvas-agent",
+			"realtime": true,
+			"isAsyncRequest": true,
+			"retries": 3,
+			"ratio": 0.5,
+			"nested": {"a": "b"},
+			"list": [1, 2],
+			"gone": null
+		}
+	}`), &l)
+	if err != nil {
+		t.Fatalf("bool/number metadata must decode, got: %v", err)
+	}
+	want := map[string]string{
+		"run-id":         "r1",
+		"agent-name":     "canvas-agent",
+		"realtime":       "true",
+		"isAsyncRequest": "true",
+		"retries":        "3",
+		"ratio":          "0.5",
+	}
+	if len(l.Metadata) != len(want) {
+		t.Errorf("metadata = %v, want %v", l.Metadata, want)
+	}
+	for k, v := range want {
+		if l.Metadata[k] != v {
+			t.Errorf("metadata[%q] = %q, want %q", k, l.Metadata[k], v)
+		}
+	}
+	if dimensionValue(l, "run-id") != "r1" {
+		t.Errorf("dimensionValue must still index the map: %q", dimensionValue(l, "run-id"))
+	}
+
+	// Detail rows decode through the same type.
+	var d logstoreLogDetail
+	if err := json.Unmarshal([]byte(`{"id":"rt1","metadata":{"realtime":true,"user-id":"u1"}}`), &d); err != nil {
+		t.Fatalf("detail row: %v", err)
+	}
+	if d.Metadata["realtime"] != "true" || d.Metadata["user-id"] != "u1" {
+		t.Errorf("detail metadata = %v", d.Metadata)
+	}
+
+	// null / absent metadata stay nil so callers can index freely.
+	var n logstoreLog
+	if err := json.Unmarshal([]byte(`{"id":"x","metadata":null}`), &n); err != nil || n.Metadata != nil {
+		t.Errorf("null metadata: err=%v map=%v", err, n.Metadata)
+	}
+	var a logstoreLog
+	if err := json.Unmarshal([]byte(`{"id":"x"}`), &a); err != nil || a.Metadata["run-id"] != "" {
+		t.Errorf("absent metadata: err=%v map=%v", err, a.Metadata)
+	}
+	// A non-object metadata value is still a decode error, not silent data loss.
+	var bad logstoreLog
+	if err := json.Unmarshal([]byte(`{"id":"x","metadata":"oops"}`), &bad); err == nil {
+		t.Error("string-typed metadata must be rejected")
+	}
+}
+
 func TestNewLogstoreClient_RequiresCreds(t *testing.T) {
 	if newLogstoreClient("", "x") != nil || newLogstoreClient("x", "") != nil {
 		t.Error("missing creds must yield nil (routes skipped), not a client that 401s")
