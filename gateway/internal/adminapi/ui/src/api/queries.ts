@@ -60,16 +60,13 @@ export function useMe() {
 // Polled at 30s on the dashboard's rankings tables and the Agents
 // page. Polling pauses automatically when the tab is hidden.
 
-export function useSpendByAgent(window: Window, userID?: string) {
-  // Optional userID scopes the rollup to one person's calls —
-  // used by the UserDetail page to render "agents this user
-  // invoked". Server-side filter so we don't fan out per row.
-  const params = new URLSearchParams({ window });
-  if (userID) params.set("user_id", userID);
+export function useSpendByAgent(window: Window) {
   return useQuery({
-    queryKey: ["spend", "by-agent", window, userID ?? ""],
+    queryKey: ["spend", "by-agent", window],
     queryFn: () =>
-      apiFetch<SpendByAgentResponse>(`/spend/by-agent?${params.toString()}`),
+      apiFetch<SpendByAgentResponse>(
+        `/spend/by-agent?window=${encodeURIComponent(window)}`
+      ),
     refetchInterval: 30_000,
     staleTime: 10_000,
   });

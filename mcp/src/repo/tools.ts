@@ -573,8 +573,17 @@ export async function get_tools(
     return null;
   }
 
+  // Web search is a provider-executed (server-side) tool, and it is withheld
+  // on confined runs — create_pr worktrees and ephemeral previews. Those runs
+  // exist to edit files and have no use for it, and carrying a server tool in
+  // the request is a liability there: an LLM gateway that rewrites the tool's
+  // version makes the Anthropic API offer code_execution implicitly, the
+  // model then answers with a server_tool_use the SDK never registered, and
+  // the tool loop exits silently on that step. Observed 2026-09-15 on
+  // propose_code_change previews routed through Bifrost: the edit landed in
+  // the worktree, the run reported success, and the answer was narration.
   const web_search_tool =
-    provider === "anthropic"
+    provider === "anthropic" && !confinedRun(options)
       ? getProviderTool(provider, apiKey, "webSearch")
       : undefined;
   const bash_tool =

@@ -29,7 +29,10 @@ gateway and own every Bifrost in the system.
 
 The `bifrost_admin_password` is meant to be user-facing — that's the
 "copy this to log in to your dashboard" experience. It's per-gateway
-and only grants control over one workspace's Bifrost.
+and only grants control over one workspace's Bifrost. The same pair
+also signs into the plugin's own operator UI at `/_plugin/ui/`
+(`POST /_plugin/login`, phases 8–9), so one credential drives both
+`/api/*` and the dashboard.
 
 ## Status
 

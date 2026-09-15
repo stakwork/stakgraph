@@ -1103,3 +1103,127 @@ export async function landChange(
 export function _clearLandedState(runId: string): void {
   landedResults.delete(runId);
 }
+
+// ---------------------------------------------------------------------------
+// captureWorktreeDiff — ground-truth diff of an ephemeral preview worktree
+// ---------------------------------------------------------------------------
+
+export type WorktreeDiffFailure =
+  | "no_changes"
+  | "change_too_large"
+  | "secrets_detected"
+  | "git_failed";
+
+export type WorktreeDiffResult =
+  | { ok: true; diff: string; filesChanged: number }
+  | { ok: false; failure: WorktreeDiffFailure; error: string };
+
+export interface CaptureWorktreeDiffOpts {
+  maxFiles?: number;
+  maxBytes?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Read what an ephemeral preview run actually changed, straight from its
+ * worktree, before releaseWorktree discards it.
+ *
+ * Everything is staged first: `git diff HEAD` on its own skips untracked
+ * files, so a run that created a file would come back without it. The
+ * worktree is throwaway and detached, so staging has no side effects, and
+ * `git add -A` honours .gitignore. Same caps and secret scan as landChange,
+ * and like landChange a scan that cannot run fails closed.
+ *
+ * This replaces trusting the model to paste `git diff` output into its
+ * answer — fragile (truncation, code fences, missing new files) and silently
+ * empty whenever the run ended before its final message.
+ */
+export async function captureWorktreeDiff(
+  handle: WorktreeHandle,
+  opts: CaptureWorktreeDiffOpts = {}
+): Promise<WorktreeDiffResult> {
+  const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  const cwd = handle.worktreePath;
+  if (!fs.existsSync(cwd)) {
+    return { ok: false, failure: "git_failed", error: `Worktree is gone: ${cwd}` };
+  }
+  // Local-only git: no identity, no credentials, no prompts.
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: os.tmpdir(),
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "",
+  };
+  const git = (args: string[], timeoutMs: number) =>
+    runGit(args, { cwd, env, timeoutMs, signal: opts.signal });
+
+  const add = await git(["add", "-A"], 30_000);
+  if (add.code !== 0) {
+    return { ok: false, failure: "git_failed", error: `git add failed: ${add.stderr}` };
+  }
+
+  const names = await git(["diff", "--cached", "--name-only"], 10_000);
+  if (names.code !== 0) {
+    return {
+      ok: false,
+      failure: "git_failed",
+      error: `git diff --name-only failed: ${names.stderr}`,
+    };
+  }
+  const files = names.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (files.length === 0) {
+    return { ok: false, failure: "no_changes", error: "No changes in the worktree after the run" };
+  }
+  if (files.length > maxFiles) {
+    return {
+      ok: false,
+      failure: "change_too_large",
+      error: `${files.length} files changed, limit is ${maxFiles}`,
+    };
+  }
+
+  const diffRes = await git(["diff", "--cached", "--no-color"], 30_000);
+  if (diffRes.code !== 0) {
+    return { ok: false, failure: "git_failed", error: `git diff failed: ${diffRes.stderr}` };
+  }
+  const diff = diffRes.stdout;
+  const bytes = Buffer.byteLength(diff, "utf8");
+  if (bytes > maxBytes) {
+    return {
+      ok: false,
+      failure: "change_too_large",
+      error: `Diff is ${bytes} bytes, limit is ${maxBytes}`,
+    };
+  }
+
+  try {
+    const findings = gitleaksProtect(cwd);
+    if (findings.length > 0) {
+      const summary = findings
+        .map((f) => `${f.File}:${f.StartLine} (${f.RuleID})`)
+        .join(", ");
+      return {
+        ok: false,
+        failure: "secrets_detected",
+        error: `Secret scan found ${findings.length} finding(s): ${summary}`,
+      };
+    }
+  } catch (scanErr: unknown) {
+    const msg = scanErr instanceof Error ? scanErr.message : String(scanErr);
+    const absent =
+      msg.includes("ENOENT") || msg.includes("not found") || msg.includes("No such file");
+    return {
+      ok: false,
+      failure: "secrets_detected",
+      error: absent
+        ? "gitleaks binary not found — failing closed on secret scan"
+        : `Secret scan failed: ${msg}`,
+    };
+  }
+
+  return { ok: true, diff, filesChanged: files.length };
+}
