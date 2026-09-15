@@ -67,9 +67,11 @@ FROM node:${NODE_VERSION}-alpine3.23 AS plugin-ui-builder
 WORKDIR /pui
 COPY internal/adminapi/ui/package.json internal/adminapi/ui/package-lock.json* ./
 # `--no-audit --no-fund` keeps the output quiet and a hair faster.
-# Use `npm install` (not `ci`) until the lockfile exists; once the
-# first build commits package-lock.json this switches to `npm ci`
-# for reproducibility. The conditional below covers both.
+# package-lock.json is committed (root .gitignore un-ignores it), so
+# this takes the `npm ci` branch and installs exactly the tree that
+# was type-checked locally and in gateway-check.yml. The `npm install`
+# fallback only exists so a checkout with the lockfile stripped still
+# builds — a fresh resolution is how the v0.4.262 build diverged.
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 COPY internal/adminapi/ui/ ./
 RUN npm run build
