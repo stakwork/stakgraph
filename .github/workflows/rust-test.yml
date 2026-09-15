@@ -1,8 +1,16 @@
 name: Stakgraph Unit Test
+# Only `cargo test -p ast --lib`: ast and the crates it pulls in (lsp, shared).
 on:
   pull_request:
     branches:
       - main
+    paths:
+      - "ast/**"
+      - "lsp/**"
+      - "shared/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust-test.yml"
 
 jobs:
   run-test:

@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -77,6 +78,53 @@ func basicAuth(user, pass string) string {
 
 // ─── search ──────────────────────────────────────────────────────────
 
+// metadataMap is Bifrost's log `metadata` decoded to strings.
+//
+// On the wire it is a map[string]interface{} (framework/logstore/
+// tables.go: MetadataParsed). The dim headers the plugin stamps are
+// all strings, but Bifrost's own logging plugin adds bool markers to
+// some rows — `realtime: true` on realtime turns and `isAsyncRequest:
+// true` on x-bf-async jobs (plugins/logging/main.go). Decoding the
+// map straight into map[string]string made one such row fail the
+// whole /api/logs page it sat on, which took every rollup for the
+// window down with it (2026-09-15: a single realtime turn in the
+// 24h window 502'd spend.by_agent, by_user, histogram.cost, ...).
+//
+// String values are kept verbatim. Bool and number values are kept
+// as their JSON text ("true", "42") so they stay visible in detail
+// views and usable as filters. Nested objects/arrays and nulls are
+// dropped — no dim is ever nested, and a rollup has no use for them.
+type metadataMap map[string]string
+
+func (m *metadataMap) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || bytes.Equal(b, []byte("null")) {
+		*m = nil
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	out := make(metadataMap, len(raw))
+	for k, v := range raw {
+		v = bytes.TrimSpace(v)
+		// null must be checked first: json.Unmarshal(null, &string) is
+		// a silent no-op, which would keep the key as "".
+		if len(v) == 0 || v[0] == '{' || v[0] == '[' || bytes.Equal(v, []byte("null")) {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			out[k] = s
+			continue
+		}
+		out[k] = string(v)
+	}
+	*m = out
+	return nil
+}
+
 // logstoreLog is the subset of Bifrost's Log columns phase 8 reads.
 // Defined inline — tygo doesn't emit this; the SPA only sees the
 // shapes the plugin's own handlers return.
@@ -90,11 +138,10 @@ type logstoreLog struct {
 	Latency    float64 `json:"latency"`
 	CustomerID string  `json:"customer_id"`
 
-	// Bifrost emits metadata as a JSON string on the wire (the gorm
-	// model marks it `json:"-"` then a separate hook re-attaches as
-	// "metadata"). Decoding as map[string]string covers every dim
-	// header the plugin canonicalises.
-	Metadata map[string]string `json:"metadata"`
+	// Metadata is Bifrost's per-row label map (dim headers, x-bf-lh-*
+	// labels, and Bifrost's own markers). See metadataMap for why it
+	// is not decoded straight into map[string]string.
+	Metadata metadataMap `json:"metadata"`
 
 	// TokenUsage is Bifrost's provider-reported usage. The list
 	// endpoint selects the denormalised prompt/completion/total
@@ -249,15 +296,15 @@ func (c *logstoreClient) searchAll(
 // Bifrost minimal: a new field in `schemas.ChatMessage` upstream is
 // invisible to us.
 type logstoreLogDetail struct {
-	ID         string            `json:"id"`
-	Timestamp  string            `json:"timestamp"`
-	Provider   string            `json:"provider"`
-	Model      string            `json:"model"`
-	Status     string            `json:"status"`
-	Cost       float64           `json:"cost"`
-	Latency    float64           `json:"latency"`
-	CustomerID string            `json:"customer_id"`
-	Metadata   map[string]string `json:"metadata"`
+	ID         string      `json:"id"`
+	Timestamp  string      `json:"timestamp"`
+	Provider   string      `json:"provider"`
+	Model      string      `json:"model"`
+	Status     string      `json:"status"`
+	Cost       float64     `json:"cost"`
+	Latency    float64     `json:"latency"`
+	CustomerID string      `json:"customer_id"`
+	Metadata   metadataMap `json:"metadata"`
 
 	// Heavy body fields — present on /api/logs/{id}, absent on
 	// /api/logs. Optional because some rows (errors, realtime

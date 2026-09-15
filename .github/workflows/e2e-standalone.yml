@@ -1,8 +1,17 @@
 name: Stakgraph E2E Standalone Test
+# Builds the standalone binary (ast, lsp, shared, standalone) and the mcp node
+# server, so nearly everything is an input. Skip only what it never compiles or
+# reads: gateway (Go), notes, cli (separate workspace), skill, and docs.
 on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "gateway/**"
+      - "notes/**"
+      - "cli/**"
+      - "skill/**"
+      - "**.md"
 
 jobs:
   run-standalone-e2e-test:
