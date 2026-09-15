@@ -10,21 +10,38 @@ import (
 )
 
 // Revocation routes — the HTTP face of auth/admin.go's helpers.
-// Bearer-only: revocation is issuer territory (Hive's
-// /macaroons/revoke fans out here), never a dashboard click.
 //
-//	POST   /_plugin/revoke/nonce/:nonce   body {exp?}    → 200 RevokeNonceResponse
-//	DELETE /_plugin/revoke/nonce/:nonce                  → 204
-//	PUT    /_plugin/revoke/user/:user_id  body {before?} → 200 RevokeUserResponse
+//	POST   /_plugin/revoke/nonce/:nonce   body {exp?}    → 200 RevokeNonceResponse   bearer only
+//	DELETE /_plugin/revoke/nonce/:nonce                  → 204                       bearer only
+//	PUT    /_plugin/revoke/user/:user_id  body {before?} → 200 RevokeUserResponse    cookie or bearer
 //	GET    /_plugin/revoke/user/:user_id                 → 200 RevokeUserResponse | 404
 //	DELETE /_plugin/revoke/user/:user_id                 → 204
+//	GET    /_plugin/revoke/users                         → 200 RevokeUsersResponse
+//
+// Two auth postures under one prefix (server.go splits them):
+//
+//   - Nonce revocation stays bearer-only. It is issuer territory —
+//     Hive's /macaroons/revoke fans out here — and the dashboard has
+//     no surface that knows a nonce anyway.
+//   - User revocation is cookie-or-bearer, the same posture as the
+//     run and agent kill switches (CSRF header on cookie-authed
+//     mutations). It is the dashboard's third kill axis: per swarm,
+//     in Redis, readable back by Hive's reconcile sweep through the
+//     same GET routes. Blast radius is the same class as an agent
+//     kill — every run of one principal — so the SPA gates it behind
+//     the same typed confirmation.
 //
 // `exp` is the RFC3339 expiry of the layer whose nonce is being
 // revoked; the tombstone's TTL is derived from it (phase-6: "TTL =
 // layer.exp"). Omitted ⇒ the 7d ceiling, which is always safe
 // (macaroon layers never outlive it). `before` defaults to now.
 
-const revokePrefixPath = "/_plugin/revoke/"
+const (
+	revokePrefixPath = "/_plugin/revoke/"
+	// revokeNoncePath is the bearer-only subtree; everything else
+	// under revokePrefixPath is cookie-or-bearer.
+	revokeNoncePath = revokePrefixPath + "nonce/"
+)
 
 // RevokeNonceRequest is the body for POST /_plugin/revoke/nonce/:nonce.
 type RevokeNonceRequest struct {
@@ -48,13 +65,26 @@ type RevokeUserResponse struct {
 	Before string `json:"before"` // RFC3339 UTC
 }
 
+// RevokeUsersResponse is the wire shape for GET /_plugin/revoke/users:
+// every user with a cutoff on this swarm, newest cutoff first. Backs
+// the People list's "Revoked" column and Hive's per-swarm read. An
+// entry whose stored cutoff won't parse has an empty `before`.
+type RevokeUsersResponse struct {
+	Users []RevokeUserResponse `json:"users"`
+}
+
 type revokeHandlers struct{}
 
 func newRevokeHandlers() *revokeHandlers { return &revokeHandlers{} }
 
-// dispatch routes /_plugin/revoke/{nonce,user}/<id>.
+// dispatch routes /_plugin/revoke/{nonce,user}/<id> and
+// /_plugin/revoke/users.
 func (h *revokeHandlers) dispatch(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, revokePrefixPath), "/")
+	if len(parts) == 1 && parts[0] == "users" {
+		h.users(w, r)
+		return
+	}
 	if len(parts) != 2 || parts[1] == "" {
 		http.NotFound(w, r)
 		return
@@ -162,4 +192,26 @@ func (h *revokeHandlers) user(w http.ResponseWriter, r *http.Request, userID str
 	default:
 		methodNotAllowed(w, http.MethodPut, http.MethodGet, http.MethodDelete)
 	}
+}
+
+// users handles GET /_plugin/revoke/users.
+func (h *revokeHandlers) users(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	list, err := auth.ListUserRevokeCutoffs(r.Context(), 0)
+	if err != nil {
+		writeHotStateErr(w, err, "revoke.list_users")
+		return
+	}
+	out := RevokeUsersResponse{Users: make([]RevokeUserResponse, 0, len(list))}
+	for _, u := range list {
+		before := ""
+		if !u.Before.IsZero() {
+			before = u.Before.UTC().Format(time.RFC3339)
+		}
+		out.Users = append(out.Users, RevokeUserResponse{UserID: u.UserID, Before: before})
+	}
+	writeJSON(w, http.StatusOK, out)
 }

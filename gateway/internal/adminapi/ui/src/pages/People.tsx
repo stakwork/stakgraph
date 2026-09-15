@@ -4,16 +4,20 @@
 // `user_id` and the click-through goes to /people/:id (UserDetail).
 // Reuses the existing `useSpendByUser` query — that's the canonical
 // per-dim rollup endpoint, and "people" is just the user-facing
-// label for what the backend calls "user".
+// label for what the backend calls "user". The "Revoked" column is
+// the user-axis twin of the Agents list's "Kill state": one
+// /revoke/users read for the whole table rather than a per-row
+// fan-out, since the list is a single ZSET on the server.
 
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 import { Link, useLocation } from "wouter-preact";
 
 import { DataTable } from "../components/tables/DataTable";
 import { WindowPicker } from "../components/controls/WindowPicker";
 import { UserIcon } from "../components/icons";
+import { StatusBadge } from "../components/StatusBadge";
 import { getErrorMessage } from "../api/client";
-import { useSpendByUser } from "../api/queries";
+import { useRevokedUsers, useSpendByUser } from "../api/queries";
 import type { UserSpend } from "../api/types";
 import type { Window } from "../api/manual";
 
@@ -35,6 +39,15 @@ export function People() {
   const [window, setWindow] = useState<Window>("24h");
   const [, setLocation] = useLocation();
   const q = useSpendByUser(window);
+  const revoked = useRevokedUsers();
+  // user_id → cutoff. `null` ⇒ redis off on this swarm (every cell
+  // renders "—" with a reason), `undefined` ⇒ still loading.
+  const cutoffs = useMemo(() => {
+    if (!revoked.data) return revoked.data;
+    const m = new Map<string, string>();
+    for (const u of revoked.data.users) m.set(u.user_id, u.before);
+    return m;
+  }, [revoked.data]);
 
   return (
     <>
@@ -89,6 +102,44 @@ export function People() {
               align: "num",
               cell: (r) => fmtInt(r.request_count),
               sort: (r) => r.request_count,
+            },
+            {
+              key: "revoked",
+              header: "Revoked",
+              cell: (r) => {
+                if (cutoffs === undefined) {
+                  return <span class="text-dim">…</span>;
+                }
+                if (cutoffs === null) {
+                  return (
+                    <span
+                      class="text-dim"
+                      title="Hot state unavailable on this swarm (no Redis)"
+                    >
+                      —
+                    </span>
+                  );
+                }
+                const before = cutoffs.get(r.user_id);
+                return before !== undefined ? (
+                  <StatusBadge
+                    status="killed"
+                    label="revoked"
+                    title={
+                      before
+                        ? `Authorizations issued before ${new Date(before).toLocaleString()} are rejected`
+                        : "Revoke cutoff set (stored value unreadable)"
+                    }
+                  />
+                ) : (
+                  <span class="text-dim" title="No revoke cutoff">
+                    —
+                  </span>
+                );
+              },
+              // Revoked first on a desc sort, like the Agents list's
+              // kill column.
+              sort: (r) => (cutoffs?.has(r.user_id) ? 1 : 0),
             },
           ]}
           defaultSortKey="cost"

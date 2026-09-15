@@ -47,7 +47,7 @@ ui/
     │   ├── tables/       # DataTable (sortable)
     │   ├── controls/     # WindowPicker
     │   ├── icons.tsx     # UserIcon, BotIcon, StopIcon (inline SVG)
-    │   ├── KillConfirmModal.tsx  # kill / unkill confirm; typed for agents
+    │   ├── KillConfirmModal.tsx  # kill / unkill / revoke confirm; typed for agents + users
     │   ├── StatusBadge.tsx       # running/killed/exceeded/done + derivation
     │   ├── TlogCard.tsx          # phase-12 transparency-log status card (Dashboard)
     │   ├── EmptyState.tsx
@@ -55,8 +55,8 @@ ui/
     ├── pages/
     │   ├── Login.tsx          # Basic auth → session cookie
     │   ├── Dashboard.tsx      # KPIs + cost-by-agent chart + top-5 tables + tlog card
-    │   ├── People.tsx         # users in the window
-    │   ├── UserDetail.tsx     # one user's KPIs + chart + agents-used + runs
+    │   ├── People.tsx         # users in the window + revoked column
+    │   ├── UserDetail.tsx     # one user's KPIs + chart + agents-used + runs + user revoke switch
     │   ├── Agents.tsx         # agents in the window: budget meter + kill-state column
     │   ├── AgentDetail.tsx    # one agent's chart + budget card + runs + agent kill switch
     │   ├── RunDetail.tsx      # Live-state card + kill switch, Provenance card, call log + drawer
@@ -156,9 +156,10 @@ four mutation hooks (`useKillRun`, `useUnkillRun`, `useKillAgent`,
   once done, 500ms for 30s right after a kill/unkill; agent state 10s
   on the detail page, 30s per row on the list.
 - **Confirmation is `KillConfirmModal`** — plain confirm for runs,
-  typed agent name for agents (swarm-wide blast radius). No
-  `window.confirm()` (Hive's iframe sandbox suppresses it) and no
-  optimistic update: the modal closes only on 200.
+  typed agent name for agents and typed user id for users (swarm-wide
+  blast radius). No `window.confirm()` (Hive's iframe sandbox
+  suppresses it) and no optimistic update: the modal closes only on
+  200.
 - **Status derivation is `StatusBadge.deriveRunStatus` /
   `deriveAgentStatus`.** Keep new pages on the same derivation rather
   than inventing a second notion of "running".
@@ -166,6 +167,20 @@ four mutation hooks (`useKillRun`, `useUnkillRun`, `useKillAgent`,
   sets it on every request, so per-call code does nothing extra.
 - Not exposed: `enforce_macaroons` / `enforce_budgets`. The modal
   carries a static "only enforced when enforce_macaroons=true" hint.
+- **User revocation is the third kill axis.** `UserDetail` drives
+  `PUT|DELETE /_plugin/revoke/user/:id` through `useRevokeUser` /
+  `useClearUserRevoke`, reads the cutoff back with `useUserRevoke`
+  (10s, 500ms boost after a mutation; 404 ⇒ `{ before: null }`, 503 ⇒
+  `null`), and `People` reads every cutoff in one call with
+  `useRevokedUsers` (`GET /_plugin/revoke/users`, 30s). The cutoff
+  rejects every macaroon whose user authorization was issued before
+  it — all of the user's in-flight runs, whatever agent, and new
+  spawns under the current authorization — until Hive re-issues. Per
+  swarm, no TTL. The card and badge say "issued before <t> are
+  rejected", not "revoked": after Hive re-issues the cutoff is still
+  set and still true. The modal's blast-radius line reads the in-flight
+  list off `/users/:id/quota` (`useUserQuota`, only while open).
+  `/_plugin/revoke/nonce/*` stays bearer-only and has no UI.
 - **Cap meters** on RunDetail's live-state card read `max_cost_usd` /
   `max_steps` / `ancestors` off `/runs/:id/state` (the accumulator's
   `meta:run:<id>` record) and draw one cost + one steps bar per
@@ -202,9 +217,11 @@ non-run states; `status` then only picks the tone.
 | 401 anywhere          | n/a                         | SPA's QueryCache catches → `setLocation('/login?next=…')` |
 
 The SPA never sends a bearer token. Hive uses bearer; the dashboard
-uses the cookie. Some endpoints accept either (the read-only ones);
-the trust mutations (POST/DELETE on `/_plugin/trust/*`) and Hive's
-bootstrap (`/_plugin/admin-credentials`) are bearer-only by design.
+uses the cookie. Some endpoints accept either (the read-only ones and
+the kill / revoke-user switches); the trust mutations (POST/DELETE on
+`/_plugin/trust/*`), nonce revocation (`/_plugin/revoke/nonce/*`) and
+Hive's bootstrap (`/_plugin/admin-credentials`) are bearer-only by
+design.
 
 ## When adding a new page
 

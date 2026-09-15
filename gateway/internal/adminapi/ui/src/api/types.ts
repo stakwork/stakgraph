@@ -657,6 +657,15 @@ export interface RevokeUserResponse {
   user_id: string;
   before: string; // RFC3339 UTC
 }
+/**
+ * RevokeUsersResponse is the wire shape for GET /_plugin/revoke/users:
+ * every user with a cutoff on this swarm, newest cutoff first. Backs
+ * the People list's "Revoked" column and Hive's per-swarm read. An
+ * entry whose stored cutoff won't parse has an empty `before`.
+ */
+export interface RevokeUsersResponse {
+  users: RevokeUserResponse[];
+}
 
 //////////
 // source: server.go

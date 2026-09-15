@@ -1,17 +1,23 @@
 // UserDetail — KPIs + cost histogram + agents used + recent runs,
-// all scoped to one user's traffic in the window.
+// all scoped to one user's traffic in the window, plus the user
+// revoke switch (the third kill axis after run and agent).
 //
 // Data flow
 // ---------
 // One query (`useUserDetail`) drives the KPI cards and the two
 // tables. A separate `useHistogramCost` call with `userID` filters
 // the time-series to the same window — that runs server-side on
-// the backend so no client-side filtering is needed.
+// the backend so no client-side filtering is needed. `useUserRevoke`
+// reads the Redis cutoff and feeds both the header badge and the
+// Authorization card; it is independent of the logstore, so the
+// switch keeps working when the analytics half of the page errors.
 //
-// Order on the page is intentional: KPIs (the "is this person a
-// heavy user?" answer), Provenance-y card with first/last seen,
-// chart, then the two drill-down tables. Same shape as AgentDetail
-// so an operator who learns one learns the other.
+// Order on the page is intentional: the Authorization card first
+// (a set cutoff is the one thing an operator must not miss), KPIs
+// (the "is this person a heavy user?" answer), the activity card
+// with first/last seen, chart, then the two drill-down tables. Same
+// shape as AgentDetail so an operator who learns one learns the
+// other.
 
 import { useMemo, useState } from "preact/hooks";
 import { Link } from "wouter-preact";
@@ -19,9 +25,19 @@ import { Link } from "wouter-preact";
 import { CostHistogram } from "../components/charts/CostHistogram";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { WindowPicker } from "../components/controls/WindowPicker";
-import { BotIcon, UserIcon } from "../components/icons";
+import { BotIcon, StopIcon, UserIcon } from "../components/icons";
+import { KillConfirmModal } from "../components/KillConfirmModal";
+import { StatusBadge } from "../components/StatusBadge";
 import { getErrorMessage } from "../api/client";
-import { useHistogramCost, useUserDetail } from "../api/queries";
+import {
+  useClearUserRevoke,
+  useHistogramCost,
+  useRevokeUser,
+  useUserDetail,
+  useUserQuota,
+  useUserRevoke,
+  type UserRevokeState,
+} from "../api/queries";
 import type { UserAgentUsage, UserRunSummary } from "../api/types";
 import type { Window } from "../api/manual";
 import { windowToSeconds } from "../api/window";
@@ -88,6 +104,12 @@ export function UserDetail({ userID }: Props) {
     userID,
   });
 
+  // Redis hot state: the revoke cutoff. `null` when the swarm has no
+  // Redis (badge hidden, switch disabled), `{ before: null }` when no
+  // cutoff is set.
+  const revoke = useUserRevoke(userID);
+  const revoked = !!revoke.data?.before;
+
   const agentsUsed = q.data?.agents_used ?? [];
   const recentRuns = q.data?.recent_runs ?? [];
 
@@ -111,10 +133,22 @@ export function UserDetail({ userID }: Props) {
               <UserIcon class="prov-icon" />
               {displayID}
             </span>
+            {revoked ? (
+              <StatusBadge
+                status="killed"
+                label="revoked"
+                title={REVOKED_TITLE}
+              />
+            ) : null}
           </h1>
         </div>
-        <WindowPicker value={window} onChange={setWindow} />
+        <div class="page-actions">
+          <WindowPicker value={window} onChange={setWindow} />
+          <RevokeUserSwitch userID={userID} state={revoke.data} />
+        </div>
       </div>
+
+      <AuthorizationCard state={revoke.data} />
 
       {q.isError ? (
         <div class="error-banner">{getErrorMessage(q.error)}</div>
@@ -279,6 +313,157 @@ export function UserDetail({ userID }: Props) {
           </section>
         </>
       )}
+    </>
+  );
+}
+
+// ─── user revocation ───────────────────────────────────────────────
+//
+// The cutoff is `revoke_user_before:<user_id>` in Redis. Once set,
+// the hot path rejects every macaroon whose user authorization was
+// issued before it — every in-flight run of this user, whatever agent
+// carries it, and every new spawn under the current authorization —
+// until Hive issues a fresh one. Per swarm, no TTL. The card states
+// that precisely ("issued before <t> are rejected") rather than
+// "revoked", because after Hive re-issues, the cutoff is still set
+// and still true, but the user is working again.
+
+const REVOKED_TITLE =
+  "Revoke cutoff set. Macaroons issued before it are rejected on the next LLM call when enforce_macaroons=true; logged only in shadow mode.";
+
+function AuthorizationCard({
+  state,
+}: {
+  state: UserRevokeState | null | undefined;
+}) {
+  const unavailable = state === null;
+  const before = state?.before ?? null;
+  return (
+    <section class="card provenance">
+      <div class="card-header">
+        <div class="card-title">Authorization</div>
+        {unavailable ? (
+          <span class="text-dim" style="font-size: 11px">
+            hot state unavailable on this swarm (no Redis)
+          </span>
+        ) : before ? (
+          <StatusBadge status="killed" label="revoked" title={REVOKED_TITLE} />
+        ) : state ? (
+          <StatusBadge
+            status="done"
+            label="accepted"
+            title="No cutoff set. Every valid authorization this user holds is accepted."
+          />
+        ) : (
+          <span class="text-dim">…</span>
+        )}
+      </div>
+      {before ? (
+        <>
+          <dl class="kvgrid" style="margin-bottom: var(--sp-3)">
+            <dt class="kvgrid-key">Cutoff</dt>
+            <dd class="kvgrid-val">
+              <span class="mono">{fmtTs(before)}</span>{" "}
+              <span class="text-dim">({fmtRelative(before)})</span>
+            </dd>
+          </dl>
+          {/* Prose lives outside the kvgrid: `.kvgrid-val` breaks
+              words anywhere (it is sized for opaque ids), which
+              splits sentences mid-word. */}
+          <p class="text-dim" style="margin: 0">
+            Authorizations issued before the cutoff are rejected on this
+            swarm. In-flight runs stop on their next LLM call; new spawns
+            need Hive to issue a fresh authorization. No expiry — clear it
+            to lift.
+          </p>
+        </>
+      ) : (
+        <p class="text-dim" style="margin: 0">
+          {unavailable
+            ? "Revocation state lives in Redis; this swarm has none configured, so the switch is off."
+            : "No cutoff set. Every valid authorization this user holds is accepted on this swarm."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// Revoke / Clear for one user, swarm-wide. `state` is the
+// /revoke/user/:id snapshot: undefined while loading, null when the
+// swarm has no Redis (switch disabled with a tooltip). Typed
+// confirmation in the modal because the blast radius is every run
+// of this user, not just the ones on this page. The in-flight list
+// for the modal comes from /users/:id/quota and is fetched only
+// while the modal is open.
+function RevokeUserSwitch({
+  userID,
+  state,
+}: {
+  userID: string;
+  state: UserRevokeState | null | undefined;
+}) {
+  const revoke = useRevokeUser(userID);
+  const clear = useClearUserRevoke(userID);
+  const [modal, setModal] = useState<"kill" | "unkill" | null>(null);
+  const active = modal === "kill" ? revoke : clear;
+  const unavailable = state === null;
+  const quota = useUserQuota(userID, modal === "kill");
+
+  const open = (which: "kill" | "unkill") => {
+    revoke.reset();
+    clear.reset();
+    setModal(which);
+  };
+
+  return (
+    <>
+      {state?.before ? (
+        <button
+          type="button"
+          class="btn"
+          title="Remove the cutoff; macaroons issued before it are accepted again on their next LLM call"
+          onClick={() => open("unkill")}
+        >
+          Clear revoke
+        </button>
+      ) : (
+        <button
+          type="button"
+          class="btn btn-icon is-danger-solid"
+          disabled={!state}
+          title={
+            unavailable
+              ? "Hot state unavailable on this swarm (no Redis) — revocation is off"
+              : "Reject every authorization this user holds on this swarm until Hive re-issues"
+          }
+          onClick={() => open("kill")}
+        >
+          <StopIcon />
+          Revoke user
+        </button>
+      )}
+      {modal ? (
+        <KillConfirmModal
+          target={{
+            kind: "user",
+            id: userID,
+            inflight: quota.isError
+              ? null
+              : quota.data
+                ? quota.data.inflight_runs ?? null
+                : undefined,
+          }}
+          action={modal}
+          pending={active.isPending}
+          error={active.isError ? getErrorMessage(active.error) : null}
+          onConfirm={() => {
+            const done = { onSuccess: () => setModal(null) };
+            if (modal === "kill") revoke.mutate(undefined, done);
+            else clear.mutate(undefined, done);
+          }}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
     </>
   );
 }

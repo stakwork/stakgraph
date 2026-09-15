@@ -1,14 +1,20 @@
-// KillConfirmModal — the one confirmation dialog for every kill and
-// unkill in the SPA. Two modes, picked by the target:
+// KillConfirmModal — the one confirmation dialog for every kill,
+// unkill, revoke and clear in the SPA. Three modes, picked by the
+// target:
 //
 //   run    plain confirm. Blast radius is one run plus the sub-agents
 //          it spawned.
 //   agent  typed confirm — the operator must type the agent name.
 //          Blast radius is every run of that agent, swarm-wide, so
 //          the friction is deliberately higher (phase 9 "Destructive").
+//   user   typed confirm — the operator must type the user id. Sets
+//          the user's revoke cutoff: every macaroon issued before now
+//          is rejected, whatever agent carries it, and new spawns are
+//          cut off too until Hive re-issues. Same friction as agent.
 //
-// Unkill uses the same modal with the same friction: clearing a
-// swarm-wide agent kill is as consequential as setting it.
+// Unkill / clear use the same modal with the same friction: clearing
+// a swarm-wide agent kill or a user cutoff is as consequential as
+// setting it.
 //
 // A custom element rather than window.confirm(): Hive embeds this SPA
 // in a sandboxed iframe without `allow-modals`, where confirm() is
@@ -21,11 +27,20 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import type { InflightRun } from "../api/types";
 import { StopIcon } from "./icons";
 
 export type KillTarget =
   | { kind: "run"; id: string }
-  | { kind: "agent"; name: string };
+  | { kind: "agent"; name: string }
+  | {
+      kind: "user";
+      id: string;
+      /** The user's in-flight runs, for the blast-radius line.
+       *  `undefined` while loading, `null` when unavailable (no
+       *  logstore / no Redis); either way the line is omitted. */
+      inflight?: InflightRun[] | null;
+    };
 
 export type KillAction = "kill" | "unkill";
 
@@ -48,10 +63,10 @@ export function KillConfirmModal({
   onConfirm,
   onClose,
 }: Props) {
-  const typed = target.kind === "agent";
-  const targetLabel = target.kind === "run" ? target.id : target.name;
+  const typed = target.kind !== "run";
+  const targetLabel = target.kind === "agent" ? target.name : target.id;
   const [input, setInput] = useState("");
-  const ready = !typed || input.trim() === target.name;
+  const ready = !typed || input.trim() === targetLabel;
 
   // Focus the input (agent) or the confirm button (run) on open so
   // keyboard operators can drive the whole flow without a mouse.
@@ -76,24 +91,35 @@ export function KillConfirmModal({
     onConfirm();
   };
 
+  const isUser = target.kind === "user";
   const title =
     action === "kill"
       ? target.kind === "run"
         ? "Kill run"
-        : "Kill agent"
+        : target.kind === "agent"
+          ? "Kill agent"
+          : "Revoke user"
       : target.kind === "run"
         ? "Clear kill on run"
-        : "Clear kill on agent";
+        : target.kind === "agent"
+          ? "Clear kill on agent"
+          : "Clear revoke on user";
 
   const confirmLabel = pending
     ? action === "kill"
-      ? "Killing…"
+      ? isUser
+        ? "Revoking…"
+        : "Killing…"
       : "Clearing…"
     : action === "kill"
       ? target.kind === "run"
         ? "Kill run"
-        : "Kill agent"
-      : "Clear kill";
+        : target.kind === "agent"
+          ? "Kill agent"
+          : "Revoke user"
+      : isUser
+        ? "Clear revoke"
+        : "Clear kill";
 
   return (
     <div
@@ -126,7 +152,16 @@ export function KillConfirmModal({
           <Scope target={target} action={action} />
 
           <div class="modal-callout">
-            {action === "kill" ? (
+            {action === "kill" && isUser ? (
+              <>
+                Takes effect on the <strong>next LLM call</strong>, not
+                immediately, and on <strong>this swarm only</strong> — other
+                swarms keep accepting the same authorization until it is
+                revoked there too. Only enforced when the swarm runs with{" "}
+                <span class="mono">enforce_macaroons=true</span>; in shadow
+                mode the rejection is logged and calls continue.
+              </>
+            ) : action === "kill" ? (
               <>
                 Takes effect on the <strong>next LLM call</strong>, not
                 immediately. It is only enforced when the swarm runs with{" "}
@@ -145,7 +180,7 @@ export function KillConfirmModal({
           {typed ? (
             <label class="modal-field">
               <span class="modal-label">
-                Type <span class="mono">{target.name}</span> to confirm
+                Type <span class="mono">{targetLabel}</span> to confirm
               </span>
               <input
                 ref={inputRef}
@@ -196,9 +231,30 @@ export function KillConfirmModal({
 // Scope spells out the blast radius and the TTL — the two things an
 // operator most often gets wrong about these switches (a run kill
 // cascades to sub-agents; an agent kill does NOT cascade to
-// differently-named sub-agents; both expire on their own). TTLs
-// mirror auth/kill.go: killRunTTL = 1h, killAgentTTL = 24h.
+// differently-named sub-agents; both expire on their own; a user
+// cutoff does NOT expire). TTLs mirror auth/kill.go: killRunTTL =
+// 1h, killAgentTTL = 24h.
 function Scope({ target, action }: { target: KillTarget; action: KillAction }) {
+  if (target.kind === "user") {
+    return action === "kill" ? (
+      <>
+        <p class="modal-note">
+          Rejects <strong>every macaroon this user holds</strong> on this
+          swarm: every in-flight run, whatever agent is running it, and
+          every new spawn minted under the user's current authorization.
+          Nothing works for this user here until Hive issues a fresh
+          authorization. The cutoff has <strong>no expiry</strong>; clear
+          it to lift.
+        </p>
+        <InflightNote runs={target.inflight} />
+      </>
+    ) : (
+      <p class="modal-note">
+        Removes the cutoff. Macaroons issued before it are accepted again
+        on their next LLM call.
+      </p>
+    );
+  }
   if (target.kind === "run") {
     return action === "kill" ? (
       <p class="modal-note">
@@ -224,6 +280,35 @@ function Scope({ target, action }: { target: KillTarget; action: KillAction }) {
     <p class="modal-note">
       Clears the swarm-wide kill flag for this agent. Every run of this
       agent may resume.
+    </p>
+  );
+}
+
+// InflightNote is the blast-radius line for a user revoke: how many
+// runs the accumulator has indexed for this user right now, and
+// across how many agents. Omitted while loading or when the swarm
+// can't answer (no Redis / no logstore) — the revoke still applies
+// to whatever is running; we just can't count it.
+function InflightNote({ runs }: { runs: InflightRun[] | null | undefined }) {
+  if (runs === undefined || runs === null) return null;
+  if (runs.length === 0) {
+    return (
+      <p class="modal-note">
+        No in-flight runs are indexed for this user right now. New spawns
+        under the current authorization are still cut off.
+      </p>
+    );
+  }
+  const agents = new Set(runs.map((r) => r.agent_name ?? "")).size;
+  const live = runs.filter((r) => !r.killed).length;
+  return (
+    <p class="modal-note">
+      <strong>
+        {live} in-flight run{live === 1 ? "" : "s"}
+      </strong>{" "}
+      across {agents} agent{agents === 1 ? "" : "s"} will be cut off on
+      their next call
+      {live !== runs.length ? ` (${runs.length - live} already killed)` : ""}.
     </p>
   );
 }

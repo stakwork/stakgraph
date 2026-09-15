@@ -27,12 +27,15 @@ import type {
   CallDetailResponse,
   HistogramCostResponse,
   MeResponse,
+  RevokeUserResponse,
+  RevokeUsersResponse,
   RunDetailResponse,
   SpendByAgentResponse,
   SpendByAgentUserResponse,
   SpendByUserResponse,
   TlogStatusResponse,
   UserDetailResponse,
+  UserQuotaResponse,
 } from "./types";
 import type {
   TrustOrg,
@@ -544,6 +547,132 @@ export function useUnkillAgent(name: string) {
     retry: false,
     onSuccess: () => boost("agent:" + name),
     onSettled: () => qc.invalidateQueries({ queryKey: agentStateKey(name) }),
+  });
+}
+
+// ─── user revocation: /revoke/user/:id · /revoke/users ─────────────
+//
+// The third kill axis, next to run and agent. `PUT /revoke/user/:id`
+// writes `revoke_user_before:<id>` = now; the hot path then rejects
+// every macaroon whose user authorization was issued before that, so
+// every in-flight run and every new spawn under the user's current
+// authorization stops on its next LLM call until Hive issues a fresh
+// one. Per swarm, no TTL, cleared with DELETE. The routes are
+// cookie-or-bearer like the kill routes (revoke.go / server.go).
+//
+// `GET /revoke/user/:id` 404s when no cutoff is set, so the hook
+// folds that into `{ before: null }`; a 503 (no Redis on this swarm)
+// folds into `data === null` like the other hot-state hooks. Cadence
+// mirrors agent state: 10s on UserDetail, 500ms for KILL_BOOST_MS
+// after a revoke/clear, 30s for the People list's one-call read.
+
+/** `before` is the RFC3339 cutoff, or null when the user has none. */
+export interface UserRevokeState {
+  before: string | null;
+}
+
+const userRevokeKey = (userID: string) =>
+  ["revoke", "user", userID] as const;
+const revokedUsersKey = ["revoke", "users"] as const;
+
+export function useUserRevoke(userID: string | undefined) {
+  return useQuery({
+    queryKey: userRevokeKey(userID ?? ""),
+    queryFn: async (): Promise<UserRevokeState | null> => {
+      try {
+        const r = await apiFetch<RevokeUserResponse>(
+          `/revoke/user/${encodeURIComponent(userID!)}`,
+        );
+        return { before: r.before };
+      } catch (e) {
+        if (e instanceof ApiCallError && e.status === 404) {
+          return { before: null };
+        }
+        if (e instanceof ApiCallError && e.status === 503) {
+          return null; // redis not configured on this swarm
+        }
+        throw e;
+      }
+    },
+    enabled: !!userID,
+    refetchInterval: (q) => {
+      if (q.state.data === null) return 60_000;
+      if (userID && boosted("user:" + userID)) return 500;
+      return 10_000;
+    },
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+// One call for the People list: every user with a cutoff on this
+// swarm, newest first. `null` ⇒ redis off (the column renders "—").
+export function useRevokedUsers() {
+  return useQuery({
+    queryKey: revokedUsersKey,
+    queryFn: () => fetchHotState<RevokeUsersResponse>("/revoke/users"),
+    refetchInterval: (q) => (q.state.data === null ? 60_000 : 30_000),
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+// Same shape as the kill mutations: no optimistic update, boost the
+// state poll on success, invalidate both the per-user state and the
+// list on settle so the People column and the detail page agree.
+export function useRevokeUser(userID: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<RevokeUserResponse>(
+        `/revoke/user/${encodeURIComponent(userID)}`,
+        // Empty body ⇒ the server stamps `before = now`. Sending `{}`
+        // keeps the Content-Type uniform with the other mutations.
+        { method: "PUT", body: {} },
+      ),
+    retry: false,
+    onSuccess: () => boost("user:" + userID),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: userRevokeKey(userID) });
+      qc.invalidateQueries({ queryKey: revokedUsersKey });
+    },
+  });
+}
+
+export function useClearUserRevoke(userID: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/revoke/user/${encodeURIComponent(userID)}`, {
+        method: "DELETE",
+      }),
+    retry: false,
+    onSuccess: () => boost("user:" + userID),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: userRevokeKey(userID) });
+      qc.invalidateQueries({ queryKey: revokedUsersKey });
+    },
+  });
+}
+
+// ─── /users/:id/quota ───────────────────────────────────────────────
+//
+// Read only while the revoke modal is open: it is the one route that
+// lists a user's in-flight runs (from the accumulator's runs:user
+// index), which is the blast radius the modal spells out. The budget
+// half of the response is ignored here — quotas are Bifrost's, not
+// the plugin's. No polling; the modal is open for seconds.
+
+export function useUserQuota(userID: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["users", userID, "quota"],
+    queryFn: () =>
+      apiFetch<UserQuotaResponse>(
+        `/users/${encodeURIComponent(userID!)}/quota`,
+      ),
+    enabled: !!userID && enabled,
+    staleTime: 0,
+    retry: false,
   });
 }
 
