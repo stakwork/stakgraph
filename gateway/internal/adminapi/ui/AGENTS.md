@@ -49,11 +49,12 @@ ui/
     │   ├── icons.tsx     # UserIcon, BotIcon, StopIcon (inline SVG)
     │   ├── KillConfirmModal.tsx  # kill / unkill confirm; typed for agents
     │   ├── StatusBadge.tsx       # running/killed/exceeded/done + derivation
+    │   ├── TlogCard.tsx          # phase-12 transparency-log status card (Dashboard)
     │   ├── EmptyState.tsx
     │   └── ErrorBoundary.tsx
     ├── pages/
     │   ├── Login.tsx          # Basic auth → session cookie
-    │   ├── Dashboard.tsx      # KPIs + cost-by-agent chart + top-5 tables
+    │   ├── Dashboard.tsx      # KPIs + cost-by-agent chart + top-5 tables + tlog card
     │   ├── People.tsx         # users in the window
     │   ├── UserDetail.tsx     # one user's KPIs + chart + agents-used + runs
     │   ├── Agents.tsx         # agents in the window: budget meter + kill-state column
@@ -172,6 +173,24 @@ four mutation hooks (`useKillRun`, `useUnkillRun`, `useKillAgent`,
   "no cap", not an empty bar. `deriveRunStatus` takes an `exceeded`
   flag from the same numbers, so a run at/over any cap (its own or an
   ancestor's) badges as "exceeded".
+
+## Transparency log card (phase 12)
+
+`Dashboard` renders `TlogCard`, which reads `GET /_plugin/tlog/status`
+through `useTlogStatus` (10s, the agent hot-state cadence). The route
+is cookie-or-bearer and returns only what the gateway can attest about
+itself: leaf count, root, the per-boot log key, the newest leaf's ts,
+and `healthy` + `error`. It answers 200 even when the log is disabled,
+so the card's three states are: **Logging** (healthy), **Disabled**
+(`healthy: false`, reason printed under the badge), **Unavailable**
+(the fetch itself failed).
+
+What the card must not grow: a leaves table, the STH signature, or any
+"witnessed" wording. Leaves and signed heads are witness material and
+stay on the bearer-only `/_plugin/tlog/sth`; "witnessed at head N" is
+Hive's fact and waits for the Hive witness (phase-12 spec, "Not in
+either part"). `StatusBadge` takes a `label` override for this card's
+non-run states; `status` then only picks the tone.
 
 ## Auth model the SPA expects
 

@@ -503,3 +503,77 @@ func TestInit_InstallsDisabledLogOnFailure(t *testing.T) {
 	}
 	_ = Close()
 }
+
+// The newest leaf's ts is tracked on Append and recovered at rebuild
+// from the last valid line alone, so the status card can say "last
+// leaf 12s ago" after a restart without a signed head or a page.
+func TestLog_LastTSSurvivesRebuild(t *testing.T) {
+	path := tempPath(t)
+	l := newTestLog(t, path)
+	if st := l.Status(); st.LastTS != "" || st.Size != 0 || st.Root != emptyRoot || st.Err != nil {
+		t.Fatalf("empty status = %+v", st)
+	}
+	if st := l.Status(); st.PubkeyHex != l.PubkeyHex() || st.Path != path {
+		t.Fatalf("status identity = %+v", st)
+	}
+
+	appendN(t, l, 3) // fixedClock: 12:00:00, :01, :02
+	st := l.Status()
+	if st.LastTS != "2026-09-14T12:00:02.000Z" || st.Size != 3 || st.Root != l.Root() {
+		t.Fatalf("status after appends = %+v", st)
+	}
+	// A caller-supplied ts is what gets recorded, not the clock.
+	fixed := sampleLeaf(3)
+	fixed.TS = "2026-01-01T00:00:00.000Z"
+	if _, err := l.Append(fixed); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.Status().LastTS; got != fixed.TS {
+		t.Fatalf("lastTS after explicit ts = %q", got)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if st := l.Status(); st.Err == nil || !errors.Is(st.Err, ErrDisabled) {
+		t.Fatalf("closed log must report disabled, got %+v", st)
+	}
+
+	re := newTestLog(t, path)
+	st = re.Status()
+	if st.LastTS != fixed.TS || st.Size != 4 || st.Err != nil {
+		t.Fatalf("rebuilt status = %+v", st)
+	}
+
+	// Rebuild after a corrupt tail: the last *valid* line's ts.
+	_ = re.Close()
+	f, _ := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	_, _ = f.WriteString(`{"v":1,"ts":"2099-01-01T00:00:00.000Z","leaf_id":"trunc`)
+	_ = f.Close()
+	re2 := newTestLog(t, path)
+	if got := re2.Status().LastTS; got != fixed.TS {
+		t.Fatalf("lastTS after corrupt-tail rebuild = %q, want %q", got, fixed.TS)
+	}
+	// And a fresh append moves it again.
+	if _, err := re2.Append(sampleLeaf(4)); err != nil {
+		t.Fatal(err)
+	}
+	if got := re2.Status().LastTS; got == fixed.TS || got == "" {
+		t.Fatalf("lastTS after append on rebuilt log = %q", got)
+	}
+}
+
+// A line the tree accepts (valid JSON) but that is not a leaf object
+// yields no ts rather than a failed rebuild.
+func TestLog_LastTSIgnoresNonLeafLine(t *testing.T) {
+	path := tempPath(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[1,2,3]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := newTestLog(t, path)
+	if st := l.Status(); st.Size != 1 || st.LastTS != "" || st.Err != nil {
+		t.Fatalf("status = %+v", st)
+	}
+}

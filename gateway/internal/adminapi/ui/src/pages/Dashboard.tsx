@@ -1,8 +1,10 @@
 // Dashboard — the "what is this swarm doing right now" page.
 //
-// Composition: three KPI cards, one cost histogram chart, and two
-// top-5 ranking tables (agents, users). Window picker drives all
-// queries through the same `Window` state.
+// Composition: three KPI cards, one cost histogram chart, two top-5
+// ranking tables (agents, users), and the transparency-log status
+// card. Window picker drives the spend queries through the same
+// `Window` state; the log card is windowless (it is the log's
+// current state, not a rollup).
 
 import { useState } from "preact/hooks";
 import { Link } from "wouter-preact";
@@ -10,6 +12,7 @@ import { Link } from "wouter-preact";
 import { CostHistogram } from "../components/charts/CostHistogram";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { DataTable } from "../components/tables/DataTable";
+import { TlogCard } from "../components/TlogCard";
 import { WindowPicker } from "../components/controls/WindowPicker";
 import { getErrorMessage } from "../api/client";
 import {
@@ -176,6 +179,8 @@ export function Dashboard() {
           )}
         </section>
       </div>
+
+      <TlogCard />
     </>
   );
 }

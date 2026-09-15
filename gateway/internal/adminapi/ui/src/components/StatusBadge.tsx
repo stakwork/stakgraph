@@ -85,14 +85,21 @@ const DEFAULT_TITLE: Record<Status, string> = {
 export function StatusBadge({
   status,
   title,
+  label,
 }: {
   status: Status;
   title?: string;
+  /** Override the rendered text; `status` then only picks the tone
+   *  (running = live accent + pulse, killed = danger, exceeded =
+   *  warning, done = dim). For cards whose states are not run states
+   *  — the transparency-log card's Logging / Disabled / Unavailable.
+   *  Pass `title` too: the default titles describe run states. */
+  label?: string;
 }) {
   return (
     <span class={"badge " + TONE[status]} title={title ?? DEFAULT_TITLE[status]}>
       {status === "running" ? <span class="badge-pulse" /> : null}
-      {status}
+      {label ?? status}
     </span>
   );
 }
