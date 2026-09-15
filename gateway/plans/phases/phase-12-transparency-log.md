@@ -258,6 +258,13 @@ Registered exactly like `/_plugin/admin-credentials`:
 `cookieOrBearer`: a dashboard cookie must not be able to pull material
 Hive then org-signs.
 
+A second, dashboard-facing route, `GET /_plugin/tlog/status`
+(`cookieOrBearer`), landed with the status card in PR #1690. It
+returns local facts only — enabled flag, tree size, root hash, the
+per-boot `log_pubkey`, leaf path, last-leaf time — never a signed STH
+or leaves, so a dashboard cookie still cannot pull anything Hive would
+org-sign.
+
 `since` is a base-10 integer in `[0, tree_size]`. Anything else → 400.
 `since > tree_size` → 409 with the current size in the body (see
 "Failure modes"). The handler `Sync()`s the leaf file, then responds:
@@ -667,6 +674,8 @@ builds receives the wrapper.
 - **Redis-backed receipt map** (after Part 2), so a restart mid-stream
   does not 404 the poll.
 - **Dashboard.** A provenance badge on `/runs/:id` ("witnessed at
-  head N") and, after Part 2, a per-run receipt list.
+  head N") and, after Part 2, a per-run receipt list. (The `TlogCard`
+  on the Dashboard is not this: it renders the unsigned
+  `/_plugin/tlog/status` facts, not witness state.)
 - **Actions the gateway never sees** (git push, file writes). The
   leaf format generalizes; the submit path does not exist yet.

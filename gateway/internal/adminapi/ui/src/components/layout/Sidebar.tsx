@@ -2,8 +2,9 @@ import { Link, useLocation } from "wouter-preact";
 
 import { ChevronLeftIcon } from "../icons";
 
-// Sidebar nav. Phase 8 has Dashboard + People + Agents; phase 9
-// grows Sessions and Config — each is just another row here.
+// Sidebar nav. Canvas is the landing page; Dashboard, People and
+// Agents are the phase-8/9 views. Phase 9's Sessions and Config
+// pages are still unbuilt — when they land, each is one more row.
 //
 // People above Agents reflects the organising principle of the
 // governance plan: "every LLM call traces to a specific human."
