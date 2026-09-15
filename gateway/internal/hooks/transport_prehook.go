@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/maximhq/bifrost/core/schemas"
@@ -24,7 +26,13 @@ import (
 //  3. Stash extracted dims so PreLLMHook / PostLLMHook /
 //     StreamChunkHook can read them via pluginctx.Dims without
 //     re-parsing.
-//  4. Log a structured-ish single line for greppability.
+//  4. Hash the raw request body for the phase-12 transparency log
+//     (SHA-256, stashed via pluginctx.SetRequestHash; the body itself
+//     is not retained). Skipped when req.Body is empty — bifrost's
+//     large-payload mode omits the copy — so the leaf then carries
+//     request_sha256: null. See
+//     gateway/plans/phases/phase-12-transparency-log.md "Leaf".
+//  5. Log a structured-ish single line for greppability.
 //
 // Future responsibilities (NOT here yet)
 // --------------------------------------
@@ -48,6 +56,11 @@ func TransportPre(ctx *schemas.BifrostContext, req *schemas.HTTPRequest) (*schem
 
 	macaroon := req.CaseInsensitiveHeaderLookup("x-macaroon")
 	pluginctx.SetRawMacaroon(ctx, macaroon)
+
+	if len(req.Body) > 0 {
+		sum := sha256.Sum256(req.Body)
+		pluginctx.SetRequestHash(ctx, hex.EncodeToString(sum[:]))
+	}
 
 	dims := pluginctx.ExtractDims(req.Headers)
 	pluginctx.SetDims(ctx, dims)

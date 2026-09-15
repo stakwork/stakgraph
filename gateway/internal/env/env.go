@@ -121,6 +121,15 @@ const (
 	// next to trust.json on the data volume.
 	PricingCache = "BIFROST_PLUGIN_PRICING_CACHE"
 
+	// TlogPath is the JSONL file the phase-12 transparency log appends
+	// one canonical leaf per accounted LLM call to. Defaults to
+	// /app/data/tlog/leaves.jsonl on the same named volume as trust.json
+	// and logs.db, so a container recreate keeps the log and the
+	// witness's stored head stays reachable. The tree is rebuilt from
+	// this file at boot. See
+	// gateway/plans/phases/phase-12-transparency-log.md "Persistence".
+	TlogPath = "BIFROST_PLUGIN_TLOG_PATH"
+
 	// Production, when truthy, forces the `Secure` attribute on the
 	// session cookie regardless of the incoming request's scheme.
 	// Set in swarm/prod; left unset in dev so localhost HTTP works.
@@ -176,6 +185,11 @@ const (
 	// DefaultPricingCache sits on the same data volume as trust.json
 	// and logs.db.
 	DefaultPricingCache = "/app/data/pricing-datasheet.json"
+
+	// DefaultTlogPath sits next to trust.json on the data volume, in
+	// its own directory so a future per-day rotation has somewhere to
+	// go.
+	DefaultTlogPath = "/app/data/tlog/leaves.jsonl"
 
 	// DefaultHiveOrigin is production Hive. Override via HIVE_ORIGIN
 	// for staging / dev (e.g. `http://localhost:8080`).
@@ -248,6 +262,10 @@ func PricingURLValue() string {
 // PricingCachePath returns the persisted-datasheet path, falling
 // back to DefaultPricingCache.
 func PricingCachePath() string { return GetOr(PricingCache, DefaultPricingCache) }
+
+// TlogPathValue returns the transparency-log leaf file path, falling
+// back to DefaultTlogPath.
+func TlogPathValue() string { return GetOr(TlogPath, DefaultTlogPath) }
 
 // RedisURLValue returns (url, ok). `ok` is false when unset — callers
 // should treat that as "observability mode" and skip wiring the

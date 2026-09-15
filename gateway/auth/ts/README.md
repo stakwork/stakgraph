@@ -166,10 +166,48 @@ This is the authoritative answer to "what is this call allowed to do."
 | `jcs`, `signingBytes` | RFC 8785 canonicalization (advanced). |
 | `ed25519Sign/Verify/PublicKey`, `ecdsaSign/Verify/PublicKey` | Raw primitives (advanced / keygen). |
 | `bytesToHex`, `hexToBytes`, `bytesToBase64url`, `base64urlToBytes`, `utf8Bytes` | Encoding helpers. |
+| `rootFromLeaves`, `rootFromLeafHashes`, `hashLeaf`, `leafHash`, `nodeHash`, `emptyRoot` | Transparency log: RFC 9162 Merkle tree hashing. |
+| `verifyInclusion`, `verifyConsistency` | Transparency log: proof verifiers (RFC 9162 §2.1.3.2 / §2.1.4.2). |
+| `verifySth`, `signSth`, `sthSigningBytes` | Transparency log: signed tree heads. |
 
 Types: `Macaroon`, `UserAuthorization`, `Invocation`, `Attenuation`,
 `Claims`, `EffectiveCaveats`, `Policy`, `PubKey`, plus their `*Unsigned`
 variants. See `src/types.ts` for the wire shape.
+
+## Transparency log
+
+Every accounted LLM call that passes through the gateway becomes a
+leaf in an append-only Merkle log (RFC 9162 §2.1 hashing, the scheme
+RFC 6962 introduced). The gateway serves a signed tree head plus the
+leaves since the last one at `GET /_plugin/tlog/sth?since=N`; a
+witness outside the swarm (Hive) verifies and countersigns it. Once a
+head is witnessed, nothing below it can be edited or dropped without
+the recomputed root disagreeing. Spec:
+`gateway/plans/phases/phase-12-transparency-log.md`.
+
+The witness check, end to end:
+
+```ts
+import { rootFromLeaves, verifySth, bytesToHex, type TlogSthResponse } from "gatekey";
+
+const page: TlogSthResponse = await fetchSth(since); // your transport
+if (!verifySth(page.sth, page.log_pubkey)) throw new Error("bad sth signature");
+
+// A full replica recomputes the root over every leaf it holds plus
+// the new page. Store leaves as their canonical JSON string so the
+// recompute never depends on a JSON round-trip.
+const allLeaves = [...storedCanonicalLeaves, ...page.leaves];
+if (bytesToHex(rootFromLeaves(allLeaves)) !== page.sth.root_hash) {
+  throw new Error("root does not reproduce from leaves");
+}
+// Only now: countersign `page.sth` with the org key and store head + leaves.
+```
+
+Light witnesses that hold only heads use `verifyConsistency` with the
+served `consistency_proof`; per-call receipts (Part 2, later) verify
+with `verifyInclusion`. Leaf and head shapes are `TlogLeaf` and
+`SignedTreeHead`; the head signature is the macaroon construction,
+`ECDSA-secp256k1-SHA256` over `JCS(sth \ sig)`.
 
 ## Wire format
 
@@ -213,6 +251,10 @@ are RFC 3339 UTC strings. Canonical JSON is RFC 8785 (JCS).
 A Go verifier exists in the same source repository
 ([`stakgraph/gateway/auth/go/`](https://github.com/stakwork/stakgraph/tree/main/gateway/auth/go))
 and shares the test fixtures, so byte-equivalence is enforced in CI.
+For the transparency log the roles flip: the Go gateway is the
+producer and generates `gateway/auth/fixtures/tlog-*.json`
+(`go test ./internal/tlog -update`), and this package's test checks
+them byte-for-byte.
 Sub-agent attenuation only requires HMAC-SHA256 + JCS + hex encoding —
 the spec and fixtures together let any language implement an attenuator
 in a few dozen lines.

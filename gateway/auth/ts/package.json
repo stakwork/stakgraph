@@ -1,7 +1,7 @@
 {
   "name": "gatekey",
-  "version": "0.1.1",
-  "description": "Three-layer macaroon signer, attenuator, and verifier for cryptographic LLM governance",
+  "version": "0.2.0",
+  "description": "Three-layer macaroon signer, attenuator, and verifier for cryptographic LLM governance, plus transparency-log (RFC 9162 Merkle) verifiers",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -37,7 +37,11 @@
     "cryptography",
     "delegation",
     "attenuation",
-    "caveats"
+    "caveats",
+    "merkle",
+    "transparency-log",
+    "rfc9162",
+    "rfc6962"
   ],
   "repository": {
     "type": "git",

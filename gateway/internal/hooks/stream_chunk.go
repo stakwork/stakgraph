@@ -6,6 +6,7 @@ import (
 	"github.com/stakwork/stakgraph/gateway/internal/auth"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginctx"
 	"github.com/stakwork/stakgraph/gateway/internal/pluginlog"
+	"github.com/stakwork/stakgraph/gateway/internal/tlog"
 )
 
 // StreamChunk is the body of HTTPTransportStreamChunkHook. It fires
@@ -23,6 +24,10 @@ import (
 //
 // Logging policy: one log line per chunk would flood output, so we
 // only emit on error chunks and on the accounting chunk.
+//
+// Phase-12 transparency log: the accounting chunk and the error path
+// each append one leaf, under the same MarkAccounted gate, so a
+// streamed call is logged exactly once.
 func StreamChunk(
 	ctx *schemas.BifrostContext,
 	req *schemas.HTTPRequest,
@@ -47,6 +52,7 @@ func StreamChunk(
 		// delivered on a final chunk).
 		if claims != nil && pluginctx.MarkAccounted(ctx) {
 			auth.ApplyToLLMPost(claims, 0, nil)
+			appendTlogLeaf(ctx, claims, callUsage{}, 0, tlog.StatusError)
 		}
 		return chunk, nil
 	}
@@ -62,6 +68,7 @@ func StreamChunk(
 	dims := pluginctx.Dims(ctx)
 	costUSD := resolveCost(call, dims)
 	auth.ApplyToLLMPost(claims, costUSD, call.tools)
+	appendTlogLeaf(ctx, claims, call, costUSD, tlog.StatusOK)
 	tokens := tokensOf(call.usage)
 	pluginlog.Logf(
 		"StreamChunk accounted run_id=%s agent=%s prompt_tokens=%d completion_tokens=%d total_tokens=%d cache_read=%d cache_write=%d cost_usd=%.6f",

@@ -15,6 +15,33 @@ keys.json                  the deterministic seed keys used by all fixtures
 04-multisig-2of3.json      2-of-3 multisig org, signers 0 and 2 participate
 ```
 
+## Transparency-log fixtures (`tlog-*.json`)
+
+Two more files pin the phase-12 transparency log
+(`gateway/plans/phases/phase-12-transparency-log.md`). For these the
+roles flip: **Go is the producer.** `gateway/internal/tlog` generates
+them with
+
+```sh
+cd gateway
+go test ./internal/tlog -update
+```
+
+and `gateway/auth/ts/test/tlog.test.ts` checks them byte-for-byte.
+
+```
+tlog-00-rfc9162-vectors.json   raw-byte CT test leaves: leaf hashes, roots 0..8,
+                               every inclusion proof, every consistency proof —
+                               pinned by the Go test to the reference implementation
+tlog-01-leaves.json            eight JSON leaves through the real log with a fixed
+                               log key and clock: canonical bytes, hashes, roots,
+                               every proof, and signed heads (empty + full) with
+                               their exact signing input
+```
+
+`log_priv_hex` in `tlog-01` is a published test key; never use it for
+anything real.
+
 ## Reproducibility
 
 These files are **generated**, not hand-written. The source of truth
