@@ -189,13 +189,14 @@ func methodMuxedAuth(
 // Auth model
 // ----------
 //   - `/_plugin/health`, `/_plugin/login`: anonymous.
-//   - `/_plugin/admin-credentials`, `/_plugin/trust/*`,
-//     `/_plugin/revoke/*`, `/_plugin/tlog/sth`: bearer only (Hive's
-//     machine-to-plugin path; cookies are not honoured).
-//   - Everything else (observability, kill/state, tlog/status, /me,
-//     /logout):
+//   - `/_plugin/admin-credentials`, `/_plugin/trust/*` mutations,
+//     `/_plugin/revoke/nonce/*`, `/_plugin/tlog/sth`: bearer only
+//     (Hive's machine-to-plugin path; cookies are not honoured).
+//   - Everything else (observability, kill/state, user revocation
+//     under `/_plugin/revoke/user/*` + `/_plugin/revoke/users`,
+//     tlog/status, /me, /logout):
 //     cookie OR bearer, with cookie tried first. Cookie-authed
-//     mutations (kill, unkill, toggles) need the CSRF header.
+//     mutations (kill, unkill, revoke, toggles) need the CSRF header.
 //
 // The /_plugin/ui/* SPA is also cookie-or-bearer so curl with a
 // bearer can pull it for diagnostics, but browsers always reach it
@@ -315,9 +316,20 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 	}
 	mux.HandleFunc("/_plugin/runs/", cookieOrBearer(runsSubtree))
 
-	// Revocation admin (bearer-only; issuer territory).
+	// Revocation admin. One prefix, two postures (revoke.go explains):
+	// nonce tombstones are issuer territory and stay bearer-only; the
+	// user cutoff is the dashboard's third kill switch and rides the
+	// same cookie-or-bearer (+ CSRF) chain as run and agent kills.
 	rv := newRevokeHandlers()
-	mux.HandleFunc(revokePrefixPath, bearer(rv.dispatch))
+	rvNonce := bearer(rv.dispatch)
+	rvUser := cookieOrBearer(rv.dispatch)
+	mux.HandleFunc(revokePrefixPath, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, revokeNoncePath) {
+			rvNonce(w, r)
+			return
+		}
+		rvUser(w, r)
+	})
 
 	// Phase-8.5 per-agent budget view. Reads cap from plugin config
 	// (auth.GetConfig().AgentBudgets) and current-bucket spend from
