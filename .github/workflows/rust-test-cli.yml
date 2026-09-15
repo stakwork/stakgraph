@@ -1,8 +1,15 @@
 name: Stakgraph CLI Test
+# cli is its own cargo workspace (own Cargo.lock) that path-depends on ast/lsp/shared.
 on:
   pull_request:
     branches:
       - main
+    paths:
+      - "cli/**"
+      - "ast/**"
+      - "lsp/**"
+      - "shared/**"
+      - ".github/workflows/rust-test-cli.yml"
 
 jobs:
   run-cli-test:

@@ -1,8 +1,16 @@
 name: Stakgraph Unit Test (LSP)
+# Same test surface as rust-test.yml (ast --lib), run with USE_LSP=true.
 on:
   pull_request:
     branches:
       - main
+    paths:
+      - "ast/**"
+      - "lsp/**"
+      - "shared/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust-test-lsp.yml"
 
 jobs:
   run-test-lsp:
