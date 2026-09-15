@@ -1,8 +1,17 @@
 name: Stakgraph Standalone Test
+# Runs `cargo test` over the whole root workspace (ast, lsp, shared, skill, standalone)
+# and boots Neo4j from mcp/, so nearly everything is an input. Skip only the
+# directories it provably never touches: gateway (Go), notes, cli (separate
+# workspace, not a member), and docs.
 on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "gateway/**"
+      - "notes/**"
+      - "cli/**"
+      - "**.md"
 
 jobs:
   run-standalone-test:

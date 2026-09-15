@@ -1,8 +1,17 @@
 name: Stakgraph E2E Test
+# Builds the `index` binary (ast, lsp, shared) and the mcp node server, so nearly
+# everything is an input. Skip only what it never compiles or reads: gateway (Go),
+# notes, cli (separate workspace), skill, and docs.
 on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "gateway/**"
+      - "notes/**"
+      - "cli/**"
+      - "skill/**"
+      - "**.md"
 
 jobs:
   run-test:
