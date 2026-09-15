@@ -28,4 +28,10 @@ export interface ContextResult {
   // Present when a create_pr-enabled run successfully (or unsuccessfully)
   // attempted to land a PR. Structured result from landChange().
   pr?: LandChangeResult;
+  // Present when the run ended without a proper termination: the
+  // continuation allowance ran out on a voluntary stall, an output-token
+  // truncation, or a mid-stream error. `final` then holds whatever
+  // narration the model produced, not a finished answer, and a caller that
+  // needs a real deliverable (a diff, a PR) should treat the run as failed.
+  incomplete?: { reason: "stall" | "length" | "error" };
 }

@@ -39,6 +39,8 @@ import {
   extractFinalAnswer,
   maxOutputTokensFor,
   needsContinuation,
+  unresolvedToolCalls,
+  stripToolCallParts,
   isContinuationNudge,
   timeBudgetNudge,
   createHasEndMarkerCondition,
@@ -1204,6 +1206,22 @@ function continuationNudge(
   return `You ended your turn without completing the task. Do not stop to describe a plan or intention — execute it now: make the tool calls you described, and when you have the final answer, write it followed by [END_OF_ANSWER]. If you are blocked on information only the user can provide, ${askPath} instead of guessing.`;
 }
 
+/**
+ * Nudge after the loop exited on a tool call it could not resolve (see
+ * unresolvedToolCalls). The offending call and its result have already been
+ * removed from the transcript by the time this is sent, so the model is told
+ * that nothing it asked that tool for actually happened.
+ */
+function unavailableToolNudge(unavailable: string[], available: string[]): string {
+  const names = [...new Set(unavailable)].map((n) => `\`${n}\``).join(", ");
+  const plural = unavailable.length > 1;
+  return `Your call${plural ? "s" : ""} to ${names} could not be executed: ${
+    plural ? "those tools are" : "that tool is"
+  } not available in this run, and the call has been removed from the conversation — nothing it would have done happened. Available tools: ${available.join(
+    ", "
+  )}. Redo that work with the tools you have (bash runs shell commands and edits files), then continue the task. When the answer is complete, end with [END_OF_ANSWER].`;
+}
+
 /** The exact messages sent to the model on the initial call (model-facing, not storage). */
 function initialModelMessages(prepared: PreparedAgent): ModelMessage[] {
   const { finalPrompt, previousMessages, userMessage } = prepared;
@@ -1347,47 +1365,80 @@ export async function get_context(
     // nudges didn't fix won't be fixed by a third.
     let stallNudges = 0;
     let lengthContinuations = 0;
+    let unresolvedRetried = false;
     for (;;) {
       const allSteps = segments.flatMap((s) => s.steps);
-      if (!needsContinuation(allSteps)) break;
-      const lastFinish = allSteps[allSteps.length - 1]?.finishReason;
-      const kind: ContinuationKind =
-        lastFinish === "length"
-          ? "length"
-          : lastFinish === "error"
-            ? "error"
-            : "stall";
-      // Involuntary interruptions (truncation, mid-stream connection errors)
-      // share the larger progress-gated allowance; only voluntary stalls are
-      // capped at MAX_STALL_NUDGES.
-      if (kind !== "stall") {
-        if (lengthContinuations >= MAX_LENGTH_CONTINUATIONS) break;
-        lengthContinuations++;
+      const lastStep = allSteps[allSteps.length - 1];
+      const lastFinish = lastStep?.finishReason;
+      // Tool calls the loop could not resolve on its last step. The SDK exits
+      // on such a step with no further model turn and no error — as it does
+      // for a client-executed tool whose result the caller must supply — so
+      // without this check the run reads as complete, with narration for an
+      // answer. Observed cause: an LLM gateway rewrote a server tool's
+      // version and the API answered with a server_tool_use (code_execution)
+      // that was never offered. One retry: drop the unresolvable calls from
+      // the transcript (the API rejects a tool_result for a server tool it
+      // never ran) and tell the model which tool it does not have. Still
+      // unresolved after that, the run fails after the loop rather than
+      // reporting success.
+      const unresolved = unresolvedToolCalls(lastStep, prepared.tools);
+      let kind: ContinuationKind | "unresolved";
+      if (unresolved.length > 0) {
+        if (unresolvedRetried) break;
+        unresolvedRetried = true;
+        kind = "unresolved";
       } else {
-        if (stallNudges >= MAX_STALL_NUDGES) break;
-        stallNudges++;
+        if (!needsContinuation(allSteps)) break;
+        kind =
+          lastFinish === "length"
+            ? "length"
+            : lastFinish === "error"
+              ? "error"
+              : "stall";
+        // Involuntary interruptions (truncation, mid-stream connection errors)
+        // share the larger progress-gated allowance; only voluntary stalls are
+        // capped at MAX_STALL_NUDGES.
+        if (kind !== "stall") {
+          if (lengthContinuations >= MAX_LENGTH_CONTINUATIONS) break;
+          lengthContinuations++;
+        } else {
+          if (stallNudges >= MAX_STALL_NUDGES) break;
+          stallNudges++;
+        }
       }
-      const generated = (await run.streamResult.response).messages as ModelMessage[];
+      const generatedRaw = (await run.streamResult.response).messages as ModelMessage[];
+      const generated =
+        kind === "unresolved"
+          ? stripToolCallParts(generatedRaw, new Set(unresolved.map((u) => u.toolCallId)))
+          : generatedRaw;
       // Tagged via providerOptions so session consumers (transcript rendering,
       // turn counting) can tell this synthetic message from a real user turn;
       // model providers only read their own providerOptions key and ignore it.
       const nudge: ModelMessage = {
         role: "user",
-        content: continuationNudge(
-          prepared.askQuestionsEnabled,
-          kind,
-          maxOutputTokensFor(prepared.provider)
-        ),
+        content:
+          kind === "unresolved"
+            ? unavailableToolNudge(
+                unresolved.map((u) => u.toolName),
+                Object.keys(prepared.tools)
+              )
+            : continuationNudge(
+                prepared.askQuestionsEnabled,
+                kind,
+                maxOutputTokensFor(prepared.provider)
+              ),
         providerOptions: { stakgraph: { continuationNudge: true } },
       };
       const convo = [...sent, ...generated, nudge];
       console.warn(
         `===> agent ended turn without finishing (finishReason: ${lastFinish}, raw: ${
-          allSteps[allSteps.length - 1]?.rawFinishReason
+          lastStep?.rawFinishReason
         }); ${
-          kind !== "stall"
-            ? `${kind} continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
-            : `stall nudge ${stallNudges}/${MAX_STALL_NUDGES}`
+          kind === "unresolved"
+            ? `unresolved tool call(s): ${[...new Set(unresolved.map((u) => u.toolName))].join(", ")} — retrying once without them`
+            : kind !== "stall"
+              ? `${kind} continuation ${lengthContinuations}/${MAX_LENGTH_CONTINUATIONS}`
+              : `stall nudge ${stallNudges}/${MAX_STALL_NUDGES}`
         }`
       );
       run = await runWithBadRequestRetry(
@@ -1416,6 +1467,24 @@ export async function get_context(
     }
 
     steps = segments.flatMap((s) => s.steps);
+    // A last step the loop could not resolve, even after the retry above, is
+    // not a result. Fail loudly; the caller would otherwise get narration.
+    const stillUnresolved = unresolvedToolCalls(steps[steps.length - 1], prepared.tools);
+    if (stillUnresolved.length > 0) {
+      const names = [...new Set(stillUnresolved.map((u) => u.toolName))].join(", ");
+      throw new Error(
+        `Run ended on a tool call that could not be resolved: ${names}. ` +
+          `That tool is not registered for this run — if the request went through an LLM gateway, check whether it rewrites the tool list.`
+      );
+    }
+    // Abort mid-run: the SDK closes the stream and resolves with the steps
+    // so far (no finish part, so finish reason "other"), and nothing throws.
+    // Report it as the abort it is rather than as a completed run.
+    if (opts.abortSignal?.aborted && (await run.streamResult.finishReason) === "other") {
+      const abortErr = new Error("Run aborted before completion");
+      abortErr.name = "AbortError";
+      throw abortErr;
+    }
     // The final call's own messages plus what it generated — byte-identical to
     // what the provider cached, unlike the (possibly truncated) stored copy.
     modelFacingMessages = [
@@ -1495,6 +1564,24 @@ export async function get_context(
     reflection = await reflectOnConcepts(prepared, opts, modelFacingMessages);
   }
 
+  // Continuation allowance exhausted without a proper termination: the text
+  // that extractFinalAnswer will pick up is narration, not an answer. Say so
+  // on the result so a caller that needs a deliverable can refuse it.
+  const lastStepFinish = steps[steps.length - 1]?.finishReason;
+  const incomplete: ContextResult["incomplete"] = needsContinuation(steps)
+    ? {
+        reason:
+          lastStepFinish === "length"
+            ? "length"
+            : lastStepFinish === "error"
+              ? "error"
+              : "stall",
+      }
+    : undefined;
+  if (incomplete) {
+    console.warn(`===> run ended incomplete (${incomplete.reason}); final answer is narration`);
+  }
+
   const final = extractFinalAnswer(steps);
 
   let finalAnswer = final.answer;
@@ -1527,6 +1614,7 @@ export async function get_context(
     sessionId,
     reflection,
     pr: terminalPrResult(prepared.prCollector.result, opts.toolsConfig, opts.prMode),
+    incomplete,
   };
 }
 

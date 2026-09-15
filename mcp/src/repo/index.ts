@@ -30,12 +30,14 @@ import { db } from "../graph/neo4j.js";
 import {
   acquireWorktree,
   acquireEphemeralWorktree,
+  captureWorktreeDiff,
   releaseWorktree,
   resolveIdentity,
   gitEnv,
   branchName,
   OctokitGitHubClient,
   type WorktreeHandle,
+  type WorktreeDiffResult,
 } from "./git_pr.js";
 import { withRepoLock } from "./repo_lock.js";
 import fs from "fs";
@@ -1039,10 +1041,36 @@ export async function repo_agent(req: Request, res: Response) {
           },
         });
       })
-      .then((result) => {
+      .then(async (result) => {
         // Guard: if drainForShutdown() has already flipped this record and
         // delivered a failed/retryable:true webhook, do not overwrite.
         if (shuttingDown) return;
+        // Ephemeral preview: read the diff from the worktree itself, here,
+        // before teardown in .finally() discards it. Ground truth for what
+        // the run changed — new files included — rather than whatever the
+        // model chose to paste into its answer. Sits next to `pr`, its
+        // create_pr counterpart. A capture failure is reported on the
+        // result, never thrown: the run itself finished.
+        let diff: WorktreeDiffResult | undefined;
+        if (body.ephemeral && nonStreamWorktreeHandle) {
+          try {
+            diff = await captureWorktreeDiff(nonStreamWorktreeHandle, {
+              signal: abortController.signal,
+            });
+          } catch (e) {
+            diff = {
+              ok: false,
+              failure: "git_failed",
+              error: e instanceof Error ? e.message : String(e),
+            };
+          }
+          console.log(
+            `[repo_agent] ephemeral diff: request_id=${request_id} ` +
+              (diff.ok
+                ? `${diff.filesChanged} file(s), ${Buffer.byteLength(diff.diff, "utf8")} bytes`
+                : `${diff.failure}: ${diff.error}`),
+          );
+        }
         const terminalResult = {
           success: true,
           final_answer: result.final,
@@ -1057,6 +1085,14 @@ export async function repo_agent(req: Request, res: Response) {
           reflection: result.reflection,
           // Present when create_pr was enabled; structured result from landChange().
           pr: result.pr,
+          // Present on ephemeral runs: the worktree's staged diff, or why
+          // there is none. See captureWorktreeDiff.
+          diff: diff?.ok ? diff.diff : undefined,
+          diff_files: diff?.ok ? diff.filesChanged : undefined,
+          diff_error: diff && !diff.ok ? { failure: diff.failure, error: diff.error } : undefined,
+          // Present when the run ended without a proper termination —
+          // `final_answer` is then narration, not an answer.
+          incomplete: result.incomplete,
         };
         asyncReqs.finishReq(request_id, terminalResult);
         // Post-completion side effects are isolated: if one throws it must
