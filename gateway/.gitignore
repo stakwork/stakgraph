@@ -1,6 +1,11 @@
 # Plugin build output (built per-host, never checked in).
 build/
 
+# Wrapper binary. `go build ./...` in wrapper/ emits an executable named
+# after the directory (`wrapper`); the real one is built in the
+# Dockerfile's wrapper-builder stage. Never check the local copy in.
+wrapper/wrapper
+
 # Bifrost runtime state (config DB, logs DB, log files).
 data/config.db
 data/config.db-*
