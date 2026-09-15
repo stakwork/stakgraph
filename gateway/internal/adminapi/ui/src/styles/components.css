@@ -1560,3 +1560,39 @@ h1 .badge {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* ─── transparency log card (phase 12) ───────────────────────── */
+/*
+ * Dashboard card for the gateway's own view of its Merkle log. Sits
+ * under the ranking tables; the header carries the Logging /
+ * Disabled / Unavailable badge and the leaf-file path, the body is a
+ * kvgrid of local facts, and the note under it says what the card
+ * deliberately does not claim (witnessing is Hive's).
+ */
+.tlog {
+  margin-top: var(--sp-5);
+}
+.tlog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+/* The disabled reason, printed under the badge before the rows. */
+.tlog-reason {
+  margin-bottom: var(--sp-4);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+.tlog-hint {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  margin-left: var(--sp-1);
+}
+.tlog-note {
+  margin-top: var(--sp-4);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}

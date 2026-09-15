@@ -752,6 +752,41 @@ export interface TicketResponse {
 // source: tlog.go
 
 /**
+ * TlogStatusResponse is the 200 body of GET /_plugin/tlog/status.
+ * Exported for tygo (the dashboard's TlogCard decodes it).
+ * "Witnessed at head N" is deliberately not here: witnessing is
+ * Hive's fact, and this endpoint only reports the gateway's own.
+ */
+export interface TlogStatusResponse {
+  /**
+   * Healthy is false when the log was never initialized or is
+   * disabled (refused to come up, or stopped itself after an
+   * unrecoverable write). Error carries the reason; null otherwise.
+   */
+  healthy: boolean;
+  error?: string;
+  /**
+   * TreeSize is the number of leaves; RootHash their Merkle root
+   * as hex (the RFC 9162 empty root at size 0).
+   */
+  tree_size: number /* uint64 */;
+  root_hash: string;
+  /**
+   * LogPubkey is this boot's log key, compressed secp256k1 hex.
+   * It is regenerated on every restart and is not an identity key.
+   */
+  log_pubkey: string;
+  /**
+   * Path is the leaf file (BIFROST_PLUGIN_TLOG_PATH).
+   */
+  path: string;
+  /**
+   * LastLeafTS is the RFC 3339 ts of the newest leaf; null while
+   * the log is empty.
+   */
+  last_leaf_ts?: string;
+}
+/**
  * TlogAheadResponse is the 409 body: the witness's stored head is
  * past this tree, which after a power loss means the witness must
  * stop and an operator must reset its head. Never silently restart.

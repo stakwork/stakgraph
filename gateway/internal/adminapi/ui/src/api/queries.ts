@@ -30,6 +30,7 @@ import type {
   SpendByAgentResponse,
   SpendByAgentUserResponse,
   SpendByUserResponse,
+  TlogStatusResponse,
   UserDetailResponse,
 } from "./types";
 import type {
@@ -579,6 +580,28 @@ export function useTrustStatus() {
     queryFn: () => apiFetch<TrustStatus>("/trust/status"),
     staleTime: 5 * 60_000,
     retry: false,
+  });
+}
+
+// ─── /tlog/status ───────────────────────────────────────────────────
+//
+// Phase-12 transparency log, as the gateway itself sees it: leaf
+// count, root, per-boot log key, newest leaf, up/down. Local facts
+// only — witnessing is Hive's — and never the leaves or the STH
+// signature, which stay on the bearer-only /tlog/sth witness route.
+//
+// 10s poll: the agent hot-state card's cadence (useAgentState). The
+// card should visibly tick as leaves land without the run-state 2s
+// burst. The route answers 200 even when the log is disabled
+// (`healthy: false` + `error`), so an error from this hook is a real
+// fetch failure and the card renders "Unavailable", not "Disabled".
+
+export function useTlogStatus() {
+  return useQuery({
+    queryKey: ["tlog", "status"],
+    queryFn: () => apiFetch<TlogStatusResponse>("/tlog/status"),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
   });
 }
 
