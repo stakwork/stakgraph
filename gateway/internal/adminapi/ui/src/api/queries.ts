@@ -15,6 +15,7 @@ import { apiFetch, ApiCallError, getErrorMessage } from "./client";
 import type {
   AgentBudgetResponse,
   AgentCatalogResponse,
+  AgentRunsResponse,
   AgentEvalsResponse,
   AgentStateResponse,
   KillAgentResponse,
@@ -194,6 +195,28 @@ export function useAgentBudgets(names: string[]) {
     out[n] = queries[i]?.data;
   });
   return out;
+}
+
+// ─── /agents/:name/runs ─────────────────────────────────────────────
+//
+// One row per run of this agent in the window, newest activity
+// first, with the user, model(s), spend and call count. Scoped
+// server-side by `metadata.agent-name`, so unlike a run-id
+// histogram it never shows another agent's runs. 30s poll, the
+// by-agent cadence: an operator fires a run and expects it to land
+// at the top of the table on the next tick.
+
+export function useAgentRuns(name: string | undefined, window: Window) {
+  return useQuery({
+    queryKey: ["agents", name, "runs", window],
+    queryFn: () =>
+      apiFetch<AgentRunsResponse>(
+        `/agents/${encodeURIComponent(name!)}/runs?window=${encodeURIComponent(window)}`
+      ),
+    enabled: !!name,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
 }
 
 // ─── /agents/catalog (list) ─────────────────────────────────────────
