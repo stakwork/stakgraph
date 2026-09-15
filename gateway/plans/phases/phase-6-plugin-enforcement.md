@@ -62,6 +62,19 @@
 > tool-loop detection, `hard_ceiling`, the `user_id == customer_id`
 > cross-check, and the `/_plugin/config/*` override layer.
 >
+> **Status (user revocation in the dashboard):** `revoke_user_before`
+> is now the operator UI's third kill axis next to run and agent.
+> `PUT|GET|DELETE /_plugin/revoke/user/:id` moved from bearer-only to
+> cookie-or-bearer (CSRF on cookie mutations), and
+> `GET /_plugin/revoke/users` lists every cutoff on the swarm from a
+> `revoke_users` ZSET index the admin helpers maintain (member =
+> user_id, score = cutoff unix; the string key stays authoritative and
+> the list prunes members whose key is gone). Nonce revocation stays
+> bearer-only. Per swarm, like the other switches: Hive's fan-out and
+> reconcile sweep read and write the same keys through the same routes.
+> The UI is `UserDetail` (Authorization card + Revoke user switch,
+> typed confirmation) and the People list's "Revoked" column.
+>
 > **Status (phase 11 cutover):** Redis bucket keys and hot-path
 > flow are unchanged from the description below. Phase 11
 > (`phase-11-symmetric-recursive-authorization.md`) adds one
@@ -182,6 +195,7 @@ bifrost:kill:<run_id>                           STRING  "1"
 bifrost:kill:agent:<agent_name>                 STRING  "1"
 bifrost:revoke:<nonce>                          STRING  "1"      TTL = nonce-bearing layer.exp
 bifrost:revoke_user_before:<user_id>            STRING  <RFC 3339 UTC>
+bifrost:revoke_users                            ZSET    { <user_id>: cutoff unix }  index for GET /_plugin/revoke/users
 bifrost:cost:agent:<agent_name>:<bucket_key>    HASH    { total: float }
 
 # Config overrides (UI-editable; layer on top of plugin.yaml baseline).
@@ -337,10 +351,18 @@ is rejected.
   invocations. An invocation signed after the revocation timestamp
   (against a re-issued user_authorization) is fine.
 - **Updated by:** Hive's offboarding flow (`PUT /customers/:id
-  {is_active: false}` is paired with this Redis write).
-- **Read by:** PreLLMHook after macaroon verification.
+  {is_active: false}` is paired with this Redis write), and the
+  operator dashboard's Revoke user switch on UserDetail
+  (`PUT /_plugin/revoke/user/:id`, cookie-or-bearer, default
+  `before = now`). Both go through `auth.SetUserRevokeCutoff`, which
+  also maintains the `revoke_users` index.
+- **Read by:** PreLLMHook after macaroon verification; the dashboard
+  (`GET /_plugin/revoke/user/:id`, `GET /_plugin/revoke/users`) and
+  Hive's reconcile sweep through the same GETs.
 - **TTL:** none. User revocation is a permanent state until
-  explicitly cleared.
+  explicitly cleared (`DELETE /_plugin/revoke/user/:id`).
+- **Scope:** this swarm. The dashboard is per swarm like the run and
+  agent kills; "revoke everywhere" is Hive's fan-out.
 
 ### `cost:agent:<agent_name>:<bucket_key>`
 
