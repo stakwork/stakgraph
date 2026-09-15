@@ -17,6 +17,7 @@
 > | Plugin Redis schema, per-hook ops, TTL policy, failure modes         | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
 > | `/_plugin/*` observability over `logs.db` (per-dim analytics)        | [`phases/phase-7-observability.md`](./phases/phase-7-observability.md)           |
 > | Symmetric narrowing rule, per-realm budgets, cross-swarm spawning    | [`phases/phase-11-symmetric-recursive-authorization.md`](./phases/phase-11-symmetric-recursive-authorization.md) |
+> | Transparency log: Merkle leaves + Hive witness (Part 1); receipts + client enforcement (Part 2) | [`phases/phase-12-transparency-log.md`](./phases/phase-12-transparency-log.md) |
 > | Agent defaults / registry                                            | [`agent-registry.md`](./agent-registry.md)                                       |
 > | Bifrost Customer/VK reconciliation, duration vocabulary              | [`phases/phase-1-reconciler.md`](./phases/phase-1-reconciler.md)                 |
 >
