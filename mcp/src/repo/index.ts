@@ -1048,27 +1048,28 @@ export async function repo_agent(req: Request, res: Response) {
         // Ephemeral preview: read the diff from the worktree itself, here,
         // before teardown in .finally() discards it. Ground truth for what
         // the run changed — new files included — rather than whatever the
-        // model chose to paste into its answer. Sits next to `pr`, its
-        // create_pr counterpart. A capture failure is reported on the
-        // result, never thrown: the run itself finished.
-        let diff: WorktreeDiffResult | undefined;
+        // model chose to paste into its answer. Reported as `preview`, the
+        // counterpart of `pr` on create_pr runs, with the same
+        // `ok` / `failure` / `error` shape. A capture failure is reported
+        // on the result, never thrown: the run itself finished.
+        let preview: WorktreeDiffResult | undefined;
         if (body.ephemeral && nonStreamWorktreeHandle) {
           try {
-            diff = await captureWorktreeDiff(nonStreamWorktreeHandle, {
+            preview = await captureWorktreeDiff(nonStreamWorktreeHandle, {
               signal: abortController.signal,
             });
           } catch (e) {
-            diff = {
+            preview = {
               ok: false,
               failure: "git_failed",
               error: e instanceof Error ? e.message : String(e),
             };
           }
           console.log(
-            `[repo_agent] ephemeral diff: request_id=${request_id} ` +
-              (diff.ok
-                ? `${diff.filesChanged} file(s), ${Buffer.byteLength(diff.diff, "utf8")} bytes`
-                : `${diff.failure}: ${diff.error}`),
+            `[repo_agent] ephemeral preview diff: request_id=${request_id} ` +
+              (preview.ok
+                ? `${preview.filesChanged} file(s), ${Buffer.byteLength(preview.diff, "utf8")} bytes`
+                : `${preview.failure}: ${preview.error}`),
           );
         }
         const terminalResult = {
@@ -1086,10 +1087,8 @@ export async function repo_agent(req: Request, res: Response) {
           // Present when create_pr was enabled; structured result from landChange().
           pr: result.pr,
           // Present on ephemeral runs: the worktree's staged diff, or why
-          // there is none. See captureWorktreeDiff.
-          diff: diff?.ok ? diff.diff : undefined,
-          diff_files: diff?.ok ? diff.filesChanged : undefined,
-          diff_error: diff && !diff.ok ? { failure: diff.failure, error: diff.error } : undefined,
+          // there is none. Same shape as `pr`. See captureWorktreeDiff.
+          preview,
           // Present when the run ended without a proper termination —
           // `final_answer` is then narration, not an answer.
           incomplete: result.incomplete,
