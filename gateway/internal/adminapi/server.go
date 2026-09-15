@@ -360,6 +360,17 @@ func registerRoutes(mux *http.ServeMux, deps routeDeps) {
 			obs.agentSpend(w, r, parts[0])
 			return
 		}
+		// `<name>/runs` (GET): the agent's runs in the window, newest
+		// activity first, with user / models / spend per run. Backs
+		// the AgentDetail "Recent runs" table. Same logstore gate.
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "runs" {
+			if obs == nil {
+				http.NotFound(w, r)
+				return
+			}
+			obs.agentRuns(w, r, parts[0])
+			return
+		}
 		// `/_plugin/agents/catalog` (single segment) is the catalog
 		// list — every registry agent, traffic or not. Distinct from
 		// `<name>/catalog` (two segments) which is one agent's detail.

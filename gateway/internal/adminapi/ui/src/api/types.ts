@@ -7,6 +7,44 @@
 /* eslint-disable */
 
 //////////
+// source: agentruns.go
+
+/**
+ * AgentRunSummary is one row of /_plugin/agents/:name/runs.
+ */
+export interface AgentRunSummary {
+  run_id: string;
+  /**
+   * UserID is `metadata.user-id` from the run's first row that
+   * carries one — the same key the People pages are keyed on, so
+   * the dashboard can link straight to /people/:id. Empty when
+   * no row was stamped.
+   */
+  user_id?: string;
+  /**
+   * Models the run called, most-used first (ties by name). A run
+   * usually has one; a "+N" affordance in the UI covers the rest.
+   */
+  models: string[];
+  total_cost: number /* float64 */;
+  total_tokens: number /* int64 */;
+  request_count: number /* int64 */;
+  first_seen?: string;
+  last_seen?: string;
+}
+/**
+ * AgentRunsResponse is the envelope for /_plugin/agents/:name/runs.
+ * `total` is the run count in the window before ?limit=/?offset=
+ * paging, so the UI can say "showing 50 of 120".
+ */
+export interface AgentRunsResponse {
+  agent_name: string;
+  window: string;
+  total: number /* int */;
+  runs: AgentRunSummary[];
+}
+
+//////////
 // source: budgets.go
 
 /**

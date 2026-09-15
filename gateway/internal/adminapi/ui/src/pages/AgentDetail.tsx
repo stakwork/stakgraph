@@ -1,15 +1,17 @@
-// AgentDetail — per-agent cost histogram + recent runs.
+// AgentDetail — one agent's cost histogram, budget card and recent
+// runs, plus the catalog tabs (prompts / tools / skills / evals) and
+// the swarm-wide kill switch.
 //
-// Phase-8 limitation
-// ------------------
-// The backend's /_plugin/histogram/cost endpoint doesn't yet accept
-// a per-agent metadata filter; it returns one series per agent
-// across the whole window. We work around that here by filtering
-// the response client-side to just this agent's series. A future
-// backend revision can add a server-side filter without touching
-// this page.
+// Data flow
+// --------
+// The chart is `useHistogramCost` scoped server-side with
+// `agent_name=<name>` (observability.go `metadataFilterFromQuery`),
+// so the response carries only this agent's series. The "Recent
+// runs" table is `useAgentRuns` → `/agents/:name/runs`: one row per
+// run in the window, newest activity first, with the user, the
+// model(s), spend and call count. Both follow the page's window.
 
-import { useMemo, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { Link } from "wouter-preact";
 
 import { CostHistogram } from "../components/charts/CostHistogram";
@@ -17,7 +19,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { WindowPicker } from "../components/controls/WindowPicker";
 import { KillConfirmModal } from "../components/KillConfirmModal";
 import { StatusBadge, deriveAgentStatus } from "../components/StatusBadge";
-import { StopIcon } from "../components/icons";
+import { StopIcon, UserIcon } from "../components/icons";
 import type {
   AgentBudgetResponse,
   AgentCatalogResponse,
@@ -31,6 +33,7 @@ import {
   useAgentBudget,
   useAgentCatalog,
   useAgentEvals,
+  useAgentRuns,
   useAgentState,
   useHistogramCost,
   useKillAgent,
@@ -38,7 +41,6 @@ import {
   useToggleTool,
   useUnkillAgent,
 } from "../api/queries";
-import type { HistogramCostResponse } from "../api/types";
 import type { Window } from "../api/manual";
 import { windowToSeconds } from "../api/window";
 import { EvalsView } from "./EvalsView";
@@ -63,6 +65,34 @@ const fmtUSD = (v: number) => {
 const fmtInt = (v: number) =>
   new Intl.NumberFormat("en-US").format(Math.round(v));
 
+const fmtTs = (s?: string) => {
+  if (!s) return "";
+  try {
+    return new Date(s).toLocaleString();
+  } catch {
+    return s;
+  }
+};
+
+// "3m ago" for the runs table. Same helper as UserDetail's — the
+// pages keep their own copies by convention (see AGENTS.md).
+function fmtRelative(absISO?: string): string {
+  if (!absISO) return "";
+  try {
+    const then = new Date(absISO).getTime();
+    const sec = Math.round((Date.now() - then) / 1000);
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.round(min / 60);
+    if (hr < 48) return `${hr}h ago`;
+    const day = Math.round(hr / 24);
+    return `${day}d ago`;
+  } catch {
+    return "";
+  }
+}
+
 export function AgentDetail({ name }: Props) {
   const [window, setWindow] = useState<Window>("24h");
   const bucket = window === "1h" ? "5m" : window === "6h" ? "10m" : "1h";
@@ -73,41 +103,16 @@ export function AgentDetail({ name }: Props) {
     window,
     bucket,
     dimension: "agent-name",
+    agentName: name,
   });
+  const runs = useAgentRuns(name, window);
 
-  // Filter the histogram down to just this agent's series.
-  const filtered = useMemo<HistogramCostResponse | undefined>(() => {
-    if (!histogram.data) return undefined;
-    return {
-      ...histogram.data,
-      series: histogram.data.series.filter((s) => s.dimension_value === name),
-    };
-  }, [histogram.data, name]);
-
-  // Pull run-ids from the same window to derive the "recent runs"
-  // table. We don't have a dedicated `/spend/by-run` endpoint yet,
-  // so we use the agent dimension histogram to surface activity and
-  // a separate dimension histogram by run-id for the same window.
-  const runsHistogram = useHistogramCost({
-    window,
-    bucket,
-    dimension: "run-id",
-  });
-  const recentRuns = useMemo(() => {
-    if (!runsHistogram.data) return [];
-    // Sort by total cost desc and cap to top 50 — the dashboard plan
-    // commits to "first 100 runs in window"; 50 keeps render cheap.
-    return [...runsHistogram.data.series]
-      .map((s) => ({
-        run_id: s.dimension_value,
-        cost: s.points.reduce((acc, p) => acc + p.cost, 0),
-        calls: s.points.length, // approximate; chart points are by bucket
-      }))
-      .sort((a, b) => b.cost - a.cost)
-      .slice(0, 50);
-  }, [runsHistogram.data]);
-
-  const totalCost = filtered?.series[0]?.points.reduce((s, p) => s + p.cost, 0) ?? 0;
+  // Server-filtered, so every series is this agent's; summing all
+  // points is the window spend.
+  const totalCost =
+    histogram.data?.series
+      .flatMap((s) => s.points)
+      .reduce((acc, p) => acc + p.cost, 0) ?? 0;
 
   const [tab, setTab] = useState<Tab>("overview");
   const catalog = useAgentCatalog(name);
@@ -201,9 +206,8 @@ export function AgentDetail({ name }: Props) {
           totalCost={totalCost}
           budget={budget.data}
           histogram={histogram}
-          filtered={filtered}
           windowSeconds={windowSeconds}
-          recentRuns={recentRuns}
+          runs={runs}
         />
       )}
     </>
@@ -216,9 +220,8 @@ interface OverviewProps {
   totalCost: number;
   budget: AgentBudgetResponse | undefined;
   histogram: ReturnType<typeof useHistogramCost>;
-  filtered: HistogramCostResponse | undefined;
   windowSeconds: number;
-  recentRuns: { run_id: string; cost: number; calls: number }[];
+  runs: ReturnType<typeof useAgentRuns>;
 }
 
 function OverviewTab({
@@ -227,9 +230,8 @@ function OverviewTab({
   totalCost,
   budget,
   histogram,
-  filtered,
   windowSeconds,
-  recentRuns,
+  runs,
 }: OverviewProps) {
   return (
     <>
@@ -253,9 +255,9 @@ function OverviewTab({
         </div>
         {histogram.isError ? (
           <div class="error-banner">{getErrorMessage(histogram.error)}</div>
-        ) : filtered ? (
+        ) : histogram.data ? (
           <ErrorBoundary>
-            <CostHistogram data={filtered} windowSeconds={windowSeconds} />
+            <CostHistogram data={histogram.data} windowSeconds={windowSeconds} />
           </ErrorBoundary>
         ) : (
           <div class="loading">Loading…</div>
@@ -264,7 +266,11 @@ function OverviewTab({
 
       <section>
         <h2 style="margin-bottom: 16px">Recent runs</h2>
-        {recentRuns.length === 0 ? (
+        {runs.isError ? (
+          <div class="error-banner">{getErrorMessage(runs.error)}</div>
+        ) : !runs.data ? (
+          <div class="loading">Loading…</div>
+        ) : runs.data.runs.length === 0 ? (
           <div class="empty">No runs in this window.</div>
         ) : (
           <div class="table-wrap">
@@ -272,28 +278,74 @@ function OverviewTab({
               <thead>
                 <tr>
                   <th>Run</th>
+                  <th>User</th>
+                  <th>Model</th>
                   <th class="num">Spend</th>
-                  <th class="num">Buckets seen</th>
+                  <th class="num">Calls</th>
+                  <th class="cell-when">Last call</th>
                 </tr>
               </thead>
               <tbody>
-                {recentRuns.map((r) => (
+                {runs.data.runs.map((r) => (
                   <tr key={r.run_id} class="row-link">
-                    <td>
+                    <td class="cell-trunc" title={r.run_id}>
                       <Link href={`/runs/${encodeURIComponent(r.run_id)}`}>
                         <span class="mono">{r.run_id}</span>
                       </Link>
                     </td>
-                    <td class="num">{fmtUSD(r.cost)}</td>
-                    <td class="num">{fmtInt(r.calls)}</td>
+                    <td>
+                      {r.user_id ? (
+                        <span class="prov-with-icon" title={r.user_id}>
+                          <UserIcon class="prov-icon" />
+                          <Link href={`/people/${encodeURIComponent(r.user_id)}`}>
+                            <span class="mono">{r.user_id.slice(0, 8)}</span>
+                          </Link>
+                        </span>
+                      ) : (
+                        <span class="text-dim">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <ModelCell models={r.models} />
+                    </td>
+                    <td class="num">{fmtUSD(r.total_cost)}</td>
+                    <td class="num">{fmtInt(r.request_count)}</td>
+                    <td class="text-dim cell-when" title={fmtTs(r.last_seen)}>
+                      {fmtRelative(r.last_seen) || fmtTs(r.last_seen)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {runs.data.total > runs.data.runs.length ? (
+              <div class="table-foot text-dim">
+                Showing the {runs.data.runs.length} most recent of{" "}
+                {runs.data.total} runs in this window.
+              </div>
+            ) : null}
           </div>
         )}
       </section>
     </>
+  );
+}
+
+// ModelCell shows the run's most-used model, plus a "+N" pill when
+// the run touched more than one (the others ride on the pill's
+// title). Empty when no row recorded a model — a run of pure
+// failures can look like that.
+function ModelCell({ models }: { models: string[] }) {
+  if (models.length === 0) return <span class="text-dim">—</span>;
+  const [primary, ...rest] = models;
+  return (
+    <span class="model-cell">
+      <span class="mono">{primary}</span>
+      {rest.length > 0 ? (
+        <span class="pill" title={"also " + rest.join(", ")}>
+          +{rest.length}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
