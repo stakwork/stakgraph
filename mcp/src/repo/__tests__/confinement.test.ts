@@ -361,3 +361,38 @@ describe("acquireEphemeralWorktree", () => {
     if (!result.ok) assert.match(result.error, /Path traversal rejected/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 5. web_search withheld on confined runs
+// ---------------------------------------------------------------------------
+
+describe("web_search server tool on confined runs", () => {
+  async function buildTools(options: GetToolsOptions | undefined) {
+    return get_tools(
+      baseCloneDir,
+      "fake-api-key",
+      FAKE_PAT,
+      { bash: true, web_search: true },
+      "anthropic",
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      options,
+    );
+  }
+
+  it("unconfined run: web_search is registered", async () => {
+    const tools = await buildTools(undefined);
+    assert.ok((tools as any).web_search, "web_search must be present on an unconfined anthropic run");
+  });
+
+  it("ephemeral run: no web_search — a server tool in the request is what let a gateway's tool rewrite surface an unregistered code_execution call", async () => {
+    const tools = await buildTools({ ephemeral: true, baseCheckoutPath: "/tmp/owner/repo" });
+    assert.equal((tools as any).web_search, undefined);
+    assert.ok((tools as any).bash?.execute, "bash stays available");
+  });
+
+  it("prMode run: no web_search", async () => {
+    const tools = await buildTools(PR_MODE_OPTS(baseCloneDir));
+    assert.equal((tools as any).web_search, undefined);
+  });
+});
