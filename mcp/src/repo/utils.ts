@@ -181,6 +181,69 @@ export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
 }
 
 /**
+ * Tool calls on a step that the tool loop could not resolve. The AI SDK
+ * exits its loop on such a step — no further model turn, no stop condition,
+ * no error — exactly as it does for a client-executed tool whose result the
+ * caller is expected to supply. A run whose last step has any of these is
+ * therefore incomplete whatever its text says.
+ *
+ * A call is unresolved when it names a tool that is not registered for the
+ * run (the SDK marks these `invalid`), or when the step holds no result or
+ * error for it. Observed cause: an LLM gateway rewrote a server tool's
+ * version, and the API answered with a server_tool_use (code_execution) that
+ * was never offered.
+ */
+export function unresolvedToolCalls(
+  step: StepResult<ToolSet> | undefined,
+  tools: ToolSet | readonly string[],
+): { toolCallId: string; toolName: string }[] {
+  if (!step) return [];
+  const known = new Set(Array.isArray(tools) ? tools : Object.keys(tools));
+  const resolved = new Set<string>();
+  for (const item of step.content) {
+    if (item.type === "tool-result" || item.type === "tool-error") {
+      resolved.add(item.toolCallId);
+    }
+  }
+  const out: { toolCallId: string; toolName: string }[] = [];
+  for (const item of step.content) {
+    if (item.type !== "tool-call") continue;
+    const invalid = (item as { invalid?: boolean }).invalid === true;
+    if (invalid || !known.has(item.toolName) || !resolved.has(item.toolCallId)) {
+      out.push({ toolCallId: item.toolCallId, toolName: item.toolName });
+    }
+  }
+  return out;
+}
+
+/**
+ * Drop every part that references one of `toolCallIds` from a run of model
+ * messages — the call itself and any result or error recorded for it — so
+ * the transcript can be replayed. A tool_result for a server tool the API
+ * never ran is rejected on replay, and a dangling tool_use without a result
+ * is rejected too. A message left with no content is dropped whole.
+ */
+export function stripToolCallParts(
+  messages: ModelMessage[],
+  toolCallIds: ReadonlySet<string>,
+): ModelMessage[] {
+  if (toolCallIds.size === 0) return messages;
+  const out: ModelMessage[] = [];
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) {
+      out.push(m);
+      continue;
+    }
+    const content = (m.content as Array<{ toolCallId?: string }>).filter(
+      (part) => !(typeof part.toolCallId === "string" && toolCallIds.has(part.toolCallId)),
+    );
+    if (content.length === 0) continue;
+    out.push({ ...m, content } as ModelMessage);
+  }
+  return out;
+}
+
+/**
  * Time-budget status nudges, injected between steps as a run approaches the
  * busy-timeout hard kill (which aborts the stream and discards all work).
  * Thresholds are fractions of the total budget so they track

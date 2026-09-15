@@ -774,75 +774,80 @@ served by the same SPA handler (wouter handles it client-side).
 
 **Backend — sessions (`gateway/internal/sessions/`):**
 
-- [ ] `store.go`: `SessionStore` interface; Redis implementation.
-- [ ] `store_test.go`: miniredis-backed tests covering create, get,
+- [x] `store.go`: `SessionStore` interface; Redis implementation.
+- [x] `store_test.go`: miniredis-backed tests covering create, get,
       refresh, delete, kick-all-for-user, TTL expiry.
 
 **Backend — adminapi (`gateway/internal/adminapi/`):**
 
-- [ ] `session.go`: middleware combining session-cookie and
+- [x] `session.go`: middleware combining session-cookie and
       bearer-token auth; `allowAnon` list.
-- [ ] `login.go`: `POST /_plugin/login` (Basic-in, cookie-out),
+- [x] `login.go`: `POST /_plugin/login` (Basic-in, cookie-out),
       `POST /_plugin/logout`, `GET /_plugin/me`.
-- [ ] `ratelimit.go`: per-IP login attempt counter.
-- [ ] `logstore_client.go`: HTTP client to
+- [x] `ratelimit.go`: per-IP login attempt counter.
+- [x] `logstore_client.go`: HTTP client to
       `http://127.0.0.1:8080/api/logs` (and rankings / histogram
       sub-paths). Owns `SearchFilters` serialization, retry,
       timeout. Reusable across all handlers below and any phase 9
       additions.
-- [ ] `spend.go`: `/_plugin/spend/by-{agent,user}` handlers.
-- [ ] `histogram.go`: `/_plugin/histogram/cost` handler calling
+- [x] `spend.go`: `/_plugin/spend/by-{agent,user}` handlers.
+- [x] `histogram.go`: `/_plugin/histogram/cost` handler calling
       `GetDimensionCostHistogram` through the client.
-- [ ] `runs.go`: `/_plugin/runs/:run_id` drill-down (read-only;
-      phase 9 extends with `/state` and `/kill`).
-- [ ] `ui.go`: `//go:embed ui/dist` + SPA fallback handler.
-- [ ] Route registration in `server.go`, with `/_plugin/ui/*` and
+- [x] `/_plugin/runs/:run_id` drill-down — lives in `observability.go`,
+      not a separate `runs.go`; phase 9 added `/state` and `/kill` in
+      `hotstate.go`.
+- [x] `ui.go`: `//go:embed ui/dist` + SPA fallback handler.
+- [x] Route registration in `server.go`, with `/_plugin/ui/*` and
       every `/_plugin/spend/*`, `/_plugin/histogram/*`,
       `/_plugin/runs/:id` route behind the session middleware, and
       `/_plugin/health`, `/_plugin/login` in `allowAnon`.
 
 **Backend — type codegen (`gateway/`):**
 
-- [ ] `tygo.yaml` covering `internal/adminapi`.
-- [ ] `make tygo` target invoking the codegen.
-- [ ] CI step: `make tygo && git diff --exit-code internal/adminapi/ui/src/api/types.ts`.
+- [x] `tygo.yaml` covering `internal/adminapi`.
+- [x] `make tygo` target invoking the codegen.
+- [x] CI step: `make tygo-check` in `.github/workflows/gateway-check.yml`.
 
 **Frontend (`gateway/internal/adminapi/ui/`):**
 
-- [ ] Vite + Preact + TS scaffold; `package.json`, `vite.config.ts`,
+- [x] Vite + Preact + TS scaffold; `package.json`, `vite.config.ts`,
       `tsconfig.json`, `index.html`.
-- [ ] `src/api/client.ts`: typed fetch wrapper, 401 redirect.
-- [ ] `src/api/queries.ts`: one hook per endpoint.
-- [ ] `src/app.tsx`: wouter routes, QueryClient provider, global
+- [x] `src/api/client.ts`: typed fetch wrapper, 401 redirect.
+- [x] `src/api/queries.ts`: one hook per endpoint.
+- [x] `src/app.tsx`: wouter routes, QueryClient provider, global
       auth-error handler.
-- [ ] `src/components/layout/Shell.tsx` + `Sidebar` + `Topbar`.
-- [ ] `src/components/charts/UplotChart.tsx`: generic wrapper.
-- [ ] `src/components/charts/CostHistogram.tsx`: stacked-area
+- [x] `src/components/layout/Shell.tsx` + `Sidebar` + `Topbar`.
+- [x] `src/components/charts/UplotChart.tsx`: generic wrapper.
+- [x] `src/components/charts/CostHistogram.tsx`: stacked-area
       cost-by-time-by-dimension chart.
-- [ ] `src/components/tables/DataTable.tsx`: sortable, paginated.
-- [ ] `src/components/controls/WindowPicker.tsx`.
-- [ ] `src/components/EmptyState.tsx`, `ErrorBoundary.tsx`.
-- [ ] `src/pages/Login.tsx`, `Dashboard.tsx`, `Agents.tsx`,
-      `AgentDetail.tsx`, `RunDetail.tsx`, `NotFound.tsx`.
-- [ ] `src/styles/base.css` + `components.css`.
+- [x] `src/components/tables/DataTable.tsx`: sortable. **Not paginated**:
+      it caps rows client-side, and `useRunDetail` sends no
+      `limit`/`offset`, so a run with more calls than the server's
+      50-row default is silently truncated — still open.
+- [x] `src/components/controls/WindowPicker.tsx`.
+- [x] `src/components/EmptyState.tsx`, `ErrorBoundary.tsx`.
+- [x] `src/pages/Login.tsx`, `Dashboard.tsx`, `Agents.tsx`,
+      `AgentDetail.tsx`, `RunDetail.tsx`, `NotFound.tsx` — plus
+      `Canvas.tsx` (the landing page), `People.tsx`, `UserDetail.tsx`
+      and the `EvalsView` tab, all beyond this phase's scope.
+- [x] `src/styles/base.css` + `components.css`.
 
 **Dockerfile:**
 
-- [ ] `ui-builder` stage running `npm ci && npm run build`.
-- [ ] `COPY --from=ui-builder /ui/dist` into the Go build context
+- [x] `plugin-ui-builder` stage running `npm ci && npm run build`.
+- [x] `COPY --from=plugin-ui-builder /pui/dist` into the Go build context
       before `go build`.
 
 **Docs:**
 
-- [ ] Update `gateway/README.md` with the observability-dashboard
+- [x] Update `gateway/README.md` with the observability-dashboard
       bullet (URL, default creds in dev, link to this phase).
-- [ ] Update `phase-3-swarm-handoff.md` to note that admin creds
+- [x] Update `phase-3-swarm-handoff.md` to note that admin creds
       now drive both `/api/*` and the observability dashboard.
-- [ ] Update `phase-7-observability.md` to note that the four
-      endpoints used by phase 8 ship in phase 8; the remainder
-      ships with phase 9.
-- [ ] Forward-pointer from `llm-governance-v2.md` §"Plugin" to this
-      phase.
+- [x] Update `phase-7-observability.md` — moot: every phase-7
+      endpoint has since shipped (its own checklist is ticked).
+- [x] Forward-pointer from `llm-governance-v2.md` to this phase (in
+      its authoritative-spec table).
 
 **Gate:** phase 8 ships when:
 

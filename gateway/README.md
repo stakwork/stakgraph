@@ -193,9 +193,12 @@ runs the operator dashboard. Source lives under
 (in CI / docker) the `plugin-ui-builder` stage in the Dockerfile, then
 embedded into the plugin .so via `//go:embed all:ui/dist`.
 
-Pages in v1: Login, Dashboard, Agents, AgentDetail, RunDetail. All
-read-only; phase 9 adds the kill switches, budget editors, and live
-Redis-blended panels.
+Pages: Login, Canvas (landing), Dashboard, People, UserDetail, Agents,
+AgentDetail (Overview / Prompts / Tools / Skills / Evals tabs), and
+RunDetail (call log, cap meters, live Redis state, kill). Agent kill
+switches are live too. Still open from
+[phase 9](./plans/phases/phase-9-operator-ui.md): budget editing, the
+Config page, Sessions, and a `/runs` list.
 
 Local UI dev with HMR (proxies `/_plugin/*` to a running plugin on
 `localhost:8181`):

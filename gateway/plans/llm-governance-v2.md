@@ -16,6 +16,8 @@
 > | Trust registry storage, admin API, env-var seed                      | [`phases/phase-5-trust-registry.md`](./phases/phase-5-trust-registry.md)         |
 > | Plugin Redis schema, per-hook ops, TTL policy, failure modes         | [`phases/phase-6-plugin-enforcement.md`](./phases/phase-6-plugin-enforcement.md) |
 > | `/_plugin/*` observability over `logs.db` (per-dim analytics)        | [`phases/phase-7-observability.md`](./phases/phase-7-observability.md)           |
+> | Read-only operator dashboard (embedded SPA, sessions, tygo)          | [`phases/phase-8-observability-dashboard.md`](./phases/phase-8-observability-dashboard.md) |
+> | Operator console: kill switches, cap meters, budget/config edits     | [`phases/phase-9-operator-ui.md`](./phases/phase-9-operator-ui.md)               |
 > | Symmetric narrowing rule, per-realm budgets, cross-swarm spawning    | [`phases/phase-11-symmetric-recursive-authorization.md`](./phases/phase-11-symmetric-recursive-authorization.md) |
 > | Transparency log: Merkle leaves + Hive witness (Part 1); receipts + client enforcement (Part 2) | [`phases/phase-12-transparency-log.md`](./phases/phase-12-transparency-log.md) |
 > | Agent defaults / registry                                            | [`agent-registry.md`](./agent-registry.md)                                       |
