@@ -79,3 +79,30 @@ export {
 } from "./verify.js";
 
 export type { VerifyErrorCode } from "./verify.js";
+
+// Transparency log (phase 12): Merkle verifiers + signed tree heads.
+export type {
+  TlogLeaf,
+  SignedTreeHead,
+  SignedTreeHeadUnsigned,
+  TlogSthResponse,
+  HashLike,
+} from "./tlog/types.js";
+
+export {
+  emptyRoot,
+  leafHash,
+  nodeHash,
+  leafBytes,
+  hashLeaf,
+  rootFromLeafHashes,
+  rootFromLeaves,
+  verifyInclusion,
+  verifyConsistency,
+  hashBytes,
+  bytesEqual,
+} from "./tlog/merkle.js";
+
+export type { InclusionProofInput, ConsistencyProofInput } from "./tlog/merkle.js";
+
+export { sthSigningBytes, signSth, verifySth } from "./tlog/sth.js";

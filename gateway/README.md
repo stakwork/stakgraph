@@ -183,6 +183,7 @@ Routes today:
 | GET    | `/_plugin/runs/:run_id`                    | cookie or bearer    | Drill-down: every call recorded for one run_id, paginated.                                                 |
 | GET    | `/_plugin/runs/:run_id/calls/:call_id`     | cookie or bearer    | Single call body — full input_history / output_message / params / tools / error_details / raw_response.    |
 | GET/POST/DELETE | `/_plugin/trust/*`                | bearer              | Phase-5 trust registry CRUD.                                                                               |
+| GET    | `/_plugin/tlog/sth?since=N`                | bearer              | Phase-12 transparency log: signed tree head, consistency proof from N, up to 5000 leaves from N. Hive's witness pull; 409 when N is ahead of the tree. |
 
 ### Admin UI (`/_plugin/ui/`)
 
