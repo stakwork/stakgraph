@@ -105,7 +105,11 @@ export async function log_agent_context(
     tools,
     providerOptions: getProviderOptions(provider, undefined, modelId) as any,
     stopWhen: hasEndMarker,
-    stopSequences: ["[END_OF_ANSWER]"],
+    // No stopSequences for the marker: termination is detected from the text
+    // (stopWhen / needsContinuation / extractFinalAnswer), which works on every
+    // provider. A stop sequence consumes the marker and leaves only the raw
+    // stop reason, which gateways rewrite (Bifrost maps stop_sequence to
+    // end_turn), making every proper finish look like a stall.
     onStepFinish: (sf) => {
       logStepMaybe(redactSecretsDeep(sf.content, redactOpts), opts.printAgentProgress);
       const usage = normalizeUsage(sf.usage);

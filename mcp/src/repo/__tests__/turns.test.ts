@@ -120,6 +120,18 @@ test.describe("turn emission", () => {
     expect(turns).toEqual([]);
   });
 
+  test("the [END_OF_ANSWER] protocol marker is stripped from reasoning turns", async () => {
+    const { emitStepTurns } = await import("../turns.js");
+    const sid = `sess-${randomUUID().slice(0, 8)}`;
+    const turns = emitStepTurns(sid, "hive", [
+      { type: "text", text: "The answer.\n[END_OF_ANSWER]" },
+      { type: "text", text: "[END_OF_ANSWER]" },
+    ]);
+    expect(turns.length).toBe(1);
+    expect(turns[0].turn_type).toBe("reasoning");
+    expect(turns[0].content).toBe("The answer.");
+  });
+
   test("a Concept-bearing tool result carries the concept link", async () => {
     const { emitStepTurns } = await import("../turns.js");
     const sid = `sess-${randomUUID().slice(0, 8)}`;
