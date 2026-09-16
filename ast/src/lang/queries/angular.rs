@@ -427,11 +427,11 @@ impl Stack for Angular {
             path = path[1..].to_string();
         }
 
-        if (path.starts_with('"') && path.ends_with('"'))
-            || (path.starts_with('\'') && path.ends_with('\''))
-            || (path.starts_with('`') && path.ends_with('`'))
-        {
-            path = path[1..path.len() - 1].to_string();
+        for quote in ['"', '\'', '`'] {
+            if let Some(inner) = path.strip_prefix(quote).and_then(|p| p.strip_suffix(quote)) {
+                path = inner.to_string();
+                break;
+            }
         }
 
         path
