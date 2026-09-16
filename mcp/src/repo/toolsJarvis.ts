@@ -782,7 +782,11 @@ function registerGraphSubAgentTool(
           tools: runTools,
           providerOptions: getProviderOptions(details.provider, undefined, modelId) as any,
           stopWhen: maxSteps > 0 ? [hasEndMarker, stepCountIs(maxSteps)] : hasEndMarker,
-          stopSequences: ["[END_OF_ANSWER]"],
+          // No stopSequences for the marker: termination is detected from the text
+          // (stopWhen / needsContinuation / extractFinalAnswer), which works on every
+          // provider. A stop sequence consumes the marker and leaves only the raw
+          // stop reason, which gateways rewrite (Bifrost maps stop_sequence to
+          // end_turn), making every proper finish look like a stall.
           onStepFinish: (sf) => {
             if (!childSessionId) return;
             const now = Date.now();
