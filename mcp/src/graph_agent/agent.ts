@@ -204,7 +204,11 @@ async function prepareGraphAgent(
     instructions: systemPrompt,
     tools,
     stopWhen,
-    stopSequences: ["[END_OF_ANSWER]"],
+    // No stopSequences for the marker: termination is detected from the text
+    // (stopWhen / needsContinuation / extractFinalAnswer), which works on every
+    // provider. A stop sequence consumes the marker and leaves only the raw
+    // stop reason, which gateways rewrite (Bifrost maps stop_sequence to
+    // end_turn), making every proper finish look like a stall.
     onStepFinish: (sf) => {
       const now = Date.now();
       const elapsedMs = now - lastStepTime;

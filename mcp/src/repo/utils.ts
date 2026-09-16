@@ -117,16 +117,20 @@ export function createHasEndMarkerCondition<
 /**
  * True when a run ended without a proper termination and should be nudged to
  * continue. Proper terminations are: an ask_clarifying_questions call, or the
- * [END_OF_ANSWER] marker — present in text, or matched as a stop sequence
- * (surfaced as rawFinishReason "stop_sequence"). A run whose last step has no
+ * [END_OF_ANSWER] marker present in the text. A run whose last step has no
  * tool calls and none of those is either a voluntary early stop (raw
  * "end_turn" — the model narrated a plan or emitted only reasoning and quit)
  * or a truncation ("length"); both are recoverable by asking it to continue.
  *
- * Detection relies on the raw provider stop reason: a proper Anthropic finish
- * hits the [END_OF_ANSWER] stop sequence (raw "stop_sequence") while a stall
- * ends with raw "end_turn". OpenAI-compatible providers report a plain "stop"
- * either way, so their stalls are not detectable this way and are left alone.
+ * The marker is deliberately NOT registered as a provider stop sequence: a
+ * stop sequence consumes it, leaving only the raw stop reason to tell a
+ * finish from a stall, and that reason does not survive an LLM gateway
+ * (Bifrost maps Anthropic's "stop_sequence" to "stop" and back to "end_turn",
+ * so every proper finish looked like a stall and burned the nudge allowance).
+ * Marker-in-text works identically on every provider. The "stop_sequence"
+ * check below stays as a harmless belt-and-braces for any caller that still
+ * registers one. OpenAI-compatible providers report a plain "stop" for a
+ * voluntary stall, so those are not detectable and are left alone.
  */
 /**
  * True when the step cap ended a run mid-work, rather than the model finishing.

@@ -81,9 +81,9 @@ export interface StepMeta {
   turn: number;
   label?: string;
   finishReason?: string;
-  // Raw provider stop reason (e.g. Anthropic "end_turn" vs "stop_sequence") —
-  // the unified finishReason maps both to "stop", hiding the difference
-  // between a proper [END_OF_ANSWER] finish and a stall.
+  // Raw provider stop reason (e.g. Anthropic "end_turn" vs "max_tokens") —
+  // the unified finishReason coarsens it. Diagnostic only: a proper finish is
+  // recognized by the [END_OF_ANSWER] marker in the text, not by this value.
   rawFinishReason?: string;
   usage: AiUsageWithLegacy;
   cumulativeInput: number;
