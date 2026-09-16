@@ -10,6 +10,15 @@ import path from "path";
 import { db } from "../graph/neo4j.js";
 import { conceptReadsFrom } from "./concepts.js";
 
+/**
+ * The agents end their final answer with a literal [END_OF_ANSWER] marker
+ * (kept in the text on purpose — see needsContinuation in utils.ts). It is a
+ * protocol token, not content: drop it before the text becomes a Turn.
+ */
+function stripEndMarker(text: string): string {
+  return text.replace(/\[END_OF_ANSWER\]/g, "").trim();
+}
+
 // ── Live Turn emission ───────────────────────────────────────────────
 // Mirrors each agent step into the graph as it happens:
 //
@@ -299,7 +308,8 @@ export function emitStepTurns(
 
     for (const part of assistantParts) {
       if (part?.type === "text" && part.text) {
-        turns.push(buildTurn(sessionId, state, "reasoning", part.text, null));
+        const text = stripEndMarker(part.text);
+        if (text) turns.push(buildTurn(sessionId, state, "reasoning", text, null));
       } else if (part?.type === "tool-call") {
         if (part.toolCallId) {
           state.pendingToolInputs.set(part.toolCallId, part.input);
@@ -461,7 +471,8 @@ export function turnsFromTranscript(
         }
       } else if (message.role === "assistant") {
         if (part?.type === "text" && part.text) {
-          push("reasoning", part.text, null);
+          const text = stripEndMarker(part.text);
+          if (text) push("reasoning", text, null);
         } else if (part?.type === "tool-call") {
           if (part.toolCallId) pendingInputs.set(part.toolCallId, part.input);
           let inputJson: string;
