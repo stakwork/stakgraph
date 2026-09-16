@@ -12,7 +12,7 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg bzip2 && \
+RUN apt update && apt install -y sed git git-lfs vim tree ripgrep wget curl jq python3 pandoc python3-pip python3-venv zip unzip poppler-utils ffmpeg bzip2 tesseract-ocr tesseract-ocr-eng && \
     git lfs install --system && \
     ln -s /usr/bin/python3 /usr/bin/python
 
@@ -57,12 +57,26 @@ RUN python -c "from mcp.server.fastmcp import FastMCP"
 # Contents: PDF text extraction (pypdf, pdfplumber; pdftotext comes from
 # poppler-utils), spreadsheets (openpyxl, pandas), numerics (numpy — also
 # needed by the GAIA scorer), images (pillow), scraping (requests, bs4), and
-# yt-dlp (with ffmpeg from apt) for media tasks.
+# yt-dlp (with ffmpeg from apt) for media tasks, and video frame OCR
+# (opencv-python-headless + pytesseract over the tesseract binary from apt).
 RUN python3 -m venv /usr/src/agent-venv && \
     /usr/src/agent-venv/bin/pip install --no-cache-dir \
-      numpy pandas openpyxl pypdf pdfplumber pillow requests beautifulsoup4 yt-dlp && \
-    /usr/src/agent-venv/bin/python -c "import numpy, pandas, openpyxl, pypdf, pdfplumber, PIL, requests, bs4"
+      numpy pandas openpyxl pypdf pdfplumber pillow requests beautifulsoup4 yt-dlp \
+      opencv-python-headless pytesseract && \
+    /usr/src/agent-venv/bin/python -c "import numpy, pandas, openpyxl, pypdf, pdfplumber, PIL, requests, bs4, cv2, pytesseract"
 ENV PATH="/usr/src/agent-venv/bin:$PATH"
+
+# uv — what strut's `exec` step uses to run Python scripts with inline (PEP 723)
+# dependencies: `cmd: uv, args: [run]` + a `# /// script` header installs the
+# script's packages on the fly into uv's cache (~/.cache/uv), so a workflow can
+# use a library the venv above lacks without an image rebuild. Pinned; copied
+# from astral's multi-arch image rather than pip-installed so it doesn't touch
+# either python env. (specs/ENV_SPEC.md in strut is the longer-term answer for
+# native binaries; until then those go in the apt line above.)
+COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /usr/local/bin/
+
+# Fail the build if a media-workflow binary is missing from PATH.
+RUN ffmpeg -version | head -1 && yt-dlp --version && tesseract --version 2>&1 | head -1 && uv --version
 
 # NOTE (lab / GAIA): the dataset is deliberately NOT baked into the image —
 # GAIA's terms forbid resharing it outside a gated/private repo, and a

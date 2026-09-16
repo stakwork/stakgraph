@@ -6275,9 +6275,9 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#f776fb30a6f41f63a1cb06713533016851529084":
+"strut@git+https://github.com/stakwork/strut.git#7c2ae8cef438783fe3edb2a3233e42d9ea18f347":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#f776fb30a6f41f63a1cb06713533016851529084"
+  resolved "git+https://github.com/stakwork/strut.git#7c2ae8cef438783fe3edb2a3233e42d9ea18f347"
   dependencies:
     "@googleapis/drive" "^20.2.0"
     "@hono/node-server" "^2.0.4"
