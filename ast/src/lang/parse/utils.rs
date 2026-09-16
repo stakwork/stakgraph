@@ -6,14 +6,13 @@ use tree_sitter::{Node as TreeNode, QueryMatch};
 
 pub fn trim_quotes(value: &str) -> &str {
     let value = value.trim();
-    if value.starts_with('"') && value.ends_with('"') {
-        return &value[1..value.len() - 1];
-    }
-    if value.starts_with("'") && value.ends_with("'") {
-        return &value[1..value.len() - 1];
-    }
-    if value.starts_with("`") && value.ends_with("`") {
-        return &value[1..value.len() - 1];
+    for quote in ['"', '\'', '`'] {
+        if let Some(inner) = value
+            .strip_prefix(quote)
+            .and_then(|v| v.strip_suffix(quote))
+        {
+            return inner;
+        }
     }
     if let Some(stripped) = value.strip_prefix(':') {
         return stripped;
