@@ -1160,11 +1160,11 @@ impl Stack for TypeScriptReact {
             path = path[1..].to_string();
         }
 
-        if (path.starts_with('"') && path.ends_with('"'))
-            || (path.starts_with('\'') && path.ends_with('\''))
-            || (path.starts_with('`') && path.ends_with('`'))
-        {
-            path = path[1..path.len() - 1].to_string();
+        for quote in ['"', '\'', '`'] {
+            if let Some(inner) = path.strip_prefix(quote).and_then(|p| p.strip_suffix(quote)) {
+                path = inner.to_string();
+                break;
+            }
         }
 
         // FROM TYPESCRIPT: .js -> .ts replacement
@@ -1671,4 +1671,17 @@ fn page_name(filename: &str) -> String {
     }
 
     "page".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TypeScriptReact;
+    use crate::lang::queries::Stack;
+
+    #[test]
+    fn import_path_lone_quote_does_not_panic() {
+        let ts = TypeScriptReact::default();
+        assert_eq!(ts.resolve_import_path("\"x\"", ""), "x");
+        assert_eq!(ts.resolve_import_path("\"", ""), "\"");
+    }
 }
