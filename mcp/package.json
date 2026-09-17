@@ -87,7 +87,7 @@
     "simple-git": "3.30.0",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
-    "strut": "git+https://github.com/stakwork/strut.git#7c2ae8cef438783fe3edb2a3233e42d9ea18f347",
+    "strut": "git+https://github.com/stakwork/strut.git#d4ce13fd94dd76808ed42f03be1ac8a05868277b",
     "zod": "4.3.6"
   },
   "devDependencies": {
