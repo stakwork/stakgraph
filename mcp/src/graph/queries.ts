@@ -506,12 +506,14 @@ WHERE n.file = 'session://generated'
   AND ($since IS NULL OR n.start_time >= toInteger($since))
   AND ($until IS NULL OR n.start_time < toInteger($until))
   AND NOT (n.source = 'unknown' AND n.total_tokens = 0 AND n.duration_ms = 0)
+WITH n
+ORDER BY n.start_time DESC
+SKIP toInteger($offset) LIMIT toInteger($limit)
 OPTIONAL MATCH (c:AgentSession)
 WHERE c.parent_session_id = n.node_key
 WITH n, count(c) AS child_count
 RETURN n, child_count
 ORDER BY n.start_time DESC
-SKIP toInteger($offset) LIMIT toInteger($limit)
 `;
 
 // One AgentSession node per session id. `node_key` has only an index, and
