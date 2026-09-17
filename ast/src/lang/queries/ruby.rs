@@ -784,8 +784,8 @@ impl Stack for Ruby {
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.to_string();
 
-        if path.starts_with("(") {
-            path = path[1..path.len() - 1].to_string();
+        if let Some(inner) = path.strip_prefix('(').and_then(|p| p.strip_suffix(')')) {
+            path = inner.to_string();
         }
 
         if path.contains(":") {
@@ -797,20 +797,19 @@ impl Stack for Ruby {
     fn resolve_import_name(&self, import_name: &str) -> String {
         let mut name = import_name.to_string();
 
-        if name.starts_with("(") {
-            name = name[1..name.len() - 1].to_string();
+        if let Some(inner) = name.strip_prefix('(').and_then(|n| n.strip_suffix(')')) {
+            name = inner.to_string();
         }
 
         if name.contains(":") {
             name = name.replace(":", "");
         }
 
-        if name.starts_with("\"") && name.ends_with("\"") {
-            name = name[1..name.len() - 1].to_string();
-        }
-
-        if name.starts_with("'") && name.ends_with("'") {
-            name = name[1..name.len() - 1].to_string();
+        for quote in ['"', '\''] {
+            if let Some(inner) = name.strip_prefix(quote).and_then(|n| n.strip_suffix(quote)) {
+                name = inner.to_string();
+                break;
+            }
         }
 
         if name.starts_with("File") {

@@ -12,6 +12,8 @@ use annotations::run_fixture_test;
 pub mod builder;
 #[cfg(test)]
 pub mod registry;
+#[cfg(test)]
+pub mod quotes;
 
 #[cfg(test)]
 pub mod coverage;
