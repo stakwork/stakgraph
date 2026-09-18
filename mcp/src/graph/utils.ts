@@ -55,6 +55,11 @@ export function rightLabel(node: Neo4jNode): NodeType {
 }
 
 export function toReturnNode(node: Neo4jNode): ReturnNode {
+  // Defensive coercion: convert any raw Neo4j Integer (`{low, high}`)
+  // properties (incl. date_added_to_graph) to plain numbers so they can never
+  // leak into JSON responses, even on paths that bypassed
+  // deser_node/clean_node upstream. Idempotent for already-clean nodes.
+  clean_node(node);
   const properties = node.properties;
   const ref_id = IS_TEST ? "test_ref_id" : properties.ref_id || "";
   delete properties.ref_id;
