@@ -547,18 +547,18 @@ export function extractMessagesFromSteps(
 ): ModelMessage[] {
   const messages: ModelMessage[] = [userMessage];
 
-  // Use the SDK's own accumulated response messages from the last step.
-  // These are produced by toResponseMessages() which correctly handles
+  // Use the SDK's own response messages, concatenated across steps (v7 makes
+  // each step's `response.messages` per-step; v6 made the last one
+  // cumulative). These are produced by toResponseMessages() which correctly handles
   // provider-executed tools (web_search, code_execution, etc.) by keeping
   // their tool-results in the assistant message and client-executed
   // tool-results in the tool message. Manually reconstructing from
   // step.content loses providerExecuted flags and deferred result ordering,
   // causing "tool_use ids found without tool_result blocks" errors on
   // session replay with the Anthropic API.
-  const lastStep = steps[steps.length - 1];
-  if (!lastStep) return messages;
-
-  const responseMessages = lastStep.response.messages as ModelMessage[];
+  const responseMessages = steps.flatMap(
+    (step) => step.response.messages
+  ) as ModelMessage[];
   for (const msg of responseMessages) {
     if (sessionConfig?.truncateToolResults && msg.role === "tool") {
       // Truncate client-executed tool results for storage efficiency

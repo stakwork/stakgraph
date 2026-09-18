@@ -1,5 +1,5 @@
 import { ModelMessage } from "ai";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 
 export interface Conversation {
   id: string;
@@ -34,7 +34,7 @@ export abstract class ConversationStorage {
   async createConversation(
     messages: ModelMessage[]
   ): Promise<ConversationData> {
-    const id = uuidv4();
+    const id = randomUUID();
     const initialMessage = messages.find((msg) => msg.role === "user");
     const summary = initialMessage
       ? this.generateSummary(initialMessage.content as string)
