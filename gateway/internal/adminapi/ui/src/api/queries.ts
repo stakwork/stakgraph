@@ -759,11 +759,15 @@ export function useTlogStatus() {
 // Run detail is historical — no polling. The user explicitly hits
 // the page; refreshing the data is a manual page reload.
 
-export function useRunDetail(runID: string | undefined) {
+export const RUN_CALLS_PAGE_SIZE = 50;
+
+export function useRunDetail(runID: string | undefined, offset = 0) {
   return useQuery({
-    queryKey: ["runs", runID],
+    queryKey: ["runs", runID, offset],
     queryFn: () =>
-      apiFetch<RunDetailResponse>(`/runs/${encodeURIComponent(runID!)}`),
+      apiFetch<RunDetailResponse>(
+        `/runs/${encodeURIComponent(runID!)}?limit=${RUN_CALLS_PAGE_SIZE}&offset=${offset}`
+      ),
     enabled: !!runID,
     staleTime: Infinity,
   });
