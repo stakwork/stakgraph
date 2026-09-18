@@ -1083,7 +1083,7 @@ Rules:
             model,
             ...(providerOptions ? { providerOptions } : {}),
             messages: [
-              ...((res.response?.messages ?? []) as any[]),
+              ...((res.responseMessages ?? []) as any[]),
               {
                 role: "user",
                 content:

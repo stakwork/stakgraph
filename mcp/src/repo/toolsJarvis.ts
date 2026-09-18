@@ -701,15 +701,15 @@ function registerGraphSubAgentTool(
       //   (a) Only *completed* steps are captured; the in-flight step whose model
       //       call throws mid-request is not represented in any StepResult, so
       //       recovery reflects completed steps only, not the failing one.
-      //   (b) extractMessagesFromSteps reads steps[steps.length - 1].response.messages
-      //       which is cumulative within a single agent.generate call. This gives
-      //       full fidelity (verbatim tool-call inputs + reasoning). By contrast,
-      //       Turn-chain reconstruction caps every tool_result at
+      //   (b) extractMessagesFromSteps concatenates every step's response.messages
+      //       (per-step in AI SDK v7). This gives full fidelity (verbatim
+      //       tool-call inputs + reasoning). By contrast, Turn-chain
+      //       reconstruction caps every tool_result at
       //       TOOL_RESULT_MAX_CHARS = 100 chars (turns.ts ~line 40), losing detail.
-      //   (c) Recovery is correct only because graph_sub_agent makes exactly ONE
-      //       agent.generate call per run. If continuation logic (multiple generate
-      //       calls, as in repo/agent.ts's get_context) is ever added here, the
-      //       last-step-only extraction would silently drop earlier segments.
+      //   (c) graph_sub_agent makes exactly ONE agent.generate call per run, so
+      //       capturedSteps is one contiguous segment. If continuation logic is
+      //       ever added here, each segment needs its own user message (see
+      //       repo/agent.ts's get_context).
       const capturedSteps: StepResult<ToolSet>[] = [];
       let cumInput = 0;
       let cumOutput = 0;

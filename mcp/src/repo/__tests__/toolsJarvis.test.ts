@@ -1325,8 +1325,8 @@ test.describe("JarvisToolsOptions abortSignal and timeoutMs fields", () => {
 // path's recovered message count must be > 1.
 //
 // The inline extractMessagesFromSteps is a faithful mirror of the real
-// implementation in utils.ts: it reads steps[steps.length-1].response.messages
-// and prepends the user message, matching the recovery call in toolsJarvis.ts's
+// implementation in utils.ts: it concatenates every step's response.messages
+// (per-step in AI SDK v7) and prepends the user message, matching the recovery call in toolsJarvis.ts's
 // catch block exactly.
 
 test.describe("graph_sub_agent error-path transcript recovery", () => {
@@ -1351,11 +1351,7 @@ test.describe("graph_sub_agent error-path transcript recovery", () => {
     steps: FakeStepResult[],
   ): Array<{ role: string; content: any }> {
     const messages: Array<{ role: string; content: any }> = [userMsg];
-    const lastStep = steps[steps.length - 1];
-    if (!lastStep) return messages;
-    for (const msg of lastStep.response.messages) {
-      messages.push(msg);
-    }
+    for (const step of steps) messages.push(...step.response.messages);
     return messages;
   }
 
@@ -1448,9 +1444,8 @@ test.describe("graph_sub_agent error-path transcript recovery", () => {
     // appendMessages must have been called
     expect(result.appendMessagesCalled).toBe(true);
 
-    // recovered count = 1 user message + responseMessages from last step (2)
-    // extractMessages reads steps[steps.length - 1].response.messages (cumulative)
-    expect(result.recoveredMessageCount).toBeGreaterThan(1);
+    // recovered count = 1 user message + 2 response messages from each of 3 steps
+    expect(result.recoveredMessageCount).toBe(1 + 3 * 2);
 
     // The return value must contain the original error text (error propagates)
     expect(result.returnValue).toContain("graph_sub_agent failed");
@@ -1500,22 +1495,21 @@ test.describe("graph_sub_agent error-path transcript recovery", () => {
     expect(result.returnValue).toContain("graph_sub_agent failed");
   });
 
-  // ── Test 5: extractMessages invariant — 1 user + N response messages from last step
-  test("extractMessages: recovered count equals 1 + responseMessages.length of last step", () => {
+  // ── Test 5: extractMessages invariant — 1 user + every step's response messages, in order
+  test("extractMessages: recovered count equals 1 + responseMessages of all steps", () => {
     const step1 = makeFakeStep(2); // 2 response messages
-    const step2 = makeFakeStep(4); // 4 response messages — this is the LAST step
+    const step2 = makeFakeStep(4); // 4 response messages
     const capturedSteps = [step1, step2];
     const userMsg = { role: "user" as const, content: "Find all usages." };
 
-    // extractMessages reads steps[steps.length - 1].response.messages (cumulative)
+    // v7: each step's response.messages is per-step, so recovery concatenates them
     const recovered = extractMessages(userMsg, capturedSteps);
 
-    // 1 user message + 4 response messages from last step (step2)
-    expect(recovered.length).toBe(1 + step2.response.messages.length);
+    const expected = [...step1.response.messages, ...step2.response.messages];
+    expect(recovered.length).toBe(1 + expected.length);
     expect(recovered[0].role).toBe("user");
-    // Remaining messages match the last step's response messages in order
-    for (let i = 0; i < step2.response.messages.length; i++) {
-      expect(recovered[i + 1]).toEqual(step2.response.messages[i]);
+    for (let i = 0; i < expected.length; i++) {
+      expect(recovered[i + 1]).toEqual(expected[i]);
     }
   });
 
