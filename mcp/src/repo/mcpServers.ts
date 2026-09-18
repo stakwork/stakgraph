@@ -1,7 +1,7 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { Tool } from "ai";
-import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
+import type { LanguageModelV4ToolResultOutput } from "@ai-sdk/provider";
 
 // Discriminated union: HTTP server vs. stdio (local process) server
 export type McpServer =
@@ -62,13 +62,13 @@ function createSafeToModelOutput(
     toolCallId: string;
     input: unknown;
     output: unknown;
-  }) => LanguageModelV2ToolResultOutput
+  }) => LanguageModelV4ToolResultOutput
 ) {
   return (params: {
     toolCallId: string;
     input: unknown;
     output: unknown;
-  }): LanguageModelV2ToolResultOutput => {
+  }): LanguageModelV4ToolResultOutput => {
     const { toolCallId, input, output } = params;
 
     // Debug logging to see what the agent receives

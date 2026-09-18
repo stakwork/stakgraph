@@ -2,7 +2,7 @@ import {
   ModelMessage,
   streamText,
   ToolSet,
-  generateObject,
+  Output,
   generateText,
 } from "ai";
 import {
@@ -51,19 +51,19 @@ export async function callModel(opts: CallModelOptions): Promise<{
   console.log(`Calling ${provider} with options:`, providerOptions);
   const systemMessages = messages.filter((m) => m.role === "system");
   const nonSystemMessages = messages.filter((m) => m.role !== "system");
-  const system = systemMessages.length > 0
+  const instructions = systemMessages.length > 0
     ? systemMessages.map((m) => m.content as string).join("\n")
     : undefined;
   const result = streamText({
     model,
     tools,
-    system,
+    instructions,
     messages: nonSystemMessages,
     temperature: 0,
     providerOptions: providerOptions as any,
   });
   let fullResponse = "";
-  for await (const part of result.fullStream) {
+  for await (const part of result.stream) {
     // console.log(part);
     switch (part.type) {
       case "error":
@@ -96,9 +96,9 @@ export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
 }> {
   const model = await getModel(args.provider, args.apiKey);
   const providerOptions = getProviderOptions(args.provider, "fast");
-  const { object, usage } = await generateObject({
+  const { output: object, usage } = await generateText({
     model,
-    schema: args.schema,
+    output: Output.object({ schema: args.schema }),
     prompt: args.prompt,
     providerOptions: providerOptions as any,
   });
