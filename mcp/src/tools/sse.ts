@@ -2,24 +2,33 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { bearerToken, mcpSession } from "./utils.js";
 import { Express } from "express";
 import { Tool, Json } from "./types.js";
-import { graphServer } from "./server.js";
+import { createGraphServer } from "./server.js";
 import { getMcpTools } from "./utils.js";
 
 export function graph_sse_routes(app: Express) {
-  let currentTransport: SSEServerTransport | null = null;
+  // Keyed by the SSEServerTransport's own generated sessionId. A single
+  // shared transport/server (as this used to be) breaks as soon as there
+  // is more than one concurrent client: every /sse connection would (a)
+  // throw/corrupt the previous session on the shared Server instance (see
+  // createGraphServer()'s doc comment), and (b) /messages would always be
+  // routed to whichever client connected *last*, silently misdirecting
+  // every other client's messages. Track one transport per session instead.
+  const sessions = new Map<string, SSEServerTransport>();
 
   app.get("/sse", bearerToken, mcpSession, async (req, res) => {
     try {
-      currentTransport = new SSEServerTransport("/messages", res);
-      await graphServer.connect(currentTransport);
-      res.on("close", () => {
-        currentTransport = null;
-      });
-      res.on("error", (error) => {
-        currentTransport = null;
-      });
+      const transport = new SSEServerTransport("/messages", res);
+      const graphServer = createGraphServer();
+      await graphServer.connect(transport);
+
+      sessions.set(transport.sessionId, transport);
+
+      const cleanup = () => {
+        sessions.delete(transport.sessionId);
+      };
+      res.on("close", cleanup);
+      res.on("error", cleanup);
     } catch (error) {
-      currentTransport = null;
       if (!res.headersSent) {
         res.status(500).send("Connection failed");
       }
@@ -28,11 +37,11 @@ export function graph_sse_routes(app: Express) {
 
   // Raw route without any body parsing middleware
   app.post("/messages", bearerToken, mcpSession, async (req, res) => {
-    console.log("===> messages - handling POST");
     try {
-      if (currentTransport) {
-        console.log("===> messages - sessionId", (req as any).sessionId);
-        await currentTransport.handlePostMessage(req, res);
+      const sessionId = req.query.sessionId as string | undefined;
+      const transport = sessionId ? sessions.get(sessionId) : undefined;
+      if (transport) {
+        await transport.handlePostMessage(req, res);
       } else {
         res.status(400).json({ error: "No active transport" });
       }
@@ -51,7 +60,7 @@ export function graph_sse_routes(app: Express) {
     };
     if (process.env.API_TOKEN) {
       obj.headers = {
-        Authorization: "Bearer YOUR_TOKEN",
+        Authorization: "******",
       };
     }
     res.send(obj);
