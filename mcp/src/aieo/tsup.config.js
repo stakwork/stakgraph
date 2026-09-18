@@ -2,7 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: ["src/index.ts"],
-  format: ["cjs", "esm"], // Build for commonJS and ESmodules
+  format: ["esm"], // ESM only — ai v7 dropped CommonJS
   dts: true, // Generate declaration file (.d.ts)
   splitting: false,
   sourcemap: true,

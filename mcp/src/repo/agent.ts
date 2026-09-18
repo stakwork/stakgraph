@@ -1410,7 +1410,7 @@ export async function get_context(
           stallNudges++;
         }
       }
-      const generatedRaw = (await run.streamResult.response).messages as ModelMessage[];
+      const generatedRaw = (await run.streamResult.responseMessages) as ModelMessage[];
       const generated =
         kind === "unresolved"
           ? stripToolCallParts(generatedRaw, new Set(unresolved.map((u) => u.toolCallId)))
@@ -1493,7 +1493,7 @@ export async function get_context(
     // what the provider cached, unlike the (possibly truncated) stored copy.
     modelFacingMessages = [
       ...sent,
-      ...(((await run.streamResult.response)?.messages ?? []) as ModelMessage[]),
+      ...(((await run.streamResult.responseMessages) ?? []) as ModelMessage[]),
     ];
   } catch (err) {
     const aborted = isAbortError(err);
@@ -1689,7 +1689,7 @@ export async function stream_context(
         // failure here is never reported as a session-persistence failure.
         try {
           const responseMessages =
-            ((await (streamResult as any).response)?.messages ?? []) as ModelMessage[];
+            ((await (streamResult as any).responseMessages) ?? []) as ModelMessage[];
           await reflectOnConcepts(prepared, opts, [
             ...initialModelMessages(prepared),
             ...responseMessages,
