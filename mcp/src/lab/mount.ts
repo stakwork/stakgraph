@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
 import { createAudioUpgradeHandler, type AudioUpgradeHandler } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
+import { verifyApiToken } from "../repo/events.js";
 
 /** The one lab strut, built on first use (HTTP request or dictation upgrade). */
 let labStrutP: ReturnType<typeof createLabStrut> | null = null;
@@ -31,13 +32,34 @@ function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
   };
 }
 
+/** Is this a live `/mint-token` JWT? */
+function isEmbedJwt(token: string | null | undefined): boolean {
+  if (!token) return false;
+  try {
+    verifyApiToken(token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface LabCredentials {
+  header(name: string): string | undefined;
+  /** `?key=` — how an embedding host hands the strut UI its key on first
+   *  load, and where the UI puts it on the dictation WebSocket (neither can
+   *  set a header). */
+  key?: string | null;
+}
+
 /** Does this request carry the lab credential? (`labAuth` without the
  *  response side, so the WebSocket upgrade can apply the same rule.) */
-function labAuthorized(req: { header(name: string): string | undefined }): boolean {
+function labAuthorized(req: LabCredentials): boolean {
   const apiToken = process.env.API_TOKEN;
   if (!apiToken) return true;
   if (req.header("x-api-token") === apiToken) return true;
+  if (isEmbedJwt(req.key)) return true;
   const header = req.header("authorization") ?? "";
+  if (header.startsWith("Bearer ") && isEmbedJwt(header.slice(7).trim())) return true;
   if (header.startsWith("Basic ")) {
     const decoded = Buffer.from(header.slice(6), "base64").toString();
     const sep = decoded.indexOf(":");
@@ -63,16 +85,44 @@ function labAuthorized(req: { header(name: string): string | undefined }): boole
  */
 /**
  * Gate every /lab route behind the mcp-wide API_TOKEN (unset = dev mode =
- * open, the same posture as the /events route). Two accepted credentials:
+ * open, the same posture as the /events route). Three accepted credentials:
  * HTTP Basic `admin:<API_TOKEN>` — the browser prompts once for the UI and
  * then attaches it to every request including EventSource streams, which
- * cannot carry custom headers — and the `x-api-token` header, matching the
- * rest of mcp for server-to-server callers.
+ * cannot carry custom headers — the `x-api-token` header, matching the
+ * rest of mcp for server-to-server callers, and a `/mint-token` JWT for
+ * iframe embeds: the host loads `/lab/?key=<jwt>`, and the strut UI stashes
+ * the key and replays it as `Authorization: Bearer` on every fetch (its
+ * streams are fetch-based) and as `?key=` on the dictation WebSocket.
  */
-function labAuth(req: Request, res: Response, next: NextFunction): void {
-  if (labAuthorized(req)) return next();
-  res.set("WWW-Authenticate", 'Basic realm="stakgraph-lab"');
+export function labAuth(req: Request, res: Response, next: NextFunction): void {
+  if (isUiAsset(req)) return next();
+  const key = typeof req.query.key === "string" ? req.query.key : null;
+  if (labAuthorized({ header: (name) => req.header(name), key })) return next();
+  // A client that showed up with a (now bad or expired) JWT is an embed, not
+  // a person at a browser: a Basic challenge would pop a login dialog inside
+  // the host's iframe. Give it a plain 401 and let the host re-mint.
+  const isEmbed = key !== null || (req.header("authorization") ?? "").startsWith("Bearer ");
+  if (!isEmbed) res.set("WWW-Authenticate", 'Basic realm="stakgraph-lab"');
   res.status(401).json({ error: "Unauthorized" });
+}
+
+/**
+ * The UI's hashed JS/CSS bundles. Public, like mcp's own `/assets`: they
+ * hold no secrets, and a `<script>`/`<link>` tag can't carry the embed JWT
+ * (only cached Basic credentials ride along on their own).
+ *
+ * The path is parsed the way strut's Hono bridge will parse it (origin +
+ * raw url through WHATWG URL: resolves `..`, `%2e%2e`, `\`), NOT read off
+ * `req.path` — otherwise `/lab/assets/../secrets` would pass a prefix check
+ * here and then be routed as `/secrets` past the gate.
+ */
+function isUiAsset(req: Request): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  try {
+    return new URL(`http://localhost${req.url}`).pathname.startsWith("/assets/");
+  } catch {
+    return false;
+  }
 }
 
 export function mountLab(app: Express): void {
@@ -115,7 +165,9 @@ export function attachLabAudio(server: Server): void {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== LAB_AUDIO_STREAM) return reject(socket, "404 Not Found");
     const header = (name: string) => req.headers[name.toLowerCase()] as string | undefined;
-    if (!labAuthorized({ header })) return reject(socket, "401 Unauthorized");
+    if (!labAuthorized({ header, key: url.searchParams.get("key") })) {
+      return reject(socket, "401 Unauthorized");
+    }
     handler()
       .then((h) => {
         if (!h) return reject(socket, "501 Not Implemented");
