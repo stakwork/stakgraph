@@ -1161,6 +1161,10 @@ class Db {
       await session.run(
         "CREATE INDEX turn_session_id_index IF NOT EXISTS FOR (n:Turn) ON (n.session_id)",
       );
+      // AgentSession.parent_session_id backs the child_count join in LIST_AGENT_SESSIONS_QUERY.
+      await session.run(
+        "CREATE INDEX agent_session_parent_index IF NOT EXISTS FOR (n:AgentSession) ON (n.parent_session_id)",
+      );
       await this.ensureAgentSessionUnique(session);
     } finally {
       if (session) {
