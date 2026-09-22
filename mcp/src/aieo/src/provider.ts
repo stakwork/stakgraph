@@ -170,7 +170,7 @@ export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
     glm: "~z-ai/glm-flash-latest",
   },
   xai: {
-    grok: "grok-4.6",
+    grok: "grok-4.7",
   },
 };
 
@@ -816,6 +816,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // right matters beyond display: contextLimit drives truncateOldToolResults,
   // and premature truncation rewrites old messages — which invalidates Grok's
   // automatic prefix cache on every subsequent step.
+  "grok-4.7": 500_000,
   "grok-4.6": 500_000,
   "grok-4.5": 500_000,
   "grok-4.3": 1_000_000,
@@ -824,6 +825,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "grok-4-fast-reasoning": 2_000_000,
   "grok-4-fast-non-reasoning": 2_000_000,
   "grok-code-fast-1": 256_000,
+  "x-ai/grok-4.7": 500_000,
   "x-ai/grok-4.6": 500_000,
   "x-ai/grok-4.5": 500_000,
   "x-ai/grok-4.3": 1_000_000,
