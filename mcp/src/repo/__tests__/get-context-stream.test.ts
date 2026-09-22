@@ -137,9 +137,9 @@ function extractFinalAnswer(steps: StepResult[]): { answer: string; tool_use?: s
       }
     }
   }
-  const endMarkerIndex = allText.indexOf("[END_OF_ANSWER]");
-  const answer = endMarkerIndex !== -1
-    ? allText.substring(0, endMarkerIndex).trim()
+  const endMarker = /\[END_OF_ANSWER\]\s*$/.exec(allText);
+  const answer = endMarker
+    ? allText.slice(0, endMarker.index).trim()
     : allText.trim();
   return { answer };
 }
