@@ -71,7 +71,7 @@ await test("listModels: one entry per alias, PROVIDERS order, defaults flagged",
   eq(all.find((m) => m.alias === "opus")!.default, false, "opus is not the default");
   eq(all.find((m) => m.alias === "kimi")!.modelId, "moonshotai/kimi-k3", "kimi keeps its org/ id");
   eq(all.find((m) => m.alias === "opus")!.modelId, "claude-opus-5", "opus");
-  eq(all.find((m) => m.alias === "grok")!.modelId, "grok-4.6", "grok");
+  eq(all.find((m) => m.alias === "grok")!.modelId, "grok-4.7", "grok");
   eq(all.find((m) => m.alias === "gpt")!.modelId, "gpt-5.6-luna", "gpt");
   eq(all.find((m) => m.alias === "gemini")!.modelId, "gemini-3.8-flash", "gemini");
   eq(all.find((m) => m.alias === "glm")!.modelId, "~z-ai/glm-flash-latest", "glm");
@@ -115,7 +115,7 @@ const canonCases: [string | undefined, string | undefined, [string, string, stri
   ["openai/gpt-5", undefined, ["openai", "gpt-5", "openai/gpt-5"]],
   ["kimi", undefined, ["openrouter", "moonshotai/kimi-k3", "openrouter/moonshotai/kimi-k3"]],
   ["opus", undefined, ["anthropic", "claude-opus-5", "anthropic/claude-opus-5"]],
-  ["grok", undefined, ["xai", "grok-4.6", "xai/grok-4.6"]],
+  ["grok", undefined, ["xai", "grok-4.7", "xai/grok-4.7"]],
   ["claude-opus-5", undefined, ["anthropic", "claude-opus-5", "anthropic/claude-opus-5"]],
   ["grok-4-fast", undefined, ["xai", "grok-4-fast", "xai/grok-4-fast"]],
   ["claude-opus-4-8", undefined, ["anthropic", "claude-opus-4-8", "anthropic/claude-opus-4-8"]], // unknown id passes through
@@ -203,12 +203,12 @@ await test("resolveModel: context limits for the alias targets", async () => {
   const limit = async (model: string) => (await resolveModel({ model, apiKey: "k" })).contextLimit;
   eq(await limit("opus"), 1_000_000, "claude-opus-5");
   eq(await limit("gpt"), 1_050_000, "gpt-5.6-luna");
-  eq(await limit("grok"), 500_000, "grok-4.6");
+  eq(await limit("grok"), 500_000, "grok-4.7");
   eq(await limit("kimi"), 1_048_576, "moonshotai/kimi-k3");
   eq(await limit("gemini"), 1_048_576, "gemini-3.8-flash");
   eq(await limit("glm"), 1_310_720, "~z-ai/glm-flash-latest");
   eq(await limit("openrouter/anthropic/claude-opus-5"), 1_000_000, "opus via OpenRouter");
-  eq(await limit("openrouter/x-ai/grok-4.6"), 500_000, "grok via OpenRouter");
+  eq(await limit("openrouter/x-ai/grok-4.7"), 500_000, "grok via OpenRouter");
 });
 
 await test("resolveModel: the ~rolling-alias id reaches the SDK intact", async () => {
