@@ -251,6 +251,17 @@
     eventsource-parser "^3.0.8"
     undici "^7.29.0"
 
+"@ai-sdk/provider-utils@5.0.45", "@ai-sdk/provider-utils@^5.0.44":
+  version "5.0.45"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-5.0.45.tgz#b029b2fd948124aceed11a56699753de5c6ecee2"
+  integrity sha512-gLuaCups8OCIRz3eO6WWz5op7VLYNNtFzyH0sWUr0FE9v7cTxR0qxDpQdrKnGcql+9WWttobjnZsJVsuEbsPQQ==
+  dependencies:
+    "@ai-sdk/provider" "4.0.17"
+    "@standard-schema/spec" "^1.1.0"
+    "@workflow/serde" "4.1.0"
+    eventsource-parser "^3.0.8"
+    undici "^7.29.0"
+
 "@ai-sdk/provider-utils@^3.0.17":
   version "3.0.22"
   resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-3.0.22.tgz"
@@ -303,6 +314,14 @@
     "@ai-sdk/openai-compatible" "1.0.32"
     "@ai-sdk/provider" "2.0.1"
     "@ai-sdk/provider-utils" "3.0.20"
+
+"@ai-sdk/typesafe-ai@^3.0.3":
+  version "3.0.4"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/typesafe-ai/-/typesafe-ai-3.0.4.tgz#72eea598b2c15c2476870d76d51dfb49f88d0f77"
+  integrity sha512-LQvqtf6cVla5iyH/LYs9rvl63NDWRRqggz9ilGNmjixhi5TuONAWo+SC6+xT46izn/bpyx9hmXNdMLg3ZSSW0A==
+  dependencies:
+    "@ai-sdk/provider" "4.0.17"
+    "@ai-sdk/provider-utils" "5.0.45"
 
 "@ai-sdk/xai@5.0.2":
   version "5.0.2"
@@ -6436,10 +6455,12 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#c498dd4ea27816206c9d414c6c2841ff8a3cad68":
+"strut@git+https://github.com/stakwork/strut.git#7db6af3d2e1c644d42f5577391433aee4b1f74e2":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#c498dd4ea27816206c9d414c6c2841ff8a3cad68"
+  resolved "git+https://github.com/stakwork/strut.git#7db6af3d2e1c644d42f5577391433aee4b1f74e2"
   dependencies:
+    "@ai-sdk/provider-utils" "^5.0.44"
+    "@ai-sdk/typesafe-ai" "^3.0.3"
     "@googleapis/drive" "^20.2.0"
     "@hono/node-server" "^2.0.4"
     "@huggingface/transformers" "^4.1.0"
