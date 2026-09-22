@@ -46,6 +46,11 @@ export function verifyEventsToken(token: string): EventsTokenPayload {
 
 export interface ApiTokenPayload {
   scope: "api";
+  /** Who the token was minted for (`/mint-token` body `sub`) — the strut
+   *  `actor` the lab attributes an embed's requests to (lab/mount.ts). An
+   *  opaque string chosen by the minting host; absent on tokens minted for
+   *  mcp's own SPAs. */
+  sub?: string;
   iat?: number;
   exp?: number;
 }
@@ -53,11 +58,14 @@ export interface ApiTokenPayload {
 /**
  * Sign a short-lived JWT granting general API access.
  * Injected into the SPA's index.html after Basic Auth / x-api-token passes.
+ * `sub`, when given, names who the token is for (see `ApiTokenPayload`).
  */
-export function signApiToken(expiresIn: jwt.SignOptions["expiresIn"] = "1h"): string {
-  return jwt.sign({ scope: "api" } as ApiTokenPayload, getSecret(), {
-    expiresIn,
-  });
+export function signApiToken(
+  expiresIn: jwt.SignOptions["expiresIn"] = "1h",
+  sub?: string,
+): string {
+  const payload: ApiTokenPayload = { scope: "api", ...(sub ? { sub } : {}) };
+  return jwt.sign(payload, getSecret(), { expiresIn });
 }
 
 /**

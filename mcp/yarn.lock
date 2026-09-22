@@ -1678,6 +1678,13 @@
     zod "^3.25 || ^4.0"
     zod-to-json-schema "^3.25.1"
 
+"@noble/curves@^1.6.0":
+  version "1.9.7"
+  resolved "https://registry.yarnpkg.com/@noble/curves/-/curves-1.9.7.tgz#79d04b4758a43e4bca2cbdc62e7771352fa6b951"
+  integrity sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==
+  dependencies:
+    "@noble/hashes" "1.8.0"
+
 "@noble/ed25519@2.3.0":
   version "2.3.0"
   resolved "https://registry.npmjs.org/@noble/ed25519/-/ed25519-2.3.0.tgz"
@@ -1687,6 +1694,11 @@
   version "1.7.1"
   resolved "https://registry.npmjs.org/@noble/hashes/-/hashes-1.7.1.tgz"
   integrity sha512-B8XBPsn4vT/KJAGqDzbwztd+6Yte3P4V7iafm24bxgDe/mlRuK6xmWPuCNrKt2vDafZ8MfJLlchDG/vYafQEjQ==
+
+"@noble/hashes@1.8.0", "@noble/hashes@^1.5.0":
+  version "1.8.0"
+  resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.8.0.tgz#cee43d801fcef9644b11b8194857695acd5f815a"
+  integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
 
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
@@ -3265,6 +3277,11 @@ camelcase@6:
   resolved "https://registry.npmjs.org/camelcase/-/camelcase-6.3.0.tgz"
   integrity sha512-Gmy6FhYlCY7uOElZUSbxo2UCDH8owEk996gkbrpsgGtrJLM3J7jGxl9Ic7Qwwj4ivOE5AWZWRMecDdF7hqGjFA==
 
+canonicalize@^2.0.0:
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/canonicalize/-/canonicalize-2.1.0.tgz#92a20ecfb94e96591badf4977dc2fb1bfbc31dc5"
+  integrity sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ==
+
 chalk@^4.1.2:
   version "4.1.2"
   resolved "https://registry.npmjs.org/chalk/-/chalk-4.1.2.tgz"
@@ -4376,6 +4393,15 @@ function-bind@^1.1.2:
   version "1.1.2"
   resolved "https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz"
   integrity sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==
+
+gatekey@^0.1.1:
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/gatekey/-/gatekey-0.1.1.tgz#81d5fc76100824d0bff1e15529a0d7ff2fa06bd8"
+  integrity sha512-vpJw5sLToc3yfHm4U9Dg8+KPcpvUdWThaCvknNE5c+0jZgV2ZGd0aP64YXygC43I8lxFmCLViyvFQb244Ingbg==
+  dependencies:
+    "@noble/curves" "^1.6.0"
+    "@noble/hashes" "^1.5.0"
+    canonicalize "^2.0.0"
 
 gaxios@7.1.3, gaxios@^7.0.0:
   version "7.1.3"
@@ -6410,15 +6436,16 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#28237d70e2e723d063849eb7973f09a0cc6a8391":
+"strut@git+https://github.com/stakwork/strut.git#c5ac575c3db0407c7cdc24bd01e6686720c90a6c":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#28237d70e2e723d063849eb7973f09a0cc6a8391"
+  resolved "git+https://github.com/stakwork/strut.git#c5ac575c3db0407c7cdc24bd01e6686720c90a6c"
   dependencies:
     "@googleapis/drive" "^20.2.0"
     "@hono/node-server" "^2.0.4"
     "@huggingface/transformers" "^4.1.0"
     "@octokit/rest" "^22.0.1"
     aieo "^0.2.0"
+    gatekey "^0.1.1"
     hono "^4.12.23"
     html-to-text "^10.0.1"
     js-yaml "^4.1.1"
