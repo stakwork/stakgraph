@@ -132,6 +132,16 @@ test.describe("turn emission", () => {
     expect(turns[0].content).toBe("The answer.");
   });
 
+  test("a marker quoted mid-text is content and survives the strip", async () => {
+    const { emitStepTurns } = await import("../turns.js");
+    const sid = `sess-${randomUUID().slice(0, 8)}`;
+    const turns = emitStepTurns(sid, "hive", [
+      { type: "text", text: "See the `[END_OF_ANSWER]` strip.\n[END_OF_ANSWER]" },
+    ]);
+    expect(turns.length).toBe(1);
+    expect(turns[0].content).toBe("See the `[END_OF_ANSWER]` strip.");
+  });
+
   test("a Concept-bearing tool result carries the concept link", async () => {
     const { emitStepTurns } = await import("../turns.js");
     const sid = `sess-${randomUUID().slice(0, 8)}`;
