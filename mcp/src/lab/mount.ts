@@ -4,7 +4,8 @@ import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
 import { createAudioUpgradeHandler, type AudioUpgradeHandler } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
-import { verifyApiToken } from "../repo/events.js";
+import { stashLabActor } from "./actor.js";
+import { verifyApiToken, type ApiTokenPayload } from "../repo/events.js";
 
 /** The one lab strut, built on first use (HTTP request or dictation upgrade). */
 let labStrutP: ReturnType<typeof createLabStrut> | null = null;
@@ -32,14 +33,14 @@ function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
   };
 }
 
-/** Is this a live `/mint-token` JWT? */
-function isEmbedJwt(token: string | null | undefined): boolean {
-  if (!token) return false;
+/** The payload of a live `/mint-token` JWT — `undefined` when the token is
+ *  missing, malformed, expired, or of another scope. */
+function isEmbedJwt(token: string | null | undefined): ApiTokenPayload | undefined {
+  if (!token) return undefined;
   try {
-    verifyApiToken(token);
-    return true;
+    return verifyApiToken(token);
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -51,23 +52,44 @@ interface LabCredentials {
   key?: string | null;
 }
 
-/** Does this request carry the lab credential? (`labAuth` without the
- *  response side, so the WebSocket upgrade can apply the same rule.) */
-function labAuthorized(req: LabCredentials): boolean {
+/** What an accepted credential grants: entry, plus — when the credential
+ *  says who is asking — the strut `actor` the request is attributed to
+ *  (plans/mothership-cost-control.md §5). */
+interface LabGrant {
+  /** JWT → its `sub`. `x-api-token` → hive's own `x-strut-actor` header,
+   *  trusted because the token proves the caller is hive. Basic → none. */
+  actor?: string;
+}
+
+const grant = (actor: string | undefined): LabGrant => {
+  const v = actor?.trim();
+  return v ? { actor: v } : {};
+};
+
+/** Does this request carry the lab credential, and for whom? `undefined`
+ *  when it does not. (`labAuth` without the response side, so the WebSocket
+ *  upgrade can apply the same rule.) */
+function labAuthorized(req: LabCredentials): LabGrant | undefined {
   const apiToken = process.env.API_TOKEN;
-  if (!apiToken) return true;
-  if (req.header("x-api-token") === apiToken) return true;
-  if (isEmbedJwt(req.key)) return true;
+  // Dev mode: open — and with nothing to prove who a caller is, nobody's
+  // word on who should pay is taken either (strut's own default is the same).
+  if (!apiToken) return {};
+  if (req.header("x-api-token") === apiToken) return grant(req.header("x-strut-actor"));
+  const viaKey = isEmbedJwt(req.key);
+  if (viaKey) return grant(viaKey.sub);
   const header = req.header("authorization") ?? "";
-  if (header.startsWith("Bearer ") && isEmbedJwt(header.slice(7).trim())) return true;
+  if (header.startsWith("Bearer ")) {
+    const viaBearer = isEmbedJwt(header.slice(7).trim());
+    if (viaBearer) return grant(viaBearer.sub);
+  }
   if (header.startsWith("Basic ")) {
     const decoded = Buffer.from(header.slice(6), "base64").toString();
     const sep = decoded.indexOf(":");
     const user = decoded.slice(0, sep);
     const pass = decoded.slice(sep + 1);
-    if (sep > 0 && user === "admin" && pass === apiToken) return true;
+    if (sep > 0 && user === "admin" && pass === apiToken) return {};
   }
-  return false;
+  return undefined;
 }
 
 /**
@@ -93,11 +115,20 @@ function labAuthorized(req: LabCredentials): boolean {
  * iframe embeds: the host loads `/lab/?key=<jwt>`, and the strut UI stashes
  * the key and replays it as `Authorization: Bearer` on every fetch (its
  * streams are fetch-based) and as `?key=` on the dictation WebSocket.
+ *
+ * An accepted credential may also name the strut `actor` (the JWT's `sub`,
+ * or hive's `x-strut-actor` beside `x-api-token`). It is stashed on the Node
+ * request for strut's `resolveActor` hook — a header rewrite would not
+ * survive the Hono bridge (see actor.ts).
  */
 export function labAuth(req: Request, res: Response, next: NextFunction): void {
   if (isUiAsset(req)) return next();
   const key = typeof req.query.key === "string" ? req.query.key : null;
-  if (labAuthorized({ header: (name) => req.header(name), key })) return next();
+  const granted = labAuthorized({ header: (name) => req.header(name), key });
+  if (granted) {
+    stashLabActor(req, granted.actor);
+    return next();
+  }
   // A client that showed up with a (now bad or expired) JWT is an embed, not
   // a person at a browser: a Basic challenge would pop a login dialog inside
   // the host's iframe. Give it a plain 401 and let the host re-mint.
@@ -147,7 +178,8 @@ const LAB_AUDIO_STREAM = "/lab/audio/stream";
  * cached Basic auth on same-origin handshakes, so the UI's one-time prompt
  * covers it), then hand the socket to strut. Built lazily like the bridge —
  * the first dictation boots the lab strut if a request hasn't already.
- * Other upgrade paths get a 404 rather than a socket left hanging.
+ * Other upgrade paths get a 404 rather than a socket left hanging. No actor:
+ * dictation makes no LLM call and launches nothing.
  */
 export function attachLabAudio(server: Server): void {
   let handlerP: Promise<AudioUpgradeHandler | null> | null = null;

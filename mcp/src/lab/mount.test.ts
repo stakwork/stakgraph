@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
+import { getRequestListener } from "@hono/node-server";
 import { labAuth } from "./mount.js";
-import { signApiToken, signEventsToken } from "../repo/events.js";
+import { labActorOf, resolveLabActor } from "./actor.js";
+import { signApiToken, signEventsToken, verifyApiToken } from "../repo/events.js";
 
 const API_TOKEN = "test-api-token";
 
@@ -36,8 +38,20 @@ describe("labAuth", () => {
     process.env.API_TOKEN = API_TOKEN;
     const app = express();
     app.use("/lab", labAuth, (req, res) => {
-      res.json({ url: req.url });
+      // What strut's `resolveActor` sees: the Hono bridge hands it the
+      // Express `req` as `c.env.incoming` (see actor.ts).
+      res.json({ url: req.url, actor: resolveLabActor({ env: { incoming: req } }) ?? null });
     });
+    // The real bridge (mount.ts): @hono/node-server's listener, which hands
+    // the fetch handler `{ incoming, outgoing }` as its env — the same
+    // object `labAuth` stashed the actor on.
+    app.use(
+      "/bridged",
+      labAuth,
+      getRequestListener((_request: Request, env: unknown) =>
+        Response.json({ actor: resolveLabActor({ env }) ?? null }),
+      ),
+    );
     server = app.listen(0);
     await new Promise((r) => server.once("listening", r));
     port = (server.address() as AddressInfo).port;
@@ -113,6 +127,81 @@ describe("labAuth", () => {
   it("only opens assets for GET/HEAD", async () => {
     const res = await get(port, "/lab/assets/index-abc123.js", {}, "POST");
     assert.equal(res.status, 401);
+  });
+
+  // ── The actor (plans/mothership-cost-control.md §5) ───────────────────
+
+  it("a JWT's `sub` is the actor, via Bearer and via ?key=", async () => {
+    const token = signApiToken("1h", "octocat-42");
+    const viaBearer = await get(port, "/lab/workflows", { authorization: `Bearer ${token}` });
+    assert.equal(viaBearer.status, 200);
+    assert.equal(JSON.parse(viaBearer.body).actor, "octocat-42");
+    const viaKey = await get(port, `/lab/?key=${token}`);
+    assert.equal(viaKey.status, 200);
+    assert.equal(JSON.parse(viaKey.body).actor, "octocat-42");
+  });
+
+  it("a JWT without `sub` names no actor", async () => {
+    const res = await get(port, "/lab/workflows", {
+      authorization: `Bearer ${signApiToken("1h")}`,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(JSON.parse(res.body).actor, null);
+  });
+
+  it("x-api-token trusts hive's x-strut-actor", async () => {
+    const res = await get(port, "/lab/workflows", {
+      "x-api-token": API_TOKEN,
+      "x-strut-actor": "  octocat-42 ",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(JSON.parse(res.body).actor, "octocat-42");
+  });
+
+  it("x-strut-actor alone is not a credential", async () => {
+    const res = await get(port, "/lab/workflows", { "x-strut-actor": "octocat-42" });
+    assert.equal(res.status, 401);
+  });
+
+  it("x-strut-actor is ignored beside Basic auth and beside a JWT", async () => {
+    const basic = Buffer.from(`admin:${API_TOKEN}`).toString("base64");
+    const viaBasic = await get(port, "/lab/workflows", {
+      authorization: `Basic ${basic}`,
+      "x-strut-actor": "octocat-42",
+    });
+    assert.equal(viaBasic.status, 200);
+    assert.equal(JSON.parse(viaBasic.body).actor, null);
+    const viaJwt = await get(port, "/lab/workflows", {
+      authorization: `Bearer ${signApiToken("1h")}`,
+      "x-strut-actor": "octocat-42",
+    });
+    assert.equal(viaJwt.status, 200);
+    assert.equal(JSON.parse(viaJwt.body).actor, null);
+  });
+
+  it("the actor reaches strut through the real Hono bridge (c.env.incoming)", async () => {
+    const viaJwt = await get(port, "/bridged/workflows", {
+      authorization: `Bearer ${signApiToken("1h", "octocat-42")}`,
+    });
+    assert.equal(viaJwt.status, 200);
+    assert.equal(JSON.parse(viaJwt.body).actor, "octocat-42");
+    const viaHive = await get(port, "/bridged/workflows", {
+      "x-api-token": API_TOKEN,
+      "x-strut-actor": "hive-7",
+    });
+    assert.equal(viaHive.status, 200);
+    assert.equal(JSON.parse(viaHive.body).actor, "hive-7");
+    const basic = Buffer.from(`admin:${API_TOKEN}`).toString("base64");
+    const viaBasic = await get(port, "/bridged/workflows", { authorization: `Basic ${basic}` });
+    assert.equal(viaBasic.status, 200);
+    assert.equal(JSON.parse(viaBasic.body).actor, null);
+  });
+
+  it("the actor is the JWT's `sub` claim, round-tripped by signApiToken", () => {
+    assert.equal(verifyApiToken(signApiToken("1h", "octocat-42")).sub, "octocat-42");
+    assert.equal(verifyApiToken(signApiToken("1h")).sub, undefined);
+    assert.equal(labActorOf(undefined), undefined);
+    assert.equal(resolveLabActor({}), undefined);
   });
 
   // Hono resolves dot segments when it builds the request URL, so each of
