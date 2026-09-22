@@ -6,6 +6,7 @@ import {
   collectEnumConstraints,
   extractFinalAnswer,
   needsContinuation,
+  createHasEndMarkerCondition,
   isContinuationNudge,
   timeBudgetNudge,
   redactCredentials,
@@ -523,6 +524,38 @@ test.describe("extractFinalAnswer", () => {
     expect(result.tool_use).toBe("text_with_end_marker");
   });
 
+  test("a marker quoted mid-answer is content; only the trailing marker terminates", () => {
+    const steps = [
+      toolCallStep("Investigating."),
+      step({
+        content: [
+          {
+            type: "text",
+            text: "Modified: messagesFromSteps — stripCitations after the `[END_OF_ANSWER]` strip (canvas reload / share).\n[END_OF_ANSWER]",
+          },
+        ],
+      }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.tool_use).toBe("text_with_end_marker");
+    expect(result.answer).toContain("after the `[END_OF_ANSWER]` strip (canvas reload / share).");
+    expect(result.answer.endsWith("(canvas reload / share).")).toBe(true);
+  });
+
+  test("a quoted marker with no terminator is not a termination: falls back to text after last tool call", () => {
+    const steps = [
+      toolCallStep("Investigating."),
+      step({
+        content: [
+          { type: "text", text: "See the `[END_OF_ANSWER]` strip in turns.ts." },
+        ],
+      }),
+    ];
+    const result = extractFinalAnswer(steps);
+    expect(result.tool_use).toBeUndefined();
+    expect(result.answer).toBe("See the `[END_OF_ANSWER]` strip in turns.ts.");
+  });
+
   test("no marker (stripped by stop sequence): falls back to text after last tool call", () => {
     const steps = [
       toolCallStep("Investigating."),
@@ -615,6 +648,44 @@ test.describe("needsContinuation", () => {
       }),
     ];
     expect(needsContinuation(steps)).toBe(false);
+  });
+
+  test("a marker quoted mid-text with no terminator (end_turn) is still a stall", () => {
+    const steps = [
+      toolCallStep(),
+      step({
+        content: [
+          { type: "text", text: "Next I'll look at the `[END_OF_ANSWER]` strip." },
+        ],
+        rawFinishReason: "end_turn",
+      }),
+    ];
+    expect(needsContinuation(steps)).toBe(true);
+  });
+});
+
+test.describe("createHasEndMarkerCondition", () => {
+  const stop = createHasEndMarkerCondition();
+
+  test("stops on a trailing marker", async () => {
+    const steps = [
+      toolCallStep(),
+      step({ content: [{ type: "text", text: "Done.\n[END_OF_ANSWER]\n" }] }),
+    ];
+    expect(await stop({ steps })).toBe(true);
+  });
+
+  test("does not stop on a marker quoted in intermediate narration", async () => {
+    const narration = step({
+      content: [
+        { type: "text", text: "Now checking the `[END_OF_ANSWER]` strip." },
+        { type: "tool-call", toolName: "bash" },
+        { type: "tool-result", toolName: "bash", output: "ok" },
+      ],
+      toolCalls: [{ toolName: "bash" }],
+      finishReason: "tool-calls",
+    });
+    expect(await stop({ steps: [narration] })).toBe(false);
   });
 });
 
