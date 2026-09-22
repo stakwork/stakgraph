@@ -72,6 +72,22 @@ app.get("/health", (_req: Request, res: Response) => {
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
 
+// The lab strut encrypts `secrets.json` (provider keys) and, with the
+// Mothership, `mothership.json` (every user's standing macaroon + virtual
+// key) under STRUT_SECRET_KEY — and without it under a fixed dev passphrase
+// that only obfuscates. Nothing sets it in production (sphinx-swarm, the
+// Dockerfile), so derive it from API_TOKEN: already persisted per swarm, and
+// its holder is already full admin of the lab (a registered step can read
+// any secret). A deployment that sets STRUT_SECRET_KEY itself keeps it.
+// Cost: rotating API_TOKEN makes both files unreadable — mothership.json
+// self-heals (hive re-pushes), secrets.json needs its keys re-entered.
+// Set before the lab is mounted; the strut is built lazily but reads the
+// env at first use. (Never `??=` here: assigning undefined to process.env
+// stores the string "undefined".)
+if (!process.env.STRUT_SECRET_KEY && process.env.API_TOKEN) {
+  process.env.STRUT_SECRET_KEY = process.env.API_TOKEN;
+}
+
 // Lab experiments (strut workflows) — bridged before body parsing so strut
 // receives raw request streams for SSE + POST bodies.
 mountLab(app);
@@ -180,6 +196,11 @@ app.get("/server-config", r.server_config);
 // auth here would let any holder of a valid JWT renew it indefinitely,
 // defeating the short-expiry guarantee. Only the raw API_TOKEN can mint.
 // If API_TOKEN is unset (dev mode), this endpoint is disabled.
+//
+// Body: `expires_in` (default "1h") and an optional `sub` — who the token is
+// for. It becomes the JWT's `sub`, which the lab reads back as strut's
+// `actor` (lab/mount.ts): hive sends the user's bifrost name so the spend
+// strut routes through the Mothership merges with that user's other spend.
 app.post("/mint-token", (req: Request, res: Response): void => {
   const apiToken = process.env.API_TOKEN;
   if (!apiToken) {
@@ -191,9 +212,11 @@ app.post("/mint-token", (req: Request, res: Response): void => {
     return;
   }
   const expiresIn = (req.body?.expires_in as string | undefined) || "1h";
+  const rawSub = req.body?.sub;
+  const sub = typeof rawSub === "string" && rawSub.trim() ? rawSub.trim() : undefined;
   try {
-    const token = signApiToken(expiresIn as any);
-    res.json({ token, expires_in: expiresIn });
+    const token = signApiToken(expiresIn as any, sub);
+    res.json({ token, expires_in: expiresIn, ...(sub ? { sub } : {}) });
   } catch (e) {
     res.status(500).json({ error: "Failed to mint token" });
   }

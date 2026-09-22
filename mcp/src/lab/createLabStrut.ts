@@ -1,5 +1,6 @@
 import {
   createStrut,
+  createMothership,
   WorkspaceManager,
   FileRunStore,
   FileChatStore,
@@ -27,6 +28,7 @@ import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
+import { resolveLabActor } from "./actor.js";
 
 /**
  * Lets a step run other workflows (and read their params) from inside a run —
@@ -191,10 +193,28 @@ export async function createLabStrut(
   await seedWfbenchSteps(workspace);
   await seedWfbenchWorkflows(workspace);
 
+  // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
+  // opt-in module; core knows only the two hooks below. Hive pushes one
+  // standing macaroon per user to `PUT /lab/llm/delegations/:actor`; from
+  // then on that user's `agent`/`llm` steps and chat turns go through the
+  // gateway, billed to user × workflow × step and capped per run. With no
+  // delegation on file the hook returns undefined and steps call the
+  // providers directly, as before. `mothership.json` sits beside
+  // `secrets.json` under `workspacePath` in both workspace modes (the volume
+  // sphinx-swarm already binds), encrypted under STRUT_SECRET_KEY — which
+  // index.ts derives from API_TOKEN when unset.
+  const mothership = createMothership({ dataDir: workspacePath });
+
   const strut = await createStrut<LabServices>({
     workspace,
     services,
     serveUi: opts.serveUi ?? true,
+    llmAuth: mothership.llmAuth,
+    // Who a request is from: what mount.ts's `labAuth` stashed on the Node
+    // request — the mint-token JWT's `sub`, or hive's `x-strut-actor` on an
+    // `x-api-token` call. Nothing off the Express bridge (smoke scripts,
+    // tests calling `app.fetch`): no actor, so no owner stamp and direct keys.
+    resolveActor: resolveLabActor,
     // A non-file workspace would otherwise default the run/chat/secret
     // stores to memory — pin them to disk so history survives restarts.
     ...(graphBacked
@@ -206,6 +226,10 @@ export async function createLabStrut(
         }
       : {}),
   });
+  // The delegation routes (`/llm/delegations`, `/llm/mothership`; mutations
+  // behind strut's requireApiKey) and the workspace the hook reads run caps
+  // from. Once, after createStrut.
+  mothership.mount(strut);
 
   // Inject the run-sub-workflows capability now that the instance exists.
   // CRITICAL: mutate `strut.services` — the EFFECTIVE bag createStrut built by
