@@ -99,25 +99,49 @@ export function redactCredentials(text: string, pat?: string): string {
   return out;
 }
 
+/**
+ * The [END_OF_ANSWER] protocol marker, anchored to the end of a text. The
+ * marker is the turn terminator only when nothing but whitespace follows
+ * it; any other occurrence is content. An agent working on Hive or
+ * stakgraph quotes the marker while describing the code that handles it
+ * ("... after the `[END_OF_ANSWER]` strip ..."), and an unanchored
+ * `indexOf` / `includes` cut that answer off mid-sentence and, when the
+ * mention sat in intermediate narration, ended the loop early.
+ */
+export const TRAILING_END_MARKER = /\[END_OF_ANSWER\]\s*$/;
+
+/** True when `text` ends with the protocol marker (trailing whitespace allowed). */
+export function endsWithEndMarker(text: string | null | undefined): boolean {
+  return !!text && TRAILING_END_MARKER.test(text);
+}
+
+/** A step's text parts concatenated in order (reasoning and tool parts skipped). */
+function stepText<T extends ToolSet>(step: StepResult<T>): string {
+  let out = "";
+  for (const item of step.content) {
+    if (item.type === "text" && item.text) out += item.text;
+  }
+  return out;
+}
+
+/** True when some step's text ends with the marker: the model terminated. */
+export function hasTrailingEndMarker<T extends ToolSet>(
+  steps: StepResult<T>[],
+): boolean {
+  return steps.some((step) => endsWithEndMarker(stepText(step)));
+}
+
 export function createHasEndMarkerCondition<
   T extends ToolSet
 >(): StopCondition<T> {
-  return ({ steps }) => {
-    for (const step of steps) {
-      for (const item of step.content) {
-        if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
+  return ({ steps }) => hasTrailingEndMarker(steps);
 }
 
 /**
  * True when a run ended without a proper termination and should be nudged to
  * continue. Proper terminations are: an ask_clarifying_questions call, or the
- * [END_OF_ANSWER] marker present in the text. A run whose last step has no
+ * [END_OF_ANSWER] marker ending a step's text (a marker quoted mid-text is
+ * content, not a termination — see TRAILING_END_MARKER). A run whose last step has no
  * tool calls and none of those is either a voluntary early stop (raw
  * "end_turn" — the model narrated a plan or emitted only reasoning and quit)
  * or a truncation ("length"); both are recoverable by asking it to continue.
@@ -165,10 +189,8 @@ export function needsContinuation(steps: StepResult<ToolSet>[]): boolean {
       ) {
         return false;
       }
-      if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
-        return false;
-      }
     }
+    if (endsWithEndMarker(stepText(step))) return false;
   }
   if (last.rawFinishReason === "stop_sequence") return false; // hit [END_OF_ANSWER]
   return (
@@ -454,19 +476,17 @@ export function extractFinalAnswer(
     }
   }
 
-  // Look for text with [END_OF_ANSWER] sequence (search all text)
+  // Look for a trailing [END_OF_ANSWER] marker across all text. Only a
+  // marker that ends the text terminates the answer; one quoted mid-text
+  // (the model discussing the marker itself) is content and stays in.
   let allText = "";
   for (const step of steps) {
-    for (const item of step.content) {
-      if (item.type === "text" && item.text) {
-        allText += item.text;
-      }
-    }
+    allText += stepText(step);
   }
 
-  const endMarkerIndex = allText.indexOf("[END_OF_ANSWER]");
-  if (endMarkerIndex !== -1) {
-    const answer = allText.substring(0, endMarkerIndex).trim();
+  const endMarker = TRAILING_END_MARKER.exec(allText);
+  if (endMarker) {
+    const answer = allText.slice(0, endMarker.index).trim();
     if (answer) {
       return {
         answer,

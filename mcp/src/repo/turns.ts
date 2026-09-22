@@ -13,10 +13,13 @@ import { conceptReadsFrom } from "./concepts.js";
 /**
  * The agents end their final answer with a literal [END_OF_ANSWER] marker
  * (kept in the text on purpose — see needsContinuation in utils.ts). It is a
- * protocol token, not content: drop it before the text becomes a Turn.
+ * protocol token, not content: drop it before the text becomes a Turn. Only
+ * a trailing marker is the token; one quoted mid-text is content and stays.
+ * (Same regex as TRAILING_END_MARKER in utils.ts, kept local because utils
+ * → session → turns would make importing it a cycle.)
  */
 function stripEndMarker(text: string): string {
-  return text.replace(/\[END_OF_ANSWER\]/g, "").trim();
+  return text.replace(/\[END_OF_ANSWER\]\s*$/, "").trim();
 }
 
 // ── Live Turn emission ───────────────────────────────────────────────
