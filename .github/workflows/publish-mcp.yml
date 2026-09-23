@@ -1,8 +1,16 @@
 name: Build and Publish MCP Docker Image
 
+# Fork-specific: builds and publishes only to this fork's own GHCR namespace
+# (ghcr.io/clitnak/...), never ghcr.io/stakwork/... -- the upstream org tags
+# are reserved for the real maintainers and this fork's GITHUB_TOKEN has no
+# write access there anyway. Also dropped the separate arm64 job/manifest
+# merge from upstream's version: this image only needs to run on the
+# project's amd64 EKS nodes, and the ubuntu-arm64 runner label isn't
+# guaranteed available on a personal-account fork.
 on:
   release:
     types: [published]
+  workflow_dispatch: {}
 
 jobs:
   build-amd64:
@@ -31,63 +39,10 @@ jobs:
           context: ./mcp
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}-amd64
-          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-mcp:buildcache-amd64
-          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-mcp:buildcache-amd64,mode=max
+          tags: |
+            ghcr.io/clitnak/stakgraph-mcp:${{ github.ref_name }}
+            ghcr.io/clitnak/stakgraph-mcp:latest
+          cache-from: type=registry,ref=ghcr.io/clitnak/stakgraph-mcp:buildcache-amd64
+          cache-to: type=registry,ref=ghcr.io/clitnak/stakgraph-mcp:buildcache-amd64,mode=max
           provenance: false
           sbom: false
-
-  build-arm64:
-    runs-on: ubuntu-arm64
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image (arm64)
-        uses: docker/build-push-action@v5
-        with:
-          context: ./mcp
-          platforms: linux/arm64
-          push: true
-          tags: ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}-arm64
-          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-mcp:buildcache-arm64
-          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-mcp:buildcache-arm64,mode=max
-          provenance: false
-          sbom: false
-
-  merge:
-    runs-on: ubuntu-latest
-    needs: [build-amd64, build-arm64]
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create and push multi-arch manifest
-        run: |
-          docker buildx imagetools create \
-            -t ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }} \
-            -t ghcr.io/stakwork/stakgraph-mcp:latest \
-            ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}-amd64 \
-            ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}-arm64
