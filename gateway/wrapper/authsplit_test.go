@@ -253,6 +253,22 @@ func TestRewriteAuthHeaders(t *testing.T) {
 			),
 		},
 		{
+			name: "x-bf-vk concat (Bifrost's dedicated VK header)",
+			in:   hdr("X-Bf-Vk", vk+"."+mac),
+			want: hdr(
+				"X-Bf-Vk", vk,
+				"X-Macaroon", mac,
+			),
+		},
+		{
+			name: "api-key concat (Azure-shaped)",
+			in:   hdr("Api-Key", vk+"."+mac),
+			want: hdr(
+				"Api-Key", vk,
+				"X-Macaroon", mac,
+			),
+		},
+		{
 			// Case-insensitive header lookup: Go canonicalizes
 			// header keys via textproto.CanonicalMIMEHeaderKey so
 			// "x-api-key", "X-Api-Key", and "X-API-KEY" all hit the
@@ -347,6 +363,21 @@ func TestRewriteAuthHeaders(t *testing.T) {
 			want: hdr(
 				"Authorization", "Bearer "+vk,
 				"X-Api-Key", "sk-bf-other.othermac", // unchanged
+				"X-Macaroon", mac,
+			),
+		},
+		{
+			// X-Bf-Vk comes first, matching Bifrost's lookup order:
+			// Bifrost reads the VK from it over Authorization, so
+			// it's the header carrying the credential.
+			name: "both X-Bf-Vk and Authorization present, X-Bf-Vk wins",
+			in: hdr(
+				"X-Bf-Vk", vk+"."+mac,
+				"Authorization", "Bearer sk-provider-key",
+			),
+			want: hdr(
+				"X-Bf-Vk", vk,
+				"Authorization", "Bearer sk-provider-key", // unchanged
 				"X-Macaroon", mac,
 			),
 		},

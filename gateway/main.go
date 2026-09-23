@@ -136,9 +136,21 @@ func Cleanup() error {
 	return adminapi.Stop()
 }
 
-// HTTPTransportPreHook fires at the HTTP transport layer, before the
-// request enters Bifrost core. Earliest place we can short-circuit a
-// request (return non-nil *HTTPResponse to do so).
+// HTTPTransportPreAuthHook fires before Bifrost's auth middlewares
+// (virtual-key resolution). Its only intended use is supplying the
+// credentials auth reads; we supply none — the macaroon rides in its
+// own header and the VK is the caller's — so there is nothing to do
+// here. Everything we record lives in HTTPTransportPreHook.
+func HTTPTransportPreAuthHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.HTTPRequest,
+) (*schemas.HTTPResponse, error) {
+	return nil, nil
+}
+
+// HTTPTransportPreHook fires at the HTTP transport layer, after
+// Bifrost's auth middlewares (since v2) and before the request enters
+// Bifrost core. Return a non-nil *HTTPResponse to short-circuit.
 func HTTPTransportPreHook(
 	ctx *schemas.BifrostContext,
 	req *schemas.HTTPRequest,
@@ -156,9 +168,11 @@ func HTTPTransportPostHook(
 	return hooks.TransportPost(ctx, req, resp)
 }
 
-// HTTPTransportStreamChunkHook fires once per streamed chunk.
-// PostLLMHook/PostHook do NOT fire for streaming responses, so cost
-// accounting on streams hooks in here.
+// HTTPTransportStreamChunkHook fires once per streamed chunk. Cost
+// accounting on streams hooks in here, on the final usage-bearing
+// chunk. (Since v2, PostLLMHook also fires per stream chunk, but with
+// no usage; LLMPost skips stream responses and MarkAccounted keeps the
+// two sites from double-counting.)
 func HTTPTransportStreamChunkHook(
 	ctx *schemas.BifrostContext,
 	req *schemas.HTTPRequest,
@@ -178,7 +192,7 @@ func PreLLMHook(
 }
 
 // PostLLMHook fires after the upstream provider call (or after a
-// short-circuit).
+// short-circuit), and for streams once per chunk.
 func PostLLMHook(
 	ctx *schemas.BifrostContext,
 	resp *schemas.BifrostResponse,

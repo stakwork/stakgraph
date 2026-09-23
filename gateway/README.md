@@ -77,7 +77,7 @@ as the dashboard, with one TLS terminator at the swarm/ingress edge.
 
 The upstream `maximhq/bifrost:latest` is statically linked and **cannot
 load `.so` plugins** ([docs](https://docs.getbifrost.ai/plugins/building-dynamic-binary)).
-The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v1.5.2`),
+The `Dockerfile` here clones `bifrost` at a pinned tag (`transports/v2.2.2`, the Dockerfile's `BIFROST_VERSION`),
 builds `bifrost-http` with CGO + dynamic linking, builds our plugin
 against the same source tree (avoiding the "plugin was built with a
 different version of package" trap), builds the (stdlib-only) wrapper

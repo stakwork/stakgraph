@@ -44,16 +44,20 @@ import (
 )
 
 // authHeaderNames is the set of inbound headers Bifrost-http accepts
-// the VK on. Confirmed against bifrost/core/schemas/plugin_test.go's
-// exact-match and case-insensitive lookup tests; no other inbound
-// header carries the VK.
+// the VK on, in Bifrost's own lookup order. Confirmed against
+// ParseVirtualKeyFromFastHTTPRequest in bifrost
+// plugins/governance/utils.go (transports/v2.2.2); no other inbound
+// header carries the VK. X-Bf-Vk is Bifrost's dedicated VK header;
+// Api-Key is the Azure OpenAI SDK's.
 //
-// Order matters: we stop at the first present header. If a future
-// SDK lands that uses a fourth header name, add it here.
+// Order matters: we stop at the first present header. If Bifrost
+// starts reading the VK from another header, add it here.
 var authHeaderNames = []string{
+	"X-Bf-Vk",
 	"Authorization",
 	"X-Api-Key",
 	"X-Goog-Api-Key",
+	"Api-Key",
 }
 
 // macaroonHeader is the canonical header the plugin reads. After the
