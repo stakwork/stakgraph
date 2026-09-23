@@ -168,9 +168,11 @@ func HTTPTransportPostHook(
 	return hooks.TransportPost(ctx, req, resp)
 }
 
-// HTTPTransportStreamChunkHook fires once per streamed chunk.
-// PostLLMHook/PostHook do NOT fire for streaming responses, so cost
-// accounting on streams hooks in here.
+// HTTPTransportStreamChunkHook fires once per streamed chunk. Cost
+// accounting on streams hooks in here, on the final usage-bearing
+// chunk. (Since v2, PostLLMHook also fires per stream chunk, but with
+// no usage; LLMPost skips stream responses and MarkAccounted keeps the
+// two sites from double-counting.)
 func HTTPTransportStreamChunkHook(
 	ctx *schemas.BifrostContext,
 	req *schemas.HTTPRequest,
@@ -190,7 +192,7 @@ func PreLLMHook(
 }
 
 // PostLLMHook fires after the upstream provider call (or after a
-// short-circuit).
+// short-circuit), and for streams once per chunk.
 func PostLLMHook(
 	ctx *schemas.BifrostContext,
 	resp *schemas.BifrostResponse,
