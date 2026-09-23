@@ -25,6 +25,7 @@ import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
+import { seedCodeWorkflows } from "./code/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
@@ -192,6 +193,10 @@ export async function createLabStrut(
   // an agent (the author gets meta/* only).
   await seedWfbenchSteps(workspace);
   await seedWfbenchWorkflows(workspace);
+  // code — code changes as strut workflows (strut plans/code-change.md):
+  // hive's propose_code_change preview, run by strut's own agent. YAML only;
+  // every step is strut's (git/checkout, agent, git/diff, pack).
+  await seedCodeWorkflows(workspace);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one
