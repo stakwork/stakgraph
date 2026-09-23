@@ -33,6 +33,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute image tag
+        id: tag
+        # Docker tags can't contain "/", but branch names (e.g.
+        # fix/mcp-http-session-isolation) do -- sanitize before use.
+        run: echo "value=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image (amd64)
         uses: docker/build-push-action@v5
         with:
@@ -40,7 +46,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/clitnak/stakgraph-mcp:${{ github.ref_name }}
+            ghcr.io/clitnak/stakgraph-mcp:${{ steps.tag.outputs.value }}
             ghcr.io/clitnak/stakgraph-mcp:latest
           cache-from: type=registry,ref=ghcr.io/clitnak/stakgraph-mcp:buildcache-amd64
           cache-to: type=registry,ref=ghcr.io/clitnak/stakgraph-mcp:buildcache-amd64,mode=max
