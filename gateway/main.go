@@ -136,9 +136,21 @@ func Cleanup() error {
 	return adminapi.Stop()
 }
 
-// HTTPTransportPreHook fires at the HTTP transport layer, before the
-// request enters Bifrost core. Earliest place we can short-circuit a
-// request (return non-nil *HTTPResponse to do so).
+// HTTPTransportPreAuthHook fires before Bifrost's auth middlewares
+// (virtual-key resolution). Its only intended use is supplying the
+// credentials auth reads; we supply none — the macaroon rides in its
+// own header and the VK is the caller's — so there is nothing to do
+// here. Everything we record lives in HTTPTransportPreHook.
+func HTTPTransportPreAuthHook(
+	ctx *schemas.BifrostContext,
+	req *schemas.HTTPRequest,
+) (*schemas.HTTPResponse, error) {
+	return nil, nil
+}
+
+// HTTPTransportPreHook fires at the HTTP transport layer, after
+// Bifrost's auth middlewares (since v2) and before the request enters
+// Bifrost core. Return a non-nil *HTTPResponse to short-circuit.
 func HTTPTransportPreHook(
 	ctx *schemas.BifrostContext,
 	req *schemas.HTTPRequest,
