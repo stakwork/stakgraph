@@ -17,6 +17,7 @@ import { KillConfirmModal } from "../components/KillConfirmModal";
 import { StatusBadge, deriveRunStatus } from "../components/StatusBadge";
 import { getErrorMessage } from "../api/client";
 import {
+  RUN_CALLS_PAGE_SIZE,
   useKillRun,
   useRunCall,
   useRunDetail,
@@ -87,6 +88,13 @@ function fmtRelative(absISO: string): string {
 
 export function RunDetail({ runID }: Props) {
   const q = useRunDetail(runID);
+
+  // Call-log page. Offset 0 shares its query with `q` (same key), so
+  // the header and provenance always read from the first page.
+  const [offset, setOffset] = useState(0);
+  useEffect(() => setOffset(0), [runID]);
+  const page = useRunDetail(runID, offset);
+  const total = q.data?.stats.total_requests ?? 0;
 
   // `selectedCallID` drives the right-side drawer. Set on row
   // click, cleared on close / ESC. The drawer itself owns the
@@ -249,60 +257,91 @@ export function RunDetail({ runID }: Props) {
             <div class="text-dim" style="margin-bottom: 8px; font-size: 12px">
               Click a row to view the request &amp; response payload.
             </div>
-            <DataTable<RunLogEntry>
-              rows={logs}
-              emptyMessage="No calls recorded for this run."
-              onRowClick={(r) => setSelectedCallID(r.id)}
-              columns={[
-                {
-                  key: "ts",
-                  header: "Timestamp",
-                  cell: (r) => <span class="mono">{fmtTs(r.timestamp)}</span>,
-                  sort: (r) => r.timestamp,
-                },
-                {
-                  key: "provider",
-                  header: "Provider",
-                  cell: (r) => r.provider,
-                  sort: (r) => r.provider,
-                },
-                {
-                  key: "model",
-                  header: "Model",
-                  cell: (r) => <span class="mono">{r.model}</span>,
-                  sort: (r) => r.model,
-                },
-                {
-                  key: "status",
-                  header: "Status",
-                  cell: (r) => (
-                    <span
-                      class={
-                        r.status === "success" ? "text-ok" : "text-danger"
-                      }
-                    >
-                      {r.status}
-                    </span>
-                  ),
-                  sort: (r) => r.status,
-                },
-                {
-                  key: "cost",
-                  header: "Cost",
-                  align: "num",
-                  cell: (r) => fmtUSD(r.cost),
-                  sort: (r) => r.cost,
-                },
-                {
-                  key: "latency",
-                  header: "Latency (ms)",
-                  align: "num",
-                  cell: (r) => fmtInt(r.latency),
-                  sort: (r) => r.latency,
-                },
-              ]}
-              defaultSortKey="ts"
-            />
+            {page.isError ? (
+              <div class="error-banner">{getErrorMessage(page.error)}</div>
+            ) : page.isLoading ? (
+              <div class="loading">Loading…</div>
+            ) : (
+              <DataTable<RunLogEntry>
+                rows={page.data?.logs ?? []}
+                emptyMessage="No calls recorded for this run."
+                onRowClick={(r) => setSelectedCallID(r.id)}
+                columns={[
+                  {
+                    key: "ts",
+                    header: "Timestamp",
+                    cell: (r) => <span class="mono">{fmtTs(r.timestamp)}</span>,
+                    sort: (r) => r.timestamp,
+                  },
+                  {
+                    key: "provider",
+                    header: "Provider",
+                    cell: (r) => r.provider,
+                    sort: (r) => r.provider,
+                  },
+                  {
+                    key: "model",
+                    header: "Model",
+                    cell: (r) => <span class="mono">{r.model}</span>,
+                    sort: (r) => r.model,
+                  },
+                  {
+                    key: "status",
+                    header: "Status",
+                    cell: (r) => (
+                      <span
+                        class={
+                          r.status === "success" ? "text-ok" : "text-danger"
+                        }
+                      >
+                        {r.status}
+                      </span>
+                    ),
+                    sort: (r) => r.status,
+                  },
+                  {
+                    key: "cost",
+                    header: "Cost",
+                    align: "num",
+                    cell: (r) => fmtUSD(r.cost),
+                    sort: (r) => r.cost,
+                  },
+                  {
+                    key: "latency",
+                    header: "Latency (ms)",
+                    align: "num",
+                    cell: (r) => fmtInt(r.latency),
+                    sort: (r) => r.latency,
+                  },
+                ]}
+                defaultSortKey="ts"
+              />
+            )}
+            {total > RUN_CALLS_PAGE_SIZE ? (
+              <div class="toolbar" style="margin-top: 12px">
+                <span class="text-dim" style="font-size: 12px">
+                  {fmtInt(offset + 1)}–
+                  {fmtInt(Math.min(offset + RUN_CALLS_PAGE_SIZE, total))} of{" "}
+                  {fmtInt(total)}
+                </span>
+                <div class="btn-group">
+                  <button
+                    class="btn"
+                    disabled={offset === 0}
+                    onClick={() => setOffset(offset - RUN_CALLS_PAGE_SIZE)}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    class="btn"
+                    disabled={offset + RUN_CALLS_PAGE_SIZE >= total}
+                    onClick={() => setOffset(offset + RUN_CALLS_PAGE_SIZE)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
         </>
       )}
