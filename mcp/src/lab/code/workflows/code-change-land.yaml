@@ -1,0 +1,69 @@
+name: code-change-land
+# Hive's approval of a proposed change as a strut workflow (strut
+# plans/code-change.md §6): check the repository out at the base the diff was
+# made against, apply EXACTLY the bytes hive approved, commit and push them to
+# a new branch as the user, and open the pull request. The phase-2 half of
+# `code-change-propose`: that run's `diff` (shown to and approved by the
+# user) is this run's input.
+#
+# NO agent step. Every step is strut's and deterministic: git/checkout,
+# git/apply, git/push, github/create-pr, pack. A base that moved under the
+# diff fails `git apply` honestly (`patch_conflict:`) instead of being
+# "fixed" by a model — hive re-proposes; nothing is ever pushed that the
+# user did not see.
+#
+# Input:  { repo: "https://github.com/owner/repo", baseBranch, diff,
+#           diffSha256, branch, title, body }
+#         baseBranch is the branch the diff was made against (the propose
+#         run's `baseBranch`) and the pull request's base; branch is the new
+#         branch to push; diffSha256 is hive's sha256 of the diff bytes it
+#         sends — a mismatch refuses the run before the tree is touched.
+#         The token is the run principal's GITHUB_TOKEN actor secret (pushed
+#         by hive per dispatch) — never in the input or the config; it names
+#         the commit author (GET /user) and authors the pull request.
+# Output: { url, number, branch, base, headSha, filesChanged, files,
+#           diffSha256 }
+#         success: the pull request exists (`url`, `number`; an open one for
+#         `branch` is returned rather than opened twice) and diffSha256 is
+#         the sha256 of the bytes applied — hive checks it against its own
+#         sha256(input.diff). error: error.message starts with
+#         `patch_conflict:` (the diff no longer applies on baseBranch) |
+#         `push_rejected:` (origin refused the push — never --force) |
+#         `no_push_permission:` (401/403 from git or GitHub) |
+#         `pr_create_failed: <status> <message>`; a checkout failure or
+#         anything else carries no code. cancelled: a stopped run.
+steps:
+  - id: checkout
+    type: git/checkout
+    config: { repo: "{{ input.repo }}", ref: "{{ input.baseBranch }}" }
+
+  - id: apply
+    type: git/apply
+    config: { path: "{{ checkout.path }}", diff: "{{ input.diff }}", sha256: "{{ input.diffSha256 }}" }
+
+  - id: push
+    type: git/push
+    config: { path: "{{ checkout.path }}", branch: "{{ input.branch }}", message: "{{ input.title }}" }
+
+  # base is `checkout.ref` — the ref that was checked out (input.baseBranch),
+  # NOT `checkout.branch`, which is always the remote's default branch.
+  - id: pr
+    type: github/create-pr
+    config:
+      repo: "{{ input.repo }}"
+      head: "{{ push.branch }}"
+      base: "{{ checkout.ref }}"
+      title: "{{ input.title }}"
+      body: "{{ input.body }}"
+
+  - id: result
+    type: pack
+    config:
+      url: "{{ pr.url }}"
+      number: "{{ pr.number }}"
+      branch: "{{ push.branch }}"
+      base: "{{ checkout.ref }}"
+      headSha: "{{ push.sha }}"
+      filesChanged: "{{ apply.filesChanged }}"
+      files: "{{ apply.files }}"
+      diffSha256: "{{ apply.sha256 }}"
