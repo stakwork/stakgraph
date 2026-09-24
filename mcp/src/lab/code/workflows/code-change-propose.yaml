@@ -1,0 +1,93 @@
+name: code-change-propose
+# Hive's `propose_code_change` as a strut workflow (strut plans/code-change.md
+# §4): check the repository out, let strut's own agent make the change in an
+# isolated working copy, capture what it changed as ONE unified diff, and hand
+# that to hive. Nothing is pushed — the checkout carries no credential, so the
+# agent's bash could not push if it tried. Hive gets the `result` pack as the
+# run callback's `output`, shows the diff for review, and (phase 2) lands the
+# approved bytes with `git apply`, no model in between.
+#
+# All four steps are strut's: git/checkout, agent, git/diff, pack. The prompts
+# in `params` are the experiment surface.
+#
+# Input:  { repo: "https://github.com/owner/repo", prompt }
+#         The clone token is the run principal's GITHUB_TOKEN actor secret
+#         (else the deployment's) — never in the input; a run's input is
+#         persisted on run.start.
+# Output: { diff, diffSha256, filesChanged, files, scanned, baseBranch,
+#           baseSha, summary, cost, usage, steps }
+#         filesChanged 0 = nothing to propose (a SUCCESS run). A secret in
+#         the change or a size cap overrun fails the run (`error`, plain
+#         message); a stopped run is `cancelled`.
+steps:
+  - id: checkout
+    type: git/checkout
+    config:
+      repo: "{{ input.repo }}"
+
+  - id: change
+    type: agent
+    config:
+      cwd: "{{ checkout.path }}"
+      system: "{{ params.system }}"
+      prompt: "{{ input.prompt }}"
+      finalAnswer: "{{ params.finalAnswer }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+
+  - id: diff
+    type: git/diff
+    config:
+      path: "{{ checkout.path }}"
+
+  - id: result
+    type: pack
+    config:
+      diff: "{{ diff.diff }}"
+      diffSha256: "{{ diff.sha256 }}"
+      filesChanged: "{{ diff.filesChanged }}"
+      files: "{{ diff.files }}"
+      scanned: "{{ diff.scanned }}"
+      baseBranch: "{{ checkout.branch }}"
+      baseSha: "{{ checkout.sha }}"
+      summary: "{{ change.result }}"
+      cost: "{{ change.cost }}"
+      usage: "{{ change.usage }}"
+      steps: "{{ change.steps }}"
+
+params:
+  model: claude-sonnet-5
+  # Tool-call budget for the change. A focused change needs a fraction of
+  # this; the agent step forces a final answer when it runs out.
+  maxSteps: 60
+  finalAnswer: |-
+    Your summary of the change for the reviewer: the files you touched, what
+    you changed and why, and anything they should know — an assumption you
+    made, a check you could not run, or why you made no change.
+  system: |-
+    You are a senior engineer making ONE focused change in the repository in
+    your working directory, exactly as the task describes.
+
+    How to work:
+    - Orient first: repo_overview, then read the files the task names and the
+      code around them (fulltext_search, file_summary, the editor's view).
+      Match the project's existing conventions — style, naming, error
+      handling, tests — rather than introducing your own.
+    - Make the change directly in the working tree with the editor
+      (str_replace_based_edit_tool) or bash. Keep it minimal: what the task
+      asks plus the smallest supporting edits it needs (an import, a type, a
+      test that covers it). No drive-by refactors, no reformatting of code
+      you did not need to touch, no new dependencies unless the task asks.
+    - If the project has a fast check you can run — a typecheck, a linter,
+      the tests for the files you touched — run it with bash and fix what
+      you broke. Do not run long installs or full builds unless the task
+      needs them.
+    - Do NOT commit, branch, push, tag, or open a pull request, and do not
+      touch .git: the change is captured from the working tree when you
+      finish. Never write a secret or credential into a file.
+    - If the task is ambiguous, take the most conservative reading and say
+      so in your summary. If it cannot be done as asked (the code it names
+      does not exist, it would mean changing the build or the schema, …),
+      make NO edits and explain why in your summary.
+
+    When you are done, call final_answer with the summary.
