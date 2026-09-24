@@ -3,6 +3,7 @@ import { get_context, stream_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig, editorRoots } from "./tools.js";
 import { resolveInCwd } from "./textEdit.js";
 import { redactCredentials } from "./utils.js";
+import { errorIsRetryable } from "./retryable.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { ModelMessage } from "ai";
@@ -310,15 +311,76 @@ function normalizeHeaders(input: unknown): Record<string, string> | undefined {
  * Terminal payload delivered to a caller-supplied `webhookUrl`. Mirrors the
  * GET /progress response shape (`{ status, result }` / `{ status, error }`)
  * with `request_id` added so the receiver can correlate without parsing the
- * URL it registered.
+ * URL it registered. The failed variant carries the same `retryable` flag as
+ * GET /progress — the two must not diverge.
  */
 type TerminalWebhookPayload =
   | { request_id: string; status: "completed"; result: unknown }
   // `retryable` is required on the failed variant so every caller gets an
-  // explicit signal: true only for infrastructure failures (a restart
-  // orphaning an in-flight run), where re-submitting the same request resumes
-  // from the last completed turn. Agent errors and aborts are false.
+  // explicit signal. True for restart orphans, graceful-shutdown orphans, and
+  // a non-streaming repo-agent failure whose SDK error (or its cause chain)
+  // has isRetryable === true. Aborts and ordinary agent errors are false. The
+  // flag is a caller retry signal, not a promise that this request_id resumes
+  // in place. Restart and shutdown orphans lost no terminal session write, so
+  // a re-submit of the same sessionId resumes from the last completed turn.
+  // An SDK timeout does not: a new submission is worth trying, but startReq
+  // always mints a new id.
   | { request_id: string; status: "failed"; error: unknown; retryable: boolean };
+
+/**
+ * Persist a non-streaming repo-agent background failure and deliver its
+ * terminal side effects. The `.catch` calls only this — it must not call
+ * `failReq`, `postTerminalWebhook`, or `bus.emit` itself.
+ *
+ * When `shuttingDown` is set, return immediately. `drainForShutdown` /
+ * `failPendingReqs` already wrote `retryable: true` and own the single
+ * terminal webhook; a late rejection must not overwrite that disk record or
+ * post a second webhook. Shutdown wins even if `aborted` is also set.
+ *
+ * Otherwise store `"aborted"`, or the redacted error message, and mark the
+ * record retryable only when the run was not aborted and the SDK flag is
+ * true somewhere in the cause chain. The stored error stays a string (not
+ * `{ message, stack }`); the cause is not appended. Production logs stay the
+ * Error object (or the abort line), not the stored string.
+ */
+export function recordRepoAgentBackgroundFailure(opts: {
+  request_id: string;
+  error: any;
+  aborted: boolean;
+  shuttingDown: boolean;
+  webhookUrl?: string;
+  emit: (event: { type: "error"; error: string; timestamp: string }) => void;
+}): string | undefined {
+  if (opts.shuttingDown) return undefined;
+  const errorMessage = opts.aborted
+    ? "aborted"
+    : redactCredentials(opts.error.message || opts.error.toString());
+  const retryable = !opts.aborted && errorIsRetryable(opts.error);
+  if (opts.aborted) {
+    console.log(`[repo_agent] Run aborted: ${opts.request_id}`);
+  } else {
+    console.error("[repo_agent] Background work failed with error:", opts.error);
+  }
+  asyncReqs.failReq(opts.request_id, errorMessage, retryable);
+  try {
+    opts.emit({
+      type: "error",
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("[repo_agent] bus.emit(error) failed (non-fatal):", e);
+  }
+  if (opts.webhookUrl) {
+    void postTerminalWebhook(opts.webhookUrl, {
+      request_id: opts.request_id,
+      status: "failed",
+      error: errorMessage,
+      retryable,
+    });
+  }
+  return errorMessage;
+}
 
 // Module-level shutdown guard. Set by drainForShutdown() before it begins
 // flipping pending records and delivering webhooks. Gates the three terminal
@@ -1115,38 +1177,14 @@ export async function repo_agent(req: Request, res: Response) {
         }
       })
       .catch((error) => {
-        // Guard: drainForShutdown() is the sole owner of terminal state during
-        // shutdown — skip both the disk write and webhook so the caller gets
-        // exactly one webhook (failed/retryable:true from the drain).
-        if (shuttingDown) return;
-        const aborted = abortController.signal.aborted;
-        // Persisted to `.reqs/<id>.json` and POSTed to the caller's webhook.
-        const errorMessage = aborted
-          ? "aborted"
-          : redactCredentials(error.message || error.toString());
-        if (aborted) {
-          console.log(`[repo_agent] Run aborted: ${request_id}`);
-        } else {
-          console.error("[repo_agent] Background work failed with error:", error);
-        }
-        asyncReqs.failReq(request_id, errorMessage);
-        try {
-          bus.emit({
-            type: "error",
-            error: errorMessage,
-            timestamp: new Date().toISOString(),
-          });
-        } catch (e) {
-          console.error("[repo_agent] bus.emit(error) failed (non-fatal):", e);
-        }
-        if (body.webhookUrl) {
-          void postTerminalWebhook(body.webhookUrl, {
-            request_id,
-            status: "failed",
-            error: errorMessage,
-            retryable: false,
-          });
-        }
+        recordRepoAgentBackgroundFailure({
+          request_id,
+          error,
+          aborted: abortController.signal.aborted,
+          shuttingDown,
+          webhookUrl: body.webhookUrl,
+          emit: (event) => bus.emit(event),
+        });
       })
       .finally(async () => {
         // Teardown: release worktree on all non-streaming exits.
