@@ -660,26 +660,42 @@ output IS that body (+ diagnostics), fixing 58313's set_output divergence.
   through the authoring capability, drives every pure step, and checks the
   graph payloads against `JARVIS_ONTOLOGY`): `npx tsx src/lab/wfbench/smoke.ts`.
 
-### `code/` — code changes as strut workflows (hive's `propose_code_change`)
+### `code/` — code changes as strut workflows (hive's `propose_code_change` + its approval)
 
 Hive's canvas agent proposes small code changes; the preview used to be
 mcp's `/repo/agent` polled from inside a Vercel function (and timing out).
-It is now a strut workflow whose agent is strut's OWN core `agent` step —
-design + the hive half in strut `plans/code-change.md`. `code-change-propose`:
-`git/checkout` (strut lib: a credential-free bare cache per remote + a
-detached worktree per run, removed at run end) → `agent` (cwd = the
-worktree; `params.system` / `finalAnswer` are the experiment surface) →
-`git/diff` (stage all, one unified diff, caps, gitleaks when on PATH) →
-`pack` `{ diff, diffSha256, filesChanged, files, scanned, baseBranch,
-baseSha, summary, cost, usage, steps }`. Hive launches it with `POST
-/lab/workflows/code-change-propose/run { input: { repo, prompt }, callback }`
-and reads that pack from the callback's `output`; `filesChanged: 0` is a
-success run with nothing to propose.
+It is now two strut workflows — design + the hive half in strut
+`plans/code-change.md` — whose only model is strut's OWN core `agent` step,
+in the first one:
+
+- `code-change-propose` (§4): `git/checkout` (strut lib: a credential-free
+  bare cache per remote + a detached worktree per run, removed at run end)
+  → `agent` (cwd = the worktree; `params.system` / `finalAnswer` are the
+  experiment surface) → `git/diff` (stage all, one unified diff, caps,
+  gitleaks when on PATH) → `pack` `{ diff, diffSha256, filesChanged, files,
+  scanned, baseBranch, baseSha, summary, cost, usage, steps }`. Hive
+  launches it with `POST /lab/workflows/code-change-propose/run { input:
+  { repo, prompt }, callback }` and reads that pack from the callback's
+  `output`; `filesChanged: 0` is a success run with nothing to propose.
+- `code-change-land` (§6) — the approval, NO agent step: `git/checkout` at
+  `input.baseBranch` → `git/apply` (exactly the approved bytes, `sha256`
+  checked before the tree is touched, `--index`) → `git/push` (commit as
+  the token's GitHub identity, push `HEAD:refs/heads/<branch>`, never
+  `--force`) → `github/create-pr` (idempotent by head branch; base =
+  `checkout.ref`, the branch checked out) → `pack` `{ url, number, branch,
+  base, headSha, filesChanged, files, diffSha256 }`. Input `{ repo,
+  baseBranch, diff, diffSha256, branch, title, body }` — a propose run's
+  diff once the user approved it. Deterministic on purpose: a base that
+  moved fails `git apply` honestly and hive re-proposes. The codes hive
+  classifies on, as prefixes of `error.message`: `patch_conflict:` |
+  `push_rejected:` | `no_push_permission:` | `pr_create_failed: <status>
+  <message>`; anything else (a checkout failure) carries no code.
 
 - **No custom steps** — every step is strut's, so this seeder ships YAML
   only (`seedCodeWorkflows`, category `code`, unstamped).
-- **No credential in the checkout, none in the input.** The clone token is
-  the run principal's `GITHUB_TOKEN` actor secret (hive pushes it to `PUT
+- **No credential in the checkout, none in the input.** The clone token —
+  and, for land, the push and pull-request one — is the run principal's
+  `GITHUB_TOKEN` actor secret (hive pushes it to `PUT
   /lab/actors/:actor/secrets/GITHUB_TOKEN` before dispatching as that
   actor; strut binds the run's `secrets` to its principal), else the
   deployment's; it reaches git through the child env only. The agent's
@@ -687,13 +703,13 @@ success run with nothing to propose.
 - Needs `git`, `rg` on PATH (the image has them, plus gitleaks and the
   stakgraph CLI for `file_summary`) and a model key or a Mothership
   delegation for the actor.
-- Phase 2 adds `code-change-land` (`git/apply` → `git/push` →
-  `github/create-pr`, no model between the approved bytes and the PR) once
-  those strut lib steps exist.
-- Smoke (offline — seeds, discovers, static-validates, then RUNS the
-  workflow against a local origin with the `agent` step swapped for a fake
-  that edits a file; `CODE_SMOKE_LIVE=1` adds a real run against
-  `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
+- Smoke (offline — seeds, discovers, static-validates both, then RUNS them
+  against a local BARE origin: propose with the `agent` step swapped for a
+  fake that edits a file; land with that diff — real apply, commit and
+  push into the bare (no token → git/push's fallback author), a fake
+  `github/create-pr` that records what it was asked to open — then land
+  again on a moved main for `patch_conflict:`; `CODE_SMOKE_LIVE=1` adds a
+  real propose run against `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
 
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
