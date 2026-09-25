@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "strut";
-import { SEED_OPTS, retireSteps } from "../seed-opts.js";
+import { SEED_OPTS, retireSteps, retireWorkflows } from "../seed-opts.js";
 
 /**
  * wfbench — the Workflow Editor Agent Benchmark harness (the strut port of
@@ -53,6 +53,9 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   },
 ];
 
+// Names this seeder USED to publish (seeding is additive — see retireWorkflows).
+const RETIRED_WORKFLOWS: string[] = [];
+
 // Types this seeder USED to publish (seeding is additive — see retireSteps).
 const RETIRED_STEPS = ["wfbench/pack-result"]; // → strut core `pack`
 
@@ -83,4 +86,5 @@ export async function seedWfbenchWorkflows(workspace: WorkspaceStore): Promise<v
       console.warn(`[wfbench] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);
     }
   }
+  await retireWorkflows(workspace, RETIRED_WORKFLOWS, "wfbench");
 }
