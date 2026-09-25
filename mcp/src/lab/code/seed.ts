@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "strut";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
 
 /**
  * code — code changes as strut workflows (strut `plans/code-change.md`).
@@ -30,6 +30,9 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   },
 ];
 
+// Names this seeder USED to publish (seeding is additive — see retireWorkflows).
+const RETIRED_WORKFLOWS: string[] = [];
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export async function seedCodeWorkflows(workspace: WorkspaceStore): Promise<void> {
@@ -43,4 +46,5 @@ export async function seedCodeWorkflows(workspace: WorkspaceStore): Promise<void
       console.warn(`[code] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);
     }
   }
+  await retireWorkflows(workspace, RETIRED_WORKFLOWS, "code");
 }
