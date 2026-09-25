@@ -15,11 +15,14 @@ workflows/steps inside it — **not** separate servers. Adding an experiment
 
 - `createLabStrut.ts` — the single instance: registry (strut core+lib + all
   experiment steps), merged `services` bag, seeded workflow templates.
-  **Seeding is additive**: dropping a step from a seeder's `SEED_STEPS` does
-  NOT remove it from existing workspaces (graph-backed ones persist, and
-  the author agent keeps discovering it). When you remove or rename a
-  seeded step, add the old type to that seeder's `RETIRED_STEPS` list —
-  `retireSteps` (`seed-opts.ts`) soft-deletes it at boot.
+  **Seeding is additive**: dropping a step from a seeder's `SEED_STEPS`, or
+  a workflow from its `SEED_WORKFLOWS` (deleting the YAML from git), does
+  NOT remove it from existing workspaces (graph-backed ones persist; the
+  author agent keeps discovering the step, and the workflow stays listed,
+  runnable and schedulable). When you remove or rename a seeded step or
+  workflow, add the old name to that seeder's `RETIRED_STEPS` /
+  `RETIRED_WORKFLOWS` list — `retireSteps` / `retireWorkflows`
+  (`seed-opts.ts`) soft-delete it at boot.
 - `mount.ts` — bridges the strut (Hono) app into Express under `/lab`
   (API + run-streaming SSE). Registered before `express.json()` to keep
   raw request streams. Lazy-initialized so mcp boot isn't coupled to
