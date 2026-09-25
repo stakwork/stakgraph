@@ -66,6 +66,19 @@ const tests: TestCase[] = [
     },
   },
   {
+    label: 'thinkingSpeed:"fast" + opus 5.5 → no thinking param, effort:"low" (disabled is a 400)',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: "claude-opus-5-5",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if ("thinking" in opts)
+        throw new Error(`thinking should be omitted, got ${JSON.stringify(opts.thinking)}`);
+      if (opts.effort !== "low")
+        throw new Error(`Expected effort:"low", got "${opts.effort}"`);
+    },
+  },
+  {
     label: 'thinkingSpeed:"thinking" + no modelName → type:"enabled" (unknown model, non-adaptive path)',
     provider: "anthropic",
     thinkingSpeed: "thinking",
