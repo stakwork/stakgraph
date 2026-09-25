@@ -44,6 +44,9 @@ function isAsset(path) {
   // Prompt bodies expanded into workflow YAML at seed time (@@include(...)
   // markers — see harvey/seed.ts).
   if (path.endsWith(".md") && path.split(sep).includes("prompts")) return true;
+  // Concept files seeded into the graph at boot (front matter + docs — see
+  // janitor/seed.ts).
+  if (path.endsWith(".md") && path.split(sep).includes("concepts")) return true;
   return false;
 }
 

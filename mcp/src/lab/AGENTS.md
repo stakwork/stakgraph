@@ -711,6 +711,37 @@ in the first one:
   again on a moved main for `patch_conflict:`; `CODE_SMOKE_LIVE=1` adds a
   real propose run against `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
 
+### `janitor/` — the `Janitor` Concept tree (graph DATA, not an experiment)
+
+A janitor is an automated agent that cleans something up — code, a Concept
+tree, other data. Its mandate (what "dirty" means, where to start) is meant
+to live in the knowledge graph as a `Concept` under the root `Janitor`, one
+child per janitor, so one seeded engine workflow can read its mandates from
+whatever graph it runs on and a workspace grows its own by adding Concepts
+(hive's Learn page, Jamie, strut's `graph/*` steps). Today this seeds only
+the root.
+
+- `concepts/<Name>.md` → one Concept: front matter `description` (one
+  line) and optional `parent` (another Concept's name), body = `docs`.
+  `seedJanitorConcepts` writes them through strut's graph node/edge writers
+  at boot (`workspace.graph`; a filesystem workspace logs one line and
+  skips), `PARENT_OF` edges after the nodes.
+- Reconciled per NODE by a source stamp, the way `SEED_OPTS` reconciles
+  versions: `unique_source_id = lab/janitor/concepts/<file>@<sha256[0..12]>`.
+  Unseen name → create; same stamp → nothing (a docs edit, a mute or a
+  delete made in the graph sticks); our path with an older hash → upsert
+  description + docs (a changed file wins; `is_muted` and every other
+  attribute survive); no stamp or someone else's → never touched (a
+  person's Concept under that name, or one they took over by clearing the
+  stamp). Delete or mute a stock janitor in the graph and it stays that way
+  until the file changes.
+- Needs the `Concept` schema (a jarvis-seeded swarm, or
+  `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
+  `unique_source_id`, warns and seeds nothing.
+- Tests: `src/lab/janitor/seed.test.ts` — pure (parse + reconcile rule) in
+  `test:node`; the live suite runs when `STRUT_TEST_NEO4J_URI` points at a
+  throwaway Neo4j.
+
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
 Domain-agnostic eval substrate, shared by every experiment. See
