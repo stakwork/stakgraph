@@ -731,13 +731,22 @@ the root.
   skips), `PARENT_OF` edges after the nodes.
 - Reconciled per NODE by a source stamp, the way `SEED_OPTS` reconciles
   versions: `unique_source_id = lab/janitor/concepts/<file>@<sha256[0..12]>`.
-  Unseen name → create; same stamp → nothing (a docs edit, a mute or a
-  delete made in the graph sticks); our path with an older hash → upsert
+  Unseen name → create; same stamp → keep (nothing written: a docs edit or
+  a mute made in the graph sticks, a deleted node stays deleted); our path
+  with an older hash → upsert
   description + docs (a changed file wins; `is_muted` and every other
   attribute survive); no stamp or someone else's → never touched (a
   person's Concept under that name, or one they took over by clearing the
   stamp). Delete or mute a stock janitor in the graph and it stays that way
   until the file changes.
+- A root (no `parent`) is a top-level process Concept of the workspace, so
+  it is ANCHORED the way hive anchors every workspace-level Concept it
+  creates (jarvis migration 111): `HiveWorkspace -PROCESS-> <root>`, to the
+  one workspace node hive's mirror writes into this graph. The edge, not
+  the tree's shape, marks a root — a fresh `Janitor` with no children yet
+  is findable. Only roots the seed owns (create / update / keep) are
+  anchored; no workspace node (a standalone strut) or more than one → no
+  edge, one log line.
 - Needs the `Concept` schema (a jarvis-seeded swarm, or
   `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
   `unique_source_id`, warns and seeds nothing.
