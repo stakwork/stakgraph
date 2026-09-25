@@ -26,6 +26,7 @@ import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { seedCodeWorkflows } from "./code/seed.js";
+import { seedJanitorConcepts } from "./janitor/seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
@@ -197,6 +198,11 @@ export async function createLabStrut(
   // hive's propose_code_change preview, run by strut's own agent. YAML only;
   // every step is strut's (git/checkout, agent, git/diff, pack).
   await seedCodeWorkflows(workspace);
+  // janitor — the `Janitor` Concept tree, graph DATA (no workflow, no step):
+  // the root every janitor mandate hangs under, reconciled per node by a
+  // source stamp the way SEED_OPTS reconciles versions. No-op on the fs
+  // workspace.
+  await seedJanitorConcepts(workspace);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one
