@@ -80,7 +80,7 @@
     "p-queue": "^6.6.2",
     "redis": "^6.2.1",
     "simple-git": "3.30.0",
-    "strut": "git+https://github.com/stakwork/strut.git#7125f8917f84e403b0c762bd49fae27dedfeb2fc",
+    "strut": "git+https://github.com/stakwork/strut.git#136df0cc1c60d217eb9baf32ef184ac130f92428",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
     "zod": "4.6.5"
