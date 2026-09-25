@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "strut";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
 
 /**
  * Workflow + step templates shipped with the concepts experiment. They are
@@ -30,6 +30,9 @@ const SEED_WORKFLOWS = [
   "concepts-eval-reflect", // eval/reflect + concept task/guidance
   "concepts-optimize", // eval/optimize loop, wired to the above
 ];
+
+// Names this seeder USED to publish (seeding is additive — see retireWorkflows).
+const RETIRED_WORKFLOWS: string[] = [];
 
 /**
  * Step templates: the on-disk source file (under `steps/`) and the step
@@ -84,6 +87,7 @@ export async function seedConceptWorkflows(
       );
     }
   }
+  await retireWorkflows(workspace, RETIRED_WORKFLOWS, "concepts");
 }
 
 /**
