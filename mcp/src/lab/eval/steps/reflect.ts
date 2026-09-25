@@ -1,5 +1,29 @@
 import { z, defineStep, usageFromResult } from "strut";
-import { costOf } from "../../cost.js";
+import { computeSessionCost, PROVIDERS, type Provider } from "aieo";
+import type { TokenUsage } from "strut";
+
+/**
+ * Dollar cost of an LLM call at aieo's rates (the shape adapter from
+ * `../../cost.ts`, inlined). Seeded steps are published VERBATIM into the
+ * workspace's step dir, so a relative import that escapes the step tree
+ * resolves against the workspace and the step silently fails to load
+ * ("Cannot find module .../steps/cost.js"). Only bare specifiers that
+ * resolve from the app's node_modules (`strut`, `aieo`, ...) are safe here.
+ */
+function costOf(provider: string, usage: TokenUsage, modelId?: string): number {
+  const p = PROVIDERS.includes(provider as Provider) ? (provider as Provider) : "anthropic";
+  return computeSessionCost(
+    p,
+    {
+      input: usage.inputTokens,
+      cache_read: usage.cacheReadTokens,
+      cache_write: usage.cacheWriteTokens,
+      output: usage.outputTokens,
+    },
+    modelId,
+  );
+}
+
 
 /**
  * GENERIC optimizer "propose" step: given the CURRENT candidate prompt and the
