@@ -26,7 +26,7 @@
     "gitree": "tsx src/gitree/cli.ts",
     "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
-    "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\" \"src/graph/**/*.test.ts\" \"src/gitree/**/*.test.ts\" \"src/lab/mount.test.ts\" \"src/lab/seed-opts.test.ts\" \"src/__tests__/tools.test.ts\" \"src/__tests__/skills.test.ts\"",
+    "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\" \"src/graph/**/*.test.ts\" \"src/gitree/**/*.test.ts\" \"src/lab/mount.test.ts\" \"src/lab/seed-opts.test.ts\" \"src/lab/janitor/*.test.ts\" \"src/__tests__/tools.test.ts\" \"src/__tests__/skills.test.ts\"",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",
