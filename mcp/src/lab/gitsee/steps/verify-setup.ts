@@ -1,5 +1,5 @@
-import { z, defineStep, usageFromResult } from "strut";
-import { costOf } from "../../cost.js";
+import { z, defineStep, usageFromResult, usageForCost, type TokenUsage } from "strut";
+import type { Provider } from "aieo";
 import { spawn } from "node:child_process";
 import { writeFileSync, readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -302,7 +302,7 @@ ${logTail}`,
   });
   const usage = usageFromResult(rawUsage);
   const o = object as { working: boolean; reason: string };
-  return { working: o.working, reason: o.reason, usage, cost: costOf("anthropic", usage) };
+  return { working: o.working, reason: o.reason, usage, cost: await costOf("anthropic", usage) };
 }
 
 /** Load the booted app in headless chromium, screenshot it, then judge whether it
@@ -388,6 +388,15 @@ async function renderCheck(
   } finally {
     await browser.close().catch(() => {});
   }
+}
+
+/** Dollar cost of an LLM call at aieo's rates — the same calc strut's own
+ *  `llm` / `agent` steps use. Inlined rather than imported from
+ *  `src/lab/cost.ts`: a seeded step is loaded from the workspace, where a
+ *  relative import into mcp's source tree doesn't resolve. */
+async function costOf(provider: string, usage: TokenUsage): Promise<number> {
+  const { computeSessionCost } = await import("aieo");
+  return computeSessionCost(provider as Provider, usageForCost(usage));
 }
 
 // ── step ──────────────────────────────────────────────────────────────────────

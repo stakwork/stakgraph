@@ -9,6 +9,10 @@
  * An unknown provider string is priced as anthropic (what strut's old
  * `computeCost` did). Pass `modelId` for per-model OpenRouter rates once
  * `loadModelPricing()` has run; otherwise the provider default applies.
+ *
+ * In-process code only: a SEEDED step can't import this (it's loaded from the
+ * workspace, outside mcp's source tree), so those inline the same two-liner
+ * over strut's `usageForCost` + aieo's `computeSessionCost` instead.
  */
 import { computeSessionCost, PROVIDERS, type Provider } from "../aieo/src/provider.js";
 import type { TokenUsage } from "strut";
