@@ -781,7 +781,18 @@ Automations are not seeded.
   fake graph steps + agent: exact-name resolution, the guard, what the
   agent is handed) in `test:node`; live suites (the tree's reconcile +
   anchor, and the engine over the REAL graph steps with a fake agent) run
-  when `STRUT_TEST_NEO4J_URI` points at a throwaway Neo4j.
+  when `STRUT_TEST_NEO4J_URI` points at a throwaway Neo4j. The live smoke
+  (`src/lab/janitor/smoke.ts`: a REAL model through `createStrut` over a
+  planted `Law` subtree — two overfit Concepts, three clean — asserting
+  both are flagged `overfit`, the clean doctrine is not, `visited` is
+  Concepts only, no graph write tool was called, and `report.md` +
+  `cleanup-report.json` are in the run's artifacts; then the
+  `not_a_janitor:` refusal; ~70 s, ~$0.20): `ANTHROPIC_API_KEY=…
+  NEO4J_URI=bolt://localhost:7688 NEO4J_PASSWORD=struttest
+  STRUT_GRAPH_SEED_ONTOLOGY=1 STRUT_GRAPH_EMBEDDINGS=off npx tsx
+  src/lab/janitor/smoke.ts`. The agent's working dir is empty when it
+  starts, so the step gives it no cwd preamble: the prompt names
+  `{{ dir.path }}`, or the model guesses a directory for `report.md`.
 
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 

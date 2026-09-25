@@ -158,7 +158,7 @@ steps:
 
         Record EVERY node you actually inspected in `visited`, each with its ref_id and its node_type as the graph reports it — every entry must be a {{ params.node_type }}, and every finding's ref_id must appear in `visited`.
 
-        Before you answer, write a human-readable `report.md` into your working directory with the same content as your structured answer (summary, then one section per finding).
+        Before you answer, write a human-readable `report.md` into your working directory, {{ dir.path }} (bash and the file tool already run there: use the relative path `report.md`, never another directory), with the same content as your structured answer (summary, then one section per finding).
       schema:
         type: object
         properties:

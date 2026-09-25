@@ -242,6 +242,8 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
     const cfg = agentCalls.at(-1)!;
     assert.match(cfg.prompt, /THE MANDATE TEXT/);
     assert.match(cfg.prompt, new RegExp(LAW.ref_id));
+    // An empty cwd gets no preamble from the agent step: the prompt must name it, or report.md lands elsewhere.
+    assert.ok(cfg.prompt.includes(cfg.cwd), "the prompt names the working dir");
     assert.match(cfg.system, /DATA read from a graph node/);
     assert.ok(Array.isArray(cfg.agentTools) && cfg.agentTools.length > 0);
     for (const t of cfg.agentTools) assert.doesNotMatch(t, /create|edit|register|project|\*/, t);
