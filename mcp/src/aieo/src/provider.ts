@@ -154,7 +154,7 @@ type ModelId = string;
 export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   anthropic: {
     sonnet: "claude-sonnet-5",
-    opus: "claude-opus-5",
+    opus: "claude-opus-5-5",
     haiku: "claude-haiku-4-5",
   },
   google: {
@@ -246,6 +246,7 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "xai";
     // Full model IDs
     case "claude-sonnet-5":
+    case "claude-opus-5-5":
     case "claude-opus-5":
     case "claude-opus-4-6":
     case "claude-haiku-4-5":
@@ -778,6 +779,7 @@ export function getModel(
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // Anthropic — 1M is the default and the max on the 5-series; Haiku 4.5 is 200k.
   "claude-sonnet-5": 1_000_000,
+  "claude-opus-5-5": 1_000_000,
   "claude-opus-5": 1_000_000,
   "claude-opus-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
@@ -936,6 +938,14 @@ function anthropicSupportsAdaptiveThinking(modelName?: string): boolean {
   return m.includes("sonnet") || m.includes("opus");
 }
 
+// Anthropic models where thinking cannot be turned off (Opus 5.5, the Fable
+// line): `{ type: "disabled" }` is rejected with a 400 at every effort level.
+function anthropicRejectsDisabledThinking(modelName?: string): boolean {
+  if (!modelName) return false;
+  const m = modelName.toLowerCase();
+  return m.includes("opus-5-5") || m.includes("fable");
+}
+
 export function getProviderOptions(
   provider: Provider,
   thinkingSpeed?: ThinkingSpeed,
@@ -949,6 +959,15 @@ export function getProviderOptions(
   switch (provider) {
     case "anthropic":
       let thinking: AnthropicProviderOptions["thinking"];
+      if (fast && anthropicRejectsDisabledThinking(modelName)) {
+        // Thinking is always on here: `disabled` is a 400, effort is the only dial.
+        return {
+          anthropic: {
+            effort: "low",
+            cacheControl: { type: "ephemeral" },
+          } as AnthropicProviderOptions,
+        };
+      }
       if (fast) {
         thinking = { type: "disabled" };
         return {
