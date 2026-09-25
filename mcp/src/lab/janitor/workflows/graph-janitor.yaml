@@ -4,7 +4,15 @@ description: >-
   Concept under the Janitor root whose docs are this run's MANDATE (what "dirty"
   means, what to flag, what to propose); input.start names the Concept whose
   subtree to sweep. A read-only agent walks the Concept layer from start and
-  proposes cleanups it never applies. Output: { mandate, start, start_ref_id,
+  proposes cleanups it never applies. To ADD a janitor: (1) graph/create-node
+  { node_type: "Concept", node_data: { name, description, docs: the mandate —
+  what counts as dirty, what to flag, what to propose } }; (2)
+  graph/create-triplet { source_ref_id: the Janitor root's ref_id
+  (graph/graph-search q "Janitor", type "Concept", exact name), edge_type:
+  "PARENT_OF", target_ref_id: the new Concept's } — without that edge a run
+  fails not_a_janitor:; (3) an automation on graph-janitor with input
+  { concept: its name, start: the Concept whose subtree to sweep }.
+  Output: { mandate, start, start_ref_id,
   visited, findings, summary, report_json, report_md }. Errors, as prefixes of
   error.message's second line: not_found: (a name no Concept matches exactly) |
   not_a_janitor: (the mandate is not a PARENT_OF child of the root).

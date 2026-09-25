@@ -60,7 +60,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "graph-janitor",
     description:
-      "Knowledge-graph janitor: a read-only agent sweeps the Concept subtree under input.start following the mandate in the docs of input.concept (a child of the Janitor root) and proposes cleanups it never applies. One automation per janitor. Output: { mandate, start, start_ref_id, visited, findings, summary, report_json, report_md }; errors not_found: | not_a_janitor:.",
+      "Knowledge-graph janitor: a read-only agent sweeps the Concept subtree under input.start following the mandate in the docs of input.concept (a child of the Janitor root) and proposes cleanups it never applies. One automation per janitor. To ADD a janitor: (1) graph/create-node { node_type: \"Concept\", node_data: { name, description, docs: the mandate — what counts as dirty, what to flag, what to propose } }; (2) graph/create-triplet { source_ref_id: the Janitor root's ref_id (graph/graph-search q \"Janitor\", type \"Concept\", exact name), edge_type: \"PARENT_OF\", target_ref_id: the new Concept's } — without that edge a run fails not_a_janitor:; (3) an automation on graph-janitor with input { concept: its name, start: the Concept whose subtree to sweep }. Output: { mandate, start, start_ref_id, visited, findings, summary, report_json, report_md }; errors not_found: | not_a_janitor:.",
   },
 ];
 

@@ -726,7 +726,10 @@ automation's schedule is the janitor's schedule and its enabled switch
 turns it off. One automation per janitor, so a workspace grows its own by
 adding a child Concept (hive's Learn page, Jamie, strut's `graph/*` steps
 through the builder's `run_step`) and scheduling it — nothing to publish.
-Automations are not seeded.
+Automations are not seeded. The builder learns HOW from the workflow's own
+description (create-node → `PARENT_OF` create-triplet from the root →
+automation), the one text it reliably reads (`list_workflows`); its system
+prompt knows nothing about janitors, and the lab wires no `graph_query`.
 
 - **The engine** (`workflows/graph-janitor.yaml`, category
   `graph-maintenance`, YAML only, unstamped, SEED_OPTS): three
