@@ -1,153 +1,158 @@
-import { spawn } from "child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024; // 8 MB cap to stay well under V8 max string length
+/** stderr is only ever surfaced inside an error message; keep it small. */
+const MAX_STDERR_BYTES = 256 * 1024;
+const TRUNCATION_NOTE = "\n\n[... output truncated due to size limit ...]";
+
+interface CapturedResult {
+  stdout: string;
+  stderr: string;
+  /** Exit code, or null when the process was killed (timeout / output cap). */
+  code: number | null;
+  /** stdout hit MAX_OUTPUT_BYTES and the process was killed. */
+  truncated: boolean;
+  timedOut: boolean;
+}
+
+/**
+ * Kill a child AND everything it spawned. The child is started in its own
+ * process group (`detached: true`), so a negative pid signals the whole
+ * group — a bare `child.kill()` only reaches the `sh -c` shell and leaves
+ * pipelines, test runners and dev servers alive, still writing into our pipe.
+ */
+function killTree(child: ChildProcess): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+}
+
+/**
+ * Spawn a command and capture its output with hard bounds on memory.
+ *
+ * Every settle path (exit, timeout, output cap) tears the capture down:
+ * the process group is killed, the stdio listeners are removed and the
+ * pipes destroyed, so nothing that outlives the shell can keep appending
+ * to the buffers. Before this, an orphaned grandchild (e.g. a watcher or a
+ * server started by an agent) kept the closure alive and growing for the
+ * life of the process — the OOM of 2026-09-25.
+ */
+function runCaptured(
+  file: string,
+  args: string[] | undefined,
+  opts: SpawnOptions,
+  timeoutMs: number
+): Promise<CapturedResult> {
+  return new Promise((resolve, reject) => {
+    const child = args
+      ? spawn(file, args, { ...opts, detached: true })
+      : spawn(file, { ...opts, detached: true });
+
+    let stdout = "";
+    let stderr = "";
+    let stderrCapped = false;
+    let settled = false;
+    let truncated = false;
+    let timedOut = false;
+
+    const teardown = () => {
+      clearTimeout(timer);
+      child.stdout?.removeAllListeners("data");
+      child.stderr?.removeAllListeners("data");
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    };
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      teardown();
+      resolve({ stdout, stderr, code, truncated, timedOut });
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      teardown();
+      reject(err);
+    };
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child);
+      fail(new Error(`Command timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.stdout?.on("data", (data: Buffer) => {
+      if (settled) return;
+      stdout += data.toString();
+      if (stdout.length > MAX_OUTPUT_BYTES) {
+        stdout = stdout.substring(0, MAX_OUTPUT_BYTES) + TRUNCATION_NOTE;
+        truncated = true;
+        killTree(child);
+        finish(null);
+      }
+    });
+
+    child.stderr?.on("data", (data: Buffer) => {
+      if (settled || stderrCapped) return;
+      stderr += data.toString();
+      if (stderr.length > MAX_STDERR_BYTES) {
+        stderr = stderr.substring(0, MAX_STDERR_BYTES) + TRUNCATION_NOTE;
+        stderrCapped = true;
+      }
+    });
+
+    child.on("close", (code) => finish(code));
+    child.on("error", (error) => fail(error));
+  });
+}
 
 // Execute ripgrep with args array directly
-function execRipgrepCommandDirect(
+async function execRipgrepCommandDirect(
   args: string[],
   cwd: string,
   timeoutMs: number = 10000
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const process = spawn("rg", args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let resolved = false;
-
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        process.kill("SIGKILL");
-        resolved = true;
-        reject(new Error(`Command timed out after ${timeoutMs}ms`));
-      }
-    }, timeoutMs);
-
-    process.stdout.on("data", (data) => {
-      stdout += data.toString();
-      if (stdout.length > MAX_OUTPUT_BYTES) {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          process.kill("SIGKILL");
-          resolve(
-            stdout.substring(0, MAX_OUTPUT_BYTES) +
-              "\n\n[... output truncated due to size limit ...]"
-          );
-        }
-        return;
-      }
-    });
-
-    process.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    process.on("close", (code) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-
-        if (code === 0) {
-          resolve(stdout);
-        } else if (code === 1) {
-          resolve("No matches found");
-        } else {
-          reject(new Error(`Command failed with code ${code}: ${stderr}`));
-        }
-      }
-    });
-
-    process.on("error", (error) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
-  });
+  const r = await runCaptured("rg", args, { cwd, stdio: ["ignore", "pipe", "pipe"] }, timeoutMs);
+  if (r.truncated || r.code === 0) return r.stdout;
+  if (r.code === 1) return "No matches found";
+  throw new Error(`Command failed with code ${r.code}: ${r.stderr}`);
 }
 
 // Execute any shell command with proper streaming
-function execShellCommand(
+async function execShellCommand(
   command: string,
   cwd: string,
   timeoutMs: number = 10000,
   env?: NodeJS.ProcessEnv
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const process = spawn(command, {
+  const r = await runCaptured(
+    command,
+    undefined,
+    {
       cwd,
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: env ? { ...globalThis.process.env, ...env } : globalThis.process.env,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let resolved = false;
-
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        process.kill("SIGKILL");
-        resolved = true;
-        reject(new Error(`Command timed out after ${timeoutMs}ms`));
-      }
-    }, timeoutMs);
-
-    process.stdout.on("data", (data) => {
-      stdout += data.toString();
-      if (stdout.length > MAX_OUTPUT_BYTES) {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          process.kill("SIGKILL");
-          resolve(
-            stdout.substring(0, MAX_OUTPUT_BYTES) +
-              "\n\n[... output truncated due to size limit ...]"
-          );
-        }
-        return;
-      }
-    });
-
-    process.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    process.on("close", (code) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-
-        let output = stdout;
-
-        if (code === 0) {
-          resolve(output);
-        } else if (code === 1 && !stderr) {
-          // Exit code 1 with no stderr often means "no matches" (grep, find, etc.)
-          resolve(output || "No matches found");
-        } else {
-          // Include both stdout and stderr in error for debugging
-          const errorOutput = stderr || stdout || "Unknown error";
-          reject(new Error(`Command failed with code ${code}: ${errorOutput}`));
-        }
-      }
-    });
-
-    process.on("error", (error) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
-  });
+      env: env ? { ...process.env, ...env } : process.env,
+    },
+    timeoutMs
+  );
+  if (r.truncated || r.code === 0) return r.stdout;
+  if (r.code === 1 && !r.stderr) {
+    // Exit code 1 with no stderr often means "no matches" (grep, find, etc.)
+    return r.stdout || "No matches found";
+  }
+  // Include both stdout and stderr in error for debugging
+  const errorOutput = r.stderr || r.stdout || "Unknown error";
+  throw new Error(`Command failed with code ${r.code}: ${errorOutput}`);
 }
 
 // Get repository map
