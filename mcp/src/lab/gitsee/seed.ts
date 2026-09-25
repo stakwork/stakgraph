@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "strut";
-import { SEED_OPTS } from "../seed-opts.js";
+import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
 
 /**
  * Workflow + step templates for the `gitsee` experiment (self-contained port of
@@ -30,6 +30,9 @@ const SEED_WORKFLOWS = [
   "gitsee-eval-reflect", // eval/reflect + setup task/guidance
   "gitsee-optimize", // eval/optimize loop, wired to the above
 ];
+
+// Names this seeder USED to publish (seeding is additive — see retireWorkflows).
+const RETIRED_WORKFLOWS: string[] = [];
 
 const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "clone-workspace.ts", type: "gitsee/clone-workspace" },
@@ -81,6 +84,7 @@ export async function seedGitseeWorkflows(workspace: WorkspaceStore): Promise<vo
       );
     }
   }
+  await retireWorkflows(workspace, RETIRED_WORKFLOWS, "gitsee");
 }
 
 export async function seedGitseeSteps(workspace: WorkspaceStore): Promise<void> {
