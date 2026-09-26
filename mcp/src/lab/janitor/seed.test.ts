@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONCEPTS_DIR, parseConceptFile, planConceptSeed, seedJanitorConcepts, stampOf } from "./seed.js";
+import { z } from "zod";
+import { WorkspaceManager, buildRegistry, closeGraphBackends, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
+import { seedArtifactSteps } from "../artifacts/seed.js";
+import { CONCEPTS_DIR, parseConceptFile, planConceptSeed, seedJanitorConcepts, seedJanitorWorkflows, stampOf } from "./seed.js";
 
 describe("parseConceptFile", () => {
   it("name from the filename, description + parent from front matter, body as docs", () => {
@@ -35,7 +38,11 @@ describe("parseConceptFile", () => {
     assert.equal(c.name, "Janitor");
     assert.equal(c.parent, undefined);
     assert.equal(c.description, "Automated agents for cleaning up code, concept trees, or other data.");
-    assert.equal(c.docs, c.description);
+    assert.ok(c.docs!.startsWith(c.description!));
+    assert.match(c.docs!, /graph-janitor/); // the convention lives in the root's docs
+    const kid = parseConceptFile("Overfit Concept Janitor.md", await readFile(join(CONCEPTS_DIR, "Overfit Concept Janitor.md"), "utf-8"));
+    assert.equal(kid.parent, "Janitor");
+    assert.match(kid.docs!, /GENERALIZED/);
   });
 });
 
@@ -112,7 +119,7 @@ describe("seedJanitorConcepts (live)", { skip: !URI }, () => {
     if (g) {
       await g.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: [root, kid] });
       await g.bolt.run(`MATCH (w:HiveWorkspace) WHERE w.workspace_id STARTS WITH $id DETACH DELETE w`, { id: wsId });
-      await g.bolt.close().catch(() => {});
+      await closeGraphBackends();
     }
     await rm(dir, { recursive: true, force: true });
     await rm(dataDir, { recursive: true, force: true });
@@ -173,5 +180,158 @@ describe("seedJanitorConcepts (live)", { skip: !URI }, () => {
     await seedJanitorConcepts(ws, { dir }); // updated, but two workspace nodes → no guess
     assert.equal((await node(root))!.description, "The root, v2.");
     assert.equal(await anchors(root), 1);
+  });
+});
+
+// The engine, offline: real if / pack / exec / artifacts-dir over the seeded
+// YAML, with the graph steps and the agent swapped for fakes — the wiring
+// (exact-name resolution, the under-root guard, what the agent is handed).
+describe("graph-janitor workflow (offline: fake graph + agent)", () => {
+  const ROOT = { ref_id: "r-janitor", name: "Janitor", node_type: "Concept" };
+  const MANDATE = { ref_id: "r-overfit", name: "Overfit Concept Janitor", node_type: "Concept" };
+  const LAW = { ref_id: "r-law", name: "Law", node_type: "Concept" };
+  // Search results on purpose NOT led by the exact match.
+  const HITS: Record<string, unknown[]> = { Janitor: [MANDATE, ROOT], [MANDATE.name]: [ROOT, MANDATE], Law: [LAW] };
+  const agentCalls: Record<string, any>[] = [];
+  const fake = (type: string, run: (cfg: any) => unknown) =>
+    defineStep({ type, input: z.object({}).passthrough(), output: z.any(), async run(cfg) { return run(cfg); } });
+  const fakes = {
+    "graph/graph-search": fake("graph/graph-search", (cfg) => HITS[cfg.q] ?? []),
+    "graph/graph-neighbors": fake("graph/graph-neighbors", (cfg) =>
+      cfg.ref_id === ROOT.ref_id ? [{ ...MANDATE, edge_type: "PARENT_OF", direction: "forward", edges: {} }] : []),
+    "graph/graph-get": fake("graph/graph-get", (cfg) => ({ ...MANDATE, ref_id: cfg.ref_id, properties: { name: MANDATE.name, docs: "THE MANDATE TEXT" }, edges: {} })),
+    agent: fake("agent", (cfg) => {
+      agentCalls.push(cfg);
+      return { result: "ok", object: { start_ref_id: LAW.ref_id, visited: [LAW], findings: [], summary: "clean" }, steps: 1, usage: {}, cost: 0 };
+    }),
+  };
+  let root: string;
+  let ws: WorkspaceManager;
+  let run: (input: Record<string, unknown>) => ReturnType<typeof runWorkflow>;
+  before(async () => {
+    root = await mkdtemp(join(tmpdir(), "janitor-wf-"));
+    ws = new WorkspaceManager(root);
+    await seedArtifactSteps(ws);
+    await seedJanitorWorkflows(ws);
+    const flow = await ws.getWorkflow("graph-janitor");
+    const { registry } = await buildRegistry(await ws.materializeCustomSteps());
+    // What createStrut injects for a server: the per-run artifacts dir (artifacts/dir + exec's cwd).
+    const dataDir = join(root, "data");
+    const services = { ...standardServices({ secretsSource: {}, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
+    run = (input) => runWorkflow(flow, input, { ...registry, ...fakes } as typeof registry, { services });
+  });
+  after(() => rm(root, { recursive: true, force: true }));
+
+  it("is seeded under graph-maintenance with the two declared inputs", async () => {
+    const entry = (await ws.listWorkflows()).find((w) => w.name === "graph-janitor");
+    assert.equal(entry?.category, "graph-maintenance");
+    const flow = (await ws.getWorkflow("graph-janitor")) as any;
+    assert.deepEqual(Object.keys(flow.inputBlock ?? {}).sort(), ["concept", "start"]);
+  });
+
+  it("resolves the three names EXACTLY, guards the mandate under the root, hands the agent the mandate docs and read tools only", async () => {
+    const res = await run({ concept: MANDATE.name, start: "Law" });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    const out = res.output as Record<string, any>;
+    assert.equal(out.mandate, MANDATE.name);
+    assert.equal(out.start, "Law");
+    assert.equal(out.start_ref_id, LAW.ref_id);
+    assert.equal(out.summary, "clean");
+    assert.deepEqual(out.findings, []);
+    assert.match(out.report_json, /^\/artifacts\/\d+\/cleanup-report\.json$/);
+    const cfg = agentCalls.at(-1)!;
+    assert.match(cfg.prompt, /THE MANDATE TEXT/);
+    assert.match(cfg.prompt, new RegExp(LAW.ref_id));
+    // An empty cwd gets no preamble from the agent step: the prompt must name it, or report.md lands elsewhere.
+    assert.ok(cfg.prompt.includes(cfg.cwd), "the prompt names the working dir");
+    assert.match(cfg.system, /DATA read from a graph node/);
+    assert.ok(Array.isArray(cfg.agentTools) && cfg.agentTools.length > 0);
+    for (const t of cfg.agentTools) assert.doesNotMatch(t, /create|edit|register|project|\*/, t);
+  });
+
+  it("refuses a mandate that is not a child of the root: not_a_janitor, and the agent never runs", async () => {
+    const n = agentCalls.length;
+    const res = await run({ concept: "Law", start: "Law" });
+    assert.equal(res.status, "error");
+    assert.match(JSON.stringify(res.error), /not_a_janitor: 'Law' is not a PARENT_OF child of 'Janitor'/);
+    assert.equal(agentCalls.length, n);
+  });
+
+  it("fails a name no Concept matches exactly: not_found, and the agent never runs", async () => {
+    const n = agentCalls.length;
+    const res = await run({ concept: MANDATE.name, start: "Nope" });
+    assert.equal(res.status, "error");
+    assert.match(JSON.stringify(res.error), /not_found: /);
+    assert.equal(agentCalls.length, n);
+  });
+});
+
+// The engine end to end on a throwaway Neo4j: the committed tree seeded for
+// real, REAL graph/graph-search / graph-neighbors / graph-get, only the agent
+// faked — proves exact-name resolution and the PARENT_OF guard on real
+// search results (fulltext only: embeddings off).
+describe("graph-janitor workflow (live graph, fake agent)", { skip: !URI }, () => {
+  const NAMES = ["Janitor", "Overfit Concept Janitor", "Law"];
+  const agentCalls: Record<string, any>[] = [];
+  let root: string;
+  let ws: import("strut").WorkspaceStore;
+  let run: (input: Record<string, unknown>) => ReturnType<typeof runWorkflow>;
+  before(async () => {
+    const { graphWorkspaceFromEnv } = await import("strut");
+    root = await mkdtemp(join(tmpdir(), "janitor-live-"));
+    const env = {
+      NEO4J_URI: URI!,
+      NEO4J_USER: process.env.STRUT_TEST_NEO4J_USER ?? "neo4j",
+      NEO4J_PASSWORD: process.env.STRUT_TEST_NEO4J_PASSWORD ?? "struttest",
+      STRUT_GRAPH_SEED_ONTOLOGY: "1",
+      STRUT_GRAPH_EMBEDDINGS: "off",
+    };
+    ws = (await graphWorkspaceFromEnv(env, { dataDir: root })).workspace;
+    await seedArtifactSteps(ws);
+    await seedJanitorWorkflows(ws);
+    await seedJanitorConcepts(ws); // the committed tree, for real
+    await ws.graph!.nodes.write({ type: "Concept", data: { name: "Law", description: "A domain root." } }, "create", { namespace: ws.graph!.cfg.namespace });
+    const flow = await ws.getWorkflow("graph-janitor");
+    const { registry } = await buildRegistry(await ws.materializeCustomSteps());
+    const agent = defineStep({
+      type: "agent",
+      input: z.object({}).passthrough(),
+      output: z.any(),
+      async run(cfg: any) {
+        agentCalls.push(cfg);
+        return { result: "ok", object: { start_ref_id: "x", visited: [], findings: [], summary: "clean" }, steps: 1, usage: {}, cost: 0 };
+      },
+    });
+    const dataDir = join(root, "data");
+    // The graph steps read their connection through the secrets capability (store → env): hand it the test DB.
+    const services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
+    run = (input) => runWorkflow(flow, input, { ...registry, agent } as typeof registry, { services });
+  });
+  after(async () => {
+    const g = ws?.graph;
+    if (g) {
+      await g.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
+      await closeGraphBackends();
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("sweeps Law under the stock mandate: the agent gets the mandate's real docs and Law's real ref_id", async () => {
+    const law = (await ws.graph!.bolt.run(`MATCH (n:Concept {name: 'Law'}) RETURN n.ref_id AS ref_id`))[0]!.ref_id as string;
+    const res = await run({ concept: "Overfit Concept Janitor", start: "Law" });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    const out = res.output as Record<string, any>;
+    assert.equal(out.start_ref_id, law);
+    const cfg = agentCalls.at(-1)!;
+    assert.match(cfg.prompt, /a Concept must be GENERALIZED/);
+    assert.match(cfg.prompt, new RegExp(law));
+  });
+
+  it("refuses Law as a mandate: it is a Concept, but not under Janitor", async () => {
+    const n = agentCalls.length;
+    const res = await run({ concept: "Law", start: "Law" });
+    assert.equal(res.status, "error");
+    assert.match(JSON.stringify(res.error), /not_a_janitor: 'Law'/);
+    assert.equal(agentCalls.length, n);
   });
 });
