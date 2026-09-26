@@ -95,7 +95,7 @@ export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
   usage: AiUsageWithLegacy;
 }> {
   const model = await getModel(args.provider, args.apiKey);
-  const providerOptions = getProviderOptions(args.provider, "fast");
+  const providerOptions = getProviderOptions(args.provider, "fast", (model as any)?.modelId);
   const { output: object, usage } = await generateText({
     model,
     output: Output.object({ schema: args.schema }),
@@ -127,7 +127,7 @@ export async function callGenerateText(args: GenerateTextArgs): Promise<{
     },
   ];
   const model = await getModel(args.provider, args.apiKey);
-  const providerOptions = getProviderOptions(args.provider, args.thinkingSpeed);
+  const providerOptions = getProviderOptions(args.provider, args.thinkingSpeed, (model as any)?.modelId);
   // Use the existing callModel function
   const { text, usage } = await generateText({
     model,
