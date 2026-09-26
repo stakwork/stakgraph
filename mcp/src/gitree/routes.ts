@@ -981,7 +981,7 @@ Please analyze the user's prompt and the list of available concepts. Return an a
       model,
       prompt: aiPrompt,
       schema: jsonSchema(schema),
-      providerOptions: getProviderOptions(typedProvider, "fast") as any,
+      providerOptions: getProviderOptions(typedProvider, "fast", (model as any)?.modelId) as any,
     });
 
     const relevantConceptIds =

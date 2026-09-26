@@ -55,14 +55,84 @@ const tests: TestCase[] = [
     },
   },
   {
-    label: 'thinkingSpeed:"fast" + adaptive model → type:"disabled"',
+    label: 'thinkingSpeed:"fast" + opus 5 → type:"disabled" (fast is no thinking wherever the API allows it)',
     provider: "anthropic",
     thinkingSpeed: "fast",
-    modelName: "claude-opus-4-7",
+    modelName: "claude-opus-5",
     assert(result) {
       const opts = (result as any).anthropic;
-      if (opts.thinking.type !== "disabled")
-        throw new Error(`Expected type:"disabled", got "${opts.thinking.type}"`);
+      if (opts.thinking?.type !== "disabled")
+        throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+      if ("effort" in opts) throw new Error(`effort should not be present on the fast path`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:"fast" + no modelName → type:"disabled" (callers pass the model so the reject branch can fire)',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: undefined,
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if (opts.thinking?.type !== "disabled")
+        throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:"fast" + sonnet 4.5 → type:"disabled" (adaptive and effort arrived with 4.6)',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: "claude-sonnet-4-5",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if (opts.thinking?.type !== "disabled")
+        throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+      if ("effort" in opts) throw new Error(`effort should not be present for sonnet 4.5`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:undefined + sonnet 4.5 → type:"disabled" (not adaptive: 4.5 rejects it)',
+    provider: "anthropic",
+    thinkingSpeed: undefined,
+    modelName: "claude-sonnet-4-5",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if (opts.thinking?.type !== "disabled")
+        throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:"fast" + claude-3-5-sonnet-20241022 → type:"disabled"',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: "claude-3-5-sonnet-20241022",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if (opts.thinking?.type !== "disabled")
+        throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:"fast" + fable → no thinking param, effort:"low" (disabled is a 400)',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: "claude-fable-5-1",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if ("thinking" in opts) throw new Error(`thinking should be omitted for fable`);
+      if (opts.effort !== "low") throw new Error(`Expected effort:"low"`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:"fast" + haiku → type:"disabled" (no adaptive mode there)',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: "claude-haiku-4-5",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if (opts.thinking?.type !== "disabled")
+        throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+      if ("effort" in opts)
+        throw new Error(`effort should not be present for a non-adaptive model`);
     },
   },
   {

@@ -931,11 +931,19 @@ export type ThinkingSpeed = "thinking" | "fast";
 function anthropicSupportsAdaptiveThinking(modelName?: string): boolean {
   if (!modelName) return false;
   const m = modelName.toLowerCase();
-  // Haiku family does not support adaptive thinking.
-  if (m.includes("haiku")) return false;
-  // Conservatively only enable adaptive thinking for known-supported families.
-  // Sonnet 4.5+ and Opus 4.5+ support it.
-  return m.includes("sonnet") || m.includes("opus");
+  // Haiku and the Claude 3.x names (claude-3-5-sonnet-..., claude-3-7-sonnet-latest)
+  // have no adaptive mode and reject `effort`.
+  if (m.includes("haiku") || /claude-3[-.]/.test(m)) return false;
+  if (m.includes("fable") || m.includes("mythos")) return true;
+  if (!(m.includes("sonnet") || m.includes("opus"))) return false;
+  // Adaptive thinking arrived with the 4.6 generation; 4.5 and older take
+  // enabled/disabled and reject `effort`. A family name without a version
+  // ("opus", "sonnet") is the current default, which is modern.
+  const v = /(?:sonnet|opus)-(\d+)(?:-(\d+))?(?!\d)/.exec(m);
+  if (!v) return true;
+  const major = Number(v[1]);
+  const minor = v[2] == null ? 0 : Number(v[2]);
+  return major >= 5 || (major === 4 && minor >= 6);
 }
 
 // Anthropic models where thinking cannot be turned off (Opus 5.5, the Fable
@@ -969,6 +977,10 @@ export function getProviderOptions(
         };
       }
       if (fast) {
+        // Fast means no thinking, on every model that still allows it (Opus 5,
+        // Sonnet 5, the 4.x line, Haiku). Only the models that reject
+        // `disabled` outright take the effort-only branch above, which is why
+        // every fast call site passes its model name.
         thinking = { type: "disabled" };
         return {
           anthropic: {

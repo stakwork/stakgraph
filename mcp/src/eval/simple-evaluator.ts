@@ -184,7 +184,7 @@ export class SimpleEvaluator {
           prompt: userMessage,
           schema: StepGenerationSchema,
           temperature: 0.1,
-          providerOptions: getProviderOptions(this.currentProvider, "fast") as any,
+          providerOptions: getProviderOptions(this.currentProvider, "fast", (model as any)?.modelId) as any,
         });
 
         console.log(
@@ -246,7 +246,7 @@ export class SimpleEvaluator {
           prompt: userMessage,
           schema: StepGenerationSchema,
           temperature: 0.1,
-          providerOptions: getProviderOptions(fallbackProvider, "fast") as any,
+          providerOptions: getProviderOptions(fallbackProvider, "fast", (fallbackModel as any)?.modelId) as any,
         });
 
         console.log(
