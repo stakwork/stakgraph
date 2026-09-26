@@ -423,7 +423,7 @@ async function structureFinalAnswer(
   const { output } = await generateText({
     model,
     prompt: msgs,
-    providerOptions: getProviderOptions(provider as any, "fast") as any,
+    providerOptions: getProviderOptions(provider as any, "fast", (model as any)?.modelId) as any,
     output: Output.object({ schema: jsonSchema(normalizedSchema) }),
   });
 
