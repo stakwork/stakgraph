@@ -1,5 +1,5 @@
-import { z, defineStep, usageFromResult } from "strut";
-import { costOf } from "../../cost.js";
+import { z, defineStep, usageFromResult, usageForCost, type TokenUsage } from "strut";
+import type { Provider } from "aieo";
 
 /**
  * GENERIC optimizer "propose" step: given the CURRENT candidate prompt and the
@@ -86,6 +86,15 @@ interface Result {
   missing: string[];
   spurious: string[];
   insight?: string;
+}
+
+/** Dollar cost of an LLM call at aieo's rates — the same calc strut's own
+ *  `llm` / `agent` steps use. Inlined rather than imported from
+ *  `src/lab/cost.ts`: a seeded step is loaded from the workspace, where a
+ *  relative import into mcp's source tree doesn't resolve. */
+async function costOf(provider: string, usage: TokenUsage): Promise<number> {
+  const { computeSessionCost } = await import("aieo");
+  return computeSessionCost(provider as Provider, usageForCost(usage));
 }
 
 export default defineStep({
@@ -186,6 +195,6 @@ these examples. Rules:
     const { object, usage: rawUsage } = await generateObject({ model, prompt, schema: ProposalSchema as any });
     const p = object as Proposal;
     const usage = usageFromResult(rawUsage);
-    return { prompt: p.prompt, rationale: p.rationale, usage, cost: costOf(provider, usage) };
+    return { prompt: p.prompt, rationale: p.rationale, usage, cost: await costOf(provider, usage) };
   },
 });
