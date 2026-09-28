@@ -67,7 +67,7 @@ await test("listModels: one entry per alias, PROVIDERS order, defaults flagged",
   eq(all.map((m) => m.alias), ["sonnet", "opus", "haiku", "gemini", "gpt", "kimi", "glm", "grok"], "aliases");
   eq(all.filter((m) => m.default).map((m) => m.provider), PROVIDERS, "exactly one default per provider");
   const sonnet = all.find((m) => m.alias === "sonnet")!;
-  eq([sonnet.provider, sonnet.modelId, sonnet.default], ["anthropic", "claude-sonnet-5", true], "sonnet");
+  eq([sonnet.provider, sonnet.modelId, sonnet.default], ["anthropic", "claude-sonnet-5-5", true], "sonnet");
   eq(all.find((m) => m.alias === "opus")!.default, false, "opus is not the default");
   eq(all.find((m) => m.alias === "kimi")!.modelId, "moonshotai/kimi-k3", "kimi keeps its org/ id");
   eq(all.find((m) => m.alias === "opus")!.modelId, "claude-opus-5-5", "opus");
@@ -89,8 +89,8 @@ const parseCases: [string | undefined, ReturnType<typeof parseModelName>][] = [
   [undefined, {}],
   ["", {}],
   ["sonnet", { modelId: "sonnet" }],
-  ["claude-sonnet-5", { modelId: "claude-sonnet-5" }],
-  ["anthropic/claude-sonnet-5", { provider: "anthropic", modelId: "claude-sonnet-5" }],
+  ["claude-sonnet-5-5", { modelId: "claude-sonnet-5-5" }],
+  ["anthropic/claude-sonnet-5-5", { provider: "anthropic", modelId: "claude-sonnet-5-5" }],
   ["openrouter/moonshotai/kimi-k2.6", { provider: "openrouter", modelId: "moonshotai/kimi-k2.6" }],
   ["openrouter/openrouter/auto", { provider: "openrouter", modelId: "openrouter/auto" }],
   ["openai/gpt-5", { provider: "openai", modelId: "gpt-5" }],
@@ -105,10 +105,10 @@ for (const [name, expected] of parseCases) {
 
 const canonCases: [string | undefined, string | undefined, [string, string, string]][] = [
   // [model, provider, [provider, modelId, name]]
-  ["sonnet", undefined, ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"]],
-  ["claude-sonnet-5", undefined, ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"]],
-  ["anthropic/claude-sonnet-5", undefined, ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"]],
-  ["anthropic/sonnet", undefined, ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"]],
+  ["sonnet", undefined, ["anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"]],
+  ["claude-sonnet-5-5", undefined, ["anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"]],
+  ["anthropic/claude-sonnet-5-5", undefined, ["anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"]],
+  ["anthropic/sonnet", undefined, ["anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"]],
   ["openrouter/moonshotai/kimi-k2.6", undefined, ["openrouter", "moonshotai/kimi-k2.6", "openrouter/moonshotai/kimi-k2.6"]],
   ["openrouter/openrouter/auto", undefined, ["openrouter", "openrouter/auto", "openrouter/openrouter/auto"]],
   ["openrouter/openai/gpt-5", undefined, ["openrouter", "openai/gpt-5", "openrouter/openai/gpt-5"]],
@@ -120,7 +120,7 @@ const canonCases: [string | undefined, string | undefined, [string, string, stri
   ["claude-opus-5-5", undefined, ["anthropic", "claude-opus-5-5", "anthropic/claude-opus-5-5"]],
   ["grok-4-fast", undefined, ["xai", "grok-4-fast", "xai/grok-4-fast"]],
   ["claude-opus-4-8", undefined, ["anthropic", "claude-opus-4-8", "anthropic/claude-opus-4-8"]], // unknown id passes through
-  [undefined, undefined, ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"]],       // nothing → anthropic default
+  [undefined, undefined, ["anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"]],       // nothing → anthropic default
   [undefined, "openai", ["openai", "gpt-5.6-luna", "openai/gpt-5.6-luna"]],                        // provider only → its default
   ["gpt", undefined, ["openai", "gpt-5.6-luna", "openai/gpt-5.6-luna"]],
   ["gpt-5.6-sol", undefined, ["openai", "gpt-5.6-sol", "openai/gpt-5.6-sol"]],                   // exact-match list
@@ -131,7 +131,7 @@ const canonCases: [string | undefined, string | undefined, [string, string, stri
   ["openrouter/~z-ai/glm-flash-latest", undefined, ["openrouter", "~z-ai/glm-flash-latest", "openrouter/~z-ai/glm-flash-latest"]],
   ["openrouter/", undefined, ["openrouter", "moonshotai/kimi-k3", "openrouter/moonshotai/kimi-k3"]],
   ["moonshotai/kimi-k2.6", "openrouter", ["openrouter", "moonshotai/kimi-k2.6", "openrouter/moonshotai/kimi-k2.6"]], // explicit provider
-  ["anthropic/claude-sonnet-5", "openai", ["openai", "claude-sonnet-5", "openai/claude-sonnet-5"]], // explicit provider wins (mirrors getModel)
+  ["anthropic/claude-sonnet-5-5", "openai", ["openai", "claude-sonnet-5-5", "openai/claude-sonnet-5-5"]], // explicit provider wins (mirrors getModel)
 ];
 for (const [model, provider, [p, id, name]] of canonCases) {
   await test(`canonicalModelName(${JSON.stringify(model)}, ${JSON.stringify(provider)}) → ${name}`, () => {
@@ -193,8 +193,8 @@ await test("maxOutputTokensFor: anthropic 128k, others 64k, env override wins", 
 
 await test("resolveModel: alias → concrete model, context limit, output cap", async () => {
   const r = await resolveModel({ model: "sonnet", apiKey: "k" });
-  eq([r.provider, r.modelId, r.name], ["anthropic", "claude-sonnet-5", "anthropic/claude-sonnet-5"], "ref");
-  eq((r.model as { modelId?: string }).modelId, "claude-sonnet-5", "SDK model id");
+  eq([r.provider, r.modelId, r.name], ["anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"], "ref");
+  eq((r.model as { modelId?: string }).modelId, "claude-sonnet-5-5", "SDK model id");
   eq(r.contextLimit, 1_000_000, "contextLimit");
   eq(r.maxOutputTokens, 128_000, "maxOutputTokens");
   eq(r.apiKey, "k", "apiKey");

@@ -7,9 +7,9 @@
 // provider. Whatever follows is the provider's own id, which may itself
 // contain slashes (OpenRouter ids are "org/model"). So:
 //
-//   sonnet                            anthropic   claude-sonnet-5       (alias)
-//   claude-sonnet-5                   anthropic   claude-sonnet-5       (inferred)
-//   anthropic/claude-sonnet-5         anthropic   claude-sonnet-5
+//   sonnet                            anthropic   claude-sonnet-5-5     (alias)
+//   claude-sonnet-5-5                 anthropic   claude-sonnet-5-5     (inferred)
+//   anthropic/claude-sonnet-5-5       anthropic   claude-sonnet-5-5
 //   openrouter/moonshotai/kimi-k2.6   openrouter  moonshotai/kimi-k2.6
 //   openrouter/openrouter/auto        openrouter  openrouter/auto
 //   openai/gpt-5                      openai      gpt-5                 (direct, NOT via OpenRouter)
