@@ -26,7 +26,9 @@ import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { seedCodeWorkflows } from "./code/seed.js";
-import { seedJanitorConcepts, seedJanitorWorkflows } from "./janitor/seed.js";
+import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./janitor/seed.js";
+import { BUILDER_CONCEPTS, builderSystem } from "./builder/system.js";
+import { seedConcepts } from "./concept-seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
@@ -199,12 +201,13 @@ export async function createLabStrut(
   // every step is strut's (git/checkout, agent, git/diff, pack).
   await seedCodeWorkflows(workspace);
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
-  // mandate) and the `Janitor` Concept tree it reads its mandates from:
-  // graph DATA, reconciled per node by a source stamp the way SEED_OPTS
-  // reconciles versions, anchored to the workspace node. The tree is a no-op
-  // on the fs workspace.
+  // mandate).
   await seedJanitorWorkflows(workspace);
-  await seedJanitorConcepts(workspace);
+  // Concept files — graph DATA, reconciled per node by a source stamp the way
+  // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
+  // reads about this deployment), and under it `Janitor`, a kind. No
+  // mandate ships: those are each workspace's. A no-op on the fs workspace.
+  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS]);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one
@@ -218,6 +221,7 @@ export async function createLabStrut(
   // index.ts derives from API_TOKEN when unset.
   const mothership = createMothership({ dataDir: workspacePath });
 
+  let lab: Parameters<typeof builderSystem>[0] | undefined;
   const strut = await createStrut<LabServices>({
     workspace,
     services,
@@ -228,6 +232,9 @@ export async function createLabStrut(
     // `x-api-token` call. Nothing off the Express bridge (smoke scripts,
     // tests calling `app.fetch`): no actor, so no owner stamp and direct keys.
     resolveActor: resolveLabActor,
+    // The builder's prompt gets the `Workflow Builder` Concept's page, read
+    // off the graph each turn (builder/system.ts). Nothing on the fs workspace.
+    chatSystem: () => (lab ? builderSystem(lab) : undefined),
     // A non-file workspace would otherwise default the run/chat/secret
     // stores to memory — pin them to disk so history survives restarts.
     ...(graphBacked
@@ -243,6 +250,7 @@ export async function createLabStrut(
   // behind strut's requireApiKey) and the workspace the hook reads run caps
   // from. Once, after createStrut.
   mothership.mount(strut);
+  lab = strut;
 
   // Inject the run-sub-workflows capability now that the instance exists.
   // CRITICAL: mutate `strut.services` — the EFFECTIVE bag createStrut built by

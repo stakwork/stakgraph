@@ -15,6 +15,8 @@ Rate a finding high when the residue would mislead a reader (fake precedent,
 a grading rule stated as doctrine), medium when it is a stray reference, low
 when it is cosmetic.
 
-Secondary, only when you see them while walking: near-duplicate Concepts,
-orphans with no edges, and nodes whose parent is plainly wrong for their
-content.
+Label such a finding `overfit`.
+
+Secondary, only when you see them while walking: near-duplicate Concepts
+(label `duplicate`), orphans with no edges (`orphan`), and nodes whose parent
+is plainly wrong for their content (`misparented`).
