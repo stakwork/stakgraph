@@ -95,8 +95,8 @@ export function gatewayUrlFor(provider: Provider, baseUrl: string): string {
 
 /**
  * Like {@link gatewayUrlFor} but takes a model name (shortcut like
- * `"sonnet"`, namespaced like `"anthropic/claude-sonnet-5"`, or a full
- * model id like `"claude-sonnet-5"`) and resolves the provider for you.
+ * `"sonnet"`, namespaced like `"anthropic/claude-sonnet-5-5"`, or a full
+ * model id like `"claude-sonnet-5-5"`) and resolves the provider for you.
  *
  * Convenient for spawners that have a model name in hand but not a
  * provider — e.g. Hive picking up a user's chosen model and needing to
@@ -153,7 +153,7 @@ type ModelId = string;
 
 export const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   anthropic: {
-    sonnet: "claude-sonnet-5",
+    sonnet: "claude-sonnet-5-5",
     opus: "claude-opus-5-5",
     haiku: "claude-haiku-4-5",
   },
@@ -245,6 +245,7 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
     case "grok":
       return "xai";
     // Full model IDs
+    case "claude-sonnet-5-5":
     case "claude-sonnet-5":
     case "claude-opus-5-5":
     case "claude-opus-5":
@@ -778,6 +779,7 @@ export function getModel(
 // For models not listed here, falls back to provider default.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // Anthropic — 1M is the default and the max on the 5-series; Haiku 4.5 is 200k.
+  "claude-sonnet-5-5": 1_000_000,
   "claude-sonnet-5": 1_000_000,
   "claude-opus-5-5": 1_000_000,
   "claude-opus-5": 1_000_000,
@@ -797,7 +799,9 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // OpenRouter — values from the OpenRouter model catalog
   // (https://openrouter.ai/api/v1/models, context_length).
   "stealth/ox-alpha": 1_048_576,
+  "anthropic/claude-opus-5.5": 1_000_000,
   "anthropic/claude-opus-5": 1_000_000,
+  "anthropic/claude-sonnet-5.5": 1_000_000,
   "anthropic/claude-sonnet-5": 1_000_000,
   "openai/gpt-5": 400_000,
   "openai/gpt-5.5": 1_050_000,
@@ -946,12 +950,21 @@ function anthropicSupportsAdaptiveThinking(modelName?: string): boolean {
   return major >= 5 || (major === 4 && minor >= 6);
 }
 
-// Anthropic models where thinking cannot be turned off (Opus 5.5, the Fable
-// line): `{ type: "disabled" }` is rejected with a 400 at every effort level.
+// Anthropic models where thinking cannot be turned off (Opus 5.5, Sonnet 5.5,
+// the Fable line): `{ type: "disabled" }` is rejected with a 400 at every
+// effort level.
 function anthropicRejectsDisabledThinking(modelName?: string): boolean {
   if (!modelName) return false;
   const m = modelName.toLowerCase();
-  return m.includes("opus-5-5") || m.includes("fable");
+  return m.includes("opus-5-5") || m.includes("sonnet-5-5") || m.includes("fable");
+}
+
+// The model id getModel() builds for this name: no name is the provider
+// default, an alias ("sonnet") maps through MODELS. The thinking rules above
+// are per model id, so they must see what is actually called.
+function anthropicModelId(modelName?: string): string {
+  if (!modelName) return DEFAULT_MODELS.anthropic;
+  return MODELS.anthropic[modelName as ModelName] ?? modelName;
 }
 
 export function getProviderOptions(
@@ -966,6 +979,7 @@ export function getProviderOptions(
   const googleBudget = fast ? 0 : 24000;
   switch (provider) {
     case "anthropic":
+      modelName = anthropicModelId(modelName);
       let thinking: AnthropicProviderOptions["thinking"];
       if (fast && anthropicRejectsDisabledThinking(modelName)) {
         // Thinking is always on here: `disabled` is a 400, effort is the only dial.
@@ -980,7 +994,7 @@ export function getProviderOptions(
         // Fast means no thinking, on every model that still allows it (Opus 5,
         // Sonnet 5, the 4.x line, Haiku). Only the models that reject
         // `disabled` outright take the effort-only branch above, which is why
-        // every fast call site passes its model name.
+        // every fast call site that picked its own model passes its name.
         thinking = { type: "disabled" };
         return {
           anthropic: {
