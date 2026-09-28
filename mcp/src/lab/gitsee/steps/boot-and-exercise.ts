@@ -1,5 +1,5 @@
-import { z, defineStep, usageFromResult, addUsage } from "strut";
-import { costOf } from "../../cost.js";
+import { z, defineStep, usageFromResult, addUsage, usageForCost, type TokenUsage } from "strut";
+import type { Provider } from "aieo";
 import { spawn } from "node:child_process";
 import {
   writeFileSync,
@@ -679,7 +679,16 @@ ${logs ? logs.slice(-6000) : "(none)"}`,
   });
   const usage = usageFromResult(rawUsage);
   const o = object as { working: boolean; reason: string };
-  return { working: o.working, reason: o.reason, usage, cost: costOf("anthropic", usage) };
+  return { working: o.working, reason: o.reason, usage, cost: await costOf("anthropic", usage) };
+}
+
+/** Dollar cost of an LLM call at aieo's rates — the same calc strut's own
+ *  `llm` / `agent` steps use. Inlined rather than imported from
+ *  `src/lab/cost.ts`: a seeded step is loaded from the workspace, where a
+ *  relative import into mcp's source tree doesn't resolve. */
+async function costOf(provider: string, usage: TokenUsage): Promise<number> {
+  const { computeSessionCost } = await import("aieo");
+  return computeSessionCost(provider as Provider, usageForCost(usage));
 }
 
 // ── step ──────────────────────────────────────────────────────────────────────
@@ -1062,7 +1071,7 @@ Rules:
       const res = await agent.generate({ prompt });
       steps = (res.steps ?? []).length;
       usage = usageFromResult(res.totalUsage ?? res.usage);
-      cost = costOf(provider, usage);
+      cost = await costOf(provider, usage);
 
       // Extract the final_answer text (else salvage the last reasoning text).
       const allSteps = res.steps ?? [];
@@ -1094,7 +1103,7 @@ Rules:
           report = (forced.text ?? "").trim();
           const fu = usageFromResult(forced.totalUsage ?? forced.usage);
           usage = addUsage(usage, fu);
-          cost += costOf(provider, fu);
+          cost += await costOf(provider, fu);
         } catch {
           report = lastText || "(agent produced no final report)";
         }
