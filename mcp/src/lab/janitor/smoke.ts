@@ -36,7 +36,7 @@ import { seedConcepts } from "../concept-seed.js";
 
 const WORKFLOW = "graph-janitor";
 const MANDATE = "Overfit Concept Janitor";
-const SEEDED = ["Janitor", MANDATE];
+const SEEDED = ["Workflow Builder", "Janitor", MANDATE];
 const GRANTED = ["graph/graph-search", "graph/graph-get", "graph/graph-get-batched", "graph/graph-neighbors", "graph/walk", "graph/get-ontology", "graph/get-ontology-type"];
 
 interface Planted {
