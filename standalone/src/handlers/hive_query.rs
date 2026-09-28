@@ -36,6 +36,14 @@ static WRITE_PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         .collect()
 });
 
+/// Longest query `POST /api/hive/query` accepts, in bytes. Sized for a read that names
+/// its nodes by id — a list of a thousand `ref_id`s is ~40 KB — not for prose.
+pub const MAX_QUERY_LEN: usize = 65_536;
+
+/// Body limit for the route: a `MAX_QUERY_LEN` query whose every character JSON-escapes
+/// to two bytes, plus the envelope.
+pub const MAX_BODY_LEN: usize = 2 * MAX_QUERY_LEN + 1024;
+
 /// Strip single- and double-quoted string literals from a Cypher query so that keywords
 /// that appear inside quoted values (e.g. `n.creator = 'MERGE request author'`) do not
 /// cause false-positive denylist matches.
@@ -153,7 +161,7 @@ async fn execute_hive_query(body: HiveQueryBody, denylist_mode: DenylistMode) ->
     }
 
     // Per-query length limit.
-    if body.query.len() > 4096 {
+    if body.query.len() > MAX_QUERY_LEN {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "query too long"})),
@@ -394,16 +402,36 @@ mod tests {
         assert_eq!(lang.as_deref(), Some("cypher"));
     }
 
-    #[test]
-    fn test_query_too_long_rejected() {
-        let long_query = "A".repeat(4097);
-        assert!(long_query.len() > 4096);
+    async fn status_of(query: String) -> StatusCode {
+        let body = HiveQueryBody {
+            language: Some("cypher".to_string()),
+            query,
+            limit: None,
+        };
+        hive_query_handler(Json(body)).await.status()
+    }
+
+    #[tokio::test]
+    async fn test_query_too_long_rejected() {
+        // Rejected on length alone, before the denylist or any connection.
+        assert_eq!(
+            status_of("A".repeat(MAX_QUERY_LEN + 1)).await,
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[tokio::test]
+    async fn test_query_at_limit_passes_the_length_check() {
+        // A write keyword makes the denylist answer (403) — reached only past the
+        // length check, and still before any connection.
+        let query = format!("CREATE {}", "A".repeat(MAX_QUERY_LEN - "CREATE ".len()));
+        assert_eq!(query.len(), MAX_QUERY_LEN);
+        assert_eq!(status_of(query).await, StatusCode::FORBIDDEN);
     }
 
     #[test]
-    fn test_query_at_limit_accepted() {
-        let ok_query = "A".repeat(4096);
-        assert!(ok_query.len() <= 4096);
+    fn test_body_limit_fits_a_fully_escaped_query() {
+        assert!(MAX_BODY_LEN > 2 * MAX_QUERY_LEN);
     }
 
     // ── Read-mode transaction rejection (Error::ReadOnlyViolation → 403) ──────

@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
         .route(
             "/api/hive/query",
             post(hive_query_handler)
-                .layer(axum::extract::DefaultBodyLimit::max(16_384)),
+                .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_LEN)),
         )
         .merge(busy_routes)
         .merge(async_routes);
