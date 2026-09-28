@@ -751,8 +751,13 @@ One reading rule at every level: a Concept's `docs` are its page, its
   with. A file is one Concept: front matter `description` (one line) and
   optional `parent` (another Concept's name — a file of any set in the
   call, or a node already in the graph), body = `docs`. Written through
-  strut's graph node/edge writers at boot, `PARENT_OF` edges after every
-  node. `createLabStrut` seeds `[BUILDER_CONCEPTS, JANITOR_CONCEPTS]`.
+  strut's graph node/edge writers at boot, edges after every node.
+  `createLabStrut` seeds `[BUILDER_CONCEPTS, JANITOR_CONCEPTS]`.
+- **The seeded graph depends on the committed files ONLY**, never on what
+  was seeded before: two graphs seeded at different times end up the same.
+  Nodes and edges both, over the Concepts the seed OWNS (create / update /
+  keep). To own a seeded Concept's edges, take the Concept over: clear its
+  stamp.
 - Reconciled per NODE by a source stamp, the way `SEED_OPTS` reconciles
   versions: `unique_source_id = <prefix><file>@<sha256[0..12]>`. Unseen name
   → create; same stamp → keep (nothing written: a docs edit or a mute made
@@ -763,14 +768,18 @@ One reading rule at every level: a Concept's `docs` are its page, its
   clearing the stamp). A file that MOVES to another set changes its prefix
   and reads as someone else's — which is why `Janitor.md` stayed in
   `janitor/concepts` when it gained a parent.
-- A root (no `parent`) is a top-level process Concept of the workspace, so
-  it is ANCHORED the way hive anchors every workspace-level Concept it
-  creates (jarvis migration 111): `HiveWorkspace -PROCESS-> <root>`, to the
-  one workspace node hive's mirror writes into this graph. Only roots the
-  seed owns (create / update / keep) are anchored; no workspace node (a
-  standalone strut) or more than one → no edge, one log line. An anchor is
-  never removed: on a graph seeded before `Workflow Builder` existed,
-  `Janitor` keeps the anchor it got as a root.
+- `PARENT_OF`: each owned Concept's `parent` is merged (idempotent by edge
+  key). A `PARENT_OF` between two owned Concepts that no file declares is
+  REMOVED — a parent a file used to name, or one added by hand. An edge
+  with anyone else's Concept at either end is never touched: not removed,
+  and a Concept someone took over is not linked back under its old parent.
+- The ANCHOR: every owned Concept gets `HiveWorkspace -PROCESS-> <Concept>`
+  to the one workspace node hive's mirror writes into this graph — what
+  hive writes for every Concept a person approves (jarvis migration 111),
+  so its graph walker reaches a Concept from the workspace node. Nothing in
+  strut or the lab reads it. Whether a Concept has a parent does not
+  matter. No workspace node (a standalone strut) or more than one (never
+  guess) → no edge, one log line.
 - Needs the `Concept` schema (a jarvis-seeded swarm, or
   `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
   `unique_source_id`, warns and seeds nothing.
@@ -821,12 +830,16 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   committed tree, the builder's section) and the engine offline (real
   if/pack/exec/artifacts-dir over the seeded YAML, fake `graph/graph-get` +
   agent: the three reads by key, the guard, what the agent is handed) in
-  `test:node`; live suites (the seeder's reconcile + anchor + a parent from
-  another set; the committed tree, the builder's section and the engine
+  `test:node`; live suites (the seeder: reconcile, the anchor on every
+  owned Concept, `PARENT_OF` following the files, someone else's Concepts
+  left alone; then the committed tree, the builder's section and the engine
   over the REAL graph steps with a fake agent) run when
   `STRUT_TEST_NEO4J_URI` points at a throwaway Neo4j. Nothing else may use
   that database while they run: strut's `test:graph` wipes it, and two
-  suites at once fail with deadlocks and missing nodes. The live smoke
+  suites at once fail with deadlocks and missing nodes. The first run right
+  after a wipe can also fail in strut's boot ("insanely frequent schema
+  changes": Neo4j is still dropping the wiped indexes) — run it again. The
+  live smoke
   (`src/lab/janitor/smoke.ts`: a REAL model through `createStrut` over a
   planted `Law` subtree — two overfit Concepts, three clean — asserting
   both are flagged `overfit`, the clean doctrine is not, `visited` is

@@ -25,18 +25,25 @@ import { composeNodeKey, type GraphBackend, type WorkspaceStore } from "strut";
  *     `is_muted` and every other attribute survive);
  *   - no stamp, or someone else's → skip, never touched: a Concept a person
  *     made under that name, or took over by clearing the stamp, is theirs.
- * `PARENT_OF` edges are merged after the nodes (idempotent by edge key), so
- * a file may name a parent from another set. A file that moves between sets
- * changes its prefix and reads as someone else's: keep files where they are.
+ * A file that moves between sets changes its prefix and reads as someone
+ * else's: keep files where they are.
  *
- * A root (a file with no `parent`) is a top-level process Concept of the
- * workspace, so it is ANCHORED the way hive anchors every workspace-level
- * Concept it creates (jarvis migration 111): `HiveWorkspace -PROCESS->
- * <root>`, to the one workspace node hive's mirror writes into this graph.
- * No workspace node (a standalone strut), or more than one (never guess): no
- * edge, one log line. Only seeded roots we own are anchored (create /
- * update / keep). An anchor is never removed: a Concept that gained a
- * parent after it was seeded as a root keeps the edge it has.
+ * The seeded graph depends on the committed files ONLY, never on what was
+ * seeded before — two graphs seeded at different times end up the same.
+ * That holds for the edges as for the nodes, over the Concepts the seed OWNS
+ * (create / update / keep):
+ *   - `PARENT_OF`: each owned Concept's `parent` is merged after the nodes
+ *     (idempotent by edge key), so a parent may come from another set. A
+ *     `PARENT_OF` between two owned Concepts that no file declares is
+ *     REMOVED — a parent a file used to name, or one added by hand. An edge
+ *     with anyone else's Concept at either end is never touched.
+ *   - the anchor: EVERY owned Concept is anchored the way hive anchors every
+ *     Concept it creates (jarvis migration 111), `HiveWorkspace -PROCESS->
+ *     <Concept>`, to the one workspace node hive's mirror writes into this
+ *     graph. Whether a Concept has a parent does not matter, so gaining one
+ *     changes nothing. No workspace node (a standalone strut), or more than
+ *     one (never guess): no edge, one log line.
+ * To own a seeded Concept's edges, take the Concept over: clear its stamp.
  *
  * Skipped, with one log line, on a filesystem workspace: no graph.
  */
@@ -111,7 +118,7 @@ export function planConceptSeed(existing: ExistingConcept | null, stamp: string)
 export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]): Promise<void> {
   const graph = workspace.graph;
   if (!graph) {
-    console.log("[concepts] filesystem workspace: Concept files not seeded (no graph)");
+    console.log("[concept-seed] filesystem workspace: Concept files not seeded (no graph)");
     return;
   }
   const refs = new Map<string, string>(); // every node under a seeded name, for parenting
@@ -122,7 +129,7 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
     try {
       files = (await readdir(dir)).filter((f) => f.endsWith(".md")).sort();
     } catch (err) {
-      console.warn(`[concepts] could not read ${dir}:`, err instanceof Error ? err.message : err);
+      console.warn(`[concept-seed] could not read ${dir}:`, err instanceof Error ? err.message : err);
       continue;
     }
     for (const file of files) {
@@ -147,43 +154,65 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
         });
         refs.set(c.name, r.ref_id);
         owned.add(c.name);
-        console.log(`[concepts] ${action === "create" ? "seeded" : "updated"} Concept: ${c.name} (${r.outcome})`);
+        console.log(`[concept-seed] ${action === "create" ? "seeded" : "updated"} Concept: ${c.name} (${r.outcome})`);
       } catch (err) {
-        console.warn(`[concepts] could not seed Concept from "${file}":`, err instanceof Error ? err.message : err);
+        console.warn(`[concept-seed] could not seed Concept from "${file}":`, err instanceof Error ? err.message : err);
       }
     }
   }
+  const declared = new Set<string>(); // `<parent ref_id>><child ref_id>`, as the files have it
   for (const c of parsed) {
-    if (!c.parent) continue;
+    if (!c.parent || !owned.has(c.name)) continue;
     try {
       const child = refs.get(c.name);
       const parent = refs.get(c.parent) ?? (await findConcept(graph, c.parent))?.ref_id;
       if (!child || !parent) {
-        console.warn(`[concepts] no Concept "${c.parent}" to parent "${c.name}" under`);
+        console.warn(`[concept-seed] no Concept "${c.parent}" to parent "${c.name}" under`);
         continue;
       }
+      declared.add(`${parent}>${child}`); // before the write: a failed write must not read as "undeclared"
       const e = await graph.edges.write({ edge: "PARENT_OF", source_ref_id: parent, target_ref_id: child });
-      if (e.created) console.log(`[concepts] linked ${c.parent} -PARENT_OF-> ${c.name}`);
+      if (e.created) console.log(`[concept-seed] linked ${c.parent} -PARENT_OF-> ${c.name}`);
     } catch (err) {
-      console.warn(`[concepts] could not parent "${c.name}" under "${c.parent}":`, err instanceof Error ? err.message : err);
+      console.warn(`[concept-seed] could not parent "${c.name}" under "${c.parent}":`, err instanceof Error ? err.message : err);
     }
   }
-  const roots = parsed.filter((c) => !c.parent && owned.has(c.name));
-  if (!roots.length) return;
+  const ours = parsed.filter((c) => owned.has(c.name));
+  if (!ours.length) return;
+  // Between two Concepts we own, the files are the whole truth.
+  try {
+    const ids = ours.map((c) => refs.get(c.name)!);
+    const rows = await graph.bolt.run(
+      `MATCH (p:Data_Bank)-[e:PARENT_OF]->(c:Data_Bank)
+       WHERE p.ref_id IN $ids AND c.ref_id IN $ids
+       RETURN p.ref_id AS parent, c.ref_id AS child, p.name AS parent_name, c.name AS child_name`,
+      { ids },
+    );
+    for (const r of rows) {
+      if (declared.has(`${r.parent}>${r.child}`)) continue;
+      await graph.bolt.run(`MATCH (p:Data_Bank {ref_id: $parent})-[e:PARENT_OF]->(c:Data_Bank {ref_id: $child}) DELETE e`, {
+        parent: r.parent,
+        child: r.child,
+      });
+      console.log(`[concept-seed] unlinked ${r.parent_name} -PARENT_OF-> ${r.child_name} (no file declares it)`);
+    }
+  } catch (err) {
+    console.warn("[concept-seed] could not reconcile PARENT_OF edges:", err instanceof Error ? err.message : err);
+  }
   let ws: { ref_id: string; label: string } | null;
   try {
     ws = await findWorkspace(graph);
   } catch (err) {
-    console.warn(`[concepts] could not look up the ${WORKSPACE_TYPE} node:`, err instanceof Error ? err.message : err);
+    console.warn(`[concept-seed] could not look up the ${WORKSPACE_TYPE} node:`, err instanceof Error ? err.message : err);
     return;
   }
   if (!ws) return;
-  for (const c of roots) {
+  for (const c of ours) {
     try {
       const e = await graph.edges.write({ edge: ANCHOR_EDGE, source_ref_id: ws.ref_id, target_ref_id: refs.get(c.name)! });
-      if (e.created) console.log(`[concepts] anchored ${ws.label} -${ANCHOR_EDGE}-> ${c.name}`);
+      if (e.created) console.log(`[concept-seed] anchored ${ws.label} -${ANCHOR_EDGE}-> ${c.name}`);
     } catch (err) {
-      console.warn(`[concepts] could not anchor "${c.name}" to ${ws.label}:`, err instanceof Error ? err.message : err);
+      console.warn(`[concept-seed] could not anchor "${c.name}" to ${ws.label}:`, err instanceof Error ? err.message : err);
     }
   }
 }
@@ -208,7 +237,7 @@ async function findConcept(graph: GraphBackend, name: string): Promise<ExistingC
 async function findWorkspace(graph: GraphBackend): Promise<{ ref_id: string; label: string } | null> {
   const schema = await graph.nodes.resolver.schema(WORKSPACE_TYPE);
   if (!schema) {
-    console.log(`[concepts] no ${WORKSPACE_TYPE} schema in the graph: roots not anchored`);
+    console.log(`[concept-seed] no ${WORKSPACE_TYPE} schema in the graph: Concepts not anchored`);
     return null;
   }
   const rows = await graph.bolt.run(
@@ -219,11 +248,11 @@ async function findWorkspace(graph: GraphBackend): Promise<{ ref_id: string; lab
     { ns: graph.cfg.namespace },
   );
   if (rows.length === 0) {
-    console.log(`[concepts] no ${WORKSPACE_TYPE} node in the graph (standalone strut?): roots not anchored`);
+    console.log(`[concept-seed] no ${WORKSPACE_TYPE} node in the graph (standalone strut?): Concepts not anchored`);
     return null;
   }
   if (rows.length > 1) {
-    console.warn(`[concepts] more than one ${WORKSPACE_TYPE} node in namespace "${graph.cfg.namespace}": roots not anchored`);
+    console.warn(`[concept-seed] more than one ${WORKSPACE_TYPE} node in namespace "${graph.cfg.namespace}": Concepts not anchored`);
     return null;
   }
   return { ref_id: String(rows[0]!.ref_id), label: String(rows[0]!.label) };

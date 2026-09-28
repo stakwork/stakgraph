@@ -89,6 +89,8 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
   const tag = `T${Date.now().toString(36)}`;
   const root = `Janitor ${tag}`;
   const kid = `Kid ${tag}`;
+  const leaf = `Leaf ${tag}`;
+  const late = `Late ${tag}`;
   let ws: import("strut").WorkspaceStore;
   let dir: string;
   let dataDir: string;
@@ -106,11 +108,12 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     const rows = await g.bolt.run(`MATCH (w:HiveWorkspace)-[e:PROCESS]->(c:Concept {name: $c}) RETURN count(e) AS n`, { c: name });
     return Number(rows[0]?.n ?? 0);
   };
-  const parentEdges = async () => {
+  const edge = async (p: string, c: string) => {
     const g = ws.graph!;
-    const rows = await g.bolt.run(`MATCH (p:Concept {name: $p})-[e:PARENT_OF]->(c:Concept {name: $c}) RETURN count(e) AS n`, { p: root, c: kid });
+    const rows = await g.bolt.run(`MATCH (p:Concept {name: $p})-[e:PARENT_OF]->(c:Concept {name: $c}) RETURN count(e) AS n`, { p, c });
     return Number(rows[0]?.n ?? 0);
   };
+  const parentEdges = () => edge(root, kid);
   before(async () => {
     const { graphWorkspaceFromEnv } = await import("strut");
     dataDir = await mkdtemp(join(tmpdir(), "janitor-seed-data-"));
@@ -133,7 +136,7 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
   after(async () => {
     const g = ws?.graph;
     if (g) {
-      await g.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: [root, kid] });
+      await g.bolt.run(`MATCH (n:Concept) WHERE n.name ENDS WITH $tag DETACH DELETE n`, { tag: ` ${tag}` });
       await g.bolt.run(`MATCH (w:HiveWorkspace) WHERE w.workspace_id STARTS WITH $id DETACH DELETE w`, { id: wsId });
       await closeGraphBackends();
     }
@@ -182,40 +185,76 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     assert.equal(k!.usid, null);
   });
 
-  it("anchors an owned root to the one HiveWorkspace node, idempotently; never a child; never with two", async () => {
+  it("anchors EVERY owned Concept to the one HiveWorkspace node, idempotently; never someone else's; never with two", async () => {
     const g = ws.graph!;
     await g.nodes.write({ type: "HiveWorkspace", data: { workspace_id: wsId, name: "T", slug: `t-${tag}` } }, "create", { namespace: g.cfg.namespace });
-    await seedConcepts(ws, [{ dir, prefix: P }]); // root is "keep" (unchanged file) → still anchored
+    await writeFile(join(dir, `${leaf}.md`), `---\ndescription: A leaf.\nparent: ${root}\n---\nLeaf docs.\n`);
+    await seedConcepts(ws, [{ dir, prefix: P }]); // root is "keep" (unchanged file) → anchored all the same
     assert.equal(await anchors(root), 1);
-    assert.equal(await anchors(kid), 0);
+    assert.equal(await anchors(leaf), 1, "a parent does not matter");
+    assert.equal(await anchors(kid), 0, "it lost its stamp: theirs");
     await seedConcepts(ws, [{ dir, prefix: P }]);
     assert.equal(await anchors(root), 1);
+    assert.equal(await anchors(leaf), 1);
 
     await g.nodes.write({ type: "HiveWorkspace", data: { workspace_id: `${wsId}-2`, name: "T2" } }, "create", { namespace: g.cfg.namespace });
     await writeFile(join(dir, `${root}.md`), "---\ndescription: The root, v2.\n---\nRoot docs v2.\n");
-    await seedConcepts(ws, [{ dir, prefix: P }]); // updated, but two workspace nodes → no guess
+    await writeFile(join(dir, `${late}.md`), "---\ndescription: Seeded late.\n---\nLate docs.\n");
+    await seedConcepts(ws, [{ dir, prefix: P }]); // two workspace nodes → no guess
     assert.equal((await node(root))!.description, "The root, v2.");
-    assert.equal(await anchors(root), 1);
+    assert.equal(await anchors(late), 0);
+    assert.equal(await anchors(root), 1, "what is there stays");
+    await g.bolt.run(`MATCH (w:HiveWorkspace {workspace_id: $id}) DETACH DELETE w`, { id: `${wsId}-2` });
   });
 
-  it("a parent may come from another set; a root that gains a parent keeps the anchor it has", async () => {
+  // The seeded graph follows the files, not what was seeded before.
+  it("PARENT_OF follows the files: a root gains a parent (from another set), a parent changes, a hand-made edge goes", async () => {
+    const g = ws.graph!;
     const top = `Top ${tag}`;
     const other = await mkdtemp(join(tmpdir(), "concept-seed-other-"));
+    const sets = [{ dir, prefix: P }, { dir: other, prefix: "lab/other/concepts/" }]; // the child's set first: order is free
     try {
+      assert.equal(await edge(root, leaf), 1);
       await writeFile(join(other, `${top}.md`), "---\ndescription: Above the root.\n---\nTop docs.\n");
       await writeFile(join(dir, `${root}.md`), `---\ndescription: The root, v3.\nparent: ${top}\n---\nRoot docs v3.\n`);
-      // The child's set first: edges are written after every node, so order is free.
-      await seedConcepts(ws, [{ dir, prefix: P }, { dir: other, prefix: "lab/other/concepts/" }]);
-      const g = ws.graph!;
-      const rows = await g.bolt.run(`MATCH (p:Concept {name: $p})-[e:PARENT_OF]->(c:Concept {name: $c}) RETURN count(e) AS n`, { p: top, c: root });
-      assert.equal(Number(rows[0]?.n ?? 0), 1);
+      await seedConcepts(ws, sets);
       assert.match(String((await node(top))!.usid), /^lab\/other\/concepts\//);
-      assert.equal((await node(root))!.description, "The root, v3.");
-      assert.equal(await anchors(root), 1);
+      assert.equal(await edge(top, root), 1, "a root that gains a parent");
+      assert.equal(await edge(root, leaf), 1, "still declared");
+      // Anchored like every owned Concept — as on a graph where it was seeded with its parent from the start.
+      assert.deepEqual([await anchors(top), await anchors(root), await anchors(leaf), await anchors(late)], [1, 1, 1, 1]);
+
+      await writeFile(join(dir, `${leaf}.md`), `---\ndescription: A leaf.\nparent: ${top}\n---\nLeaf docs.\n`);
+      await g.edges.write({ edge: "PARENT_OF", source_ref_id: (await node(leaf))!.ref_id as string, target_ref_id: (await node(late))!.ref_id as string });
+      assert.equal(await edge(leaf, late), 1);
+      await seedConcepts(ws, sets);
+      assert.equal(await edge(top, leaf), 1, "the parent the file names now");
+      assert.equal(await edge(root, leaf), 0, "the parent it used to name");
+      assert.equal(await edge(leaf, late), 0, "between two owned Concepts, no file declares it");
+      assert.equal(await edge(top, root), 1);
+
+      await seedConcepts(ws, sets);
+      assert.deepEqual([await edge(top, leaf), await edge(top, root), await edge(root, leaf), await edge(leaf, late)], [1, 1, 0, 0], "a fixed point");
     } finally {
-      await ws.graph!.bolt.run(`MATCH (n:Concept {name: $name}) DETACH DELETE n`, { name: top });
       await rm(other, { recursive: true, force: true });
     }
+  });
+
+  it("an edge with someone else's Concept at either end is never touched: not removed, not written", async () => {
+    const g = ws.graph!;
+    const theirs = `Theirs ${tag}`;
+    const ref = async (name: string) => (await node(name))!.ref_id as string;
+    await g.nodes.write({ type: "Concept", data: { name: theirs, description: "A person's Concept." } }, "create", { namespace: g.cfg.namespace });
+    // Their Concept above one of ours, by hand; and the kid they took over, still under our root.
+    await g.edges.write({ edge: "PARENT_OF", source_ref_id: await ref(theirs), target_ref_id: await ref(late) });
+    assert.equal(await edge(root, kid), 1);
+    await seedConcepts(ws, [{ dir, prefix: P }]);
+    assert.equal(await edge(theirs, late), 1);
+    assert.equal(await edge(root, kid), 1);
+    // They detach it: the kid's file still names the root, but the kid is theirs — the seed does not link it back.
+    await g.bolt.run(`MATCH (:Concept {name: $p})-[e:PARENT_OF]->(:Concept {name: $c}) DELETE e`, { p: root, c: kid });
+    await seedConcepts(ws, [{ dir, prefix: P }]);
+    assert.equal(await edge(root, kid), 0);
   });
 });
 
