@@ -233,7 +233,9 @@ export async function createLabStrut(
     // tests calling `app.fetch`): no actor, so no owner stamp and direct keys.
     resolveActor: resolveLabActor,
     // The builder's prompt gets the `Workflow Builder` Concept's page, read
-    // off the graph each turn (builder/system.ts). Nothing on the fs workspace.
+    // off the graph when a chat's first turn builds its prompt — strut then
+    // freezes the prompt for that chat (builder/system.ts). Nothing on the fs
+    // workspace.
     chatSystem: () => (lab ? builderSystem(lab) : undefined),
     // A non-file workspace would otherwise default the run/chat/secret
     // stores to memory — pin them to disk so history survives restarts.

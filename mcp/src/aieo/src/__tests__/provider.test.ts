@@ -67,14 +67,44 @@ const tests: TestCase[] = [
     },
   },
   {
-    label: 'thinkingSpeed:"fast" + no modelName → type:"disabled" (callers pass the model so the reject branch can fire)',
+    label: 'thinkingSpeed:"fast" + sonnet 5 → type:"disabled" (the last Sonnet that allows it)',
     provider: "anthropic",
     thinkingSpeed: "fast",
-    modelName: undefined,
+    modelName: "claude-sonnet-5",
     assert(result) {
       const opts = (result as any).anthropic;
       if (opts.thinking?.type !== "disabled")
         throw new Error(`Expected type:"disabled", got "${opts.thinking?.type}"`);
+      if ("effort" in opts) throw new Error(`effort should not be present on the fast path`);
+    },
+  },
+  // Sonnet 5.5 rejects `disabled`, and it is what no name and "sonnet" resolve to.
+  ...(["claude-sonnet-5-5", "anthropic/claude-sonnet-5-5", "sonnet", undefined] as const).map(
+    (modelName): TestCase => ({
+      label: `thinkingSpeed:"fast" + ${modelName ?? "no modelName (the default)"} → no thinking param, effort:"low" (disabled is a 400)`,
+      provider: "anthropic",
+      thinkingSpeed: "fast",
+      modelName,
+      assert(result) {
+        const opts = (result as any).anthropic;
+        if ("thinking" in opts)
+          throw new Error(`thinking should be omitted, got ${JSON.stringify(opts.thinking)}`);
+        if (opts.effort !== "low")
+          throw new Error(`Expected effort:"low", got "${opts.effort}"`);
+      },
+    }),
+  ),
+  {
+    label: 'thinkingSpeed:"fast" + "opus" → no thinking param, effort:"low" (the alias is Opus 5.5)',
+    provider: "anthropic",
+    thinkingSpeed: "fast",
+    modelName: "opus",
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if ("thinking" in opts)
+        throw new Error(`thinking should be omitted, got ${JSON.stringify(opts.thinking)}`);
+      if (opts.effort !== "low")
+        throw new Error(`Expected effort:"low", got "${opts.effort}"`);
     },
   },
   {
@@ -149,18 +179,27 @@ const tests: TestCase[] = [
     },
   },
   {
-    label: 'thinkingSpeed:"thinking" + no modelName → type:"enabled" (unknown model, non-adaptive path)',
+    label: 'thinkingSpeed:"thinking" + no modelName → type:"adaptive", effort:"high" (no name is the default model)',
     provider: "anthropic",
     thinkingSpeed: "thinking",
     modelName: undefined,
     assert(result) {
       const opts = (result as any).anthropic;
-      // No modelName → anthropicSupportsAdaptiveThinking returns false
-      // → falls to legacy path: explicitThinking=true → type:"enabled"
-      if (opts.thinking.type !== "enabled")
-        throw new Error(`Expected type:"enabled" for explicit thinking with unknown model, got "${opts.thinking.type}"`);
-      if (opts.thinking.budgetTokens !== 24000)
-        throw new Error(`Expected budgetTokens:24000`);
+      if (opts.thinking?.type !== "adaptive")
+        throw new Error(`Expected type:"adaptive", got "${opts.thinking?.type}"`);
+      if (opts.effort !== "high")
+        throw new Error(`Expected effort:"high", got "${opts.effort}"`);
+    },
+  },
+  {
+    label: 'thinkingSpeed:undefined + no modelName → type:"adaptive" (never "disabled": the default rejects it)',
+    provider: "anthropic",
+    thinkingSpeed: undefined,
+    modelName: undefined,
+    assert(result) {
+      const opts = (result as any).anthropic;
+      if (opts.thinking?.type !== "adaptive")
+        throw new Error(`Expected type:"adaptive", got "${opts.thinking?.type}"`);
     },
   },
 ];
