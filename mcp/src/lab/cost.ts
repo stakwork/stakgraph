@@ -10,6 +10,10 @@
  * `computeCost` did). Pass `modelId` for per-model OpenRouter rates once
  * `loadModelPricing()` has run; otherwise the provider default applies.
  */
+// NOT importable from a SEEDED step (src/lab/*/steps/*.ts): those files are
+// published verbatim into the workspace's step dir, where `../../cost.js` does
+// not exist and the step silently fails to load. Seeded steps inline this
+// helper against the `aieo` package instead (see seed-imports.test.ts).
 import { computeSessionCost, PROVIDERS, type Provider } from "../aieo/src/provider.js";
 import type { TokenUsage } from "strut";
 
