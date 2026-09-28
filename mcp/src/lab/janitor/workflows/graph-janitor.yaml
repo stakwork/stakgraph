@@ -15,7 +15,7 @@ input:
     description: name of a child of the Janitor Concept — its docs are this run's mandate
   start:
     type: string
-    description: name of the Concept whose subtree to sweep, e.g. Law
+    description: name of the Concept whose subtree to sweep
 params:
   # The Concept a mandate must hang under.
   parent: Janitor

@@ -12,7 +12,7 @@ mandate as data.
 
 To run a janitor, schedule the `graph-janitor` workflow with an automation
 whose input names the mandate and where to sweep:
-`{ concept: "<child of Janitor>", start: "<Concept whose subtree to sweep, e.g. Law>" }`.
+`{ concept: "<child of Janitor>", start: "<Concept whose subtree to sweep>" }`.
 One automation per janitor: its schedule is the janitor's schedule, and its
 enabled switch turns the janitor off. A run proposes cleanups; it never
 applies them.

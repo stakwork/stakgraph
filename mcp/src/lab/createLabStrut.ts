@@ -205,8 +205,8 @@ export async function createLabStrut(
   await seedJanitorWorkflows(workspace);
   // Concept files — graph DATA, reconciled per node by a source stamp the way
   // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
-  // reads about this deployment), and under it `Janitor` with its stock
-  // mandates. A no-op on the fs workspace.
+  // reads about this deployment), and under it `Janitor`, a kind. No
+  // mandate ships: those are each workspace's. A no-op on the fs workspace.
   await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS]);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's

@@ -45,6 +45,16 @@ import { composeNodeKey, type GraphBackend, type WorkspaceStore } from "strut";
  *     one (never guess): no edge, one log line.
  * To own a seeded Concept's edges, take the Concept over: clear its stamp.
  *
+ * RETIRED files. Deleting a file from git removes nothing from a graph it
+ * was seeded into, so a set lists the files it USED to ship (`retired`): a
+ * node under that name that still carries that file's stamp is soft-deleted
+ * (`is_deleted`, as jarvis does it — hidden from every read, its edges
+ * kept). One whose stamp was cleared or replaced is someone's: left alone.
+ *
+ * What ships here is seeded into EVERY workspace. A Concept that only makes
+ * sense for one kind of workspace (a mandate about evals, a legal topic) is
+ * that workspace's to add, never a file here.
+ *
  * Skipped, with one log line, on a filesystem workspace: no graph.
  */
 const TYPE = "Concept";
@@ -55,6 +65,8 @@ export interface ConceptSet {
   dir: string;
   /** What `unique_source_id` starts with, e.g. `lab/janitor/concepts/`. */
   prefix: string;
+  /** Files this set used to ship (`<Name>.md`): their nodes are retired. */
+  retired?: string[];
 }
 
 export interface ConceptFile {
@@ -157,6 +169,20 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
         console.log(`[concept-seed] ${action === "create" ? "seeded" : "updated"} Concept: ${c.name} (${r.outcome})`);
       } catch (err) {
         console.warn(`[concept-seed] could not seed Concept from "${file}":`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  for (const { prefix, retired } of sets) {
+    for (const file of retired ?? []) {
+      const name = file.replace(/\.md$/i, "");
+      try {
+        const existing = await findConcept(graph, name);
+        const usid = existing?.unique_source_id;
+        if (!existing || existing.is_deleted || typeof usid !== "string" || !usid.startsWith(`${prefix}${file}@`)) continue;
+        await graph.bolt.run(`MATCH (n:Data_Bank {ref_id: $ref_id}) SET n.is_deleted = true`, { ref_id: existing.ref_id });
+        console.log(`[concept-seed] retired Concept: ${name}`);
+      } catch (err) {
+        console.warn(`[concept-seed] could not retire Concept "${name}":`, err instanceof Error ? err.message : err);
       }
     }
   }

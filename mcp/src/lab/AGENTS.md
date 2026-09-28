@@ -723,8 +723,14 @@ and the lab hands the builder its first page:
 ```
 Workflow Builder            what this workspace builds       (builder/concepts)
 └─ Janitor                  a kind: its convention           (janitor/concepts)
-   └─ Overfit Concept Janitor   an instance: a mandate       (janitor/concepts)
+   └─ <a mandate>           an instance                      (the workspace's own)
 ```
+
+**What ships here is seeded into EVERY workspace.** A Concept that only
+makes sense for one kind of workspace — a mandate about eval rubrics, a
+legal topic — is that workspace's to add (the builder, hive's Learn page),
+never a file in a seeded `concepts/` dir. `seed.test.ts` fails on a seeded
+file, or an engine description, that names such a domain.
 
 One reading rule at every level: a Concept's `docs` are its page, its
 `PARENT_OF` children (name + description) its table of contents.
@@ -773,6 +779,12 @@ One reading rule at every level: a Concept's `docs` are its page, its
   REMOVED — a parent a file used to name, or one added by hand. An edge
   with anyone else's Concept at either end is never touched: not removed,
   and a Concept someone took over is not linked back under its old parent.
+- RETIRED files: deleting a file from git removes nothing from a graph it
+  was seeded into, so a set lists the files it used to ship
+  (`retired: ["<Name>.md"]`). A node under that name that still carries
+  that file's stamp is soft-deleted (`is_deleted`: hidden from every read,
+  its edges kept); one whose stamp was cleared or replaced is someone's and
+  is left alone.
 - The ANCHOR: every owned Concept gets `HiveWorkspace -PROCESS-> <Concept>`
   to the one workspace node hive's mirror writes into this graph — what
   hive writes for every Concept a person approves (jarvis migration 111),
@@ -816,13 +828,17 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   duplicate | orphan | misparented | stale | other, problem, evidence
   (verbatim), suggestion, severity }`. The error codes ride on the second
   line of `error.message` (an `exec` that exits 1 with the code on stderr).
-- **The tree** (`concepts/<Name>.md`, seeded by `concept-seed.ts`):
+- **The tree** (`concepts/Janitor.md`, seeded by `concept-seed.ts`):
   `Janitor` (parent `Workflow Builder`), whose docs STATE THE CONVENTION —
   what a child is, how to run one, and the three steps to add one
   (`graph/create-node`, `graph/create-triplet` `PARENT_OF` from `Janitor`,
-  an automation) — and one stock mandate, `Overfit Concept Janitor`
-  (Concepts overfit to the rubric / eval / matter that spawned them; the
-  prod `graph-janitor-daily` focus, generalized).
+  an automation). NO MANDATE SHIPS: what counts as dirty is each
+  workspace's to say. `Overfit Concept Janitor` (Concepts overfit to the
+  rubric / eval that spawned them: one eval workspace's focus) shipped to
+  every workspace for a day; it is now `retired`, and lives on as
+  `fixtures/Overfit Concept Janitor.md`, which the tests and the smokes
+  plant themselves (`JANITOR_FIXTURES`; not under a `concepts` dir, so not
+  in the build).
 - The engine needs a model key (or a Mothership delegation for the
   automation's owner — automations run as the workflow's owner, so claim
   the workflow before scheduling).

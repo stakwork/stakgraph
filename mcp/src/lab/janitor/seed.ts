@@ -17,7 +17,8 @@ import type { ConceptSet } from "../concept-seed.js";
  * Builder` (../builder): a janitor is one of the things the builder builds,
  * and the builder learns the convention by reading `Janitor`'s docs.
  *
- * The stock tree is `concepts/<Name>.md`, seeded by ../concept-seed.ts.
+ * `concepts/Janitor.md` is seeded by ../concept-seed.ts. No mandate ships:
+ * what counts as dirty is each workspace's to say.
  *
  * The ENGINE is `workflows/graph-janitor.yaml`, seeded like the code
  * workflows (YAML only, every step strut's or artifacts/dir, unstamped,
@@ -27,7 +28,14 @@ import type { ConceptSet } from "../concept-seed.js";
  * workspace schedules its own.
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const JANITOR_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/janitor/concepts/" };
+export const JANITOR_CONCEPTS: ConceptSet = {
+  dir: join(HERE, "concepts"),
+  prefix: "lab/janitor/concepts/",
+  // A mandate about eval rubrics: one workspace's business, shipped to all of them by mistake.
+  retired: ["Overfit Concept Janitor.md"],
+};
+/** A mandate for the tests and the smokes to plant. NOT seeded at boot (and not in the build: no `concepts` dir). */
+export const JANITOR_FIXTURES: ConceptSet = { dir: join(HERE, "fixtures"), prefix: "lab/janitor/fixtures/" };
 const WORKFLOWS_DIR = join(HERE, "workflows");
 const CATEGORY = "graph-maintenance";
 

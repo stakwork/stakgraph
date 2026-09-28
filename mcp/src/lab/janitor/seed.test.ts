@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { WorkspaceManager, buildRegistry, closeGraphBackends, defineStep, fileAr
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { parseConceptFile, planConceptSeed, seedConcepts, stampOf } from "../concept-seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
-import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./seed.js";
+import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorWorkflows } from "./seed.js";
 
 const P = JANITOR_CONCEPTS.prefix;
 
@@ -38,9 +38,10 @@ describe("parseConceptFile", () => {
     assert.notEqual(stampOf("A.md", "a", P), stampOf("A.md", "a", BUILDER_CONCEPTS.prefix));
   });
 
-  it("the committed tree: Workflow Builder > Janitor > the stock mandate", async () => {
-    const read = (set: { dir: string; prefix: string }, file: string) =>
-      readFile(join(set.dir, file), "utf-8").then((text) => parseConceptFile(file, text, set.prefix));
+  const read = (set: { dir: string; prefix: string }, file: string) =>
+    readFile(join(set.dir, file), "utf-8").then((text) => parseConceptFile(file, text, set.prefix));
+
+  it("the committed tree: Workflow Builder > Janitor, and no mandate", async () => {
     const entry = await read(BUILDER_CONCEPTS, `${BUILDER_ENTRY}.md`);
     assert.equal(entry.name, "Workflow Builder");
     assert.equal(entry.parent, undefined);
@@ -56,9 +57,26 @@ describe("parseConceptFile", () => {
     assert.ok(c.docs!.startsWith(c.description!));
     // The convention lives in its docs: the engine, and the three steps to add one.
     for (const needle of [/graph-janitor/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /automation/]) assert.match(c.docs!, needle);
-    const kid = await read(JANITOR_CONCEPTS, "Overfit Concept Janitor.md");
-    assert.equal(kid.parent, "Janitor");
-    assert.match(kid.docs!, /GENERALIZED/);
+
+    // What counts as dirty is each workspace's to say: the seed ships the kind, never a mandate.
+    assert.deepEqual(await readdir(JANITOR_CONCEPTS.dir), ["Janitor.md"]);
+    assert.deepEqual(JANITOR_CONCEPTS.retired, ["Overfit Concept Janitor.md"]);
+    const fixture = await read(JANITOR_FIXTURES, "Overfit Concept Janitor.md");
+    assert.equal(fixture.parent, "Janitor");
+    assert.match(fixture.stamp, /^lab\/janitor\/fixtures\//, "a fixture never carries a seed's stamp");
+  });
+
+  it("what ships to every workspace says nothing about one workspace's domain", async () => {
+    const domain = /\b(law|legal|rubric|evals?|benchmark|exam|grading|overfit)\b/i;
+    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS]) {
+      for (const file of await readdir(set.dir)) {
+        const c = await read(set, file);
+        for (const text of [c.name, c.description ?? "", c.docs ?? ""]) assert.doesNotMatch(text, domain, `${file}`);
+      }
+    }
+    // The engine's own words, as the builder and the Run form show them.
+    const flow = (await import("js-yaml")).load(await readFile(join(JANITOR_CONCEPTS.dir, "..", "workflows", "graph-janitor.yaml"), "utf-8")) as any;
+    for (const text of [flow.description, flow.input.concept.description, flow.input.start.description]) assert.doesNotMatch(text, /\b(law|legal|rubric|evals?|benchmark|exam|grading)\b/i);
   });
 });
 
@@ -240,6 +258,27 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     }
   });
 
+  it("a retired file's node is soft-deleted while it carries that file's stamp; someone's own is left", async () => {
+    const g = ws.graph!;
+    const gone = `Gone ${tag}`;
+    const taken = `Taken ${tag}`;
+    const other = `Other ${tag}`;
+    const mk = (name: string, usid?: string) =>
+      g.nodes.write({ type: "Concept", data: { name, description: "Once shipped.", ...(usid ? { unique_source_id: usid } : {}) } }, "create", { namespace: g.cfg.namespace });
+    const deleted = async (name: string) =>
+      (await g.bolt.run(`MATCH (n:Concept {name: $name}) RETURN coalesce(n.is_deleted, false) AS d`, { name }))[0]?.d;
+    await mk(gone, `${P}${gone}.md@0123456789ab`);
+    await mk(taken); // seeded once, then someone cleared the stamp
+    await mk(other, `lab/other/concepts/${other}.md@0123456789ab`); // same name, another set's file
+    const set = { dir, prefix: P, retired: [`${gone}.md`, `${taken}.md`, `${other}.md`, `Never Seeded ${tag}.md`] };
+    await seedConcepts(ws, [set]);
+    assert.deepEqual([await deleted(gone), await deleted(taken), await deleted(other)], [true, false, false]);
+    await seedConcepts(ws, [set]);
+    assert.equal(await deleted(gone), true);
+    // Hidden from every read a workflow makes.
+    assert.equal(await g.reader.getNode((await node(gone))!.ref_id as string), null);
+  });
+
   it("an edge with someone else's Concept at either end is never touched: not removed, not written", async () => {
     const g = ws.graph!;
     const theirs = `Theirs ${tag}`;
@@ -262,10 +301,10 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
 // YAML, with graph-get and the agent swapped for fakes — the wiring (the
 // three reads by key, the under-Janitor guard, what the agent is handed).
 describe("graph-janitor workflow (offline: fake graph + agent)", () => {
-  const MANDATE = { ref_id: "r-overfit", node_type: "Concept", name: "Overfit Concept Janitor", properties: { docs: "THE MANDATE TEXT" }, edges: {} };
+  const MANDATE = { ref_id: "r-mandate", node_type: "Concept", name: "Some Mandate", properties: { docs: "THE MANDATE TEXT" }, edges: {} };
   const LAW = { ref_id: "r-law", node_type: "Concept", name: "Law", properties: { description: "Legal knowledge." }, edges: {} };
   const JANITOR = { ref_id: "r-janitor", node_type: "Concept", name: "Janitor", properties: {}, edges: {} };
-  const kid = { ref_id: MANDATE.ref_id, node_type: "Concept", name: MANDATE.name, description: "Flags overfit Concepts." };
+  const kid = { ref_id: MANDATE.ref_id, node_type: "Concept", name: MANDATE.name, description: "What dirty means here." };
   let truncated = false;
   const gets: Record<string, any>[] = [];
   const agentCalls: Record<string, any>[] = [];
@@ -433,7 +472,8 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
     await ws.graph!.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
     await seedArtifactSteps(ws);
     await seedJanitorWorkflows(ws);
-    await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS]); // the committed tree, for real
+    // The committed tree, for real — and a mandate, which no seed ships: the test plants the fixture.
+    await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]);
     await ws.graph!.nodes.write({ type: "Concept", data: { name: "Law", description: "A domain root." } }, "create", { namespace: ws.graph!.cfg.namespace });
     const flow = await ws.getWorkflow("graph-janitor");
     registry = (await buildRegistry(await ws.materializeCustomSteps())).registry;
@@ -460,7 +500,7 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
     await rm(root, { recursive: true, force: true });
   });
 
-  it("the tree is Workflow Builder > Janitor > the stock mandate", async () => {
+  it("the tree is Workflow Builder > Janitor > the planted mandate", async () => {
     const rows = await ws.graph!.bolt.run(
       `MATCH (a:Concept {name: 'Workflow Builder'})-[:PARENT_OF]->(b:Concept {name: 'Janitor'})-[:PARENT_OF]->(c:Concept {name: 'Overfit Concept Janitor'}) RETURN count(*) AS n`,
     );
@@ -484,7 +524,7 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
     assert.match(page.children[0].description, /^Flags Concepts overfit/);
   });
 
-  it("sweeps Law under the stock mandate: the agent gets the mandate's real docs and Law's real ref_id", async () => {
+  it("sweeps Law under the planted mandate: the agent gets the mandate's real docs and Law's real ref_id", async () => {
     const law = (await ws.graph!.bolt.run(`MATCH (n:Concept {name: 'Law'}) RETURN n.ref_id AS ref_id`))[0]!.ref_id as string;
     const res = await run({ concept: "Overfit Concept Janitor", start: "Law" });
     assert.equal(res.status, "success", JSON.stringify(res.error));

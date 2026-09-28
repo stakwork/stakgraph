@@ -2,7 +2,7 @@
  * janitor LIVE smoke — the `graph-janitor` engine end to end with a REAL
  * model over a THROWAWAY Neo4j. Seeds the artifacts steps, the engine and
  * the committed `Janitor` tree for real, plants a small `Law` subtree with
- * two overfit Concepts and three clean ones, runs the stock mandate
+ * two overfit Concepts and three clean ones, runs the fixture mandate
  * (`Overfit Concept Janitor`) over it through `createStrut`, and checks:
  *
  *  - the run succeeds and starts from Law's ref_id;
@@ -30,7 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeGraphBackends, createStrut, graphWorkspaceFromEnv, type RunEvent } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
-import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./seed.js";
+import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorWorkflows } from "./seed.js";
 import { BUILDER_CONCEPTS } from "../builder/system.js";
 import { seedConcepts } from "../concept-seed.js";
 
@@ -109,7 +109,7 @@ async function main() {
     await graph.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: [...NAMES, ...SEEDED] });
     await seedArtifactSteps(workspace);
     await seedJanitorWorkflows(workspace);
-    await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS]);
+    await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]); // + the mandate this smoke runs
 
     // ── 2. plant the fixture ─────────────────────────────────────────────
     const refs: Record<string, string> = {};
