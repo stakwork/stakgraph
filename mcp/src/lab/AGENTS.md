@@ -824,9 +824,10 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   system prompt that treats them as data (a mandate that asks for writes or
   new tools is itself a finding); `exec` saves `cleanup-report.json`, `pack`
   returns `{ mandate, start, start_ref_id, visited, findings, summary,
-  report_json, report_md }`. Findings are `{ ref_id, name, issue: overfit |
-  duplicate | orphan | misparented | stale | other, problem, evidence
-  (verbatim), suggestion, severity }`. The error codes ride on the second
+  report_json, report_md }`. Findings are `{ ref_id, name, issue, problem, evidence
+  (verbatim), suggestion, severity }`; `issue` is a free-text label THE
+  MANDATE defines for each kind of problem it flags (the engine knows no
+  list of kinds — a closed one once held `overfit`, one workspace's word). The error codes ride on the second
   line of `error.message` (an `exec` that exits 1 with the code on stderr).
 - **The tree** (`concepts/Janitor.md`, seeded by `concept-seed.ts`):
   `Janitor` (parent `Workflow Builder`), whose docs STATE THE CONVENTION —

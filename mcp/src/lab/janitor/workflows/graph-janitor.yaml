@@ -6,7 +6,8 @@ description: >-
   subtree to sweep. A read-only agent walks the Concept layer from start and
   proposes cleanups it never applies. The Janitor Concept's docs say how to
   add a janitor. Output: { mandate, start, start_ref_id, visited, findings,
-  summary, report_json, report_md }. Errors, as prefixes of error.message's
+  summary, report_json, report_md }; a finding's issue is a label the mandate
+  defines. Errors, as prefixes of error.message's
   second line: not_found: (a name no Concept has) | not_a_janitor: (the
   mandate is not a PARENT_OF child of Janitor).
 input:
@@ -137,6 +138,8 @@ steps:
 
         {{ mandate.properties.docs }}
 
+        Give every finding an `issue`: the mandate's own label for that kind of problem, exactly as the mandate writes it.
+
         Record EVERY node you actually inspected in `visited`, each with its ref_id and its node_type as the graph reports it — every entry must be a {{ params.node_type }}, and every finding's ref_id must appear in `visited`.
 
         Before you answer, write a human-readable `report.md` into your working directory, {{ dir.path }} (bash and the file tool already run there: use the relative path `report.md`, never another directory), with the same content as your structured answer (summary, then one section per finding).
@@ -165,7 +168,7 @@ steps:
                 name: { type: string }
                 issue:
                   type: string
-                  enum: ["overfit", "duplicate", "orphan", "misparented", "stale", "other"]
+                  description: the kind of problem, as a short label. Use the label the mandate gives for it, exactly as written; if the mandate names none, one or two lowercase words of your own, the same word for the same kind of problem.
                 problem: { type: string, description: "what is wrong, in one or two sentences" }
                 evidence:
                   type: string

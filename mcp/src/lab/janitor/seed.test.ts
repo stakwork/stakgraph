@@ -74,9 +74,17 @@ describe("parseConceptFile", () => {
         for (const text of [c.name, c.description ?? "", c.docs ?? ""]) assert.doesNotMatch(text, domain, `${file}`);
       }
     }
-    // The engine's own words, as the builder and the Run form show them.
-    const flow = (await import("js-yaml")).load(await readFile(join(JANITOR_CONCEPTS.dir, "..", "workflows", "graph-janitor.yaml"), "utf-8")) as any;
-    for (const text of [flow.description, flow.input.concept.description, flow.input.start.description]) assert.doesNotMatch(text, /\b(law|legal|rubric|evals?|benchmark|exam|grading)\b/i);
+    // The engine, whole: its descriptions, its prompts, its output schema.
+    const text = await readFile(join(JANITOR_CONCEPTS.dir, "..", "workflows", "graph-janitor.yaml"), "utf-8");
+    assert.doesNotMatch(text, domain);
+    // What kinds of problem there are is the mandate's to say: a label, not a list the engine knows.
+    const flow = (await import("js-yaml")).load(text) as any;
+    const issue = flow.steps.find((s: any) => s.id === "janitor").config.schema.properties.findings.items.properties.issue;
+    assert.equal(issue.type, "string");
+    assert.equal(issue.enum, undefined);
+    assert.match(flow.steps.find((s: any) => s.id === "janitor").config.prompt, /the mandate's own label/);
+    for (const needle of [/LABEL/, /`issue`/]) assert.match((await read(JANITOR_CONCEPTS, "Janitor.md")).docs!, needle);
+    assert.match((await read(JANITOR_FIXTURES, "Overfit Concept Janitor.md")).docs!, /Label such a finding `overfit`/);
   });
 });
 
