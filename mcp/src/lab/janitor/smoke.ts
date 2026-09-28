@@ -30,7 +30,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeGraphBackends, createStrut, graphWorkspaceFromEnv, type RunEvent } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
-import { seedJanitorConcepts, seedJanitorWorkflows } from "./seed.js";
+import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./seed.js";
+import { BUILDER_CONCEPTS } from "../builder/system.js";
+import { seedConcepts } from "../concept-seed.js";
 
 const WORKFLOW = "graph-janitor";
 const MANDATE = "Overfit Concept Janitor";
@@ -107,7 +109,7 @@ async function main() {
     await graph.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: [...NAMES, ...SEEDED] });
     await seedArtifactSteps(workspace);
     await seedJanitorWorkflows(workspace);
-    await seedJanitorConcepts(workspace);
+    await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS]);
 
     // ── 2. plant the fixture ─────────────────────────────────────────────
     const refs: Record<string, string> = {};

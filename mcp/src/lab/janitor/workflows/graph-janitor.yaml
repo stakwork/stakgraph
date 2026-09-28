@@ -1,30 +1,24 @@
 name: graph-janitor
 description: >-
   Knowledge-graph janitor. One automation per janitor: input.concept names a
-  Concept under the Janitor root whose docs are this run's MANDATE (what "dirty"
+  child of the Janitor Concept whose docs are this run's MANDATE (what "dirty"
   means, what to flag, what to propose); input.start names the Concept whose
   subtree to sweep. A read-only agent walks the Concept layer from start and
-  proposes cleanups it never applies. To ADD a janitor: (1) graph/create-node
-  { node_type: "Concept", node_data: { name, description, docs: the mandate —
-  what counts as dirty, what to flag, what to propose } }; (2)
-  graph/create-triplet { source_ref_id: the Janitor root's ref_id
-  (graph/graph-search q "Janitor", type "Concept", exact name), edge_type:
-  "PARENT_OF", target_ref_id: the new Concept's } — without that edge a run
-  fails not_a_janitor:; (3) an automation on graph-janitor with input
-  { concept: its name, start: the Concept whose subtree to sweep }.
-  Output: { mandate, start, start_ref_id,
-  visited, findings, summary, report_json, report_md }. Errors, as prefixes of
-  error.message's second line: not_found: (a name no Concept matches exactly) |
-  not_a_janitor: (the mandate is not a PARENT_OF child of the root).
+  proposes cleanups it never applies. The Janitor Concept's docs say how to
+  add a janitor. Output: { mandate, start, start_ref_id, visited, findings,
+  summary, report_json, report_md }. Errors, as prefixes of error.message's
+  second line: not_found: (a name no Concept has) | not_a_janitor: (the
+  mandate is not a PARENT_OF child of Janitor).
 input:
   concept:
     type: string
-    description: name of a Concept under the Janitor root — its docs are this run's mandate
+    description: name of a child of the Janitor Concept — its docs are this run's mandate
   start:
     type: string
     description: name of the Concept whose subtree to sweep, e.g. Law
 params:
-  root: Janitor
+  # The Concept a mandate must hang under.
+  parent: Janitor
   node_type: Concept
   model: sonnet
   max_steps: 60
@@ -34,37 +28,36 @@ steps:
     depends: []
     config: {}
 
-  # Resolve the three names. Hybrid search ranks by relevance, so each hit is
-  # matched back to its EXACT name below — never the top hit blindly.
-  - id: root
-    type: graph/graph-search
+  # The three names, each read by its key: exact, never a search. The parent
+  # comes with its children, the mandates.
+  - id: parent
+    type: graph/graph-get
     depends: []
     config:
-      q: "{{ params.root }}"
-      type: "{{ params.node_type }}"
-      limit: 5
+      node_type: "{{ params.node_type }}"
+      name: "{{ params.parent }}"
+      children: PARENT_OF
 
   - id: mandate
-    type: graph/graph-search
+    type: graph/graph-get
     depends: []
     config:
-      q: "{{ input.concept }}"
-      type: "{{ params.node_type }}"
-      limit: 5
+      node_type: "{{ params.node_type }}"
+      name: "{{ input.concept }}"
 
   - id: start
-    type: graph/graph-search
+    type: graph/graph-get
     depends: []
     config:
-      q: "{{ input.start }}"
-      type: "{{ params.node_type }}"
-      limit: 5
+      node_type: "{{ params.node_type }}"
+      name: "{{ input.start }}"
 
+  # graph-get answers a missing node with a sentence, not a node.
   - id: found
     type: if
-    depends: [root, mandate, start]
+    depends: [parent, mandate, start]
     config:
-      cond: "{{ root.find(n => n.name === params.root)?.ref_id !== undefined && mandate.find(n => n.name === input.concept)?.ref_id !== undefined && start.find(n => n.name === input.start)?.ref_id !== undefined }}"
+      cond: "{{ parent.ref_id !== undefined && mandate.ref_id !== undefined && start.ref_id !== undefined }}"
 
   - id: missing
     type: exec
@@ -72,59 +65,39 @@ steps:
     when: false
     config:
       cmd: bash
-      args: ["-c", "echo \"not_found: no $NODE_TYPE named exactly '$ROOT' (root), '$CONCEPT' (mandate) or '$START' (start) — all three must exist\" >&2; exit 1"]
+      args: ["-c", "echo \"not_found: no $NODE_TYPE named '$PARENT' (the janitors' parent), '$CONCEPT' (mandate) or '$START' (start) — all three must exist\" >&2; exit 1"]
       env:
-        ROOT: "{{ params.root }}"
+        PARENT: "{{ params.parent }}"
         CONCEPT: "{{ input.concept }}"
         START: "{{ input.start }}"
         NODE_TYPE: "{{ params.node_type }}"
 
-  - id: nodes
-    type: pack
+  # The mandate must hang under the parent: a mandate is data the agent
+  # follows, so only nodes someone put under Janitor may steer a run.
+  - id: under_parent
+    type: if
     depends: found
     when: true
     config:
-      root: "{{ root.find(n => n.name === params.root) }}"
-      mandate: "{{ mandate.find(n => n.name === input.concept) }}"
-      start: "{{ start.find(n => n.name === input.start) }}"
-
-  # The mandate must hang under the root: a mandate is data the agent follows,
-  # so only nodes someone put under Janitor may steer a run.
-  - id: children
-    type: graph/graph-neighbors
-    depends: nodes
-    config:
-      ref_id: "{{ nodes.root.ref_id }}"
-      edge_type: ["PARENT_OF"]
-      node_type: ["{{ params.node_type }}"]
-
-  - id: under_root
-    type: if
-    depends: children
-    config:
-      cond: "{{ children.filter(n => n.direction === 'forward').map(n => n.ref_id).includes(nodes.mandate.ref_id) }}"
+      cond: "{{ parent.children.map(n => n.ref_id).includes(mandate.ref_id) }}"
 
   - id: refuse
     type: exec
-    depends: under_root
+    depends: under_parent
     when: false
     config:
       cmd: bash
-      args: ["-c", "echo \"not_a_janitor: '$CONCEPT' is not a PARENT_OF child of '$ROOT' — a mandate must hang under the Janitor root (add it there, or name one that does)\" >&2; exit 1"]
+      args: ["-c", "echo \"not_a_janitor: '$CONCEPT' is not a PARENT_OF child of '$PARENT' — a mandate must hang under it (add it there, or name one that does)$MORE\" >&2; exit 1"]
       env:
-        ROOT: "{{ params.root }}"
+        PARENT: "{{ params.parent }}"
         CONCEPT: "{{ input.concept }}"
-
-  - id: mandate_doc
-    type: graph/graph-get
-    depends: [under_root, dir]
-    when: true
-    config:
-      ref_id: "{{ nodes.mandate.ref_id }}"
+        # graph-get lists 50 children; past that a real mandate can be missed.
+        MORE: "{{ parent.children_truncated ? ' — only its first 50 children by name were checked' : '' }}"
 
   - id: janitor
     type: agent
-    depends: mandate_doc
+    depends: [under_parent, dir]
+    when: true
     config:
       cwd: "{{ dir.path }}"
       model: "{{ params.model }}"
@@ -154,15 +127,15 @@ steps:
       prompt: |
         Start at this {{ params.node_type }} node and walk outward (PARENT_OF children first, then other edges), staying inside the {{ params.node_type }} layer of the graph the whole way:
 
-        {{ nodes.start }}
+        {{ start.name }} — {{ start.properties.description }}
 
-        Its ref_id is: {{ nodes.start.ref_id }}
+        Its ref_id is: {{ start.ref_id }}
 
         Expand it with graph/graph-neighbors using node_type: ["{{ params.node_type }}"], and read each node's name, description and properties with graph/graph-get (or graph-get-batched). Inspect as many {{ params.node_type }} nodes in this subtree as your step budget allows.
 
-        MANDATE — the {{ params.node_type }} "{{ input.concept }}" under {{ params.root }} says:
+        MANDATE — the {{ params.node_type }} "{{ input.concept }}" under {{ params.parent }} says:
 
-        {{ mandate_doc.properties.docs }}
+        {{ mandate.properties.docs }}
 
         Record EVERY node you actually inspected in `visited`, each with its ref_id and its node_type as the graph reports it — every entry must be a {{ params.node_type }}, and every finding's ref_id must appear in `visited`.
 
@@ -221,7 +194,7 @@ steps:
     config:
       mandate: "{{ input.concept }}"
       start: "{{ input.start }}"
-      start_ref_id: "{{ nodes.start.ref_id }}"
+      start_ref_id: "{{ start.ref_id }}"
       summary: "{{ janitor.object.summary }}"
       visited: "{{ janitor.object.visited }}"
       findings: "{{ janitor.object.findings }}"

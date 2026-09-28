@@ -714,31 +714,90 @@ in the first one:
   again on a moved main for `patch_conflict:`; `CODE_SMOKE_LIVE=1` adds a
   real propose run against `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
 
-### `janitor/` — janitors: one seeded engine workflow + a `Janitor` Concept tree of mandates
+### `builder/` + `concept-seed.ts` — what the AI builder knows about this deployment, read off the graph
+
+Strut's builder prompt knows how to build workflows, never WHAT a deployment
+builds. That knowledge is a tree of `Concept` nodes in the knowledge graph,
+and the lab hands the builder its first page:
+
+```
+Workflow Builder            what this workspace builds       (builder/concepts)
+└─ Janitor                  a kind: its convention           (janitor/concepts)
+   └─ Overfit Concept Janitor   an instance: a mandate       (janitor/concepts)
+```
+
+One reading rule at every level: a Concept's `docs` are its page, its
+`PARENT_OF` children (name + description) its table of contents.
+
+- **The section** (`builder/system.ts`, strut's `createStrut({ chatSystem })`
+  hook): each chat turn reads `Workflow Builder` with the step the builder
+  opens every other page with — `graph/graph-get { node_type: "Concept",
+  name, children: "PARENT_OF" }` — and renders its docs, its kinds as a
+  list, and that call. Asked for a janitor, the builder opens `Janitor`
+  through `run_step` and follows the convention it finds there. Nothing
+  about any kind is in strut's prompt or in the lab's code: a workspace adds
+  a kind by adding a child Concept.
+- **Trust.** The text has system authority over a builder that can publish
+  steps and run bash, and it comes from a node the workspace can edit. So
+  only the ENTRY page is inlined (every other page arrives as a tool
+  result), its docs are capped at 6000 characters, and it is framed as the
+  workspace's notes, which never replace strut's rules. An agent granted
+  graph WRITE steps can rewrite this page: grant writes by name, as the
+  janitor engine grants reads.
+- No graph (the fs workspace), or no such Concept → no section; a failed
+  read logs one line. A turn never fails on it (strut catches a throw).
+- **The seeder** (`concept-seed.ts`, `seedConcepts(workspace, sets)`): a SET
+  is one directory of `<Name>.md` files and the prefix its nodes are stamped
+  with. A file is one Concept: front matter `description` (one line) and
+  optional `parent` (another Concept's name — a file of any set in the
+  call, or a node already in the graph), body = `docs`. Written through
+  strut's graph node/edge writers at boot, `PARENT_OF` edges after every
+  node. `createLabStrut` seeds `[BUILDER_CONCEPTS, JANITOR_CONCEPTS]`.
+- Reconciled per NODE by a source stamp, the way `SEED_OPTS` reconciles
+  versions: `unique_source_id = <prefix><file>@<sha256[0..12]>`. Unseen name
+  → create; same stamp → keep (nothing written: a docs edit or a mute made
+  in the graph sticks, a deleted node stays deleted); our path with an older
+  hash → upsert description + docs (a changed file wins; `is_muted` and
+  every other attribute survive); no stamp or someone else's → never
+  touched (a person's Concept under that name, or one they took over by
+  clearing the stamp). A file that MOVES to another set changes its prefix
+  and reads as someone else's — which is why `Janitor.md` stayed in
+  `janitor/concepts` when it gained a parent.
+- A root (no `parent`) is a top-level process Concept of the workspace, so
+  it is ANCHORED the way hive anchors every workspace-level Concept it
+  creates (jarvis migration 111): `HiveWorkspace -PROCESS-> <root>`, to the
+  one workspace node hive's mirror writes into this graph. Only roots the
+  seed owns (create / update / keep) are anchored; no workspace node (a
+  standalone strut) or more than one → no edge, one log line. An anchor is
+  never removed: on a graph seeded before `Workflow Builder` existed,
+  `Janitor` keeps the anchor it got as a root.
+- Needs the `Concept` schema (a jarvis-seeded swarm, or
+  `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
+  `unique_source_id`, warns and seeds nothing.
+
+### `janitor/` — janitors: one seeded engine workflow + the `Janitor` Concept's mandates
 
 A janitor is an automated agent that cleans something up — code, a Concept
 tree, other data. Its MANDATE (what "dirty" means, what to flag, what to
-propose) lives in the knowledge graph as a `Concept` under the root
-`Janitor`, one child per janitor; the ENGINE is one seeded workflow,
-`graph-janitor`, and a janitor IS an automation on it: `input.concept`
-names the mandate, `input.start` the Concept whose subtree to sweep, the
-automation's schedule is the janitor's schedule and its enabled switch
-turns it off. One automation per janitor, so a workspace grows its own by
-adding a child Concept (hive's Learn page, Jamie, strut's `graph/*` steps
-through the builder's `run_step`) and scheduling it — nothing to publish.
-Automations are not seeded. The builder learns HOW from the workflow's own
-description (create-node → `PARENT_OF` create-triplet from the root →
-automation), the one text it reliably reads (`list_workflows`); its system
-prompt knows nothing about janitors, and the lab wires no `graph_query`.
+propose) lives in the knowledge graph as a `Concept` under `Janitor`, one
+child per janitor; the ENGINE is one seeded workflow, `graph-janitor`, and
+a janitor IS an automation on it: `input.concept` names the mandate,
+`input.start` the Concept whose subtree to sweep, the automation's schedule
+is the janitor's schedule and its enabled switch turns it off. One
+automation per janitor, so a workspace grows its own by adding a child
+Concept (hive's Learn page, Jamie, strut's `graph/*` steps through the
+builder's `run_step`) and scheduling it — nothing to publish. Automations
+are not seeded. The builder learns HOW from `Janitor`'s docs (see
+`builder/` above); the workflow's description says what the workflow does.
 
 - **The engine** (`workflows/graph-janitor.yaml`, category
   `graph-maintenance`, YAML only, unstamped, SEED_OPTS): three
-  `graph/graph-search` calls resolve root, mandate and start and each hit is
-  matched back to its EXACT name (hybrid search ranks by relevance, never
-  trust the top hit) → `not_found:`; `graph/graph-neighbors` on the root
-  (`PARENT_OF`, Concept) must list the mandate → `not_a_janitor:` (the
-  mandate is data the agent follows, so only a node someone put under
-  Janitor may steer a run); `graph/graph-get` reads its docs; a read-only
+  `graph/graph-get` reads BY NAME — `params.parent` (`Janitor`, with its
+  children), the mandate, the start — each an exact key lookup, never a
+  search; a name no Concept has → `not_found:`. The mandate must be among
+  the parent's children → `not_a_janitor:` (the mandate is data the agent
+  follows, so only a node someone put under Janitor may steer a run; past
+  50 children the refusal says only the first 50 were checked). A read-only
   `agent` — the graph's read steps granted BY NAME, never `graph/*` — walks
   the Concept layer from start with the mandate's docs as its task and a
   system prompt that treats them as data (a mandate that asks for writes or
@@ -748,43 +807,26 @@ prompt knows nothing about janitors, and the lab wires no `graph_query`.
   duplicate | orphan | misparented | stale | other, problem, evidence
   (verbatim), suggestion, severity }`. The error codes ride on the second
   line of `error.message` (an `exec` that exits 1 with the code on stderr).
-- **The tree** (`concepts/<Name>.md` → one Concept: front matter
-  `description` (one line) and optional `parent` (another Concept's name),
-  body = `docs`). Shipped: the root `Janitor`, whose docs STATE THE
-  CONVENTION above (what a child is, how to run one, how to add one — the
-  builder reads them before adding a janitor), and one stock mandate,
-  `Overfit Concept Janitor` (Concepts overfit to the rubric / eval / matter
-  that spawned them; the prod `graph-janitor-daily` focus, generalized).
-  `seedJanitorConcepts` writes them through strut's graph node/edge writers
-  at boot (`workspace.graph`; a filesystem workspace logs one line and
-  skips), `PARENT_OF` edges after the nodes.
-- Reconciled per NODE by a source stamp, the way `SEED_OPTS` reconciles
-  versions: `unique_source_id = lab/janitor/concepts/<file>@<sha256[0..12]>`.
-  Unseen name → create; same stamp → keep (nothing written: a docs edit or
-  a mute made in the graph sticks, a deleted node stays deleted); our path
-  with an older hash → upsert description + docs (a changed file wins;
-  `is_muted` and every other attribute survive); no stamp or someone else's
-  → never touched (a person's Concept under that name, or one they took
-  over by clearing the stamp).
-- A root (no `parent`) is a top-level process Concept of the workspace, so
-  it is ANCHORED the way hive anchors every workspace-level Concept it
-  creates (jarvis migration 111): `HiveWorkspace -PROCESS-> <root>`, to the
-  one workspace node hive's mirror writes into this graph. The edge, not
-  the tree's shape, marks a root — a fresh `Janitor` with no children yet
-  is findable. Only roots the seed owns (create / update / keep) are
-  anchored; no workspace node (a standalone strut) or more than one → no
-  edge, one log line.
-- Needs the `Concept` schema (a jarvis-seeded swarm, or
-  `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
-  `unique_source_id`, warns and seeds nothing. The engine needs a model key
-  (or a Mothership delegation for the automation's owner — automations run
-  as the workflow's owner, so claim the workflow before scheduling).
-- Tests: `src/lab/janitor/seed.test.ts` — pure (parse + reconcile rule) and
-  the engine offline (real if/pack/exec/artifacts-dir over the seeded YAML,
-  fake graph steps + agent: exact-name resolution, the guard, what the
-  agent is handed) in `test:node`; live suites (the tree's reconcile +
-  anchor, and the engine over the REAL graph steps with a fake agent) run
-  when `STRUT_TEST_NEO4J_URI` points at a throwaway Neo4j. The live smoke
+- **The tree** (`concepts/<Name>.md`, seeded by `concept-seed.ts`):
+  `Janitor` (parent `Workflow Builder`), whose docs STATE THE CONVENTION —
+  what a child is, how to run one, and the three steps to add one
+  (`graph/create-node`, `graph/create-triplet` `PARENT_OF` from `Janitor`,
+  an automation) — and one stock mandate, `Overfit Concept Janitor`
+  (Concepts overfit to the rubric / eval / matter that spawned them; the
+  prod `graph-janitor-daily` focus, generalized).
+- The engine needs a model key (or a Mothership delegation for the
+  automation's owner — automations run as the workflow's owner, so claim
+  the workflow before scheduling).
+- Tests: `src/lab/janitor/seed.test.ts` — pure (parse + reconcile rule, the
+  committed tree, the builder's section) and the engine offline (real
+  if/pack/exec/artifacts-dir over the seeded YAML, fake `graph/graph-get` +
+  agent: the three reads by key, the guard, what the agent is handed) in
+  `test:node`; live suites (the seeder's reconcile + anchor + a parent from
+  another set; the committed tree, the builder's section and the engine
+  over the REAL graph steps with a fake agent) run when
+  `STRUT_TEST_NEO4J_URI` points at a throwaway Neo4j. Nothing else may use
+  that database while they run: strut's `test:graph` wipes it, and two
+  suites at once fail with deadlocks and missing nodes. The live smoke
   (`src/lab/janitor/smoke.ts`: a REAL model through `createStrut` over a
   planted `Law` subtree — two overfit Concepts, three clean — asserting
   both are flagged `overfit`, the clean doctrine is not, `visited` is
@@ -796,6 +838,13 @@ prompt knows nothing about janitors, and the lab wires no `graph_query`.
   src/lab/janitor/smoke.ts`. The agent's working dir is empty when it
   starts, so the step gives it no cwd preamble: the prompt names
   `{{ dir.path }}`, or the model guesses a directory for `report.md`.
+  The builder smoke (`src/lab/janitor/builder-smoke.ts`: the real
+  `createLabStrut`, one chat message — "make me a janitor that flags
+  near-duplicate Concepts under Law, daily at 6am" — then a report of the
+  builder's tool calls and what it left behind: the mandate under
+  `Janitor`, the automation on `graph-janitor`; nothing asserted, a
+  model's route varies): same env, `npx tsx
+  src/lab/janitor/builder-smoke.ts`.
 
 ### `eval/` — generic, reusable eval primitives (NOT an experiment)
 
