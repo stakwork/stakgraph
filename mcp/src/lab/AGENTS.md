@@ -736,13 +736,16 @@ One reading rule at every level: a Concept's `docs` are its page, its
 `PARENT_OF` children (name + description) its table of contents.
 
 - **The section** (`builder/system.ts`, strut's `createStrut({ chatSystem })`
-  hook): each chat turn reads `Workflow Builder` with the step the builder
-  opens every other page with — `graph/graph-get { node_type: "Concept",
-  name, children: "PARENT_OF" }` — and renders its docs, its kinds as a
-  list, and that call. Asked for a janitor, the builder opens `Janitor`
-  through `run_step` and follows the convention it finds there. Nothing
-  about any kind is in strut's prompt or in the lab's code: a workspace adds
-  a kind by adding a child Concept.
+  hook): when a chat's FIRST turn builds its prompt, it reads `Workflow
+  Builder` with the step the builder opens every other page with —
+  `graph/graph-get { node_type: "Concept", name, children: "PARENT_OF" }` —
+  and renders its docs, its kinds as a list, and that call. Strut then
+  freezes the prompt for the chat's life (it heads the prompt-cache prefix,
+  stakwork/strut#76), so an edit to the page reaches NEW chats; a running
+  chat sees the current page only by opening it. Asked for a janitor, the
+  builder opens `Janitor` through `run_step` and follows the convention it
+  finds there. Nothing about any kind is in strut's prompt or in the lab's
+  code: a workspace adds a kind by adding a child Concept.
 - **Trust.** The text has system authority over a builder that can publish
   steps and run bash, and it comes from a node the workspace can edit. So
   only the ENTRY page is inlined (every other page arrives as a tool
