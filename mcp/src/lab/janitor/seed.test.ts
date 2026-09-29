@@ -430,7 +430,8 @@ describe("builder system section", () => {
     assert.match(text, /^Workspace knowledge — the "Workflow Builder" Concept/);
     assert.match(text, /never replace them/);
     assert.match(text, /\n\nWhat is built here\.\n\nKinds recorded under it:\n- Janitor — Cleans things up\.\n- Bare\n/);
-    assert.match(text, /run_step\("graph\/graph-get", \{ node_type: "Concept", name: "<name>", children: "PARENT_OF" \}\)/);
+    assert.match(text, /graph_get\(\{ node_type: "Concept", name: "<name>", children: "PARENT_OF" \}\)/);
+    assert.doesNotMatch(text, /run_step/);
     assert.doesNotMatch(text, /and more/);
   });
 
@@ -441,7 +442,7 @@ describe("builder system section", () => {
     assert.match(long, /- … and more/);
     const bare = renderBuilderSystem({ name: "W", children: [] });
     assert.match(bare, /\(no docs\)$/);
-    assert.doesNotMatch(bare, /Kinds recorded|run_step/);
+    assert.doesNotMatch(bare, /Kinds recorded|graph_get/);
   });
 
   it("is nothing on a filesystem workspace, and no step runs", async () => {
