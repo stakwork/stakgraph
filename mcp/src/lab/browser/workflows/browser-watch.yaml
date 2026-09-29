@@ -1,0 +1,69 @@
+name: browser-watch
+# An automation: open a URL, read a region's text, compare it with what the
+# previous run saw, and have an llm say what changed. Schedule
+# it from the Workflow flyout's Automate tab with the cursor idiom in the
+# automation's input —
+#
+#   { url: "https://example.com/pricing", selector: "main",
+#     previous: "{{ last.output.text }}" }
+#
+# — `last` being this automation's latest SUCCESSFUL run, so a failed fetch
+# never advances the cursor (strut AGENTS.md "Automations"). The llm step
+# runs only when the text changed (the `changed` gate); the first run and an
+# unchanged page cost nothing.
+#
+# Input:  { url, selector?, previous? }
+# Output: { text, changed, summary }
+input:
+  url: { type: string, description: "the page to watch (http/https)" }
+  selector: { type: string, required: false, description: "Playwright selector of the region to read (e.g. main, #prices); the whole page when omitted" }
+  previous: { type: string, default: "", description: "the text seen last time — schedule with previous: \"{{ last.output.text }}\"" }
+params:
+  # Any aieo model name the deployment has a key for (see GET /llm/models).
+  model: sonnet
+steps:
+  - id: open
+    type: browser/open
+    config: { url: "{{ input.url }}" }
+
+  - id: read
+    type: browser/text
+    config: { selector: "{{ input.selector }}" }
+
+  # A gate, not a container: the branches below declare `when`.
+  - id: changed
+    type: if
+    config: { cond: "{{ input.previous != '' && read.text != input.previous }}" }
+
+  - id: diff
+    type: llm
+    depends: changed
+    when: true
+    config:
+      model: "{{ params.model }}"
+      prompt: |
+        A watched web page changed. Summarize what changed in a few plain
+        sentences — what was added, removed or altered — and say nothing
+        about what stayed the same.
+
+        BEFORE:
+        {{ input.previous }}
+
+        AFTER:
+        {{ read.text }}
+
+  - id: same
+    type: pack
+    depends: changed
+    when: false
+    config: { text: "no change since the previous run (or the first run — nothing to compare yet)" }
+
+  # Exactly one branch ran; the other's scope value is undefined, and a plain
+  # `.` into it throws — `?.` is strut's escape hatch for a skipped step.
+  - id: result
+    type: pack
+    depends: [diff, same]
+    config:
+      text: "{{ read.text }}"
+      changed: "{{ changed }}"
+      summary: "{{ diff?.text || same?.text }}"

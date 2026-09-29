@@ -394,6 +394,88 @@ formulas.
   Google call has been made yet — end-to-end verification with a real
   service account is pending.
 
+### `browser/` — browser use (NOT an experiment)
+
+Every Playwright call is one seeded step, `browser/*`, over a service on the
+bag (`ctx.services.browser`). The same steps are an agent's tools
+(`agentTools: ["browser/*"]`, `browser/click` → `browser_click`), so a
+workflow can drive a page by a route its author wrote down, or hand the
+browser to an agent that looks and decides. Unrelated to the gitsee harness,
+whose `gitsee/browser-*` steps launch a chromium of their own inside this
+process for the QA loop.
+
+- **The browser is another container.** On a swarm it is the `browser` node
+  (`ghcr.io/stakwork/strut-browser`, a Playwright server built from
+  `images/browser` in the strut repo), on a docker network of its own that
+  this host joins as a second one. sphinx-swarm sets `BROWSER_WS_URL` and
+  `BROWSER_WS_PATH` here; the path is the secret half of the address. The
+  server refuses a client on another Playwright major.minor, so
+  `playwright-core` in `package.json` and that image are bumped together.
+  `@playwright/test` (gitsee, the e2e tests) is a separate, older copy and
+  is not what these steps use.
+- **`browser/service.ts` — `BrowserService`** (in-code, merged into
+  `LabServices` by `createLabStrut`; NOT seeded). One lazy connection for
+  the host; one `BrowserContext` + page per run, keyed by `runId`, with its
+  own cookies and storage, closed by `services.onRunEnd`, so no step
+  carries teardown and runs never see each other. Every verb is a method
+  here and a step is a thin wrapper, because a seeded step can import only
+  `strut`. `playwright-core` and `sharp` are imported on first use: a lab
+  that never opens a browser loads neither, and a missing native binary
+  fails a screenshot, not the boot. A bad `BROWSER_*` value is a warning at
+  boot and leaves the bag without a browser; the steps then say so.
+- **One page per run.** Steps of different runs are independent. Steps of
+  the SAME run share its page, so two that run at once (a step with
+  `depends: []`, a `foreach` with `concurrency` above 1, an agent's
+  parallel tool calls) drive one page together. Keep a run's browser steps
+  in sequence.
+- **Steps** (`browser/steps/`, one file per verb; `_shared.ts` is a seeded
+  helper the registry skips): `open`, `goto`, `back`, `close`; the reads
+  `snapshot` (the accessibility tree, interactive elements tagged
+  `[ref=eN]`), `text`, `evaluate` (JavaScript in the PAGE), `observe`
+  (console and network errors since the last call); the actions `click`,
+  `fill`, `type`, `press`, `select`, `hover`, `scroll`, `wait`;
+  `screenshot`; `capture` (open → a declared list of actions → settle →
+  screenshot, in one step); `state` (the storage state, written to the
+  run's artifacts for a human to paste under Secrets once). An element step
+  takes exactly one of `ref` (from the last snapshot; any navigation resets
+  them) or a Playwright `selector`. A step that fails throws; as a tool
+  that is an error result the model reads.
+- **Screenshots** go to `shots/NNN.png` under the run's artifacts and the
+  step returns `{ path, url, width, height, bytes }`. A 0.6× copy rides on
+  the output as strut's `withMedia` marker, so an agent SEES the frame as a
+  file part while templates, events and `run.json` carry only the JSON.
+- **Sessions.** Credentials never enter a prompt: `browser/open {
+  storageStateSecret }` names a secret holding a Playwright storage state.
+- **Limits** (env, all optional): `BROWSER_STEP_TIMEOUT_MS` (per call,
+  default 10 s; losing it closes the run's context, which is what ends an
+  `evaluate` stuck on a wedged page), `BROWSER_RUN_BUDGET_MS` (per run,
+  default 10 min), `BROWSER_VIEWPORT` (default `1280x800`),
+  `BROWSER_URL_DENY` (default `file:,169.254.0.0/16,fd00::/8`; schemes,
+  CIDRs and hostnames that `open` / `goto` refuse, checked before the
+  navigation and on the URL the page landed on). The denylist matches IP
+  literals only and does not see what a page fetches by itself: what the
+  browser's container can reach, a page can reach.
+- **Without a swarm** (`BROWSER_WS_URL` unset) the service launches a local
+  headless Chrome: `BROWSER_EXECUTABLE`, else the `BROWSER_CHANNEL` channel
+  (default `chrome`, the Google Chrome on the machine). `BROWSER_CDP_URL`
+  instead attaches to a Chrome someone started with
+  `--remote-debugging-port` on a dedicated profile: runs then share that
+  profile's cookies and get a page each, and `storageStateSecret`,
+  `viewport` and `browser/state` are refused.
+- **Workflows** (`browser/workflows/`): `browser-capture` (one
+  `browser/capture` call; its `claims:` block checks that the run left a
+  real PNG), `browser-explore` (an agent over `browser/*` that answers a
+  goal with the screenshots it took as evidence) and `browser-watch` (reads
+  a region, compares it with the previous run's text, has an llm say what
+  changed; meant to be scheduled with `previous: "{{ last.output.text }}"`).
+- **Not yet verified through the LLM gateway.** `browser-explore` hands the
+  model images in tool results, and the gateway re-renders tool results.
+  Run it once behind the gateway before relying on it there.
+- **Tests:** `src/lab/browser/*.test.ts` run with `yarn test:node`, offline
+  (every step over a fake service, the denylist, what boot accepts, the
+  seed loading through strut's registry). `service.live.test.ts` skips
+  unless `BROWSER_WS_URL` is set; its header has the two commands.
+
 ### `harvey/` — Harvey LAB verification (the hardcoded grader)
 
 Runs the **actual** Harvey LAB legal-benchmark eval (the
