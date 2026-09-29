@@ -101,7 +101,8 @@ async function main() {
     const calls: Array<{ toolName: string; input: unknown }> = chat.messages
       .filter((m) => m.role === "assistant" && Array.isArray(m.content))
       .flatMap((m) => m.content.filter((p: any) => p.type === "tool-call"));
-    const opened = calls.findIndex((c) => /graph\/graph-get/.test(JSON.stringify(c.input)) && /"name":\s*"Janitor"/.test(JSON.stringify(c.input)));
+    // graph_get, or the same step through run_step.
+    const opened = calls.findIndex((c) => (c.toolName === "graph_get" || /graph\/graph-get/.test(JSON.stringify(c.input))) && /"name":\s*"Janitor"/.test(JSON.stringify(c.input)));
     const wrote = calls.findIndex((c) => /graph\/create-node|graph\/create-triplet|set_automation|create_workflow/.test(`${c.toolName} ${JSON.stringify(c.input)}`));
     console.log(
       opened < 0
