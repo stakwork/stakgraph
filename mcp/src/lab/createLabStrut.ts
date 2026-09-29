@@ -245,6 +245,9 @@ export async function createLabStrut(
           store: new FileRunStore(workspacePath),
           chatStore: new FileChatStore(workspacePath),
           secretStore: new FileSecretStore(workspacePath),
+          // The builder's graph tools: `graph_get`, which its section of the
+          // prompt opens pages with, and the read-only `graph_query`.
+          ...(workspace.graph ? { graph: workspace.graph } : {}),
         }
       : {}),
   });
