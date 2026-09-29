@@ -26,6 +26,8 @@ import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { seedCodeWorkflows } from "./code/seed.js";
+import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
+import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./janitor/seed.js";
 import { BUILDER_CONCEPTS, builderSystem } from "./builder/system.js";
 import { seedConcepts } from "./concept-seed.js";
@@ -76,8 +78,13 @@ export interface LabServices extends ConceptServices {
    *  (GAIA_DIR). In-code on purpose — the grader and the gold must stay
    *  outside the agent-editable surface; gaia/* steps are thin plumbing. */
   gaia?: GaiaServices;
+  /** The browser the seeded `browser/*` steps drive (browser/service.ts): a
+   *  Playwright server beside this host (BROWSER_WS_URL, what a swarm sets),
+   *  one context per run. Unrelated to the gitsee harness's own browser. */
+  browser?: BrowserService;
   /** Generic per-run teardown hook called by the strut runner in a `finally`
-   *  (success AND error). Disposes a run's gitsee browser + booted stack. */
+   *  (success AND error). Disposes a run's gitsee browser + booted stack, and
+   *  closes its `browser` context. */
   onRunEnd?(runId: string): Promise<void>;
 }
 
@@ -124,6 +131,23 @@ export async function createLabStrut(
       if (priorOnRunEnd) await priorOnRunEnd(runId);
       await disposeRun(runId);
     };
+  }
+
+  // The browser/* steps' service. Building it touches nothing: the connection
+  // is made by the first step that opens a page. A bad BROWSER_* value is a
+  // warning here and an error in those steps, never a lab that fails to boot.
+  if (!services.browser) {
+    try {
+      const browser = BrowserService.fromEnv();
+      services.browser = browser;
+      const priorOnRunEnd = services.onRunEnd?.bind(services);
+      services.onRunEnd = async (runId: string) => {
+        if (priorOnRunEnd) await priorOnRunEnd(runId);
+        await browser.dispose(runId);
+      };
+    } catch (err) {
+      console.warn("[lab] no browser service:", err instanceof Error ? err.message : err);
+    }
   }
 
   // Harvey LAB grader — in-code, NOT seeded (see harvey/service.ts). Only
@@ -203,6 +227,11 @@ export async function createLabStrut(
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
   // mandate).
   await seedJanitorWorkflows(workspace);
+  // browser use: one step per Playwright call over services.browser, the
+  // same steps an agent's tools (agentTools: ["browser/*"]), and three
+  // workflows (capture a page, explore a site, watch a page).
+  await seedBrowserSteps(workspace);
+  await seedBrowserWorkflows(workspace);
   // Concept files — graph DATA, reconciled per node by a source stamp the way
   // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
   // reads about this deployment), and under it `Janitor`, a kind. No

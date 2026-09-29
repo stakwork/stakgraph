@@ -1,0 +1,47 @@
+name: browser-capture
+# The declared way to photograph a page: one browser/capture call. An author
+# who knows the page lists its route up front — open the URL, run the steps
+# (click the annual tab, wait for the table), settle, shoot — and nothing
+# intelligent runs at capture time. For a page nobody has mapped, see
+# browser-explore.
+#
+# Input:  { url, steps?, fullPage?, wait? }
+#         steps is the ordered list browser/capture takes: each item is
+#         { do: <verb>, ...that verb's input }, e.g.
+#           [{ do: wait, text: "Learn more" }, { do: click, selector: "text=Learn more" }]
+# Output: { path, url, width, height, bytes, errors, pageUrl, title }
+#         path is relative to the run's artifact dir (shots/001.png), url its
+#         served form (/artifacts/<runId>/shots/001.png); errors is the
+#         console/network trouble the page had while loading (empty = clean);
+#         pageUrl and title are where the page ended up after the steps.
+#         A step whose target matches nothing fails the run, with the step
+#         named.
+input:
+  url: { type: string, description: "the page to shoot (http/https)" }
+  steps: { type: json, required: false, description: "actions before the shot: [{ do: click, selector: \"text=Annual\" }, { do: wait, text: Total }]" }
+  fullPage: { type: boolean, default: false, description: "the whole scrollable page, not just the 1280×800 viewport" }
+  wait: { type: number, default: 0, description: "extra ms to settle before the shot" }
+steps:
+  - id: shot
+    type: browser/capture
+    config:
+      url: "{{ input.url }}"
+      steps: "{{ input.steps }}"
+      fullPage: "{{ input.fullPage }}"
+      wait: "{{ input.wait }}"
+# The contract: a run of this workflow leaves a real PNG behind.
+# Checked by reading the artifact the run wrote — free, on every run, so
+# the first time the browser breaks the claim is refuted, not just logged.
+claims:
+  - text: "Returns a PNG artifact of at least 1 KB for a reachable URL"
+    checks:
+      - type: exec
+        name: png artifact on disk
+        config:
+          cmd: bash
+          args:
+            - -c
+            - 'f="$1"; test -f "$f" || { echo "missing: $f"; exit 1; }; n=$(wc -c < "$f"); echo "$f: $n bytes"; test "$n" -ge 1024 && head -c 4 "$f" | grep -aq PNG'
+            - check
+            - "{{ input.output.path }}"
+          cwd: "{{ input.artifactsDir }}"

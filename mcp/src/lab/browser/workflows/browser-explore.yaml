@@ -1,0 +1,99 @@
+name: browser-explore
+# The explored way through a site: an agent looks at the page and decides
+# what to do next. Every browser/* step is one of its tools
+# (agentTools: ["browser/*"] — `browser/click` becomes `browser_click`), each
+# call a nested step.start/step.end under the agent's path in the events
+# panel; browser_screenshot hands it the 0.6× frame as a file part (withMedia)
+# while the full PNG lands under the run's artifacts. Same steps as the
+# declared `browser-capture`; the difference is who authored the sequence.
+#
+# Input:  { goal, url }
+# Output: { answer, evidence: [{ path, url }], pages, cost }
+#         evidence is the screenshots the agent took to support its answer,
+#         each `path` relative to the run's artifact dir (shots/001.png) and
+#         `url` its served form; pages every URL it visited, in order.
+input:
+  goal: { type: string, description: "what to find out or do on the site" }
+  url: { type: string, description: "where to start (http/https)" }
+params:
+  # Any aieo model name the deployment has a key for (GET /llm/models). The
+  # loop needs a model that reads images.
+  model: claude-sonnet-5
+  # Cap on tool-loop turns before the agent must answer.
+  maxSteps: 40
+steps:
+  # The run's artifact dir as a path: `exec` defaults its cwd there and
+  # reports it, so the agent's cwd (and its file tool) is where the shots go.
+  - id: dir
+    type: exec
+    config: { cmd: "true" }
+
+  - id: agent
+    type: agent
+    config:
+      cwd: "{{ dir.cwd }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      agentTools: ["browser/*"]
+      # Of the built-ins only the file tool: the browser is the point, and
+      # web_fetch would let the model answer without looking at the page.
+      toolFilter: ["str_replace_based_edit_tool"]
+      schema:
+        type: object
+        additionalProperties: false
+        required: [answer, evidence, pages]
+        properties:
+          answer: { type: string, description: "the goal's answer, in plain prose; say so when it could not be met" }
+          evidence:
+            type: array
+            description: "the screenshots that support the answer — path and url EXACTLY as browser_screenshot returned them"
+            items:
+              type: object
+              additionalProperties: false
+              required: [path, url]
+              properties:
+                path: { type: string }
+                url: { type: string }
+          pages:
+            type: array
+            description: "every URL visited, in order"
+            items: { type: string }
+      system: |
+        You drive a real web browser through the browser_* tools to reach a
+        goal a person gave you. The loop:
+
+        1. browser_open { url } FIRST — it creates the page. Then
+           browser_snapshot.
+        2. Read the snapshot (the accessibility tree; interactive elements
+           carry [ref=eN]) and act by ref: browser_click, browser_fill,
+           browser_select, browser_hover, browser_press, browser_scroll. Any
+           navigation resets the refs — snapshot again before the next
+           action. browser_wait for content that loads late; browser_text to
+           read a region cheaply; browser_evaluate for a fact the tree does
+           not show.
+        3. When something looks off — an empty page, nothing changed, a form
+           that will not submit — call browser_observe before anything else:
+           console and network errors explain more than another look.
+        4. browser_screenshot ONLY when judgement needs the pixels (layout, a
+           visual state, evidence for the answer); you will see the image.
+           Never re-shoot a page you have not changed — snapshot and text are
+           cheaper reads.
+        5. Stop when the goal is met, or when it cannot be met, and say which.
+           Answer with what you found, the screenshots you took as evidence
+           (path and url exactly as browser_screenshot returned them), and
+           every page you visited.
+
+        Never type credentials. The goal is about what the site shows, so
+        look with the browser — do not answer from memory.
+      prompt: |
+        Goal: {{ input.goal }}
+
+        Start at: {{ input.url }}
+
+  - id: result
+    type: pack
+    config:
+      answer: "{{ agent.object.answer }}"
+      evidence: "{{ agent.object.evidence }}"
+      pages: "{{ agent.object.pages }}"
+      cost: "{{ agent.cost }}"
