@@ -84,7 +84,7 @@
     "redis": "^6.2.1",
     "sharp": "0.35.5",
     "simple-git": "3.30.0",
-    "strut": "git+https://github.com/stakwork/strut.git#17463ce263ff8906974386f5c5312341a6735bfb",
+    "strut": "git+https://github.com/stakwork/strut.git#a73fc67cb2a802cee90064d72ce57ebc8387966d",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
     "zod": "4.6.5"
