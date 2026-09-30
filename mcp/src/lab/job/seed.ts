@@ -15,8 +15,9 @@ import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
  * Run button) the same YAML is a one-shot in the run's artifact directory.
  *
  * `params` are the evolvable surface — `system`, `model`, `maxSteps`,
- * `tools` (V1: the agent's built-ins only; repositories, pods and authoring
- * are later lines) — so a job learns to do something new by a new version
+ * `tools` (registry steps granted on top of the agent's built-ins — files,
+ * bash, web_search, web_fetch; V1 grants none, repositories, pods and
+ * authoring are later lines) — so a job learns to do something new by a new version
  * of this workflow on the swarm, never by a change on the host. NO custom
  * steps: every step is strut's, so this seeder ships YAML only. Seeded
  * UNSTAMPED (no publisher → not "ai"), content-hash reconciled (SEED_OPTS):

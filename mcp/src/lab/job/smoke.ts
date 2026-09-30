@@ -31,7 +31,9 @@ import { seedJobWorkflows } from "./seed.js";
 
 const JOB = "job";
 const STEPS = ["job/dir", "agent", "pack"];
-const TOOLS = ["str_replace_based_edit_tool", "repo_overview", "fulltext_search"];
+// V1 grants no registry steps: the agent runs on its built-ins (files, bash,
+// web_search, web_fetch), which a filter must never narrow.
+const TOOLS: string[] = [];
 
 /** What the fake agent was handed each turn — the resolved step config. */
 interface Turn {
@@ -162,8 +164,9 @@ async function main() {
     assert.equal(turns[0]!.prompt, "Plan dark mode.");
     // The params reached the step with their types intact.
     const cfg = turns[0]!.config;
-    assert.deepEqual(cfg["toolFilter"], TOOLS);
-    assert.equal(cfg["maxSteps"], 60);
+    assert.deepEqual(cfg["agentTools"], TOOLS, "params.tools reaches the step as agentTools");
+    assert.equal(cfg["toolFilter"], undefined, "no filter on the built-ins");
+    assert.equal(cfg["maxSteps"], 500);
     assert.equal(cfg["cacheTtl"], "1h");
     assert.equal(cfg["model"], "claude-sonnet-5-5");
     assert.match(String(cfg["system"]), /^You are working on a JOB/);
