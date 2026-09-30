@@ -2,8 +2,9 @@ name: job
 # Jobs V1 (strut plans/jobs.md): a host launches this with `job` on the
 # launch and a prompt; the agent works in the job's directory with a thread
 # that remembers every earlier turn, writes its deliverables as files there,
-# and the run's output names them. Nothing but the agent's built-in tools
-# in V1 — repositories, pods, authoring are later lines in params.tools.
+# and the run's output names them. V1 grants nothing beyond the agent's
+# built-in tools (files, bash, web_search, web_fetch) — repositories, pods,
+# authoring are later lines in params.tools.
 input:
   prompt: { type: string, description: "What to do this turn" }
 steps:
@@ -19,7 +20,7 @@ steps:
       maxSteps: "{{ params.maxSteps }}"
       system: "{{ params.system }}"
       prompt: "{{ input.prompt }}"
-      toolFilter: "{{ params.tools }}"
+      agentTools: "{{ params.tools }}"
       schema:
         type: object
         additionalProperties: false
@@ -59,10 +60,13 @@ steps:
       session: "{{ work.session }}"
 params:
   model: claude-sonnet-5-5
-  maxSteps: 60
-  # The evolvable surface. V1: the agent's built-ins only (no bash/web needed
-  # for a plan; add them when a job needs them). Later: agentTools grants.
-  tools: [str_replace_based_edit_tool, repo_overview, fulltext_search]
+  maxSteps: 500
+  # THE evolvable surface: registry steps granted to the agent as tools
+  # (agentTools), on top of its built-ins — repo_overview, fulltext_search,
+  # bash, str_replace_based_edit_tool, web_search, web_fetch — which are
+  # always on. V1 grants none; V2 adds hive/* and browser/*, V3 meta/* and
+  # strut/run-workflow (strut plans/jobs.md §11).
+  tools: []
   system: |
     You are working on a JOB with a person, over many turns. Your working
     directory is the job's: everything you wrote in earlier turns is still
