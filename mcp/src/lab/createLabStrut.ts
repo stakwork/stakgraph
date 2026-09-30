@@ -26,6 +26,7 @@ import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { seedCodeWorkflows } from "./code/seed.js";
+import { seedJobWorkflows } from "./job/seed.js";
 import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./janitor/seed.js";
@@ -224,6 +225,11 @@ export async function createLabStrut(
   // hive's propose_code_change preview, run by strut's own agent. YAML only;
   // every step is strut's (git/checkout, agent, git/diff, pack).
   await seedCodeWorkflows(workspace);
+  // job — the job agent as a workflow (strut plans/jobs.md, V1): hive's
+  // Jamie launches it with `job` on the launch; `job/dir` + a session
+  // carry files and memory across turns. YAML only; its params are the
+  // evolvable surface.
+  await seedJobWorkflows(workspace);
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
   // mandate).
   await seedJanitorWorkflows(workspace);
