@@ -165,7 +165,7 @@ async function main() {
     assert.deepEqual(cfg["toolFilter"], TOOLS);
     assert.equal(cfg["maxSteps"], 60);
     assert.equal(cfg["cacheTtl"], "1h");
-    assert.equal(cfg["model"], "claude-sonnet-5");
+    assert.equal(cfg["model"], "claude-sonnet-5-5");
     assert.match(String(cfg["system"]), /^You are working on a JOB/);
     assert.equal((cfg["schema"] as any)?.required?.join(","), "text,artifacts");
     console.log(`✔ turn 1: 202 { runId: ${firstBody.runId}, callback: true } → callback artifacts[0] = ${JSON.stringify(post1.artifacts[0])}`);
