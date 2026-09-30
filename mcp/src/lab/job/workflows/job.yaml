@@ -1,0 +1,79 @@
+name: job
+# Jobs V1 (strut plans/jobs.md): a host launches this with `job` on the
+# launch and a prompt; the agent works in the job's directory with a thread
+# that remembers every earlier turn, writes its deliverables as files there,
+# and the run's output names them. Nothing but the agent's built-in tools
+# in V1 — repositories, pods, authoring are later lines in params.tools.
+input:
+  prompt: { type: string, description: "What to do this turn" }
+steps:
+  - id: dir
+    type: job/dir
+  - id: work
+    type: agent
+    config:
+      cwd: "{{ dir.path }}"
+      session: "{{ $job }}"
+      cacheTtl: 1h
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      system: "{{ params.system }}"
+      prompt: "{{ input.prompt }}"
+      toolFilter: "{{ params.tools }}"
+      schema:
+        type: object
+        additionalProperties: false
+        required: [text, artifacts]
+        properties:
+          text: { type: string, description: "Your reply to the person, markdown. Short: the artifacts carry the substance." }
+          artifacts:
+            type: array
+            description: "What you produced or revised THIS turn, for the person to look at. Files are paths relative to your working directory."
+            items:
+              type: object
+              additionalProperties: false
+              required: [id, title]
+              properties:
+                id: { type: string, description: "Stable across turns: the same id next turn means a newer version of the same thing (\"plan\", not \"plan-v3\")." }
+                kind: { type: string, description: "Only when the file extension would mislead: markdown | html | image | video | audio | pdf | url | diff | pull_request | code | log | json" }
+                title: { type: string }
+                label: { type: string, description: "What it is to the reader: Plan, Page, Screenshot" }
+                summary: { type: string, description: "One sentence about what is in it" }
+                path: { type: string, description: "A file you wrote, relative to the working directory" }
+                url: { type: string, description: "Somewhere to go instead of a file (absolute)" }
+                content: { type: string, description: "Small inline content instead of a file (a diff, short JSON)" }
+          ask:
+            type: object
+            description: "Only when you need a decision from the person before going on: the question, in prose. The answer comes as the next turn's prompt."
+            additionalProperties: false
+            required: [message]
+            properties:
+              message: { type: string }
+  - id: result
+    type: pack
+    config:
+      text: "{{ work.object.text }}"
+      artifacts: "{{ work.object.artifacts }}"
+      ask: "{{ work.object.ask }}"
+      cost: "{{ work.cost }}"
+      session: "{{ work.session }}"
+params:
+  model: claude-sonnet-5-5
+  maxSteps: 60
+  # The evolvable surface. V1: the agent's built-ins only (no bash/web needed
+  # for a plan; add them when a job needs them). Later: agentTools grants.
+  tools: [str_replace_based_edit_tool, repo_overview, fulltext_search]
+  system: |
+    You are working on a JOB with a person, over many turns. Your working
+    directory is the job's: everything you wrote in earlier turns is still
+    there, and you remember writing it. Each turn you get one message.
+
+    Your deliverables are FILES in the working directory — a plan as
+    plan.md, a page as index.html, notes as notes/<topic>.md. Revise a file
+    in place rather than writing a new one; name files stably. When you are
+    done, answer with `text` (short — what changed and why) and `artifacts`
+    listing what you produced or revised THIS turn, each with the same `id`
+    it had last time. Do not paste a deliverable's content into `text`.
+
+    If you cannot go on without a decision from the person, stop and put
+    the question in `ask`; their answer is the next turn's message.

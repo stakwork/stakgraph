@@ -1,0 +1,51 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import type { WorkspaceStore } from "strut";
+import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
+
+/**
+ * job — the job agent as a strut workflow (strut `plans/jobs.md`, Jobs V1).
+ * A host (hive's Jamie chat) launches it with a `job` id on the launch and
+ * a prompt: `job/dir` hands the agent ONE directory for the life of the
+ * job, `session: "{{ $job }}"` continues one thread across every turn, the
+ * agent writes its deliverables as files there and names them in its
+ * structured output, and strut's `run.end` callback carries them resolved
+ * to links (`/jobs/<job>/files/<path>`). Launched WITHOUT a job (strut's
+ * Run button) the same YAML is a one-shot in the run's artifact directory.
+ *
+ * `params` are the evolvable surface — `system`, `model`, `maxSteps`,
+ * `tools` (V1: the agent's built-ins only; repositories, pods and authoring
+ * are later lines) — so a job learns to do something new by a new version
+ * of this workflow on the swarm, never by a change on the host. NO custom
+ * steps: every step is strut's, so this seeder ships YAML only. Seeded
+ * UNSTAMPED (no publisher → not "ai"), content-hash reconciled (SEED_OPTS):
+ * a changed committed copy wins at boot, an unchanged one leaves a
+ * workspace-side edit active.
+ */
+const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
+  {
+    name: "job",
+    description:
+      "A job turn: an agent working in the job's directory with a thread that remembers every earlier turn (job/dir → agent with session: {{ $job }} → pack). Launch it with `job` on the launch — POST /workflows/job/run { job, input: { prompt }, callback } — and the same job again to revise the same files; without a job it is a one-shot in the run's artifact directory. Input: { prompt }. Output: { text, artifacts: [{ id, kind?, title, label?, summary?, path | url | content }], ask?: { message }, cost, session }; the callback carries `artifacts` resolved to links. params.tools / params.system are the evolvable surface.",
+  },
+];
+
+// Names this seeder USED to publish (seeding is additive — see retireWorkflows).
+const RETIRED_WORKFLOWS: string[] = [];
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+export async function seedJobWorkflows(workspace: WorkspaceStore): Promise<void> {
+  const dir = join(HERE, "workflows");
+  for (const { name, description } of SEED_WORKFLOWS) {
+    try {
+      const yaml = await readFile(join(dir, `${name}.yaml`), "utf-8");
+      const { version, changed } = await workspace.publishWorkflowByContent(name, yaml, description, "job", undefined, SEED_OPTS);
+      if (changed) console.log(`[job] seeded workflow: ${name} @ ${version}`);
+    } catch (err) {
+      console.warn(`[job] could not seed workflow "${name}":`, err instanceof Error ? err.message : err);
+    }
+  }
+  await retireWorkflows(workspace, RETIRED_WORKFLOWS, "job");
+}
