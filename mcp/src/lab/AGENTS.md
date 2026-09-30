@@ -796,6 +796,45 @@ in the first one:
   again on a moved main for `patch_conflict:`; `CODE_SMOKE_LIVE=1` adds a
   real propose run against `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
 
+### `job/` — the job agent as a workflow (hive's `start_job` / `continue_job`)
+
+Jobs V1 (strut `plans/jobs.md`; the hive half is `start_job` /
+`continue_job` + the `job_turn` handler + one artifact reader route, a
+CLOSED contract). Hive's Jamie chat hands strut a *job*: an id it mints,
+passed on the LAUNCH — `POST /lab/workflows/job/run { job, input: { prompt },
+callback }` — never inside `input`. One seeded workflow, `job` (category
+`job`, unstamped, YAML only — every step is strut's):
+
+- `job/dir` → `agent` (cwd = the job's directory, `session: "{{ $job }}"`,
+  a JSON `schema` for the answer) → `pack` `{ text, artifacts, ask?, cost,
+  session }`. The directory (`<dataDir>/jobs/<job>/`) and the agent thread
+  are the SAME for every run launched with that job, so "revise step 2" is
+  another launch with the same id: the agent opens the `plan.md` it wrote
+  last turn with a transcript that remembers writing it. Without a job
+  (strut's Run button) the same YAML is a one-shot in the run's artifact
+  directory — `$job` is undefined, so the agent is cold.
+- **Deliverables are files.** The agent's `artifacts` list names what it
+  produced or revised THIS turn — `{ id, kind?, title, label?, summary?,
+  path | url | content }`, `id` stable across turns ("plan", not
+  "plan-v3") — and strut's `run.end` callback carries the list RESOLVED to
+  links (`/lab/jobs/<job>/files/plan.md`, `kind` from the extension), the
+  same list at `GET …/runs/<runId>/artifacts`. `ask: { message }` is the
+  agent stopping for a decision; the run still ends `success` and the
+  answer is the next turn's prompt.
+- **`params` are the evolvable surface, and the whole point** (the owner's
+  ruling in plans/jobs.md §2): `system`, `model`, `maxSteps` and `tools` —
+  in V1 the agent's built-ins only (`str_replace_based_edit_tool`,
+  `repo_overview`, `fulltext_search`; no bash or web for a plan). A job
+  learns to do something new (repositories, pods, running or authoring
+  workflows) by a new VERSION of this workflow on the swarm — a
+  `toolFilter` line, later `agentTools` grants — never by a hive PR.
+- Smoke (offline — seeds, discovers, static-validates against the real
+  registry, then runs it the way hive does: over HTTP with `job` + a local
+  callback server, the `agent` step swapped for a fake that writes
+  `plan.md` — two turns of one job behind one link, the sandboxed file
+  route, and a launch without a job resolving to `/artifacts/<runId>/…`;
+  `JOB_SMOKE_LIVE=1` adds one real turn): `npx tsx src/lab/job/smoke.ts`.
+
 ### `builder/` + `concept-seed.ts` — what the AI builder knows about this deployment, read off the graph
 
 Strut's builder prompt knows how to build workflows, never WHAT a deployment
