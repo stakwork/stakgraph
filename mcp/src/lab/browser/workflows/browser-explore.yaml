@@ -35,9 +35,10 @@ steps:
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
       agentTools: ["browser/*"]
-      # Of the built-ins only the file tool: the browser is the point, and
-      # web_fetch would let the model answer without looking at the page.
-      toolFilter: ["str_replace_based_edit_tool"]
+      # No built-ins (a name matching none): the browser is the point —
+      # web_fetch would let the model answer without looking at the page, and
+      # the file tool only ever read its own screenshots back as binary text.
+      toolFilter: ["none"]
       schema:
         type: object
         additionalProperties: false
