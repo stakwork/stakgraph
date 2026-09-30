@@ -58,7 +58,7 @@ steps:
       cost: "{{ work.cost }}"
       session: "{{ work.session }}"
 params:
-  model: claude-sonnet-5
+  model: claude-sonnet-5-5
   maxSteps: 60
   # The evolvable surface. V1: the agent's built-ins only (no bash/web needed
   # for a plan; add them when a job needs them). Later: agentTools grants.
