@@ -18,7 +18,7 @@ input:
 params:
   # Any aieo model name the deployment has a key for (GET /llm/models). The
   # loop needs a model that reads images.
-  model: claude-sonnet-5
+  model: claude-sonnet-5-5
   # Cap on tool-loop turns before the agent must answer.
   maxSteps: 40
 steps:
