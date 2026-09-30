@@ -220,9 +220,10 @@ export class BrowserService {
       const s = r.status();
       if (s >= 400) push(session.obs.httpErrors, `${s} ${r.request().method()} ${r.url()}`);
     });
-    p.on("framenavigated", (f) => {
-      if (f === p.mainFrame()) session.refs.clear();
-    });
+    // A new DOCUMENT resets the refs — `domcontentloaded`, not `framenavigated`,
+    // which also fires for pushState / hash changes (a Framer page does both
+    // while it scrolls), where every ref still resolves.
+    p.on("domcontentloaded", () => session.refs.clear());
     p.on("popup", (popup) => {
       session.page = popup;
       session.pages.push(popup);
@@ -570,7 +571,7 @@ export class BrowserService {
       }
       return out as T;
     } catch (err) {
-      const m = message(err);
+      const m = strictHint(message(err));
       throw new Error(m.startsWith("browser") || m.startsWith("capture:") ? m : `browser/${verb}: ${m}`);
     } finally {
       clearTimeout(timer);
@@ -627,6 +628,13 @@ function cap(s: string, n: number): string {
 function message(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err);
   return m.length > 600 ? `${m.slice(0, 600)}…` : m;
+}
+
+/** Playwright's strict-mode error lists the matches but not the way out; a
+ *  model that reached for a selector retries with another broad one. */
+export function strictHint(m: string): string {
+  if (!m.includes("strict mode violation")) return m;
+  return `${m.split("\nCall log:")[0]!.trimEnd()}\n→ act by ref instead: browser/snapshot, then the element's [ref=eN] (or narrow the selector, e.g. \`>> nth=1\`)`;
 }
 
 function num(v: string | undefined, dflt: number): number {

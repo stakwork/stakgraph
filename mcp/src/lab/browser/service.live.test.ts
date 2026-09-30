@@ -59,6 +59,12 @@ test("open → snapshot (refs) → act by ref → navigate → back → screensh
     await browser.scroll(runId, { y: 100 });
     await browser.hover(runId, { selector: "a" });
 
+    // a same-document URL change (pushState, a hash) is not a navigation: the refs hold
+    await browser.evaluate(runId, { expression: "history.pushState(null, '', '#pricing'); location.hash = 'annual'; 1" });
+    await browser.click(runId, { ref: button });
+    // a selector matching several elements says how to get out of it
+    await assert.rejects(browser.click(runId, { selector: "p" }), (e: Error) => /strict mode violation/.test(e.message) && /act by ref instead/.test(e.message) && !/Call log/.test(e.message));
+
     const { small, ...shot } = await browser.screenshot(runId, {}, artifacts);
     assert.deepEqual(shot, { path: "shots/001.png", url: `/artifacts/${runId}/shots/001.png`, width: 1280, height: 800, bytes: shot.bytes });
     assert.ok(shot.bytes > 1024);
