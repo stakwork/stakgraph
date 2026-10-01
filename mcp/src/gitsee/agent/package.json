@@ -25,8 +25,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.56",
-    "ai": "7.0.105",
+    "@ai-sdk/anthropic": "4.0.71",
+    "ai": "7.0.126",
     "dotenv": "17.2.2",
     "isomorphic-git": "1.25.0",
     "zod": "4.6.5"

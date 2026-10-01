@@ -18,13 +18,13 @@
     "@ai-sdk/provider" "3.0.0-beta.22"
     "@ai-sdk/provider-utils" "4.0.0-beta.40"
 
-"@ai-sdk/anthropic@4.0.56":
-  version "4.0.56"
-  resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-4.0.56.tgz#5661158febc6852235521d6282a764639c0eabb1"
-  integrity sha512-rpz9LepVvjCs0YXWN/I5DLNAK/SbaA8g2sMTS1iyWQyH7Vsjqeonc3A7WbZiM6bfhNtrGO6irhvkDjL/xWpE1w==
+"@ai-sdk/anthropic@4.0.71":
+  version "4.0.71"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/anthropic/-/anthropic-4.0.71.tgz#29bdafc9bcdf445cbc97fd49eba4ed8ba25f0f64"
+  integrity sha512-wiv3jhUH0RrvGzSolJMZfZ2cI9As45LhwYmcAoWvNivXjC7wzJ4W/Udq9/u7EGnGsT8lpmFKEKBrMXVeUO97Dg==
   dependencies:
-    "@ai-sdk/provider" "4.0.17"
-    "@ai-sdk/provider-utils" "5.0.43"
+    "@ai-sdk/provider" "4.0.21"
+    "@ai-sdk/provider-utils" "5.0.53"
 
 "@ai-sdk/anthropic@^2.0.34":
   version "2.0.102"
@@ -78,13 +78,13 @@
     "@ai-sdk/provider-utils" "3.0.37"
     "@vercel/oidc" "3.1.0"
 
-"@ai-sdk/gateway@4.0.85":
-  version "4.0.85"
-  resolved "https://registry.yarnpkg.com/@ai-sdk/gateway/-/gateway-4.0.85.tgz#2638546bf188bbe3b5de187bc2a06cf1e1020d97"
-  integrity sha512-c8ztST/CslupqO3p7izsAuG3TlKg9mhE6mGJ42iUADsSMJIV5IOKd9AsLG33QCAY7SWs6NDO2giM/rq7bUTNlQ==
+"@ai-sdk/gateway@4.0.102":
+  version "4.0.102"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/gateway/-/gateway-4.0.102.tgz#c01499dfbdb84c56d7c12a74a316db17878a7278"
+  integrity sha512-kAVldt8D2AVSs7BjBZTRWHcFF71lPH8ouS6/QVlFCnKcUsShjXMdRwW6es5BfxyGewHbXfSirSc8j6efKSkIdA==
   dependencies:
-    "@ai-sdk/provider" "4.0.17"
-    "@ai-sdk/provider-utils" "5.0.43"
+    "@ai-sdk/provider" "4.0.21"
+    "@ai-sdk/provider-utils" "5.0.53"
     "@vercel/oidc" "3.2.0"
 
 "@ai-sdk/google-vertex@^3.0.70":
@@ -138,13 +138,13 @@
     "@ai-sdk/provider" "2.0.1"
     "@ai-sdk/provider-utils" "3.0.20"
 
-"@ai-sdk/mcp@2.0.52":
-  version "2.0.52"
-  resolved "https://registry.yarnpkg.com/@ai-sdk/mcp/-/mcp-2.0.52.tgz#281575c53cb7e78f639254435164464505d44fb1"
-  integrity sha512-01JlPlhpORspKA2xAh11qQ6KNieodbBEIJqMTzjmlV3mx6Y3JhBR4Uk8a7SsAv5ijphAUNZNYh50F2EhEEJ7fA==
+"@ai-sdk/mcp@2.0.65":
+  version "2.0.65"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/mcp/-/mcp-2.0.65.tgz#057bbd799e61c217ea0c063a7b1d6e57a2a7ac8c"
+  integrity sha512-KQPNhSkDa7NBn+NRx+ymUXBz4ItMdD4Xr1nIi5KPpdIIptj71Ja38dmWdonZV9JIZQOL9vSF9X4y1SJKV7pbaw==
   dependencies:
-    "@ai-sdk/provider" "4.0.17"
-    "@ai-sdk/provider-utils" "5.0.43"
+    "@ai-sdk/provider" "4.0.21"
+    "@ai-sdk/provider-utils" "5.0.53"
     cross-spawn "^7.0.6"
     pkce-challenge "^5.0.1"
 
@@ -262,6 +262,17 @@
     eventsource-parser "^3.0.8"
     undici "^7.29.0"
 
+"@ai-sdk/provider-utils@5.0.53":
+  version "5.0.53"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider-utils/-/provider-utils-5.0.53.tgz#145d4d3b39f5aceeb7ab7a6e1e85b0371ba29952"
+  integrity sha512-VVe6UDd0y0/B4TfauuKKzcppqvhTmSluwwUVT4WG2/8h7gFbyFm7PM4UGM+ZXe3/RI6bv+Vl1cw/7aiBoQqdxg==
+  dependencies:
+    "@ai-sdk/provider" "4.0.21"
+    "@standard-schema/spec" "^1.1.0"
+    "@workflow/serde" "4.1.0"
+    eventsource-parser "^3.0.8"
+    undici "^7.29.0"
+
 "@ai-sdk/provider-utils@^3.0.17":
   version "3.0.22"
   resolved "https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-3.0.22.tgz"
@@ -296,6 +307,13 @@
   version "4.0.17"
   resolved "https://registry.yarnpkg.com/@ai-sdk/provider/-/provider-4.0.17.tgz#23c55190cdc3c52c94ea5fbf50ac2072593feab1"
   integrity sha512-VYMBxIQdcHqbIf1j+YZlI9Ati6LZ4wJe0GGd4z4a5H/KxTggjeOiyaVYTnfF7LHZK5jMQ+rofmzz4QPqf++NUw==
+  dependencies:
+    json-schema "^0.4.0"
+
+"@ai-sdk/provider@4.0.21":
+  version "4.0.21"
+  resolved "https://registry.yarnpkg.com/@ai-sdk/provider/-/provider-4.0.21.tgz#cc3f93146513bc7bb5e4965a010bc712b59be354"
+  integrity sha512-UpbC9C1oht8dhfKPbVXSLRZS3DI8uk8n5v2uMjBPNIYGsC2kL045ywq7D8Hh9KgnH9rP5W/GxQdYtWScRouqlA==
   dependencies:
     json-schema "^0.4.0"
 
@@ -2974,14 +2992,14 @@ ai@6.0.0-beta.124:
     "@ai-sdk/provider-utils" "4.0.0-beta.40"
     "@opentelemetry/api" "1.9.0"
 
-ai@7.0.105:
-  version "7.0.105"
-  resolved "https://registry.yarnpkg.com/ai/-/ai-7.0.105.tgz#10e2ef29766ee3b1dbe9fb5d1d463d55eec760c8"
-  integrity sha512-gkV3W+tTtWwQ41KNV/KjV8wabBrk+bnbnZ3f0AWp/T9LLyljose8uhFViKleVy7tIdEiR2PiS4BpbNdcExf7rQ==
+ai@7.0.126:
+  version "7.0.126"
+  resolved "https://registry.yarnpkg.com/ai/-/ai-7.0.126.tgz#f9857af00bd69cddfa59379c460b7be757b616d8"
+  integrity sha512-7egcwpnVR2xn3YlJYEX2y15X7Bv7Rc8U2h4YjCOnj5KZL6Pr/BQFzJuF+9fkm3SefmpgkaYRXzrvhafVjxGZww==
   dependencies:
-    "@ai-sdk/gateway" "4.0.85"
-    "@ai-sdk/provider" "4.0.17"
-    "@ai-sdk/provider-utils" "5.0.43"
+    "@ai-sdk/gateway" "4.0.102"
+    "@ai-sdk/provider" "4.0.21"
+    "@ai-sdk/provider-utils" "5.0.53"
 
 ai@^5.0.0:
   version "5.0.259"
