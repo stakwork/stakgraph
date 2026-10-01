@@ -6475,9 +6475,9 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#703dc6e6284c9ccd2135618831d970a37fce08c0":
+"strut@git+https://github.com/stakwork/strut.git#8a78397f797083ab3acac83da894ae2ceafa99eb":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#703dc6e6284c9ccd2135618831d970a37fce08c0"
+  resolved "git+https://github.com/stakwork/strut.git#8a78397f797083ab3acac83da894ae2ceafa99eb"
   dependencies:
     "@ai-sdk/provider-utils" "^5.0.44"
     "@ai-sdk/typesafe-ai" "^3.0.3"
