@@ -339,6 +339,12 @@ const BOT_PATHS = [
   // Mouth
   "M 10 15.5 h 4",
 ];
+// Stacked-layers glyph (lucide `layers`) for folded family cards.
+const LAYERS_PATHS = [
+  "m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
+  "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65",
+  "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65",
+];
 
 // Per-icon dispatch: viewBox of the source paths + the slot-level mode
 // fallback. OpenRouter declares per-path modes inside OPENROUTER_PATHS
@@ -396,6 +402,7 @@ export const canvasTheme: CanvasTheme = resolveTheme(
     icons: {
       bot: BOT_PATHS,
       person: PERSON_PATHS,
+      layers: LAYERS_PATHS,
       anthropic: ANTHROPIC_PATHS,
       openai: OPENAI_PATHS,
       gemini: GEMINI_PATHS,
@@ -431,6 +438,47 @@ export const canvasTheme: CanvasTheme = resolveTheme(
               renderSplitFooter(
                 ctx,
                 `${(ctx.node.customData?.calls as number) ?? 0} runs`,
+                fmtUSD((ctx.node.customData?.cost as number) ?? 0),
+              ),
+          },
+        },
+      },
+
+      // ─── family ──────────────────────────────────────────────────
+      // Folded stack of agent pairings sharing a dotted prefix — see
+      // `foldEntries` in Canvas.tsx. Same footprint and recipe as the
+      // agent card so the column stays a uniform grid; told apart by
+      // the layers icon, a deeper fill, and an `N agents` footer in
+      // place of the run count (runs live in the drawer). Not a
+      // `topRight` count badge: the lib only clears header text for
+      // icon/dot corner slots, so a pill there paints over the tail of
+      // the family name — and `×N · 1080 runs` collides with the cost
+      // on the right at 160px wide.
+      family: {
+        defaultWidth: 160,
+        defaultHeight: 52,
+        fill: "rgba(52, 211, 153, 0.16)",
+        stroke: "#34d399",
+        cornerRadius: 6,
+        type: "text",
+        slots: {
+          leftEdge: { kind: "color", extent: "full" },
+          topLeft: { kind: "icon", name: "layers", viewBox: 24, size: 20 },
+          header: {
+            kind: "text",
+            value: (ctx: SlotContext) =>
+              (ctx.node.customData?.name as string) ?? "",
+            fontSize: 13,
+            uppercase: false,
+            useLabelFont: false,
+            color: (ctx: SlotContext) => ctx.theme.node.labelColor,
+          },
+          footer: {
+            kind: "custom",
+            render: (ctx: SlotContext) =>
+              renderSplitFooter(
+                ctx,
+                `${(ctx.node.customData?.members as number) ?? 0} agents`,
                 fmtUSD((ctx.node.customData?.cost as number) ?? 0),
               ),
           },
