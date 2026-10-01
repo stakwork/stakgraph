@@ -39,7 +39,7 @@ export function parseDenyList(spec: string = DEFAULT_DENY): DenyRule[] {
       rules.push({ kind: "cidr", family: ip.family, net: mask(ip.value, bits, max), bits });
       continue;
     }
-    rules.push({ kind: "host", host: item });
+    rules.push({ kind: "host", host: item.replace(/\.$/, "") });
   }
   return rules;
 }
@@ -54,13 +54,23 @@ export function denyReason(url: string, rules: DenyRule[]): string | null {
     return `not a URL: ${url}`;
   }
   const scheme = u.protocol.toLowerCase();
-  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   const ip = parseIp(host);
+  // An IPv4-mapped IPv6 literal (::ffff:a.b.c.d) parses as a family-6 value but
+  // reaches the embedded IPv4 on a dual-stack host; also test that v4 address
+  // against the family-4 CIDR rules, or [::ffff:169.254.169.254] escapes a
+  // 169.254.0.0/16 deny.
+  const mapped4: { family: 4; value: bigint } | null =
+    ip && ip.family === 6 && (ip.value >> 32n) === 0xffffn ? { family: 4, value: ip.value & 0xffffffffn } : null;
   for (const r of rules) {
     if (r.kind === "scheme" && r.scheme === scheme) return `scheme ${scheme} is denied`;
     if (r.kind === "host" && r.host === host) return `host ${host} is denied`;
-    if (r.kind === "cidr" && ip && ip.family === r.family && mask(ip.value, r.bits, r.family === 4 ? 32 : 128) === r.net)
-      return `address ${host} is in a denied range`;
+    if (r.kind === "cidr") {
+      for (const cand of [ip, mapped4]) {
+        if (cand && cand.family === r.family && mask(cand.value, r.bits, r.family === 4 ? 32 : 128) === r.net)
+          return `address ${host} is in a denied range`;
+      }
+    }
   }
   return null;
 }

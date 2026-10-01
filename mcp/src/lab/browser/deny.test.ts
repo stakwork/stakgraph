@@ -34,6 +34,24 @@ test("schemes, hosts and single addresses are all rules", () => {
   assert.equal(denyReason("http://[2001:db9::1]/", custom), null);
 });
 
+test("an IPv4-mapped IPv6 literal of a denied v4 range is denied", () => {
+  // ::ffff:a.b.c.d parses as IPv6 but reaches the embedded IPv4 on a dual-stack
+  // host; new URL() normalizes the dotted tail to the hex form seen here.
+  assert.match(denyReason("http://[::ffff:169.254.169.254]/", rules)!, /denied range/);
+  assert.match(denyReason("http://[::ffff:a9fe:a9fe]/", rules)!, /denied range/);
+});
+
+test("an IPv4-mapped IPv6 literal of an allowed address is not over-blocked", () => {
+  assert.equal(denyReason("http://[::ffff:93.184.216.34]/", rules), null); // mapped public
+  assert.equal(denyReason("http://[::ffff:10.0.0.5]/", rules), null); // mapped, not in the default list
+  assert.equal(denyReason("http://[2001:db8::a9fe:a9fe]/", rules), null); // low 32 bits coincide, not mapped
+});
+
+test("a host rule matches a trailing-dot FQDN, either direction", () => {
+  assert.match(denyReason("http://metadata.google.internal./", parseDenyList("metadata.google.internal"))!, /host metadata.google.internal/);
+  assert.match(denyReason("http://metadata.google.internal/", parseDenyList("metadata.google.internal."))!, /host metadata.google.internal/);
+});
+
 test("an empty list denies nothing; a bad prefix length throws", () => {
   assert.equal(denyReason("file:///x", parseDenyList("")), null);
   assert.throws(() => parseDenyList("10.0.0.0/33"), /bad prefix length/);
