@@ -453,6 +453,10 @@ export class BrowserService {
       // its back/forward cache, which fires no load events (headless has the
       // cache off). Settle does the waiting either way.
       await s.page.goBack({ waitUntil: "commit", timeout: ms });
+      // A bfcache restore (a real Chrome over CDP) fires no domcontentloaded, so
+      // the ref-reset handler never runs; clear here — before landed() may throw —
+      // or refs from the page we navigated away from survive this navigation.
+      s.refs.clear();
       await this.landed(s);
       await settlePage(s.page);
       return { url: s.page.url(), title: await s.page.title() };
