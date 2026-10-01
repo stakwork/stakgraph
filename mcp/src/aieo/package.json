@@ -28,7 +28,7 @@
   "license": "ISC",
   "description": "typescript ai utils",
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.56",
+    "@ai-sdk/anthropic": "4.0.71",
     "@ai-sdk/google": "4.0.74",
     "@ai-sdk/openai": "4.0.69",
     "@ai-sdk/xai": "5.0.2",
@@ -37,7 +37,7 @@
   "devDependencies": {
     "@types/json-schema": "7.0.15",
     "@types/node": "24.3.0",
-    "ai": "7.0.105",
+    "ai": "7.0.126",
     "ts-node": "10.9.2",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
