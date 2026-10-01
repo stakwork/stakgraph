@@ -11,8 +11,11 @@
 //
 // Per-column data:
 //   - Agents: one node per (agent × user) pair from
-//     `/_plugin/spend/by-agent-user`. customData.cost = that
-//     pairing's total spend in the window.
+//     `/_plugin/spend/by-agent-user` — except that pairs whose agent
+//     names share a dotted prefix (`openhealth-run.write-checklist`,
+//     `openhealth-run.read-checklist`, …) fold into one `family` card
+//     per (prefix × user). See `foldEntries`. customData.cost = that
+//     pairing's (or family's) total spend in the window.
 //   - Users: one node per distinct user. customData.totalCost +
 //     requestCount are summed over all that user's pairings.
 //   - Gateway: singleton. customData.totalCost = swarm-wide total
@@ -102,6 +105,99 @@ const USER_BLOCK_GAP = 32;
 const AGENTS_PER_COL = 3;
 const AGENT_COL_SPACING = SIZE.agent.w + 24;
 
+// ─── Family folding ───────────────────────────────────────────────
+// Lab agent names are dotted paths — `<workflow>.<step>…` like
+// `openhealth-run.write-checklist` or
+// `openhealth-improve-loop.loop.run.produce`. One busy user can run
+// 30+ distinct steps, which wraps their agent block ten columns deep
+// and buries the cards that matter. So within each user's block,
+// pairings whose agent name shares a first segment fold into a single
+// `family` card carrying the summed spend and an `N agents` footer;
+// the drawer lists the members with their individual runs + cost.
+//
+// Rules:
+//   - Family key = text before the first `.`. Names without a dot
+//     (`canvas-agent`, `strut-assistant`) have no family and never
+//     fold, even if a dotted sibling exists.
+//   - A family only folds when the user has ≥ FAMILY_MIN_MEMBERS
+//     pairings in it. A lone `job.work` stays a plain agent card
+//     under its full name — a `×1` stack would just be noise.
+//   - Folding is per user: `openhealth-run` folds separately for
+//     each user that ran it. The matrix is per (agent × user), so
+//     there is no cross-user family node.
+const FAMILY_MIN_MEMBERS = 2;
+
+function familyOf(agentName: string): string | null {
+  const dot = agentName.indexOf(".");
+  return dot <= 0 ? null : agentName.slice(0, dot);
+}
+
+// One stackable item in a user's agent block: a plain pairing or a
+// folded family of pairings. `cost` / `calls` are what the card
+// renders and what its edge to the user is weighted by.
+type AgentEntry =
+  | { kind: "agent"; row: AgentUserSpend; cost: number; calls: number }
+  | {
+      kind: "family";
+      family: string;
+      userID: string;
+      members: AgentUserSpend[];
+      cost: number;
+      calls: number;
+    };
+
+// Fold one user's pairings into entries, sorted by cost desc (family
+// total vs. pairing cost on the same scale). Pure.
+function foldEntries(rows: AgentUserSpend[]): AgentEntry[] {
+  const byFamily = new Map<string, AgentUserSpend[]>();
+  const entries: AgentEntry[] = [];
+  const plain = (row: AgentUserSpend): AgentEntry => ({
+    kind: "agent",
+    row,
+    cost: row.total_cost,
+    calls: row.request_count,
+  });
+  for (const r of rows) {
+    const fam = familyOf(r.agent_name);
+    if (fam === null) {
+      entries.push(plain(r));
+      continue;
+    }
+    const bucket = byFamily.get(fam);
+    if (bucket) bucket.push(r);
+    else byFamily.set(fam, [r]);
+  }
+  for (const [family, members] of byFamily) {
+    if (members.length < FAMILY_MIN_MEMBERS) {
+      for (const r of members) entries.push(plain(r));
+      continue;
+    }
+    members.sort((a, b) => b.total_cost - a.total_cost);
+    entries.push({
+      kind: "family",
+      family,
+      userID: members[0].user_id,
+      members,
+      cost: members.reduce((s, m) => s + m.total_cost, 0),
+      calls: members.reduce((s, m) => s + m.request_count, 0),
+    });
+  }
+  entries.sort((a, b) => b.cost - a.cost);
+  return entries;
+}
+
+// Node id for a stack entry. Agent ids keep the `agent:<name>:<user>`
+// shape (AgentBody parses it back out); families get
+// `family:<prefix>:<user>`.
+function entryNodeID(e: AgentEntry): string {
+  return e.kind === "agent"
+    ? `agent:${e.row.agent_name}:${e.row.user_id}`
+    : `family:${e.family}:${e.userID}`;
+}
+
+const entryUserID = (e: AgentEntry): string =>
+  e.kind === "agent" ? e.row.user_id : e.userID;
+
 // Stack a column of nodes vertically and center the whole stack
 // around y=0. Returns the y for the i-th item.
 function stackY(count: number, i: number, h: number, gap: number): number {
@@ -178,8 +274,9 @@ function buildCanvas(
   // edges land cleanly.
   users.sort((a, b) => b[1].totalCost - a[1].totalCost);
 
-  // Bucket rows by user (in users-column order), sorted by cost desc
-  // within each bucket. Drives both the agent-column stack and the
+  // Bucket rows by user (in users-column order), then fold each
+  // bucket into stack entries — plain pairings plus `family` stacks —
+  // sorted by cost desc. Drives both the agent-column stack and the
   // y-center of each user box.
   const rowsByUser = new Map<string, AgentUserSpend[]>();
   for (const r of rows) {
@@ -187,11 +284,12 @@ function buildCanvas(
     if (bucket) bucket.push(r);
     else rowsByUser.set(r.user_id, [r]);
   }
-  for (const bucket of rowsByUser.values()) {
-    bucket.sort((a, b) => b.total_cost - a.total_cost);
+  const entriesByUser = new Map<string, AgentEntry[]>();
+  for (const [userID, bucket] of rowsByUser) {
+    entriesByUser.set(userID, foldEntries(bucket));
   }
   const orderedGroups = users
-    .map(([userID]) => rowsByUser.get(userID) ?? [])
+    .map(([userID]) => entriesByUser.get(userID) ?? [])
     .filter((g) => g.length > 0);
 
   // ─── Per-user vertical slots ─────────────────────────────────
@@ -201,8 +299,8 @@ function buildCanvas(
   // column to the left rather than growing the slot taller. Slots
   // stack with `USER_BLOCK_GAP` between them, centered around y=0.
   const slotHeights = users.map(([userID]) => {
-    const agents = rowsByUser.get(userID) ?? [];
-    const rowsInTallestCol = Math.min(agents.length, AGENTS_PER_COL);
+    const entries = entriesByUser.get(userID) ?? [];
+    const rowsInTallestCol = Math.min(entries.length, AGENTS_PER_COL);
     const agentBlockH =
       rowsInTallestCol * SIZE.agent.h +
       Math.max(0, rowsInTallestCol - 1) * SIZE.agent.gap;
@@ -232,9 +330,14 @@ function buildCanvas(
   // Name flows through the header text slot (driven by
   // customData.name), so node.text is left empty — that suppresses
   // the default label render which would otherwise double up.
+  //
+  // A `family` entry takes the same footprint as an agent card (the
+  // `family` category in canvasTheme.ts swaps in the layers icon and
+  // an `N agents` footer). Its customData carries the prefix + userID
+  // so the drawer can re-derive the member rows from the live matrix.
   orderedGroups.forEach((group, userIdx) => {
     const slotTop = slotTopY[userIdx];
-    group.forEach((r, agentIdx) => {
+    group.forEach((entry, agentIdx) => {
       const col = Math.floor(agentIdx / AGENTS_PER_COL);
       const rowInCol = agentIdx % AGENTS_PER_COL;
       const y =
@@ -242,21 +345,38 @@ function buildCanvas(
         rowInCol * (SIZE.agent.h + SIZE.agent.gap) +
         SIZE.agent.h / 2;
       const x = COL_X.agent - col * AGENT_COL_SPACING;
-      nodes.push({
-        id: `agent:${r.agent_name}:${r.user_id}`,
-        type: "text",
-        category: "agent",
+      const base = {
+        id: entryNodeID(entry),
+        type: "text" as const,
         text: "",
         x,
         y,
         width: SIZE.agent.w,
         height: SIZE.agent.h,
-        customData: {
-          name: r.agent_name,
-          cost: r.total_cost,
-          calls: r.request_count,
-        },
-      });
+      };
+      if (entry.kind === "agent") {
+        nodes.push({
+          ...base,
+          category: "agent",
+          customData: {
+            name: entry.row.agent_name,
+            cost: entry.cost,
+            calls: entry.calls,
+          },
+        });
+      } else {
+        nodes.push({
+          ...base,
+          category: "family",
+          customData: {
+            name: entry.family,
+            userID: entry.userID,
+            members: entry.members.length,
+            cost: entry.cost,
+            calls: entry.calls,
+          },
+        });
+      }
     });
   });
 
@@ -352,7 +472,7 @@ function buildCanvas(
   // ─── Edges ────────────────────────────────────────────────────
   // Three bands of connectivity, all running left→right since that
   // matches the columns:
-  //   1. agent → user (one per pairing row)
+  //   1. agent → user (one per stack entry: pairing or family)
   //   2. user  → gateway (one per distinct user)
   //   3. gateway → provider (one per provider, weighted by that
   //      provider's swarm-wide spend)
@@ -366,7 +486,9 @@ function buildCanvas(
   // the user→gateway lines (each carrying a sum of many pairs) would
   // dwarf every individual pair line and squash them flat.
   const edges: CanvasEdge[] = [];
-  const maxRowCost = rows.reduce((m, r) => Math.max(m, r.total_cost), 0);
+  const maxEntryCost = orderedGroups
+    .flat()
+    .reduce((m, e) => Math.max(m, e.cost), 0);
   const maxUserCost = Array.from(userTotals.values()).reduce(
     (m, u) => Math.max(m, u.totalCost),
     0,
@@ -375,15 +497,18 @@ function buildCanvas(
     (m, p) => Math.max(m, p.totalCost),
     0,
   );
-  rows.forEach((r) => {
-    edges.push({
-      id: `e:agent-user:${r.agent_name}:${r.user_id}`,
-      fromNode: `agent:${r.agent_name}:${r.user_id}`,
-      fromSide: "right",
-      toNode: `user:${r.user_id}`,
-      toSide: "left",
-      toEnd: "none",
-      strokeWidth: weightToWidth(r.total_cost, maxRowCost),
+  orderedGroups.forEach((group) => {
+    group.forEach((entry) => {
+      const fromNode = entryNodeID(entry);
+      edges.push({
+        id: `e:to-user:${fromNode}`,
+        fromNode,
+        fromSide: "right",
+        toNode: `user:${entryUserID(entry)}`,
+        toSide: "left",
+        toEnd: "none",
+        strokeWidth: weightToWidth(entry.cost, maxEntryCost),
+      });
     });
   });
   users.forEach(([userID, agg]) => {
@@ -500,6 +625,7 @@ export function Canvas() {
 //
 // Body shape branches on `node.category`:
 //   - agent    → per-pairing spend + revoke action
+//   - family   → folded stack: summed spend + member table
 //   - user     → roll-up across all their agents + suspend action
 //   - gateway  → swarm totals (no actions — it's not a target)
 //   - provider → placeholder pending real per-provider spend
@@ -541,6 +667,8 @@ function drawerEyebrow(node: CanvasNode): string {
   switch (node.category) {
     case "agent":
       return "Agent × User";
+    case "family":
+      return "Agent family × User";
     case "user":
       return "User";
     case "gateway":
@@ -567,6 +695,8 @@ function NodeDrawerBody({
   switch (node.category) {
     case "agent":
       return <AgentBody node={node} />;
+    case "family":
+      return <FamilyBody node={node} rows={rows} />;
     case "user":
       return <UserBody node={node} rows={rows} />;
     case "gateway":
@@ -662,6 +792,99 @@ function AgentBody({ node }: { node: CanvasNode }) {
             {
               label: "Set per-pair budget",
               onClick: () => todoAction("set-pair-budget", target),
+            },
+          ]}
+        />
+      </div>
+    </>
+  );
+}
+
+// Folded family card — see `foldEntries`. Members are re-derived
+// from `rows` (same recipe as UserBody) rather than stashed in
+// customData, so a refetch can't strand the drawer on stale members.
+function FamilyBody({
+  node,
+  rows,
+}: {
+  node: CanvasNode;
+  rows: AgentUserSpend[];
+}) {
+  const cd = (node.customData ?? {}) as {
+    name?: string;
+    userID?: string;
+    cost?: number;
+    calls?: number;
+  };
+  const family = cd.name ?? "";
+  const userID = cd.userID ?? "";
+  const members = rows
+    .filter((r) => r.user_id === userID && familyOf(r.agent_name) === family)
+    .sort((a, b) => b.total_cost - a.total_cost);
+
+  return (
+    <>
+      <MetaGrid
+        items={[
+          { label: "Family", value: family || "—" },
+          { label: "User", value: userID || "—" },
+          { label: "Spend", value: fmtUSD(cd.cost ?? 0) },
+          { label: "Calls", value: fmtInt(cd.calls ?? 0) },
+        ]}
+      />
+      <div class="drawer-section">
+        <div class="drawer-section-title">
+          Agents in this family ({members.length})
+        </div>
+        {members.length === 0 ? (
+          <div class="text-dim">No activity in this window.</div>
+        ) : (
+          <ul style="margin: 0; padding: 0; list-style: none;">
+            {members.map((r) => (
+              <li
+                key={r.agent_name}
+                style="display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border);"
+              >
+                <span
+                  style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                  title={r.agent_name}
+                >
+                  <span class="text-dim">{family}.</span>
+                  {r.agent_name.slice(family.length + 1)}
+                </span>
+                <span class="mono text-dim" style="white-space: nowrap;">
+                  {fmtInt(r.request_count)} runs · {fmtUSD(r.total_cost)}
+                </span>
+                <button
+                  type="button"
+                  class="btn"
+                  style="padding: 2px var(--sp-2); font-size: 11px; border-color: var(--danger); color: var(--danger);"
+                  onClick={() =>
+                    todoAction(
+                      "revoke-agent-user",
+                      `agent=${r.agent_name} user=${userID}`,
+                    )
+                  }
+                >
+                  Revoke
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">Actions</div>
+        <ActionRow
+          actions={[
+            {
+              label: `Revoke all ${members.length} agents for this user`,
+              danger: true,
+              onClick: () =>
+                todoAction(
+                  "revoke-family-user",
+                  `family=${family} user=${userID}`,
+                ),
             },
           ]}
         />
