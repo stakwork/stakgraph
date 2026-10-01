@@ -118,6 +118,9 @@ interface Run {
   timer?: NodeJS.Timeout;
   exhausted: boolean;
   session?: Session;
+  /** An open in flight: a second `page()` call joins it instead of making
+   *  a context of its own. */
+  opening?: Promise<Page>;
 }
 
 export class BrowserService {
@@ -165,7 +168,10 @@ export class BrowserService {
 
   /** The run's page — context + page created on first use. `viewport` and
    *  `storageState` apply only at creation, and only over a Playwright
-   *  server (over CDP both are refused — see the file comment). */
+   *  server (over CDP both are refused — see the file comment). ONE open per
+   *  run at a time: the agent step runs a turn's tool calls concurrently, so
+   *  two `browser_open`s in one turn arrive together, and each making a
+   *  context would orphan the first (`dispose` closes only `run.session`). */
   async page(runId: string, opts: { viewport?: Viewport; storageState?: unknown } = {}): Promise<Page> {
     let run = this.runs.get(runId);
     if (!run) {
@@ -177,11 +183,20 @@ export class BrowserService {
       }, this.runBudgetMs);
       run.timer.unref();
     }
-    if (run.exhausted) throw new Error(`browser: this run's browser budget (${this.runBudgetMs} ms) is spent`);
+    if (run.exhausted) throw new Error(this.spent());
     const live = run.session;
     if (live && !live.page.isClosed()) return live.page;
+    if (run.opening) return run.opening;
+    const r = run;
+    const opening = this.openSession(runId, r, opts).finally(() => (r.opening = undefined));
+    r.opening = opening;
+    return opening;
+  }
+
+  private async openSession(runId: string, run: Run, opts: { viewport?: Viewport; storageState?: unknown }): Promise<Page> {
+    const stale = run.session;
     run.session = undefined;
-    await closeQuietly(live);
+    await closeQuietly(stale);
     const browser = await this.connect();
     let context: BrowserContext;
     if (this.cdp) {
@@ -194,11 +209,28 @@ export class BrowserService {
         ...(opts.storageState ? { storageState: opts.storageState as BrowserContextOptions["storageState"] } : {}),
       });
     }
-    const page = await context.newPage();
+    let page: Page;
+    try {
+      page = await context.newPage();
+    } catch (err) {
+      // The context is nobody's yet — nothing else would close it.
+      if (!this.cdp) await context.close().catch(() => {});
+      throw err;
+    }
     const session: Session = { context, own: !this.cdp, page, pages: [page], refs: new Set(), replaced: false, obs: emptyObs() };
+    // The run was disposed, or its budget ran out, while this was opening:
+    // `dispose` / `closeSession` saw no session, so this one is ours to close.
+    if (this.runs.get(runId) !== run || run.exhausted) {
+      await closeQuietly(session);
+      throw new Error(run.exhausted ? this.spent() : "browser: the run ended while its page was opening");
+    }
     this.watch(session, page);
     run.session = session;
     return page;
+  }
+
+  private spent(): string {
+    return `browser: this run's browser budget (${this.runBudgetMs} ms) is spent`;
   }
 
   /** Observations and ref resets for one of the run's pages — on the
@@ -521,7 +553,8 @@ export class BrowserService {
     return this.connecting;
   }
 
-  private async launch(): Promise<Browser> {
+  /** The connection — `protected` so an offline test can hand in a fake. */
+  protected async launch(): Promise<Browser> {
     const { wsUrl, wsPath, cdpUrl, executablePath, channel } = this.opts;
     const { chromium } = await import("playwright-core");
     if (cdpUrl) return chromium.connectOverCDP(cdpUrl, { timeout: 30_000 });

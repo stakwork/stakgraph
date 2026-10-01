@@ -45,9 +45,9 @@
     "sphinx-git": "./build/sphinx-git/bin.js"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.56",
-    "@ai-sdk/mcp": "2.0.52",
-    "@ai-sdk/provider": "4.0.17",
+    "@ai-sdk/anthropic": "4.0.71",
+    "@ai-sdk/mcp": "2.0.65",
+    "@ai-sdk/provider": "4.0.21",
     "@anthropic-ai/sdk": "0.37.0",
     "@aws-sdk/client-cloudwatch-logs": "3.994.0",
     "@aws-sdk/credential-providers": "3.994.0",
@@ -60,7 +60,7 @@
     "@octokit/rest": "22.0.1",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@playwright/test": "1.58.1",
-    "ai": "7.0.105",
+    "ai": "7.0.126",
     "archy": "1.0.0",
     "axios": "1.13.4",
     "commander": "14.0.3",
@@ -84,7 +84,7 @@
     "redis": "^6.2.1",
     "sharp": "0.35.5",
     "simple-git": "3.30.0",
-    "strut": "git+https://github.com/stakwork/strut.git#8a78397f797083ab3acac83da894ae2ceafa99eb",
+    "strut": "git+https://github.com/stakwork/strut.git#f6ec86bf0725b1c0b57740f3c1535d18bc91e9bd",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
     "zod": "4.6.5"
