@@ -29,10 +29,15 @@ interface Request {
   result?: any;
   error?: any;
   progress?: any;
-  // Whether re-submitting the same request is expected to help. True only for
-  // infrastructure failures (a restart orphaning an in-flight run), never for
-  // agent errors or user aborts. Callers key their retry policy off this
-  // instead of string-matching the error text.
+  // Caller retry signal, not a promise that this request_id resumes in place.
+  // True for restart orphans, graceful-shutdown orphans (failPendingReqs /
+  // SHUTDOWN_ORPHAN_ERROR), and a non-streaming repo-agent failure whose SDK
+  // error (or its cause chain) has isRetryable === true. Aborts and ordinary
+  // agent errors stay false. Callers key their retry policy off this instead
+  // of string-matching the error text. Restart and shutdown orphans lost no
+  // terminal session write, so a re-submit of the same sessionId resumes from
+  // the last completed turn. An SDK timeout does not: startReq always mints a
+  // new id, and retryable:true means a new submission is worth trying.
   retryable?: boolean;
   // Caller's terminal callback, persisted so the startup sweep can still
   // notify the receiver about runs orphaned by a process restart.
