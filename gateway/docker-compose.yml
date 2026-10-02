@@ -92,6 +92,19 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       XAI_API_KEY: ${XAI_API_KEY:-}
+      # Optional S3 offload of LLM request/response bodies. Unset
+      # BIFROST_S3_BUCKET ⇒ local SQLite logs only (today's behaviour).
+      # When set, the wrapper injects logs_store.object_storage into
+      # config.json with env.* credential refs — never plaintext keys.
+      # See gateway/wrapper/s3config.go for bucket-side requirements
+      # (SSE-KMS, Block Public Access, deny-non-TLS, Object Lock).
+      BIFROST_S3_BUCKET: ${BIFROST_S3_BUCKET:-}
+      BIFROST_S3_REGION: ${BIFROST_S3_REGION:-}
+      BIFROST_S3_ACCESS_KEY_ID: ${BIFROST_S3_ACCESS_KEY_ID:-}
+      BIFROST_S3_SECRET_ACCESS_KEY: ${BIFROST_S3_SECRET_ACCESS_KEY:-}
+      BIFROST_S3_PREFIX: ${BIFROST_S3_PREFIX:-}
+      BIFROST_S3_ENDPOINT: ${BIFROST_S3_ENDPOINT:-}
+      BIFROST_S3_FORCE_PATH_STYLE: ${BIFROST_S3_FORCE_PATH_STYLE:-}
     depends_on:
       redis:
         condition: service_healthy
