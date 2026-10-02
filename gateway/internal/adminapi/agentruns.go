@@ -63,11 +63,11 @@ func (h *observabilityHandlers) agentRuns(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  map[string]string{"agent-name": name},
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "agents.runs")
 		return
@@ -93,10 +93,14 @@ func (h *observabilityHandlers) agentRuns(w http.ResponseWriter, r *http.Request
 // summarizeRuns groups log rows by `metadata.run-id` and returns one
 // summary per run, sorted by last activity, newest first (ties by
 // run-id so the order is stable across polls). Rows with no run-id
-// are skipped.
+// are skipped. The run's user is read off its earliest row that
+// carries one — a fixed rule rather than "first row scanned", because
+// the row order is Bifrost's (newest first) and, through the window
+// cache, a splice of a fresh tail over older rows.
 func summarizeRuns(logs []logstoreLog) []AgentRunSummary {
 	type agg struct {
 		user      string
+		userAt    time.Time
 		models    map[string]int64
 		cost      float64
 		tokens    int64
@@ -117,9 +121,6 @@ func summarizeRuns(logs []logstoreLog) []AgentRunSummary {
 			a = &agg{models: map[string]int64{}}
 			byRun[runID] = a
 		}
-		if a.user == "" {
-			a.user = l.Metadata["user-id"]
-		}
 		if l.Model != "" {
 			a.models[l.Model]++
 		}
@@ -129,6 +130,9 @@ func summarizeRuns(logs []logstoreLog) []AgentRunSummary {
 		// Compare as times, not strings: RFC3339Nano trims trailing
 		// zeros, so "…:00Z" sorts after "…:00.5Z" lexicographically.
 		ts := parseLogTimestamp(l.Timestamp)
+		if uid := l.Metadata["user-id"]; uid != "" && (a.user == "" || ts.Before(a.userAt)) {
+			a.user, a.userAt = uid, ts
+		}
 		if a.firstSeen == "" || ts.Before(a.first) {
 			a.first, a.firstSeen = ts, l.Timestamp
 		}

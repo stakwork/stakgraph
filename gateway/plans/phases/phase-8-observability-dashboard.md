@@ -678,7 +678,7 @@ All API calls go through one `fetch` wrapper that:
   redirects to `/login?next=<current>`
 - Maps non-2xx → throws with the JSON `error.code` from phase 7's
   error envelope
-- 5s default timeout (configurable per call)
+- 30s default timeout (configurable per call; was 5s until 2026-10-02 — a cold 24h rollup walks more pages than that, see adminapi/logwindow.go)
 
 Tanstack Query is configured with:
 

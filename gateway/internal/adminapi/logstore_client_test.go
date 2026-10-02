@@ -99,23 +99,60 @@ func TestLogstoreClient_SearchComposesQuery(t *testing.T) {
 	}
 }
 
-func TestLogstoreClient_SearchAll_PagesAndCaps(t *testing.T) {
-	// 2500 rows served in pages of whatever `limit` asks for.
-	rb := newRecordingBifrost(t, func(w http.ResponseWriter, r *http.Request) {
-		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-		const total = 2500
-		var rows []map[string]any
-		for i := offset; i < offset+limit && i < total; i++ {
-			rows = append(rows, map[string]any{"id": strconv.Itoa(i), "cost": 0.01})
+// keysetBifrost serves `rows` (newest first, stable) the way Bifrost's
+// /api/logs does for the walker: `end_time` is inclusive, then
+// offset/limit. Pass the row set newest-first.
+func keysetBifrost(t *testing.T, rows []map[string]any) *recordingBifrost {
+	t.Helper()
+	return newRecordingBifrost(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		offset, _ := strconv.Atoi(q.Get("offset"))
+		var end *time.Time
+		if v := q.Get("end_time"); v != "" {
+			ts, err := time.Parse(time.RFC3339Nano, v)
+			if err != nil {
+				t.Errorf("bad end_time %q: %v", v, err)
+			}
+			end = &ts
+		}
+		var inRange []map[string]any
+		for _, row := range rows {
+			if end != nil {
+				ts, _ := time.Parse(time.RFC3339Nano, row["timestamp"].(string))
+				if ts.After(*end) {
+					continue
+				}
+			}
+			inRange = append(inRange, row)
+		}
+		if offset > len(inRange) {
+			offset = len(inRange)
+		}
+		page := inRange[offset:]
+		if len(page) > limit {
+			page = page[:limit]
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"logs":       rows,
-			"pagination": map[string]any{"limit": limit, "offset": offset, "total_count": total},
+			"logs":       page,
+			"pagination": map[string]any{"limit": limit, "offset": offset, "total_count": len(inRange)},
 			"stats":      map[string]any{},
 		})
 	})
+}
+
+func TestLogstoreClient_SearchAll_PagesAndCaps(t *testing.T) {
+	// 2500 rows with distinct timestamps, newest first.
+	base := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	var rows []map[string]any
+	for i := 0; i < 2500; i++ {
+		rows = append(rows, map[string]any{
+			"id": strconv.Itoa(i), "cost": 0.01,
+			"timestamp": base.Add(-time.Duration(i) * time.Second).Format(time.RFC3339Nano),
+		})
+	}
+	rb := keysetBifrost(t, rows)
 	c := rb.client()
 
 	all, err := c.searchAll(context.Background(), searchOpts{}, 1000, 0)
@@ -125,9 +162,30 @@ func TestLogstoreClient_SearchAll_PagesAndCaps(t *testing.T) {
 	if len(all) != 2500 {
 		t.Fatalf("rows = %d, want 2500", len(all))
 	}
-	// 1000 + 1000 + 500: the short page ends the walk.
+	// 1000 + 1000 + 500: the short page ends the walk. Page 2 and 3
+	// are keyed by end_time (the boundary row comes back and is
+	// dropped), never by offset.
 	if len(rb.reqs) != 3 {
 		t.Fatalf("requests = %d, want 3", len(rb.reqs))
+	}
+	for i, req := range rb.reqs {
+		q := req.URL.Query()
+		if q.Get("sort_by") != "timestamp" || q.Get("order") != "desc" {
+			t.Errorf("request %d: sort=%s/%s, want timestamp/desc", i, q.Get("sort_by"), q.Get("order"))
+		}
+		if q.Get("offset") != "" {
+			t.Errorf("request %d: offset=%s, want keyset paging (no offset)", i, q.Get("offset"))
+		}
+	}
+	if got := rb.reqs[1].URL.Query().Get("end_time"); got != rows[999]["timestamp"] {
+		t.Errorf("page 2 end_time = %s, want the oldest ts of page 1 (%s)", got, rows[999]["timestamp"])
+	}
+	seen := map[string]bool{}
+	for _, l := range all {
+		if seen[l.ID] {
+			t.Fatalf("row %s returned twice", l.ID)
+		}
+		seen[l.ID] = true
 	}
 	if all[2499].ID != "2499" {
 		t.Errorf("last row: %+v", all[2499])
@@ -139,14 +197,126 @@ func TestLogstoreClient_SearchAll_PagesAndCaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(capped) != 2000 || len(rb.reqs) != 2 {
-		t.Errorf("capped walk: rows=%d requests=%d (cap applies after the page that crosses it)", len(capped), len(rb.reqs))
+	// Two pages: 1000 + (1000 − 1 boundary duplicate). The cap applies
+	// after the page that crosses it.
+	if len(capped) != 1999 || len(rb.reqs) != 2 {
+		t.Errorf("capped walk: rows=%d requests=%d, want 1999/2", len(capped), len(rb.reqs))
 	}
 	// Oversized page size clamps to Bifrost's 1000 ceiling.
 	rb.reqs = nil
 	_, _ = c.searchAll(context.Background(), searchOpts{}, 5000, 100)
 	if got := rb.reqs[0].URL.Query().Get("limit"); got != "1000" {
 		t.Errorf("page size not clamped: limit=%s", got)
+	}
+}
+
+func TestLogstoreClient_SearchAll_BoundaryTies(t *testing.T) {
+	base := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+
+	// Triplets share a timestamp, so page boundaries fall inside a
+	// tie: the boundary rows re-served by the inclusive end_time must
+	// be dropped exactly once.
+	var rows []map[string]any
+	for i := 0; i < 1500; i++ {
+		rows = append(rows, map[string]any{
+			"id":        strconv.Itoa(i),
+			"timestamp": base.Add(-time.Duration(i/3) * time.Second).Format(time.RFC3339Nano),
+		})
+	}
+	rb := keysetBifrost(t, rows)
+	all, err := rb.client().searchAll(context.Background(), searchOpts{}, 1000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1500 || len(rb.reqs) != 2 {
+		t.Fatalf("tied pages: rows=%d requests=%d, want 1500/2", len(all), len(rb.reqs))
+	}
+	seen := map[string]bool{}
+	for _, l := range all {
+		if seen[l.ID] {
+			t.Fatalf("row %s returned twice", l.ID)
+		}
+		seen[l.ID] = true
+	}
+
+	// A page that sits entirely on one timestamp cannot move the
+	// boundary; the walk steps past it with offset and still finds
+	// every row.
+	rows = nil
+	for i := 0; i < 1200; i++ {
+		rows = append(rows, map[string]any{
+			"id": strconv.Itoa(i), "timestamp": base.Format(time.RFC3339Nano),
+		})
+	}
+	rb = keysetBifrost(t, rows)
+	all, err = rb.client().searchAll(context.Background(), searchOpts{}, 1000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1200 {
+		t.Fatalf("single-ts rows = %d, want 1200", len(all))
+	}
+	seen = map[string]bool{}
+	for _, l := range all {
+		if seen[l.ID] {
+			t.Fatalf("row %s returned twice", l.ID)
+		}
+		seen[l.ID] = true
+	}
+	if last := rb.reqs[len(rb.reqs)-1].URL.Query(); last.Get("offset") != "1000" {
+		t.Errorf("stuck boundary must step by offset; last request offset=%s", last.Get("offset"))
+	}
+}
+
+func TestLogstoreClient_SearchAll_ExplicitSortUsesOffset(t *testing.T) {
+	base := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	var rows []map[string]any
+	for i := 0; i < 1200; i++ {
+		rows = append(rows, map[string]any{
+			"id": strconv.Itoa(i), "timestamp": base.Add(-time.Duration(i) * time.Second).Format(time.RFC3339Nano),
+		})
+	}
+	rb := keysetBifrost(t, rows)
+	all, err := rb.client().searchAll(context.Background(), searchOpts{SortBy: "cost", Order: "asc"}, 1000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1200 || len(rb.reqs) != 2 {
+		t.Fatalf("rows=%d requests=%d", len(all), len(rb.reqs))
+	}
+	q := rb.reqs[1].URL.Query()
+	if q.Get("offset") != "1000" || q.Get("end_time") != "" || q.Get("sort_by") != "cost" {
+		t.Errorf("non-timestamp sort must page by offset: %v", q)
+	}
+}
+
+func TestLogstoreClient_WindowLogs_BypassesCacheWhenUnbounded(t *testing.T) {
+	rb := newRecordingBifrost(t, emptyPage)
+	c := rb.client()
+	walks := 0
+	c.window = newLogWindowCache(func(ctx context.Context, o searchOpts) ([]logstoreLog, error) {
+		walks++
+		return c.searchAll(ctx, o, windowPageSize, windowMaxRows)
+	})
+	// No time bounds (the session summary) ⇒ direct walk, not cached.
+	for i := 0; i < 2; i++ {
+		if _, err := c.windowLogs(context.Background(), searchOpts{Metadata: map[string]string{"session-id": "s1"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if walks != 0 || len(rb.reqs) != 2 {
+		t.Errorf("unbounded opts: cache walks=%d bifrost requests=%d, want 0/2", walks, len(rb.reqs))
+	}
+	// Bounded ⇒ cached: the second call is served from the entry.
+	rb.reqs = nil
+	start, end := time.Now().Add(-time.Hour), time.Now()
+	for i := 0; i < 2; i++ {
+		if _, err := c.windowLogs(context.Background(), searchOpts{StartTime: &start, EndTime: &end}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if walks != 1 || len(rb.reqs) != 1 {
+		t.Errorf("bounded opts: cache walks=%d bifrost requests=%d, want 1/1", walks, len(rb.reqs))
 	}
 }
 
