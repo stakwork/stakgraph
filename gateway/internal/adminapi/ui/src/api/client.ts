@@ -16,6 +16,9 @@ import type { ApiError } from "./manual";
 
 const PLUGIN_PREFIX = "/_plugin";
 
+/** See ApiFetchOptions.timeoutMs. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 /** Sentinel error thrown on 401. The QueryClient's `onError` catches
  *  it and triggers a redirect to /login?next=<current>. Importable
  *  from app.tsx via `instanceof UnauthorizedError`. */
@@ -44,8 +47,13 @@ export interface ApiFetchOptions {
   body?: unknown;
   /** Extra headers (e.g. Authorization: Basic on the login call). */
   headers?: Record<string, string>;
-  /** Timeout in ms. Default 5s — matches the plugin's own ~5s
-   *  upstream timeouts so the UI doesn't outwait its backend. */
+  /** Timeout in ms. Default 30s. The plugin's per-page logstore
+   *  timeout is 5s, but a rollup over a cold 24h window walks many
+   *  pages before the plugin's window cache is warm, and an abort
+   *  here shows up in devtools as "(canceled)" with nothing rendered
+   *  (2026-10-02: every /_plugin/spend/* call from Hive's iframe died
+   *  at exactly 5.00s). Once warm the rollups answer in milliseconds;
+   *  this is the budget for the first paint. */
   timeoutMs?: number;
 }
 
@@ -56,7 +64,7 @@ export async function apiFetch<T>(
   path: string,
   opts: ApiFetchOptions = {}
 ): Promise<T> {
-  const { method = "GET", body, headers = {}, timeoutMs = 5000 } = opts;
+  const { method = "GET", body, headers = {}, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
 
   const ctl = new AbortController();
   const tid = setTimeout(() => ctl.abort(), timeoutMs);
