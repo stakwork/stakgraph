@@ -1,11 +1,13 @@
 package adminapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,10 @@ type fakeBifrost struct {
 	// customers backs GET /api/governance/customers/{id} (phase-7
 	// quota). Keyed by customer id; a miss is a 404 like Bifrost's.
 	customers map[string]fakeCustomer
+
+	// logsCalls counts /api/logs list requests — the window cache
+	// tests assert how many walks a sequence of handler calls costs.
+	logsCalls int
 }
 
 // fakeCustomer is the slice of Bifrost's TableCustomer the quota
@@ -112,6 +118,7 @@ func (f *fakeBifrost) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.URL.Path == "/api/logs":
+		f.logsCalls++
 		f.serveLogs(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/logs/"):
 		f.serveLogByID(w, r, strings.TrimPrefix(r.URL.Path, "/api/logs/"))
@@ -161,7 +168,23 @@ func (f *fakeBifrost) serveLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Filter by metadata.
+	// Time window: start_time / end_time are inclusive, like Bifrost's
+	// `timestamp >= ? AND timestamp <= ?`. Rows with an unparseable
+	// timestamp are left in (a fixture that doesn't care about time).
+	parseBound := func(key string) *time.Time {
+		v := q.Get(key)
+		if v == "" {
+			return nil
+		}
+		ts, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			return nil
+		}
+		return &ts
+	}
+	startT, endT := parseBound("start_time"), parseBound("end_time")
+
+	// Filter by metadata + window.
 	var rows []fakeLog
 	for _, l := range f.logs {
 		ok := true
@@ -171,10 +194,20 @@ func (f *fakeBifrost) serveLogs(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		if ok && (startT != nil || endT != nil) {
+			if ts, err := time.Parse(time.RFC3339Nano, l.Timestamp); err == nil {
+				if (startT != nil && ts.Before(*startT)) || (endT != nil && ts.After(*endT)) {
+					ok = false
+				}
+			}
+		}
 		if ok {
 			rows = append(rows, l)
 		}
 	}
+	// Newest first, as Bifrost's default sort (and the walker's keyset
+	// paging) expects.
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Timestamp > rows[j].Timestamp })
 	total := int64(len(rows))
 
 	// Paginate.
@@ -647,3 +680,100 @@ func TestObservability_RequiresAuth(t *testing.T) {
 
 // silence unused import staticcheck noise for url in some configs
 var _ = url.QueryEscape
+
+// ─── window cache through the handlers ───────────────────────────────
+
+// newCachedObservabilityTestServer is newObservabilityTestServer with
+// the production window cache wired on the client, so a sequence of
+// handler calls can be checked for how many Bifrost walks it costs.
+func newCachedObservabilityTestServer(t *testing.T, bifrost *fakeBifrost) *httptest.Server {
+	t.Helper()
+	c := &logstoreClient{
+		base:       bifrost.srv.URL,
+		httpClient: &http.Client{Timeout: 2 * time.Second},
+		authHeader: basicAuth(bifrost.authUser, bifrost.authPass),
+	}
+	c.window = newLogWindowCache(func(ctx context.Context, o searchOpts) ([]logstoreLog, error) {
+		return c.searchAll(ctx, o, windowPageSize, windowMaxRows)
+	})
+	mux := http.NewServeMux()
+	registerRoutes(mux, routeDeps{
+		adminUser:         "admin",
+		adminPass:         "hunter2",
+		provisioningToken: testToken,
+		logstore:          c,
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRollups_ShareOneWalkPerWindow(t *testing.T) {
+	now := time.Now().UTC()
+	bf := newFakeBifrost(t, sampleLogs(now))
+	srv := newCachedObservabilityTestServer(t, bf)
+
+	// The dashboard's first paint: three rollups over the same 24h
+	// window, then the canvas asks again 0s later. One walk.
+	for _, path := range []string{
+		"/_plugin/spend/by-agent?window=24h",
+		"/_plugin/spend/by-user?window=24h",
+		"/_plugin/histogram/cost?window=24h&dimension=agent-name",
+		"/_plugin/spend/by-agent-user?window=24h",
+	} {
+		resp := bearerGet(t, srv, path)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d", path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	if bf.logsCalls != 1 {
+		t.Fatalf("/api/logs calls = %d, want 1 (same window ⇒ one shared walk)", bf.logsCalls)
+	}
+
+	// And the numbers are the ones the uncached handlers produce.
+	resp := bearerGet(t, srv, "/_plugin/spend/by-agent?window=24h")
+	var out SpendByAgentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(out.Results) != 2 || out.Results[0].AgentName != "coder" ||
+		out.Results[0].TotalCost < 0.149 || out.Results[0].TotalCost > 0.151 || out.Results[0].RequestCount != 2 {
+		t.Errorf("cached by-agent = %+v", out.Results)
+	}
+
+	// A different window or a dim filter is its own walk.
+	for _, path := range []string{
+		"/_plugin/spend/by-agent?window=1h",
+		"/_plugin/spend/by-agent?window=24h&user_id=u_alice",
+	} {
+		resp := bearerGet(t, srv, path)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d", path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	if bf.logsCalls != 3 {
+		t.Errorf("/api/logs calls = %d, want 3", bf.logsCalls)
+	}
+}
+
+func TestRollups_UpstreamFailureIsNotCached(t *testing.T) {
+	now := time.Now().UTC()
+	bf := newFakeBifrost(t, sampleLogs(now))
+	srv := newCachedObservabilityTestServer(t, bf)
+
+	bf.failNextWith = http.StatusInternalServerError
+	resp := bearerGet(t, srv, "/_plugin/spend/by-agent?window=24h")
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("first call status = %d, want 502", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = bearerGet(t, srv, "/_plugin/spend/by-agent?window=24h")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200 (a failed fill must not poison the entry)", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

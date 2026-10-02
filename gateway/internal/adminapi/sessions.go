@@ -113,9 +113,9 @@ func (h *observabilityHandlers) sessionDetail(w http.ResponseWriter, r *http.Req
 // session is finite; the 200k-row ceiling still applies) and folds
 // it into totals, the time span, and the distinct agents / runs.
 func (h *observabilityHandlers) sessionSummary(w http.ResponseWriter, r *http.Request, sessionID string) {
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		Metadata: map[string]string{"session-id": sessionID},
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "sessions.summary")
 		return

@@ -50,6 +50,11 @@ type logstoreClient struct {
 	base       string
 	httpClient *http.Client
 	authHeader string // pre-encoded "Basic xxx"
+
+	// window memoises full-window walks for the rollup handlers; nil
+	// (as in the handler tests' struct literals) means every
+	// windowLogs call walks Bifrost directly. See logwindow.go.
+	window *logWindowCache
 }
 
 // newLogstoreClient builds a client wired to the loopback Bifrost
@@ -60,13 +65,17 @@ func newLogstoreClient(adminUser, adminPass string) *logstoreClient {
 	if adminUser == "" || adminPass == "" {
 		return nil
 	}
-	return &logstoreClient{
+	c := &logstoreClient{
 		base: logstoreBaseURL,
 		httpClient: &http.Client{
 			Timeout: logstoreTimeout,
 		},
 		authHeader: basicAuth(adminUser, adminPass),
 	}
+	c.window = newLogWindowCache(func(ctx context.Context, o searchOpts) ([]logstoreLog, error) {
+		return c.searchAll(ctx, o, windowPageSize, windowMaxRows)
+	})
+	return c
 }
 
 // basicAuth pre-encodes "user:pass" as a complete Authorization
@@ -242,12 +251,28 @@ func (c *logstoreClient) search(ctx context.Context, o searchOpts) (*logstoreSea
 // window (or hit `maxRows` as a safety cap). Used by the agent-name
 // aggregation, where Bifrost's GetDimensionCostHistogram doesn't
 // support metadata columns natively and we have to compute
-// per-agent sums in Go.
+// per-agent sums in Go. Handlers reach it through windowLogs, which
+// memoises the walk per window (logwindow.go).
 //
 // `pageSize` is bounded by Bifrost's own server-side cap (1000).
 // `maxRows` is the global safety cap so a runaway query can't OOM
 // the plugin — phase 8's busiest expected window (30d × thousands
 // of calls/day) is comfortably under 200k rows.
+//
+// Paging is keyset, not OFFSET: every page is served newest-first
+// and the next page asks for `end_time` = the oldest timestamp on
+// the page just read. Bifrost's searchLogs runs a full-window COUNT
+// and an `ORDER BY timestamp DESC LIMIT n OFFSET k` per call, and
+// with OFFSET the k-th page re-scans k rows — quadratic over a
+// 50-page window. With a shrinking end_time each page is a bounded
+// index range and the COUNT shrinks with it. `end_time` is inclusive
+// on Bifrost's side (`timestamp <= ?`), so the boundary row(s) come
+// back on the next page and are dropped by id. Should a whole page
+// share one timestamp (the boundary cannot move) or a timestamp fail
+// to parse, the walk falls back to OFFSET for that page.
+//
+// Keyset needs the default sort (timestamp desc); a caller that asks
+// for another order gets the plain OFFSET walk.
 func (c *logstoreClient) searchAll(
 	ctx context.Context,
 	o searchOpts,
@@ -261,22 +286,86 @@ func (c *logstoreClient) searchAll(
 	}
 	o.Limit = pageSize
 	o.Offset = 0
+	keyset := (o.SortBy == "" || o.SortBy == "timestamp") &&
+		(o.Order == "" || o.Order == "desc")
+	if keyset {
+		o.SortBy, o.Order = "timestamp", "desc"
+	}
+
 	var all []logstoreLog
+	var boundary time.Time              // oldest ts on the previous page (keyset)
+	atBoundary := map[string]struct{}{} // ids already collected at `boundary`
 	for {
 		res, err := c.search(ctx, o)
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, res.Logs...)
+		page := res.Logs
+		if keyset && !boundary.IsZero() && o.Offset == 0 {
+			// The inclusive end_time re-serves the boundary rows.
+			kept := make([]logstoreLog, 0, len(page))
+			for _, l := range page {
+				if _, dup := atBoundary[l.ID]; dup {
+					continue
+				}
+				kept = append(kept, l)
+			}
+			page = kept
+		}
+		all = append(all, page...)
 		if len(res.Logs) < pageSize {
 			break // last page
 		}
 		if len(all) >= maxRows {
 			break // safety cap; document in the caller
 		}
-		o.Offset += pageSize
+		if !keyset {
+			o.Offset += pageSize
+			continue
+		}
+		last := res.Logs[len(res.Logs)-1]
+		ts, perr := time.Parse(time.RFC3339Nano, last.Timestamp)
+		switch {
+		case perr != nil:
+			// Can't key off this page; OFFSET under the current
+			// end_time from here on.
+			keyset = false
+			o.Offset += pageSize
+		case !boundary.IsZero() && ts.Equal(boundary):
+			// Whole page sits on the boundary timestamp: end_time
+			// cannot advance, so step past it with OFFSET and let the
+			// next page move the boundary again.
+			o.Offset += pageSize
+		default:
+			boundary = ts
+			bound := ts
+			o.EndTime = &bound
+			o.Offset = 0
+			atBoundary = map[string]struct{}{}
+			for i := len(res.Logs) - 1; i >= 0; i-- {
+				if res.Logs[i].Timestamp != last.Timestamp {
+					break
+				}
+				atBoundary[res.Logs[i].ID] = struct{}{}
+			}
+		}
 	}
 	return all, nil
+}
+
+// windowLogs is what the rollup handlers call: the rows for a
+// time-boxed, dim-filtered window, served from the window cache when
+// one is wired (production) and by a direct walk otherwise. Opts
+// without both bounds, or with explicit paging / ordering, are not
+// cacheable and walk directly.
+func (c *logstoreClient) windowLogs(ctx context.Context, o searchOpts) ([]logstoreLog, error) {
+	cacheable := c.window != nil &&
+		o.StartTime != nil && o.EndTime != nil &&
+		o.Limit == 0 && o.Offset == 0 && o.SortBy == "" && o.Order == ""
+	if !cacheable {
+		return c.searchAll(ctx, o, windowPageSize, windowMaxRows)
+	}
+	return c.window.get(ctx, *o.StartTime, *o.EndTime, o.Metadata)
 }
 
 // ─── single-log lookup ───────────────────────────────────────────────
