@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Express } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { MCPHttpServer } from '../tools/http.js';
+import { bearerToken } from '../tools/utils.js';
 import { listConcepts, learnConcept, searchLogsHandler } from './tools.js';
 
 function createServer(): McpServer {
@@ -59,11 +60,11 @@ Example queries:
 const httpServer = new MCPHttpServer(createServer);
 
 export function mcp_routes(app: Express) {
-  app.get('/mcp', async (req, res) => {
+  app.get('/mcp', bearerToken, async (req, res) => {
     await httpServer.handleGetRequest(req, res);
   });
 
-  app.post('/mcp', async (req, res) => {
+  app.post('/mcp', bearerToken, async (req, res) => {
     await httpServer.handlePostRequest(req, res);
   });
 }

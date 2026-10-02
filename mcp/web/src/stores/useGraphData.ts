@@ -231,6 +231,9 @@ export const useGraphData = create<GraphDataState>((set) => ({
           ...existing.properties,
           ...n.properties,
         };
+        // `date_added_to_graph` arrives as a plain number (the server coerces
+        // Neo4j Integers; legacy seconds strings just overwrite until the
+        // backfill). The delta cursor built from it is normalized server-side.
         if (n.date_added_to_graph != null) {
           existing.date_added_to_graph = n.date_added_to_graph;
         }
