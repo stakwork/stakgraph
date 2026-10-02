@@ -242,11 +242,11 @@ func (h *observabilityHandlers) userRollup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  map[string]string{"user-id": userID},
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "users.detail")
 		return

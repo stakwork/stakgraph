@@ -70,11 +70,11 @@ func (h *observabilityHandlers) windowedLogs(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return "", nil, false
 	}
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  metadataFilterFromQuery(r),
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, where)
 		return "", nil, false

@@ -249,11 +249,11 @@ func (h *observabilityHandlers) spendByAgent(w http.ResponseWriter, r *http.Requ
 	// calls — used by the People > UserDetail page to render
 	// "which agents did this person use?". Without the filter the
 	// handler returns the same swarm-wide rollup it always did.
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  metadataFilterFromQuery(r),
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "spend.by_agent")
 		return
@@ -330,11 +330,11 @@ func (h *observabilityHandlers) spendByUser(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  metadataFilterFromQuery(r),
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "spend.by_user")
 		return
@@ -399,11 +399,11 @@ func (h *observabilityHandlers) spendByAgentUser(w http.ResponseWriter, r *http.
 		return
 	}
 
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  metadataFilterFromQuery(r),
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "spend.by_agent_user")
 		return
@@ -534,11 +534,11 @@ func (h *observabilityHandlers) histogramCost(w http.ResponseWriter, r *http.Req
 	// dim value. Used by UserDetail / AgentDetail pages so the
 	// chart shows only this person/agent's contribution rather
 	// than all activity sliced by dimension.
-	logs, err := h.logs.searchAll(r.Context(), searchOpts{
+	logs, err := h.logs.windowLogs(r.Context(), searchOpts{
 		StartTime: &start,
 		EndTime:   &end,
 		Metadata:  metadataFilterFromQuery(r),
-	}, 1000, 200_000)
+	})
 	if err != nil {
 		writeUpstreamError(w, err, "histogram.cost")
 		return

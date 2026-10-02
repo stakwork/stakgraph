@@ -128,6 +128,12 @@ index-<hash>.js`) bust browser cache automatically on every redeploy.
   reuses an existing hook gets the right refetch interval for free.
 - **All API calls go through `apiFetch`** in `api/client.ts`.
   Anything else loses the 401 → /login redirect.
+- **The default fetch timeout is 30s**, not the plugin's 5s per-page
+  logstore timeout: a rollup over a cold window walks many pages
+  before the plugin's window cache (`adminapi/logwindow.go`) is warm.
+  An abort shows in devtools as `(canceled)` at exactly the timeout
+  with nothing rendered — that is the symptom to recognise, not a
+  network problem.
 - **401 = unauthenticated**, NOT just "you don't have permission."
   The QueryCache `onError` in `app.tsx` redirects to /login on any
   `UnauthorizedError` so individual pages never branch on auth.
