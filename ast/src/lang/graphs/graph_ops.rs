@@ -176,9 +176,16 @@ impl GraphOps {
                 info!("[incremental] build_graphs_neo4j_incremental complete");
 
                 if !all_dynamic_edges.is_empty() {
-                    let restored_count =
-                        self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
-                    info!("Restored {} dynamic edges after rebuild", restored_count);
+                    // The graph is fully written at this point; a problem
+                    // restoring edges must not fail the whole sync.
+                    match self.graph.restore_dynamic_edges(all_dynamic_edges).await {
+                        Ok(restored_count) => {
+                            info!("Restored {} dynamic edges after rebuild", restored_count)
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to restore dynamic edges after rebuild: {}", e)
+                        }
+                    }
                 }
 
                 if !muted_nodes.is_empty() {
@@ -246,7 +253,9 @@ impl GraphOps {
                     "[full re-index] restoring {} dynamic edges",
                     preserved_dynamic.len()
                 );
-                self.graph.restore_dynamic_edges(preserved_dynamic).await?;
+                if let Err(e) = self.graph.restore_dynamic_edges(preserved_dynamic).await {
+                    tracing::warn!("[full re-index] failed to restore dynamic edges: {}", e);
+                }
             }
 
             if !preserved_muted.is_empty() {
@@ -327,11 +336,13 @@ impl GraphOps {
 
         if !all_dynamic_edges.is_empty() {
             info!("Restoring {} dynamic edges...", all_dynamic_edges.len());
-            let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
-            info!(
-                "Successfully restored {} dynamic edges after full rebuild",
-                restored_count
-            );
+            match self.graph.restore_dynamic_edges(all_dynamic_edges).await {
+                Ok(restored_count) => info!(
+                    "Successfully restored {} dynamic edges after full rebuild",
+                    restored_count
+                ),
+                Err(e) => tracing::warn!("Failed to restore dynamic edges after full rebuild: {}", e),
+            }
         }
 
         info!("Setting Data_Bank property for nodes missing it...");

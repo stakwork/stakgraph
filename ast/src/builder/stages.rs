@@ -623,7 +623,8 @@ impl Repo {
 
         link_tests(graph)?;
 
-        graph.prune_orphan_functions(&self.lang);
+        let graph_root = lsp::strip_tmp(&self.root).display().to_string();
+        graph.prune_orphan_functions_in(&self.lang, &graph_root);
 
         self.lang
             .lang()

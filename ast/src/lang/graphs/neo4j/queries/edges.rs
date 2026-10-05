@@ -417,7 +417,7 @@ pub fn restore_dynamic_edge_query(
 
     let query = format!(
         "MATCH (source:Data_Bank {{ref_id: $source_ref_id}})
-         MATCH (target:{} {{name: $target_name, file: $target_file}})
+         MATCH (target:Data_Bank:{} {{name: $target_name, file: $target_file}})
          MERGE (source)-[r:{}]->(target)
          RETURN r",
         target_type, edge_type
