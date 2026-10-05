@@ -95,6 +95,13 @@ pub trait Graph: Default + Debug {
     fn remove_node(&mut self, node_type: NodeType, node_data: &NodeData);
     fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, _operation: &str);
     fn prune_orphan_functions(&mut self, lang: &Lang);
+    /// Repo-scoped variant: `root` is the stripped repo root prefix of the
+    /// files being built (e.g. `stakwork/hive`). Backends that hold the whole
+    /// multi-repo graph (Neo4j) use it to avoid pruning across every repo;
+    /// in-memory graphs only ever hold one repo and ignore it.
+    fn prune_orphan_functions_in(&mut self, lang: &Lang, _root: &str) {
+        self.prune_orphan_functions(lang);
+    }
     fn get_data_models_within(&mut self, lang: &Lang);
 
     //Specific

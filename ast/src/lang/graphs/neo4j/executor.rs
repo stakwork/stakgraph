@@ -55,6 +55,21 @@ fn is_transient_error_string(s: &str) -> bool {
         || s.contains("LockClientStopped")
 }
 
+/// Connection-level failures from neo4rs: the bolt socket timed out, broke, or
+/// errored at the IO layer. These carry no Neo4j status code (so they never
+/// classify as `Transient`), but they are exactly the failures a fresh socket
+/// fixes, and the socket that produced one cannot be trusted afterwards.
+fn is_connection_error(err: &shared::Error) -> bool {
+    matches!(
+        err,
+        shared::Error::Neo4j(
+            neo4rs::Error::ConnectionTimedOut
+                | neo4rs::Error::ConnectionError
+                | neo4rs::Error::IOError { .. }
+        )
+    )
+}
+
 /// Retry an async operation while it returns a transient Neo4j error.
 /// Uses exponential backoff with jitter (50ms, 100ms, 200ms, ...).
 /// Each attempt is bounded by a per-attempt timeout so stuck lock operations
@@ -121,6 +136,27 @@ where
                     "[neo4j-retry] transient error on '{}' (attempt {}/{}), retrying in {}ms: {}",
                     label, attempt, max_attempts, backoff_ms, e
                 );
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                continue;
+            }
+            Ok(Err(e)) if is_connection_error(&e) && attempt + 1 < max_attempts => {
+                attempt += 1;
+                let backoff_ms = 50u64.saturating_mul(1u64 << (attempt - 1).min(6));
+                warn!(
+                    "[neo4j-retry] connection error on '{}' (attempt {}/{}), retrying in {}ms: {}",
+                    label, attempt, max_attempts, backoff_ms, e
+                );
+                // Same treatment as a per-attempt timeout: the socket that
+                // produced this error is wedged, so drop the cached pool and
+                // let the next attempt build fresh connections.
+                if let Some(g) = graph {
+                    if let Err(reconnect_err) = g.force_reconnect().await {
+                        warn!(
+                            "[neo4j-retry] force_reconnect after connection error failed on '{}': {}",
+                            label, reconnect_err
+                        );
+                    }
+                }
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                 continue;
             }
@@ -285,6 +321,7 @@ impl<'a> TransactionManager<'a> {
             let queries = queries.clone();
             async move {
                 let mut txn = conn.start_txn().await?;
+                let mut failed: Option<shared::Error> = None;
                 for (query_str, bolt_map) in queries {
                     let mut query_obj = query(&query_str);
                     if query_str.contains("$properties") {
@@ -301,7 +338,36 @@ impl<'a> TransactionManager<'a> {
                             query_obj = query_obj.param(key.value.as_str(), value.clone());
                         }
                     }
-                    txn.run(query_obj).await?;
+                    if let Err(e) = txn.run(query_obj).await {
+                        failed = Some(e.into());
+                        break;
+                    }
+                }
+                if let Some(e) = failed {
+                    // neo4rs' `Txn` has no Drop rollback: dropping it leaves the
+                    // server transaction open (still executing, still holding
+                    // its write locks) until the pooled socket is next recycled.
+                    // Roll back explicitly while the socket is still usable. On
+                    // a connection-level error the socket is wedged and a
+                    // ROLLBACK would only block on it again; the pool discards
+                    // it on recycle and Neo4j terminates the transaction then.
+                    if !is_connection_error(&e) {
+                        match tokio::time::timeout(Duration::from_secs(10), txn.rollback()).await
+                        {
+                            Ok(Ok(())) => {}
+                            Ok(Err(rb)) => {
+                                warn!("[neo4j] rollback after failed txn errored: {}", rb)
+                            }
+                            Err(_) => warn!("[neo4j] rollback after failed txn timed out"),
+                        }
+                    } else {
+                        warn!(
+                            "[neo4j] connection error mid-transaction; socket abandoned, \
+                             server-side txn is terminated when the pool recycles it: {}",
+                            e
+                        );
+                    }
+                    return Err(e);
                 }
                 txn.commit().await?;
                 Ok(())
@@ -488,6 +554,29 @@ mod tests {
             kind,
             "Neo.ClientError.Cluster.NotALeader"
         ));
+    }
+
+    #[test]
+    fn connection_level_errors_are_retried_via_reconnect() {
+        // The bolt recv timeout / broken socket cases: no Neo4j status code,
+        // so not `Transient`, but a fresh socket fixes them.
+        assert!(is_connection_error(&Error::Neo4j(
+            neo4rs::Error::ConnectionTimedOut
+        )));
+        assert!(is_connection_error(&Error::Neo4j(
+            neo4rs::Error::ConnectionError
+        )));
+        assert!(!is_transient_neo4j_error(&Error::Neo4j(
+            neo4rs::Error::ConnectionTimedOut
+        )));
+
+        // Anything else is not a connection error: a driver-level result
+        // error, or a string that merely mentions a timeout after being
+        // wrapped by our own layers.
+        assert!(!is_connection_error(&Error::Neo4j(neo4rs::Error::NoMoreRows)));
+        assert!(!is_connection_error(&Error::dependency(
+            "Neo4j error: connection timed out"
+        )));
     }
 
     #[test]
