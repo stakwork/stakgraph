@@ -48,7 +48,7 @@ function getAnthropicTool(apiKey: string, toolName: ProviderTool): any {
   switch (toolName) {
     case "webSearch":
       return anthropic.tools.webSearch_20250305({
-        maxUses: 3,
+        maxUses: 10,
       });
     case "bash":
       return anthropic.tools.bash_20250124({});
