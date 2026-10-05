@@ -1,0 +1,10 @@
+## `structured` summarization prompt includes the reference findings; the whole-patient summary numbers use it
+
+**Summary.** The `structured` strategy for whole-patient `context_summarization` prepends a list of the patient's `relevance='key'` findings with the instruction "Your summary must address each of these findings … do not omit them". `must_include_findings`, the list `clinical_f1` scores against, is built from the same query. So the prompt contains a sample of the reference list. README L159 and `eval/strategy_experiment.py` say `structured` was the locked strategy for the paper's whole-patient summarization results (Table 2, Appendix C.1). Neither the README's Known issues section nor the paper says the hints are the reference findings; C.1 describes them as "ontology-normalized representations of concepts already present in the clinical record", and about a third of the hinted findings are not findable in the chart text the model is shown.
+
+### Where
+
+- Hint block: https://github.com/sparkcpark/synthetic_hospital/blob/911f34c4ac65a508543c4b3b90c373a0cd16534d/eval/hints.py#L181-L199
+- Loader: https://github.com/sparkcpark/synthetic_hospital/blob/911f34c4ac65a508543c4b3b90c373a0cd16534d/eval/tasks/summarization.py#L246-L269 — `question_findings ⋈ clinical_findings` over the patient's source questions, `relevance = 'key'`, `LIMIT 10` with no `ORDER BY` (so which 10 is arbitrary under Postgres).
+- Reference list: https://github.com/sparkcpark/synthetic_hospital/blob/911f34c4ac65a508543c4b3b90c373a0cd16534d/etl/stages/s10_ground_truth.py#L658-L666 and https://github.com/sparkcpark/synthetic_hospital/blob/911f34c4ac65a508543c4b3b90c373a0cd16534d/etl/stages/s10_ground_truth.py#L772-L792 — the same join and the same `relevance = 'key'` filter, deduplicated by name, capped at 20.
+- Strategy lock: https://github.com/sparkcpark/synthetic_hospital/blob/911f34c4ac65a508543c4b3b90c373a0cd16534d/eval/strategy_experiment.py#L38-L43 (changed from `few_shot` to `structured` in 911f34c, "as reported in the paper (Table 3)"); README L159; `scripts/sample_all_summaries.py` ("latest structured whole-patient summarization run per model").
