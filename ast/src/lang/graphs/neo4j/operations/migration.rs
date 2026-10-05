@@ -262,8 +262,10 @@ impl Neo4jGraph {
             return Ok(0);
         }
 
-        let connection = self.ensure_connected().await?;
-        let mut restored_count = 0;
+        let total = edges.len();
+        let started = std::time::Instant::now();
+        let mut restored_count = 0usize;
+        let mut failed = 0usize;
 
         for (source_ref_id, edge_type, target_name, target_file, target_type) in edges {
             let (query_str, params) = restore_dynamic_edge_query(
@@ -278,13 +280,27 @@ impl Neo4jGraph {
                 query_obj = query_obj.param(k.value.as_str(), v.clone());
             }
 
-            match connection.execute(query_obj).await {
-                Ok(mut result) => {
-                    if result.next().await?.is_some() {
-                        restored_count += 1;
+            // Each MERGE locks both end nodes, and another writer (e.g. a bulk
+            // PR->File linker) can hold the target for a while. Retry with a
+            // fresh socket on connection errors rather than abandoning the
+            // edge on the first one, and never let one edge fail the sync:
+            // the graph itself is fully written by the time we get here.
+            let restored =
+                with_transient_retry_reconnect(self, "restore_dynamic_edge", || {
+                    let query_obj = query_obj.clone();
+                    async move {
+                        let connection = self.ensure_connected().await?;
+                        let mut result = connection.execute(query_obj).await?;
+                        Ok(result.next().await?.is_some())
                     }
-                }
+                })
+                .await;
+
+            match restored {
+                Ok(true) => restored_count += 1,
+                Ok(false) => {}
                 Err(e) => {
+                    failed += 1;
                     warn!(
                         "Failed to restore edge {} -> {} -> {}:{}: {}",
                         source_ref_id, edge_type, target_type, target_name, e
@@ -293,6 +309,13 @@ impl Neo4jGraph {
             }
         }
 
+        info!(
+            "[restore] dynamic edges: restored {}/{} ({} failed) in {:.2?}",
+            restored_count,
+            total,
+            failed,
+            started.elapsed()
+        );
         Ok(restored_count)
     }
 }
