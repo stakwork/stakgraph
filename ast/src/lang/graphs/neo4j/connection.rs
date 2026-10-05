@@ -90,6 +90,28 @@ impl Neo4jConnectionManager {
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(500);
+        // neo4rs applies `connection_timeout` to every bolt recv, not just the
+        // TCP connect: a query whose server response is silent for longer than
+        // this fails with `connection timed out`, the socket is left wedged, and
+        // any explicit transaction on it is orphaned server-side (still running,
+        // still holding its locks). Until this was wired through, the driver
+        // default of 30s silently capped every query regardless of
+        // `NEO4J_ATTEMPT_TIMEOUT_SECS`.
+        let connection_timeout = std::env::var("NEO4J_CONNECTION_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|s| *s > 0)
+            .map(std::time::Duration::from_secs)
+            .unwrap_or(cfg.connection_timeout);
+
+        tracing::info!(
+            "[neo4j] building shared bolt pool uri={} db={} max_connections={} fetch_size={} connection_timeout={}s",
+            cfg.uri,
+            cfg.database,
+            max_connections,
+            fetch_size,
+            connection_timeout.as_secs()
+        );
 
         let config = ConfigBuilder::new()
             .uri(&cfg.uri)
@@ -98,6 +120,7 @@ impl Neo4jConnectionManager {
             .db(cfg.database.as_str())
             .max_connections(max_connections)
             .fetch_size(fetch_size)
+            .connection_timeout(connection_timeout)
             .build()?;
 
         Neo4jConnection::connect(config)

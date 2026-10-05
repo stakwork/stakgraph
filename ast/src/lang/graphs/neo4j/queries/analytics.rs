@@ -163,31 +163,51 @@ pub fn find_endpoint_query(name: &str, file: &str, verb: &str) -> (String, BoltM
     (query.to_string(), params)
 }
 
-pub fn prune_orphan_nested_functions_query() -> String {
-    "MATCH (f:Function)-[:NESTED_IN]->(parent)
-     WHERE (parent:Function OR parent:Var)
+fn root_params(root: &str) -> BoltMap {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "root", root);
+    params
+}
+
+/// All three prune queries are scoped to `f.file STARTS WITH $root` on the
+/// `Data_Bank` label so the planner seeks `data_bank_file_index` instead of
+/// scanning every Function in the (multi-repo) graph. An empty root matches
+/// everything, preserving the old whole-graph behaviour.
+pub fn prune_orphan_nested_functions_query(root: &str) -> (String, BoltMap) {
+    let query = "MATCH (f:Function:Data_Bank)-[:NESTED_IN]->(parent)
+     WHERE f.file STARTS WITH $root
+       AND (parent:Function OR parent:Var)
        AND NOT (parent:Function AND (parent)-[:NESTED_IN]->(:Var))
        AND NOT ()-[:HANDLER|CALLS|RENDERS]->(f)
        AND NOT (f)-[:CALLS|HANDLER]->()
-     DETACH DELETE f"
-        .to_string()
+     DETACH DELETE f";
+    (query.to_string(), root_params(root))
 }
 
-pub fn prune_var_nested_in_test_files_query() -> String {
+pub fn prune_var_nested_in_test_files_query(root: &str) -> (String, BoltMap) {
     let regex = summary::test_file_patterns_regex();
-    format!(
-        "MATCH (f:Function)-[:NESTED_IN]->(v:Var)
-         WHERE f.file =~ '.*({regex})$'
+    let query = format!(
+        "MATCH (f:Function:Data_Bank)-[:NESTED_IN]->(v:Var)
+         WHERE f.file STARTS WITH $root
+           AND f.file =~ '.*({regex})$'
          DETACH DELETE f"
-    )
+    );
+    (query, root_params(root))
 }
 
-pub fn prune_functions_in_test_ranges_query() -> String {
-    "MATCH (t)
-     WHERE t:UnitTest OR t:IntegrationTest OR t:E2eTest
-     WITH collect({file: t.file, start: t.start, end: t.end}) AS tests
-     MATCH (f:Function)
-     WHERE ANY(t IN tests WHERE f.file = t.file AND f.start >= t.start AND f.end <= t.end)
-     DETACH DELETE f"
-        .to_string()
+/// Delete Function nodes that sit inside a test's line range (the test body
+/// re-detected as a function). The old form collected every test in the graph
+/// into a list and evaluated `ANY(...)` against every Function: an
+/// O(functions x tests) scan that took over 30s on a ~1M node graph and hit
+/// the driver's recv timeout on every sync. This form seeks the
+/// `Data_Bank(file)` index once per test instead.
+pub fn prune_functions_in_test_ranges_query(root: &str) -> (String, BoltMap) {
+    let query = "MATCH (t:Data_Bank)
+     WHERE (t:UnitTest OR t:IntegrationTest OR t:E2eTest)
+       AND t.file STARTS WITH $root
+     MATCH (f:Function:Data_Bank {file: t.file})
+     WHERE f.start >= t.start AND f.end <= t.end
+     WITH DISTINCT f
+     DETACH DELETE f";
+    (query.to_string(), root_params(root))
 }

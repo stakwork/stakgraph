@@ -36,6 +36,14 @@ pub struct Neo4jConfig {
     pub max_connections: usize,
 }
 
+/// Default bolt socket timeout, in seconds. neo4rs applies `connection_timeout`
+/// to every bolt `recv`, not just to the TCP connect, so this is the hard cap on
+/// how long a single query may stay silent before the driver gives up with
+/// `connection timed out`. It must sit above the per-attempt retry timeout
+/// (`NEO4J_ATTEMPT_TIMEOUT_SECS`, default 120s) or that path never gets to run.
+/// Override with `NEO4J_CONNECTION_TIMEOUT_SECS`.
+pub const DEFAULT_CONNECTION_TIMEOUT_SECS: u64 = 180;
+
 impl Default for Neo4jConfig {
     fn default() -> Self {
         Neo4jConfig {
@@ -43,7 +51,13 @@ impl Default for Neo4jConfig {
             username: std::env::var("NEO4J_USERNAME").unwrap_or_else(|_| "neo4j".to_string()),
             password: std::env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "testtest".to_string()),
             database: std::env::var("NEO4J_DATABASE").unwrap_or_else(|_| "neo4j".to_string()),
-            connection_timeout: Duration::from_secs(30),
+            connection_timeout: Duration::from_secs(
+                std::env::var("NEO4J_CONNECTION_TIMEOUT_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .filter(|s| *s > 0)
+                    .unwrap_or(DEFAULT_CONNECTION_TIMEOUT_SECS),
+            ),
             max_connections: 10,
         }
     }
@@ -689,23 +703,34 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn prune_orphan_functions_async(&self, _lang: &Lang) -> Result<()> {
+    /// Prune orphan and test-range functions. `root` is the stripped repo root
+    /// prefix (e.g. `stakwork/hive`); every query is scoped to
+    /// `file STARTS WITH $root` so it seeks the `Data_Bank(file)` index instead
+    /// of scanning every Function in a multi-repo graph. An empty root means the
+    /// whole graph (legacy behaviour).
+    pub async fn prune_orphan_functions_async(&self, _lang: &Lang, root: &str) -> Result<()> {
         let Ok(connection) = self.ensure_connected().await else {
             return Ok(());
         };
+        let started = std::time::Instant::now();
         // Source A: nested-in-function orphans (Cypher query)
         let mut txn_manager = TransactionManager::new(&connection);
-        txn_manager.add_query((prune_orphan_nested_functions_query(), BoltMap::new()));
+        txn_manager.add_query(prune_orphan_nested_functions_query(root));
         txn_manager.execute().await?;
 
         let mut txn_manager2 = TransactionManager::new(&connection);
-        txn_manager2.add_query((prune_functions_in_test_ranges_query(), BoltMap::new()));
+        txn_manager2.add_query(prune_functions_in_test_ranges_query(root));
         txn_manager2.execute().await?;
 
         let mut txn_manager3 = TransactionManager::new(&connection);
-        txn_manager3.add_query((prune_var_nested_in_test_files_query(), BoltMap::new()));
+        txn_manager3.add_query(prune_var_nested_in_test_files_query(root));
         txn_manager3.execute().await?;
 
+        info!(
+            "[prune] orphan/test-range prune complete root={} in {:.2?}",
+            root,
+            started.elapsed()
+        );
         Ok(())
     }
 
@@ -1281,10 +1306,17 @@ impl Graph for Neo4jGraph {
     }
 
     fn prune_orphan_functions(&mut self, lang: &Lang) {
+        self.prune_orphan_functions_in(lang, "");
+    }
+
+    fn prune_orphan_functions_in(&mut self, lang: &Lang, root: &str) {
+        // Never swallow this silently: a failure here used to be invisible
+        // (`unwrap_or_default`) while the abandoned DETACH DELETE kept running
+        // server-side and held its locks.
         sync_fn(|| async {
-            self.prune_orphan_functions_async(lang)
-                .await
-                .unwrap_or_default()
+            if let Err(e) = self.prune_orphan_functions_async(lang, root).await {
+                warn!("[prune] prune_orphan_functions failed root={}: {}", root, e);
+            }
         });
     }
 
