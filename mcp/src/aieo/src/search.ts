@@ -70,8 +70,8 @@ export interface WebSearchResult {
 }
 
 export interface WebSearchOptions {
-  /** Max `web_search` calls per run. Default 3, matching the previous
-   *  Anthropic-only default. Enforced in-process on the Exa path. */
+  /** Max `web_search` calls per run. Default 10. Passed to Anthropic as
+   *  `max_uses`; enforced in-process on the Exa path. */
   maxUses?: number;
   /** Results per call on the Exa path. Default 5. */
   numResults?: number;
@@ -141,7 +141,7 @@ export interface WebSearchHandle {
 }
 
 const EXA_SEARCH_URL = "https://api.exa.ai/search";
-const DEFAULT_MAX_USES = 3;
+const DEFAULT_MAX_USES = 10;
 const DEFAULT_NUM_RESULTS = 5;
 const DEFAULT_MAX_CHARACTERS = 4000;
 
