@@ -9,8 +9,12 @@ import type { PublishByContentOptions, WorkspaceStore } from "strut";
  * authoring agent) stays active across restarts until the committed template
  * itself changes. Porting the winner back into the committed template is
  * still the only way to propagate it to other instances.
+ *
+ * `source: "seed"` marks every workflow version a seeder writes, so
+ * `GET /workflows/:name/versions` tells the committed template from a later
+ * edit (`ui` / `api` / `builder` / `agent` / `promote`).
  */
-export const SEED_OPTS: PublishByContentOptions = { reactivateKnown: false };
+export const SEED_OPTS: PublishByContentOptions = { reactivateKnown: false, source: "seed" };
 
 /**
  * Retire steps and workflows a seeder no longer ships. Seeding is ADDITIVE —
