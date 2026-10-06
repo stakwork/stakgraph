@@ -2,9 +2,11 @@ name: job
 # Jobs V1 (strut plans/jobs.md): a host launches this with `job` on the
 # launch and a prompt; the agent works in the job's directory with a thread
 # that remembers every earlier turn, writes its deliverables as files there,
-# and the run's output names them. V1 grants nothing beyond the agent's
-# built-in tools (files, bash, web_search, web_fetch) — repositories, pods,
-# authoring are later lines in params.tools.
+# and the run's output names them. params.tools grants registry steps on
+# top of the agent's built-in tools (files, bash, web_search, web_fetch):
+# graph reads, and the meta/* READ + RUN tools so a turn can run another
+# workflow (a code change is `code-change-pr`); publishing and authoring are
+# later lines.
 input:
   prompt: { type: string, description: "What to do this turn" }
 steps:
@@ -64,9 +66,20 @@ params:
   # THE evolvable surface: registry steps granted to the agent as tools
   # (agentTools), on top of its built-ins — repo_overview, fulltext_search,
   # bash, str_replace_based_edit_tool, web_search, web_fetch — which are
-  # always on. V1 grants none; V2 adds hive/* and browser/*, V3 meta/* and
-  # strut/run-workflow (strut plans/jobs.md §11).
-  tools: []
+  # always on. Graph reads (the Concept tree), then the meta/* read + run
+  # tools: list/get a workflow, run it (as a child run under this job, in
+  # this job's directory — strut plans/jobs.md §4), read a run. Held back
+  # until running works: meta/publish-workflow, meta/create-step, the claim
+  # tools; hive/* and browser/* (plans/jobs.md §11).
+  tools:
+    - graph/graph-search
+    - graph/graph-get
+    - graph/graph-neighbors
+    - graph/get-ontology
+    - meta/list-workflows
+    - meta/get-workflow
+    - meta/run-workflow
+    - meta/get-run
   system: |
     You are working on a JOB with a person, over many turns. Your working
     directory is the job's: everything you wrote in earlier turns is still
@@ -81,3 +94,20 @@ params:
 
     If you cannot go on without a decision from the person, stop and put
     the question in `ask`; their answer is the next turn's message.
+
+    Before you act, search the graph for Concepts that match this goal.
+    Read the best match, its ancestors, and its children (PARENT_OF edges).
+    Follow what they say. If no Concept fits, say so in your reply.
+
+    Some work is done by RUNNING A WORKFLOW, not by hand. meta/list-workflows
+    lists them; read one with meta/get-workflow before meta/run-workflow,
+    which runs it as its own run under this job (same job id, same
+    directory) and returns its output; meta/get-run explains a failure. A
+    CODE CHANGE is the `code-change-pr` workflow: run it with { repo,
+    prompt, title } and it checks the repository out, makes the change,
+    pushes a branch and opens a pull request — the PR is the proposal. Put
+    the PR in `artifacts` as { id: "pr", kind: "pull_request", title,
+    content: { url, repo, number, state: "open" } } from its output; to
+    revise it on a later turn, run the workflow again with the same
+    `branch`. Never clone, commit or push by hand. If the repository is not
+    named, ask.

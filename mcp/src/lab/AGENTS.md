@@ -749,9 +749,8 @@ output IS that body (+ diagnostics), fixing 58313's set_output divergence.
 
 Hive's canvas agent proposes small code changes; the preview used to be
 mcp's `/repo/agent` polled from inside a Vercel function (and timing out).
-It is now two strut workflows — design + the hive half in strut
-`plans/code-change.md` — whose only model is strut's OWN core `agent` step,
-in the first one:
+It is now strut workflows — design + the hive half in strut
+`plans/code-change.md` — whose only model is strut's OWN core `agent` step:
 
 - `code-change-propose` (§4): `git/checkout` (strut lib: a credential-free
   bare cache per remote + a detached worktree per run, removed at run end)
@@ -775,6 +774,19 @@ in the first one:
   classifies on, as prefixes of `error.message`: `patch_conflict:` |
   `push_rejected:` | `no_push_permission:` | `pr_create_failed: <status>
   <message>`; anything else (a checkout failure) carries no code.
+- `code-change-pr` — propose + land in ONE run, for a caller that reviews
+  on the pull request itself: the `job` agent (strut `plans/jobs.md` §4;
+  the `job` workflow grants `meta/run-workflow`). `git/checkout` (at
+  `input.branch` on a follow-up, else the default branch) → `agent` →
+  `git/diff` (stage + scan) → `git/push` (branch = `input.branch`, else
+  `params.branch_prefix` + the run id) → `github/create-pr` (base =
+  `input.base`, else the remote's default; idempotent by head, so a
+  follow-up returns the open PR with `created: false`) → `pack` `{ url,
+  number, repo (owner/name), branch, base, headSha, created, filesChanged,
+  files, summary, cost }`. Input `{ repo, prompt, title, branch?, base?,
+  body? }`. The PR is the proposal: to revise it, run again with the same
+  `branch`. An agent that changed nothing fails at `git/push` (its plain
+  nothing-staged error — nothing pushed, no PR).
 
 - **No custom steps** — every step is strut's, so this seeder ships YAML
   only (`seedCodeWorkflows`, category `code`, unstamped).
@@ -793,8 +805,11 @@ in the first one:
   fake that edits a file; land with that diff — real apply, commit and
   push into the bare (no token → git/push's fallback author), a fake
   `github/create-pr` that records what it was asked to open — then land
-  again on a moved main for `patch_conflict:`; `CODE_SMOKE_LIVE=1` adds a
-  real propose run against `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
+  again on a moved main for `patch_conflict:`; then `code-change-pr` three
+  times: a first turn that makes the branch and the PR, a follow-up on that
+  `branch` that adds a commit and gets the SAME PR back, and a no-change
+  turn that fails at git/push with nothing pushed; `CODE_SMOKE_LIVE=1` adds
+  a real propose run against `CODE_SMOKE_REPO`): `npx tsx src/lab/code/smoke.ts`.
 
 ### `job/` — the job agent as a workflow (hive's `start_job` / `continue_job`)
 
@@ -823,11 +838,19 @@ callback }` — never inside `input`. One seeded workflow, `job` (category
   answer is the next turn's prompt.
 - **`params` are the evolvable surface, and the whole point** (the owner's
   ruling in plans/jobs.md §2): `system`, `model`, `maxSteps` and `tools` —
-  in V1 the agent's built-ins only (`str_replace_based_edit_tool`,
-  `repo_overview`, `fulltext_search`; no bash or web for a plan). A job
-  learns to do something new (repositories, pods, running or authoring
-  workflows) by a new VERSION of this workflow on the swarm — a
-  `toolFilter` line, later `agentTools` grants — never by a hive PR.
+  registry steps granted as `agentTools` ON TOP of the agent's built-ins
+  (files, `bash`, `web_search`, `web_fetch`; never a `toolFilter`). Today:
+  the `graph/*` reads (the Concept tree) and the `meta/*` READ + RUN tools —
+  `meta/list-workflows`, `meta/get-workflow`, `meta/run-workflow`,
+  `meta/get-run` — so a turn runs another workflow as a CHILD run under the
+  same job (strut stamps the job on it and the child shares the job's
+  directory, plans/jobs.md §4): a code change is `code-change-pr`, and the
+  PR comes back as a `pull_request` artifact. Held back until running
+  works: publishing / authoring (`meta/publish-workflow`,
+  `meta/create-step`), the claim tools, `hive/*` pods, `browser/*`. A job
+  learns to do something new by a new VERSION of this workflow on the
+  swarm — a line in `params.tools`, a paragraph in `params.system` — never
+  by a hive PR.
 - Smoke (offline — seeds, discovers, static-validates against the real
   registry, then runs it the way hive does: over HTTP with `job` + a local
   callback server, the `agent` step swapped for a fake that writes

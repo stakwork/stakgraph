@@ -13,7 +13,13 @@
  *    so git/push uses its fallback author and the `file://` origin needs no
  *    credential); only `github/create-pr` is a fake that records what it was
  *    asked to open. Then land again after main moved under the diff, for the
- *    `patch_conflict:` contract — nothing pushed, no pull request.
+ *    `patch_conflict:` contract — nothing pushed, no pull request;
+ *  - code-change-pr, three turns: the fake agent again, with the REAL
+ *    checkout → diff → push into the bare and the fake create-pr — a first
+ *    turn that makes the branch (`params.branch_prefix` + run id) and the
+ *    PR; a follow-up on that `branch` that checks it out, adds one commit
+ *    and gets the SAME PR back (`created: false`); a turn whose agent
+ *    changes nothing, which fails at git/push with nothing pushed.
  *
  *   npx tsx src/lab/code/smoke.ts
  *
@@ -33,6 +39,7 @@ import { seedCodeWorkflows } from "./seed.js";
 
 const PROPOSE = "code-change-propose";
 const LAND = "code-change-land";
+const PR = "code-change-pr";
 const STEPS = ["git/checkout", "git/diff", "git/apply", "git/push", "github/create-pr", "agent", "pack"];
 
 const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
@@ -56,6 +63,16 @@ const fakeAgent = defineStep({
   },
 });
 
+/** An agent that decides the task needs no change — edits nothing. */
+const noopAgent = defineStep({
+  type: "agent",
+  input: z.object({ cwd: z.string(), prompt: z.string() }).passthrough(),
+  output: z.any(),
+  async run() {
+    return { result: "No change needed.", steps: 1, usage: { input: 1, output: 1 }, cost: 0 };
+  },
+});
+
 interface PrCall {
   repo: string;
   head: string;
@@ -67,16 +84,21 @@ interface PrCall {
 /** Stands in for `github/create-pr` — GitHub's REST API is the one thing the
  *  smoke cannot reach. Records what it was asked to open and answers with the
  *  step's output shape; `headSha` is read off the bare origin, so it also
- *  proves the branch was there when the PR was "opened", as GitHub needs. */
+ *  proves the branch was there when the PR was "opened", as GitHub needs.
+ *  Idempotent by head like the real step: the same head again returns the
+ *  pull request already "opened" for it, `created: false`. */
 function fakeCreatePr(bare: string, calls: PrCall[]) {
+  const open = new Map<string, number>();
   return defineStep({
     type: "github/create-pr",
     input: z.object({ repo: z.string(), head: z.string(), base: z.string(), title: z.string(), body: z.string().optional() }).passthrough(),
     output: z.any(),
     async run(cfg) {
       calls.push({ repo: cfg.repo, head: cfg.head, base: cfg.base, title: cfg.title, ...(cfg.body !== undefined ? { body: cfg.body } : {}) });
-      const n = calls.length;
-      return { url: `https://github.com/smoke/repo/pull/${n}`, number: n, headSha: git(["rev-parse", `refs/heads/${cfg.head}`], bare), base: cfg.base, head: cfg.head, created: true };
+      const existing = open.get(cfg.head);
+      const n = existing ?? open.size + 1;
+      if (existing === undefined) open.set(cfg.head, n);
+      return { url: `https://github.com/smoke/repo/pull/${n}`, number: n, headSha: git(["rev-parse", `refs/heads/${cfg.head}`], bare), base: cfg.base, head: cfg.head, created: existing === undefined };
     },
   });
 }
@@ -91,19 +113,19 @@ async function main() {
     for (const t of STEPS) assert.ok(registry[t], `registry missing ${t}`);
     const listed = await workspace.listWorkflows();
     const entries = Object.fromEntries(
-      [PROPOSE, LAND].map((name) => {
+      [PROPOSE, LAND, PR].map((name) => {
         const entry = listed.find((w) => w.name === name);
         assert.ok(entry, `${name} not seeded`);
         assert.equal(entry!.category, "code");
         return [name, entry!];
       }),
     );
-    console.log(`✔ seeded ${PROPOSE} + ${LAND} (category code); ${STEPS.join(", ")} discoverable`);
+    console.log(`✔ seeded ${PROPOSE} + ${LAND} + ${PR} (category code); ${STEPS.join(", ")} discoverable`);
 
     // ── 2. static validation (what meta/validate-workflow runs) ──────────
     const strut = await createStrut({ workspace, serveUi: false, enableChat: false });
     const authoring = (strut.services as any).authoring;
-    for (const name of [PROPOSE, LAND]) {
+    for (const name of [PROPOSE, LAND, PR]) {
       const yaml = await workspace.getWorkflowSource(name, entries[name]!.activeVersion);
       const v = await authoring.validateWorkflow(yaml, name);
       assert.equal(v.ok, true, `${name}: ${JSON.stringify(v.errors, null, 2)}`);
@@ -187,7 +209,65 @@ async function main() {
     assert.ok(!existsSync(join(dataDir, "worktrees", stale.runId)), "worktree removed at run end");
     console.log(`✔ ${LAND} on a moved base: "${stale.error!.message.split(" — ")[0]}" — nothing pushed, no pull request`);
 
-    // ── 7. optional: the real propose ────────────────────────────────────
+    // ── 7. code-change-pr: task → pull request in one run, then a follow-up
+    //       on the same branch, then an agent that changes nothing ────────
+    const pr = await workspace.getWorkflow(PR);
+    // The land section's fake create-pr, so this origin already "has" PR #1.
+    const prRegistry = { ...landRegistry, agent: fakeAgent } as typeof registry;
+    const prInput = { repo, prompt: "say hello from the pr workflow", title: "smoke: hello via pr" };
+    const first = await runWorkflow(pr, prInput, prRegistry, { services });
+    assert.equal(first.status, "success", JSON.stringify(first.error));
+    const po = first.output as Record<string, unknown>;
+    const mainNow = git(["rev-parse", "main"], bare);
+    const branch = po["branch"] as string;
+    assert.equal(branch, `strut/${first.runId}`, "first turn: params.branch_prefix + the run id");
+    const sha1 = po["headSha"] as string;
+    assert.equal(git(["rev-parse", `refs/heads/${branch}`], bare), sha1, "the branch is on the origin at headSha");
+    assert.equal(git(["rev-parse", `${sha1}^`], bare), mainNow, "one commit on top of the default branch");
+    assert.equal(git(["log", "-1", "--format=%s", sha1], bare), "smoke: hello via pr", "the title is the commit's first line");
+    assert.equal(git(["log", "-1", "--format=%b", sha1], bare), "Edited README.md and added hello.txt.", "the agent's summary is the commit body");
+    assert.equal(git(["show", `${sha1}:hello.txt`], bare), "say hello from the pr workflow");
+    assert.equal(po["base"], "main");
+    assert.equal(po["created"], true);
+    assert.equal(po["number"], 2, "the second pull request this origin has seen");
+    assert.equal(po["url"], "https://github.com/smoke/repo/pull/2");
+    assert.ok((po["repo"] as string).endsWith("/origin"), `repo is owner/name, got ${po["repo"]}`);
+    // main moved in step 6, so the fake's README differs from it again.
+    assert.equal(po["filesChanged"], 2);
+    assert.deepEqual(po["files"], ["README.md", "hello.txt"]);
+    assert.equal(po["summary"], "Edited README.md and added hello.txt.");
+    assert.deepEqual(prCalls.at(-1), { repo, head: branch, base: "main", title: "smoke: hello via pr", body: "Edited README.md and added hello.txt." });
+    assert.ok(!existsSync(join(dataDir, "worktrees", first.runId)), "worktree removed at run end");
+    console.log(`✔ ${PR} turn 1: pushed ${sha1.slice(0, 8)} to ${branch}, PR #${po["number"]} opened on ${po["base"]}`);
+
+    // A follow-up: the same branch, one more commit, the SAME pull request.
+    const again = await runWorkflow(pr, { ...prInput, branch, prompt: "say hello again" }, prRegistry, { services });
+    assert.equal(again.status, "success", JSON.stringify(again.error));
+    const ao = again.output as Record<string, unknown>;
+    const sha2 = ao["headSha"] as string;
+    assert.equal(ao["branch"], branch);
+    assert.equal(git(["rev-parse", `refs/heads/${branch}`], bare), sha2, "the branch advanced");
+    assert.equal(git(["rev-parse", `${sha2}^`], bare), sha1, "…by one commit on top of the first turn's");
+    assert.equal(git(["show", `${sha2}:hello.txt`], bare), "say hello again");
+    assert.equal(ao["filesChanged"], 1, "README.md was already the fake's on the branch; hello.txt changed");
+    assert.equal(ao["base"], "main", "the base is still the default branch, not the branch checked out");
+    assert.equal(ao["created"], false, "the open pull request for the branch is reused");
+    assert.equal(ao["number"], po["number"]);
+    assert.equal(ao["url"], po["url"]);
+    assert.deepEqual(prCalls.at(-1), { repo, head: branch, base: "main", title: "smoke: hello via pr", body: "Edited README.md and added hello.txt." });
+    console.log(`✔ ${PR} turn 2 (branch: ${branch}): ${sha2.slice(0, 8)} on top of ${sha1.slice(0, 8)}, the same PR #${ao["number"]} (created: false)`);
+
+    // An agent that made no change: nothing to push, no pull request.
+    const calls = prCalls.length;
+    const none = await runWorkflow(pr, { ...prInput, title: "smoke: nothing" }, { ...prRegistry, agent: noopAgent } as typeof registry, { services });
+    assert.equal(none.status, "error", JSON.stringify(none.output));
+    assert.match(none.error!.message, /nothing is staged/);
+    assert.throws(() => git(["rev-parse", "--verify", `refs/heads/strut/${none.runId}`], bare), "nothing was pushed");
+    assert.equal(prCalls.length, calls, "no pull request asked for");
+    assert.ok(!existsSync(join(dataDir, "worktrees", none.runId)), "worktree removed at run end");
+    console.log(`✔ ${PR} with no change: "${none.error!.message.split(" — ")[0]}" — nothing pushed, no pull request`);
+
+    // ── 8. optional: the real propose ────────────────────────────────────
     if (process.env["CODE_SMOKE_LIVE"] === "1") {
       const liveRepo = process.env["CODE_SMOKE_REPO"] ?? "https://github.com/stakwork/strut";
       const t0 = Date.now();
