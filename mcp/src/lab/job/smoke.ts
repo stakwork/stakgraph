@@ -31,9 +31,20 @@ import { seedJobWorkflows } from "./seed.js";
 
 const JOB = "job";
 const STEPS = ["job/dir", "agent", "pack"];
-// V1 grants no registry steps: the agent runs on its built-ins (files, bash,
-// web_search, web_fetch), which a filter must never narrow.
-const TOOLS: string[] = [];
+// Registry steps granted ON TOP of the agent's built-ins (files, bash,
+// web_search, web_fetch — which a filter must never narrow): graph reads for
+// the Concept tree, and the meta/* read + run tools (a turn runs another
+// workflow — `code-change-pr` — as a child run under the job).
+const TOOLS: string[] = [
+  "graph/graph-search",
+  "graph/graph-get",
+  "graph/graph-neighbors",
+  "graph/get-ontology",
+  "meta/list-workflows",
+  "meta/get-workflow",
+  "meta/run-workflow",
+  "meta/get-run",
+];
 
 /** What the fake agent was handed each turn — the resolved step config. */
 interface Turn {

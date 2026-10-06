@@ -1,0 +1,147 @@
+name: code-change-pr
+# A code change as ONE run, from the task to the pull request (strut
+# plans/jobs.md §4 — what the `job` agent runs for "make this change"):
+# check the repository out, let strut's own agent make the change in an
+# isolated working copy, stage and scan it (git/diff), commit and push it
+# as the user (git/push), open the pull request (github/create-pr). The PR
+# IS the proposal: review happens there, and a follow-up turn lands on the
+# SAME branch — run it again with `branch`, and the working copy is that
+# branch with the earlier commits on it. Hive's older two-step preview and
+# approval are `code-change-propose` + `code-change-land`, beside this.
+#
+# Input:  { repo, prompt, title, branch?, base?, body? }
+#         repo   "https://github.com/owner/repo" — no credential in it.
+#         prompt the change, in plain words: what the coding agent is told.
+#         title  the pull request's title; also the commit's first line.
+#         branch the branch to push to. Omit on the FIRST turn (a new
+#                `<params.branch_prefix><runId>` is made); pass the one a
+#                previous run returned to revise its pull request — it must
+#                exist on origin, the checkout is at it.
+#         base   the pull request's base; default = the remote's default
+#                branch (checkout.branch), on every turn.
+#         body   the pull request's description; default = the agent's own
+#                summary (its final answer).
+#         The token is the run principal's GITHUB_TOKEN actor secret (hive
+#         pushes it per dispatch), else the deployment's — never in the
+#         input: it clones, names the commit author (GET /user) and authors
+#         the pull request.
+# Output: { url, number, repo, branch, base, headSha, created, filesChanged,
+#           files, summary, cost }
+#         url/number: the pull request; `created: false` = the open one for
+#         `branch` was reused (a follow-up). repo is `owner/name`, so a job
+#         agent can declare { kind: "pull_request", content: { url, repo,
+#         number, state: "open" } }. error: the agent made no change →
+#         git/push's plain "nothing is staged" error (nothing pushed, no
+#         PR); a secret in the change fails git/diff; `push_rejected:` /
+#         `no_push_permission:` / `pr_create_failed:` as code-change-land.
+input:
+  repo: { type: string, description: "GitHub repository URL, https://github.com/owner/repo" }
+  prompt: { type: string, description: "The change to make, in plain words" }
+  title: { type: string, description: "Pull request title (also the commit's first line)" }
+  branch: { type: string, required: false, description: "Branch to push to. Omit on the first turn (one is made); pass the branch a previous run returned to revise that pull request" }
+  base: { type: string, required: false, description: "Pull request base; default = the repository's default branch" }
+  body: { type: string, required: false, description: "Pull request description; default = the agent's summary" }
+
+steps:
+  # ref = input.branch on a follow-up (the PR's branch, with the earlier
+  # commits), undefined on the first turn (the remote's default branch).
+  - id: checkout
+    type: git/checkout
+    config:
+      repo: "{{ input.repo }}"
+      ref: "{{ input.branch }}"
+
+  - id: change
+    type: agent
+    config:
+      cwd: "{{ checkout.path }}"
+      system: "{{ params.system }}"
+      prompt: "{{ input.prompt }}"
+      finalAnswer: "{{ params.finalAnswer }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+
+  # Stage everything the agent changed; one unified diff for the record,
+  # scanned for secrets (gitleaks when on PATH — a hit fails the run).
+  - id: diff
+    type: git/diff
+    config:
+      path: "{{ checkout.path }}"
+
+  # Commit as the token's identity, push HEAD to the branch — a new one on
+  # the first turn, a fast-forward of the PR's on a follow-up; never --force.
+  - id: push
+    type: git/push
+    config:
+      path: "{{ checkout.path }}"
+      branch: "{{ input.branch || params.branch_prefix + $runId }}"
+      message: "{{ input.title }}\n\n{{ change.result }}"
+
+  # Idempotent by head: a follow-up returns the open pull request.
+  - id: pr
+    type: github/create-pr
+    config:
+      repo: "{{ input.repo }}"
+      head: "{{ push.branch }}"
+      base: "{{ input.base || checkout.branch }}"
+      title: "{{ input.title }}"
+      body: "{{ input.body || change.result }}"
+
+  - id: result
+    type: pack
+    config:
+      url: "{{ pr.url }}"
+      number: "{{ pr.number }}"
+      repo: "{{ checkout.repo }}"
+      branch: "{{ push.branch }}"
+      base: "{{ pr.base }}"
+      headSha: "{{ push.sha }}"
+      created: "{{ pr.created }}"
+      filesChanged: "{{ diff.filesChanged }}"
+      files: "{{ diff.files }}"
+      summary: "{{ change.result }}"
+      cost: "{{ change.cost }}"
+
+params:
+  model: claude-sonnet-5-5
+  # Tool-call budget for the change. A focused change needs a fraction of
+  # this; the agent step forces a final answer when it runs out.
+  maxSteps: 60
+  # The first turn's branch is this prefix + the run id.
+  branch_prefix: strut/
+  finalAnswer: |-
+    Your summary of the change for the pull request's reviewer: the files
+    you touched, what you changed and why, what you checked (and what you
+    could not), and anything they should know — an assumption you made, or
+    why you made no change.
+  system: |-
+    You are a senior engineer making ONE focused change in the repository in
+    your working directory, exactly as the task describes.
+
+    How to work:
+    - Orient first: repo_overview, then read the files the task names and the
+      code around them (fulltext_search, file_summary, the editor's view).
+      Match the project's existing conventions — style, naming, error
+      handling, tests — rather than introducing your own.
+    - The working copy may be a branch with earlier commits from a previous
+      turn of the same task: read what is there and continue it; do not redo
+      or undo it unless the task says so.
+    - Make the change directly in the working tree with the editor
+      (str_replace_based_edit_tool) or bash. Keep it minimal: what the task
+      asks plus the smallest supporting edits it needs (an import, a type, a
+      test that covers it). No drive-by refactors, no reformatting of code
+      you did not need to touch, no new dependencies unless the task asks.
+    - If the project has a fast check you can run — a typecheck, a linter,
+      the tests for the files you touched — run it with bash and fix what
+      you broke. Do not run long installs or full builds unless the task
+      needs them.
+    - Do NOT commit, branch, push, tag, or open a pull request, and do not
+      touch .git: the workflow commits what you changed and opens the pull
+      request when you finish. Never write a secret or credential into a
+      file.
+    - If the task is ambiguous, take the most conservative reading and say
+      so in your summary. If it cannot be done as asked (the code it names
+      does not exist, it would mean changing the build or the schema, …),
+      make NO edits and explain why in your summary.
+
+    When you are done, call final_answer with the summary.

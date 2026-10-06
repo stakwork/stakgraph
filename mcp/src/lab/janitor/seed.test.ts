@@ -7,6 +7,7 @@ import { z } from "zod";
 import { WorkspaceManager, buildRegistry, closeGraphBackends, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { parseConceptFile, planConceptSeed, seedConcepts, stampOf } from "../concept-seed.js";
+import { CODE_CONCEPTS } from "../code/seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
 import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorWorkflows } from "./seed.js";
 
@@ -57,6 +58,21 @@ describe("parseConceptFile", () => {
     assert.ok(c.docs!.startsWith(c.description!));
     // The convention lives in its docs: the engine, and the three steps to add one.
     for (const needle of [/graph-janitor/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /automation/]) assert.match(c.docs!, needle);
+
+    // The entry page tells the job agent it is read for what to RUN, naming no kind.
+    assert.match(entry.docs!, /job agent/);
+    assert.doesNotMatch(entry.docs!, /code change|code-change/i, "the entry page knows no kind by name");
+
+    // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
+    const cc = await read(CODE_CONCEPTS, "Code Change.md");
+    assert.equal(cc.name, "Code Change");
+    assert.equal(cc.parent, "Workflow Builder");
+    assert.match(cc.stamp, /^lab\/code\/concepts\/Code Change\.md@[0-9a-f]{12}$/);
+    assert.equal(cc.description, "A change to a repository's source code, delivered as a pull request.");
+    assert.ok(cc.docs!.startsWith(cc.description!));
+    // The convention: the workflow and how to read it, the follow-up rule, the credential failure, the artifact, how to extend.
+    for (const needle of [/code-change-pr/, /meta\/get-workflow/, /same `branch`/, /no_push_permission:/, /pull_request/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/]) assert.match(cc.docs!, needle);
+    assert.doesNotMatch(cc.docs!, /pod-pr|hive\//, "workspace-general: no one swarm's workflow or step by name");
 
     // What counts as dirty is each workspace's to say: the seed ships the kind, never a mandate.
     assert.deepEqual(await readdir(JANITOR_CONCEPTS.dir), ["Janitor.md"]);
