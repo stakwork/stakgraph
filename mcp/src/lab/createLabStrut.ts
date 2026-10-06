@@ -25,7 +25,7 @@ import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
-import { seedCodeWorkflows } from "./code/seed.js";
+import { CODE_CONCEPTS, seedCodeWorkflows } from "./code/seed.js";
 import { seedJobWorkflows } from "./job/seed.js";
 import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { BrowserService } from "./browser/service.js";
@@ -242,7 +242,7 @@ export async function createLabStrut(
   // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
   // reads about this deployment), and under it `Janitor`, a kind. No
   // mandate ships: those are each workspace's. A no-op on the fs workspace.
-  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS]);
+  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, CODE_CONCEPTS]);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one

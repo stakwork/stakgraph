@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WorkspaceStore } from "strut";
+import type { ConceptSet } from "../concept-seed.js";
 import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
 
 /**
@@ -15,8 +16,12 @@ import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
  * `code-change-pr` is both in ONE run, for a caller that reviews on the
  * pull request itself — the `job` agent (strut plans/jobs.md §4): checkout →
  * agent → git/diff → git/push → github/create-pr; run again with `branch`
- * to revise the same PR. NO custom steps: every step is strut's, so this
- * seeder ships YAML only.
+ * to revise the same PR. How a job agent learns to run it is graph DATA,
+ * not prompt text: the `Code Change` Concept (`concepts/Code Change.md`, a
+ * child of the builder's `Workflow Builder` page — CODE_CONCEPTS, seeded
+ * by concept-seed.ts) names the workflow, its input, the brief, the
+ * artifact, and when a sandbox is warranted instead. NO custom steps:
+ * every step is strut's, so this seeder ships YAML (and one Concept) only.
  * Seeded UNSTAMPED (no publisher → not "ai"), content-hash reconciled
  * (SEED_OPTS): a changed committed copy wins at boot, an unchanged one leaves
  * a workspace-side edit active.
@@ -43,6 +48,8 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
 const RETIRED_WORKFLOWS: string[] = [];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** The `Code Change` kind page under `Workflow Builder` (plans/jobs.md §5: how the job agent is routed to code-change-pr). */
+export const CODE_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/code/concepts/" };
 
 export async function seedCodeWorkflows(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "workflows");
