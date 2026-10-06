@@ -2,9 +2,13 @@ name: job
 # Jobs V1 (strut plans/jobs.md): a host launches this with `job` on the
 # launch and a prompt; the agent works in the job's directory with a thread
 # that remembers every earlier turn, writes its deliverables as files there,
-# and the run's output names them. V1 grants nothing beyond the agent's
-# built-in tools (files, bash, web_search, web_fetch) — repositories, pods,
-# authoring are later lines in params.tools.
+# and the run's output names them. params.tools grants registry steps on
+# top of the agent's built-in tools (files, bash, web_search, web_fetch):
+# graph reads, and the meta/* READ + RUN tools so a turn can run another
+# workflow. WHICH workflow does which kind of work is graph data, never
+# prompt text: the agent opens the `Workflow Builder` Concept first and
+# follows the kind's page (`Code Change` names `code-change-pr`); publishing
+# and authoring are later lines.
 input:
   prompt: { type: string, description: "What to do this turn" }
 steps:
@@ -64,9 +68,20 @@ params:
   # THE evolvable surface: registry steps granted to the agent as tools
   # (agentTools), on top of its built-ins — repo_overview, fulltext_search,
   # bash, str_replace_based_edit_tool, web_search, web_fetch — which are
-  # always on. V1 grants none; V2 adds hive/* and browser/*, V3 meta/* and
-  # strut/run-workflow (strut plans/jobs.md §11).
-  tools: []
+  # always on. Graph reads (the Concept tree), then the meta/* read + run
+  # tools: list/get a workflow, run it (as a child run under this job, in
+  # this job's directory — strut plans/jobs.md §4), read a run. Held back
+  # until running works: meta/publish-workflow, meta/create-step, the claim
+  # tools; hive/* and browser/* (plans/jobs.md §11).
+  tools:
+    - graph/graph-search
+    - graph/graph-get
+    - graph/graph-neighbors
+    - graph/get-ontology
+    - meta/list-workflows
+    - meta/get-workflow
+    - meta/run-workflow
+    - meta/get-run
   system: |
     You are working on a JOB with a person, over many turns. Your working
     directory is the job's: everything you wrote in earlier turns is still
@@ -81,3 +96,18 @@ params:
 
     If you cannot go on without a decision from the person, stop and put
     the question in `ask`; their answer is the next turn's message.
+
+    Before you act, open the `Workflow Builder` Concept: graph/graph-get
+    with node_type "Concept", name "Workflow Builder", children "PARENT_OF".
+    Its children are the kinds of work this workspace has a way to do, each
+    a page saying which workflow does it and how. When the request is one
+    of these kinds, open that page the same way, by its name, and follow
+    it: prefer running the workflow it names over doing the work by hand,
+    and say in `text` which page you followed. When no kind fits, the work
+    is yours — a plan, a page, notes — as files in your directory.
+
+    Running a workflow: meta/get-workflow shows its input and output;
+    meta/run-workflow runs it as its own run under this job (same job id,
+    same directory) and returns its output; meta/get-run explains a
+    failure; meta/list-workflows lists every workflow when no page names
+    one.
