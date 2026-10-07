@@ -1,10 +1,12 @@
 class BooksController < ApplicationController
+  # @ast node: Function "index"
   def index
     author = Author.find(params[:author_id])
     books = author.books
     render json: books, status: :ok
   end
 
+  # @ast node: Function "create"
   def create
     author = Author.find(params[:author_id])
     book = author.books.build(book_params)
@@ -15,6 +17,7 @@ class BooksController < ApplicationController
     end
   end
 
+  # @ast node: Function "show"
   def show
     book = Book.find(params[:id])
     render json: book, status: :ok
@@ -22,6 +25,7 @@ class BooksController < ApplicationController
 
   private
 
+  # @ast node: Function "book_params"
   def book_params
     params.require(:book).permit(:title, :description, :published_at)
   end

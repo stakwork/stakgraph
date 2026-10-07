@@ -10,6 +10,7 @@
 require 'test_helper'
 
 class PersonServiceMinitestTest < Minitest::Test
+  # @ast node: Function "setup"
   def setup
     @person = Person.create!(name: "Test Person", email: "test@example.com")
   end

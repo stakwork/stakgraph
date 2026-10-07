@@ -1,4 +1,5 @@
 class CountriesController < ApplicationController
+    # @ast node: Function "process"
     def process
         country = Country.new(country_params)
         if country.save
@@ -10,7 +11,8 @@ class CountriesController < ApplicationController
     end
 
     private
-    
+
+    # @ast node: Function "country_params"
     def country_params
         params.require(:country).permit(:name, :code)
     end
