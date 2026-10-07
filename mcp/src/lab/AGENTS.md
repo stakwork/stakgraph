@@ -476,6 +476,64 @@ process for the QA loop.
   seed loading through strut's registry). `service.live.test.ts` skips
   unless `BROWSER_WS_URL` is set; its header has the two commands.
 
+### `pods/` — hive sandboxes as steps (NOT an experiment)
+
+A pod is a container hive's pool manager hands out: the workspace's
+repositories, the app's dev server and an IDE a person can open, and
+staklink — a control server on the pod that runs a coding agent (goose),
+resets repositories, diffs, pushes and tests. Every staklink call is one
+seeded step, `pod/*`, and the same steps are the job agent's tools
+(`agentTools: ["pod/*"]`): the way to make a change that must build, run or
+be seen to be judged (the `Pod` Concept under `Code Change`, `pods/concepts`,
+says when and how; the job agent reads it off the graph, never the prompt).
+Replaces the `hive/*` pod steps and the `pod-pr` pipeline tom prototyped on
+swarm38 — a one-shot that decided everything the agent should decide and
+released the pod at the end.
+
+- **The pod outlives a run.** `pod/claim` on a run with a job registers a
+  HOLD on the job (strut `ctx.services.jobs`, plans/jobs.md §6) naming
+  `pod/release` as the way to let it go; strut runs it when the job is
+  deleted (`DELETE /lab/jobs/:id`) or idle past `STRUT_WORKDIR_TTL_DAYS`.
+  So the agent in the pod keeps its session — its memory lives on the pod's
+  disk — and the dev server stays up between turns for the person to watch
+  (hive renders a `url` artifact as a live frame). Without a hold a claimed
+  pod leaks: hive's stale sweep releases pods by `Task.podId`, and strut
+  claims with no task.
+- **The password never leaves the step.** `pod/claim` returns it SEALED
+  (AES-GCM under a key derived from HIVE_API_KEY — whoever holds that key
+  can claim pods anyway, so no second secret) and every other step takes
+  `sealed` and opens it in-process for the one request. The run log, the
+  output, the callback and the agent's context carry `sealed` only; the
+  smoke proves it.
+- **Steps** (`pods/steps/`, one file each; `_shared.ts` is a seeded helper
+  the registry skips): `claim` (→ `{ podId, frontend, ide, control, sealed }`,
+  the hold) and `release`; `latest` (reset repositories to a branch, the
+  run's GitHub token on the fetch); the agent in the pod three ways —
+  `agent-start` (returns a `request_id` at once, so a claiming turn can end
+  with the pod cards and the task running), `agent-status` (one look, never
+  fails on a failed task), `agent` (start + wait, a cancelled run stops
+  waiting between polls: the blocking form a deterministic workflow wants);
+  `diff` (the working trees), `branch-diff` (the whole branch against its
+  base; file contents capped, as every tool result here is); `push`
+  (commit + push as the run's GitHub identity; `create_pr` for a new
+  change, `stay_on_branch: true, create_pr: false` for a REVISION — the
+  same branch, the same PR, which is what a follow-up turn needs);
+  `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`). The agent's
+  `session` defaults to the run's job, so on a job the goose thread
+  continues across turns and the model never picks the id; its model calls
+  go through this run's LLM gateway grant (`ctx.services.llmAuth`) — never
+  the pod's own key, never a caller-supplied one.
+- **Secrets:** `HIVE_URL` + `HIVE_API_KEY` (deployment; an org-scoped key —
+  the hub claims for every workspace of its org, the id arrives on the job
+  launch), `GITHUB_TOKEN` (the run's: hive pushes it as an actor secret on
+  every job turn).
+- **Smoke** (offline — seeds and discovers, then a stand-in hive + staklink
+  on localhost: claim → latest → agent → branch-diff → push with `job` on
+  the launch, the revision turn with agent-start/status and a push onto
+  the same branch, the hold on the record, the password nowhere strut
+  keeps it, `DELETE /jobs/:id` releasing the pod): `npx tsx
+  src/lab/pods/smoke.ts`.
+
 ### `harvey/` — Harvey LAB verification (the hardcoded grader)
 
 Runs the **actual** Harvey LAB legal-benchmark eval (the
@@ -822,9 +880,13 @@ It is now strut workflows — design + the hive half in strut
 Jobs V1 (strut `plans/jobs.md`; the hive half is `start_job` /
 `continue_job` + the `job_turn` handler + one artifact reader route, a
 CLOSED contract). Hive's Jamie chat hands strut a *job*: an id it mints,
-passed on the LAUNCH — `POST /lab/workflows/job/run { job, input: { prompt },
-callback }` — never inside `input`. One seeded workflow, `job` (category
-`job`, unstamped, YAML only — every step is strut's):
+passed on the LAUNCH — `POST /lab/workflows/job/run { job, input: { prompt,
+workspace }, callback }` — never inside `input`. `workspace` is the hive
+workspace id the job belongs to (the hub strut serves every workspace of
+its org): the YAML declares it (the runner strips an undeclared key), the
+agent's message starts with `Hive workspace: <id>.`, and that is what a
+pod is claimed for. One seeded workflow, `job` (category `job`,
+unstamped, YAML only — every step is strut's):
 
 - `job/dir` → `agent` (cwd = the job's directory, `session: "{{ $job }}"`,
   a JSON `schema` for the answer) → `pack` `{ text, artifacts, ask?, cost,
@@ -850,18 +912,20 @@ callback }` — never inside `input`. One seeded workflow, `job` (category
   `meta/list-workflows`, `meta/get-workflow`, `meta/run-workflow`,
   `meta/get-run` — so a turn runs another workflow as a CHILD run under the
   same job (strut stamps the job on it and the child shares the job's
-  directory, plans/jobs.md §4). WHICH workflow for which kind of work is
-  never in the prompt: the agent opens the `Job` Concept (`job/concepts`,
-  `JOB_CONCEPTS`) first and follows the kind's page — `Code Change`
-  (`code/concepts`) names `code-change-pr` and the PR comes back as a
-  `pull_request` artifact; `Plan Mode`, when the person asks for a plan
-  first, is ONE static `plan.html` (overview up front, the technical part
-  in a collapsed `<details>`, the page style) revised until they approve. Held back until running
-  works: publishing / authoring (`meta/publish-workflow`,
-  `meta/create-step`), the claim tools, `hive/*` pods, `browser/*`. A job
-  learns to do something new by a new VERSION of this workflow on the
-  swarm — a line in `params.tools`, a paragraph in `params.system` — never
-  by a hive PR.
+  directory, plans/jobs.md §4); and the `pod/*` tools (`pods/`, below) — a
+  hive sandbox the job HOLDS between turns. WHICH workflow or way for which
+  kind of work is never in the prompt: the agent opens the `Job` Concept
+  (`job/concepts`, `JOB_CONCEPTS`) first and follows the kind's page —
+  `Code Change` (`code/concepts`) names `code-change-pr` and the PR comes
+  back as a `pull_request` artifact, and its child `Pod` (`pods/concepts`)
+  says when a change needs the app running and how to make it in a pod;
+  `Plan Mode`, when the person asks for a plan first, is ONE static
+  `plan.html` (overview up front, the technical part in a collapsed
+  `<details>`, the page style) revised until they approve. Held back until
+  running works: publishing / authoring (`meta/publish-workflow`,
+  `meta/create-step`), the claim tools, `browser/*`. A job learns to do
+  something new by a new VERSION of this workflow on the swarm — a line in
+  `params.tools`, a paragraph in `params.system` — never by a hive PR.
 - Smoke (offline — seeds, discovers, static-validates against the real
   registry, then runs it the way hive does: over HTTP with `job` + a local
   callback server, the `agent` step swapped for a fake that writes
