@@ -47,10 +47,17 @@ steps:
                 path: { type: string, description: "A file you wrote, relative to the working directory" }
                 url: { type: string, description: "Somewhere to go instead of a file (absolute)" }
                 content:
-                  description: "Small inline content instead of a file: a string (a diff, markdown, short JSON as text), or the kind's own object, never a JSON string of it (pull_request: { url, repo, number, state })"
+                  description: "Small inline content instead of a file: a string (a diff, markdown, short JSON as text), or for kind pull_request the pull request itself as an object, never a JSON string of it"
                   anyOf:
                     - { type: string }
-                    - { type: object }
+                    - type: object
+                      additionalProperties: false
+                      required: [url, repo, number, state]
+                      properties:
+                        url: { type: string }
+                        repo: { type: string, description: "owner/name" }
+                        number: { type: integer }
+                        state: { type: string, enum: [open, closed, merged, draft] }
           ask:
             type: object
             description: "Only when you need a decision from the person before going on: the question, in prose. The answer comes as the next turn's prompt."
