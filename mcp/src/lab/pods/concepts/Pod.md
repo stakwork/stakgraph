@@ -39,8 +39,11 @@ to run the app's tests. Then `pod/push { repo_url, branch_name, commit_message, 
 opens the pull request; report it as `{ id: "pr", kind: "pull_request",
 title, content: { url, repo: "<owner>/<name>", number, state: "open" } }`.
 A later turn that revises the same change pushes with
-`stay_on_branch: true, create_pr: false` — the same branch, the same pull
+`stay_on_branch: true` — the same branch, and `pr_url` is the same pull
 request, the same `pr` id. Never open a second pull request for one change.
+That holds only while the pod is still on the pull request's branch: after
+`pod/latest`, or on a freshly claimed pod, it sits on the base, and a push
+with `stay_on_branch` there would land on the base branch itself.
 
 Release the pod with `pod/release { workspace, podId }` when the job is done
 with it — the pull request is merged, or the person says so. Otherwise keep

@@ -203,16 +203,30 @@ export interface AgentAsk {
 }
 
 /** The body of a `POST /agent`: the ask, the session (the run's job unless
- *  given, so a job's pod agent remembers across turns) and the grant. */
+ *  given, so a job's pod agent remembers across turns) and the grant. The
+ *  grant's macaroon rides INSIDE the key, `<vk>.<macaroon>`: goose's anthropic
+ *  provider sends no custom headers, so an `x-macaroon` header handed to
+ *  staklink never reached the gateway (2026-10-07, the first live pod job:
+ *  `401 x-macaroon header is required`). The gateway's wrapper splits the key
+ *  back into the two headers (stakgraph gateway/wrapper/authsplit.go). The
+ *  grant's other headers — the `x-bf-dim-*` dims — still go as headers, for
+ *  the providers goose carries them on. */
 export async function agentBody(ctx: PodCtx, ask: AgentAsk): Promise<{ body: Record<string, unknown>; session: string | null }> {
   const grant = await llmGrant(ctx);
   const session = ask.session ?? ctx.job ?? null;
-  const body: Record<string, unknown> = { prompt: ask.prompt, apiKey: grant.apiKey, baseUrl: grant.baseUrl };
+  const headers: Record<string, string> = {};
+  let macaroon: string | undefined;
+  for (const [k, v] of Object.entries(grant.headers ?? {})) {
+    if (k.toLowerCase() === "x-macaroon") macaroon = v;
+    else headers[k] = v;
+  }
+  const apiKey = macaroon ? `${grant.apiKey}.${macaroon}` : grant.apiKey;
+  const body: Record<string, unknown> = { prompt: ask.prompt, apiKey, baseUrl: grant.baseUrl };
   if (ask.system !== undefined) body["system"] = ask.system;
   if (ask.repoName !== undefined) body["repoName"] = ask.repoName;
   if (ask.model !== undefined) body["model"] = ask.model;
   if (session !== null) body["session"] = session;
-  if (grant.headers && Object.keys(grant.headers).length) body["headers"] = grant.headers;
+  if (Object.keys(headers).length) body["headers"] = headers;
   return { body, session };
 }
 

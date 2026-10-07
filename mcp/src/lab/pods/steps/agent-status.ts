@@ -5,8 +5,8 @@ export default defineStep({
   type: "pod/agent-status",
   description:
     "How a task started with pod/agent-start is doing: one look, no waiting. `status` is pending, completed or failed; when completed, `output` is what the " +
-    "agent said (long outputs are cut in the middle) and `summary` its own summary when it wrote one; when failed, `error` says why. Never fails on a " +
-    "failed task — read `status`.",
+    "agent said (long outputs are cut in the middle) and `summary` its own summary when it wrote one; when failed, `error` says why. An agent that " +
+    "crashed (a model call refused, a tool that died) still reports completed, its message in `output` — read it. Never fails on a failed task — read `status`.",
   input: z.object({
     control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
     sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
