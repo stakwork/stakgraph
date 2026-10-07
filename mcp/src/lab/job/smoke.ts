@@ -33,8 +33,9 @@ const JOB = "job";
 const STEPS = ["job/dir", "agent", "pack"];
 // Registry steps granted ON TOP of the agent's built-ins (files, bash,
 // web_search, web_fetch — which a filter must never narrow): graph reads for
-// the Concept tree, and the meta/* read + run tools (a turn runs another
-// workflow — `code-change-pr` — as a child run under the job).
+// the Concept tree, the meta/* read + run tools (a turn runs another
+// workflow — `code-change-pr` — as a child run under the job), and the
+// pod/* tools (a hive sandbox the job holds between turns).
 const TOOLS: string[] = [
   "graph/graph-search",
   "graph/graph-get",
@@ -44,6 +45,7 @@ const TOOLS: string[] = [
   "meta/get-workflow",
   "meta/run-workflow",
   "meta/get-run",
+  "pod/*",
 ];
 
 /** What the fake agent was handed each turn — the resolved step config. */
@@ -137,6 +139,7 @@ async function main() {
     const flow = await workspace.getWorkflow(JOB);
     assert.deepEqual(flow.params?.["tools"], TOOLS);
     assert.ok(flow.inputBlock?.["prompt"], "the input block declares prompt");
+    assert.equal(flow.inputBlock?.["workspace"]?.required, false, "the input block declares workspace, optional");
     console.log(`✔ ${JOB} validates (${v.summary.steps} steps); params.tools = ${JSON.stringify(TOOLS)}`);
 
     // ── 3. the run, as hive does it: over HTTP with `job` + a callback, the
@@ -152,7 +155,7 @@ async function main() {
     const api = apiFor(strut);
     const job = randomUUID();
 
-    const first = await api(`/workflows/${JOB}/run`, { job, input: { prompt: "Plan dark mode." }, callback: { url: host.url } });
+    const first = await api(`/workflows/${JOB}/run`, { job, input: { prompt: "Plan dark mode.", workspace: "ws-1" }, callback: { url: host.url } });
     assert.equal(first.status, 202, first.text);
     const firstBody = asJson(first);
     assert.equal(firstBody.callback, true, "the 202 carries callback: true");
@@ -172,7 +175,7 @@ async function main() {
     assert.equal(turns.length, 1);
     assert.equal(turns[0]!.cwd, join(dir, "jobs", job), "cwd is the job's directory");
     assert.equal(turns[0]!.session, job, "session is the job id");
-    assert.equal(turns[0]!.prompt, "Plan dark mode.");
+    assert.equal(turns[0]!.prompt, "Hive workspace: ws-1. Plan dark mode.", "the workspace heads the prompt");
     // The params reached the step with their types intact.
     const cfg = turns[0]!.config;
     assert.deepEqual(cfg["agentTools"], TOOLS, "params.tools reaches the step as agentTools");
@@ -195,6 +198,7 @@ async function main() {
     assert.equal(turns.length, 2);
     assert.equal(turns[1]!.cwd, turns[0]!.cwd, "the same directory every turn");
     assert.equal(turns[1]!.session, job);
+    assert.equal(turns[1]!.prompt, "Split step 2 in two.", "no workspace on the launch: the prompt as given");
     console.log(`✔ turn 2: the same artifact { id: plan, url: ${post2.artifacts[0].url} }`);
 
     // The file behind the link is the second turn's, served sandboxed.

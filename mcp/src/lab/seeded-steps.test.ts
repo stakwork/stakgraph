@@ -14,6 +14,7 @@ import { seedGaiaSteps } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps } from "./wfbench/seed.js";
 import { seedBrowserSteps } from "./browser/seed.js";
+import { seedPodSteps } from "./pods/seed.js";
 
 // The mcp dir, like the real lab-workspace: a seeded step's bare package
 // imports (`ai`, `aieo`, `js-yaml`, …) resolve via mcp/node_modules from there.
@@ -35,6 +36,7 @@ describe("seeded lab steps", () => {
         seedArtifactSteps,
         seedWfbenchSteps,
         seedBrowserSteps,
+        seedPodSteps,
       ]) {
         await seed(ws);
       }

@@ -1,0 +1,51 @@
+import { z, defineStep } from "strut";
+import { brief, gitCredentials, podCall, type PodCtx } from "./_shared.js";
+
+export default defineStep({
+  type: "pod/push",
+  description:
+    "Commit everything in a pod repository's working tree and push it as the run's GitHub identity, opening a pull request unless told not to. " +
+    "A NEW change: `branch_name` names the branch (made unique if taken) and the pull request's title is the commit message's first sentence. " +
+    "A REVISION of a pull request: `stay_on_branch: true, create_pr: false` commits on the branch the pod is on — the pull request's — and pushes it, " +
+    "so the same pull request gains the commit; never open a second one for the same change. Nothing to commit is an error. " +
+    "Output: { branch, pr_url (null without a pull request), commits }.",
+  input: z.object({
+    control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
+    sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
+    repo_url: z.string().min(1).describe("The repository as the pod knows it: https://github.com/<owner>/<name>.git"),
+    branch_name: z.string().min(1).describe("The branch to push: a new one for a new change; with stay_on_branch, ignored"),
+    commit_message: z.string().min(1).describe("The commit message; its first sentence titles the pull request"),
+    base_branch: z.string().min(1).describe("The pull request's base"),
+    create_pr: z.boolean().default(true).describe("Open a pull request for the branch"),
+    stay_on_branch: z.boolean().default(false).describe("Commit on the branch the pod is on instead of making a new one — a revision"),
+    githubTokenSecret: z.string().default("GITHUB_TOKEN").describe("NAME of the secret with the run's GitHub token"),
+    timeoutMs: z.number().int().positive().default(600_000),
+  }),
+  output: z.object({
+    branch: z.string(),
+    pr_url: z.string().nullable(),
+    commits: z.array(z.string()),
+  }),
+  async run(cfg, ctx: PodCtx) {
+    const creds = await gitCredentials(ctx, cfg.githubTokenSecret);
+    if (!creds) throw new Error(`pod/push: no ${cfg.githubTokenSecret} for this run — the pod pushes as the run's GitHub identity, and it has none`);
+    const q = new URLSearchParams({ commit: "true", pr: String(cfg.create_pr) });
+    if (cfg.stay_on_branch) q.set("stayOnCurrentBranch", "true");
+    const path = `/push?${q}`;
+    const body = {
+      tasks: [],
+      repos: [{ url: cfg.repo_url, branch_name: cfg.branch_name, commit_name: cfg.commit_message, base_branch: cfg.base_branch }],
+      git_credentials: creds,
+    };
+    const res = await podCall(ctx, cfg.control, cfg.sealed, path, { method: "POST", body, timeout: cfg.timeoutMs });
+    if (!res.ok) throw new Error(`POST ${path}: ${res.status} — ${brief(res.body)}`);
+    const b: any = res.body ?? {};
+    if (b.error) throw new Error(`pod/push: ${b.message ?? b.error}`);
+    const branch = Object.values((b.branches ?? {}) as Record<string, string>)[0];
+    const pr_url = Object.values((b.prs ?? {}) as Record<string, string>)[0] ?? null;
+    if (b.prErrors && Object.keys(b.prErrors).length) throw new Error(`pod/push: pushed ${branch ?? "?"} but the pull request failed — ${brief(b.prErrors)}`);
+    if (!branch) throw new Error(`pod/push: the pod reported no branch: ${brief(b)}`);
+    if (cfg.create_pr && !pr_url) throw new Error(`pod/push: pushed ${branch} but the pod reported no pull request: ${brief(b)}`);
+    return { branch, pr_url, commits: Array.isArray(b.commits) ? b.commits.map(String) : [] };
+  },
+});
