@@ -8,6 +8,7 @@ import { WorkspaceManager, buildRegistry, closeGraphBackends, defineStep, fileAr
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { parseConceptFile, planConceptSeed, seedConcepts, stampOf } from "../concept-seed.js";
 import { CODE_CONCEPTS } from "../code/seed.js";
+import { JOB_CONCEPTS } from "../job/seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
 import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorWorkflows } from "./seed.js";
 
@@ -59,14 +60,28 @@ describe("parseConceptFile", () => {
     // The convention lives in its docs: the engine, and the three steps to add one.
     for (const needle of [/graph-janitor/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /automation/]) assert.match(c.docs!, needle);
 
-    // The entry page tells the job agent it is read for what to RUN, naming no kind.
-    assert.match(entry.docs!, /job agent/);
-    assert.doesNotMatch(entry.docs!, /code change|code-change/i, "the entry page knows no kind by name");
+    // The builder's tree is what gets BUILT; what a job agent runs is under `Job`.
+    assert.doesNotMatch(entry.docs!, /job agent|code change|code-change|plan mode/i, "the entry page knows no kind by name");
+
+    // Job: the job agent's root page, naming no kind.
+    const job = await read(JOB_CONCEPTS, "Job.md");
+    assert.equal(job.name, "Job");
+    assert.equal(job.parent, undefined);
+    assert.match(job.stamp, /^lab\/job\/concepts\/Job\.md@[0-9a-f]{12}$/);
+    assert.ok(job.docs!.startsWith(job.description!));
+    assert.doesNotMatch(job.docs!, /code change|code-change|plan mode/i, "the entry page knows no kind by name");
+
+    // Plan Mode: a way of working under Job — one HTML file, the technical part collapsed, ask before going on.
+    const pm = await read(JOB_CONCEPTS, "Plan Mode.md");
+    assert.equal(pm.parent, "Job");
+    assert.ok(pm.docs!.startsWith(pm.description!));
+    for (const needle of [/plan\.html/, /<details>/, /`ask`/, /scripts never run/]) assert.match(pm.docs!, needle);
+    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Job.md", "Plan Mode.md"]);
 
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
     assert.equal(cc.name, "Code Change");
-    assert.equal(cc.parent, "Workflow Builder");
+    assert.equal(cc.parent, "Job");
     assert.match(cc.stamp, /^lab\/code\/concepts\/Code Change\.md@[0-9a-f]{12}$/);
     assert.equal(cc.description, "A change to a repository's source code, delivered as a pull request.");
     assert.ok(cc.docs!.startsWith(cc.description!));
@@ -84,7 +99,7 @@ describe("parseConceptFile", () => {
 
   it("what ships to every workspace says nothing about one workspace's domain", async () => {
     const domain = /\b(law|legal|rubric|evals?|benchmark|exam|grading|overfit)\b/i;
-    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS]) {
+    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]) {
       for (const file of await readdir(set.dir)) {
         const c = await read(set, file);
         for (const text of [c.name, c.description ?? "", c.docs ?? ""]) assert.doesNotMatch(text, domain, `${file}`);
@@ -568,5 +583,53 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
       assert.match(JSON.stringify(res.error), new RegExp(`not_a_janitor: '${concept}'`));
     }
     assert.equal(agentCalls.length, n);
+  });
+});
+
+// A deployed graph has `Code Change` under `Workflow Builder` (the tree before
+// `Job`): the next boot moves it under `Job` and drops the old edge.
+describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }, () => {
+  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change"];
+  let root: string;
+  let ws: import("strut").WorkspaceStore;
+  const edges = async (parent: string) =>
+    (
+      await ws.graph!.bolt.run(`MATCH (:Concept {name: $parent})-[:PARENT_OF]->(c:Concept) RETURN c.name AS name ORDER BY name`, { parent })
+    ).map((r) => String(r.name));
+  before(async () => {
+    const { graphWorkspaceFromEnv } = await import("strut");
+    root = await mkdtemp(join(tmpdir(), "job-tree-live-"));
+    ws = (
+      await graphWorkspaceFromEnv(
+        {
+          NEO4J_URI: URI!,
+          NEO4J_USER: process.env.STRUT_TEST_NEO4J_USER ?? "neo4j",
+          NEO4J_PASSWORD: process.env.STRUT_TEST_NEO4J_PASSWORD ?? "struttest",
+          STRUT_GRAPH_SEED_ONTOLOGY: "1",
+          STRUT_GRAPH_EMBEDDINGS: "off",
+        },
+        { dataDir: root },
+      )
+    ).workspace;
+    await ws.graph!.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
+  });
+  after(async () => {
+    await ws?.graph?.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
+    await closeGraphBackends();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("Code Change moves from Workflow Builder to Job; Plan Mode joins it; Janitor stays", async () => {
+    const old = join(root, "old-code");
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(old);
+    const cc = await readFile(join(CODE_CONCEPTS.dir, "Code Change.md"), "utf-8");
+    await writeFile(join(old, "Code Change.md"), cc.replace(/^parent: Job$/m, "parent: Workflow Builder"));
+    await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, { dir: old, prefix: CODE_CONCEPTS.prefix }]);
+    assert.deepEqual(await edges("Workflow Builder"), ["Code Change", "Janitor"], "the tree as deployed");
+
+    await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]);
+    assert.deepEqual(await edges("Workflow Builder"), ["Janitor"]);
+    assert.deepEqual(await edges("Job"), ["Code Change", "Plan Mode"]);
   });
 });

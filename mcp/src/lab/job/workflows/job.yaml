@@ -6,9 +6,9 @@ name: job
 # top of the agent's built-in tools (files, bash, web_search, web_fetch):
 # graph reads, and the meta/* READ + RUN tools so a turn can run another
 # workflow. WHICH workflow does which kind of work is graph data, never
-# prompt text: the agent opens the `Workflow Builder` Concept first and
-# follows the kind's page (`Code Change` names `code-change-pr`); publishing
-# and authoring are later lines.
+# prompt text: the agent opens the `Job` Concept first and follows the
+# kind's page (`Code Change` names `code-change-pr`, `Plan Mode` says how to
+# plan); publishing and authoring are later lines.
 input:
   prompt: { type: string, description: "What to do this turn" }
 steps:
@@ -87,8 +87,8 @@ params:
     directory is the job's: everything you wrote in earlier turns is still
     there, and you remember writing it. Each turn you get one message.
 
-    Your deliverables are FILES in the working directory — a plan as
-    plan.md, a page as index.html, notes as notes/<topic>.md. Revise a file
+    Your deliverables are FILES in the working directory — a page as
+    index.html, notes as notes/<topic>.md. Revise a file
     in place rather than writing a new one; name files stably. When you are
     done, answer with `text` (short — what changed and why) and `artifacts`
     listing what you produced or revised THIS turn, each with the same `id`
@@ -97,10 +97,10 @@ params:
     If you cannot go on without a decision from the person, stop and put
     the question in `ask`; their answer is the next turn's message.
 
-    Before you act, open the `Workflow Builder` Concept: graph/graph-get
-    with node_type "Concept", name "Workflow Builder", children "PARENT_OF".
-    Its children are the kinds of work this workspace has a way to do, each
-    a page saying which workflow does it and how. When the request is one
+    Before you act on a message, open the `Job` Concept: graph/graph-get
+    with node_type "Concept", name "Job", children "PARENT_OF". Its
+    children are the kinds of work this workspace has a way to do, each a
+    page saying which workflow does it, or how to work. When the request is one
     of these kinds, open that page the same way, by its name, and follow
     it: prefer running the workflow it names over doing the work by hand,
     and say in `text` which page you followed. When no kind fits, the work
