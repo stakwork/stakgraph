@@ -787,7 +787,7 @@ It is now strut workflows — design + the hive half in strut
   body? }`. The PR is the proposal: to revise it, run again with the same
   `branch`. An agent that changed nothing fails at `git/push` (its plain
   nothing-staged error — nothing pushed, no PR). The `Code Change`
-  Concept (`code/concepts/Code Change.md`, parent `Workflow Builder`,
+  Concept (`code/concepts/Code Change.md`, parent `Job`,
   seeded as `CODE_CONCEPTS` beside the builder's and janitor's pages) is
   how the `job` agent is routed here: the workflow and its input, the
   brief, the follow-up rule, the `pull_request` artifact, when a sandbox
@@ -851,10 +851,12 @@ callback }` — never inside `input`. One seeded workflow, `job` (category
   `meta/get-run` — so a turn runs another workflow as a CHILD run under the
   same job (strut stamps the job on it and the child shares the job's
   directory, plans/jobs.md §4). WHICH workflow for which kind of work is
-  never in the prompt: the agent opens the `Workflow Builder` Concept
-  first and follows the kind's page — `Code Change` (`code/concepts`)
-  names `code-change-pr` and the PR comes back as a `pull_request`
-  artifact. Held back until running
+  never in the prompt: the agent opens the `Job` Concept (`job/concepts`,
+  `JOB_CONCEPTS`) first and follows the kind's page — `Code Change`
+  (`code/concepts`) names `code-change-pr` and the PR comes back as a
+  `pull_request` artifact; `Plan Mode`, when the person asks for a plan
+  first, is ONE static `plan.html` (overview up front, the technical part
+  in a collapsed `<details>`, the page style) revised until they approve. Held back until running
   works: publishing / authoring (`meta/publish-workflow`,
   `meta/create-step`), the claim tools, `hive/*` pods, `browser/*`. A job
   learns to do something new by a new VERSION of this workflow on the
@@ -875,17 +877,22 @@ and the lab hands the builder its first page:
 
 ```
 Workflow Builder            what this workspace builds       (builder/concepts)
-├─ Janitor                  a kind: its convention           (janitor/concepts)
-│  └─ <a mandate>           an instance                      (the workspace's own)
-└─ Code Change              a kind: which workflow, how      (code/concepts)
-   └─ <a way | a repo>      a sandbox workflow / repo rules  (the workspace's own)
+└─ Janitor                  a kind: its convention           (janitor/concepts)
+   └─ <a mandate>           an instance                      (the workspace's own)
+
+Job                         what a job agent can do here     (job/concepts)
+├─ Code Change              a kind: which workflow, how      (code/concepts)
+│  └─ <a way | a repo>      a sandbox workflow / repo rules  (the workspace's own)
+└─ Plan Mode                a way of working: plan.html first (job/concepts)
 ```
 
-The `job` agent reads the same tree, every turn: its `params.system` opens
-`Workflow Builder` by name (`graph/graph-get` with `children: PARENT_OF`),
-matches the request to a kind, opens that page and follows it — so WHICH
-workflow does which kind of work is graph data a workspace edits, never a
-line in the job's prompt.
+The `job` agent reads the SECOND tree, every turn, as a tool result (never
+inlined: its system prompt is frozen by the session's first turn, a read is
+not): its `params.system` opens `Job` by name (`graph/graph-get` with
+`children: PARENT_OF`), matches the request to a kind, opens that page and
+follows it — so WHICH workflow does which kind of work is graph data a
+workspace edits, never a line in the job's prompt. The builder never sees
+`Job`; the job agent is never told about `Workflow Builder`.
 
 **What ships here is seeded into EVERY workspace.** A Concept that only
 makes sense for one kind of workspace — a mandate about eval rubrics, a
