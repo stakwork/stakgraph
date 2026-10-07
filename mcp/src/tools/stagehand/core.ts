@@ -80,25 +80,9 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     networkEntries: [],
   };
 
-  // Set up console log listener on the active page
+  // Set up console + network capture on the active page via CDP
   const page = getActivePage(sh);
-  page.on("console", (msg) => {
-    const location = msg.location();
-    addConsoleLog(sessionId, {
-      timestamp: new Date().toISOString(),
-      type: msg.type(),
-      text: msg.text(),
-      location: {
-        url: location.url || "",
-        lineNumber: location.lineNumber || 0,
-        columnNumber: location.columnNumber || 0,
-      },
-    });
-  });
-
-  // Note: Network monitoring via request/response events is not available
-  // in the new Stagehand V3 API. The Page class only exposes "console" events.
-  // Network monitoring would need to be implemented via CDP directly if needed.
+  attachCapture(page as any, sessionId);
 
   // Check if we need to evict old sessions (LRU)
   if (Object.keys(STATE).length > MAX_SESSIONS) {
@@ -110,6 +94,108 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     await evictOldestSession();
   }
   return sh;
+}
+
+const NET_RESOURCE: Record<string, string> = { XHR: "xhr", Fetch: "fetch", Document: "document" };
+const PENDING: { [sessionId: string]: Map<string, { method: string; url: string; type: string }> } = {};
+
+// Attach CDP-based console + network capture to a page's main session.
+// Populates the session's console logs (incl. uncaught exceptions) and network entries.
+function attachCapture(page: any, sessionId: string): void {
+  try {
+    page.on("console", (msg: any) => {
+      const location = msg.location?.() || {};
+      addConsoleLog(sessionId, {
+        timestamp: new Date().toISOString(),
+        type: msg.type?.() || "log",
+        text: msg.text?.() || "",
+        location: {
+          url: location.url || "",
+          lineNumber: location.lineNumber || 0,
+          columnNumber: location.columnNumber || 0,
+        },
+      });
+    });
+
+    const session = page?.mainFrame?.()?.session;
+    if (!session) return;
+    PENDING[sessionId] = new Map();
+
+    const pushLog = (type: string, text: string, url = "") =>
+      addConsoleLog(sessionId, {
+        timestamp: new Date().toISOString(),
+        type,
+        text,
+        location: { url, lineNumber: 0, columnNumber: 0 },
+      });
+
+    session.send("Runtime.enable").catch(() => {});
+    session.on("Runtime.exceptionThrown", (p: any) => {
+      const d = p?.exceptionDetails;
+      pushLog("error", d?.exception?.description ?? d?.text ?? "uncaught exception", d?.url ?? "");
+    });
+
+    session.send("Log.enable").catch(() => {});
+    session.on("Log.entryAdded", (p: any) => {
+      const e = p?.entry;
+      if (e && (e.level === "error" || e.level === "warning")) {
+        pushLog(e.level, e.text ?? "", e.url ?? "");
+      }
+    });
+
+    session.send("Network.enable").catch(() => {});
+    session.on("Network.requestWillBeSent", (p: any) => {
+      const type = p?.type ?? "";
+      if (p?.redirectResponse && NET_RESOURCE[type]) {
+        addNetworkEntry(sessionId, {
+          id: `${p.requestId}-r`,
+          timestamp: new Date().toISOString(),
+          type: "response",
+          method: p?.request?.method ?? "GET",
+          url: p?.redirectResponse?.url ?? p?.request?.url ?? "",
+          status: p?.redirectResponse?.status ?? 0,
+          resourceType: NET_RESOURCE[type],
+        });
+      }
+      PENDING[sessionId]?.set(p.requestId, {
+        method: p?.request?.method ?? "GET",
+        url: p?.request?.url ?? "",
+        type,
+      });
+    });
+    session.on("Network.responseReceived", (p: any) => {
+      const type = p?.type ?? PENDING[sessionId]?.get(p?.requestId)?.type ?? "";
+      const req = PENDING[sessionId]?.get(p?.requestId);
+      PENDING[sessionId]?.delete(p?.requestId);
+      if (!NET_RESOURCE[type]) return;
+      addNetworkEntry(sessionId, {
+        id: p?.requestId ?? "",
+        timestamp: new Date().toISOString(),
+        type: "response",
+        method: req?.method ?? "GET",
+        url: p?.response?.url ?? req?.url ?? "",
+        status: p?.response?.status ?? 0,
+        resourceType: NET_RESOURCE[type],
+      });
+    });
+    session.on("Network.loadingFailed", (p: any) => {
+      const req = PENDING[sessionId]?.get(p?.requestId);
+      const type = req?.type ?? p?.type ?? "";
+      PENDING[sessionId]?.delete(p?.requestId);
+      if (!NET_RESOURCE[type]) return;
+      addNetworkEntry(sessionId, {
+        id: p?.requestId ?? "",
+        timestamp: new Date().toISOString(),
+        type: "response",
+        method: req?.method ?? "",
+        url: req?.url ?? "(unknown)",
+        status: 0,
+        resourceType: NET_RESOURCE[type],
+      });
+    });
+  } catch {
+    /* a CDP quirk must never fail session creation */
+  }
 }
 
 export function addConsoleLog(sessionId: string, log: ConsoleLog): void {
