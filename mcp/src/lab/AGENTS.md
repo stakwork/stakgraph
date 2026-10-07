@@ -515,9 +515,10 @@ released the pod at the end.
   waiting between polls: the blocking form a deterministic workflow wants);
   `diff` (the working trees), `branch-diff` (the whole branch against its
   base; file contents capped, as every tool result here is); `push`
-  (commit + push as the run's GitHub identity; `create_pr` for a new
-  change, `stay_on_branch: true, create_pr: false` for a REVISION — the
-  same branch, the same PR, which is what a follow-up turn needs);
+  (commit + push as the run's GitHub identity; a new branch for a new
+  change, `stay_on_branch: true` for a REVISION — the same branch, and
+  `pr_url` is the PR it already has, which is what a follow-up turn needs;
+  nothing to commit still pushes what is unpushed);
   `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`). The agent's
   `session` defaults to the run's job, so on a job the goose thread
   continues across turns and the model never picks the id; its model calls

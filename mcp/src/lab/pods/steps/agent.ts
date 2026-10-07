@@ -5,8 +5,9 @@ export default defineStep({
   type: "pod/agent",
   description:
     "Run the pod's coding agent on a task and WAIT for it (default up to 45 min; a cancelled run stops waiting). pod/agent-start + pod/agent-status, " +
-    "in one step, for a task you will wait for; a failed task fails the step. The session is this run's job unless `session` is given, so on a job the " +
-    "agent remembers earlier turns; the prompt must still stand alone. Output: { request_id, session, status: completed, output, summary, usage, model }.",
+    "in one step, for a task you will wait for; a failed task fails the step, but an agent that crashed (a model call refused, a tool that died) still " +
+    "completes with its message as `output` — read it. The session is this run's job unless `session` is given, so on a job the agent remembers earlier " +
+    "turns; the prompt must still stand alone. Output: { request_id, session, status: completed, output, summary, usage, model }.",
   input: z.object({
     control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
     sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),

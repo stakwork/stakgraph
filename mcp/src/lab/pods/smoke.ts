@@ -13,7 +13,7 @@
  *  - the agent in the pod was started with the job as its session and this
  *    run's LLM gateway grant; the push went as the run's GitHub identity
  *    and opened a pull request; the revision pushed to the current branch
- *    with no second pull request;
+ *    and got the same pull request back, no second one;
  *  - `DELETE /jobs/:id` released the pod through pod/release (the stand-in
  *    hive saw drop-pod) and dropped the hold.
  *
@@ -192,7 +192,6 @@ steps:
       branch_name: strut/title
       commit_message: "Fix the subtitle"
       base_branch: main
-      create_pr: false
       stay_on_branch: true
   - id: result
     type: pack
@@ -302,16 +301,16 @@ async function main() {
     console.log(`✔ latest as octo on main; the agent with session=${job.slice(0, 8)}… and the run's gateway grant; push opened the PR`);
 
     // ── 4. a revision turn: start → status (pending, then done) → push onto
-    //       the current branch, no second PR ────────────────────────────────
+    //       the current branch; `create_pr` stays on and the SAME PR comes back ─
     const second = await api("/workflows/pod-revise/run", { body: { job, input: { control: out1.control, sealed: out1.sealed }, callback } });
     assert.equal(second.status, 202, second.text);
     await until(() => hive.posts.length === 2, "the second callback");
     const post2 = hive.posts[1];
     assert.equal(post2.status, "success", JSON.stringify(post2));
-    assert.deepEqual(post2.output, { session: job, first: "pending", status: "completed", output: "Changed the title (req-agent-2).", branch: "strut/title", pr: null });
+    assert.deepEqual(post2.output, { session: job, first: "pending", status: "completed", output: "Changed the title (req-agent-2).", branch: "strut/title", pr: "https://github.com/o/app/pull/7" });
     const push2 = hive.seen.filter((s) => s.path.startsWith("/pod/push"))[1]!;
-    assert.equal(push2.path, "/pod/push?commit=true&pr=false&stayOnCurrentBranch=true");
-    console.log(`✔ turn 2: agent-start → agent-status (pending, completed) → push stayed on ${post2.output.branch}, no PR`);
+    assert.equal(push2.path, "/pod/push?commit=true&pr=true&stayOnCurrentBranch=true");
+    console.log(`✔ turn 2: agent-start → agent-status (pending, completed) → push stayed on ${post2.output.branch}, the same PR came back`);
 
     // ── 5. closing the job releases the pod ──────────────────────────────
     const drops = () => hive.seen.filter((s) => s.path.startsWith("/api/pool-manager/drop-pod/"));
