@@ -11,9 +11,5 @@ its own docs.
 Read a kind's docs before building one. When a convention names an existing
 workflow, use that workflow: do not publish a new one for the same job.
 
-The job agent (the `job` workflow) reads this page too, every turn, to find
-the kind of work it was asked for and the workflow that does it — so a
-kind's page says what to RUN and how, not only how to build one.
-
 To record a new kind, add a child Concept here with the convention as its
 docs.
