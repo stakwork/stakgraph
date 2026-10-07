@@ -228,7 +228,7 @@ async function main() {
       String(url).startsWith("https://api.github.com/user")
         ? new Response(JSON.stringify({ login: "octo" }), { status: 200, headers: { "content-type": "application/json" } })
         : fetch(url, init);
-    const grant = { apiKey: "vk-test", baseUrl: `${hive.base}/llm`, headers: { "x-macaroon": "mac-test" } };
+    const grant = { apiKey: "sk-bf-test", baseUrl: `${hive.base}/llm`, headers: { "x-macaroon": "mac-test", "x-bf-dim-session-id": "job" } };
     const strut = await createStrut({
       workspace,
       services: {
@@ -284,7 +284,16 @@ async function main() {
     assert.equal(latest.method, "PUT");
     assert.deepEqual(latest.body, { tasks: [], repos: [{ url: "https://github.com/o/app.git", base_branch: "main" }], git_credentials: { provider: "github", auth_type: "pat", auth_data: { token: "ghp_test", username: "octo" } } });
     const agent = hive.seen.find((s) => s.path === "/pod/agent")!;
-    assert.deepEqual(agent.body, { prompt: "Change the title.", apiKey: "vk-test", baseUrl: `${hive.base}/llm`, repoName: "app", session: job, headers: { "x-macaroon": "mac-test" } });
+    // The macaroon rides inside the key (`<vk>.<macaroon>`, split by the gateway's
+    // wrapper), never as a header goose would drop; the dims still go as headers.
+    assert.deepEqual(agent.body, {
+      prompt: "Change the title.",
+      apiKey: "sk-bf-test.mac-test",
+      baseUrl: `${hive.base}/llm`,
+      repoName: "app",
+      session: job,
+      headers: { "x-bf-dim-session-id": "job" },
+    });
     assert.equal(hive.seen.find((s) => s.path.startsWith("/pod/branch-diff"))!.path, "/pod/branch-diff?base=main");
     const push = hive.seen.find((s) => s.path.startsWith("/pod/push"))!;
     assert.equal(push.path, "/pod/push?commit=true&pr=true");

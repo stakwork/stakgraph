@@ -522,7 +522,10 @@ released the pod at the end.
   `session` defaults to the run's job, so on a job the goose thread
   continues across turns and the model never picks the id; its model calls
   go through this run's LLM gateway grant (`ctx.services.llmAuth`) — never
-  the pod's own key, never a caller-supplied one.
+  the pod's own key, never a caller-supplied one. The grant's macaroon rides
+  INSIDE the key handed to staklink, `<vk>.<macaroon>` (the gateway wrapper
+  splits it; `gateway/wrapper/authsplit.go`): goose's anthropic provider
+  sends no custom headers, so as an `x-macaroon` header it never arrived.
 - **Secrets:** `HIVE_URL` + `HIVE_API_KEY` (deployment; an org-scoped key —
   the hub claims for every workspace of its org, the id arrives on the job
   launch), `GITHUB_TOKEN` (the run's: hive pushes it as an actor secret on
