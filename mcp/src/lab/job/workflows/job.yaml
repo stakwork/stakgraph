@@ -4,13 +4,18 @@ name: job
 # that remembers every earlier turn, writes its deliverables as files there,
 # and the run's output names them. params.tools grants registry steps on
 # top of the agent's built-in tools (files, bash, web_search, web_fetch):
-# graph reads, and the meta/* READ + RUN tools so a turn can run another
-# workflow. WHICH workflow does which kind of work is graph data, never
-# prompt text: the agent opens the `Job` Concept first and follows the
-# kind's page (`Code Change` names `code-change-pr`, `Plan Mode` says how to
-# plan); publishing and authoring are later lines.
+# graph reads, the meta/* READ + RUN tools so a turn can run another
+# workflow, and the pod/* tools — hive sandboxes, for a change that must run
+# to be judged. WHICH workflow or way does which kind of work is graph data,
+# never prompt text: the agent opens the `Job` Concept first and follows the
+# kind's page (`Code Change` names `code-change-pr` and its child `Pod` says
+# when a sandbox is warranted, `Plan Mode` says how to plan); publishing and
+# authoring are later lines. `workspace` is the hive workspace the job
+# belongs to: the host passes its id beside the prompt, the message the
+# agent gets starts with it, and a pod is claimed for it.
 input:
   prompt: { type: string, description: "What to do this turn" }
+  workspace: { type: string, required: false, description: "The hive workspace this job belongs to (its id): where its pods are claimed" }
 steps:
   - id: dir
     type: job/dir
@@ -23,7 +28,7 @@ steps:
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
       system: "{{ params.system }}"
-      prompt: "{{ input.prompt }}"
+      prompt: "{{ input.workspace ? 'Hive workspace: ' + input.workspace + '. ' : '' }}{{ input.prompt }}"
       agentTools: "{{ params.tools }}"
       schema:
         type: object
@@ -70,9 +75,12 @@ params:
   # bash, str_replace_based_edit_tool, web_search, web_fetch — which are
   # always on. Graph reads (the Concept tree), then the meta/* read + run
   # tools: list/get a workflow, run it (as a child run under this job, in
-  # this job's directory — strut plans/jobs.md §4), read a run. Held back
-  # until running works: meta/publish-workflow, meta/create-step, the claim
-  # tools; hive/* and browser/* (plans/jobs.md §11).
+  # this job's directory — strut plans/jobs.md §4), read a run; the pod/*
+  # tools (hive sandboxes: claim, reset, the agent in the pod, diff, push,
+  # test, release — the `Pod` page under `Code Change` says when and how;
+  # a claimed pod is a hold on the job, released with it). Held back until
+  # running works: meta/publish-workflow, meta/create-step, the claim
+  # tools; browser/* (plans/jobs.md §11).
   tools:
     - graph/graph-search
     - graph/graph-get
@@ -82,6 +90,7 @@ params:
     - meta/get-workflow
     - meta/run-workflow
     - meta/get-run
+    - pod/*
   system: |
     You are working on a JOB with a person, over many turns. Your working
     directory is the job's: everything you wrote in earlier turns is still

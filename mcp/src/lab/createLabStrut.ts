@@ -28,6 +28,7 @@ import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { CODE_CONCEPTS, seedCodeWorkflows } from "./code/seed.js";
 import { JOB_CONCEPTS, seedJobWorkflows } from "./job/seed.js";
 import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
+import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./janitor/seed.js";
 import { BUILDER_CONCEPTS, builderSystem } from "./builder/system.js";
@@ -238,13 +239,17 @@ export async function createLabStrut(
   // workflows (capture a page, explore a site, watch a page).
   await seedBrowserSteps(workspace);
   await seedBrowserWorkflows(workspace);
+  // pods: hive sandboxes as steps, `pod/*` — the job agent's tools for a
+  // change that must run to be judged (claim → latest → agent → push →
+  // release; the pod is a hold on the job between turns).
+  await seedPodSteps(workspace);
   // Concept files — graph DATA, reconciled per node by a source stamp the way
   // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
   // reads about this deployment), and under it `Janitor`, a kind; `Job`
   // (what the job agent opens every turn), and under it `Code Change` and
-  // `Plan Mode`. No mandate ships: those are each workspace's. A no-op on
-  // the fs workspace.
-  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]);
+  // `Plan Mode`, and under `Code Change` the `Pod` way. No mandate ships:
+  // those are each workspace's. A no-op on the fs workspace.
+  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS]);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one
