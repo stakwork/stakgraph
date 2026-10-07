@@ -2,7 +2,7 @@ import { z, defineStep } from "strut";
 import { capText, failure, settle, submit, type PodCtx } from "./_shared.js";
 
 export default defineStep({
-  type: "pod/test",
+  type: "pod/run-tests",
   description:
     "Run the pod's configured test commands (one per app) and report per app whether they passed, with the tail of each output; the full logs go to the " +
     "run's artifacts (`log_path`). Never fails on red tests — read `success`. `ran: 0` means no app on the pod has a test command. Waits (default 1 h).",
@@ -23,7 +23,7 @@ export default defineStep({
   }),
   async run(cfg, ctx: PodCtx) {
     const first = await submit(ctx, cfg.control, cfg.sealed, "/test", "PUT");
-    const p = await settle(ctx, cfg.control, cfg.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/test" });
+    const p = await settle(ctx, cfg.control, cfg.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/run-tests" });
     if (p.status === "failed") {
       return { success: false, ran: 0, apps: [], request_id: first.requestId, error: `the pod could not run its tests: ${failure(p.body)}` };
     }

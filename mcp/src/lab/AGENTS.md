@@ -518,7 +518,7 @@ released the pod at the end.
   (commit + push as the run's GitHub identity; `create_pr` for a new
   change, `stay_on_branch: true, create_pr: false` for a REVISION — the
   same branch, the same PR, which is what a follow-up turn needs);
-  `test` (the pod's own test commands, never fails on red). The agent's
+  `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`). The agent's
   `session` defaults to the run's job, so on a job the goose thread
   continues across turns and the model never picks the id; its model calls
   go through this run's LLM gateway grant (`ctx.services.llmAuth`) — never

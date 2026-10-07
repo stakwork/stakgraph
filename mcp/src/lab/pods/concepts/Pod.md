@@ -34,7 +34,7 @@ cards are already up, `pod/agent` waits for the task and returns its
 output. The agent's session is this job, so it remembers its earlier turns
 in the pod: a follow-up can be short.
 
-Judge the work: `pod/branch-diff` for the change as it stands, `pod/test`
+Judge the work: `pod/branch-diff` for the change as it stands, `pod/run-tests`
 to run the app's tests. Then `pod/push { repo_url, branch_name, commit_message, base_branch }`
 opens the pull request; report it as `{ id: "pr", kind: "pull_request",
 title, content: { url, repo: "<owner>/<name>", number, state: "open" } }`.
