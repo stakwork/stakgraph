@@ -4,6 +4,7 @@
 // "should the dashboard poll every 30s" stays a one-line edit.
 
 import {
+  keepPreviousData,
   queryOptions,
   useMutation,
   useQueries,
@@ -770,6 +771,9 @@ export function useRunDetail(runID: string | undefined, offset = 0) {
       ),
     enabled: !!runID,
     staleTime: Infinity,
+    // Keep the current page on screen while the next one loads, so paging
+    // the call log doesn't collapse the table to a "Loading…" flash.
+    placeholderData: keepPreviousData,
   });
 }
 

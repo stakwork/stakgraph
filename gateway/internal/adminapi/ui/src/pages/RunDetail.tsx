@@ -96,6 +96,17 @@ export function RunDetail({ runID }: Props) {
   const page = useRunDetail(runID, offset);
   const total = q.data?.stats.total_requests ?? 0;
 
+  // "First seen" is the run's OLDEST call. Logs come back newest-first, so the
+  // oldest call is the last row of the LAST page — not the oldest row of page 1,
+  // which on a run with >50 calls is only the oldest of the 50 newest. The last
+  // page shares page 1's query (same offset) when the run fits in one page.
+  const lastOffset =
+    total > 0
+      ? Math.floor((total - 1) / RUN_CALLS_PAGE_SIZE) * RUN_CALLS_PAGE_SIZE
+      : 0;
+  const firstSeenPage = useRunDetail(runID, lastOffset);
+  const firstSeenLog = firstSeenPage.data?.logs.at(-1);
+
   // `selectedCallID` drives the right-side drawer. Set on row
   // click, cleared on close / ESC. The drawer itself owns the
   // fetch via useRunCall — keeping that hook inside the drawer
@@ -121,7 +132,6 @@ export function RunDetail({ runID }: Props) {
   // same caller env / macaroon), so we read provenance from any row.
   const logs = q.data?.logs ?? [];
   const firstLog = logs[0]; // newest
-  const lastLog = logs[logs.length - 1]; // oldest
   const md = firstLog?.metadata ?? {};
 
   const agent = md["agent-name"] ?? "—";
@@ -232,11 +242,11 @@ export function RunDetail({ runID }: Props) {
                     <span class="mono">{deployment}</span>
                   </ProvField>
                 ) : null}
-                {lastLog ? (
+                {firstSeenLog ? (
                   <ProvField label="First seen">
-                    <span class="mono">{fmtTs(lastLog.timestamp)}</span>{" "}
+                    <span class="mono">{fmtTs(firstSeenLog.timestamp)}</span>{" "}
                     <span class="text-dim">
-                      ({fmtRelative(lastLog.timestamp)})
+                      ({fmtRelative(firstSeenLog.timestamp)})
                     </span>
                   </ProvField>
                 ) : null}
