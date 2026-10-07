@@ -1,6 +1,6 @@
 ---
 description: A change to a repository's source code, delivered as a pull request.
-parent: Workflow Builder
+parent: Job
 ---
 A change to a repository's source code, delivered as a pull request.
 
