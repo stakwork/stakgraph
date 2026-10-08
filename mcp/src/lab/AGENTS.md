@@ -1024,9 +1024,12 @@ One reading rule at every level: a Concept's `docs` are its page, its
 - RETIRED files: deleting a file from git removes nothing from a graph it
   was seeded into, so a set lists the files it used to ship
   (`retired: ["<Name>.md"]`). A node under that name that still carries
-  that file's stamp is soft-deleted (`is_deleted`: hidden from every read,
-  its edges kept); one whose stamp was cleared or replaced is someone's and
-  is left alone.
+  that file's stamp is deleted through jarvis (`DELETE
+  /v2/nodes/<ref_id>/single`: `deleted_at` set, hidden from every read, its
+  edges removed; 409 already-deleted is done). Without `JARVIS_URL` (a
+  standalone strut) the same delete runs over bolt. One whose stamp was
+  cleared or replaced is someone's and is left alone. A node with
+  `deleted_at` set or `is_deleted` true counts as deleted.
 - The ANCHOR: every owned Concept gets `HiveWorkspace -PROCESS-> <Concept>`
   to the one workspace node hive's mirror writes into this graph — what
   hive writes for every Concept a person approves (jarvis migration 111),
