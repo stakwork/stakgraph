@@ -35,7 +35,24 @@ output. The agent's session is this job, so it remembers its earlier turns
 in the pod: a follow-up can be short.
 
 Judge the work: `pod/branch-diff` for the change as it stands, `pod/run-tests`
-to run the app's tests. Then `pod/push { repo_url, branch_name, commit_message, base_branch }`
+to run the app's tests, and when the change is something the app SHOWS, see
+it. Run `browser-explore` as a child run — `meta/run-workflow { name:
+"browser-explore", input: { goal, url } }` — with `url` the pod's `frontend`
+plus the path of the page that changed, and `goal` saying what the person
+asked for and what the page should now show, in words that stand alone (the
+explorer sees nothing of this conversation). It drives a real browser, looks
+for itself and answers `{ answer, evidence: [{ path, url }], pages }`; its
+screenshots never enter this thread, and on a job they are written to your
+directory as `shots/NNN.png`. Report the last evidence as
+`{ id: "after", kind: "image", title: "After", label: "Screenshot", url: <its url, verbatim>, summary: <the answer, one line> }`;
+a shot taken the same way before `pod/agent-start` ("show the page as it
+is"), reported as `before`, gives the person the pair. When the answer says
+the goal was not met, hand it to the agent in the pod as a follow-up before
+pushing. The dev server reloads source edits on its own; a new dependency or
+a crashed server does not, which the explorer's `browser_observe` reports,
+and `pod/run-tests` stays the judge for a change the app does not show.
+
+Then `pod/push { repo_url, branch_name, commit_message, base_branch }`
 opens the pull request; report it as `{ id: "pr", kind: "pull_request",
 title, content: { url, repo: "<owner>/<name>", number, state: "open" } }`.
 A later turn that revises the same change pushes with

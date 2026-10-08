@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import { composeNodeKey, type GraphBackend, type WorkspaceStore } from "strut";
+import { jarvisMutate } from "../repo/toolsJarvis.js";
 
 /**
  * Concept files → `Concept` nodes. Graph DATA the lab ships in git.
@@ -47,9 +48,12 @@ import { composeNodeKey, type GraphBackend, type WorkspaceStore } from "strut";
  *
  * RETIRED files. Deleting a file from git removes nothing from a graph it
  * was seeded into, so a set lists the files it USED to ship (`retired`): a
- * node under that name that still carries that file's stamp is soft-deleted
- * (`is_deleted`, as jarvis does it — hidden from every read, its edges
- * kept). One whose stamp was cleared or replaced is someone's: left alone.
+ * node under that name that still carries that file's stamp is deleted
+ * through jarvis (`retireConcept`): `deleted_at` set, hidden from every
+ * read, its edges removed. One whose stamp was cleared or replaced is
+ * someone's: left alone. A node counts as deleted when `deleted_at` is set
+ * or `is_deleted` is true (either flag, until jarvis stops writing
+ * `is_deleted`).
  *
  * What ships here is seeded into EVERY workspace. A Concept that only makes
  * sense for one kind of workspace (a mandate about evals, a legal topic) is
@@ -113,13 +117,14 @@ export type SeedAction = "create" | "update" | "keep" | "skip";
 export interface ExistingConcept {
   ref_id: string;
   unique_source_id?: unknown;
-  is_deleted?: boolean;
+  /** `deleted_at` set or `is_deleted` true. */
+  deleted?: boolean;
 }
 
 /** Pure: the reconcile rule in the module comment. */
 export function planConceptSeed(existing: ExistingConcept | null, stamp: string): SeedAction {
   if (!existing) return "create";
-  if (existing.is_deleted) return "skip";
+  if (existing.deleted) return "skip";
   const usid = existing.unique_source_id;
   if (usid === stamp) return "keep";
   const path = stamp.slice(0, stamp.lastIndexOf("@") + 1);
@@ -178,8 +183,8 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
       try {
         const existing = await findConcept(graph, name);
         const usid = existing?.unique_source_id;
-        if (!existing || existing.is_deleted || typeof usid !== "string" || !usid.startsWith(`${prefix}${file}@`)) continue;
-        await graph.bolt.run(`MATCH (n:Data_Bank {ref_id: $ref_id}) SET n.is_deleted = true`, { ref_id: existing.ref_id });
+        if (!existing || existing.deleted || typeof usid !== "string" || !usid.startsWith(`${prefix}${file}@`)) continue;
+        await retireConcept(graph, existing.ref_id);
         console.log(`[concept-seed] retired Concept: ${name}`);
       } catch (err) {
         console.warn(`[concept-seed] could not retire Concept "${name}":`, err instanceof Error ? err.message : err);
@@ -243,20 +248,54 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
   }
 }
 
-/** The node under this name in the backend's namespace, soft-deleted or not. */
+/**
+ * Delete one retired Concept the way every other node delete goes: jarvis
+ * `DELETE /v2/nodes/<ref_id>/single` sets `deleted_at` (and `is_deleted`)
+ * and removes the node's edges. Already deleted (409) is done.
+ *
+ * Without JARVIS_URL (a standalone strut: its own Neo4j, no jarvis process)
+ * there is nothing to call, so the same delete runs here in one statement:
+ * the first `deleted_at` kept, and only edges whose ends are both
+ * `:Data_Bank` in this namespace removed.
+ */
+export async function retireConcept(graph: GraphBackend, refId: string): Promise<void> {
+  const ns = graph.cfg.namespace;
+  const jarvisUrl = process.env.JARVIS_URL?.replace(/\/+$/, "");
+  if (!jarvisUrl) {
+    await graph.bolt.run(
+      `MATCH (n:Data_Bank {ref_id: $ref_id, namespace: $ns})
+       WHERE n.deleted_at IS NULL AND NOT coalesce(n.is_deleted, false)
+       SET n.deleted_at = coalesce(n.deleted_at, $now), n.is_deleted = true
+       WITH n
+       OPTIONAL MATCH (n)-[r]-(m:Data_Bank {namespace: $ns})
+       DELETE r`,
+      { ref_id: refId, ns, now: Date.now() },
+    );
+    return;
+  }
+  // Seeded Concepts carry no owner, so jarvis lets only an admin delete them.
+  const headers = { "X-Api-Token": process.env.API_TOKEN ?? "", "X-Is-Admin": "true" };
+  const url = `${jarvisUrl}/v2/nodes/${encodeURIComponent(refId)}/single?${new URLSearchParams({ namespace: ns })}`;
+  const res = await jarvisMutate("delete", url, headers);
+  if (res.ok || (res.status === 409 && res.text.includes("ALREADY_DELETED"))) return;
+  throw new Error(`jarvis delete failed — HTTP ${res.status}: ${res.text}`);
+}
+
+/** The node under this name in the backend's namespace, deleted or not. */
 async function findConcept(graph: GraphBackend, name: string): Promise<ExistingConcept | null> {
   const schema = await graph.nodes.resolver.schema(TYPE);
   if (!schema) throw new Error(`no "${TYPE}" schema in the graph (seed the ontology: STRUT_GRAPH_SEED_ONTOLOGY=1)`);
   const key = composeNodeKey(schema, { name });
   const rows = await graph.bolt.run(
     `MATCH (n:\`${schema.type}\` {node_key: $key, namespace: $ns})
-     RETURN n.ref_id AS ref_id, n.unique_source_id AS unique_source_id, coalesce(n.is_deleted, false) AS is_deleted
+     RETURN n.ref_id AS ref_id, n.unique_source_id AS unique_source_id,
+            (n.deleted_at IS NOT NULL OR coalesce(n.is_deleted, false)) AS deleted
      LIMIT 1`,
     { key, ns: graph.cfg.namespace },
   );
   const r = rows[0];
   if (!r) return null;
-  return { ref_id: String(r.ref_id), unique_source_id: r.unique_source_id, is_deleted: r.is_deleted === true };
+  return { ref_id: String(r.ref_id), unique_source_id: r.unique_source_id, deleted: r.deleted === true };
 }
 
 /** The ONE workspace node hive mirrors into this graph; null (with a log line) when there is none or more than one. */
@@ -268,7 +307,7 @@ async function findWorkspace(graph: GraphBackend): Promise<{ ref_id: string; lab
   }
   const rows = await graph.bolt.run(
     `MATCH (w:\`${schema.type}\`)
-     WHERE coalesce(w.namespace, 'default') = $ns AND NOT coalesce(w.is_deleted, false)
+     WHERE coalesce(w.namespace, 'default') = $ns AND w.deleted_at IS NULL AND NOT coalesce(w.is_deleted, false)
      RETURN w.ref_id AS ref_id, coalesce(w.slug, w.name, w.ref_id) AS label
      LIMIT 2`,
     { ns: graph.cfg.namespace },

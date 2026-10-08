@@ -10,8 +10,12 @@ name: browser-explore
 # Input:  { goal, url }
 # Output: { answer, evidence: [{ path, url }], pages, cost }
 #         evidence is the screenshots the agent took to support its answer,
-#         each `path` relative to the run's artifact dir (shots/001.png) and
-#         `url` its served form; pages every URL it visited, in order.
+#         each `path` shots/NNN.png under the run's artifact dir — or, when
+#         the run was launched under a job (a job agent's meta/run-workflow),
+#         under the job's own directory, where the job's host can read it —
+#         and `url` its served form (/artifacts/<runId>/shots/001.png or
+#         /jobs/<job>/files/shots/001.png), the link to report as an
+#         artifact; pages every URL it visited, in order.
 input:
   goal: { type: string, description: "what to find out or do on the site" }
   url: { type: string, description: "where to start (http/https)" }
