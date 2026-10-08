@@ -129,6 +129,32 @@ describe("labAuth", () => {
     assert.equal(res.status, 401);
   });
 
+  it("hands a run's or a job's file read carrying strut's file token through — strut judges it", async () => {
+    for (const path of [
+      "/lab/artifacts/123?t=abc",
+      "/lab/artifacts/123/report/page.html?t=abc",
+      "/lab/jobs/j-1/files?t=abc",
+      "/lab/jobs/j-1/files/plan.md?t=abc",
+    ]) {
+      const res = await get(port, path);
+      assert.equal(res.status, 200, path);
+      assert.equal(JSON.parse(res.body).actor, null, path);
+    }
+    // A read only, under those two scopes only, with ?t= only — and never
+    // a path that resolves elsewhere.
+    for (const [path, method] of [
+      ["/lab/artifacts/123/page.html", "GET"],
+      ["/lab/artifacts/123/page.html?t=abc", "POST"],
+      ["/lab/workflows?t=abc", "GET"],
+      ["/lab/workflows/x/runs/1/events?t=abc", "GET"],
+      ["/lab/artifacts/123/../../secrets?t=abc", "GET"],
+      ["/lab/jobs/j-1/holds?t=abc", "GET"],
+    ] as const) {
+      const res = await get(port, path, {}, method);
+      assert.equal(res.status, 401, `${method} ${path}`);
+    }
+  });
+
   // ── The actor (plans/mothership-cost-control.md §5) ───────────────────
 
   it("a JWT's `sub` is the actor, via Bearer and via ?key=", async () => {

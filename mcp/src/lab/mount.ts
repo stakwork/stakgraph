@@ -120,9 +120,13 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
  * or hive's `x-strut-actor` beside `x-api-token`). It is stashed on the Node
  * request for strut's `resolveActor` hook — a header rewrite would not
  * survive the Hono bridge (see actor.ts).
+ *
+ * One kind of request passes with none of the three: a read of a run's
+ * artifacts or a job's files carrying strut's own FILE TOKEN
+ * (`isTokenFileRead`) — strut judges that one.
  */
 export function labAuth(req: Request, res: Response, next: NextFunction): void {
-  if (isUiAsset(req)) return next();
+  if (isUiAsset(req) || isTokenFileRead(req)) return next();
   const key = typeof req.query.key === "string" ? req.query.key : null;
   const granted = labAuthorized({ header: (name) => req.header(name), key });
   if (granted) {
@@ -151,6 +155,30 @@ function isUiAsset(req: Request): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   try {
     return new URL(`http://localhost${req.url}`).pathname.startsWith("/assets/");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A GET/HEAD of one run's artifacts (`/artifacts/:runId[/…]`) or one job's
+ * files (`/jobs/:id/files[/…]`) carrying strut's FILE TOKEN as `?t=` (strut
+ * `src/auth.ts`). Handed straight to strut, which refuses any `?t=` it
+ * cannot vouch for whatever its gate's mode: the lab strut has no API key,
+ * but signs under STRUT_SECRET_KEY (index.ts derives it from API_TOKEN), so
+ * a token is as good as the credential that fetched the listing it came
+ * from, and worth only that run's files. The strut UI's artifact links
+ * carry this instead of the embed JWT — an HTML artifact read by its token
+ * runs script under `sandbox allow-scripts`, and a page can read its own
+ * URL, so the JWT must never be in one. The path is parsed as `isUiAsset`
+ * parses it, so a path that resolves elsewhere does not pass.
+ */
+function isTokenFileRead(req: Request): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  try {
+    const url = new URL(`http://localhost${req.url}`);
+    if (!url.searchParams.has("t")) return false;
+    return /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) || /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname);
   } catch {
     return false;
   }
