@@ -37,6 +37,7 @@ test("open → snapshot (refs) → act by ref → navigate → back → screensh
   const artifacts = fileArtifactsCapability(dir);
   const browser = BrowserService.fromEnv(env);
   const runId = "live1";
+  const sink = { artifacts, runId };
   try {
     const opened = await browser.open(runId, { url: HOME });
     assert.equal(opened.title, "Home");
@@ -65,17 +66,17 @@ test("open → snapshot (refs) → act by ref → navigate → back → screensh
     // a selector matching several elements says how to get out of it
     await assert.rejects(browser.click(runId, { selector: "p" }), (e: Error) => /strict mode violation/.test(e.message) && /act by ref instead/.test(e.message) && !/Call log/.test(e.message));
 
-    const { small, ...shot } = await browser.screenshot(runId, {}, artifacts);
-    assert.deepEqual(shot, { path: "shots/001.png", url: `/artifacts/${runId}/shots/001.png`, width: 1280, height: 800, bytes: shot.bytes });
+    const { small, ...shot } = await browser.screenshot(runId, {}, sink);
+    assert.deepEqual(shot, { path: "shots/001.png", dir: join(dir, runId), url: `/artifacts/${runId}/shots/001.png`, width: 1280, height: 800, bytes: shot.bytes });
     assert.ok(shot.bytes > 1024);
     const png = await readFile(join(dir, runId, "shots", "001.png"));
     assert.equal(png.length, shot.bytes);
     assert.equal(png.subarray(1, 4).toString(), "PNG");
     assert.ok(small.length > 0 && small.length < png.length, "the model's copy is smaller");
-    const second = await browser.screenshot(runId, { selector: "h1", name: "Hero shot" }, artifacts);
+    const second = await browser.screenshot(runId, { selector: "h1", name: "Hero shot" }, sink);
     assert.equal(second.path, "shots/Hero_shot.png");
     assert.ok(second.height < 800);
-    const whole = await browser.screenshot(runId, { fullPage: true }, artifacts);
+    const whole = await browser.screenshot(runId, { fullPage: true }, sink);
     assert.ok(whole.height > 2000, "fullPage is the scroll height");
 
     const state = await browser.state(runId, artifacts);
@@ -158,7 +159,7 @@ test("capture: declared steps run in order, a step that matches nothing names it
     const out = await browser.capture(
       "cap",
       { url: HOME, steps: [{ do: "wait", text: "Monthly" }, { do: "click", selector: "text=Switch" }, { do: "wait", text: "Annual" }], fullPage: true },
-      artifacts,
+      { artifacts, runId: "cap" },
     );
     assert.equal(out.path, "shots/001.png");
     assert.ok(out.height > 2000);
@@ -168,10 +169,10 @@ test("capture: declared steps run in order, a step that matches nothing names it
     assert.equal((await browser.text("cap", { selector: "#plan" })).text, "Annual", "the steps ran before the shot");
 
     await assert.rejects(
-      browser.capture("cap2", { url: HOME, steps: [{ do: "click", selector: "text=No such thing", timeoutMs: 1000 }] }, artifacts),
+      browser.capture("cap2", { url: HOME, steps: [{ do: "click", selector: "text=No such thing", timeoutMs: 1000 }] }, { artifacts, runId: "cap2" }),
       /capture: step 1 \(click .*No such thing.*\) failed: .*Timeout 1000ms/,
     );
-    await assert.rejects(browser.capture("cap3", { url: HOME, steps: [{ do: "explode" }] }, artifacts), /unknown verb "explode"/);
+    await assert.rejects(browser.capture("cap3", { url: HOME, steps: [{ do: "explode" }] }, { artifacts, runId: "cap3" }), /unknown verb "explode"/);
   } finally {
     await browser.close();
     await rm(dir, { recursive: true, force: true });

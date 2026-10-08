@@ -36,7 +36,7 @@
 import type { Browser, BrowserContext, BrowserContextOptions, Page, Locator } from "playwright-core";
 import type { ArtifactsCapability } from "strut";
 import { settle as settlePage, sleep } from "./settle.js";
-import { saveShot, type Shot } from "./shot.js";
+import { saveShot, type Shot, type ShotSink } from "./shot.js";
 import { parseDenyList, denyReason, type DenyRule } from "./deny.js";
 
 export interface Observations {
@@ -455,7 +455,7 @@ export class BrowserService {
   async screenshot(
     runId: string,
     input: Target & { fullPage?: boolean; name?: string; timeoutMs?: number },
-    artifacts: ArtifactsCapability,
+    sink: ShotSink,
   ): Promise<Shot & { small: Buffer }> {
     return this.call(runId, "screenshot", input.timeoutMs, async (s, ms) => {
       // scale "css": one pixel per CSS pixel — a headed Chrome on a Retina
@@ -465,7 +465,7 @@ export class BrowserService {
         input.ref || input.selector
           ? await this.locate(runId, input).screenshot({ type: "png", scale: "css", timeout: ms })
           : await s.page.screenshot({ type: "png", scale: "css", fullPage: input.fullPage, timeout: ms });
-      return saveShot(artifacts, runId, png, input.name);
+      return saveShot(sink, png, input.name);
     });
   }
 
@@ -515,7 +515,7 @@ export class BrowserService {
   async capture(
     runId: string,
     input: { url: string; steps?: CaptureStep[]; fullPage?: boolean; wait?: number; viewport?: Viewport; timeoutMs?: number },
-    artifacts: ArtifactsCapability,
+    sink: ShotSink,
   ): Promise<Shot & { small: Buffer; errors: string[]; pageUrl: string; title: string }> {
     await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
     for (const [i, step] of (input.steps ?? []).entries()) {
@@ -531,7 +531,7 @@ export class BrowserService {
     }
     const page = this.live(runId).page;
     await settlePage(page, input.wait);
-    const shot = await this.screenshot(runId, { fullPage: input.fullPage, timeoutMs: input.timeoutMs }, artifacts);
+    const shot = await this.screenshot(runId, { fullPage: input.fullPage, timeoutMs: input.timeoutMs }, sink);
     return { ...shot, errors: flattenObs(this.observe(runId)), pageUrl: page.url(), title: await page.title() };
   }
 
