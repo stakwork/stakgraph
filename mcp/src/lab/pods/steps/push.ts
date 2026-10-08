@@ -5,18 +5,20 @@ export default defineStep({
   type: "pod/push",
   description:
     "Commit everything in a pod repository's working tree and push it as the run's GitHub identity, opening a pull request unless told not to. " +
-    "A NEW change: `branch_name` names the branch (made unique if taken) and the pull request's title is the commit message's first sentence. " +
+    "A NEW change: `branch_name` names the branch (made unique if taken), the pull request's title is the commit message's first sentence, and its base is the " +
+    "repository's default branch, which the pod reads from the remote — leave `base_branch` out; a guess (`main` on a `master` repository) is refused with the real default named. " +
     "A REVISION of a pull request: `stay_on_branch: true` commits on the branch the pod is on — the pull request's — and pushes it, so the same pull request " +
     "gains the commit and comes back as `pr_url`; never open a second one for the same change. Only while the pod is still on that branch: after pod/latest " +
     "or a new claim it sits on the base, and `stay_on_branch` there commits to the base branch itself. Nothing to commit is fine — unpushed commits still go; " +
-    "a pull request with nothing ahead of the base fails. Output: { branch, pr_url (null without a pull request), commits: a link to each pushed head commit }.",
+    "a pull request with nothing ahead of the base fails. A pull request the pod could not open fails this step with the pod's reason: fix what it names and call pod/push again — " +
+    "never have the agent in the pod open it. Output: { branch, pr_url (null without a pull request), commits: a link to each pushed head commit }.",
   input: z.object({
     control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
     sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
     repo_url: z.string().min(1).describe("The repository as the pod knows it: https://github.com/<owner>/<name>.git"),
     branch_name: z.string().min(1).describe("The branch to push: a new one for a new change; ignored with stay_on_branch"),
     commit_message: z.string().min(1).describe("The commit message; its first sentence titles the pull request"),
-    base_branch: z.string().min(1).describe("The pull request's base"),
+    base_branch: z.string().min(1).optional().describe("The pull request's base. Omit for a new change: the pod uses the repository's default branch. Give it only when the base is another branch, such as a pull request's."),
     create_pr: z.boolean().default(true).describe("Open a pull request for the branch, or return the one it already has (a revision)"),
     stay_on_branch: z.boolean().default(false).describe("Commit on the branch the pod is on instead of making a new one — a revision of its pull request"),
     githubTokenSecret: z.string().default("GITHUB_TOKEN").describe("NAME of the secret with the run's GitHub token"),
@@ -35,7 +37,7 @@ export default defineStep({
     const path = `/push?${q}`;
     const body = {
       tasks: [],
-      repos: [{ url: cfg.repo_url, branch_name: cfg.branch_name, commit_name: cfg.commit_message, base_branch: cfg.base_branch }],
+      repos: [{ url: cfg.repo_url, branch_name: cfg.branch_name, commit_name: cfg.commit_message, ...(cfg.base_branch ? { base_branch: cfg.base_branch } : {}) }],
       git_credentials: creds,
     };
     const res = await podCall(ctx, cfg.control, cfg.sealed, path, { method: "POST", body, timeout: cfg.timeoutMs });

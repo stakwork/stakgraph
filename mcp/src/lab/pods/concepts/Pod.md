@@ -35,9 +35,17 @@ output. The agent's session is this job, so it remembers its earlier turns
 in the pod: a follow-up can be short.
 
 Judge the work: `pod/branch-diff` for the change as it stands, `pod/run-tests`
-to run the app's tests. Then `pod/push { repo_url, branch_name, commit_message, base_branch }`
-opens the pull request; report it as `{ id: "pr", kind: "pull_request",
+to run the app's tests. Then `pod/push { repo_url, branch_name, commit_message }`
+opens the pull request onto the repository's default branch — the pod reads
+that from the remote, so leave `base_branch` out for a new change; a guess
+(`main` on a `master` repository) is refused with the real default named.
+Report it as `{ id: "pr", kind: "pull_request",
 title, content: { url, repo: "<owner>/<name>", number, state: "open" } }`.
+If `pod/push` fails, its error says why — a base the remote does not have,
+nothing to commit — so fix that and call `pod/push` again. Never have the
+agent in the pod commit, push or open the pull request itself: it has no
+GitHub identity of the person's, and a pull request it opens is somebody
+else's.
 A later turn that revises the same change pushes with
 `stay_on_branch: true` — the same branch, and `pr_url` is the same pull
 request, the same `pr` id. Never open a second pull request for one change.
