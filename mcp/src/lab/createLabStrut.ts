@@ -31,6 +31,7 @@ import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./janitor/seed.js";
+import { seedExploreWorkflows } from "./explore/seed.js";
 import { BUILDER_CONCEPTS, builderSystem } from "./builder/system.js";
 import { seedConcepts } from "./concept-seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
@@ -234,6 +235,11 @@ export async function createLabStrut(
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
   // mandate).
   await seedJanitorWorkflows(workspace);
+  // explore — the knowledge-graph explorer (strut plans/federation.md
+  // §2.2): the workflow another strut asks this one to run, a read-only
+  // agent over the graph's read steps answering { answer, sources }. YAML
+  // only; every step is strut's.
+  await seedExploreWorkflows(workspace);
   // browser use: one step per Playwright call over services.browser, the
   // same steps an agent's tools (agentTools: ["browser/*"]), and three
   // workflows (capture a page, explore a site, watch a page).

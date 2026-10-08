@@ -28,7 +28,7 @@
     "gitree": "tsx src/gitree/cli.ts",
     "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
-    "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\" \"src/graph/**/*.test.ts\" \"src/gitree/**/*.test.ts\" \"src/lab/mount.test.ts\" \"src/lab/seed-opts.test.ts\" \"src/lab/seeded-steps.test.ts\" \"src/lab/janitor/*.test.ts\" \"src/lab/browser/*.test.ts\" \"src/__tests__/tools.test.ts\" \"src/__tests__/skills.test.ts\"",
+    "test:node": "NO_DB=true tsx --test --test-timeout=30000 --test-force-exit \"src/repo/**/*.test.ts\" \"src/log/**/*.test.ts\" \"src/graph_agent/**/*.test.ts\" \"src/graph/**/*.test.ts\" \"src/gitree/**/*.test.ts\" \"src/lab/mount.test.ts\" \"src/lab/seed-opts.test.ts\" \"src/lab/seeded-steps.test.ts\" \"src/lab/janitor/*.test.ts\" \"src/lab/explore/*.test.ts\" \"src/lab/browser/*.test.ts\" \"src/__tests__/tools.test.ts\" \"src/__tests__/skills.test.ts\"",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",
@@ -84,7 +84,7 @@
     "redis": "^6.2.1",
     "sharp": "0.35.5",
     "simple-git": "3.30.0",
-    "strut": "git+https://github.com/stakwork/strut.git#efce3f1ce92db06971c86cc2f9caa161f3350da8",
+    "strut": "git+https://github.com/stakwork/strut.git#8908a18ba905941acb9f9a8d2f154a6a58f9bc5e",
     "tsx": "4.21.0",
     "uuid": "11.1.0",
     "zod": "4.6.5"

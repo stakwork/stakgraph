@@ -33,7 +33,7 @@ import { WorkspaceManager, buildRegistry, createRegistry, createStrut, defineSte
 import { seedJobWorkflows } from "./seed.js";
 
 const JOB = "job";
-const STEPS = ["job/dir", "agent", "pack"];
+const STEPS = ["job/dir", "git/checkout", "agent", "pack"];
 // Registry steps granted ON TOP of the agent's built-ins (files, bash,
 // web_search, web_fetch — which a filter must never narrow): graph reads for
 // the Concept tree, the meta/* read + run tools (a turn runs another
@@ -144,6 +144,8 @@ async function main() {
     assert.ok(flow.inputBlock?.["prompt"], "the input block declares prompt");
     assert.equal(flow.inputBlock?.["workspace"]?.required, false, "the input block declares workspace, optional");
     assert.equal(flow.inputBlock?.["session"]?.required, false, "the input block declares session, optional");
+    assert.equal(flow.inputBlock?.["repos"]?.required, false, "the input block declares repos, optional");
+    assert.deepEqual(flow.steps.map((s: { type: string }) => s.type), ["job/dir", "foreach", "agent", "pack"], "job/dir → checkouts → agent → pack");
     console.log(`✔ ${JOB} validates (${v.summary.steps} steps); params.tools = ${JSON.stringify(TOOLS)}`);
 
     // ── 3. the run, as hive does it: over HTTP with `job` + a callback, the
