@@ -132,7 +132,7 @@ async function jarvisFetch(
  * server-side. Callers must treat such failures as "possibly-applied" and
  * keep any retry logic idempotent (Jarvis uses MERGE semantics).
  */
-async function jarvisMutate(
+export async function jarvisMutate(
   method: "post" | "put" | "delete",
   url: string,
   headers: Record<string, string>,
@@ -909,7 +909,7 @@ const ATTRIBUTE_TYPES_DOC =
   '"int", "float", "datetime", "list", "complex". Prefix with "?" to make it ' +
   'optional (e.g. "?string"). Use "delete" as the value to remove an attribute ' +
   "on an update. Attribute names cannot contain '-' or be reserved system " +
-  "properties (status, is_deleted, boost, algo_*).";
+  "properties (status, is_deleted, deleted_at, deleted_at_backfilled, boost, algo_*).";
 
 /**
  * Register the ontology WRITE tools. Each tool POST/PUT/DELETEs directly

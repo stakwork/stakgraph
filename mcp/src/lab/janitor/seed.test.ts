@@ -1,12 +1,14 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, readFile, readdir } from "node:fs/promises";
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { WorkspaceManager, buildRegistry, closeGraphBackends, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
+import { WorkspaceManager, buildRegistry, type GraphBackend, closeGraphBackends, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
-import { parseConceptFile, planConceptSeed, seedConcepts, stampOf } from "../concept-seed.js";
+import { parseConceptFile, planConceptSeed, retireConcept, seedConcepts, stampOf } from "../concept-seed.js";
 import { CODE_CONCEPTS } from "../code/seed.js";
 import { JOB_CONCEPTS } from "../job/seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
@@ -125,17 +127,60 @@ describe("planConceptSeed", () => {
   it("nothing there → create", () => assert.equal(planConceptSeed(null, stamp), "create"));
   it("same stamp → keep (ours, unchanged: a graph-side edit or mute sticks); deleted → skip", () => {
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: stamp }, stamp), "keep");
-    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: stamp, is_deleted: true }, stamp), "skip");
+    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: stamp, deleted: true }, stamp), "skip");
   });
   it("our path, older hash → update; unless deleted", () => {
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: older }, stamp), "update");
-    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: older, is_deleted: true }, stamp), "skip");
+    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: older, deleted: true }, stamp), "skip");
   });
   it("no stamp or someone else's → skip (theirs)", () => {
     assert.equal(planConceptSeed({ ref_id: "r" }, stamp), "skip");
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: null }, stamp), "skip");
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: "lab/janitor/concepts/Other.md@aaaaaaaaaaaa" }, stamp), "skip");
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: "gitree" }, stamp), "skip");
+  });
+});
+
+describe("retireConcept (jarvis)", () => {
+  const env = { url: process.env.JARVIS_URL, token: process.env.API_TOKEN };
+  const seen: { method?: string; url?: string; token?: unknown; admin?: unknown }[] = [];
+  let reply: { status: number; body: unknown } = { status: 200, body: {} };
+  let server: Server;
+  // The jarvis path never touches bolt.
+  const graph = { cfg: { namespace: "ns1" }, bolt: { run: () => assert.fail("bolt used") } } as unknown as GraphBackend;
+  before(async () => {
+    server = createServer((req: IncomingMessage, res) => {
+      seen.push({ method: req.method, url: req.url, token: req.headers["x-api-token"], admin: req.headers["x-is-admin"] });
+      res.writeHead(reply.status, { "Content-Type": "application/json" }).end(JSON.stringify(reply.body));
+    });
+    await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+    process.env.JARVIS_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+    process.env.API_TOKEN = "tok";
+  });
+  after(async () => {
+    for (const [k, v] of [["JARVIS_URL", env.url], ["API_TOKEN", env.token]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    await new Promise((ok) => server.close(ok));
+  });
+
+  it("deletes through DELETE /v2/nodes/<ref_id>/single in the graph's namespace, as admin", async () => {
+    reply = { status: 200, body: { status: "success", ref_id: "r 1", deleted_at: 1, deleted_edge_count: 2 } };
+    await retireConcept(graph, "r 1");
+    assert.deepEqual(seen.at(-1), { method: "DELETE", url: "/v2/nodes/r%201/single?namespace=ns1", token: "tok", admin: "true" });
+  });
+
+  it("409 ALREADY_DELETED is done", async () => {
+    reply = { status: 409, body: { errorCode: "ALREADY_DELETED" } };
+    await retireConcept(graph, "r");
+  });
+
+  it("any other failure throws", async () => {
+    reply = { status: 404, body: { errorCode: "NOT_FOUND" } };
+    await assert.rejects(retireConcept(graph, "r"), /HTTP 404/);
+    reply = { status: 409, body: { errorCode: "SOMETHING_ELSE" } };
+    await assert.rejects(retireConcept(graph, "r"), /HTTP 409/);
   });
 });
 
@@ -171,7 +216,9 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     return Number(rows[0]?.n ?? 0);
   };
   const parentEdges = () => edge(root, kid);
+  const jarvisUrl = process.env.JARVIS_URL;
   before(async () => {
+    delete process.env.JARVIS_URL; // a standalone strut: retire runs over bolt
     const { graphWorkspaceFromEnv } = await import("strut");
     dataDir = await mkdtemp(join(tmpdir(), "janitor-seed-data-"));
     dir = await mkdtemp(join(tmpdir(), "janitor-seed-"));
@@ -199,6 +246,7 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     }
     await rm(dir, { recursive: true, force: true });
     await rm(dataDir, { recursive: true, force: true });
+    if (jarvisUrl !== undefined) process.env.JARVIS_URL = jarvisUrl;
   });
 
   it("creates the tree, then does nothing on a reseed", async () => {
@@ -297,23 +345,34 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     }
   });
 
-  it("a retired file's node is soft-deleted while it carries that file's stamp; someone's own is left", async () => {
+  it("a retired file's node is deleted while it carries that file's stamp; someone's own is left", async () => {
     const g = ws.graph!;
     const gone = `Gone ${tag}`;
     const taken = `Taken ${tag}`;
     const other = `Other ${tag}`;
+    const dead = `Dead ${tag}`;
     const mk = (name: string, usid?: string) =>
       g.nodes.write({ type: "Concept", data: { name, description: "Once shipped.", ...(usid ? { unique_source_id: usid } : {}) } }, "create", { namespace: g.cfg.namespace });
-    const deleted = async (name: string) =>
-      (await g.bolt.run(`MATCH (n:Concept {name: $name}) RETURN coalesce(n.is_deleted, false) AS d`, { name }))[0]?.d;
+    const state = async (name: string) =>
+      (await g.bolt.run(`MATCH (n:Concept {name: $name}) RETURN n.deleted_at AS at, coalesce(n.is_deleted, false) AS d`, { name }))[0];
+    const deleted = async (name: string) => (await state(name))?.d;
     await mk(gone, `${P}${gone}.md@0123456789ab`);
     await mk(taken); // seeded once, then someone cleared the stamp
     await mk(other, `lab/other/concepts/${other}.md@0123456789ab`); // same name, another set's file
-    const set = { dir, prefix: P, retired: [`${gone}.md`, `${taken}.md`, `${other}.md`, `Never Seeded ${tag}.md`] };
+    await mk(dead, `${P}${dead}.md@0123456789ab`);
+    await g.bolt.run(`MATCH (n:Concept {name: $name}) SET n.deleted_at = 1`, { name: dead }); // deleted_at only: already retired
+    await g.edges.write({ edge: "PARENT_OF", source_ref_id: (await node(taken))!.ref_id as string, target_ref_id: (await node(gone))!.ref_id as string });
+    const set = { dir, prefix: P, retired: [`${gone}.md`, `${taken}.md`, `${other}.md`, `${dead}.md`, `Never Seeded ${tag}.md`] };
     await seedConcepts(ws, [set]);
     assert.deepEqual([await deleted(gone), await deleted(taken), await deleted(other)], [true, false, false]);
+    const at = Number((await state(gone))!.at);
+    assert.ok(at > 1_000_000_000_000, "deleted_at in epoch ms");
+    assert.equal(await edge(taken, gone), 0, "its edges are removed");
+    const d = (await state(dead))!;
+    assert.deepEqual([Number(d.at), d.d], [1, false], "a node with only deleted_at counts as retired: untouched");
     await seedConcepts(ws, [set]);
     assert.equal(await deleted(gone), true);
+    assert.equal(Number((await state(gone))!.at), at, "the first deleted_at is kept");
     // Hidden from every read a workflow makes.
     assert.equal(await g.reader.getNode((await node(gone))!.ref_id as string), null);
   });
