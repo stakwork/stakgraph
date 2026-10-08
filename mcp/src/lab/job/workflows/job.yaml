@@ -12,10 +12,16 @@ name: job
 # when a sandbox is warranted, `Plan Mode` says how to plan); publishing and
 # authoring are later lines. `workspace` is the hive workspace the job
 # belongs to: the host passes its id beside the prompt, the message the
-# agent gets starts with it, and a pod is claimed for it.
+# agent gets starts with it, and a pod is claimed for it. `session` is the
+# agent's thread: the job id unless the launch names one, so every turn of
+# a job continues one thread by default, and a host that wants a fresh
+# thread over the same files — or a second thread beside the first — passes
+# its own id. The directory and the thread are two stores that only this
+# line keys alike (strut plans/jobs.md §2); strut never ties them.
 input:
   prompt: { type: string, description: "What to do this turn" }
   workspace: { type: string, required: false, description: "The hive workspace this job belongs to (its id): where its pods are claimed" }
+  session: { type: string, required: false, description: "The agent's thread (a session id). Defaults to the job id — one thread across every turn of the job. Pass one to work on the job's files with a different thread (a fresh one, or a second beside the first)" }
 steps:
   - id: dir
     type: job/dir
@@ -23,7 +29,7 @@ steps:
     type: agent
     config:
       cwd: "{{ dir.path }}"
-      session: "{{ $job }}"
+      session: "{{ input.session || $job }}"
       cacheTtl: 1h
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"

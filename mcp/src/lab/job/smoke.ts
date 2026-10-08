@@ -13,7 +13,10 @@
  *    that link is the SECOND turn's, served with the sandbox headers; the
  *    fake saw the job's directory as `cwd` and the job id as `session`;
  *  - a launch WITHOUT a job resolves to `/artifacts/<runId>/plan.md` and
- *    the fake saw no `session` (a cold, one-shot agent).
+ *    the fake saw no `session` (a cold, one-shot agent);
+ *  - a launch with the same job and `session` on the input: the same
+ *    directory and link, the fake saw THAT session — the thread and the
+ *    files are tied by the YAML's default, not by strut.
  *
  *   npx tsx src/lab/job/smoke.ts
  *
@@ -140,6 +143,7 @@ async function main() {
     assert.deepEqual(flow.params?.["tools"], TOOLS);
     assert.ok(flow.inputBlock?.["prompt"], "the input block declares prompt");
     assert.equal(flow.inputBlock?.["workspace"]?.required, false, "the input block declares workspace, optional");
+    assert.equal(flow.inputBlock?.["session"]?.required, false, "the input block declares session, optional");
     console.log(`✔ ${JOB} validates (${v.summary.steps} steps); params.tools = ${JSON.stringify(TOOLS)}`);
 
     // ── 3. the run, as hive does it: over HTTP with `job` + a callback, the
@@ -236,7 +240,20 @@ async function main() {
     assert.match(readFileSync(join(dir, "jobs", job, "plan.md"), "utf8"), /^# Plan \(turn 2\)/);
     console.log(`✔ without a job: artifacts[0].url = ${post3.artifacts[0].url}, no session`);
 
-    // ── 5. optional: the real agent, one turn ────────────────────────────
+    // ── 5. the same job, another thread: `session` on the input ──────────
+    const other = await api(`/workflows/${JOB}/run`, { job, input: { prompt: "Fresh eyes.", session: "thread-b" }, callback: { url: host.url } });
+    assert.equal(other.status, 202, other.text);
+    await until(() => host.posts.length === 4, "the other thread's callback");
+    const post4 = host.posts[3];
+    assert.equal(post4.status, "success", JSON.stringify(post4));
+    assert.deepEqual(post4.artifacts, post1.artifacts, "the same job's file behind the same link");
+    assert.equal(turns.length, 4);
+    assert.equal(turns[3]!.cwd, turns[0]!.cwd, "the job's directory, as every turn");
+    assert.equal(turns[3]!.session, "thread-b", "the session named on the launch, not the job id");
+    assert.match(readFileSync(join(dir, "jobs", job, "plan.md"), "utf8"), /^# Plan \(turn 4\)/);
+    console.log(`✔ same job, session on the input: cwd unchanged, session = thread-b`);
+
+    // ── 6. optional: the real agent, one turn ────────────────────────────
     if (process.env["JOB_SMOKE_LIVE"] === "1") {
       const liveApi = apiFor(real);
       const liveJob = randomUUID();
@@ -249,8 +266,8 @@ async function main() {
       assert.equal(launched.status, 202, launched.text);
       const { runId } = asJson(launched);
       console.log(`live: launched ${JOB} run ${runId} under job ${liveJob}`);
-      await until(() => host.posts.length === 4, "the live callback", 15 * 60_000);
-      const live = host.posts[3];
+      await until(() => host.posts.length === 5, "the live callback", 15 * 60_000);
+      const live = host.posts[4];
       console.log(`live run ${live.status} in ${Date.now() - t0} ms — the callback:`);
       console.log(JSON.stringify({ ...live, transcripts: live.transcripts }, null, 2));
       const url: string | undefined = live.artifacts?.[0]?.url;
