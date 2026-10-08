@@ -34,11 +34,15 @@ Report the pull request as an artifact of kind `pull_request`, under a
 stable id (`pr`, or one per repository when a job touches several), with
 `content: { url, repo, number, state: "open" }` taken from the output.
 
-A change you can judge from the diff alone — text, a constant, a small
-local edit — takes this path. A change that must build, run or be tested
-to be judged needs a sandbox with the application running; when this
-workspace has a workflow for that, it is a child of this Concept and its
-page says when to prefer it and what it takes.
+Size the request first. A change you can state in a sentence and judge
+from the diff alone — text, a constant, a small local edit — takes this
+path: run `code-change-pr` now. Anything larger — several areas, a new
+screen or flow, choices the person would want to make — starts as a plan
+without being asked (`Plan Mode`, under `Job`), and once they say go is
+built in a sandbox with the application running, where they can click
+through it. A change that must build, run or be tested to be judged takes
+the sandbox too, plan or not. When this workspace has a workflow for the
+sandbox, it is a child of this Concept and its page says what it takes.
 
 Each child Concept of this node (PARENT_OF from here) is either another
 WAY to deliver a change — a sandbox workflow, named with its input — or a
