@@ -70,9 +70,30 @@ That holds only while the pod is still on the pull request's branch: after
 `pod/latest`, or on a freshly claimed pod, it sits on the base, and a push
 with `stay_on_branch` there would land on the base branch itself.
 
+What happens to a pull request you reported reaches you as a turn whose
+message begins `[artifact-event] pull_request <url> <what happened>`, the
+specifics on the lines below — hive forwards it; nobody wrote it. You
+decide, with the tools you have:
+
+- **`… merged` or `… closed`:** look at the pod that pushed it. Release it
+  (`pod/release`) when nothing else you pushed from it is still open and no
+  work is pending in it; otherwise keep it and say what it is still for.
+  Report the pull request's card with its new `state`. One line of `text`;
+  no other artifacts.
+- **`… checks failed`** (the head commit and the failing checks follow, each
+  with a link): the pod is usually still on the pull request's branch.
+  Reproduce (`pod/run-tests`, or the check's own command), hand the fix to
+  the agent in the pod with the failure standing alone, judge it, then
+  `pod/push { stay_on_branch: true }` so the same pull request gains the
+  commit — never a second pull request. Report the same `pr` id. If the pod
+  is gone (password rejected, or released after a merge), claim again and
+  give `pod/latest` the pull request's branch as `base_branch`, as above.
+- **An event about an artifact you do not know:** say so and do nothing —
+  never release a pod on a guess.
+
 Release the pod with `pod/release { workspace, podId }` when the job is done
-with it — the pull request is merged, or the person says so. Otherwise keep
-it: strut releases it itself when the job is deleted or sits idle. If a
-pod tool says the pod rejected its password, the pod is gone: claim again.
-A `no pod available` error means the pool is empty: tell the person and
-try later.
+with it — every pull request from it is merged or closed, or the person
+says so. Otherwise keep it: strut releases it itself when the job is
+deleted or sits idle. If a pod tool says the pod rejected its password,
+the pod is gone: claim again. A `no pod available` error means the pool is
+empty: tell the person and try later.
