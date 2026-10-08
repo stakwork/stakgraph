@@ -11,8 +11,9 @@
  *    the callback or the artifacts (only `sealed`), while every staklink
  *    call carried it;
  *  - the agent in the pod was started with the job as its session and this
- *    run's LLM gateway grant; the push went as the run's GitHub identity
- *    and opened a pull request; the revision pushed to the current branch
+ *    run's LLM gateway grant; the push went as the run's GitHub identity,
+ *    named no base (the pod's default branch is the base) and opened a pull
+ *    request; the revision pushed to the current branch
  *    and got the same pull request back, no second one;
  *  - `DELETE /jobs/:id` released the pod through pod/release (the stand-in
  *    hive saw drop-pod) and dropped the hold.
@@ -153,7 +154,6 @@ steps:
       repo_url: "https://github.com/o/app.git"
       branch_name: strut/title
       commit_message: "Change the title"
-      base_branch: main
   - id: result
     type: pack
     config:
@@ -296,7 +296,7 @@ async function main() {
     assert.equal(hive.seen.find((s) => s.path.startsWith("/pod/branch-diff"))!.path, "/pod/branch-diff?base=main");
     const push = hive.seen.find((s) => s.path.startsWith("/pod/push"))!;
     assert.equal(push.path, "/pod/push?commit=true&pr=true");
-    assert.deepEqual(push.body.repos, [{ url: "https://github.com/o/app.git", branch_name: "strut/title", commit_name: "Change the title", base_branch: "main" }]);
+    assert.deepEqual(push.body.repos, [{ url: "https://github.com/o/app.git", branch_name: "strut/title", commit_name: "Change the title" }]);
     assert.equal(push.body.git_credentials.auth_data.username, "octo");
     console.log(`✔ latest as octo on main; the agent with session=${job.slice(0, 8)}… and the run's gateway grant; push opened the PR`);
 

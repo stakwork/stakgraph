@@ -885,21 +885,28 @@ Jobs V1 (strut `plans/jobs.md`; the hive half is `start_job` /
 `continue_job` + the `job_turn` handler + one artifact reader route, a
 CLOSED contract). Hive's Jamie chat hands strut a *job*: an id it mints,
 passed on the LAUNCH — `POST /lab/workflows/job/run { job, input: { prompt,
-workspace }, callback }` — never inside `input`. `workspace` is the hive
-workspace id the job belongs to (the hub strut serves every workspace of
-its org): the YAML declares it (the runner strips an undeclared key), the
-agent's message starts with `Hive workspace: <id>.`, and that is what a
-pod is claimed for. One seeded workflow, `job` (category `job`,
-unstamped, YAML only — every step is strut's):
+workspace, session? }, callback }` — never inside `input`. `workspace` is
+the hive workspace id the job belongs to (the hub strut serves every
+workspace of its org): the YAML declares it (the runner strips an
+undeclared key), the agent's message starts with `Hive workspace: <id>.`,
+and that is what a pod is claimed for. `session` is the agent's thread,
+the job id unless the launch names one (hive passes none today). One
+seeded workflow, `job` (category `job`, unstamped, YAML only — every step
+is strut's):
 
-- `job/dir` → `agent` (cwd = the job's directory, `session: "{{ $job }}"`,
-  a JSON `schema` for the answer) → `pack` `{ text, artifacts, ask?, cost,
-  session }`. The directory (`<dataDir>/jobs/<job>/`) and the agent thread
-  are the SAME for every run launched with that job, so "revise step 2" is
+- `job/dir` → `agent` (cwd = the job's directory, `session: "{{
+  input.session || $job }}"`, a JSON `schema` for the answer) → `pack`
+  `{ text, artifacts, ask?, cost, session }`. The directory
+  (`<dataDir>/jobs/<job>/`) is the SAME for every run launched with that
+  job, and by default so is the agent thread, so "revise step 2" is
   another launch with the same id: the agent opens the `plan.md` it wrote
-  last turn with a transcript that remembers writing it. Without a job
-  (strut's Run button) the same YAML is a one-shot in the run's artifact
-  directory — `$job` is undefined, so the agent is cold.
+  last turn with a transcript that remembers writing it. The two are tied
+  by that one YAML line, not by strut (a job and a session are unrelated
+  stores keyed alike — strut `plans/jobs.md` §2): a launch that names a
+  `session` works on the job's files with that thread instead — a fresh
+  one, or a second beside the first. Without a job (strut's Run button)
+  the same YAML is a one-shot in the run's artifact directory — `$job` is
+  undefined, so the agent is cold unless a `session` is given.
 - **Deliverables are files.** The agent's `artifacts` list names what it
   produced or revised THIS turn — `{ id, kind?, title, label?, summary?,
   path | url | content }`, `id` stable across turns ("plan", not

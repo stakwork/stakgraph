@@ -9,7 +9,8 @@ import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
  * job — the job agent as a strut workflow (strut `plans/jobs.md`, Jobs V1).
  * A host (hive's Jamie chat) launches it with a `job` id on the launch and
  * a prompt: `job/dir` hands the agent ONE directory for the life of the
- * job, `session: "{{ $job }}"` continues one thread across every turn, the
+ * job, `session: "{{ input.session || $job }}"` continues one thread across
+ * every turn (the job's, unless the launch names another), the
  * agent writes its deliverables as files there and names them in its
  * structured output, and strut's `run.end` callback carries them resolved
  * to links (`/jobs/<job>/files/<path>`). Launched WITHOUT a job (strut's
@@ -32,7 +33,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "job",
     description:
-      "A job turn: an agent working in the job's directory with a thread that remembers every earlier turn (job/dir → agent with session: {{ $job }} → pack). Launch it with `job` on the launch — POST /workflows/job/run { job, input: { prompt }, callback } — and the same job again to revise the same files; without a job it is a one-shot in the run's artifact directory. Input: { prompt, workspace? (the hive workspace id the job belongs to — the agent's message starts with it; where a pod is claimed) }. Output: { text, artifacts: [{ id, kind?, title, label?, summary?, path | url | content }], ask?: { message }, cost, session }; the callback carries `artifacts` resolved to links. params.tools (graph reads; meta/list-workflows, get-workflow, run-workflow, get-run; pod/* — a kind's page under the `Job` Concept says how to do it, e.g. Code Change → run `code-change-pr` as a child run under the job, or its child Pod → claim a hive sandbox for the job and let the agent in it make the change; Plan Mode → a plan.html to approve first) and params.system are the evolvable surface.",
+      "A job turn: an agent working in the job's directory with a thread that remembers every earlier turn (job/dir → agent with session: {{ input.session || $job }} → pack). Launch it with `job` on the launch — POST /workflows/job/run { job, input: { prompt }, callback } — and the same job again to revise the same files; without a job it is a one-shot in the run's artifact directory. Input: { prompt, workspace? (the hive workspace id the job belongs to — the agent's message starts with it; where a pod is claimed), session? (the agent's thread: the job id unless given — pass one to work on the job's files with a fresh thread, or a second beside the first) }. Output: { text, artifacts: [{ id, kind?, title, label?, summary?, path | url | content }], ask?: { message }, cost, session }; the callback carries `artifacts` resolved to links. params.tools (graph reads; meta/list-workflows, get-workflow, run-workflow, get-run; pod/* — a kind's page under the `Job` Concept says how to do it, e.g. Code Change → run `code-change-pr` as a child run under the job, or its child Pod → claim a hive sandbox for the job and let the agent in it make the change; Plan Mode → a plan.html to approve first) and params.system are the evolvable surface.",
   },
 ];
 
