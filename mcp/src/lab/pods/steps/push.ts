@@ -1,6 +1,35 @@
 import { z, defineStep } from "strut";
 import { brief, gitCredentials, podCall, type PodCtx } from "./_shared.js";
 
+/**
+ * Record the pull request on the job's hold of the pod it was pushed from
+ * (strut plans/job-artifact-events.md §2): the hold's `note` — the frontend
+ * URL pod/claim wrote — gains the pull request's URL, one per line, so what
+ * the pod is waiting on reads off the job record. The pod is found from
+ * `control`: every URL hive hands out for a pod is
+ * `https://<podId>-<port>.<domain>`, so the hold is the job's `pod` hold
+ * whose id leads the hostname's first label — matched against the holds,
+ * never parsed blind; no match, no note. Never fails the push: the pull
+ * request is open either way.
+ */
+async function notePullRequest(ctx: PodCtx, control: string, prUrl: string): Promise<void> {
+  const job = ctx.job;
+  const jobs = ctx.services?.jobs;
+  if (!job || !jobs) return;
+  try {
+    const label = new URL(control).hostname.split(".")[0] ?? "";
+    const pod = (await jobs.holds(job))
+      .filter((h: { id: string; kind: string }) => h.kind === "pod" && (label === h.id || label.startsWith(`${h.id}-`)))
+      .sort((a: { id: string }, b: { id: string }) => b.id.length - a.id.length)[0];
+    if (!pod) return;
+    const lines = String(pod.note ?? "").split("\n").filter(Boolean);
+    if (lines.includes(prUrl)) return;
+    await jobs.hold(job, { ...pod, note: [...lines, prUrl].join("\n") });
+  } catch (err) {
+    console.warn(`pod/push: could not note ${prUrl} on the job's hold:`, err instanceof Error ? err.message : err);
+  }
+}
+
 export default defineStep({
   type: "pod/push",
   description:
@@ -55,6 +84,7 @@ export default defineStep({
     }
     if (!branch) throw new Error(`pod/push: the pod reported no branch: ${brief(b)}`);
     if (cfg.create_pr && !pr_url) throw new Error(`pod/push: pushed ${branch} but the pod reported no pull request: ${brief(b)}`);
+    if (pr_url) await notePullRequest(ctx, cfg.control, pr_url);
     return { branch, pr_url, commits: Array.isArray(b.commits) ? b.commits.map(String) : [] };
   },
 });

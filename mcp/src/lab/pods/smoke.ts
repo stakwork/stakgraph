@@ -6,7 +6,8 @@
  * the launch — and a revision turn (agent-start → agent-status → push onto
  * the same branch), and checks:
  *
- *  - the claim registered a HOLD on the job naming pod/release;
+ *  - the claim went to hive AS the job (`?job=&run=`) and registered a HOLD
+ *    on the job naming pod/release; the push noted the pull request on it;
  *  - the pod's password is nowhere: not in the run's events, the output,
  *    the callback or the artifacts (only `sealed`), while every staklink
  *    call carried it;
@@ -16,7 +17,8 @@
  *    request; the revision pushed to the current branch
  *    and got the same pull request back, no second one;
  *  - `DELETE /jobs/:id` released the pod through pod/release (the stand-in
- *    hive saw drop-pod) and dropped the hold.
+ *    hive saw drop-pod, as the job) and dropped the hold; a pod hive has let
+ *    go (404) or handed to someone else (409) counts as released.
  *
  *   npx tsx src/lab/pods/smoke.ts
  */
@@ -33,6 +35,9 @@ const PASSWORD = "pw-s3cret-never-shown";
 const KEY = "hiveorg_test_key";
 const FRONTEND = "https://pod-1-3000.workspaces.test";
 const IDE = "https://pod-1.workspaces.test";
+/** The pod's control URL, pod-shaped like hive's (`<podId>-<port>.<domain>`): pod/push finds the hold from its hostname. The strut's fetch answers it from the stand-in. */
+const CONTROL = "http://pod-1-15552.workspaces.test";
+const PR = "https://github.com/o/app/pull/7";
 
 interface Seen {
   method: string;
@@ -71,9 +76,14 @@ async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; cl
       if (url.pathname.startsWith("/api/pool-manager/")) {
         if (token !== KEY) return json(401, { error: "Unauthorized" });
         if (url.pathname.startsWith("/api/pool-manager/claim-pod/")) {
-          return json(200, { success: true, podId: "pod-1", pod_url: IDE, frontend: FRONTEND, ide: IDE, control: `${base}/pod`, password: PASSWORD });
+          return json(200, { success: true, podId: "pod-1", pod_url: IDE, frontend: FRONTEND, ide: IDE, control: CONTROL, password: PASSWORD });
         }
-        if (url.pathname.startsWith("/api/pool-manager/drop-pod/")) return json(200, { success: true });
+        if (url.pathname.startsWith("/api/pool-manager/drop-pod/")) {
+          const podId = url.searchParams.get("podId");
+          if (podId === "pod-taken") return json(409, { error: "Pod has been reassigned", reassigned: true });
+          if (podId === "pod-gone") return json(404, { error: "Pod not found" });
+          return json(200, { success: true });
+        }
       }
       // staklink, as the pod
       if (url.pathname.startsWith("/pod/")) {
@@ -92,7 +102,7 @@ async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; cl
         if (p === "/branch-diff") return json(200, [{ file: "README.md", action: "modify", content: "# App\n", repoName: "app", errors: [] }]);
         if (p === "/push") {
           const pr = url.searchParams.get("pr") === "true";
-          return json(200, { success: true, commits: ["abc123"], branches: { app: "strut/title" }, ...(pr ? { prs: { app: "https://github.com/o/app/pull/7" } } : {}) });
+          return json(200, { success: true, commits: ["abc123"], branches: { app: "strut/title" }, ...(pr ? { prs: { app: PR } } : {}) });
         }
       }
       json(404, { error: `no stand-in for ${req.method} ${url.pathname}` });
@@ -169,6 +179,15 @@ steps:
         - { id: pod, kind: url, title: Pod, url: "{{ claim.frontend }}" }
 `;
 
+const POD_LET_GO = `name: pod-let-go
+input:
+  podId: { type: string }
+steps:
+  - id: release
+    type: pod/release
+    config: { workspace: ws-1, podId: "{{ input.podId }}" }
+`;
+
 const POD_REVISE = `name: pod-revise
 input:
   control: { type: string }
@@ -219,14 +238,20 @@ async function main() {
     console.log(`✔ seeded ${SEED_STEPS.length - 1} pod/* steps, all discoverable`);
     await workspace.publishWorkflowByContent("pod-smoke", POD_SMOKE, undefined, "pods", undefined, SEED_OPTS);
     await workspace.publishWorkflowByContent("pod-revise", POD_REVISE, undefined, "pods", undefined, SEED_OPTS);
+    await workspace.publishWorkflowByContent("pod-let-go", POD_LET_GO, undefined, "pods", undefined, SEED_OPTS);
 
     // ── 2. a strut whose secrets name the stand-in hive, whose GitHub
     //       identity lookup is answered locally, and whose LLM gateway
     //       grant is a fake ────────────────────────────────────────────────
-    const fetchImpl: typeof fetch = async (url, init) =>
-      String(url).startsWith("https://api.github.com/user")
-        ? new Response(JSON.stringify({ login: "octo" }), { status: 200, headers: { "content-type": "application/json" } })
-        : fetch(url, init);
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("https://api.github.com/user")) {
+        return new Response(JSON.stringify({ login: "octo" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      // The pod-shaped control URL: the stand-in's staklink answers for it.
+      if (u.startsWith(CONTROL)) return fetch(`${hive.base}/pod${u.slice(CONTROL.length)}`, init);
+      return fetch(url, init);
+    };
     const grant = { apiKey: "sk-bf-test", baseUrl: `${hive.base}/llm`, headers: { "x-macaroon": "mac-test", "x-bf-dim-session-id": "job" } };
     const strut = await createStrut({
       workspace,
@@ -250,20 +275,25 @@ async function main() {
     assert.equal(post1.status, "success", JSON.stringify(post1));
     const out1 = post1.output;
     assert.equal(out1.podId, "pod-1");
-    assert.equal(out1.control, `${hive.base}/pod`);
+    assert.equal(out1.control, CONTROL);
     assert.match(out1.sealed, /^v1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/, "the password rides sealed");
     assert.equal(out1.session, job, "the agent's session is the job");
     assert.equal(out1.agent, "Changed the title (req-agent-1).");
     assert.equal(out1.files, 1);
-    assert.deepEqual([out1.branch, out1.pr], ["strut/title", "https://github.com/o/app/pull/7"]);
+    assert.deepEqual([out1.branch, out1.pr], ["strut/title", PR]);
     assert.deepEqual(post1.artifacts, [{ id: "pod", kind: "url", title: "Pod", url: FRONTEND }]);
     console.log(`✔ turn 1: claimed pod-1, reset, the agent worked, pushed ${out1.branch} → ${out1.pr}`);
 
-    // The hold, naming pod/release with what it needs.
+    // The claim went to hive AS the job, with the run as the reason.
+    const claim = hive.seen.find((s) => s.path.startsWith("/api/pool-manager/claim-pod/"))!;
+    assert.equal(claim.path, `/api/pool-manager/claim-pod/ws-1?job=${job}&run=${first.json.runId}`);
+
+    // The hold, naming pod/release with what it needs — and, since the push,
+    // the pull request on its note under the frontend URL the claim wrote.
     const holds = await jobsCapability(dir).holds(job);
     assert.equal(holds.length, 1);
-    assert.deepEqual({ ...holds[0], since: undefined }, { id: "pod-1", kind: "pod", release: { type: "pod/release", input: { workspace: "ws-1", podId: "pod-1" } }, note: FRONTEND, since: undefined });
-    console.log(`✔ the job holds pod-1, release = pod/release ${JSON.stringify(holds[0]!.release.input)}`);
+    assert.deepEqual({ ...holds[0], since: undefined }, { id: "pod-1", kind: "pod", release: { type: "pod/release", input: { workspace: "ws-1", podId: "pod-1" } }, note: `${FRONTEND}\n${PR}`, since: undefined });
+    console.log(`✔ claimed as job ${job.slice(0, 8)}…; the job holds pod-1 (release = pod/release ${JSON.stringify(holds[0]!.release.input)}), the PR noted on it`);
 
     // The password is nowhere strut keeps: events, output, callback.
     const events = await api(`/workflows/pod-smoke/runs/${first.json.runId}/events`);
@@ -307,22 +337,37 @@ async function main() {
     await until(() => hive.posts.length === 2, "the second callback");
     const post2 = hive.posts[1];
     assert.equal(post2.status, "success", JSON.stringify(post2));
-    assert.deepEqual(post2.output, { session: job, first: "pending", status: "completed", output: "Changed the title (req-agent-2).", branch: "strut/title", pr: "https://github.com/o/app/pull/7" });
+    assert.deepEqual(post2.output, { session: job, first: "pending", status: "completed", output: "Changed the title (req-agent-2).", branch: "strut/title", pr: PR });
     const push2 = hive.seen.filter((s) => s.path.startsWith("/pod/push"))[1]!;
     assert.equal(push2.path, "/pod/push?commit=true&pr=true&stayOnCurrentBranch=true");
-    console.log(`✔ turn 2: agent-start → agent-status (pending, completed) → push stayed on ${post2.output.branch}, the same PR came back`);
+    // The same pull request again is noted once.
+    assert.equal((await jobsCapability(dir).holds(job))[0]!.note, `${FRONTEND}\n${PR}`);
+    console.log(`✔ turn 2: agent-start → agent-status (pending, completed) → push stayed on ${post2.output.branch}, the same PR came back (noted once)`);
+
+    // ── 4b. a pod hive has let go, or handed to someone else, counts as released ─
+    for (const podId of ["pod-gone", "pod-taken"]) {
+      const n = hive.posts.length;
+      const run = await api("/workflows/pod-let-go/run", { body: { job, input: { podId }, callback } });
+      assert.equal(run.status, 202, run.text);
+      await until(() => hive.posts.length === n + 1, `the ${podId} callback`);
+      const post = hive.posts[n];
+      assert.equal(post.status, "success", JSON.stringify(post));
+      assert.deepEqual(post.output, { podId, released: true });
+    }
+    console.log("✔ pod/release: a 404 (hive let it go) and a 409 reassigned (hive gave it away) both count as released");
 
     // ── 5. closing the job releases the pod ──────────────────────────────
     const drops = () => hive.seen.filter((s) => s.path.startsWith("/api/pool-manager/drop-pod/"));
-    assert.equal(drops().length, 0);
+    assert.equal(drops().length, 2, "the two let-go runs above");
     const gone = await api(`/jobs/${job}`, { method: "DELETE" });
     assert.equal(gone.status, 200, gone.text);
     assert.deepEqual(gone.json, { ok: true, job, released: ["pod-1"] });
-    assert.equal(drops().length, 1);
-    assert.equal(drops()[0]!.path, "/api/pool-manager/drop-pod/ws-1?podId=pod-1");
+    assert.equal(drops().length, 3);
+    // As the job: hive drops it only while this job is still its claimant.
+    assert.equal(drops()[2]!.path, `/api/pool-manager/drop-pod/ws-1?podId=pod-1&job=${job}`);
     assert.deepEqual(await jobsCapability(dir).holds(job), []);
     assert.equal((await api(`/jobs/${job}/files`)).status, 404);
-    console.log(`✔ DELETE /jobs/${job.slice(0, 8)}… released pod-1 through pod/release (hive saw drop-pod) and the job is gone`);
+    console.log(`✔ DELETE /jobs/${job.slice(0, 8)}… released pod-1 through pod/release (hive saw drop-pod as the job) and the job is gone`);
 
     console.log("\npods smoke: all good");
   } finally {
