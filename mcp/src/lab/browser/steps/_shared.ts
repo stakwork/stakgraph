@@ -1,13 +1,17 @@
 /**
  * Shared by every `browser/*` step. A leading `_` makes this a helper the
  * registry skips but siblings import (`./_shared.js`). Like the steps it is
- * seeded into the workspace verbatim, so it imports `strut` and, TYPE-ONLY,
- * the lab's service — nothing that must exist at runtime beside it.
+ * seeded into the workspace verbatim, so it imports `strut`, node's own
+ * modules and, TYPE-ONLY, the lab's service and shot types — nothing that
+ * must exist at runtime beside it.
  */
-import { z, type StepContext, type StrutCapabilities } from "strut";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { z, jobRoot, type StepContext, type StrutCapabilities } from "strut";
 import type { BrowserService } from "../service.js";
+import type { ShotSink } from "../shot.js";
 
-export type { BrowserService };
+export type { BrowserService, ShotSink };
 
 export type Ctx = StepContext<StrutCapabilities & { browser: BrowserService }>;
 
@@ -60,4 +64,21 @@ export function artifactsOf(ctx: Ctx): NonNullable<StrutCapabilities["artifacts"
   const artifacts = ctx.services?.artifacts;
   if (!artifacts) throw new Error("browser/*: no `artifacts` capability on ctx.services");
   return artifacts;
+}
+
+/**
+ * Where this run's screenshots go (shot.ts): the run's artifacts — or, on a
+ * run launched under a job, the job's directory, the one `job/dir` hands
+ * out (`<dataDir>/jobs/<job>`, with job/dir's fallback when the host set no
+ * `dataDir`). A job's host reads a file off the swarm by the job or by a run
+ * id it launched; a child run (meta/run-workflow from a job turn) has a run
+ * id the host never saw, so its shots must be job files to reach it.
+ */
+export function shotSinkOf(ctx: Ctx): ShotSink {
+  const sink: ShotSink = { artifacts: artifactsOf(ctx), runId: ctx.runId };
+  if (ctx.job) {
+    const dataDir = ctx.services?.dataDir ?? join(tmpdir(), "strut");
+    sink.job = { name: ctx.job, root: jobRoot(dataDir, ctx.job) };
+  }
+  return sink;
 }
