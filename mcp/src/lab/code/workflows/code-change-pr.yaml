@@ -106,7 +106,7 @@ params:
   model: claude-sonnet-5-5
   # Tool-call budget for the change. A focused change needs a fraction of
   # this; the agent step forces a final answer when it runs out.
-  maxSteps: 60
+  maxSteps: 120
   # The first turn's branch is this prefix + the run id.
   branch_prefix: strut/
   finalAnswer: |-

@@ -1,8 +1,8 @@
 ---
-description: When the person asks for a plan first. A short HTML page to review, nothing built yet.
+description: When the person asks for a plan first, or the change is big enough that they should see one before anything is built. A short HTML page to review, nothing built yet.
 parent: Job
 ---
-When the person asks for a plan first. A short HTML page to review, nothing built yet.
+When the person asks for a plan first, or the change is big enough that they should see one before anything is built. A short HTML page to review, nothing built yet.
 
 Until the person approves, write the plan and nothing else. Do not run
 workflows, open pull requests or change anything outside the plan. You

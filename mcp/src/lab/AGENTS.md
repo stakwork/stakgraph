@@ -927,9 +927,12 @@ is strut's):
   hive sandbox the job HOLDS between turns. WHICH workflow or way for which
   kind of work is never in the prompt: the agent opens the `Job` Concept
   (`job/concepts`, `JOB_CONCEPTS`) first and follows the kind's page —
-  `Code Change` (`code/concepts`) names `code-change-pr` and the PR comes
-  back as a `pull_request` artifact, and its child `Pod` (`pods/concepts`)
-  says when a change needs the app running and how to make it in a pod;
+  `Code Change` (`code/concepts`) sizes the request — a change judged from
+  the diff runs `code-change-pr` now and the PR comes back as a
+  `pull_request` artifact; a larger one starts as a plan unasked and, once
+  the person says go, is built in a pod — and its child `Pod`
+  (`pods/concepts`) says when a change needs the app running and how to
+  make it in a pod;
   `Plan Mode`, when the person asks for a plan first, is ONE static
   `plan.html` (overview up front, the technical part in a collapsed
   `<details>`, the page style) revised until they approve. The root page
