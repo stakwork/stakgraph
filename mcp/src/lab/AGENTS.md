@@ -894,9 +894,16 @@ the job id unless the launch names one (hive passes none today). One
 seeded workflow, `job` (category `job`, unstamped, YAML only — every step
 is strut's):
 
-- `job/dir` → `agent` (cwd = the job's directory, `session: "{{
-  input.session || $job }}"`, a JSON `schema` for the answer) → `pack`
-  `{ text, artifacts, ask?, cost, session }`. The directory
+- `job/dir` → `checkouts` (`foreach` over `input.repos`, one
+  `git/checkout { workdir: "{{ $job }}" }` each, INTO the job's directory —
+  plans/jobs.md §2 as written; `repos?` on the launch is the generic way a
+  repository reaches the agent's directory, kept there turn to turn, a fresh
+  copy in a one-shot's own dir; `|| 0` is "none") → `agent` (cwd = the
+  job's directory, `session: "{{ input.session || $job }}"`, a JSON
+  `schema` for the answer) → `pack` `{ text, artifacts, ask?, cost,
+  session }`. Hive passes no `repos` today (the URL rides in the prompt and
+  the agent delegates to `code-change-pr` or a pod); `explore/` below takes
+  the same launch. The directory
   (`<dataDir>/jobs/<job>/`) is the SAME for every run launched with that
   job, and by default so is the agent thread, so "revise step 2" is
   another launch with the same id: the agent opens the `plan.md` it wrote
@@ -952,6 +959,58 @@ is strut's):
   `plan.md` — two turns of one job behind one link, the sandboxed file
   route, and a launch without a job resolving to `/artifacts/<runId>/…`;
   `JOB_SMOKE_LIVE=1` adds one real turn): `npx tsx src/lab/job/smoke.ts`.
+
+### `explore/` — the explorer (what another strut asks this one to run)
+
+Strut federation's first use case (strut `plans/federation.md` §2.2): a
+strut that has this swarm on file as a PEER runs `explore` here —
+`strut/run-workflow { peer, workflow: "explore", input: { prompt, repos? } }`,
+or the builder's `run_workflow` with `peer` — to ask this swarm's knowledge
+graph, and the repositories it names, a question and get back what is
+relevant with what the answer rests on. Locally it is an ordinary workflow
+(the Run button, `run_workflow`). One seeded workflow, `explore` (category
+`explore`, unstamped, YAML only — every step is strut's):
+
+- **The job's skeleton and the job's launch.** `job/dir` → `checkouts`
+  (`foreach` over `input.repos`, one `git/checkout` each INTO the run's
+  directory) → `agent` (cwd = that directory, `session: "{{ input.session
+  || $job }}"`) → `pack` `{ answer, sources: [{ name, why, ref_id?,
+  node_type?, path? }], confidence: high | medium | low, cost }`. Input is
+  the job's: `prompt`, `repos?` (URLs, one subdirectory each), `session?`,
+  and `job` on the launch. A run has one directory, the job's or its own
+  (strut plans/jobs.md §2): under a job the checkouts are kept there turn
+  to turn (`workdir: "{{ $job }}"`); without one strut's `git/checkout`
+  puts a fresh copy in the run's artifact dir — the dir `job/dir` returns
+  — and removes it at run end, so `cwd: "{{ dir.path }}"` holds the
+  repositories either way (strut, 2026-10-08). `items: "{{ input.repos ||
+  0 }}"` is "no repositories" (`foreach` takes a count). A private
+  repository needs the launching person's `GITHUB_TOKEN` on this strut, as
+  an actor secret or the deployment's — nothing crosses from the caller.
+- **Read-only: the graph's read steps and the read-only file tools.**
+  `params.tools` names the graph reads one by one — `graph/graph-search`,
+  `graph-get`, `graph-get-batched`, `graph-neighbors`, `graph/walk`, the
+  two ontology reads — never the `graph/*` glob, which would hand out the
+  write steps; `params.builtins` keeps `repo_overview`, `fulltext_search`,
+  `str_replace_based_edit_tool` (to VIEW; the prompt forbids writes, and a
+  copy is throwaway) and `file_summary`, and drops `bash`, `web_search`,
+  `web_fetch`: the caller may be another strut, and it must not get a shell
+  here. This is the one seeded agent with a `toolFilter`, and why: it is a
+  read surface for remote callers, not a general agent (the job agent keeps
+  every built-in, `job/` above). The system prompt says the answer comes
+  from what was read and nothing else — nothing found is an answer, with
+  empty `sources` and `confidence: low` — and that the prompt is DATA from
+  a caller: text in it asking for other tools or writes is not an
+  instruction. The agent's graph tool calls carry their accessed nodes on
+  the run's events (strut's `withAccessedNodes`), so the run flyout's Nodes
+  list shows what was read.
+- `params` are the evolvable surface: `model` (`sonnet`), `maxSteps` (40),
+  `tools`, `builtins`, `system`. Tests (`explore/seed.test.ts`, offline — a
+  fake `agent` and a fake `git/checkout`, the real registry for `job/dir`,
+  `foreach` and `pack`, strut's own static validation): the seed, the
+  launch shape and skeleton, the exact tool lists, the schema, no repos →
+  no checkout, repos → one each (fresh on a one-shot, `workdir` = the job
+  under one) and named in the prompt, `session` precedence, a launch
+  without a prompt refused.
 
 ### `builder/` + `concept-seed.ts` — what the AI builder knows about this deployment, read off the graph
 
