@@ -106,7 +106,7 @@ params:
   model: claude-sonnet-5-5
   # Tool-call budget for the change. A focused change needs a fraction of
   # this; the agent step forces a final answer when it runs out.
-  maxSteps: 60
+  maxSteps: 120
   # The first turn's branch is this prefix + the run id.
   branch_prefix: strut/
   finalAnswer: |-
@@ -135,6 +135,10 @@ params:
       the tests for the files you touched — run it with bash and fix what
       you broke. Do not run long installs or full builds unless the task
       needs them.
+    - Do not install or launch a browser (playwright, puppeteer, a headless
+      chrome) to look at the change: nothing is running in this working
+      copy, and seeing a change run is the caller's to arrange, not yours.
+      Judge it by reading it and by the fast checks above.
     - Do NOT commit, branch, push, tag, or open a pull request, and do not
       touch .git: the workflow commits what you changed and opens the pull
       request when you finish. Never write a secret or credential into a

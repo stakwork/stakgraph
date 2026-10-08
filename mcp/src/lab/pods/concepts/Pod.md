@@ -5,8 +5,8 @@ parent: Code Change
 A change made and run in a pod — a sandbox with the app running — when the diff alone cannot be judged.
 
 Take this way instead of `code-change-pr` when the change must build, run
-or be tested to be judged, when the person wants to click through it, or
-when they ask for it. A pod is hive's sandbox: the workspace's repositories,
+or be tested to be judged, when it follows a plan the person approved,
+when they want to click through it, or when they ask for it. A pod is hive's sandbox: the workspace's repositories,
 the app's dev server (`frontend`), an IDE (`ide`), and a coding agent of its
 own that works in there. The `pod/*` tools drive it; the job's messages
 start with `Hive workspace: <id>` — the id to claim for.
