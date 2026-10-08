@@ -9,9 +9,10 @@ name: browser-capture
 #         steps is the ordered list browser/capture takes: each item is
 #         { do: <verb>, ...that verb's input }, e.g.
 #           [{ do: wait, text: "Learn more" }, { do: click, selector: "text=Learn more" }]
-# Output: { path, url, width, height, bytes, errors, pageUrl, title }
-#         path is relative to the run's artifact dir (shots/001.png), url its
-#         served form (/artifacts/<runId>/shots/001.png); errors is the
+# Output: { path, dir, url, width, height, bytes, errors, pageUrl, title }
+#         path is shots/001.png under dir — the run's artifact dir, or the
+#         job's directory when the run was launched under a job — and url its
+#         served form (/artifacts/<runId>/… or /jobs/<job>/files/…); errors is the
 #         console/network trouble the page had while loading (empty = clean);
 #         pageUrl and title are where the page ended up after the steps.
 #         A step whose target matches nothing fails the run, with the step
@@ -44,4 +45,4 @@ claims:
             - 'f="$1"; test -f "$f" || { echo "missing: $f"; exit 1; }; n=$(wc -c < "$f"); echo "$f: $n bytes"; test "$n" -ge 1024 && head -c 4 "$f" | grep -aq PNG'
             - check
             - "{{ input.output.path }}"
-          cwd: "{{ input.artifactsDir }}"
+          cwd: "{{ input.output.dir }}"

@@ -8,9 +8,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WorkspaceManager, buildRegistry, mediaOf, type AnyStepDef } from "strut";
+import { WorkspaceManager, buildRegistry, jobRoot, mediaOf, type AnyStepDef } from "strut";
 import { CAPTURE_VERBS as SERVICE_VERBS } from "./service.js";
 import { CAPTURE_VERBS, type Ctx } from "./steps/_shared.js";
 import { seedBrowserSteps, SEED_STEPS, STEPS_DIR } from "./seed.js";
@@ -38,7 +39,7 @@ import capture from "./steps/capture.js";
 const STEPS = { open, goto, snapshot, click, fill, type: type_, press, select, hover, scroll, wait, text, screenshot, evaluate, observe, back, state, close, capture };
 
 const NAV = { url: "https://example.com/", title: "Example Domain", status: 200 };
-const SHOT = { path: "shots/001.png", url: "/artifacts/r1/shots/001.png", width: 1280, height: 800, bytes: 4321, small: Buffer.from("png") };
+const SHOT = { path: "shots/001.png", dir: "/art/r1", url: "/artifacts/r1/shots/001.png", width: 1280, height: 800, bytes: 4321, small: Buffer.from("png") };
 const OBS = { console: ["boom"], pageErrors: [], failedRequests: [], httpErrors: ["500 GET /api"] };
 
 /** Records every verb call; each verb returns a canned output. */
@@ -72,6 +73,8 @@ class FakeBrowser {
 }
 
 const artifacts = { tag: "artifacts" };
+/** What screenshot and capture hand the service on a plain run: the artifacts and the run id. */
+const sink = { artifacts, runId: "r1" };
 
 function ctxFor(browser: FakeBrowser, secrets: Record<string, string> = {}): Ctx {
   return {
@@ -178,11 +181,11 @@ test("open passes the viewport through and loads a storage state from the named 
   await assert.rejects(run(open, { storageStateSecret: "BAD" }, new FakeBrowser(), { BAD: "not json" }), /not JSON/);
 });
 
-test("screenshot and state hand the artifacts capability to the service; the model's copy stays out of the output", async () => {
+test("screenshot hands the service a sink for the run's artifacts, state the capability; the model's copy stays out of the output", async () => {
   const browser = new FakeBrowser();
   const shot = await run(screenshot, { fullPage: true, name: "hero" }, browser);
-  assert.deepEqual(browser.calls[0]!.args, [{ fullPage: true, name: "hero" }, artifacts]);
-  assert.deepEqual(shot, { path: "shots/001.png", url: "/artifacts/r1/shots/001.png", width: 1280, height: 800, bytes: 4321 });
+  assert.deepEqual(browser.calls[0]!.args, [{ fullPage: true, name: "hero" }, sink]);
+  assert.deepEqual(shot, { path: "shots/001.png", dir: "/art/r1", url: "/artifacts/r1/shots/001.png", width: 1280, height: 800, bytes: 4321 });
   assert.ok(!("small" in shot));
 
   const st = await run(state, {}, browser);
@@ -190,10 +193,21 @@ test("screenshot and state hand the artifacts capability to the service; the mod
   assert.deepEqual(st, { path: "state.json", url: "/artifacts/r1/state.json" });
 });
 
+test("under a job, screenshot and capture sink to the job's directory — the one job/dir hands out — so the shot is a job file its host can read", async () => {
+  const browser = new FakeBrowser();
+  const base = ctxFor(browser);
+  const underJob = (dataDir?: string): Ctx => ({ ...base, job: "job-1", services: { ...base.services, ...(dataDir ? { dataDir } : {}) } });
+  await screenshot.run(screenshot.input.parse({}), underJob("/data"));
+  assert.deepEqual(browser.calls[0]!.args[1], { artifacts, runId: "r1", job: { name: "job-1", root: jobRoot("/data", "job-1") } });
+  // No dataDir on the bag: the same fallback job/dir takes, so the two agree on the directory.
+  await capture.run(capture.input.parse({ url: "https://example.com" }), underJob());
+  assert.deepEqual(browser.calls[1]!.args[1], { artifacts, runId: "r1", job: { name: "job-1", root: jobRoot(join(tmpdir(), "strut"), "job-1") } });
+});
+
 test("screenshot and capture mark their output with the model's copy (withMedia): one image/png file part, no bytes in the JSON", async () => {
   const cases: Array<[AnyStepDef, unknown, string[]]> = [
-    [screenshot, {}, ["bytes", "height", "path", "url", "width"]],
-    [capture, { url: "https://example.com" }, ["bytes", "errors", "height", "pageUrl", "path", "title", "url", "width"]],
+    [screenshot, {}, ["bytes", "dir", "height", "path", "url", "width"]],
+    [capture, { url: "https://example.com" }, ["bytes", "dir", "errors", "height", "pageUrl", "path", "title", "url", "width"]],
   ];
   for (const [def, input, keys] of cases) {
     // The raw run() result, as the agent's tool executor gets it (the runner
@@ -218,7 +232,7 @@ test("capture validates the declared steps and returns the shot with the page's 
   ];
   const out = await run(capture, { url: "https://example.com", steps, fullPage: false, wait: 50 }, browser);
   assert.equal(browser.calls[0]!.verb, "capture");
-  assert.deepEqual(browser.calls[0]!.args, [{ url: "https://example.com", steps, fullPage: false, wait: 50 }, artifacts]);
+  assert.deepEqual(browser.calls[0]!.args, [{ url: "https://example.com", steps, fullPage: false, wait: 50 }, sink]);
   assert.deepEqual(out.errors, ["http: 500 GET /api"]);
   assert.equal(out.pageUrl, "https://example.com/after");
   assert.ok(!("small" in out));
