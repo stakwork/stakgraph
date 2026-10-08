@@ -46,7 +46,13 @@ export default defineStep({
     if (b.error) throw new Error(`pod/push: ${b.message ?? b.error}`);
     const branch = Object.values((b.branches ?? {}) as Record<string, string>)[0];
     const pr_url = Object.values((b.prs ?? {}) as Record<string, string>)[0] ?? null;
-    if (b.prErrors && Object.keys(b.prErrors).length) throw new Error(`pod/push: pushed ${branch ?? "?"} but the pull request failed — ${brief(b.prErrors)}`);
+    if (b.prErrors && Object.keys(b.prErrors).length) {
+      throw new Error(
+        branch
+          ? `pod/push: pushed ${branch} but the pull request failed — ${brief(b.prErrors)}`
+          : `pod/push: nothing was pushed and no pull request was opened — ${brief(b.prErrors)}`,
+      );
+    }
     if (!branch) throw new Error(`pod/push: the pod reported no branch: ${brief(b)}`);
     if (cfg.create_pr && !pr_url) throw new Error(`pod/push: pushed ${branch} but the pod reported no pull request: ${brief(b)}`);
     return { branch, pr_url, commits: Array.isArray(b.commits) ? b.commits.map(String) : [] };
