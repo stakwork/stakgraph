@@ -13,7 +13,13 @@ name: explore
 # `session?`, and `job` on the launch. The run has one directory: the
 # job's (kept across turns, where the checkouts stay) or its own (a
 # one-shot's artifact dir, where git/checkout puts a fresh copy, removed
-# at run end); `cwd` is that directory either way. params are the
+# at run end); `cwd` is that directory either way. The THREAD is not the
+# job's: the agent starts cold unless the launch names a `session`. A job
+# turn runs this as a child (meta/run-workflow), and the job's own agent
+# holds the job's session for the whole turn — defaulting to it would
+# fail `session_busy:`, and would load the job's conversation into an
+# explorer that should see only its question. What an exploration found
+# lives on as the job agent's note in the job directory. params are the
 # evolvable surface: the model, the step budget, which graph tools, which
 # built-ins (the read-only file tools; never bash — the caller may be
 # another strut), and the system prompt.
@@ -29,7 +35,7 @@ description: >-
 input:
   prompt: { type: string, description: "What to find out — a question this swarm's graph or repositories may answer" }
   repos: { type: json, required: false, description: "Repository URLs to check out into the run's directory, one subdirectory each, for the agent to read (a private one needs the launching person's GITHUB_TOKEN here)" }
-  session: { type: string, required: false, description: "The agent's thread (a session id). Under a job it is the job id unless given; without one the agent is cold. Pass one to continue an earlier exploration" }
+  session: { type: string, required: false, description: "The agent's thread (a session id). Cold unless given, under a job too: pass one to continue an earlier exploration" }
 steps:
   - id: dir
     type: job/dir
@@ -50,7 +56,7 @@ steps:
     type: agent
     config:
       cwd: "{{ dir.path }}"
-      session: "{{ input.session || $job }}"
+      session: "{{ input.session }}"
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
       agentTools: "{{ params.tools }}"

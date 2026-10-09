@@ -78,7 +78,15 @@ describe("parseConceptFile", () => {
     assert.equal(pm.parent, "Job");
     assert.ok(pm.docs!.startsWith(pm.description!));
     for (const needle of [/plan\.html/, /<details>/, /`ask`/, /scripts never run/]) assert.match(pm.docs!, needle);
-    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Job.md", "Plan Mode.md"]);
+    // Explore: a way of working under Job — explore here or on a peer by @slug, and keep what was found as a note.
+    const ex = await read(JOB_CONCEPTS, "Explore.md");
+    assert.equal(ex.name, "Explore");
+    assert.equal(ex.parent, "Job");
+    assert.ok(ex.docs!.startsWith(ex.description!));
+    for (const needle of [/meta\/run-workflow/, /strut\/run-workflow/, /"explore"/, /notes\/<topic>\.md/, /@<slug>/, /kind: "markdown"/]) assert.match(ex.docs!, needle);
+    // The entry page knows the workspaces and the peer step, still no kind.
+    for (const needle of [/strut\/run-workflow/, /@<slug>/, /own agent/]) assert.match(job.docs!, needle);
+    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Plan Mode.md"]);
 
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
@@ -88,7 +96,7 @@ describe("parseConceptFile", () => {
     assert.equal(cc.description, "A change to a repository's source code, delivered as a pull request.");
     assert.ok(cc.docs!.startsWith(cc.description!));
     // The convention: the workflow and how to read it, the follow-up rule, the credential failure, the artifact, how to extend.
-    for (const needle of [/code-change-pr/, /meta\/get-workflow/, /same `branch`/, /no_push_permission:/, /pull_request/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/]) assert.match(cc.docs!, needle);
+    for (const needle of [/code-change-pr/, /meta\/get-workflow/, /same `branch`/, /no_push_permission:/, /pull_request/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /cannot read your directory/, /`Explore`/]) assert.match(cc.docs!, needle);
     assert.doesNotMatch(cc.docs!, /pod-pr|hive\//, "workspace-general: no one swarm's workflow or step by name");
 
     // What counts as dirty is each workspace's to say: the seed ships the kind, never a mandate.

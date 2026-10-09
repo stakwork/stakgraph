@@ -8,8 +8,10 @@ Take this way instead of `code-change-pr` when the change must build, run
 or be tested to be judged, when it follows a plan the person approved,
 when they want to click through it, or when they ask for it. A pod is hive's sandbox: the workspace's repositories,
 the app's dev server (`frontend`), an IDE (`ide`), and a coding agent of its
-own that works in there. The `pod/*` tools drive it; the job's messages
-start with `Hive workspace: <id>` — the id to claim for.
+own that works in there. The `pod/*` tools drive it. A pod belongs to one
+workspace and holds that workspace's repositories: claim for the workspace
+whose code is changing, by its slug without the `@` — the one the request
+names, else this strut's own, on your message's first line.
 
 Claim ONCE per job: `pod/claim { workspace }`. Its `sealed` and `control`
 go to every other pod tool. The pod stays with the job between turns — the
@@ -26,7 +28,9 @@ request on a pod that was released in between, claim again and give
 
 Hand the work to the agent in the pod with the task standing alone (the
 repository, the files or area, the exact change, what to check, the
-conventions to match) — it sees nothing of this conversation. On the first
+conventions to match) — it sees nothing of this conversation, and cannot
+read your directory: when a note there bears on the task, put what it
+found (the files, the conventions, the tests) in the task. On the first
 turn in a pod, `pod/agent-start` and END YOUR TURN: say what it is doing,
 list the pod artifacts, so the person can watch it in the frontend; on the
 next turn `pod/agent-status { request_id }` tells you how it went. When the
@@ -91,7 +95,8 @@ decide, with the tools you have:
 - **An event about an artifact you do not know:** say so and do nothing —
   never release a pod on a guess.
 
-Release the pod with `pod/release { workspace, podId }` when the job is done
+Release the pod with `pod/release { workspace, podId }` — the workspace
+you claimed it for — when the job is done
 with it — every pull request from it is merged or closed, or the person
 says so. Otherwise keep it: strut releases it itself when the job is
 deleted or sits idle. If a pod tool says the pod rejected its password,
