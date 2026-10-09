@@ -25,22 +25,28 @@ error means that token cannot push to the repository: stop and ask.
 
 The brief (`prompt`) must stand alone: the coding agent sees nothing of
 this conversation. Name the repository, the files or area, the exact
-change, what to check, and the conventions to match. When a plan for the
-change already exists in your directory, hand over its relevant section
-rather than a paraphrase. If the person has not named the repository and
-nothing here does, ask before running anything.
+change, what to check, and the conventions to match. What you already
+found goes as files, not retyped: `notes` takes paths in your directory
+(`["notes/billing-webhooks.md"]`) and the workflow hands each one whole to
+the coding agent, under the brief, which then says only what to change.
+When a plan for the change already exists in your directory, hand over its
+relevant section rather than a paraphrase. If the person has not named the
+repository and nothing here does, ask before running anything.
 
 Report the pull request as an artifact of kind `pull_request`, under a
 stable id (`pr`, or one per repository when a job touches several), with
 `content: { url, repo, number, state: "open" }` taken from the output.
 
-Size the request first. A change you can state in a sentence and judge
-from the diff alone — text, a constant, a small local edit — takes this
-path: run `code-change-pr` now. Anything larger — several areas, a new
-screen or flow, choices the person would want to make — starts as a plan
-without being asked (`Plan Mode`, under `Job`), and once they say go is
-built in a sandbox with the application running, where they can click
-through it. A change that must build, run or be tested to be judged takes
+Size the request first, against what you know. A change you can state in
+a sentence, in a file you can already name (from the request, or from a
+note in your directory), and judge from the diff alone — text, a constant,
+a small local edit — takes this path: run `code-change-pr` now. Otherwise
+find out first: explore (`Explore`, under `Job`) in this same turn, then
+brief from the note. Anything larger — several areas, a new screen or
+flow, choices the person would want to make — starts as a plan without
+being asked (`Plan Mode`, under `Job`), written from the notes, and once
+they say go is built in a sandbox with the application running, where they
+can click through it. A change that must build, run or be tested to be judged takes
 the sandbox too, plan or not. When this workspace has a workflow for the
 sandbox, it is a child of this Concept and its page says what it takes.
 

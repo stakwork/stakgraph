@@ -40,7 +40,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "code-change-pr",
     description:
-      "A code change as ONE run, task to pull request: check the repo out (git/checkout — at `branch` on a follow-up), let the agent make the change in the working copy, stage and scan it (git/diff), commit and push it as the user (git/push), open the pull request (github/create-pr, idempotent by head). The PR is the proposal: run again with the same `branch` to revise it. Input: { repo, prompt, title, branch?, base?, body? }. Output: { url, number, repo (owner/name), branch, base, headSha, created, filesChanged, files, summary, cost }. Errors: no change → git/push's plain nothing-staged error; push_rejected: | no_push_permission: | pr_create_failed: prefixes as code-change-land.",
+      "A code change as ONE run, task to pull request: check the repo out (git/checkout — at `branch` on a follow-up), let the agent make the change in the working copy, stage and scan it (git/diff), commit and push it as the user (git/push), open the pull request (github/create-pr, idempotent by head). The PR is the proposal: run again with the same `branch` to revise it. Input: { repo, prompt, title, branch?, base?, body?, notes? (under a job: paths in the job's directory, e.g. an explore note, read with job/read and handed whole to the agent under the task) }. Output: { url, number, repo (owner/name), branch, base, headSha, created, filesChanged, files, summary, cost }. Errors: no change → git/push's plain nothing-staged error; push_rejected: | no_push_permission: | pr_create_failed: prefixes as code-change-land.",
   },
 ];
 

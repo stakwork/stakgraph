@@ -133,11 +133,13 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.equal(under.status, "success", JSON.stringify(under.error));
     assert.deepEqual(checkouts.map((c) => c.workdir), ["job-7"], "under a job the copy is kept in the job's directory");
     const cfg = agentCalls.at(-1)!;
-    assert.equal(cfg.session, "job-7", "the job's thread, like the job workflow");
+    // Cold under a job too: a job turn runs explore as a child while its own
+    // agent holds the job's session (one holder per id — `session_busy:`).
+    assert.equal(cfg.session, undefined, "never the job's thread");
     assert.equal(cfg.cwd, join(root, "data", "jobs", "job-7"), "the job's directory");
   });
 
-  it("`session` on the launch wins over the job's", async () => {
+  it("`session` on the launch is the thread, under a job too", async () => {
     agentCalls.length = 0;
     const res = await run({ prompt: "Again, fresh.", session: "thread-2" }, { job: "job-7" });
     assert.equal(res.status, "success", JSON.stringify(res.error));
