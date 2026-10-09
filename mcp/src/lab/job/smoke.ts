@@ -37,8 +37,9 @@ const STEPS = ["job/dir", "git/checkout", "agent", "pack"];
 // Registry steps granted ON TOP of the agent's built-ins (files, bash,
 // web_search, web_fetch — which a filter must never narrow): graph reads for
 // the Concept tree, the meta/* read + run tools (a turn runs another
-// workflow — `code-change-pr` — as a child run under the job), and the
-// pod/* tools (a hive sandbox the job holds between turns).
+// workflow — `code-change-pr` — as a child run under the job), the job/*
+// reads (earlier jobs: strut plans/job-index.md §5), and the pod/* tools
+// (a hive sandbox the job holds between turns).
 const TOOLS: string[] = [
   "graph/graph-search",
   "graph/graph-get",
@@ -48,6 +49,9 @@ const TOOLS: string[] = [
   "meta/get-workflow",
   "meta/run-workflow",
   "meta/get-run",
+  "job/list",
+  "job/get",
+  "job/read",
   "pod/*",
 ];
 
@@ -126,6 +130,9 @@ async function main() {
     await seedJobWorkflows(workspace);
     const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     for (const t of STEPS) assert.ok(registry[t], `registry missing ${t}`);
+    // The granted tools are steps too — a stale strut pin would make a
+    // grant a warning at run time, not a failure here, so check them by name.
+    for (const t of TOOLS.filter((t) => !t.endsWith("/*"))) assert.ok(registry[t], `registry missing granted tool ${t}`);
     const entry = (await workspace.listWorkflows()).find((w) => w.name === JOB);
     assert.ok(entry, `${JOB} not seeded`);
     assert.equal(entry!.category, "job");
