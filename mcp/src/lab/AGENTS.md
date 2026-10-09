@@ -1003,6 +1003,21 @@ relevant with what the answer rests on. Locally it is an ordinary workflow
   instruction. The agent's graph tool calls carry their accessed nodes on
   the run's events (strut's `withAccessedNodes`), so the run flyout's Nodes
   list shows what was read.
+- **Who may call it: a `lab:peer` token.** The calling strut's peer record
+  holds a token this swarm minted for it — `POST /mint-token { scope:
+  "lab:peer", sub?, expires_in? }` with the raw `API_TOKEN` (60 days unless
+  told otherwise) — never the swarm's `API_TOKEN` or an `api` JWT, either of
+  which is admin of this lab. `labAuth` takes it as `Authorization: Bearer`
+  only (never `?key=`, never the dictation socket) and stashes strut's
+  `peer` scope (`resolveLabScope`, `actor.ts`); strut lets a peer read every
+  route, launch a run, and cancel / pause / resume a run a peer launched,
+  and answers 403 to the rest (strut `plans/federation.md` §3). Its actor
+  is the token's `sub`, else the caller's `x-strut-actor` (the person the
+  calling run is for): mint with `sub` to bind a laptop's token to its
+  owner. Outside `/lab` it opens nothing — mcp's own API verifies `api`
+  JWTs only. Launch is NOT narrowed by workflow (strut's ruling,
+  2026-10-09): a peer can launch `job`, whose agent has `bash`, as well as
+  `explore`.
 - `params` are the evolvable surface: `model` (`sonnet`), `maxSteps` (40),
   `tools`, `builtins`, `system`. Tests (`explore/seed.test.ts`, offline — a
   fake `agent` and a fake `git/checkout`, the real registry for `job/dir`,

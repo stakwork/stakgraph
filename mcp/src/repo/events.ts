@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 import jwt from "jsonwebtoken";
-import { Response } from "express";
+import type { Request, Response } from "express";
 import { BUSY_TIMEOUT_MINUTES } from "../busy.js";
 
 // ── Bus / JWT lifetime constants ─────────────────────────────────────────
@@ -44,8 +44,16 @@ export function verifyEventsToken(token: string): EventsTokenPayload {
 
 // ── Generic API access tokens (for browser SPA) ──────────────────────────
 
+/**
+ * What a `/mint-token` JWT opens. `api`: mcp's API and the lab — the embed,
+ * mcp's own SPAs. `lab:peer`: ANOTHER STRUT calling this lab (strut
+ * `plans/federation.md` §3) — the lab only, as strut's `peer` scope: read,
+ * launch a run, and control a run a peer launched (lab/mount.ts).
+ */
+export type ApiTokenScope = "api" | "lab:peer";
+
 export interface ApiTokenPayload {
-  scope: "api";
+  scope: ApiTokenScope;
   /** Who the token was minted for (`/mint-token` body `sub`) — the strut
    *  `actor` the lab attributes an embed's requests to (lab/mount.ts). An
    *  opaque string chosen by the minting host; absent on tokens minted for
@@ -56,27 +64,81 @@ export interface ApiTokenPayload {
 }
 
 /**
- * Sign a short-lived JWT granting general API access.
- * Injected into the SPA's index.html after Basic Auth / x-api-token passes.
- * `sub`, when given, names who the token is for (see `ApiTokenPayload`).
+ * Sign a JWT granting API access — short-lived for the SPA (injected into
+ * its index.html after Basic Auth / x-api-token passes), long-lived for a
+ * peer. `sub`, when given, names who the token is for (see `ApiTokenPayload`).
  */
 export function signApiToken(
   expiresIn: jwt.SignOptions["expiresIn"] = "1h",
   sub?: string,
+  scope: ApiTokenScope = "api",
 ): string {
-  const payload: ApiTokenPayload = { scope: "api", ...(sub ? { sub } : {}) };
+  const payload: ApiTokenPayload = { scope, ...(sub ? { sub } : {}) };
   return jwt.sign(payload, getSecret(), { expiresIn });
 }
 
 /**
- * Verify an API access JWT. Throws if invalid/expired.
+ * Verify an API access JWT of one of the `accept`ed scopes — `api` unless the
+ * caller says otherwise, so a `lab:peer` token opens nothing outside the lab.
+ * Throws if invalid/expired or of another scope.
  */
-export function verifyApiToken(token: string): ApiTokenPayload {
+export function verifyApiToken(
+  token: string,
+  accept: readonly ApiTokenScope[] = ["api"],
+): ApiTokenPayload {
   const payload = jwt.verify(token, getSecret()) as ApiTokenPayload;
-  if (payload.scope !== "api") {
+  if (!accept.includes(payload.scope)) {
     throw new Error("Invalid token scope");
   }
   return payload;
+}
+
+// Mint a short-lived JWT for iframe embedding. The parent site authenticates
+// itself with the raw API_TOKEN (server-to-server), and gets back a JWT it
+// can put in `?token=` on the iframe src so the page loads without a Basic
+// Auth prompt. The SPA strips the token from the URL on load.
+//
+// Auth: requires `x-api-token: <API_TOKEN>` header *only* — deliberately not
+// using r.authMiddleware (which would also accept a Bearer JWT). Allowing JWT
+// auth here would let any holder of a valid JWT renew it indefinitely,
+// defeating the short-expiry guarantee. Only the raw API_TOKEN can mint.
+// If API_TOKEN is unset (dev mode), this endpoint is disabled.
+//
+// Body: `expires_in` (default "1h") and an optional `sub` — who the token is
+// for. It becomes the JWT's `sub`, which the lab reads back as strut's
+// `actor` (lab/mount.ts): hive sends the user's bifrost name so the spend
+// strut routes through the Mothership merges with that user's other spend.
+//
+// `scope` (default "api"): "lab:peer" mints the token ANOTHER strut holds for
+// this lab (strut plans/federation.md §3) — Bearer only, the lab only, and
+// strut's `peer` scope there: read, launch a run, control a run a peer
+// launched. Long-lived by default ("60d", the delegation's lifetime): it is
+// pasted into a peer record, not re-minted per page load.
+export function mintToken(req: Request, res: Response): void {
+  const apiToken = process.env.API_TOKEN;
+  if (!apiToken) {
+    res.status(503).json({ error: "API_TOKEN not configured" });
+    return;
+  }
+  if (req.header("x-api-token") !== apiToken) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const scope = req.body?.scope ?? "api";
+  if (scope !== "api" && scope !== "lab:peer") {
+    res.status(400).json({ error: `unknown scope ${JSON.stringify(scope)} — "api" or "lab:peer"` });
+    return;
+  }
+  const expiresIn =
+    (req.body?.expires_in as string | undefined) || (scope === "lab:peer" ? "60d" : "1h");
+  const rawSub = req.body?.sub;
+  const sub = typeof rawSub === "string" && rawSub.trim() ? rawSub.trim() : undefined;
+  try {
+    const token = signApiToken(expiresIn as any, sub, scope);
+    res.json({ token, expires_in: expiresIn, scope, ...(sub ? { sub } : {}) });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to mint token" });
+  }
 }
 
 // ── Per-request event bus ────────────────────────────────────────────────
