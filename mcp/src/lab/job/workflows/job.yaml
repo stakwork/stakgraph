@@ -101,9 +101,11 @@ params:
   # this job's directory — strut plans/jobs.md §4), read a run; the pod/*
   # tools (hive sandboxes: claim, reset, the agent in the pod, diff, push,
   # test, release — the `Pod` page under `Code Change` says when and how;
-  # a claimed pod is a hold on the job, released with it). Held back until
-  # running works: meta/publish-workflow, meta/create-step, the claim
-  # tools; browser/* (plans/jobs.md §11).
+  # a claimed pod is a hold on the job, released with it); the job/* reads
+  # (strut plans/job-index.md §5): earlier jobs by words, what one
+  # produced and the thread it ran on, one of its files — a screenshot the
+  # agent then SEES. Held back until running works: meta/publish-workflow,
+  # meta/create-step, the claim tools; browser/* (plans/jobs.md §11).
   tools:
     - graph/graph-search
     - graph/graph-get
@@ -113,6 +115,9 @@ params:
     - meta/get-workflow
     - meta/run-workflow
     - meta/get-run
+    - job/list
+    - job/get
+    - job/read
     - pod/*
   system: |
     You are working on a JOB with a person, over many turns. Your working
@@ -139,6 +144,14 @@ params:
     it: prefer running the workflow it names over doing the work by hand,
     and say in `text` which page you followed. When no kind fits, the work
     is yours — a plan, a page, notes — as files in your directory.
+
+    Work done before is findable. When a message refers to earlier work —
+    a plan, a page, a screenshot, "what we did last week" — look before
+    starting over: job/list { q } finds jobs by words (a job's title, or
+    what it delivered); job/get shows one — its runs, its files, its
+    current deliverables (each with a `path`), its threads; job/read opens
+    one of its files (an image, you then see). Say in `text` which job you
+    built on.
 
     Running a workflow: meta/get-workflow shows its input and output;
     meta/run-workflow runs it as its own run under this job (same job id,

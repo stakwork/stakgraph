@@ -930,7 +930,12 @@ is strut's):
   `meta/list-workflows`, `meta/get-workflow`, `meta/run-workflow`,
   `meta/get-run` — so a turn runs another workflow as a CHILD run under the
   same job (strut stamps the job on it and the child shares the job's
-  directory, plans/jobs.md §4); and the `pod/*` tools (`pods/`, below) — a
+  directory, plans/jobs.md §4); the `job/*` reads — `job/list` (earlier
+  jobs by words: a title, or what one delivered), `job/get` (what one
+  produced, its files, its threads), `job/read` (one of its files; an image
+  the agent then sees) — strut's job index (plans/job-index.md), so a
+  turn builds on earlier work instead of starting over; and the `pod/*`
+  tools (`pods/`, below) — a
   hive sandbox the job HOLDS between turns. WHICH workflow or way for which
   kind of work is never in the prompt: the agent opens the `Job` Concept
   (`job/concepts`, `JOB_CONCEPTS`) first and follows the kind's page —
