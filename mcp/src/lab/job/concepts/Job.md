@@ -12,6 +12,12 @@ Match the request to a kind and open that page before you act. When a
 page names a workflow, run it rather than doing the work by hand. When no
 kind fits, the work is yours.
 
+Work done before is findable, whatever its kind: `job/list { q }` finds
+earlier jobs by words (a title, or what one delivered), `job/get` shows
+what one produced and the thread it ran on, `job/read` opens one of its
+files. When a request builds on earlier work, look there before starting
+over.
+
 Seeing what a page shows is a workflow too. You have no browser of your
 own: to look at a site or a running app, run `browser-explore` —
 `meta/run-workflow { name: "browser-explore", input: { goal, url } }` —
