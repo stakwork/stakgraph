@@ -8,7 +8,7 @@ export default defineStep({
     "or the person says so; a pod the job still needs stays claimed (strut releases it itself when the job is deleted or idle too long). " +
     "A pod hive no longer knows, or has since handed to someone else, counts as released: it is not this job's any more. Output: { podId, released: true }.",
   input: z.object({
-    workspace: z.string().min(1).describe("The hive workspace id the pod was claimed for"),
+    workspace: z.string().min(1).describe("The hive workspace the pod was claimed for, as given to pod/claim (slug or id)"),
     podId: z.string().min(1).describe("The pod, from pod/claim"),
   }),
   output: z.object({ podId: z.string(), released: z.literal(true) }),

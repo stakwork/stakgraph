@@ -12,7 +12,7 @@ export default defineStep({
     "claim again only when a pod step says the pod rejected its password. Fails `no pod available` when the pool is empty: try later. " +
     "On a run with a job hive records the job as the pod's claimant (its pod list shows the job and who started it), and pod/release lets go of it only while it still is.",
   input: z.object({
-    workspace: z.string().min(1).describe("The hive workspace id the pod belongs to (a job's messages start with it: `Hive workspace: <id>`)"),
+    workspace: z.string().min(1).describe("The hive workspace the pod belongs to, by its slug (no `@`) or id: the workspace whose code is changing. A job's first line names its own: `Hive workspace: @<slug>`"),
   }),
   output: z.object({
     podId: z.string(),
@@ -39,7 +39,7 @@ export default defineStep({
     const res = await ctx.services.http(url, { method: "POST", headers });
     if (res.status === 503) throw new Error(`no pod available in workspace "${cfg.workspace}" right now — try again in a few minutes`);
     if (!res.ok) {
-      throw new Error(`hive claim-pod for workspace "${cfg.workspace}": HTTP ${res.status} — ${brief(res.body)} (is the id right, and HIVE_API_KEY an org key for its org?)`);
+      throw new Error(`hive claim-pod for workspace "${cfg.workspace}": HTTP ${res.status} — ${brief(res.body)} (is the workspace right — a slug or id of this org — and HIVE_API_KEY an org key for its org?)`);
     }
     const b: any = res.body ?? {};
     const podId = b.podId ?? b.pod_id;

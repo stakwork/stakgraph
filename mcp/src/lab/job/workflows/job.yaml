@@ -10,9 +10,13 @@ name: job
 # never prompt text: the agent opens the `Job` Concept first and follows the
 # kind's page (`Code Change` names `code-change-pr` and its child `Pod` says
 # when a sandbox is warranted, `Plan Mode` says how to plan); publishing and
-# authoring are later lines. `workspace` is the hive workspace the job
-# belongs to: the host passes its id beside the prompt, the message the
-# agent gets starts with it, and a pod is claimed for it. `session` is the
+# authoring are later lines. `workspace` is the hive workspace this strut
+# belongs to, by its slug: the host passes it beside the prompt and the
+# message the agent gets starts with it. Every OTHER workspace of the org is
+# a peer strut, named by its slug (`@<slug>` in a message) and reached with
+# strut/run-workflow — that workspace's graph and repositories, explored
+# there; a pod is claimed for whichever workspace's code is changing.
+# `session` is the
 # agent's thread: the job id unless the launch names one, so every turn of
 # a job continues one thread by default, and a host that wants a fresh
 # thread over the same files — or a second thread beside the first — passes
@@ -23,7 +27,7 @@ name: job
 # turn to turn under the job, a fresh copy in a one-shot's own directory.
 input:
   prompt: { type: string, description: "What to do this turn" }
-  workspace: { type: string, required: false, description: "The hive workspace this job belongs to (its id): where its pods are claimed" }
+  workspace: { type: string, required: false, description: "The hive workspace this strut belongs to, by its slug. Another workspace of the org is a peer, @<slug>" }
   session: { type: string, required: false, description: "The agent's thread (a session id). Defaults to the job id — one thread across every turn of the job. Pass one to work on the job's files with a different thread (a fresh one, or a second beside the first)" }
   repos: { type: json, required: false, description: "Repository URLs to check out into the job's directory, one subdirectory each, kept there turn to turn (a private one needs the launching person's GITHUB_TOKEN here)" }
 steps:
@@ -51,7 +55,7 @@ steps:
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
       system: "{{ params.system }}"
-      prompt: "{{ input.workspace ? 'Hive workspace: ' + input.workspace + '. ' : '' }}{{ checkouts.length ? 'Repositories checked out in your directory, one subdirectory each: ' + checkouts.map(c => c.repo).join(', ') + '. ' : '' }}{{ input.prompt }}"
+      prompt: "{{ input.workspace ? 'Hive workspace: @' + input.workspace + ', the one this strut belongs to. ' : '' }}{{ checkouts.length ? 'Repositories checked out in your directory, one subdirectory each: ' + checkouts.map(c => c.repo).join(', ') + '. ' : '' }}{{ input.prompt }}"
       agentTools: "{{ params.tools }}"
       schema:
         type: object
@@ -98,7 +102,9 @@ params:
   # bash, str_replace_based_edit_tool, web_search, web_fetch — which are
   # always on. Graph reads (the Concept tree), then the meta/* read + run
   # tools: list/get a workflow, run it (as a child run under this job, in
-  # this job's directory — strut plans/jobs.md §4), read a run; the pod/*
+  # this job's directory — strut plans/jobs.md §4), read a run;
+  # strut/run-workflow, the same on a PEER — another workspace's strut, by
+  # its slug (strut plans/federation.md §2.2; its files stay there); the pod/*
   # tools (hive sandboxes: claim, reset, the agent in the pod, diff, push,
   # test, release — the `Pod` page under `Code Change` says when and how;
   # a claimed pod is a hold on the job, released with it); the job/* reads
@@ -115,6 +121,7 @@ params:
     - meta/get-workflow
     - meta/run-workflow
     - meta/get-run
+    - strut/run-workflow
     - job/list
     - job/get
     - job/read
@@ -157,4 +164,6 @@ params:
     meta/run-workflow runs it as its own run under this job (same job id,
     same directory) and returns its output; meta/get-run explains a
     failure; meta/list-workflows lists every workflow when no page names
-    one.
+    one. strut/run-workflow runs one on a PEER — the strut of another
+    workspace in this org, named by its slug (`@<slug>` in a message) —
+    and returns its output; its files stay there.
