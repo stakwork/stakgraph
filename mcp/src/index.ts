@@ -50,7 +50,7 @@ import {
   getBus,
   verifyEventsToken,
   pipeToSSE,
-  signApiToken,
+  mintToken,
 } from "./repo/events.js";
 import { sendIndexWithToken } from "./utils.js";
 
@@ -186,41 +186,9 @@ app.get("/busy", (req: Request, res: Response) => {
 app.get("/gitsee/events/:owner/:repo", r.gitseeEvents);
 app.get("/server-config", r.server_config);
 
-// Mint a short-lived JWT for iframe embedding. The parent site authenticates
-// itself with the raw API_TOKEN (server-to-server), and gets back a JWT it
-// can put in `?token=` on the iframe src so the page loads without a Basic
-// Auth prompt. The SPA strips the token from the URL on load.
-//
-// Auth: requires `x-api-token: <API_TOKEN>` header *only* — deliberately not
-// using r.authMiddleware (which would also accept a Bearer JWT). Allowing JWT
-// auth here would let any holder of a valid JWT renew it indefinitely,
-// defeating the short-expiry guarantee. Only the raw API_TOKEN can mint.
-// If API_TOKEN is unset (dev mode), this endpoint is disabled.
-//
-// Body: `expires_in` (default "1h") and an optional `sub` — who the token is
-// for. It becomes the JWT's `sub`, which the lab reads back as strut's
-// `actor` (lab/mount.ts): hive sends the user's bifrost name so the spend
-// strut routes through the Mothership merges with that user's other spend.
-app.post("/mint-token", (req: Request, res: Response): void => {
-  const apiToken = process.env.API_TOKEN;
-  if (!apiToken) {
-    res.status(503).json({ error: "API_TOKEN not configured" });
-    return;
-  }
-  if (req.header("x-api-token") !== apiToken) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  const expiresIn = (req.body?.expires_in as string | undefined) || "1h";
-  const rawSub = req.body?.sub;
-  const sub = typeof rawSub === "string" && rawSub.trim() ? rawSub.trim() : undefined;
-  try {
-    const token = signApiToken(expiresIn as any, sub);
-    res.json({ token, expires_in: expiresIn, ...(sub ? { sub } : {}) });
-  } catch (e) {
-    res.status(500).json({ error: "Failed to mint token" });
-  }
-});
+// Mint a JWT — for an iframe embed, or for another strut (`scope:
+// "lab:peer"`). Only the raw API_TOKEN can mint; see `mintToken`.
+app.post("/mint-token", mintToken);
 
 // Sessions API routes are public (pre-auth)
 app.use("/api", benchmarkRouter());

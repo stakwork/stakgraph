@@ -4,8 +4,8 @@ import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
 import { createAudioUpgradeHandler, type AudioUpgradeHandler } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
-import { stashLabActor } from "./actor.js";
-import { verifyApiToken, type ApiTokenPayload } from "../repo/events.js";
+import { stashLabActor, stashLabScope } from "./actor.js";
+import { verifyApiToken, type ApiTokenPayload, type ApiTokenScope } from "../repo/events.js";
 
 /** The one lab strut, built on first use (HTTP request or dictation upgrade). */
 let labStrutP: ReturnType<typeof createLabStrut> | null = null;
@@ -33,12 +33,16 @@ function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
   };
 }
 
-/** The payload of a live `/mint-token` JWT — `undefined` when the token is
- *  missing, malformed, expired, or of another scope. */
-function isEmbedJwt(token: string | null | undefined): ApiTokenPayload | undefined {
+/** The payload of a live `/mint-token` JWT of an `accept`ed scope —
+ *  `undefined` when the token is missing, malformed, expired, or of another
+ *  scope. */
+function isEmbedJwt(
+  token: string | null | undefined,
+  accept: readonly ApiTokenScope[] = ["api"],
+): ApiTokenPayload | undefined {
   if (!token) return undefined;
   try {
-    return verifyApiToken(token);
+    return verifyApiToken(token, accept);
   } catch {
     return undefined;
   }
@@ -54,11 +58,16 @@ interface LabCredentials {
 
 /** What an accepted credential grants: entry, plus — when the credential
  *  says who is asking — the strut `actor` the request is attributed to
- *  (plans/mothership-cost-control.md §5). */
+ *  (plans/mothership-cost-control.md §5), and for a peer, its scope. */
 interface LabGrant {
   /** JWT → its `sub`. `x-api-token` → hive's own `x-strut-actor` header,
-   *  trusted because the token proves the caller is hive. Basic → none. */
+   *  trusted because the token proves the caller is hive. A `lab:peer` JWT
+   *  → its `sub`, else the caller's `x-strut-actor`: the person the calling
+   *  strut's run is for. Basic → none. */
   actor?: string;
+  /** `peer` for a `lab:peer` JWT — another strut (strut plans/federation.md
+   *  §3). Strut decides what that may do; absent = everything, as before. */
+  scope?: "peer";
 }
 
 const grant = (actor: string | undefined): LabGrant => {
@@ -79,7 +88,12 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
   if (viaKey) return grant(viaKey.sub);
   const header = req.header("authorization") ?? "";
   if (header.startsWith("Bearer ")) {
-    const viaBearer = isEmbedJwt(header.slice(7).trim());
+    // A peer token is long-lived and held by a machine, so it is a header
+    // only: never `?key=`, where it would sit in a URL.
+    const viaBearer = isEmbedJwt(header.slice(7).trim(), ["api", "lab:peer"]);
+    if (viaBearer?.scope === "lab:peer") {
+      return { ...grant(viaBearer.sub ?? req.header("x-strut-actor")), scope: "peer" };
+    }
     if (viaBearer) return grant(viaBearer.sub);
   }
   if (header.startsWith("Basic ")) {
@@ -121,6 +135,13 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
  * request for strut's `resolveActor` hook — a header rewrite would not
  * survive the Hono bridge (see actor.ts).
  *
+ * A fourth, for ANOTHER STRUT: a `lab:peer` JWT (`/mint-token { scope:
+ * "lab:peer" }`), as Bearer only. Its request is stashed as strut's `peer`
+ * scope (`resolveScope`), and strut answers it as one — every read, a
+ * launch, control of a run a peer launched, 403 for the rest (strut
+ * plans/federation.md §3). Its actor is its `sub`, else the caller's
+ * `x-strut-actor` — the person the calling strut's run is for.
+ *
  * One kind of request passes with none of the three: a read of a run's
  * artifacts or a job's files carrying strut's own FILE TOKEN
  * (`isTokenFileRead`) — strut judges that one.
@@ -131,6 +152,7 @@ export function labAuth(req: Request, res: Response, next: NextFunction): void {
   const granted = labAuthorized({ header: (name) => req.header(name), key });
   if (granted) {
     stashLabActor(req, granted.actor);
+    stashLabScope(req, granted.scope);
     return next();
   }
   // A client that showed up with a (now bad or expired) JWT is an embed, not
@@ -225,9 +247,10 @@ export function attachLabAudio(server: Server): void {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== LAB_AUDIO_STREAM) return reject(socket, "404 Not Found");
     const header = (name: string) => req.headers[name.toLowerCase()] as string | undefined;
-    if (!labAuthorized({ header, key: url.searchParams.get("key") })) {
-      return reject(socket, "401 Unauthorized");
-    }
+    const granted = labAuthorized({ header, key: url.searchParams.get("key") });
+    if (!granted) return reject(socket, "401 Unauthorized");
+    // Dictation is not what a peer is for (read, launch, control its runs).
+    if (granted.scope === "peer") return reject(socket, "403 Forbidden");
     handler()
       .then((h) => {
         if (!h) return reject(socket, "501 Not Implemented");

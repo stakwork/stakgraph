@@ -37,7 +37,7 @@ import { seedConcepts } from "./concept-seed.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
-import { resolveLabActor } from "./actor.js";
+import { resolveLabActor, resolveLabScope } from "./actor.js";
 
 /**
  * Lets a step run other workflows (and read their params) from inside a run —
@@ -280,6 +280,9 @@ export async function createLabStrut(
     // `x-api-token` call. Nothing off the Express bridge (smoke scripts,
     // tests calling `app.fetch`): no actor, so no owner stamp and direct keys.
     resolveActor: resolveLabActor,
+    // And what it may do: `peer` for a `lab:peer` token — another strut,
+    // which strut lets read, launch, and control the runs a peer launched.
+    resolveScope: resolveLabScope,
     // The builder's prompt gets the `Workflow Builder` Concept's page, read
     // off the graph when a chat's first turn builds its prompt — strut then
     // freezes the prompt for that chat (builder/system.ts). Nothing on the fs
