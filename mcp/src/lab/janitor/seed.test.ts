@@ -96,7 +96,7 @@ describe("parseConceptFile", () => {
     assert.equal(cc.description, "A change to a repository's source code, delivered as a pull request.");
     assert.ok(cc.docs!.startsWith(cc.description!));
     // The convention: the workflow and how to read it, the follow-up rule, the credential failure, the artifact, how to extend.
-    for (const needle of [/code-change-pr/, /meta\/get-workflow/, /same `branch`/, /no_push_permission:/, /pull_request/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /`notes`/, /`Explore`/]) assert.match(cc.docs!, needle);
+    for (const needle of [/code-change-pr/, /meta\/get-workflow/, /same `branch`/, /no_push_permission:/, /pull_request/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /cannot read your directory/, /`Explore`/]) assert.match(cc.docs!, needle);
     assert.doesNotMatch(cc.docs!, /pod-pr|hive\//, "workspace-general: no one swarm's workflow or step by name");
 
     // What counts as dirty is each workspace's to say: the seed ships the kind, never a mandate.

@@ -9,7 +9,7 @@ name: code-change-pr
 # branch with the earlier commits on it. Hive's older two-step preview and
 # approval are `code-change-propose` + `code-change-land`, beside this.
 #
-# Input:  { repo, prompt, title, branch?, base?, body?, notes? }
+# Input:  { repo, prompt, title, branch?, base?, body? }
 #         repo   "https://github.com/owner/repo" — no credential in it.
 #         prompt the change, in plain words: what the coding agent is told.
 #         title  the pull request's title; also the commit's first line.
@@ -21,13 +21,6 @@ name: code-change-pr
 #                branch (checkout.branch), on every turn.
 #         body   the pull request's description; default = the agent's own
 #                summary (its final answer).
-#         notes  paths of files in the JOB's directory — an explore note,
-#                `notes/<topic>.md` — read with job/read and handed whole to
-#                the coding agent under the task, so the job agent passes
-#                what it found by path instead of retyping it. Read only
-#                under a job (`{{ $job }}`); a one-shot has no job
-#                directory and ignores them. A path that is not there fails
-#                the run before anything is checked out or pushed.
 #         The token is the run principal's GITHUB_TOKEN actor secret (hive
 #         pushes it per dispatch), else the deployment's — never in the
 #         input: it clones, names the commit author (GET /user) and authors
@@ -48,22 +41,8 @@ input:
   branch: { type: string, required: false, description: "Branch to push to. Omit on the first turn (one is made); pass the branch a previous run returned to revise that pull request" }
   base: { type: string, required: false, description: "Pull request base; default = the repository's default branch" }
   body: { type: string, required: false, description: "Pull request description; default = the agent's summary" }
-  notes: { type: json, required: false, description: "Paths of notes in the job's directory (e.g. [\"notes/billing-webhooks.md\"]) handed whole to the coding agent under the task. Under a job only" }
 
 steps:
-  # The job's notes, first: a wrong path fails here, before a checkout.
-  # 0 — foreach takes a count — is "no notes", and what a one-shot gets.
-  - id: notes
-    type: foreach
-    config:
-      items: "{{ $job && input.notes ? input.notes : 0 }}"
-      body:
-        id: note
-        type: job/read
-        config:
-          job: "{{ $job }}"
-          path: "{{ $current }}"
-
   # ref = input.branch on a follow-up (the PR's branch, with the earlier
   # commits), undefined on the first turn (the remote's default branch).
   - id: checkout
@@ -77,9 +56,7 @@ steps:
     config:
       cwd: "{{ checkout.path }}"
       system: "{{ params.system }}"
-      # The task, then each note under it. Newlines come from params: a
-      # template expression cannot hold one.
-      prompt: "{{ notes.length ? input.prompt + params.notes_heading + notes.map(n => params.note_open + n.path + params.note_close + (n.text || n.error || '')).join('') : input.prompt }}"
+      prompt: "{{ input.prompt }}"
       finalAnswer: "{{ params.finalAnswer }}"
       model: "{{ params.model }}"
       maxSteps: "{{ params.maxSteps }}"
@@ -132,10 +109,6 @@ params:
   maxSteps: 120
   # The first turn's branch is this prefix + the run id.
   branch_prefix: strut/
-  # How notes sit under the task in the agent's prompt.
-  notes_heading: "\n\nNotes from an earlier look at this code, kept in the job's directory. Start from what they name — files, conventions, checks — and verify as you go rather than surveying the repository again."
-  note_open: "\n\n--- "
-  note_close: " ---\n\n"
   finalAnswer: |-
     Your summary of the change for the pull request's reviewer: the files
     you touched, what you changed and why, what you checked (and what you
@@ -149,9 +122,7 @@ params:
     - Orient first: repo_overview, then read the files the task names and the
       code around them (fulltext_search, file_summary, the editor's view).
       Match the project's existing conventions — style, naming, error
-      handling, tests — rather than introducing your own. Notes under the
-      task come from an earlier exploration of this code: start from the
-      files and conventions they name, and check what you rely on.
+      handling, tests — rather than introducing your own.
     - The working copy may be a branch with earlier commits from a previous
       turn of the same task: read what is there and continue it; do not redo
       or undo it unless the task says so.

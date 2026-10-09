@@ -40,7 +40,7 @@ import { seedCodeWorkflows } from "./seed.js";
 const PROPOSE = "code-change-propose";
 const LAND = "code-change-land";
 const PR = "code-change-pr";
-const STEPS = ["git/checkout", "git/diff", "git/apply", "git/push", "github/create-pr", "job/read", "agent", "pack"];
+const STEPS = ["git/checkout", "git/diff", "git/apply", "git/push", "github/create-pr", "agent", "pack"];
 
 const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
@@ -256,48 +256,6 @@ async function main() {
     assert.equal(ao["url"], po["url"]);
     assert.deepEqual(prCalls.at(-1), { repo, head: branch, base: "main", title: "smoke: hello via pr", body: "Edited README.md and added hello.txt." });
     console.log(`✔ ${PR} turn 2 (branch: ${branch}): ${sha2.slice(0, 8)} on top of ${sha1.slice(0, 8)}, the same PR #${ao["number"]} (created: false)`);
-
-    // Notes: under a job, each path is read from the job's directory
-    // (job/read — faked here: the index is the server's) and handed to the
-    // agent whole, under the task. A one-shot has no job directory: it
-    // ignores them and the agent gets the task alone.
-    const reads: Array<{ job: string; path: string }> = [];
-    const fakeJobRead = defineStep({
-      type: "job/read",
-      input: z.object({ job: z.string(), path: z.string() }).passthrough(),
-      output: z.any(),
-      async run(cfg) {
-        reads.push({ job: cfg.job, path: cfg.path });
-        return { path: cfg.path, kind: "markdown", text: `What was found, in ${cfg.path}.` };
-      },
-    });
-    const prompts: string[] = [];
-    const promptAgent = defineStep({
-      type: "agent",
-      input: z.object({ cwd: z.string(), prompt: z.string() }).passthrough(),
-      output: z.any(),
-      async run(cfg) {
-        prompts.push(cfg.prompt);
-        writeFileSync(join(cfg.cwd, "noted.txt"), `turn ${prompts.length}\n`);
-        return { result: "Changed what the notes named.", steps: 1, usage: { input: 1, output: 1 }, cost: 0 };
-      },
-    });
-    const notesRegistry = { ...prRegistry, agent: promptAgent, "job/read": fakeJobRead } as typeof registry;
-    const noted = await runWorkflow(pr, { ...prInput, title: "smoke: notes", notes: ["notes/auth.md", "notes/tests.md"] }, notesRegistry, { services, job: "job-notes" });
-    assert.equal(noted.status, "success", JSON.stringify(noted.error));
-    assert.deepEqual(reads, [{ job: "job-notes", path: "notes/auth.md" }, { job: "job-notes", path: "notes/tests.md" }], "each note read from the job's directory, in order");
-    assert.equal(
-      prompts.at(-1),
-      `${prInput.prompt}\n\nNotes from an earlier look at this code, kept in the job's directory. Start from what they name — files, conventions, checks — and verify as you go rather than surveying the repository again.` +
-        `\n\n--- notes/auth.md ---\n\nWhat was found, in notes/auth.md.` +
-        `\n\n--- notes/tests.md ---\n\nWhat was found, in notes/tests.md.`,
-      "the task, then each note whole under it",
-    );
-    const oneShot = await runWorkflow(pr, { ...prInput, title: "smoke: notes, no job", notes: ["notes/auth.md"] }, notesRegistry, { services });
-    assert.equal(oneShot.status, "success", JSON.stringify(oneShot.error));
-    assert.equal(reads.length, 2, "a one-shot reads no notes");
-    assert.equal(prompts.at(-1), prInput.prompt, "a one-shot's agent gets the task alone");
-    console.log(`✔ ${PR} with notes: under a job each is read (job/read) and handed whole under the task; a one-shot ignores them`);
 
     // An agent that made no change: nothing to push, no pull request.
     const calls = prCalls.length;

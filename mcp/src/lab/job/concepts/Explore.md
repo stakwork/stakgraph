@@ -54,6 +54,7 @@ Report it as `{ id: "notes-<topic>", kind: "markdown", title, label: "Notes", pa
 the same id each time it is revised. In `text`, give the gist in a few
 sentences; the note carries the detail.
 
-A note is how the work goes on. A change built on it passes its path to
-the workflow that makes the change, and the next turn reads it instead of
-exploring again.
+A note is how the work goes on. The next turn reads it instead of
+exploring again. A change built on it carries what it found in the brief:
+the agent making the change, here, on a peer or in a pod, cannot read
+your directory.

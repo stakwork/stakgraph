@@ -25,12 +25,12 @@ error means that token cannot push to the repository: stop and ask.
 
 The brief (`prompt`) must stand alone: the coding agent sees nothing of
 this conversation. Name the repository, the files or area, the exact
-change, what to check, and the conventions to match. What you already
-found goes as files, not retyped: `notes` takes paths in your directory
-(`["notes/billing-webhooks.md"]`) and the workflow hands each one whole to
-the coding agent, under the brief, which then says only what to change.
+change, what to check, and the conventions to match. The coding agent
+cannot read your directory: when a note there bears on the change, put
+what it found in the brief (the files and lines, the conventions, the
+checks), quoted rather than paraphrased, and only what this change needs.
 When a plan for the change already exists in your directory, hand over its
-relevant section rather than a paraphrase. If the person has not named the
+relevant section the same way. If the person has not named the
 repository and nothing here does, ask before running anything.
 
 Report the pull request as an artifact of kind `pull_request`, under a
