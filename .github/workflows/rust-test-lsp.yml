@@ -73,6 +73,11 @@ jobs:
       # -------------------- Java / Kotlin --------------------
       - name: Install OpenJDK 17 and jq
         run: |
+          # GH ubuntu runners ship Google Chrome's apt repo, which flakes
+          # with Hash Sum mismatch. This job does not need Chrome.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome*.list \
+                     /etc/apt/sources.list.d/google-chrome*.sources
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk jq unzip curl
 
@@ -84,9 +89,17 @@ jobs:
 
       - name: Install Kotlin compiler via SDKMAN
         run: |
-          curl -s "https://get.sdkman.io" | bash
+          for i in 1 2 3 4 5; do
+            curl -s "https://get.sdkman.io" | bash && break
+            echo "SDKMAN install attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
           source "$HOME/.sdkman/bin/sdkman-init.sh"
-          sdk install kotlin
+          for i in 1 2 3 4 5; do
+            sdk install kotlin && break
+            echo "sdk install kotlin attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
           kotlin -version
           echo "$HOME/.sdkman/candidates/kotlin/current/bin" >> $GITHUB_PATH
 
@@ -115,6 +128,11 @@ jobs:
       # -------------------- Ruby --------------------
       - name: Install Ruby and dependencies
         run: |
+          # Same Chrome-repo flake as the OpenJDK step — drop it again in
+          # case a later runner image re-adds the source.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome*.list \
+                     /etc/apt/sources.list.d/google-chrome*.sources
           sudo apt-get update
           sudo apt-get install -y ruby-full build-essential
 
