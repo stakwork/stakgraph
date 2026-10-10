@@ -15,6 +15,7 @@ import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps } from "./wfbench/seed.js";
 import { seedBrowserSteps } from "./browser/seed.js";
 import { seedPodSteps } from "./pods/seed.js";
+import { seedExploreSteps } from "./explore/seed.js";
 
 // The mcp dir, like the real lab-workspace: a seeded step's bare package
 // imports (`ai`, `aieo`, `js-yaml`, …) resolve via mcp/node_modules from there.
@@ -37,6 +38,7 @@ describe("seeded lab steps", () => {
         seedWfbenchSteps,
         seedBrowserSteps,
         seedPodSteps,
+        seedExploreSteps,
       ]) {
         await seed(ws);
       }
@@ -46,7 +48,7 @@ describe("seeded lab steps", () => {
       // A step that imports mcp source by relative path (e.g. `../../cost.js`)
       // is skipped by discovery with only a warning.
       assert.deepEqual(seeded.filter((t) => !registry[t]), []);
-      for (const t of ["eval/reflect", "gitsee/boot-and-exercise", "gitsee/score-setup", "gitsee/verify-setup"]) {
+      for (const t of ["eval/reflect", "gitsee/boot-and-exercise", "gitsee/score-setup", "gitsee/verify-setup", "explore/repositories"]) {
         assert.ok(registry[t], `registry missing ${t}`);
       }
     } finally {

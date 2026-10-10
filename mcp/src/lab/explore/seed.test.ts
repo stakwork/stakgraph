@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { WorkspaceManager, buildRegistry, createStrut, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
-import { seedExploreWorkflows } from "./seed.js";
+import { seedExploreSteps, seedExploreWorkflows } from "./seed.js";
+import { repoNote, repoRef } from "./steps/repositories.js";
 
 /** The graph read steps the explorer may hold — the committed list, so a
  *  write step or a glob slipping into params.tools fails here. */
@@ -49,12 +50,27 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
       return { path: join(cfg.workdir ? `/jobs/${cfg.workdir}` : `/artifacts/${ctx.runId}`, name), repo: `acme/${name}`, sha: "abc", ref: "main", branch: "main", host: "github.com", url: cfg.repo };
     },
   });
+  /** The graph's repositories, as a stand-in for the real step's Neo4j read
+   *  (the real one would open a backend on whatever is at localhost:7687). */
+  let graphRepos: Array<{ repo: string; ref_id?: string }> = [];
+  const repoCalls: Record<string, any>[] = [];
+  const fakeRepositories = defineStep({
+    type: "explore/repositories",
+    input: z.object({}).passthrough(),
+    output: z.any(),
+    async run(cfg: any) {
+      repoCalls.push(cfg);
+      const checkedOut = (cfg.repos ?? []).map(repoRef);
+      return { graph: graphRepos, checkedOut, note: repoNote(graphRepos, checkedOut) };
+    },
+  });
   let root: string;
   let ws: WorkspaceManager;
   let run: (input: Record<string, unknown>, opts?: { job?: string }) => ReturnType<typeof runWorkflow>;
   before(async () => {
     root = await mkdtemp(join(tmpdir(), "explore-wf-"));
     ws = new WorkspaceManager(root);
+    await seedExploreSteps(ws);
     await seedExploreWorkflows(ws);
     const flow = await ws.getWorkflow("explore");
     const { registry } = await buildRegistry(await ws.materializeCustomSteps());
@@ -62,11 +78,11 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     const dataDir = join(root, "data");
     const services = { ...standardServices({ secretsSource: {}, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
     run = (input, opts = {}) =>
-      runWorkflow(flow, input, { ...registry, agent: fakeAgent, "git/checkout": fakeCheckout } as typeof registry, { services, ...opts });
+      runWorkflow(flow, input, { ...registry, agent: fakeAgent, "git/checkout": fakeCheckout, "explore/repositories": fakeRepositories } as typeof registry, { services, ...opts });
   });
   after(() => rm(root, { recursive: true, force: true }));
 
-  it("is seeded under `explore` with the job's launch shape — prompt, repos?, session? — and the job's skeleton, every step strut's", async () => {
+  it("is seeded under `explore` with the job's launch shape — prompt, repos?, session? — and the job's skeleton plus explore/repositories", async () => {
     const entry = (await ws.listWorkflows()).find((w) => w.name === "explore");
     assert.equal(entry?.category, "explore");
     assert.match(entry?.description ?? "", /strut\/run-workflow/);
@@ -75,7 +91,7 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.notEqual(flow.inputBlock.prompt.required, false);
     assert.equal(flow.inputBlock.repos.required, false);
     assert.equal(flow.inputBlock.session.required, false);
-    assert.deepEqual(flow.steps.map((s: any) => s.type), ["job/dir", "foreach", "agent", "pack"], "the job's skeleton");
+    assert.deepEqual(flow.steps.map((s: any) => s.type), ["job/dir", "foreach", "explore/repositories", "agent", "pack"], "the job's skeleton + the repository note");
     assert.equal(flow.steps[1].config.body.type, "git/checkout");
     assert.deepEqual(flow.params?.tools, READ_TOOLS);
     assert.deepEqual(flow.params?.builtins, FILE_TOOLS);
@@ -88,7 +104,7 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     const yaml = await ws.getWorkflowSource("explore", entry.activeVersion);
     const v = await authoring.validateWorkflow(yaml, "explore");
     assert.equal(v.ok, true, JSON.stringify(v.errors, null, 2));
-    assert.equal(v.summary.steps, 4);
+    assert.equal(v.summary.steps, 5);
   });
 
   it("no repos: nothing is checked out, the agent gets the prompt, the graph read tools, the file tools only, and the answer schema; packs the answer", async () => {
@@ -100,7 +116,7 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.equal(checkouts.length, 0, "no repositories named → no checkout");
 
     const cfg = agentCalls.at(-1)!;
-    assert.match(cfg.prompt, /^When does nightly deliver run\?\nNo repositories were named: answer from the graph\./);
+    assert.match(cfg.prompt, /^When does nightly deliver run\?\nNo repositories were named and the graph holds none/);
     assert.equal(cfg.session, undefined, "a one-shot without a session is cold");
     assert.deepEqual(cfg.agentTools, READ_TOOLS);
     for (const t of cfg.agentTools) assert.doesNotMatch(t, /create|edit|register|project|move|delete|\*/, t);
@@ -125,7 +141,21 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.equal(res.status, "success", JSON.stringify(res.error));
     assert.deepEqual(checkouts.map((c) => c.repo), repos);
     for (const c of checkouts) assert.equal(c.workdir, undefined, "no job → a fresh copy per run");
-    assert.match(agentCalls.at(-1)!.prompt, /^Where is auth handled\?\nRepositories checked out in your working directory, one subdirectory each: acme\/web, acme\/api\./);
+    assert.deepEqual(repoCalls.at(-1)!.repos, ["acme/web", "acme/api"], "the checkouts' canonical names");
+    assert.match(agentCalls.at(-1)!.prompt, /^Where is auth handled\?\nChecked out but NOT in the graph: acme\/web, acme\/api\./);
+
+    agentCalls.length = 0;
+    graphRepos = [{ repo: "Acme/Web", ref_id: "r-web" }, { repo: "acme/billing", ref_id: "r-bill" }];
+    try {
+      const both = await run({ prompt: "Where is auth handled?", repos });
+      assert.equal(both.status, "success", JSON.stringify(both.error));
+      const p = agentCalls.at(-1)!.prompt;
+      assert.match(p, /AND parsed into the graph: acme\/web \(Repository r-web\)\. Search the graph first/);
+      assert.match(p, /Checked out but NOT in the graph: acme\/api\./);
+      assert.match(p, /Parsed into the graph but not checked out: acme\/billing \(Repository r-bill\)/);
+    } finally {
+      graphRepos = [];
+    }
 
     checkouts.length = 0;
     agentCalls.length = 0;
@@ -150,5 +180,26 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     const res = await run({});
     assert.equal(res.status, "error");
     assert.match(res.error?.message ?? "", /prompt/);
+  });
+});
+
+describe("explore/repositories helpers", () => {
+  it("repoRef: a URL or owner/name → owner/name", () => {
+    assert.equal(repoRef("https://github.com/stakwork/hive"), "stakwork/hive");
+    assert.equal(repoRef("https://github.com/stakwork/hive.git"), "stakwork/hive");
+    assert.equal(repoRef("https://github.com/stakwork/hive/"), "stakwork/hive");
+    assert.equal(repoRef(" stakwork/hive "), "stakwork/hive");
+    assert.equal(repoRef(undefined), "");
+  });
+
+  it("repoNote: one line per case, matched case-insensitively", () => {
+    const g = [{ repo: "stakwork/hive", ref_id: "r1" }, { repo: "stakwork/sphinx-ios-v2" }];
+    const both = repoNote(g, ["Stakwork/Hive", "acme/other"]);
+    assert.match(both, /AND parsed into the graph: Stakwork\/Hive \(Repository r1\)/);
+    assert.match(both, /NOT in the graph: acme\/other\./);
+    assert.match(both, /not checked out: stakwork\/sphinx-ios-v2\./);
+    assert.match(repoNote(g, []), /^Parsed into the graph but not checked out: stakwork\/hive \(Repository r1\), stakwork\/sphinx-ios-v2\./);
+    assert.match(repoNote([], []), /^No repositories were named and the graph holds none/);
+    assert.match(repoNote([], ["acme/x"]), /^Checked out but NOT in the graph: acme\/x\. Read these/);
   });
 });
