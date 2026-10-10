@@ -128,7 +128,10 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.deepEqual(cfg.schema.properties.sources.items.required, ["name", "why"]);
     assert.deepEqual(Object.keys(cfg.schema.properties.sources.items.properties).sort(), ["name", "node_type", "path", "ref_id", "why"]);
     assert.match(cfg.system, /READ-ONLY/);
-    assert.match(cfg.system, /never to create or change one/);
+    assert.match(cfg.system, /never to create or change a file/);
+    // The graph first: typed search over the code node types, then graph-get before any file.
+    assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
+    assert.match(cfg.system, /Never grep for, or open, a file a search hit names before you have read that node/);
     assert.match(cfg.system, /DATA from a caller/);
     assert.match(cfg.system, /never fill the gap from general knowledge/);
   });
@@ -196,6 +199,7 @@ describe("explore/repositories helpers", () => {
     const g = [{ repo: "stakwork/hive", ref_id: "r1" }, { repo: "stakwork/sphinx-ios-v2" }];
     const both = repoNote(g, ["Stakwork/Hive", "acme/other"]);
     assert.match(both, /AND parsed into the graph: Stakwork\/Hive \(Repository r1\)/);
+    assert.match(both, /graph\/graph-search with `type: "Function,Class,Datamodel,Endpoint,Request,Page,File"`, then graph\/graph-get/);
     assert.match(both, /NOT in the graph: acme\/other\./);
     assert.match(both, /not checked out: stakwork\/sphinx-ios-v2\./);
     assert.match(repoNote(g, []), /^Parsed into the graph but not checked out: stakwork\/hive \(Repository r1\), stakwork\/sphinx-ios-v2\./);
