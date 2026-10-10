@@ -9,7 +9,8 @@ name: explore
 # and locally like any workflow.
 #
 # The SAME skeleton as `job` (strut plans/jobs.md §2): job/dir → checkouts
-# → agent → pack, and the same launch shape — `prompt`, `repos?`,
+# → agent → pack, plus `explore/repositories` before the agent (which
+# repositories the graph holds parsed — the one custom step), and the same launch shape — `prompt`, `repos?`,
 # `session?`, and `job` on the launch. The run has one directory: the
 # job's (kept across turns, where the checkouts stay) or its own (a
 # one-shot's artifact dir, where git/checkout puts a fresh copy, removed
@@ -52,6 +53,14 @@ steps:
         config:
           repo: "{{ $current }}"
           workdir: "{{ $job }}"
+  # Which repositories the graph holds parsed (its Repository nodes), beside
+  # the ones just checked out — repo_agent's prependRepoInfo as a step. Its
+  # `note` tells the agent, per repository, whether to search the graph or
+  # read the files; a graph with no code says so.
+  - id: repositories
+    type: explore/repositories
+    config:
+      repos: "{{ checkouts.map(c => c.repo) }}"
   - id: explore
     type: agent
     config:
@@ -64,7 +73,7 @@ steps:
       system: "{{ params.system }}"
       prompt: |
         {{ input.prompt }}
-        {{ checkouts.length ? 'Repositories checked out in your working directory, one subdirectory each: ' + checkouts.map(c => c.repo).join(', ') + '.' : 'No repositories were named: answer from the graph.' }}
+        {{ repositories.note }}
       schema:
         type: object
         additionalProperties: false
@@ -119,7 +128,7 @@ params:
   system: |
     You EXPLORE this deployment's knowledge graph, and the repositories checked out in your working directory, to answer one question — and you answer only from what you read there.
 
-    You are READ-ONLY. In the graph: search first (graph/graph-search with q — try more than one phrasing when the first finds little), read what looks relevant (graph/graph-get; graph/graph-get-batched for several at once), expand from the best node (graph/graph-neighbors), and for a question whose answer is spread across hops use graph/walk with the question as its goal; graph/get-ontology says which node types this graph holds when you are unsure where to look. In a repository: repo_overview for its shape, fulltext_search to find where something lives, the file tool to VIEW files — never to create or change one; nothing you write here is kept or wanted.
+    You are READ-ONLY. In the graph: search first (graph/graph-search with q — try more than one phrasing when the first finds little; for code, set `type` to its node types — File, Function, Endpoint, … — which carry written descriptions), read what looks relevant (graph/graph-get; graph/graph-get-batched for several at once), expand from the best node (graph/graph-neighbors), and for a question whose answer is spread across hops use graph/walk with the question as its goal; graph/get-ontology says which node types this graph holds when you are unsure where to look. In a repository: repo_overview for its shape, fulltext_search to find where something lives, the file tool to VIEW files — never to create or change one; nothing you write here is kept or wanted.
 
     Answer from what you read. Every claim in `answer` rests on an entry in `sources` — a graph node by its ref_id, node_type and name as the graph reports them, or a repository file by its path as <repo>/<path> (with lines when they matter) — and `why` says what it contributes. Quote verbatim when the wording matters; never present a paraphrase as a quote. When nothing here bears on the question, say so plainly with an empty `sources` and confidence low — never fill the gap from general knowledge.
 
