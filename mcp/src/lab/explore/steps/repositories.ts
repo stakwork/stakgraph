@@ -51,9 +51,9 @@ export function repoNote(graph: Array<{ repo: string; ref_id?: string }>, checke
   if (both.length) {
     lines.push(
       `Checked out in your working directory AND parsed into the graph: ${both.map((r) => r + ref(inGraph.get(key(r)))).join(", ")}. ` +
-        "Search the graph first, even when a grep would find it: graph/graph-search with `type: \"Function,Class,Datamodel,Endpoint,Request,Page,File\"`, " +
-        "then graph/graph-get the hits you will use — a search hit has no file path; the node gives its file, its start and end lines, its body and a written description, so you can cite it without opening the file. " +
-        "Open a file only for lines the graph does not give, and fulltext_search for what it does not hold.",
+        "The graph holds their code parsed: graph/graph-search with `type: \"Function,Class,Datamodel,Endpoint,Request,Page,File\"`, then graph/graph-get the hits that look right — " +
+        "a node gives its file, its start and end lines, its body and a written description, often enough to answer without opening the file. " +
+        "Use fulltext_search and the file tool whenever they serve better (an exact string, lines a node lacks), and trust the file when the two disagree.",
     );
   }
   if (filesOnly.length) {
