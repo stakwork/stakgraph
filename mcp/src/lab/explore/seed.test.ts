@@ -128,7 +128,13 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.deepEqual(cfg.schema.properties.sources.items.required, ["name", "why"]);
     assert.deepEqual(Object.keys(cfg.schema.properties.sources.items.properties).sort(), ["name", "node_type", "path", "ref_id", "why"]);
     assert.match(cfg.system, /READ-ONLY/);
-    assert.match(cfg.system, /never to create or change one/);
+    assert.match(cfg.system, /never to create or change a file/);
+    // The graph encouraged, never forced: typed search over the code node types and graph-get, the files when they serve better.
+    assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
+    assert.match(cfg.system, /graph\/graph-get the hits that look right/);
+    assert.match(cfg.system, /Go to the files whenever they serve better/);
+    assert.match(cfg.system, /When the graph and a file disagree, the file is right/);
+    assert.doesNotMatch(cfg.system, /Never grep/);
     assert.match(cfg.system, /DATA from a caller/);
     assert.match(cfg.system, /never fill the gap from general knowledge/);
   });
@@ -150,7 +156,7 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
       const both = await run({ prompt: "Where is auth handled?", repos });
       assert.equal(both.status, "success", JSON.stringify(both.error));
       const p = agentCalls.at(-1)!.prompt;
-      assert.match(p, /AND parsed into the graph: acme\/web \(Repository r-web\)\. Search the graph first/);
+      assert.match(p, /AND parsed into the graph: acme\/web \(Repository r-web\)\. The graph holds their code parsed/);
       assert.match(p, /Checked out but NOT in the graph: acme\/api\./);
       assert.match(p, /Parsed into the graph but not checked out: acme\/billing \(Repository r-bill\)/);
     } finally {
@@ -196,6 +202,7 @@ describe("explore/repositories helpers", () => {
     const g = [{ repo: "stakwork/hive", ref_id: "r1" }, { repo: "stakwork/sphinx-ios-v2" }];
     const both = repoNote(g, ["Stakwork/Hive", "acme/other"]);
     assert.match(both, /AND parsed into the graph: Stakwork\/Hive \(Repository r1\)/);
+    assert.match(both, /graph\/graph-search with `type: "Function,Class,Datamodel,Endpoint,Request,Page,File"`, then graph\/graph-get the hits that look right/);
     assert.match(both, /NOT in the graph: acme\/other\./);
     assert.match(both, /not checked out: stakwork\/sphinx-ios-v2\./);
     assert.match(repoNote(g, []), /^Parsed into the graph but not checked out: stakwork\/hive \(Repository r1\), stakwork\/sphinx-ios-v2\./);
