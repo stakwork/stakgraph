@@ -51,9 +51,9 @@ export function repoNote(graph: Array<{ repo: string; ref_id?: string }>, checke
   if (both.length) {
     lines.push(
       `Checked out in your working directory AND parsed into the graph: ${both.map((r) => r + ref(inGraph.get(key(r)))).join(", ")}. ` +
-        "Search the graph first — graph/graph-search with `type` set to code node types (File, Function, Endpoint, …; graph/get-ontology lists them), " +
-        "whose nodes carry written descriptions and their calls and imports as edges; the Repository node's documentation is an overview. " +
-        "Then open the files the graph points to for the exact lines, and fulltext_search for what the graph misses.",
+        "The graph holds their code parsed: graph/graph-search with `type: \"Function,Class,Datamodel,Endpoint,Request,Page,File\"`, then graph/graph-get the hits that look right — " +
+        "a node gives its file, its start and end lines, its body and a written description, often enough to answer without opening the file. " +
+        "Use fulltext_search and the file tool whenever they serve better (an exact string, lines a node lacks), and trust the file when the two disagree.",
     );
   }
   if (filesOnly.length) {
@@ -62,7 +62,7 @@ export function repoNote(graph: Array<{ repo: string; ref_id?: string }>, checke
   if (graphOnly.length) {
     lines.push(
       `Parsed into the graph but not checked out: ${graphOnly.map((g) => g.repo + ref(g)).join(", ")}. ` +
-        "Their code is searchable in the graph (graph/graph-search with code node types); their files are not on disk.",
+        "Their code is searchable in the graph (graph/graph-search with `type: \"Function,Class,Datamodel,Endpoint,Request,Page,File\"`, then graph/graph-get); their files are not on disk.",
     );
   }
   if (!lines.length) lines.push("No repositories were named and the graph holds none: answer from the graph's other nodes.");
@@ -109,7 +109,7 @@ export default defineStep({
     if (error) {
       // Not "the graph holds none": it may, and the agent can still search it.
       const note =
-        "Which repositories the graph holds parsed could not be read; graph/graph-search with code node types (File, Function, Endpoint, …) may still find them." +
+        "Which repositories the graph holds parsed could not be read; graph/graph-search with `type: \"Function,Class,Datamodel,Endpoint,Request,Page,File\"` may still find their code." +
         (checkedOut.length ? `\nChecked out in your working directory: ${checkedOut.join(", ")}.` : "");
       return { graph, checkedOut, note, error };
     }
