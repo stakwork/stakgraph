@@ -52,7 +52,7 @@ export function repoNote(graph: Array<{ repo: string; ref_id?: string }>, checke
     lines.push(
       `Checked out in your working directory AND parsed into the graph: ${both.map((r) => r + ref(inGraph.get(key(r)))).join(", ")}. ` +
         "The graph holds their code parsed: begin with graph/graph-search with `type: \"Function,Class,Datamodel,Endpoint,Request,Page,File\"`, then graph/graph-get the hits that look right — " +
-        "a node gives its file, its start and end lines, its body and a written description, often enough to answer without opening the file. " +
+        "a hit gives its file and its lines (counted from 0), the node its body and a written description, often enough to answer without opening the file. " +
         "Use fulltext_search and the file tool whenever they serve better (an exact string, lines a node lacks), and trust the file when the two disagree.",
     );
   }

@@ -134,6 +134,9 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.match(cfg.system, /graph\/graph-get the hits that look right/);
     // One graph search first when the graph holds the code — then whichever fits.
     assert.match(cfg.system, /your FIRST call is a graph\/graph-search/);
+    // A search hit carries its file and lines (strut#142); the graph counts lines from 0.
+    assert.doesNotMatch(cfg.system, /A search result has no file path/);
+    assert.match(cfg.system, /cite it as <repo>\/<path>:<start\+1>-<end\+1>/);
     assert.match(cfg.system, /Go to the files whenever they serve better/);
     assert.match(cfg.system, /When the graph and a file disagree, the file is right/);
     assert.doesNotMatch(cfg.system, /Never grep/);
