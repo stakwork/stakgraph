@@ -35,10 +35,18 @@ impl NodeQueryBuilder {
         let token_count = calculate_token_count(&self.node_data.body).unwrap_or(0);
         boltmap_insert_int(&mut properties, "token_count", token_count);
 
-        // Add Data_Bank property during node creation (fixes real-time streaming)
-        if !self.node_data.name.is_empty() {
-            boltmap_insert_str(&mut properties, "Data_Bank", &self.node_data.name);
-        }
+        // `Data_Bank` — the node's search text — is seeded from the name so a
+        // streamed node is searchable at once, and set ONCE on create, like
+        // `date_added_to_graph` below: a later writer (strut's embedding pass,
+        // jarvis) composes the richer text from the type's Schema `index`
+        // fields, and a re-ingest must not reset it to the bare name. So it
+        // stays out of `$properties` (which ON MATCH applies) and is read
+        // from the map's `name` under ON CREATE alone.
+        let data_bank_clause = if self.node_data.name.is_empty() {
+            ""
+        } else {
+            ", node.Data_Bank = $properties.name"
+        };
 
         // Add default namespace during node creation (fixes real-time streaming)
         boltmap_insert_str(&mut properties, "namespace", "default");
@@ -53,11 +61,12 @@ impl NodeQueryBuilder {
         // relies on this query text alone — see the tests below.
         let query = format!(
             "MERGE (node:{}:{} {{node_key: $node_key}})
-         ON CREATE SET node += $properties, node.date_added_to_graph = $now
+         ON CREATE SET node += $properties, node.date_added_to_graph = $now{}
          ON MATCH SET node += $properties
          Return node",
             self.node_type.to_string(),
             DATA_BANK,
+            data_bank_clause,
         );
 
         (query, properties)
@@ -807,6 +816,40 @@ mod tests {
             !match_clause.contains("date_added_to_graph"),
             "date_added_to_graph must NOT be re-stamped under ON MATCH SET (set once on create), got:\n{query}"
         );
+    }
+
+    #[test]
+    fn build_sets_data_bank_only_on_create_and_keeps_it_out_of_properties() {
+        let (query, properties) =
+            NodeQueryBuilder::new(&NodeType::Function, &probe_node_data()).build();
+
+        assert!(
+            properties.value.get("Data_Bank").is_none(),
+            "Data_Bank must not ride in $properties (ON MATCH applies the whole map), got:\n{query}"
+        );
+        let create_idx = query.find("ON CREATE SET").expect("ON CREATE SET");
+        let match_idx = query.find("ON MATCH SET").expect("ON MATCH SET");
+        assert!(
+            query[create_idx..match_idx].contains("node.Data_Bank = $properties.name"),
+            "Data_Bank must be seeded from the name under ON CREATE SET, got:\n{query}"
+        );
+        // Set-once semantics: a re-ingest must not reset the search text a
+        // later writer (strut's embedding pass, jarvis) composed from the
+        // type's Schema index fields.
+        assert!(
+            !query[match_idx..].contains("Data_Bank"),
+            "Data_Bank must NOT be reset under ON MATCH SET, got:\n{query}"
+        );
+
+        // An unnamed node seeds no search text, as before.
+        let unnamed = NodeData {
+            name: String::new(),
+            ..probe_node_data()
+        };
+        let (query, properties) = NodeQueryBuilder::new(&NodeType::Function, &unnamed).build();
+        // (`Data_Bank` the LABEL is still in the MERGE; the property is not set.)
+        assert!(!query.contains("node.Data_Bank"), "got:\n{query}");
+        assert!(properties.value.get("Data_Bank").is_none());
     }
 
     #[test]
