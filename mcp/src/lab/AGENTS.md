@@ -919,7 +919,14 @@ is strut's):
   path | url | content }`, `id` stable across turns ("plan", not
   "plan-v3") — and strut's `run.end` callback carries the list RESOLVED to
   links (`/lab/jobs/<job>/files/plan.md`, `kind` from the extension), the
-  same list at `GET …/runs/<runId>/artifacts`. `ask: { message }` is the
+  same list at `GET …/runs/<runId>/artifacts`. An EARLIER job's
+  deliverable the turn points the person to goes in the same list by the
+  `url` `job/get` gave it (`/jobs/<thatJob>/files/…`): strut passes a
+  strut-relative `url` through, and hive's reader serves any job it
+  launched on that swarm, so it is a card like the turn's own. A path
+  named in `text` is nothing the person can open (2026-10-10: a turn that
+  answered from an earlier job's note named the note's path in its reply
+  and returned no artifact). `ask: { message }` is the
   agent stopping for a decision; the run still ends `success` and the
   answer is the next turn's prompt.
 - **`params` are the evolvable surface, and the whole point** (the owner's

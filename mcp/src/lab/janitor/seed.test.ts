@@ -78,12 +78,13 @@ describe("parseConceptFile", () => {
     assert.equal(pm.parent, "Job");
     assert.ok(pm.docs!.startsWith(pm.description!));
     for (const needle of [/plan\.html/, /<details>/, /`ask`/, /scripts never run/]) assert.match(pm.docs!, needle);
-    // Explore: a way of working under Job — explore here or on a peer by @slug, and keep what was found as a note.
+    // Explore: a way of working under Job — explore here or on a peer by @slug, and keep what was found as a note;
+    // another job's note used as it is is reported by its link, never named only in the reply.
     const ex = await read(JOB_CONCEPTS, "Explore.md");
     assert.equal(ex.name, "Explore");
     assert.equal(ex.parent, "Job");
     assert.ok(ex.docs!.startsWith(ex.description!));
-    for (const needle of [/meta\/run-workflow/, /strut\/run-workflow/, /"explore"/, /notes\/<topic>\.md/, /@<slug>/, /kind: "markdown"/]) assert.match(ex.docs!, needle);
+    for (const needle of [/meta\/run-workflow/, /strut\/run-workflow/, /"explore"/, /notes\/<topic>\.md/, /@<slug>/, /kind: "markdown"/, /`url` job\/get gave it/]) assert.match(ex.docs!, needle);
     // The entry page knows the workspaces and the peer step, still no kind.
     for (const needle of [/strut\/run-workflow/, /@<slug>/, /own agent/]) assert.match(job.docs!, needle);
     assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Plan Mode.md"]);
