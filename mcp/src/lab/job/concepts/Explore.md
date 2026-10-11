@@ -12,8 +12,10 @@ repository yourself: your thread keeps the answer, not the files.
 
 Look before you explore. Your directory may already hold a note from an
 earlier turn: they live under `notes/`. Work in another job may have one
-too (`job/list { q }`, then `job/read`). When a note answers the question,
-use it. When it answers part, explore only the rest and revise that note.
+too (`job/list { q }`, then `job/get` and `job/read`). When a note answers
+the question, use it. When it answers part, explore only the rest and
+revise that note — another job's in a copy under your `notes/`, since its
+directory is not yours to write.
 
 Which workspace. Your message's first line names the workspace this strut
 belongs to, `@<slug>`. Any other `@<slug>` in the request is another
@@ -51,8 +53,10 @@ you explore the same thing again. In it:
   gap from general knowledge.
 
 Report it as `{ id: "notes-<topic>", kind: "markdown", title, label: "Notes", path: "notes/<topic>.md", summary }`,
-the same id each time it is revised. In `text`, give the gist in a few
-sentences; the note carries the detail.
+the same id each time it is revised. Another job's note that you used
+unchanged is reported the same way, with the `url` job/get gave it in
+place of `path` — a path named in `text` is nothing the person can open.
+In `text`, give the gist in a few sentences; the note carries the detail.
 
 A note is how the work goes on. The next turn reads it instead of
 exploring again. A change built on it carries what it found in the brief:
