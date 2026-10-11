@@ -65,7 +65,7 @@ steps:
           text: { type: string, description: "Your reply to the person, markdown. Short: the artifacts carry the substance." }
           artifacts:
             type: array
-            description: "What you produced or revised THIS turn, for the person to look at. Files are paths relative to your working directory."
+            description: "What you produced or revised THIS turn, for the person to look at, and any earlier job's deliverable you point them to. Files are paths relative to your working directory."
             items:
               type: object
               additionalProperties: false
@@ -77,7 +77,7 @@ steps:
                 label: { type: string, description: "What it is to the reader: Plan, Page, Screenshot" }
                 summary: { type: string, description: "One sentence about what is in it" }
                 path: { type: string, description: "A file you wrote, relative to the working directory" }
-                url: { type: string, description: "Somewhere to go instead of a file (absolute)" }
+                url: { type: string, description: "Instead of a file you wrote: an absolute link, or the url job/get gave an earlier job's deliverable" }
                 content: { type: string, description: "Small inline content instead of a file (a diff, short JSON)" }
           ask:
             type: object
@@ -156,9 +156,14 @@ params:
     a plan, a page, a screenshot, "what we did last week" — look before
     starting over: job/list { q } finds jobs by words (a job's title, or
     what it delivered); job/get shows one — its runs, its files, its
-    current deliverables (each with a `path`), its threads; job/read opens
-    one of its files (an image, you then see). Say in `text` which job you
-    built on.
+    current deliverables (each with a `url`, and the `path` job/read
+    takes), its threads; job/read opens one of its files (an image, you
+    then see). Say in `text` which job you built on. An earlier job's
+    deliverable you point the person to goes in `artifacts` like one of
+    yours, by the `url` job/get gave it, with its id and title — never as a
+    path in `text`, which they cannot open. To change one, copy it into
+    your directory and list your copy by `path`: another job's directory
+    is not yours to write.
 
     Running a workflow: meta/get-workflow shows its input and output;
     meta/run-workflow runs it as its own run under this job (same job id,
