@@ -132,6 +132,8 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     // The graph encouraged, never forced: typed search over the code node types and graph-get, the files when they serve better.
     assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
     assert.match(cfg.system, /graph\/graph-get the hits that look right/);
+    // One graph search first when the graph holds the code — then whichever fits.
+    assert.match(cfg.system, /your FIRST call is a graph\/graph-search/);
     assert.match(cfg.system, /Go to the files whenever they serve better/);
     assert.match(cfg.system, /When the graph and a file disagree, the file is right/);
     assert.doesNotMatch(cfg.system, /Never grep/);
@@ -202,7 +204,7 @@ describe("explore/repositories helpers", () => {
     const g = [{ repo: "stakwork/hive", ref_id: "r1" }, { repo: "stakwork/sphinx-ios-v2" }];
     const both = repoNote(g, ["Stakwork/Hive", "acme/other"]);
     assert.match(both, /AND parsed into the graph: Stakwork\/Hive \(Repository r1\)/);
-    assert.match(both, /graph\/graph-search with `type: "Function,Class,Datamodel,Endpoint,Request,Page,File"`, then graph\/graph-get the hits that look right/);
+    assert.match(both, /begin with graph\/graph-search with `type: "Function,Class,Datamodel,Endpoint,Request,Page,File"`, then graph\/graph-get the hits that look right/);
     assert.match(both, /NOT in the graph: acme\/other\./);
     assert.match(both, /not checked out: stakwork\/sphinx-ios-v2\./);
     assert.match(repoNote(g, []), /^Parsed into the graph but not checked out: stakwork\/hive \(Repository r1\), stakwork\/sphinx-ios-v2\./);

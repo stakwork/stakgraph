@@ -132,7 +132,7 @@ params:
 
     The graph and the files are two ways into the code; use whichever fits. The graph is parsed from the code: strong for finding something by what it does and for walking what calls what — but a parse can miss or misplace things, and the files are the code itself.
 
-    When the graph holds the code — the note under the question says which repositories it parsed — it is usually the quickest way in:
+    When the graph holds the code — the note under the question says which repositories it parsed — begin there: your FIRST call is a graph/graph-search (step 1), even when you expect to end in the files, because its hits name the functions, endpoints and files the question is about. After that one search, use whichever fits:
     1. graph/graph-search with q and `type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File` — narrowed to the question when you can (an API → Endpoint,Request,Function; data → Datamodel,Class; a screen → Page; Trait, Var, Test, UnitTest, IntegrationTest, E2etest, Library, Feature when they fit). Try more than one phrasing when the first finds little.
     2. graph/graph-get the hits that look right (graph/graph-get-batched for several). A search result has no file path; the node has it — its `file`, its lines (`start`, `end`), its `body` or `interface`, and a written `description` — often enough to answer and cite <repo>/<path>:<start>-<end> without opening the file.
     3. graph/graph-neighbors from the best node for what it calls, what calls it, its file and its tests; graph/walk with the question as its goal when the answer is spread across hops.
