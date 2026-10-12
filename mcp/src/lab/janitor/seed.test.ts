@@ -134,16 +134,17 @@ describe("planConceptSeed", () => {
   const stamp = "lab/janitor/concepts/J.md@aaaaaaaaaaaa";
   const older = "lab/janitor/concepts/J.md@bbbbbbbbbbbb";
   it("nothing there → create", () => assert.equal(planConceptSeed(null, stamp), "create"));
-  it("same stamp → keep (ours, unchanged: a graph-side edit or mute sticks); deleted → skip", () => {
+  it("same stamp → keep (ours, unchanged: a graph-side edit or mute sticks); deleted → update (restored)", () => {
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: stamp }, stamp), "keep");
-    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: stamp, deleted: true }, stamp), "skip");
+    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: stamp, deleted: true }, stamp), "update");
   });
-  it("our path, older hash → update; unless deleted", () => {
+  it("our path, older hash → update; deleted too", () => {
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: older }, stamp), "update");
-    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: older, deleted: true }, stamp), "skip");
+    assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: older, deleted: true }, stamp), "update");
   });
-  it("no stamp or someone else's → skip (theirs)", () => {
+  it("no stamp or someone else's → skip (theirs); deleted, it stays deleted", () => {
     assert.equal(planConceptSeed({ ref_id: "r" }, stamp), "skip");
+    assert.equal(planConceptSeed({ ref_id: "r", deleted: true }, stamp), "skip");
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: null }, stamp), "skip");
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: "lab/janitor/concepts/Other.md@aaaaaaaaaaaa" }, stamp), "skip");
     assert.equal(planConceptSeed({ ref_id: "r", unique_source_id: "gitree" }, stamp), "skip");
@@ -401,6 +402,37 @@ describe("seedConcepts (live)", { skip: !URI }, () => {
     await g.bolt.run(`MATCH (:Concept {name: $p})-[e:PARENT_OF]->(:Concept {name: $c}) DELETE e`, { p: root, c: kid });
     await seedConcepts(ws, [{ dir, prefix: P }]);
     assert.equal(await edge(root, kid), 0);
+  });
+
+  // Prod, 2026-10-09: `Workflow Builder` was deleted in Learn; the builder lost
+  // its host section, and every later boot parented Janitor under the dead node.
+  it("a deleted Concept of ours comes back on the next seed, linked and anchored; theirs stays deleted and is nobody's parent", async () => {
+    const g = ws.graph!;
+    const top = `Top ${tag}`;
+    const orphan = `Orphan ${tag}`;
+    const live = async (name: string) =>
+      (await g.bolt.run(`MATCH (n:Concept {name: $name}) RETURN n.deleted_at IS NULL AND n.is_deleted IS NULL AS live, n.docs AS docs`, { name }))[0]!;
+    // jarvis's delete: both stamps, the node's edges removed.
+    const del = (name: string) =>
+      g.bolt.run(`MATCH (n:Concept {name: $name}) SET n.deleted_at = $now, n.is_deleted = true WITH n OPTIONAL MATCH (n)-[r]-() DELETE r`, { name, now: Date.now() });
+    await del(root); // ours (its file names `top` as parent)
+    await del(late); // ours, no parent
+    await del(kid); // theirs: the stamp was cleared
+    assert.deepEqual([(await live(root)).live, await anchors(root), await edge(top, root)], [false, 0, 0]);
+    await writeFile(join(dir, `${orphan}.md`), `---\ndescription: Under a dead node.\nparent: ${kid}\n---\nOrphan docs.\n`);
+
+    await seedConcepts(ws, [{ dir, prefix: P }]);
+    assert.deepEqual([(await live(root)).live, (await live(late)).live], [true, true], "restored");
+    assert.equal((await live(root)).docs, "Root docs v3.");
+    assert.deepEqual([await anchors(root), await anchors(late)], [1, 1], "anchored again");
+    assert.equal(await edge(top, root), 1, "its parent from the file");
+    assert.equal((await live(kid)).live, false, "theirs stays deleted");
+    assert.ok(await node(orphan), "the orphan is seeded");
+    assert.equal(await edge(kid, orphan), 0, "but never under a deleted node");
+    assert.equal(await anchors(orphan), 1);
+
+    await seedConcepts(ws, [{ dir, prefix: P }]);
+    assert.deepEqual([(await live(root)).live, await anchors(root), await edge(top, root), await edge(kid, orphan)], [true, 1, 1, 0], "a fixed point");
   });
 });
 
@@ -698,6 +730,6 @@ describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }
 
     await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]);
     assert.deepEqual(await edges("Workflow Builder"), ["Janitor"]);
-    assert.deepEqual(await edges("Job"), ["Code Change", "Plan Mode"]);
+    assert.deepEqual(await edges("Job"), ["Code Change", "Explore", "Plan Mode"]);
   });
 });
