@@ -111,10 +111,12 @@ steps:
     when: false
     config:
       cmd: bash
-      args: ["-c", "echo \"not_a_janitor: '$CONCEPT' is not a PARENT_OF child of '$PARENT' — a mandate must hang under it (add it there, or name one that does)$MORE\" >&2; exit 1"]
+      args: ["-c", "echo \"not_a_janitor: '$CONCEPT' is not a PARENT_OF child of '$PARENT' — a mandate must hang under it (add it there, or name one that does)$KIDS$MORE\" >&2; exit 1"]
       env:
         PARENT: "{{ params.parent }}"
         CONCEPT: "{{ input.concept }}"
+        # The names that would have been accepted: a typo is self-correcting.
+        KIDS: "{{ parent.children.length ? '; its children: ' + parent.children.map(n => n.name).join(', ') : '; it has no children yet' }}"
         # graph-get lists 50 children; past that a real mandate can be missed.
         MORE: "{{ parent.children_truncated ? ' — only its first 50 children by name were checked' : '' }}"
 
