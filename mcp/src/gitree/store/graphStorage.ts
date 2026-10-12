@@ -213,6 +213,9 @@ export class GraphStorage extends Storage {
     // Backfill direct PR->File edges if none exist yet (runs once per DB).
     await this.backfillPRFileEdges();
 
+    // Collapse the Concept->File edges earlier linkers duplicated.
+    await this.dedupeConceptFileEdges();
+
     // Backfill embeddings for concepts created before semantic search existed.
     await this.backfillConceptEmbeddings();
 
@@ -343,6 +346,49 @@ export class GraphStorage extends Storage {
       }
     } catch (error) {
       console.error("[gitree] Error backfilling jarvis concept interop:", error);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Collapse duplicate `Concept -[:MODIFIES]-> File` edges to one per pair.
+   *
+   * The linkers used to MERGE on `importance` as well as the two ends, so a
+   * relink that recomputed a file's importance (every new PR on a concept
+   * dilutes it) added an edge instead of updating the one there: swarm38
+   * held 1,654,162 of these edges for 17,760 pairs, 13,129 of them with
+   * copies (up to 1,221), and every reader walking MODIFIES saw each one.
+   * They now MERGE on the ends and SET the importance.
+   *
+   * Runs on every `initialize()`: the scan counts the edges of each pair
+   * (cheap once there is one per pair) and only a pair with more than one is
+   * touched, each in its own transaction. The copy kept carries the lowest
+   * importance — a concept's importance for a file only dilutes between
+   * touches, so the lowest is usually the latest — until the next relink of
+   * the concept sets it again.
+   */
+  private async dedupeConceptFileEdges(): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(`
+        MATCH (c:Concept)-[r:MODIFIES]->(f:File)
+        WITH c, f, count(r) AS n
+        WHERE n > 1
+        CALL {
+          WITH c, f
+          MATCH (c)-[r:MODIFIES]->(f)
+          WITH r ORDER BY coalesce(r.importance, 0)
+          WITH collect(r) AS rs
+          FOREACH (dup IN rs[1..] | DELETE dup)
+        } IN TRANSACTIONS OF 1 ROW
+      `);
+      const removed = result.summary.counters.updates().relationshipsDeleted || 0;
+      if (removed > 0) {
+        console.log(`[gitree] Removed ${removed} duplicate Concept→File MODIFIES edge(s).`);
+      }
+    } catch (error) {
+      console.error("[gitree] Error removing duplicate MODIFIES edges:", error);
     } finally {
       await session.close();
     }
@@ -2168,7 +2214,8 @@ export class GraphStorage extends Storage {
             UNWIND $links AS l
             MATCH (file:Data_Bank:File)
             WHERE ${exactFilePathPredicate("$repo", "l.path")}
-            MERGE (f)-[:MODIFIES {importance: l.importance}]->(file)
+            MERGE (f)-[r:MODIFIES]->(file)
+            SET r.importance = l.importance
             RETURN COUNT(file) as linkedCount
             `
             : `
@@ -2176,7 +2223,8 @@ export class GraphStorage extends Storage {
             UNWIND $links AS l
             MATCH (file:Data_Bank:File)
             WHERE file.file ENDS WITH l.path
-            MERGE (f)-[:MODIFIES {importance: l.importance}]->(file)
+            MERGE (f)-[r:MODIFIES]->(file)
+            SET r.importance = l.importance
             RETURN COUNT(file) as linkedCount
             `,
           { conceptId: concept.id, repo: concept.repo || null, links }
@@ -2231,7 +2279,8 @@ export class GraphStorage extends Storage {
           UNWIND $filePaths AS fp
           MATCH (file:Data_Bank:File)
           WHERE ${exactFilePathPredicate("$repo", "fp")}
-          MERGE (f)-[:MODIFIES {importance: 1.0}]->(file)
+          MERGE (f)-[r:MODIFIES]->(file)
+          SET r.importance = 1.0
           RETURN COUNT(file) as linkedCount
           `
           : `
@@ -2239,7 +2288,8 @@ export class GraphStorage extends Storage {
           UNWIND $filePaths AS fp
           MATCH (file:Data_Bank:File)
           WHERE file.file ENDS WITH fp
-          MERGE (f)-[:MODIFIES {importance: 1.0}]->(file)
+          MERGE (f)-[r:MODIFIES]->(file)
+          SET r.importance = 1.0
           RETURN COUNT(file) as linkedCount
           `,
         { conceptId, filePaths, repo }

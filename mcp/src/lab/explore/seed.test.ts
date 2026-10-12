@@ -129,9 +129,19 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.deepEqual(Object.keys(cfg.schema.properties.sources.items.properties).sort(), ["name", "node_type", "path", "ref_id", "why"]);
     assert.match(cfg.system, /READ-ONLY/);
     assert.match(cfg.system, /never to create or change a file/);
-    // The graph encouraged, never forced: typed search over the code node types and graph-get, the files when they serve better.
-    assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
+    // Not every deployment is software: graph search in plain words, narrowed by the types this graph holds.
+    assert.match(cfg.system, /Search it with graph\/graph-search in plain words/);
+    assert.match(cfg.system, /graph\/get-ontology lists the types this graph holds/);
     assert.match(cfg.system, /graph\/graph-get the hits that look right/);
+    // The code searches are for code: typed search over the code node types, and the Concepts tied to the files they summarize.
+    assert.match(cfg.system, /For a question about code or software, when the graph holds the code/);
+    assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
+    assert.match(cfg.system, /`type: Concept` and `linked: MODIFIES>File`/);
+    // One graph search first when the graph holds the code — then whichever fits.
+    assert.match(cfg.system, /your FIRST call is a graph\/graph-search/);
+    // A search hit carries its file and lines (strut#142); the graph counts lines from 0.
+    assert.doesNotMatch(cfg.system, /A search result has no file path/);
+    assert.match(cfg.system, /cite it as <repo>\/<path>:<start\+1>-<end\+1>/);
     assert.match(cfg.system, /Go to the files whenever they serve better/);
     assert.match(cfg.system, /When the graph and a file disagree, the file is right/);
     assert.doesNotMatch(cfg.system, /Never grep/);
@@ -202,7 +212,7 @@ describe("explore/repositories helpers", () => {
     const g = [{ repo: "stakwork/hive", ref_id: "r1" }, { repo: "stakwork/sphinx-ios-v2" }];
     const both = repoNote(g, ["Stakwork/Hive", "acme/other"]);
     assert.match(both, /AND parsed into the graph: Stakwork\/Hive \(Repository r1\)/);
-    assert.match(both, /graph\/graph-search with `type: "Function,Class,Datamodel,Endpoint,Request,Page,File"`, then graph\/graph-get the hits that look right/);
+    assert.match(both, /begin with graph\/graph-search with `type: "Function,Class,Datamodel,Endpoint,Request,Page,File"`, then graph\/graph-get the hits that look right/);
     assert.match(both, /NOT in the graph: acme\/other\./);
     assert.match(both, /not checked out: stakwork\/sphinx-ios-v2\./);
     assert.match(repoNote(g, []), /^Parsed into the graph but not checked out: stakwork\/hive \(Repository r1\), stakwork\/sphinx-ios-v2\./);

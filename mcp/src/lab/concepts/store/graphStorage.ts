@@ -1188,7 +1188,8 @@ export class GraphStorage extends Storage {
             MATCH (f:Concept {id: $featureId})
             MATCH (file:File)
             WHERE file.file ENDS WITH $filePath
-            MERGE (f)-[:MODIFIES {importance: $importance}]->(file)
+            MERGE (f)-[r:MODIFIES]->(file)
+            SET r.importance = $importance
             RETURN COUNT(file) as linkedCount
             `,
             {
@@ -1241,7 +1242,8 @@ export class GraphStorage extends Storage {
           MATCH (f:Concept {id: $featureId})
           MATCH (file:File)
           WHERE file.file ENDS WITH $filePath
-          MERGE (f)-[:MODIFIES {importance: 1.0}]->(file)
+          MERGE (f)-[r:MODIFIES]->(file)
+          SET r.importance = 1.0
           RETURN COUNT(file) as linkedCount
           `,
           { featureId, filePath }
