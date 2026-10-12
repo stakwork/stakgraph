@@ -1143,7 +1143,7 @@ One reading rule at every level: a Concept's `docs` are its page, its
   `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
   `unique_source_id`, warns and seeds nothing.
 
-### `janitor/` — janitors: one seeded engine workflow + the `Janitor` Concept's mandates
+### `janitor/` — janitors: the engine workflows, their three steps + the `Janitor` Concept's mandates
 
 A janitor is an automated agent that cleans something up — code, a Concept
 tree, other data. Its MANDATE (what "dirty" means, what to flag, what to
@@ -1159,7 +1159,7 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
 `builder/` above); the workflow's description says what the workflow does.
 
 - **The engine** (`workflows/graph-janitor.yaml`, category
-  `graph-maintenance`, YAML only, unstamped, SEED_OPTS): three
+  `graph-maintenance`, unstamped, SEED_OPTS): three
   `graph/graph-get` reads BY NAME — `params.parent` (`Janitor`, with its
   children), the mandate, the start — each an exact key lookup, never a
   search; a name no Concept has → `not_found:`. The mandate must be among
@@ -1172,10 +1172,52 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   new tools is itself a finding); `exec` saves `cleanup-report.json`, `pack`
   returns `{ mandate, start, start_ref_id, visited, findings, summary,
   report_json, report_md }`. Findings are `{ ref_id, name, issue, problem, evidence
-  (verbatim), suggestion, severity }`; `issue` is a free-text label THE
+  (verbatim), suggestion, severity, action }`; `issue` is a free-text label THE
   MANDATE defines for each kind of problem it flags (the engine knows no
   list of kinds — a closed one once held `overfit`, one workspace's word). The error codes ride on the second
   line of `error.message` (an `exec` that exits 1 with the code on stderr).
+- **Apply** (`input.apply`, default false = dry run). The agent never
+  writes; each finding's typed `action` (`set_property` with `property`,
+  `old_value` verbatim, `new_value`; `move` with `new_parent_ref_id`;
+  `none` = a person decides) goes through `janitor/plan` (`steps/plan.ts`),
+  which runs in BOTH modes and re-reads every target over bolt — the only
+  way to see `unique_source_id`, which strut's read steps strip from every
+  response — and sorts it into `edits` / `moves` (the exact configs for
+  `graph/edit-node` / `graph/move-node`), `skipped` (a reason each) or
+  `manual`. Never planned: the Janitor node, its children and anything
+  hanging under it live (one mandate must never rewrite another), the
+  mandate, a git-seeded Concept (`params.seeded_prefix`, `lab/` — the next
+  file change would overwrite it; fixes belong in git), a rename (`name` is
+  the identity key; automations address Concepts by it — `params.apply_properties`
+  is `[description, docs]`), a value that no longer matches what the agent
+  read (`old_value` or the `evidence` quote; `stale`), a move with no or
+  several parents; `params.apply_max` caps writes, most severe first;
+  `params.apply_min_severity`. With `apply=true` an `if` gate opens two
+  `foreach`es over strut's own write steps (so every write is a tool call
+  in the run's record, with its provenance edge), then `janitor/readback`
+  (`steps/readback.ts`) reads each result (graph steps return error
+  strings) and every node back, writes `applied.json` — the UNDO LOG:
+  every applied change with the value or parent it replaced — appends the
+  outcome and the revert instruction to `report.md`, and fails
+  `apply_failed:` (first line of `error.message`) unless every write read
+  back. `plan.json` is written in both modes. `result` depends on both
+  branches: `{ …, apply, plan: { edits, moves, skipped, manual, counts },
+  applied, applied_json, report_plan }`.
+- **Revert** (`workflows/graph-janitor-revert.yaml`): `{ run_id, changes?
+  }` → `janitor/revert-plan` (`steps/revert-plan.ts`) reads that run's
+  `applied.json` through the artifacts capability (kept forever; one run
+  may read another's by id) and emits the inverse as the same plan shape —
+  an edit puts the replaced value back (deletes the property when there
+  was none), a move goes back under the previous parent — ONLY where the
+  node still holds what the janitor wrote (`moved_on` otherwise, never
+  overwritten; `unknown_change` for an id the run never applied;
+  `no_applied_log:` when the run has none). Then the same foreach +
+  readback: the revert is logged with `revert_of`, so it can be reverted.
+  The graph itself keeps no history (no before-image on a node or an
+  `ACCESSED` edge), so the log under `/artifacts/<runId>/` is the only
+  copy. The three steps are seeded like explore's (`SEED_STEPS`, one
+  self-contained file each importing only "strut": `graphCtx` and the bolt
+  read are inlined per file).
 - **The tree** (`concepts/Janitor.md`, seeded by `concept-seed.ts`):
   `Janitor` (parent `Workflow Builder`), whose docs STATE THE CONVENTION —
   what a child is, how to run one, and the three steps to add one
@@ -1194,10 +1236,16 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   committed tree, the builder's section) and the engine offline (real
   if/pack/exec/artifacts-dir over the seeded YAML, fake `graph/graph-get` +
   agent: the three reads by key, the guard, what the agent is handed) in
-  `test:node`; live suites (the seeder: reconcile, the anchor on every
-  owned Concept, `PARENT_OF` following the files, someone else's Concepts
-  left alone; then the committed tree, the builder's section and the engine
-  over the REAL graph steps with a fake agent) run when
+  `test:node`; `apply.test.ts` — the plan / readback / revert rules pure,
+  and both workflows' wiring offline (the gate, the foreach bodies, what
+  readback gets; plan, readback, the write steps faked). Live suites (the
+  seeder: reconcile, the anchor on every owned Concept, `PARENT_OF`
+  following the files, someone else's Concepts left alone; then the
+  committed tree, the builder's section and the engine over the REAL graph
+  steps with a fake agent; then apply + revert for real: dry run, apply,
+  revert, a second revert finds everything moved on, a dry run has no undo
+  log — all in `seed.test.ts`, one process: test files run in parallel and
+  these share the Janitor tree) run when
   `STRUT_TEST_NEO4J_URI` points at a throwaway Neo4j. Nothing else may use
   that database while they run: strut's `test:graph` wipes it, and two
   suites at once fail with deadlocks and missing nodes. The first run right
