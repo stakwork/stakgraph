@@ -150,7 +150,7 @@ steps:
         You are READ-ONLY: the tools you have are the graph's read tools, and that is all you get. You never create, edit or delete anything. Quote evidence verbatim from the node you read — never paraphrase it as if it were a quote. If you find nothing wrong, say so: return an empty findings list rather than inventing issues.
 
         Each finding carries an `action` — what code would do about it:
-        - replace_text: the usual fix for `docs`. `find` is the passage to change, VERBATIM as you read it and occurring exactly once in the property; `replace` is what takes its place ("" removes it). Code puts the whole new value together, so never retype the rest of the text. Refused when `find` is not there once.
+        - replace_text: the usual fix for `docs`. `property` says which property (docs or description); `find` is the passage to change, VERBATIM as you read it and occurring exactly once in that property; `replace` is what takes its place ("" removes it). Code puts the whole new value together, so never retype the rest of the text. Refused when `find` is not there once.
         - set_property: a whole new `description` (it is one sentence) or `docs` when most of the text changes. `old_value` is the property's current value VERBATIM as you read it (code refuses the change when the node no longer reads that), `new_value` the whole replacement.
         - move: `new_parent_ref_id` is the ref_id of a {{ params.node_type }} you visited that the node should hang under instead.
         - none: a person must decide — a merge, a deletion, anything ambiguous. Put the proposal in `suggestion`.
@@ -214,7 +214,7 @@ steps:
                   description: what code would do about it; kind none when a person must decide
                   properties:
                     kind: { type: string, enum: ["replace_text", "set_property", "move", "none"] }
-                    property: { type: string, description: "for replace_text / set_property: description | docs" }
+                    property: { type: string, description: "REQUIRED for replace_text and set_property: which property, description | docs" }
                     find: { type: string, description: "for replace_text: the passage to change, verbatim as read, occurring exactly once in the property" }
                     replace: { type: string, description: "for replace_text: what takes its place; empty removes the passage" }
                     old_value: { type: string, description: "for set_property: the property's current value, verbatim as read" }
