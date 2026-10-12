@@ -32,7 +32,9 @@ import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, t
  * against the live value: `find` must occur exactly once (that is its
  * stale check: zero = the text moved on, several = ambiguous), and the
  * planned change is an ordinary edit with the full old and new values, so
- * the write, the readback and the undo log never see a fragment.
+ * the write, the readback and the undo log never see a fragment. A
+ * replace_text that names no property gets the one allowed property where
+ * `find` occurs exactly once; none or several is refused.
  *
  * `graphCtx` is strut's `graph/*` preamble, inlined (seeded steps import
  * only "strut"): the same config and options, so the same cached backend.
@@ -140,8 +142,9 @@ export interface Change {
   property?: string;
   old_value?: string | null;
   new_value?: string | null;
-  /** When the edit came in as replace_text: the fragment, for the record. */
-  via?: { find: string; replace: string };
+  /** When the edit came in as replace_text: the fragment, for the record —
+   *  and whether the property was inferred (the action named none). */
+  via?: { find: string; replace: string; property_inferred?: boolean };
   node_data: Record<string, string>;
   properties_to_be_deleted: string[];
   // move
@@ -252,7 +255,31 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
     }
     const finding = { issue, severity: String(f.severity ?? ""), problem: typeof f.problem === "string" ? f.problem : "" };
     if (a.kind === "set_property" || a.kind === "replace_text") {
-      const prop = typeof a.property === "string" ? a.property.trim() : "";
+      let prop = typeof a.property === "string" ? a.property.trim() : "";
+      let inferred = false;
+      if (!prop && a.kind === "replace_text" && typeof a.find === "string" && a.find) {
+        // No property named (the model leaves it out for an obvious docs
+        // fix): the one allowed property where the find text occurs exactly
+        // once is the one meant — the same rule the replacement itself must
+        // pass. None, or more than one: refused, never guessed.
+        const find = a.find;
+        const where = [...allowed].filter((p) => {
+          const v = liveValue(node, p);
+          return v !== null && v.split(find).length - 1 === 1;
+        });
+        if (where.length === 1) {
+          prop = where[0]!;
+          inferred = true;
+        } else {
+          skip(
+            "invalid_action",
+            where.length === 0
+              ? `replace_text without a property, and the find text is in none of ${[...allowed].join(", ") || "(none)"} exactly once`
+              : `replace_text without a property, and the find text is in ${where.join(" and ")} — say which`,
+          );
+          continue;
+        }
+      }
       if (!prop) {
         skip("invalid_action", `${a.kind} without a property`);
         continue;
@@ -281,7 +308,7 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
           continue;
         }
         nv = cur.replace(find, rep);
-        via = { find, replace: rep };
+        via = { find, replace: rep, ...(inferred ? { property_inferred: true } : {}) };
         if (!nv.trim()) {
           skip("empty_value", `replace_text would leave ${prop} empty`);
           continue;
@@ -429,7 +456,8 @@ export default defineStep({
     "`skipped` (with a `reason`: protected | git_seeded | not_visited | wrong_type | not_found | property_not_allowed | " +
     "stale | find_not_once | no_change | empty_value | invalid_action | no_parent | many_parents | duplicate | below_min_severity | " +
     "issue_not_applied | over_cap) or `manual` (no action). A `replace_text` action ({ property, find, replace }) is resolved " +
-    "here against the live value — `find` must occur exactly once — into an edit with the full old and new values. " +
+    "here against the live value — `find` must occur exactly once — into an edit with the full old and new values; without a " +
+    "`property`, the one allowed property where `find` occurs exactly once is taken (`via.property_inferred`), else refused. " +
     "Never planned: the Janitor node (`parent`), its children " +
     "and anything under it, `mandate_ref_id`, `protect`, and any node whose unique_source_id starts with `seeded_prefix`. " +
     "Writes `plan.json` (`file`) into the run's artifacts. Output: { edits, moves, skipped, manual, protected, counts }.\n\n" +

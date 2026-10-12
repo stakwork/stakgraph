@@ -84,6 +84,33 @@ describe("planChanges", () => {
     assert.equal(gone.edits[0]!.new_value, "old words");
   });
 
+  it("replace_text without a property takes the one allowed property where find occurs exactly once; none or several is refused", () => {
+    const live = new Map(LIVE);
+    live.set("both", node("both", { name: "Both", description: "the rule here", docs: "the rule here, again" }));
+    live.set("neither", node("neither", { name: "Neither", description: "x", docs: "y" }));
+    const visited = [...OPTS.visited, { ref_id: "both" }, { ref_id: "neither" }];
+    const p = planChanges(
+      [
+        finding("law", { kind: "replace_text", find: "old words", replace: "new words" }),
+        finding("both", { kind: "replace_text", find: "the rule", replace: "a rule" }),
+        finding("neither", { kind: "replace_text", find: "the rule", replace: "a rule" }),
+        finding("law", { kind: "set_property", new_value: "x" }),
+      ],
+      live,
+      { ...OPTS, visited },
+    );
+    assert.deepEqual(p.edits.map((e) => [e.ref_id, e.property, e.new_value, e.via]), [
+      ["law", "description", "new words here", { find: "old words", replace: "new words", property_inferred: true }],
+    ]);
+    assert.deepEqual(p.skipped.map((s) => [s.ref_id, s.reason]), [["both", "invalid_action"], ["neither", "invalid_action"], ["law", "invalid_action"]]);
+    assert.match(p.skipped[0]!.detail!, /in description and docs — say which/);
+    assert.match(p.skipped[1]!.detail!, /in none of description, docs exactly once/);
+    assert.match(p.skipped[2]!.detail!, /set_property without a property/);
+    // A named property is never second-guessed: wrong one → find_not_once, as before.
+    const named = planChanges([finding("both", { kind: "replace_text", property: "docs", find: "again", replace: "twice" })], live, { ...OPTS, visited });
+    assert.deepEqual(named.edits.map((e) => [e.property, e.new_value, e.via?.property_inferred]), [["docs", "the rule here, twice", undefined]]);
+  });
+
   it("replace_text: find must occur exactly once — zero (the text moved on) or several (ambiguous) is find_not_once; never emptied, never a no-op", () => {
     const live = new Map(LIVE);
     live.set("dup", node("dup", { name: "Dup", docs: "a rule. a rule." }));
