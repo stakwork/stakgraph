@@ -26,6 +26,14 @@ import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, t
  *     agent read (`stale`), a move with no or several current parents.
  * `max_changes` caps a run's writes, most severe first.
  *
+ * Two shapes of edit. `set_property` carries the whole new value (and the
+ * whole old one, as read). `replace_text` carries only the fragment that
+ * changes — `find`, verbatim, and `replace` — and THIS step resolves it
+ * against the live value: `find` must occur exactly once (that is its
+ * stale check: zero = the text moved on, several = ambiguous), and the
+ * planned change is an ordinary edit with the full old and new values, so
+ * the write, the readback and the undo log never see a fragment.
+ *
  * `graphCtx` is strut's `graph/*` preamble, inlined (seeded steps import
  * only "strut"): the same config and options, so the same cached backend.
  */
@@ -98,10 +106,14 @@ export type Severity = "high" | "medium" | "low";
 const RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
 export interface Action {
-  kind?: "set_property" | "move" | "none" | string;
+  kind?: "set_property" | "replace_text" | "move" | "none" | string;
   property?: string;
   old_value?: string | null;
   new_value?: string | null;
+  /** replace_text: the fragment to replace, verbatim as read; must occur exactly once. */
+  find?: string;
+  /** replace_text: what takes its place ("" removes it). */
+  replace?: string;
   new_parent_ref_id?: string;
 }
 
@@ -128,6 +140,8 @@ export interface Change {
   property?: string;
   old_value?: string | null;
   new_value?: string | null;
+  /** When the edit came in as replace_text: the fragment, for the record. */
+  via?: { find: string; replace: string };
   node_data: Record<string, string>;
   properties_to_be_deleted: string[];
   // move
@@ -199,7 +213,7 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
       plan.manual.push({ ref_id: ref, name, issue, suggestion: typeof f.suggestion === "string" ? f.suggestion : "" });
       continue;
     }
-    if (a.kind !== "set_property" && a.kind !== "move") {
+    if (a.kind !== "set_property" && a.kind !== "replace_text" && a.kind !== "move") {
       skip("invalid_action", `unknown action kind "${String(a.kind)}"`);
       continue;
     }
@@ -237,35 +251,65 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
       continue;
     }
     const finding = { issue, severity: String(f.severity ?? ""), problem: typeof f.problem === "string" ? f.problem : "" };
-    if (a.kind === "set_property") {
+    if (a.kind === "set_property" || a.kind === "replace_text") {
       const prop = typeof a.property === "string" ? a.property.trim() : "";
       if (!prop) {
-        skip("invalid_action", "set_property without a property");
+        skip("invalid_action", `${a.kind} without a property`);
         continue;
       }
       if (!allowed.has(prop)) {
         skip("property_not_allowed", `${prop} is not among ${[...allowed].join(", ") || "(none)"}`);
         continue;
       }
-      const nv = typeof a.new_value === "string" ? a.new_value : "";
-      if (!nv.trim()) {
-        skip("empty_value", `set_property ${prop} without a new_value`);
-        continue;
-      }
       const cur = liveValue(node, prop);
-      if (cur === nv) {
-        skip("no_change", `${prop} already reads that`);
-        continue;
-      }
-      const ov = a.old_value;
-      const evidence = typeof f.evidence === "string" ? f.evidence.trim() : "";
-      const fresh =
-        (typeof ov === "string" && ov === cur) ||
-        (cur === null && (ov === null || ov === undefined || ov === "")) ||
-        (cur !== null && evidence.length > 0 && cur.includes(evidence));
-      if (!fresh) {
-        skip("stale", `${prop} no longer reads what the agent read (old_value and evidence both miss the live value)`);
-        continue;
+      let nv: string;
+      let via: Change["via"];
+      if (a.kind === "replace_text") {
+        const find = typeof a.find === "string" ? a.find : "";
+        const rep = typeof a.replace === "string" ? a.replace : "";
+        if (!find) {
+          skip("invalid_action", "replace_text without a find text");
+          continue;
+        }
+        if (cur === null) {
+          skip("find_not_once", `${prop} is empty on the node now — nothing to find`);
+          continue;
+        }
+        const n = cur.split(find).length - 1;
+        if (n !== 1) {
+          skip("find_not_once", n === 0 ? `the find text is not in ${prop} now (it changed since the agent read it?)` : `the find text occurs ${n} times in ${prop} — ambiguous`);
+          continue;
+        }
+        nv = cur.replace(find, rep);
+        via = { find, replace: rep };
+        if (!nv.trim()) {
+          skip("empty_value", `replace_text would leave ${prop} empty`);
+          continue;
+        }
+        if (nv === cur) {
+          skip("no_change", `replace equals find — ${prop} would read the same`);
+          continue;
+        }
+      } else {
+        nv = typeof a.new_value === "string" ? a.new_value : "";
+        if (!nv.trim()) {
+          skip("empty_value", `set_property ${prop} without a new_value`);
+          continue;
+        }
+        if (cur === nv) {
+          skip("no_change", `${prop} already reads that`);
+          continue;
+        }
+        const ov = a.old_value;
+        const evidence = typeof f.evidence === "string" ? f.evidence.trim() : "";
+        const fresh =
+          (typeof ov === "string" && ov === cur) ||
+          (cur === null && (ov === null || ov === undefined || ov === "")) ||
+          (cur !== null && evidence.length > 0 && cur.includes(evidence));
+        if (!fresh) {
+          skip("stale", `${prop} no longer reads what the agent read (old_value and evidence both miss the live value)`);
+          continue;
+        }
       }
       const key = `${ref}:${prop}`;
       if (seen.has(key)) {
@@ -287,6 +331,7 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
         property: prop,
         old_value: cur,
         new_value: nv,
+        ...(via ? { via } : {}),
         node_data: { [prop]: nv },
         properties_to_be_deleted: [],
       });
@@ -382,13 +427,15 @@ export default defineStep({
     "(over bolt, so it sees the git seed's stamp the read steps strip) and sorts each finding's typed `action` into " +
     "`edits` / `moves` (the exact configs for graph/edit-node and graph/move-node, `node_data` built from the property), " +
     "`skipped` (with a `reason`: protected | git_seeded | not_visited | wrong_type | not_found | property_not_allowed | " +
-    "stale | no_change | empty_value | invalid_action | no_parent | many_parents | duplicate | below_min_severity | " +
-    "issue_not_applied | over_cap) or `manual` (no action). Never planned: the Janitor node (`parent`), its children " +
+    "stale | find_not_once | no_change | empty_value | invalid_action | no_parent | many_parents | duplicate | below_min_severity | " +
+    "issue_not_applied | over_cap) or `manual` (no action). A `replace_text` action ({ property, find, replace }) is resolved " +
+    "here against the live value — `find` must occur exactly once — into an edit with the full old and new values. " +
+    "Never planned: the Janitor node (`parent`), its children " +
     "and anything under it, `mandate_ref_id`, `protect`, and any node whose unique_source_id starts with `seeded_prefix`. " +
     "Writes `plan.json` (`file`) into the run's artifacts. Output: { edits, moves, skipped, manual, protected, counts }.\n\n" +
     EXAMPLE,
   input: z.object({
-    findings: z.array(z.any()).default([]).describe("the agent's findings; each may carry action { kind: set_property | move | none, property, old_value, new_value, new_parent_ref_id }"),
+    findings: z.array(z.any()).default([]).describe("the agent's findings; each may carry action { kind: set_property | replace_text | move | none, property, old_value, new_value, find, replace, new_parent_ref_id }"),
     visited: z.array(z.any()).default([]).describe("the nodes the agent recorded as inspected — a finding or move target outside it is skipped"),
     parent: z.any().optional().describe("the Janitor node as graph/graph-get returns it with children: it, its children and anything under it live are protected"),
     mandate_ref_id: z.string().optional().describe("this run's mandate: protected"),
