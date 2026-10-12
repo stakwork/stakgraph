@@ -18,14 +18,20 @@ import { jarvisMutate } from "../repo/toolsJarvis.js";
  * version: every seeded Concept carries `unique_source_id =
  * <prefix><file>@<sha256[0..12]>` of the file it came from.
  *   - no node under that name → create (the writer's create mode);
- *   - the same stamp → keep: nothing written, so an edit made in the graph
- *     (docs rewritten in Learn, `is_muted` set) stays until the committed
- *     file changes; a deleted node stays deleted;
- *   - our path with an older hash, node not deleted → upsert description +
- *     docs (a changed template wins, as for workflows; `+=` merge, so
- *     `is_muted` and every other attribute survive);
+ *   - the same stamp, node live → keep: nothing written, so an edit made in
+ *     the graph (docs rewritten in Learn, `is_muted` set) stays until the
+ *     committed file changes;
+ *   - our path, node DELETED → upsert, which restores it (the writer clears
+ *     `deleted_at` + `is_deleted`): a Concept the files ship is in the graph,
+ *     whoever deleted it there, and this boot links and anchors it again
+ *     like any owned node. To be rid of one for good, retire the file, or
+ *     take the node over (clear its stamp) before deleting it;
+ *   - our path with an older hash → upsert description + docs (a changed
+ *     template wins, as for workflows; `+=` merge, so `is_muted` and every
+ *     other attribute survive);
  *   - no stamp, or someone else's → skip, never touched: a Concept a person
  *     made under that name, or took over by clearing the stamp, is theirs.
+ *     Deleted, it stays deleted, and nothing is parented under it.
  * A file that moves between sets changes its prefix and reads as someone
  * else's: keep files where they are.
  *
@@ -124,12 +130,12 @@ export interface ExistingConcept {
 /** Pure: the reconcile rule in the module comment. */
 export function planConceptSeed(existing: ExistingConcept | null, stamp: string): SeedAction {
   if (!existing) return "create";
-  if (existing.deleted) return "skip";
   const usid = existing.unique_source_id;
-  if (usid === stamp) return "keep";
   const path = stamp.slice(0, stamp.lastIndexOf("@") + 1);
-  if (typeof usid === "string" && usid.startsWith(path)) return "update";
-  return "skip";
+  const ours = typeof usid === "string" && usid.startsWith(path);
+  if (existing.deleted) return ours ? "update" : "skip"; // an upsert restores a deleted node
+  if (usid === stamp) return "keep";
+  return ours ? "update" : "skip";
 }
 
 export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]): Promise<void> {
@@ -156,7 +162,7 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
         const existing = await findConcept(graph, c.name);
         const action = planConceptSeed(existing, c.stamp);
         if (action === "keep" || action === "skip") {
-          refs.set(c.name, existing!.ref_id);
+          if (!existing!.deleted) refs.set(c.name, existing!.ref_id); // a deleted node is nobody's parent
           if (action === "keep") owned.add(c.name);
           continue;
         }
@@ -196,9 +202,13 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
     if (!c.parent || !owned.has(c.name)) continue;
     try {
       const child = refs.get(c.name);
-      const parent = refs.get(c.parent) ?? (await findConcept(graph, c.parent))?.ref_id;
+      let parent = refs.get(c.parent);
+      if (!parent) {
+        const found = await findConcept(graph, c.parent);
+        if (found && !found.deleted) parent = found.ref_id;
+      }
       if (!child || !parent) {
-        console.warn(`[concept-seed] no Concept "${c.parent}" to parent "${c.name}" under`);
+        console.warn(`[concept-seed] no live Concept "${c.parent}" to parent "${c.name}" under`);
         continue;
       }
       declared.add(`${parent}>${child}`); // before the write: a failed write must not read as "undeclared"
