@@ -537,6 +537,8 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
     const res = await run({ concept: "Law", start: "Law" });
     assert.equal(res.status, "error");
     assert.match(JSON.stringify(res.error), /not_a_janitor: 'Law' is not a PARENT_OF child of 'Janitor'/);
+    // The names that would have been accepted ride along: a typo is self-correcting.
+    assert.match(JSON.stringify(res.error), new RegExp(`; its children: ${MANDATE.name}`));
     assert.doesNotMatch(JSON.stringify(res.error), /first 50 children/);
     assert.equal(agentCalls.length, n);
   });
