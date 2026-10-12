@@ -12,7 +12,12 @@ import { parseConceptFile, planConceptSeed, retireConcept, seedConcepts, stampOf
 import { CODE_CONCEPTS } from "../code/seed.js";
 import { JOB_CONCEPTS } from "../job/seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
-import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorWorkflows } from "./seed.js";
+import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
+import { SEED_OPTS } from "../seed-opts.js";
+
+// The live suites share one persistent test graph: whatever version an earlier run (or another
+// checkout) left active, the COMMITTED YAML must be the one that runs here.
+const PIN_COMMITTED = { ...SEED_OPTS, reactivateKnown: true };
 
 const P = JANITOR_CONCEPTS.prefix;
 
@@ -470,6 +475,7 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
     root = await mkdtemp(join(tmpdir(), "janitor-wf-"));
     ws = new WorkspaceManager(root);
     await seedArtifactSteps(ws);
+    await seedJanitorSteps(ws); // janitor/plan runs for real: with no findings it never opens the graph
     await seedJanitorWorkflows(ws);
     const flow = await ws.getWorkflow("graph-janitor");
     const { registry } = await buildRegistry(await ws.materializeCustomSteps());
@@ -480,11 +486,12 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
   });
   after(() => rm(root, { recursive: true, force: true }));
 
-  it("is seeded under graph-maintenance with the two declared inputs; its description is no how-to", async () => {
+  it("is seeded under graph-maintenance with the three declared inputs (apply off by default); its description is no how-to", async () => {
     const entry = (await ws.listWorkflows()).find((w) => w.name === "graph-janitor");
     assert.equal(entry?.category, "graph-maintenance");
     const flow = (await ws.getWorkflow("graph-janitor")) as any;
-    assert.deepEqual(Object.keys(flow.inputBlock ?? {}).sort(), ["concept", "start"]);
+    assert.deepEqual(Object.keys(flow.inputBlock ?? {}).sort(), ["apply", "concept", "start"]);
+    assert.equal(flow.inputBlock.apply.default, false);
     // How to ADD a janitor is the Janitor Concept's to say (its docs), not the workflow's.
     for (const d of [entry?.description ?? "", String(flow.description ?? "")]) assert.doesNotMatch(d, /create-node|create-triplet/);
   });
@@ -509,6 +516,11 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
     assert.equal(out.summary, "clean");
     assert.deepEqual(out.findings, []);
     assert.match(out.report_json, /^\/artifacts\/\d+\/cleanup-report\.json$/);
+    // A dry run by default: the plan ran (empty), nothing was applied, and the result says so.
+    assert.equal(out.apply, false);
+    assert.deepEqual(out.plan.counts, { findings: 0, edits: 0, moves: 0, skipped: 0, manual: 0 });
+    assert.equal(out.applied, undefined);
+    assert.match(out.report_plan, /^\/artifacts\/\d+\/plan\.json$/);
     const cfg = agentCalls.at(-1)!;
     assert.match(cfg.prompt, /THE MANDATE TEXT/);
     assert.match(cfg.prompt, /Law — Legal knowledge\./);
@@ -611,7 +623,8 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
     ws = (await graphWorkspaceFromEnv(env, { dataDir: root })).workspace;
     await ws.graph!.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
     await seedArtifactSteps(ws);
-    await seedJanitorWorkflows(ws);
+    await seedJanitorSteps(ws);
+    await seedJanitorWorkflows(ws, PIN_COMMITTED);
     // The committed tree, for real — and a mandate, which no seed ships: the test plants the fixture.
     await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]);
     await ws.graph!.nodes.write({ type: "Concept", data: { name: "Law", description: "A domain root." } }, "create", { namespace: ws.graph!.cfg.namespace });
@@ -689,7 +702,7 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
 // A deployed graph has `Code Change` under `Workflow Builder` (the tree before
 // `Job`): the next boot moves it under `Job` and drops the old edge.
 describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }, () => {
-  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change"];
+  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change", "Explore"];
   let root: string;
   let ws: import("strut").WorkspaceStore;
   const edges = async (parent: string) =>
@@ -731,5 +744,153 @@ describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }
     await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]);
     assert.deepEqual(await edges("Workflow Builder"), ["Janitor"]);
     assert.deepEqual(await edges("Job"), ["Code Change", "Explore", "Plan Mode"]);
+  });
+});
+
+// The apply branch and the revert over the REAL steps (janitor/plan,
+// graph/edit-node, graph/move-node, janitor/readback, janitor/revert-plan)
+// with a fake agent, on the committed tree: a dry run leaves the graph
+// alone; apply=true writes, reads back and logs; the revert puts it back; a
+// node changed since is left alone. Here, not in apply.test.ts: test files
+// run in parallel processes, and the live suites share the Janitor tree.
+// apply=false leaves the graph alone; apply=true writes, reads back and logs;
+// the revert puts it back; a node changed since is left alone.
+describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }, () => {
+  const tag = `A${Date.now().toString(36)}`;
+  const NAMES = ["Workflow Builder", "Janitor", "Overfit Concept Janitor", `Law ${tag}`, `Tort ${tag}`, `Crime ${tag}`];
+  let root: string;
+  let ws: import("strut").WorkspaceStore;
+  let services: Record<string, unknown>;
+  let registry: Awaited<ReturnType<typeof buildRegistry>>["registry"];
+  let agentAnswer: () => Record<string, unknown>;
+  const ids: Record<string, string> = {};
+  const read = async (name: string) => {
+    const rows = await ws.graph!.bolt.run(
+      `MATCH (n:Concept {name: $name}) OPTIONAL MATCH (p:Concept)-[:PARENT_OF]->(n) RETURN n.ref_id AS ref_id, n.description AS description, n.docs AS docs, n.unique_source_id AS usid, collect(p.name) AS parents`,
+      { name },
+    );
+    return rows[0]!;
+  };
+  const run = async (name: string, input: Record<string, unknown>) => runWorkflow(await ws.getWorkflow(name), input, registry, { services });
+  const artifact = (runId: string, file: string) => readFile(join(root, "data", "artifacts", runId, file), "utf-8");
+  before(async () => {
+    const { graphWorkspaceFromEnv } = await import("strut");
+    root = await mkdtemp(join(tmpdir(), "janitor-apply-live-"));
+    const env = {
+      NEO4J_URI: URI!,
+      NEO4J_USER: process.env.STRUT_TEST_NEO4J_USER ?? "neo4j",
+      NEO4J_PASSWORD: process.env.STRUT_TEST_NEO4J_PASSWORD ?? "struttest",
+      STRUT_GRAPH_SEED_ONTOLOGY: "1",
+      STRUT_GRAPH_EMBEDDINGS: "off",
+    };
+    ws = (await graphWorkspaceFromEnv(env, { dataDir: root })).workspace;
+    const g = ws.graph!;
+    await g.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
+    await seedArtifactSteps(ws);
+    await seedJanitorSteps(ws);
+    await seedJanitorWorkflows(ws, PIN_COMMITTED);
+    await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]);
+    const ns = g.cfg.namespace;
+    for (const [name, description] of [[`Law ${tag}`, "Legal knowledge."], [`Tort ${tag}`, "A civil wrong."], [`Crime ${tag}`, "An offence."]] as const) {
+      ids[name] = (await g.nodes.write({ type: "Concept", data: { name, description } }, "create", { namespace: ns })).ref_id;
+    }
+    for (const kid of [`Tort ${tag}`, `Crime ${tag}`]) await g.edges.write({ edge: "PARENT_OF", source_ref_id: ids[`Law ${tag}`]!, target_ref_id: ids[kid]! });
+    for (const name of ["Janitor", "Workflow Builder"]) ids[name] = String((await read(name)).ref_id);
+    registry = (await buildRegistry(await ws.materializeCustomSteps())).registry;
+    const agent = defineStep({ type: "agent", input: z.object({}).passthrough(), output: z.any(), async run() { return { result: "ok", object: agentAnswer(), steps: 1, usage: {}, cost: 0 }; } });
+    registry = { ...registry, agent } as typeof registry;
+    const dataDir = join(root, "data");
+    services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
+    const visited = NAMES.filter((n) => n !== "Overfit Concept Janitor").map((n) => ({ ref_id: ids[n], name: n, node_type: "Concept" }));
+    const f = (name: string, action: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ ref_id: ids[name], name, issue: "vague", problem: "p", evidence: "x", suggestion: "s", severity: "medium", action, ...extra });
+    agentAnswer = () => ({
+      start_ref_id: ids[`Law ${tag}`],
+      visited,
+      findings: [
+        f(`Tort ${tag}`, { kind: "set_property", property: "description", old_value: "A civil wrong.", new_value: "A wrong between people." }),
+        f(`Crime ${tag}`, { kind: "move", new_parent_ref_id: ids[`Tort ${tag}`] }),
+        f("Janitor", { kind: "set_property", property: "description", old_value: "", new_value: "Hijacked." }, { severity: "high" }),
+        f("Workflow Builder", { kind: "set_property", property: "docs", old_value: "", new_value: "Rewritten." }, { evidence: "" }),
+        f(`Law ${tag}`, { kind: "set_property", property: "description", old_value: "Something else.", new_value: "Nope." }),
+        f(`Law ${tag}`, { kind: "none" }, { suggestion: "merge" }),
+      ],
+      summary: "two real changes",
+    });
+  });
+  after(async () => {
+    const g = ws?.graph;
+    if (g) {
+      await g.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: NAMES });
+      await closeGraphBackends();
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  let applyRun = "";
+  it("dry run: the plan keeps the two real changes and skips the rest with reasons — the git-seeded one by its stamp — and the graph is untouched", async () => {
+    const res = await run("graph-janitor", { concept: "Overfit Concept Janitor", start: `Law ${tag}` });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    const out = res.output as Record<string, any>;
+    assert.equal(out.apply, false);
+    assert.deepEqual(out.plan.edits.map((e: any) => [e.id, e.name, e.old_value, e.new_value]), [["e1", `Tort ${tag}`, "A civil wrong.", "A wrong between people."]]);
+    assert.deepEqual(out.plan.moves.map((m: any) => [m.id, m.from_ref_id, m.to_ref_id]), [["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]]]);
+    assert.deepEqual(out.plan.skipped.map((s: any) => [s.name, s.reason]), [["Janitor", "protected"], ["Workflow Builder", "git_seeded"], [`Law ${tag}`, "stale"]]);
+    assert.equal(out.plan.manual.length, 1);
+    assert.equal(out.applied, undefined);
+    const plan = JSON.parse(await artifact(res.runId, "plan.json"));
+    assert.equal(plan.counts.edits, 1);
+    assert.equal((await read(`Tort ${tag}`)).description, "A civil wrong.");
+    assert.deepEqual((await read(`Crime ${tag}`)).parents, [`Law ${tag}`]);
+    assert.match(String((await read("Workflow Builder")).usid), /^lab\/builder\/concepts\/Workflow Builder\.md@/);
+  });
+
+  it("apply=true: the edit and the move land, read back, and the undo log names what they replaced", async () => {
+    const res = await run("graph-janitor", { concept: "Overfit Concept Janitor", start: `Law ${tag}`, apply: true });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    applyRun = res.runId;
+    const out = res.output as Record<string, any>;
+    assert.equal(out.apply, true);
+    assert.deepEqual(out.applied.map((c: any) => c.id), ["e1", "m1"]);
+    assert.equal(out.applied_json, `/artifacts/${applyRun}/applied.json`);
+    assert.equal((await read(`Tort ${tag}`)).description, "A wrong between people.");
+    assert.deepEqual((await read(`Crime ${tag}`)).parents, [`Tort ${tag}`]);
+    assert.equal((await read("Janitor")).description, "Automated agents for cleaning up code, concept trees, or other data.");
+    const log = JSON.parse(await artifact(applyRun, "applied.json"));
+    assert.equal(log.workflow, "graph-janitor");
+    assert.equal(log.run_id, applyRun);
+    assert.deepEqual(log.counts, { planned: 2, applied: 2, failed: 0, not_verified: 0 });
+    assert.deepEqual(log.applied.map((c: any) => [c.id, c.old_value ?? c.from_ref_id, c.new_value ?? c.to_ref_id]), [["e1", "A civil wrong.", "A wrong between people."], ["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]]]);
+    const report = await artifact(applyRun, "report.md");
+    assert.match(report, new RegExp(`## Applied \\(run ${applyRun}\\)`));
+    assert.match(report, /graph-janitor-revert/);
+  });
+
+  it("the revert puts both back and is logged as a revert of the apply run", async () => {
+    const res = await run("graph-janitor-revert", { run_id: applyRun });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    const out = res.output as Record<string, any>;
+    assert.equal(out.revert_of, applyRun);
+    assert.equal(out.source.workflow, "graph-janitor");
+    assert.deepEqual(out.applied.map((c: any) => [c.id, c.reverts]), [["e1", "e1"], ["m1", "m1"]]);
+    assert.equal((await read(`Tort ${tag}`)).description, "A civil wrong.");
+    assert.deepEqual((await read(`Crime ${tag}`)).parents, [`Law ${tag}`]);
+    const log = JSON.parse(await artifact(res.runId, "applied.json"));
+    assert.deepEqual([log.workflow, log.revert_of], ["graph-janitor-revert", applyRun]);
+  });
+
+  it("a second revert of the same run touches nothing: the nodes no longer hold what the janitor wrote", async () => {
+    const res = await run("graph-janitor-revert", { run_id: applyRun, changes: ["e1", "m1", "zz"] });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    const out = res.output as Record<string, any>;
+    assert.deepEqual(out.applied, []);
+    assert.deepEqual(out.plan.skipped.map((s: any) => [s.id, s.reason]), [["e1", "moved_on"], ["m1", "moved_on"], ["zz", "unknown_change"]]);
+  });
+
+  it("a run that never applied anything has no undo log: no_applied_log", async () => {
+    const dry = await run("graph-janitor", { concept: "Overfit Concept Janitor", start: `Law ${tag}` });
+    assert.equal(dry.status, "success");
+    const res = await run("graph-janitor-revert", { run_id: dry.runId });
+    assert.equal(res.status, "error");
+    assert.match(JSON.stringify(res.error), /no_applied_log: /);
   });
 });

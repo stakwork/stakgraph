@@ -10,7 +10,8 @@
  *    node is not (or only `low`);
  *  - `visited` is Concepts only, and every finding's ref_id is in it;
  *  - the agent never called a graph WRITE step (the read-only grant held);
- *  - `report.md` + `cleanup-report.json` are in the run's artifacts dir;
+ *  - `report.md` + `cleanup-report.json` + `plan.json` are in the run's artifacts dir
+ *    (a dry run: apply is never set here, so the graph is read, not written);
  *
  * then prints the findings and the agent's cost, and runs the refusal
  * (`Law` as a mandate → `not_a_janitor:`, no model involved).
@@ -30,7 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeGraphBackends, createStrut, graphWorkspaceFromEnv, type RunEvent } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
-import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorWorkflows } from "./seed.js";
+import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
 import { BUILDER_CONCEPTS } from "../builder/system.js";
 import { seedConcepts } from "../concept-seed.js";
 
@@ -108,6 +109,7 @@ async function main() {
     // ── 1. seed the engine + the committed tree ──────────────────────────
     await graph.bolt.run(`MATCH (n:Concept) WHERE n.name IN $names DETACH DELETE n`, { names: [...NAMES, ...SEEDED] });
     await seedArtifactSteps(workspace);
+    await seedJanitorSteps(workspace); // janitor/plan runs on every sweep (a dry run here: input.apply stays false)
     await seedJanitorWorkflows(workspace);
     await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]); // + the mandate this smoke runs
 

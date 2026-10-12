@@ -30,7 +30,7 @@ import { JOB_CONCEPTS, seedJobWorkflows } from "./job/seed.js";
 import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { BrowserService } from "./browser/service.js";
-import { JANITOR_CONCEPTS, seedJanitorWorkflows } from "./janitor/seed.js";
+import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
 import { BUILDER_CONCEPTS, builderSystem } from "./builder/system.js";
 import { seedConcepts } from "./concept-seed.js";
@@ -234,6 +234,8 @@ export async function createLabStrut(
   await seedJobWorkflows(workspace);
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
   // mandate).
+  // janitors: the plan / readback / revert-plan steps the engine writes through, then the two engine workflows.
+  await seedJanitorSteps(workspace);
   await seedJanitorWorkflows(workspace);
   // explore — the knowledge-graph explorer (strut plans/federation.md
   // §2.2): the workflow another strut asks this one to run, a read-only
