@@ -129,9 +129,14 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.deepEqual(Object.keys(cfg.schema.properties.sources.items.properties).sort(), ["name", "node_type", "path", "ref_id", "why"]);
     assert.match(cfg.system, /READ-ONLY/);
     assert.match(cfg.system, /never to create or change a file/);
-    // The graph encouraged, never forced: typed search over the code node types and graph-get, the files when they serve better.
-    assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
+    // Not every deployment is software: graph search in plain words, narrowed by the types this graph holds.
+    assert.match(cfg.system, /Search it with graph\/graph-search in plain words/);
+    assert.match(cfg.system, /graph\/get-ontology lists the types this graph holds/);
     assert.match(cfg.system, /graph\/graph-get the hits that look right/);
+    // The code searches are for code: typed search over the code node types, and the Concepts tied to the files they summarize.
+    assert.match(cfg.system, /For a question about code or software, when the graph holds the code/);
+    assert.match(cfg.system, /`type` set to code node types: `Function,Class,Datamodel,Endpoint,Request,Page,File`/);
+    assert.match(cfg.system, /`type: Concept` and `linked: MODIFIES>File`/);
     // One graph search first when the graph holds the code — then whichever fits.
     assert.match(cfg.system, /your FIRST call is a graph\/graph-search/);
     // A search hit carries its file and lines (strut#142); the graph counts lines from 0.
