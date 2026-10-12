@@ -1177,9 +1177,14 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   list of kinds — a closed one once held `overfit`, one workspace's word). The error codes ride on the second
   line of `error.message` (an `exec` that exits 1 with the code on stderr).
 - **Apply** (`input.apply`, default false = dry run). The agent never
-  writes; each finding's typed `action` (`set_property` with `property`,
-  `old_value` verbatim, `new_value`; `move` with `new_parent_ref_id`;
-  `none` = a person decides) goes through `janitor/plan` (`steps/plan.ts`),
+  writes; each finding's typed `action` (`replace_text` with `property`,
+  `find` verbatim and `replace` — the usual docs fix, resolved by the plan
+  step against the live value, `find` occurring exactly once, into an edit
+  with the FULL old and new values, so the write, the readback and the undo
+  log never see a fragment; `set_property` with `property`, `old_value`
+  verbatim, `new_value` — a one-sentence description, or docs mostly
+  rewritten; `move` with `new_parent_ref_id`; `none` = a person decides)
+  goes through `janitor/plan` (`steps/plan.ts`),
   which runs in BOTH modes and re-reads every target over bolt — the only
   way to see `unique_source_id`, which strut's read steps strip from every
   response — and sorts it into `edits` / `moves` (the exact configs for

@@ -537,6 +537,8 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
     const res = await run({ concept: "Law", start: "Law" });
     assert.equal(res.status, "error");
     assert.match(JSON.stringify(res.error), /not_a_janitor: 'Law' is not a PARENT_OF child of 'Janitor'/);
+    // The names that would have been accepted ride along: a typo is self-correcting.
+    assert.match(JSON.stringify(res.error), new RegExp(`; its children: ${MANDATE.name}`));
     assert.doesNotMatch(JSON.stringify(res.error), /first 50 children/);
     assert.equal(agentCalls.length, n);
   });
@@ -809,6 +811,7 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
       findings: [
         f(`Tort ${tag}`, { kind: "set_property", property: "description", old_value: "A civil wrong.", new_value: "A wrong between people." }),
         f(`Crime ${tag}`, { kind: "move", new_parent_ref_id: ids[`Tort ${tag}`] }),
+        f(`Crime ${tag}`, { kind: "replace_text", property: "description", find: "An offence", replace: "A public wrong" }),
         f("Janitor", { kind: "set_property", property: "description", old_value: "", new_value: "Hijacked." }, { severity: "high" }),
         f("Workflow Builder", { kind: "set_property", property: "docs", old_value: "", new_value: "Rewritten." }, { evidence: "" }),
         f(`Law ${tag}`, { kind: "set_property", property: "description", old_value: "Something else.", new_value: "Nope." }),
@@ -832,14 +835,18 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
     assert.equal(res.status, "success", JSON.stringify(res.error));
     const out = res.output as Record<string, any>;
     assert.equal(out.apply, false);
-    assert.deepEqual(out.plan.edits.map((e: any) => [e.id, e.name, e.old_value, e.new_value]), [["e1", `Tort ${tag}`, "A civil wrong.", "A wrong between people."]]);
+    assert.deepEqual(out.plan.edits.map((e: any) => [e.id, e.name, e.old_value, e.new_value, e.via]), [
+      ["e1", `Tort ${tag}`, "A civil wrong.", "A wrong between people.", undefined],
+      ["e2", `Crime ${tag}`, "An offence.", "A public wrong.", { find: "An offence", replace: "A public wrong" }],
+    ]);
     assert.deepEqual(out.plan.moves.map((m: any) => [m.id, m.from_ref_id, m.to_ref_id]), [["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]]]);
     assert.deepEqual(out.plan.skipped.map((s: any) => [s.name, s.reason]), [["Janitor", "protected"], ["Workflow Builder", "git_seeded"], [`Law ${tag}`, "stale"]]);
     assert.equal(out.plan.manual.length, 1);
     assert.equal(out.applied, undefined);
     const plan = JSON.parse(await artifact(res.runId, "plan.json"));
-    assert.equal(plan.counts.edits, 1);
+    assert.equal(plan.counts.edits, 2);
     assert.equal((await read(`Tort ${tag}`)).description, "A civil wrong.");
+    assert.equal((await read(`Crime ${tag}`)).description, "An offence.");
     assert.deepEqual((await read(`Crime ${tag}`)).parents, [`Law ${tag}`]);
     assert.match(String((await read("Workflow Builder")).usid), /^lab\/builder\/concepts\/Workflow Builder\.md@/);
   });
@@ -850,16 +857,22 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
     applyRun = res.runId;
     const out = res.output as Record<string, any>;
     assert.equal(out.apply, true);
-    assert.deepEqual(out.applied.map((c: any) => c.id), ["e1", "m1"]);
+    assert.deepEqual(out.applied.map((c: any) => c.id), ["e1", "e2", "m1"]);
     assert.equal(out.applied_json, `/artifacts/${applyRun}/applied.json`);
     assert.equal((await read(`Tort ${tag}`)).description, "A wrong between people.");
+    assert.equal((await read(`Crime ${tag}`)).description, "A public wrong.");
     assert.deepEqual((await read(`Crime ${tag}`)).parents, [`Tort ${tag}`]);
     assert.equal((await read("Janitor")).description, "Automated agents for cleaning up code, concept trees, or other data.");
     const log = JSON.parse(await artifact(applyRun, "applied.json"));
     assert.equal(log.workflow, "graph-janitor");
     assert.equal(log.run_id, applyRun);
-    assert.deepEqual(log.counts, { planned: 2, applied: 2, failed: 0, not_verified: 0 });
-    assert.deepEqual(log.applied.map((c: any) => [c.id, c.old_value ?? c.from_ref_id, c.new_value ?? c.to_ref_id]), [["e1", "A civil wrong.", "A wrong between people."], ["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]]]);
+    assert.deepEqual(log.counts, { planned: 3, applied: 3, failed: 0, not_verified: 0 });
+    // The undo log holds whole values for both edit shapes: a revert never needs to know one was a replace_text.
+    assert.deepEqual(log.applied.map((c: any) => [c.id, c.old_value ?? c.from_ref_id, c.new_value ?? c.to_ref_id]), [
+      ["e1", "A civil wrong.", "A wrong between people."],
+      ["e2", "An offence.", "A public wrong."],
+      ["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]],
+    ]);
     const report = await artifact(applyRun, "report.md");
     assert.match(report, new RegExp(`## Applied \\(run ${applyRun}\\)`));
     assert.match(report, /graph-janitor-revert/);
@@ -871,19 +884,20 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
     const out = res.output as Record<string, any>;
     assert.equal(out.revert_of, applyRun);
     assert.equal(out.source.workflow, "graph-janitor");
-    assert.deepEqual(out.applied.map((c: any) => [c.id, c.reverts]), [["e1", "e1"], ["m1", "m1"]]);
+    assert.deepEqual(out.applied.map((c: any) => [c.id, c.reverts]), [["e1", "e1"], ["e2", "e2"], ["m1", "m1"]]);
     assert.equal((await read(`Tort ${tag}`)).description, "A civil wrong.");
+    assert.equal((await read(`Crime ${tag}`)).description, "An offence.");
     assert.deepEqual((await read(`Crime ${tag}`)).parents, [`Law ${tag}`]);
     const log = JSON.parse(await artifact(res.runId, "applied.json"));
     assert.deepEqual([log.workflow, log.revert_of], ["graph-janitor-revert", applyRun]);
   });
 
   it("a second revert of the same run touches nothing: the nodes no longer hold what the janitor wrote", async () => {
-    const res = await run("graph-janitor-revert", { run_id: applyRun, changes: ["e1", "m1", "zz"] });
+    const res = await run("graph-janitor-revert", { run_id: applyRun, changes: ["e1", "e2", "m1", "zz"] });
     assert.equal(res.status, "success", JSON.stringify(res.error));
     const out = res.output as Record<string, any>;
     assert.deepEqual(out.applied, []);
-    assert.deepEqual(out.plan.skipped.map((s: any) => [s.id, s.reason]), [["e1", "moved_on"], ["m1", "moved_on"], ["zz", "unknown_change"]]);
+    assert.deepEqual(out.plan.skipped.map((s: any) => [s.id, s.reason]), [["e1", "moved_on"], ["e2", "moved_on"], ["m1", "moved_on"], ["zz", "unknown_change"]]);
   });
 
   it("a run that never applied anything has no undo log: no_applied_log", async () => {

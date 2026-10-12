@@ -17,8 +17,8 @@ whose input names the mandate and where to sweep:
 `{ concept: "<child of Janitor>", start: "<Concept whose subtree to sweep>" }`.
 One automation per janitor: its schedule is the janitor's schedule, and its
 enabled switch turns the janitor off. The agent only proposes: each finding
-carries an action (a new description or docs, or a new parent) that code
-checks against the live graph. By default a run is a dry run — the plan
+carries an action (a passage to replace in the docs, a new description or
+docs, or a new parent) that code checks against the live graph. By default a run is a dry run — the plan
 only. With `apply: true` on the input, the checked plan is written: never a
 rename, never this node, a mandate or a Concept the git seed owns, never a
 value that changed since the agent read it; every write is read back, and

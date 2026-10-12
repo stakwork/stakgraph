@@ -74,6 +74,69 @@ describe("planChanges", () => {
     assert.equal(p.edits.length, 1);
   });
 
+  it("replace_text: resolved against the live value into a whole-value edit, with the fragment kept for the record", () => {
+    const p = planChanges([finding("law", { kind: "replace_text", property: "description", find: "old words", replace: "new words" })], LIVE, OPTS);
+    assert.deepEqual(p.skipped, []);
+    const e = p.edits[0]!;
+    assert.deepEqual([e.old_value, e.new_value, e.node_data, e.via], ["old words here", "new words here", { description: "new words here" }, { find: "old words", replace: "new words" }]);
+    // "" removes the passage.
+    const gone = planChanges([finding("law", { kind: "replace_text", property: "description", find: " here", replace: "" })], LIVE, OPTS);
+    assert.equal(gone.edits[0]!.new_value, "old words");
+  });
+
+  it("replace_text without a property takes the one allowed property where find occurs exactly once; none or several is refused", () => {
+    const live = new Map(LIVE);
+    live.set("both", node("both", { name: "Both", description: "the rule here", docs: "the rule here, again" }));
+    live.set("neither", node("neither", { name: "Neither", description: "x", docs: "y" }));
+    const visited = [...OPTS.visited, { ref_id: "both" }, { ref_id: "neither" }];
+    const p = planChanges(
+      [
+        finding("law", { kind: "replace_text", find: "old words", replace: "new words" }),
+        finding("both", { kind: "replace_text", find: "the rule", replace: "a rule" }),
+        finding("neither", { kind: "replace_text", find: "the rule", replace: "a rule" }),
+        finding("law", { kind: "set_property", new_value: "x" }),
+      ],
+      live,
+      { ...OPTS, visited },
+    );
+    assert.deepEqual(p.edits.map((e) => [e.ref_id, e.property, e.new_value, e.via]), [
+      ["law", "description", "new words here", { find: "old words", replace: "new words", property_inferred: true }],
+    ]);
+    assert.deepEqual(p.skipped.map((s) => [s.ref_id, s.reason]), [["both", "invalid_action"], ["neither", "invalid_action"], ["law", "invalid_action"]]);
+    assert.match(p.skipped[0]!.detail!, /in description and docs — say which/);
+    assert.match(p.skipped[1]!.detail!, /in none of description, docs exactly once/);
+    assert.match(p.skipped[2]!.detail!, /set_property without a property/);
+    // A named property is never second-guessed: wrong one → find_not_once, as before.
+    const named = planChanges([finding("both", { kind: "replace_text", property: "docs", find: "again", replace: "twice" })], live, { ...OPTS, visited });
+    assert.deepEqual(named.edits.map((e) => [e.property, e.new_value, e.via?.property_inferred]), [["docs", "the rule here, twice", undefined]]);
+  });
+
+  it("replace_text: find must occur exactly once — zero (the text moved on) or several (ambiguous) is find_not_once; never emptied, never a no-op", () => {
+    const live = new Map(LIVE);
+    live.set("dup", node("dup", { name: "Dup", docs: "a rule. a rule." }));
+    live.set("bare", node("bare", { name: "Bare" }));
+    const p = planChanges(
+      [
+        finding("law", { kind: "replace_text", property: "description", find: "not there", replace: "x" }),
+        finding("dup", { kind: "replace_text", property: "docs", find: "a rule.", replace: "x" }),
+        finding("bare", { kind: "replace_text", property: "docs", find: "a", replace: "x" }),
+        finding("law", { kind: "replace_text", property: "description", find: "old words here", replace: "  " }),
+        finding("law", { kind: "replace_text", property: "description", find: "old", replace: "old" }),
+        finding("law", { kind: "replace_text", property: "description", replace: "x" }),
+        finding("law", { kind: "replace_text", property: "name", find: "Law", replace: "Laws" }),
+      ],
+      live,
+      { ...OPTS, visited: [...OPTS.visited, { ref_id: "dup" }, { ref_id: "bare" }] },
+    );
+    assert.deepEqual(p.edits, []);
+    assert.deepEqual(
+      p.skipped.map((s) => s.reason),
+      ["find_not_once", "find_not_once", "find_not_once", "empty_value", "no_change", "invalid_action", "property_not_allowed"],
+    );
+    assert.match(p.skipped[0]!.detail!, /not in description now/);
+    assert.match(p.skipped[1]!.detail!, /occurs 2 times/);
+  });
+
   it("skips as stale when neither old_value nor evidence matches what the node reads now", () => {
     const p = planChanges([finding("law", { kind: "set_property", property: "description", old_value: "something else", new_value: "New." }, { evidence: "not there" })], LIVE, OPTS);
     assert.deepEqual(p.edits, []);
