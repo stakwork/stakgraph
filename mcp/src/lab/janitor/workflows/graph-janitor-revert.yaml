@@ -1,0 +1,85 @@
+name: graph-janitor-revert
+description: >-
+  Undo what a graph-janitor run applied. input.run_id names the apply run;
+  its applied.json (the undo log: every change with the value or parent it
+  replaced) is read and the inverse written back — an edit restores the
+  replaced value (deletes the property when there was none), a move hangs
+  the node under its previous parent — then every write is read back.
+  Only a node that still holds what the janitor wrote is touched: one
+  someone changed since is skipped as moved_on, never overwritten.
+  input.changes picks some of the run's changes by id (e1, m2, …). The
+  revert is itself logged (applied.json, revert_of), so it can be reverted
+  too. Output: { revert_of, source, plan: { edits, moves, skipped, counts },
+  applied, applied_json, report_plan, report_md }. Errors, on error.message's
+  first line: no_applied_log: (the run has no undo log — not an apply run,
+  or it applied nothing) | apply_failed: (a write failed or did not read
+  back).
+input:
+  run_id:
+    type: string
+    description: the graph-janitor run whose applied changes to undo
+  changes:
+    type: json
+    required: false
+    description: "ids of the changes to undo (e.g. [\"e1\", \"m2\"]); omit for all of them"
+steps:
+  - id: plan
+    type: janitor/revert-plan
+    depends: []
+    config:
+      run_id: "{{ input.run_id }}"
+      changes: "{{ input.changes }}"
+
+  - id: edits
+    type: foreach
+    depends: plan
+    config:
+      items: "{{ plan.edits }}"
+      body:
+        id: edit
+        type: graph/edit-node
+        config:
+          ref_id: "{{ $current.ref_id }}"
+          node_data: "{{ $current.node_data }}"
+          properties_to_be_deleted: "{{ $current.properties_to_be_deleted }}"
+
+  - id: moves
+    type: foreach
+    depends: edits
+    config:
+      items: "{{ plan.moves }}"
+      body:
+        id: move
+        type: graph/move-node
+        config:
+          ref_id: "{{ $current.ref_id }}"
+          edge_type: "{{ $current.edge_type }}"
+          direction: "{{ $current.direction }}"
+          from_ref_id: "{{ $current.from_ref_id }}"
+          to_ref_id: "{{ $current.to_ref_id }}"
+
+  - id: readback
+    type: janitor/readback
+    depends: moves
+    config:
+      plan: "{{ plan }}"
+      edits: "{{ edits }}"
+      moves: "{{ moves }}"
+      workflow: graph-janitor-revert
+      revert_of: "{{ input.run_id }}"
+
+  - id: result
+    type: pack
+    depends: readback
+    config:
+      revert_of: "{{ input.run_id }}"
+      source: "{{ plan.source }}"
+      plan:
+        edits: "{{ plan.edits }}"
+        moves: "{{ plan.moves }}"
+        skipped: "{{ plan.skipped }}"
+        counts: "{{ plan.counts }}"
+      applied: "{{ readback.applied }}"
+      applied_json: "{{ readback.applied_json }}"
+      report_plan: "/artifacts/{{ $runId }}/plan.json"
+      report_md: "/artifacts/{{ $runId }}/report.md"
