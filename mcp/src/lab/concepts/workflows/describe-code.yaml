@@ -17,9 +17,9 @@ input:
   cost_limit: { type: number, default: 0.5, description: "dollars; no new call starts once this much is spent" }
 params:
   # Any aieo model name the deployment can call (see GET /llm/models). The
-  # default is one every deployment can: mcp's /repo/describe proxy passes
-  # the cheaper openrouter/qwen/qwen3-coder-30b-a3b-instruct when the
-  # deployment has an OpenRouter key, as the old handler did.
+  # default is one every deployment can, directly or through the actor's
+  # gateway key; mcp's /repo/describe proxy passes a model only when the
+  # request names one.
   model: haiku
   batch_size: 50
   concurrency: 5

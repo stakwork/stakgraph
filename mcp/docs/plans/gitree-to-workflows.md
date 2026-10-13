@@ -98,11 +98,11 @@ behind the same `authMiddleware`.
      missing token is no longer a 400 (hive always sends one).
    - `/repo/describe`: `repo_url`, `file_paths`, `cost_limit` → the workflow
      input. `batch_size`, `concurrency` → per-run `params`. **Model:** the
-     YAML default becomes `haiku`; the proxy passes
-     `params.model = openrouter/qwen/qwen3-coder-30b-a3b-instruct` when
-     `hasApiKeyForProvider("openrouter")`, mirroring `descriptions.ts`
-     (today the YAML hardcodes OpenRouter, which fails outright on a swarm
-     without that key). A `model` in the body wins. `embed` is ignored (the
+     YAML default becomes `haiku`, and the proxy passes a model only when
+     the body names one. (It first mirrored `descriptions.ts` and passed
+     the OpenRouter qwen model whenever mcp's env had an OpenRouter key; on
+     swarm38 the run's calls went through the actor's gateway key instead,
+     and the first real run died on OpenRouter after 0 descriptions.) `embed` is ignored (the
      pass embeds). `apiKey` is refused on this path: a key in a request has
      no place in a billed run, and the one caller that sends it (the Enrich
      button) has no actor and never reaches here.

@@ -32,14 +32,9 @@
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import { generateRunId, type RunEvent, type RunResult, type RunStore } from "strut";
 import * as asyncReqs from "../graph/reqs.js";
-import { hasApiKeyForProvider } from "../aieo/src/provider.js";
 
 export const PROCESS_WORKFLOW = "bootstrap-then-process";
 export const DESCRIBE_WORKFLOW = "describe-code";
-/** The cheap describe model, passed when the deployment has an OpenRouter
- *  key (`describe_nodes_agent` picks the same one); the workflow's own
- *  default is `haiku`, which every deployment can call. */
-export const DESCRIBE_MODEL = "openrouter/qwen/qwen3-coder-30b-a3b-instruct";
 
 /** What the proxies use of the lab strut (a `Strut<LabServices>` satisfies it). */
 export interface ProxyStrut {
@@ -61,8 +56,6 @@ export interface ProxyDeps {
   strut(): Promise<ProxyStrut>;
   /** The old handlers, for a request with no actor. */
   fallback: { process: Handler; describe: Handler };
-  /** Whether the deployment can call the OpenRouter describe model. */
-  hasOpenRouterKey?: () => boolean;
 }
 
 // ── The actor ─────────────────────────────────────────────────────────────
@@ -117,7 +110,6 @@ export interface DescribeLaunch {
  *  refused (a key in a request has no place in a billed run). */
 export function parseDescribeBody(
   body: Record<string, unknown>,
-  hasOpenRouterKey: () => boolean,
 ): { ok: true; launch: DescribeLaunch } | { ok: false; error: string } {
   if (str(body.apiKey)) return { ok: false, error: "apiKey is not accepted on a billed run; the run uses the actor's delegation or the deployment's key" };
   const cost_limit = parseFloat(String(body.cost_limit ?? "0.5"));
@@ -128,7 +120,11 @@ export function parseDescribeBody(
   if (isNaN(concurrency) || concurrency <= 0) return { ok: false, error: "Invalid concurrency. Must be a positive integer." };
   const file_paths = Array.isArray(body.file_paths) ? body.file_paths.filter((p): p is string => typeof p === "string") : [];
   const repo_url = str(body.repo_url);
-  const model = str(body.model) ?? (hasOpenRouterKey() ? DESCRIBE_MODEL : undefined);
+  // No body model → the workflow's own (`haiku`). Never the old handler's
+  // OpenRouter pick: a run here is the actor's, and behind the Mothership
+  // its calls go through the actor's gateway key, which mcp's own env keys
+  // say nothing about.
+  const model = str(body.model);
   return {
     ok: true,
     launch: {
@@ -306,8 +302,6 @@ async function processRun(
 // ── The handlers ──────────────────────────────────────────────────────────
 
 export function createProxies(deps: ProxyDeps): { process: Handler; describe: Handler } {
-  const hasOpenRouterKey = deps.hasOpenRouterKey ?? (() => hasApiKeyForProvider("openrouter"));
-
   const gitreeProcess: Handler = async (req, res) => {
     const actor = actorOf(req);
     if (!actor) return deps.fallback.process(req, res);
@@ -329,7 +323,7 @@ export function createProxies(deps: ProxyDeps): { process: Handler; describe: Ha
   const repoDescribe: Handler = async (req, res) => {
     const actor = actorOf(req);
     if (!actor) return deps.fallback.describe(req, res);
-    const parsed = parseDescribeBody((req.body ?? {}) as Record<string, unknown>, hasOpenRouterKey);
+    const parsed = parseDescribeBody((req.body ?? {}) as Record<string, unknown>);
     if (!parsed.ok) {
       res.status(400).json({ error: parsed.error });
       return;

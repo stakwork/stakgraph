@@ -22,7 +22,6 @@ const {
   parseOwnerRepo,
   parseDescribeBody,
   mapDescribeResult,
-  DESCRIBE_MODEL,
   DESCRIBE_WORKFLOW,
   PROCESS_WORKFLOW,
   _resetInFlight,
@@ -100,7 +99,7 @@ function fakeStrut(opts: { runs?: Array<{ runId: string; status?: string; finish
   return { strut, puts, launches, settle };
 }
 
-function proxies(strut: ProxyStrut, extra: { hasOpenRouterKey?: () => boolean } = {}) {
+function proxies(strut: ProxyStrut) {
   const calls = { strut: 0, process: 0, describe: 0 };
   const p = createProxies({
     strut: async () => {
@@ -115,7 +114,6 @@ function proxies(strut: ProxyStrut, extra: { hasOpenRouterKey?: () => boolean } 
         calls.describe += 1;
       },
     },
-    ...extra,
   });
   return { ...p, calls };
 }
@@ -302,30 +300,29 @@ describe("gitree/process proxy", () => {
 
 describe("repo/describe proxy", () => {
   it("maps the body to the describe-code launch, defaulting the model to the workflow's", () => {
-    const none = parseDescribeBody({}, () => false);
+    const none = parseDescribeBody({});
     assert.ok(none.ok);
     assert.deepEqual(none.launch, { input: { file_paths: [], cost_limit: 0.5 }, params: { batch_size: 50, concurrency: 5 } });
 
     const full = parseDescribeBody(
       { repo_url: "https://github.com/o/r", file_paths: ["src/a.ts", 7], cost_limit: "2", batch_size: 10, concurrency: "3", embed: false },
-      () => true,
     );
     assert.ok(full.ok);
     assert.deepEqual(full.launch, {
       input: { repo_url: "https://github.com/o/r", file_paths: ["src/a.ts"], cost_limit: 2 },
-      params: { batch_size: 10, concurrency: 3, model: DESCRIBE_MODEL },
+      params: { batch_size: 10, concurrency: 3 },
     });
 
-    const chosen = parseDescribeBody({ model: "sonnet" }, () => true);
+    const chosen = parseDescribeBody({ model: "sonnet" });
     assert.ok(chosen.ok && chosen.launch.params.model === "sonnet");
   });
 
   it("refuses apiKey and bad numbers", () => {
-    assert.match((parseDescribeBody({ apiKey: "sk-x" }, () => false) as { error: string }).error, /apiKey/);
-    assert.ok(parseDescribeBody({ apiKey: "  " }, () => false).ok, "a blank key is no key");
-    assert.match((parseDescribeBody({ cost_limit: "0" }, () => false) as { error: string }).error, /cost_limit/);
-    assert.match((parseDescribeBody({ batch_size: "x" }, () => false) as { error: string }).error, /batch_size/);
-    assert.match((parseDescribeBody({ concurrency: -1 }, () => false) as { error: string }).error, /concurrency/);
+    assert.match((parseDescribeBody({ apiKey: "sk-x" }) as { error: string }).error, /apiKey/);
+    assert.ok(parseDescribeBody({ apiKey: "  " }).ok, "a blank key is no key");
+    assert.match((parseDescribeBody({ cost_limit: "0" }) as { error: string }).error, /cost_limit/);
+    assert.match((parseDescribeBody({ batch_size: "x" }) as { error: string }).error, /batch_size/);
+    assert.match((parseDescribeBody({ concurrency: -1 }) as { error: string }).error, /concurrency/);
   });
 
   it("maps the run output to the old result shape", () => {
@@ -341,7 +338,7 @@ describe("repo/describe proxy", () => {
 
   it("sends a request with no actor to the old handler, and launches one with", async () => {
     const { strut, launches, settle } = fakeStrut();
-    const p = proxies(strut, { hasOpenRouterKey: () => false });
+    const p = proxies(strut);
     await p.describe(req({ headers: { authorization: "Bearer spa-jwt" }, body: { repo_url: "https://github.com/o/r", apiKey: "sk-user" } }), res());
     assert.equal(p.calls.describe, 1);
     assert.equal(launches.length, 0);
