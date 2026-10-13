@@ -15,9 +15,10 @@ import type { Storage } from "../store/index.js";
  *
  * Self-contained: the apply algorithm (how decisions mutate concepts, how
  * records are saved, how the checkpoint advances) lives inline so it's an
- * editable experiment seam. Clients come from `ctx.services`; agentic doc
- * generation for brand-new concepts is delegated to `services.exploreConcept`.
- * Output: { modifiedConceptIds, usage }.
+ * editable experiment seam. Clients come from `ctx.services` (GitHub with
+ * the run's `GITHUB_TOKEN` secret — the actor's, else the deployment's);
+ * agentic doc generation for brand-new concepts is delegated to
+ * `services.exploreConcept`. Output: { modifiedConceptIds, usage }.
  */
 
 /** Repo-prefixed slug-style concept id, e.g. "owner/repo/feature-slug". */
@@ -135,7 +136,8 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { storage, octokit, exploreConcept } = ctx.services as ConceptServices;
+    const { storage, github, secrets, exploreConcept } = ctx.services as ConceptServices;
+    const octokit = github(await secrets?.get("GITHUB_TOKEN"));
     const change = cfg.change;
     const decision = cfg.decision as LLMDecision;
     const repoId = `${cfg.owner}/${cfg.repo}`;

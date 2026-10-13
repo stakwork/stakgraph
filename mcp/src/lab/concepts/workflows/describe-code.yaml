@@ -16,8 +16,11 @@ input:
   file_paths: { type: json, default: [], description: "file path suffixes to limit it to; every file when empty" }
   cost_limit: { type: number, default: 0.5, description: "dollars; no new call starts once this much is spent" }
 params:
-  # Any aieo model name the deployment can call (see GET /llm/models).
-  model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
+  # Any aieo model name the deployment can call (see GET /llm/models). The
+  # default is one every deployment can: mcp's /repo/describe proxy passes
+  # the cheaper openrouter/qwen/qwen3-coder-30b-a3b-instruct when the
+  # deployment has an OpenRouter key, as the old handler did.
+  model: haiku
   batch_size: 50
   concurrency: 5
   # {type}, {name}, {docs} and {code} are filled in per node.

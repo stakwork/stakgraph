@@ -14,8 +14,9 @@ function shouldSkip(text: string): boolean {
  * Fetch the full markdown content for one change (PR or commit) for the
  * LLM. Applies the maintenance-noise skip heuristic — skipped changes still
  * get a minimal record saved (matching gitree). The heavy markdown builders
- * come from `ctx.services` (prContent / commitContent). Output:
- * { skipped, markdown, change }.
+ * come from `ctx.services` (prContent / commitContent), and read GitHub with
+ * the run's `GITHUB_TOKEN` secret — the actor's, else the deployment's.
+ * Output: { skipped, markdown, change }.
  */
 export default defineStep({
   type: "concepts/fetch-content",
@@ -27,8 +28,10 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { octokit, storage, prContent, commitContent } =
+    const { github, secrets, storage, prContent, commitContent } =
       ctx.services as ConceptServices;
+    const token = await secrets?.get("GITHUB_TOKEN");
+    const octokit = github(token);
     const change = cfg.change;
     const repoId = `${cfg.owner}/${cfg.repo}`;
 
@@ -59,6 +62,7 @@ export default defineStep({
       const markdown = await prContent(
         { owner: cfg.owner, repo: cfg.repo, pull_number: pr.number },
         { maxPatchLines: MAX_PATCH_LINES },
+        token,
       );
       return { skipped: false, markdown, change };
     }
@@ -82,6 +86,7 @@ export default defineStep({
     const markdown = await commitContent(
       { owner: cfg.owner, repo: cfg.repo, sha: commit.sha },
       { maxPatchLines: MAX_PATCH_LINES },
+      token,
     );
     return { skipped: false, markdown, change };
   },

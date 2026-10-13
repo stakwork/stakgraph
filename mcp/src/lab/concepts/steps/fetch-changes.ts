@@ -7,7 +7,8 @@ import type { ConceptServices } from "../services.js";
  *
  * Self-contained on purpose: the entire fetch/filter/sort algorithm lives
  * inline so it's the primary "swap the implementation" experiment seam. The
- * only external dep is the GitHub client (`ctx.services.octokit`).
+ * only external dep is the GitHub client (`ctx.services.github`), built for
+ * the run's `GITHUB_TOKEN` secret — the actor's, else the deployment's.
  */
 export default defineStep({
   type: "concepts/fetch-changes",
@@ -19,7 +20,8 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const { octokit } = ctx.services as ConceptServices;
+    const { github, secrets } = ctx.services as ConceptServices;
+    const octokit = github(await secrets?.get("GITHUB_TOKEN"));
     const { owner, repo } = cfg;
     const checkpoint = cfg.checkpoint ?? null;
 

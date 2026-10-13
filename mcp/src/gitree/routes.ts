@@ -36,8 +36,11 @@ import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapConcepts } from "./bootstrap.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd, loadStepMeta } from "../repo/session.js";
+import { isRepoInFlight } from "../lab/proxy.js";
 
-// In-memory flag to track if processing is currently running
+// In-memory flag to track if processing is currently running — on this, the
+// no-actor path. A request with an actor runs as a lab workflow instead
+// (lab/proxy.ts), and `gitree_list_concepts` reports those via isRepoInFlight.
 let isProcessing = false;
 
 function getDirectGitreeUsage(sessionId: string): Usage {
@@ -321,7 +324,7 @@ export async function gitree_list_concepts(req: Request, res: Response) {
       repo: repo || "all",
       lastProcessedTimestamp,
       cumulativeUsage,
-      processing: isProcessing,
+      processing: isProcessing || isRepoInFlight(repo),
     });
   } catch (error: any) {
     console.error("Error listing concepts:", error);

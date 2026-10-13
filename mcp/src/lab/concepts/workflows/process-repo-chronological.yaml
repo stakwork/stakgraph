@@ -4,7 +4,11 @@ name: process-repo-chronological
 # strategy — or fork this workflow — to experiment with different orderings.
 # The decision prompt lives in the `process-change` subflow's own `params`.
 #
-# Input: { owner, repo, token?, repoPath?, strategy? }
+# Input: { owner, repo, repoPath?, strategy? }
+#
+# No token in the input (it would be written to the run log): the steps that
+# reach GitHub read the run's `GITHUB_TOKEN` secret — the actor's, else the
+# deployment's.
 steps:
   - id: checkpoint
     type: concepts/resolve-checkpoint
@@ -49,6 +53,15 @@ steps:
     type: concepts/summarize
     config:
       conceptIds: "{{ collect.modifiedConceptIds }}"
+
+  # The sweep's spend (every change's decision, then the summaries), onto the
+  # repo's running total — `cumulativeUsage` on GET /gitree/concepts.
+  - id: record
+    type: concepts/record-usage
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      usage: ["{{ collect.usage }}", "{{ summarize.usage }}"]
 
   - id: link
     type: concepts/link-files
