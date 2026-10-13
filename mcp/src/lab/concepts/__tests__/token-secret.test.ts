@@ -19,13 +19,23 @@ import { seedConceptSteps, seedConceptWorkflows } from "../seed.js";
 const MCP_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const TOKEN = "ghp_alice_secret_token_value";
 
-function fakeServices() {
+const EXISTING = {
+  id: "o/r/search",
+  repo: "o/r",
+  name: "Search",
+  description: "Find things.",
+  prNumbers: [],
+  createdAt: new Date(0),
+  lastUpdated: new Date(0),
+};
+
+function fakeServices(concepts: unknown[] = []) {
   const seen = { clone: [] as Array<string | undefined>, github: [] as Array<string | undefined>, usage: [] as Array<{ repo: string; total: number }> };
   const octokit = { paginate: async () => [], pulls: {}, repos: {} };
   const usage = (total: number) => ({ input: total - 1, cache_read: 0, cache_write: 0, output: 1, total });
   const services = {
     storage: {
-      getAllConcepts: async () => [],
+      getAllConcepts: async () => concepts,
       getChronologicalCheckpoint: async () => null,
       setChronologicalCheckpoint: async () => {},
       getLastProcessedPR: async () => 0,
@@ -110,6 +120,55 @@ describe("the GitHub token in a concepts run", () => {
       assert.equal(start?.principal, "alice");
       assert.ok(events.some((e) => e.type === "step.start" && e.path.endsWith("/clone")));
       assert.ok(!JSON.stringify(events).includes(TOKEN), "the token is in the run log");
+    } finally {
+      await strut.close();
+      await rm(root, { recursive: true, force: true });
+      if (prevKey !== undefined) process.env.STRUT_API_KEY = prevKey;
+    }
+  });
+  it("runs the sweep alone on a repo that already has concepts", async () => {
+    const prevKey = process.env.STRUT_API_KEY;
+    delete process.env.STRUT_API_KEY;
+    const root = await mkdtemp(join(MCP_DIR, ".lab-token-secret-"));
+    const { services, seen } = fakeServices([EXISTING]);
+    const ws = new WorkspaceManager(root);
+    await seedConceptWorkflows(ws);
+    await seedConceptSteps(ws);
+    const { registry } = await buildRegistry(await ws.materializeCustomSteps());
+    const strut = await createStrut({
+      workspace: ws,
+      registry,
+      store: new MemoryRunStore(),
+      secretStore: new MemorySecretStore(),
+      actorSecretStore: new MemorySecretStore(),
+      services,
+      serveUi: false,
+      enableChat: false,
+      scheduler: false,
+      autoResume: false,
+    });
+    try {
+      await strut.app.fetch(
+        new Request("http://lab/actors/alice/secrets/GITHUB_TOKEN", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ value: TOKEN }),
+        }),
+      );
+
+      // `check` is false: clone, bootstrap and record are skipped, and the
+      // subflow reads `clone?.repoPath` off a step that never ran.
+      const result = await strut.run("bootstrap-then-process", { owner: "o", repo: "r" }, { actor: "alice" });
+      assert.equal(result.status, "success", JSON.stringify(result.error));
+      assert.deepEqual(seen.clone, [], "no clone for an existing repo");
+      assert.ok(seen.github.includes(TOKEN), "fetch-changes read the secret");
+      assert.deepEqual(seen.usage, [{ repo: "o/r", total: 2 }], "only the sweep's spend");
+      assert.equal((result.output as { count: number }).count, 1);
+
+      const events = await strut.store.getRunEvents("bootstrap-then-process", result.runId);
+      const skipped = events.filter((e) => e.type === "step.skipped").map((e) => e.path.split("/").pop());
+      assert.deepEqual(skipped.sort(), ["bootstrap", "clone", "record"]);
+      assert.ok(!events.some((e) => e.type === "step.error"), JSON.stringify(events.filter((e) => e.type === "step.error")));
     } finally {
       await strut.close();
       await rm(root, { recursive: true, force: true });
