@@ -403,6 +403,7 @@ export class GraphStorage extends Storage {
             p.name = $name,
             p.title = $title,
             p.summary = $summary,
+            p.description = $description,
             p.date = $date,
             p.url = $url,
             p.files = $files,
@@ -427,6 +428,9 @@ export class GraphStorage extends Storage {
           name: prId,
           title: pr.title,
           summary: pr.summary,
+          // The PullRequest Schema indexes [name, description] and `name` is
+          // the id, so this is the text strut's embedding pass embeds.
+          description: [pr.title, pr.summary].filter(Boolean).join("\n\n"),
           date: dateTimestamp,
           url: pr.url,
           files: pr.files,

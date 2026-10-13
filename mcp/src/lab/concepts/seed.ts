@@ -23,6 +23,7 @@ const SEED_WORKFLOWS = [
   "process-change",
   "process-repo-chronological",
   "bootstrap-then-process",
+  "describe-code", // descriptions on code nodes (what /repo/describe did)
   // Concept-specific eval workflows: wire the generic eval/* steps with the
   // concept rubric / task / dataset. (The generic steps are seeded by eval/seed.)
   "concepts-eval", // harness: bootstrap-only produce → score
@@ -56,6 +57,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "link-files.ts", type: "concepts/link-files" },
   { file: "collect-for-eval.ts", type: "concepts/collect-for-eval" },
   { file: "reset-repo.ts", type: "concepts/reset-repo" },
+  { file: "describe-code.ts", type: "concepts/describe-code" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));

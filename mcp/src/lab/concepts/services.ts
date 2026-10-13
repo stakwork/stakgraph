@@ -22,6 +22,14 @@ import type { Concept, Usage } from "./types.js";
  *     with (fetch/filter/sort, the decision prompt, ordering, apply logic)
  *     lives **inline in the step**, not here.
  */
+export interface CodeNodeToDescribe {
+  ref_id: string;
+  labels: string[];
+  name: string;
+  docs: string;
+  body: string;
+}
+
 export interface ConceptServices {
   storage: Storage;
   octokit: Octokit;
@@ -53,6 +61,19 @@ export interface ConceptServices {
     args: { owner: string; repo: string; pull_number: number },
     opts?: { maxPatchLines?: number },
   ): Promise<string>;
+
+  /** Code nodes for `concepts/describe-code`: the ones with a body and no
+   *  description (optionally limited to repos, as `owner/repo`, and file path
+   *  suffixes), and the description write-back. Writes the field only —
+   *  strut's embedding pass re-embeds the node from its Schema `index`. */
+  codeNodes: {
+    withoutDescription(
+      limit: number,
+      repoPaths: string[],
+      filePaths: string[],
+    ): Promise<CodeNodeToDescribe[]>;
+    writeDescriptions(batch: Array<{ ref_id: string; description: string }>): Promise<void>;
+  };
 
   /** Build full markdown content for a single commit (for the LLM). */
   commitContent(
@@ -134,6 +155,26 @@ export async function buildConceptServices(
     async commitContent(args, opts) {
       const { fetchCommitContent } = await import("./commit.js");
       return fetchCommitContent(octokit, args, opts);
+    },
+
+    codeNodes: {
+      async withoutDescription(limit, repoPaths, filePaths) {
+        const { db } = await import("../../graph/neo4j.js");
+        const nodes = await db.get_nodes_without_description(limit, repoPaths, filePaths);
+        return nodes
+          .filter((n) => !!n.ref_id)
+          .map((n) => ({
+            ref_id: n.ref_id!,
+            labels: n.labels,
+            name: String(n.properties.name ?? ""),
+            docs: String(n.properties.docs ?? ""),
+            body: String(n.properties.body ?? ""),
+          }));
+      },
+      async writeDescriptions(batch) {
+        const { db } = await import("../../graph/neo4j.js");
+        await db.bulk_update_descriptions(batch);
+      },
     },
   };
 }
