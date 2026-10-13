@@ -7,7 +7,12 @@ name: bootstrap-then-process
 # subflow always runs (fan-in on `check`), receiving `repoPath` when a
 # clone happened so newly-created concepts can be explored for docs.
 #
-# Input: { owner, repo, token?, lookbackDays?, strategy? }
+# Input: { owner, repo, lookbackDays?, strategy? }
+#
+# No token in the input: the run's input and every step's config are written
+# to the run log. The GitHub token is the run's `GITHUB_TOKEN` secret — the
+# actor's (hive or mcp's proxy stores it before launching as that actor),
+# else the deployment's — read by the steps that reach GitHub.
 steps:
   - id: check
     type: concepts/is-new-repo
@@ -22,7 +27,6 @@ steps:
     config:
       owner: "{{ input.owner }}"
       repo: "{{ input.repo }}"
-      token: "{{ input.token }}"
 
   - id: bootstrap
     type: concepts/bootstrap-explore
@@ -42,6 +46,18 @@ steps:
       systemPrompt: "{{ params.bootstrapSystem }}"
       promptTemplate: "{{ params.bootstrapPrompt }}"
 
+  # What the bootstrap spent, onto the repo's running total (the sweep's own
+  # spend is recorded inside process-repo-chronological). Gated like
+  # bootstrap: nothing to record for a repo that was not bootstrapped.
+  - id: record
+    type: concepts/record-usage
+    depends: [check, bootstrap]
+    when: true
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      usage: ["{{ bootstrap.usage }}"]
+
   - id: process
     type: subflow
     depends: [check, bootstrap]
@@ -50,7 +66,6 @@ steps:
       input:
         owner: "{{ input.owner }}"
         repo: "{{ input.repo }}"
-        token: "{{ input.token }}"
         repoPath: "{{ clone.repoPath }}"
         strategy: "{{ input.strategy }}"
 

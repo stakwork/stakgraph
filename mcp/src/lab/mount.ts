@@ -7,9 +7,10 @@ import { createLabStrut } from "./createLabStrut.js";
 import { stashLabActor, stashLabScope } from "./actor.js";
 import { verifyApiToken, type ApiTokenPayload, type ApiTokenScope } from "../repo/events.js";
 
-/** The one lab strut, built on first use (HTTP request or dictation upgrade). */
+/** The one lab strut, built on first use (HTTP request, dictation upgrade,
+ *  or a `/gitree/process` / `/repo/describe` launch — lab/proxy.ts). */
 let labStrutP: ReturnType<typeof createLabStrut> | null = null;
-function labStrut() {
+export function labStrut() {
   return (labStrutP ??= createLabStrut({ serveUi: true }));
 }
 

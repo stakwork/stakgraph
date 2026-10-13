@@ -26,7 +26,20 @@ workflows/steps inside it — **not** separate servers. Adding an experiment
 - `mount.ts` — bridges the strut (Hono) app into Express under `/lab`
   (API + run-streaming SSE). Registered before `express.json()` to keep
   raw request streams. Lazy-initialized so mcp boot isn't coupled to
-  Neo4j / LLM keys.
+  Neo4j / LLM keys. Exports `labStrut()`, the same instance, for in-process
+  launches.
+- `proxy.ts` — `POST /gitree/process` and `POST /repo/describe` as lab
+  launches (docs/plans/gitree-to-workflows.md). A request naming an actor
+  (`x-strut-actor` beside a matching `x-api-token` — `labAuth`'s rule;
+  hive and standalone) runs `bootstrap-then-process` / `describe-code` as
+  that actor through `strut.run`, wired to the old `request_id` /
+  `/progress` shape; one without (mcp's SPA, dev mode, an older caller)
+  goes to the old handler unchanged, so the deploys are order-independent.
+  A `token` in the query is stored as the actor's `GITHUB_TOKEN` secret
+  (in-process `PUT /actors/:actor/secrets/…`), never put in the input.
+  One sweep per repo: an in-flight map, seeded on a miss from strut's run
+  list so a run auto-resumed after a restart is attached to, not relaunched;
+  `isRepoInFlight` is what `GET /gitree/concepts` reports as `processing`.
 
 ## Experiments
 
@@ -39,9 +52,22 @@ concepts, summarizes, and links to code files.
 
 - `concepts/steps/` — the in-code strut steps (one unit of work each).
 - `concepts/workflows/` — `process-change`, `process-repo-chronological`,
-  `bootstrap-then-process` (the entry workflow).
-- `concepts/services.ts` — `ConceptServices` bag `{ storage, octokit, llm,
-  summarizer }` injected via `ctx.services`.
+  `bootstrap-then-process` (the entry workflow), `describe-code`
+  (descriptions on code nodes; `params.model` defaults to `haiku`).
+- `concepts/services.ts` — `ConceptServices` bag `{ storage, github(token),
+  llm, summarizer, … }` injected via `ctx.services`. **No token in a
+  workflow input**: a run's input and every step's config are written to
+  the run log. The steps that reach GitHub (`clone-repo`, `fetch-changes`,
+  `fetch-content`, `apply-decision`) read `ctx.services.secrets.get("GITHUB_TOKEN")`
+  — strut binds `secrets` to the run's principal, so that is the actor's
+  token (hive, or mcp's proxy, stores it before launching), else the
+  deployment's — and hand it to `github(token)` / `clone` / `prContent` /
+  `commitContent`. `__tests__/token-secret.test.ts` runs the seeded
+  workflow through a real strut and asserts the token is in no event.
+- `concepts/steps/record-usage.ts` — adds a sweep's spend to the repo's
+  running total (`cumulativeUsage` on `GET /gitree/concepts`): once in
+  `process-repo-chronological` (the collect rollup + summaries), once in
+  `bootstrap-then-process` beside the bootstrap.
 - `concepts/pipeline.ts` — pure helpers ported from gitree's builder
   (fetch changes, checkpoints, decision prompt, apply decision).
 - `concepts/store/` — Graph (Neo4j) store; `llm.ts`, `bootstrap.ts`,

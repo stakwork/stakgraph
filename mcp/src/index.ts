@@ -24,7 +24,8 @@ import * as l from "./graph/learnings.js";
 import * as uploads from "./graph/uploads.js";
 import * as gitree from "./gitree/routes.js";
 import * as gitreeProposals from "./gitree/proposals.js";
-import { mountLab, attachLabAudio } from "./lab/mount.js";
+import { mountLab, attachLabAudio, labStrut } from "./lab/mount.js";
+import { createProxies } from "./lab/proxy.js";
 import { loadModelPricing } from "./aieo/src/index.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -249,7 +250,14 @@ app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/repo/agent/session", rr.get_agent_session);
 app.get("/repo/agent/validate_session", rr.validate_agent_session);
 app.get("/repo/agent/file", rr.get_agent_file);
-app.post("/repo/describe", rr.describe_nodes_agent);
+// `/repo/describe` and `/gitree/process`: a request naming an actor
+// (`x-strut-actor` beside `x-api-token`) runs the lab workflow as that actor;
+// one without goes to the old handler (lab/proxy.ts).
+const labProxies = createProxies({
+  strut: labStrut,
+  fallback: { process: gitree.gitree_process, describe: rr.describe_nodes_agent },
+});
+app.post("/repo/describe", labProxies.describe);
 app.post("/repo/embed", rr.embed_nodes_agent);
 app.delete("/repo", rr.delete_repo);
 app.get("/reattach", r.reconnect_orphaned_hints);
@@ -263,7 +271,7 @@ app.post("/graph_agent", ga.graph_agent);
 app.post("/graph_agent/abort", ga.abort_graph_agent);
 
 // Gitree routes
-app.post("/gitree/process", gitree.gitree_process);
+app.post("/gitree/process", labProxies.process);
 app.get("/gitree/concepts", gitree.gitree_list_concepts);
 app.get("/gitree/concepts/:id", gitree.gitree_get_concept);
 app.put(

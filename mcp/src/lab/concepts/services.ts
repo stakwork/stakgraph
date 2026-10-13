@@ -14,7 +14,7 @@ import type { Concept, Usage } from "./types.js";
  * an editable, portable file in the workspace (`steps/custom/`).
  *
  * The split is deliberate:
- *   - **clients** (`storage`, `octokit`, `llm`, `summarizer`) — runtime objects
+ *   - **clients** (`storage`, `github`, `llm`, `summarizer`) — runtime objects
  *     you can't serialize into an editable file.
  *   - **infra capabilities** (`clone`, `bootstrap`, `exploreConcept`,
  *     `prContent`, `commitContent`) — heavy/agentic operations bound to repo
@@ -32,7 +32,15 @@ export interface CodeNodeToDescribe {
 
 export interface ConceptServices {
   storage: Storage;
-  octokit: Octokit;
+  /** An Octokit for a GitHub token — the run's `GITHUB_TOKEN` secret, which
+   *  the step reads — or the deployment's env token when none. Built per
+   *  token and cached. Never built at boot: a boot-time client would be
+   *  the deployment's identity for every actor's run. */
+  github(token?: string): Octokit;
+  /** strut's standard secrets capability, bound to the run's principal (an
+   *  actor's secret first, then the deployment's, then env). Absent outside
+   *  the runner (unit tests). */
+  secrets?: { get(name: string): Promise<string | undefined> };
   llm: LLMClient;
   /** Free-text documentation generator (uses callGenerateText, not the
    *  structured-decision LLMClient). */
@@ -56,10 +64,12 @@ export interface ConceptServices {
   /** Agentically generate documentation for a newly-created concept. */
   exploreConcept(concept: Concept, repoPath: string): Promise<void>;
 
-  /** Build full markdown content for a single PR (for the LLM). */
+  /** Build full markdown content for a single PR (for the LLM), with the
+   *  given GitHub token (see `github`). */
   prContent(
     args: { owner: string; repo: string; pull_number: number },
     opts?: { maxPatchLines?: number },
+    token?: string,
   ): Promise<string>;
 
   /** Code nodes for `concepts/describe-code`: the ones with a body and no
@@ -75,15 +85,18 @@ export interface ConceptServices {
     writeDescriptions(batch: Array<{ ref_id: string; description: string }>): Promise<void>;
   };
 
-  /** Build full markdown content for a single commit (for the LLM). */
+  /** Build full markdown content for a single commit (for the LLM), with the
+   *  given GitHub token (see `github`). */
   commitContent(
     args: { owner: string; repo: string; sha: string },
     opts?: { maxPatchLines?: number },
+    token?: string,
   ): Promise<string>;
 }
 
 export interface BuildServicesOptions {
-  /** GitHub token for Octokit. Falls back to `process.env.GITHUB_TOKEN`. */
+  /** The deployment's GitHub token, used when a run has none of its own.
+   *  Falls back to `process.env.GITHUB_TOKEN`. */
   githubToken?: string;
   /** LLM provider. Defaults to "anthropic". */
   provider?: Provider;
@@ -107,15 +120,28 @@ export async function buildConceptServices(
   const storage = new GraphStorage();
   await storage.initialize();
 
-  const githubToken = opts.githubToken ?? process.env["GITHUB_TOKEN"];
-  const octokit = new Octokit(githubToken ? { auth: githubToken } : {});
+  const envToken = opts.githubToken ?? process.env["GITHUB_TOKEN"];
+  // One Octokit per distinct token. A deployment sees a handful of actors'
+  // tokens; the cap only guards against a pathological churn of them.
+  const clients = new Map<string, Octokit>();
+  const github = (token?: string): Octokit => {
+    const auth = token || envToken;
+    const key = auth ?? "";
+    let client = clients.get(key);
+    if (!client) {
+      if (clients.size >= 64) clients.clear();
+      client = new Octokit(auth ? { auth } : {});
+      clients.set(key, client);
+    }
+    return client;
+  };
 
   const llm = new LLMClient(provider, apiKey);
   const summarizer = new Summarizer(storage, provider, apiKey);
 
   return {
     storage,
-    octokit,
+    github,
     llm,
     summarizer,
 
@@ -124,7 +150,7 @@ export async function buildConceptServices(
       return cloneOrUpdateRepo(
         `https://github.com/${owner}/${repo}`,
         undefined,
-        token ?? githubToken,
+        token || envToken,
       );
     },
 
@@ -147,14 +173,14 @@ export async function buildConceptServices(
       await exploreNewConcept(concept, repoPath, storage);
     },
 
-    async prContent(args, opts) {
+    async prContent(args, opts, token) {
       const { fetchPullRequestContent } = await import("./pr.js");
-      return fetchPullRequestContent(octokit, args, opts);
+      return fetchPullRequestContent(github(token), args, opts);
     },
 
-    async commitContent(args, opts) {
+    async commitContent(args, opts, token) {
       const { fetchCommitContent } = await import("./commit.js");
-      return fetchCommitContent(octokit, args, opts);
+      return fetchCommitContent(github(token), args, opts);
     },
 
     codeNodes: {

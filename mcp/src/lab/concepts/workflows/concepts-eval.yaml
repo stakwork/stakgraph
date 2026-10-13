@@ -5,7 +5,9 @@ name: concepts-eval
 # bootstrap prompt (in `bootstrap-then-process` params, or via paramOverrides)
 # until the score is high.
 #
-# Input: { owner, repo, token?, expected? }
+# Input: { owner, repo, expected? }
+#   The clone reads the run's GITHUB_TOKEN secret (the actor's, else the
+#   deployment's) — never an input, which the run log would record.
 #   expected — per-example gold set; falls back to params.expected when omitted.
 #   This is what lets the multi-repo optimize loop carry a DIFFERENT gold per
 #   repo on each dataset entry (evalInputs: [{ owner, repo, expected }, ...]).
@@ -31,7 +33,6 @@ steps:
       input:
         owner: "{{ input.owner }}"
         repo: "{{ input.repo }}"
-        token: "{{ input.token }}"
         lookbackDays: 0
     # subflow output = bootstrap-then-process's `result` = { count, concepts, markdown }
 

@@ -34,7 +34,7 @@ steps:
 
 # ── params: the cohort (dataset) + the loop's stopping knobs ────────────────
 # `dataset` is the experiment surface for multi-repo. Each entry: { owner, repo,
-# token?, expected }. `expected` is the per-repo gold concept set (markdown, same
+# expected }. `expected` is the per-repo gold concept set (markdown, same
 # shape `collect-for-eval` emits; scoring is semantic so wording/counts are
 # loose). `label` is optional (defaults to owner/repo) and only labels the digest.
 # Fill in all 5 repos + their golds before running.

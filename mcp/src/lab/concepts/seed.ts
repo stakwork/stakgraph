@@ -58,6 +58,7 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
   { file: "collect-for-eval.ts", type: "concepts/collect-for-eval" },
   { file: "reset-repo.ts", type: "concepts/reset-repo" },
   { file: "describe-code.ts", type: "concepts/describe-code" },
+  { file: "record-usage.ts", type: "concepts/record-usage" },
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
