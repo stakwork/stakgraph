@@ -4,7 +4,7 @@ import { agentBody, agentOutcome, agentTranscript, settle, submit, type PodCtx }
 export default defineStep({
   type: "pod/agent",
   description:
-    "Run the pod's coding agent on a task and WAIT for it (default up to 45 min; a cancelled run stops waiting). pod/agent-start + pod/agent-status, " +
+    "Run the pod's coding agent on a task and WAIT for it (default up to 2 h; a cancelled run stops waiting; past that the task keeps running and the error names its request_id for pod/agent-status). pod/agent-start + pod/agent-status, " +
     "in one step, for a task you will wait for; a failed task fails the step, but an agent that crashed (a model call refused, a tool that died) still " +
     "completes with its message as `output` — read it. The session is this run's job unless `session` is given, so on a job the agent remembers earlier " +
     "turns; the prompt must still stand alone. Output: { request_id, session, status: completed, output, summary, usage, model }.",
@@ -18,7 +18,7 @@ export default defineStep({
     session: z.string().optional().describe("The agent's session id; this run's job when omitted"),
     outputChars: z.number().int().positive().default(20_000).describe("Cap on `output`"),
     pollMs: z.number().int().positive().default(5000),
-    timeoutMs: z.number().int().positive().default(2_700_000),
+    timeoutMs: z.number().int().positive().default(7_200_000),
   }),
   output: z.object({
     request_id: z.string(),

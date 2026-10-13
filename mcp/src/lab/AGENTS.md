@@ -535,10 +535,12 @@ released the pod at the end.
   the registry skips): `claim` (→ `{ podId, frontend, ide, control, sealed }`,
   the hold) and `release`; `latest` (reset repositories to a branch, the
   run's GitHub token on the fetch); the agent in the pod three ways —
-  `agent-start` (returns a `request_id` at once, so a claiming turn can end
-  with the pod cards and the task running), `agent-status` (one look, never
-  fails on a failed task), `agent` (start + wait, a cancelled run stops
-  waiting between polls: the blocking form a deterministic workflow wants);
+  `agent-start` (returns a `request_id` at once, for a workflow that polls;
+  nothing wakes a job when the task finishes, so `Pod.md` has a job turn
+  use `agent`), `agent-status` (one look, never fails on a failed task),
+  `agent` (start + wait, up to 2 h, a cancelled run stops waiting between
+  polls; past the timeout the task keeps running and the error names its
+  `request_id`);
   `diff` (the working trees), `branch-diff` (the whole branch against its
   base; file contents capped, as every tool result here is); `push`
   (commit + push as the run's GitHub identity; a new branch for a new

@@ -146,7 +146,10 @@ export async function settle(
   const deadline = Date.now() + opts.timeoutMs;
   while (p.status === "pending") {
     if (Date.now() >= deadline) {
-      throw new Error(`${opts.what}: still running after ${Math.round(opts.timeoutMs / 1000)} s (request ${first.requestId})`);
+      throw new Error(
+        `${opts.what}: stopped waiting after ${Math.round(opts.timeoutMs / 1000)} s — the task is still running in the pod; ` +
+          `check on it with pod/agent-status { request_id: "${first.requestId}" }`,
+      );
     }
     await new Promise((r) => setTimeout(r, opts.pollMs));
     await ctx.control?.checkpoint();

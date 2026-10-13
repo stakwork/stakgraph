@@ -30,12 +30,14 @@ Hand the work to the agent in the pod with the task standing alone (the
 repository, the files or area, the exact change, what to check, the
 conventions to match) — it sees nothing of this conversation, and cannot
 read your directory: when a note there bears on the task, put what it
-found (the files, the conventions, the tests) in the task. On the first
-turn in a pod, `pod/agent-start` and END YOUR TURN: say what it is doing,
-list the pod artifacts, so the person can watch it in the frontend; on the
-next turn `pod/agent-status { request_id }` tells you how it went. When the
-cards are already up, `pod/agent` waits for the task and returns its
-output. The agent's session is this job, so it remembers its earlier turns
+found (the files, the conventions, the tests) in the task. `pod/agent`
+runs the task and WAITS for it, then returns its output: use it, and keep
+the turn going until the change is judged and pushed. Nothing tells you
+when a task you left running finishes — a turn that ends with the agent
+still working is a turn nobody comes back to until the person writes
+again. If `pod/agent` gives up waiting, the task is still running: its
+error names the `request_id`, and `pod/agent-status { request_id }` checks
+on it. The agent's session is this job, so it remembers its earlier turns
 in the pod: a follow-up can be short.
 
 Judge the work: `pod/branch-diff` for the change as it stands, `pod/run-tests`
@@ -49,7 +51,7 @@ for itself and answers `{ answer, evidence: [{ path, url }], pages }`; its
 screenshots never enter this thread, and on a job they are written to your
 directory as `shots/NNN.png`. Report the last evidence as
 `{ id: "after", kind: "image", title: "After", label: "Screenshot", url: <its url, verbatim>, summary: <the answer, one line> }`;
-a shot taken the same way before `pod/agent-start` ("show the page as it
+a shot taken the same way before `pod/agent` ("show the page as it
 is"), reported as `before`, gives the person the pair. When the answer says
 the goal was not met, hand it to the agent in the pod as a follow-up before
 pushing. The dev server reloads source edits on its own; a new dependency or

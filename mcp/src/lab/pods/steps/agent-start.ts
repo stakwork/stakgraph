@@ -7,8 +7,8 @@ export default defineStep({
     "Start the pod's coding agent on a task, in the pod's repositories, and return at once with a `request_id`: check on it with pod/agent-status, " +
     "or wait for it with pod/agent instead of this. The agent's session is this run's job unless `session` is given, so on a job it REMEMBERS what it " +
     "did in earlier turns; the prompt must still stand alone — name the repository, the files, the change and what to check. Its model calls are " +
-    "billed to this run through the LLM gateway. Start-and-end-your-turn suits a long task the person will watch in the pod's frontend; pod/agent suits " +
-    "one you will wait for. Output: { request_id, session, status }.",
+    "billed to this run through the LLM gateway. Nothing reports back when the task finishes, so a job turn should use pod/agent and wait; this is for " +
+    "a workflow that does other work meanwhile and then polls. Output: { request_id, session, status }.",
   input: z.object({
     control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
     sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
