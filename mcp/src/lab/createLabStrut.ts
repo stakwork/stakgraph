@@ -26,7 +26,7 @@ import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { CODE_CONCEPTS, seedCodeWorkflows } from "./code/seed.js";
-import { JOB_CONCEPTS, seedJobWorkflows } from "./job/seed.js";
+import { JOB_CONCEPTS, JOB_SEED } from "./job/seed.js";
 import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { BrowserService } from "./browser/service.js";
@@ -227,11 +227,10 @@ export async function createLabStrut(
   // hive's propose_code_change preview, run by strut's own agent. YAML only;
   // every step is strut's (git/checkout, agent, git/diff, pack).
   await seedCodeWorkflows(workspace);
-  // job — the job agent as a workflow (strut plans/jobs.md, V1): hive's
-  // Jamie launches it with `job` on the launch; `job/dir` + a session
-  // carry files and memory across turns. YAML only; its params are the
-  // evolvable surface.
-  await seedJobWorkflows(workspace);
+  // job — the job agent as a workflow (strut plans/jobs.md §5) is STRUT's:
+  // createStrut seeds `src/workflows/job.yaml` at boot; the lab passes only
+  // its delta (`job: JOB_SEED` below — the pod/* grants and the `Job`
+  // Concept paragraph). Never seeded from here as well: one seeder per name.
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
   // mandate).
   // janitors: the plan / readback / revert-plan steps the engine writes through, then the two engine workflows.
@@ -291,6 +290,10 @@ export async function createLabStrut(
     // freezes the prompt for that chat (builder/system.ts). Nothing on the fs
     // workspace.
     chatSystem: () => (lab ? builderSystem(lab) : undefined),
+    // The job agent's deployment delta (job/seed.ts): `pod/*` on top of
+    // strut's grants, and "open the `Job` Concept first" after strut's
+    // prompt — merged into the `job` template strut seeds at boot.
+    job: JOB_SEED,
     // A non-file workspace would otherwise default the run/chat/secret
     // stores to memory — pin them to disk so history survives restarts.
     ...(graphBacked
