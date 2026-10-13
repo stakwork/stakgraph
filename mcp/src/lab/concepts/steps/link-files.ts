@@ -3,12 +3,13 @@ import type { ConceptServices } from "../services.js";
 
 /**
  * Link concepts to File nodes in the graph (MODIFIES edges, weighted by
- * importance) based on the files touched by their PRs/commits.
+ * importance) based on the files touched by their PRs/commits, and each PR
+ * directly to the File nodes it changed (PullRequest -[:MODIFIES]-> File).
  * Output: { linkResult }.
  */
 export default defineStep({
   type: "concepts/link-files",
-  description: "Create MODIFIES edges from concepts to File nodes. Optional conceptId to scope to one. Output: { linkResult }.",
+  description: "Create MODIFIES edges from concepts to File nodes (optional conceptId scopes it to one), and from the repo's PRs to the File nodes they changed. Output: { linkResult }.",
   input: z.object({
     owner: z.string(),
     repo: z.string(),
@@ -19,6 +20,9 @@ export default defineStep({
     const { storage } = ctx.services as ConceptServices;
     const repoId = `${cfg.owner}/${cfg.repo}`;
     const linkResult = await storage.linkConceptsToFiles(cfg.conceptId, repoId);
+    const prLink = await storage.linkPRsToFiles(repoId);
+    linkResult.prsProcessed = prLink.prsProcessed;
+    linkResult.prFileEdges = prLink.edgesLinked;
     return { linkResult };
   },
 });
