@@ -61,6 +61,10 @@ export abstract class Storage {
   // Link a feature to files by explicit file paths (used by bootstrap)
   abstract linkConceptToFilesByPaths(featureId: string, filePaths: string[]): Promise<number>;
 
+  // Direct PR->File linking (deterministic, from each PR's `files` array),
+  // scoped to each PR's own repo.
+  abstract linkPRsToFiles(repo?: string): Promise<{ prsProcessed: number; edgesLinked: number }>;
+
   // Get Files for Concept
   abstract getFilesForConcept(featureId: string, expand?: string[]): Promise<any[]>;
 

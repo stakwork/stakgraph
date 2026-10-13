@@ -13,6 +13,8 @@ export interface LinkResult {
     filesInDocs: number;
     filesNotInDocs: number;
   }>;
+  prsProcessed?: number;
+  prFileEdges?: number;
 }
 
 /**

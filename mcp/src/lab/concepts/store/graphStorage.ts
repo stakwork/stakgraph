@@ -11,10 +11,18 @@ import {
   ChronologicalCheckpoint,
   Usage,
 } from "../types.js";
-import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl } from "./utils.js";
+import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl, jarvisConceptNodeKey } from "./utils.js";
 import { addUsage, normalizeUsage } from "../../../aieo/src/usage.js";
 
 const Data_Bank = "Data_Bank";
+
+// A File node's `file` is "<owner>/<repo>/<path>"; a PR or concept records the
+// path relative to its repo (or, sometimes, already prefixed). Matching on the
+// exact full path is an index seek on Data_Bank(file) and never cross-links a
+// file of the same name in another repo, which a suffix match does.
+function exactFilePathPredicate(repoExpr: string, pathExpr: string): string {
+  return `file.file = CASE WHEN ${pathExpr} STARTS WITH ${repoExpr} + '/' THEN ${pathExpr} ELSE ${repoExpr} + '/' + ${pathExpr} END`;
+}
 
 function numberOrUndefined(value: any): number | undefined {
   if (value == null) return undefined;
@@ -181,7 +189,6 @@ export class GraphStorage extends Storage {
             f.outputTokens = $outputTokens,
             f.totalTokens = $totalTokens,
             f.namespace = $namespace,
-            f.Data_Bank = $dataBankName,
             f.ref_id = COALESCE(f.ref_id, $refId),
             f.date_added_to_graph = COALESCE(f.date_added_to_graph, $dateAddedToGraph)
         RETURN f
@@ -197,11 +204,50 @@ export class GraphStorage extends Storage {
           docs: feature.documentation || "",
           ...usageParams(feature.usage),
           namespace: "default",
-          dataBankName: feature.id,
           refId: uuidv4(),
           dateAddedToGraph: now,
         }
       );
+
+      // Stamp jarvis's identity onto the node: its create-or-merge resolves
+      // Concepts by MERGE (node:Concept:Node {node_key, namespace}), not by
+      // our id slug, so without these a jarvis-side write of the same
+      // concept forks a duplicate. It is also how strut's embedding pass
+      // finds the node again: its sweep pages each type by node_key, so an
+      // unkeyed Concept is embedded once, as a newcomer, and never again
+      // after its description changes. Kept out of the MERGE above and made
+      // best-effort deliberately: node_key carries a (node_key, namespace)
+      // uniqueness constraint, and a rename that computes an already-taken
+      // key must not fail the content save. The NOT EXISTS guards skip the
+      // stamp when another node holds the key (leaving the old node_key in
+      // place); a lost race with a concurrent writer throws on the
+      // constraint and is caught the same way.
+      try {
+        const nodeKey = jarvisConceptNodeKey(feature.name);
+        const keyResult = await session.run(
+          `
+          MATCH (f:Concept {id: $id})
+          WHERE NOT EXISTS {
+              MATCH (o:Node {node_key: $nodeKey, namespace: $namespace})
+              WHERE o <> f
+            }
+            AND NOT EXISTS {
+              MATCH (o:Concept {node_key: $nodeKey, namespace: $namespace})
+              WHERE o <> f
+            }
+          SET f:Node, f.node_key = $nodeKey
+          RETURN f
+          `,
+          { id: feature.id, nodeKey, namespace: "default" }
+        );
+        if (keyResult.records.length === 0) {
+          console.warn(
+            `Concept ${feature.id}: node_key '${nodeKey}' is held by another node — left unstamped`
+          );
+        }
+      } catch (error) {
+        console.warn(`Concept ${feature.id}: failed to stamp node_key:`, error);
+      }
 
       // Create TOUCHES relationships from PRs to this Concept
       // Match PRs by repo-prefixed id or by number+repo combo
@@ -1153,9 +1199,9 @@ export class GraphStorage extends Storage {
         }
 
         // Process each file path with its PR count
-        let linksCreatedForConcept = 0;
         let filesInDocsForConcept = 0;
         let filesNotInDocsForConcept = 0;
+        const links: Array<{ path: string; importance: number }> = [];
 
         for (const record of filePathsResult.records) {
           const filePath = record.get("file");
@@ -1181,30 +1227,40 @@ export class GraphStorage extends Storage {
             filesNotInDocsForConcept++;
           }
 
-          // Match File nodes where the file property ends with the PR file path
-          // This handles cases like "owner/repo/src/me.ts" matching "src/me.ts"
-          const linkResult = await session.run(
-            `
+          links.push({ path: filePath, importance });
+        }
+
+        // One statement per concept instead of one per file. When the concept
+        // knows its repo the File match is an index seek on Data_Bank(file) by
+        // exact path; legacy concepts without a repo keep the old suffix match
+        // (a File label scan) as a fallback.
+        const linkResult = await session.run(
+          feature.repo
+            ? `
             MATCH (f:Concept {id: $featureId})
-            MATCH (file:File)
-            WHERE file.file ENDS WITH $filePath
+            UNWIND $links AS l
+            MATCH (file:Data_Bank:File)
+            WHERE ${exactFilePathPredicate("$repo", "l.path")}
             MERGE (f)-[r:MODIFIES]->(file)
-            SET r.importance = $importance
+            SET r.importance = l.importance
+            RETURN COUNT(file) as linkedCount
+            `
+            : `
+            MATCH (f:Concept {id: $featureId})
+            UNWIND $links AS l
+            MATCH (file:Data_Bank:File)
+            WHERE file.file ENDS WITH l.path
+            MERGE (f)-[r:MODIFIES]->(file)
+            SET r.importance = l.importance
             RETURN COUNT(file) as linkedCount
             `,
-            {
-              featureId: feature.id,
-              filePath: filePath,
-              importance: importance,
-            }
-          );
+          { featureId: feature.id, repo: feature.repo || null, links }
+        );
 
-          const linkedCount = linkResult.records[0]?.get("linkedCount");
-          const count = linkedCount?.toNumber
-            ? linkedCount.toNumber()
-            : linkedCount || 0;
-          linksCreatedForConcept += count;
-        }
+        const linkedCount = linkResult.records[0]?.get("linkedCount");
+        const linksCreatedForConcept: number = linkedCount?.toNumber
+          ? linkedCount.toNumber()
+          : linkedCount || 0;
 
         result.featureFileLinks.push({
           featureId: feature.id,
@@ -1234,26 +1290,124 @@ export class GraphStorage extends Storage {
 
     const session = this.resilientSession();
     try {
-      let totalLinked = 0;
+      const repoResult = await session.run(
+        `MATCH (f:Concept {id: $featureId}) RETURN f.repo AS repo`,
+        { featureId }
+      );
+      const repo: string | null = repoResult.records[0]?.get("repo") ?? null;
 
-      for (const filePath of filePaths) {
-        const result = await session.run(
-          `
+      // One statement for all paths. Exact-path index seek when the concept
+      // knows its repo (see exactFilePathPredicate); suffix-match fallback for
+      // legacy concepts without one.
+      const result = await session.run(
+        repo
+          ? `
           MATCH (f:Concept {id: $featureId})
-          MATCH (file:File)
-          WHERE file.file ENDS WITH $filePath
+          UNWIND $filePaths AS fp
+          MATCH (file:Data_Bank:File)
+          WHERE ${exactFilePathPredicate("$repo", "fp")}
+          MERGE (f)-[r:MODIFIES]->(file)
+          SET r.importance = 1.0
+          RETURN COUNT(file) as linkedCount
+          `
+          : `
+          MATCH (f:Concept {id: $featureId})
+          UNWIND $filePaths AS fp
+          MATCH (file:Data_Bank:File)
+          WHERE file.file ENDS WITH fp
           MERGE (f)-[r:MODIFIES]->(file)
           SET r.importance = 1.0
           RETURN COUNT(file) as linkedCount
           `,
-          { featureId, filePath }
-        );
+        { featureId, filePaths, repo }
+      );
 
-        const linkedCount = result.records[0]?.get("linkedCount");
-        totalLinked += linkedCount?.toNumber ? linkedCount.toNumber() : linkedCount || 0;
-      }
+      const linkedCount = result.records[0]?.get("linkedCount");
+      return linkedCount?.toNumber ? linkedCount.toNumber() : linkedCount || 0;
+    } finally {
+      await session.close();
+    }
+  }
 
-      return totalLinked;
+  /**
+   * Create direct PullRequest -[:MODIFIES]-> File edges from each PR's stored
+   * `files` array.
+   *
+   * This is fully deterministic (no LLM): it re-projects the file paths already
+   * persisted on every PR node onto the corresponding File nodes. It is safe to
+   * run incrementally after ingestion and as a one-shot backfill for existing
+   * PRs (MERGE makes it idempotent).
+   *
+   * Repo scoping is intrinsic to each PR node: a PR with a `repo` only matches
+   * Files whose path is `p.repo + '/' + filePath`, so even a global run
+   * (repo = undefined) never cross-links Files from another repo in a
+   * multi-repo swarm. Legacy PRs without a `repo` fall back to the unscoped
+   * suffix match.
+   *
+   * Lock and index behaviour matter here because this runs concurrently with
+   * stakgraph's own sync writes (both are kicked off by the same push webhook):
+   * - Each statement is an implicit (auto-commit) transaction so that
+   *   `CALL ... IN TRANSACTIONS` can commit every 500 (PR, file) pairs. The
+   *   previous single-statement form took a LockingMerge lock on every File
+   *   node any PR had ever touched and held them all until one commit minutes
+   *   later, which blocked stakgraph's MERGEs on files like package.json for
+   *   longer than its driver timeout and failed whole syncs.
+   * - The File match is an index seek (exact path on the Data_Bank label hits
+   *   data_bank_file_index) instead of a File label scan per path.
+   */
+  async linkPRsToFiles(repo?: string): Promise<{ prsProcessed: number; edgesLinked: number }> {
+    const session = this.resilientSession();
+    try {
+      const scoped = await session.run(
+        `
+        MATCH (p:PullRequest)
+        WHERE p.files IS NOT NULL
+          AND size(p.files) > 0
+          AND p.repo IS NOT NULL
+          AND ($repo IS NULL OR p.repo = $repo)
+        UNWIND p.files AS filePath
+        CALL {
+          WITH p, filePath
+          MATCH (file:Data_Bank:File)
+          WHERE ${exactFilePathPredicate("p.repo", "filePath")}
+          MERGE (p)-[:MODIFIES]->(file)
+          RETURN count(file) AS n
+        } IN TRANSACTIONS OF 500 ROWS
+        RETURN count(DISTINCT CASE WHEN n > 0 THEN p END) AS prsProcessed,
+               sum(n) AS edgesLinked
+        `,
+        { repo: repo || null }
+      );
+
+      // Legacy PRs that predate the `repo` property: suffix match, still
+      // batched. Only reachable on a global run; normally zero rows.
+      const legacy = await session.run(
+        `
+        MATCH (p:PullRequest)
+        WHERE p.files IS NOT NULL
+          AND size(p.files) > 0
+          AND p.repo IS NULL
+          AND $repo IS NULL
+        UNWIND p.files AS filePath
+        CALL {
+          WITH p, filePath
+          MATCH (file:Data_Bank:File)
+          WHERE file.file ENDS WITH filePath
+          MERGE (p)-[:MODIFIES]->(file)
+          RETURN count(file) AS n
+        } IN TRANSACTIONS OF 500 ROWS
+        RETURN count(DISTINCT CASE WHEN n > 0 THEN p END) AS prsProcessed,
+               sum(n) AS edgesLinked
+        `,
+        { repo: repo || null }
+      );
+
+      const toNum = (v: any): number => (v?.toNumber ? v.toNumber() : v || 0);
+      const pick = (r: typeof scoped, key: string): number => toNum(r.records[0]?.get(key));
+      return {
+        prsProcessed: pick(scoped, "prsProcessed") + pick(legacy, "prsProcessed"),
+        edgesLinked: pick(scoped, "edgesLinked") + pick(legacy, "edgesLinked"),
+      };
     } finally {
       await session.close();
     }
