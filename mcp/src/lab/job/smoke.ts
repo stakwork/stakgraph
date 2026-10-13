@@ -1,6 +1,8 @@
 /**
- * job OFFLINE smoke — no LLM, no network. Seeds `job` into a throwaway
- * workspace, checks the steps it leans on are discoverable, static-validates
+ * job OFFLINE smoke — no LLM, no network. Boots strut on a throwaway
+ * workspace with the lab's delta (`job: JOB_SEED` — createStrut seeds strut's
+ * `job` template with the pod/* grants and the `Job` Concept paragraph
+ * merged in), checks the steps it leans on are discoverable, static-validates
  * it through the authoring capability (what meta/validate-workflow runs)
  * against the REAL registry, then RUNS it the way hive does — over HTTP,
  * with `job` on the launch and a local callback server — with the `agent`
@@ -30,18 +32,18 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { z } from "zod";
 import { WorkspaceManager, buildRegistry, createRegistry, createStrut, defineStep, type Strut } from "strut";
-import { seedJobWorkflows } from "./seed.js";
+import { JOB_SEED } from "./seed.js";
 
 const JOB = "job";
 const STEPS = ["job/dir", "git/checkout", "agent", "pack"];
 // Registry steps granted ON TOP of the agent's built-ins (files, bash,
-// web_search, web_fetch — which a filter must never narrow): graph reads for
-// the Concept tree, the meta/* read + run tools (a turn runs another
-// workflow — `code-change-pr`, `explore` — as a child run under the job),
-// strut/run-workflow (the same on a peer: another workspace's strut, by its
-// slug), the job/* reads (earlier jobs: strut plans/job-index.md §5), and
-// the pod/* tools
-// (a hive sandbox the job holds between turns).
+// web_search, web_fetch — which a filter must never narrow): strut's own
+// list — graph reads for the Concept tree, the meta/* read + run tools (a
+// turn runs another workflow — `code-change-pr`, `explore` — as a child run
+// under the job), strut/run-workflow (the same on a peer: another
+// workspace's strut, by its slug), the job/* reads (earlier jobs: strut
+// plans/job-index.md §5) — then the lab's delta, the pod/* tools (a hive
+// sandbox the job holds between turns), appended by JOB_SEED.
 const TOOLS: string[] = [
   "graph/graph-search",
   "graph/graph-get",
@@ -128,9 +130,9 @@ async function main() {
   const dir = mkdtempSync(join(process.cwd(), "job-smoke-"));
   const host = await callbackHost();
   try {
-    // ── 1. seed + discover ───────────────────────────────────────────────
+    // ── 1. boot (strut seeds `job` with the lab's delta) + discover ──────
     const workspace = new WorkspaceManager(dir);
-    await seedJobWorkflows(workspace);
+    const real = await createStrut({ workspace, job: JOB_SEED, serveUi: false, enableChat: false, scheduler: false });
     const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     for (const t of STEPS) assert.ok(registry[t], `registry missing ${t}`);
     // The granted tools are steps too — a stale strut pin would make a
@@ -143,14 +145,14 @@ async function main() {
 
     // ── 2. static validation against the REAL registry (what
     //       meta/validate-workflow runs) ────────────────────────────────────
-    const real = await createStrut({ workspace, serveUi: false, enableChat: false, scheduler: false });
     const authoring = (real.services as any).authoring;
     const yaml = await workspace.getWorkflowSource(JOB, entry!.activeVersion);
     const v = await authoring.validateWorkflow(yaml, JOB);
     assert.equal(v.ok, true, `${JOB}: ${JSON.stringify(v.errors, null, 2)}`);
     if (v.warnings.length) console.log(`  warnings:`, v.warnings.map((w: any) => `${w.path}: ${w.message}`));
     const flow = await workspace.getWorkflow(JOB);
-    assert.deepEqual(flow.params?.["tools"], TOOLS);
+    assert.deepEqual(flow.params?.["tools"], TOOLS, "strut's grants, then the lab's");
+    assert.match(String(flow.params?.["system"]), /^You are working on a JOB[\s\S]*open the `Job` Concept/, "strut's prompt, then the lab's section");
     assert.ok(flow.inputBlock?.["prompt"], "the input block declares prompt");
     assert.equal(flow.inputBlock?.["workspace"]?.required, false, "the input block declares workspace, optional");
     assert.equal(flow.inputBlock?.["session"]?.required, false, "the input block declares session, optional");
@@ -163,6 +165,7 @@ async function main() {
     const turns: Turn[] = [];
     const strut = await createStrut({
       workspace,
+      job: JOB_SEED, // the same template, so this boot re-seeds nothing
       registry: await createRegistry([fakeAgent(turns)]),
       serveUi: false,
       enableChat: false,
@@ -191,7 +194,7 @@ async function main() {
     assert.equal(turns.length, 1);
     assert.equal(turns[0]!.cwd, join(dir, "jobs", job), "cwd is the job's directory");
     assert.equal(turns[0]!.session, job, "session is the job id");
-    assert.equal(turns[0]!.prompt, "Hive workspace: @acme, the one this strut belongs to. Plan dark mode.", "the home workspace, by slug, heads the prompt");
+    assert.equal(turns[0]!.prompt, "Workspace: @acme, the one this strut belongs to. Plan dark mode.", "the home workspace, by slug, heads the prompt");
     // The params reached the step with their types intact.
     const cfg = turns[0]!.config;
     assert.deepEqual(cfg["agentTools"], TOOLS, "params.tools reaches the step as agentTools");
@@ -200,6 +203,7 @@ async function main() {
     assert.equal(cfg["cacheTtl"], "1h");
     assert.equal(cfg["model"], "claude-sonnet-5-5");
     assert.match(String(cfg["system"]), /^You are working on a JOB/);
+    assert.match(String(cfg["system"]), /open the `Job` Concept[\s\S]*$/, "the lab's section reached the step");
     assert.equal((cfg["schema"] as any)?.required?.join(","), "text,artifacts");
     console.log(`✔ turn 1: 202 { runId: ${firstBody.runId}, callback: true } → callback artifacts[0] = ${JSON.stringify(post1.artifacts[0])}`);
 

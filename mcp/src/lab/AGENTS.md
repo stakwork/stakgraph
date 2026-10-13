@@ -916,11 +916,19 @@ passed on the LAUNCH — `POST /lab/workflows/job/run { job, input: { prompt,
 workspace, session? }, callback }` — never inside `input`. `workspace` is
 the hive workspace id the job belongs to (the hub strut serves every
 workspace of its org): the YAML declares it (the runner strips an
-undeclared key), the agent's message starts with `Hive workspace: <id>.`,
-and that is what a pod is claimed for. `session` is the agent's thread,
-the job id unless the launch names one (hive passes none today). One
-seeded workflow, `job` (category `job`, unstamped, YAML only — every step
-is strut's):
+undeclared key), the agent's message starts with `Workspace: @<slug>, the
+one this strut belongs to.`, and that is what a pod is claimed for.
+`session` is the agent's thread, the job id unless the launch names one
+(hive passes none today). One workflow, `job` (category `job`, unstamped,
+YAML only — every step is strut's) — and since 2026-10-13 the YAML is
+STRUT's (`strut/src/workflows/job.yaml`, seeded at boot by `createStrut`,
+strut plans/jobs.md §5): `job/seed.ts` ships only the lab's DELTA,
+`JOB_SEED`, passed as `createStrut({ job })` in `createLabStrut.ts` — the
+`pod/*` grants appended to `params.tools`, the "open the `Job` Concept
+first" paragraph appended to `params.system` — merged into strut's template
+before it is hashed and published, so the lab's `job` is one version of the
+same workflow every strut has. Never seed `job` from here as well: one
+seeder per name, or the two leave whichever template changed last active.
 
 - `job/dir` → `checkouts` (`foreach` over `input.repos`, one
   `git/checkout { workdir: "{{ $job }}" }` each, INTO the job's directory —
