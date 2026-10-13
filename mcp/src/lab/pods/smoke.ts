@@ -330,6 +330,21 @@ async function main() {
     assert.equal(push.body.git_credentials.auth_data.username, "octo");
     console.log(`✔ latest as octo on main; the agent with session=${job.slice(0, 8)}… and the run's gateway grant; push opened the PR`);
 
+    // The agent's transcript is in the run log as strut's `messages` marker —
+    // what makes a goose run a thread in the job timeline (strut
+    // plans/jobs-sidebar.md, ruling 4): the events endpoint serves it as a
+    // link, the link serves the messages, and the password is in neither.
+    const agentEnd = events.json.find((e: any) => e.type === "step.end" && e.path === "pod-smoke/agent");
+    assert.ok(agentEnd?.transcript, "pod/agent's step.end carries a transcript link");
+    assert.ok(!("messages" in agentEnd), "the messages are a link in /events, never inline");
+    const tr = await api(agentEnd.transcript);
+    assert.equal(tr.status, 200, tr.text);
+    assert.deepEqual(tr.json.map((m: any) => m.role), ["system", "user", "assistant"]);
+    assert.equal(tr.json[1].content, "Change the title.");
+    assert.match(tr.json[2].content, /Changed the title/);
+    assert.ok(!tr.text.includes(PASSWORD), "the password is not in the transcript");
+    console.log(`✔ pod/agent's transcript is in the run log: ${agentEnd.transcript}`);
+
     // ── 4. a revision turn: start → status (pending, then done) → push onto
     //       the current branch; `create_pr` stays on and the SAME PR comes back ─
     const second = await api("/workflows/pod-revise/run", { body: { job, input: { control: out1.control, sealed: out1.sealed }, callback } });
@@ -343,6 +358,17 @@ async function main() {
     // The same pull request again is noted once.
     assert.equal((await jobsCapability(dir).holds(job))[0]!.note, `${FRONTEND}\n${PR}`);
     console.log(`✔ turn 2: agent-start → agent-status (pending, completed) → push stayed on ${post2.output.branch}, the same PR came back (noted once)`);
+    // A pending look carries no transcript; the completed one does — the
+    // resumed agent is its own thread in the timeline.
+    const ev2 = await api(`/workflows/pod-revise/runs/${second.json.runId}/events`);
+    const look = ev2.json.find((e: any) => e.type === "step.end" && e.path === "pod-revise/look");
+    const done = ev2.json.find((e: any) => e.type === "step.end" && e.path === "pod-revise/done");
+    assert.ok(look && !look.transcript, "a pending status has no transcript");
+    assert.ok(done?.transcript, "a completed status has one");
+    const tr2 = await api(done.transcript);
+    assert.deepEqual(tr2.json.map((m: any) => m.role), ["system", "user", "assistant"]);
+    assert.equal(tr2.json[2].content, "Changed the title (req-agent-2).");
+    console.log(`✔ pod/agent-status's transcript once completed: ${done.transcript}`);
 
     // ── 4b. a pod hive has let go, or handed to someone else, counts as released ─
     for (const podId of ["pod-gone", "pod-taken"]) {
