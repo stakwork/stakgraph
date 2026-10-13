@@ -58,12 +58,15 @@
 - Standalone call path:
   - Triggered when ProcessBody.embeddings passes should_call_mcp_for_repo.
   - ingest: [standalone/src/service/graph_service.rs](standalone/src/service/graph_service.rs)
-    - call_mcp_embed(repo_url, embeddings_limit, file_paths=[], sync=false)
+    - call_mcp_embed(repo_url, embeddings_limit, file_paths=[], sync=false, strut_actor)
   - sync: [standalone/src/service/graph_service.rs](standalone/src/service/graph_service.rs)
-    - call_mcp_embed(repo_url, embeddings_limit, file_paths=modified_files, sync=true)
+    - call_mcp_embed(repo_url, embeddings_limit, file_paths=modified_files, sync=true, strut_actor)
   - sync_async: [standalone/src/handlers/ingest.rs](standalone/src/handlers/ingest.rs)
-    - call_mcp_embed(repo_url, embeddings_limit, file_paths=[], sync=true)
+    - call_mcp_embed(repo_url, embeddings_limit, file_paths=[], sync=true, strut_actor)
   - Parameters from standalone that affect it:
     - repo_url (ProcessBody.repo_url)
     - embeddings (ProcessBody.embeddings; used by should_call_mcp_for_repo to decide whether to call)
     - embeddings_limit (ProcessBody.embeddings_limit; maps to cost_limit)
+    - strut_actor (ProcessBody.strut_actor; sent as the `x-strut-actor` header, so mcp runs the
+      describe as the `describe-code` lab workflow billed to that actor — `mcp/src/lab/proxy.ts`;
+      absent, mcp's old handler runs as before)

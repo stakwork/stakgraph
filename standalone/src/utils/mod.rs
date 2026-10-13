@@ -219,15 +219,46 @@ pub fn normalize_repo_filter(repo: Option<&str>) -> Option<String> {
     Some(repo.trim_end_matches(".git").to_string())
 }
 
-pub async fn call_mcp_embed(repo_url: &str, cost_limit: f32, file_paths: Vec<String>, sync: bool) {
+/// The `POST {mcp}/repo/describe` request: `x-api-token` when the env has one,
+/// and `x-strut-actor` when the sync named who it is for — mcp then runs the
+/// descriptions as a lab workflow billed to that actor (its `lab/proxy.ts`);
+/// without the header mcp's old handler runs, as before.
+fn mcp_embed_request(
+    client: &Client,
+    url: &str,
+    body: serde_json::Value,
+    api_token: Option<&str>,
+    strut_actor: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let mut req = client
+        .post(url)
+        .json(&body)
+        .timeout(Duration::from_secs(300));
+    if let Some(token) = api_token {
+        req = req.header("x-api-token", token);
+    }
+    if let Some(actor) = strut_actor.map(str::trim).filter(|a| !a.is_empty()) {
+        req = req.header("x-strut-actor", actor);
+    }
+    req
+}
+
+pub async fn call_mcp_embed(
+    repo_url: &str,
+    cost_limit: f32,
+    file_paths: Vec<String>,
+    sync: bool,
+    strut_actor: Option<&str>,
+) {
     let mcp_url =
         std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
 
     let url = format!("{}/repo/describe", mcp_url);
     println!(
-        "[mcp_embed] Calling MCP to embed descriptions (sync={}, files={}): {}",
+        "[mcp_embed] Calling MCP to embed descriptions (sync={}, files={}, actor={}): {}",
         sync,
         file_paths.len(),
+        strut_actor.is_some(),
         url
     );
 
@@ -238,13 +269,8 @@ pub async fn call_mcp_embed(repo_url: &str, cost_limit: f32, file_paths: Vec<Str
         "file_paths": file_paths,
     });
 
-    let mut req = client
-        .post(&url)
-        .json(&body)
-        .timeout(Duration::from_secs(300));
-    if let Ok(token) = std::env::var("API_TOKEN") {
-        req = req.header("x-api-token", token);
-    }
+    let api_token = std::env::var("API_TOKEN").ok();
+    let req = mcp_embed_request(&client, &url, body, api_token.as_deref(), strut_actor);
     match req.send().await {
         Ok(resp) => {
             if resp.status().is_success() {
@@ -381,7 +407,32 @@ mod tests {
             embeddings_limit: None,
             depth: None,
             filter: None,
+            strut_actor: None,
         }
+    }
+
+    #[test]
+    fn mcp_embed_request_carries_the_actor_only_when_named() {
+        let client = Client::new();
+        let body = serde_json::json!({ "repo_url": "https://github.com/o/r" });
+        let with = mcp_embed_request(
+            &client,
+            "http://mcp/repo/describe",
+            body.clone(),
+            Some("tok"),
+            Some("alice-1"),
+        )
+        .build()
+        .expect("request");
+        assert_eq!(with.headers().get("x-strut-actor").unwrap(), "alice-1");
+        assert_eq!(with.headers().get("x-api-token").unwrap(), "tok");
+
+        let without =
+            mcp_embed_request(&client, "http://mcp/repo/describe", body, None, Some("  "))
+                .build()
+                .expect("request");
+        assert!(without.headers().get("x-strut-actor").is_none());
+        assert!(without.headers().get("x-api-token").is_none());
     }
 
     #[test]

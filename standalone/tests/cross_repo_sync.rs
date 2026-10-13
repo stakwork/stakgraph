@@ -42,6 +42,7 @@ fn body(repo_url: &str, branch: Option<&str>) -> ProcessBody {
         embeddings_limit: None,
         depth: None,
         filter: None,
+        strut_actor: None,
     }
 }
 

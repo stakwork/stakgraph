@@ -19,6 +19,7 @@ fn test_resolve_single_repo_url() {
         embeddings_limit: None,
         depth: None,
         filter: None,
+        strut_actor: None,
     };
 
     let result = resolve_repo(&body);
@@ -52,6 +53,7 @@ fn test_resolve_multi_repo_urls() {
         embeddings_limit: None,
         depth: None,
         filter: None,
+        strut_actor: None,
     };
 
     let result = resolve_repo(&body);
@@ -87,6 +89,7 @@ fn test_resolve_multi_repo_urls_with_spaces() {
         embeddings_limit: None,
         depth: None,
         filter: None,
+        strut_actor: None,
     };
 
     let result = resolve_repo(&body);
@@ -118,6 +121,7 @@ fn test_resolve_repo_path_returns_single_element_vectors() {
         embeddings_limit: None,
         depth: None,
         filter: None,
+        strut_actor: None,
     };
 
     let result = resolve_repo(&body);
@@ -185,6 +189,7 @@ fn test_resolve_empty_repo_url() {
         embeddings_limit: None,
         depth: None,
         filter: None,
+        strut_actor: None,
     };
 
     let result = resolve_repo(&body);

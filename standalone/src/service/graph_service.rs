@@ -23,6 +23,7 @@ pub async fn ingest(
     let mocks_param = body.mocks.clone();
     let embeddings_param = body.embeddings.clone();
     let embeddings_limit = body.embeddings_limit.unwrap_or(5.0);
+    let strut_actor = body.strut_actor.clone();
 
     let repo_url_joined = repo_urls.join(",");
     let final_repo_path = repo_paths.first().cloned().unwrap_or_default();
@@ -197,7 +198,14 @@ pub async fn ingest(
             call_mcp_mocks(repo_url, username.as_deref(), pat.as_deref(), false).await;
         }
         if should_call_mcp_for_repo(&embeddings_param, repo_url) {
-            call_mcp_embed(repo_url, embeddings_limit, vec![], false).await;
+            call_mcp_embed(
+                repo_url,
+                embeddings_limit,
+                vec![],
+                false,
+                strut_actor.as_deref(),
+            )
+            .await;
         }
     }
 
@@ -232,6 +240,7 @@ pub async fn sync(
     let mocks_param = body.mocks.clone();
     let embeddings_param = body.embeddings.clone();
     let embeddings_limit = body.embeddings_limit.unwrap_or(5.0);
+    let strut_actor = body.strut_actor.clone();
 
     let total_start = Instant::now();
 
@@ -357,7 +366,14 @@ pub async fn sync(
 
     if should_call_mcp_for_repo(&embeddings_param, repo_url) {
         if let Some(files) = &modified_files {
-            call_mcp_embed(repo_url, embeddings_limit, files.clone(), true).await;
+            call_mcp_embed(
+                repo_url,
+                embeddings_limit,
+                files.clone(),
+                true,
+                strut_actor.as_deref(),
+            )
+            .await;
         }
     }
 

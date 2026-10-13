@@ -47,6 +47,11 @@ pub struct ProcessBody {
     pub embeddings_limit: Option<f32>,
     pub depth: Option<u32>,
     pub filter: Option<String>,
+    /// Who the sync is for: hive's strut actor string (what it sends mcp as
+    /// `x-strut-actor`). Forwarded on the mcp `/repo/describe` call, so the
+    /// descriptions run as a lab workflow billed to that person. Absent:
+    /// mcp's old handler, as before.
+    pub strut_actor: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {
