@@ -1,5 +1,5 @@
-import { z, defineStep } from "strut";
-import { agentBody, agentOutcome, settle, submit, type PodCtx } from "./_shared.js";
+import { z, defineStep, withMessages } from "strut";
+import { agentBody, agentOutcome, agentTranscript, settle, submit, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/agent",
@@ -35,6 +35,12 @@ export default defineStep({
     const p = await settle(ctx, cfg.control, cfg.sealed, first, { pollMs: cfg.pollMs, timeoutMs: cfg.timeoutMs, what: "pod/agent" });
     const out = agentOutcome(p, cfg.outputChars);
     if (p.status === "failed") throw new Error(`pod/agent: the pod's agent failed — ${out.error}`);
-    return { request_id: first.requestId, session, status: "completed" as const, output: out.output, summary: out.summary, usage: out.usage, model: out.model };
+    // The transcript rides on the output as strut's marker (non-enumerable:
+    // templates and the tool result see the JSON alone), so the run log holds
+    // it like an agent step's and the job timeline shows this as a thread.
+    return withMessages(
+      { request_id: first.requestId, session, status: "completed" as const, output: out.output, summary: out.summary, usage: out.usage, model: out.model },
+      agentTranscript({ prompt: cfg.prompt, system: cfg.system, session, model: out.model ?? cfg.model, output: out.output }),
+    );
   },
 });

@@ -244,6 +244,26 @@ export function agentOutcome(p: Progress, cap: number) {
   };
 }
 
+/**
+ * What the pod's agent did, as model messages for strut's `withMessages`
+ * marker — the shape the run log keeps for an agent step, so the job
+ * timeline (strut plans/jobs-sidebar.md, ruling 4) lists a goose run as a
+ * thread and the transcript endpoint serves it. Goose hands back one text
+ * (its own rendering of the session), so the transcript is one assistant
+ * message; the prompt is the user's when this call had it (pod/agent), and
+ * named as pod/agent-start's when it did not (pod/agent-status). A system
+ * line says which agent. Empty when the agent said nothing (strut leaves
+ * the output unmarked then).
+ */
+export function agentTranscript(a: { prompt?: string; system?: string; session?: string | null; model?: string | null; output: string | null }): unknown[] {
+  if (a.output == null) return [];
+  const who = `The pod's coding agent (goose${a.model ? `, ${a.model}` : ""})${a.session ? `, session ${a.session}` : ""}.`;
+  const messages: unknown[] = [{ role: "system", content: a.system ? `${who}\n\n${a.system}` : who }];
+  messages.push({ role: "user", content: a.prompt ?? "(the task given to pod/agent-start)" });
+  messages.push({ role: "assistant", content: a.output });
+  return messages;
+}
+
 // ── git, as the run ───────────────────────────────────────────────────────
 
 export interface GitCredentials {

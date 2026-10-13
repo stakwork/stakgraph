@@ -1,5 +1,5 @@
-import { z, defineStep } from "strut";
-import { agentOutcome, progress, type PodCtx } from "./_shared.js";
+import { z, defineStep, withMessages } from "strut";
+import { agentOutcome, agentTranscript, progress, type PodCtx } from "./_shared.js";
 
 export default defineStep({
   type: "pod/agent-status",
@@ -22,6 +22,10 @@ export default defineStep({
     error: z.string().nullable(),
   }),
   async run(cfg, ctx: PodCtx) {
-    return agentOutcome(await progress(ctx, cfg.control, cfg.sealed, cfg.request_id), cfg.outputChars);
+    const out = agentOutcome(await progress(ctx, cfg.control, cfg.sealed, cfg.request_id), cfg.outputChars);
+    // A completed task's output is the agent's transcript (its prompt was
+    // pod/agent-start's): marked like pod/agent's, so the job timeline shows
+    // the resumed agent as a thread of its own.
+    return out.status === "completed" ? withMessages(out, agentTranscript({ model: out.model, output: out.output })) : out;
   },
 });
