@@ -66,7 +66,9 @@ steps:
       input:
         owner: "{{ input.owner }}"
         repo: "{{ input.repo }}"
-        repoPath: "{{ clone.repoPath }}"
+        # `?.`: on a repo that already has concepts `clone` was skipped and is
+        # undefined here, and a plain `.` on undefined fails the step.
+        repoPath: "{{ clone?.repoPath }}"
         strategy: "{{ input.strategy }}"
 
   # Final step: collect the repo's Concept set into one scoreable artifact.
