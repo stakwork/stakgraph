@@ -41,7 +41,7 @@ fn parse_stats_java_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Class                15"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Import               18"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Import               19"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────
