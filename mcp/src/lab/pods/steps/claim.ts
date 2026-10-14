@@ -7,7 +7,7 @@ export default defineStep({
     "Claim a hive pod for a workspace: a sandbox with the workspace's repositories, a dev server (`frontend`), an IDE (`ide`) and a control server (`control`) " +
     "that runs a coding agent, resets, diffs, pushes and tests — the other pod/* steps. Output: { podId, workspace, frontend, ide, control, sealed }. " +
     "`sealed` is the pod's password, sealed: pass it to every other pod/* step; the password itself is never shown. " +
-    "On a run with a job the pod is a HOLD on the job: it stays claimed across turns until pod/release, or until the job is deleted or idle past " +
+    "On a run with a job the pod is a HOLD on the job, its `frontend` the hold's url (a check on the job reads it as {{ input.urls.pod }}): it stays claimed across turns until pod/release, or until the job is deleted or idle past " +
     "STRUT_WORKDIR_TTL_DAYS, when strut releases it. Claim once per job and report `frontend` and `ide` as artifacts of kind `url`, so the person can watch; " +
     "claim again only when a pod step says the pod rejected its password. Fails `no pod available` when the pool is empty: try later. " +
     "On a run with a job hive records the job as the pod's claimant (its pod list shows the job and who started it), and pod/release lets go of it only while it still is.",
@@ -54,11 +54,14 @@ export default defineStep({
       sealed: await seal(ctx, String(b.password)),
     };
     if (ctx.job && ctx.services?.jobs) {
+      // `url` is where the pod is reached: strut folds it into the job's
+      // `urls.pod`, so a claim's check says `{{ input.urls.pod }}/settings`
+      // and survives the pod being released and claimed again.
       await ctx.services.jobs.hold(ctx.job, {
         id: out.podId,
         kind: "pod",
         release: { type: "pod/release", input: { workspace: cfg.workspace, podId: out.podId } },
-        ...(out.frontend ? { note: out.frontend } : {}),
+        ...(out.frontend ? { note: out.frontend, url: out.frontend } : {}),
       });
     }
     return out;

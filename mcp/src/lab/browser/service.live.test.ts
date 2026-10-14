@@ -179,6 +179,61 @@ test("capture: declared steps run in order, a step that matches nothing names it
   }
 });
 
+test("verify: a page that holds supports; one that does not is a result with the shot where it got to; only the instrument throws", opts, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lab-browser-live-"));
+  const artifacts = fileArtifactsCapability(dir);
+  const browser = BrowserService.fromEnv(env);
+  const sink = (runId: string) => ({ artifacts, runId });
+  try {
+    const ok = await browser.verify(
+      "ver1",
+      {
+        url: HOME,
+        steps: [{ do: "click", selector: "text=Switch" }, { do: "wait", text: "Annual" }],
+        expect: { text: ["Annual", "two paragraphs"], selector: ["#plan", "button"], url: "data:**", noErrors: true, evaluate: "document.querySelectorAll('p').length === 2" },
+      },
+      sink("ver1"),
+    );
+    assert.equal(ok.supports, true, ok.content);
+    assert.deepEqual(ok.failed, []);
+    assert.equal(ok.content, "the page reached; all 7 expectations hold");
+    assert.equal(ok.path, "shots/001.png");
+    assert.ok((await readFile(join(dir, "ver1", "shots", "001.png"))).subarray(1, 4).toString() === "PNG", "a real PNG under the run's artifacts");
+
+    // The page failing: a step that matches nothing stops the list, the
+    // expectations are still tested, the shot is still taken.
+    const bad = await browser.verify(
+      "ver2",
+      {
+        url: HOME,
+        steps: [{ do: "click", selector: "text=No such thing", timeoutMs: 1000 }, { do: "click", selector: "text=Switch" }],
+        expect: { text: ["Annual"], selector: ["form"], noErrors: true, evaluate: "document.title === 'Elsewhere'" },
+      },
+      sink("ver2"),
+    );
+    assert.equal(bad.supports, false);
+    assert.match(bad.failed[0]!, /^step 1 \(click text=No such thing\) failed: .*Timeout 1000ms/);
+    assert.deepEqual(bad.failed.slice(1), ['text "Annual": not visible', "selector form: matches nothing", "evaluate: false is not truthy"], "the second step never ran");
+    assert.match(bad.content, /^stopped at step 1 \(click text=No such thing\): .*; 3 of 4 expectations failed: text "Annual" not visible; selector form matches nothing; evaluate false is not truthy$/);
+    assert.equal(bad.path, "shots/001.png", "the shot is taken where the page got to");
+
+    // An error on the page refutes noErrors.
+    const noisy = await browser.verify("ver3", { url: page(`<title>Noisy</title><script>console.error("boom")</script><p>hi</p>`), expect: { text: ["hi"], noErrors: true } }, sink("ver3"));
+    assert.equal(noisy.supports, false);
+    assert.deepEqual(noisy.errors, ["console: boom"]);
+    assert.deepEqual(noisy.failed, ["no errors: 1 on the page, first console: boom"]);
+
+    // The instrument failing throws: a URL that does not open, a selector that does not parse.
+    await assert.rejects(browser.verify("ver4", { url: "http://127.0.0.1:9/", timeoutMs: 5000 }, sink("ver4")), /ERR_CONNECTION_REFUSED|ECONNREFUSED|ERR_/);
+    await assert.rejects(browser.verify("ver5", { url: HOME, expect: { selector: ["div[[["] } }, sink("ver5")), /browser\/verify: selector "div\[\[\[" cannot be evaluated/);
+    await assert.rejects(browser.verify("ver6", { url: HOME, expect: { evaluate: "return )(" } }, sink("ver6")), /evaluate does not parse/);
+    await assert.rejects(browser.verify("ver7", { url: "file:///etc/passwd" }, sink("ver7")), /refused file:/, "the denylist applies");
+  } finally {
+    await browser.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("losing the per-call race closes the context; a later open starts a fresh one", opts, async () => {
   const browser = BrowserService.fromEnv(env);
   try {

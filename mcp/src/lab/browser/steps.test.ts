@@ -11,7 +11,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WorkspaceManager, buildRegistry, jobRoot, mediaOf, type AnyStepDef } from "strut";
+import { WorkspaceManager, buildRegistry, jobRoot, mapCheckResult, mediaOf, type AnyStepDef } from "strut";
 import { CAPTURE_VERBS as SERVICE_VERBS } from "./service.js";
 import { CAPTURE_VERBS, type Ctx } from "./steps/_shared.js";
 import { seedBrowserSteps, SEED_STEPS, STEPS_DIR } from "./seed.js";
@@ -35,12 +35,22 @@ import back from "./steps/back.js";
 import state from "./steps/state.js";
 import close from "./steps/close.js";
 import capture from "./steps/capture.js";
+import verify from "./steps/verify.js";
 
-const STEPS = { open, goto, snapshot, click, fill, type: type_, press, select, hover, scroll, wait, text, screenshot, evaluate, observe, back, state, close, capture };
+const STEPS = { open, goto, snapshot, click, fill, type: type_, press, select, hover, scroll, wait, text, screenshot, evaluate, observe, back, state, close, capture, verify };
 
 const NAV = { url: "https://example.com/", title: "Example Domain", status: 200 };
 const SHOT = { path: "shots/001.png", dir: "/art/r1", url: "/artifacts/r1/shots/001.png", width: 1280, height: 800, bytes: 4321, small: Buffer.from("png") };
 const OBS = { console: ["boom"], pageErrors: [], failedRequests: [], httpErrors: ["500 GET /api"] };
+/** A refuting verify: the page opened, one expectation failed (verdict.ts's wording). */
+const VERDICT = {
+  supports: false,
+  content: "/settings reached; 1 of 2 expectations failed: text \"Notification preferences\" not visible",
+  failed: ['text "Notification preferences": not visible'],
+  errors: [],
+  pageUrl: "https://pod.example/settings",
+  title: "Settings",
+};
 
 /** Records every verb call; each verb returns a canned output. */
 class FakeBrowser {
@@ -70,6 +80,7 @@ class FakeBrowser {
   async state(runId: string, artifacts: unknown) { return this.rec("state", runId, [artifacts], { path: "state.json", url: "/artifacts/r1/state.json" }); }
   async closeRun(runId: string) { return this.rec("close", runId, [], { ok: true as const }); }
   async capture(runId: string, input: unknown, artifacts: unknown) { return this.rec("capture", runId, [input, artifacts], { ...SHOT, errors: ["http: 500 GET /api"], pageUrl: "https://example.com/after", title: "After" }); }
+  async verify(runId: string, input: unknown, sink: unknown) { return this.rec("verify", runId, [input, sink], { ...SHOT, ...VERDICT }); }
 }
 
 const artifacts = { tag: "artifacts" };
@@ -202,12 +213,16 @@ test("under a job, screenshot and capture sink to the job's directory — the on
   // No dataDir on the bag: the same fallback job/dir takes, so the two agree on the directory.
   await capture.run(capture.input.parse({ url: "https://example.com" }), underJob());
   assert.deepEqual(browser.calls[1]!.args[1], { artifacts, runId: "r1", job: { name: "job-1", root: jobRoot(join(tmpdir(), "strut"), "job-1") } });
+  // A job's check run carries the job (strut RunStepOptions.job): its shot is a job file too.
+  await verify.run(verify.input.parse({ url: "https://pod.example/settings" }), underJob("/data"));
+  assert.deepEqual(browser.calls[2]!.args[1], { artifacts, runId: "r1", job: { name: "job-1", root: jobRoot("/data", "job-1") } });
 });
 
 test("screenshot and capture mark their output with the model's copy (withMedia): one image/png file part, no bytes in the JSON", async () => {
   const cases: Array<[AnyStepDef, unknown, string[]]> = [
     [screenshot, {}, ["bytes", "dir", "height", "path", "url", "width"]],
     [capture, { url: "https://example.com" }, ["bytes", "dir", "errors", "height", "pageUrl", "path", "title", "url", "width"]],
+    [verify, { url: "https://example.com" }, ["content", "errors", "failed", "locator", "pageUrl", "supports", "title"]],
   ];
   for (const [def, input, keys] of cases) {
     // The raw run() result, as the agent's tool executor gets it (the runner
@@ -238,6 +253,29 @@ test("capture validates the declared steps and returns the shot with the page's 
   assert.ok(!("small" in out));
   assert.equal(capture.input.safeParse({ url: "https://x", steps: [{ do: "close" }] }).success, false, "not a capture verb");
   assert.equal(capture.input.safeParse({ url: "https://x", steps: [{ do: "screenshot" }] }).success, false, "the compound shoots itself");
+});
+
+test("verify forwards its list and expectations, and answers in the check contract strut's verify pass reads", async () => {
+  const browser = new FakeBrowser();
+  const input = {
+    url: "https://pod.example/settings",
+    steps: [{ do: "click", selector: "text=Sign in" }, { do: "wait", url: "**/settings" }],
+    wait: 100,
+    expect: { text: ["Notification preferences"], url: "**/settings", selector: ["form"], noErrors: true, evaluate: "document.title" },
+  };
+  const out = await run(verify, input, browser);
+  assert.equal(browser.calls[0]!.verb, "verify");
+  assert.deepEqual(browser.calls[0]!.args, [input, sink]);
+  assert.deepEqual(out, { ...VERDICT, locator: { path: "shots/001.png", url: "/artifacts/r1/shots/001.png" } });
+  // What the pass makes of it: evidence (not cannot-run), the shot as the locator.
+  assert.deepEqual(mapCheckResult("browser/verify", { status: "success", output: out }), {
+    kind: "evidence",
+    supports: false,
+    content: VERDICT.content,
+    locator: { path: "shots/001.png", url: "/artifacts/r1/shots/001.png" },
+  });
+  assert.equal(verify.input.safeParse({ url: "https://x", steps: [{ do: "screenshot" }] }).success, false, "capture's verbs only");
+  assert.equal(verify.input.safeParse({ url: "https://x", expect: { text: "one" } }).success, false, "text is a list");
 });
 
 test("a failing verb throws through the step (a declared workflow must fail loudly)", async () => {

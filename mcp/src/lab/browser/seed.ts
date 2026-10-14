@@ -57,6 +57,9 @@ export const SEED_STEPS = [
   "screenshot",
   // the declared compound: open → actions → settle → screenshot
   "capture",
+  // the same list as a CHECK: expectations, and a page that fails them is
+  // a result (a claim's check contract), not an error
+  "verify",
   // the storage state, for a human to paste under Secrets once
   "state",
 ] as const;

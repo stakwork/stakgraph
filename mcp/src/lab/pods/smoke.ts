@@ -292,7 +292,7 @@ async function main() {
     // the pull request on its note under the frontend URL the claim wrote.
     const holds = await jobsCapability(dir).holds(job);
     assert.equal(holds.length, 1);
-    assert.deepEqual({ ...holds[0], since: undefined }, { id: "pod-1", kind: "pod", release: { type: "pod/release", input: { workspace: "ws-1", podId: "pod-1" } }, note: `${FRONTEND}\n${PR}`, since: undefined });
+    assert.deepEqual({ ...holds[0], since: undefined }, { id: "pod-1", kind: "pod", release: { type: "pod/release", input: { workspace: "ws-1", podId: "pod-1" } }, note: `${FRONTEND}\n${PR}`, url: FRONTEND, since: undefined });
     console.log(`✔ claimed as job ${job.slice(0, 8)}…; the job holds pod-1 (release = pod/release ${JSON.stringify(holds[0]!.release.input)}), the PR noted on it`);
 
     // The password is nowhere strut keeps: events, output, callback.
