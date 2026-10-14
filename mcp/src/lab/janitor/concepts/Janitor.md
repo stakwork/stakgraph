@@ -13,10 +13,14 @@ or permissions — the workflow that runs it decides those, and it treats the
 mandate as data.
 
 To run a janitor, schedule the `graph-janitor` workflow with an automation
-whose input names the mandate and where to sweep:
-`{ concept: "<child of Janitor>", start: "<Concept whose subtree to sweep>" }`.
+whose input names the mandate, where to sweep, and the cursor:
+`{ concept: "<child of Janitor>", start: "<Concept whose subtree to sweep>",
+cursor: "{{ last.output.next_cursor }}" }`.
 One automation per janitor: its schedule is the janitor's schedule, and its
-enabled switch turns the janitor off. The agent only proposes: each finding
+enabled switch turns the janitor off. Each run reviews a batch of the
+subtree, the next names in alphabetical order after the cursor, so every
+Concept comes round in turn. Without the cursor line every run reviews the
+same first batch. The agent only proposes: each finding
 carries an action (a passage to replace in the docs, a new description or
 docs, or a new parent) that code checks against the live graph. By default a run is a dry run — the plan
 only. With `apply: true` on the input, the checked plan is written: never a
@@ -34,4 +38,5 @@ To add a janitor, never publish a workflow. Three steps:
    ref_id, edge_type "PARENT_OF", target_ref_id = the new Concept's ref_id.
    Without that edge a run fails `not_a_janitor:`.
 3. Schedule it: an automation on `graph-janitor` with input
-   { concept: the mandate's name, start: the Concept to sweep }.
+   { concept: the mandate's name, start: the Concept to sweep,
+   cursor: "{{ last.output.next_cursor }}" }.

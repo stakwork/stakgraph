@@ -454,7 +454,23 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
   const agentCalls: Record<string, any>[] = [];
   const fake = (type: string, run: (cfg: any) => unknown) =>
     defineStep({ type, input: z.object({}).passthrough(), output: z.any(), async run(cfg) { return run(cfg); } });
+  const queues: Record<string, any>[] = [];
   const fakes = {
+    // The rotation itself is pure (apply.test.ts) and reads over bolt: here, what it is handed and what it hands on.
+    "janitor/queue": fake("janitor/queue", (cfg) => {
+      queues.push(cfg);
+      return {
+        batch: [{ ref_id: LAW.ref_id, name: "Law", node_type: "Concept", description: "Legal knowledge.", docs: null }],
+        ref_ids: [LAW.ref_id],
+        visited: [{ ref_id: LAW.ref_id, name: "Law", node_type: "Concept" }],
+        text: "### 1. Law\nTHE BATCH TEXT",
+        next_cursor: "Law",
+        from: 0,
+        total: 12,
+        wrapped: false,
+        truncated: false,
+      };
+    }),
     "graph/graph-get": fake("graph/graph-get", (cfg) => {
       gets.push(cfg);
       // Like the real step: children only when asked for, a sentence when there is no such node.
@@ -486,12 +502,13 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
   });
   after(() => rm(root, { recursive: true, force: true }));
 
-  it("is seeded under graph-maintenance with the three declared inputs (apply off by default); its description is no how-to", async () => {
+  it("is seeded under graph-maintenance with its declared inputs (apply off by default, cursor optional); its description is no how-to", async () => {
     const entry = (await ws.listWorkflows()).find((w) => w.name === "graph-janitor");
     assert.equal(entry?.category, "graph-maintenance");
     const flow = (await ws.getWorkflow("graph-janitor")) as any;
-    assert.deepEqual(Object.keys(flow.inputBlock ?? {}).sort(), ["apply", "concept", "start"]);
+    assert.deepEqual(Object.keys(flow.inputBlock ?? {}).sort(), ["apply", "concept", "cursor", "start"]);
     assert.equal(flow.inputBlock.apply.default, false);
+    assert.equal(flow.inputBlock.cursor.required, false);
     // How to ADD a janitor is the Janitor Concept's to say (its docs), not the workflow's.
     for (const d of [entry?.description ?? "", String(flow.description ?? "")]) assert.doesNotMatch(d, /create-node|create-triplet/);
   });
@@ -523,13 +540,24 @@ describe("graph-janitor workflow (offline: fake graph + agent)", () => {
     assert.match(out.report_plan, /^\/artifacts\/\d+\/plan\.json$/);
     const cfg = agentCalls.at(-1)!;
     assert.match(cfg.prompt, /THE MANDATE TEXT/);
-    assert.match(cfg.prompt, /Law — Legal knowledge\./);
-    assert.match(cfg.prompt, new RegExp(LAW.ref_id));
+    // The agent reviews the batch code picked, handed to it verbatim — it does not choose what to read.
+    assert.match(cfg.prompt, /THE BATCH TEXT/);
+    assert.match(cfg.prompt, /a BATCH of 1 Concept nodes from the subtree under "Law" \(ref_id r-law\), which holds 12/);
+    assert.deepEqual(queues.at(-1), { start_ref_id: LAW.ref_id, cursor: undefined, size: 10, node_type: "Concept" }, "no cursor given: none passed on");
+    assert.deepEqual(out.visited, [{ ref_id: LAW.ref_id, name: "Law", node_type: "Concept" }], "visited is the batch");
+    assert.deepEqual(out.queue, { from: 0, size: 1, total: 12, wrapped: false });
+    assert.equal(out.next_cursor, "Law");
     // An empty cwd gets no preamble from the agent step: the prompt must name it, or report.md lands elsewhere.
     assert.ok(cfg.prompt.includes(cfg.cwd), "the prompt names the working dir");
     assert.match(cfg.system, /DATA read from a graph node/);
     assert.ok(Array.isArray(cfg.agentTools) && cfg.agentTools.length > 0);
     for (const t of cfg.agentTools) assert.doesNotMatch(t, /create|edit|register|project|\*/, t);
+  });
+
+  it("hands the queue the cursor the automation passed", async () => {
+    const res = await run({ concept: MANDATE.name, start: "Law", cursor: "Hematology" });
+    assert.equal(res.status, "success", JSON.stringify(res.error));
+    assert.equal(queues.at(-1)!.cursor, "Hematology");
   });
 
   it("refuses a mandate that is not a child of Janitor: not_a_janitor, and the agent never runs", async () => {
@@ -830,7 +858,7 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
   });
 
   let applyRun = "";
-  it("dry run: the plan keeps the two real changes and skips the rest with reasons — the git-seeded one by its stamp — and the graph is untouched", async () => {
+  it("dry run: the plan keeps the two real changes and skips the rest with reasons — a node outside the batch untouched whatever it is — and the graph is untouched", async () => {
     const res = await run("graph-janitor", { concept: "Overfit Concept Janitor", start: `Law ${tag}` });
     assert.equal(res.status, "success", JSON.stringify(res.error));
     const out = res.output as Record<string, any>;
@@ -840,7 +868,11 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
       ["e2", `Crime ${tag}`, "An offence.", "A public wrong.", { find: "An offence", replace: "A public wrong" }],
     ]);
     assert.deepEqual(out.plan.moves.map((m: any) => [m.id, m.from_ref_id, m.to_ref_id]), [["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]]]);
-    assert.deepEqual(out.plan.skipped.map((s: any) => [s.name, s.reason]), [["Janitor", "protected"], ["Workflow Builder", "git_seeded"], [`Law ${tag}`, "stale"]]);
+    // The REAL queue: the batch is Law's subtree, name order, the start included.
+    assert.deepEqual(out.visited.map((v: any) => v.name), [`Crime ${tag}`, `Law ${tag}`, `Tort ${tag}`]);
+    assert.deepEqual([out.queue.total, out.next_cursor], [3, `Tort ${tag}`]);
+    // Workflow Builder is outside the batch (git_seeded is planChanges' to test, apply.test.ts).
+    assert.deepEqual(out.plan.skipped.map((s: any) => [s.name, s.reason]), [["Janitor", "protected"], ["Workflow Builder", "not_in_batch"], [`Law ${tag}`, "stale"]]);
     assert.equal(out.plan.manual.length, 1);
     assert.equal(out.applied, undefined);
     const plan = JSON.parse(await artifact(res.runId, "plan.json"));

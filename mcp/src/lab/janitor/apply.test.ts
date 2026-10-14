@@ -10,6 +10,7 @@ import { seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
 import { planChanges, type Finding, type LiveNode } from "./steps/plan.js";
 import { revertPlan, changeIds, type Applied } from "./steps/revert-plan.js";
 import { verdicts, reportSection, type LiveState } from "./steps/readback.js";
+import { pickBatch, renderBatch, byName } from "./steps/queue.js";
 
 // ── the plan: findings × the live graph → what gets written ────────────────
 
@@ -162,6 +163,21 @@ describe("planChanges", () => {
     assert.match(p.skipped[3]!.detail!, /lab\/job\/concepts\/Job\.md@/);
   });
 
+  it("with targets (the run's batch): a finding outside it is not_in_batch; a target counts as visited; a move may go under any visited node", () => {
+    const p = planChanges(
+      [
+        finding("tort", { kind: "set_property", property: "description", old_value: "A tort.", new_value: "A civil wrong." }),
+        finding("law", { kind: "set_property", property: "description", old_value: "old words here", new_value: "Legal knowledge." }),
+        finding("crime", { kind: "move", new_parent_ref_id: "law" }),
+      ],
+      LIVE,
+      // tort and crime were handed to the agent; it recorded only law, which it read for context
+      { ...OPTS, visited: [{ ref_id: "law" }], targets: ["tort", "crime"] },
+    );
+    assert.deepEqual(p.edits.map((e) => [e.ref_id, e.new_value]), [["tort", "A civil wrong."]]);
+    assert.deepEqual(p.skipped.map((s) => [s.ref_id, s.reason]), [["law", "not_in_batch"], ["crime", "no_change"]]);
+  });
+
   it("never renames, never writes an unlisted property, nothing outside visited, nothing that is not a Concept, nothing missing", () => {
     const live = new Map(LIVE);
     live.set("run", node("run", { name: "a run" }, { labels: ["Data_Bank", "StrutRun"] }));
@@ -251,6 +267,57 @@ describe("planChanges", () => {
 const state = (ref_id: string, props: Record<string, unknown>, parents: string[] = []): LiveState => ({ ref_id, name: String(props.name ?? ref_id), node_type: "Concept", properties: props, parents });
 const EDIT = { id: "e1", kind: "edit" as const, ref_id: "law", name: "Law", property: "description", old_value: "old", new_value: "new", node_data: { description: "new" }, properties_to_be_deleted: [] };
 const MOVE = { id: "m1", kind: "move" as const, ref_id: "crime", name: "Crime", from_ref_id: "law", to_ref_id: "tort", node_data: {}, properties_to_be_deleted: [] };
+
+// ── the queue: which nodes a run reviews ──────────────────────────────────
+
+describe("pickBatch", () => {
+  const names = ["Adrenal", "Blood", "Cardio", "Derm", "Endo", "Gyn", "Heme"];
+  const sorted = names.map((name, i) => ({ ref_id: `r${i}`, name }));
+  const take = (cursor: string | undefined, size = 3) => {
+    const p = pickBatch(sorted, cursor, size);
+    return [p.batch.map((n) => n.name), p.next_cursor, p.from, p.wrapped];
+  };
+
+  it("no cursor: the first names; then each run the next ones after the last name taken", () => {
+    assert.deepEqual(take(undefined), [["Adrenal", "Blood", "Cardio"], "Cardio", 0, false]);
+    assert.deepEqual(take("Cardio"), [["Derm", "Endo", "Gyn"], "Gyn", 3, false]);
+  });
+
+  it("wraps past the last name, so every node comes round once per ceil(total / size) runs", () => {
+    assert.deepEqual(take("Gyn"), [["Heme", "Adrenal", "Blood"], "Blood", 6, true]);
+    const seen = new Map<string, number>();
+    let cursor: string | undefined;
+    for (let run = 0; run < 7; run++) {
+      const p = pickBatch(sorted, cursor, 3);
+      for (const n of p.batch) seen.set(n.name, (seen.get(n.name) ?? 0) + 1);
+      cursor = p.next_cursor;
+    }
+    // 7 runs × 3 = 21 = 3 full passes over 7 nodes: each exactly three times
+    assert.deepEqual([...seen.values()], [3, 3, 3, 3, 3, 3, 3]);
+  });
+
+  it("a cursor whose node is gone sorts where it was; one past every name starts over", () => {
+    assert.deepEqual(take("Cc"), [["Derm", "Endo", "Gyn"], "Gyn", 3, false]);
+    assert.deepEqual(take("Zebra"), [["Adrenal", "Blood", "Cardio"], "Cardio", 0, true]);
+  });
+
+  it("a batch no smaller than the subtree is all of it, once; an empty subtree is an empty batch", () => {
+    assert.deepEqual(take("Derm", 50)[0], ["Endo", "Gyn", "Heme", "Adrenal", "Blood", "Cardio", "Derm"]);
+    assert.deepEqual(pickBatch([], "x", 3), { batch: [], from: 0, wrapped: false, next_cursor: "x" });
+  });
+
+  it("name order is by code point, ties broken by ref_id: the same on every machine", () => {
+    const xs = [{ ref_id: "b", name: "b" }, { ref_id: "z", name: "B" }, { ref_id: "a", name: "B" }, { ref_id: "c", name: "a" }];
+    assert.deepEqual([...xs].sort(byName).map((x) => x.ref_id), ["a", "z", "c", "b"]);
+  });
+
+  it("renders each node's text verbatim, fenced longer than any fence inside it", () => {
+    const text = renderBatch([{ ref_id: "r1", name: "Law", description: "One line.", docs: "## Rules\n```\ncode\n````\nend" }]);
+    assert.match(text, /^### 1\. Law\nref_id: r1\n/);
+    assert.ok(text.includes("## Rules\n```\ncode\n````\nend"), "docs verbatim");
+    assert.ok(text.includes("`````\n## Rules"), "a fence longer than the docs' own");
+  });
+});
 
 describe("verdicts", () => {
   it("applied only when the node reads back as planned; a string result is failed; a mismatch is not_verified", () => {
@@ -348,7 +415,18 @@ describe("graph-janitor apply branch + graph-janitor-revert (offline: fakes)", (
     manual: [],
     counts: { findings: 3, edits: 1, moves: 1, skipped: 1, manual: 0 },
   };
-  const calls: Record<string, Record<string, any>[]> = { plan: [], edit: [], move: [], readback: [], revert: [] };
+  const QUEUE = {
+    batch: [{ ref_id: "r-law", name: "Law", node_type: "Concept", description: "Legal knowledge.", docs: null }],
+    ref_ids: ["r-law"],
+    visited: [{ ref_id: "r-law", name: "Law", node_type: "Concept" }],
+    text: "### 1. Law",
+    next_cursor: "Law",
+    from: 0,
+    total: 1,
+    wrapped: false,
+    truncated: false,
+  };
+  const calls: Record<string, Record<string, any>[]> = { queue: [], plan: [], edit: [], move: [], readback: [], revert: [] };
   const fake = (type: string, run: (cfg: any) => unknown) => defineStep({ type, input: z.object({}).passthrough(), output: z.any(), async run(cfg) { return run(cfg); } });
   const fakes = {
     "graph/graph-get": fake("graph/graph-get", (cfg) => {
@@ -358,6 +436,7 @@ describe("graph-janitor apply branch + graph-janitor-revert (offline: fakes)", (
       return `node not found: Concept "${cfg.name}"`;
     }),
     agent: fake("agent", () => ({ result: "ok", object: { start_ref_id: LAW.ref_id, visited: [LAW], findings: [{ ref_id: "r-law", name: "Law", issue: "vague", problem: "p", evidence: "Legal", suggestion: "s", severity: "low", action: { kind: "set_property", property: "description", old_value: "Legal knowledge.", new_value: "The law." } }], summary: "one" }, steps: 1, usage: {}, cost: 0 })),
+    "janitor/queue": fake("janitor/queue", (cfg) => (calls.queue.push(cfg), QUEUE)),
     "janitor/plan": fake("janitor/plan", (cfg) => (calls.plan.push(cfg), PLAN)),
     "janitor/revert-plan": fake("janitor/revert-plan", (cfg) => (calls.revert.push(cfg), { ...PLAN, revert_of: cfg.run_id, source: { run_id: cfg.run_id } })),
     "graph/edit-node": fake("graph/edit-node", (cfg) => (calls.edit.push(cfg), { status: "Success", ref_id: cfg.ref_id, updated: Object.keys(cfg.node_data ?? {}) })),
@@ -387,6 +466,9 @@ describe("graph-janitor apply branch + graph-janitor-revert (offline: fakes)", (
     assert.equal(res.status, "success", JSON.stringify(res.error));
     const cfg = calls.plan[0]!;
     assert.equal(cfg.findings.length, 1);
+    // findings may only change the batch; what the agent read around it may be a move's new parent
+    assert.deepEqual(cfg.targets, ["r-law"]);
+    assert.deepEqual(cfg.visited, [LAW]);
     assert.equal(cfg.parent.ref_id, JANITOR.ref_id);
     assert.deepEqual(cfg.parent.children.map((c: any) => c.ref_id), [MANDATE.ref_id]);
     assert.equal(cfg.mandate_ref_id, MANDATE.ref_id);

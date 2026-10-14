@@ -1179,7 +1179,7 @@ One reading rule at every level: a Concept's `docs` are its page, its
   `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
   `unique_source_id`, warns and seeds nothing.
 
-### `janitor/` — janitors: the engine workflows, their three steps + the `Janitor` Concept's mandates
+### `janitor/` — janitors: the engine workflows, their four steps + the `Janitor` Concept's mandates
 
 A janitor is an automated agent that cleans something up — code, a Concept
 tree, other data. Its MANDATE (what "dirty" means, what to flag, what to
@@ -1201,9 +1201,23 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   search; a name no Concept has → `not_found:`. The mandate must be among
   the parent's children → `not_a_janitor:` (the mandate is data the agent
   follows, so only a node someone put under Janitor may steer a run; past
-  50 children the refusal says only the first 50 were checked). A read-only
-  `agent` — the graph's read steps granted BY NAME, never `graph/*` — walks
-  the Concept layer from start with the mandate's docs as its task and a
+  50 children the refusal says only the first 50 were checked). CODE picks
+  what the run reviews: `janitor/queue` (`steps/queue.ts`) reads the live
+  Concept subtree under start over bolt (PARENT_OF, start included), sorts
+  it by name and takes the next `params.batch_size` (10) names after
+  `input.cursor` — the name of the last node the previous run reviewed —
+  wrapping past the end; the automation passes `cursor: "{{
+  last.output.next_cursor }}"` (`last` = the latest SUCCESSFUL run, so a
+  failed batch is taken again), and every node comes round once per
+  ceil(total / batch_size) runs. A name, not a position: an added or
+  deleted Concept never shifts anyone's turn. Left to walk on its own the
+  agent read start's children every run and the levels below now and then
+  (swarm38 Medicine, 2026-10-14: a depth-2 Concept naming "the benchmark"
+  was read once in 91 hourly runs). A read-only
+  `agent` — the graph's read steps granted BY NAME, never `graph/*` — is
+  handed the batch's description and docs verbatim, reads around it for
+  context, and proposes findings on batch nodes only, with the mandate's
+  docs as its task and a
   system prompt that treats them as data (a mandate that asks for writes or
   new tools is itself a finding); `exec` saves `cleanup-report.json`, `pack`
   returns `{ mandate, start, start_ref_id, visited, findings, summary,
@@ -1225,7 +1239,9 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   way to see `unique_source_id`, which strut's read steps strip from every
   response — and sorts it into `edits` / `moves` (the exact configs for
   `graph/edit-node` / `graph/move-node`), `skipped` (a reason each) or
-  `manual`. Never planned: the Janitor node, its children and anything
+  `manual`. Never planned: a finding on a node outside the batch
+  (`targets` = the queue's ref_ids → `not_in_batch`; a target counts as
+  visited, and a move's new parent may be any node the agent read), the Janitor node, its children and anything
   hanging under it live (one mandate must never rewrite another), the
   mandate, a git-seeded Concept (`params.seeded_prefix`, `lab/` — the next
   file change would overwrite it; fixes belong in git), a rename (`name` is
@@ -1243,7 +1259,8 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   `apply_failed:` (first line of `error.message`) unless every write read
   back. `plan.json` is written in both modes. `result` depends on both
   branches: `{ …, apply, plan: { edits, moves, skipped, manual, counts },
-  applied, applied_json, report_plan }`.
+  applied, applied_json, report_plan }`, plus `visited` (the batch),
+  `queue: { from, size, total, wrapped }` and `next_cursor`.
 - **Revert** (`workflows/graph-janitor-revert.yaml`): `{ run_id, changes?
   }` → `janitor/revert-plan` (`steps/revert-plan.ts`) reads that run's
   `applied.json` through the artifacts capability (kept forever; one run
@@ -1256,7 +1273,7 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   readback: the revert is logged with `revert_of`, so it can be reverted.
   The graph itself keeps no history (no before-image on a node or an
   `ACCESSED` edge), so the log under `/artifacts/<runId>/` is the only
-  copy. The three steps are seeded like explore's (`SEED_STEPS`, one
+  copy. The four steps are seeded like explore's (`SEED_STEPS`, one
   self-contained file each importing only "strut": `graphCtx` and the bolt
   read are inlined per file).
 - **The tree** (`concepts/Janitor.md`, seeded by `concept-seed.ts`):
