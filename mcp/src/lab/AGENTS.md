@@ -547,7 +547,8 @@ released the pod at the end.
   change, `stay_on_branch: true` for a REVISION — the same branch, and
   `pr_url` is the PR it already has, which is what a follow-up turn needs;
   nothing to commit still pushes what is unpushed);
-  `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`). The agent's
+  `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`);
+  `config` and `config-set`, the workspace's POOL CONFIG (below). The agent's
   `session` defaults to the run's job, so on a job the goose thread
   continues across turns and the model never picks the id; its model calls
   go through this run's LLM gateway grant (`ctx.services.llmAuth`) — never
@@ -555,6 +556,31 @@ released the pod at the end.
   INSIDE the key handed to staklink, `<vk>.<macaroon>` (the gateway wrapper
   splits it; `gateway/wrapper/authsplit.go`): goose's anthropic provider
   sends no custom headers, so as an `x-macaroon` header it never arrived.
+- **The pool config** (strut plans/pod-config.md). What a pod changes in
+  itself dies with it; hive's pool config for the workspace (`services`,
+  the workspace-wide env, `docker-compose.yml`, `Dockerfile` — `GET`/`PUT
+  /api/workspaces/{slug}/stakgraph`) is what every new pod is built from, and
+  a write recreates every unused pod of the workspace. `pod/config` reads it,
+  and with a claimed pod the files the pod runs from (staklink `GET
+  /pod-config`), with a diff per file. Hive masks the env lists for a key
+  caller and takes a mask written back as "keep the stored value"; the pm2
+  files carry values in clear, so their `env` blocks are masked here
+  (`_pool.ts`) with a per-read tag that tells apart two values masking alike.
+  `pod/config-set` takes edits BY NAME (`services` / `env` maps, `null`
+  removes; whole compose / Dockerfile texts), reads hive right before its
+  PUT and sends both lists whenever either changes (hive regenerates
+  pm2.config.js from them in the write; an env-only PUT would be overridden
+  by the old file's values at push), refuses what would corrupt the config
+  (a mask that is not the stored one's, a `*_COMMAND` as an env var,
+  pm2.config.js, devcontainer.json), then polls the rollout until its change
+  — or a later one, whose push carries it — is `ready`. `pod/claim { fresh:
+  true }` sends `?generation=new` (a pod created after the last push; 409
+  until one is ready) and gives back a pod a hive without it hands out. The
+  `Pod Config` Concept (under `Pod`) is the convention: fix in the pod,
+  promote only what every job needs and only after a person says yes (and
+  after a needed PR merges), check on a fresh pod, report a `pod-config`
+  deliverable a later job finds through `job/list`; no credential is
+  promoted (secrets are the plan's V2).
 - **Secrets:** `HIVE_URL` + `HIVE_API_KEY` (deployment; an org-scoped key —
   the hub claims for every workspace of its org, the id arrives on the job
   launch), `GITHUB_TOKEN` (the run's: hive pushes it as an actor secret on
@@ -563,8 +589,11 @@ released the pod at the end.
   on localhost: claim → latest → agent → branch-diff → push with `job` on
   the launch, the revision turn with agent-start/status and a push onto
   the same branch, the hold on the record, the password nowhere strut
-  keeps it, `DELETE /jobs/:id` releasing the pod): `npx tsx
-  src/lab/pods/smoke.ts`.
+  keeps it, `DELETE /jobs/:id` releasing the pod; then the pool config —
+  read, diffed, a promotion written by name and waited for, the refusals,
+  a fresh claim — with no stored env value in the run's record): `npx tsx
+  src/lab/pods/smoke.ts`. The masking, diff and edit rules are unit-tested
+  in `pods/pool.test.ts` (`yarn test:node`).
 
 ### `harvey/` — Harvey LAB verification (the hardcoded grader)
 

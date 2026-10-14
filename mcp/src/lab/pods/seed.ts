@@ -31,18 +31,34 @@ import { SEED_OPTS, retireSteps } from "../seed-opts.js";
  * fetches and pushes); the agent in the pod calls the model through this
  * run's LLM gateway grant, never a key of its own.
  *
- * The steps are self-contained source: they import only `strut` and
- * `./_shared.js`. Content-hash reconciled (SEED_OPTS): a changed committed
- * copy wins at boot, an unchanged one leaves a workspace-side edit active.
+ * A pod's own changes die with it; the workspace's POOL CONFIG in hive is
+ * what every new pod is built from. `pod/config` reads it beside a pod's
+ * files with a diff, `pod/config-set` writes a fix made in a pod back to it
+ * — every unused pod of the workspace is recreated — and `pod/claim { fresh:
+ * true }` takes a pod built after that push to check it on. The `Pod Config`
+ * Concept, under `Pod`, says when and how (ask first, verify on a fresh
+ * pod, report a `pod-config` deliverable a later job can find).
+ *
+ * The steps are self-contained source: they import only `strut` and the
+ * `_` helpers beside them. Content-hash reconciled (SEED_OPTS): a changed
+ * committed copy wins at boot, an unchanged one leaves a workspace-side edit
+ * active.
  */
 
 /** One file per step under steps/, `<name>.ts` → `pod/<name>`. */
 export const SEED_STEPS = [
-  // the helper the registry skips and every step imports
+  // the helpers the registry skips: every step imports _shared, the
+  // pool-config steps _pool
   "_shared",
-  // the pool: claim (registers the hold on a job) / release (drops it)
+  "_pool",
+  // the pool: claim (registers the hold on a job; `fresh` for a pod built
+  // after the last config push) / release (drops it)
   "claim",
   "release",
+  // the pool's config: read it beside a pod's own files, diffed / change it
+  // in hive and wait for the pool to rebuild (strut plans/pod-config.md)
+  "config",
+  "config-set",
   // the repositories: reset to a branch
   "latest",
   // the agent in the pod: start now and look later, or wait

@@ -18,7 +18,17 @@
  *    and got the same pull request back, no second one;
  *  - `DELETE /jobs/:id` released the pod through pod/release (the stand-in
  *    hive saw drop-pod, as the job) and dropped the hold; a pod hive has let
- *    go (404) or handed to someone else (409) counts as released.
+ *    go (404) or handed to someone else (409) counts as released;
+ *  - the pool config (strut plans/pod-config.md): pod/config reads hive's
+ *    config alone and beside the pod's files, diffed, every env value in the
+ *    pm2 files masked (a changed value that masks alike still shows);
+ *    pod/config-set writes only what changed by name onto a fresh read —
+ *    masked values round-tripping, both lists sent, either compose name as
+ *    docker-compose.yml — and waits for the rollout; what would corrupt the
+ *    config is refused before anything is written; `pod/claim { fresh: true }`
+ *    waits out a 409, holds the second pod, and gives back a pod a hive that
+ *    predates fresh claims hands out; no stored env value reaches strut's
+ *    record.
  *
  *   npx tsx src/lab/pods/smoke.ts
  */
@@ -30,6 +40,7 @@ import { join } from "node:path";
 import { WorkspaceManager, buildRegistry, createStrut, jobsCapability, standardServices, type Strut } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 import { SEED_STEPS, seedPodSteps } from "./seed.js";
+import { mask } from "./steps/_pool.js";
 
 const PASSWORD = "pw-s3cret-never-shown";
 const KEY = "hiveorg_test_key";
@@ -37,7 +48,58 @@ const FRONTEND = "https://pod-1-3000.workspaces.test";
 const IDE = "https://pod-1.workspaces.test";
 /** The pod's control URL, pod-shaped like hive's (`<podId>-<port>.<domain>`): pod/push finds the hold from its hostname. The strut's fetch answers it from the stand-in. */
 const CONTROL = "http://pod-1-15552.workspaces.test";
+/** The fresh pod a config change is checked on. */
+const FRONTEND2 = "https://pod-2-3000.workspaces.test";
+const IDE2 = "https://pod-2.workspaces.test";
+const CONTROL2 = "http://pod-2-15552.workspaces.test";
 const PR = "https://github.com/o/app/pull/7";
+
+// ── the pool config the stand-in hive keeps for ws-1 ─────────────────────
+const b64 = (text: string) => Buffer.from(text, "utf-8").toString("base64");
+/** A stored env value: strut's record must never hold it. */
+const SECRET = "sk-live-SECRET-value-1234";
+/** hive's generated pm2.config.js (its formatPM2Apps): values in clear. */
+const STORED_PM2 = `module.exports = {
+  apps: [
+    {
+      name: "frontend",
+      script: "npm run dev",
+      cwd: "/workspaces/app",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "1G",
+      env: {
+        API_KEY: "${SECRET}",
+        API_URL: "http://localhost:3000",
+        PORT: "3000",
+        INSTALL_COMMAND: "npm install"
+      }
+    }
+  ],
+};
+`;
+/** The pod's copy, as its agent left it: the URL's port changed (it masks the
+ *  same), a flag added. */
+const POD_PM2 = STORED_PM2.replace("http://localhost:3000", "http://localhost:4000").replace('        PORT: "3000",', '        USE_MOCKS: "true",\n        PORT: "3000",');
+const COMPOSE = "services:\n  db:\n    image: postgres:16\n";
+const POD_COMPOSE = `${COMPOSE}  rustfs:\n    image: rustfs/rustfs:latest\n`;
+const DOCKERFILE = "FROM ghcr.io/stakwork/staklink-js:latest\n";
+const STORED_FILES = { "pm2.config.js": b64(STORED_PM2), "docker-compose.yml": b64(COMPOSE), Dockerfile: b64(DOCKERFILE), "devcontainer.json": b64("{}\n") };
+/** `services` and the env list as hive serves them to a key caller: masked. */
+const STORED_SERVICES = [
+  { name: "frontend", port: 3000, scripts: { start: "npm run dev", install: "npm install" }, env: { API_KEY: mask(SECRET) }, cwd: "app" },
+  { name: "worker", port: 3001, scripts: { start: "npm run worker" }, env: {} },
+];
+const STORED_ENV = [
+  { name: "API_URL", value: mask("http://localhost:3000") },
+  { name: "OLD_FLAG", value: mask("on") },
+];
+const POD_FILES = [
+  { name: "pm2.config.js", path: "/workspaces/.pod-config/.user-dockerfile/pm2.config.js", content: POD_PM2 },
+  { name: "docker-compose.yaml", path: "/workspaces/.pod-config/.user-dockerfile/docker-compose.yaml", content: POD_COMPOSE },
+  { name: "Dockerfile", path: "/workspaces/.pod-config/.user-dockerfile/Dockerfile", content: DOCKERFILE },
+];
 
 interface Seen {
   method: string;
@@ -48,9 +110,18 @@ interface Seen {
 }
 
 /** A stand-in hive (the pool manager) and staklink (under /pod). */
-async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; close: () => void }> {
+interface Pool {
+  /** Bodies of the config PUTs, as sent. */
+  puts: any[];
+  changeId: string | null;
+  readsSincePut: number;
+  freshClaims: number;
+}
+
+async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; pool: Pool; close: () => void }> {
   const seen: Seen[] = [];
   const posts: any[] = [];
+  const pool: Pool = { puts: [], changeId: null, readsSincePut: 0, freshClaims: 0 };
   const polls = new Map<string, number>();
   let agents = 0;
   let base = "";
@@ -72,11 +143,44 @@ async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; cl
       const auth = req.headers.authorization;
       const token = req.headers["x-api-token"] as string | undefined;
       seen.push({ method: req.method ?? "", path: url.pathname + url.search, auth, token, body });
+      // hive's pool config: read (env masked, files in clear) and write
+      if (url.pathname === "/api/workspaces/ws-1/stakgraph") {
+        if (token !== KEY) return json(401, { error: "Unauthorized" });
+        if (req.method === "GET") {
+          if (pool.changeId) pool.readsSincePut++;
+          // the third read after a PUT finds a new pod running
+          const ready = pool.readsSincePut >= 3;
+          const rollout = pool.changeId
+            ? { state: ready ? "ready" : "rolling", changeId: pool.changeId, requestedAt: "2026-10-14T12:00:00Z", pushedAt: "2026-10-14T12:00:01Z", error: null, pods: { new: ready ? 1 : 0, old: 2, oldInUse: 1, pending: ready ? 0 : 1, failed: 0, minimumVms: 2 } }
+            : { state: "idle", changeId: null, requestedAt: null, pushedAt: null, error: null, pods: { new: 0, old: 2, oldInUse: 1, pending: 0, failed: 0, minimumVms: 2 } };
+          return json(200, { success: true, data: { services: STORED_SERVICES, environmentVariables: STORED_ENV, containerFiles: STORED_FILES, rollout } });
+        }
+        if (req.method === "PUT") {
+          pool.puts.push(body);
+          pool.changeId = `chg-${pool.puts.length}`;
+          pool.readsSincePut = 0;
+          // hive answers with its stored state in `data`, values in clear
+          return json(200, {
+            success: true,
+            data: { services: [{ ...STORED_SERVICES[0], env: { API_KEY: SECRET } }], containerFiles: STORED_FILES },
+            changeId: pool.changeId,
+            requestedAt: "2026-10-14T12:00:00Z",
+            infraChanged: true,
+            rollout: { state: "rolling", error: null },
+          });
+        }
+      }
       // hive's pool manager
       if (url.pathname.startsWith("/api/pool-manager/")) {
         if (token !== KEY) return json(401, { error: "Unauthorized" });
         if (url.pathname.startsWith("/api/pool-manager/claim-pod/")) {
-          return json(200, { success: true, podId: "pod-1", pod_url: IDE, frontend: FRONTEND, ide: IDE, control: CONTROL, password: PASSWORD });
+          if (url.searchParams.get("generation") === "new") {
+            // a hive that predates fresh claims: any pod, no `generation`
+            if (url.pathname.endsWith("/ws-old")) return json(200, { success: true, podId: "pod-9", frontend: FRONTEND, ide: IDE, control: CONTROL, password: PASSWORD });
+            if (++pool.freshClaims === 1) return json(409, { success: false, error: "No pod created after the last pool push is ready yet" });
+            return json(200, { success: true, podId: "pod-2", pod_url: IDE2, frontend: FRONTEND2, ide: IDE2, control: CONTROL2, password: PASSWORD, generation: "new" });
+          }
+          return json(200, { success: true, podId: "pod-1", pod_url: IDE, frontend: FRONTEND, ide: IDE, control: CONTROL, password: PASSWORD, generation: "old" });
         }
         if (url.pathname.startsWith("/api/pool-manager/drop-pod/")) {
           const podId = url.searchParams.get("podId");
@@ -100,6 +204,7 @@ async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; cl
           return json(200, { status: "completed", result: { success: true, result: `Changed the title (${id}).`, summary: "Title changed", usage: { total_tokens: 10 }, model: "sonnet" } });
         }
         if (p === "/branch-diff") return json(200, [{ file: "README.md", action: "modify", content: "# App\n", repoName: "app", errors: [] }]);
+        if (p === "/pod-config") return json(200, { files: POD_FILES });
         if (p === "/push") {
           const pr = url.searchParams.get("pr") === "true";
           return json(200, { success: true, commits: ["abc123"], branches: { app: "strut/title" }, ...(pr ? { prs: { app: PR } } : {}) });
@@ -110,7 +215,7 @@ async function standIn(): Promise<{ base: string; seen: Seen[]; posts: any[]; cl
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  return { base, seen, posts, close: () => server.close() };
+  return { base, seen, posts, pool, close: () => server.close() };
 }
 
 /** `strut.app.request` with the key the deployment expects (none in dev). */
@@ -223,6 +328,59 @@ steps:
       pr: "{{ push.pr_url }}"
 `;
 
+const POD_PROMOTE = `name: pod-promote
+input:
+  control: { type: string }
+  sealed: { type: string }
+steps:
+  - id: alone
+    type: pod/config
+    config: { workspace: ws-1 }
+  - id: before
+    type: pod/config
+    config: { workspace: ws-1, control: "{{ input.control }}", sealed: "{{ input.sealed }}" }
+  - id: set
+    type: pod/config-set
+    config:
+      workspace: ws-1
+      services:
+        frontend:
+          port: 3000
+          scripts: { start: "npm run dev", install: "npm install", postStart: "node scripts/make-bucket.js" }
+          env: { API_KEY: "{{ before.services[0].env.API_KEY }}" }
+          cwd: app
+        worker: null
+      env: { API_URL: "http://localhost:4000", USE_MOCKS: "true", OLD_FLAG: null }
+      containerFiles: { docker-compose.yaml: "{{ before.files[1].pod }}" }
+      pollMs: 10
+  - id: result
+    type: pack
+    config:
+      alone: "{{ alone }}"
+      before: "{{ before }}"
+      set: "{{ set }}"
+`;
+
+const POD_FRESH = `name: pod-fresh
+input:
+  workspace: { type: string }
+steps:
+  - id: claim
+    type: pod/claim
+    config: { workspace: "{{ input.workspace }}", fresh: true }
+`;
+
+const POD_CONFIG_BAD = `name: pod-config-bad
+input:
+  services: { type: json, required: false }
+  env: { type: json, required: false }
+  files: { type: json, required: false }
+steps:
+  - id: set
+    type: pod/config-set
+    config: { workspace: ws-1, services: "{{ input.services }}", env: "{{ input.env }}", containerFiles: "{{ input.files }}", pollMs: 10 }
+`;
+
 async function main() {
   const dir = mkdtempSync(join(process.cwd(), "pods-smoke-"));
   const hive = await standIn();
@@ -235,10 +393,13 @@ async function main() {
       if (name.startsWith("_")) continue;
       assert.ok(registry[`pod/${name}`], `registry missing pod/${name}`);
     }
-    console.log(`✔ seeded ${SEED_STEPS.length - 1} pod/* steps, all discoverable`);
+    console.log(`✔ seeded ${SEED_STEPS.filter((n) => !n.startsWith("_")).length} pod/* steps, all discoverable`);
     await workspace.publishWorkflowByContent("pod-smoke", POD_SMOKE, undefined, "pods", undefined, SEED_OPTS);
     await workspace.publishWorkflowByContent("pod-revise", POD_REVISE, undefined, "pods", undefined, SEED_OPTS);
     await workspace.publishWorkflowByContent("pod-let-go", POD_LET_GO, undefined, "pods", undefined, SEED_OPTS);
+    await workspace.publishWorkflowByContent("pod-promote", POD_PROMOTE, undefined, "pods", undefined, SEED_OPTS);
+    await workspace.publishWorkflowByContent("pod-fresh", POD_FRESH, undefined, "pods", undefined, SEED_OPTS);
+    await workspace.publishWorkflowByContent("pod-config-bad", POD_CONFIG_BAD, undefined, "pods", undefined, SEED_OPTS);
 
     // ── 2. a strut whose secrets name the stand-in hive, whose GitHub
     //       identity lookup is answered locally, and whose LLM gateway
@@ -248,8 +409,9 @@ async function main() {
       if (u.startsWith("https://api.github.com/user")) {
         return new Response(JSON.stringify({ login: "octo" }), { status: 200, headers: { "content-type": "application/json" } });
       }
-      // The pod-shaped control URL: the stand-in's staklink answers for it.
-      if (u.startsWith(CONTROL)) return fetch(`${hive.base}/pod${u.slice(CONTROL.length)}`, init);
+      // A pod-shaped control URL: the stand-in's staklink answers for it.
+      const pod = /^http:\/\/pod-\d+-15552\.workspaces\.test(.*)$/.exec(u);
+      if (pod) return fetch(`${hive.base}/pod${pod[1]}`, init);
       return fetch(url, init);
     };
     const grant = { apiKey: "sk-bf-test", baseUrl: `${hive.base}/llm`, headers: { "x-macaroon": "mac-test", "x-bf-dim-session-id": "job" } };
@@ -394,6 +556,122 @@ async function main() {
     assert.deepEqual(await jobsCapability(dir).holds(job), []);
     assert.equal((await api(`/jobs/${job}/files`)).status, 404);
     console.log(`✔ DELETE /jobs/${job.slice(0, 8)}… released pod-1 through pod/release (hive saw drop-pod as the job) and the job is gone`);
+
+    // ── 6. the pool config: read it beside the pod, promote a fix, check
+    //       it on a fresh pod (strut plans/pod-config.md) ──────────────────
+    const job2 = randomUUID();
+    const runFor = async (workflow: string, input: unknown) => {
+      const n = hive.posts.length;
+      const run = await api(`/workflows/${workflow}/run`, { body: { job: job2, input, callback } });
+      assert.equal(run.status, 202, run.text);
+      await until(() => hive.posts.length === n + 1, `the ${workflow} callback`);
+      return { runId: run.json.runId as string, post: hive.posts[n] };
+    };
+
+    const promote = await runFor("pod-promote", { control: out1.control, sealed: out1.sealed });
+    assert.equal(promote.post.status, "success", JSON.stringify(promote.post));
+    const { alone, before, set } = promote.post.output;
+
+    // hive's config alone: the files, pm2's env masked, the lists as hive masks them.
+    assert.deepEqual(alone.files.map((f: any) => [f.name, f.status, f.path, f.diff]), [
+      ["pm2.config.js", null, null, null],
+      ["docker-compose.yml", null, null, null],
+      ["Dockerfile", null, null, null],
+    ]);
+    assert.match(alone.files[0].hive, /API_KEY: "sk\*+34#[0-9a-f]{6}"/);
+    assert.match(alone.files[0].hive, /PORT: "3000",\n {8}INSTALL_COMMAND: "npm install"/, "a service's config vars stay readable");
+    assert.equal(alone.files[1].hive, COMPOSE);
+    assert.deepEqual(alone.services, STORED_SERVICES);
+    assert.deepEqual(alone.env, { API_URL: mask("http://localhost:3000"), OLD_FLAG: "****" });
+    assert.equal(alone.rollout.state, "idle");
+
+    // beside the pod: a diff per file, the compose file under hive's name.
+    const [pm2, compose, dockerfile] = before.files;
+    assert.deepEqual([pm2.status, compose.status, dockerfile.status], ["changed", "changed", "same"]);
+    assert.equal(compose.path, "/workspaces/.pod-config/.user-dockerfile/docker-compose.yaml");
+    assert.match(compose.diff, /^--- hive\/docker-compose\.yml\n\+\+\+ pod\/docker-compose\.yml\n@@ -1,3 \+1,5 @@\n services:\n {3}db:\n {5}image: postgres:16\n\+ {2}rustfs:\n\+ {4}image: rustfs\/rustfs:latest$/);
+    assert.equal(dockerfile.diff, null);
+    // The URL's port changed and masks the same: the tags tell them apart.
+    const urls = [...pm2.diff.matchAll(/^([-+]) {8}API_URL: "(ht\*+00)#([0-9a-f]{6})",$/gm)];
+    assert.deepEqual(urls.map((u) => [u[1], u[2]]), [["-", mask("http://localhost:3000")], ["+", mask("http://localhost:4000")]]);
+    assert.notEqual(urls[0]![3], urls[1]![3]);
+    assert.match(pm2.diff, /^\+ {8}USE_MOCKS: "\*{4}#[0-9a-f]{6}",$/m);
+    assert.doesNotMatch(pm2.diff, /^[-+] {8}API_KEY/m, "an unchanged value diffs equal");
+    console.log("✔ pod/config: hive's config alone, then beside the pod — pm2 env masked (a changed port shows), compose .yaml read as docker-compose.yml");
+
+    // The write: only the edits, by name, on a fresh read — both lists, the
+    // masked value as read, the compose file under hive's name, base64.
+    assert.equal(hive.pool.puts.length, 1);
+    assert.deepEqual(hive.pool.puts[0], {
+      services: [{ name: "frontend", port: 3000, scripts: { start: "npm run dev", install: "npm install", postStart: "node scripts/make-bucket.js" }, env: { API_KEY: mask(SECRET) }, cwd: "app" }],
+      environmentVariables: [
+        { name: "API_URL", value: "http://localhost:4000" },
+        { name: "USE_MOCKS", value: "true" },
+      ],
+      containerFiles: { "docker-compose.yml": b64(POD_COMPOSE) },
+    });
+    assert.deepEqual({ ...set, rollout: undefined }, {
+      workspace: "ws-1",
+      changeId: "chg-1",
+      state: "ready",
+      settledBy: null,
+      written: { services: ["frontend"], env: ["API_URL", "USE_MOCKS"], containerFiles: ["docker-compose.yml"] },
+      removed: { services: ["worker"], env: ["OLD_FLAG"] },
+      rollout: undefined,
+    });
+    assert.equal(set.rollout.state, "ready");
+    assert.equal(hive.pool.readsSincePut, 3, "polled until a new pod was ready");
+    console.log(`✔ pod/config-set: wrote services ${set.written.services}, env ${set.written.env}, ${set.written.containerFiles}; removed ${set.removed.services}, ${set.removed.env}; waited for ${set.changeId} to be ready`);
+
+    // No stored value reached strut's record: not the events, not the output.
+    const events2 = await api(`/workflows/pod-promote/runs/${promote.runId}/events`);
+    for (const [where, text] of [["events", events2.text], ["callback", JSON.stringify(promote.post)]] as const) {
+      assert.ok(!text.includes(SECRET), `the stored API_KEY is in the ${where}`);
+      assert.ok(!text.includes("http://localhost:3000"), `the stored API_URL is in the ${where}`);
+    }
+    console.log("✔ no stored env value in the run's events or callback (pm2 files masked, hive's PUT answer dropped)");
+
+    // What would corrupt the config is refused before hive is called.
+    const refusals: Array<[unknown, RegExp]> = [
+      [{ files: { "pm2.config.js": "module.exports = {}" } }, /pm2\.config\.js is generated from `services`/],
+      [{ files: { "devcontainer.json": "{}" } }, /devcontainer\.json is never edited/],
+      [{ files: { "docker-compose.yml": "a: 1", "docker-compose.yaml": "a: 2" } }, /two compose files given/],
+      [{ env: { API_URL: pm2.diff.match(/ht\*+00#[0-9a-f]{6}/)![0] } }, /API_URL is a masked value/],
+      [{ env: { PORT: "3000" } }, /PORT is generated from the service's port/],
+      [{ services: { frontend: { port: 3000, scripts: { start: "x" }, env: { POST_START_COMMAND: "y" } } } }, /services\.frontend\.env: POST_START_COMMAND is generated from the service's scripts\.postStart/],
+      [{ services: { ghost: null } }, /no service "ghost" to remove/],
+      [{}, /nothing to change/],
+    ];
+    for (const [input, why] of refusals) {
+      const { post } = await runFor("pod-config-bad", input);
+      assert.equal(post.status, "error", JSON.stringify(post));
+      assert.match(post.error.message, why);
+    }
+    assert.equal(hive.pool.puts.length, 1, "no refused change reached hive");
+    console.log(`✔ pod/config-set refused ${refusals.length} changes that would corrupt the config, before writing`);
+
+    // A fresh pod: 409 while none is ready, then the pod built after the push,
+    // a second hold on the job.
+    const wait = await runFor("pod-fresh", { workspace: "ws-1" });
+    assert.equal(wait.post.status, "error");
+    assert.match(wait.post.error.message, /no fresh pod ready yet in workspace "ws-1" — No pod created after the last pool push is ready yet; .*try again/);
+    const fresh = await runFor("pod-fresh", { workspace: "ws-1" });
+    assert.equal(fresh.post.status, "success", JSON.stringify(fresh.post));
+    assert.deepEqual({ ...fresh.post.output, sealed: undefined }, { podId: "pod-2", workspace: "ws-1", frontend: FRONTEND2, ide: IDE2, control: CONTROL2, sealed: undefined, generation: "new" });
+    const freshClaim = hive.seen.filter((s) => s.path.startsWith("/api/pool-manager/claim-pod/")).at(-1)!;
+    assert.equal(freshClaim.path, `/api/pool-manager/claim-pod/ws-1?job=${job2}&run=${fresh.runId}&generation=new`);
+    assert.deepEqual((await jobsCapability(dir).holds(job2)).map((h: any) => h.id), ["pod-2"]);
+    // A hive that predates fresh claims hands out any pod: given back, never used.
+    const old = await runFor("pod-fresh", { workspace: "ws-old" });
+    assert.equal(old.post.status, "error");
+    assert.match(old.post.error.message, /did not say it is new .*the pod was released/);
+    assert.equal(drops().at(-1)!.path, `/api/pool-manager/drop-pod/ws-old?podId=pod-9&job=${job2}`);
+    assert.deepEqual((await jobsCapability(dir).holds(job2)).map((h: any) => h.id), ["pod-2"], "no hold on the pod given back");
+    // Done with it: release the fresh pod.
+    const letGo = await runFor("pod-let-go", { podId: "pod-2" });
+    assert.deepEqual(letGo.post.output, { podId: "pod-2", released: true });
+    assert.deepEqual(await jobsCapability(dir).holds(job2), []);
+    console.log("✔ pod/claim { fresh: true }: waited out a 409, held pod-2 (generation new), gave back a pod an older hive handed out, released pod-2");
 
     console.log("\npods smoke: all good");
   } finally {
