@@ -86,5 +86,5 @@ promote it, asking first, and judge it here.
 
 **Report it.** A turn that promoted a fix — or set a pod up in a way worth
 repeating, promoted or not — reports
-`{ id: "pod-config", kind: "diff", title: "Pod config — <workspace>", summary: "<what broke, what fixed it, what a fresh pod still lacks>", content: <the diff> }`
+`{ id: "pod-config", kind: "diff", title: "Pod config — <workspace>", summary: "<what broke, what fixed it, what a fresh pod still lacks>", content: "<the promoted files' diffs, as one text>" }`
 so a later job finds it. Then `pod/release` the fresh pod.
