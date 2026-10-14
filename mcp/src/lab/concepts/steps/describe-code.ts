@@ -23,6 +23,27 @@ const CODE_TYPES = ["Class", "Endpoint", "Request", "Function", "Datamodel", "Pa
 // Errors no retry will fix: the key or the account, not the node.
 const FATAL = ["key limit exceeded", "quota", "insufficient", "401", "invalid api key", "invalid_api_key", "unauthorized"];
 
+/** An LLM call's error in full. A run log records an error's `message`
+ *  only, and the AI SDK keeps the part that says what went wrong elsewhere:
+ *  "Invalid JSON response" carries the parse failure as `cause` and the
+ *  provider's status and body as properties (of it, or of the error it
+ *  wraps — `cause`, a RetryError's `lastError`). */
+export function said(err: Error): string {
+  const parts = [err.message];
+  let http = "";
+  const seen = new Set<unknown>();
+  for (let e: any = err; e && typeof e === "object" && !seen.has(e); e = e.cause ?? e.lastError) {
+    seen.add(e);
+    if (e !== err && e instanceof Error && e.message && !parts.includes(e.message)) parts.push(e.message);
+    if (!http && (e.statusCode != null || typeof e.responseBody === "string")) {
+      const body = typeof e.responseBody === "string" ? e.responseBody.trim() : "";
+      const shown = body.length > 1000 ? `${body.slice(0, 1000)}… [${body.length} chars]` : body;
+      http = ` (HTTP ${e.statusCode ?? "?"}${shown ? `: ${shown}` : ""})`;
+    }
+  }
+  return parts.join(": ") + http;
+}
+
 type LlmDef = { input: z.ZodTypeAny; run: (cfg: unknown, ctx: unknown) => Promise<{ text?: string; cost?: number }> };
 
 function repoPaths(repoUrl: string | undefined): string[] {
@@ -113,9 +134,9 @@ export default defineStep({
           } catch (e) {
             failed.add(node.ref_id);
             const err = e instanceof Error ? e : new Error(String(e));
-            const msg = `${err.message} ${(err as { cause?: Error }).cause?.message ?? ""}`.toLowerCase();
-            if (FATAL.some((needle) => msg.includes(needle))) fatal.error ??= err;
-            else console.warn(`[concepts/describe-code] ${node.name}: ${err.message}`);
+            const full = said(err);
+            if (FATAL.some((needle) => full.toLowerCase().includes(needle))) fatal.error ??= new Error(full, { cause: err });
+            else console.warn(`[concepts/describe-code] ${node.name}: ${full}`);
           }
         }
       };

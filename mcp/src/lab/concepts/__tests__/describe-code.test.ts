@@ -92,3 +92,20 @@ test("a key or quota error fails the step after writing what it has", async () =
   await assert.rejects(describeCode.run(cfg({ concurrency: 1 }), ctx as never), /stopped after 2 description\(s\): 401/);
   assert.equal(nodes.filter((n) => n.description).length, 2);
 });
+
+test("a fatal error says what the provider answered, not just the SDK's summary", async () => {
+  const nodes = graph(2);
+  // The shape of the AI SDK's "Invalid JSON response" (an APICallError):
+  // the parse failure as `cause`, the provider's status and body on it.
+  const sdk = Object.assign(new Error("Invalid JSON response", { cause: new Error("JSON parsing failed: Text: Insufficient credits") }), {
+    statusCode: 200,
+    responseBody: "Insufficient credits",
+  });
+  const { ctx } = harness(nodes, () => sdk);
+  await assert.rejects(
+    describeCode.run(cfg({ concurrency: 1 }), ctx as never),
+    (e: Error) =>
+      e.message ===
+      "concepts/describe-code: stopped after 0 description(s): Invalid JSON response: JSON parsing failed: Text: Insufficient credits (HTTP 200: Insufficient credits)",
+  );
+});
