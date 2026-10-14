@@ -53,7 +53,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
     name: "graph-janitor",
     description:
-      "Knowledge-graph janitor: a read-only agent sweeps the Concept subtree under input.start following the mandate in the docs of input.concept (a child of the Janitor Concept) and proposes cleanups as findings with typed actions; code validates them into a plan (never the Janitor node, a mandate, a git-seeded Concept or a rename; never a value that moved on since the agent read it) and, with input.apply=true, writes it, reads every write back and keeps an undo log for graph-janitor-revert. apply=false (default) is a dry run. One automation per janitor. Output: { mandate, start, start_ref_id, apply, visited, findings, summary, plan: { edits, moves, skipped, manual, counts }, applied, applied_json, report_json, report_md, report_plan }; errors not_found: | not_a_janitor: | apply_failed:.",
+      "Knowledge-graph janitor: code queues the Concept subtree under input.start in name order and hands each run the next batch after input.cursor (an automation passes cursor: '{{ last.output.next_cursor }}', so every node comes round in turn); a read-only agent reviews that batch following the mandate in the docs of input.concept (a child of the Janitor Concept) and proposes cleanups as findings with typed actions; code validates them into a plan (never the Janitor node, a mandate, a git-seeded Concept or a rename; never a value that moved on since the agent read it) and, with input.apply=true, writes it, reads every write back and keeps an undo log for graph-janitor-revert. apply=false (default) is a dry run. One automation per janitor. Output: { mandate, start, start_ref_id, apply, visited (the batch), queue: { from, size, total, wrapped }, next_cursor, findings, summary, plan: { edits, moves, skipped, manual, counts }, applied, applied_json, report_json, report_md, report_plan }; errors not_found: | not_a_janitor: | apply_failed:.",
   },
   {
     name: "graph-janitor-revert",
@@ -66,7 +66,7 @@ const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
 const RETIRED_WORKFLOWS: string[] = [];
 
 /** One file per step under steps/, `<name>.ts` → `janitor/<name>`. */
-export const SEED_STEPS = ["plan", "readback", "revert-plan"] as const;
+export const SEED_STEPS = ["queue", "plan", "readback", "revert-plan"] as const;
 const RETIRED_STEPS: string[] = [];
 
 export async function seedJanitorSteps(workspace: WorkspaceStore): Promise<void> {

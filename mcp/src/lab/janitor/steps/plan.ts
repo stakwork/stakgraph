@@ -20,7 +20,9 @@ import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, t
  *     next file change would overwrite a janitor edit anyway — fixes to
  *     those belong in git). Strut's read steps strip that property from
  *     every response, so it is read here over bolt;
- *   - a node not in `visited` or not of `node_type`, a property outside
+ *   - a node not in `visited` or not of `node_type`, a finding on a node
+ *     outside `targets` when given (the batch janitor/queue handed this
+ *     run: the agent may read around it, but writes only what it reviewed), a property outside
  *     `properties` (no renames: `name` is the identity key and automations
  *     address Concepts by it), a value that no longer matches what the
  *     agent read (`stale`), a move with no or several current parents.
@@ -178,6 +180,8 @@ export interface Plan {
 
 export interface PlanOptions {
   visited: Array<{ ref_id: string }>;
+  /** When given: the only nodes a finding may change, each counted as visited (a move's new parent need only be visited). */
+  targets?: Iterable<string>;
   /** ref_ids never written: the Janitor node, its children, the mandate, `protect`. */
   protect: Iterable<string>;
   /** The Janitor node: anything hanging under it live is protected too (past the 50 children a read lists). */
@@ -192,7 +196,9 @@ export interface PlanOptions {
 
 /** Pure: the rules in the module comment, over findings and the live nodes they name. */
 export function planChanges(findings: Finding[], live: Map<string, LiveNode>, opts: PlanOptions): Plan {
-  const visited = new Set(opts.visited.map((v) => v.ref_id));
+  const targets = opts.targets ? new Set(opts.targets) : null;
+  // A target was handed to the agent to review: it counts as inspected.
+  const visited = new Set([...opts.visited.map((v) => v.ref_id), ...(targets ?? [])]);
   const protect = new Set(opts.protect);
   const allowed = new Set(opts.properties);
   const issues = opts.issues && opts.issues.length ? new Set(opts.issues) : null;
@@ -227,6 +233,10 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
     const node = live.get(ref);
     if (isProtected(ref, node)) {
       skip("protected", "the Janitor node, a mandate, or something hanging under Janitor");
+      continue;
+    }
+    if (targets && !targets.has(ref)) {
+      skip("not_in_batch", "the finding names a node outside this run's batch — its turn comes round");
       continue;
     }
     if (!visited.has(ref)) {
@@ -453,7 +463,7 @@ export default defineStep({
     "Turn a graph-janitor agent's findings into a validated write plan, without writing: re-reads every target node live " +
     "(over bolt, so it sees the git seed's stamp the read steps strip) and sorts each finding's typed `action` into " +
     "`edits` / `moves` (the exact configs for graph/edit-node and graph/move-node, `node_data` built from the property), " +
-    "`skipped` (with a `reason`: protected | git_seeded | not_visited | wrong_type | not_found | property_not_allowed | " +
+    "`skipped` (with a `reason`: protected | git_seeded | not_in_batch | not_visited | wrong_type | not_found | property_not_allowed | " +
     "stale | find_not_once | no_change | empty_value | invalid_action | no_parent | many_parents | duplicate | below_min_severity | " +
     "issue_not_applied | over_cap) or `manual` (no action). A `replace_text` action ({ property, find, replace }) is resolved " +
     "here against the live value — `find` must occur exactly once — into an edit with the full old and new values; without a " +
@@ -465,6 +475,7 @@ export default defineStep({
   input: z.object({
     findings: z.array(z.any()).default([]).describe("the agent's findings; each may carry action { kind: set_property | replace_text | move | none, property, old_value, new_value, find, replace, new_parent_ref_id }"),
     visited: z.array(z.any()).default([]).describe("the nodes the agent recorded as inspected — a finding or move target outside it is skipped"),
+    targets: z.array(z.string()).optional().describe("when given, the only ref_ids a finding may change (janitor/queue's batch, each counted as visited); others are skipped not_in_batch"),
     parent: z.any().optional().describe("the Janitor node as graph/graph-get returns it with children: it, its children and anything under it live are protected"),
     mandate_ref_id: z.string().optional().describe("this run's mandate: protected"),
     protect: z.array(z.string()).optional().describe("more ref_ids never written"),
@@ -489,6 +500,7 @@ export default defineStep({
     const live = ids.length ? await readLive(await graphCtx(c), ids) : new Map<string, LiveNode>();
     const plan = planChanges(findings, live, {
       visited: (cfg.visited as Array<{ ref_id: string }>).filter((v) => v && typeof v.ref_id === "string"),
+      targets: cfg.targets,
       protect,
       parent_ref_id: parent?.ref_id,
       node_type: cfg.node_type,
