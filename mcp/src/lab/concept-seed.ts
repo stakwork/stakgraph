@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import yaml from "js-yaml";
-import { composeNodeKey, type GraphBackend, type WorkspaceStore } from "strut";
+import { composeNodeKey, type Neo4jBackend, type WorkspaceStore } from "strut";
 import { jarvisMutate } from "../repo/toolsJarvis.js";
 
 /**
@@ -144,6 +144,12 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
     console.log("[concept-seed] filesystem workspace: Concept files not seeded (no graph)");
     return;
   }
+  // The seed reads and unlinks with jarvis-shaped Cypher (`:Data_Bank`, the
+  // namespace): a Neo4j graph's. A Ladybug file holds no lab Concepts.
+  if (graph.kind !== "neo4j") {
+    console.log(`[concept-seed] ${graph.kind} graph: Concept files not seeded (they go to a Neo4j graph)`);
+    return;
+  }
   const refs = new Map<string, string>(); // every node under a seeded name, for parenting
   const owned = new Set<string>(); // the ones the seed wrote or keeps (create / update / keep)
   const parsed: ConceptFile[] = [];
@@ -268,7 +274,7 @@ export async function seedConcepts(workspace: WorkspaceStore, sets: ConceptSet[]
  * the first `deleted_at` kept, and only edges whose ends are both
  * `:Data_Bank` in this namespace removed.
  */
-export async function retireConcept(graph: GraphBackend, refId: string): Promise<void> {
+export async function retireConcept(graph: Neo4jBackend, refId: string): Promise<void> {
   const ns = graph.cfg.namespace;
   const jarvisUrl = process.env.JARVIS_URL?.replace(/\/+$/, "");
   if (!jarvisUrl) {
@@ -292,7 +298,7 @@ export async function retireConcept(graph: GraphBackend, refId: string): Promise
 }
 
 /** The node under this name in the backend's namespace, deleted or not. */
-async function findConcept(graph: GraphBackend, name: string): Promise<ExistingConcept | null> {
+async function findConcept(graph: Neo4jBackend, name: string): Promise<ExistingConcept | null> {
   const schema = await graph.nodes.resolver.schema(TYPE);
   if (!schema) throw new Error(`no "${TYPE}" schema in the graph (seed the ontology: STRUT_GRAPH_SEED_ONTOLOGY=1)`);
   const key = composeNodeKey(schema, { name });
@@ -309,7 +315,7 @@ async function findConcept(graph: GraphBackend, name: string): Promise<ExistingC
 }
 
 /** The ONE workspace node hive mirrors into this graph; null (with a log line) when there is none or more than one. */
-async function findWorkspace(graph: GraphBackend): Promise<{ ref_id: string; label: string } | null> {
+async function findWorkspace(graph: Neo4jBackend): Promise<{ ref_id: string; label: string } | null> {
   const schema = await graph.nodes.resolver.schema(WORKSPACE_TYPE);
   if (!schema) {
     console.log(`[concept-seed] no ${WORKSPACE_TYPE} schema in the graph: Concepts not anchored`);
