@@ -660,7 +660,11 @@ async function main() {
     assert.deepEqual({ ...fresh.post.output, sealed: undefined }, { podId: "pod-2", workspace: "ws-1", frontend: FRONTEND2, ide: IDE2, control: CONTROL2, sealed: undefined, generation: "new" });
     const freshClaim = hive.seen.filter((s) => s.path.startsWith("/api/pool-manager/claim-pod/")).at(-1)!;
     assert.equal(freshClaim.path, `/api/pool-manager/claim-pod/ws-1?job=${job2}&run=${fresh.runId}&generation=new`);
-    assert.deepEqual((await jobsCapability(dir).holds(job2)).map((h: any) => h.id), ["pod-2"]);
+    const freshHolds = await jobsCapability(dir).holds(job2);
+    assert.deepEqual(freshHolds.map((h: any) => h.id), ["pod-2"]);
+    // Borrowed, not the job's pod: no url, so the job's `urls.pod` never points at it.
+    assert.equal(freshHolds[0]!.url, undefined);
+    assert.equal(freshHolds[0]!.note, FRONTEND2);
     // A hive that predates fresh claims hands out any pod: given back, never used.
     const old = await runFor("pod-fresh", { workspace: "ws-old" });
     assert.equal(old.post.status, "error");

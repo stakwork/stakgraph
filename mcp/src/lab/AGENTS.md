@@ -590,7 +590,8 @@ released the pod at the end.
   pm2.config.js, devcontainer.json), then polls the rollout until its change
   — or a later one, whose push carries it — is `ready`. `pod/claim { fresh:
   true }` sends `?generation=new` (a pod created after the last push; 409
-  until one is ready) and gives back a pod a hive without it hands out. The
+  until one is ready) and gives back a pod a hive without it hands out; its
+  hold carries no `url`, so the job's `urls.pod` stays its own pod. The
   `Pod Config` Concept (under `Pod`) is the convention: fix in the pod,
   promote only what every job needs and only after a person says yes (and
   after a needed PR merges), check on a fresh pod, report a `pod-config`

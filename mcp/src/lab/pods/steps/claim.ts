@@ -85,12 +85,14 @@ export default defineStep({
     if (ctx.job && ctx.services?.jobs) {
       // `url` is where the pod is reached: strut folds it into the job's
       // `urls.pod`, so a claim's check says `{{ input.urls.pod }}/settings`
-      // and survives the pod being released and claimed again.
+      // and survives the pod being released and claimed again. A fresh pod
+      // is only borrowed to check a config change, never the job's pod: its
+      // hold carries no url, so `urls.pod` stays the job's own.
       await ctx.services.jobs.hold(ctx.job, {
         id: out.podId,
         kind: "pod",
         release: { type: "pod/release", input: { workspace: cfg.workspace, podId: out.podId } },
-        ...(out.frontend ? { note: out.frontend, url: out.frontend } : {}),
+        ...(out.frontend ? { note: out.frontend, ...(cfg.fresh ? {} : { url: out.frontend }) } : {}),
       });
     }
     return out;
