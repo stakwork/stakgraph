@@ -1257,19 +1257,26 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   follows, so only a node someone put under Janitor may steer a run; past
   50 children the refusal says only the first 50 were checked). CODE picks
   what the run reviews: `janitor/queue` (`steps/queue.ts`) reads the live
-  Concept subtree under start over bolt (PARENT_OF, start included), sorts
-  it by name and takes the next `params.batch_size` (10) names after
-  `input.cursor` — the name of the last node the previous run reviewed —
-  wrapping past the end; the automation passes `cursor: "{{
+  Concept tree under start over bolt (live PARENT_OF through live Concepts
+  only, start included), puts it in TREE ORDER — each node keyed by its
+  path of names from start, paths compared segment by segment, a parent
+  before its children, so a subtree comes before the next sibling and
+  siblings go by name (a node with several parents sits at the first path a
+  depth-first walk reaches it by) — and takes the next
+  `params.batch_size` (10) nodes after `input.cursor` — the path of the
+  last node the previous run reviewed, names joined by " › " — wrapping
+  past the end; the automation passes `cursor: "{{
   last.output.next_cursor }}"` (`last` = the latest SUCCESSFUL run, so a
   failed batch is taken again), and every node comes round once per
-  ceil(total / batch_size) runs. A name, not a position: an added or
+  ceil(total / batch_size) runs. A path, not a position: an added or
   deleted Concept never shifts anyone's turn. Left to walk on its own the
   agent read start's children every run and the levels below now and then
   (swarm38 Medicine, 2026-10-14: a depth-2 Concept naming "the benchmark"
-  was read once in 91 hourly runs). A read-only
-  `agent` — the graph's read steps granted BY NAME, never `graph/*` — is
-  handed the batch's description and docs verbatim, reads around it for
+  was read once in 91 hourly runs); name order fixed that but made a
+  batch ten unrelated nodes, so tree order keeps a batch one branch. A
+  read-only `agent` — the graph's read steps granted BY NAME, never
+  `graph/*` — is handed the batch's description and docs verbatim with each
+  node's path, parent and siblings' names (50 at most), reads around it for
   context, and proposes findings on batch nodes only, with the mandate's
   docs as its task and a
   system prompt that treats them as data (a mandate that asks for writes or

@@ -817,6 +817,7 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
   let services: Record<string, unknown>;
   let registry: Awaited<ReturnType<typeof buildRegistry>>["registry"];
   let agentAnswer: () => Record<string, unknown>;
+  let agentPrompt = "";
   const ids: Record<string, string> = {};
   const read = async (name: string) => {
     const rows = await ws.graph!.bolt.run(
@@ -851,7 +852,15 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
     for (const kid of [`Tort ${tag}`, `Crime ${tag}`]) await g.edges.write({ edge: "PARENT_OF", source_ref_id: ids[`Law ${tag}`]!, target_ref_id: ids[kid]! });
     for (const name of ["Janitor", "Workflow Builder"]) ids[name] = String((await read(name)).ref_id);
     registry = (await buildRegistry(await ws.materializeCustomSteps())).registry;
-    const agent = defineStep({ type: "agent", input: z.object({}).passthrough(), output: z.any(), async run() { return { result: "ok", object: agentAnswer(), steps: 1, usage: {}, cost: 0 }; } });
+    const agent = defineStep({
+      type: "agent",
+      input: z.object({}).passthrough(),
+      output: z.any(),
+      async run(cfg) {
+        agentPrompt = String((cfg as Record<string, unknown>).prompt ?? "");
+        return { result: "ok", object: agentAnswer(), steps: 1, usage: {}, cost: 0 };
+      },
+    });
     registry = { ...registry, agent } as typeof registry;
     const dataDir = join(root, "data");
     services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
@@ -892,9 +901,12 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
       ["e2", `Crime ${tag}`, "An offence.", "A public wrong.", { find: "An offence", replace: "A public wrong" }],
     ]);
     assert.deepEqual(out.plan.moves.map((m: any) => [m.id, m.from_ref_id, m.to_ref_id]), [["m1", ids[`Law ${tag}`], ids[`Tort ${tag}`]]]);
-    // The REAL queue: the batch is Law's subtree, name order, the start included.
-    assert.deepEqual(out.visited.map((v: any) => v.name), [`Crime ${tag}`, `Law ${tag}`, `Tort ${tag}`]);
-    assert.deepEqual([out.queue.total, out.next_cursor], [3, `Tort ${tag}`]);
+    // The REAL queue: the batch is Law's subtree in tree order, the start first, its children by name.
+    assert.deepEqual(out.visited.map((v: any) => v.name), [`Law ${tag}`, `Crime ${tag}`, `Tort ${tag}`]);
+    assert.deepEqual([out.queue.total, out.next_cursor], [3, `Law ${tag} › Tort ${tag}`]);
+    // Where each node sits, read live: its path, its parent, its siblings.
+    assert.ok(agentPrompt.includes(`### 1. Law ${tag}\nref_id: ${ids[`Law ${tag}`]}\npath: Law ${tag}\nparent: none — the start of the sweep\nsiblings: none\n`), agentPrompt);
+    assert.ok(agentPrompt.includes(`### 3. Tort ${tag}\nref_id: ${ids[`Tort ${tag}`]}\npath: Law ${tag} › Tort ${tag}\nparent: Law ${tag} (ref_id ${ids[`Law ${tag}`]})\nsiblings: Crime ${tag}\n`), agentPrompt);
     // Workflow Builder is outside the batch (git_seeded is planChanges' to test, apply.test.ts).
     assert.deepEqual(out.plan.skipped.map((s: any) => [s.name, s.reason]), [["Janitor", "protected"], ["Workflow Builder", "not_in_batch"], [`Law ${tag}`, "stale"]]);
     assert.equal(out.plan.manual.length, 1);

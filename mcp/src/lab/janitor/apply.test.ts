@@ -10,7 +10,7 @@ import { seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
 import { planChanges, type Finding, type LiveNode } from "./steps/plan.js";
 import { revertPlan, changeIds, type Applied } from "./steps/revert-plan.js";
 import { verdicts, reportSection, type LiveState } from "./steps/readback.js";
-import { pickBatch, renderBatch, byName } from "./steps/queue.js";
+import { pickBatch, renderBatch, byName, comparePath, placeTree, siblingsOf, PATH_SEP, MAX_SIBLINGS, type TreeNode } from "./steps/queue.js";
 
 // ── the plan: findings × the live graph → what gets written ────────────────
 
@@ -270,39 +270,91 @@ const MOVE = { id: "m1", kind: "move" as const, ref_id: "crime", name: "Crime", 
 
 // ── the queue: which nodes a run reviews ──────────────────────────────────
 
-describe("pickBatch", () => {
-  const names = ["Adrenal", "Blood", "Cardio", "Derm", "Endo", "Gyn", "Heme"];
-  const sorted = names.map((name, i) => ({ ref_id: `r${i}`, name }));
+describe("tree order", () => {
+  // Medicine
+  //   Cardio — Valve, Shared (also under Endocrine)
+  //   Cardio Surgery
+  //   Endocrine — Thyroid, Adrenal — Adrenal Type
+  // plus a cycle back to the start and a node whose only parent is outside the tree.
+  const tree: TreeNode[] = [
+    { ref_id: "m", name: "Medicine", parents: ["t", "outside"] },
+    { ref_id: "c", name: "Cardio", parents: ["m"] },
+    { ref_id: "cs", name: "Cardio Surgery", parents: ["m"] },
+    { ref_id: "e", name: "Endocrine", parents: ["m"] },
+    { ref_id: "v", name: "Valve", parents: ["c"] },
+    { ref_id: "s", name: "Shared", parents: ["e", "c"] },
+    { ref_id: "t", name: "Thyroid", parents: ["e"] },
+    { ref_id: "a", name: "Adrenal", parents: ["e"] },
+    { ref_id: "at", name: "Adrenal Type", parents: ["a"] },
+    { ref_id: "x", name: "Stray", parents: ["outside"] },
+  ];
+  const placed = placeTree(tree, "m");
+  const paths = (xs: { path: string[] }[]) => xs.map((x) => x.path.join(PATH_SEP));
+
+  it("a parent before its children, a subtree before the next sibling, siblings by name; a node with two parents at its first path", () => {
+    assert.deepEqual(paths(placed), [
+      "Medicine",
+      "Medicine › Cardio",
+      "Medicine › Cardio › Shared",
+      "Medicine › Cardio › Valve",
+      "Medicine › Cardio Surgery",
+      "Medicine › Endocrine",
+      "Medicine › Endocrine › Adrenal",
+      "Medicine › Endocrine › Adrenal › Adrenal Type",
+      "Medicine › Endocrine › Thyroid",
+    ]);
+    assert.deepEqual(
+      placed.map((n) => [n.name, n.parent?.name ?? null]),
+      [["Medicine", null], ["Cardio", "Medicine"], ["Shared", "Cardio"], ["Valve", "Cardio"], ["Cardio Surgery", "Medicine"], ["Endocrine", "Medicine"], ["Adrenal", "Endocrine"], ["Adrenal Type", "Adrenal"], ["Thyroid", "Endocrine"]],
+    );
+    assert.ok(!placed.some((n) => n.ref_id === "x"), "unreachable from the start: left out");
+    assert.deepEqual(placeTree(tree, "nope"), []);
+  });
+
+  it("compares paths by segment, not as joined strings: Cardio's subtree before Cardio Surgery", () => {
+    assert.ok(comparePath(["Medicine", "Cardio", "Valve"], ["Medicine", "Cardio Surgery"]) < 0);
+    assert.ok("Medicine › Cardio › Valve" > "Medicine › Cardio Surgery", "the joined strings sort the other way");
+    assert.ok(comparePath(["Medicine"], ["Medicine", "Cardio"]) < 0, "a prefix first");
+    assert.equal(comparePath(["Medicine", "Cardio"], ["Medicine", "Cardio"]), 0);
+  });
+
+  it("siblings are the parent's other children, by name — a second parent's children too; the start has none", () => {
+    assert.deepEqual(siblingsOf(tree, "e", "t"), ["Adrenal", "Shared"]);
+    assert.deepEqual(siblingsOf(tree, "c", "s"), ["Valve"]);
+    assert.deepEqual(siblingsOf(tree, undefined, "m"), []);
+  });
+
   const take = (cursor: string | undefined, size = 3) => {
-    const p = pickBatch(sorted, cursor, size);
+    const p = pickBatch(placed, cursor, size);
     return [p.batch.map((n) => n.name), p.next_cursor, p.from, p.wrapped];
   };
 
-  it("no cursor: the first names; then each run the next ones after the last name taken", () => {
-    assert.deepEqual(take(undefined), [["Adrenal", "Blood", "Cardio"], "Cardio", 0, false]);
-    assert.deepEqual(take("Cardio"), [["Derm", "Endo", "Gyn"], "Gyn", 3, false]);
+  it("no cursor: the start and the nodes after it; then each run the next ones after the last path taken", () => {
+    assert.deepEqual(take(undefined), [["Medicine", "Cardio", "Shared"], "Medicine › Cardio › Shared", 0, false]);
+    assert.deepEqual(take("Medicine › Cardio › Shared"), [["Valve", "Cardio Surgery", "Endocrine"], "Medicine › Endocrine", 3, false]);
   });
 
-  it("wraps past the last name, so every node comes round once per ceil(total / size) runs", () => {
-    assert.deepEqual(take("Gyn"), [["Heme", "Adrenal", "Blood"], "Blood", 6, true]);
+  it("wraps past the last node, so every node comes round once per ceil(total / size) runs", () => {
+    assert.deepEqual(take("Medicine › Endocrine › Adrenal › Adrenal Type"), [["Thyroid", "Medicine", "Cardio"], "Medicine › Cardio", 8, true]);
     const seen = new Map<string, number>();
     let cursor: string | undefined;
-    for (let run = 0; run < 7; run++) {
-      const p = pickBatch(sorted, cursor, 3);
+    for (let run = 0; run < 9; run++) {
+      const p = pickBatch(placed, cursor, 3);
       for (const n of p.batch) seen.set(n.name, (seen.get(n.name) ?? 0) + 1);
       cursor = p.next_cursor;
     }
-    // 7 runs × 3 = 21 = 3 full passes over 7 nodes: each exactly three times
-    assert.deepEqual([...seen.values()], [3, 3, 3, 3, 3, 3, 3]);
+    // 9 runs × 3 = 27 = 3 full passes over 9 nodes: each exactly three times
+    assert.deepEqual([...seen.values()], [3, 3, 3, 3, 3, 3, 3, 3, 3]);
   });
 
-  it("a cursor whose node is gone sorts where it was; one past every name starts over", () => {
-    assert.deepEqual(take("Cc"), [["Derm", "Endo", "Gyn"], "Gyn", 3, false]);
-    assert.deepEqual(take("Zebra"), [["Adrenal", "Blood", "Cardio"], "Cardio", 0, true]);
+  it("a cursor whose node is gone sorts where it was; one past every path starts over; a plain name (the old cursor) starts over", () => {
+    assert.deepEqual(take("Medicine › Cardio › Bypass"), [["Shared", "Valve", "Cardio Surgery"], "Medicine › Cardio Surgery", 2, false]);
+    assert.deepEqual(take("Zebra"), [["Medicine", "Cardio", "Shared"], "Medicine › Cardio › Shared", 0, true]);
+    assert.deepEqual(take("Hematology"), [["Medicine", "Cardio", "Shared"], "Medicine › Cardio › Shared", 0, false]);
   });
 
-  it("a batch no smaller than the subtree is all of it, once; an empty subtree is an empty batch", () => {
-    assert.deepEqual(take("Derm", 50)[0], ["Endo", "Gyn", "Heme", "Adrenal", "Blood", "Cardio", "Derm"]);
+  it("a batch no smaller than the tree is all of it, once; an empty tree is an empty batch", () => {
+    assert.deepEqual(take("Medicine › Endocrine", 50)[0], ["Adrenal", "Adrenal Type", "Thyroid", "Medicine", "Cardio", "Shared", "Valve", "Cardio Surgery", "Endocrine"]);
     assert.deepEqual(pickBatch([], "x", 3), { batch: [], from: 0, wrapped: false, next_cursor: "x" });
   });
 
@@ -311,11 +363,18 @@ describe("pickBatch", () => {
     assert.deepEqual([...xs].sort(byName).map((x) => x.ref_id), ["a", "z", "c", "b"]);
   });
 
-  it("renders each node's text verbatim, fenced longer than any fence inside it", () => {
-    const text = renderBatch([{ ref_id: "r1", name: "Law", description: "One line.", docs: "## Rules\n```\ncode\n````\nend" }]);
-    assert.match(text, /^### 1\. Law\nref_id: r1\n/);
+  it("renders where each node sits, then its text verbatim, fenced longer than any fence inside it", () => {
+    const text = renderBatch([
+      { ref_id: "r0", name: "Law", path: ["Law"], parent: null, siblings: [], description: "One line.", docs: "## Rules\n```\ncode\n````\nend" },
+      { ref_id: "r1", name: "Tort", path: ["Law", "Tort"], parent: { ref_id: "r0", name: "Law" }, siblings: ["Contract", "Crime"], description: null, docs: null },
+    ]);
+    assert.match(text, /^### 1\. Law\nref_id: r0\npath: Law\nparent: none — the start of the sweep\nsiblings: none\n/);
+    assert.ok(text.includes("### 2. Tort\nref_id: r1\npath: Law › Tort\nparent: Law (ref_id r0)\nsiblings: Contract, Crime\n"), text);
     assert.ok(text.includes("## Rules\n```\ncode\n````\nend"), "docs verbatim");
     assert.ok(text.includes("`````\n## Rules"), "a fence longer than the docs' own");
+    const many = Array.from({ length: MAX_SIBLINGS + 3 }, (_, i) => `S${String(i).padStart(3, "0")}`);
+    const big = renderBatch([{ ref_id: "r2", name: "Kid", path: ["Law", "Kid"], parent: { ref_id: "r0", name: "Law" }, siblings: many, description: "", docs: "" }]);
+    assert.ok(big.includes(`S${String(MAX_SIBLINGS - 1).padStart(3, "0")} … and 3 more\n`), "past the cap: how many more");
   });
 });
 
