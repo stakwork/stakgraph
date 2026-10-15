@@ -234,6 +234,54 @@ test("verify: a page that holds supports; one that does not is a result with the
   }
 });
 
+test("walkthrough: a frame per captioned step and the manifest naming them, told to the job's host; a failing step stops on a marked frame", opts, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lab-browser-walk-"));
+  const browser = BrowserService.fromEnv(env);
+  const told: Array<Record<string, unknown>> = [];
+  const sink = (runId: string) => ({ artifacts: fileArtifactsCapability(join(dir, "artifacts")), runId, job: { name: "j-walk", root: join(dir, "jobs", runId) }, notify: (u: Record<string, unknown>) => void told.push(u) });
+  try {
+    const ok = await browser.walkthrough(
+      "walk1",
+      {
+        url: HOME,
+        title: "Switch to annual",
+        caption: "The prices page",
+        steps: [{ do: "click", selector: "text=Switch", caption: "Switched" }, { do: "wait", text: "Annual" }],
+        expect: { text: ["Annual"] },
+      },
+      sink("walk1"),
+    );
+    assert.equal(ok.supports, true, ok.content);
+    assert.deepEqual(ok.frames.map((f) => [f.file, f.caption]), [["01.png", "The prices page"], ["02.png", "Switched"], ["03.png", "Home"]], "the wait has no caption: the end gets a frame of its own");
+    assert.equal(ok.path, "walkthroughs/001/walkthrough.json");
+    const m = JSON.parse(await readFile(join(dir, "jobs", "walk1", ok.path), "utf8"));
+    assert.equal(m.status, "done");
+    assert.equal(m.frames[1].step.selector, "text=Switch");
+    assert.ok(m.frames[2].ms >= m.frames[1].ms);
+    const png = await readFile(join(dir, "jobs", "walk1", "walkthroughs", "001", "02.png"));
+    assert.equal(png.subarray(1, 4).toString(), "PNG");
+    assert.deepEqual(told.map((u) => [u.kind, u.state, (u.detail as { frames: number }).frames]), [["walkthrough", "recording", 1], ["walkthrough", "recording", 2], ["walkthrough", "recording", 3], ["walkthrough", "done", 3]]);
+    assert.ok(ok.small.length > 0);
+
+    const bad = await browser.walkthrough(
+      "walk2",
+      { url: HOME, steps: [{ do: "click", selector: "text=Switch", caption: "Switched" }, { do: "click", selector: "text=Nope", timeoutMs: 1500, caption: "Never" }] },
+      sink("walk2"),
+    );
+    assert.equal(bad.supports, false);
+    assert.match(bad.failed.join(" "), /step 2 \(click text=Nope\)/);
+    assert.deepEqual(bad.frames.map((f) => f.caption), ["Home", "Switched", "Stopped at step 2"]);
+    const m2 = JSON.parse(await readFile(join(dir, "jobs", "walk2", bad.path), "utf8"));
+    assert.equal(m2.status, "stopped");
+    assert.match(m2.frames[2].failed, /step 2/);
+
+    await assert.rejects(browser.walkthrough("walk3", { url: HOME, steps: [{ do: "close" }] }, sink("walk3")), /unknown verb "close"/);
+  } finally {
+    for (const r of ["walk1", "walk2", "walk3"]) await browser.dispose(r).catch(() => {});
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("losing the per-call race closes the context; a later open starts a fresh one", opts, async () => {
   const browser = BrowserService.fromEnv(env);
   try {

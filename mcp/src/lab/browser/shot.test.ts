@@ -58,3 +58,18 @@ test("under a job the PNG goes to the job's directory and the link is the job fi
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test("under a job the sink tells the job's host about the shot — one image update with the job file's link; never on a plain run", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "lab-shot-notify-"));
+  try {
+    const artifacts = fileArtifactsCapability(join(dataDir, "artifacts"));
+    const told: unknown[] = [];
+    const png = await frame();
+    await saveShot({ artifacts, runId: "r1", job: { name: "j-1", root: jobRoot(dataDir, "j-1") }, notify: (u) => void told.push(u) }, png);
+    assert.deepEqual(told, [{ kind: "image", url: "/jobs/j-1/files/shots/001.png", state: "done", title: "shots/001.png" }]);
+    await saveShot({ artifacts, runId: "r1", notify: (u) => void told.push(u) }, png);
+    assert.equal(told.length, 1, "a run's artifact is not a job's file: nobody to tell");
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});

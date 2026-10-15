@@ -33,6 +33,13 @@ the instrument that fits what the work is:
   `noErrors`. It answers with a screenshot of where the page got to, which
   is what the person looks at. Run it yourself first, as a tool: you see
   what the check will see, then hang the same config on the claim.
+- A feature that is a flow — several views a person clicks through, where
+  the one view at the end does not show it works: `browser/walkthrough`,
+  the same config plus a `title` and a `caption` on each step a person
+  should see. It records a frame after each captioned step, and the person
+  scrubs through them beside the claim. Most changes are one page: use
+  `browser/verify` for those. Keep a walkthrough to a few frames; a longer
+  flow is several claims.
 - An endpoint: `http/verify` with the request and the answer expected —
   `status`, `contains`, `json` paths — at `{{ input.urls.pod }}/<path>`.
   A credential is named, never written: `secrets: { Authorization: "Bearer {NAME}" }`.
@@ -73,5 +80,8 @@ they looked at until the turn moves: verifying that turn again does not
 lift it. Treat it as the request: fix what they said, then verify; the
 new turn's verdict is what counts.
 
-A check's screenshot is a file in your directory (`shots/NNN.png`) and the
-verdict's locator: the person sees it beside the claim.
+A check's screenshot is a file in your directory (`shots/NNN.png`), a
+walkthrough a directory (`walkthroughs/NNN/`, its `walkthrough.json` the
+locator): the person sees it beside the claim. To hand either to the person
+as well, list it in `artifacts` by the path the tool gave you — the same
+path, never a copy — with `kind: "walkthrough"` for a recording.

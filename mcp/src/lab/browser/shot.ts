@@ -14,12 +14,17 @@
  * A shot under THAT run's artifacts would be unreachable there; a job file
  * is the job's, whichever run wrote it, and stays with the job's files.
  *
+ * On a job run whose host listens (strut's `jobCallback`), the sink also
+ * TELLS it: each shot is one `job.update` (`kind: "image"`) through
+ * `ctx.services.jobs.notify`, so a person watching sees it land
+ * (strut plans/live-artifacts.md §3).
+ *
  * `sharp` is a native module, imported lazily: a host where its binary is
  * missing fails the screenshot, not the boot.
  */
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ArtifactsCapability } from "strut";
+import { jobFileUrl, type ArtifactsCapability, type JobUpdateInput } from "strut";
 
 /** Where a shot is written: the run's artifacts, or the job's directory. */
 export interface ShotSink {
@@ -27,6 +32,9 @@ export interface ShotSink {
   runId: string;
   /** Set when the run carries a job: its id and its directory (strut's `jobRoot`). */
   job?: { name: string; root: string };
+  /** Set on a job run: strut's `jobs.notify` for this job and run — a
+   *  no-op unless the job's host registered a `jobCallback`. */
+  notify?: (update: JobUpdateInput) => void;
 }
 
 /** What `browser/screenshot` (and `capture`) return: the file, where it is,
@@ -78,13 +86,19 @@ export async function saveShot(sink: ShotSink, png: Buffer, name?: string): Prom
     await writeFile(join(shotsDir, file), png);
     path = `${SHOTS}/${file}`;
     dir = sink.job.root;
-    url = `/jobs/${encodeURIComponent(sink.job.name)}/files/${path}`;
+    url = jobFileUrl(sink.job.name, path);
+    sink.notify?.({ kind: "image", url, state: "done", title: path });
   } else {
     path = `${SHOTS}/${fileName(await countArtifactShots(sink), name)}`;
     await sink.artifacts.write(sink.runId, path, png);
     dir = await sink.artifacts.dir(sink.runId);
     url = `/artifacts/${sink.runId}/${path}`;
   }
+  return { path, dir, url, bytes: png.length, ...(await modelCopy(png)) };
+}
+
+/** A frame's size, and the 0.6× copy the model is shown. */
+export async function modelCopy(png: Buffer): Promise<{ width: number; height: number; small: Buffer }> {
   const { default: sharp } = await import("sharp");
   const meta = await sharp(png).metadata();
   const width = meta.width ?? 0;
@@ -93,5 +107,5 @@ export async function saveShot(sink: ShotSink, png: Buffer, name?: string): Prom
     .resize({ width: Math.max(1, Math.round(width * MODEL_SCALE)) })
     .png()
     .toBuffer();
-  return { path, dir, url, width, height, bytes: png.length, small };
+  return { width, height, small };
 }

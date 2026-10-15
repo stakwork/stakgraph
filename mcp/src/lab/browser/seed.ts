@@ -60,6 +60,9 @@ export const SEED_STEPS = [
   // the same list as a CHECK: expectations, and a page that fails them is
   // a result (a claim's check contract), not an error
   "verify",
+  // verify with a frame per captioned step: a recording a person scrubs
+  // through (strut plans/live-artifacts.md §4)
+  "walkthrough",
   // the storage state, for a human to paste under Secrets once
   "state",
 ] as const;

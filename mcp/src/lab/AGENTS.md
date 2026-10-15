@@ -474,13 +474,24 @@ process for the QA loop.
   a URL that does not open, a selector or script that does not parse. A
   `wait` step with no `timeoutMs` gives up after 30 s there, so a
   refutation never takes the run's whole budget. The verdict's wording is
-  `verdict.ts`, pure); `state` (the storage state, written to the
+  `verdict.ts`, pure); `walkthrough` (`verify` with a FRAME after each
+  step that has a `caption`, plus the opened page first and where the page
+  got to last — strut plans/live-artifacts.md §4: a new directory per
+  recording, `walkthroughs/NNN/` with `01.png`… and `walkthrough.json`
+  naming them in order, rewritten after every frame (`walkthrough.ts`,
+  `Recording`); the same verdict, with the manifest as the `locator`, so a
+  claim's evidence is the recording and strut's viewer / hive's card scrub
+  it; the model sees the last frame); `state` (the storage state, written to the
   run's artifacts for a human to paste under Secrets once). An element step
   takes exactly one of `ref` (from the last snapshot; any navigation resets
   them) or a Playwright `selector`. A step that fails throws (`verify`
   aside, above); as a tool that is an error result the model reads.
-- **Screenshots** go to `shots/NNN.png` under the run's artifacts and the
-  step returns `{ path, url, width, height, bytes }`. A 0.6× copy rides on
+- **Screenshots** go to `shots/NNN.png` under the run's artifacts (the
+  job's directory on a job run) and the step returns `{ path, url, width,
+  height, bytes }`. On a job run the sink also calls strut's
+  `ctx.services.jobs.notify` — a `job.update` per shot, per walkthrough
+  frame — so a host that registered a `jobCallback` sees them land (strut
+  plans/live-artifacts.md §3); without one it is a no-op. A 0.6× copy rides on
   the output as strut's `withMedia` marker, so an agent SEES the frame as a
   file part while templates, events and `run.json` carry only the JSON.
 - **Sessions.** Credentials never enter a prompt: `browser/open {
@@ -970,7 +981,7 @@ YAML only — every step is strut's) — and since 2026-10-13 the YAML is
 STRUT's (`strut/src/workflows/job.yaml`, seeded at boot by `createStrut`,
 strut plans/jobs.md §5): `job/seed.ts` ships only the lab's DELTA,
 `JOB_SEED`, passed as `createStrut({ job })` in `createLabStrut.ts` — the
-`pod/*` and `browser/verify` grants appended to `params.tools`, the "open
+`pod/*`, `browser/verify` and `browser/walkthrough` grants appended to `params.tools`, the "open
 the `Job` Concept first" paragraph appended to `params.system` — merged into strut's template
 before it is hashed and published, so the lab's `job` is one version of the
 same workflow every strut has. Never seed `job` from here as well: one
@@ -1026,7 +1037,8 @@ seeder per name, or the two leave whichever template changed last active.
   turn builds on earlier work instead of starting over; the job's CLAIMS
   (strut plans/job-claims.md) — `meta/list-claims`, `meta/add-claim`,
   `meta/add-check`, `meta/edit-check`, `meta/verify-job` and `http/verify`,
-  strut's — with the lab's page instrument `browser/verify` beside them,
+  strut's — with the lab's page instruments `browser/verify` and
+  `browser/walkthrough` (a frame per step, for a flow) beside them,
   and the `Verify` page under `Job` saying when to claim, which instrument
   fits which surface and that a turn which says "done" verifies first; and
   the `pod/*` tools (`pods/`, below) — a
