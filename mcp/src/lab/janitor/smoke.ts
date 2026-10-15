@@ -103,6 +103,7 @@ async function main() {
   const dataDir = mkdtempSync(join(tmpdir(), "janitor-smoke-"));
   const { workspace } = await graphWorkspaceFromEnv(process.env, { dataDir });
   const graph = workspace.graph!;
+  if (graph.kind !== "neo4j") throw new Error(`janitor smoke: needs a Neo4j graph, got ${graph.kind}`);
   const ns = graph.cfg.namespace;
   let strut: Awaited<ReturnType<typeof createStrut>> | undefined;
   try {

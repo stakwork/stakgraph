@@ -5,7 +5,10 @@ export default defineStep({
   type: "pod/run-tests",
   description:
     "Run the pod's configured test commands (one per app) and report per app whether they passed, with the tail of each output; the full logs go to the " +
-    "run's artifacts (`log_path`). Never fails on red tests — read `success`. `ran: 0` means no app on the pod has a test command. Waits (default 1 h).",
+    "run's artifacts (`log_path`). Never fails on red tests — read `success`. `ran: 0` means no app on the pod has a test command. Waits (default 1 h). " +
+    "Also a claim's check (strut plans/job-claims.md): when tests ran it answers `supports` (every app passed) and `content`; when none ran, or the pod " +
+    "could not run them, it gives no verdict, which the verify pass reads as cannot-run — never as the work failing. A check naming this pod's `control` " +
+    "and `sealed` holds while the job holds this pod: after claiming another, edit the check.",
   input: z.object({
     control: z.string().min(1).describe("The pod's control URL (pod/claim)"),
     sealed: z.string().min(1).describe("The pod's sealed password (pod/claim)"),
@@ -20,6 +23,8 @@ export default defineStep({
     apps: z.array(z.object({ name: z.string(), ok: z.boolean(), error: z.string().nullable(), stdout_tail: z.string(), stderr_tail: z.string(), log_path: z.string().nullable() })),
     request_id: z.string(),
     error: z.string().nullable(),
+    supports: z.boolean().optional().describe("as a claim's check: every app's tests passed — present only when tests ran"),
+    content: z.string().optional().describe("as a claim's check: how many apps passed, and which failed"),
   }),
   async run(cfg, ctx: PodCtx) {
     const first = await submit(ctx, cfg.control, cfg.sealed, "/test", "PUT");
@@ -42,6 +47,12 @@ export default defineStep({
       apps.push({ name, ok, error: ok ? null : String(r?.stderr ?? "no output").split("\n")[0] ?? null, stdout_tail: tail(r?.stdout), stderr_tail: tail(r?.stderr), log_path });
     }
     const ran = apps.length;
-    return { success: ran > 0 && apps.every((a) => a.ok), ran, apps, request_id: first.requestId, error: ran === 0 ? "no app on this pod has a test command — nothing ran" : null };
+    const success = ran > 0 && apps.every((a) => a.ok);
+    const out = { success, ran, apps, request_id: first.requestId, error: ran === 0 ? "no app on this pod has a test command — nothing ran" : null };
+    if (ran === 0) return out;
+    // The check contract: a verdict only about tests that ran.
+    const failing = apps.filter((a) => !a.ok);
+    const content = `${ran - failing.length} of ${ran} app${ran === 1 ? "'s" : "s'"} tests passed${failing.length ? `; failing: ${failing.map((a) => `${a.name} (${a.error ?? "failed"})`).join("; ")}` : ""}`;
+    return { ...out, supports: success, content: capText(content, 600) };
   },
 });

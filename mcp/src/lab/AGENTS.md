@@ -461,11 +461,23 @@ process for the QA loop.
   (console and network errors since the last call); the actions `click`,
   `fill`, `type`, `press`, `select`, `hover`, `scroll`, `wait`;
   `screenshot`; `capture` (open → a declared list of actions → settle →
-  screenshot, in one step); `state` (the storage state, written to the
+  screenshot, in one step); `verify` (the same list as a CHECK — strut
+  plans/job-claims.md §4: then `expect` — `text` visible, the `url` the
+  page ended at, `selector`s present, `noErrors`, `evaluate` truthy — and
+  the answer is a claim's check contract `{ supports, content, locator:
+  { path, url }, failed, … }`. The page failing is a RESULT: a document
+  that answered HTTP ≥ 400, a step whose target matched nothing (the list
+  stops there; the service's `drive` says which), an expectation that does
+  not hold → `supports: false`, each named in `failed`, the shot taken
+  where the page got to; only the instrument failing throws — no browser,
+  a URL that does not open, a selector or script that does not parse. A
+  `wait` step with no `timeoutMs` gives up after 30 s there, so a
+  refutation never takes the run's whole budget. The verdict's wording is
+  `verdict.ts`, pure); `state` (the storage state, written to the
   run's artifacts for a human to paste under Secrets once). An element step
   takes exactly one of `ref` (from the last snapshot; any navigation resets
-  them) or a Playwright `selector`. A step that fails throws; as a tool
-  that is an error result the model reads.
+  them) or a Playwright `selector`. A step that fails throws (`verify`
+  aside, above); as a tool that is an error result the model reads.
 - **Screenshots** go to `shots/NNN.png` under the run's artifacts and the
   step returns `{ path, url, width, height, bytes }`. A 0.6× copy rides on
   the output as strut's `withMedia` marker, so an agent SEES the frame as a
@@ -518,7 +530,10 @@ released the pod at the end.
 
 - **The pod outlives a run.** `pod/claim` on a run with a job registers a
   HOLD on the job (strut `ctx.services.jobs`, plans/jobs.md §6) naming
-  `pod/release` as the way to let it go; strut runs it when the job is
+  `pod/release` as the way to let it go, with the pod's `frontend` as the
+  hold's `url` — strut folds it into the job's `urls.pod`, so a claim's
+  check says `{{ input.urls.pod }}/settings` and survives the pod being
+  claimed again (strut plans/job-claims.md §3); strut runs it when the job is
   deleted (`DELETE /lab/jobs/:id`) or idle past `STRUT_WORKDIR_TTL_DAYS`.
   So the agent in the pod keeps its session — its memory lives on the pod's
   disk — and the dev server stays up between turns for the person to watch
@@ -547,7 +562,7 @@ released the pod at the end.
   change, `stay_on_branch: true` for a REVISION — the same branch, and
   `pr_url` is the PR it already has, which is what a follow-up turn needs;
   nothing to commit still pushes what is unpushed);
-  `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`). The agent's
+  `run-tests` (the pod's own test commands, never fails on red; not named `test` — the graph keys a step by its name with separators stripped, so it would collide with a workspace's custom `pod_test`; when tests ran it also answers a claim's check contract, `supports` + `content`, and gives no verdict when none ran — a cannot-run, never a refutation). The agent's
   `session` defaults to the run's job, so on a job the goose thread
   continues across turns and the model never picks the id; its model calls
   go through this run's LLM gateway grant (`ctx.services.llmAuth`) — never
@@ -924,8 +939,8 @@ YAML only — every step is strut's) — and since 2026-10-13 the YAML is
 STRUT's (`strut/src/workflows/job.yaml`, seeded at boot by `createStrut`,
 strut plans/jobs.md §5): `job/seed.ts` ships only the lab's DELTA,
 `JOB_SEED`, passed as `createStrut({ job })` in `createLabStrut.ts` — the
-`pod/*` grants appended to `params.tools`, the "open the `Job` Concept
-first" paragraph appended to `params.system` — merged into strut's template
+`pod/*` and `browser/verify` grants appended to `params.tools`, the "open
+the `Job` Concept first" paragraph appended to `params.system` — merged into strut's template
 before it is hashed and published, so the lab's `job` is one version of the
 same workflow every strut has. Never seed `job` from here as well: one
 seeder per name, or the two leave whichever template changed last active.
@@ -977,8 +992,13 @@ seeder per name, or the two leave whichever template changed last active.
   jobs by words: a title, or what one delivered), `job/get` (what one
   produced, its files, its threads), `job/read` (one of its files; an image
   the agent then sees) — strut's job index (plans/job-index.md), so a
-  turn builds on earlier work instead of starting over; and the `pod/*`
-  tools (`pods/`, below) — a
+  turn builds on earlier work instead of starting over; the job's CLAIMS
+  (strut plans/job-claims.md) — `meta/list-claims`, `meta/add-claim`,
+  `meta/add-check`, `meta/edit-check`, `meta/verify-job` and `http/verify`,
+  strut's — with the lab's page instrument `browser/verify` beside them,
+  and the `Verify` page under `Job` saying when to claim, which instrument
+  fits which surface and that a turn which says "done" verifies first; and
+  the `pod/*` tools (`pods/`, below) — a
   hive sandbox the job HOLDS between turns. WHICH workflow or way for which
   kind of work is never in the prompt: the agent opens the `Job` Concept
   (`job/concepts`, `JOB_CONCEPTS`) first and follows the kind's page —
@@ -996,9 +1016,11 @@ seeder per name, or the two leave whichever template changed last active.
   never a browser it installs with `bash` — the repo2graph image ships
   Playwright's browsers for gitsee, so `npx playwright` there just works,
   and Sonnet 5.5 reached for it (2026-10-08); the `code-change-pr` coder's
-  prompt says the same. Held back until
+  prompt says the same (`browser/verify`, granted, is a check — it opens
+  a URL and answers whether the expectations held — not a way to look
+  around). Held back until
   running works: publishing / authoring (`meta/publish-workflow`,
-  `meta/create-step`), the claim tools, `browser/*`. A job learns to do
+  `meta/create-step`), the rest of `browser/*`. A job learns to do
   something new by a new VERSION of this workflow on the swarm — a line in
   `params.tools`, a paragraph in `params.system` — never by a hive PR.
 - Smoke (offline — seeds, discovers, static-validates against the real
@@ -1089,7 +1111,9 @@ Workflow Builder            what this workspace builds       (builder/concepts)
 Job                         what a job agent can do here     (job/concepts)
 ├─ Code Change              a kind: which workflow, how      (code/concepts)
 │  └─ <a way | a repo>      a sandbox workflow / repo rules  (the workspace's own)
-└─ Plan Mode                a way of working: plan.html first (job/concepts)
+├─ Explore                  a way of working: a note kept    (job/concepts)
+├─ Plan Mode                a way of working: plan.html first (job/concepts)
+└─ Verify                   claims + checks, verify before done (job/concepts)
 ```
 
 The `job` agent reads the SECOND tree, every turn, as a tool result (never

@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { WorkspaceManager, buildRegistry, type GraphBackend, closeGraphBackends, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
+import { WorkspaceManager, buildRegistry, type Neo4jBackend, closeGraphBackends, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { parseConceptFile, planConceptSeed, retireConcept, seedConcepts, stampOf } from "../concept-seed.js";
 import { CODE_CONCEPTS } from "../code/seed.js";
@@ -90,9 +90,19 @@ describe("parseConceptFile", () => {
     assert.equal(ex.parent, "Job");
     assert.ok(ex.docs!.startsWith(ex.description!));
     for (const needle of [/meta\/run-workflow/, /strut\/run-workflow/, /"explore"/, /notes\/<topic>\.md/, /@<slug>/, /kind: "markdown"/, /`url` job\/get gave it/]) assert.match(ex.docs!, needle);
+    // Verify: a way of working under Job — claims about the job, an instrument per surface, verify before done
+    // (strut plans/job-claims.md); a person's refutation stands on the turn they looked at.
+    const vf = await read(JOB_CONCEPTS, "Verify.md");
+    assert.equal(vf.name, "Verify");
+    assert.equal(vf.parent, "Job");
+    assert.ok(vf.docs!.startsWith(vf.description!));
+    for (const needle of [/meta\/add-claim/, /kind: "job"/, /meta\/add-check/, /browser\/verify/, /\{\{ input\.urls\.pod \}\}/, /http\/verify/, /cwd: "\{\{ input\.dir \}\}"/, /pod\/run-tests/, /external check/, /meta\/verify-job/, /`refuted`/, /`claims` on `job\/get`/, /\[claim-event\]/, /does not\s+lift it/]) {
+      assert.match(vf.docs!, needle);
+    }
     // The entry page knows the workspaces and the peer step, still no kind.
     for (const needle of [/strut\/run-workflow/, /@<slug>/, /own agent/]) assert.match(job.docs!, needle);
-    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Plan Mode.md"]);
+    assert.doesNotMatch(job.docs!, /\bverify\b/i, "the entry page knows no kind by name");
+    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Plan Mode.md", "Verify.md"]);
 
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
@@ -162,7 +172,7 @@ describe("retireConcept (jarvis)", () => {
   let reply: { status: number; body: unknown } = { status: 200, body: {} };
   let server: Server;
   // The jarvis path never touches bolt.
-  const graph = { cfg: { namespace: "ns1" }, bolt: { run: () => assert.fail("bolt used") } } as unknown as GraphBackend;
+  const graph = { kind: "neo4j", cfg: { namespace: "ns1" }, bolt: { run: () => assert.fail("bolt used") } } as unknown as Neo4jBackend;
   before(async () => {
     server = createServer((req: IncomingMessage, res) => {
       seen.push({ method: req.method, url: req.url, token: req.headers["x-api-token"], admin: req.headers["x-is-admin"] });
@@ -732,7 +742,7 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
 // A deployed graph has `Code Change` under `Workflow Builder` (the tree before
 // `Job`): the next boot moves it under `Job` and drops the old edge.
 describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }, () => {
-  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change", "Explore"];
+  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change", "Explore", "Verify"];
   let root: string;
   let ws: import("strut").WorkspaceStore;
   const edges = async (parent: string) =>
@@ -762,7 +772,7 @@ describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }
     await rm(root, { recursive: true, force: true });
   });
 
-  it("Code Change moves from Workflow Builder to Job; Plan Mode joins it; Janitor stays", async () => {
+  it("Code Change moves from Workflow Builder to Job; Plan Mode, Explore and Verify join it; Janitor stays", async () => {
     const old = join(root, "old-code");
     const { mkdir } = await import("node:fs/promises");
     await mkdir(old);
@@ -773,7 +783,7 @@ describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }
 
     await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]);
     assert.deepEqual(await edges("Workflow Builder"), ["Janitor"]);
-    assert.deepEqual(await edges("Job"), ["Code Change", "Explore", "Plan Mode"]);
+    assert.deepEqual(await edges("Job"), ["Code Change", "Explore", "Plan Mode", "Verify"]);
   });
 });
 
