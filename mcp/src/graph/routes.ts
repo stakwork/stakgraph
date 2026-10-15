@@ -377,7 +377,7 @@ export async function get_learnings_og(req: Request, res: Response) {
 }
 
 export async function fetch_node_with_related(req: Request, res: Response) {
-  // curl "http://localhost:3355/node?ref_id=bcc79e17-fae9-41d6-8932-40ea60e34b54"
+  // curl "http://localhost:3355/subgraph?ref_id=bcc79e17-fae9-41d6-8932-40ea60e34b54&depth=3&node_type=Function,Endpoint&edge_type=CALLS&limit=50"
   try {
     const ref_id = req.query.ref_id as string;
     if (!ref_id) {
@@ -385,7 +385,20 @@ export async function fetch_node_with_related(req: Request, res: Response) {
       return;
     }
 
-    const result = await db.get_node_with_related(ref_id);
+    const depth = parseInt(req.query.depth as string) || 100;
+    const node_type = parseNodeTypes(req.query);
+    const edge_type: EdgeType[] = req.query.edge_type
+      ? ((req.query.edge_type as string).split(",").map((s) => s.trim()) as EdgeType[])
+      : [];
+    const limit = parseLimit(req.query) ?? 25;
+
+    const result = await db.get_node_with_related(
+      ref_id,
+      depth,
+      node_type,
+      edge_type,
+      limit,
+    );
 
     res.json(result);
   } catch (error) {
