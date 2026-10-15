@@ -91,15 +91,17 @@ describe("parseConceptFile", () => {
     assert.equal(ex.parent, "Job");
     assert.ok(ex.docs!.startsWith(ex.description!));
     for (const needle of [/meta\/run-workflow/, /strut\/run-workflow/, /"explore"/, /notes\/<topic>\.md/, /@<slug>/, /kind: "markdown"/, /`url` job\/get gave it/]) assert.match(ex.docs!, needle);
-    // Verify: a way of working under Job — claims about the job, an instrument per surface, verify before done
-    // (strut plans/job-claims.md); a person's refutation stands on the turn they looked at.
+    // Verify: a way of working under Job — one claim per change, a screenshot with a pod and a person's look
+    // without, never a script over the agent's own work, verify before done (strut plans/job-claims.md);
+    // a person's rejection stands on the turn they looked at.
     const vf = await read(JOB_CONCEPTS, "Verify.md");
     assert.equal(vf.name, "Verify");
     assert.equal(vf.parent, "Job");
     assert.ok(vf.docs!.startsWith(vf.description!));
-    for (const needle of [/meta\/add-claim/, /kind: "job"/, /meta\/add-check/, /browser\/verify/, /\{\{ input\.urls\.pod \}\}/, /http\/verify/, /cwd: "\{\{ input\.dir \}\}"/, /pod\/run-tests/, /external check/, /meta\/verify-job/, /`refuted`/, /`claims` on `job\/get`/, /\[claim-event\]/, /does not\s+lift it/]) {
+    for (const needle of [/meta\/add-claim/, /kind: "job"/, /meta\/add-check/, /ONE claim for a change/, /browser\/verify/, /\{\{ input\.urls\.pod \}\}/, /screenshot/, /external check/, /no\s+`exec`, no `http\/verify`/, /meta\/verify-job/, /`refuted`/, /`claims` on `job\/get`/, /\[claim-event\]/, /does not\s+lift it/]) {
       assert.match(vf.docs!, needle);
     }
+    for (const offered of [/cwd: "\{\{ input\.dir \}\}"/, /pod\/run-tests/]) assert.doesNotMatch(vf.docs!, offered, "a script or a test run is not a claim's check");
     // The entry page knows the workspaces and the peer step, still no kind.
     for (const needle of [/strut\/run-workflow/, /@<slug>/, /own agent/]) assert.match(job.docs!, needle);
     assert.doesNotMatch(job.docs!, /\bverify\b/i, "the entry page knows no kind by name");
