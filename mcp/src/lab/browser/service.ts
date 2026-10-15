@@ -28,7 +28,9 @@
  * Every `browser/*` step is a thin wrapper over one verb here, because a
  * seeded step is self-contained source that can import only `strut`: the
  * Playwright calls, the artifact write and the downscale live in-code, once.
- * `capture` runs its declared list through the same verbs.
+ * `capture` runs its declared list through the same verbs (`drive`), and so
+ * does `verify`, the check: the same list, then expectations, and a page
+ * that fails them is a result, not an error (verdict.ts).
  *
  * `playwright-core` is imported lazily, on the first connection, so a lab
  * that never opens a browser never loads it.
@@ -38,6 +40,7 @@ import type { ArtifactsCapability } from "strut";
 import { settle as settlePage, sleep } from "./settle.js";
 import { saveShot, type Shot, type ShotSink } from "./shot.js";
 import { parseDenyList, denyReason, type DenyRule } from "./deny.js";
+import { judgeVerify, urlMatches, type Expectation, type StoppedAt, type Verdict } from "./verdict.js";
 
 export interface Observations {
   console: string[];
@@ -87,9 +90,32 @@ export interface Navigated {
 
 export type CaptureStep = { do: string } & Record<string, unknown>;
 
+/** What `verify` tests once the steps ran — each is one expectation. */
+export interface VerifyExpect {
+  /** Each visible on the page (case-insensitive, a substring of an element's text). */
+  text?: string[];
+  /** Where the page ended up: a glob (`**` any, `*` within a segment), else a substring. */
+  url?: string;
+  /** Each matches at least one element. */
+  selector?: string[];
+  /** No console error, page error, failed request or HTTP error since the page opened. */
+  noErrors?: boolean;
+  /** JavaScript in the page; holds when the result is truthy. */
+  evaluate?: string;
+}
+
+/** `verify`'s answer: the shot where the page got to, the verdict, and what was seen. */
+export type Verified = Shot & Verdict & { small: Buffer; errors: string[]; pageUrl: string; title: string };
+
 /** The verbs a `capture` list may name — everything that drives the page
  *  the run already has; `open`/`close`/`screenshot` are the compound's own. */
 export const CAPTURE_VERBS = ["goto", "click", "fill", "type", "press", "select", "hover", "scroll", "wait", "text", "evaluate", "back"] as const;
+
+/** A `wait` step in a `verify` list with no `timeoutMs` of its own gives up
+ *  after this long, not the run's whole budget (what `capture` allows): a
+ *  page that never shows the text is a refutation, and it should not take
+ *  ten minutes to say so. */
+export const VERIFY_WAIT_MS = 30_000;
 
 export const TEXT_CAP = 50_000;
 export const TREE_CAP = 100_000;
@@ -510,6 +536,23 @@ export class BrowserService {
     return { ok: true };
   }
 
+  /** Run a declared list through the verbs, in order, and stop at the
+   *  first step that fails: which one, and why. The page stays where it got
+   *  to. An unknown verb is refused before anything runs. */
+  async drive(runId: string, steps: CaptureStep[] = [], label = "capture"): Promise<{ stopped?: StoppedAt }> {
+    const bad = steps.findIndex((s) => !(CAPTURE_VERBS as readonly string[]).includes(s.do));
+    if (bad >= 0) throw new Error(`${label}: step ${bad + 1}: unknown verb "${steps[bad]!.do}" (one of ${CAPTURE_VERBS.join(", ")})`);
+    for (const [i, step] of steps.entries()) {
+      const { do: verb, ...args } = step;
+      try {
+        await (this[verb as (typeof CAPTURE_VERBS)[number]] as (runId: string, args: unknown) => Promise<unknown>)(runId, args);
+      } catch (err) {
+        return { stopped: { step: i + 1, verb, args, message: message(err) } };
+      }
+    }
+    return {};
+  }
+
   /** The declared compound: open → steps → settle → shoot → drain. A
    *  step that fails fails the whole capture, with the step named. */
   async capture(
@@ -518,21 +561,42 @@ export class BrowserService {
     sink: ShotSink,
   ): Promise<Shot & { small: Buffer; errors: string[]; pageUrl: string; title: string }> {
     await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
-    for (const [i, step] of (input.steps ?? []).entries()) {
-      const { do: verb, ...args } = step;
-      if (!(CAPTURE_VERBS as readonly string[]).includes(verb)) {
-        throw new Error(`capture: step ${i + 1}: unknown verb "${verb}" (one of ${CAPTURE_VERBS.join(", ")})`);
-      }
-      try {
-        await (this[verb as (typeof CAPTURE_VERBS)[number]] as (runId: string, args: unknown) => Promise<unknown>)(runId, args);
-      } catch (err) {
-        throw new Error(`capture: step ${i + 1} (${verb} ${JSON.stringify(args)}) failed: ${message(err)}`);
-      }
-    }
+    const { stopped } = await this.drive(runId, input.steps);
+    if (stopped) throw new Error(`capture: step ${stopped.step} (${stopped.verb} ${JSON.stringify(stopped.args)}) failed: ${stopped.message}`);
     const page = this.live(runId).page;
     await settlePage(page, input.wait);
     const shot = await this.screenshot(runId, { fullPage: input.fullPage, timeoutMs: input.timeoutMs }, sink);
     return { ...shot, errors: flattenObs(this.observe(runId)), pageUrl: page.url(), title: await page.title() };
+  }
+
+  /**
+   * The check (strut plans/job-claims.md §4): open → steps → settle → shoot
+   * WHERE THE PAGE GOT TO → drain → test `expect`. The page failing is a
+   * result — a document that answered HTTP ≥ 400, a step whose target
+   * matched nothing, an expectation that does not hold, an error with
+   * `noErrors` — and comes back `supports: false` with each named (verdict.ts).
+   * Only the instrument failing throws, which the verify pass reads as
+   * cannot-run and writes nothing: the browser not starting, the URL not
+   * opening at all (DNS, refused, its own timeout, the denylist), the page
+   * lost on the way (the per-call race closed it, the budget ran out), an
+   * expectation that cannot be evaluated (a selector or a script that does
+   * not parse).
+   */
+  async verify(
+    runId: string,
+    input: { url: string; steps?: CaptureStep[]; wait?: number; expect?: VerifyExpect; viewport?: Viewport; timeoutMs?: number },
+    sink: ShotSink,
+  ): Promise<Verified> {
+    const { status } = await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
+    const steps = (input.steps ?? []).map((s) => (s.do === "wait" && s["timeoutMs"] === undefined ? { ...s, timeoutMs: VERIFY_WAIT_MS } : s));
+    const { stopped } = await this.drive(runId, steps, "verify");
+    const page = this.live(runId).page;
+    await settlePage(page, input.wait);
+    const shot = await this.screenshot(runId, { timeoutMs: input.timeoutMs }, sink);
+    const errors = flattenObs(this.observe(runId));
+    const expectations = await this.call(runId, "verify", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
+    const pageUrl = page.url();
+    return { ...shot, ...judgeVerify({ status, stopped, pageUrl, expectations }), errors, pageUrl, title: await page.title() };
   }
 
   // ── internals ────────────────────────────────────────────────────────────
@@ -627,6 +691,46 @@ export class BrowserService {
     run!.session = undefined;
     await closeQuietly(s);
   }
+}
+
+/** Each expectation against the page as it is. A missing text or element
+ *  is a result; a selector or script that cannot be evaluated is the
+ *  check's own fault, and throws. */
+async function expectationsOn(page: Page, expect: VerifyExpect, errors: string[]): Promise<Expectation[]> {
+  const out: Expectation[] = [];
+  for (const t of expect.text ?? []) {
+    const n = await page.getByText(t).filter({ visible: true }).count();
+    out.push({ label: `text ${JSON.stringify(t)}`, holds: n > 0, ...(n ? {} : { detail: "not visible" }) });
+  }
+  if (expect.url !== undefined) {
+    const at = page.url();
+    const holds = urlMatches(at, expect.url);
+    out.push({ label: `url ${expect.url}`, holds, ...(holds ? {} : { detail: `the page is at ${at}` }) });
+  }
+  for (const sel of expect.selector ?? []) {
+    let n: number;
+    try {
+      n = await page.locator(sel).count();
+    } catch (err) {
+      throw new Error(`selector ${JSON.stringify(sel)} cannot be evaluated: ${message(err)}`);
+    }
+    out.push({ label: `selector ${sel}`, holds: n > 0, ...(n ? {} : { detail: "matches nothing" }) });
+  }
+  if (expect.noErrors) {
+    const holds = errors.length === 0;
+    out.push({ label: "no errors", holds, ...(holds ? {} : { detail: `${errors.length} on the page, first ${errors[0]}` }) });
+  }
+  if (expect.evaluate !== undefined) {
+    try {
+      const v: unknown = await page.evaluate(expect.evaluate);
+      out.push({ label: "evaluate", holds: Boolean(v), ...(v ? {} : { detail: `${JSON.stringify(v ?? null)} is not truthy` }) });
+    } catch (err) {
+      const m = message(err);
+      if (/SyntaxError/.test(m)) throw new Error(`evaluate does not parse: ${m}`);
+      out.push({ label: "evaluate", holds: false, detail: `threw ${m.split("\n")[0]}` });
+    }
+  }
+  return out;
 }
 
 export function flattenObs(o: Observations): string[] {

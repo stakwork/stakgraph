@@ -23,15 +23,19 @@ import type { ConceptSet } from "../concept-seed.js";
  *
  *  - `tools`: the `pod/*` steps (pods/seed.ts) — hive sandboxes, for a
  *    change that must run to be judged; a claimed pod is a hold on the job,
- *    released with it. Strut's own list (graph reads, the meta/* read + run
- *    tools, strut/run-workflow, the job/* reads) is already in the YAML.
+ *    released with it, its frontend the hold's url — and `browser/verify`
+ *    (browser/seed.ts), the page instrument a claim's check names (strut
+ *    plans/job-claims.md §4), a tool too, so the agent sees what the check
+ *    will see. Strut's own list (graph reads, the meta/* read + run tools,
+ *    the claim tools + meta/verify-job + http/verify, strut/run-workflow,
+ *    the job/* reads) is already in the YAML.
  *  - `system`: open the `Job` Concept first (JOB_CONCEPTS, below) — WHICH
  *    workflow or way does which kind of work is graph data, read every turn,
  *    never prompt text: `Code Change` names `code-change-pr` and its child
  *    `Pod` says when a sandbox is warranted, `Plan Mode` says how to plan.
  */
 export const JOB_SEED: JobSeedOptions = {
-  tools: ["pod/*"],
+  tools: ["pod/*", "browser/verify"],
   system: `Before you act on a message, open the \`Job\` Concept: graph/graph-get
 with node_type "Concept", name "Job", children "PARENT_OF". Its
 children are the kinds of work this workspace has a way to do, each a
@@ -43,5 +47,5 @@ is yours — a plan, a page, notes — as files in your directory.`,
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** The `Job` page the job agent opens every turn, and under it `Plan Mode`; `Code Change` (CODE_CONCEPTS) is a child too. */
+/** The `Job` page the job agent opens every turn, and under it `Plan Mode`, `Explore` and `Verify`; `Code Change` (CODE_CONCEPTS) is a child too. */
 export const JOB_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/job/concepts/" };

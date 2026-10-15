@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { WorkspaceManager, buildRegistry, createRegistry, createStrut, defineStep, type Strut } from "strut";
 import { JOB_SEED } from "./seed.js";
+import { seedBrowserSteps } from "../browser/seed.js";
 
 const JOB = "job";
 const STEPS = ["job/dir", "git/checkout", "agent", "pack"];
@@ -40,10 +41,13 @@ const STEPS = ["job/dir", "git/checkout", "agent", "pack"];
 // web_search, web_fetch — which a filter must never narrow): strut's own
 // list — graph reads for the Concept tree, the meta/* read + run tools (a
 // turn runs another workflow — `code-change-pr`, `explore` — as a child run
-// under the job), strut/run-workflow (the same on a peer: another
-// workspace's strut, by its slug), the job/* reads (earlier jobs: strut
-// plans/job-index.md §5) — then the lab's delta, the pod/* tools (a hive
-// sandbox the job holds between turns), appended by JOB_SEED.
+// under the job), the job's claims (strut plans/job-claims.md: author them,
+// verify the job, http/verify for an endpoint), strut/run-workflow (the
+// same on a peer: another workspace's strut, by its slug), the job/* reads
+// (earlier jobs: strut plans/job-index.md §5) — then the lab's delta,
+// appended by JOB_SEED: the pod/* tools (a hive sandbox the job holds
+// between turns) and browser/verify (the page instrument a claim's check
+// names).
 const TOOLS: string[] = [
   "graph/graph-search",
   "graph/graph-get",
@@ -53,11 +57,18 @@ const TOOLS: string[] = [
   "meta/get-workflow",
   "meta/run-workflow",
   "meta/get-run",
+  "meta/list-claims",
+  "meta/add-claim",
+  "meta/add-check",
+  "meta/edit-check",
+  "meta/verify-job",
+  "http/verify",
   "strut/run-workflow",
   "job/list",
   "job/get",
   "job/read",
   "pod/*",
+  "browser/verify",
 ];
 
 /** What the fake agent was handed each turn — the resolved step config. */
@@ -132,6 +143,9 @@ async function main() {
   try {
     // ── 1. boot (strut seeds `job` with the lab's delta) + discover ──────
     const workspace = new WorkspaceManager(dir);
+    // The lab's own grant is a seeded step: publish it first, as
+    // createLabStrut does, so the registry the job runs with has it.
+    await seedBrowserSteps(workspace);
     const real = await createStrut({ workspace, job: JOB_SEED, serveUi: false, enableChat: false, scheduler: false });
     const { registry } = await buildRegistry(await workspace.materializeCustomSteps());
     for (const t of STEPS) assert.ok(registry[t], `registry missing ${t}`);

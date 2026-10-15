@@ -35,8 +35,8 @@ what one produced and the thread it ran on, `job/read` opens one of its
 files. When a request builds on earlier work, look there before starting
 over.
 
-Seeing what a page shows is a workflow too. You have no browser of your
-own: to look at a site or a running app, run `browser-explore` —
+Seeing what a page shows is a workflow too. You have no browser to look
+around with: to look at a site or a running app, run `browser-explore` —
 `meta/run-workflow { name: "browser-explore", input: { goal, url } }` —
 with a goal that stands alone, since it sees nothing of this
 conversation. It drives the deployment's browser, looks for itself and

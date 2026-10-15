@@ -68,6 +68,7 @@ async function main() {
   const dir = mkdtempSync(join(tmpdir(), "janitor-builder-"));
   const strut = await createLabStrut({ workspacePath: dir, serveUi: false, services: {} as LabServices });
   const graph = strut.workspace.graph!;
+  if (graph.kind !== "neo4j") throw new Error(`builder smoke: needs a Neo4j graph, got ${graph.kind}`);
   const ns = graph.cfg.namespace;
   const before = new Set((await graph.bolt.run(`MATCH (:Concept {name: 'Janitor'})-[:PARENT_OF]->(c:Concept) RETURN c.ref_id AS r`)).map((r) => String(r.r)));
   // Whatever the builder publishes is removed at the end, so the next run starts from the seeded lab only.
