@@ -56,9 +56,11 @@ export const SEED_STEPS = [
   "claim",
   "release",
   // the pool's config: read it beside a pod's own files, diffed / change it
-  // in hive and wait for the pool to rebuild (strut plans/pod-config.md)
+  // in hive and wait for the pool to rebuild (strut plans/pod-config.md) /
+  // run it in a pod already claimed, no rebuild (strut plans/onboarding.md)
   "config",
   "config-set",
+  "config-apply",
   // the repositories: reset to a branch
   "latest",
   // the agent in the pod: start now and look later, or wait
