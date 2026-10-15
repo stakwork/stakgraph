@@ -60,7 +60,7 @@ function fakeServices(concepts: unknown[] = []) {
     llm: {},
     prContent: async () => "",
     commitContent: async () => "",
-    codeNodes: { withoutDescription: async () => [], writeDescriptions: async () => {} },
+    codeNodes: { withoutDescription: async () => [], contained: async () => ({}), writeDescriptions: async () => {} },
   };
   return { services, seen };
 }

@@ -1302,17 +1302,25 @@ class Db {
     }
   }
 
+  /** Nodes with one of `labels`, a body, and no `field` (one of
+   *  Q.DESCRIPTION_FIELDS) — by default the code nodes without a
+   *  description, what /repo/describe reads. */
   async get_nodes_without_description(
     limit: number,
     repo_paths: string[] | null,
     file_paths: string[],
+    labels: string[] = Q.DESCRIBED_LABELS,
+    field: string = "description",
   ): Promise<Neo4jNode[]> {
+    const prop = Q.descriptionField(field);
+    const query = Q.nodesWithoutDescriptionQuery(labels);
     const session = this.resilientSession();
     try {
-      const result = await session.run(Q.GET_NODES_WITHOUT_DESCRIPTION_QUERY, {
+      const result = await session.run(query, {
         limit: neo4j.int(limit),
         repo_paths: repo_paths || [],
         file_paths,
+        field: prop,
       });
       return result.records.map((record) => ({
         properties: record.get("properties"),
@@ -1388,12 +1396,45 @@ class Db {
     }
   }
 
+  /** Write each `description` to `field` (one of Q.DESCRIPTION_FIELDS). */
   async bulk_update_descriptions(
     batch: { ref_id: string; description: string }[],
+    field: string = "description",
   ) {
+    const prop = Q.descriptionField(field);
     const session = this.resilientSession();
     try {
-      await session.run(Q.BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY, { batch });
+      await session.run(Q.BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY, {
+        batch: batch.map(({ ref_id, description }) => ({ ref_id, props: { [prop]: description } })),
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  /** What each of `ref_ids` CONTAINS among `labels`, in file order: how many
+   *  there are and the first `max`. A node that contains none is absent. */
+  async get_contained_nodes(
+    ref_ids: string[],
+    labels: string[],
+    max: number,
+  ): Promise<Record<string, { total: number; nodes: { type: string; name: string; description: string }[] }>> {
+    const out: Record<string, { total: number; nodes: { type: string; name: string; description: string }[] }> = {};
+    if (ref_ids.length === 0) return out;
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(Q.GET_CONTAINED_NODES_QUERY, {
+        ref_ids,
+        labels,
+        max: neo4j.int(max),
+      });
+      for (const record of result.records) {
+        out[record.get("ref_id")] = {
+          total: neo4j.integer.toNumber(record.get("total")),
+          nodes: record.get("nodes"),
+        };
+      }
+      return out;
     } finally {
       await session.close();
     }

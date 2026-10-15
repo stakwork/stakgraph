@@ -1234,10 +1234,42 @@ ORDER BY edge_type, source_ref_id
 LIMIT toInteger($limit)
 `;
 
-export const GET_NODES_WITHOUT_DESCRIPTION_QUERY = `
+/** The labels a description goes on unless the caller names others — what
+ *  /repo/describe has always described. */
+export const DESCRIBED_LABELS = ["Class", "Endpoint", "Request", "Function", "Datamodel", "Page", "Trait", "Var"];
+
+/** The properties a description may be written to: `description` on code
+ *  nodes, `summary` on File (whose Schema `index` is [name, summary]). A
+ *  property name can't be a Cypher parameter, so the write sets a map
+ *  (`SET n += item.props`) and the name is checked against this list first —
+ *  nothing else (`name`, `body`, …) can be overwritten through it. */
+export const DESCRIPTION_FIELDS = ["description", "summary"] as const;
+export type DescriptionField = (typeof DESCRIPTION_FIELDS)[number];
+
+export function descriptionField(field: string): DescriptionField {
+  if ((DESCRIPTION_FIELDS as readonly string[]).includes(field)) return field as DescriptionField;
+  throw new Error(`not a description field: "${field}" (one of ${DESCRIPTION_FIELDS.join(", ")})`);
+}
+
+const LABEL = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** `(n:A OR n:B …)` for `labels`, so the read uses label scans —
+ *  `ANY(label IN labels(n) …)` scans every node in the graph. A label can't be
+ *  a Cypher parameter before Neo4j 5.26, so each one must be a plain
+ *  identifier; anything else is refused, never interpolated. */
+export function labelPredicate(variable: string, labels: string[]): string {
+  if (labels.length === 0) throw new Error("no labels to match");
+  for (const label of labels) {
+    if (!LABEL.test(label)) throw new Error(`not a node label: "${label}"`);
+  }
+  return `(${labels.map((label) => `${variable}:${label}`).join(" OR ")})`;
+}
+
+/** Nodes with one of `labels`, a body, and an empty `$field`. */
+export const nodesWithoutDescriptionQuery = (labels: string[]) => `
 MATCH (n)
-WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
-  AND (n.description IS NULL OR n.description = '')
+WHERE ${labelPredicate("n", labels)}
+  AND (n[$field] IS NULL OR n[$field] = '')
   AND n.body IS NOT NULL
   AND n.body <> ''
   AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
@@ -1274,10 +1306,28 @@ MATCH (n:Data_Bank {ref_id: item.ref_id})
 SET n.embeddings = item.embeddings
 `;
 
+/** `item.props` is `{ [field]: text }`, the field one of DESCRIPTION_FIELDS. */
 export const BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY = `
 UNWIND $batch AS item
 MATCH (n:Data_Bank {ref_id: item.ref_id})
-SET n.description = item.description
+SET n += item.props
+`;
+
+/** What each of `$ref_ids` CONTAINS among `$labels`, in file order: how many,
+ *  and the first `$max` with their name and description. It starts from each
+ *  ref_id, so the label filter only sees that node's children. */
+export const GET_CONTAINED_NODES_QUERY = `
+UNWIND $ref_ids AS ref_id
+MATCH (:Data_Bank {ref_id: ref_id})-[:CONTAINS]->(c)
+WHERE ANY(label IN labels(c) WHERE label IN $labels)
+WITH ref_id, c
+ORDER BY c.start, c.name
+WITH ref_id, collect({
+  type: [label IN labels(c) WHERE label IN $labels][0],
+  name: coalesce(c.name, ''),
+  description: coalesce(c.description, '')
+}) AS children
+RETURN ref_id, size(children) AS total, children[0..$max] AS nodes
 `;
 
 export const BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY = `
