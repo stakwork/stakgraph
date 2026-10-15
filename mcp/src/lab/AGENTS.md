@@ -454,7 +454,16 @@ process for the QA loop.
   the SAME run share its page, so two that run at once (a step with
   `depends: []`, a `foreach` with `concurrency` above 1, an agent's
   parallel tool calls) drive one page together. Keep a run's browser steps
-  in sequence.
+  in sequence. The checks are the exception: `verify` and `walkthrough`
+  each run in a session of their OWN under the run (a fresh context, no
+  cookies or storage from the run's page, closed when the check ends,
+  spending the run's budget), because strut's verify pass replays a check
+  in a run of its own — so mid-turn the agent sees what the pass will see,
+  and one recording's sign-in never leaks into the next. Their lists are
+  checked before anything opens (`checkSteps`: each verb known, each step
+  given what its verb needs). A `wait` on a selector holds on ANY visible
+  match; actions stay strict, and a strict-mode stop keeps the elements it
+  matched in `failed`.
 - **Steps** (`browser/steps/`, one file per verb; `_shared.ts` is a seeded
   helper the registry skips): `open`, `goto`, `back`, `close`; the reads
   `snapshot` (the accessibility tree, interactive elements tagged

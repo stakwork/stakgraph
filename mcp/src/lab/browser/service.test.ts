@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Browser } from "playwright-core";
-import { BrowserService, strictHint } from "./service.js";
+import { BrowserService, checkSteps, strictHint } from "./service.js";
 import { sleep } from "./settle.js";
 
 test("BROWSER_WS_URL and BROWSER_CDP_URL together are refused at boot; either alone is a backend", () => {
@@ -46,6 +46,7 @@ class FakeContext {
     return new FakePage();
   }
   async close() { this.closed = true; }
+  browser() { return this.pw.browser; }
 }
 
 class FakePlaywright {
@@ -139,4 +140,73 @@ test("newPage() failing closes the context it would have lived in; the next call
   assert.equal(p.isClosed(), false);
   await svc.dispose("r1");
   assert.equal(leaked(pw), 0);
+});
+
+// ── A check's own session ────────────────────────────────────────────────────
+// `verify` / `walkthrough` open a context of their own under the run; the
+// fake page has no `goto`, so the open fails — which is exactly the path
+// that must still close that context.
+
+test("a check opens a context of its own and closes it, even when it fails; the run's session is untouched", async () => {
+  const pw = new FakePlaywright();
+  const svc = new Service(pw);
+  const runPage = await svc.page("r1");
+  const sink = {} as never;
+  await assert.rejects(svc.verify("r1", { url: "https://pod.example/settings" }, sink), /browser\/goto/);
+  await assert.rejects(svc.walkthrough("r1", { url: "https://pod.example/settings" }, sink), /browser\/goto/);
+  assert.equal(pw.contexts.length, 3, "the run's context, then one per check");
+  assert.deepEqual(pw.contexts.map((c) => c.closed), [false, true, true]);
+  assert.equal(await svc.page("r1"), runPage, "the run's page is the one it had");
+  await svc.dispose("r1");
+  assert.equal(leaked(pw), 0);
+});
+
+test("dispose(runId) while a check is opening closes the check's context too", async () => {
+  const pw = new FakePlaywright();
+  let release!: () => void;
+  pw.gate = new Promise<void>((r) => (release = r));
+  const svc = new Service(pw);
+  const checking = svc.verify("r1", { url: "https://pod.example/" }, {} as never);
+  await sleep(5); // parked in newContext
+  await svc.dispose("r1");
+  release();
+  await assert.rejects(checking, /run ended while its page was opening/);
+  assert.equal(pw.contexts.length, 1);
+  assert.equal(leaked(pw), 0);
+});
+
+test("a wrong list is refused before a context is made", async () => {
+  const pw = new FakePlaywright();
+  const svc = new Service(pw);
+  await assert.rejects(svc.walkthrough("r1", { url: "https://pod.example/", steps: [{ do: "wait", timeoutMs: 1000 }] }, {} as never), /walkthrough: step 1 \(wait\)/);
+  await assert.rejects(svc.verify("r1", { url: "https://pod.example/", steps: [{ do: "close" }] }, {} as never), /verify: step 1: unknown verb "close"/);
+  assert.equal(pw.contexts.length, 0);
+  await svc.dispose("r1");
+});
+
+test("checkSteps: each step is given what its verb needs, named by its place in the list", () => {
+  checkSteps(
+    [
+      { do: "goto", url: "https://x" },
+      { do: "fill", selector: "input[name=q]", value: "" },
+      { do: "click", ref: "e3" },
+      { do: "wait", ms: 500 },
+      { do: "wait", text: "Saved", timeoutMs: 5000 },
+      { do: "scroll", y: 400 },
+      { do: "text" },
+      { do: "evaluate", expression: "1" },
+      { do: "back" },
+    ],
+    "verify",
+  );
+  // The run that found it (2026-10-15): a pause written as a cap.
+  assert.throws(
+    () => checkSteps([{ do: "click", selector: "text=dev-user" }, { do: "wait", caption: "User menu", timeoutMs: 1000 }], "walkthrough"),
+    /^Error: walkthrough: step 2 \(wait\): give exactly one of ref, selector, text, url, or ms \(timeoutMs only caps a wait; a pause is \{ do: "wait", ms: 1000 \}\)$/,
+  );
+  assert.throws(() => checkSteps([{ do: "evaluate", script: "fetch('/x')" }], "walkthrough"), /step 1 \(evaluate\): needs `expression`/, "evaluate's input is `expression`");
+  assert.throws(() => checkSteps([{ do: "click", ref: "e1", selector: "a" }], "capture"), /step 1 \(click\): give exactly one of ref or selector$/);
+  assert.throws(() => checkSteps([{ do: "fill", selector: "input" }], "capture"), /step 1 \(fill\): needs `value`/);
+  assert.throws(() => checkSteps([{ do: "text", ref: "e1", selector: "p" }], "capture"), /step 1 \(text\): give ref or selector, not both/);
+  assert.throws(() => checkSteps([{ do: "goto", url: "https://x" }, { do: "explode" }], "capture"), /^Error: capture: step 2: unknown verb "explode" \(one of goto, /);
 });

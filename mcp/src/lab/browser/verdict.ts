@@ -47,11 +47,12 @@ export interface Verdict {
 }
 
 const CONTENT_CAP = 600;
+const FAILED_CAP = 1_000;
 
 export function judgeVerify(o: VerifyObservation): Verdict {
   const failed: string[] = [];
   if (o.status >= 400) failed.push(`the page answered HTTP ${o.status}`);
-  if (o.stopped) failed.push(`step ${o.stopped.step} (${stepLabel(o.stopped)}) failed: ${firstLine(o.stopped.message)}`);
+  if (o.stopped) failed.push(`step ${o.stopped.step} (${stepLabel(o.stopped)}) failed: ${why(o.stopped.message)}`);
   const missed = o.expectations.filter((e) => !e.holds);
   for (const e of missed) failed.push(e.detail ? `${e.label}: ${e.detail}` : e.label);
 
@@ -105,6 +106,13 @@ function where(pageUrl: string): string {
 /** Playwright's messages carry a call log after the first line. */
 function firstLine(m: string): string {
   return cap(m.split("\n")[0]!.trim(), 200);
+}
+
+/** Why a step stopped, for `failed`: its first line — but a strict-mode
+ *  violation keeps the elements it matched and the way out (service.ts
+ *  `strictHint`), which are what let the author narrow the selector. */
+function why(m: string): string {
+  return m.includes("strict mode violation") ? cap(m.trim(), FAILED_CAP) : firstLine(m);
 }
 
 function cap(s: string, n: number): string {

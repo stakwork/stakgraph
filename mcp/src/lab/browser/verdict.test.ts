@@ -51,6 +51,17 @@ test("a step whose target matched nothing is a result: the line says where the l
   assert.doesNotMatch(v.content, /Call log/, "Playwright's call log stays out of the line");
 });
 
+test("a strict-mode violation keeps the elements it matched and the way out in failed; the line stays one line", () => {
+  const message =
+    "browser/fill: locator.fill: Error: strict mode violation: locator('input') resolved to 2 elements:\n" +
+    "    1) <input type=\"text\" placeholder=\"dev-user\"/> aka getByPlaceholder('dev-user')\n" +
+    "    2) <input type=\"hidden\" name=\"csrfToken\"/> aka locator('input[name=\"csrfToken\"]')\n" +
+    "→ act by ref instead: browser/snapshot, then the element's [ref=eN] (or narrow the selector, e.g. `>> nth=1`)";
+  const v = judgeVerify({ status: 200, stopped: { step: 1, verb: "fill", args: { selector: "input", value: "x" }, message }, pageUrl: AT, expectations: [] });
+  assert.equal(v.failed[0], `step 1 (fill input) failed: ${message}`);
+  assert.equal(v.content, "stopped at step 1 (fill input): browser/fill: locator.fill: Error: strict mode violation: locator('input') resolved to 2 elements:");
+});
+
 test("a document that answered HTTP 400 or more refutes, even with no expectations", () => {
   const v = judgeVerify({ status: 500, pageUrl: AT, expectations: [] });
   assert.deepEqual(v, { supports: false, content: "/settings reached; HTTP 500", failed: ["the page answered HTTP 500"] });

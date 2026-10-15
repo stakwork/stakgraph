@@ -28,7 +28,8 @@ the instrument that fits what the work is:
 - A page an app serves, in the pod the job holds: `browser/verify` with
   `url: "{{ input.urls.pod }}/<path>"` — the address of the pod, so the
   check survives the pod being claimed again — the steps to get there
-  (browser/capture's list) and `expect`: `text` that must be visible, the
+  (browser/capture's list; each check starts signed out, so a page behind
+  a sign-in signs in there) and `expect`: `text` that must be visible, the
   `url` the page should end at, `selector`s that must be present,
   `noErrors`. It answers with a screenshot of where the page got to, which
   is what the person looks at. Run it yourself first, as a tool: you see

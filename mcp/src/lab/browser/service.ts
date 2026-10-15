@@ -32,6 +32,12 @@
  * does `verify`, the check: the same list, then expectations, and a page
  * that fails them is a result, not an error (verdict.ts).
  *
+ * A check (`verify`, `walkthrough`) runs in a session of its OWN under the
+ * run — a fresh context, no cookies or storage from what the run's
+ * `browser/open` signed into — because strut's verify pass replays it in a
+ * run of its own: what the agent sees mid-turn is what the pass will see.
+ * The run's page is left where it was.
+ *
  * `playwright-core` is imported lazily, on the first connection, so a lab
  * that never opens a browser never loads it.
  */
@@ -127,6 +133,29 @@ export type WalkthroughStep = CaptureStep & { caption?: string };
  *  the run already has; `open`/`close`/`screenshot` are the compound's own. */
 export const CAPTURE_VERBS = ["goto", "click", "fill", "type", "press", "select", "hover", "scroll", "wait", "text", "evaluate", "back"] as const;
 
+type CaptureVerb = (typeof CAPTURE_VERBS)[number];
+
+/** What each verb in a declared list needs: the rules its `browser/*`
+ *  step's input schema enforces, which a list — run through the verbs
+ *  directly — would otherwise meet only once it got there. */
+const STEP_NEEDS: Record<CaptureVerb, { required?: string[]; oneOf?: string[]; atMostOne?: string[] }> = {
+  goto: { required: ["url"] },
+  click: { oneOf: ["ref", "selector"] },
+  fill: { required: ["value"], oneOf: ["ref", "selector"] },
+  type: { required: ["text"] },
+  press: { required: ["key"] },
+  select: { required: ["value"], oneOf: ["ref", "selector"] },
+  hover: { oneOf: ["ref", "selector"] },
+  scroll: { oneOf: ["ref", "selector", "y"] },
+  wait: { oneOf: ["ref", "selector", "text", "url", "ms"] },
+  text: { atMostOne: ["ref", "selector"] },
+  evaluate: { required: ["expression"] },
+  back: {},
+};
+
+/** The key a check's own session is kept under: `<runId><CHECK_KEY><n>`. */
+const CHECK_KEY = "\u0000check:";
+
 /** A `wait` step in a `verify` list with no `timeoutMs` of its own gives up
  *  after this long, not the run's whole budget (what `capture` allows): a
  *  page that never shows the text is a refutation, and it should not take
@@ -174,6 +203,7 @@ export class BrowserService {
   private browser?: Browser;
   private connecting?: Promise<Browser>;
   private readonly runs = new Map<string, Run>();
+  private checkSeq = 0;
 
   constructor(opts: BrowserServiceOptions = {}) {
     if (opts.wsUrl && opts.cdpUrl) throw new Error("browser: set BROWSER_WS_URL (a Playwright server) or BROWSER_CDP_URL (a real Chrome), not both");
@@ -215,16 +245,7 @@ export class BrowserService {
    *  two `browser_open`s in one turn arrive together, and each making a
    *  context would orphan the first (`dispose` closes only `run.session`). */
   async page(runId: string, opts: { viewport?: Viewport; storageState?: unknown } = {}): Promise<Page> {
-    let run = this.runs.get(runId);
-    if (!run) {
-      run = { startedAt: Date.now(), exhausted: false };
-      this.runs.set(runId, run);
-      run.timer = setTimeout(() => {
-        run!.exhausted = true;
-        void this.closeSession(runId);
-      }, this.runBudgetMs);
-      run.timer.unref();
-    }
+    const run = this.runOf(runId);
     if (run.exhausted) throw new Error(this.spent());
     const live = run.session;
     if (live && !live.page.isClosed()) return live.page;
@@ -233,6 +254,46 @@ export class BrowserService {
     const opening = this.openSession(runId, r, opts).finally(() => (r.opening = undefined));
     r.opening = opening;
     return opening;
+  }
+
+  /** The run, started on first use: its budget clock runs from here. */
+  private runOf(runId: string): Run {
+    const known = this.runs.get(runId);
+    if (known) return known;
+    const run: Run = { startedAt: Date.now(), exhausted: false };
+    this.runs.set(runId, run);
+    this.arm(runId, run, this.runBudgetMs);
+    return run;
+  }
+
+  /** The budget timer: when it fires, the session under `key` closes and refuses further calls. */
+  private arm(key: string, run: Run, ms: number): void {
+    run.timer = setTimeout(() => {
+      run.exhausted = true;
+      void this.closeSession(key);
+    }, ms);
+    run.timer.unref();
+  }
+
+  /**
+   * A check's own session (the file comment): a key of its own under the
+   * run, so a context of its own, closed when `fn` ends. It spends the run's
+   * budget — the same clock — and `dispose(runId)` closes it with the run.
+   * Over CDP it is a page of its own in the profile's context, whose cookies
+   * every page shares.
+   */
+  private async inOwnSession<T>(runId: string, fn: (key: string) => Promise<T>): Promise<T> {
+    const parent = this.runOf(runId);
+    if (parent.exhausted) throw new Error(this.spent());
+    const key = `${runId}${CHECK_KEY}${++this.checkSeq}`;
+    const run: Run = { startedAt: parent.startedAt, exhausted: false };
+    this.runs.set(key, run);
+    this.arm(key, run, this.remaining(runId));
+    try {
+      return await fn(key);
+    } finally {
+      await this.dispose(key);
+    }
   }
 
   private async openSession(runId: string, run: Run, opts: { viewport?: Viewport; storageState?: unknown }): Promise<Page> {
@@ -348,14 +409,18 @@ export class BrowserService {
     return out;
   }
 
-  /** Close the run's context (over CDP: only its pages) and forget the run.
-   *  Idempotent; the `services.onRunEnd` hook. */
+  /** Close the run's context (over CDP: only its pages) and any check's
+   *  still open under it, and forget the run. Idempotent; the
+   *  `services.onRunEnd` hook. */
   async dispose(runId: string): Promise<void> {
-    const run = this.runs.get(runId);
-    if (!run) return;
-    this.runs.delete(runId);
-    if (run.timer) clearTimeout(run.timer);
-    await closeQuietly(run.session);
+    const keys = [...this.runs.keys()].filter((k) => k === runId || k.startsWith(`${runId}${CHECK_KEY}`));
+    for (const key of keys) {
+      const run = this.runs.get(key);
+      if (!run) continue;
+      this.runs.delete(key);
+      if (run.timer) clearTimeout(run.timer);
+      await closeQuietly(run.session);
+    }
   }
 
   /** Milliseconds of browser budget the run has left (the whole budget
@@ -475,11 +540,11 @@ export class BrowserService {
     return this.call(runId, "wait", budget, async (s, ms) => {
       const t0 = Date.now();
       if (typeof input.ms === "number") await sleep(Math.min(input.ms, ms));
-      else if (input.text) await s.page.locator(`text=${input.text}`).first().waitFor({ state: "visible", timeout: ms });
+      else if (input.text) await anyVisible(s.page.locator(`text=${input.text}`)).waitFor({ state: "visible", timeout: ms });
       else if (input.url) {
         const want = input.url;
         await s.page.waitForURL(want.includes("*") ? want : (u) => u.href.includes(want), { timeout: ms });
-      } else if (input.ref || input.selector) await this.locate(runId, input).waitFor({ state: "visible", timeout: ms });
+      } else if (input.ref || input.selector) await anyVisible(this.locate(runId, input)).waitFor({ state: "visible", timeout: ms });
       else throw new Error("give ref, selector, text, url, or ms");
       return { ok: true, waitedMs: Date.now() - t0 };
     });
@@ -554,16 +619,16 @@ export class BrowserService {
 
   /** Run a declared list through the verbs, in order, and stop at the
    *  first step that fails: which one, and why. The page stays where it got
-   *  to. An unknown verb is refused before anything runs. */
+   *  to. A list that is wrong (`checkSteps`) is refused before anything runs. */
   async drive(runId: string, steps: CaptureStep[] = [], label = "capture"): Promise<{ stopped?: StoppedAt }> {
-    const bad = steps.findIndex((s) => !(CAPTURE_VERBS as readonly string[]).includes(s.do));
-    if (bad >= 0) throw new Error(`${label}: step ${bad + 1}: unknown verb "${steps[bad]!.do}" (one of ${CAPTURE_VERBS.join(", ")})`);
+    checkSteps(steps, label);
     for (const [i, step] of steps.entries()) {
       const { do: verb, ...args } = step;
       try {
-        await (this[verb as (typeof CAPTURE_VERBS)[number]] as (runId: string, args: unknown) => Promise<unknown>)(runId, args);
+        await (this[verb as CaptureVerb] as (runId: string, args: unknown) => Promise<unknown>)(runId, args);
       } catch (err) {
-        return { stopped: { step: i + 1, verb, args, message: message(err) } };
+        // Whole: `call` already bounded it, and a strict-mode violation's matches and way out are its tail.
+        return { stopped: { step: i + 1, verb, args, message: err instanceof Error ? err.message : String(err) } };
       }
     }
     return {};
@@ -576,6 +641,7 @@ export class BrowserService {
     input: { url: string; steps?: CaptureStep[]; fullPage?: boolean; wait?: number; viewport?: Viewport; timeoutMs?: number },
     sink: ShotSink,
   ): Promise<Shot & { small: Buffer; errors: string[]; pageUrl: string; title: string }> {
+    checkSteps(input.steps ?? [], "capture");
     await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
     const { stopped } = await this.drive(runId, input.steps);
     if (stopped) throw new Error(`capture: step ${stopped.step} (${stopped.verb} ${JSON.stringify(stopped.args)}) failed: ${stopped.message}`);
@@ -596,23 +662,27 @@ export class BrowserService {
    * opening at all (DNS, refused, its own timeout, the denylist), the page
    * lost on the way (the per-call race closed it, the budget ran out), an
    * expectation that cannot be evaluated (a selector or a script that does
-   * not parse).
+   * not parse), a list that is wrong (`checkSteps`). It runs in a session
+   * of its own (the file comment).
    */
   async verify(
     runId: string,
     input: { url: string; steps?: CaptureStep[]; wait?: number; expect?: VerifyExpect; viewport?: Viewport; timeoutMs?: number },
     sink: ShotSink,
   ): Promise<Verified> {
-    const { status } = await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
     const steps = (input.steps ?? []).map((s) => (s.do === "wait" && s["timeoutMs"] === undefined ? { ...s, timeoutMs: VERIFY_WAIT_MS } : s));
-    const { stopped } = await this.drive(runId, steps, "verify");
-    const page = this.live(runId).page;
-    await settlePage(page, input.wait);
-    const shot = await this.screenshot(runId, { timeoutMs: input.timeoutMs }, sink);
-    const errors = flattenObs(this.observe(runId));
-    const expectations = await this.call(runId, "verify", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
-    const pageUrl = page.url();
-    return { ...shot, ...judgeVerify({ status, stopped, pageUrl, expectations }), errors, pageUrl, title: await page.title() };
+    checkSteps(steps, "verify");
+    return this.inOwnSession(runId, async (key) => {
+      const { status } = await this.open(key, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
+      const { stopped } = await this.drive(key, steps, "verify");
+      const page = this.live(key).page;
+      await settlePage(page, input.wait);
+      const shot = await this.screenshot(key, { timeoutMs: input.timeoutMs }, sink);
+      const errors = flattenObs(this.observe(key));
+      const expectations = await this.call(key, "verify", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
+      const pageUrl = page.url();
+      return { ...shot, ...judgeVerify({ status, stopped, pageUrl, expectations }), errors, pageUrl, title: await page.title() };
+    });
   }
 
   /**
@@ -623,8 +693,9 @@ export class BrowserService {
    * (walkthrough.ts), told to the job's host as they land. A step that
    * fails, or an expectation that does not hold, ends the recording
    * `stopped` on a last frame of where the page got to, marked with why.
-   * Every verb is checked before anything runs; only the instrument failing
-   * throws, as for `verify`.
+   * The list is checked before anything runs (`checkSteps`): a wrong one
+   * starts no recording. Only the instrument failing throws, and it runs in
+   * a session of its own, as for `verify`.
    */
   async walkthrough(
     runId: string,
@@ -632,54 +703,55 @@ export class BrowserService {
     sink: ShotSink,
   ): Promise<Walked> {
     const steps = input.steps ?? [];
-    const bad = steps.findIndex((s) => !(CAPTURE_VERBS as readonly string[]).includes(s.do));
-    if (bad >= 0) throw new Error(`walkthrough: step ${bad + 1}: unknown verb "${steps[bad]!.do}" (one of ${CAPTURE_VERBS.join(", ")})`);
-    const { status } = await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
-    // Read fresh each time: a step that opens a popup replaces the run's page.
-    const page = () => this.live(runId).page;
-    const rec = await Recording.start(sink, { ...(input.title ? { title: input.title } : {}), url: input.url });
-    const frames: Walked["frames"] = [];
-    let small: Buffer | undefined;
-    const frame = async (caption: string, step?: Record<string, unknown>) => {
-      await settlePage(page(), input.wait);
-      const png = await this.call(runId, "screenshot", input.timeoutMs, (s, ms) => s.page.screenshot({ type: "png", scale: "css", timeout: ms }));
-      const f: Omit<WalkthroughFrame, "file" | "ms"> = { caption, pageUrl: page().url(), ...(step ? { step } : {}) };
-      const added = await rec.addFrame(png, f);
-      frames.push({ file: added.file, caption, url: added.url });
-      small = added.small;
-    };
-    await frame(input.caption || (await page().title()) || input.url);
+    checkSteps(steps, "walkthrough");
+    return this.inOwnSession(runId, async (key) => {
+      const { status } = await this.open(key, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
+      // Read fresh each time: a step that opens a popup replaces the check's page.
+      const page = () => this.live(key).page;
+      const rec = await Recording.start(sink, { ...(input.title ? { title: input.title } : {}), url: input.url });
+      const frames: Walked["frames"] = [];
+      let small: Buffer | undefined;
+      const frame = async (caption: string, step?: Record<string, unknown>) => {
+        await settlePage(page(), input.wait);
+        const png = await this.call(key, "screenshot", input.timeoutMs, (s, ms) => s.page.screenshot({ type: "png", scale: "css", timeout: ms }));
+        const f: Omit<WalkthroughFrame, "file" | "ms"> = { caption, pageUrl: page().url(), ...(step ? { step } : {}) };
+        const added = await rec.addFrame(png, f);
+        frames.push({ file: added.file, caption, url: added.url });
+        small = added.small;
+      };
+      await frame(input.caption || (await page().title()) || input.url);
 
-    let stopped: StoppedAt | undefined;
-    let framedLast = steps.length === 0;
-    for (const [i, raw] of steps.entries()) {
-      const { caption, ...step } = raw;
-      const s = (step.do === "wait" && step["timeoutMs"] === undefined ? { ...step, timeoutMs: VERIFY_WAIT_MS } : step) as CaptureStep;
-      const r = await this.drive(runId, [s], "walkthrough");
-      if (r.stopped) {
-        stopped = { ...r.stopped, step: i + 1 };
-        break;
+      let stopped: StoppedAt | undefined;
+      let framedLast = steps.length === 0;
+      for (const [i, raw] of steps.entries()) {
+        const { caption, ...step } = raw;
+        const s = (step.do === "wait" && step["timeoutMs"] === undefined ? { ...step, timeoutMs: VERIFY_WAIT_MS } : step) as CaptureStep;
+        const r = await this.drive(key, [s], "walkthrough");
+        if (r.stopped) {
+          stopped = { ...r.stopped, step: i + 1 };
+          break;
+        }
+        framedLast = typeof caption === "string" && caption !== "";
+        if (framedLast) await frame(caption as string, step);
       }
-      framedLast = typeof caption === "string" && caption !== "";
-      if (framedLast) await frame(caption as string, step);
-    }
-    const errors = flattenObs(this.observe(runId));
-    const expectations = await this.call(runId, "walkthrough", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
-    const pageUrl = page().url();
-    const verdict = judgeVerify({ status, stopped, pageUrl, expectations });
-    // Where the page got to, unless the last step's frame already shows it.
-    if (stopped || !framedLast) await frame(stopped ? `Stopped at step ${stopped.step}` : (await page().title()) || pageUrl);
-    await rec.finish(verdict.failed);
-    return {
-      ...verdict,
-      path: rec.path,
-      url: rec.url,
-      frames,
-      small: small!,
-      errors,
-      pageUrl,
-      title: await page().title(),
-    };
+      const errors = flattenObs(this.observe(key));
+      const expectations = await this.call(key, "walkthrough", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
+      const pageUrl = page().url();
+      const verdict = judgeVerify({ status, stopped, pageUrl, expectations });
+      // Where the page got to, unless the last step's frame already shows it.
+      if (stopped || !framedLast) await frame(stopped ? `Stopped at step ${stopped.step}` : (await page().title()) || pageUrl);
+      await rec.finish(verdict.failed);
+      return {
+        ...verdict,
+        path: rec.path,
+        url: rec.url,
+        frames,
+        small: small!,
+        errors,
+        pageUrl,
+        title: await page().title(),
+      };
+    });
   }
 
   // ── internals ────────────────────────────────────────────────────────────
@@ -855,6 +927,43 @@ function message(err: unknown): string {
 export function strictHint(m: string): string {
   if (!m.includes("strict mode violation")) return m;
   return `${m.split("\nCall log:")[0]!.trimEnd()}\n→ act by ref instead: browser/snapshot, then the element's [ref=eN] (or narrow the selector, e.g. \`>> nth=1\`)`;
+}
+
+/**
+ * A declared list (`capture`, `verify`, `walkthrough`), checked before
+ * anything runs: each verb known, each step given what its verb needs
+ * (`STEP_NEEDS`). A wrong list throws — the author's fault, like a selector
+ * that does not parse — so no page opens and no recording starts.
+ */
+export function checkSteps(steps: readonly CaptureStep[], label: string): void {
+  for (const [i, s] of steps.entries()) {
+    if (!(CAPTURE_VERBS as readonly string[]).includes(s.do)) {
+      throw new Error(`${label}: step ${i + 1}: unknown verb "${s.do}" (one of ${CAPTURE_VERBS.join(", ")})`);
+    }
+    const at = `${label}: step ${i + 1} (${s.do})`;
+    const needs = STEP_NEEDS[s.do as CaptureVerb];
+    const given = (k: string) => s[k] !== undefined && s[k] !== "";
+    for (const k of needs.required ?? []) if (s[k] === undefined) throw new Error(`${at}: needs \`${k}\``);
+    if (needs.oneOf && needs.oneOf.filter(given).length !== 1) {
+      // `timeoutMs` alone is the classic mistake: it caps a wait, it is not one.
+      const pause = s.do === "wait" && !needs.oneOf.some(given) && s["timeoutMs"] !== undefined ? ` (timeoutMs only caps a wait; a pause is { do: "wait", ms: ${s["timeoutMs"]} })` : "";
+      throw new Error(`${at}: give exactly one of ${either(needs.oneOf)}${pause}`);
+    }
+    if (needs.atMostOne && needs.atMostOne.filter(given).length > 1) throw new Error(`${at}: give ${either(needs.atMostOne)}, not both`);
+  }
+}
+
+/** `ref, selector, or y`. */
+function either(keys: string[]): string {
+  return keys.length < 3 ? keys.join(" or ") : `${keys.slice(0, -1).join(", ")}, or ${keys[keys.length - 1]}`;
+}
+
+/** What a wait holds for: ANY visible match. A selector that matches
+ *  several elements (a list's rows) is not a strict-mode error here, and a
+ *  hidden first match (a closed menu's copy) does not hold it up. Acting
+ *  stays strict: clicking one of several is a guess. */
+function anyVisible(loc: Locator): Locator {
+  return loc.filter({ visible: true }).first();
 }
 
 function num(v: string | undefined, dflt: number): number {
