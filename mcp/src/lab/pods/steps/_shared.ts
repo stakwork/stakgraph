@@ -134,13 +134,15 @@ export async function progress(ctx: PodCtx, control: string, sealed: string, req
 }
 
 /** Wait for a submitted request to settle. Checks run control between polls,
- *  so a cancelled run stops waiting at once instead of at the deadline. */
+ *  so a cancelled run stops waiting at once instead of at the deadline.
+ *  `stillRunning` is what the timeout tells the caller to do next (default:
+ *  the agent's — pod/agent-status). */
 export async function settle(
   ctx: PodCtx,
   control: string,
   sealed: string,
   first: { requestId: string } & Progress,
-  opts: { pollMs: number; timeoutMs: number; what: string },
+  opts: { pollMs: number; timeoutMs: number; what: string; stillRunning?: string },
 ): Promise<Progress> {
   let p: Progress = first;
   const deadline = Date.now() + opts.timeoutMs;
@@ -148,7 +150,7 @@ export async function settle(
     if (Date.now() >= deadline) {
       throw new Error(
         `${opts.what}: stopped waiting after ${Math.round(opts.timeoutMs / 1000)} s — the task is still running in the pod; ` +
-          `check on it with pod/agent-status { request_id: "${first.requestId}" }`,
+          (opts.stillRunning ?? `check on it with pod/agent-status { request_id: "${first.requestId}" }`),
       );
     }
     await new Promise((r) => setTimeout(r, opts.pollMs));

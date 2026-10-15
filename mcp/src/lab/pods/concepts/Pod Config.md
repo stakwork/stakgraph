@@ -74,6 +74,13 @@ changed. No credential is promoted: when the app needs a key, say which, and
 a person sets it in hive. pod/config-set waits until a pod built from the
 change is ready.
 
+**Run the pool's config in your pod.** `pod/config-apply { workspace,
+control, sealed }` writes hive's stored files into the pod you hold and
+reloads it, with no new pod: after a promotion it brings your pod in line
+with every other, and after trying things in the pod it puts the pool's
+config back. It is not the check below: what was made by hand in your pod
+is still there.
+
 **Check it on a fresh pod.** `pod/claim { workspace, fresh: true }` claims a
 second pod, built after the push (`no fresh pod ready yet`: try again
 shortly). Run the same check there. It catches what was made by hand: a
