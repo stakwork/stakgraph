@@ -1,15 +1,15 @@
 ---
-description: Stating what the work must deliver as a claim about the job — one per change — checked by a screenshot when the job holds a pod and by the person's look when it does not, and verifying before saying it is done.
+description: Stating what the work must deliver as a claim about the job — one per change — with a check that uses what was delivered the way its user would, or the person's look when nothing here runs it, and verifying before saying it is done.
 parent: Job
 ---
-Stating what the work must deliver as a claim about the job — one per change — checked by a screenshot when the job holds a pod and by the person's look when it does not, and verifying before saying it is done.
+Stating what the work must deliver as a claim about the job — one per change — with a check that uses what was delivered the way its user would, or the person's look when nothing here runs it, and verifying before saying it is done.
 
 The work is done when it is verified, not when your last tool call
 returned. A claim is about THIS job — `meta/add-claim` with subject
 `{ kind: "job", name: <your job id> }` — and is one plain sentence about
-what the person will see: "the settings page shows the notification
-preferences", "the strut page fills the window edge to edge". Not how you
-will do it, and not your output restated.
+what the person gets: "the settings page shows the notification
+preferences", "GET /api/settings answers 200", "`acme export --csv` writes
+one row per order". Not how you will do it, and not your output restated.
 
 How many. ONE claim for a change. Several only when the ask has separate
 parts a person would check separately — a new page AND a new email — one
@@ -22,25 +22,35 @@ earlier turn or by the person from their side. When the person stated a
 claim, hang your check on it with `meta/add-check` rather than writing a
 second claim that says the same.
 
-The check is one of two, and nothing else:
+The check uses what you delivered the way its user would, where it runs —
+the instrument that fits what the work is:
 
-- The job holds a pod (you claimed one, so `input.urls.pod` is its
-  address): `browser/verify` with `url: "{{ input.urls.pod }}/<path>"` —
-  the page that shows the change, the address surviving the pod being
-  claimed again — the steps to get there (browser/capture's list) and
-  `expect`: `text` that must be visible, the `url` the page should end at,
-  `selector`s that must be present. It answers with a screenshot, which
+- A page an app serves, in the pod the job holds: `browser/verify` with
+  `url: "{{ input.urls.pod }}/<path>"` — the address of the pod, so the
+  check survives the pod being claimed again — the steps to get there
+  (browser/capture's list) and `expect`: `text` that must be visible, the
+  `url` the page should end at, `selector`s that must be present,
+  `noErrors`. It answers with a screenshot of where the page got to, which
   is what the person looks at. Run it yourself first, as a tool: you see
   what the check will see, then hang the same config on the claim.
-- The job holds no pod: an external check, `{ description }` saying what
-  the person should open and look at once the change is live — the page,
-  what should be different. The person accepts or rejects it on their
-  side.
+- An endpoint: `http/verify` with the request and the answer expected —
+  `status`, `contains`, `json` paths — at `{{ input.urls.pod }}/<path>`.
+  A credential is named, never written: `secrets: { Authorization: "Bearer {NAME}" }`.
+- A command, a CLI, a script or a file you deliver: `exec` with
+  `cwd: "{{ input.dir }}"` (a repository is a subdirectory of it), running
+  it as its user would — a command that exits 0 when the claim holds.
+- Tests you were asked to add or fix, on a pod: `pod/run-tests` with the
+  pod's `control` and `sealed`. It names that pod: after you claim
+  another, edit the check (`meta/edit-check`).
+- What cannot run here — no pod holds the app the change is in — or what
+  only a person can judge (does it look right, is it what they meant): an
+  external check, `{ description }` saying what the person should open and
+  look at. They accept or reject it on their side.
 
-Never a script, a command or a request over your own work as a check — no
-`exec`, no `http/verify`, no grep of your own diff. It only says your work
-agrees with itself; the person cannot see it and learns nothing from it.
-Run whatever you like while you work; it is not a claim's check.
+Never a check that reads your own diff or code to confirm you wrote what
+you meant to — a grep of your diff, a script asserting your code's shape.
+It only says your work agrees with itself; the person learns nothing from
+it. Use the thing, not its source.
 
 A check on a job is `manual`: it runs when the job is verified, not on
 every turn.
