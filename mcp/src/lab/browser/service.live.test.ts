@@ -7,12 +7,12 @@
  *     npx tsx --test src/lab/browser/service.live.test.ts
  *
  * The pages are `data:` URLs the test writes, so what is asserted is ours.
- * Three cases reach example.com, for a real navigation, a real 404 and real
+ * Four cases reach example.com, for a real navigation, a real 404 and real
  * cookies, and assert only on URLs, statuses and what the test itself set.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileArtifactsCapability } from "strut";
@@ -189,7 +189,8 @@ test("verify: a page that holds supports; one that does not is a result with the
       "ver1",
       {
         url: HOME,
-        steps: [{ do: "click", selector: "text=Switch" }, { do: "wait", text: "Annual" }],
+        // `p` names two paragraphs: a wait holds on any of them.
+        steps: [{ do: "click", selector: "text=Switch" }, { do: "wait", text: "Annual" }, { do: "wait", selector: "p", timeoutMs: 3000 }],
         expect: { text: ["Annual", "two paragraphs"], selector: ["#plan", "button"], url: "data:**", noErrors: true, evaluate: "document.querySelectorAll('p').length === 2" },
       },
       sink("ver1"),
@@ -276,8 +277,54 @@ test("walkthrough: a frame per captioned step and the manifest naming them, told
     assert.match(m2.frames[2].failed, /step 2/);
 
     await assert.rejects(browser.walkthrough("walk3", { url: HOME, steps: [{ do: "close" }] }, sink("walk3")), /unknown verb "close"/);
+    // A wrong list starts no recording: nothing under the job's directory.
+    await assert.rejects(browser.walkthrough("walk4", { url: HOME, steps: [{ do: "wait", caption: "Pause", timeoutMs: 1000 }] }, sink("walk4")), /a pause is \{ do: "wait", ms: 1000 \}/);
+    await assert.rejects(readdir(join(dir, "jobs", "walk4")), /ENOENT/);
   } finally {
-    for (const r of ["walk1", "walk2", "walk3"]) await browser.dispose(r).catch(() => {});
+    for (const r of ["walk1", "walk2", "walk3", "walk4"]) await browser.dispose(r).catch(() => {});
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a check runs signed out, in a session of its own; the run's page keeps its cookie and its place", opts, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lab-browser-live-"));
+  const artifacts = fileArtifactsCapability(dir);
+  const browser = BrowserService.fromEnv(env);
+  const sink = { artifacts, runId: "own" };
+  try {
+    await browser.open("own", { url: "https://example.com/" });
+    await browser.evaluate("own", { expression: `document.cookie = "signedIn=yes; path=/"` });
+    const signedOut = { evaluate: "document.cookie === ''" };
+    const v = await browser.verify("own", { url: "https://example.com/", expect: signedOut }, sink);
+    assert.equal(v.supports, true, v.content);
+    const w = await browser.walkthrough("own", { url: "https://example.com/", steps: [{ do: "evaluate", expression: `document.cookie = "leak=1; path=/"` }], expect: signedOut }, sink);
+    assert.equal(w.supports, false, "the recording's own cookie is there while it runs");
+    const again = await browser.walkthrough("own", { url: "https://example.com/", expect: signedOut }, sink);
+    assert.equal(again.supports, true, `one recording's cookie does not reach the next: ${again.content}`);
+    assert.equal((await browser.evaluate("own", { expression: "document.cookie" })).result, "signedIn=yes", "the run's page kept its session");
+    assert.equal((await browser.open("own")).url, "https://example.com/");
+  } finally {
+    await browser.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a wait holds on any visible match, a hidden first one included; an action on several stops with the matches named", opts, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lab-browser-live-"));
+  const artifacts = fileArtifactsCapability(dir);
+  const browser = BrowserService.fromEnv(env);
+  const sink = { artifacts, runId: "many" };
+  const ROWS = page(`<title>Rows</title><div hidden><p class="row">Ready</p></div><p class="row">Ready</p><button>One</button><button>Two</button>`);
+  try {
+    const ok = await browser.verify("many", { url: ROWS, steps: [{ do: "wait", selector: ".row", timeoutMs: 3000 }, { do: "wait", text: "Ready", timeoutMs: 3000 }] }, sink);
+    assert.equal(ok.supports, true, ok.content);
+
+    const bad = await browser.verify("many", { url: ROWS, steps: [{ do: "click", selector: "button", timeoutMs: 3000 }] }, sink);
+    assert.equal(bad.supports, false);
+    assert.match(bad.failed[0]!, /^step 1 \(click button\) failed: .*strict mode violation.*resolved to 2 elements:\n\s+1\) <button>One<\/button>.*\n\s+2\) <button>Two<\/button>.*\n→ act by ref instead/s);
+    assert.doesNotMatch(bad.content, /\n/, "the line stays one line");
+  } finally {
+    await browser.close();
     await rm(dir, { recursive: true, force: true });
   }
 });

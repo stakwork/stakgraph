@@ -4,7 +4,7 @@ import { type Ctx, browserOf, oneOf, target, timeoutMs } from "./_shared.js";
 export default defineStep({
   type: "browser/wait",
   description:
-    "Hold until dynamic content is there: an element is visible (`ref` or `selector`), a `text` appears on the page, the `url` matches (a substring, or a glob with *), or `ms` pass. The verb for data that loads after the page does — call it before reading or shooting a region that fetches. Unlike other steps its cap is the run's remaining browser budget (BROWSER_RUN_BUDGET_MS), so it can outlast a slow fetch; set `timeoutMs` to fail sooner. Returns { ok, waitedMs }.",
+    "Hold until dynamic content is there: an element is visible (`ref` or `selector` — any match, when the selector names several), a `text` appears on the page, the `url` matches (a substring, or a glob with *), or `ms` pass. The verb for data that loads after the page does — call it before reading or shooting a region that fetches. Unlike other steps its cap is the run's remaining browser budget (BROWSER_RUN_BUDGET_MS), so it can outlast a slow fetch; set `timeoutMs` to fail sooner. Returns { ok, waitedMs }.",
   input: z
     .object({
       ...target,
