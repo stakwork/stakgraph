@@ -26,8 +26,17 @@ export interface CodeNodeToDescribe {
   ref_id: string;
   labels: string[];
   name: string;
+  /** The node's `file` property: its path, `owner/repo/…`. */
+  file: string;
   docs: string;
   body: string;
+}
+
+/** A node another one CONTAINS (a File's Functions, Classes, …). */
+export interface ContainedNode {
+  type: string;
+  name: string;
+  description: string;
 }
 
 export interface ConceptServices {
@@ -72,17 +81,26 @@ export interface ConceptServices {
     token?: string,
   ): Promise<string>;
 
-  /** Code nodes for `concepts/describe-code`: the ones with a body and no
-   *  description (optionally limited to repos, as `owner/repo`, and file path
-   *  suffixes), and the description write-back. Writes the field only —
-   *  strut's embedding pass re-embeds the node from its Schema `index`. */
+  /** Code nodes for `concepts/describe-code`: the ones of `types` (labels)
+   *  with a body and an empty `field` — `description` or `summary`, nothing
+   *  else — optionally limited to repos, as `owner/repo`, and file path
+   *  suffixes; what nodes CONTAIN (of the labels `types`, in file order:
+   *  how many, and the first `max`); and the write-back to `field`. Writes
+   *  the field only — strut's embedding pass re-embeds the node from its
+   *  Schema `index`. */
   codeNodes: {
     withoutDescription(
       limit: number,
       repoPaths: string[],
       filePaths: string[],
+      opts: { types: string[]; field: string },
     ): Promise<CodeNodeToDescribe[]>;
-    writeDescriptions(batch: Array<{ ref_id: string; description: string }>): Promise<void>;
+    contained(
+      refIds: string[],
+      types: string[],
+      max: number,
+    ): Promise<Record<string, { total: number; nodes: ContainedNode[] }>>;
+    writeDescriptions(batch: Array<{ ref_id: string; description: string }>, field: string): Promise<void>;
   };
 
   /** Build full markdown content for a single commit (for the LLM), with the
@@ -184,22 +202,27 @@ export async function buildConceptServices(
     },
 
     codeNodes: {
-      async withoutDescription(limit, repoPaths, filePaths) {
+      async withoutDescription(limit, repoPaths, filePaths, { types, field }) {
         const { db } = await import("../../graph/neo4j.js");
-        const nodes = await db.get_nodes_without_description(limit, repoPaths, filePaths);
+        const nodes = await db.get_nodes_without_description(limit, repoPaths, filePaths, types, field);
         return nodes
           .filter((n) => !!n.ref_id)
           .map((n) => ({
             ref_id: n.ref_id!,
             labels: n.labels,
             name: String(n.properties.name ?? ""),
+            file: String(n.properties.file ?? ""),
             docs: String(n.properties.docs ?? ""),
             body: String(n.properties.body ?? ""),
           }));
       },
-      async writeDescriptions(batch) {
+      async contained(refIds, types, max) {
         const { db } = await import("../../graph/neo4j.js");
-        await db.bulk_update_descriptions(batch);
+        return db.get_contained_nodes(refIds, types, max);
+      },
+      async writeDescriptions(batch, field) {
+        const { db } = await import("../../graph/neo4j.js");
+        await db.bulk_update_descriptions(batch, field);
       },
     },
   };

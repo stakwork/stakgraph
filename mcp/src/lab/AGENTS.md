@@ -53,7 +53,8 @@ concepts, summarizes, and links to code files.
 - `concepts/steps/` — the in-code strut steps (one unit of work each).
 - `concepts/workflows/` — `process-change`, `process-repo-chronological`,
   `bootstrap-then-process` (the entry workflow), `describe-code`
-  (descriptions on code nodes; `params.model` defaults to `haiku`).
+  (a `description` on code nodes, then a `summary` on Files — File's Schema
+  indexes [name, summary]; `params.model` defaults to `haiku`).
 - `concepts/services.ts` — `ConceptServices` bag `{ storage, github(token),
   llm, summarizer, … }` injected via `ctx.services`. **No token in a
   workflow input**: a run's input and every step's config are written to

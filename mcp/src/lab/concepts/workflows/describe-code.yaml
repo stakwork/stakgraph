@@ -1,20 +1,37 @@
 name: describe-code
 # Write a short `description` on every code node (Class, Endpoint, Request,
 # Function, Datamodel, Page, Trait, Var) that has a body and none yet — what
-# mcp's POST /repo/describe did. One `llm` call per node, inside the one
-# step, so a run of thousands of nodes stays one event in the log.
+# mcp's POST /repo/describe did — then a short `summary` on every File that
+# has a body and none yet. One `llm` call per node, inside its step, so a run
+# of thousands of nodes stays a few events in the log.
 #
-# Nothing here embeds. Each code type's Schema `index` includes
-# `description`, and strut's embedding pass re-embeds a node into
-# `text_embeddings` once its search text changes, so a description is
-# searchable by graph/graph-search after the pass's next sweep.
+# File gets `summary`, not `description`: File's Schema `index` is
+# [name, summary], so that is what its search text is built from (with
+# neither, a File is searchable by its basename alone). The Files go second
+# so their prompt's {contains} — the Functions, Classes, … each one CONTAINS
+# — carries the descriptions the first step just wrote.
 #
-# Input:  { repo_url?, file_paths?, cost_limit? }
-# Output: { processed, failed, cost, stopped }
+# Nothing here embeds. Each type's Schema `index` includes the field written,
+# and strut's embedding pass re-embeds a node into `text_embeddings` once
+# its search text changes, so the text is searchable by graph/graph-search
+# after the pass's next sweep.
+#
+# Each step has its own cap: `cost_limit` for the code nodes,
+# `file_cost_limit` for the Files (`cost_limit`'s value when omitted), so a
+# run spends at most the two together. A swarm has thousands of Files, so a
+# backfill wants a larger `file_cost_limit` than the default; a step that
+# reaches its cap ends with stopped "cost_limit", and the next run picks up
+# the nodes still without one.
+#
+# Input:  { repo_url?, file_paths?, cost_limit?, file_cost_limit? }
+# Output: { processed, failed, cost, stopped, code, files } — both steps'
+#         totals (`stopped` is the first that is not "done"), then each
+#         step's own output.
 input:
   repo_url: { type: string, required: false, description: "GitHub URLs, comma-separated (https://github.com/owner/repo); every repo when omitted" }
   file_paths: { type: json, default: [], description: "file path suffixes to limit it to; every file when empty" }
-  cost_limit: { type: number, default: 0.5, description: "dollars; no new call starts once this much is spent" }
+  cost_limit: { type: number, default: 0.5, description: "dollars for the code nodes' descriptions; no new call starts once this much is spent" }
+  file_cost_limit: { type: number, required: false, description: "dollars for the File summaries; cost_limit's value when omitted" }
 params:
   # Any aieo model name the deployment can call (see GET /llm/models). The
   # default is one every deployment can, directly or through the actor's
@@ -33,6 +50,19 @@ params:
 
     Code:
     {code}
+  # {path} (the File's), {contains} (what it CONTAINS, one line each with its
+  # description) and {code} (the start of the file) are filled in per File.
+  file_prompt: |-
+    Please write a short, concise summary (1-3 sentences) of this file: what it is for and what it exports or defines.
+    Do not include the code itself in the summary, and do not just list the names below.
+
+    Path: {path}
+
+    Contains:
+    {contains}
+
+    Start of the file:
+    {code}
 steps:
   - id: describe
     type: concepts/describe-code
@@ -44,3 +74,24 @@ steps:
       prompt: "{{ params.prompt }}"
       batchSize: "{{ params.batch_size }}"
       concurrency: "{{ params.concurrency }}"
+  - id: describe_files
+    type: concepts/describe-code
+    config:
+      types: [File]
+      field: summary
+      repoUrl: "{{ input.repo_url }}"
+      filePaths: "{{ input.file_paths }}"
+      costLimit: "{{ input.file_cost_limit || input.cost_limit }}"
+      model: "{{ params.model }}"
+      prompt: "{{ params.file_prompt }}"
+      batchSize: "{{ params.batch_size }}"
+      concurrency: "{{ params.concurrency }}"
+  - id: result
+    type: pack
+    config:
+      processed: "{{ describe.processed + describe_files.processed }}"
+      failed: "{{ describe.failed + describe_files.failed }}"
+      cost: "{{ describe.cost + describe_files.cost }}"
+      stopped: "{{ describe.stopped === 'done' ? describe_files.stopped : describe.stopped }}"
+      code: "{{ describe }}"
+      files: "{{ describe_files }}"
