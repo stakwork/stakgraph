@@ -26,6 +26,12 @@ once, so the repositories start at the base branch. To revise a pull
 request on a pod that was released in between, claim again and give
 `latest` the pull request's branch as `base_branch`.
 
+When the app does not run in the pod, or must run differently for this
+request — with mocks, an env var changed, an extra service beside it —
+open this page's child `Pod Config` (PARENT_OF from here): how to fix the
+pod's setup in the pod, and when and how the fix reaches every pod of the
+workspace. Checking such a fix is the one time a job holds a second pod.
+
 Hand the work to the agent in the pod with the task standing alone (the
 repository, the files or area, the exact change, what to check, the
 conventions to match) — it sees nothing of this conversation, and cannot

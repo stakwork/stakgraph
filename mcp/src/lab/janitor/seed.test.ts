@@ -11,6 +11,7 @@ import { seedArtifactSteps } from "../artifacts/seed.js";
 import { parseConceptFile, planConceptSeed, retireConcept, seedConcepts, stampOf } from "../concept-seed.js";
 import { CODE_CONCEPTS } from "../code/seed.js";
 import { JOB_CONCEPTS } from "../job/seed.js";
+import { POD_CONCEPTS } from "../pods/seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
 import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
 import { SEED_OPTS } from "../seed-opts.js";
@@ -115,6 +116,19 @@ describe("parseConceptFile", () => {
     for (const needle of [/code-change-pr/, /meta\/get-workflow/, /same `branch`/, /no_push_permission:/, /pull_request/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /cannot read your directory/, /`Explore`/]) assert.match(cc.docs!, needle);
     assert.doesNotMatch(cc.docs!, /pod-pr|hive\//, "workspace-general: no one swarm's workflow or step by name");
 
+    // Pod Config: under Pod, how a pod is made to run the app, and how a fix there reaches every pod.
+    const pod = await read(POD_CONCEPTS, "Pod.md");
+    assert.equal(pod.parent, "Code Change");
+    assert.match(pod.docs!, /child `Pod Config`/);
+    const pc = await read(POD_CONCEPTS, "Pod Config.md");
+    assert.equal(pc.name, "Pod Config");
+    assert.equal(pc.parent, "Pod");
+    assert.match(pc.stamp, /^lab\/pods\/concepts\/Pod Config\.md@[0-9a-f]{12}$/);
+    assert.ok(pc.docs!.startsWith(pc.description!));
+    // Look first, the in-pod knowledge, ask before promoting, verify on a fresh pod, report what a later job finds.
+    for (const needle of [/job\/list \{ q: "pod config <workspace>" \}/, /staklink reload/, /pm2 stop all/, /0\.0\.0\.0/, /pod\/config \{ workspace, control, sealed \}/, /`ask`/, /pod\/config-set/, /fresh: true/, /pull request merges/, /id: "pod-config"/, /devcontainer\.json/, /No credential is promoted/]) assert.match(pc.docs!, needle);
+    assert.deepEqual(await readdir(POD_CONCEPTS.dir), ["Pod Config.md", "Pod.md"]);
+
     // What counts as dirty is each workspace's to say: the seed ships the kind, never a mandate.
     assert.deepEqual(await readdir(JANITOR_CONCEPTS.dir), ["Janitor.md"]);
     assert.deepEqual(JANITOR_CONCEPTS.retired, ["Overfit Concept Janitor.md"]);
@@ -125,7 +139,7 @@ describe("parseConceptFile", () => {
 
   it("what ships to every workspace says nothing about one workspace's domain", async () => {
     const domain = /\b(law|legal|rubric|evals?|benchmark|exam|grading|overfit)\b/i;
-    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]) {
+    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS]) {
       for (const file of await readdir(set.dir)) {
         const c = await read(set, file);
         for (const text of [c.name, c.description ?? "", c.docs ?? ""]) assert.doesNotMatch(text, domain, `${file}`);
