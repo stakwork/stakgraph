@@ -26,7 +26,8 @@ import type { ConceptSet } from "../concept-seed.js";
  *    released with it, its frontend the hold's url — and `browser/verify`
  *    (browser/seed.ts), the page instrument a claim's check names (strut
  *    plans/job-claims.md §4), a tool too, so the agent sees what the check
- *    will see. Strut's own list (graph reads, the meta/* read + run tools,
+ *    will see; `browser/walkthrough`, the same with a frame per step, for
+ *    a feature that is a flow (strut plans/live-artifacts.md §4). Strut's own list (graph reads, the meta/* read + run tools,
  *    the claim tools + meta/verify-job + http/verify, strut/run-workflow,
  *    the job/* reads) is already in the YAML.
  *  - `system`: open the `Job` Concept first (JOB_CONCEPTS, below) — WHICH
@@ -35,7 +36,7 @@ import type { ConceptSet } from "../concept-seed.js";
  *    `Pod` says when a sandbox is warranted, `Plan Mode` says how to plan.
  */
 export const JOB_SEED: JobSeedOptions = {
-  tools: ["pod/*", "browser/verify"],
+  tools: ["pod/*", "browser/verify", "browser/walkthrough"],
   system: `Before you act on a message, open the \`Job\` Concept: graph/graph-get
 with node_type "Concept", name "Job", children "PARENT_OF". Its
 children are the kinds of work this workspace has a way to do, each a

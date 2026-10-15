@@ -36,8 +36,9 @@ import state from "./steps/state.js";
 import close from "./steps/close.js";
 import capture from "./steps/capture.js";
 import verify from "./steps/verify.js";
+import walkthrough from "./steps/walkthrough.js";
 
-const STEPS = { open, goto, snapshot, click, fill, type: type_, press, select, hover, scroll, wait, text, screenshot, evaluate, observe, back, state, close, capture, verify };
+const STEPS = { open, goto, snapshot, click, fill, type: type_, press, select, hover, scroll, wait, text, screenshot, evaluate, observe, back, state, close, capture, verify, walkthrough };
 
 const NAV = { url: "https://example.com/", title: "Example Domain", status: 200 };
 const SHOT = { path: "shots/001.png", dir: "/art/r1", url: "/artifacts/r1/shots/001.png", width: 1280, height: 800, bytes: 4321, small: Buffer.from("png") };
@@ -50,6 +51,18 @@ const VERDICT = {
   errors: [],
   pageUrl: "https://pod.example/settings",
   title: "Settings",
+};
+
+/** A refuting walkthrough: two frames, the manifest as the locator. */
+const WALKED = {
+  ...VERDICT,
+  path: "walkthroughs/001/walkthrough.json",
+  url: "/artifacts/r1/walkthroughs/001/walkthrough.json",
+  frames: [
+    { file: "01.png", caption: "Open settings", url: "/artifacts/r1/walkthroughs/001/01.png" },
+    { file: "02.png", caption: "Stopped at step 1", url: "/artifacts/r1/walkthroughs/001/02.png" },
+  ],
+  small: Buffer.from("png"),
 };
 
 /** Records every verb call; each verb returns a canned output. */
@@ -81,6 +94,7 @@ class FakeBrowser {
   async closeRun(runId: string) { return this.rec("close", runId, [], { ok: true as const }); }
   async capture(runId: string, input: unknown, artifacts: unknown) { return this.rec("capture", runId, [input, artifacts], { ...SHOT, errors: ["http: 500 GET /api"], pageUrl: "https://example.com/after", title: "After" }); }
   async verify(runId: string, input: unknown, sink: unknown) { return this.rec("verify", runId, [input, sink], { ...SHOT, ...VERDICT }); }
+  async walkthrough(runId: string, input: unknown, sink: unknown) { return this.rec("walkthrough", runId, [input, sink], WALKED); }
 }
 
 const artifacts = { tag: "artifacts" };
@@ -276,6 +290,52 @@ test("verify forwards its list and expectations, and answers in the check contra
   });
   assert.equal(verify.input.safeParse({ url: "https://x", steps: [{ do: "screenshot" }] }).success, false, "capture's verbs only");
   assert.equal(verify.input.safeParse({ url: "https://x", expect: { text: "one" } }).success, false, "text is a list");
+});
+
+test("walkthrough forwards its list with captions, answers in the check contract with the manifest as the locator, and shows the model the last frame", async () => {
+  const browser = new FakeBrowser();
+  const input = {
+    url: "https://pod.example/settings",
+    title: "Switch billing to annual",
+    caption: "Open settings",
+    steps: [{ do: "click", selector: "text=Billing", caption: "Billing" }, { do: "wait", text: "Plan" }],
+    wait: 100,
+    expect: { text: ["Billed yearly"] },
+  };
+  const raw = await walkthrough.run(walkthrough.input.parse(input), ctxFor(browser));
+  assert.equal(browser.calls[0]!.verb, "walkthrough");
+  assert.deepEqual(browser.calls[0]!.args, [input, sink]);
+  const media = mediaOf(raw);
+  assert.deepEqual(media?.map((m) => [m.mediaType, m.filename]), [["image/png", "02.png"]], "one frame, the last");
+  assert.ok(!JSON.stringify(raw).includes("small"));
+  const out = walkthrough.output.parse(raw);
+  assert.deepEqual(out, {
+    ...VERDICT,
+    locator: { path: WALKED.path, url: WALKED.url },
+    kind: "walkthrough",
+    frames: WALKED.frames,
+  });
+  assert.deepEqual(mapCheckResult("browser/walkthrough", { status: "success", output: out }), {
+    kind: "evidence",
+    supports: false,
+    content: VERDICT.content,
+    locator: { path: WALKED.path, url: WALKED.url },
+  });
+  assert.equal(walkthrough.input.safeParse({ url: "https://x", steps: [{ do: "screenshot" }] }).success, false, "capture's verbs only");
+  assert.equal(walkthrough.input.safeParse({ url: "https://x", steps: [{ do: "click", selector: "a", caption: 3 }] }).success, false, "a caption is text");
+});
+
+test("on a job whose host listens, the sink carries notify — bound to the job and the run — so each shot reaches the host as it lands", async () => {
+  const browser = new FakeBrowser();
+  const base = ctxFor(browser);
+  const told: Array<{ job: string; update: Record<string, unknown> }> = [];
+  const ctx: Ctx = { ...base, job: "job-1", services: { ...base.services, dataDir: "/data", jobs: { notify: (job: string, update: Record<string, unknown>) => void told.push({ job, update }) } as never } };
+  await screenshot.run(screenshot.input.parse({}), ctx);
+  const s = browser.calls[0]!.args[1] as { notify?: (u: Record<string, unknown>) => void; job?: unknown };
+  assert.deepEqual(s.job, { name: "job-1", root: jobRoot("/data", "job-1") });
+  assert.equal(typeof s.notify, "function");
+  s.notify!({ kind: "image", url: "/jobs/job-1/files/shots/001.png", state: "done" });
+  assert.deepEqual(told, [{ job: "job-1", update: { runId: "r1", kind: "image", url: "/jobs/job-1/files/shots/001.png", state: "done" } }]);
 });
 
 test("a failing verb throws through the step (a declared workflow must fail loudly)", async () => {

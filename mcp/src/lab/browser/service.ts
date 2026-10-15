@@ -39,6 +39,7 @@ import type { Browser, BrowserContext, BrowserContextOptions, Page, Locator } fr
 import type { ArtifactsCapability } from "strut";
 import { settle as settlePage, sleep } from "./settle.js";
 import { saveShot, type Shot, type ShotSink } from "./shot.js";
+import { Recording, type WalkthroughFrame } from "./walkthrough.js";
 import { parseDenyList, denyReason, type DenyRule } from "./deny.js";
 import { judgeVerify, urlMatches, type Expectation, type StoppedAt, type Verdict } from "./verdict.js";
 
@@ -106,6 +107,21 @@ export interface VerifyExpect {
 
 /** `verify`'s answer: the shot where the page got to, the verdict, and what was seen. */
 export type Verified = Shot & Verdict & { small: Buffer; errors: string[]; pageUrl: string; title: string };
+
+/** `walkthrough`'s answer: `verify`'s verdict, the recording's manifest as
+ *  the locator, its frames, and the model's copy of the last one. */
+export type Walked = Verdict & {
+  path: string;
+  url: string;
+  frames: Array<{ file: string; caption: string; url: string }>;
+  small: Buffer;
+  errors: string[];
+  pageUrl: string;
+  title: string;
+};
+
+/** A walkthrough step: a capture verb, and a caption when it earns a frame. */
+export type WalkthroughStep = CaptureStep & { caption?: string };
 
 /** The verbs a `capture` list may name — everything that drives the page
  *  the run already has; `open`/`close`/`screenshot` are the compound's own. */
@@ -597,6 +613,73 @@ export class BrowserService {
     const expectations = await this.call(runId, "verify", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
     const pageUrl = page.url();
     return { ...shot, ...judgeVerify({ status, stopped, pageUrl, expectations }), errors, pageUrl, title: await page.title() };
+  }
+
+  /**
+   * `verify` with a frame per captioned step (strut plans/live-artifacts.md
+   * §4): open → frame 1 (the opened page) → each step, and after each one
+   * that has a `caption` a frame → settle → judge, exactly as `verify` does.
+   * The frames and a manifest are a new directory under the sink's root
+   * (walkthrough.ts), told to the job's host as they land. A step that
+   * fails, or an expectation that does not hold, ends the recording
+   * `stopped` on a last frame of where the page got to, marked with why.
+   * Every verb is checked before anything runs; only the instrument failing
+   * throws, as for `verify`.
+   */
+  async walkthrough(
+    runId: string,
+    input: { url: string; title?: string; caption?: string; steps?: WalkthroughStep[]; wait?: number; expect?: VerifyExpect; viewport?: Viewport; timeoutMs?: number },
+    sink: ShotSink,
+  ): Promise<Walked> {
+    const steps = input.steps ?? [];
+    const bad = steps.findIndex((s) => !(CAPTURE_VERBS as readonly string[]).includes(s.do));
+    if (bad >= 0) throw new Error(`walkthrough: step ${bad + 1}: unknown verb "${steps[bad]!.do}" (one of ${CAPTURE_VERBS.join(", ")})`);
+    const { status } = await this.open(runId, { url: input.url, viewport: input.viewport, timeoutMs: input.timeoutMs });
+    // Read fresh each time: a step that opens a popup replaces the run's page.
+    const page = () => this.live(runId).page;
+    const rec = await Recording.start(sink, { ...(input.title ? { title: input.title } : {}), url: input.url });
+    const frames: Walked["frames"] = [];
+    let small: Buffer | undefined;
+    const frame = async (caption: string, step?: Record<string, unknown>) => {
+      await settlePage(page(), input.wait);
+      const png = await this.call(runId, "screenshot", input.timeoutMs, (s, ms) => s.page.screenshot({ type: "png", scale: "css", timeout: ms }));
+      const f: Omit<WalkthroughFrame, "file" | "ms"> = { caption, pageUrl: page().url(), ...(step ? { step } : {}) };
+      const added = await rec.addFrame(png, f);
+      frames.push({ file: added.file, caption, url: added.url });
+      small = added.small;
+    };
+    await frame(input.caption || (await page().title()) || input.url);
+
+    let stopped: StoppedAt | undefined;
+    let framedLast = steps.length === 0;
+    for (const [i, raw] of steps.entries()) {
+      const { caption, ...step } = raw;
+      const s = (step.do === "wait" && step["timeoutMs"] === undefined ? { ...step, timeoutMs: VERIFY_WAIT_MS } : step) as CaptureStep;
+      const r = await this.drive(runId, [s], "walkthrough");
+      if (r.stopped) {
+        stopped = { ...r.stopped, step: i + 1 };
+        break;
+      }
+      framedLast = typeof caption === "string" && caption !== "";
+      if (framedLast) await frame(caption as string, step);
+    }
+    const errors = flattenObs(this.observe(runId));
+    const expectations = await this.call(runId, "walkthrough", input.timeoutMs, (s) => expectationsOn(s.page, input.expect ?? {}, errors));
+    const pageUrl = page().url();
+    const verdict = judgeVerify({ status, stopped, pageUrl, expectations });
+    // Where the page got to, unless the last step's frame already shows it.
+    if (stopped || !framedLast) await frame(stopped ? `Stopped at step ${stopped.step}` : (await page().title()) || pageUrl);
+    await rec.finish(verdict.failed);
+    return {
+      ...verdict,
+      path: rec.path,
+      url: rec.url,
+      frames,
+      small: small!,
+      errors,
+      pageUrl,
+      title: await page().title(),
+    };
   }
 
   // ── internals ────────────────────────────────────────────────────────────

@@ -72,13 +72,19 @@ export function artifactsOf(ctx: Ctx): NonNullable<StrutCapabilities["artifacts"
  * out (`<dataDir>/jobs/<job>`, with job/dir's fallback when the host set no
  * `dataDir`). A job's host reads a file off the swarm by the job or by a run
  * id it launched; a child run (meta/run-workflow from a job turn) has a run
- * id the host never saw, so its shots must be job files to reach it.
+ * id the host never saw, so its shots must be job files to reach it. On a
+ * job run the sink also carries `notify`, so the host hears each one land.
  */
 export function shotSinkOf(ctx: Ctx): ShotSink {
   const sink: ShotSink = { artifacts: artifactsOf(ctx), runId: ctx.runId };
   if (ctx.job) {
     const dataDir = ctx.services?.dataDir ?? join(tmpdir(), "strut");
     sink.job = { name: ctx.job, root: jobRoot(dataDir, ctx.job) };
+    // The job's host hears each shot as it lands, when it asked to (strut
+    // plans/live-artifacts.md §3): a no-op without a `jobCallback`.
+    const jobs = ctx.services?.jobs;
+    const job = ctx.job;
+    if (jobs?.notify) sink.notify = (update) => jobs.notify!(job, { runId: ctx.runId, ...update });
   }
   return sink;
 }
