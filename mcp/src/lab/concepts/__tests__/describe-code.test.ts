@@ -145,6 +145,7 @@ test("refuses a field other than description or summary", () => {
   assert.throws(() => cfg({ field: "name" }), /description|summary/);
   assert.throws(() => cfg({ field: "body" }));
   assert.throws(() => cfg({ types: [] }));
+  assert.throws(() => cfg({ types: ["File) OR (1=1"] }), /a node label/);
 });
 
 test("stops instead of paying again for a node whose write did not take", async () => {

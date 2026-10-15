@@ -105,7 +105,11 @@ export default defineStep({
       .array(z.string())
       .default([])
       .describe("file path suffixes to limit it to; empty for every file"),
-    types: z.array(z.string().min(1)).min(1).default(CODE_TYPES).describe("the node labels to describe"),
+    types: z
+      .array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "a node label"))
+      .min(1)
+      .default(CODE_TYPES)
+      .describe("the node labels to describe"),
     field: z
       .enum(FIELDS)
       .default("description")

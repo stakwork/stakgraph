@@ -1313,13 +1313,13 @@ class Db {
     field: string = "description",
   ): Promise<Neo4jNode[]> {
     const prop = Q.descriptionField(field);
+    const query = Q.nodesWithoutDescriptionQuery(labels);
     const session = this.resilientSession();
     try {
-      const result = await session.run(Q.GET_NODES_WITHOUT_DESCRIPTION_QUERY, {
+      const result = await session.run(query, {
         limit: neo4j.int(limit),
         repo_paths: repo_paths || [],
         file_paths,
-        labels,
         field: prop,
       });
       return result.records.map((record) => ({

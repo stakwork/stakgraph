@@ -1251,10 +1251,24 @@ export function descriptionField(field: string): DescriptionField {
   throw new Error(`not a description field: "${field}" (one of ${DESCRIPTION_FIELDS.join(", ")})`);
 }
 
-/** Nodes with one of `$labels`, a body, and an empty `$field`. */
-export const GET_NODES_WITHOUT_DESCRIPTION_QUERY = `
+const LABEL = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** `(n:A OR n:B …)` for `labels`, so the read uses label scans —
+ *  `ANY(label IN labels(n) …)` scans every node in the graph. A label can't be
+ *  a Cypher parameter before Neo4j 5.26, so each one must be a plain
+ *  identifier; anything else is refused, never interpolated. */
+export function labelPredicate(variable: string, labels: string[]): string {
+  if (labels.length === 0) throw new Error("no labels to match");
+  for (const label of labels) {
+    if (!LABEL.test(label)) throw new Error(`not a node label: "${label}"`);
+  }
+  return `(${labels.map((label) => `${variable}:${label}`).join(" OR ")})`;
+}
+
+/** Nodes with one of `labels`, a body, and an empty `$field`. */
+export const nodesWithoutDescriptionQuery = (labels: string[]) => `
 MATCH (n)
-WHERE ANY(label IN labels(n) WHERE label IN $labels)
+WHERE ${labelPredicate("n", labels)}
   AND (n[$field] IS NULL OR n[$field] = '')
   AND n.body IS NOT NULL
   AND n.body <> ''
@@ -1300,7 +1314,8 @@ SET n += item.props
 `;
 
 /** What each of `$ref_ids` CONTAINS among `$labels`, in file order: how many,
- *  and the first `$max` with their name and description. */
+ *  and the first `$max` with their name and description. It starts from each
+ *  ref_id, so the label filter only sees that node's children. */
 export const GET_CONTAINED_NODES_QUERY = `
 UNWIND $ref_ids AS ref_id
 MATCH (:Data_Bank {ref_id: ref_id})-[:CONTAINS]->(c)

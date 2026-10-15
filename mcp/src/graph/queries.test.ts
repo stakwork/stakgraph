@@ -18,7 +18,8 @@ import assert from "node:assert/strict";
 import {
   listQueryForLabel,
   descriptionField,
-  GET_NODES_WITHOUT_DESCRIPTION_QUERY,
+  nodesWithoutDescriptionQuery,
+  DESCRIBED_LABELS,
   BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY,
 } from "./queries.js";
 import { epochValueToMs } from "./time.js";
@@ -106,11 +107,25 @@ describe("listQueryForLabel $since filter (post toFloat removal)", () => {
 });
 
 describe("describe-code's read and write", () => {
-  it("takes the labels and the field as parameters", () => {
-    assert.match(GET_NODES_WITHOUT_DESCRIPTION_QUERY, /label IN \$labels/);
-    assert.match(GET_NODES_WITHOUT_DESCRIPTION_QUERY, /n\[\$field\] IS NULL OR n\[\$field\] = ''/);
-    assert.doesNotMatch(GET_NODES_WITHOUT_DESCRIPTION_QUERY, /n:Function|n\.description/);
+  it("matches the labels with label predicates and takes the field as a parameter", () => {
+    // the default is the predicate /repo/describe always ran
+    assert.match(
+      nodesWithoutDescriptionQuery(DESCRIBED_LABELS),
+      /WHERE \(n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var\)\n/,
+    );
+    const files = nodesWithoutDescriptionQuery(["File"]);
+    assert.match(files, /WHERE \(n:File\)\n/);
+    assert.match(files, /n\[\$field\] IS NULL OR n\[\$field\] = ''/);
+    assert.doesNotMatch(files, /IN labels\(n\)|n\.description/);
     assert.match(BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY, /SET n \+= item\.props/);
+  });
+
+  it("refuses a label that is not a plain identifier", () => {
+    for (const bad of ["File) OR (1=1", "File:Data_Bank", "`File`", "File ", "1File", "Fi-le", ""]) {
+      assert.throws(() => nodesWithoutDescriptionQuery([bad]), /not a node label/);
+    }
+    assert.throws(() => nodesWithoutDescriptionQuery(["File", "x}) DETACH DELETE n //"]), /not a node label/);
+    assert.throws(() => nodesWithoutDescriptionQuery([]), /no labels/);
   });
 
   it("writes description or summary and refuses any other property", () => {
