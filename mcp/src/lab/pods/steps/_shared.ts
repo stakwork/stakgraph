@@ -99,6 +99,33 @@ export async function podCall(
   return res;
 }
 
+/** Like podCall, for a route that answers with raw bytes (GET /file). Uses
+ *  `fetch` — the step http service decodes bodies as JSON or text. Same auth
+ *  and the same errors: the route, never the password. */
+export async function podBytes(
+  ctx: PodCtx,
+  control: string,
+  sealed: string,
+  path: string,
+  timeout = 60_000,
+): Promise<{ status: number; ok: boolean; bytes: Buffer; text: string }> {
+  const password = await unseal(ctx, sealed);
+  const url = `${String(control).replace(/\/+$/, "")}${path}`;
+  let res: Response;
+  let buf: Buffer;
+  try {
+    res = await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${password}` }, signal: AbortSignal.timeout(timeout) });
+    buf = Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    const why = message(err).split(password).join("[password]");
+    throw new Error(`GET ${url} failed — ${why}; is the pod's control URL reachable?`);
+  }
+  if (res.status === 401) {
+    throw new Error(`GET ${url}: 401 — the pod rejected its password (released and re-claimed? claim again)`);
+  }
+  return { status: res.status, ok: res.ok, bytes: buf, text: res.ok ? "" : buf.toString("utf-8").slice(0, 400) };
+}
+
 /** Staklink's one job shape: a request submitted now, polled until it settles. */
 export interface Progress {
   status: "pending" | "completed" | "failed";

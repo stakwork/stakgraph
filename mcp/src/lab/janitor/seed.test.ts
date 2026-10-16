@@ -104,7 +104,7 @@ describe("parseConceptFile", () => {
     // The entry page knows the workspaces and the peer step, still no kind.
     for (const needle of [/strut\/run-workflow/, /@<slug>/, /own agent/]) assert.match(job.docs!, needle);
     assert.doesNotMatch(job.docs!, /\bverify\b/i, "the entry page knows no kind by name");
-    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Plan Mode.md", "Verify.md"]);
+    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Captcha.md", "Explore.md", "Job.md", "Plan Mode.md", "Verify.md"]);
 
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
@@ -757,7 +757,7 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
 // A deployed graph has `Code Change` under `Workflow Builder` (the tree before
 // `Job`): the next boot moves it under `Job` and drops the old edge.
 describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }, () => {
-  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change", "Explore", "Verify"];
+  const NAMES = ["Workflow Builder", "Janitor", "Job", "Plan Mode", "Code Change", "Explore", "Verify", "Captcha"];
   let root: string;
   let ws: import("strut").WorkspaceStore;
   const edges = async (parent: string) =>
@@ -798,7 +798,7 @@ describe("the Job tree on a graph seeded before it (live graph)", { skip: !URI }
 
     await seedConcepts(ws, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS]);
     assert.deepEqual(await edges("Workflow Builder"), ["Janitor"]);
-    assert.deepEqual(await edges("Job"), ["Code Change", "Explore", "Plan Mode", "Verify"]);
+    assert.deepEqual(await edges("Job"), ["Captcha", "Code Change", "Explore", "Plan Mode", "Verify"]);
   });
 });
 

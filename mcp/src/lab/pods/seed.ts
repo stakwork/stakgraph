@@ -71,6 +71,8 @@ export const SEED_STEPS = [
   "diff",
   "branch-diff",
   "push",
+  // a file out of the pod's staklink files dir, into the job's directory
+  "file",
   // the pod's own test commands (`run-tests`, not `test`: the graph keys a
   // step by its name with every separator stripped, so `pod/test` would
   // collide with a custom `pod_test` a workspace may already hold)

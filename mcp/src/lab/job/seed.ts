@@ -48,5 +48,5 @@ is yours — a plan, a page, notes — as files in your directory.`,
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** The `Job` page the job agent opens every turn, and under it `Plan Mode`, `Explore` and `Verify`; `Code Change` (CODE_CONCEPTS) is a child too. */
+/** The `Job` page the job agent opens every turn, and under it `Plan Mode`, `Explore`, `Verify` and `Captcha`; `Code Change` (CODE_CONCEPTS) is a child too. */
 export const JOB_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/job/concepts/" };
