@@ -12,6 +12,7 @@ import { parseConceptFile, planConceptSeed, retireConcept, seedConcepts, stampOf
 import { CODE_CONCEPTS } from "../code/seed.js";
 import { JOB_CONCEPTS } from "../job/seed.js";
 import { POD_CONCEPTS } from "../pods/seed.js";
+import { POD_SETUP_CONCEPTS } from "../pod-setup/seed.js";
 import { BUILDER_CONCEPTS, BUILDER_ENTRY, builderSystem, renderBuilderSystem } from "../builder/system.js";
 import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
 import { SEED_OPTS } from "../seed-opts.js";
@@ -104,7 +105,15 @@ describe("parseConceptFile", () => {
     // The entry page knows the workspaces and the peer step, still no kind.
     for (const needle of [/strut\/run-workflow/, /@<slug>/, /own agent/]) assert.match(job.docs!, needle);
     assert.doesNotMatch(job.docs!, /\bverify\b/i, "the entry page knows no kind by name");
-    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Plan Mode.md", "Verify.md"]);
+    // Onboarding: a kind under Job — draft with identify-services, write it to the pool without waiting, run it in the
+    // pod the job holds, check it, fix it there; the fresh-pod check only after a fix made by hand (strut plans/onboarding.md).
+    const ob = await read(JOB_CONCEPTS, "Onboarding.md");
+    assert.equal(ob.parent, "Job");
+    assert.ok(ob.docs!.startsWith(ob.description!));
+    for (const needle of [/pod\/claim \{ workspace \}/, /"identify-services"/, /wait: false/, /pod\/config-apply/, /Do not ask first/, /meta\/verify-job/, /fresh: true/, /`Pod Config`/]) {
+      assert.match(ob.docs!, needle);
+    }
+    assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Job.md", "Onboarding.md", "Plan Mode.md", "Verify.md"]);
 
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
@@ -140,7 +149,7 @@ describe("parseConceptFile", () => {
 
   it("what ships to every workspace says nothing about one workspace's domain", async () => {
     const domain = /\b(law|legal|rubric|evals?|benchmark|exam|grading|overfit)\b/i;
-    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS]) {
+    for (const set of [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]) {
       for (const file of await readdir(set.dir)) {
         const c = await read(set, file);
         for (const text of [c.name, c.description ?? "", c.docs ?? ""]) assert.doesNotMatch(text, domain, `${file}`);
