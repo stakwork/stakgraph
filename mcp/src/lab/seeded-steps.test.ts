@@ -8,12 +8,10 @@ import { seedEvalSteps } from "./eval/seed.js";
 import { seedConceptSteps } from "./concepts/seed.js";
 import { seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
-import { seedSheetsSteps } from "./sheets/seed.js";
 import { seedHarveySteps } from "./harvey/seed.js";
 import { seedGaiaSteps } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps } from "./wfbench/seed.js";
-import { seedBrowserSteps } from "./browser/seed.js";
 import { seedPodSteps } from "./pods/seed.js";
 import { seedExploreSteps } from "./explore/seed.js";
 import { seedPodSetupSteps } from "./pod-setup/seed.js";
@@ -32,12 +30,10 @@ describe("seeded lab steps", () => {
         seedConceptSteps,
         seedGitseeSteps,
         seedJarvisSteps,
-        seedSheetsSteps,
         seedHarveySteps,
         seedGaiaSteps,
         seedArtifactSteps,
         seedWfbenchSteps,
-        seedBrowserSteps,
         seedPodSteps,
         seedExploreSteps,
         seedPodSetupSteps,

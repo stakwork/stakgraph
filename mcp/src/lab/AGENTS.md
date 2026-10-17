@@ -376,164 +376,32 @@ need `NEO4J_URI` (+ `NEO4J_USER`/`NEO4J_PASSWORD`) in the env or secret
 store. A workflow swaps backends by step type (`jarvis/graph-search` ↔
 `graph/graph-search`); grant with `agentTools: ["graph/*"]`.
 
-### `sheets/` — Google Sheets steps (NOT an experiment)
+### `sheets/*` and `browser/*` — strut's lib steps now (no lab code)
 
-Self-contained ports of the mcp repo-agent's Google Sheets tools
-(`mcp/src/repo/toolsGoogleSheets.ts` — untouched; it stays the production
-repo-agent implementation) as seeded strut steps — same Sheets/Drive REST
-endpoints, same schemas, same LLM-facing descriptions — so workflows (and
-agent steps) can create spreadsheets and read/write cell values and live
-formulas.
+The Google Sheets steps (`sheets/*`) and the browser steps (`browser/*`,
+`ctx.services.browser`, and the `browser-capture` / `browser-explore` /
+`browser-watch` workflows) moved into strut (stakwork/strut#200, #201); see
+strut's AGENTS.md for both. The lab keeps no copy:
 
-- **Steps:** `sheets/create-spreadsheet`, `sheets/update-values`,
-  `sheets/batch-update-values`, `sheets/get-values`, `sheets/add-sheet`,
-  `sheets/import-spreadsheet` (best-effort per-sheet import of an .xlsx or
-  native Sheet into a destination spreadsheet, with auto-conversion,
-  collision-suffixed tab names, and cross-sheet-formula warnings).
-- **Config resolution:** `cfg.serviceAccount` (explicit step config — parsed
-  JSON, JSON string, or base64 JSON) wins, else the
-  `GOOGLE_SERVICE_ACCOUNT_JSON` secret (secret store → env fallback); same
-  for `cfg.driveFolderId` / `GOOGLE_DRIVE_FOLDER_ID` (spreadsheets are
-  created inside that folder — share it with the service account's
-  client_email so humans can see agent-created sheets). Auth is a plain
-  service-account JWT flow: an RS256 assertion built with `node:crypto` (no
-  jsonwebtoken/axios deps), exchanged at the SA's `token_uri` for a bearer
-  token (scopes `spreadsheets` + `drive`), cached per step module with 60s
-  expiry slack. Everything goes through `ctx.services.http` +
-  `ctx.services.secrets`, so runs are cassette-recordable and credentials
-  are scrubbed from fixtures. Steps are ALWAYS seeded; without
-  `GOOGLE_SERVICE_ACCOUNT_JSON` they fail loudly per run rather than
-  silently missing. API errors come back as teaching strings (e.g. a 403 on
-  create names the folder and client_email to share it with), never throws
-  at the LLM.
-- **Granting to agents:** `agentTools: ["sheets/*"]` (glob, strut-core
-  `expandAgentTools`) for everything, or an explicit subset — e.g. a
-  read-only child gets just `sheets/get-values`.
-- **Self-contained duplication is deliberate:** each step file inlines its
-  `sheetsCtx` auth/request preamble (seeded steps may only value-import
-  `"strut"` + node builtins); the contract is documented once in
-  `sheets/steps/_shared.ts` — change it there AND in every step.
-- **Smoke:** `npx tsx src/lab/sheets/smoke.ts` — offline; seeds into a temp
-  workspace, verifies registry discovery, then runs every step against a
-  fake `ctx.services.http` Google (real RSA keypair so the JWT signature is
-  verified; covers token caching, bearer headers, round-trip shapes, the
-  loud missing-credentials error, and a teaching-error case). No live
-  Google call has been made yet — end-to-end verification with a real
-  service account is pending.
-
-### `browser/` — browser use (NOT an experiment)
-
-Every Playwright call is one seeded step, `browser/*`, over a service on the
-bag (`ctx.services.browser`). The same steps are an agent's tools
-(`agentTools: ["browser/*"]`, `browser/click` → `browser_click`), so a
-workflow can drive a page by a route its author wrote down, or hand the
-browser to an agent that looks and decides. Unrelated to the gitsee harness,
-whose `gitsee/browser-*` steps launch a chromium of their own inside this
-process for the QA loop.
-
-- **The browser is another container.** On a swarm it is the `browser` node
-  (`ghcr.io/stakwork/strut-browser`, a Playwright server built from
-  `images/browser` in the strut repo), on a docker network of its own that
-  this host joins as a second one. sphinx-swarm sets `BROWSER_WS_URL` and
-  `BROWSER_WS_PATH` here; the path is the secret half of the address. The
-  server refuses a client on another Playwright major.minor, so
-  `playwright-core` in `package.json` and that image are bumped together.
-  `@playwright/test` (gitsee, the e2e tests) is a separate, older copy and
-  is not what these steps use.
-- **`browser/service.ts` — `BrowserService`** (in-code, merged into
-  `LabServices` by `createLabStrut`; NOT seeded). One lazy connection for
-  the host; one `BrowserContext` + page per run, keyed by `runId`, with its
-  own cookies and storage, closed by `services.onRunEnd`, so no step
-  carries teardown and runs never see each other. Every verb is a method
-  here and a step is a thin wrapper, because a seeded step can import only
-  `strut`. `playwright-core` and `sharp` are imported on first use: a lab
-  that never opens a browser loads neither, and a missing native binary
-  fails a screenshot, not the boot. A bad `BROWSER_*` value is a warning at
-  boot and leaves the bag without a browser; the steps then say so.
-- **One page per run.** Steps of different runs are independent. Steps of
-  the SAME run share its page, so two that run at once (a step with
-  `depends: []`, a `foreach` with `concurrency` above 1, an agent's
-  parallel tool calls) drive one page together. Keep a run's browser steps
-  in sequence. The checks are the exception: `verify` and `walkthrough`
-  each run in a session of their OWN under the run (a fresh context, no
-  cookies or storage from the run's page, closed when the check ends,
-  spending the run's budget), because strut's verify pass replays a check
-  in a run of its own — so mid-turn the agent sees what the pass will see,
-  and one recording's sign-in never leaks into the next. Their lists are
-  checked before anything opens (`checkSteps`: each verb known, each step
-  given what its verb needs). A `wait` on a selector holds on ANY visible
-  match; actions stay strict, and a strict-mode stop keeps the elements it
-  matched in `failed`.
-- **Steps** (`browser/steps/`, one file per verb; `_shared.ts` is a seeded
-  helper the registry skips): `open`, `goto`, `back`, `close`; the reads
-  `snapshot` (the accessibility tree, interactive elements tagged
-  `[ref=eN]`), `text`, `evaluate` (JavaScript in the PAGE), `observe`
-  (console and network errors since the last call); the actions `click`,
-  `fill`, `type`, `press`, `select`, `hover`, `scroll`, `wait`;
-  `screenshot`; `capture` (open → a declared list of actions → settle →
-  screenshot, in one step); `verify` (the same list as a CHECK — strut
-  plans/job-claims.md §4: then `expect` — `text` visible, the `url` the
-  page ended at, `selector`s present, `noErrors`, `evaluate` truthy — and
-  the answer is a claim's check contract `{ supports, content, locator:
-  { path, url }, failed, … }`. The page failing is a RESULT: a document
-  that answered HTTP ≥ 400, a step whose target matched nothing (the list
-  stops there; the service's `drive` says which), an expectation that does
-  not hold → `supports: false`, each named in `failed`, the shot taken
-  where the page got to; only the instrument failing throws — no browser,
-  a URL that does not open, a selector or script that does not parse. A
-  `wait` step with no `timeoutMs` gives up after 30 s there, so a
-  refutation never takes the run's whole budget. The verdict's wording is
-  `verdict.ts`, pure); `walkthrough` (`verify` with a FRAME after each
-  step that has a `caption`, plus the opened page first and where the page
-  got to last — strut plans/live-artifacts.md §4: a new directory per
-  recording, `walkthroughs/NNN/` with `01.png`… and `walkthrough.json`
-  naming them in order, rewritten after every frame (`walkthrough.ts`,
-  `Recording`); the same verdict, with the manifest as the `locator`, so a
-  claim's evidence is the recording and strut's viewer / hive's card scrub
-  it; the model sees the last frame); `state` (the storage state, written to the
-  run's artifacts for a human to paste under Secrets once). An element step
-  takes exactly one of `ref` (from the last snapshot; any navigation resets
-  them) or a Playwright `selector`. A step that fails throws (`verify`
-  aside, above); as a tool that is an error result the model reads.
-- **Screenshots** go to `shots/NNN.png` under the run's artifacts (the
-  job's directory on a job run) and the step returns `{ path, url, width,
-  height, bytes }`. On a job run the sink also calls strut's
-  `ctx.services.jobs.notify` — a `job.update` per shot, per walkthrough
-  frame — so a host that registered a `jobCallback` sees them land (strut
-  plans/live-artifacts.md §3); without one it is a no-op. A 0.6× copy rides on
-  the output as strut's `withMedia` marker, so an agent SEES the frame as a
-  file part while templates, events and `run.json` carry only the JSON.
-- **Sessions.** Credentials never enter a prompt: `browser/open {
-  storageStateSecret }` names a secret holding a Playwright storage state.
-- **Limits** (env, all optional): `BROWSER_STEP_TIMEOUT_MS` (per call,
-  default 10 s; losing it closes the run's context, which is what ends an
-  `evaluate` stuck on a wedged page), `BROWSER_RUN_BUDGET_MS` (per run,
-  default 10 min), `BROWSER_VIEWPORT` (default `1280x800`),
-  `BROWSER_URL_DENY` (default `file:,169.254.0.0/16,fd00::/8`; schemes,
-  CIDRs and hostnames that `open` / `goto` refuse, checked before the
-  navigation and on the URL the page landed on). The denylist matches IP
-  literals only and does not see what a page fetches by itself: what the
-  browser's container can reach, a page can reach.
-- **Without a swarm** (`BROWSER_WS_URL` unset) the service launches a local
-  headless Chrome: `BROWSER_EXECUTABLE`, else the `BROWSER_CHANNEL` channel
-  (default `chrome`, the Google Chrome on the machine). `BROWSER_CDP_URL`
-  instead attaches to a Chrome someone started with
-  `--remote-debugging-port` on a dedicated profile: runs then share that
-  profile's cookies and get a page each, and `storageStateSecret`,
-  `viewport` and `browser/state` are refused.
-- **Workflows** (`browser/workflows/`): `browser-capture` (one
-  `browser/capture` call; its `claims:` block checks that the run left a
-  real PNG), `browser-explore` (an agent over `browser/*` that answers a
-  goal with the screenshots it took as evidence) and `browser-watch` (reads
-  a region, compares it with the previous run's text, has an llm say what
-  changed; meant to be scheduled with `previous: "{{ last.output.text }}"`).
-- **Not yet verified through the LLM gateway.** `browser-explore` hands the
-  model images in tool results, and the gateway re-renders tool results.
-  Run it once behind the gateway before relying on it there.
-- **Tests:** `src/lab/browser/*.test.ts` run with `yarn test:node`, offline
-  (every step over a fake service, the denylist, what boot accepts, the
-  seed loading through strut's registry). `service.live.test.ts` skips
-  unless `BROWSER_WS_URL` is set; its header has the two commands.
+- **The seeded steps are retired at boot** (`MOVED_TO_STRUT` in
+  `createLabStrut.ts`, through `retireSteps`): a workspace custom step
+  shadows a lib step of the same name, so a swarm ran the lab's copies until
+  they were gone. The list stays as long as a swarm might still hold one;
+  missing names are a no-op.
+- **The browser workflows are NOT retired**: strut seeds them under the same
+  names (the same YAML), so a retire here would delete strut's own and the
+  two seeders would churn every boot.
+- **The browser** is strut's: `createStrut` builds a `BrowserService` from
+  `BROWSER_*` (sphinx-swarm sets `BROWSER_WS_URL` + `BROWSER_WS_PATH` to the
+  `ghcr.io/stakwork/strut-browser` node) unless the host passes its own
+  `services.browser`, which the lab does not. `playwright-core` is strut's
+  dependency; mcp's own copy (1.58.1, under `@playwright/test`) is gitsee's
+  and the e2e tests', and the `sharp` resolution keeps one copy for strut
+  and transformers. Unrelated to the gitsee harness, whose `gitsee/browser-*`
+  steps launch a chromium of their own.
+- Granted as before: `agentTools: ["sheets/*"]` (the harvey workflows),
+  `["browser/*"]`; `browser/verify` + `browser/walkthrough` are in strut's
+  own `job.yaml` grants.
 
 ### `pods/` — hive sandboxes as steps (NOT an experiment)
 
@@ -990,11 +858,10 @@ YAML only — every step is strut's) — and since 2026-10-13 the YAML is
 STRUT's (`strut/src/workflows/job.yaml`, seeded at boot by `createStrut`,
 strut plans/jobs.md §5): `job/seed.ts` ships only the lab's DELTA,
 `JOB_SEED`, passed as `createStrut({ job })` in `createLabStrut.ts` — the
-`pod/*`, `browser/verify` and `browser/walkthrough` grants appended to `params.tools`, and
-appended to `params.system` what only this deployment knows: that the strut
-belongs to one Hive workspace (`@<slug>`, every other a peer reached with
-`strut/run-workflow { peer }`) and that looking at a page is
-`browser-explore`, never a browser of the agent's own — merged into strut's template
+`pod/*` grants appended to `params.tools`, and appended to `params.system`
+what only this deployment knows: that the strut belongs to one Hive
+workspace (`@<slug>`, every other a peer reached with
+`strut/run-workflow { peer }`) — merged into strut's template
 before it is hashed and published, so the lab's `job` is one version of the
 same workflow every strut has. Never seed `job` from here as well: one
 seeder per name, or the two leave whichever template changed last active.
@@ -1048,10 +915,9 @@ seeder per name, or the two leave whichever template changed last active.
   the agent then sees) — strut's job index (plans/job-index.md), so a
   turn builds on earlier work instead of starting over; the job's CLAIMS
   (strut plans/job-claims.md) — `meta/list-claims`, `meta/add-claim`,
-  `meta/add-check`, `meta/edit-check`, `meta/verify-job` and `http/verify`,
-  strut's — with the lab's page instruments `browser/verify` and
-  `browser/walkthrough` (a frame per step, for a flow) beside them,
-  and the `Verify` page under `Job` saying when to claim, which instrument
+  `meta/add-check`, `meta/edit-check`, `meta/verify-job`, `http/verify`
+  and the page instruments `browser/verify` and `browser/walkthrough` (a
+  frame per step, for a flow), all strut's — and the `Verify` page under `Job` saying when to claim, which instrument
   fits which surface and that a turn which says "done" verifies first; and
   the `pod/*` tools (`pods/`, below) — a
   hive sandbox the job HOLDS between turns. WHICH workflow or way for which
@@ -1067,17 +933,15 @@ seeder per name, or the two leave whichever template changed last active.
   make it in a pod;
   `Plan Mode`, when the person asks for a plan first, is ONE static
   `plan.html` (overview up front, the technical part in a collapsed
-  `<details>`, the page style) revised until they approve. `JOB_SEED`'s
-  section also carries the one rule every kind shares (the root page's
-  until strut shipped a generic one; it moves to strut with `browser/*`):
-  to SEE a page the agent runs
-  `browser-explore` as a child run (its shots land in the job directory),
-  never a browser it installs with `bash` — the repo2graph image ships
-  Playwright's browsers for gitsee, so `npx playwright` there just works,
-  and Sonnet 5.5 reached for it (2026-10-08); the `code-change-pr` coder's
-  prompt says the same (`browser/verify`, granted, is a check — it opens
-  a URL and answers whether the expectations held — not a way to look
-  around). Held back until
+  `<details>`, the page style) revised until they approve. Strut's prompt
+  also carries the one rule every kind shares: to SEE a page the agent
+  runs `browser-explore` as a child run (its shots land in the job
+  directory), never a browser it installs with `bash` — the repo2graph
+  image ships Playwright's browsers for gitsee, so `npx playwright` there
+  just works, and Sonnet 5.5 reached for it (2026-10-08); the
+  `code-change-pr` coder's prompt says the same (`browser/verify`, granted,
+  is a check — it opens a URL and answers whether the expectations held —
+  not a way to look around). Held back until
   running works: publishing / authoring (`meta/publish-workflow`,
   `meta/create-step`), the rest of `browser/*`. A job learns to do
   something new by a new VERSION of this workflow on the swarm — a line in
@@ -1214,7 +1078,8 @@ file, or an engine description, that names such a domain.
   (`legacyPrefixes`). `Workflow Builder.md` was byte-identical, so a
   deployed swarm keeps its node and stamp; the lab's `Job.md` was replaced
   by strut's generic page on the first boot after the pin bump, and its
-  Hive-workspace and browser paragraphs moved into `JOB_SEED`. The lab
+  Hive-workspace paragraph moved into `JOB_SEED` (its browser paragraph
+  into strut's `job.yaml`). The lab
   never ships a file under one of strut's names (`seed.test.ts`). Every
   lab set keeps its own prefix, so its stamps stay its own: a file that
   moves to another set reads as someone else's.
