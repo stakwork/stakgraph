@@ -1,0 +1,274 @@
+name: identify-services
+# identify-services — a workspace's first pod setup, drafted from its
+# repositories (strut plans/onboarding.md §6). It reads; it never runs the
+# app: the onboarding job runs what this returns in a pod and checks it
+# there (the `Onboarding` page under `Job`).
+#
+# The setup knowledge is graph data — the `Pod Setup` Concept and the pages
+# under it — loaded by STEPS, so no agent can skip it: the root and the
+# Local Services catalog before the profile, the pages the profile picks
+# before the generation. The profile picks pages from enums built from the
+# children, so it can only name a page that exists, and a page a workspace
+# adds under either is offered with no change here. `required: true` fails
+# the run on a missing page instead of handing its absence to an agent.
+#
+# Two agents, both read-only over the checkouts (explore's file tools; never
+# bash or the web): the profile (per repository its role, platform and
+# package manager; the local services the workspace needs), then the
+# generation (the services and the compose services, in a narrow shape).
+# pod-setup/finish makes that into the pool config's shape and guarantees in
+# code what code can: the `frontend` name, every cwd, unique names and
+# ports, the compose file assembled without an `app` service.
+#
+# Output: { services, containerFiles, notes, profile, pages, cost } —
+# services + containerFiles are pod/config-set's input as they are.
+description: >-
+  Draft a workspace's pod setup from its repositories: check them out, scan
+  them in code (package files and managers, scripts, env vars), load the Pod
+  Setup pages, profile the workspace and write its services and compose
+  services, then make them into hive's pool config shape. Output: { services,
+  containerFiles, notes, profile, pages, cost } — pod/config-set's input.
+input:
+  repos: { type: json, description: "The workspace's repository URLs, one or more" }
+steps:
+  - id: dir
+    type: job/dir
+  # One checkout per repository, as siblings — the pod's /workspaces/<repo>
+  # layout. Kept in the job's directory under a job, a fresh copy otherwise.
+  - id: checkouts
+    type: foreach
+    config:
+      items: "{{ input.repos }}"
+      body:
+        id: checkout
+        type: git/checkout
+        config:
+          repo: "{{ $current }}"
+          workdir: "{{ $job }}"
+  - id: facts
+    type: pod-setup/repo-facts
+    config:
+      checkouts: "{{ checkouts }}"
+  - id: root
+    type: graph/graph-get
+    depends: []
+    config:
+      node_type: Concept
+      name: "{{ params.root }}"
+      children: PARENT_OF
+      required: true
+  - id: catalog
+    type: graph/graph-get
+    depends: []
+    config:
+      node_type: Concept
+      name: "{{ params.localServices }}"
+      children: PARENT_OF
+      required: true
+  # The menus the profile picks from, as text and as the names its enums
+  # offer: the root's children but the catalog (the platforms), and the
+  # catalog's (the local services).
+  - id: platformMenu
+    type: pod-setup/pages
+    depends: [root, catalog]
+    config:
+      children: "{{ root.children.filter(c => c.name != params.localServices) }}"
+  - id: serviceMenu
+    type: pod-setup/pages
+    depends: catalog
+    config:
+      children: "{{ catalog.children }}"
+  - id: profile
+    type: agent
+    depends: [facts, platformMenu, serviceMenu]
+    config:
+      cwd: "{{ dir.path }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      toolFilter: "{{ params.builtins }}"
+      system: "{{ params.profiler }}"
+      prompt: |
+        Profile this workspace for its pod setup: for each repository its role, its platform and its package manager, and the local services the workspace needs.
+
+        # Pod Setup
+
+        {{ root.properties.docs }}
+
+        # Platforms — one per repository
+
+        {{ platformMenu.text }}
+
+        # Local services — the ones the workspace needs to boot or for its core flows (none is a fine answer)
+
+        {{ serviceMenu.text }}
+
+        # Repo facts
+
+        {{ facts.text }}
+      schema:
+        type: object
+        additionalProperties: false
+        required: [repos, platforms, local_services]
+        properties:
+          repos:
+            type: array
+            description: One entry per checked-out repository.
+            items:
+              type: object
+              additionalProperties: false
+              required: [repo, role, platform, package_manager, summary]
+              properties:
+                repo: { type: string, enum: "{{ facts.names }}" }
+                role:
+                  type: string
+                  enum: [app, dependency, none]
+                  description: "app: runs in the pod; dependency: built for an app, not run on its own; none: neither"
+                platform: { type: string, enum: "{{ platformMenu.names }}", description: "The platform page that says how it runs" }
+                package_manager: { type: string, description: "As its lockfile names it (the facts say); empty when it has none" }
+                summary: { type: string, description: "One line: what it is and how it runs" }
+          platforms:
+            type: array
+            minItems: 1
+            description: The platform pages to read — each once, every platform a repository above has.
+            items: { type: string, enum: "{{ platformMenu.names }}" }
+          local_services:
+            type: array
+            description: The local service pages to read — the services the workspace needs to boot or for its core flows. Empty when it needs none.
+            items: { type: string, enum: "{{ serviceMenu.names }}" }
+  - id: platformPages
+    type: foreach
+    depends: profile
+    config:
+      items: "{{ profile.object.platforms }}"
+      body:
+        id: page
+        type: graph/graph-get
+        config: { node_type: Concept, name: "{{ $current }}", required: true }
+  - id: servicePages
+    type: foreach
+    depends: profile
+    config:
+      items: "{{ profile.object.local_services }}"
+      body:
+        id: page
+        type: graph/graph-get
+        config: { node_type: Concept, name: "{{ $current }}", required: true }
+  # The picked pages as text, each under its name.
+  - id: platformText
+    type: pod-setup/pages
+    depends: platformPages
+    config:
+      pages: "{{ platformPages }}"
+  - id: serviceText
+    type: pod-setup/pages
+    depends: servicePages
+    config:
+      pages: "{{ servicePages }}"
+  - id: generate
+    type: agent
+    depends: [platformText, serviceText]
+    config:
+      cwd: "{{ dir.path }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      toolFilter: "{{ params.builtins }}"
+      system: "{{ params.generator }}"
+      prompt: |
+        Write this workspace's pod setup, from the profile and the pages below.
+
+        # Pod Setup
+
+        {{ root.properties.docs }}
+
+        # Platform pages
+
+        {{ platformText.text }}
+
+        # Local service pages
+
+        {{ serviceText.text }}
+
+        # The profile
+
+        {{ profile.object }}
+
+        # Repo facts
+
+        {{ facts.text }}
+      schema:
+        type: object
+        additionalProperties: false
+        required: [frontend, services, local_services]
+        properties:
+          frontend: &service
+            type: object
+            additionalProperties: false
+            required: [repo, port, scripts]
+            description: The service a person opens — the web app, the API for a backend-only project, or the hell0-w0rld placeholder when there is neither.
+            properties:
+              name: { type: string, description: "For a service in `services`: its pm2 name (letters, digits, . _ -), never frontend. Ignored on `frontend`." }
+              repo: { type: string, enum: "{{ facts.names }}", description: "The repository it runs in" }
+              subdir: { type: string, description: "The directory inside that repository it runs in; empty for the repository's root" }
+              port: { type: integer, minimum: 1, maximum: 65535, description: "The port it listens on" }
+              scripts:
+                type: object
+                additionalProperties: false
+                required: [start, install]
+                properties:
+                  start: { type: string, description: "The dev command, bound to 0.0.0.0" }
+                  install: { type: string, description: "Installs its dependencies" }
+                  build: { type: string }
+                  test: { type: string }
+                  e2eTest: { type: string }
+                  preStart: { type: string, description: "Before the apps start: a migration, a schema" }
+                  postStart: { type: string, description: "After they start: a seed" }
+                  rebuild: { type: string }
+                  reset: { type: string }
+              env:
+                type: object
+                additionalProperties: { type: string }
+                description: Every env var it reads, with a working value. Not PORT or a *_COMMAND — those are its port and scripts.
+          services:
+            type: array
+            description: Any other service that must run (a backend beside the frontend). Empty for most workspaces.
+            items: *service
+          local_services:
+            type: object
+            additionalProperties: { type: object }
+            description: The compose services beside the apps, by name, as a compose file writes them (image, ports, environment, volumes, command, healthcheck, depends_on). Never one for the app itself. Empty when none.
+          dockerfile:
+            type: string
+            description: Only when a platform page names another base image — the whole Dockerfile. Leave it out otherwise.
+  - id: setup
+    type: pod-setup/finish
+    config:
+      repos: "{{ facts.repos }}"
+      raw: "{{ generate.object }}"
+  - id: result
+    type: pack
+    config:
+      services: "{{ setup.services }}"
+      containerFiles: "{{ setup.containerFiles }}"
+      notes: "{{ setup.notes }}"
+      profile: "{{ profile.object }}"
+      pages: { platforms: "{{ platformText.names }}", services: "{{ serviceText.names }}" }
+      cost: "{{ profile.cost + generate.cost }}"
+params:
+  model: sonnet
+  maxSteps: 40
+  # explore's read-only file tools: never bash or the web.
+  builtins: [repo_overview, fulltext_search, str_replace_based_edit_tool, file_summary]
+  root: Pod Setup
+  localServices: Pod Setup - Local Services
+  profiler: |
+    You profile a workspace's repositories for its pod setup, reading them with your file tools. You are READ-ONLY: never create or change a file.
+
+    The repo facts were scanned by code: trust them, and read what they point at — package.json's scripts, a README's setup section, the code that reads an env var, a compose file already in a repository — to decide what they cannot. Decide from what the repositories show, not from what is typical.
+
+    Name pages exactly as they are listed.
+  generator: |
+    You write a workspace's pod setup from its profile and the Pod Setup pages, reading the repositories with your file tools to get every command, port and env var right. You are READ-ONLY: never create or change a file.
+
+    The pages are the rules: follow them. The repo facts were scanned by code: trust them.
+
+    `frontend` is the service a person opens. `services` are any others that must run. Give each the repository it runs in and the directory inside it; code writes its cwd. `local_services` are the compose services beside the apps, as compose writes them. Give every env var the code reads a working value.

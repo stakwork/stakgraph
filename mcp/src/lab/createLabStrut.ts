@@ -29,6 +29,7 @@ import { CODE_CONCEPTS, seedCodeWorkflows } from "./code/seed.js";
 import { JOB_CONCEPTS, JOB_SEED } from "./job/seed.js";
 import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
+import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./pod-setup/seed.js";
 import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
@@ -251,13 +252,19 @@ export async function createLabStrut(
   // change that must run to be judged (claim → latest → agent → push →
   // release; the pod is a hold on the job between turns).
   await seedPodSteps(workspace);
+  // pod setup: a workspace's first pod config, drafted from its repositories
+  // (strut plans/onboarding.md) — identify-services and its two code steps;
+  // the onboarding job runs it, then runs the result in a pod.
+  await seedPodSetupSteps(workspace);
+  await seedPodSetupWorkflows(workspace);
   // Concept files — graph DATA, reconciled per node by a source stamp the way
   // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
   // reads about this deployment), and under it `Janitor`, a kind; `Job`
-  // (what the job agent opens every turn), and under it `Code Change` and
-  // `Plan Mode`, and under `Code Change` the `Pod` way. No mandate ships:
+  // (what the job agent opens every turn), and under it `Code Change`,
+  // `Plan Mode` and `Onboarding`, under `Code Change` the `Pod` way, and
+  // under `Pod Config` the `Pod Setup` pages identify-services loads. No mandate ships:
   // those are each workspace's. A no-op on the fs workspace.
-  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS]);
+  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
 
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one
