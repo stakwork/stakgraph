@@ -15,11 +15,12 @@ import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, t
  *   - the Janitor node (`parent`), every child of it (the mandates — one
  *     mandate must never rewrite another: the next run would obey text an
  *     LLM wrote) and anything hanging under it live, plus `protect`;
- *   - a node the git seed owns: `unique_source_id` starting with
- *     `seeded_prefix` (concept-seed.ts stamps every Concept it ships; the
- *     next file change would overwrite a janitor edit anyway — fixes to
- *     those belong in git). Strut's read steps strip that property from
- *     every response, so it is read here over bolt;
+ *   - a node a git seed owns: `unique_source_id` starting with a
+ *     `seeded_prefix` (strut's `seedConcepts` stamps every Concept a seed
+ *     ships: the lab's `lab/…`, strut's own pages `strut/…`; the next file
+ *     change would overwrite a janitor edit anyway — fixes to those belong
+ *     in git). Strut's read steps strip that property from every response,
+ *     so it is read here over bolt;
  *   - a node not in `visited` or not of `node_type`, a finding on a node
  *     outside `targets` when given (the batch janitor/queue handed this
  *     run: the agent may read around it, but writes only what it reviewed), a property outside
@@ -191,7 +192,8 @@ export interface PlanOptions {
   min_severity: string;
   issues?: string[];
   max_changes: number;
-  seeded_prefix: string;
+  /** One prefix or several: strut's pages and the lab's are both git-seeded. */
+  seeded_prefix: string | string[];
 }
 
 /** Pure: the rules in the module comment, over findings and the live nodes they name. */
@@ -259,7 +261,7 @@ export function planChanges(findings: Finding[], live: Map<string, LiveNode>, op
       skip("wrong_type", `not a ${opts.node_type}: ${node.labels.filter((l) => l !== "Data_Bank").join(", ") || "no type label"}`);
       continue;
     }
-    if (node.stamp && node.stamp.startsWith(opts.seeded_prefix)) {
+    if (node.stamp && [opts.seeded_prefix].flat().some((p) => node.stamp!.startsWith(p))) {
       skip("git_seeded", `${node.stamp} — the git seed owns it; change the file`);
       continue;
     }
@@ -469,7 +471,7 @@ export default defineStep({
     "here against the live value — `find` must occur exactly once — into an edit with the full old and new values; without a " +
     "`property`, the one allowed property where `find` occurs exactly once is taken (`via.property_inferred`), else refused. " +
     "Never planned: the Janitor node (`parent`), its children " +
-    "and anything under it, `mandate_ref_id`, `protect`, and any node whose unique_source_id starts with `seeded_prefix`. " +
+    "and anything under it, `mandate_ref_id`, `protect`, and any node whose unique_source_id starts with a `seeded_prefix`. " +
     "Writes `plan.json` (`file`) into the run's artifacts. Output: { edits, moves, skipped, manual, protected, counts }.\n\n" +
     EXAMPLE,
   input: z.object({
@@ -484,7 +486,7 @@ export default defineStep({
     min_severity: z.string().default("low").describe("low | medium | high — findings below it are skipped (below_min_severity)"),
     issues: z.array(z.string()).optional().describe("when given, only findings whose issue is listed are planned"),
     max_changes: z.number().int().nonnegative().default(20).describe("cap on edits + moves per run, most severe first; the rest are skipped (over_cap)"),
-    seeded_prefix: z.string().default("lab/").describe("nodes whose unique_source_id starts with this are the git seed's: skipped (git_seeded)"),
+    seeded_prefix: z.union([z.string(), z.array(z.string())]).default(["lab/", "strut/"]).describe("nodes whose unique_source_id starts with this (or one of these) are the git seed's: skipped (git_seeded)"),
     file: z.string().default("plan.json").describe("where in the run's artifacts the plan is written"),
   }),
   output: z.any(),

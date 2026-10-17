@@ -57,9 +57,10 @@ params:
   apply_min_severity: low
   # Cap on writes per run, most severe first.
   apply_max: 20
-  # A unique_source_id starting with this marks a Concept the git seed owns
-  # (concept-seed.ts): never written — the next file change would overwrite it.
-  seeded_prefix: lab/
+  # A unique_source_id starting with one of these marks a Concept a git seed
+  # owns (the lab's pages, strut's own): never written — the next file change
+  # would overwrite it.
+  seeded_prefix: [lab/, strut/]
 steps:
   - id: dir
     type: artifacts/dir

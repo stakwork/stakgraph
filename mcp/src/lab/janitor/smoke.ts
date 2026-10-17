@@ -29,11 +29,9 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeGraphBackends, createStrut, graphWorkspaceFromEnv, type RunEvent } from "strut";
+import { STRUT_CONCEPTS, closeGraphBackends, createStrut, graphWorkspaceFromEnv, seedConcepts, type RunEvent } from "strut";
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
-import { BUILDER_CONCEPTS } from "../builder/system.js";
-import { seedConcepts } from "../concept-seed.js";
 
 const WORKFLOW = "graph-janitor";
 const MANDATE = "Overfit Concept Janitor";
@@ -112,7 +110,7 @@ async function main() {
     await seedArtifactSteps(workspace);
     await seedJanitorSteps(workspace); // janitor/plan runs on every sweep (a dry run here: input.apply stays false)
     await seedJanitorWorkflows(workspace);
-    await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]); // + the mandate this smoke runs
+    await seedConcepts(graph, [STRUT_CONCEPTS, JANITOR_CONCEPTS, JANITOR_FIXTURES]); // + the mandate this smoke runs
 
     // ── 2. plant the fixture ─────────────────────────────────────────────
     const refs: Record<string, string> = {};

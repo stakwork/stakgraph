@@ -7,6 +7,8 @@ import {
   FileSecretStore,
   graphWorkspaceRequested,
   graphWorkspaceFromEnv,
+  seedConcepts,
+  STRUT_CONCEPTS,
   type WorkspaceStore,
   type Strut,
   type RunResult,
@@ -33,8 +35,7 @@ import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./
 import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
-import { BUILDER_CONCEPTS, builderSystem } from "./builder/system.js";
-import { seedConcepts } from "./concept-seed.js";
+import { anchorConcepts } from "./concept-anchor.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
@@ -230,8 +231,8 @@ export async function createLabStrut(
   await seedCodeWorkflows(workspace);
   // job — the job agent as a workflow (strut plans/jobs.md §5) is STRUT's:
   // createStrut seeds `src/workflows/job.yaml` at boot; the lab passes only
-  // its delta (`job: JOB_SEED` below — the pod/* grants and the `Job`
-  // Concept paragraph). Never seeded from here as well: one seeder per name.
+  // its delta (`job: JOB_SEED` below — the pod/* grants and the Hive
+  // workspace paragraph). Never seeded from here as well: one seeder per name.
   // janitor — the engine (`graph-janitor`: YAML only, one automation per
   // mandate).
   // janitors: the plan / readback / revert-plan steps the engine writes through, then the two engine workflows.
@@ -257,15 +258,6 @@ export async function createLabStrut(
   // the onboarding job runs it, then runs the result in a pod.
   await seedPodSetupSteps(workspace);
   await seedPodSetupWorkflows(workspace);
-  // Concept files — graph DATA, reconciled per node by a source stamp the way
-  // SEED_OPTS reconciles versions: `Workflow Builder` (what the AI builder
-  // reads about this deployment), and under it `Janitor`, a kind; `Job`
-  // (what the job agent opens every turn), and under it `Code Change`,
-  // `Plan Mode` and `Onboarding`, under `Code Change` the `Pod` way, and
-  // under `Pod Config` the `Pod Setup` pages identify-services loads. No mandate ships:
-  // those are each workspace's. A no-op on the fs workspace.
-  await seedConcepts(workspace, [BUILDER_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
-
   // Mothership cost control (plans/mothership-cost-control.md §5) — strut's
   // opt-in module; core knows only the two hooks below. Hive pushes one
   // standing macaroon per user to `PUT /lab/llm/delegations/:actor`; from
@@ -278,7 +270,6 @@ export async function createLabStrut(
   // index.ts derives from API_TOKEN when unset.
   const mothership = createMothership({ dataDir: workspacePath });
 
-  let lab: Parameters<typeof builderSystem>[0] | undefined;
   const strut = await createStrut<LabServices>({
     workspace,
     services,
@@ -292,14 +283,13 @@ export async function createLabStrut(
     // And what it may do: `peer` for a `lab:peer` token — another strut,
     // which strut lets read, launch, and control the runs a peer launched.
     resolveScope: resolveLabScope,
-    // The builder's prompt gets the `Workflow Builder` Concept's page, read
-    // off the graph when a chat's first turn builds its prompt — strut then
-    // freezes the prompt for that chat (builder/system.ts). Nothing on the fs
-    // workspace.
-    chatSystem: () => (lab ? builderSystem(lab) : undefined),
-    // The job agent's deployment delta (job/seed.ts): `pod/*` on top of
-    // strut's grants, and "open the `Job` Concept first" after strut's
-    // prompt — merged into the `job` template strut seeds at boot.
+    // No `chatSystem`: strut's default puts the `Workflow Builder` Concept's
+    // page in the builder's prompt (it seeds the page; the lab's kinds hang
+    // under it, below).
+    // The job agent's deployment delta (job/seed.ts): `pod/*` and the page
+    // instruments on top of strut's grants, and which Hive workspace this
+    // strut belongs to after strut's prompt — merged into the `job` template
+    // strut seeds at boot.
     job: JOB_SEED,
     // A non-file workspace would otherwise default the run/chat/secret
     // stores to memory — pin them to disk so history survives restarts.
@@ -319,7 +309,26 @@ export async function createLabStrut(
   // behind strut's requireApiKey) and the workspace the hook reads run caps
   // from. Once, after createStrut.
   mothership.mount(strut);
-  lab = strut;
+
+  // Concept files — graph DATA, reconciled per node by a source stamp the way
+  // SEED_OPTS reconciles versions, with strut's `seedConcepts`. Strut seeds
+  // its own two pages inside createStrut — `Workflow Builder` (what the AI
+  // builder reads about this deployment) and `Job` (what the job agent opens
+  // every turn) — so the lab's pages, which hang under them by name, seed
+  // AFTER: `Janitor` under `Workflow Builder`; `Code Change`, `Explore`,
+  // `Onboarding`, `Plan Mode` and `Verify` under `Job`, under `Code Change`
+  // the `Pod` way, and under `Pod Config` the `Pod Setup` pages
+  // identify-services loads. Strut's set rides along (all kept, nothing
+  // written) so its pages are owned in this call too: their PARENT_OF edges
+  // to ours follow the files, and they are anchored with ours. No mandate
+  // ships: those are each workspace's. A no-op on the fs workspace; a page
+  // that will not seed is a warning, never a failed boot.
+  try {
+    const outcomes = await seedConcepts(workspace.graph, [STRUT_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
+    await anchorConcepts(workspace.graph, outcomes);
+  } catch (err) {
+    console.warn("[concepts] could not seed the lab's Concept pages:", err instanceof Error ? err.message : err);
+  }
 
   // Inject the run-sub-workflows capability now that the instance exists.
   // CRITICAL: mutate `strut.services` — the EFFECTIVE bag createStrut built by
