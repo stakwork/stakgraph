@@ -6333,7 +6333,7 @@ sha.js@^2.4.9:
     safe-buffer "^5.2.1"
     to-buffer "^1.2.0"
 
-sharp@0.35.5, sharp@^0.34.5:
+sharp@0.35.5, sharp@^0.34.5, sharp@^0.35.5:
   version "0.35.5"
   resolved "https://registry.yarnpkg.com/sharp/-/sharp-0.35.5.tgz#43fb539872ec5f53cc7162eb850dbf6514692fbf"
   integrity sha512-Ywn4OnzGukp7CDMrp08RQ50YKmuwG47brZgIVPTvBaaAfQlRlygrRqSrxdCiL9M+LlzLBiJ68IR1QqvzHyjC7g==
@@ -6664,9 +6664,9 @@ strnum@^2.1.2:
   resolved "https://registry.npmjs.org/strnum/-/strnum-2.1.2.tgz"
   integrity sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==
 
-"strut@git+https://github.com/stakwork/strut.git#86f6ecc405f693e013f4a0569776c440e957a851":
+"strut@git+https://github.com/stakwork/strut.git#be0e219d1b9e4f44540b07be5f5f41702d4b56b6":
   version "0.1.0"
-  resolved "git+https://github.com/stakwork/strut.git#86f6ecc405f693e013f4a0569776c440e957a851"
+  resolved "git+https://github.com/stakwork/strut.git#be0e219d1b9e4f44540b07be5f5f41702d4b56b6"
   dependencies:
     "@ai-sdk/provider-utils" "^5.0.44"
     "@ai-sdk/typesafe-ai" "^3.0.3"
@@ -6680,6 +6680,8 @@ strnum@^2.1.2:
     html-to-text "^10.0.1"
     js-yaml "^4.1.1"
     neo4j-driver "^5.28.3"
+    playwright-core "1.63.0"
+    sharp "^0.35.5"
     system-canvas "^0.2.22"
     system-canvas-react "^0.2.22"
     uuid "^11.1.0"

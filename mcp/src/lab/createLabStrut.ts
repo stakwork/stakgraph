@@ -22,24 +22,29 @@ import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
-import { seedSheetsSteps } from "./sheets/seed.js";
 import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { CODE_CONCEPTS, seedCodeWorkflows } from "./code/seed.js";
 import { JOB_CONCEPTS, JOB_SEED } from "./job/seed.js";
-import { seedBrowserSteps, seedBrowserWorkflows } from "./browser/seed.js";
 import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./pod-setup/seed.js";
-import { BrowserService } from "./browser/service.js";
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
 import { anchorConcepts } from "./concept-anchor.js";
+import { retireSteps } from "./seed-opts.js";
 import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
 import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 import { resolveLabActor, resolveLabScope } from "./actor.js";
+
+/** Steps the lab used to seed and strut now ships as lib steps of the same
+ *  name (`browser/_shared` was the seeded helper the others imported). */
+const MOVED_TO_STRUT = [
+  ...["create-spreadsheet", "update-values", "batch-update-values", "get-values", "add-sheet", "import-spreadsheet"].map((n) => `sheets/${n}`),
+  ...["_shared", "open", "goto", "back", "close", "snapshot", "text", "evaluate", "observe", "click", "fill", "type", "press", "select", "hover", "scroll", "wait", "screenshot", "capture", "verify", "walkthrough", "state"].map((n) => `browser/${n}`),
+];
 
 /**
  * Lets a step run other workflows (and read their params) from inside a run —
@@ -83,13 +88,10 @@ export interface LabServices extends ConceptServices {
    *  (GAIA_DIR). In-code on purpose — the grader and the gold must stay
    *  outside the agent-editable surface; gaia/* steps are thin plumbing. */
   gaia?: GaiaServices;
-  /** The browser the seeded `browser/*` steps drive (browser/service.ts): a
-   *  Playwright server beside this host (BROWSER_WS_URL, what a swarm sets),
-   *  one context per run. Unrelated to the gitsee harness's own browser. */
-  browser?: BrowserService;
   /** Generic per-run teardown hook called by the strut runner in a `finally`
-   *  (success AND error). Disposes a run's gitsee browser + booted stack, and
-   *  closes its `browser` context. */
+   *  (success AND error). Disposes a run's gitsee browser + booted stack.
+   *  (The `browser/*` steps' browser is strut's own `services.browser`,
+   *  built from BROWSER_* — createStrut chains its teardown after this.) */
   onRunEnd?(runId: string): Promise<void>;
 }
 
@@ -136,23 +138,6 @@ export async function createLabStrut(
       if (priorOnRunEnd) await priorOnRunEnd(runId);
       await disposeRun(runId);
     };
-  }
-
-  // The browser/* steps' service. Building it touches nothing: the connection
-  // is made by the first step that opens a page. A bad BROWSER_* value is a
-  // warning here and an error in those steps, never a lab that fails to boot.
-  if (!services.browser) {
-    try {
-      const browser = BrowserService.fromEnv();
-      services.browser = browser;
-      const priorOnRunEnd = services.onRunEnd?.bind(services);
-      services.onRunEnd = async (runId: string) => {
-        if (priorOnRunEnd) await priorOnRunEnd(runId);
-        await browser.dispose(runId);
-      };
-    } catch (err) {
-      console.warn("[lab] no browser service:", err instanceof Error ? err.message : err);
-    }
   }
 
   // Harvey LAB grader — in-code, NOT seeded (see harvey/service.ts). Only
@@ -205,11 +190,6 @@ export async function createLabStrut(
   // ctx.services.http with JARVIS_URL/API_TOKEN from ctx.services.secrets).
   // Grantable to agents via agentTools: ["jarvis/*"].
   await seedJarvisSteps(workspace);
-  // google sheets steps (self-contained; reach the Sheets/Drive REST APIs
-  // over ctx.services.http with GOOGLE_SERVICE_ACCOUNT_JSON /
-  // GOOGLE_DRIVE_FOLDER_ID from ctx.services.secrets). Grantable to agents
-  // via agentTools: ["sheets/*"].
-  await seedSheetsSteps(workspace);
   // harvey verification steps (thin plumbing over services.harvey; grant
   // harvey/evaluate only to harness workflows, never the producing agent).
   await seedHarveySteps(workspace);
@@ -244,11 +224,12 @@ export async function createLabStrut(
   // which repositories the graph holds parsed (explore/repositories).
   await seedExploreSteps(workspace);
   await seedExploreWorkflows(workspace);
-  // browser use: one step per Playwright call over services.browser, the
-  // same steps an agent's tools (agentTools: ["browser/*"]), and three
-  // workflows (capture a page, explore a site, watch a page).
-  await seedBrowserSteps(workspace);
-  await seedBrowserWorkflows(workspace);
+  // sheets/* and browser/* are strut's lib steps now (strut#200, #201), and
+  // strut seeds the three browser workflows (same names, same YAML). The
+  // lab's seeded copies of the steps are retired: a workspace custom step
+  // shadows a lib step of the same name, so until then a swarm ran the lab's.
+  // The workflows are NOT retired: that would delete strut's own.
+  await retireSteps(workspace, MOVED_TO_STRUT, "lab");
   // pods: hive sandboxes as steps, `pod/*` — the job agent's tools for a
   // change that must run to be judged (claim → latest → agent → push →
   // release; the pod is a hold on the job between turns).

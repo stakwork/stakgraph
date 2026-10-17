@@ -144,12 +144,12 @@ describe("the lab's Concept files", () => {
   });
 
   // What the `Job` page said before strut shipped a generic one: the lab's, so it rides on the job's prompt.
-  it("JOB_SEED's section: the Hive workspace and its peers, and browser-explore for looking at a page", () => {
+  it("JOB_SEED's section: the Hive workspace and its peers, and nothing strut's template already says", () => {
     const sys = JOB_SEED.system!;
     for (const needle of [/one Hive workspace/, /@<slug>/, /strut\/run-workflow \{ peer: "<slug>", workflow, input \}/, /that is where its code lives/]) assert.match(sys, needle);
-    for (const needle of [/meta\/run-workflow \{ name: "browser-explore"/, /shots\/NNN\.png/, /Never install or launch a browser/]) assert.match(sys, needle);
-    // Strut's template already opens the Job page; the lab says nothing of it twice.
-    assert.doesNotMatch(sys, /graph\/graph-get|`Job` Concept/);
+    // Strut's template opens the Job page and sends a look at a page to browser-explore; the lab says neither twice.
+    assert.doesNotMatch(sys, /graph\/graph-get|`Job` Concept|browser/);
+    assert.deepEqual(JOB_SEED.tools, ["pod/*"], "browser/verify and browser/walkthrough are strut's grants now");
   });
 });
 
