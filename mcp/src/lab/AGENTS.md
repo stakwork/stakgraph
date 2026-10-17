@@ -381,7 +381,11 @@ store. A workflow swaps backends by step type (`jarvis/graph-search` ↔
 The Google Sheets steps (`sheets/*`) and the browser steps (`browser/*`,
 `ctx.services.browser`, and the `browser-capture` / `browser-explore` /
 `browser-watch` workflows) moved into strut (stakwork/strut#200, #201); see
-strut's AGENTS.md for both. The lab keeps no copy:
+strut's AGENTS.md for both. So did captchas a person solves in Hive's
+captcha card (stakwork/strut#206): a page the job keeps across turns
+(`browser/keep`, `browser/open { session }`), the manifest written in code
+(`browser/captcha-ask`) and the `browser-captcha` workflow, wired by
+strut's job prompt — no pod, no `pod/file`. The lab keeps no copy:
 
 - **The seeded steps are retired at boot** (`MOVED_TO_STRUT` in
   `createLabStrut.ts`, through `retireSteps`): a workspace custom step
