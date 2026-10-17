@@ -15,7 +15,9 @@ import { join, posix } from "node:path";
  *   - an env var that is a service's CONFIG (PORT, *_COMMAND) moves to its
  *     port / scripts, since hive generates those;
  *   - a compose service's name used as a host in an env value becomes
- *     localhost;
+ *     127.0.0.1 — not localhost, which can resolve to ::1 (where the port
+ *     is not published), a MySQL client takes for its socket, and an S3 SDK
+ *     makes `bucket.localhost`;
  *   - the compose file is assembled, not written: no `app` service (the pod
  *     is the app's container), every named volume and network declared,
  *     serialized by code so it always parses.
@@ -25,6 +27,8 @@ import { join, posix } from "node:path";
 
 export const FRONTEND = "frontend";
 export const DEFAULT_DOCKERFILE = "FROM ghcr.io/stakwork/staklink-js:latest";
+/** Where the app reaches a compose service: the port it publishes, here. */
+export const LOOPBACK = "127.0.0.1";
 const SCRIPTS = ["start", "install", "build", "test", "e2eTest", "preStart", "postStart", "rebuild", "reset"] as const;
 type Script = (typeof SCRIPTS)[number];
 /** The env vars hive generates from a service's port and scripts. */
@@ -68,7 +72,7 @@ export interface ServiceConfig {
   env?: Record<string, string>;
 }
 
-/** Every URL's host in `value` that is one of `hosts`, made localhost: the
+/** Every URL's host in `value` that is one of `hosts`, made 127.0.0.1: the
  *  authority after `//` is split at its last `@`, so a user name that
  *  happens to equal a service's (`postgres://postgres:pw@postgres:5432`) is
  *  left as it is. */
@@ -79,7 +83,7 @@ export function localizeHosts(value: string, hosts: Set<string>): string {
     const hostport = authority.slice(at + 1);
     const colon = hostport.indexOf(":");
     const host = colon >= 0 ? hostport.slice(0, colon) : hostport;
-    return hosts.has(host) ? `//${userinfo}localhost${colon >= 0 ? hostport.slice(colon) : ""}` : whole;
+    return hosts.has(host) ? `//${userinfo}${LOOPBACK}${colon >= 0 ? hostport.slice(colon) : ""}` : whole;
   });
 }
 
@@ -168,12 +172,12 @@ export async function finishSetup(
         }
         continue;
       }
-      // A compose service's name as a host → localhost (the service publishes
+      // A compose service's name as a host → 127.0.0.1 (the service publishes
       // its port there): in a URL, or as the whole value of a *_HOST var.
       const before = v;
       v = localizeHosts(v, hosts);
-      if (/(^|_)(HOST|HOSTNAME)$/.test(k) && hosts.has(v)) v = "localhost";
-      if (v !== before) notes.push(`${name}: env ${k} named a compose service as its host; it is localhost`);
+      if (/(^|_)(HOST|HOSTNAME)$/.test(k) && hosts.has(v)) v = LOOPBACK;
+      if (v !== before) notes.push(`${name}: env ${k} named a compose service as its host; it is ${LOOPBACK}`);
       env[k] = v;
     }
     if (!scripts.start) throw new Error(`${where}: no start command`);
@@ -215,7 +219,7 @@ export default defineStep({
     "cwd /workspaces/<repo>/<dir> from a checked-out repository and a directory that exists in it) and `containerFiles` (docker-compose.yml " +
     "assembled from the drafted compose services, no `app` service, every named volume and network declared; a Dockerfile only when it is not " +
     "the default). Env vars that are a service's config move to its port and commands, and a compose service's name used as a host becomes " +
-    "localhost. Output: { services, containerFiles, notes (each fix made) }; a draft it cannot fix fails, naming what is wrong.",
+    "127.0.0.1. Output: { services, containerFiles, notes (each fix made) }; a draft it cannot fix fails, naming what is wrong.",
   input: z.object({
     repos: z.array(z.object({ name: z.string(), path: z.string() }).passthrough()).min(1).describe("pod-setup/repo-facts' repos"),
     raw: z.any().describe("the generation agent's object: { frontend, services?, local_services?, dockerfile? }"),

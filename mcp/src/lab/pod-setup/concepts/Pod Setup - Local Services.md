@@ -21,7 +21,9 @@ still set, so the code does not crash on a missing key.
 **A service beside the app**:
 
 - publishes its port (`ports: ["5432:5432"]`), and the app reaches it at
-  `localhost` and that port, never at the service's name;
+  `127.0.0.1` and that port — never at the service's name, and not at
+  `localhost`, which can resolve to `::1`, where the port may not be
+  published, and which a MySQL client takes for its Unix socket;
 - gets fixed dev credentials, the same values in the app's env;
 - keeps its data in a named volume when it has state.
 

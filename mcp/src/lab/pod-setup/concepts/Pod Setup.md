@@ -30,8 +30,8 @@ Every setup follows these rules:
    the app has it; `start` only when there is no dev script.
 4. **Commands match the package manager** the repository uses — its
    lockfile says which (`yarn.lock` yarn, `pnpm-lock.yaml` pnpm,
-   `package-lock.json` npm, `bun.lockb` bun). Never `npm run …` in a yarn
-   or pnpm repository.
+   `package-lock.json` npm, `bun.lock` or `bun.lockb` bun). Never `npm run
+   …` in a yarn or pnpm repository.
 5. **Every service has an install command.** Add build, test, pre-start (a
    migration, a schema) and post-start (a seed) when the repository has
    them.
@@ -42,7 +42,7 @@ Every setup follows these rules:
 7. **Every env var the code reads gets a working value.** A secret gets a
    dev value (`dev-secret-key-change-in-production-12345678901234567890`), a
    hex key a hex one (`bb54aa41a75298418586c5443f264338013520b3bad612fce9ac2fc32ed19882`),
-   a URL to a service beside the app `localhost` and the port that service
+   a URL to a service beside the app `127.0.0.1` and the port that service
    publishes, and a credential the same value the compose file gives the
    service.
 8. **With several repositories**, each service runs in its own; usually one
@@ -52,7 +52,7 @@ Every setup follows these rules:
 Done for you, in code: the person-facing service's name; each service's
 directory, `/workspaces/<repo>/<dir>`, from the repository and directory
 you name; the compose file's top-level volumes; a compose service's name
-used as a host in an env value (it becomes `localhost`); and the default
+used as a host in an env value (it becomes `127.0.0.1`); and the default
 Dockerfile.
 
 The pages under this one (PARENT_OF) are the platforms — how one kind of

@@ -17,7 +17,7 @@ A Supabase app in a pod: the Supabase CLI's local stack, never hand-wired contai
   migration is invented when none exists. Never `supabase db query -f`
   for a multi-statement file.
 - The app's env: `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` is
-  `http://localhost:54321`; the public (anon / publishable) key is
+  `http://127.0.0.1:54321`; the public (anon / publishable) key is
   `sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH`, the server-only secret
   (service role) key `sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz`, under the
   names the repository reads.

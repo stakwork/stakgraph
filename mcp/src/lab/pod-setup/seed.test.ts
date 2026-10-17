@@ -46,6 +46,12 @@ describe("the Pod Setup pages", () => {
     for (const [name, p] of pages) assert.ok(name === "Pod Setup" || pages.has(p.parent), `${name}: its parent is in the set`);
     // The pod is the app's container: no page asks for an `app` service.
     for (const [name, p] of pages) assert.ok(!/^\s+app:/m.test(p.body), `${name}: no app service`);
+    // MinIO's images are gone from Docker Hub and Quay: a page naming one makes a compose file that cannot pull.
+    for (const [name, p] of pages) assert.ok(!/image:\s*minio\//.test(p.body), `${name}: no MinIO image`);
+    // The app signs with the secret the server is given: dev mode's own is `devkey: secret`.
+    const livekit = pages.get("Pod Setup - LiveKit")!.body;
+    const secret = /LIVEKIT_API_SECRET`\s+`([^`]+)`/.exec(livekit)?.[1];
+    assert.equal(/LIVEKIT_KEYS:\s+"devkey: ([^"]+)"/.exec(livekit)?.[1], secret, "LIVEKIT_KEYS gives the server the app's secret");
     const onboarding = front(await readFile(join(POD_SETUP_CONCEPTS.dir, "..", "..", "job", "concepts", "Onboarding.md"), "utf8"));
     assert.equal(onboarding.meta.parent, "Job");
     for (const step of ["pod/claim", "identify-services", "pod/config-set", "wait: false", "pod/config-apply", "meta/verify-job", "fresh: true"]) {
@@ -123,7 +129,7 @@ describe("pod-setup/finish", () => {
       repo: "shop",
       subdir: "./web/",
       port: 3000,
-      scripts: { start: "yarn dev -- --hostname 0.0.0.0", install: "yarn install" },
+      scripts: { start: "yarn dev --hostname 0.0.0.0", install: "yarn install" },
       env: {
         DATABASE_URL: "postgresql://postgres:password@postgres:5432/shop",
         REDIS_HOST: "redis",
@@ -142,15 +148,15 @@ describe("pod-setup/finish", () => {
     ...over,
   });
 
-  it("names the frontend, writes every cwd, moves config vars, makes service hosts localhost, and assembles the compose file", async () => {
+  it("names the frontend, writes every cwd, moves config vars, makes service hosts 127.0.0.1, and assembles the compose file", async () => {
     const out = await finishSetup(draft(), repos);
     assert.deepEqual(out.services, [
       {
         name: "frontend",
         port: 3000,
         cwd: "/workspaces/shop/web",
-        scripts: { start: "yarn dev -- --hostname 0.0.0.0", install: "yarn install", preStart: "npx prisma migrate deploy" },
-        env: { DATABASE_URL: "postgresql://postgres:password@localhost:5432/shop", REDIS_HOST: "localhost", DB_TYPE: "postgres", FLAG: "true" },
+        scripts: { start: "yarn dev --hostname 0.0.0.0", install: "yarn install", preStart: "npx prisma migrate deploy" },
+        env: { DATABASE_URL: "postgresql://postgres:password@127.0.0.1:5432/shop", REDIS_HOST: "127.0.0.1", DB_TYPE: "postgres", FLAG: "true" },
       },
       { name: "api", port: 4000, cwd: "/workspaces/shop/api", scripts: { start: "yarn dev", install: "yarn install" } },
     ]);
@@ -164,12 +170,12 @@ describe("pod-setup/finish", () => {
     assert.ok(out.notes.some((n) => /env DATABASE_URL named a compose service as its host/.test(n)));
   });
 
-  it("makes only a URL's host localhost, never a user name or a value that only looks like one", async () => {
+  it("makes only a URL's host 127.0.0.1, never a user name or a value that only looks like one", async () => {
     const { localizeHosts } = await import("./steps/finish.js");
-    const hosts = new Set(["postgres", "redis", "minio"]);
-    assert.equal(localizeHosts("postgresql://postgres:pw@postgres:5432/db", hosts), "postgresql://postgres:pw@localhost:5432/db");
-    assert.equal(localizeHosts("redis://redis:6379", hosts), "redis://localhost:6379");
-    assert.equal(localizeHosts("http://minio/bucket?x=1", hosts), "http://localhost/bucket?x=1");
+    const hosts = new Set(["postgres", "redis", "rustfs"]);
+    assert.equal(localizeHosts("postgresql://postgres:pw@postgres:5432/db", hosts), "postgresql://postgres:pw@127.0.0.1:5432/db");
+    assert.equal(localizeHosts("redis://redis:6379", hosts), "redis://127.0.0.1:6379");
+    assert.equal(localizeHosts("http://rustfs/bucket?x=1", hosts), "http://127.0.0.1/bucket?x=1");
     assert.equal(localizeHosts("http://postgres.example.com:5432", hosts), "http://postgres.example.com:5432");
     assert.equal(localizeHosts("postgres", hosts), "postgres");
   });
@@ -232,7 +238,7 @@ describe("identify-services (offline: fake agents, checkout and graph)", () => {
     local_services: ["Pod Setup - Postgres"],
   };
   const GENERATED: Draft = {
-    frontend: { repo: "shop", port: 3000, scripts: { start: "yarn dev -- --hostname 0.0.0.0", install: "yarn install" }, env: { DATABASE_URL: "postgresql://u:p@postgres:5432/shop" } },
+    frontend: { repo: "shop", port: 3000, scripts: { start: "yarn dev --hostname 0.0.0.0", install: "yarn install" }, env: { DATABASE_URL: "postgresql://u:p@postgres:5432/shop" } },
     services: [],
     local_services: { postgres: { image: "postgres:16", ports: ["5432:5432"] } },
   };
@@ -318,7 +324,7 @@ describe("identify-services (offline: fake agents, checkout and graph)", () => {
     assert.deepEqual(generate!.schema.properties.services.items.properties.repo.enum, ["shop"], "the anchored service schema, resolved the same");
 
     assert.deepEqual(out.services, [
-      { name: "frontend", port: 3000, cwd: "/workspaces/shop", scripts: { start: "yarn dev -- --hostname 0.0.0.0", install: "yarn install" }, env: { DATABASE_URL: "postgresql://u:p@localhost:5432/shop" } },
+      { name: "frontend", port: 3000, cwd: "/workspaces/shop", scripts: { start: "yarn dev --hostname 0.0.0.0", install: "yarn install" }, env: { DATABASE_URL: "postgresql://u:p@127.0.0.1:5432/shop" } },
     ]);
     assert.deepEqual(Object.keys(out.containerFiles), ["docker-compose.yml"]);
     assert.deepEqual((yaml.load(out.containerFiles["docker-compose.yml"]) as any).services.postgres.image, "postgres:16");
