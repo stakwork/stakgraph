@@ -16,7 +16,7 @@ workspace from its pool config:
   cache, an object store. The pod is the container the apps run in: there
   is never a service for the app itself.
 - **Dockerfile**: the pod's base image, `ghcr.io/stakwork/staklink-js:latest`
-  unless a platform's page says otherwise.
+  unless a platform's page says otherwise (or the app is Android, below).
 
 Every setup follows these rules:
 
@@ -48,6 +48,11 @@ Every setup follows these rules:
 8. **With several repositories**, each service runs in its own; usually one
    is the app and the others are local dependencies it builds against,
    installed and built first (its install or pre-start command does it).
+
+**An Android app** runs on `ghcr.io/stakwork/staklink-android:latest`, with
+port 8000 (the screen stream). It waits for the device
+(`adb wait-for-device`) before it starts; its build and rebuild commands
+build the APK, which is installed and launched after it starts.
 
 Done for you, in code: the person-facing service's name; each service's
 directory, `/workspaces/<repo>/<dir>`, from the repository and directory
