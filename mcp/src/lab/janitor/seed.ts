@@ -1,9 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { PublishByContentOptions, WorkspaceStore } from "strut";
+import type { ConceptSet, PublishByContentOptions, WorkspaceStore } from "strut";
 import { SEED_OPTS, retireSteps, retireWorkflows } from "../seed-opts.js";
-import type { ConceptSet } from "../concept-seed.js";
 
 /**
  * janitor — two seeded engine workflows, three steps of our own, and a
@@ -15,10 +14,10 @@ import type { ConceptSet } from "../concept-seed.js";
  * engine workflow reads its mandates from whatever graph it runs on, and a
  * workspace grows its own janitors by adding Concepts (hive's Learn page,
  * Jamie, strut's graph/* steps). `Janitor` itself hangs under `Workflow
- * Builder` (../builder): a janitor is one of the things the builder builds,
+ * Builder` (strut's page): a janitor is one of the things the builder builds,
  * and the builder learns the convention by reading `Janitor`'s docs.
  *
- * `concepts/Janitor.md` is seeded by ../concept-seed.ts. No mandate ships:
+ * `concepts/Janitor.md` is seeded with strut's `seedConcepts`. No mandate ships:
  * what counts as dirty is each workspace's to say.
  *
  * The ENGINE is `workflows/graph-janitor.yaml`, seeded like the code
@@ -69,12 +68,12 @@ const RETIRED_WORKFLOWS: string[] = [];
 export const SEED_STEPS = ["queue", "plan", "readback", "revert-plan"] as const;
 const RETIRED_STEPS: string[] = [];
 
-export async function seedJanitorSteps(workspace: WorkspaceStore): Promise<void> {
+export async function seedJanitorSteps(workspace: WorkspaceStore, opts: PublishByContentOptions = SEED_OPTS): Promise<void> {
   for (const name of SEED_STEPS) {
     const type = `janitor/${name}`;
     try {
       const code = await readFile(join(STEPS_DIR, `${name}.ts`), "utf-8");
-      const { version, changed } = await workspace.publishStep(type, code, undefined, "janitor-seed", SEED_OPTS);
+      const { version, changed } = await workspace.publishStep(type, code, undefined, "janitor-seed", opts);
       if (changed) console.log(`[janitor] seeded step: ${type} @ ${version}`);
     } catch (err) {
       console.warn(`[janitor] could not seed step "${type}":`, err instanceof Error ? err.message : err);

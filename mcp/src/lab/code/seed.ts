@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "strut";
-import type { ConceptSet } from "../concept-seed.js";
+import type { ConceptSet, WorkspaceStore } from "strut";
 import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
 
 /**
@@ -18,8 +17,8 @@ import { SEED_OPTS, retireWorkflows } from "../seed-opts.js";
  * agent → git/diff → git/push → github/create-pr; run again with `branch`
  * to revise the same PR. How a job agent learns to run it is graph DATA,
  * not prompt text: the `Code Change` Concept (`concepts/Code Change.md`, a
- * child of the job agent's `Job` page — CODE_CONCEPTS, seeded
- * by concept-seed.ts) names the workflow, its input, the brief, the
+ * child of strut's `Job` page — CODE_CONCEPTS, seeded with strut's
+ * `seedConcepts`) names the workflow, its input, the brief, the
  * artifact, and when a sandbox is warranted instead. NO custom steps:
  * every step is strut's, so this seeder ships YAML (and one Concept) only.
  * Seeded UNSTAMPED (no publisher → not "ai"), content-hash reconciled

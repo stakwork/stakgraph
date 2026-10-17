@@ -990,8 +990,11 @@ YAML only — every step is strut's) — and since 2026-10-13 the YAML is
 STRUT's (`strut/src/workflows/job.yaml`, seeded at boot by `createStrut`,
 strut plans/jobs.md §5): `job/seed.ts` ships only the lab's DELTA,
 `JOB_SEED`, passed as `createStrut({ job })` in `createLabStrut.ts` — the
-`pod/*`, `browser/verify` and `browser/walkthrough` grants appended to `params.tools`, the "open
-the `Job` Concept first" paragraph appended to `params.system` — merged into strut's template
+`pod/*`, `browser/verify` and `browser/walkthrough` grants appended to `params.tools`, and
+appended to `params.system` what only this deployment knows: that the strut
+belongs to one Hive workspace (`@<slug>`, every other a peer reached with
+`strut/run-workflow { peer }`) and that looking at a page is
+`browser-explore`, never a browser of the agent's own — merged into strut's template
 before it is hashed and published, so the lab's `job` is one version of the
 same workflow every strut has. Never seed `job` from here as well: one
 seeder per name, or the two leave whichever template changed last active.
@@ -1052,8 +1055,10 @@ seeder per name, or the two leave whichever template changed last active.
   fits which surface and that a turn which says "done" verifies first; and
   the `pod/*` tools (`pods/`, below) — a
   hive sandbox the job HOLDS between turns. WHICH workflow or way for which
-  kind of work is never in the prompt: the agent opens the `Job` Concept
-  (`job/concepts`, `JOB_CONCEPTS`) first and follows the kind's page —
+  kind of work is never in the prompt: strut's prompt opens the `Job`
+  Concept (strut's page, `strut/src/concepts/Job.md`) first and follows the
+  kind's page — the lab's kinds hang under it (`job/concepts`,
+  `JOB_CONCEPTS`, and the sets below) —
   `Code Change` (`code/concepts`) sizes the request — a change judged from
   the diff runs `code-change-pr` now and the PR comes back as a
   `pull_request` artifact; a larger one starts as a plan unasked and, once
@@ -1062,8 +1067,10 @@ seeder per name, or the two leave whichever template changed last active.
   make it in a pod;
   `Plan Mode`, when the person asks for a plan first, is ONE static
   `plan.html` (overview up front, the technical part in a collapsed
-  `<details>`, the page style) revised until they approve. The root page
-  also carries the one rule every kind shares: to SEE a page the agent runs
+  `<details>`, the page style) revised until they approve. `JOB_SEED`'s
+  section also carries the one rule every kind shares (the root page's
+  until strut shipped a generic one; it moves to strut with `browser/*`):
+  to SEE a page the agent runs
   `browser-explore` as a child run (its shots land in the job directory),
   never a browser it installs with `bash` — the repo2graph image ships
   Playwright's browsers for gitsee, so `npx playwright` there just works,
@@ -1149,32 +1156,37 @@ relevant with what the answer rests on. Locally it is an ordinary workflow
   under one) and named in the prompt, `session` precedence, a launch
   without a prompt refused.
 
-### `builder/` + `concept-seed.ts` — what the AI builder knows about this deployment, read off the graph
+### Concept pages — what the builder and the job agent know about this deployment, read off the graph
 
-Strut's builder prompt knows how to build workflows, never WHAT a deployment
-builds. That knowledge is a tree of `Concept` nodes in the knowledge graph,
-and the lab hands the builder its first page:
+Strut's builder prompt knows how to build workflows, and its job prompt how
+to work a job, never WHAT a deployment builds or which way does which kind
+of work. That knowledge is two trees of `Concept` nodes in the knowledge
+graph. Strut ships the two roots (`strut/src/concepts/`, seeded inside
+`createStrut`); the lab ships pages under them:
 
 ```
-Workflow Builder            what this workspace builds       (builder/concepts)
+Workflow Builder            what this workspace builds       (strut)
 └─ Janitor                  a kind: its convention           (janitor/concepts)
    └─ <a mandate>           an instance                      (the workspace's own)
 
-Job                         what a job agent can do here     (job/concepts)
+Job                         what a job agent can do here     (strut)
 ├─ Code Change              a kind: which workflow, how      (code/concepts)
+│  ├─ Pod                   when a change runs in a sandbox  (pods/concepts)
+│  │  └─ Pod Config > Pod Setup > …                          (pods/, pod-setup/concepts)
 │  └─ <a way | a repo>      a sandbox workflow / repo rules  (the workspace's own)
 ├─ Explore                  a way of working: a note kept    (job/concepts)
+├─ Onboarding               a kind: a workspace's first pod  (job/concepts)
 ├─ Plan Mode                a way of working: plan.html first (job/concepts)
 └─ Verify                   claims + checks, verify before done (job/concepts)
 ```
 
-The `job` agent reads the SECOND tree, every turn, as a tool result (never
-inlined: its system prompt is frozen by the session's first turn, a read is
-not): its `params.system` opens `Job` by name (`graph/graph-get` with
-`children: PARENT_OF`), matches the request to a kind, opens that page and
-follows it — so WHICH workflow does which kind of work is graph data a
-workspace edits, never a line in the job's prompt. The builder never sees
-`Job`; the job agent is never told about `Workflow Builder`.
+Both readers are strut's. The builder's prompt carries `Workflow Builder`'s
+page and its kinds (strut's default `chatSystem`, `src/ai/builder-system.ts`
+— the lab passes no hook; the builder opens a kind with `graph_get`, which
+strut offers because `createLabStrut` passes the workspace's graph). The
+`job` agent opens `Job` every turn as a tool result (strut's `job.yaml`
+says so; `JOB_SEED` adds nothing about it). So WHICH workflow does which
+kind of work is graph data a workspace edits, never a line in a prompt.
 
 **What ships here is seeded into EVERY workspace.** A Concept that only
 makes sense for one kind of workspace — a mandate about eval rubrics, a
@@ -1182,78 +1194,54 @@ legal topic — is that workspace's to add (the builder, hive's Learn page),
 never a file in a seeded `concepts/` dir. `seed.test.ts` fails on a seeded
 file, or an engine description, that names such a domain.
 
-One reading rule at every level: a Concept's `docs` are its page, its
-`PARENT_OF` children (name + description) its table of contents.
-
-- **The section** (`builder/system.ts`, strut's `createStrut({ chatSystem })`
-  hook): when a chat's FIRST turn builds its prompt, it reads `Workflow
-  Builder` with the step behind the tool the builder opens every other page
-  with — `graph/graph-get { node_type: "Concept", name, children:
-  "PARENT_OF" }`, the builder's `graph_get` (stakwork/strut#81) — and
-  renders its docs, its kinds as a list, and that call. Strut then
-  freezes the prompt for the chat's life (it heads the prompt-cache prefix,
-  stakwork/strut#76), so an edit to the page reaches NEW chats; a running
-  chat sees the current page only by opening it. Asked for a janitor, the
-  builder opens `Janitor` with `graph_get` and follows the convention it
-  finds there. Strut offers that tool (and the read-only `graph_query`) only
-  to a chat it was handed a graph backend for: `createLabStrut` passes the
-  workspace's as `graph`. Nothing about any kind is in strut's prompt or in the lab's
-  code: a workspace adds a kind by adding a child Concept.
-- **Trust.** The text has system authority over a builder that can publish
-  steps and run bash, and it comes from a node the workspace can edit. So
-  only the ENTRY page is inlined (every other page arrives as a tool
-  result), its docs are capped at 6000 characters, and it is framed as the
-  workspace's notes, which never replace strut's rules. An agent granted
-  graph WRITE steps can rewrite this page: grant writes by name, as the
-  janitor engine grants reads.
-- No graph (the fs workspace), or no such Concept → no section; a failed
-  read logs one line. A turn never fails on it (strut catches a throw).
-- **The seeder** (`concept-seed.ts`, `seedConcepts(workspace, sets)`): a SET
-  is one directory of `<Name>.md` files and the prefix its nodes are stamped
-  with. A file is one Concept: front matter `description` (one line) and
-  optional `parent` (another Concept's name — a file of any set in the
-  call, or a node already in the graph), body = `docs`. Written through
-  strut's graph node/edge writers at boot, edges after every node.
-  `createLabStrut` seeds `[BUILDER_CONCEPTS, JANITOR_CONCEPTS]`.
-- **The seeded graph depends on the committed files ONLY**, never on what
-  was seeded before: two graphs seeded at different times end up the same.
-  Nodes and edges both, over the Concepts the seed OWNS (create / update /
-  keep). To own a seeded Concept's edges, take the Concept over: clear its
-  stamp.
-- Reconciled per NODE by a source stamp, the way `SEED_OPTS` reconciles
-  versions: `unique_source_id = <prefix><file>@<sha256[0..12]>`. Unseen name
-  → create; same stamp → keep (nothing written: a docs edit or a mute made
-  in the graph sticks, a deleted node stays deleted); our path with an older
-  hash → upsert description + docs (a changed file wins; `is_muted` and
-  every other attribute survive); no stamp or someone else's → never
-  touched (a person's Concept under that name, or one they took over by
-  clearing the stamp). A file that MOVES to another set changes its prefix
-  and reads as someone else's — which is why `Janitor.md` stayed in
-  `janitor/concepts` when it gained a parent.
-- `PARENT_OF`: each owned Concept's `parent` is merged (idempotent by edge
-  key). A `PARENT_OF` between two owned Concepts that no file declares is
-  REMOVED — a parent a file used to name, or one added by hand. An edge
-  with anyone else's Concept at either end is never touched: not removed,
-  and a Concept someone took over is not linked back under its old parent.
-- RETIRED files: deleting a file from git removes nothing from a graph it
-  was seeded into, so a set lists the files it used to ship
-  (`retired: ["<Name>.md"]`). A node under that name that still carries
-  that file's stamp is deleted through jarvis (`DELETE
-  /v2/nodes/<ref_id>/single`: `deleted_at` set, hidden from every read, its
-  edges removed; 409 already-deleted is done). Without `JARVIS_URL` (a
-  standalone strut) the same delete runs over bolt. One whose stamp was
-  cleared or replaced is someone's and is left alone. A node with
-  `deleted_at` set or `is_deleted` true counts as deleted.
-- The ANCHOR: every owned Concept gets `HiveWorkspace -PROCESS-> <Concept>`
-  to the one workspace node hive's mirror writes into this graph — what
-  hive writes for every Concept a person approves (jarvis migration 111),
-  so its graph walker reaches a Concept from the workspace node. Nothing in
-  strut or the lab reads it. Whether a Concept has a parent does not
-  matter. No workspace node (a standalone strut) or more than one (never
-  guess) → no edge, one log line.
+- **The seeder is strut's** (`seedConcepts(graph, sets)`, `ConceptSet`,
+  `strut/src/concept-seed.ts`, on Neo4j and Ladybug alike). A SET is one
+  directory of `<Name>.md` files and the prefix its nodes are stamped with;
+  a file is one Concept (front matter `description`, optional `parent` —
+  another Concept's name, from any set in the call or already in the graph
+  — body = `docs`). Reconciled per node by `unique_source_id =
+  <prefix><file>@<sha256[0..12]>`: unseen → create; same stamp → keep
+  (nothing written: an edit made in the graph sticks until the file
+  changes); our path, older hash → update; our path, deleted → restored;
+  no stamp or another's → never touched. `PARENT_OF` follows the files
+  between the Concepts a call owns; an edge with anyone else's Concept at
+  either end is never touched. A set's `retired` files have their nodes
+  soft-deleted while they still carry that file's stamp (`Janitor`'s set
+  retires `Overfit Concept Janitor.md`).
+- **Strut owns the root pages' names.** Before strut shipped them the lab
+  seeded `Workflow Builder` (`lab/builder/concepts/`) and `Job`
+  (`lab/job/concepts/`); strut counts those stamps as its own
+  (`legacyPrefixes`). `Workflow Builder.md` was byte-identical, so a
+  deployed swarm keeps its node and stamp; the lab's `Job.md` was replaced
+  by strut's generic page on the first boot after the pin bump, and its
+  Hive-workspace and browser paragraphs moved into `JOB_SEED`. The lab
+  never ships a file under one of strut's names (`seed.test.ts`). Every
+  lab set keeps its own prefix, so its stamps stay its own: a file that
+  moves to another set reads as someone else's.
+- **Order.** `createLabStrut` seeds the lab's sets AFTER `createStrut`
+  returned (strut seeds its pages inside it; the lab's hang under them by
+  name), in ONE call with `STRUT_CONCEPTS` riding along — all kept, nothing
+  written — so strut's pages are owned in that call too: their `PARENT_OF`
+  edges to the lab's follow the files, and they are anchored with the
+  lab's.
+- **The anchor** (`concept-anchor.ts`, `anchorConcepts(graph, outcomes)`,
+  the lab's: strut knows no `HiveWorkspace`): every Concept the call owns
+  (create / update / keep — strut's pages and the lab's) gets
+  `HiveWorkspace -PROCESS-> <Concept>` to the one workspace node hive's
+  mirror writes into this graph — what hive writes for every Concept a
+  person approves (jarvis migration 111), so its graph walker reaches a
+  Concept from the workspace node. Nothing in strut or the lab reads it.
+  No workspace node (a standalone strut) or more than one (never guess) →
+  no edge, one log line. Neo4j only.
+- **Trust.** The builder's section has system authority over a builder
+  that can publish steps and run bash, and it comes from a node the
+  workspace can edit: strut inlines only the entry page, caps its docs and
+  frames them as the workspace's notes. An agent granted graph WRITE steps
+  can rewrite these pages: grant writes by name, as the janitor engine
+  grants reads.
 - Needs the `Concept` schema (a jarvis-seeded swarm, or
-  `STRUT_GRAPH_SEED_ONTOLOGY=1`); a missing schema, or a live one without
-  `unique_source_id`, warns and seeds nothing.
+  `STRUT_GRAPH_SEED_ONTOLOGY=1`); without it nothing is seeded, one log
+  line. No graph (the fs workspace): nothing seeded, no section.
 
 ### `janitor/` — janitors: the engine workflows, their four steps + the `Janitor` Concept's mandates
 
@@ -1268,7 +1256,7 @@ automation per janitor, so a workspace grows its own by adding a child
 Concept (hive's Learn page, Jamie, strut's `graph/*` steps through the
 builder's `run_step`) and scheduling it — nothing to publish. Automations
 are not seeded. The builder learns HOW from `Janitor`'s docs (see
-`builder/` above); the workflow's description says what the workflow does.
+Concept pages above); the workflow's description says what the workflow does.
 
 - **The engine** (`workflows/graph-janitor.yaml`, category
   `graph-maintenance`, unstamped, SEED_OPTS): three
@@ -1326,8 +1314,9 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   (`targets` = the queue's ref_ids → `not_in_batch`; a target counts as
   visited, and a move's new parent may be any node the agent read), the Janitor node, its children and anything
   hanging under it live (one mandate must never rewrite another), the
-  mandate, a git-seeded Concept (`params.seeded_prefix`, `lab/` — the next
-  file change would overwrite it; fixes belong in git), a rename (`name` is
+  mandate, a git-seeded Concept (`params.seeded_prefix`, `[lab/, strut/]`
+  — the lab's pages and strut's; the next file change would overwrite it;
+  fixes belong in git), a rename (`name` is
   the identity key; automations address Concepts by it — `params.apply_properties`
   is `[description, docs]`), a value that no longer matches what the agent
   read (`old_value` or the `evidence` quote; `stale`), a move with no or
@@ -1359,7 +1348,7 @@ are not seeded. The builder learns HOW from `Janitor`'s docs (see
   copy. The four steps are seeded like explore's (`SEED_STEPS`, one
   self-contained file each importing only "strut": `graphCtx` and the bolt
   read are inlined per file).
-- **The tree** (`concepts/Janitor.md`, seeded by `concept-seed.ts`):
+- **The tree** (`concepts/Janitor.md`, seeded by strut's `seedConcepts`):
   `Janitor` (parent `Workflow Builder`), whose docs STATE THE CONVENTION —
   what a child is, how to run one, and the three steps to add one
   (`graph/create-node`, `graph/create-triplet` `PARENT_OF` from `Janitor`,

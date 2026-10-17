@@ -1,7 +1,7 @@
 /**
  * job OFFLINE smoke — no LLM, no network. Boots strut on a throwaway
  * workspace with the lab's delta (`job: JOB_SEED` — createStrut seeds strut's
- * `job` template with the pod/* grants and the `Job` Concept paragraph
+ * `job` template with the pod/* grants and the Hive workspace paragraph
  * merged in), checks the steps it leans on are discoverable, static-validates
  * it through the authoring capability (what meta/validate-workflow runs)
  * against the REAL registry, then RUNS it the way hive does — over HTTP,
@@ -46,8 +46,8 @@ const STEPS = ["job/dir", "git/checkout", "agent", "pack"];
 // same on a peer: another workspace's strut, by its slug), the job/* reads
 // (earlier jobs: strut plans/job-index.md §5) — then the lab's delta,
 // appended by JOB_SEED: the pod/* tools (a hive sandbox the job holds
-// between turns) and browser/verify (the page instrument a claim's check
-// names).
+// between turns), browser/verify (the page instrument a claim's check
+// names) and browser/walkthrough (the same, a frame per step).
 const TOOLS: string[] = [
   "graph/graph-search",
   "graph/graph-get",
@@ -69,6 +69,7 @@ const TOOLS: string[] = [
   "job/read",
   "pod/*",
   "browser/verify",
+  "browser/walkthrough",
 ];
 
 /** What the fake agent was handed each turn — the resolved step config. */
@@ -166,7 +167,7 @@ async function main() {
     if (v.warnings.length) console.log(`  warnings:`, v.warnings.map((w: any) => `${w.path}: ${w.message}`));
     const flow = await workspace.getWorkflow(JOB);
     assert.deepEqual(flow.params?.["tools"], TOOLS, "strut's grants, then the lab's");
-    assert.match(String(flow.params?.["system"]), /^You are working on a JOB[\s\S]*open the `Job` Concept/, "strut's prompt, then the lab's section");
+    assert.match(String(flow.params?.["system"]), /^You are working on a JOB[\s\S]*open the `Job` Concept[\s\S]*This strut belongs to one Hive workspace/, "strut's prompt, then the lab's section");
     assert.ok(flow.inputBlock?.["prompt"], "the input block declares prompt");
     assert.equal(flow.inputBlock?.["workspace"]?.required, false, "the input block declares workspace, optional");
     assert.equal(flow.inputBlock?.["session"]?.required, false, "the input block declares session, optional");
@@ -217,7 +218,7 @@ async function main() {
     assert.equal(cfg["cacheTtl"], "1h");
     assert.equal(cfg["model"], "claude-sonnet-5-5");
     assert.match(String(cfg["system"]), /^You are working on a JOB/);
-    assert.match(String(cfg["system"]), /open the `Job` Concept[\s\S]*$/, "the lab's section reached the step");
+    assert.match(String(cfg["system"]), /This strut belongs to one Hive workspace[\s\S]*browser set aside for this\.\n$/, "the lab's section reached the step");
     assert.equal((cfg["schema"] as any)?.required?.join(","), "text,artifacts");
     console.log(`✔ turn 1: 202 { runId: ${firstBody.runId}, callback: true } → callback artifacts[0] = ${JSON.stringify(post1.artifacts[0])}`);
 

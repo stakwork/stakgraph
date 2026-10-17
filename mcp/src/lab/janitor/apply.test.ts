@@ -36,14 +36,14 @@ const finding = (ref_id: string, action: Finding["action"], extra: Partial<Findi
   ...extra,
 });
 const OPTS = {
-  visited: [{ ref_id: "law" }, { ref_id: "tort" }, { ref_id: "crime" }, { ref_id: "janitor" }, { ref_id: "mandate" }, { ref_id: "seeded" }],
+  visited: [{ ref_id: "law" }, { ref_id: "tort" }, { ref_id: "crime" }, { ref_id: "janitor" }, { ref_id: "mandate" }, { ref_id: "seeded" }, { ref_id: "strut-seeded" }],
   protect: ["janitor", "mandate"],
   parent_ref_id: "janitor",
   node_type: "Concept",
   properties: ["description", "docs"],
   min_severity: "low",
   max_changes: 20,
-  seeded_prefix: "lab/",
+  seeded_prefix: ["lab/", "strut/"],
 };
 const LIVE = new Map<string, LiveNode>([
   ["law", node("law", { name: "Law", description: "old words here" })],
@@ -52,7 +52,8 @@ const LIVE = new Map<string, LiveNode>([
   ["janitor", node("janitor", { name: "Janitor" })],
   ["mandate", node("mandate", { name: "Mandate", docs: "the mandate" }, { parents: ["janitor"] })],
   ["other-mandate", node("other-mandate", { name: "Other" }, { parents: ["janitor"] })],
-  ["seeded", node("seeded", { name: "Job", description: "Seeded." }, { stamp: "lab/job/concepts/Job.md@abcdef123456" })],
+  ["seeded", node("seeded", { name: "Code Change", description: "Seeded." }, { stamp: "lab/code/concepts/Code Change.md@abcdef123456" })],
+  ["strut-seeded", node("strut-seeded", { name: "Job", description: "Strut's page." }, { stamp: "strut/concepts/Job.md@abcdef123456" })],
 ]);
 
 describe("planChanges", () => {
@@ -146,7 +147,7 @@ describe("planChanges", () => {
 
   it("never writes Janitor, a mandate, anything hanging under Janitor, or a git-seeded Concept — whatever the agent says", () => {
     const set = (ref: string) => finding(ref, { kind: "set_property", property: "description", old_value: "", new_value: "Rewritten." });
-    const p = planChanges([set("janitor"), set("mandate"), set("other-mandate"), set("seeded")], LIVE, {
+    const p = planChanges([set("janitor"), set("mandate"), set("other-mandate"), set("seeded"), set("strut-seeded")], LIVE, {
       ...OPTS,
       visited: [...OPTS.visited, { ref_id: "other-mandate" }],
     });
@@ -158,9 +159,14 @@ describe("planChanges", () => {
         ["mandate", "protected"],
         ["other-mandate", "protected"],
         ["seeded", "git_seeded"],
+        ["strut-seeded", "git_seeded"],
       ],
     );
-    assert.match(p.skipped[3]!.detail!, /lab\/job\/concepts\/Job\.md@/);
+    assert.match(p.skipped[3]!.detail!, /lab\/code\/concepts\/Code Change\.md@/);
+    assert.match(p.skipped[4]!.detail!, /strut\/concepts\/Job\.md@/, "strut's own pages are a git seed's too");
+    // One prefix still works (an older workflow version passes a string).
+    const one = planChanges([set("seeded"), set("strut-seeded")], LIVE, { ...OPTS, seeded_prefix: "lab/" });
+    assert.deepEqual(one.skipped.filter((s) => s.reason === "git_seeded").map((s) => s.ref_id), ["seeded"]);
   });
 
   it("with targets (the run's batch): a finding outside it is not_in_batch; a target counts as visited; a move may go under any visited node", () => {

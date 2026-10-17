@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "strut";
-import type { ConceptSet } from "../concept-seed.js";
+import type { ConceptSet, WorkspaceStore } from "strut";
 import { SEED_OPTS, retireSteps, retireWorkflows } from "../seed-opts.js";
 
 /**
