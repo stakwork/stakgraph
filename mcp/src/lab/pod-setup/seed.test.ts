@@ -52,11 +52,20 @@ describe("the Pod Setup pages", () => {
     const livekit = pages.get("Pod Setup - LiveKit")!.body;
     const secret = /LIVEKIT_API_SECRET`\s+`([^`]+)`/.exec(livekit)?.[1];
     assert.equal(/LIVEKIT_KEYS:\s+"devkey: ([^"]+)"/.exec(livekit)?.[1], secret, "LIVEKIT_KEYS gives the server the app's secret");
+    // One set of rules: the root carries the contract Pod Config used to copy, Android's included,
+    // and never names the person-facing service (code does).
+    const root = pages.get("Pod Setup")!.body;
+    for (const rule of ["0.0.0.0", "npx -y hell0-w0rld", "/workspaces/<repo>", "staklink-android", "adb wait-for-device"]) {
+      assert.ok(root.includes(rule), `Pod Setup states ${rule}`);
+    }
+    assert.ok(!root.includes("`frontend`"), "Pod Setup never names the frontend");
     const onboarding = front(await readFile(join(POD_SETUP_CONCEPTS.dir, "..", "..", "job", "concepts", "Onboarding.md"), "utf8"));
     assert.equal(onboarding.meta.parent, "Job");
-    for (const step of ["pod/claim", "identify-services", "pod/config-set", "wait: false", "pod/config-apply", "meta/verify-job", "fresh: true"]) {
+    for (const step of ["pod/claim", "identify-services", "pod/config { workspace, control, sealed }", "npx -y hell0-w0rld", "pod/config-set", "wait: false", "pod/config-apply", "meta/verify-job", "fresh: true"]) {
       assert.ok(onboarding.body.includes(step), `Onboarding names ${step}`);
     }
+    // The no-ask write is guarded: pod/config is read before pod/config-set.
+    assert.ok(onboarding.body.indexOf("pod/config { workspace") < onboarding.body.indexOf("pod/config-set"), "Onboarding reads the pool before it writes");
   });
 });
 

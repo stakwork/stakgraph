@@ -14,13 +14,16 @@ then `job/get` on a hit. Its `pod-config` deliverable is the diff that was
 promoted and what a fresh pod still lacked; its thread says how it got there.
 
 **What a pod runs from.** Hive builds every pod of a workspace from its pool
-config: `services` (one pm2 app each; `frontend` is the one people open),
-workspace-wide env vars, `docker-compose.yml` (the containers beside the
-apps) and `Dockerfile`. In the pod they are files under
-`/workspaces/.pod-config/.user-dockerfile/`. A service's commands are env vars
-of its pm2 app: INSTALL_COMMAND, BUILD_COMMAND, PRE_START_COMMAND (before the
-apps start), POST_START_COMMAND (after), REBUILD_COMMAND, TEST_COMMAND,
-E2E_TEST_COMMAND, RESET_COMMAND, and PORT.
+config: `services` (one pm2 app each), workspace-wide env vars,
+`docker-compose.yml` (the containers beside the apps) and `Dockerfile`.
+What they must say is this page's child `Pod Setup` (PARENT_OF from here):
+the rules every setup follows, and a page per platform and per service
+beside the app. A fix in the pod follows them, and so does a promotion.
+In the pod they are files under `/workspaces/.pod-config/.user-dockerfile/`.
+A service's commands are env vars of its pm2 app: INSTALL_COMMAND,
+BUILD_COMMAND, PRE_START_COMMAND (before the apps start), POST_START_COMMAND
+(after), REBUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, RESET_COMMAND, and
+PORT.
 
 **Fix it in the pod.** Hand the agent in the pod the fix as a task that
 stands alone, with what it needs to know about the pod:
@@ -31,14 +34,8 @@ stands alone, with what it needs to know about the pod:
   agent runs inside pm2 and would stop itself. One app: `pm2 restart <name>`;
   logs one app at a time: `pm2 logs <name> --lines 100 --nostream`; the
   containers: `docker ps`, `docker logs <name>`;
-- the start command is the development one (with hot reload where the app
-  has it), bound to `0.0.0.0` so the app is reachable from outside the pod;
-- there is always a `frontend` app; when the code has no web app or API to
-  open, a placeholder (`npx -y hell0-w0rld`);
-- with several repositories, each app's `cwd` is its own `/workspaces/<repo>`;
-- an Android app: base image `ghcr.io/stakwork/staklink-android:latest`, PORT
-  8000 (the screen stream), `adb wait-for-device` before start, the APK built
-  by BUILD_COMMAND and REBUILD_COMMAND, installed and launched after start;
+- the `Pod Setup` rules the fix touches, in words: the agent in the pod
+  cannot open the page;
 - mock code, fixtures and seed scripts belong in the repository: they ship
   as a pull request (`pod/push`).
 
