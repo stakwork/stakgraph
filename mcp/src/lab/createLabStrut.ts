@@ -28,6 +28,7 @@ import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
 import { CODE_CONCEPTS, seedCodeWorkflows } from "./code/seed.js";
 import { JOB_CONCEPTS, JOB_SEED } from "./job/seed.js";
+import { ORCHESTRATOR_SEED } from "./orchestrator/seed.js";
 import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./pod-setup/seed.js";
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
@@ -272,6 +273,13 @@ export async function createLabStrut(
     // strut belongs to after strut's prompt — merged into the `job` template
     // strut seeds at boot.
     job: JOB_SEED,
+    // The orchestrator's (orchestrator/seed.ts): the graph reads and the
+    // seven graph writes on this swarm's graph, the writes GATED
+    // (`approve`: a call records a proposal hive's card decides), the
+    // meta/* read + run tools, and which Hive workspace this strut belongs
+    // to plus what a Concept is here — merged into strut's `orchestrator`
+    // template the same way.
+    orchestrator: ORCHESTRATOR_SEED,
     // A non-file workspace would otherwise default the run/chat/secret
     // stores to memory — pin them to disk so history survives restarts.
     ...(graphBacked

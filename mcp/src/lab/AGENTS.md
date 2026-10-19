@@ -1024,6 +1024,55 @@ relevant with what the answer rests on. Locally it is an ordinary workflow
   under one) and named in the prompt, `session` precedence, a launch
   without a prompt refused.
 
+### `orchestrator/` — Jamie's turn as a workflow (hive's canvas chat + its proposals)
+
+Strut's second shipped workflow, `orchestrator` (strut
+`src/workflows/orchestrator.yaml`, seeded at boot by `createStrut` as
+`job` is): one turn of a long conversation — an agent on the caller's
+`session` with no built-ins (`toolFilter: [none]`), strut's memory and
+job steps as tools, jobs started DETACHED. Hive launches one per Jamie
+message (strut `plans/proposals.md` §9). As with `job`, the lab ships only
+its DELTA, `ORCHESTRATOR_SEED` (`orchestrator/seed.ts`), passed as
+`createStrut({ orchestrator })` beside `job: JOB_SEED`; never seed
+`orchestrator` from here as well.
+
+- **`tools`**: strut's `graph/*` steps on this swarm's graph — the reads
+  (`graph-search`, `graph-get`, `graph-get-batched`, `graph-neighbors`,
+  the two ontology reads) and the seven writes hive's `propose_*` tools
+  were (`create-node`, `edit-node`, `create-triplet`,
+  `create-batch-triplet`, `move-node`, `delete-edge`, `delete-node`) —
+  plus `meta/list-workflows`, `meta/get-workflow`, `meta/run-workflow`, so
+  a turn runs `explore` inside it. BY NAME, never `graph/*`: the glob
+  would hand out `graph/create-schema` and `graph/edit-edge` ungated.
+- **`approve`**: exactly the seven writes. PROPOSALS (strut
+  `plans/proposals.md`, `src/proposals.ts`): a call to a gated tool does
+  not run the step — strut records a proposal, the model gets `{ proposal,
+  status: "pending" }` and goes on, hive draws the card from `GET
+  /lab/proposals/:id`, and on accept (`POST /lab/proposals/:id/decide`, the
+  clicker as `x-strut-actor`) strut runs the step in code with the recorded
+  input. The proposing session hears the decision on its next turn as
+  `[proposal-result]` lines before the prompt. The reads stay immediate.
+  `seed.test.ts` fails on a write leaving the gate or an eighth joining it.
+- **`system`**: what only this deployment knows, after strut's prompt —
+  which Hive workspace this strut belongs to (`@<slug>` on the message's
+  first line, as `JOB_SEED` says); that every graph write is proposed,
+  never made, and what the result line looks like; what a Concept is on
+  this graph — `name` (the key), `description`, the body in `docs`
+  (jarvis's `documentation` is deprecated and unindexed) — and how a NEW
+  one is proposed: ONE `graph/create-batch-triplet` with the Concept
+  inline as the target of both `<parent> -PARENT_OF->` and `<HiveWorkspace>
+  -PROCESS->` (batch-triplet dedupes identical inline sides). The anchor
+  is the proposal's own because nothing else writes it for a Concept made
+  this way: hive's `handleApproval` wrote it for `conceptCreate` and
+  `concept-anchor.ts` writes it for seeded pages at boot, and strut has no
+  after-apply hook. One card, one accept, placed and reachable from the
+  workspace node.
+- Hive-owned kinds (initiatives, milestones, prompts) are later: the
+  `hive/*` steps of plan §9 do not exist yet, so `handleApproval` keeps
+  those branches. Tests: `orchestrator/seed.test.ts` (pure: the merged
+  YAML's `params.approve`, every grant a step of the real registry, the
+  agent step reading both from params, the section after strut's).
+
 ### Concept pages — what the builder and the job agent know about this deployment, read off the graph
 
 Strut's builder prompt knows how to build workflows, and its job prompt how
