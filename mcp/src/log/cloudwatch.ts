@@ -208,32 +208,29 @@ export function buildInsightsQuery(params: InsightsQueryParams): string {
 }
 
 /**
- * Fetch CloudWatch logs using Logs Insights (newest-first via `sort @timestamp desc`).
- * Replaces FilterLogEvents for high-volume log groups where oldest-first pagination
- * would exhaust page/time caps before reaching recent logs.
- *
- * @param params   Standard fetch params (same interface as fetchCloudwatchLogs).
- * @param _client  Optional CloudWatchLogsClient for dependency injection in tests.
+ * Run one Logs Insights query over a log group to completion — or to the
+ * wall-clock cap — and return its rows: the start-and-poll half of
+ * `fetchCloudwatchLogsInsights`, shared with the lab's `logs/insights` step,
+ * which runs an agent's own query (stats, counts, top-N). `truncated` when the
+ * cap or AWS's own Timeout cut it short (the rows so far come back).
  */
-export async function fetchCloudwatchLogsInsights(
-  params: FetchCloudwatchParams,
-  _client?: CloudWatchLogsClient
-): Promise<FetchCloudwatchResult> {
-  const {
+export async function runInsightsQuery(
+  {
     logGroupName,
-    logStreamNames,
-    filterPattern,
-    minutes = 30,
-    limit = 10000,
-    logsDir,
+    queryString,
+    startTimeMs,
+    endTimeMs,
     abortSignal,
-  } = params;
-
-  const queryString = buildInsightsQuery({ filterPattern, logStreamNames, limit });
+  }: {
+    logGroupName: string;
+    queryString: string;
+    startTimeMs: number;
+    endTimeMs: number;
+    abortSignal?: AbortSignal;
+  },
+  _client?: CloudWatchLogsClient
+): Promise<{ results: import("@aws-sdk/client-cloudwatch-logs").ResultField[][]; truncated: boolean }> {
   const client = _client ?? getClient();
-
-  const endTimeMs = Date.now();
-  const startTimeMs = endTimeMs - minutes * 60 * 1000;
 
   // StartQueryCommand uses epoch seconds (not ms like FilterLogEvents)
   const startQueryResp = await client.send(
@@ -302,6 +299,42 @@ export async function fetchCloudwatchLogsInsights(
     // Still Running / Scheduled — wait 1 s before the next poll
     await sleep(1000);
   }
+
+  return { results, truncated };
+}
+
+/**
+ * Fetch CloudWatch logs using Logs Insights (newest-first via `sort @timestamp desc`).
+ * Replaces FilterLogEvents for high-volume log groups where oldest-first pagination
+ * would exhaust page/time caps before reaching recent logs.
+ *
+ * @param params   Standard fetch params (same interface as fetchCloudwatchLogs).
+ * @param _client  Optional CloudWatchLogsClient for dependency injection in tests.
+ */
+export async function fetchCloudwatchLogsInsights(
+  params: FetchCloudwatchParams,
+  _client?: CloudWatchLogsClient
+): Promise<FetchCloudwatchResult> {
+  const {
+    logGroupName,
+    logStreamNames,
+    filterPattern,
+    minutes = 30,
+    limit = 10000,
+    logsDir,
+    abortSignal,
+  } = params;
+
+  const queryString = buildInsightsQuery({ filterPattern, logStreamNames, limit });
+  const client = _client ?? getClient();
+
+  const endTimeMs = Date.now();
+  const startTimeMs = endTimeMs - minutes * 60 * 1000;
+
+  const { results, truncated } = await runInsightsQuery(
+    { logGroupName, queryString, startTimeMs, endTimeMs, abortSignal },
+    client
+  );
 
   // Map result rows, keeping each row's @ptr so truncated messages can be
   // hydrated to their full text below.
