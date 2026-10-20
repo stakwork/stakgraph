@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import jwt from "jsonwebtoken";
 import type { Request, Response } from "express";
 import { BUSY_TIMEOUT_MINUTES } from "../busy.js";
+import { env } from "../env.js";
 
 // ── Bus / JWT lifetime constants ─────────────────────────────────────────
 
@@ -16,7 +17,7 @@ const MARGIN_SECONDS = 5 * 60; // 5 minutes in seconds
 const JWT_EXPIRY_SECONDS = BUSY_TIMEOUT_MINUTES * 60 + MARGIN_SECONDS;
 
 function getSecret(): string {
-  const secret = process.env.API_TOKEN;
+  const secret = env.API_TOKEN;
   if (!secret) throw new Error("API_TOKEN is required for JWT signing");
   return secret;
 }
@@ -115,7 +116,7 @@ export function verifyApiToken(
 // launched. Long-lived by default ("60d", the delegation's lifetime): it is
 // pasted into a peer record, not re-minted per page load.
 export function mintToken(req: Request, res: Response): void {
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   if (!apiToken) {
     res.status(503).json({ error: "API_TOKEN not configured" });
     return;

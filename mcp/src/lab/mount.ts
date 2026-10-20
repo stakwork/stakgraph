@@ -2,16 +2,62 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
-import { createAudioUpgradeHandler, type AudioUpgradeHandler } from "strut";
+import { createAudioUpgradeHandler, scrubProcessEnv, type AudioUpgradeHandler } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
+import { env, freezeEnv } from "../env.js";
 import { stashLabActor, stashLabScope } from "./actor.js";
 import { verifyApiToken, type ApiTokenPayload, type ApiTokenScope } from "../repo/events.js";
 
 /** The one lab strut, built on first use (HTTP request, dictation upgrade,
- *  or a `/gitree/process` / `/repo/describe` launch — lab/proxy.ts). */
+ *  or a `/gitree/process` / `/repo/describe` launch — lab/proxy.ts). The
+ *  env is scrubbed first (below): nothing runs a step before the lab is
+ *  built, and strut must be built over the scrubbed env (see `scrubEnv`). */
 let labStrutP: ReturnType<typeof createLabStrut> | null = null;
 export function labStrut() {
-  return (labStrutP ??= createLabStrut({ serveUi: true }));
+  return (labStrutP ??= (async () => {
+    scrubEnv();
+    return createLabStrut({ serveUi: true });
+  })());
+}
+
+/** What mcp sets on `process.env` itself, on purpose, for every git child
+ *  anything in this process spawns (repo/clone.ts at import: never prompt
+ *  for credentials, never hang a headless container) — git behavior, not a
+ *  credential, so the scrub leaves it where every spawn finds it. */
+const KEEP_FOR_GIT = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"];
+
+/**
+ * The env boundary (strut src/env.ts, stakwork/strut#228): a workspace step
+ * is TypeScript running in this process, so `process.env` — where the
+ * deployment's keys arrive — is readable by any step and by any child it
+ * spawns with it. The default strut server empties `process.env` at boot; a
+ * host that embeds `createStrut` does it itself. mcp does it when the lab
+ * boots, BEFORE `createLabStrut`: strut's own code reads its boot snapshot
+ * (`bootEnv()`), but `standardServices` takes that snapshot by reference
+ * when the strut is built, and until the scrub runs the snapshot IS
+ * `process.env` — a scrub after `createStrut` would empty the very object
+ * the secrets fallback holds, and `ctx.services.secrets` would resolve no
+ * key the deployment set in env. Scrubbed first, every construction-time
+ * read — strut's through `bootEnv()`, the lab's own through `env`
+ * (src/env.ts: the workspace path, NEO4J_*, GITHUB_TOKEN, the provider key,
+ * GAIA_*) — sees the copy, and a step's `process.env.X` sees nothing.
+ *
+ * mcp's own request-time reads (`API_TOKEN` on every route, `NEO4J_*`,
+ * aieo's provider keys, `GITHUB_TOKEN`) go through `env` too, frozen here
+ * right before the scrub so it holds the same copy.
+ *
+ * `STRUT_ENV_SCRUB=0` turns it off (strut's own switch, the same name), for
+ * a swarm where something unexpected still reads the env; `STRUT_ENV_KEEP=A,B`
+ * keeps named variables, as in strut.
+ */
+function scrubEnv(): void {
+  if (env["STRUT_ENV_SCRUB"] === "0") {
+    console.log("[env] STRUT_ENV_SCRUB=0: process.env left as it is");
+    return;
+  }
+  freezeEnv();
+  const gone = scrubProcessEnv({ keep: KEEP_FOR_GIT });
+  if (gone.length) console.log(`[env] ${gone.length} variable(s) taken out of process.env (kept in the boot snapshot): ${gone.join(", ")}`);
 }
 
 /**
@@ -80,7 +126,7 @@ const grant = (actor: string | undefined): LabGrant => {
  *  when it does not. (`labAuth` without the response side, so the WebSocket
  *  upgrade can apply the same rule.) */
 function labAuthorized(req: LabCredentials): LabGrant | undefined {
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   // Dev mode: open — and with nothing to prove who a caller is, nobody's
   // word on who should pay is taken either (strut's own default is the same).
   if (!apiToken) return {};

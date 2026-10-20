@@ -3,9 +3,10 @@ import { Json, Tool } from "./types.js";
 import { Request, Response, NextFunction } from "express";
 import * as stakgraph from "./stakgraph/index.js";
 import * as stagehand from "./stagehand/tools.js";
+import { env } from "../env.js";
 
 const USE_STAGEHAND: boolean =
-  process.env.USE_STAGEHAND === "true" || process.env.USE_STAGEHAND === "1";
+  env.USE_STAGEHAND === "true" || env.USE_STAGEHAND === "1";
 
 export function getMcpTools(): Tool[] {
   if (USE_STAGEHAND) {
@@ -19,7 +20,7 @@ export function use_stagehand(): boolean {
 }
 
 export function bearerToken(req: Request, res: Response, next: NextFunction) {
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   if (!apiToken) {
     return next();
   }

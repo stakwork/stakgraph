@@ -7,6 +7,7 @@ import { MessagesController } from "./controllers/messages.js";
 import { WebhookController } from "./controllers/webhook.js";
 import { Message } from "./types/index.js";
 import { loadConfig, Config } from "./utils/config.js";
+import { env } from "../../env.js";
 
 export class App {
   public app: express.Application;
@@ -18,7 +19,7 @@ export class App {
 
   constructor(parentApp?: any) {
     this.app = parentApp || express();
-    const configPath = process.env.SAGE_CONFIG_PATH || "sage_config.json";
+    const configPath = env.SAGE_CONFIG_PATH || "sage_config.json";
     this.config = loadConfig(configPath);
     if (!parentApp) {
       this.configureMiddleware();

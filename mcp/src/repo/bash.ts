@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { env as hostEnv } from "../env.js";
 
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024; // 8 MB cap to stay well under V8 max string length
 
@@ -85,7 +86,9 @@ function execShellCommand(
       cwd,
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: env ? { ...globalThis.process.env, ...env } : globalThis.process.env,
+      // The host's env copy (src/env.ts), spread: the same env a child got
+      // before the lab scrubbed `process.env`.
+      env: { ...hostEnv, ...(env ?? {}) },
     });
 
     let stdout = "";

@@ -28,6 +28,28 @@ workflows/steps inside it — **not** separate servers. Adding an experiment
   raw request streams. Lazy-initialized so mcp boot isn't coupled to
   Neo4j / LLM keys. Exports `labStrut()`, the same instance, for in-process
   launches.
+  **The env boundary** (strut src/env.ts, stakwork/strut#228): when the
+  lab boots, `labStrut()` calls strut's `scrubProcessEnv()` BEFORE
+  `createLabStrut` — `process.env` is emptied down to what a shell needs
+  (`KEEP_ENV`, plus mcp's own `GIT_TERMINAL_PROMPT` / `GIT_ASKPASS`), so a
+  seeded step, or a child it spawns with `process.env`, sees no deployment
+  key, while `ctx.services.secrets` still resolves one through strut's boot
+  snapshot. Before, not after, the strut is built: strut's `standardServices`
+  holds that snapshot by reference, and until the scrub the snapshot IS
+  `process.env` (see `scrubEnv` in mount.ts). mcp's own reads — at
+  construction (the workspace path, `NEO4J_*`, `GITHUB_TOKEN`, the provider
+  key, `GAIA_*`) and per request (`API_TOKEN`, aieo's provider keys, …) —
+  go through `env` (`mcp/src/env.ts`), the copy frozen right before the
+  scrub; host code never reads `process.env` after boot (a module-level
+  `const` read at import is fine). `STRUT_ENV_SCRUB=0` turns the scrub off;
+  `STRUT_ENV_KEEP=A,B` keeps named variables. **A seeded step reaches the shell, files, the
+  network and keys only through `ctx.services`** (`shell`, `artifacts`,
+  `http`, `secrets`): strut's registry warns at boot about a workspace step
+  whose source imports `node:fs` / `node:child_process` / `http`, reads
+  `process.env` or calls the global `fetch` ("[steps] <type> reaches past
+  ctx.services"), and a later strut refuses to load it. The one deliberate
+  exception today is `pod-setup/repo-facts`, which walks a checkout with
+  `node:fs` (see its header) and needs a strut-side door.
 - `proxy.ts` — `POST /gitree/process` and `POST /repo/describe` as lab
   launches (docs/plans/gitree-to-workflows.md). A request naming an actor
   (`x-strut-actor` beside a matching `x-api-token` — `labAuth`'s rule;
@@ -83,254 +105,6 @@ Experimentation seams (edit without touching code):
 - **ordering** → `concepts/prioritize-changes` strategy (swap the step)
 - **orchestration** → fork the top-level workflow (chronological vs
   bootstrap vs future adaptive/loop variants)
-
-### `gitsee/` — setup profiler (port of `mcp/src/gitsee`)
-
-A port of `mcp/src/gitsee`'s "services" mode (the agent that emits a
-`pm2.config.js` + `docker-compose.yml` to set up a project). No import from
-existing code (`src/gitsee`), so that dir can eventually be deleted. The agent
-loop itself is **not** gitsee code anymore — it's the **strut-core `agent`
-step** (see `strut/AGENTS.md`); gitsee supplies the clone + the prompts, and (for
-the product loop) a `gitsee` **`services` bag** (`gitsee/services/`: per-run
-browser + stack managers + a vision judge) that its thin tool-steps reach via
-`ctx.services.gitsee.*` — see "The product loop" below.
-
-**WORKSPACE-oriented** (not single-repo): a workspace is a set of repos cloned
-as **siblings** under `/workspaces/<repo>` — typically one runnable **frontend**
-plus local-dependency repos it builds against (file: deps). The goal is to *get
-the frontend running*, so the gold is the frontend's pm2 + the shared services.
-
-- `gitsee/steps/clone-workspace.ts` (`gitsee/clone-workspace`) — clones N repos
-  as siblings under one workspace dir (idempotent, per-rev). Each repo may pin a
-  `rev`; `token` falls back to `GITHUB_TOKEN` env (private repos). `clean`
-  (default true) resets a REUSED clone to a pristine working tree
-  (`git reset --hard && git clean -fd`) so each run / optimizer generation starts
-  fresh — discarding the prior explore agent's edits + created files (keeps
-  gitignored `node_modules` for speed). Output `{ workspacePath, repos }`. **The
-  only gitsee-specific producer step.**
-- Exploration is the **core `agent` step** (`strut/src/steps/core/agent.ts`),
-  pointed at `cwd = clone.workspacePath`. Its general tools (`repo_overview`,
-  `fulltext_search`, `bash`, `str_replace_based_edit_tool` — view/create/edit
-  files in the cloned workspace (lets the agent make a repo local-first, e.g.
-  flip a `USE_MOCKS` default or patch a hardcoded cloud URL), anthropic
-  `web_search`, + `file_summary` — the `stakgraph` AST CLI, only offered when
-  `stakgraph` is on PATH) + the agent loop
-  live in strut core now — what was the old inlined `gitsee/explore-services` step
-  (deleted). gitsee runs it in **`finalAnswer` (FILENAME text) mode**; the
-  structured-`schema` mode is intentionally unused here for now. (For the
-  `file_summary` tool, `stakgraph` must be on PATH; the agent falls back to
-  `bash`/`cat` otherwise.)
-- `gitsee/workflows/gitsee-explore-services.yaml` — `clone → agent → capture`;
-  input `{ workspace, repos: [{owner,repo,rev?}], token? }`; the `system`/`prompt`/
-  `finalAnswer` prompts live in `params` (the experiment surface, frontend-
-  focused). The agent injects a neutral working-dir listing, so the prompts
-  stay repo-agnostic (workspace framing moved into `params.system`). The agent
-  MAY edit the cloned repos (via the core `str_replace_based_edit_tool`) to make
-  them boot local-first (move a misplaced migration, flip a mock flag, patch a
-  cloud-only URL); those edits are captured by the final `gitsee/capture-edits`
-  step as a replayable `git diff` and SHIPPED as part of the deliverable (output
-  `diff` + `changedRepos`, alongside the passed-through `result`/`usage`/`cost`).
-  The split: FILE changes go in the repo (the diff re-applies on a fresh pod
-  clone), RUNTIME steps (db reset/migrate/seed) go in `PRE_START_COMMAND` — so a
-  Supabase-style "move the migration + reset the db" becomes a clean diff hunk +
-  a clean PRE_START, not a file-shuffling shell hack. The agent also narrates its
-  edits in a `## CHANGES` section of the final answer (human-readable companion to
-  the diff). (`capture-edits` is the LAST step because a workflow's output is its
-  last step's output; it passes the agent's fields through so `produce.result`
-  etc. still resolve.)
-
-**The boot gate (`gitsee/verify-setup`) — the dominant eval signal.** A setup
-that doesn't actually *run* is a failure no matter how well its files match the
-gold, so the eval now RUNS the produced pair the pod way and proves the frontend
-loads. `gitsee/verify-setup.ts` (`gitsee/verify-setup`): stages the produced
-`pm2.config.js` + `docker-compose.yml` into the cloned workspace exactly where
-**staklink** looks (`<root>/pm2.config.js` + `<root>/.pod-config/.user-dockerfile/
-pm2.config.js`), rewriting the pod-absolute `cwd: /workspaces/<repo>` to the local
-clone root; `docker compose up -d --wait` for the backing services; boots the apps
-via **staklink** (`npx staklink start` → REBUILD→INSTALL→PRE_START→`pm2 start`→
-POST_START — pod-faithful; it does NOT run BUILD_COMMAND, so dev-mode boot is the
-target) or a pm2-free inline fallback (`useStaklink:false`); polls the frontend
-`PORT`; then loads `http://localhost:<port><checkPath>` in headless chromium
-(`@playwright/test`), screenshots to `<root>/.verify/render.png`, and **judges that
-screenshot with a VISION model** (`useVision`, anthropic, default on) — the real
-"did it render" signal, since an HTTP 200 + non-empty DOM still passes for a white
-screen or a styled error page. It asks the model whether the intended app UI
-rendered vs a blank/error/404-500 page; an HTTP-status + error-overlay heuristic is
-the fallback when vision is off or unavailable. Output `{ booted, rendered, port,
-httpStatus, title, reason, logs, screenshotPath, cost, usage }` (cost = the
-vision-judge tokens, folded into the eval total via `produce.cost + verify.cost`).
-Missing browsers degrade to a boot-only gate (`rendered:null`); `enabled:false`
-makes it a no-op (skip the gate in cheap sweeps). Needs `docker` + `git` on PATH, `npx playwright install chromium`
-for the render check, and (for `useStaklink`) network for `npx staklink`. **The
-agent can also EDIT the cloned repos** (via the core agent's
-`str_replace_based_edit_tool`) to make a repo local-first before this gate runs.
-
-**Teardown.** On a normal/errored finish the step's `finally` removes everything:
-`pm2 delete all`, `staklink stop`, `docker compose down -v`, AND — via a container
-SNAPSHOT taken just before boot — `docker rm -fv` of every container that appeared
-during the run. That snapshot-diff is what catches **app-spawned** stacks our
-compose file never declared: a `supabase start` CLI project (~12 `supabase_*`
-containers), a minio, etc. **But teardown only runs if the process finishes** —
-if you KILL the run (Ctrl-C / kill the optimize), the `finally` never fires and the
-booted stack is left up. Clean it with `npx tsx src/lab/gitsee/cleanup.ts`
-(removes the stale pm2 procs, supabase CLI stacks, and gitsee-lab compose
-projects; leaves Neo4j etc. alone). `keepUp:true` intentionally skips teardown for
-debugging.
-
-**The product loop (`gitsee-setup-and-run`) — NOT an eval signal.** Where
-`verify-setup` is a READ-ONLY boot GATE (boot once → one screenshot → one vision
-verdict → score), `gitsee-setup-and-run` is the autonomous "set up a repo until it
-actually runs" loop: an agent that BOOTS the app, DRIVES the live frontend in a
-real headless browser, OBSERVES failures like a QA engineer, FIXES the cause,
-REBOOTS, and repeats until functional. Because it WRITES/FIXES, it must **NOT** be
-wired into the scored `gitsee-optimize` loop (fixing in place erases the gradient
-that teaches the explorer); the deliverable is a known-good `setup` + `diff` +
-`report`, not a grade.
-
-**Architecture: this is now DECOMPOSED onto the strut-core `agent` step** (it used
-to be one ~1050-line `gitsee/boot-and-exercise` step that forked the whole agent
-loop). See `strut/plans/agentic-loop-as-workflow.md` for the full design. The
-pieces:
-
-- **The QA harness = a gitsee `services` bag** (`gitsee/services/`, in-code,
-  merged into `LabServices` by `createLabStrut`; NOT seeded): `BrowserManager` +
-  `StackManager` (per-run sessions keyed by `runId`) + a stateless `vision` judge.
-  `_infra.ts` holds the shell/pm2/compose/pod-url/port/log helpers; the
-  per-run state (browser page, booted stack, last vision verdict) lives on the
-  session. **Teardown is automatic**: `LabServices.onRunEnd(runId)` (the generic
-  strut hook the runner calls in a `finally`, success OR error) disposes the run's
-  browser + booted stack — no teardown code in any step. (`cleanup.ts` is still
-  the rescue for a hard `SIGKILL`, which skips the in-process `finally`.)
-- **The capabilities = thin seeded tool-steps** (`gitsee/steps/`) reaching the
-  harness via `ctx.services.gitsee.*`, keyed by `ctx.runId`: `gitsee/stage-setup`
-  (stage the produced files + create the per-run stack session), `gitsee/boot`
-  (re-stage + compose up + staklink/pm2 + wait for port), `gitsee/browser-open` /
-  `-snapshot` / `-click` / `-fill` / `-press`, **`gitsee/browser-observe`** (drains
-  console errors + failed requests + **4xx/5xx API responses** — the "renders but
-  is broken" signal a screenshot can't show), `gitsee/assess-ui` (the "eyes":
-  screenshot + errors + logs → vision verdict, recorded on the stack session),
-  `gitsee/read-logs`, and `gitsee/finalize-setup` (the deliverable: pod-portable
-  `setup` + per-repo `git diff` + the booted/working verdict). Each works BOTH as
-  a workflow step AND as an `agentTools` tool.
-- **The loop = the core `agent` step** with those steps as `agentTools` (+
-  built-in `bash`/`str_replace_based_edit_tool` for edits). `gitsee-setup-and-run`
-  is `clone → produce (gitsee-explore-services) → stage → qa(agent) → finalize`.
-  Every tool call emits a nested run event (the agent step's `wrapToolsWithEmit`),
-  so **each iteration is visible in the UI events panel / run drill-down**. The QA
-  `system` prompt + `agentTools` list + `model` + `maxSteps` live in the
-  workflow's `params` (the harness/policy split — a future `gitsee-setup-optimize`
-  can sweep the prompt with the harness fixed).
-
-  *Why agent-orchestrated, not a deterministic `loop` step:* strut's `loop` THROWS
-  on `maxIterations`-without-convergence (`runner.ts`), which would error the run
-  and yield NO deliverable when an app can't be fixed; and QA control flow is
-  inherently dynamic. The agent's own tool loop still gives per-iteration
-  visibility, preserves autonomy, and always finalizes.
-
-**Pod URLs (`$POD_ID`/`$POD_URL`)** are kept in the deliverable (the pod contract)
-but **localized only in the staged-for-boot copy** (`podSubstituteLocal` in
-`services/_infra.ts`: `https://$POD_ID-<port>.<domain>` → `http://localhost:<port>`,
-`$POD_URL` → `http://localhost:<frontendPort>`) — on the real sandbox the platform
-expands them + proxies `<podid>-<port>.<domain>` to `localhost:<port>`; locally
-there's no proxy, so we emulate it. The QA system prompt tells the agent these are
-auto-substituted and to KEEP them.
-
-Output `{ booted, working, reason, port, setup, report, diff, changedRepos,
-changed, screenshotPath }`. Needs `docker` + `git` + `npx playwright install
-chromium`.
-
-**`gitsee/boot-and-exercise` (the old monolith) is still seeded but UNUSED by the
-workflow** — kept as the A/B reference to validate the decomposed loop reaches
-parity before deletion (plan Step E). Its dev smoke `src/lab/gitsee/smoke-boot.ts`
-still drives that step directly; `src/lab/gitsee/services/smoke-services.ts` is a
-no-docker lifecycle smoke for the new harness (per-run keying + `onRunEnd`).
-
-**Eval/optimize stack** (mirrors `concepts-*`; reuses the generic `eval/*`
-steps EXCEPT scoring, which is gitsee-specific — see below). The gold is the
-**actual canonical pm2.config.js + docker-compose.yml pair** (produced vs gold
-is apples-to-apples), but the **boot result dominates** (see below).
-
-Scoring is a **structured + hybrid** scorer (`gitsee/score-setup`), NOT the
-generic LLM `eval/score`. The **dominant tier is now the boot gate**:
-`score-setup` takes `booted`/`rendered` from `gitsee/verify-setup` and clamps the
-file-shape score — `!booted` → ×0.15 (it didn't even run), booted-but-not-rendered
-→ ×0.5, booted+rendered → full. (Null/absent leaves the score untouched, so a
-verify-free run still works.) BELOW that gate, both files are parseable and the
-gold is the ANSWER KEY — so the file-shape score is **deterministic name set-diffs
-vs the gold**, which is why it stays repo-agnostic without understanding any
-dependency:
-- **env-key completeness** — `keys(produced pm2 env)` vs `keys(gold pm2 env)`,
-  recall-weighted. Robust + general because the key NAME is dictated by the
-  repo's code (`process.env.X`); a different name simply isn't read, so the
-  gold's names are canonical. (Build/run directives like `INSTALL_COMMAND` live
-  in this env block too, so "key commands" come for free.) This is the headline
-  fix: the old LLM judge collapsed hive's ~15 env vars into ~1 "env present"
-  item, so a missing boot-critical key barely moved the score.
-- **service set** — compose service IDENTITY (image base name, tag stripped, or
-  the service name for build-only services) produced vs gold. An extra image the
-  gold lacks (e.g. an invented `redis`) is a precision hit → catches
-  over-provisioning.
-- **LLM semantic residue** (optional, `useLLM`, capped multiplier so the
-  deterministic tier dominates) — only what needs interpretation and therefore
-  can't be a name set-diff: is each `script` the right start command, is a
-  host-binding flag present when the framework needs one, do the pm2 DB creds
-  line up with the compose service (naming-agnostic), is an added service
-  appropriate. (Cross-file cred consistency lives HERE, not in the deterministic
-  tier — matching a `DATABASE_URL` to `POSTGRES_*` across every datastore's env
-  conventions doesn't generalize deterministically; the LLM reads both files
-  regardless of naming.)
-- pm2 is eval'd in a locked-down `node:vm` (stub `require`/`process`, 1s timeout
-  → "unparseable / score 0" on throw); compose via `js-yaml`. Combine into one
-  recall-weighted F-beta (β=2) over env keys ∪ services, then apply the bounded
-  semantic multiplier.
-
-`gitsee/score-setup` PRESERVES the scorer contract `{ score, recall, precision,
-matched, missing, spurious, reason, insight, markdown }` that `eval/optimize` +
-`eval/reflect` depend on.
-
-- `gitsee-eval` — harness: clone (`gitsee/clone-workspace`) → produce (subflow →
-  `gitsee-explore-services`, re-clones the same idempotent path) → **verify**
-  (`gitsee/verify-setup` — the boot gate, using `clone.workspacePath`) → score
-  (subflow → `gitsee-eval-score`, threaded `booted`/`rendered`). No reset step
-  (gitsee is stateless). Input `{ label, repos, token?, expected? }` — `label` is
-  the workspace name (and the `eval: <label>` link); `expected` gold falls back to
-  `params.expected`. Boot-gate knobs in `params`: `verify` (default true — set
-  false for cheap docker-free sweeps), `checkPath`, `bootTimeoutMs`, `useStaklink`.
-- `gitsee-eval-score` — `gitsee/score-setup` + the matching policy in `params`
-  (`useLLM`, `ignoreEnvKeys`, the semantic-residue `rubric`); passes through the
-  `booted`/`rendered`/`bootReason` boot gate. Strict env policy: every gold env key
-  is required (exempt noise keys via `ignoreEnvKeys`).
-- `gitsee-eval-reflect` — `eval/reflect` + the setup task/guidance.
-- `gitsee-optimize` — `eval/optimize` loop. Tunes **`system`** (the explorer
-  prompt), NOT `finalAnswer` (the hard pod contract). Cohort in `params.dataset`,
-  one entry per WORKSPACE: `{ label, repos: [{owner,repo,rev?}], expected }`.
-
-**Cost accounting.** Every LLM call in the loop reports its token usage + dollar
-cost, summed into the optimize output's `{ totalCost, totalUsage }` (and each
-`generations[]` entry's own `{ cost, usage }`). The chain: the core `agent` step
-returns `{ usage, cost }` (aggregated across its whole tool loop, priced via
-`strut/src/pricing.ts` — table copied from `aieo/src/provider.ts`); gitsee-eval
-threads that into `gitsee/score-setup`, which folds in its OWN semantic-judge
-tokens+$ so each eval's `cost` is explorer + judge; `eval/reflect` returns its
-reflection's cost; `eval/optimize` sums eval runs + reflections per generation
-and run-wide. So a detached optimize job records exactly what it burned. (Set
-`gitsee-eval-score`'s `useLLM:false` to drop the judge LLM cost entirely.)
-
-Dataset: `heroku-node` (1-repo Express, verified 0.95) + `hive` (Next.js +
-Postgres + Prisma; `hive` pinned, with sibling dep repos sphinx-voice /
-system-canvas / staklink). Add more workspaces for a stronger multi-example
-optimize (EVAL_SPEC §11.2).
-
-Needs `ANTHROPIC_API_KEY` + `git` + `rg` on PATH (Neo4j only for booting the
-lab, not for gitsee itself). The **boot gate** additionally needs `docker` on
-PATH, `npx playwright install chromium` (browsers; otherwise the gate is
-boot-only), and network for `npx staklink` — set `params.verify=false` to skip it
-entirely. Trigger:
-`POST /lab/workflows/gitsee-explore-services/run` with
-`{ input: { workspace, repos: [{owner,repo,rev?}], token? } }`, or launch
-`gitsee-optimize` detached with `{ input: {} }`. Dev smoke harnesses (not
-seeded/built): `src/lab/gitsee/smoke.ts` (steps direct, no server) and
-`smoke-eval.ts` (full `gitsee-eval` via a real lab strut).
 
 ### `jarvis/` — knowledge-graph steps (NOT an experiment)
 
@@ -399,13 +173,12 @@ strut's job prompt — no pod, no `pod/file`. The lab keeps no copy:
   `BROWSER_*` (sphinx-swarm sets `BROWSER_WS_URL` + `BROWSER_WS_PATH` to the
   `ghcr.io/stakwork/strut-browser` node) unless the host passes its own
   `services.browser`, which the lab does not. `playwright-core` is strut's
-  dependency; mcp's own copy (1.58.1, under `@playwright/test`) is gitsee's
-  and the e2e tests', and the `sharp` resolution keeps one copy for strut
-  and transformers. Unrelated to the gitsee harness, whose `gitsee/browser-*`
-  steps launch a chromium of their own.
-- Granted as before: `agentTools: ["sheets/*"]` (the harvey workflows),
-  `["browser/*"]`; `browser/verify` + `browser/walkthrough` are in strut's
-  own `job.yaml` grants.
+  dependency; mcp's own copy (1.58.1, under `@playwright/test`) is the e2e
+  tests', and the `sharp` resolution keeps one copy for strut and
+  transformers.
+- Granted as before: `agentTools: ["sheets/*"]`, `["browser/*"]`;
+  `browser/verify` + `browser/walkthrough` are in strut's own `job.yaml`
+  grants.
 
 ### `pods/` — hive sandboxes as steps (NOT an experiment)
 
@@ -504,137 +277,16 @@ released the pod at the end.
   src/lab/pods/smoke.ts`. The masking, diff and edit rules are unit-tested
   in `pods/pool.test.ts` (`yarn test:node`).
 
-### `harvey/` — Harvey LAB verification (the hardcoded grader)
-
-Runs the **actual** Harvey LAB legal-benchmark eval (the
-`/Users/…/harvey-labs` checkout's `uv run python -m evaluation.run_eval`) as
-a subprocess. Nothing is ported and nothing is editable: the grader lives in
-the in-code `harvey` **service** (`harvey/service.ts`, on the `LabServices`
-bag), NOT in a seeded step — the workflow-authoring agent must never be able
-to edit its own grader. The two seeded `harvey/*` steps are thin plumbing
-over `ctx.services.harvey.*`; editing them can only break plumbing.
-
-- **Integrity invariant** (enforced per grade, not per boot): the checkout
-  must be a CLEAN git tree, and when `HARVEY_LABS_REV` is set, HEAD must
-  match it — otherwise `evaluate` refuses. Untracked `results/` entries (our
-  own staged runs) are tolerated. Every result carries `benchmarkRev` (the
-  exact SHA) so scores are attributable to a benchmark version.
-- `harvey/get-task` — a task's title/instructions/deliverable names + input
-  documents listing, with the grading rubric (`criteria`) **stripped in the
-  service** — a producing agent must never see how it will be graded. Safe to
-  grant to producers.
-- `harvey/evaluate` — stages this run's artifact deliverables (subdir `from`,
-  default `output`, of `ctx.services.artifacts.dir(ctx.runId)`) into the
-  checkout's `results/strut-<runId>/output/`, runs the real eval (single judge
-  or `dual`), and returns the harness's own `scores.json` (all-pass scoring,
-  `criteria_results`, …) + `benchmarkRev` + `reportPath` (the harness's
-  `report.html`, kept in the checkout's `results/` as the run's record).
-  **GUARDRAIL: grant only to harness workflows — NEVER to the producing
-  agent's `agentTools`** (an agent that can query its own grader mid-task
-  trains against the rubric).
-- **Config (env):** `HARVEY_LABS_DIR` (checkout path; loud per-run error when
-  unset — same posture as jarvis), optional `HARVEY_LABS_REV` pin. The eval
-  subprocess inherits mcp's env (`ANTHROPIC_API_KEY`; plus `OPENAI_API_KEY`
-  for `dual`) and needs `uv` + `git` on PATH (+ pandoc per harvey-labs docs).
-- **Smoke:** `npx tsx src/lab/harvey/smoke.ts` — offline (real throwaway git
-  repo as a fake checkout, fake `uv` exec): integrity enforcement (dirty
-  tree / rev pin / missing dir), rubric stripping, artifact staging, CLI
-  args, step wiring.
-
-**The DELIVER pipeline (`harvey-deliver`) — the production-style port, NOT
-part of the benchmark harness.** A lab-shaped recreation of the stakwork
-Harvey LAB workflow (normalize → register namespace → EvalSet/requirements →
-per-doc graph ingestion → checklist/fact base/case law/tailor → drafters ×N →
-4 parallel verifiers → aggregator → per-criterion LLM judge → dispute →
-persist eval chain → webhook → recursion gate). STANDALONE: the rubric
-(`[{ id, title, match_criteria, deliverables }]`) is a RUN INPUT and the
-pipeline self-scores against it — so it must NEVER be wired as a harvey-run
-produce candidate (candidates may not see a rubric). Documents come from the
-local harvey-labs checkout via `harvey/get-task`; the graph namespace AND
-EvalSet id are the slugified task id, so reruns reuse the namespace, skip
-completed ingestions, and skip re-merging requirements.
-
-- Workflows: `harvey-deliver` (orchestrator) → subflows `harvey-ingest-doc`
-  (per document; Document node keyed on `source_link`, dedupe via a
-  `status: "ingested"` COMPLETION MARKER written only after a successful
-  agent run — a partially-failed ingestion is retried, not skipped),
-  `harvey-knowledge` (checklist writer → cross-check fact base [GRAPH-ONLY
-  reads — no bash, deliberately blind to source docs; unregistered findings
-  land as ScratchpadEntry via `allow_scratchpad`] → case-law research
-  [SerpAPI/CourtListener keys via the agent step's `secretsEnv` —
-  SERPA_API_KEY + COURTLISTENER_API_KEY reach bash as env only] →
-  tailor [ADDITIVE, then checklist.md freezes]), `harvey-draft` (drafter
-  foreach → 4 explicit fall-soft verifier agents → aggregator into
-  `./output/`), `harvey-score` (validate exact deliverable names [hard
-  gate] → filter contested [fails open] → judge foreach → aggregate →
-  RECORD the eval chain EvalSet→EvalTrigger→EvalTriggerOutput→
-  CriterionResult per the jarvis schema_library ontology → dispute foreach
-  [root-cause audit: flagged=verdict wrong, contested=criterion defective;
-  annotates + writes Cause triplets onto the recorded CriterionResult refs;
-  never flips verdicts] → merge [fail-soft] → write annotations back onto
-  the CriterionResult nodes + contested onto EvalRequirements → webhook →
-  all-pass ⇒ `EvalSet.recursion=false`), and `harvey-judge-criterion` /
-  `harvey-dispute-criterion` (per-criterion agent-in-schema-mode subflows —
-  they exist because foreach bodies get no onError; a judge crash scores as
-  an honest FAIL via `eval/aggregate-scores`' zip, never a pass).
-- Steps: `harvey/normalize-documents`, `harvey/ingest-state`,
-  `harvey/drafter-plan`, `harvey/validate-deliverables`,
-  `harvey/filter-contested`, `harvey/merge-disputes` (pure/plumbing;
-  the generic scoring trio `eval/aggregate-scores`, `eval/build-eval-chain`,
-  `eval/criterion-refs` is shared with other rubric harnesses — see
-  `eval/`), `harvey/generate-docx` +
-  `harvey/generate-xlsx` (pandoc / openpyxl deliverable generators,
-  granted as agent tools so the production prompts' generate calls work),
-  `harvey/graph-sub-agent` — the PINNED read-only graph research sub-agent
-  (wraps the core `agent` step via ctx.registry with fixed system frame +
-  read-only `graph/*` grants; parents supply only the question, so a role
-  agent can never widen the child's tools). Graph reads/writes go through
-  strut's `graph/*` LIB steps (`strut/src/steps/lib/graph/`, the twins of the
-  lab's `jarvis/*` steps) — strut's own Neo4j backend, NO jarvis process:
-  jarvis-typed nodes (Document, EvalSet, EvalTrigger, …) validate against
-  the live `:Schema` meta-graph exactly as jarvis would, and
-  `create_schema_if_missing` works; `allow_scratchpad` is accepted but has
-  no effect (a rejected write returns an error string instead of a
-  ScratchpadEntry).
-- **Prompts are the VERBATIM production texts**, kept as markdown files in
-  `harvey/prompts/` and spliced into step configs at seed time via
-  `@@include(FILE.md)` markers (`expandIncludes` in `harvey/seed.ts`,
-  indentation-aware; the content hash covers the expanded YAML, so editing
-  a prompt file re-seeds its workflows). Stakwork `[$(step).output.*]`
-  interpolation tokens were translated to strut `{{ … }}` templates (which
-  is why prompt bodies live in step CONFIG, not params — template
-  resolution is single-pass, so a `{{ }}` inside a params value never
-  resolves), tool names to the lab step names (`harvey_graph_sub_agent`,
-  `harvey_generate_docx`, `sheets_*`…; the production `jarvis_*` graph tool
-  names stay in the files and are rewritten to `graph_*` at seed time by
-  `translateToolNames`), and container paths to `./`. The raw exports + transform live in git history
-  (`notes/harvey_prompts`, scratchpad transform). EvalRequirement ids
-  follow the production convention `<task_slug>-<criterion_id>`.
-- Judge verdict identity is ORDER-BASED (foreach preserves input order; the
-  aggregate zips rubric×results and refuses on length mismatch) — the judge
-  LLM never echoes criterion ids.
-- Needs `HARVEY_LABS_DIR` + `ANTHROPIC_API_KEY` (+ pandoc, python3+openpyxl;
-  optional SERPA_API_KEY + COURTLISTENER_API_KEY for case-law research,
-  GOOGLE_SERVICE_ACCOUNT_JSON for the shared FACTS spreadsheet). The graph
-  connection is mcp's own: `NEO4J_HOST`/`NEO4J_USER`/`NEO4J_PASSWORD` (or
-  `NEO4J_URI`), defaulting to `localhost:7687`/`neo4j`/`testtest` — nothing
-  to set locally, and prod's existing vars are picked up. That is the
-  jarvis Neo4j (shared mode — Concept methodology lives there); a fresh
-  Neo4j works too with `STRUT_GRAPH_SEED_ONTOLOGY=1` (standalone — the
-  jarvis ontology is seeded from strut's bundled snapshot; no Concept
-  content). Smoke (offline, no LLM/graph):
-  `npx tsx src/lab/harvey/deliver-smoke.ts`.
-
 ### `gaia/` — GAIA benchmark scoring (the hardcoded grader)
 
 Scores answers with the **actual** GAIA leaderboard scorer (`scorer.py`,
 quasi-exact match with type-aware normalization) as a `python3 -c` subprocess
-against the validation split's gold answers. Same discipline as harvey: the
+against the validation split's gold answers. The discipline: the
 grader AND the gold live in the in-code `gaia` service (`gaia/service.ts`,
 on the `LabServices` bag), never in a seeded/authored step. `gaia/*` steps
 are thin plumbing over `ctx.services.gaia.*`.
 
-- **Committed harness** (`gaia/seed.ts`, seeded at boot like harvey's):
+- **Committed harness** (`gaia/seed.ts`, seeded at boot):
   steps `gaia/list-tasks`, `gaia/get-task` (stages a task's attached file
   into the run's artifacts dir), `gaia/evaluate` (HARNESS-ONLY), and the
   combiner `gaia/summarize-batch` (+ strut's core `pack`); workflows
@@ -653,7 +305,7 @@ are thin plumbing over `ctx.services.gaia.*`.
   authoring recipe is kept in `notes/GAIA.md` as an authoring eval; it is no
   longer the path to a working harness.
 
-- **Evolve harness** (mirrors harvey's, on the generic `eval/evolve-loop`):
+- **Evolve harness** (on the generic `eval/evolve-loop`):
   `gaia/digest-results` (verdict-channel digest — accuracy as `fitness`,
   misses tagged wrong-answer / empty-answer / produce-error per EVOLVE_SPEC
   §8's taxonomy, candidate answers + question excerpts, never gold),
@@ -941,8 +593,8 @@ seeder per name, or the two leave whichever template changed last active.
   also carries the one rule every kind shares: to SEE a page the agent
   runs `browser-explore` as a child run (its shots land in the job
   directory), never a browser it installs with `bash` — the repo2graph
-  image ships Playwright's browsers for gitsee, so `npx playwright` there
-  just works, and Sonnet 5.5 reached for it (2026-10-08); the
+  image ships Playwright's browsers, so `npx playwright` there just
+  works, and Sonnet 5.5 reached for it (2026-10-08); the
   `code-change-pr` coder's prompt says the same (`browser/verify`, granted,
   is a check — it opens a URL and answers whether the expectations held —
   not a way to look around). Held back until
@@ -1337,16 +989,16 @@ strut's `specs/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
   its own gold (e.g. `{ owner, repo, expected }`), read by the eval workflow
   from `input`. (A single example is just a 1-entry `evalInputs`.)
 - `eval/steps/evolve-loop.ts` (`eval/evolve-loop`) — the generic hill-climb
-  over WORKFLOW VERSIONS (EVOLVE_SPEC §5.3.3 generalized from the harvey
+  over WORKFLOW VERSIONS (EVOLVE_SPEC §5.3.3, generalized from its first
   instance): runs a domain's one-generation workflow (author → run candidate
   over tasks → digest) up to N generations, briefing each author with every
   prior attempt anchored to the best-so-far, flipping exploit→explore after
   `exploreAfter` non-improving attempts. Fitness is the generation digest's
   `fitness` (fallback `meanPassRate`), named in briefings by `fitnessName`;
   improvements must clear `improveMargin` (judge noise for LLM-judged
-  domains — harvey 0.02; produce-sampling noise for deterministic scorers —
-  gaia 0). Needs `services.optimizer`. Wired by `harvey-evolve`
-  (pass-rate) and `gaia-evolve` (accuracy).
+  domains — 0.02 is a sane start; produce-sampling noise for deterministic
+  scorers — gaia 0). Needs `services.optimizer`. Wired by `gaia-evolve`
+  (accuracy).
   Three guards keep the climb honest, all learned from live runs:
   (a) **no-op generations.** An author can burn its budget and publish
   nothing; the version fallback in the `*-evolve-gen` workflows then
@@ -1373,8 +1025,7 @@ strut's `specs/EVAL_SPEC.md`. **Steps only** — no domain config baked in:
   prompt nudges; distinct wrong answers = variance). Verdict channel only —
   gold never enters. Smoke: `npx tsx src/lab/eval/matrix-smoke.ts`.
 - `eval/aggregate-scores`, `eval/build-eval-chain`, `eval/criterion-refs` —
-  rubric-judged SCORING plumbing (promoted from `harvey/*`, exercised by
-  `harvey/deliver-smoke.ts`): zip a rubric with per-criterion judge verdicts
+  rubric-judged SCORING plumbing (exercised by wfbench): zip a rubric with per-criterion judge verdicts
   (same order; null/error = honest FAIL; length mismatch refuses) into
   scores_json; build the idempotent EvalSet→EvalTrigger→EvalTriggerOutput→
   CriterionResult(+EvalRequirement) batch-triplet payload for
@@ -1392,9 +1043,8 @@ adds `foo-eval`, `foo-eval-score`, … reusing the same `eval/*` steps.
 
 - **The `/lab` AI chat can now run experiments autonomously.** strut threads the
   lab `services` bag into the chat agent's `run_workflow` tool, so the builder
-  can launch `gitsee-explore-services`, `gitsee-eval`, or the `gitsee-optimize`
-  loop (which needs `services.optimizer`) — not just service-free core/lab
-  workflows. And chat is a detached background job (see `strut/AGENTS.md`):
+  can launch an eval or an `eval/optimize` loop (which needs
+  `services.optimizer`) — not just service-free core/lab workflows. And chat is a detached background job (see `strut/AGENTS.md`):
   describe an eval, tell it to "try it and report back", close the browser, and
   the turn keeps running server-side (persisted to `chats/<id>/`). Reopen to
   reattach. Long runs DISPATCH: a `run_workflow` still executing after

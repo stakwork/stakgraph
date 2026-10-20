@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import yaml from "js-yaml";
+import { env } from "../env.js";
 
 /**
  * Inline skills: compiled into the binary and concatenated into the system
@@ -95,7 +96,7 @@ SKILLS["mermaid"] = mermaid;
  * (and a dev volume mount) can point it elsewhere after import.
  */
 export function skillsRoot(): string {
-  return process.env.SKILLS_ROOT || path.join(os.homedir(), ".agents", "skills");
+  return env.SKILLS_ROOT || path.join(os.homedir(), ".agents", "skills");
 }
 
 export interface SkillEntry {
@@ -218,7 +219,7 @@ const scanCache = new Map<string, IndexEntry[]>();
  * skills directory as a volume for authoring.
  */
 export function scanSkills(root: string = skillsRoot()): IndexEntry[] {
-  const useCache = !process.env.SKILLS_NO_CACHE;
+  const useCache = !env.SKILLS_NO_CACHE;
   if (useCache) {
     const hit = scanCache.get(root);
     if (hit) return hit;

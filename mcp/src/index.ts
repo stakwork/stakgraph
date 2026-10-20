@@ -54,6 +54,8 @@ import {
   mintToken,
 } from "./repo/events.js";
 import { sendIndexWithToken } from "./utils.js";
+import { env } from "./env.js";
+import { useEnv } from "./aieo/src/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,10 +86,19 @@ graph_sse_routes(app);
 // self-heals (hive re-pushes), secrets.json needs its keys re-entered.
 // Set before the lab is mounted; the strut is built lazily but reads the
 // env at first use. (Never `??=` here: assigning undefined to process.env
-// stores the string "undefined".)
+// stores the string "undefined".) A write to `process.env` itself, on
+// purpose: this runs before the lab's env scrub (lab/mount.ts), so strut's
+// boot snapshot and mcp's `env` copy both carry it.
 if (!process.env.STRUT_SECRET_KEY && process.env.API_TOKEN) {
   process.env.STRUT_SECRET_KEY = process.env.API_TOKEN;
 }
+
+// mcp's own code reads the environment through `env` (src/env.ts), never
+// `process.env`: once the lab strut boots it scrubs `process.env` so a
+// workflow step cannot read the deployment's keys, and `env` is the copy
+// taken just before. aieo reads per call too (LLM_PROVIDER, the provider
+// keys) — point it at the same copy.
+useEnv(env);
 
 // Lab experiments (strut workflows) — bridged before body parsing so strut
 // receives raw request streams for SSE + POST bodies.
@@ -98,7 +109,7 @@ mountLab(app);
 app.get("/events/:request_id", (req: Request, res: Response) => {
   const request_id = req.params.request_id as string;
   const jwtToken = req.query.token as string | undefined;
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   const headerToken = req.header("x-api-token");
 
   // Auth check: require either a valid JWT or a matching x-api-token
@@ -363,13 +374,13 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: err?.message || "Internal server error" });
 });
 
-const port = parseInt(process.env.PORT || "3355", 10);
-const host = process.env.HOST || "0.0.0.0";
+const port = parseInt(env.PORT || "3355", 10);
+const host = env.HOST || "0.0.0.0";
 
 // How long to wait for in-flight webhook deliveries before giving up and
 // exiting. Default leaves ~2s of headroom inside Docker's 10s stop grace.
 const DRAIN_DEADLINE_MS = parseInt(
-  process.env.DRAIN_DEADLINE_MS || "8000",
+  env.DRAIN_DEADLINE_MS || "8000",
   10,
 );
 

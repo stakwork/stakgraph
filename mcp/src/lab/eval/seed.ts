@@ -18,18 +18,18 @@ import { SEED_OPTS } from "../seed-opts.js";
  *   - `eval/optimize`    — eval → keep best → reflect loop (a detached job).
  *   - `eval/evolve-loop` — hill-climb candidate WORKFLOW VERSIONS over
  *     generations (EVOLVE_SPEC §5.3.3 generalized): a domain supplies its
- *     one-generation workflow + a digest with a `fitness`; harvey-evolve and
- *     gaia-evolve are the two instances.
+ *     one-generation workflow + a digest with a `fitness`; gaia-evolve is
+ *     the instance.
  *   - `eval/matrix`      — the task×version matrix across MEASUREMENTS:
  *     bands (floor/movable/ceiling), the empirical noise floor from
  *     same-version re-runs, and bias-vs-variance tags for never-correct
  *     tasks (plans/evolve-scoreboard-and-task-matrix.md, Phase 1).
  *   - `eval/aggregate-scores`, `eval/build-eval-chain`, `eval/criterion-refs`
- *     — rubric-judged scoring plumbing (promoted from harvey/*): zip judge
+ *     — rubric-judged scoring plumbing: zip judge
  *     verdicts into scores_json, build the EvalSet→EvalTrigger→
  *     EvalTriggerOutput→CriterionResult batch-triplet payload, recover the
- *     persisted CriterionResult ref_ids. harvey-score uses all three;
- *     wfbench uses aggregate-scores + criterion-refs (its record payload,
+ *     persisted CriterionResult ref_ids. wfbench uses aggregate-scores +
+ *     criterion-refs (its record payload,
  *     wfbench/build-eval-output, follows stakwork 58312's id conventions).
  */
 

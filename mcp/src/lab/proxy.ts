@@ -32,6 +32,7 @@
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import { generateRunId, type RunEvent, type RunResult, type RunStore } from "strut";
 import * as asyncReqs from "../graph/reqs.js";
+import { env } from "../env.js";
 
 export const PROCESS_WORKFLOW = "bootstrap-then-process";
 export const DESCRIBE_WORKFLOW = "describe-code";
@@ -69,7 +70,7 @@ interface HeaderSource {
  *  standalone) — `labAuthorized`'s rule. The SPA's Bearer JWT, `?token=`,
  *  Basic, and dev mode with no `API_TOKEN` name nobody. */
 export function actorOf(req: HeaderSource): string | undefined {
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   if (!apiToken) return undefined;
   if (req.header("x-api-token") !== apiToken) return undefined;
   const actor = req.header("x-strut-actor")?.trim();
@@ -198,7 +199,7 @@ function release(repoId: string, runId: string): void {
 /** In-process requests to the lab strut. The lab strut has no key of its
  *  own; `Authorization` rides along in case a deployment gives it one. */
 function labRequest(path: string, init?: RequestInit): globalThis.Request {
-  const key = process.env.STRUT_API_KEY;
+  const key = env.STRUT_API_KEY;
   const headers = new Headers(init?.headers);
   if (key) headers.set("authorization", `Bearer ${key}`);
   return new Request(`http://lab${path}`, { ...init, headers });

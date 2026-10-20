@@ -45,6 +45,7 @@ import { spawnSync } from "child_process";
 import { toolConfigEnabled } from "./tools.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
+import { env } from "../env.js";
 export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
 
 export function parseCommitList(commit?: string): string[] {
@@ -493,7 +494,7 @@ export function sweepOrphanedWorktrees(
           const result = spawnSync("git", ["worktree", "prune"], {
             cwd: repoPath,
             shell: false,
-            env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: "/tmp", GIT_TERMINAL_PROMPT: "0" },
+            env: { PATH: env.PATH ?? "/usr/bin:/bin", HOME: "/tmp", GIT_TERMINAL_PROMPT: "0" },
           });
           if (result.status === 0) {
             console.log(`[sweepOrphanedWorktrees] Pruned worktrees for ${repoPath}`);
@@ -624,7 +625,7 @@ export async function repo_agent(req: Request, res: Response) {
   if (toolConfigEnabled(body.toolsConfig?.create_pr)) {
     // 1. Auth bypass guard: authMiddleware returns next() when API_TOKEN is unset.
     //    A git write path must never be reachable via that bypass.
-    if (!process.env.API_TOKEN) {
+    if (!env.API_TOKEN) {
       res.status(401).json({ error: "create_pr requires API_TOKEN to be configured" });
       return;
     }

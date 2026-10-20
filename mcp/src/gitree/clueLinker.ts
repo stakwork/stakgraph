@@ -5,6 +5,7 @@ import { getApiKeyForProvider, getModel, getProviderOptions, Provider } from "..
 import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 import { appendMessages } from "../repo/session.js";
 import { appendGitreeLlmExchange, GitreeSessionTracker } from "./llm.js";
+import { env } from "../env.js";
 
 /**
  * Links clues to relevant concepts based on semantic similarity and context
@@ -124,7 +125,7 @@ export class ClueLinker {
     console.log(`   🤖 Analyzing ${cluesToLink.length} clues for relevance...`);
 
     // Use generateObject instead of get_context (no codebase reading needed)
-    const provider = process.env.LLM_PROVIDER || "anthropic";
+    const provider = env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
     const typedProvider = provider as Provider;
     const model = getModel(typedProvider, apiKey as string);

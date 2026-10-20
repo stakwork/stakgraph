@@ -1,5 +1,6 @@
 import { Stagehand, Page } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
+import { env } from "../../env.js";
 
 let STATE: {
   [sessionId: string]: {
@@ -42,8 +43,8 @@ export interface NetworkEntry {
   size?: number;
 }
 
-const MAX_LOGS = parseInt(process.env.STAGEHAND_MAX_CONSOLE_LOGS || "1000");
-const MAX_NETWORK_ENTRIES = parseInt(process.env.STAGEHAND_MAX_NETWORK_ENTRIES || "500");
+const MAX_LOGS = parseInt(env.STAGEHAND_MAX_CONSOLE_LOGS || "1000");
+const MAX_NETWORK_ENTRIES = parseInt(env.STAGEHAND_MAX_NETWORK_ENTRIES || "500");
 const MAX_SESSIONS = 25; // LRU limit for stagehand instances
 
 export async function getOrCreateStagehand(sessionIdMaybe?: string) {
@@ -67,7 +68,7 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     },
     model: {
       modelName: provider.model,
-      apiKey: process.env[provider.api_key_env_var_name],
+      apiKey: env[provider.api_key_env_var_name],
     },
   });
   await sh.init();

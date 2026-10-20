@@ -1,6 +1,7 @@
 import { ModelMessage, ToolSet, StepResult, StopCondition } from "ai";
 import { SessionConfig, truncateToolResult } from "./session.js";
 import { createByModelName, TikTokenizer } from "@microsoft/tiktokenizer";
+import { env } from "../env.js";
 
 const TRUNCATED = "<TRUNCATED>";
 const CONTEXT_THRESHOLD = 0.9;
@@ -50,8 +51,8 @@ function countTokens(text: string): number {
  * length suggests.
  */
 export function maxOutputTokensFor(provider?: string): number {
-  const env = Number(process.env.MAX_OUTPUT_TOKENS);
-  if (env > 0) return env;
+  const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
+  if (fromEnv > 0) return fromEnv;
   return provider === "anthropic" ? 128_000 : 64_000;
 }
 

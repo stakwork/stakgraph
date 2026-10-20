@@ -10,6 +10,16 @@ import { basename, dirname, join, relative } from "node:path";
  * files, and the env var names its code reads. Facts code can establish, so
  * the agents never have to guess them. Self-contained: a seeded step imports
  * only `strut` and Node builtins.
+ *
+ * KNOWN EXCEPTION to the env boundary (strut src/step-lint.ts): this step
+ * reads files OUTSIDE the run's own directory — the checkouts `git/checkout`
+ * made, under strut's data dir — with `node:fs`, and strut warns about the
+ * import at boot ("reaches past ctx.services"). There is no honest
+ * `ctx.services` equivalent yet: `artifacts` is the run's files, `shell`
+ * would mean a `find` + `head` pipeline for a walk that reads thousands of
+ * files. A later strut refuses the import, so this step needs a strut-side
+ * door (a read-only files capability over a checkout) before then; until
+ * it has one, the read stays and is listed in the PR that drew the line.
  */
 
 /** Directories never walked: dependencies, build output, VCS and editor state. */

@@ -4,6 +4,7 @@ import { LLMClient } from "./llm.js";
 import { Summarizer } from "./summarizer.js";
 import { getApiKeyForProvider, type Provider } from "../../aieo/src/provider.js";
 import type { Concept, Usage } from "./types.js";
+import { env } from "../../env.js";
 
 /**
  * Capabilities bag injected into every concepts step via `ctx.services`.
@@ -138,7 +139,7 @@ export async function buildConceptServices(
   const storage = new GraphStorage();
   await storage.initialize();
 
-  const envToken = opts.githubToken ?? process.env["GITHUB_TOKEN"];
+  const envToken = opts.githubToken ?? env["GITHUB_TOKEN"];
   // One Octokit per distinct token. A deployment sees a handful of actors'
   // tokens; the cap only guards against a pathological churn of them.
   const clients = new Map<string, Octokit>();

@@ -6,6 +6,7 @@ import { Step, TestResult } from "./types.js";
 import { getModel, getProviderOptions } from "../aieo/src/provider.js";
 import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
 import { normalizeUsage } from "../aieo/src/usage.js";
+import { env } from "../env.js";
 
 // Load environment variables
 dotenv.config();
@@ -111,7 +112,7 @@ export class SimpleEvaluator {
     this.sessionId = sessionId;
     // Determine which LLM provider to use based on environment
     this.currentProvider =
-      process.env.LLM_PROVIDER === "anthropic" ? "anthropic" : "openai";
+      env.LLM_PROVIDER === "anthropic" ? "anthropic" : "openai";
   }
 
   async createModel(provider: "anthropic" | "openai") {
@@ -120,7 +121,7 @@ export class SimpleEvaluator {
     // } else {
     //   return openai("gpt-5");
     // }
-    return await getModel("anthropic", process.env.ANTHROPIC_API_KEY as string);
+    return await getModel("anthropic", env.ANTHROPIC_API_KEY as string);
   }
 
   async initStagehand() {

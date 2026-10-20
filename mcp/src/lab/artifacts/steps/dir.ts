@@ -1,5 +1,4 @@
 import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
-import { mkdir } from "node:fs/promises";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
 /**
@@ -13,7 +12,10 @@ import { isAbsolute, join, resolve, sep } from "node:path";
  * return instead. Subflows share their parent's runId (one run = one
  * artifacts dir), so several produce subflows in one batch run would
  * otherwise collide on `./output/` — a per-item `sub` (e.g. the task id)
- * keeps them apart.
+ * keeps them apart. The subdirectory is made through `ctx.services.shell`
+ * (`mkdir -p` under the run's own dir): a step reaches the disk through the
+ * services bag, never `node:fs` (strut src/step-lint.ts), and the artifacts
+ * capability has no mkdir of its own.
  */
 export default defineStep({
   type: "artifacts/dir",
@@ -46,7 +48,10 @@ export default defineStep({
     if (path !== base && !path.startsWith(base + sep)) {
       throw new Error(`artifacts/dir: sub escapes the run's artifacts dir: "${cfg.sub}"`);
     }
-    await mkdir(path, { recursive: true });
+    const shell = c.services?.shell;
+    if (!shell) throw new Error("shell capability unavailable");
+    const made = await shell({ cmd: "mkdir", args: ["-p", path], cwd: base });
+    if (made.code !== 0) throw new Error(`artifacts/dir: could not create "${cfg.sub}": ${made.stderr.trim() || `exit ${made.code}`}`);
     return { path, runId: c.runId, sub: cfg.sub };
   },
 });

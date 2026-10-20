@@ -4,6 +4,7 @@ import { Express } from "express";
 import { Tool, Json } from "./types.js";
 import { graphServer } from "./server.js";
 import { getMcpTools } from "./utils.js";
+import { env } from "../env.js";
 
 export function graph_sse_routes(app: Express) {
   let currentTransport: SSEServerTransport | null = null;
@@ -49,7 +50,7 @@ export function graph_sse_routes(app: Express) {
     const obj: { tools: HttpTool[]; headers?: { [k: string]: any } } = {
       tools: getMcpTools().map(fmtToolForHttp),
     };
-    if (process.env.API_TOKEN) {
+    if (env.API_TOKEN) {
       obj.headers = {
         Authorization: "Bearer YOUR_TOKEN",
       };

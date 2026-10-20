@@ -1,4 +1,4 @@
-import { z, defineStep, usageFromResult, usageForCost, type TokenUsage } from "strut";
+import { z, defineStep, usageFromResult, usageForCost, type StepContext, type StrutCapabilities, type TokenUsage } from "strut";
 import type { Provider } from "aieo";
 
 /**
@@ -100,7 +100,7 @@ async function costOf(provider: string, usage: TokenUsage): Promise<number> {
 export default defineStep({
   type: "eval/reflect",
   description:
-    "Generic optimizer 'propose' step: from the current candidate prompt + AGGREGATED per-example scoring results (an array — must be multi-example to avoid overfitting), emit an improved prompt. Required config: prompt, results (array of { score?, missing[], spurious[], insight? }). Optional: task (what the prompt should do), rubric (the target / standards), guidance (meta-rules for revising), provider, model. Output: { prompt, rationale, usage, cost }.",
+    "Generic optimizer 'propose' step: from the current candidate prompt + AGGREGATED per-example scoring results (an array — must be multi-example to avoid overfitting), emit an improved prompt. Required config: prompt, results (array of { score?, missing[], spurious[], insight? }). Optional: task (what the prompt should do), rubric (the target / standards), guidance (meta-rules for revising), provider (anthropic | openai, default anthropic), model. Output: { prompt, rationale, usage, cost }.",
   input: z.object({
     prompt: z.string().describe("the current candidate prompt being tuned"),
     results: z.array(ResultSchema).describe("per-example scoring results across the dataset (>=1; more = less overfit)"),
@@ -115,21 +115,32 @@ export default defineStep({
     model: z.string().optional(),
   }),
   output: z.any(),
-  async run(cfg) {
-    const provider = cfg.provider ?? process.env["STRUT_LLM_PROVIDER"] ?? "anthropic";
-    const modelName = cfg.model ?? process.env["STRUT_LLM_MODEL"];
+  async run(cfg, ctx) {
+    // Provider and model come from the step's config (a workflow's params
+    // reach it as `{{ params.provider }}` / `{{ params.model }}`), never the
+    // server's env; the key comes through ctx.services.secrets — the secret
+    // store, else what the deployment set in env, through strut's boot
+    // snapshot (strut src/step-lint.ts, src/env.ts).
+    const provider = cfg.provider ?? "anthropic";
+    const modelName = cfg.model;
+    const secrets = (ctx as StepContext<StrutCapabilities>).services?.secrets;
+    const keyFor = async (name: string): Promise<string> => {
+      const key = await secrets?.get(name);
+      if (!key) throw new Error(`eval/reflect: no ${name} — set it in the secret store or the deployment's env`);
+      return key;
+    };
 
     const { generateObject } = await import("ai");
     let model: any;
     switch (provider) {
       case "anthropic": {
-        const { anthropic } = await import("@ai-sdk/anthropic");
-        model = anthropic(modelName ?? "claude-sonnet-4-20250514");
+        const { createAnthropic } = await import("@ai-sdk/anthropic");
+        model = createAnthropic({ apiKey: await keyFor("ANTHROPIC_API_KEY") })(modelName ?? "claude-sonnet-4-20250514");
         break;
       }
       case "openai": {
-        const { openai } = await import("@ai-sdk/openai");
-        model = openai(modelName ?? "gpt-4o");
+        const { createOpenAI } = await import("@ai-sdk/openai");
+        model = createOpenAI({ apiKey: await keyFor("OPENAI_API_KEY") })(modelName ?? "gpt-4o");
         break;
       }
       default:
