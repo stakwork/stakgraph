@@ -9,19 +9,11 @@ import {
 import { ModelName } from "../aieo/src/index.js";
 import { randomUUID } from "crypto";
 import { SessionConfig } from "../repo/session.js";
-import { listCloudwatchLogStreams } from "./cloudwatch.js";
+import { buildLogsPrompt } from "./context.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "./utils.js";
-import { getCurrentDateSnippet } from "../repo/utils.js";
 import { StakworkRunSummary } from "./types.js";
 
 export type { AgentLogSummary, StakworkRunSummary } from "./types.js";
-
-/** Convert a UI swarm name like "swarm38" or "swarmHDYF7D" to a CloudWatch log group like "/swarms/38" or "/swarms/HDYF7D" */
-function swarmNameToLogGroup(swarmName: string): string | null {
-  const match = swarmName.match(/^swarm(.+)$/);
-  if (!match) return null;
-  return `/swarms/${match[1]}`;
-}
 
 /**
  * Coerce a request-body `headers` value into a clean Record<string, string>.
@@ -79,111 +71,7 @@ export async function logs_agent(req: Request, res: Response) {
     return;
   }
 
-  let finalPrompt = prompt;
-  finalPrompt = `${getCurrentDateSnippet()}\n\n${finalPrompt}`;
-  if (swarmName) {
-    const logGroup = swarmNameToLogGroup(swarmName);
-    if (logGroup) {
-      const context: string[] = [];
-      context.push(`The CloudWatch log group for this swarm is "${logGroup}". Use this log group when fetching logs.`);
-      try {
-        const streams = await listCloudwatchLogStreams(logGroup);
-        if (streams.length > 0) {
-          context.push(`\nAvailable log streams (services) in this log group:`);
-          for (const s of streams) {
-            const serviceName = s.name.replace(/\.sphinx$/, "");
-            context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
-          }
-          context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
-        }
-      } catch (e) {
-        console.warn("Failed to list log streams:", e);
-      }
-      finalPrompt = context.join("\n") + `\n\n${prompt}`;
-    }
-  }
-
-  if (stakworkRuns && stakworkRuns.length > 0) {
-    const runsJson = JSON.stringify(stakworkRuns, null, 2);
-    const runsContext = [
-      `\nRecent Stakwork workflow runs (use projectId with fetch_workflow_run to get logs):`,
-      runsJson,
-      `\nPick the most relevant run based on the user's question, if its about a recent workflow (like a feature architecture, hive task, etc.) Use the projectId to fetch logs. If a run has agentLogs, you can use fetch_agent_log to read the full log content for a specific agent.`,
-      `\nIMPORTANT: fetch_workflow_run messages are truncated to 1000 characters per line (truncated lines end with "... (continued)"). The full untruncated lines for a run are in the CloudWatch log group "/stakwork/production" — if you hit a truncated line you need in full, use fetch_cloudwatch with log_group "/stakwork/production", filter_pattern "project_id_<projectId>", and minutes covering the run's createdAt time.`,
-    ].join("\n");
-    finalPrompt = runsContext + `\n\n${finalPrompt}`;
-  }
-
-  if (workspaceSlug) {
-    finalPrompt = `If the user mentions their actual application name (e.g. "${workspaceSlug}"), use the fetch_quickwit tool to fetch logs from the actual application.\n\n${finalPrompt}`;
-  }
-
-  if (workspaceSlug === "stakwork") {
-    const prodLogGroup = "/stakwork/production";
-    const context: string[] = [];
-    context.push(`The CloudWatch log group for Stakwork production is "${prodLogGroup}". Use this log group when fetching production logs.`);
-    try {
-      const streams = await listCloudwatchLogStreams(prodLogGroup);
-      if (streams.length > 0) {
-        context.push(`\nAvailable log streams (services) in this log group:`);
-        for (const s of streams) {
-          const serviceName = s.name.replace(/\.sphinx$/, "");
-          context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
-        }
-        context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
-      }
-    } catch (e) {
-      console.warn("Failed to list log streams for /stakwork/production:", e);
-    }
-    finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
-  }
-
-  if (logGroups && logGroups.length > 0) {
-    for (const logGroup of logGroups) {
-      const context: string[] = [];
-      context.push(`The CloudWatch log group "${logGroup}" is available. Use this log group when fetching logs.`);
-      try {
-        const streams = await listCloudwatchLogStreams(logGroup);
-        if (streams.length > 0) {
-          context.push(`\nAvailable log streams (services) in this log group:`);
-          for (const s of streams) {
-            const serviceName = s.name.replace(/\.sphinx$/, "");
-            context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
-          }
-          context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
-        }
-      } catch (e) {
-        console.warn(`Failed to list log streams for ${logGroup}:`, e);
-      }
-      finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
-    }
-  }
-
-  if (poolName) {
-    const poolLogGroup = `/workspaces/workspace-cluster/pools/${poolName}/workspaces`;
-    const context: string[] = [];
-    context.push(
-      `If the user asks about "pod", "pool", or "sandbox" logs, they mean the workspace pod logs in the CloudWatch log group "${poolLogGroup}". Use the fetch_cloudwatch tool with this log group, then use bash to search the saved file.`
-    );
-    context.push(
-      `\nEach workspace pod has its own set of log streams named "{workspace-id}/{container}". The main workspace container is "code-server" — for most questions about a running workspace/sandbox, fetch the code-server stream first. Other containers: port-detector (port detection sidecar), build-base-image / build-wrapper-image (init image builders), init-workspace (init: workspace setup), docker-auth (init: registry auth).`
-    );
-    try {
-      const streams = await listCloudwatchLogStreams(poolLogGroup);
-      if (streams.length > 0) {
-        context.push(`\nAvailable log streams in this log group:`);
-        for (const s of streams) {
-          context.push(`  - "${s.name}"${s.lastEventTime ? " (last event: " + s.lastEventTime + ")" : ""}`);
-        }
-        context.push(
-          `\nUse the log_stream_names parameter to filter to a specific workspace/container (e.g. the "{workspace-id}/code-server" stream).`
-        );
-      }
-    } catch (e) {
-      console.warn(`Failed to list log streams for ${poolLogGroup}:`, e);
-    }
-    finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
-  }
+  const finalPrompt = await buildLogsPrompt(prompt, { swarmName, stakworkRuns, workspaceSlug, logGroups, poolName });
 
   // Per-run logs directory: use sessionId if present (persists across turns),
   // otherwise generate a random one (cleaned up after the agent finishes).

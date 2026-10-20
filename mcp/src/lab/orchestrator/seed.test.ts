@@ -76,7 +76,7 @@ describe("orchestrator seed (the lab's delta on strut's template)", () => {
     // What the section tells the agent: proposed, never made; the Concept
     // shape (docs, PARENT_OF, the PROCESS anchor in one batch triplet); the
     // explore workflow.
-    for (const needle of ["[proposal-result]", "PROPOSED", "`docs`", "PARENT_OF", "PROCESS", "HiveWorkspace", "graph/create-batch-triplet", "`explore`", "meta/run-workflow"]) {
+    for (const needle of ["[proposal-result]", "PROPOSED", "`docs`", "PARENT_OF", "PROCESS", "HiveWorkspace", "graph/create-batch-triplet", "`explore`", "`logs`", "meta/run-workflow"]) {
       assert.ok(params.system.includes(needle), `system lacks ${needle}`);
     }
     assert.ok(params.system.endsWith("\n"));
