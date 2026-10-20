@@ -24,6 +24,12 @@ name: explore
 # evolvable surface: the model, the step budget, which graph tools, which
 # built-ins (the read-only file tools; never bash — the caller may be
 # another strut), and the system prompt.
+# Open to other struts: strut runs a peer's launch only of a workflow that
+# says `peer: true`, as published (no `params` — an override is how a peer
+# would hand this agent bash), its `job` and `session` kept under `peer/`
+# (strut plans/federation.md §3). This file vouches for what a peer reaches
+# through it: read steps and file tools only.
+peer: true
 description: >-
   Explore this swarm's knowledge graph, and the repositories named on the
   launch, for a question and return what is relevant: a read-only agent

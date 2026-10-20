@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -95,6 +95,8 @@ describe("explore workflow (offline: fake agent + fake checkout)", () => {
     assert.equal(flow.steps[1].config.body.type, "git/checkout");
     assert.deepEqual(flow.params?.tools, READ_TOOLS);
     assert.deepEqual(flow.params?.builtins, FILE_TOOLS);
+    // Open to other struts (strut's `peer: true`): without it a peer's launch is refused.
+    assert.match(await readFile(new URL("./workflows/explore.yaml", import.meta.url), "utf-8"), /^peer: true$/m);
   });
 
   it("validates statically against the real registry (what meta/validate-workflow runs)", async () => {
