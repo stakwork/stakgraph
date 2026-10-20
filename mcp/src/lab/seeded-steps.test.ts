@@ -13,6 +13,7 @@ import { seedWfbenchSteps } from "./wfbench/seed.js";
 import { seedPodSteps } from "./pods/seed.js";
 import { seedExploreSteps } from "./explore/seed.js";
 import { seedPodSetupSteps } from "./pod-setup/seed.js";
+import { seedLogsSteps } from "./logs/seed.js";
 
 // The mcp dir, like the real lab-workspace: a seeded step's bare package
 // imports (`ai`, `aieo`, `js-yaml`, …) resolve via mcp/node_modules from there.
@@ -33,6 +34,7 @@ describe("seeded lab steps", () => {
         seedPodSteps,
         seedExploreSteps,
         seedPodSetupSteps,
+        seedLogsSteps,
       ]) {
         await seed(ws);
       }
@@ -42,7 +44,7 @@ describe("seeded lab steps", () => {
       // A step that imports mcp source by relative path (e.g. `../../cost.js`)
       // is skipped by discovery with only a warning.
       assert.deepEqual(seeded.filter((t) => !registry[t]), []);
-      for (const t of ["eval/reflect", "eval/score", "gaia/get-task", "artifacts/dir", "explore/repositories", "pod-setup/repo-facts", "pod-setup/pages", "pod-setup/finish"]) {
+      for (const t of ["eval/reflect", "eval/score", "gaia/get-task", "artifacts/dir", "explore/repositories", "pod-setup/repo-facts", "pod-setup/pages", "pod-setup/finish", "logs/context", "logs/fetch-cloudwatch", "logs/list-cloudwatch-groups", "logs/fetch-quickwit", "logs/search", "logs/read", "logs/insights"]) {
         assert.ok(registry[t], `registry missing ${t}`);
       }
     } finally {

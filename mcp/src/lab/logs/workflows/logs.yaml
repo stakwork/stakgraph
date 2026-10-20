@@ -1,0 +1,102 @@
+name: logs
+# logs — the LOGS AGENT (mcp/src/log, `/logs/agent`) as a workflow, for the
+# orchestrator to ask this swarm, or another one, what its logs say. Called
+# locally through meta/run-workflow, and from another strut as
+#   strut/run-workflow { peer: <that swarm>, workflow: logs, input: { prompt } }
+#
+# The endpoint's agent with the endpoint's tools and texts — fetch CloudWatch
+# (Logs Insights, long lines recovered) or Quickwit into files, the
+# `[time budget: …]` note on every result — through services.logs
+# (lab/logs/service.ts, over log/tools.ts and log/context.ts, so the two
+# never drift). Its `bash` is replaced by three tools that run nothing:
+# logs/search (ripgrep, fixed arguments), logs/read (numbered lines) and
+# logs/insights (a Logs Insights query, for the counting awk | sort | uniq
+# did). No built-ins and no caller MCP servers: a caller may be another
+# strut. No Stakwork tools: those read runs by id with a global key.
+#
+# Where to look first is THIS deployment's (logs/context reads
+# LOGS_SWARM_NAME, LOGS_POOL_NAME, LOGS_WORKSPACE_SLUG from Secrets or env);
+# what it can read at all is this swarm's IAM role's. The run's files live in
+# job/dir's folder (logs/ under it): kept under a job, so a follow-up turn —
+# `session` and the same `job` — searches what the first turn fetched.
+#
+# Open to other struts: strut runs a peer's launch only of a workflow that
+# says `peer: true`, as published (no `params`), its `job` and `session`
+# kept under `peer/` (strut plans/federation.md §3). This file vouches for
+# what a peer reaches through it: the six logs/* tools above.
+peer: true
+description: >-
+  Ask this swarm's logs a question: the logs agent fetches its CloudWatch
+  log groups (Logs Insights) and its app's Quickwit logs into files,
+  searches and reads them, runs Insights queries to count and group, and
+  answers within a time budget (8 minutes). Where to look comes from this
+  deployment (LOGS_SWARM_NAME, LOGS_POOL_NAME, LOGS_WORKSPACE_SLUG). Input:
+  { prompt, session? } (+ `job` on the launch to keep the files for a
+  follow-up). Output: { answer (the analysis, markdown), cost }. Open to
+  other struts: strut/run-workflow { peer, workflow: "logs", input: { prompt } }.
+input:
+  prompt: { type: string, description: "What to find out from this swarm's logs" }
+  session: { type: string, required: false, description: "The agent's thread (a session id). Cold unless given: pass one, and the same `job` on the launch, to ask a follow-up about what was fetched" }
+steps:
+  - id: dir
+    type: job/dir
+  - id: context
+    type: logs/context
+    config:
+      prompt: "{{ input.prompt }}"
+      dir: "{{ dir.path }}"
+      budgetMinutes: "{{ params.budgetMinutes }}"
+  - id: investigate
+    type: agent
+    config:
+      cwd: "{{ dir.path }}"
+      session: "{{ input.session }}"
+      model: "{{ params.model }}"
+      maxSteps: "{{ params.maxSteps }}"
+      agentTools: "{{ params.tools }}"
+      # No built-ins (no bash, no file tools, no web) and none of a caller's
+      # MCP servers: the six logs/* tools are everything this agent can do.
+      toolFilter: [none]
+      mcp: false
+      system: "{{ params.system }}"
+      prompt: "{{ context.prompt }}"
+      finalAnswer: "Your complete analysis: the answer to the question, what in the logs it rests on, and what you could not confirm."
+  - id: result
+    type: pack
+    config:
+      answer: "{{ investigate.result }}"
+      cost: "{{ investigate.cost }}"
+params:
+  model: sonnet
+  maxSteps: 60
+  budgetMinutes: 8
+  tools:
+    - logs/fetch-cloudwatch
+    - logs/list-cloudwatch-groups
+    - logs/fetch-quickwit
+    - logs/search
+    - logs/read
+    - logs/insights
+  system: |
+    You are a log analysis agent. You have tools to fetch logs from various sources (CloudWatch, Quickwit, etc.) and write them to local files, plus tools to search and read those files (logs_search, logs_read) and to query CloudWatch Logs Insights directly (logs_insights).
+
+    Your workflow:
+    1. If the user mentions a specific log group or service, fetch those logs directly.
+    2. If unsure which log group to use, call logs_list_cloudwatch_groups to discover available groups.
+    3. After fetching, search the log files with logs_search and read the lines around a match with logs_read. To count, group or time events (what awk, sort and uniq would do), query CloudWatch with logs_insights instead (e.g. "stats count(*) by bin(5m)").
+    4. Synthesize your findings into a clear answer.
+
+    Tips:
+    - Fetch logs first, then search. Don't try to search before fetching.
+    - For large log volumes, use specific filter patterns when fetching to reduce noise.
+    - Look for patterns: recurring errors, timestamps clustering, correlated events.
+    - When debugging an issue, search for both the error itself and surrounding context.
+
+    TIME BUDGET (very important): You have roughly {{ params.budgetMinutes }} minutes of wall-clock time total. Work efficiently:
+    - Plan a focused approach up front; don't fetch more than you need. Prefer narrow filter patterns, specific log streams, and shorter time windows over broad fetches.
+    - Avoid rabbit holes and redundant tool calls. Each fetch/search should have a clear purpose.
+    - Every tool result ends with a "[time budget: ...]" line showing how much time has elapsed and how much is left. Watch it. Once only a couple of minutes remain (or you have enough to answer), STOP investigating and write up what you've found.
+    - It is far better to return a partial-but-useful answer than to run out of time with nothing. If you couldn't fully confirm something, say so and report your best findings, leads, and next steps.
+    - You MUST always finish by producing a final answer — never end without one.
+
+    CRITICAL: When you are ready to provide your final answer, call final_answer with your complete response.

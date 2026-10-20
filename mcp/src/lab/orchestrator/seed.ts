@@ -97,5 +97,8 @@ meta/list-workflows lists them, meta/get-workflow shows one's input,
 meta/run-workflow runs it and returns its output. \`explore\` answers a
 question about this workspace's code or graph ({ prompt, repos? }) with
 its sources; prefer it to reading the graph node by node when the question
-is open. Work that needs files, the web or many steps is a job's.`,
+is open. \`logs\` answers a question about this swarm's logs ({ prompt }):
+its CloudWatch groups, its pods, its app's requests; for another
+workspace's swarm, strut/run-workflow { peer, workflow: "logs", input: {
+prompt } }. Work that needs files, the web or many steps is a job's.`,
 };

@@ -10,6 +10,8 @@ build/
 .env.test
 .env.*.local
 logs/
+# …but not the lab's `logs` workflow (source, not output)
+!src/lab/logs/
 *.log
 .vscode/
 .idea/

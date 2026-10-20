@@ -31,6 +31,8 @@ import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./pod-setup/seed.js";
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
+import { seedLogsSteps, seedLogsWorkflows } from "./logs/seed.js";
+import { buildLogsServices, type LogsServices } from "./logs/service.js";
 import { anchorConcepts } from "./concept-anchor.js";
 import { retireSteps, retireWorkflows } from "./seed-opts.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
@@ -96,6 +98,11 @@ export interface LabServices extends ConceptServices {
    *  (GAIA_DIR). In-code on purpose — the grader and the gold must stay
    *  outside the agent-editable surface; gaia/* steps are thin plumbing. */
   gaia?: GaiaServices;
+  /** The logs agent's tools for the `logs` workflow (lab/logs/service.ts):
+   *  `/logs/agent`'s fetches and texts plus search / read / insights, over
+   *  this host's AWS credentials. In code because a seeded step imports
+   *  `strut` alone; the logs/* steps are thin plumbing over it. */
+  logs?: LogsServices;
   /** Generic per-run teardown hook called by the strut runner in a `finally`
    *  (success AND error). Nothing in the lab sets it today; a caller-built
    *  bag may. (The `browser/*` steps' browser is strut's own
@@ -140,6 +147,11 @@ export async function createLabStrut(
   // GAIA_DIR is checked at call time (loud per-run error).
   if (!services.gaia) {
     services.gaia = buildGaiaServices();
+  }
+  // The logs workflow's tools (lab/logs/service.ts). Cheap to build; AWS is
+  // reached on a tool's first call.
+  if (!services.logs) {
+    services.logs = buildLogsServices();
   }
 
   const workspacePath =
@@ -206,6 +218,11 @@ export async function createLabStrut(
   // which repositories the graph holds parsed (explore/repositories).
   await seedExploreSteps(workspace);
   await seedExploreWorkflows(workspace);
+  // logs — the logs agent (`/logs/agent`) as a workflow the orchestrator
+  // runs here or on a peer swarm: the endpoint's tools through services.logs,
+  // its bash replaced by logs/search, logs/read and logs/insights.
+  await seedLogsSteps(workspace);
+  await seedLogsWorkflows(workspace);
   // sheets/* and browser/* are strut's lib steps now (strut#200, #201), and
   // strut seeds the three browser workflows (same names, same YAML). The
   // lab's seeded copies of the steps are retired: a workspace custom step
