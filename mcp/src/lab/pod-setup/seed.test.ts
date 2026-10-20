@@ -1,6 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -8,7 +8,10 @@ import yaml from "js-yaml";
 import { WorkspaceManager, buildRegistry, createStrut, defineStep, fileArtifactsCapability, runWorkflow, standardServices } from "strut";
 import { seedPodSetupSteps, seedPodSetupWorkflows, POD_SETUP_CONCEPTS } from "./seed.js";
 import { factsText, scanRepo } from "./steps/repo-facts.js";
-import { finishSetup, type Draft } from "./steps/finish.js";
+import { finishSetup, type Draft, type IsDir } from "./steps/finish.js";
+
+/** What the step does through ctx.services.shell (`test -d`), here with fs. */
+const isDir: IsDir = (p) => stat(p).then((st) => st.isDirectory()).catch(() => false);
 
 const front = (text: string) => {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)!;
@@ -158,7 +161,7 @@ describe("pod-setup/finish", () => {
   });
 
   it("names the frontend, writes every cwd, moves config vars, makes service hosts 127.0.0.1, and assembles the compose file", async () => {
-    const out = await finishSetup(draft(), repos);
+    const out = await finishSetup(draft(), repos, isDir);
     assert.deepEqual(out.services, [
       {
         name: "frontend",
@@ -190,15 +193,15 @@ describe("pod-setup/finish", () => {
   });
 
   it("writes `services: {}` with no local services, and a Dockerfile only when it is not the default", async () => {
-    const plain = await finishSetup(draft({ local_services: {}, dockerfile: "FROM ghcr.io/stakwork/staklink-js:latest" }), repos);
+    const plain = await finishSetup(draft({ local_services: {}, dockerfile: "FROM ghcr.io/stakwork/staklink-js:latest" }), repos, isDir);
     assert.equal(plain.containerFiles["docker-compose.yml"], "services: {}\n");
     assert.equal(plain.containerFiles.Dockerfile, undefined);
-    const other = await finishSetup(draft({ local_services: {}, dockerfile: "FROM ghcr.io/stakwork/staklink-android:latest" }), repos);
+    const other = await finishSetup(draft({ local_services: {}, dockerfile: "FROM ghcr.io/stakwork/staklink-android:latest" }), repos, isDir);
     assert.equal(other.containerFiles.Dockerfile, "FROM ghcr.io/stakwork/staklink-android:latest\n");
   });
 
   it("refuses what it cannot fix, naming it", async () => {
-    const bad = async (d: Draft, re: RegExp) => assert.rejects(finishSetup(d, repos), re);
+    const bad = async (d: Draft, re: RegExp) => assert.rejects(finishSetup(d, repos, isDir), re);
     const fe = draft().frontend;
     await bad(draft({ frontend: { ...fe, repo: "nope" } }), /repo "nope" is not one of the checked-out repositories \(shop, lib\)/);
     await bad(draft({ frontend: { ...fe, subdir: "missing" } }), /"missing" is not a directory in shop/);

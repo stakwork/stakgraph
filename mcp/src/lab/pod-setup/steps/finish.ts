@@ -1,5 +1,4 @@
-import { z, defineStep, dumpYaml } from "strut";
-import { stat } from "node:fs/promises";
+import { z, defineStep, dumpYaml, type StepContext, type StrutCapabilities } from "strut";
 import { join, posix } from "node:path";
 
 /**
@@ -22,7 +21,10 @@ import { join, posix } from "node:path";
  *     is the app's container), every named volume and network declared,
  *     serialized by code so it always parses.
  * Every fix is listed in `notes`. What cannot be fixed fails, naming it.
- * Self-contained: imports only `strut` and Node builtins.
+ * Self-contained: imports only `strut` and Node builtins. The one look at
+ * the disk — does a service's directory exist in its checkout, which is
+ * outside the run's own files — goes through `ctx.services.shell`
+ * (`test -d`), never `node:fs` (strut src/step-lint.ts).
  */
 
 export const FRONTEND = "frontend";
@@ -96,9 +98,13 @@ function cleanSubdir(subdir: string | undefined, where: string): string {
   return n;
 }
 
+/** Whether `path` is a directory — the caller's look at the disk. */
+export type IsDir = (path: string) => Promise<boolean>;
+
 export async function finishSetup(
   draft: Draft,
   repos: Array<{ name: string; path: string }>,
+  isDir: IsDir,
 ): Promise<{ services: ServiceConfig[]; containerFiles: Record<string, string>; notes: string[] }> {
   const notes: string[] = [];
   if (!draft || typeof draft !== "object" || !draft.frontend) throw new Error("pod-setup/finish: the draft has no `frontend`");
@@ -140,8 +146,7 @@ export async function finishSetup(
     if (!repo) throw new Error(`${where}: repo "${s?.repo}" is not one of the checked-out repositories (${[...byName.keys()].join(", ")})`);
     const subdir = cleanSubdir(s.subdir, where);
     if (subdir) {
-      const isDir = await stat(join(repo.path, subdir)).then((st) => st.isDirectory()).catch(() => false);
-      if (!isDir) throw new Error(`${where}: "${subdir}" is not a directory in ${repo.name}`);
+      if (!(await isDir(join(repo.path, subdir)))) throw new Error(`${where}: "${subdir}" is not a directory in ${repo.name}`);
     }
     const port = Number(s.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${where}: port ${JSON.stringify(s.port)} is not a port`);
@@ -225,7 +230,15 @@ export default defineStep({
     raw: z.any().describe("the generation agent's object: { frontend, services?, local_services?, dockerfile? }"),
   }),
   output: z.object({ services: z.array(z.any()), containerFiles: z.record(z.string(), z.string()), notes: z.array(z.string()) }),
-  async run(cfg) {
-    return finishSetup(cfg.raw as Draft, cfg.repos);
+  async run(cfg, ctx) {
+    const shell = (ctx as StepContext<StrutCapabilities>).services?.shell;
+    if (!shell) throw new Error("shell capability unavailable");
+    // `test -d` in the checkout: exit 0 is a directory; a checkout that is
+    // not there at all fails the spawn, which is the same answer.
+    const isDir: IsDir = (path) =>
+      shell({ cmd: "test", args: ["-d", path], cwd: posix.dirname(path) })
+        .then((r) => r.code === 0)
+        .catch(() => false);
+    return finishSetup(cfg.raw as Draft, cfg.repos, isDir);
   },
 });

@@ -1,4 +1,5 @@
 import { createClient, RedisClientType } from "redis";
+import { env } from "../../env.js";
 
 /**
  * Jarvis interop for Concept nodes.
@@ -32,7 +33,7 @@ interface JarvisEmbeddingJob {
 let clientPromise: Promise<RedisClientType | null> | null = null;
 
 export function jarvisRedisEnabled(): boolean {
-  return !!process.env.REDIS_URL;
+  return !!env.REDIS_URL;
 }
 
 async function getClient(): Promise<RedisClientType | null> {
@@ -40,7 +41,7 @@ async function getClient(): Promise<RedisClientType | null> {
   if (!clientPromise) {
     clientPromise = (async () => {
       const client: RedisClientType = createClient({
-        url: process.env.REDIS_URL,
+        url: env.REDIS_URL,
       });
       // Without a listener, a dropped connection emits an unhandled 'error'
       // event and crashes the process; reconnects are automatic.

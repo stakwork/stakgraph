@@ -37,6 +37,7 @@ import { bootstrapConcepts } from "./bootstrap.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd, loadStepMeta } from "../repo/session.js";
 import { isRepoInFlight } from "../lab/proxy.js";
+import { env } from "../env.js";
 
 // In-memory flag to track if processing is currently running — on this, the
 // no-actor path. A request with an actor runs as a lab workflow instead
@@ -135,7 +136,7 @@ export async function gitree_process(req: Request, res: Response) {
   const shouldSummarize = req.query.summarize === "true";
   const shouldLink = req.query.link === "true";
   const shouldAnalyzeClues = req.query.analyze_clues === "true";
-  const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
+  const githubToken = githubTokenQuery || env.GITHUB_TOKEN;
 
 
   if (repoUrl && (!owner || !repo)) {
@@ -957,7 +958,7 @@ export async function gitree_relevant_concepts(req: Request, res: Response) {
     }
 
     // Use AI to determine relevant concepts
-    const provider = process.env.LLM_PROVIDER || "anthropic";
+    const provider = env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
     const typedProvider = provider as Provider;
     const model = await getModel(typedProvider, apiKey as string);

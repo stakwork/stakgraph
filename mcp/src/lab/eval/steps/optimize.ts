@@ -88,8 +88,8 @@ function labelFor(datum: unknown, i: number): string {
 /** Map over `items` with a bounded number of in-flight calls, preserving order.
  *  `limit <= 0` (or ≥ length) = unbounded (plain `Promise.all`, the default).
  *  A limit of 1 serializes — needed when each eval has SIDE EFFECTS that don't
- *  parallelize (e.g. gitsee's boot gate binds fixed host ports 3000/5432, a pm2
- *  process named "frontend", and one staklink daemon — concurrent boots collide).
+ *  parallelize (e.g. an eval that boots an app on fixed host ports — concurrent
+ *  boots collide).
  *  Rejection semantics match `Promise.all`: the first failure rejects. */
 async function mapLimit<T, R>(
   items: T[],
@@ -129,7 +129,7 @@ export default defineStep({
       .min(0)
       .default(0)
       .describe(
-        "max dataset entries evaluated IN PARALLEL per generation. 0 = unbounded (default, back-compat). Set to 1 to SERIALIZE when each eval has non-parallelizable side effects (e.g. gitsee's boot gate binds fixed host ports / a shared pm2+staklink daemon — concurrent boots collide).",
+        "max dataset entries evaluated IN PARALLEL per generation. 0 = unbounded (default, back-compat). Set to 1 to SERIALIZE when each eval has non-parallelizable side effects (e.g. an eval that boots an app on fixed host ports — concurrent boots collide).",
       ),
   }),
   output: z.any(),

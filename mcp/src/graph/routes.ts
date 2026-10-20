@@ -73,6 +73,7 @@ import {
   prepareAgeNode,
   prepareIssuesNode,
 } from "./gitsee-nodes.js";
+import { env } from "../env.js";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -99,7 +100,7 @@ export function authMiddleware(
   res: Response,
   next: NextFunction
 ) {
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   if (!apiToken) {
     return next();
   }
@@ -444,7 +445,7 @@ export async function generate_siblings(req: Request, res: Response) {
 }
 
 export function learn(req: Request, res: Response) {
-  const apiToken = process.env.API_TOKEN;
+  const apiToken = env.API_TOKEN;
   if (!apiToken) {
     res.setHeader("Content-Type", "text/html");
     res.send(LEARN_HTML);
@@ -837,7 +838,7 @@ export async function get_rules_files(req: Request, res: Response) {
 }
 
 const gitSeeHandler = new GitSeeHandler({
-  token: process.env.GITHUB_TOKEN,
+  token: env.GITHUB_TOKEN,
 });
 
 /*
@@ -1145,7 +1146,7 @@ export async function get_services(req: Request, res: Response) {
         }
 
         service.env = {};
-        envVars.forEach((v) => (service.env[v] = process.env[v] || ""));
+        envVars.forEach((v) => (service.env[v] = env[v] || ""));
 
         const { pkgFile: _, ...cleanService } = service;
         services.push(cleanService);

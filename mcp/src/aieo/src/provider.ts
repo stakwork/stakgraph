@@ -8,6 +8,7 @@ import { createXai } from "@ai-sdk/xai";
 import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
 import { createOpenRouter, OpenRouterChatSettings } from "@openrouter/ai-sdk-provider";
+import { env } from "./env.js";
 
 export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai";
 
@@ -16,7 +17,7 @@ export type Provider = "anthropic" | "google" | "openai" | "openrouter" | "xai";
  * LiteLLM, Portkey, etc.). When set, all provider SDKs are routed through this
  * gateway using each provider's drop-in path. Leave unset to call providers directly.
  */
-const LLM_GATEWAY_URL = process.env.LLM_GATEWAY_URL?.replace(/\/$/, "");
+const LLM_GATEWAY_URL = env.LLM_GATEWAY_URL?.replace(/\/$/, "");
 
 /**
  * Per-provider path Bifrost (and compatible gateways) expose for each
@@ -272,10 +273,10 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
         return "xai";
       }
       if (
-        process.env.LLM_PROVIDER &&
-        PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)
+        env.LLM_PROVIDER &&
+        PROVIDERS.includes(env.LLM_PROVIDER as Provider)
       ) {
-        return process.env.LLM_PROVIDER as Provider;
+        return env.LLM_PROVIDER as Provider;
       }
       // Last resort before the anthropic default: the vendor's own id prefix.
       // A bare "gpt-5.6-sol" or "gemini-3.1-pro-preview" used to be sent to
@@ -322,10 +323,10 @@ function lookupApiKeyForProvider(
   provider: Provider | string,
 ): string | undefined {
   if (provider === "claude_code") {
-    return normalizeApiKey(process.env.CLAUDE_CODE_API_KEY);
+    return normalizeApiKey(env.CLAUDE_CODE_API_KEY);
   }
   if (!PROVIDERS.includes(provider as Provider)) return undefined;
-  return normalizeApiKey(process.env[API_KEY_ENV[provider as Provider]]);
+  return normalizeApiKey(env[API_KEY_ENV[provider as Provider]]);
 }
 
 export function hasApiKeyForProvider(provider: Provider | string): boolean {
@@ -379,7 +380,7 @@ export interface GetModelOptions {
  * `LLM_HTTP_TIMEOUT_MS`.
  */
 const DEFAULT_LLM_HTTP_TIMEOUT_MS =
-  parseInt(process.env.LLM_HTTP_TIMEOUT_MS || "", 10) || 300_000;
+  parseInt(env.LLM_HTTP_TIMEOUT_MS || "", 10) || 300_000;
 
 /**
  * Extra attempts after a connect-phase timeout. The timeout aborts via an
@@ -390,7 +391,7 @@ const DEFAULT_LLM_HTTP_TIMEOUT_MS =
  * string. Set `LLM_HTTP_TIMEOUT_RETRIES=0` to disable.
  */
 const LLM_HTTP_TIMEOUT_RETRIES = (() => {
-  const parsed = parseInt(process.env.LLM_HTTP_TIMEOUT_RETRIES || "", 10);
+  const parsed = parseInt(env.LLM_HTTP_TIMEOUT_RETRIES || "", 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2;
 })();
 
@@ -1081,7 +1082,7 @@ export function resolveLLMConfig(opts?: {
   const provider = modelName
     ? getProviderForModel(modelName)
     : (providerHint as Provider | undefined) ||
-      (process.env.LLM_PROVIDER as Provider | undefined) ||
+      (env.LLM_PROVIDER as Provider | undefined) ||
       getProviderForModel();
 
   const callerKey = normalizeApiKey(opts?.apiKey);

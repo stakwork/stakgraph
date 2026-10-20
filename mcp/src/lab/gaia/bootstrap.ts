@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
+import { env } from "../../env.js";
 
 /**
  * GAIA dataset BOOTSTRAP — turns "fiddle with three env vars" into "set
@@ -146,8 +147,8 @@ export interface EnsureGaiaOptions {
 /** Where a checkout lands when GAIA_DIR is unset. */
 export function defaultGaiaDir(): string {
   const cache =
-    process.env["STRUT_CACHE_DIR"] ??
-    process.env["XDG_CACHE_HOME"] ??
+    env["STRUT_CACHE_DIR"] ??
+    env["XDG_CACHE_HOME"] ??
     join(homedir(), ".cache");
   return join(cache, "strut", "gaia");
 }
@@ -155,9 +156,9 @@ export function defaultGaiaDir(): string {
 function resolveToken(explicit?: string): string | undefined {
   return (
     explicit ??
-    process.env["HF_TOKEN"] ??
-    process.env["HUGGING_FACE_HUB_TOKEN"] ??
-    process.env["HF_API_TOKEN"] ??
+    env["HF_TOKEN"] ??
+    env["HUGGING_FACE_HUB_TOKEN"] ??
+    env["HF_API_TOKEN"] ??
     undefined
   );
 }
@@ -321,8 +322,8 @@ async function cloneDataset(
   // keeps a credential prompt from hanging a headless container forever.
   const helper = '!f() { echo "username=hf"; echo "password=$GAIA_HF_TOKEN"; }; f';
   const auth = ["-c", `credential.helper=${helper}`];
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  const childEnv: NodeJS.ProcessEnv = {
+    ...env,
     GIT_TERMINAL_PROMPT: "0",
     GAIA_HF_TOKEN: token,
   };
@@ -338,7 +339,7 @@ async function cloneDataset(
   ];
 
   for (const step of steps) {
-    const res = await exec("git", step.args, { cwd: staging, timeoutMs: step.timeoutMs, env });
+    const res = await exec("git", step.args, { cwd: staging, timeoutMs: step.timeoutMs, env: childEnv });
     if (res.code === 0) continue;
     await rm(staging, { recursive: true, force: true });
     const tail = res.stderr.slice(-1500);
@@ -389,7 +390,7 @@ const inflight = new Map<string, Promise<{ root: string }>>();
 export async function ensureGaiaDataset(
   opts: EnsureGaiaOptions = {},
 ): Promise<{ root: string }> {
-  const key = resolve(opts.dir ?? process.env["GAIA_DIR"] ?? defaultGaiaDir());
+  const key = resolve(opts.dir ?? env["GAIA_DIR"] ?? defaultGaiaDir());
   const existing = inflight.get(key);
   if (existing) return existing;
   const started = (async () => {
@@ -398,7 +399,7 @@ export async function ensureGaiaDataset(
     const exec = opts.exec ?? defaultExec();
     const fetchText = opts.fetchText ?? defaultFetchText;
     const expected =
-      opts.scorerSha256 ?? process.env["GAIA_SCORER_SHA256"] ?? SCORER_SHA256;
+      opts.scorerSha256 ?? env["GAIA_SCORER_SHA256"] ?? SCORER_SHA256;
 
     if (await isPopulated(root)) {
       await assertNoLfsPointers(root);
@@ -406,7 +407,7 @@ export async function ensureGaiaDataset(
     }
 
     const autoSetup =
-      opts.autoSetup ?? process.env["GAIA_AUTO_SETUP"] !== "0";
+      opts.autoSetup ?? env["GAIA_AUTO_SETUP"] !== "0";
     if (!autoSetup) {
       throw new Error(
         `gaia: ${root} is not a populated GAIA checkout and GAIA_AUTO_SETUP=0 — ` +
@@ -504,7 +505,7 @@ export async function ensureGaiaPython(opts: EnsurePythonOptions = {}): Promise<
     const exec = opts.exec ?? defaultExec();
     const log = opts.log ?? ((m: string) => console.log(m));
 
-    const explicit = opts.python ?? process.env["GAIA_PYTHON"];
+    const explicit = opts.python ?? env["GAIA_PYTHON"];
     if (explicit) return explicit;
 
     if (await importsNumpy("python3", exec)) return "python3";

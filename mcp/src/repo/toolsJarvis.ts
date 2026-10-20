@@ -3,6 +3,7 @@ import { z } from "zod";
 import axios from "axios";
 import { randomUUID } from "crypto";
 import PQueueModule from "p-queue";
+import { env } from "../env.js";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
 import {
   getModelDetails,
@@ -49,7 +50,7 @@ function appendNamespace(params: URLSearchParams, namespace?: string): void {
 const DEFAULT_JARVIS_TIMEOUT_MS = 180_000;
 
 function getJarvisTimeoutMs(): number {
-  const raw = process.env.JARVIS_HTTP_TIMEOUT_MS;
+  const raw = env.JARVIS_HTTP_TIMEOUT_MS;
   if (raw) {
     const parsed = parseInt(raw, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
@@ -2160,7 +2161,7 @@ export function registerJarvisTools(
   allTools: Record<string, Tool<any, any>>,
   options: JarvisToolsOptions = {},
 ): void {
-  const jarvisUrl = process.env.JARVIS_URL;
+  const jarvisUrl = env.JARVIS_URL;
   if (!jarvisUrl) {
     console.error(
       "[repo agent] JARVIS_URL is not set — skipping Jarvis knowledge-graph tools",
@@ -2178,7 +2179,7 @@ export function registerJarvisTools(
 
   const jarvisHeaders = {
     "Content-Type": "application/json",
-    "X-Api-Token": process.env.API_TOKEN ?? "",
+    "X-Api-Token": env.API_TOKEN ?? "",
   };
 
   // Wildcard sentinel: jarvis-backend uses a real Schema node with type="*" to

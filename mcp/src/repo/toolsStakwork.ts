@@ -1,6 +1,7 @@
 import { tool, Tool } from "ai";
 import { z } from "zod";
 import axios from "axios";
+import { env } from "../env.js";
 
 /**
  * Stakwork run-research tools — read-only lookups against the Stakwork API
@@ -108,7 +109,7 @@ export function registerStakworkTools(
   allTools: Record<string, Tool<any, any>>,
   options: StakworkToolsOptions,
 ): void {
-  const baseUrl = (options.baseUrl || process.env.STAKWORK_API_URL || DEFAULT_STAKWORK_API_URL).replace(/\/$/, "");
+  const baseUrl = (options.baseUrl || env.STAKWORK_API_URL || DEFAULT_STAKWORK_API_URL).replace(/\/$/, "");
   const apiKey = options.apiKey;
 
   allTools.stakwork_skill_usage = tool({

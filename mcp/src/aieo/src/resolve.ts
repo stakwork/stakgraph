@@ -34,6 +34,7 @@ import {
   type ModelName,
   type Provider,
 } from "./provider.js";
+import { env } from "./env.js";
 
 export interface ModelOption {
   provider: Provider;
@@ -95,7 +96,7 @@ export interface ModelRef {
 const ALIASES = new Set<string>(Object.values(MODELS).flatMap((m) => Object.keys(m)));
 
 function envProvider(): Provider | undefined {
-  const v = process.env.LLM_PROVIDER;
+  const v = env.LLM_PROVIDER;
   return v && PROVIDERS.includes(v as Provider) ? (v as Provider) : undefined;
 }
 
@@ -155,8 +156,8 @@ export function canonicalModelName(model?: string, provider?: Provider | string)
  * budget, so headroom matters more than the visible text length suggests.
  */
 export function maxOutputTokensFor(provider?: string): number {
-  const env = Number(process.env.MAX_OUTPUT_TOKENS);
-  if (env > 0) return env;
+  const fromEnv = Number(env.MAX_OUTPUT_TOKENS);
+  if (fromEnv > 0) return fromEnv;
   return provider === "anthropic" ? 128_000 : 64_000;
 }
 
@@ -197,7 +198,7 @@ export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedM
   const apiKey =
     normalizeApiKey(opts.apiKey) ??
     normalizeApiKey(await opts.getSecret?.(envName)) ??
-    normalizeApiKey(process.env[envName]);
+    normalizeApiKey(env[envName]);
   if (!apiKey) {
     throw new Error(
       `No API key for provider "${ref.provider}": set ${envName} (or pass apiKey / getSecret)`,

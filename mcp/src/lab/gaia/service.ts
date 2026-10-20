@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { ensureGaiaDataset, ensureGaiaPython, SCORER_SHA256 } from "./bootstrap.js";
+import { env } from "../../env.js";
 
 /**
  * GAIA LAB scoring service — the lab's hardcoded, NON-EDITABLE grader.
@@ -106,6 +107,12 @@ export interface GaiaServices {
   listTasks(opts?: { level?: number }): Promise<Array<{ taskId: string; level: number; hasFile: boolean }>>;
   /** One task's question + attachment path — no gold. */
   getTask(taskId: string): Promise<GaiaTask>;
+  /** One task's attachment, read from the checkout: its file name and
+   *  bytes, or undefined when the task has none. The one door to the
+   *  dataset's files for a step (`gaia/get-task` stages a copy into the
+   *  run's artifacts): the service is in-code, a step reads no file
+   *  outside its run. */
+  taskFile(taskId: string): Promise<{ name: string; bytes: Uint8Array } | undefined>;
   /** Score answers with the REAL scorer.py against the validation gold. */
   score(pairs: GaiaScorePair[], opts?: { timeoutMs?: number }): Promise<GaiaScoreReport>;
 }
@@ -209,8 +216,8 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
   async function verifyDataset(): Promise<{ root: string; rev: string; scorerSha256: string }> {
     // Materialise the checkout if it isn't there yet (bootstrap.ts). A no-op
     // costing two stats once it is, so this stays safe on the per-grade path.
-    const autoSetup = opts.autoSetup ?? process.env.GAIA_AUTO_SETUP !== "0";
-    let root: string | undefined = opts.dir ?? process.env.GAIA_DIR;
+    const autoSetup = opts.autoSetup ?? env.GAIA_AUTO_SETUP !== "0";
+    let root: string | undefined = opts.dir ?? env.GAIA_DIR;
     if (autoSetup) {
       ({ root } = await ensureGaiaDataset({
         ...(opts.dir ? { dir: opts.dir } : {}),
@@ -275,7 +282,7 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     const scorerSha256 = createHash("sha256").update(scorerSrc).digest("hex");
     // Always pinned: an unidentified scorer makes a score unattributable, so
     // the in-repo constant is the floor, not an opt-in (EVOLVE_SPEC §6).
-    const pin = opts.scorerSha256 ?? process.env.GAIA_SCORER_SHA256 ?? SCORER_SHA256;
+    const pin = opts.scorerSha256 ?? env.GAIA_SCORER_SHA256 ?? SCORER_SHA256;
     if (pin && scorerSha256 !== pin.toLowerCase()) {
       throw new Error(
         `gaia: scorer.py sha256 ${scorerSha256.slice(0, 12)}… does not match pinned GAIA_SCORER_SHA256 — refusing to grade`,
@@ -333,11 +340,18 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     };
   }
 
+  async function taskFile(taskId: string): Promise<{ name: string; bytes: Uint8Array } | undefined> {
+    const task = await getTask(taskId);
+    if (!task.filePath) return undefined;
+    const name = task.fileName || basename(task.filePath);
+    return { name, bytes: new Uint8Array(await readFile(task.filePath)) };
+  }
+
   async function score(
     pairs: GaiaScorePair[],
     o: { timeoutMs?: number } = {},
   ): Promise<GaiaScoreReport> {
-    const autoSetup = opts.autoSetup ?? process.env.GAIA_AUTO_SETUP !== "0";
+    const autoSetup = opts.autoSetup ?? env.GAIA_AUTO_SETUP !== "0";
     const { root, rev, scorerSha256 } = await verifyDataset(); // fresh check every grade
     if (!pairs.length) throw new Error("gaia: score() called with no pairs");
 
@@ -352,7 +366,7 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     // numpy); builds a cached venv on a dev box that lacks it.
     const python = autoSetup
       ? await ensureGaiaPython(opts.python ? { python: opts.python } : {})
-      : (opts.python ?? process.env.GAIA_PYTHON ?? "python3");
+      : (opts.python ?? env.GAIA_PYTHON ?? "python3");
     // -B: never write __pycache__/ into the checkout (verifyDataset treats a
     // dirty tree as doctored gold and refuses to grade).
     const res = await exec(python, ["-B", "-c", DRIVER, root, pairsPath], {
@@ -392,5 +406,5 @@ export function buildGaiaServices(opts: BuildGaiaOptions = {}): GaiaServices {
     };
   }
 
-  return { verifyDataset, listTasks, getTask, score };
+  return { verifyDataset, listTasks, getTask, taskFile, score };
 }

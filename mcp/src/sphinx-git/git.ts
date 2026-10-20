@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { env } from "../env.js";
 
 /**
  * Spawn `git` with the given args, inheriting stdio (so editors, pagers, and
@@ -14,7 +15,7 @@ export function spawnGit(
   return new Promise((resolve) => {
     const child = spawn("git", args, {
       stdio: "inherit",
-      env: { ...process.env, ...(extraEnv ?? {}) },
+      env: { ...env, ...(extraEnv ?? {}) },
     });
     child.on("exit", (code, signal) => {
       if (signal) {

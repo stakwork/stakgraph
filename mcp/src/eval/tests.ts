@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import { Request, Response, Express } from "express";
 import { fileURLToPath } from "url";
+import { env } from "../env.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,13 +15,13 @@ const execAsync = promisify(exec);
 
 // Configurable base directory
 const getBaseDir = (): string => {
-  return process.env.PROJECT_ROOT || path.join(__dirname, "../..");
+  return env.PROJECT_ROOT || path.join(__dirname, "../..");
 };
 
 const getTestsDir = (): string => {
   let testsDir: string;
-  if (process.env.TESTS_DIR) {
-    testsDir = process.env.TESTS_DIR;
+  if (env.TESTS_DIR) {
+    testsDir = env.TESTS_DIR;
   } else {
     testsDir = path.join(getBaseDir(), "tests");
   }
@@ -95,7 +96,7 @@ export async function runPlaywrightTest(
     const { stdout, stderr } = await execAsync(command, {
       cwd: path.join(getBaseDir(), "tests"),
       timeout: 60000,
-      env: { ...process.env, CI: "true" }, // Set CI mode for consistent output
+      env: { ...env, CI: "true" }, // Set CI mode for consistent output
     });
 
     res.json({

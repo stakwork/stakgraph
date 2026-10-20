@@ -1,4 +1,4 @@
-import { z, defineStep } from "strut";
+import { z, defineStep, type StepContext, type StrutCapabilities } from "strut";
 
 /**
  * GENERIC recall-oriented LLM-as-judge. Domain-agnostic: it matches a PRODUCED
@@ -56,7 +56,7 @@ function fBeta(recall: number, precision: number): number {
 export default defineStep({
   type: "eval/score",
   description:
-    "Generic recall-based LLM-judge: matches a produced set against an expected (gold) set and computes a continuous recall-weighted score. Domain-agnostic — all criteria live in the `rubric`. Required config: actual, expected, rubric. Optional: provider, model. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
+    "Generic recall-based LLM-judge: matches a produced set against an expected (gold) set and computes a continuous recall-weighted score. Domain-agnostic — all criteria live in the `rubric`. Required config: actual, expected, rubric. Optional: provider (anthropic | openai, default anthropic), model. Output: { score, recall, precision, matched, missing, spurious, reason, insight, markdown }.",
   input: z.object({
     actual: z.string(),
     expected: z.string(),
@@ -65,21 +65,32 @@ export default defineStep({
     model: z.string().optional(),
   }),
   output: z.any(),
-  async run(cfg) {
-    const provider = cfg.provider ?? process.env["STRUT_LLM_PROVIDER"] ?? "anthropic";
-    const modelName = cfg.model ?? process.env["STRUT_LLM_MODEL"];
+  async run(cfg, ctx) {
+    // Provider and model come from the step's config (a workflow's params
+    // reach it as `{{ params.provider }}` / `{{ params.model }}`), never the
+    // server's env; the key comes through ctx.services.secrets — the secret
+    // store, else what the deployment set in env, through strut's boot
+    // snapshot (strut src/step-lint.ts, src/env.ts).
+    const provider = cfg.provider ?? "anthropic";
+    const modelName = cfg.model;
+    const secrets = (ctx as StepContext<StrutCapabilities>).services?.secrets;
+    const keyFor = async (name: string): Promise<string> => {
+      const key = await secrets?.get(name);
+      if (!key) throw new Error(`eval/score: no ${name} — set it in the secret store or the deployment's env`);
+      return key;
+    };
 
     const { generateObject } = await import("ai");
     let model: any;
     switch (provider) {
       case "anthropic": {
-        const { anthropic } = await import("@ai-sdk/anthropic");
-        model = anthropic(modelName ?? "claude-sonnet-4-20250514");
+        const { createAnthropic } = await import("@ai-sdk/anthropic");
+        model = createAnthropic({ apiKey: await keyFor("ANTHROPIC_API_KEY") })(modelName ?? "claude-sonnet-4-20250514");
         break;
       }
       case "openai": {
-        const { openai } = await import("@ai-sdk/openai");
-        model = openai(modelName ?? "gpt-4o");
+        const { createOpenAI } = await import("@ai-sdk/openai");
+        model = createOpenAI({ apiKey: await keyFor("OPENAI_API_KEY") })(modelName ?? "gpt-4o");
         break;
       }
       default:

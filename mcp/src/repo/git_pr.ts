@@ -19,6 +19,7 @@ import { Octokit } from "@octokit/rest";
 import { withRepoLock } from "./repo_lock.js";
 import { gitleaksProtect } from "./gitleaks.js";
 import { redactCredentials } from "./utils.js";
+import { env as hostEnv } from "../env.js";
 
 // ---------------------------------------------------------------------------
 // runGit — shared git execution primitive
@@ -302,8 +303,8 @@ export function gitEnv(
     GIT_ASKPASS: "",
     HOME: runHome,
     // Minimum required runtime vars
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-    LANG: process.env.LANG ?? "en_US.UTF-8",
+    PATH: hostEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    LANG: hostEnv.LANG ?? "en_US.UTF-8",
   };
 }
 
@@ -441,7 +442,7 @@ async function _acquireWorktree(
 
   // A minimal env for rev-parse (no credentials needed — local only)
   const localEnv: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: hostEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: os.tmpdir(),
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
@@ -476,7 +477,7 @@ async function _acquireWorktree(
 
   // Create a dummy identity for fetching (will be overwritten by gitEnv in landChange)
   const fetchEnv: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: hostEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: runHome,
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
@@ -660,7 +661,7 @@ async function _acquireEphemeralWorktree(
   }
 
   const localEnv: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: hostEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: os.tmpdir(),
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
@@ -751,7 +752,7 @@ export async function releaseWorktree(handle: WorktreeHandle): Promise<void> {
   handle._children.clear();
 
   const localEnv: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: hostEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: os.tmpdir(),
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
@@ -1150,7 +1151,7 @@ export async function captureWorktreeDiff(
   }
   // Local-only git: no identity, no credentials, no prompts.
   const env: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    PATH: hostEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: os.tmpdir(),
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",

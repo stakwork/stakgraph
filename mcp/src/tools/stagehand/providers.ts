@@ -1,3 +1,4 @@
+import { env } from "../../env.js";
 export type Provider = "anthropic" | "openai";
 
 export interface ProviderData {
@@ -24,7 +25,7 @@ export const PROVIDER_MODELS: Record<Provider, ProviderData> = {
 
 export function getProvider(arg?: "anthropic" | "openai"): ProviderData {
   let provider = PROVIDER_MODELS["anthropic"];
-  if (arg === "openai" || process.env.LLM_PROVIDER === "openai") {
+  if (arg === "openai" || env.LLM_PROVIDER === "openai") {
     provider = PROVIDER_MODELS["openai"];
   }
   return provider;

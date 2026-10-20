@@ -20,9 +20,7 @@ import {
 } from "./concepts/services.js";
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
 import { seedEvalSteps } from "./eval/seed.js";
-import { seedGitseeWorkflows, seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
-import { seedHarveySteps, seedHarveyWorkflows } from "./harvey/seed.js";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps, seedWfbenchWorkflows } from "./wfbench/seed.js";
@@ -34,17 +32,33 @@ import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
 import { anchorConcepts } from "./concept-anchor.js";
-import { retireSteps } from "./seed-opts.js";
-import { buildHarveyServices, type HarveyServices } from "./harvey/service.js";
+import { retireSteps, retireWorkflows } from "./seed-opts.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
-import { buildGitseeServices, type GitseeServices } from "./gitsee/services/index.js";
 import { resolveLabActor, resolveLabScope } from "./actor.js";
+import { env } from "../env.js";
 
 /** Steps the lab used to seed and strut now ships as lib steps of the same
  *  name (`browser/_shared` was the seeded helper the others imported). */
 const MOVED_TO_STRUT = [
   ...["create-spreadsheet", "update-values", "batch-update-values", "get-values", "add-sheet", "import-spreadsheet"].map((n) => `sheets/${n}`),
   ...["_shared", "open", "goto", "back", "close", "snapshot", "text", "evaluate", "observe", "click", "fill", "type", "press", "select", "hover", "scroll", "wait", "screenshot", "capture", "verify", "walkthrough", "state"].map((n) => `browser/${n}`),
+];
+
+/** Steps and workflows the lab used to seed and no longer ships at all: the
+ *  gitsee setup profiler (its QA harness, boot gate and eval/optimize stack)
+ *  and the Harvey LAB grader with its deliver pipeline, both unused. Seeding
+ *  is additive, so a deployed swarm keeps them until they are retired here
+ *  (seed-opts.ts). The lists stay as long as a swarm might still hold one;
+ *  missing names are a no-op. */
+const RETIRED_STEPS = [
+  ...["clone-workspace", "score-setup", "verify-setup", "boot-and-exercise", "stage-setup", "boot", "browser-open", "browser-snapshot", "browser-click", "browser-fill", "browser-press", "browser-observe", "assess-ui", "read-logs", "finalize-setup", "capture-edits"].map((n) => `gitsee/${n}`),
+  ...["get-task", "evaluate", "digest-results", "normalize-documents", "graph-sub-agent", "ingest-state", "drafter-plan", "validate-deliverables", "filter-contested", "merge-disputes", "generate-docx", "generate-xlsx",
+    // retired by the harvey seeder before it went
+    "pack-result", "aggregate-scores", "build-eval-chain", "criterion-refs"].map((n) => `harvey/${n}`),
+];
+const RETIRED_WORKFLOWS = [
+  ...["explore-services", "setup-and-run", "eval", "eval-score", "eval-reflect", "optimize"].map((n) => `gitsee-${n}`),
+  ...["produce", "run", "candidate-run", "evolve-gen", "evolve", "ingest-doc", "knowledge", "draft", "judge-criterion", "dispute-criterion", "score", "deliver"].map((n) => `harvey-${n}`),
 ];
 
 /**
@@ -77,22 +91,16 @@ export interface OptimizerCapability {
 export interface LabServices extends ConceptServices {
   /** Run-sub-workflows capability for the optimize loop. Injected post-build. */
   optimizer?: OptimizerCapability;
-  /** Gitsee QA harness: per-run browser + stack session managers + vision judge,
-   *  reached by the gitsee tool-steps via `ctx.services.gitsee.*`. */
-  gitsee?: GitseeServices;
-  /** Harvey LAB verification: subprocess-runs the REAL legal-benchmark eval
-   *  from the pinned harvey-labs checkout (HARVEY_LABS_DIR). In-code on
-   *  purpose — the grader must stay outside the agent-editable surface. */
-  harvey?: HarveyServices;
   /** GAIA LAB scoring: runs the REAL leaderboard scorer.py (python3
    *  subprocess) against the validation gold in the pinned dataset checkout
    *  (GAIA_DIR). In-code on purpose — the grader and the gold must stay
    *  outside the agent-editable surface; gaia/* steps are thin plumbing. */
   gaia?: GaiaServices;
   /** Generic per-run teardown hook called by the strut runner in a `finally`
-   *  (success AND error). Disposes a run's gitsee browser + booted stack.
-   *  (The `browser/*` steps' browser is strut's own `services.browser`,
-   *  built from BROWSER_* — createStrut chains its teardown after this.) */
+   *  (success AND error). Nothing in the lab sets it today; a caller-built
+   *  bag may. (The `browser/*` steps' browser is strut's own
+   *  `services.browser`, built from BROWSER_* — createStrut chains its
+   *  teardown after this.) */
   onRunEnd?(runId: string): Promise<void>;
 }
 
@@ -122,41 +130,21 @@ export interface CreateLabStrutOptions extends BuildServicesOptions {
 export async function createLabStrut(
   opts: CreateLabStrutOptions = {},
 ): Promise<Strut<LabServices>> {
-  // Merged services bag. Today concepts + the gitsee QA harness; spread
+  // Merged services bag. Today concepts + the GAIA grader; spread
   // additional experiments' bags here as they're added.
   const services: LabServices =
     opts.services ?? (await buildConceptServices(opts));
 
-  // Gitsee harness: per-run browser + stack managers + vision judge, plus the
-  // generic per-run teardown hook. Wired even when `opts.services` was supplied
-  // (so a custom bag still gets the gitsee harness + teardown) — only added when
-  // absent, to respect a caller that intentionally provided its own gitsee bag.
-  if (!services.gitsee) {
-    const { gitsee, disposeRun } = buildGitseeServices();
-    services.gitsee = gitsee;
-    const priorOnRunEnd = services.onRunEnd?.bind(services);
-    services.onRunEnd = async (runId: string) => {
-      if (priorOnRunEnd) await priorOnRunEnd(runId);
-      await disposeRun(runId);
-    };
-  }
-
-  // Harvey LAB grader — in-code, NOT seeded (see harvey/service.ts). Only
-  // added when absent, to respect a caller-provided bag. Construction is
-  // cheap; HARVEY_LABS_DIR is checked at call time (loud per-run error).
-  if (!services.harvey) {
-    services.harvey = buildHarveyServices();
-  }
-
-  // GAIA LAB grader — same in-code, NOT-seeded discipline (see
-  // gaia/service.ts). GAIA_DIR is checked at call time.
+  // GAIA LAB grader — in-code, NOT seeded (see gaia/service.ts). Only added
+  // when absent, to respect a caller-provided bag. Construction is cheap;
+  // GAIA_DIR is checked at call time (loud per-run error).
   if (!services.gaia) {
     services.gaia = buildGaiaServices();
   }
 
   const workspacePath =
     opts.workspacePath ??
-    process.env["STRUT_LAB_WORKSPACE"] ??
+    env["STRUT_LAB_WORKSPACE"] ??
     "./lab-workspace";
 
   // Seed each experiment's workflow + step templates into the workspace
@@ -175,7 +163,7 @@ export async function createLabStrut(
   // either way.
   const graphBacked = graphWorkspaceRequested();
   const workspace: WorkspaceStore = graphBacked
-    ? (await graphWorkspaceFromEnv(process.env, { dataDir: workspacePath })).workspace
+    ? (await graphWorkspaceFromEnv(env, { dataDir: workspacePath })).workspace
     : new WorkspaceManager(workspacePath);
   if (graphBacked) console.log(`[lab] strut workspace: Neo4jWorkspaceStore (data dir: ${workspacePath})`);
   // Generic, domain-agnostic eval primitives (steps). The concept-specific eval
@@ -184,17 +172,10 @@ export async function createLabStrut(
   await seedEvalSteps(workspace);
   await seedConceptWorkflows(workspace);
   await seedConceptSteps(workspace);
-  // gitsee experiment: self-contained steps (no services bag needed).
-  await seedGitseeWorkflows(workspace);
-  await seedGitseeSteps(workspace);
   // jarvis knowledge-graph steps (self-contained; reach Jarvis over
   // ctx.services.http with JARVIS_URL/API_TOKEN from ctx.services.secrets).
   // Grantable to agents via agentTools: ["jarvis/*"].
   await seedJarvisSteps(workspace);
-  // harvey verification steps (thin plumbing over services.harvey; grant
-  // harvey/evaluate only to harness workflows, never the producing agent).
-  await seedHarveySteps(workspace);
-  await seedHarveyWorkflows(workspace);
   // gaia harness (thin plumbing over services.gaia; grant gaia/evaluate —
   // and every gaia/* — only to harness workflows, never the producing agent).
   await seedGaiaSteps(workspace);
@@ -231,6 +212,10 @@ export async function createLabStrut(
   // shadows a lib step of the same name, so until then a swarm ran the lab's.
   // The workflows are NOT retired: that would delete strut's own.
   await retireSteps(workspace, MOVED_TO_STRUT, "lab");
+  // gitsee and harvey are gone (steps, workflows, services): what a swarm
+  // still holds of them is retired, and their runs on disk are left alone.
+  await retireSteps(workspace, RETIRED_STEPS, "lab");
+  await retireWorkflows(workspace, RETIRED_WORKFLOWS, "lab");
   // pods: hive sandboxes as steps, `pod/*` — the job agent's tools for a
   // change that must run to be judged (claim → latest → agent → push →
   // release; the pod is a hold on the job between turns).

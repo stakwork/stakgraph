@@ -1,4 +1,5 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
+import { env } from "../env.js";
 
 /**
  * Single source of truth for Neo4j driver construction.
@@ -6,9 +7,9 @@ import neo4j, { Driver, Session } from "neo4j-driver";
  * which can fail permanently after DNS resolution errors (EAI_AGAIN).
  */
 export function createNeo4jDriver(): Driver {
-  const host = process.env.NEO4J_HOST || "localhost:7687";
-  const user = process.env.NEO4J_USER || "neo4j";
-  const pswd = process.env.NEO4J_PASSWORD || "testtest";
+  const host = env.NEO4J_HOST || "localhost:7687";
+  const user = env.NEO4J_USER || "neo4j";
+  const pswd = env.NEO4J_PASSWORD || "testtest";
   const uri = `bolt://${host}`;
   return neo4j.driver(uri, neo4j.auth.basic(user, pswd));
 }
@@ -43,7 +44,7 @@ export async function withNeo4jRetry<T>(
   setDriver: (d: Driver) => void,
   op: (session: Session) => Promise<T>,
   label: string,
-  maxAttempts: number = parseInt(process.env.NEO4J_RETRY_ATTEMPTS || "3", 10)
+  maxAttempts: number = parseInt(env.NEO4J_RETRY_ATTEMPTS || "3", 10)
 ): Promise<T> {
   let attempt = 0;
 
@@ -119,8 +120,8 @@ let sharedDriver: Driver | null = null;
 export function getSharedNeo4jDriver(): Driver {
   if (!sharedDriver) {
     sharedDriver = createNeo4jDriver();
-    const host = process.env.NEO4J_HOST || "localhost:7687";
-    const user = process.env.NEO4J_USER || "neo4j";
+    const host = env.NEO4J_HOST || "localhost:7687";
+    const user = env.NEO4J_USER || "neo4j";
     console.log("===> Neo4j driver connecting to", `bolt://${host}`, user);
   }
   return sharedDriver;

@@ -11,10 +11,11 @@ import {
 import { fromIni } from "@aws-sdk/credential-providers";
 import * as fs from "fs";
 import * as path from "path";
+import { env } from "../env.js";
 
 function getClient(): CloudWatchLogsClient {
   const opts: ConstructorParameters<typeof CloudWatchLogsClient>[0] = {
-    region: process.env.AWS_REGION || "us-east-1",
+    region: env.AWS_REGION || "us-east-1",
     // Bound every request so a stalled socket can't hang the agent forever.
     maxAttempts: 3,
     requestHandler: {
@@ -22,8 +23,16 @@ function getClient(): CloudWatchLogsClient {
       requestTimeout: 30_000,
     },
   };
-  if (process.env.AWS_PROFILE) {
-    opts.credentials = fromIni({ profile: process.env.AWS_PROFILE });
+  if (env.AWS_PROFILE) {
+    opts.credentials = fromIni({ profile: env.AWS_PROFILE });
+  } else if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
+    // The SDK's default chain reads these from `process.env` lazily, which
+    // the lab's env scrub has emptied by now (src/env.ts): hand it the copy.
+    opts.credentials = {
+      accessKeyId: env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+      ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}),
+    };
   }
   return new CloudWatchLogsClient(opts);
 }

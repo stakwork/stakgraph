@@ -4,6 +4,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { BlockList, isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { Provider, getGatewayBaseURL, normalizeApiKey } from "./provider.js";
+import { env } from "./env.js";
 
 /**
  * Web fetch, uniform across providers. Sibling of `./search.js`.
@@ -568,7 +569,7 @@ export function createWebFetch(opts: CreateWebFetchOptions): WebFetchHandle {
 
   if (backend === "anthropic") {
     const apiKey =
-      normalizeApiKey(opts.apiKey) || normalizeApiKey(process.env.ANTHROPIC_API_KEY);
+      normalizeApiKey(opts.apiKey) || normalizeApiKey(env.ANTHROPIC_API_KEY);
     if (!apiKey) {
       return emptyFetchHandle(results);
     }

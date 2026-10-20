@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { Provider, getGatewayBaseURL, normalizeApiKey } from "./provider.js";
+import { env } from "./env.js";
 
 /**
  * Web search, uniform across providers.
@@ -146,7 +147,7 @@ const DEFAULT_NUM_RESULTS = 5;
 const DEFAULT_MAX_CHARACTERS = 4000;
 
 export function getSearchApiKey(): string | undefined {
-  return normalizeApiKey(process.env.EXA_API_KEY);
+  return normalizeApiKey(env.EXA_API_KEY);
 }
 
 export function hasSearchApiKey(): boolean {
@@ -264,7 +265,7 @@ export function createWebSearch(
 
   if (backend === "anthropic") {
     const apiKey =
-      normalizeApiKey(opts.apiKey) || normalizeApiKey(process.env.ANTHROPIC_API_KEY);
+      normalizeApiKey(opts.apiKey) || normalizeApiKey(env.ANTHROPIC_API_KEY);
     if (!apiKey) {
       return emptyHandle(results);
     }

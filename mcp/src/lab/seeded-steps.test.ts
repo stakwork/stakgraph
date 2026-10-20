@@ -6,9 +6,7 @@ import { fileURLToPath } from "node:url";
 import { WorkspaceManager, buildRegistry } from "strut";
 import { seedEvalSteps } from "./eval/seed.js";
 import { seedConceptSteps } from "./concepts/seed.js";
-import { seedGitseeSteps } from "./gitsee/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
-import { seedHarveySteps } from "./harvey/seed.js";
 import { seedGaiaSteps } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
 import { seedWfbenchSteps } from "./wfbench/seed.js";
@@ -28,9 +26,7 @@ describe("seeded lab steps", () => {
       for (const seed of [
         seedEvalSteps,
         seedConceptSteps,
-        seedGitseeSteps,
         seedJarvisSteps,
-        seedHarveySteps,
         seedGaiaSteps,
         seedArtifactSteps,
         seedWfbenchSteps,
@@ -46,7 +42,7 @@ describe("seeded lab steps", () => {
       // A step that imports mcp source by relative path (e.g. `../../cost.js`)
       // is skipped by discovery with only a warning.
       assert.deepEqual(seeded.filter((t) => !registry[t]), []);
-      for (const t of ["eval/reflect", "gitsee/boot-and-exercise", "gitsee/score-setup", "gitsee/verify-setup", "explore/repositories", "pod-setup/repo-facts", "pod-setup/pages", "pod-setup/finish"]) {
+      for (const t of ["eval/reflect", "eval/score", "gaia/get-task", "artifacts/dir", "explore/repositories", "pod-setup/repo-facts", "pod-setup/pages", "pod-setup/finish"]) {
         assert.ok(registry[t], `registry missing ${t}`);
       }
     } finally {
