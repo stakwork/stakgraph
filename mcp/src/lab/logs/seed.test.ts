@@ -138,6 +138,7 @@ describe("logs workflow (offline: fake agent that calls the real logs/* steps)",
     assert.match(cfg.system, /You have roughly 8 minutes of wall-clock time total\./);
     assert.match(cfg.system, /Every tool result ends with a "\[time budget: \.\.\.\]" line/);
     assert.match(cfg.system, /logs_search.*logs_read.*logs_insights/s);
+    assert.match(cfg.system, /Before reporting logs_insights counts as errors, read a few matching lines/);
     assert.doesNotMatch(cfg.system, /END_OF_ANSWER|bash|fetch_agent_log|Stakwork/);
 
     assert.match(toolResults[0]!, /^Fetched 1 log lines from \/swarms\/38 \(s to e\)\. Saved to file: cw-swarms-38-x\.log\. Search it with logs_search/);

@@ -91,6 +91,7 @@ params:
     - For large log volumes, use specific filter patterns when fetching to reduce noise.
     - Look for patterns: recurring errors, timestamps clustering, correlated events.
     - When debugging an issue, search for both the error itself and surrounding context.
+    - Before reporting logs_insights counts as errors, read a few matching lines (logs_fetch_cloudwatch with the same filter, then logs_read) to rule out false positives — a line that only mentions the word is not an error.
 
     TIME BUDGET (very important): You have roughly {{ params.budgetMinutes }} minutes of wall-clock time total. Work efficiently:
     - Plan a focused approach up front; don't fetch more than you need. Prefer narrow filter patterns, specific log streams, and shorter time windows over broad fetches.
