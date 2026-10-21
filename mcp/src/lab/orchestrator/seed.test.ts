@@ -75,10 +75,38 @@ describe("orchestrator seed (the lab's delta on strut's template)", () => {
     assert.ok(struts >= 0 && ours > struts, "the lab's section must follow strut's");
     // What the section tells the agent: proposed, never made; the Concept
     // shape (docs, PARENT_OF, the PROCESS anchor in one batch triplet); the
-    // explore workflow.
+    // lookups.
     for (const needle of ["[proposal-result]", "PROPOSED", "`docs`", "PARENT_OF", "PROCESS", "HiveWorkspace", "graph/create-batch-triplet", "`explore`", "`logs`", "meta/run-workflow"]) {
       assert.ok(params.system.includes(needle), `system lacks ${needle}`);
     }
     assert.ok(params.system.endsWith("\n"));
+  });
+
+  it("the lookups orient; what must be found out or made is a job's, briefed by kind", async () => {
+    const { params } = await merged();
+    const section = params.system.slice(params.system.indexOf("are the LOOKUPS"));
+    assert.ok(section.length < params.system.length, "no LOOKUPS paragraph");
+    // Both lookups with their real shapes, logs on a peer too.
+    for (const needle of [
+      "{ prompt, repos? }",
+      "{ answer, sources,\nconfidence }",
+      "`logs` ({ prompt })",
+      'strut/run-workflow { peer, workflow: "logs", input: { prompt } }',
+      // A lookup's answer is the reply only when it is whole; explore's confidence is the hint.
+      "only when it is the whole answer",
+      "`high` is an answer, anything lower is a brief",
+      "goes into a job's prompt",
+      // The kinds are the Job Concept's children, rendered or read.
+      "the `Job` Concept's children",
+      'name: "Job", children: "PARENT_OF" }',
+      "names the kind",
+      "found out or made\nis a job's, whatever its size",
+    ]) {
+      assert.ok(section.includes(needle), `section lacks ${JSON.stringify(needle)}`);
+    }
+    // A posture, not a recipe: the old pull toward exploring an open question
+    // inside the turn is gone, and no count of lookups or steps creeps in.
+    assert.doesNotMatch(params.system, /node by node|when the question\s+is open/);
+    assert.doesNotMatch(section, /\b(once|twice|(one|two|three|a few|\d+) (lookups?|explores?|steps?|calls?|runs?))\b/i);
   });
 });

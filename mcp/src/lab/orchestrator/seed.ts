@@ -15,8 +15,8 @@ import type { OrchestratorSeedOptions } from "strut";
  *  - `tools`: strut's `graph/*` steps on this swarm's Neo4j — the reads
  *    (search, get, get-batched, neighbors, the two ontology reads) and the
  *    seven writes hive's `propose_*` tools were (plans/proposals.md §6b) —
- *    plus the `meta/*` read + run tools, so a turn runs the lab's seeded
- *    workflows (`explore`) the way the job agent does. Strut's own list
+ *    plus the `meta/*` read + run tools, so a turn runs the lab's lookups
+ *    (`explore`, `logs`) the way the job agent does. Strut's own list
  *    (memory/*, job/start, continue, list, get, read) is already in the
  *    YAML. Granted BY NAME, never `graph/*`: the glob would hand out
  *    `graph/create-schema` and `graph/edit-edge` ungated.
@@ -34,7 +34,18 @@ import type { OrchestratorSeedOptions } from "strut";
  *    `concept-anchor.ts` writes for seeded pages — nothing writes it for a
  *    proposal but the proposal itself), and that graph writes are
  *    proposed, never made: the decision reaches the agent on a later turn
- *    as a `[proposal-result]` line (strut's `proposalResultLines`).
+ *    as a `[proposal-result]` line (strut's `proposalResultLines`). And
+ *    which workflows are the turn's LOOKUPS here (`explore`, `logs`, the
+ *    latter on a peer too): strut's prompt draws the line — the turn
+ *    answers from what is known, asks for a decision, orients with a
+ *    lookup; what must be found out or made is a job's — and this section
+ *    says when a lookup's answer is the reply (the whole answer; explore's
+ *    `confidence: high`) and that otherwise it goes into the job's brief,
+ *    which names a kind of work: a child of the `Job` Concept (rendered at
+ *    the end of the prompt by strut's `context/concept` step where it has
+ *    one; graph/graph-get with `children: "PARENT_OF"` lists them where
+ *    not), whose page the turn may open first. A posture, not a recipe: no
+ *    count of lookups or steps.
  */
 
 /** The graph reads: immediate, on this swarm's graph. */
@@ -59,7 +70,7 @@ export const GRAPH_WRITES = [
   "graph/delete-node",
 ] as const;
 
-/** The meta/* read + run tools: run a seeded workflow (`explore`) inside the turn. */
+/** The meta/* read + run tools: run a lookup (`explore`, `logs`) inside the turn. */
 export const META_TOOLS = ["meta/list-workflows", "meta/get-workflow", "meta/run-workflow"] as const;
 
 export const ORCHESTRATOR_SEED: OrchestratorSeedOptions = {
@@ -92,13 +103,21 @@ and the HiveWorkspace node (graph/graph-search, node type HiveWorkspace)
 -PROCESS-> it. Changing a Concept is graph/edit-node on its ref_id with
 the changed fields in node_data, \`docs\` whole as it should read.
 
-The workflows this strut has are yours to run inside the turn:
-meta/list-workflows lists them, meta/get-workflow shows one's input,
-meta/run-workflow runs it and returns its output. \`explore\` answers a
-question about this workspace's code or graph ({ prompt, repos? }) with
-its sources; prefer it to reading the graph node by node when the question
-is open. \`logs\` answers a question about this swarm's logs ({ prompt }):
-its CloudWatch groups, its pods, its app's requests; for another
-workspace's swarm, strut/run-workflow { peer, workflow: "logs", input: {
-prompt } }. Work that needs files, the web or many steps is a job's.`,
+\`explore\` and \`logs\` are the LOOKUPS this deployment grants the turn:
+workflows that return an answer, run with meta/run-workflow
+(meta/get-workflow shows one's input). \`explore\` ({ prompt, repos? })
+reads this workspace's code or graph and answers { answer, sources,
+confidence }; \`logs\` ({ prompt }) reads this swarm's logs, and
+strut/run-workflow { peer, workflow: "logs", input: { prompt } } another
+workspace's. Use them to orient: which workspace holds the code, what
+something is called, whether it exists. A lookup's answer is your reply
+only when it is the whole answer — explore's \`confidence\` is the hint:
+\`high\` is an answer, anything lower is a brief — and otherwise what it
+found goes into a job's prompt, for the job to start from. The kinds of
+work a job can do here are the \`Job\` Concept's children, listed at the
+end of this prompt or, when they are not, by graph/graph-get { node_type:
+"Concept", name: "Job", children: "PARENT_OF" }; you may open a kind's
+page the same way before writing the brief, so the brief names the kind
+and gives what its page asks for. Anything that must be found out or made
+is a job's, whatever its size.`,
 };
