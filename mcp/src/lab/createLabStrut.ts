@@ -31,7 +31,7 @@ import { POD_CONCEPTS, seedPodSteps } from "./pods/seed.js";
 import { POD_SETUP_CONCEPTS, seedPodSetupSteps, seedPodSetupWorkflows } from "./pod-setup/seed.js";
 import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./janitor/seed.js";
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
-import { seedLogsSteps, seedLogsWorkflows } from "./logs/seed.js";
+import { LOGS_CONCEPTS, seedLogsSteps, seedLogsWorkflows } from "./logs/seed.js";
 import { buildLogsServices, type LogsServices } from "./logs/service.js";
 import { anchorConcepts } from "./concept-anchor.js";
 import { retireSteps, retireWorkflows } from "./seed-opts.js";
@@ -307,7 +307,7 @@ export async function createLabStrut(
   // builder reads about this deployment) and `Job` (what the job agent opens
   // every turn) — so the lab's pages, which hang under them by name, seed
   // AFTER: `Janitor` under `Workflow Builder`; `Code Change`, `Explore`,
-  // `Onboarding`, `Plan Mode` and `Verify` under `Job`, under `Code Change`
+  // `Logs`, `Onboarding`, `Plan Mode` and `Verify` under `Job`, under `Code Change`
   // the `Pod` way, and under `Pod Config` the `Pod Setup` pages
   // identify-services loads. Strut's set rides along (all kept, nothing
   // written) so its pages are owned in this call too: their PARENT_OF edges
@@ -315,7 +315,7 @@ export async function createLabStrut(
   // ships: those are each workspace's. A no-op on the fs workspace; a page
   // that will not seed is a warning, never a failed boot.
   try {
-    const outcomes = await seedConcepts(workspace.graph, [STRUT_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
+    const outcomes = await seedConcepts(workspace.graph, [STRUT_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, LOGS_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
     await anchorConcepts(workspace.graph, outcomes);
   } catch (err) {
     console.warn("[concepts] could not seed the lab's Concept pages:", err instanceof Error ? err.message : err);
