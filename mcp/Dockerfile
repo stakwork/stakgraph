@@ -5,8 +5,11 @@
 # `prepare` (engine tsc + web UI build) in-image, so the build needs network
 # access to github.com and `git` (installed below). Nothing to stage.
 
-# Use an official Node.js runtime as a parent image
-FROM node:22-bookworm-slim
+# Use an official Node.js runtime as a parent image. Pinned to the patch so a
+# security release is a visible bump here, not whatever the floating tag held
+# when the cache was made.
+ARG NODE_VERSION=22.23.4
+FROM node:${NODE_VERSION}-bookworm-slim
 
 # Set the working directory in the container
 WORKDIR /usr/src/app
