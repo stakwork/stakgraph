@@ -46,5 +46,5 @@ workspace, that is where its code lives.`,
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** The pages under strut's `Job` page: `Explore`, `Onboarding`, `Plan Mode` and `Verify`; `Code Change` (CODE_CONCEPTS) is a child too. */
+/** The pages under strut's `Job` page: `Explore`, `Onboarding`, `Plan Mode` and `Verify`; `Code Change` (CODE_CONCEPTS) and `Logs` (LOGS_CONCEPTS) are children too. */
 export const JOB_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/job/concepts/" };

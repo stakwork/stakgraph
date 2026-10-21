@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "strut";
+import type { ConceptSet, WorkspaceStore } from "strut";
 import { SEED_OPTS, retireSteps, retireWorkflows } from "../seed-opts.js";
 
 /**
@@ -17,6 +17,9 @@ import { SEED_OPTS, retireSteps, retireWorkflows } from "../seed-opts.js";
  * fetches and texts (log/tools.ts, log/context.ts) and, for the endpoint's
  * `bash`, three tools that run nothing: search, read, insights. Seeded
  * UNSTAMPED, content-hash reconciled (SEED_OPTS), like explore.
+ *
+ * The job agent learns when and how to ask it from the `Logs` page under
+ * strut's `Job` (LOGS_CONCEPTS), as it learns `explore` from `Explore`.
  */
 const SEED_WORKFLOWS: Array<{ name: string; description: string }> = [
   {
@@ -45,6 +48,8 @@ const RETIRED_STEPS: string[] = [];
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CATEGORY = "logs";
 export const STEPS_DIR = join(HERE, "steps");
+/** The page under strut's `Job` page: `Logs`. */
+export const LOGS_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/logs/concepts/" };
 
 export async function seedLogsSteps(workspace: WorkspaceStore): Promise<void> {
   for (const name of SEED_STEPS) {

@@ -21,6 +21,7 @@ import { seedArtifactSteps } from "../artifacts/seed.js";
 import { anchorConcepts } from "../concept-anchor.js";
 import { CODE_CONCEPTS } from "../code/seed.js";
 import { JOB_CONCEPTS, JOB_SEED } from "../job/seed.js";
+import { LOGS_CONCEPTS } from "../logs/seed.js";
 import { POD_CONCEPTS } from "../pods/seed.js";
 import { POD_SETUP_CONCEPTS } from "../pod-setup/seed.js";
 import { JANITOR_CONCEPTS, JANITOR_FIXTURES, seedJanitorSteps, seedJanitorWorkflows } from "./seed.js";
@@ -32,7 +33,7 @@ import { SEED_OPTS } from "../seed-opts.js";
 const PIN_COMMITTED = { ...SEED_OPTS, reactivateKnown: true };
 
 /** Every set the lab seeds at boot, after strut's own (createLabStrut.ts). */
-const LAB_CONCEPTS = [JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS];
+const LAB_CONCEPTS = [JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, LOGS_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS];
 
 // The seeder is strut's (`seedConcepts`, tested there on both engines); what is the lab's is its files.
 describe("the lab's Concept files", () => {
@@ -80,6 +81,19 @@ describe("the lab's Concept files", () => {
       assert.match(ob.docs!, needle);
     }
     assert.deepEqual(await readdir(JOB_CONCEPTS.dir), ["Explore.md", "Onboarding.md", "Plan Mode.md", "Verify.md"]);
+
+    // Logs: Explore's twin for the swarm's logs (lab/logs) — the logs workflow here or on a peer by @slug, a
+    // standalone question with its window, a follow-up on a session of the job's own, what it found kept as a note.
+    const lg = await read(LOGS_CONCEPTS, "Logs.md");
+    assert.equal(lg.name, "Logs");
+    assert.equal(lg.parent, "Job");
+    assert.match(lg.stamp, /^lab\/logs\/concepts\/Logs\.md@[0-9a-f]{12}$/);
+    assert.ok(lg.docs!.startsWith(lg.description!));
+    for (const needle of [/meta\/run-workflow \{ name: "logs", input: \{ prompt, session \} \}/, /strut\/run-workflow \{ peer: "<slug>", workflow: "logs"/, /@<slug>/, /\{ answer, cost \}/, /time window/, /same `session`/, /<your job id>\/logs-<topic>/, /notes\/logs-<topic>\.md/, /id: "notes-logs-<topic>", kind: "markdown"/, /`url` job\/get gave it/, /job\/list \{ q \}/]) {
+      assert.match(lg.docs!, needle);
+    }
+    assert.doesNotMatch(lg.docs!, /stakwork|cloudwatch|quickwit/i, "generic to any swarm: no one deployment's sources by name");
+    assert.deepEqual(await readdir(LOGS_CONCEPTS.dir), ["Logs.md"]);
 
     // Code Change: the kind page the job agent follows to code-change-pr (lab/code).
     const cc = await read(CODE_CONCEPTS, "Code Change.md");
