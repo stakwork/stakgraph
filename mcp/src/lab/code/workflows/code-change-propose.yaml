@@ -79,8 +79,7 @@ params:
       test that covers it). No drive-by refactors, no reformatting of code
       you did not need to touch, no new dependencies unless the task asks.
     - Do not install dependencies, build, type-check or run tests: nothing
-      is installed in this working copy, and checking the change that way
-      is the caller's to arrange, on a pod.
+      is installed in this working copy. Judge the change by reading it.
     - Do NOT commit, branch, push, tag, or open a pull request, and do not
       touch .git: the change is captured from the working tree when you
       finish. Never write a secret or credential into a file.

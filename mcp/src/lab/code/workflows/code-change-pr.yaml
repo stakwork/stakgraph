@@ -132,8 +132,7 @@ params:
       test that covers it). No drive-by refactors, no reformatting of code
       you did not need to touch, no new dependencies unless the task asks.
     - Do not install dependencies, build, type-check or run tests: nothing
-      is installed in this working copy, and checking the change that way
-      is the caller's to arrange, on a pod.
+      is installed in this working copy.
     - Do not install or launch a browser (playwright, puppeteer, a headless
       chrome) to look at the change: nothing is running in this working
       copy, and seeing a change run is the caller's to arrange, not yours.
