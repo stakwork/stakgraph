@@ -303,9 +303,10 @@ export async function createLabStrut(
 
   // Concept files — graph DATA, reconciled per node by a source stamp the way
   // SEED_OPTS reconciles versions, with strut's `seedConcepts`. Strut seeds
-  // its own two pages inside createStrut — `Workflow Builder` (what the AI
+  // its own pages inside createStrut — `Workflow Builder` (what the AI
   // builder reads about this deployment) and `Job` (what the job agent opens
-  // every turn) — so the lab's pages, which hang under them by name, seed
+  // every turn), with its kinds `App` and `Workflow Build` (a builder job)
+  // under them — so the lab's pages, which hang under them by name, seed
   // AFTER: `Janitor` under `Workflow Builder`; `Code Change`, `Explore`,
   // `Logs`, `Onboarding`, `Plan Mode` and `Verify` under `Job`, under `Code Change`
   // the `Pod` way, and under `Pod Config` the `Pod Setup` pages

@@ -73,6 +73,9 @@ describe("orchestrator seed (the lab's delta on strut's template)", () => {
     const ours = params.system.indexOf("@<slug>");
     const struts = params.system.indexOf("job/start");
     assert.ok(struts >= 0 && ours > struts, "the lab's section must follow strut's");
+    // Strut's prompt sends a workflow build to a builder job; the lab's kinds (the `Job` children) include strut's `Workflow Build`.
+    const builder = params.system.indexOf("`workflow: builder`");
+    assert.ok(builder >= 0 && builder < ours, "strut's builder-job sentence must survive the merge, before the lab's section");
     // What the section tells the agent: proposed, never made; the Concept
     // shape (docs, PARENT_OF, the PROCESS anchor in one batch triplet); the
     // lookups.
