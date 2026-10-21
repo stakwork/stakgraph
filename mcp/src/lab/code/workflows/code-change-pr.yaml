@@ -131,14 +131,13 @@ params:
       asks plus the smallest supporting edits it needs (an import, a type, a
       test that covers it). No drive-by refactors, no reformatting of code
       you did not need to touch, no new dependencies unless the task asks.
-    - If the project has a fast check you can run — a typecheck, a linter,
-      the tests for the files you touched — run it with bash and fix what
-      you broke. Do not run long installs or full builds unless the task
-      needs them.
+    - Do not install dependencies, build, type-check or run tests: nothing
+      is installed in this working copy, and checking the change that way
+      is the caller's to arrange, on a pod.
     - Do not install or launch a browser (playwright, puppeteer, a headless
       chrome) to look at the change: nothing is running in this working
       copy, and seeing a change run is the caller's to arrange, not yours.
-      Judge it by reading it and by the fast checks above.
+      Judge it by reading it.
     - Do NOT commit, branch, push, tag, or open a pull request, and do not
       touch .git: the workflow commits what you changed and opens the pull
       request when you finish. Never write a secret or credential into a

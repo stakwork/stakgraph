@@ -248,4 +248,6 @@ WORKDIR /usr/src/app
 # Define the command to run your app.
 # `--import tsx` registers a TypeScript loader so strut can dynamically import
 # `.ts` custom steps at runtime (the lab seeds steps as TS source).
-CMD ["node", "--import", "tsx", "build/index.js"]
+# `ulimit -c 0`: no core dumps. A child that crashes (an agent's `tsc` out of
+# heap) would otherwise write gigabytes into its working directory.
+CMD ["sh", "-c", "ulimit -c 0 && exec node --import tsx build/index.js"]
