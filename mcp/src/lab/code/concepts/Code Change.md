@@ -47,8 +47,10 @@ flow, choices the person would want to make — starts as a plan without
 being asked (`Plan Mode`, under `Job`), written from the notes, and once
 they say go is built in a sandbox with the application running, where they
 can click through it. A change that must build, run or be tested to be judged takes
-the sandbox too, plan or not. When this workspace has a workflow for the
-sandbox, it is a child of this Concept and its page says what it takes.
+the sandbox too, plan or not: never install, build or test in the
+repositories in your directory, which are for reading. When this
+workspace has a workflow for the sandbox, it is a child of this Concept
+and its page says what it takes.
 
 Each child Concept of this node (PARENT_OF from here) is either another
 WAY to deliver a change — a sandbox workflow, named with its input — or a

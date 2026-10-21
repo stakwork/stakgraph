@@ -47,6 +47,7 @@ the instrument that fits what the work is:
 - A command, a CLI, a script or a file you deliver: `exec` with
   `cwd: "{{ input.dir }}"` (a repository is a subdirectory of it), running
   it as its user would — a command that exits 0 when the claim holds.
+  Never an install, a build, a type-check or a test suite there.
 - Tests you were asked to add or fix, on a pod: `pod/run-tests` with the
   pod's `control` and `sealed`. It names that pod: after you claim
   another, edit the check (`meta/edit-check`).
