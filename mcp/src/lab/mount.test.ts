@@ -67,7 +67,9 @@ describe("labAuth", () => {
       resolveActor: resolveLabActor,
       resolveScope: resolveLabScope,
     });
+    // `peer: true`: strut lets a peer launch only a workflow that says so.
     await strut.workspace.publishWorkflow("hello", "v1", {
+      peer: true,
       steps: [{ id: "a", type: "log", config: { message: "hi" } }],
     });
     app.use("/strut", labAuth, getRequestListener(strut.app.fetch));
