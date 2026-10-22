@@ -88,7 +88,7 @@ SET n.token_count = item.token_count
 export const CREATE_HINT_QUERY = `
 MERGE (n:Hint:${Data_Bank} {node_key: $node_key})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.persona = $persona
-SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.question = $question, n.embeddings = $embeddings
+SET n.updated_at = $ts, n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.question = $question, n.embeddings = $embeddings
 RETURN n
 `;
 
@@ -99,7 +99,7 @@ MATCH (n:Hint {node_key: $node_key}) RETURN n
 export const CREATE_PROMPT_QUERY = `
 MERGE (n:Prompt:${Data_Bank} {node_key: $node_key})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts
-SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.question = $question, n.embeddings = $embeddings
+SET n.updated_at = $ts, n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.question = $question, n.embeddings = $embeddings
 RETURN n
 `;
 
@@ -116,7 +116,7 @@ MATCH (n:Prompt {node_key: $node_key}) RETURN n
 export const CREATE_PULL_REQUEST_QUERY = `
 MERGE (n:PullRequest:${Data_Bank} {node_key: $node_key})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts
-SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.number = $number, n.docs = $docs, n.embeddings = $embeddings
+SET n.updated_at = $ts, n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.number = $number, n.docs = $docs, n.embeddings = $embeddings
 RETURN n
 `;
 
@@ -130,13 +130,13 @@ export const UPSERT_LEARNING_QUERY = `
 MERGE (n:Learning:${Data_Bank} {id: $id})
 ON CREATE SET n.ref_id = randomUUID(), n.node_key = $node_key, n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $id, n.file = 'learning://generated', n.start = 0, n.end = 0
-SET n.rule = $rule, n.body = $rule, n.reason = $reason, n.embeddings = $embeddings
+SET n.updated_at = $ts, n.rule = $rule, n.body = $rule, n.reason = $reason, n.embeddings = $embeddings
 RETURN n
 `;
 
 export const UPSERT_SCOPE_QUERY = `
 MERGE (s:Scope:${Data_Bank} {name: $name})
-ON CREATE SET s.ref_id = randomUUID(), s.node_key = $node_key, s.date_added_to_graph = $ts, s.namespace = 'default',
+ON CREATE SET s.ref_id = randomUUID(), s.node_key = $node_key, s.date_added_to_graph = $ts, s.updated_at = $ts, s.namespace = 'default',
   s.file = 'scope://generated', s.start = 0, s.end = 0, s.body = $name, s.embeddings = $embeddings
 RETURN s
 `;
@@ -172,9 +172,9 @@ RETURN l, scopes
 
 export const CREATE_MOCK_QUERY = `
 MERGE (n:Mock:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.updated_at = $ts, n.namespace = 'default',
   n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.description = $description, n.mocked = $mocked
-ON MATCH SET n.name = $name, n.file = $file, n.body = $body, n.description = $description, n.mocked = $mocked
+ON MATCH SET n.updated_at = $ts, n.name = $name, n.file = $file, n.body = $body, n.description = $description, n.mocked = $mocked
 RETURN n
 `;
 
@@ -206,7 +206,7 @@ ORDER BY file_count DESC
 
 export const UPDATE_MOCK_STATUS_QUERY = `
 MATCH (n:Mock {name: $name})
-SET n.mocked = $mocked, n.body = $body
+SET n.mocked = $mocked, n.body = $body, n.updated_at = timestamp()
 RETURN n
 `;
 
@@ -218,8 +218,11 @@ RETURN count(n) as deleted_count
 
 export const ADD_NODE_QUERY = (nodeType: string) => `
 MERGE (n:${nodeType}:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n += $properties, n.date_added_to_graph = $dateAddedToGraph, n.namespace = 'default'
-ON MATCH SET n += $properties
+ON CREATE SET n += $properties, n.date_added_to_graph = $dateAddedToGraph, n.updated_at = $dateAddedToGraph, n.namespace = 'default'
+ON MATCH SET n.updated_at = CASE
+  WHEN n.updated_at IS NULL OR any(k IN keys($properties) WHERE NOT k IN ['node_key', 'ref_id', 'namespace'] AND coalesce(n[k] <> $properties[k], true))
+  THEN $dateAddedToGraph ELSE n.updated_at END,
+  n += $properties
 RETURN n.ref_id as ref_id
 `;
 
@@ -320,7 +323,8 @@ ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace 
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'success', n.error_message = ''
-SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+SET n.updated_at = $ts,
+    n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
     n.model = CASE WHEN $model = '' THEN coalesce(n.model, '') ELSE $model END,
     n.provider = CASE WHEN $provider = '' THEN coalesce(n.provider, '') ELSE $provider END,
     n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
@@ -353,7 +357,8 @@ ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace 
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'running', n.error_message = ''
-SET n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
+SET n.updated_at = $ts,
+    n.parent_session_id = CASE WHEN $parent_session_id = '' THEN coalesce(n.parent_session_id, '') ELSE $parent_session_id END,
     n.agent_name = CASE WHEN $agent_name = '' THEN coalesce(n.agent_name, '') ELSE $agent_name END,
     n.spawn_tool_call_id = CASE WHEN $spawn_tool_call_id = '' THEN coalesce(n.spawn_tool_call_id, '') ELSE $spawn_tool_call_id END
 WITH n
@@ -376,6 +381,7 @@ UNWIND $turns AS t
 MERGE (n:Turn:${Data_Bank} {node_key: t.node_key})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default'
 SET n:Node,
+    n.updated_at = $ts,
     n.session_id = $session_id,
     n.turn_id = t.turn_id,
     n.turn_type = t.turn_type,
@@ -397,7 +403,8 @@ WITH s, n, t
 WITH s, count(n) AS written,
      max(toInteger(t.order)) AS max_order,
      max(toInteger(t.timestamp)) AS last_ts
-SET s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
+SET s.updated_at = timestamp(),
+    s.turn_count = CASE WHEN max_order + 1 > coalesce(s.turn_count, 0)
                         THEN max_order + 1 ELSE s.turn_count END,
     s.last_turn_at = coalesce(last_ts, s.last_turn_at)
 RETURN written
@@ -466,7 +473,7 @@ export const FINALIZE_LAST_REASONING_TURN_QUERY = `
 MATCH (t:Turn {session_id: $session_id})
 WHERE t.turn_type = 'reasoning'
 WITH t ORDER BY toInteger(t.order) DESC LIMIT 1
-SET t.turn_type = 'response'
+SET t.turn_type = 'response', t.updated_at = timestamp()
 RETURN t.node_key AS node_key
 `;
 
@@ -477,7 +484,7 @@ RETURN t.node_key AS node_key
 export const FINALIZE_TURN_RESPONSE_QUERY = `
 MATCH (n:Turn {node_key: $node_key})
 WHERE n.turn_type = 'reasoning'
-SET n.turn_type = 'response'
+SET n.turn_type = 'response', n.updated_at = timestamp()
 RETURN count(n) AS updated
 `;
 
@@ -650,7 +657,7 @@ RETURN s
 
 export const SET_HINT_PERSONA_QUERY = `
 MATCH (h:Hint {ref_id: $ref_id})
-SET h.persona = $persona
+SET h.persona = $persona, h.updated_at = timestamp()
 `;
 
 export const FIND_NODES_BY_NAME_QUERY = `
@@ -1280,12 +1287,12 @@ LIMIT toInteger($limit)
 
 export const UPDATE_NODE_DESCRIPTION_AND_EMBEDDINGS_QUERY = `
 MATCH (n:Data_Bank {ref_id: $ref_id})
-SET n.description = $description, n.embeddings = $embeddings
+SET n.description = $description, n.embeddings = $embeddings, n.updated_at = timestamp()
 `;
 
 export const UPDATE_NODE_DESCRIPTION_ONLY_QUERY = `
 MATCH (n:Data_Bank {ref_id: $ref_id})
-SET n.description = $description
+SET n.description = $description, n.updated_at = timestamp()
 `;
 
 export const GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY = `
@@ -1310,7 +1317,7 @@ SET n.embeddings = item.embeddings
 export const BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY = `
 UNWIND $batch AS item
 MATCH (n:Data_Bank {ref_id: item.ref_id})
-SET n += item.props
+SET n += item.props, n.updated_at = timestamp()
 `;
 
 /** What each of `$ref_ids` CONTAINS among `$labels`, in file order: how many,
@@ -1333,7 +1340,7 @@ RETURN ref_id, size(children) AS total, children[0..$max] AS nodes
 export const BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY = `
 UNWIND $batch AS item
 MATCH (n:Data_Bank {ref_id: item.ref_id})
-SET n.description = item.description, n.embeddings = item.embeddings
+SET n.description = item.description, n.embeddings = item.embeddings, n.updated_at = timestamp()
 `;
 
 export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
@@ -1368,7 +1375,7 @@ export const UPSERT_WORKFLOW_DOCUMENTATION_QUERY = `
 MATCH (w:Workflow {ref_id: $workflow_ref_id})
 MERGE (d:Workflow_documentation {node_key: $node_key})
 ON CREATE SET d.ref_id = randomUUID(), d.date_added_to_graph = $ts, d.namespace = 'default'
-SET d.name = $name, d.body = $body, d.namespace = 'default'
+SET d.updated_at = $ts, d.name = $name, d.body = $body, d.namespace = 'default'
 MERGE (d)-[:DOCUMENTS]->(w)
 RETURN d.ref_id AS ref_id
 `;

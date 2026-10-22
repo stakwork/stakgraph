@@ -62,8 +62,10 @@ export function toReturnNode(node: Neo4jNode): ReturnNode {
   delete properties.embeddings;
   delete properties.Data_Bank;
   delete properties.namespace;
-  if (IS_TEST && properties.date_added_to_graph) {
+  if (IS_TEST) {
+    // Wall-clock stamps differ on every run.
     delete properties.date_added_to_graph;
+    delete properties.updated_at;
   }
 
   if (node.score) {

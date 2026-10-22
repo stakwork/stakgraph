@@ -6,6 +6,17 @@ use crate::lang::{
 };
 use crate::utils::create_node_key;
 use neo4rs::{BoltMap, BoltType};
+/// Keys the ON MATCH change-detection ignores (identity / per-build values).
+const UPDATED_AT_IGNORED_KEYS: &str = "['ref_id','node_key','namespace','token_count']";
+
+/// Removes system-owned timestamps a caller may have put in node data/meta so
+/// they can never reach `$properties`; the query stamps them from `$now`.
+fn strip_system_stamps(properties: &mut BoltMap) {
+    for key in ["updated_at", "date_added_to_graph"] {
+        properties.value.retain(|k, _| k.value.as_str() != key);
+    }
+}
+
 pub struct NodeQueryBuilder {
     node_type: NodeType,
     node_data: NodeData,
@@ -50,6 +61,7 @@ impl NodeQueryBuilder {
 
         // Add default namespace during node creation (fixes real-time streaming)
         boltmap_insert_str(&mut properties, "namespace", "default");
+        strip_system_stamps(&mut properties);
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
@@ -59,14 +71,25 @@ impl NodeQueryBuilder {
         // must not re-stamp its creation time. The binder attaches `$now`
         // for any query containing `$properties` + `$now`, so set-once here
         // relies on this query text alone — see the tests below.
+        // `updated_at` is system-stamped (epoch-ms Integer, same source as
+        // `date_added_to_graph`): on create alongside it, and on match only
+        // when something actually changed (or the node has none yet). It is
+        // computed BEFORE `+= $properties` so it compares against stored
+        // values; ref_id (fresh uuid per build) and the system keys are
+        // ignored by the comparison. A caller-supplied `updated_at` is
+        // stripped from `$properties` above and can never win.
         let query = format!(
             "MERGE (node:{}:{} {{node_key: $node_key}})
-         ON CREATE SET node += $properties, node.date_added_to_graph = $now{}
-         ON MATCH SET node += $properties
+         ON CREATE SET node += $properties, node.date_added_to_graph = $now, node.updated_at = $now{}
+         ON MATCH SET node.updated_at = CASE
+             WHEN node.updated_at IS NULL OR any(k IN keys($properties) WHERE NOT k IN {} AND coalesce(node[k] <> $properties[k], true))
+             THEN $now ELSE node.updated_at END,
+             node += $properties
          Return node",
             self.node_type.to_string(),
             DATA_BANK,
             data_bank_clause,
+            UPDATED_AT_IGNORED_KEYS,
         );
 
         (query, properties)
@@ -95,12 +118,13 @@ impl NodeQueryBuilder {
 
         // Add default namespace during node creation (fixes real-time streaming)
         boltmap_insert_str(&mut properties, "namespace", "default");
+        strip_system_stamps(&mut properties);
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
         let query = format!(
             "MERGE (node:{}:{} {{node_key: $node_key}})
-         ON CREATE SET node += $properties, node.date_added_to_graph = $now
+         ON CREATE SET node += $properties, node.date_added_to_graph = $now, node.updated_at = $now
          Return node",
             self.node_type.to_string(),
             DATA_BANK,
@@ -544,7 +568,7 @@ pub fn restore_muted_status_query(identifiers: &[MutedNodeIdentifier]) -> (Strin
                  WHERE ident.node_type IN labels(n) 
                  AND n.name = ident.name 
                  AND n.file = ident.file
-                 SET n.is_muted = true
+                 SET n.is_muted = true, n.updated_at = $now
                  RETURN count(n) as restored_count"
         .to_string();
 
@@ -950,6 +974,99 @@ mod tests {
             "date_added_to_graph must be set once on create, not overwritten on merge"
         );
 
+        delete_probe(&conn, &node_key).await;
+    }
+
+    #[test]
+    fn build_stamps_updated_at_on_create_and_conditionally_on_match() {
+        let (query, _) = NodeQueryBuilder::new(&NodeType::Function, &probe_node_data()).build();
+        let create_idx = query.find("ON CREATE SET").unwrap();
+        let match_idx = query.find("ON MATCH SET").unwrap();
+        assert!(query[create_idx..match_idx].contains("node.updated_at = $now"));
+        let match_clause = &query[match_idx..];
+        assert!(match_clause.contains("node.updated_at = CASE"));
+        // computed before `+= $properties` so it compares stored values
+        assert!(
+            match_clause.find("node.updated_at = CASE").unwrap()
+                < match_clause.find("node += $properties").unwrap()
+        );
+        // unchanged re-ingest keeps the stored value
+        assert!(match_clause.contains("ELSE node.updated_at END"));
+    }
+
+    #[test]
+    fn build_stream_stamps_updated_at_on_create() {
+        let (query, _) = NodeQueryBuilder::new(&NodeType::Function, &probe_node_data()).build_stream();
+        assert!(query.contains("node.updated_at = $now"), "{query}");
+    }
+
+    #[test]
+    fn caller_supplied_stamps_never_reach_properties() {
+        let mut nd = probe_node_data();
+        nd.meta.insert("updated_at".to_string(), "2020-01-01T00:00:00Z".to_string());
+        nd.meta.insert("date_added_to_graph".to_string(), "x".to_string());
+        for (_, props) in [
+            NodeQueryBuilder::new(&NodeType::Function, &nd).build(),
+            NodeQueryBuilder::new(&NodeType::Function, &nd).build_stream(),
+        ] {
+            assert!(!props.value.keys().any(|k| k.value == "updated_at"));
+            assert!(!props.value.keys().any(|k| k.value == "date_added_to_graph"));
+        }
+    }
+
+    #[test]
+    fn node_mutating_set_queries_stamp_updated_at() {
+        let (q, _) = restore_muted_status_query(&[]);
+        assert!(q.contains("n.updated_at = $now"));
+        assert!(crate::lang::graphs::neo4j::queries::analytics::endpoint_group_same_file_query()
+            .contains("e.updated_at = $now"));
+        assert!(crate::lang::graphs::neo4j::queries::analytics::endpoint_group_cross_file_query()
+            .contains("e.updated_at = $now"));
+        // An embedding is derived from the body: writing one changes nothing.
+        let (q, _) = crate::lang::graphs::neo4j::operations::embedding::update_embedding_query("k", &[0.1]);
+        assert!(!q.contains("updated_at"));
+    }
+
+    async fn read_probe_updated(conn: &neo4rs::Graph, node_key: &str) -> Option<i64> {
+        let q = query("MATCH (n:Data_Bank {node_key: $node_key}) RETURN n.updated_at AS d")
+            .param("node_key", node_key);
+        let mut r = conn.execute(q).await.expect("read");
+        r.next().await.expect("stream")?.get("d").ok()
+    }
+
+    #[tokio::test]
+    async fn updated_at_stamped_on_create_bumped_on_change_kept_on_noop() {
+        let conn = match Neo4jConnectionManager::initialize(&Neo4jConfig::default()).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("skipping updated_at test: no Neo4j reachable ({e})");
+                return;
+            }
+        };
+        let mut nd = probe_node_data();
+        nd.name = "updated_at_probe".into();
+        nd.meta.insert("updated_at".to_string(), "bogus".to_string());
+        let node_key = create_node_key(&Node::new(NodeType::Function, nd.clone()));
+        delete_probe(&conn, &node_key).await;
+        let run = |nd: NodeData| {
+            let conn = &conn;
+            async move {
+                let (q, p) = add_node_query(&NodeType::Function, &nd);
+                let mut txn = TransactionManager::new(conn);
+                txn.add_query((q, p));
+                txn.execute().await.expect("merge");
+            }
+        };
+        run(nd.clone()).await;
+        let created = read_probe_updated(&conn, &node_key).await.expect("updated_at is an Integer");
+        assert_eq!(Some(created), read_probe_date_added(&conn, &node_key).await);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        run(nd.clone()).await;
+        assert_eq!(Some(created), read_probe_updated(&conn, &node_key).await, "no-op must not bump");
+        let mut changed = nd.clone();
+        changed.body = "fn changed() {}".into();
+        run(changed).await;
+        assert!(read_probe_updated(&conn, &node_key).await.unwrap() > created);
         delete_probe(&conn, &node_key).await;
     }
 }

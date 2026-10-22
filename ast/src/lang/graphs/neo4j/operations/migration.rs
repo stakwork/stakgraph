@@ -453,7 +453,7 @@ pub fn update_endpoint_name_query(
     };
 
     let query = format!(
-        "MATCH (n:Endpoint {{name: $old_name, file: $file}}){}\n                 SET n.name = $new_name, n.node_key = $new_key\n                 RETURN n",
+        "MATCH (n:Endpoint {{name: $old_name, file: $file}}){}\n                 SET n.name = $new_name, n.node_key = $new_key, n.updated_at = $now\n                 RETURN n",
         verb_clause
     );
 
@@ -478,7 +478,7 @@ pub fn update_endpoint_relationships_query(
     };
 
     let query = format!(
-        "MATCH (source:Endpoint {{name: $old_name, file: $file}}){}-[r]->(target)\n                SET source.name = $new_name\n                RETURN r",
+        "MATCH (source:Endpoint {{name: $old_name, file: $file}}){}-[r]->(target)\n                SET source.name = $new_name, source.updated_at = $now\n                RETURN r",
         verb_clause
     );
 

@@ -1201,6 +1201,22 @@ export function validateTripletSide(
 }
 
 /**
+ * System-stamped graph fields. The graph writer (jarvis/strut) sets
+ * `updated_at` and `date_added_to_graph` itself, as epoch-ms integers, on
+ * every create and update; a value a tool caller supplies in node data would
+ * be a different format (ISO string, float seconds), so it is dropped before
+ * the request leaves this process.
+ */
+export const SYSTEM_STAMPED_NODE_FIELDS = ["updated_at", "date_added_to_graph"] as const;
+
+export function stripSystemStamps<T extends Record<string, any> | undefined>(nodeData: T): T {
+  if (!nodeData || typeof nodeData !== "object") return nodeData;
+  const out: Record<string, any> = { ...nodeData };
+  for (const k of SYSTEM_STAMPED_NODE_FIELDS) delete out[k];
+  return out as T;
+}
+
+/**
  * Build a stable dedup key for an inline node side so identical sides across a
  * batch collapse to a single resolution call. Key = node_type + canonical JSON
  * of node_data with object keys sorted recursively — key order in node_data is
@@ -1218,7 +1234,7 @@ export function buildNodeDedupKey(
     }
     return sorted;
   }
-  return `${nodeType}::${JSON.stringify(sortedJson(nodeData))}`;
+  return `${nodeType}::${JSON.stringify(sortedJson(stripSystemStamps(nodeData)))}`;
 }
 
 /**
@@ -1464,7 +1480,7 @@ function registerGraphWriteTools(
         const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type: nodeType,
-          node_data: nodeData,
+          node_data: stripSystemStamps(nodeData),
           ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }, reqOpts);
         let body: any;
@@ -1713,7 +1729,7 @@ function registerGraphWriteTools(
           const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
           const res = await jarvisMutate("post", url, jarvisHeaders, {
             node_type: nodeType,
-            node_data: nodeData,
+            node_data: stripSystemStamps(nodeData),
             ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
           }, reqOpts);
           let body: any;
@@ -1992,7 +2008,7 @@ function registerGraphWriteTools(
         const url = `${jarvisUrl}/v2/nodes${qs ? `?${qs}` : ""}`;
         const res = await jarvisMutate("post", url, jarvisHeaders, {
           node_type,
-          node_data,
+          node_data: stripSystemStamps(node_data),
           ...(allow_scratchpad ? { allow_scratchpad: true } : {}),
         }, reqOpts);
         let body: any;
@@ -2076,12 +2092,17 @@ function registerGraphWriteTools(
     }) => {
       const {
         ref_id,
-        node_data,
-        properties_to_be_deleted,
+        node_data: rawNodeData,
+        properties_to_be_deleted: rawDeletes,
         node_type,
         type_to_be_deleted,
         namespace,
       } = input;
+      // updated_at / date_added_to_graph are writer-owned: never set or deleted by a caller.
+      const node_data = stripSystemStamps(rawNodeData);
+      const properties_to_be_deleted = rawDeletes?.filter(
+        (k) => !(SYSTEM_STAMPED_NODE_FIELDS as readonly string[]).includes(k),
+      );
 
       const hasSet = node_data && Object.keys(node_data).length > 0;
       const hasDelete = properties_to_be_deleted && properties_to_be_deleted.length > 0;

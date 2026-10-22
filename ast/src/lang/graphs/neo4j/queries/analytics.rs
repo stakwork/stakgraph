@@ -128,7 +128,7 @@ pub fn endpoint_group_same_file_query() -> String {
        AND NOT e.name STARTS WITH $prefix
        AND NOT e.name CONTAINS '/:' 
        AND e.object = $object
-     SET e.name = $prefix + e.name
+     SET e.name = $prefix + e.name, e.updated_at = $now
      RETURN e.name as updated_name"
         .to_string()
 }
@@ -144,7 +144,7 @@ pub fn endpoint_group_cross_file_query() -> String {
     "MATCH (e:Endpoint)
      WHERE e.file CONTAINS $resolved_source
        AND NOT e.name STARTS WITH $prefix
-     SET e.name = $prefix + e.name
+     SET e.name = $prefix + e.name, e.updated_at = $now
      RETURN e.name as updated_name"
         .to_string()
 }
