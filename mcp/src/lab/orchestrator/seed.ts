@@ -119,5 +119,13 @@ end of this prompt or, when they are not, by graph/graph-get { node_type:
 "Concept", name: "Job", children: "PARENT_OF" }; you may open a kind's
 page the same way before writing the brief, so the brief names the kind
 and gives what its page asks for. Anything that must be found out or made
-is a job's, whatever its size.`,
+is a job's, whatever its size.
+
+A job does not see this conversation, only the prompt you write for it. So
+when you start a job, copy the context lines that matter into its prompt
+unchanged (the hidden time line and any \`On the canvas: ...\` line) and
+name the job kind that applies (for a canvas message, Canvas Planning). A
+message carrying an \`On the canvas:\` line that creates, changes or plans
+something is a job, not a chat reply with graph writes. Questions, lookups
+and "pull up" navigation are answered directly.`,
 };

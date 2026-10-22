@@ -109,6 +109,10 @@ describe("orchestrator seed (the lab's delta on strut's template)", () => {
     }
     // A posture, not a recipe: the old pull toward exploring an open question
     // inside the turn is gone, and no count of lookups or steps creeps in.
+    // Context lines pass to a job unchanged; a canvas change is a job.
+    for (const needle of ["only the prompt you write for it", "copy the context lines", "Canvas Planning", "is a job, not a chat reply with graph writes"]) {
+      assert.ok(section.replace(/\s+/g, " ").includes(needle), `section lacks ${needle}`);
+    }
     assert.doesNotMatch(params.system, /node by node|when the question\s+is open/);
     assert.doesNotMatch(section, /\b(once|twice|(one|two|three|a few|\d+) (lookups?|explores?|steps?|calls?|runs?))\b/i);
   });
