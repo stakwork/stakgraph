@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { WorkspaceStore } from "strut";
+import type { ConceptSet, WorkspaceStore } from "strut";
 import { SEED_OPTS } from "../seed-opts.js";
 
 /**
@@ -45,6 +45,10 @@ const SEED_STEPS: Array<{ file: string; type: string }> = [
 ];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+/** The page under strut's `App` page: `Benchmark App` — how the builder
+ *  splits a benchmark into steps and workflows and puts an app over them. */
+export const EVAL_CONCEPTS: ConceptSet = { dir: join(HERE, "concepts"), prefix: "lab/eval/concepts/" };
 
 export async function seedEvalSteps(workspace: WorkspaceStore): Promise<void> {
   const dir = join(HERE, "steps");

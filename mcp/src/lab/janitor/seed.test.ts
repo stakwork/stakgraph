@@ -20,6 +20,7 @@ import {
 import { seedArtifactSteps } from "../artifacts/seed.js";
 import { anchorConcepts } from "../concept-anchor.js";
 import { CODE_CONCEPTS } from "../code/seed.js";
+import { EVAL_CONCEPTS } from "../eval/seed.js";
 import { JOB_CONCEPTS, JOB_SEED } from "../job/seed.js";
 import { LOGS_CONCEPTS } from "../logs/seed.js";
 import { POD_CONCEPTS } from "../pods/seed.js";
@@ -33,14 +34,14 @@ import { SEED_OPTS } from "../seed-opts.js";
 const PIN_COMMITTED = { ...SEED_OPTS, reactivateKnown: true };
 
 /** Every set the lab seeds at boot, after strut's own (createLabStrut.ts). */
-const LAB_CONCEPTS = [JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, LOGS_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS];
+const LAB_CONCEPTS = [JANITOR_CONCEPTS, EVAL_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, LOGS_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS];
 
 // The seeder is strut's (`seedConcepts`, tested there on both engines); what is the lab's is its files.
 describe("the lab's Concept files", () => {
   const read = (set: { dir: string; prefix: string }, file: string) =>
     readFile(join(set.dir, file), "utf-8").then((text) => parseConceptFile(file, text, set.prefix));
 
-  it("hang under strut's two pages: Janitor under Workflow Builder, the job's kinds under Job, and no mandate", async () => {
+  it("hang under strut's pages: Janitor under Workflow Builder, Benchmark App under App, the job's kinds under Job, and no mandate", async () => {
     const c = await read(JANITOR_CONCEPTS, "Janitor.md");
     assert.equal(c.name, "Janitor");
     assert.equal(c.parent, "Workflow Builder");
@@ -49,6 +50,16 @@ describe("the lab's Concept files", () => {
     assert.ok(c.docs!.startsWith(c.description!));
     // The convention lives in its docs: the engine, and the three steps to add one.
     for (const needle of [/graph-janitor/, /graph\/create-node/, /graph\/create-triplet/, /PARENT_OF/, /automation/]) assert.match(c.docs!, needle);
+
+    // Benchmark App: under strut's App — the pieces a benchmark splits into (reads are steps, writes are
+    // workflows), the answers kept from the producer, and the run's headline fields a host draws.
+    const ba = await read(EVAL_CONCEPTS, "Benchmark App.md");
+    assert.equal(ba.name, "Benchmark App");
+    assert.equal(ba.parent, "App");
+    assert.match(ba.stamp, /^lab\/eval\/concepts\/Benchmark App\.md@[0-9a-f]{12}$/);
+    assert.ok(ba.docs!.startsWith(ba.description!));
+    for (const needle of [/Catalogue/, /`useStep`/, /`useLaunch\(run\)` with the task id as the `key`/, /NEVER the answer/, /`sealed: true`/, /`score`/, /`officialScore`/, /`foreach`/, /namespace/, /contest/]) assert.match(ba.docs!, needle);
+    assert.deepEqual(await readdir(EVAL_CONCEPTS.dir), ["Benchmark App.md"]);
 
     // Plan Mode: a way of working under Job — one HTML file, the technical part collapsed, ask before going on.
     const pm = await read(JOB_CONCEPTS, "Plan Mode.md");
@@ -138,7 +149,9 @@ describe("the lab's Concept files", () => {
   });
 
   it("what ships to every workspace says nothing about one workspace's domain", async () => {
-    const domain = /\b(law|legal|rubric|evals?|benchmark|exam|grading|overfit)\b/i;
+    // A benchmark is a KIND the lab ships (`Benchmark App`, under strut's `App`): any workspace may build
+    // one. What a benchmark grades on, and in which field, is still each workspace's own.
+    const domain = /\b(law|legal|rubric|evals?|exam|grading|overfit)\b/i;
     for (const set of LAB_CONCEPTS) {
       for (const file of await readdir(set.dir)) {
         const c = await read(set, file);
@@ -509,7 +522,7 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
 // as it is, the lab's Job page replaced by strut's generic one — the same
 // nodes, so the tree under them and their anchors stay.
 describe("strut takes over the lab's root pages (live graph)", { skip: !URI }, () => {
-  const NAMES = ["Workflow Builder", "Janitor", "App", "Job", "Plan Mode", "Code Change", "Explore", "Logs", "Verify", "Onboarding", "Workflow Build", "Job App", "Pod", "Pod Config"];
+  const NAMES = ["Workflow Builder", "Janitor", "App", "Benchmark App", "Job", "Plan Mode", "Code Change", "Explore", "Logs", "Verify", "Onboarding", "Workflow Build", "Job App", "Pod", "Pod Config"];
   let root: string;
   let ws: import("strut").WorkspaceStore;
   const g = () => ws.graph! as import("strut").Neo4jBackend;
@@ -554,6 +567,7 @@ describe("strut takes over the lab's root pages (live graph)", { skip: !URI }, (
     // Strut's own kind (`App`) hangs beside the lab's; `Workflow Build` and
     // `Job App` are retired by strut, so nothing of strut's is under `Job`.
     assert.deepEqual(await kids("Workflow Builder"), ["App", "Janitor"]);
+    assert.deepEqual(await kids("App"), ["Benchmark App"]);
     assert.deepEqual(await kids("Job"), ["Code Change", "Explore", "Logs", "Onboarding", "Plan Mode", "Verify"]);
     assert.deepEqual(await kids("Code Change"), ["Pod"]);
     assert.deepEqual(await kids("Pod"), ["Pod Config"]);

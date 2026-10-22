@@ -19,7 +19,7 @@ import {
   type BuildServicesOptions,
 } from "./concepts/services.js";
 import { seedConceptWorkflows, seedConceptSteps } from "./concepts/seed.js";
-import { seedEvalSteps } from "./eval/seed.js";
+import { EVAL_CONCEPTS, seedEvalSteps } from "./eval/seed.js";
 import { seedJarvisSteps } from "./jarvis/seed.js";
 import { seedGaiaSteps, seedGaiaWorkflows } from "./gaia/seed.js";
 import { seedArtifactSteps } from "./artifacts/seed.js";
@@ -307,7 +307,8 @@ export async function createLabStrut(
   // builder reads about this deployment) and `Job` (what the job agent opens
   // every turn), with its kinds `App` and `Workflow Build` (a builder job)
   // under them — so the lab's pages, which hang under them by name, seed
-  // AFTER: `Janitor` under `Workflow Builder`; `Code Change`, `Explore`,
+  // AFTER: `Janitor` under `Workflow Builder` and `Benchmark App` under its
+  // `App`; `Code Change`, `Explore`,
   // `Logs`, `Onboarding`, `Plan Mode` and `Verify` under `Job`, under `Code Change`
   // the `Pod` way, and under `Pod Config` the `Pod Setup` pages
   // identify-services loads. Strut's set rides along (all kept, nothing
@@ -316,7 +317,7 @@ export async function createLabStrut(
   // ships: those are each workspace's. A no-op on the fs workspace; a page
   // that will not seed is a warning, never a failed boot.
   try {
-    const outcomes = await seedConcepts(workspace.graph, [STRUT_CONCEPTS, JANITOR_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, LOGS_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
+    const outcomes = await seedConcepts(workspace.graph, [STRUT_CONCEPTS, JANITOR_CONCEPTS, EVAL_CONCEPTS, JOB_CONCEPTS, CODE_CONCEPTS, LOGS_CONCEPTS, POD_CONCEPTS, POD_SETUP_CONCEPTS]);
     await anchorConcepts(workspace.graph, outcomes);
   } catch (err) {
     console.warn("[concepts] could not seed the lab's Concept pages:", err instanceof Error ? err.message : err);

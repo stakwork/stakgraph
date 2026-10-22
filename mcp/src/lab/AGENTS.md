@@ -745,6 +745,8 @@ graph. Strut ships the two roots (`strut/src/concepts/`, seeded inside
 
 ```
 Workflow Builder            what this workspace builds       (strut)
+├─ App                      a kind: an app over workflows    (strut)
+│  └─ Benchmark App         an app over a benchmark          (eval/concepts)
 └─ Janitor                  a kind: its convention           (janitor/concepts)
    └─ <a mandate>           an instance                      (the workspace's own)
 
@@ -772,7 +774,10 @@ kind of work is graph data a workspace edits, never a line in a prompt.
 makes sense for one kind of workspace — a mandate about eval rubrics, a
 legal topic — is that workspace's to add (the builder, hive's Learn page),
 never a file in a seeded `concepts/` dir. `seed.test.ts` fails on a seeded
-file, or an engine description, that names such a domain.
+file, or an engine description, that names such a domain. A benchmark is
+not one: `Benchmark App` ships to every workspace, generic, because any
+workspace may measure its workflows; what one benchmark scores, and in
+which field, stays that workspace's.
 
 - **The seeder is strut's** (`seedConcepts(graph, sets)`, `ConceptSet`,
   `strut/src/concept-seed.ts`, on Neo4j and Ladybug alike). A SET is one
