@@ -2,10 +2,10 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
-import { createAudioUpgradeHandler, scrubProcessEnv, type AudioUpgradeHandler } from "strut";
+import { createAudioUpgradeHandler, scrubProcessEnv, type AudioUpgradeHandler, type Strut } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
 import { env, freezeEnv } from "../env.js";
-import { stashLabActor, stashLabScope } from "./actor.js";
+import { stashLabActor, stashLabScope, type LabScope } from "./actor.js";
 import { verifyApiToken, type ApiTokenPayload, type ApiTokenScope } from "../repo/events.js";
 
 /** The one lab strut, built on first use (HTTP request, dictation upgrade,
@@ -113,8 +113,12 @@ interface LabGrant {
    *  strut's run is for. Basic → none. */
   actor?: string;
   /** `peer` for a `lab:peer` JWT — another strut (strut plans/federation.md
-   *  §3). Strut decides what that may do; absent = everything, as before. */
-  scope?: "peer";
+   *  §3) — and `peer:person` for one whose `sub` names the person (hive's
+   *  pairing; strut plans/chained-orchestrators.md §2): its actor is the
+   *  token's own, so strut lets it launch a `peer: person` workflow (the
+   *  orchestrator), open that person's own sessions and join their room.
+   *  Strut decides what each may do; absent = everything, as before. */
+  scope?: LabScope;
 }
 
 const grant = (actor: string | undefined): LabGrant => {
@@ -139,7 +143,10 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
     // only: never `?key=`, where it would sit in a URL.
     const viaBearer = isEmbedJwt(header.slice(7).trim(), ["api", "lab:peer"]);
     if (viaBearer?.scope === "lab:peer") {
-      return { ...grant(viaBearer.sub ?? req.header("x-strut-actor")), scope: "peer" };
+      // A `sub` names a PERSON: the actor is the token's own. Without one
+      // the token stands for a strut, whose run names its person by header.
+      if (viaBearer.sub) return { ...grant(viaBearer.sub), scope: "peer:person" };
+      return { ...grant(req.header("x-strut-actor")), scope: "peer" };
     }
     if (viaBearer) return grant(viaBearer.sub);
   }
@@ -187,7 +194,9 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
  * scope (`resolveScope`), and strut answers it as one — every read, a
  * launch, control of a run a peer launched, 403 for the rest (strut
  * plans/federation.md §3). Its actor is its `sub`, else the caller's
- * `x-strut-actor` — the person the calling strut's run is for.
+ * `x-strut-actor` — the person the calling strut's run is for; with a `sub`
+ * the token is a PERSON's and its scope `peer:person` (strut
+ * plans/chained-orchestrators.md §2).
  *
  * One kind of request passes with none of the three: a read of a run's
  * artifacts or a job's files carrying strut's own FILE TOKEN
@@ -267,18 +276,58 @@ export function mountLab(app: Express): void {
 }
 
 const LAB_AUDIO_STREAM = "/lab/audio/stream";
+const LAB_ROOMS = "/lab/rooms";
+
+const rejectUpgrade = (socket: Duplex, status: string) => {
+  socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+  socket.destroy();
+};
 
 /**
- * Dictation over `/lab/audio/stream` (strut `src/audio/ws.ts`). A WebSocket
- * upgrade never enters Express, so the bridge above can't carry it: hook the
- * Node server's `upgrade` event, apply the lab credential (browsers resend
+ * A ROOM over `/lab/rooms` (strut `src/rooms.ts`, plans/chained-orchestrators.md
+ * §3): the socket a person's laptop holds open here to hear the runs it
+ * launched — `run.end` and `job.update`, a launch's `callback` / `jobCallback`
+ * `{ room: true }`. The lab credential is applied and stashed as `labAuth`
+ * does for HTTP, then the socket goes to strut's `upgrade`, whose own gate
+ * and hooks (`resolveLabActor` / `resolveLabScope` off `env.incoming`)
+ * decide the room: the actor of a full credential, or a `peer:person`
+ * token's `sub` — never a strut's `lab:peer` token, whose person is a header.
+ */
+export function upgradeLabRoom(
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+  strut: () => Promise<Pick<Strut, "upgrade">> = labStrut,
+): void {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const header = (name: string) => req.headers[name.toLowerCase()] as string | undefined;
+  const granted = labAuthorized({ header, key: url.searchParams.get("key") });
+  if (!granted) return rejectUpgrade(socket, "401 Unauthorized");
+  stashLabActor(req, granted.actor);
+  stashLabScope(req, granted.scope);
+  strut()
+    .then((s) => {
+      if (socket.destroyed) return;
+      if (!s.upgrade(req, socket, head, { basePath: "/lab" })) rejectUpgrade(socket, "404 Not Found");
+    })
+    .catch((e) => {
+      console.error("[lab] room upgrade failed:", e);
+      rejectUpgrade(socket, "500 Internal Server Error");
+    });
+}
+
+/**
+ * The lab's WebSockets. A WebSocket upgrade never enters Express, so the
+ * bridge above can't carry it: hook the Node server's `upgrade` event.
+ * `/lab/rooms` → `upgradeLabRoom`. Dictation over `/lab/audio/stream`
+ * (strut `src/audio/ws.ts`): apply the lab credential (browsers resend
  * cached Basic auth on same-origin handshakes, so the UI's one-time prompt
  * covers it), then hand the socket to strut. Built lazily like the bridge —
- * the first dictation boots the lab strut if a request hasn't already.
- * Other upgrade paths get a 404 rather than a socket left hanging. No actor:
- * dictation makes no LLM call and launches nothing.
+ * the first upgrade boots the lab strut if a request hasn't already. Other
+ * upgrade paths get a 404 rather than a socket left hanging. Dictation takes
+ * no actor: it makes no LLM call and launches nothing.
  */
-export function attachLabAudio(server: Server): void {
+export function attachLabSockets(server: Server): void {
   let handlerP: Promise<AudioUpgradeHandler | null> | null = null;
   const handler = () =>
     (handlerP ??= labStrut().then((strut) =>
@@ -286,18 +335,16 @@ export function attachLabAudio(server: Server): void {
         ? createAudioUpgradeHandler(strut.stt, { basePath: "/lab", authorize: () => true })
         : null,
     ));
-  const reject = (socket: Duplex, status: string) => {
-    socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
-    socket.destroy();
-  };
+  const reject = rejectUpgrade;
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (url.pathname === LAB_ROOMS) return upgradeLabRoom(req, socket, head);
     if (url.pathname !== LAB_AUDIO_STREAM) return reject(socket, "404 Not Found");
     const header = (name: string) => req.headers[name.toLowerCase()] as string | undefined;
     const granted = labAuthorized({ header, key: url.searchParams.get("key") });
     if (!granted) return reject(socket, "401 Unauthorized");
     // Dictation is not what a peer is for (read, launch, control its runs).
-    if (granted.scope === "peer") return reject(socket, "403 Forbidden");
+    if (granted.scope) return reject(socket, "403 Forbidden");
     handler()
       .then((h) => {
         if (!h) return reject(socket, "501 Not Implemented");

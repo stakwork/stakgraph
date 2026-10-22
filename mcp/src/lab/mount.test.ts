@@ -5,14 +5,78 @@ import type { AddressInfo } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import express from "express";
 import { getRequestListener } from "@hono/node-server";
 import { createStrut, MemoryRunStore, WorkspaceManager, type Strut } from "strut";
-import { labAuth } from "./mount.js";
+import { labAuth, upgradeLabRoom } from "./mount.js";
 import { labActorOf, resolveLabActor, resolveLabScope } from "./actor.js";
 import { mintToken, signApiToken, signEventsToken, verifyApiToken } from "../repo/events.js";
 
 const API_TOKEN = "test-api-token";
+
+type RoomMsg = Record<string, unknown>;
+
+/** A raw WebSocket handshake on `/lab/rooms` (mcp has no `ws` of its own):
+ *  the status it was refused with, or 101 and the text messages the server
+ *  sends (unmasked frames, server → client). */
+function openRoom(
+  port: number,
+  headers: Record<string, string>,
+): Promise<{ status: number; until: (pred: (m: RoomMsg) => boolean) => Promise<RoomMsg>; close: () => void }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      port,
+      path: "/lab/rooms",
+      headers: {
+        connection: "Upgrade",
+        upgrade: "websocket",
+        "sec-websocket-version": "13",
+        "sec-websocket-key": randomBytes(16).toString("base64"),
+        ...headers,
+      },
+    });
+    req.on("response", (res) => {
+      res.resume();
+      resolve({ status: res.statusCode ?? 0, until: () => Promise.reject(new Error("refused")), close() {} });
+    });
+    req.on("upgrade", (_res, socket) => {
+      const messages: RoomMsg[] = [];
+      let buf = Buffer.alloc(0);
+      socket.on("data", (chunk: Buffer) => {
+        buf = Buffer.concat([buf, chunk]);
+        while (buf.length >= 2) {
+          const op = buf[0]! & 0x0f;
+          let len = buf[1]! & 0x7f;
+          let off = 2;
+          if (len === 126) {
+            if (buf.length < 4) break;
+            len = buf.readUInt16BE(2);
+            off = 4;
+          } else if (len === 127) {
+            if (buf.length < 10) break;
+            len = Number(buf.readBigUInt64BE(2));
+            off = 10;
+          }
+          if (buf.length < off + len) break;
+          if (op === 1) messages.push(JSON.parse(buf.subarray(off, off + len).toString("utf8")) as RoomMsg);
+          buf = buf.subarray(off + len);
+        }
+      });
+      const until = async (pred: (m: RoomMsg) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const m = messages.find(pred);
+          if (m) return m;
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        throw new Error("the room never got it");
+      };
+      resolve({ status: 101, until, close: () => socket.destroy() });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 /** Raw request — `fetch` would normalize `..` out of the path client-side. */
 function get(
@@ -70,6 +134,12 @@ describe("labAuth", () => {
     // `peer: true`: strut lets a peer launch only a workflow that says so.
     await strut.workspace.publishWorkflow("hello", "v1", {
       peer: true,
+      steps: [{ id: "a", type: "log", config: { message: "hi" } }],
+    });
+    // `peer: person`: only a token whose `sub` names a person launches it
+    // (the orchestrator's posture, strut plans/chained-orchestrators.md §2).
+    await strut.workspace.publishWorkflow("chat", "v1", {
+      peer: "person",
       steps: [{ id: "a", type: "log", config: { message: "hi" } }],
     });
     app.use("/strut", labAuth, getRequestListener(strut.app.fetch));
@@ -288,6 +358,66 @@ describe("labAuth", () => {
     assert.equal(JSON.parse(viaHeader.body).actor, "alice-1");
     const nobody = await get(port, "/lab/workflows", { authorization: `Bearer ${anyone}` });
     assert.equal(JSON.parse(nobody.body).actor, null);
+  });
+
+  it("a lab:peer JWT with a `sub` is a PERSON's: `peer:person`, its actor the sub whatever the header says", async () => {
+    const person = signApiToken("60d", "octocat-42", "lab:peer");
+    const viaSub = JSON.parse((await get(port, "/lab/workflows", { authorization: `Bearer ${person}`, "x-strut-actor": "mallory-9" })).body);
+    assert.deepEqual([viaSub.scope, viaSub.actor], ["peer:person", "octocat-42"]);
+    // Without one it stands for a strut, naming its person by header.
+    const strutToken = signApiToken("60d", undefined, "lab:peer");
+    const viaHeader = JSON.parse((await get(port, "/lab/workflows", { authorization: `Bearer ${strutToken}`, "x-strut-actor": "octocat-42" })).body);
+    assert.deepEqual([viaHeader.scope, viaHeader.actor], ["peer", "octocat-42"]);
+  });
+
+  it("strut opens a `peer: person` workflow to a person's token, and refuses a strut's naming the same person", async () => {
+    const json = { "content-type": "application/json" };
+    const person = { ...json, authorization: `Bearer ${signApiToken("60d", "octocat-42", "lab:peer")}` };
+    const byStrut = { ...json, authorization: `Bearer ${signApiToken("60d", undefined, "lab:peer")}`, "x-strut-actor": "octocat-42" };
+    const refused = await get(port, "/strut/workflows/chat/run", byStrut, "POST", "{}");
+    assert.equal(refused.status, 403);
+    assert.match(refused.body, /person's credential only/);
+    const launched = await get(port, "/strut/workflows/chat/run", person, "POST", "{}");
+    assert.equal(launched.status, 202, launched.body);
+    const { runId } = JSON.parse(launched.body) as { runId: string };
+    let start;
+    for (let i = 0; i < 200 && !start; i++) {
+      start = (await strut.store.getRunEvents("chat", runId)).find((e) => e.type === "run.start");
+      if (!start) await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.deepEqual([start?.origin, start?.peerPerson, start?.actor], ["peer", true, "octocat-42"]);
+  });
+
+  it("a room: /lab/rooms takes the lab credential and strut's hooks decide it — a person's token joins and hears its run, a strut's is refused", async () => {
+    const sockets = http.createServer();
+    sockets.on("upgrade", (req, socket, head) => upgradeLabRoom(req, socket, head, async () => strut));
+    await new Promise<void>((r) => sockets.listen(0, r));
+    const sp = (sockets.address() as AddressInfo).port;
+    const person = `Bearer ${signApiToken("60d", "octocat-42", "lab:peer")}`;
+    try {
+      assert.equal((await openRoom(sp, {})).status, 401);
+      const byStrut = await openRoom(sp, { authorization: `Bearer ${signApiToken("60d", undefined, "lab:peer")}`, "x-strut-actor": "octocat-42" });
+      assert.equal(byStrut.status, 403);
+      const room = await openRoom(sp, { authorization: person });
+      assert.equal(room.status, 101);
+      try {
+        const launched = await get(
+          port,
+          "/strut/workflows/hello/run",
+          { "content-type": "application/json", authorization: person },
+          "POST",
+          JSON.stringify({ callback: { room: true } }),
+        );
+        assert.equal(launched.status, 202, launched.body);
+        const { runId } = JSON.parse(launched.body) as { runId: string };
+        const end = await room.until((m) => m.event === "run.end" && m.runId === runId);
+        assert.equal(end.status, "success");
+      } finally {
+        room.close();
+      }
+    } finally {
+      await new Promise((r) => sockets.close(r));
+    }
   });
 
   it("a lab:peer token opens nothing outside the lab", () => {

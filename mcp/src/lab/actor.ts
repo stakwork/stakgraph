@@ -43,25 +43,33 @@ export function resolveLabActor(c: { env?: unknown }): string | undefined {
 
 const LAB_SCOPE = Symbol.for("stakgraph.lab.scope");
 
-type ScopeStash = { [LAB_SCOPE]?: "peer" };
+/** A peer's scope as strut names it: `peer` — another strut, its person a
+ *  header — or `peer:person`, a token whose `sub` names the person (strut
+ *  plans/chained-orchestrators.md §2). */
+export type LabScope = "peer" | "peer:person";
+
+type ScopeStash = { [LAB_SCOPE]?: LabScope };
 
 /** Record that this request is a PEER's — another strut, holding a
  *  `lab:peer` token (`undefined` clears it: full, as every other credential). */
-export function stashLabScope(req: object, scope: "peer" | undefined): void {
+export function stashLabScope(req: object, scope: LabScope | undefined): void {
   if (scope) (req as ScopeStash)[LAB_SCOPE] = scope;
   else delete (req as ScopeStash)[LAB_SCOPE];
 }
 
 /**
- * strut's `resolveScope` hook for the lab: `"peer"` when `labAuth` stashed a
- * `lab:peer` token's grant, else `undefined` — strut's `full`, as before.
- * Strut enforces what a peer may do (its one gate and the control routes);
- * the lab only says who is one.
+ * strut's `resolveScope` hook for the lab: the peer scope `labAuth` stashed
+ * for a `lab:peer` token's grant (`peer`, or `peer:person` when its `sub`
+ * names the person), else `undefined` — strut's `full`, as before. Strut
+ * enforces what each may do (its one gate, the control routes, a `peer:
+ * person` workflow, the person's own sessions and room); the lab only says
+ * who is one.
  */
-export function resolveLabScope(c: { env?: unknown }): "peer" | undefined {
+export function resolveLabScope(c: { env?: unknown }): LabScope | undefined {
   const env = c.env;
   if (!env || typeof env !== "object") return undefined;
   const incoming = (env as { incoming?: unknown }).incoming;
   if (!incoming || typeof incoming !== "object") return undefined;
-  return (incoming as ScopeStash)[LAB_SCOPE] === "peer" ? "peer" : undefined;
+  const scope = (incoming as ScopeStash)[LAB_SCOPE];
+  return scope === "peer" || scope === "peer:person" ? scope : undefined;
 }

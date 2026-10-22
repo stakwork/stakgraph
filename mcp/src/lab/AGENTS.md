@@ -663,11 +663,20 @@ relevant with what the answer rests on. Locally it is an ordinary workflow
   route, launch a run, and cancel / pause / resume a run a peer launched,
   and answers 403 to the rest (strut `plans/federation.md` §3). Its actor
   is the token's `sub`, else the caller's `x-strut-actor` (the person the
-  calling run is for): mint with `sub` to bind a laptop's token to its
-  owner. Outside `/lab` it opens nothing — mcp's own API verifies `api`
-  JWTs only. Launch is NOT narrowed by workflow (strut's ruling,
-  2026-10-09): a peer can launch `job`, whose agent has `bash`, as well as
-  `explore`.
+  calling run is for). A token WITH a `sub` is a person's — what hive mints
+  a laptop at pairing (strut `plans/chained-orchestrators.md` §2, §4) — and
+  its scope is `peer:person`: the actor is the token's own whatever the
+  header says, so strut also lets it launch a `peer: person` workflow (the
+  orchestrator), open that person's own sessions there (`<sub>/…`), and
+  join their ROOM: `/lab/rooms`, the WebSocket `attachLabSockets` routes
+  through `upgradeLabRoom` (the lab credential stashed as for HTTP, then
+  strut's `upgrade` with `basePath: "/lab"`), where a launch's `callback` /
+  `jobCallback` `{ room: true }` delivers. A token without a `sub` stands
+  for a strut: `peer`, refused a `peer: person` workflow and a room. Outside
+  `/lab` it opens nothing — mcp's own API verifies `api` JWTs only. What a
+  peer may launch is the workflow's `peer:` (strut's peer gate,
+  2026-10-20): `explore` and `logs` say `peer: true`, the orchestrator
+  `peer: person`, and `job` neither.
 - `params` are the evolvable surface: `model` (`sonnet`), `maxSteps` (40),
   `tools`, `builtins`, `system`. Tests (`explore/seed.test.ts`, offline — a
   fake `agent` and a fake `git/checkout`, the real registry for `job/dir`,
