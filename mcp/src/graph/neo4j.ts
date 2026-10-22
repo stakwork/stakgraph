@@ -802,7 +802,12 @@ class Db {
         },
       } as Node);
 
-      const { ref_id, date_added_to_graph: _legacyDateAdded, ...rest } =
+      const {
+        ref_id,
+        date_added_to_graph: _legacyDateAdded,
+        updated_at: _callerUpdatedAt, // system-stamped by ADD_NODE_QUERY, never caller-supplied
+        ...rest
+      } =
         node_data;
 
       await session.run(Q.ADD_NODE_QUERY(node_type), {

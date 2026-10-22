@@ -38,7 +38,7 @@ pub fn update_embedding_query(node_key: &str, embedding: &[f32]) -> (String, Bol
     boltmap_insert_list(&mut params, "embeddings", emb_list);
     let query = r#"
         MATCH (n:Data_Bank {node_key: $node_key})
-        SET n.embeddings = $embeddings
+        SET n.embeddings = $embeddings, n.updated_at = $now
     "#
     .to_string();
     (query, params)

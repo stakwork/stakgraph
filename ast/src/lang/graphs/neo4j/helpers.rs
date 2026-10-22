@@ -99,7 +99,7 @@ pub fn set_node_muted_query(
 
     let query = "MATCH (n {name: $name, file: $file}) 
                  WHERE $node_type IN labels(n) 
-                 SET n.is_muted = $is_muted 
+                 SET n.is_muted = $is_muted, n.updated_at = $now 
                  RETURN count(n) as updated_count";
     (query.to_string(), params)
 }

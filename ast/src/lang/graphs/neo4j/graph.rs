@@ -790,7 +790,7 @@ impl Neo4jGraph {
             if endpoint_verb.is_some() {
                 update_query.push_str(" AND e.verb = $verb");
             }
-            update_query.push_str(" SET e.name = $new_name, e.node_key = $new_key RETURN e.name");
+            update_query.push_str(" SET e.name = $new_name, e.node_key = $new_key, e.updated_at = $now RETURN e.name");
 
             let mut params = BoltMap::new();
             boltmap_insert_str(&mut params, "old_name", &endpoint.name);

@@ -190,7 +190,8 @@ export class GraphStorage extends Storage {
             f.totalTokens = $totalTokens,
             f.namespace = $namespace,
             f.ref_id = COALESCE(f.ref_id, $refId),
-            f.date_added_to_graph = COALESCE(f.date_added_to_graph, $dateAddedToGraph)
+            f.date_added_to_graph = COALESCE(f.date_added_to_graph, $dateAddedToGraph),
+            f.updated_at = $dateAddedToGraph
         RETURN f
         `,
         {
@@ -418,7 +419,8 @@ export class GraphStorage extends Storage {
             p.outputTokens = $outputTokens,
             p.totalTokens = $totalTokens,
             p.ref_id = COALESCE(p.ref_id, $refId),
-            p.date_added_to_graph = COALESCE(p.date_added_to_graph, $dateAddedToGraph)
+            p.date_added_to_graph = COALESCE(p.date_added_to_graph, $dateAddedToGraph),
+            p.updated_at = $dateAddedToGraph
         RETURN p
         `,
         {
@@ -539,7 +541,8 @@ export class GraphStorage extends Storage {
             c.outputTokens = $outputTokens,
             c.totalTokens = $totalTokens,
             c.ref_id = COALESCE(c.ref_id, $refId),
-            c.date_added_to_graph = COALESCE(c.date_added_to_graph, $dateAddedToGraph)
+            c.date_added_to_graph = COALESCE(c.date_added_to_graph, $dateAddedToGraph),
+            c.updated_at = $dateAddedToGraph
         RETURN c
         `,
         {
@@ -665,7 +668,8 @@ export class GraphStorage extends Storage {
         MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.lastProcessedPR = $number,
             m.ref_id = COALESCE(m.ref_id, $refId),
-            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph),
+            m.updated_at = $dateAddedToGraph
         RETURN m
         `,
         {
@@ -720,7 +724,8 @@ export class GraphStorage extends Storage {
         MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.lastProcessedCommit = $sha,
             m.ref_id = COALESCE(m.ref_id, $refId),
-            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph),
+            m.updated_at = $dateAddedToGraph
         RETURN m
         `,
         {
@@ -778,7 +783,8 @@ export class GraphStorage extends Storage {
         MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.chronologicalCheckpoint = $checkpoint,
             m.ref_id = COALESCE(m.ref_id, $refId),
-            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph),
+            m.updated_at = $dateAddedToGraph
         RETURN m
         `,
         {
@@ -832,7 +838,8 @@ export class GraphStorage extends Storage {
         MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
         SET m.recentThemes = $recentThemes,
             m.ref_id = COALESCE(m.ref_id, $refId),
-            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph),
+            m.updated_at = $dateAddedToGraph
         RETURN m
         `,
         {
@@ -933,7 +940,8 @@ export class GraphStorage extends Storage {
             m.totalOutputTokens = COALESCE(m.totalOutputTokens, 0) + $outputTokens,
             m.totalTokens = COALESCE(m.totalTokens, 0) + $totalTokens,
             m.ref_id = COALESCE(m.ref_id, $refId),
-            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph),
+            m.updated_at = $dateAddedToGraph
         RETURN m
         `,
         {

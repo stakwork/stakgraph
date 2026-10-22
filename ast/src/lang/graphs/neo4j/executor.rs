@@ -207,6 +207,9 @@ fn bind_parameters(query_str: &str, params: BoltMap) -> Query {
         for (key, value) in params.value.iter() {
             query_obj = query_obj.param(key.value.as_str(), value.clone());
         }
+        if query_str.contains("$now") && !params.value.contains_key("now") {
+            query_obj = query_obj.param("now", now_epoch_ms());
+        }
     }
     query_obj
 }
@@ -336,6 +339,9 @@ impl<'a> TransactionManager<'a> {
                     } else {
                         for (key, value) in bolt_map.value.iter() {
                             query_obj = query_obj.param(key.value.as_str(), value.clone());
+                        }
+                        if query_str.contains("$now") && !bolt_map.value.contains_key("now") {
+                            query_obj = query_obj.param("now", now_epoch_ms());
                         }
                     }
                     if let Err(e) = txn.run(query_obj).await {
