@@ -32,4 +32,10 @@ describe("cypher writers stamp updated_at", () => {
       if (m) assert.match(m[0], /updated_at = \$ts/, name);
     }
   });
+  it("derived writes (embeddings, token_count) leave updated_at alone", () => {
+    for (const name of ["UPDATE_EMBEDDINGS_QUERY", "BULK_UPDATE_EMBEDDINGS_QUERY", "BULK_UPDATE_TOKEN_COUNT_QUERY", "BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY"]) {
+      const m = q.match(new RegExp(`export const ${name} = \`[\\s\\S]*?\`;`))!;
+      assert.doesNotMatch(m[0], /updated_at/, name);
+    }
+  });
 });

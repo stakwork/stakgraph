@@ -1,7 +1,6 @@
 use crate::lang::graphs::helpers::{
     boltmap_insert_float, boltmap_insert_int, boltmap_insert_list, boltmap_insert_str,
 };
-use crate::lang::graphs::neo4j::time::now_epoch_ms;
 use lsp::Language;
 use neo4rs::{BoltFloat, BoltMap, BoltString, BoltType};
 use std::str::FromStr;
@@ -37,11 +36,9 @@ pub fn update_embedding_query(node_key: &str, embedding: &[f32]) -> (String, Bol
         .map(|&v| BoltType::Float(BoltFloat { value: v as f64 }))
         .collect::<Vec<_>>();
     boltmap_insert_list(&mut params, "embeddings", emb_list);
-    // Bound here: update_embedding runs this with its own params, not bind_parameters.
-    params.value.insert("now".into(), now_epoch_ms());
     let query = r#"
         MATCH (n:Data_Bank {node_key: $node_key})
-        SET n.embeddings = $embeddings, n.updated_at = $now
+        SET n.embeddings = $embeddings
     "#
     .to_string();
     (query, params)

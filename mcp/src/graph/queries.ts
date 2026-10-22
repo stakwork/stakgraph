@@ -63,13 +63,13 @@ export const DATA_BANK_BODIES_QUERY_NO_EMBEDDINGS = `
 
 export const UPDATE_EMBEDDINGS_QUERY = `
 MATCH (n:${Data_Bank} {node_key: $node_key})
-SET n.embeddings = $embeddings, n.updated_at = timestamp()
+SET n.embeddings = $embeddings
 `;
 
 export const BULK_UPDATE_EMBEDDINGS_QUERY = `
 UNWIND $batch as item
 MATCH (n:${Data_Bank} {node_key: item.node_key})
-SET n.embeddings = item.embeddings, n.updated_at = timestamp()
+SET n.embeddings = item.embeddings
 `;
 
 export const DATA_BANK_BODIES_QUERY_NO_TOKEN_COUNT = `
@@ -82,7 +82,7 @@ export const DATA_BANK_BODIES_QUERY_NO_TOKEN_COUNT = `
 export const BULK_UPDATE_TOKEN_COUNT_QUERY = `
 UNWIND $batch as item
 MATCH (n:${Data_Bank} {node_key: item.node_key})
-SET n.token_count = item.token_count, n.updated_at = timestamp()
+SET n.token_count = item.token_count
 `;
 
 export const CREATE_HINT_QUERY = `
@@ -1310,7 +1310,7 @@ LIMIT toInteger($limit)
 export const BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY = `
 UNWIND $batch AS item
 MATCH (n:Data_Bank {ref_id: item.ref_id})
-SET n.embeddings = item.embeddings, n.updated_at = timestamp()
+SET n.embeddings = item.embeddings
 `;
 
 /** `item.props` is `{ [field]: text }`, the field one of DESCRIPTION_FIELDS. */

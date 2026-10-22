@@ -278,7 +278,7 @@ export class GraphStorage extends Storage {
           const embeddings = await computeConceptEmbedding({ name, description });
           if (!embeddings) continue;
           await session.run(
-            `MATCH (c:Concept {id: $id}) SET c.embeddings = $embeddings, c.updated_at = timestamp()`,
+            `MATCH (c:Concept {id: $id}) SET c.embeddings = $embeddings`,
             { id, embeddings }
           );
           updated++;
