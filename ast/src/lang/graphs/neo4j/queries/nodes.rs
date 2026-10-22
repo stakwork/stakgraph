@@ -1022,8 +1022,10 @@ mod tests {
             .contains("e.updated_at = $now"));
         assert!(crate::lang::graphs::neo4j::queries::analytics::endpoint_group_cross_file_query()
             .contains("e.updated_at = $now"));
-        let (q, _) = crate::lang::graphs::neo4j::operations::embedding::update_embedding_query("k", &[0.1]);
+        let (q, params) = crate::lang::graphs::neo4j::operations::embedding::update_embedding_query("k", &[0.1]);
         assert!(q.contains("n.updated_at = $now"));
+        // update_embedding binds these params directly, so `now` must be among them.
+        assert!(params.value.contains_key("now"));
     }
 
     async fn read_probe_updated(conn: &neo4rs::Graph, node_key: &str) -> Option<i64> {
