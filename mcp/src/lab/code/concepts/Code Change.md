@@ -9,15 +9,33 @@ follow-up ("also rename the helper", "the test you added fails") is the
 SAME pull request — its branch, with the earlier commits on it — never a
 second one.
 
-To make a change, run the `code-change-pr` workflow (read it first with
-meta/get-workflow): `{ repo, prompt, title }` — the repository URL, the
-brief for the coding agent, the pull request's title. It checks the
-repository out, lets a coding agent make the change in an isolated working
-copy, commits and pushes it as the person, and opens the pull request; the
-output carries `url`, `number`, `repo` (owner/name), `branch`, `created`,
-the files changed and the agent's summary. To revise that pull request on
-a later turn, run it again with the same `branch`. Nothing here is done by
-hand: never clone, commit or push yourself.
+Choose the way by ONE test, before anything else: can the change be
+judged from its diff alone?
+
+- Yes — text, a constant, a small edit in one place, right or wrong on
+  sight: run `code-change-pr`, below.
+- Anything else — new behaviour, a change across files or areas, anything
+  its tests, type check, build or running app have to judge: a POD, this
+  page's child `Pod`. When the change holds choices the person would want
+  to make (what a screen shows, which way a design goes) and they have not
+  made them, a plan comes first without being asked (`Plan Mode`, under
+  `Job`), and the pod once they say go.
+
+How detailed the request is, or how much you already know about the code,
+does not change the answer: a fully specified change across several files
+is still a pod. When you cannot tell yet, find out first (`Explore`, under
+`Job`, in this same turn) and answer the test from the note. Never
+install, build or test in the repositories in your directory, which are
+for reading, and never clone, commit or push yourself.
+
+`code-change-pr` (read it first with meta/get-workflow) takes `{ repo,
+prompt, title }` — the repository URL, the brief for the coding agent, the
+pull request's title. It checks the repository out, lets a coding agent
+make the change in an isolated working copy, commits and pushes it as the
+person, and opens the pull request; the output carries `url`, `number`,
+`repo` (owner/name), `branch`, `created`, the files changed and the
+agent's summary. To revise that pull request on a later turn, run it again
+with the same `branch`.
 
 The credential is the run's own — the person's GitHub token, bound to the
 run — so there is nothing to pass or to look up. A `no_push_permission:`
@@ -36,21 +54,6 @@ repository and nothing here does, ask before running anything.
 Report the pull request as an artifact of kind `pull_request`, under a
 stable id (`pr`, or one per repository when a job touches several), with
 `content: { url, repo, number, state: "open" }` taken from the output.
-
-Size the request first, against what you know. A change you can state in
-a sentence, in a file you can already name (from the request, or from a
-note in your directory), and judge from the diff alone — text, a constant,
-a small local edit — takes this path: run `code-change-pr` now. Otherwise
-find out first: explore (`Explore`, under `Job`) in this same turn, then
-brief from the note. Anything larger — several areas, a new screen or
-flow, choices the person would want to make — starts as a plan without
-being asked (`Plan Mode`, under `Job`), written from the notes, and once
-they say go is built in a sandbox with the application running, where they
-can click through it. A change that must build, run or be tested to be judged takes
-the sandbox too, plan or not: never install, build or test in the
-repositories in your directory, which are for reading. When this
-workspace has a workflow for the sandbox, it is a child of this Concept
-and its page says what it takes.
 
 Each child Concept of this node (PARENT_OF from here) is either another
 WAY to deliver a change — a sandbox workflow, named with its input — or a

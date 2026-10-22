@@ -581,10 +581,11 @@ seeder per name, or the two leave whichever template changed last active.
   Concept (strut's page, `strut/src/concepts/Job.md`) first and follows the
   kind's page — the lab's kinds hang under it (`job/concepts`,
   `JOB_CONCEPTS`, and the sets below) —
-  `Code Change` (`code/concepts`) sizes the request — a change judged from
-  the diff runs `code-change-pr` now and the PR comes back as a
-  `pull_request` artifact; a larger one starts as a plan unasked and, once
-  the person says go, is built in a pod — and its child `Pod`
+  `Code Change` (`code/concepts`) sizes the request by ONE test — a change
+  judged from its diff alone runs `code-change-pr` and the PR comes back
+  as a `pull_request` artifact; anything else is built in a pod, after a
+  plan (unasked) when it holds choices the person has not made; how
+  detailed the request is never makes it smaller — and its child `Pod`
   (`pods/concepts`) says when a change needs the app running and how to
   make it in a pod;
   `Plan Mode`, when the person asks for a plan first, is ONE static
