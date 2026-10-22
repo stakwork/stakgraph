@@ -4,8 +4,8 @@ import type { ConceptSeedOutcome, GraphBackend, Neo4jBackend } from "strut";
  * The anchor hive writes for every Concept a person approves (jarvis
  * migration 111), `HiveWorkspace -PROCESS-> <Concept>`, written here for
  * every Concept a boot's `seedConcepts` call (strut's) OWNS — created,
- * updated or kept: strut's pages (`Workflow Builder`, `Job`, and the kinds
- * it hangs under them, `App`, `Workflow Build` and `Job App`) and the lab's under them
+ * updated or kept: strut's pages (`Workflow Builder`, `Job`, and the kind
+ * it hangs under them, `App`) and the lab's under them
  * — to the ONE workspace node hive's mirror writes into this graph, so
  * hive's graph walker reaches a seeded page from the workspace node.
  * Nothing in strut or the lab reads it. Strut knows no HiveWorkspace:

@@ -129,9 +129,11 @@ describe("the lab's Concept files", () => {
     assert.match(fixture.stamp, /^lab\/janitor\/fixtures\//, "a fixture never carries a seed's stamp");
   });
 
-  it("ship no page under one of strut's names: strut owns Workflow Builder, Job, Workflow Build, App and Job App", async () => {
-    const strut = await readdir(STRUT_CONCEPTS.dir);
-    assert.deepEqual(strut.sort(), ["App.md", "Job App.md", "Job.md", "Workflow Build.md", "Workflow Builder.md"]);
+  it("ship no page under one of strut's names: strut owns Workflow Builder, Job and App, and the Workflow Build and Job App it retired", async () => {
+    const shipped = await readdir(STRUT_CONCEPTS.dir);
+    assert.deepEqual(shipped.sort(), ["App.md", "Job.md", "Workflow Builder.md"]);
+    assert.deepEqual(STRUT_CONCEPTS.retired, ["Workflow Build.md", "Job App.md"]);
+    const strut = [...shipped, ...STRUT_CONCEPTS.retired];
     for (const set of LAB_CONCEPTS) for (const file of await readdir(set.dir)) assert.ok(!strut.includes(file), `${set.dir}/${file}`);
   });
 
@@ -549,14 +551,15 @@ describe("strut takes over the lab's root pages (live graph)", { skip: !URI }, (
     assert.equal(job.ref_id, before.job.ref_id, "the same node");
     assert.match(String(job.usid), /^strut\/concepts\/Job\.md@/);
     assert.doesNotMatch(String(job.docs), /Hive workspace/, "strut's generic page");
-    // Strut's own kinds (`App`, `Workflow Build`, `Job App`) hang beside the lab's.
+    // Strut's own kind (`App`) hangs beside the lab's; `Workflow Build` and
+    // `Job App` are retired by strut, so nothing of strut's is under `Job`.
     assert.deepEqual(await kids("Workflow Builder"), ["App", "Janitor"]);
-    assert.deepEqual(await kids("Job"), ["Code Change", "Explore", "Job App", "Logs", "Onboarding", "Plan Mode", "Verify", "Workflow Build"]);
+    assert.deepEqual(await kids("Job"), ["Code Change", "Explore", "Logs", "Onboarding", "Plan Mode", "Verify"]);
     assert.deepEqual(await kids("Code Change"), ["Pod"]);
     assert.deepEqual(await kids("Pod"), ["Pod Config"]);
     assert.ok(outcomes.every((o) => o.action === "keep"), JSON.stringify(outcomes.filter((o) => o.action !== "keep")));
     // The lab's call owns every one of strut's pages too, so anchorConcepts anchors them with ours.
-    for (const name of ["Workflow Builder", "Job", "Workflow Build", "App", "Job App"]) assert.ok(outcomes.some((o) => o.name === name && o.ref_id), `${name} not owned`);
+    for (const name of ["Workflow Builder", "Job", "App"]) assert.ok(outcomes.some((o) => o.name === name && o.ref_id), `${name} not owned`);
 
     // The next boot, both calls: nothing to write.
     assert.deepEqual(new Set((await seedConcepts(g(), [STRUT_CONCEPTS])).map((o) => o.action)), new Set(["keep"]));
