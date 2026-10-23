@@ -10,6 +10,8 @@ for (const k of [
   "LLM_PROVIDER",
   "MAX_OUTPUT_TOKENS",
   "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_WORKSPACE_ID",
   "GOOGLE_API_KEY",
   "OPENAI_API_KEY",
   "OPENROUTER_API_KEY",
@@ -25,7 +27,9 @@ const {
   maxOutputTokensFor,
   resolveModel,
 } = await import("../resolve.js");
-const { API_KEY_ENV, PROVIDERS } = await import("../provider.js");
+const { API_KEY_ENV, KEY_HEADER_ENV, PROVIDERS, getModel, getModelDetails } = await import("../provider.js");
+const { generateText } = await import("ai");
+const { createServer } = await import("node:http");
 
 let passed = 0;
 let failed = 0;
@@ -280,6 +284,59 @@ await test("resolveModel: the trap fires before any key lookup", async () => {
     "trap",
   );
   eq(calls, 0, "getSecret never called");
+});
+
+// ── KEY_HEADER_ENV: an organization-wide Anthropic key names its workspace ──
+
+await test("KEY_HEADER_ENV: Anthropic's workspace is listed beside its key", () => {
+  eq(KEY_HEADER_ENV.anthropic, { ANTHROPIC_WORKSPACE_ID: "anthropic-workspace-id" }, "anthropic");
+  eq(KEY_HEADER_ENV.openai, undefined, "openai has none");
+});
+
+await test("anthropic-workspace-id: sent with a looked-up key, never with a caller's own", async () => {
+  const seen: (string | undefined)[] = [];
+  const server = createServer((req, res) => {
+    seen.push(req.headers["anthropic-workspace-id"] as string | undefined);
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "recorded" } }));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+  const send = async (model: any) => {
+    await throwsWith(() => generateText({ model, prompt: "hi", maxRetries: 0 }), "recorded", "request");
+  };
+  const store = (entries: Record<string, string>) => async (name: string) => entries[name];
+  try {
+    // resolveModel, key and workspace from getSecret (trimmed)
+    await send((await resolveModel({
+      model: "sonnet",
+      getSecret: store({ ANTHROPIC_API_KEY: "k", ANTHROPIC_WORKSPACE_ID: " wrkspc_store " }),
+    })).model);
+    // a workspace key: none set anywhere
+    await send((await resolveModel({ model: "sonnet", getSecret: store({ ANTHROPIC_API_KEY: "k" }) })).model);
+    // getSecret misses → env, for the workspace as for the key
+    process.env.ANTHROPIC_API_KEY = "k";
+    process.env.ANTHROPIC_WORKSPACE_ID = "wrkspc_env";
+    await send((await resolveModel({ model: "sonnet", getSecret: store({}) })).model);
+    // caller headers win
+    await send((await resolveModel({ model: "sonnet", headers: { "anthropic-workspace-id": "wrkspc_caller" } })).model);
+    // a caller's own key brings its own workspace
+    await send((await resolveModel({ model: "sonnet", apiKey: "vk-user" })).model);
+    // the env-only path: getModel / getModelDetails
+    await send(getModel("anthropic"));
+    await send(getModelDetails("sonnet").model);
+    await send(getModel("anthropic", { apiKey: "vk-user" }));
+    eq(
+      seen,
+      ["wrkspc_store", undefined, "wrkspc_env", "wrkspc_caller", undefined, "wrkspc_env", "wrkspc_env", undefined],
+      "workspace header per request",
+    );
+  } finally {
+    server.close();
+    delete process.env.ANTHROPIC_BASE_URL;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_WORKSPACE_ID;
+  }
 });
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
