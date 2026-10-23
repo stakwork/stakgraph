@@ -30,6 +30,8 @@ import {
   getContextLimit,
   getModel,
   getProviderForModel,
+  KEY_HEADER_ENV,
+  keyHeaders,
   normalizeApiKey,
   type ModelName,
   type Provider,
@@ -190,19 +192,30 @@ export interface ResolvedModel extends ModelRef {
  * Name → everything a caller needs to run: provider, concrete id, canonical
  * name, the API key that was used, the LanguageModel, its context window,
  * and the output-token cap. Key precedence: `apiKey` → `getSecret(envName)`
- * → process.env; none → an error that names the env var. Logs nothing.
+ * → process.env; none → an error that names the env var. A looked-up key's
+ * KEY_HEADER_ENV settings (Anthropic's workspace) are looked up the same way
+ * and sent as headers. Logs nothing.
  */
 export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedModel> {
   const ref = canonicalModelName(opts.model, opts.provider);
   const envName = API_KEY_ENV[ref.provider];
-  const apiKey =
-    normalizeApiKey(opts.apiKey) ??
-    normalizeApiKey(await opts.getSecret?.(envName)) ??
-    normalizeApiKey(env[envName]);
+  const lookup = async (name: string) =>
+    normalizeApiKey(await opts.getSecret?.(name)) ?? normalizeApiKey(env[name]);
+  const callerKey = normalizeApiKey(opts.apiKey);
+  const apiKey = callerKey ?? (await lookup(envName));
   if (!apiKey) {
     throw new Error(
       `No API key for provider "${ref.provider}": set ${envName} (or pass apiKey / getSecret)`,
     );
+  }
+  // The key's companion settings (KEY_HEADER_ENV) come from where the key
+  // did; a caller's own key brings its own. Caller headers win.
+  let headers = opts.headers;
+  if (!callerKey) {
+    const found: Record<string, string | undefined> = {};
+    for (const name of Object.keys(KEY_HEADER_ENV[ref.provider] ?? {})) found[name] = await lookup(name);
+    const fromKey = keyHeaders(ref.provider, (name) => found[name]);
+    if (fromKey) headers = { ...fromKey, ...opts.headers };
   }
   // The canonical name carries exactly one provider prefix, which getModel
   // strips — so an OpenRouter id like "openrouter/auto" survives intact.
@@ -210,7 +223,7 @@ export async function resolveModel(opts: ResolveOptions = {}): Promise<ResolvedM
     modelName: ref.name,
     apiKey,
     baseUrl: opts.baseUrl,
-    headers: opts.headers,
+    headers,
     abortSignal: opts.abortSignal,
     timeoutMs: opts.timeoutMs,
   });
