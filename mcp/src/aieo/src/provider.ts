@@ -319,6 +319,33 @@ export const API_KEY_ENV: Record<Provider, string> = {
   xai: "XAI_API_KEY",
 };
 
+/**
+ * Settings that go with a provider's key: env var NAME → the header it is
+ * sent as. Read from wherever the key was read (resolve.ts asks getSecret
+ * first), and only when the key was: a caller that passes its own key brings
+ * its own.
+ *
+ * ANTHROPIC_WORKSPACE_ID: a key made for the whole organization, not one
+ * workspace, must name the workspace (`wrkspc_…`) its calls run in, or the
+ * API answers 400. A workspace's own key needs none.
+ */
+export const KEY_HEADER_ENV: Partial<Record<Provider, Record<string, string>>> = {
+  anthropic: { ANTHROPIC_WORKSPACE_ID: "anthropic-workspace-id" },
+};
+
+/** KEY_HEADER_ENV's headers for `provider`, each value from `lookup`; blanks are dropped. */
+export function keyHeaders(
+  provider: Provider | string,
+  lookup: (envName: string) => string | undefined,
+): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const [envName, header] of Object.entries(KEY_HEADER_ENV[provider as Provider] ?? {})) {
+    const value = normalizeApiKey(lookup(envName));
+    if (value) out[header] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function lookupApiKeyForProvider(
   provider: Provider | string,
 ): string | undefined {
@@ -540,7 +567,7 @@ export function getModelDetails(
   });
   const model = getModel(provider, {
     modelName,
-    apiKey,
+    apiKey: callerKey,
     baseUrl,
     headers,
     abortSignal,
@@ -577,7 +604,8 @@ export function getModel(
   if (typeof opts === "string") {
     opts = { apiKey: opts };
   }
-  const apiKey = normalizeApiKey(opts?.apiKey) || getApiKeyForProvider(provider);
+  const callerKey = normalizeApiKey(opts?.apiKey);
+  const apiKey = callerKey || getApiKeyForProvider(provider);
 
   // Handle slash format: extract modelId from "provider/model" or "provider/org/model"
   let modelId: string;
@@ -623,9 +651,12 @@ export function getModel(
     const source = opts?.baseUrl ? "caller" : "LLM_GATEWAY";
     console.log(`[${source}] routing ${provider} via ${baseURL}`);
   }
-  const extraHeaders = opts?.headers && Object.keys(opts.headers).length > 0
-    ? opts.headers
-    : undefined;
+  // The key came from env, so its companion settings do too (KEY_HEADER_ENV).
+  const merged = {
+    ...(!callerKey && keyHeaders(provider, (name) => env[name])),
+    ...opts?.headers,
+  };
+  const extraHeaders = Object.keys(merged).length > 0 ? merged : undefined;
   if (extraHeaders) {
     console.log(`[headers] attaching ${Object.keys(extraHeaders).length} custom header(s) to ${provider} client`);
   }
@@ -1098,7 +1129,7 @@ export function resolveLLMConfig(opts?: {
   }
 
   const model = getModel(provider, {
-    apiKey,
+    apiKey: callerKey,
     modelName: effectiveModelName,
   });
 
