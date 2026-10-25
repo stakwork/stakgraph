@@ -1,4 +1,5 @@
 import type { HttpResponse, StepContext } from "strut";
+import { workflowOf } from "strut";
 
 /**
  * Shared by the pod/* steps (a seeded helper; the registry skips a leading
@@ -188,7 +189,9 @@ export async function llmGrant(ctx: PodCtx): Promise<{ apiKey: string; baseUrl: 
     kind: "step",
     provider: "anthropic",
     runId: ctx.runId,
-    workflow: ctx.path.split("/")[0],
+    // The run's workflow, slashes included (`acme/linear/sync`): never the
+    // path's first segment, which is only the name when it has no `/`.
+    workflow: workflowOf(ctx),
     stepPath: ctx.path,
     ...(ctx.actor ? { actor: ctx.actor } : {}),
     ...(ctx.principal ? { principal: ctx.principal } : {}),
