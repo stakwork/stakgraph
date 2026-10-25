@@ -44,8 +44,10 @@ import (
 // phase 6 says to stop an agent permanently (a kill:agent key only
 // lasts 24h).
 //
-// Fail-closed on Redis errors (402 budget_check_unavailable); no-op
-// in observability mode (Redis unconfigured), like CheckRevocations.
+// Fail-closed on Redis errors (402 budget_check_unavailable). Also
+// fails closed when Redis is unconfigured or the startup ping failed
+// if budgets are enforced (enforce_macaroons AND enforce_budgets); a
+// no-op with enforcement off.
 
 // capLayer is one budgeted run in the walk order.
 type capLayer struct {
@@ -61,6 +63,9 @@ type capLayer struct {
 func CheckCaps(ctx context.Context, claims *macaroon.Claims, realmID string, now time.Time) *AdapterError {
 	rdb := redisclient.Client()
 	if rdb == nil {
+		if GetConfig().BudgetsEnforced() {
+			return budgetUnavailable("redis unavailable: cannot check budgets while budgets are enforced")
+		}
 		return nil
 	}
 	if claims == nil {

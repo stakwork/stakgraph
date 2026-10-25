@@ -48,13 +48,11 @@ const pipelineTimeout = 500 * time.Millisecond
 // are 401s; kills are 402s (the macaroon is still valid — an
 // operator chose to stop the run).
 //
-// Observability mode: when redisclient.Client() returns nil (no
-// REDIS_URL configured, or startup ping failed), CheckRevocations
-// returns nil — the adapter still verifies signatures and stamps
-// claims, it just skips the Redis-backed authoritative-revocation
-// step. This matches the phase-6 contract: "verify signatures and
-// stamp claims" works without Redis; revocation enforcement is the
-// piece that requires it.
+// No Redis: when redisclient.Client() returns nil (URL unset or
+// startup ping failed), CheckRevocations fails closed with 401
+// revocation_check_unavailable if enforce_macaroons is on. With
+// enforcement off it returns nil — signatures are still verified and
+// claims stamped; only the Redis revocation step is skipped.
 //
 // Redis errors: per phase-6 "Failure modes", fail-closed during
 // PreHook. We surface a synthetic AdapterError with
@@ -64,7 +62,14 @@ const pipelineTimeout = 500 * time.Millisecond
 func CheckRevocations(ctx context.Context, claims *macaroon.Claims) *AdapterError {
 	rdb := redisclient.Client()
 	if rdb == nil {
-		// Observability mode is part of the contract; not an error.
+		if GetConfig().EnforceMacaroons {
+			return &AdapterError{
+				Code:       "revocation_check_unavailable",
+				HTTPStatus: 401,
+				Message:    "redis unavailable: cannot check revocations while macaroons are enforced",
+			}
+		}
+		// Observability mode (enforcement off): not an error.
 		return nil
 	}
 	if claims == nil {

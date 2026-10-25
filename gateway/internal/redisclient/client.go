@@ -21,10 +21,11 @@
 // Observability mode
 // ------------------
 // When BIFROST_PLUGIN_REDIS_URL is unset, Init() is a no-op and
-// Client() returns nil. Downstream code MUST treat nil as
-// "observability only — skip Redis-backed enforcement" rather than
-// crash. This matches the phase-5 stance that the trust registry is
-// wired but enforcement is off until phase 4's adapter lands.
+// Client() returns nil. Downstream code MUST treat nil as "Redis
+// unavailable" rather than crash. With enforcement off, auth checks
+// skip their Redis steps; with enforce_macaroons on, CheckRevocations
+// fails closed (401 revocation_check_unavailable), and with budgets
+// enforced CheckCaps fails closed (402 budget_check_unavailable).
 package redisclient
 
 import (
@@ -63,10 +64,10 @@ var (
 // Returns nil in two cases:
 //
 //   - Env var unset: observability mode, no client constructed.
-//   - Env var set but ping fails: client is closed and discarded, and
-//     a loud warning is logged. The plugin still starts; downstream
-//     enforcement that needs Redis will fail-closed at the call site
-//     per the phase-6 "Failure modes" contract.
+//   - Env var set but ping fails: client is closed and discarded
+//     and NOT retried (Client() stays nil until restart), and a loud
+//     warning is logged. The plugin still starts; auth checks behave
+//     as for an unset URL (fail closed when enforcing, skip when not).
 //
 // Returns a non-nil error only when the URL itself is malformed —
 // that's a config bug that should keep the plugin from coming up so
@@ -93,8 +94,9 @@ func Init() error {
 	size, err := c.DBSize(ctx).Result()
 	if err != nil {
 		// Fail-soft: log loudly, discard the client, keep going.
-		// The phase-4 adapter will refuse enforcement when client()
-		// is nil, which is the correct posture during a Redis outage.
+		// The client is not retried: Client() stays nil until restart.
+		// Auth checks treat nil like an unset URL (fail closed when
+		// enforcing, skip when not).
 		_ = c.Close()
 		pluginlog.Warnf(
 			"redis: connect to %s failed: %v — falling back to observability mode",
