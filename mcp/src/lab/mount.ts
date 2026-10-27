@@ -198,12 +198,13 @@ function labAuthorized(req: LabCredentials): LabGrant | undefined {
  * the token is a PERSON's and its scope `peer:person` (strut
  * plans/chained-orchestrators.md §2).
  *
- * One kind of request passes with none of the three: a read of a run's
- * artifacts or a job's files carrying strut's own FILE TOKEN
- * (`isTokenFileRead`) — strut judges that one.
+ * One kind of request passes with none of the three: a read carrying one
+ * of strut's own read tokens as `?t=` — a FILE TOKEN on a run's artifacts
+ * or a job's files, a CATALOG TOKEN on the published catalog and its
+ * archives (`isTokenRead`) — strut judges that one.
  */
 export function labAuth(req: Request, res: Response, next: NextFunction): void {
-  if (isUiAsset(req) || isTokenFileRead(req)) return next();
+  if (isUiAsset(req) || isTokenRead(req)) return next();
   const key = typeof req.query.key === "string" ? req.query.key : null;
   const granted = labAuthorized({ header: (name) => req.header(name), key });
   if (granted) {
@@ -248,15 +249,27 @@ function isUiAsset(req: Request): boolean {
  * from, and worth only that run's files. The strut UI's artifact links
  * carry this instead of the embed JWT — an HTML artifact read by its token
  * runs script under `sandbox allow-scripts`, and a page can read its own
- * URL, so the JWT must never be in one. The path is parsed as `isUiAsset`
- * parses it, so a path that resolves elsewhere does not pass.
+ * URL, so the JWT must never be in one.
+ *
+ * And a read of this lab's published package CATALOG (`/packages/catalog`)
+ * or one of its archives (`/packages/:publisher/:name/archive`) carrying a
+ * CATALOG TOKEN (strut plans/marketplace.md §12.1): what a workspace's
+ * strut that subscribes to the org's central strut holds — hive mints it
+ * here with `POST /publisher/tokens` — worth the packages and nothing else.
+ *
+ * The path is parsed as `isUiAsset` parses it, so a path that resolves
+ * elsewhere does not pass.
  */
-function isTokenFileRead(req: Request): boolean {
+function isTokenRead(req: Request): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   try {
     const url = new URL(`http://localhost${req.url}`);
     if (!url.searchParams.has("t")) return false;
-    return /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) || /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname);
+    return (
+      /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) ||
+      /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname) ||
+      /^\/packages\/(?:catalog|[^/]+\/[^/]+\/archive)$/.test(url.pathname)
+    );
   } catch {
     return false;
   }
