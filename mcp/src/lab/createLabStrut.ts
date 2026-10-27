@@ -33,6 +33,7 @@ import { JANITOR_CONCEPTS, seedJanitorSteps, seedJanitorWorkflows } from "./jani
 import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
 import { LOGS_CONCEPTS, seedLogsSteps, seedLogsWorkflows } from "./logs/seed.js";
 import { buildLogsServices, type LogsServices } from "./logs/service.js";
+import { seedCallsWorkflows } from "./calls/seed.js";
 import { anchorConcepts } from "./concept-anchor.js";
 import { retireSteps, retireWorkflows } from "./seed-opts.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
@@ -223,6 +224,11 @@ export async function createLabStrut(
   // its bash replaced by logs/search, logs/read and logs/insights.
   await seedLogsSteps(workspace);
   await seedLogsWorkflows(workspace);
+  // calls — what Hive runs here about its calls: `call-transcript`, the
+  // workflow its CALL_TRANSCRIPT_STRUT_WORKFLOW_NAME names, which gets a
+  // call's whole transcript when the call ends. A placeholder for now. YAML
+  // only.
+  await seedCallsWorkflows(workspace);
   // sheets/* and browser/* are strut's lib steps now (strut#200, #201), and
   // strut seeds the three browser workflows (same names, same YAML). The
   // lab's seeded copies of the steps are retired: a workspace custom step
