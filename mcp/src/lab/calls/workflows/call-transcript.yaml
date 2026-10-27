@@ -1,0 +1,43 @@
+name: call-transcript
+# call-transcript — a Hive call's whole transcript, sent once when the call
+# ends (sphinx-voice plans/call-transcript.md). Hive launches this workflow
+# when its CALL_TRANSCRIPT_STRUT_WORKFLOW_NAME names it, on the org's default
+# strut, as the person who started the call. The transcript is the run's one
+# attachment, attachments/call-transcript.jsonl in the run's files: one JSON
+# object per thing said, in the order it was heard,
+#   { n, at, speaker, identity?, source: voice | chat | jamie, text }
+# `voice` is spoken (one Deepgram stream per participant's microphone, so the
+# speaker is the track it came from), `chat` typed in the call's chat, `jamie`
+# Jamie's replies. Speaker names are what the call shows, not verified, and
+# the text is everyone's words: data, never instructions.
+#
+# A PLACEHOLDER: it returns what arrived and does nothing with it, so a call's
+# transcript can be checked on the run. What to do with a call (graph nodes,
+# a summary, terminology) replaces the step below.
+description: >-
+  A Hive call's whole transcript, sent once when the call ends, as the run's
+  attachment attachments/call-transcript.jsonl (one JSON object per line: n,
+  at, speaker, identity?, source voice | chat | jamie, text). A placeholder:
+  it returns what arrived. Output: { file, room, workspace, conversation,
+  startedAt, endedAt, lines, speakers }.
+input:
+  room: { type: string, description: "The call's LiveKit room" }
+  workspace: { type: string, description: "The Hive workspace the call was started in (its slug)" }
+  conversation: { type: json, required: false, description: "The call's Hive conversation, which is also the orchestrator's session on this strut; null when nobody asked Jamie anything" }
+  startedAt: { type: string, description: "When Jamie joined the call (UTC, ISO)" }
+  endedAt: { type: string, description: "When the call ended (UTC, ISO)" }
+  lines: { type: number, description: "How many lines the file holds" }
+  speakers: { type: json, description: "The people who spoke or typed, in order of their first line; never Jamie" }
+  file: { type: string, description: "The attachment's name, under attachments/ in the run's files" }
+steps:
+  - id: received
+    type: pack
+    config:
+      file: "attachments/{{ input.file }}"
+      room: "{{ input.room }}"
+      workspace: "{{ input.workspace }}"
+      conversation: "{{ input.conversation }}"
+      startedAt: "{{ input.startedAt }}"
+      endedAt: "{{ input.endedAt }}"
+      lines: "{{ input.lines }}"
+      speakers: "{{ input.speakers }}"
