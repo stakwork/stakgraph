@@ -233,19 +233,21 @@ describe("labAuth", () => {
     assert.equal(res.status, 401);
   });
 
-  it("hands a run's or a job's file read carrying strut's file token through — strut judges it", async () => {
+  it("hands a file read, or a catalog read, carrying strut's own token through — strut judges it", async () => {
     for (const path of [
       "/lab/artifacts/123?t=abc",
       "/lab/artifacts/123/report/page.html?t=abc",
       "/lab/jobs/j-1/files?t=abc",
       "/lab/jobs/j-1/files/plan.md?t=abc",
+      "/lab/packages/catalog?t=abc",
+      "/lab/packages/acme/linear/archive?digest=sha256:0&t=abc",
     ]) {
       const res = await get(port, path);
       assert.equal(res.status, 200, path);
       assert.equal(JSON.parse(res.body).actor, null, path);
     }
-    // A read only, under those two scopes only, with ?t= only — and never
-    // a path that resolves elsewhere.
+    // A read only, of those routes only, with ?t= only — and never a path
+    // that resolves elsewhere.
     for (const [path, method] of [
       ["/lab/artifacts/123/page.html", "GET"],
       ["/lab/artifacts/123/page.html?t=abc", "POST"],
@@ -253,6 +255,12 @@ describe("labAuth", () => {
       ["/lab/workflows/x/runs/1/events?t=abc", "GET"],
       ["/lab/artifacts/123/../../secrets?t=abc", "GET"],
       ["/lab/jobs/j-1/holds?t=abc", "GET"],
+      ["/lab/packages?t=abc", "GET"],
+      ["/lab/packages/catalog?t=abc", "POST"],
+      ["/lab/packages/acme/linear?t=abc", "GET"],
+      ["/lab/packages/acme/linear/archive/x?t=abc", "GET"],
+      ["/lab/packages/../workflows?t=abc", "GET"],
+      ["/lab/packages/catalog", "GET"],
     ] as const) {
       const res = await get(port, path, {}, method);
       assert.equal(res.status, 401, `${method} ${path}`);
