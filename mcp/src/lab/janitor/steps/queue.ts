@@ -1,4 +1,4 @@
-import { z, defineStep, openGraphBackend, type StepContext, type StrutCapabilities } from "strut";
+import { z, defineStep, type StepContext, type StrutCapabilities, type Neo4jBackend } from "strut";
 
 /**
  * janitor/queue — which nodes this janitor run reviews. Code picks them, not
@@ -36,23 +36,17 @@ import { z, defineStep, openGraphBackend, type StepContext, type StrutCapabiliti
  * names. Nothing is reported as accessed: a listing is not a node the caller
  * named (the agent's own reads are its tool calls').
  *
- * `graphCtx` is inlined per file, like plan.ts (seeded steps import only "strut").
+ * `graphCtx` is the deployment's graph as strut wires it onto the services
+ * bag (`ctx.services.graph`, what the `graph/*` steps read through) —
+ * never opened from env here and never closed: it is the process's one
+ * connection (2026-10-28, swarm38: a step that opened the graph and closed
+ * it took the whole deployment down with "Pool is closed").
  */
-async function graphCtx(ctx: StepContext<StrutCapabilities>) {
-  const secrets = ctx.services?.secrets;
-  const uri = (await secrets?.get("NEO4J_URI")) || `bolt://${(await secrets?.get("NEO4J_HOST")) || "localhost:7687"}`;
-  const emb = ((await secrets?.get("STRUT_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
-  const ont = ((await secrets?.get("STRUT_GRAPH_SEED_ONTOLOGY")) ?? "").toLowerCase();
-  return openGraphBackend(
-    {
-      uri,
-      user: (await secrets?.get("NEO4J_USER")) || "neo4j",
-      password: (await secrets?.get("NEO4J_PASSWORD")) || "testtest",
-      namespace: (await secrets?.get("STRUT_GRAPH_NAMESPACE")) || "default",
-      database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
-    },
-    { embeddings: !["off", "0", "false"].includes(emb), seedOntology: ["1", "true", "on"].includes(ont) },
-  );
+function graphCtx(ctx: StepContext<StrutCapabilities>): Neo4jBackend {
+  const g = ctx.services?.graph;
+  if (!g) throw new Error("no_graph: no graph on the services bag (ctx.services.graph)");
+  if (g.kind !== "neo4j") throw new Error(`no_graph: these reads are Cypher over bolt; this graph is ${g.kind}`);
+  return g;
 }
 
 type Bolt = { bolt: { run(q: string, p?: Record<string, unknown>): Promise<Array<Record<string, unknown>>> } };
@@ -255,7 +249,7 @@ export default defineStep({
   }),
   output: z.any(),
   async run(cfg, ctx) {
-    const b = await graphCtx(ctx as StepContext<StrutCapabilities>);
+    const b = graphCtx(ctx as StepContext<StrutCapabilities>);
     const read = await readSubtree(b, cfg.start_ref_id, cfg.node_type, cfg.max_depth, cfg.max_nodes + 1);
     const truncated = read.length > cfg.max_nodes;
     const all = placeTree(read, cfg.start_ref_id);

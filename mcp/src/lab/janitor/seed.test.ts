@@ -457,8 +457,8 @@ describe("graph-janitor workflow + builder section (live graph, fake agent)", { 
       },
     });
     const dataDir = join(root, "data");
-    // The graph steps read their connection through the secrets capability (store → env): hand it the test DB.
-    services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
+    // The graph steps read the backend createStrut puts on the bag (`services.graph`): hand them the test DB's.
+    services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")), graph: ws.graph };
     run = (input) => runWorkflow(flow, input, { ...registry, agent } as typeof registry, { services });
   });
   after(async () => {
@@ -637,7 +637,7 @@ describe("graph-janitor apply + revert (live graph, fake agent)", { skip: !URI }
     });
     registry = { ...registry, agent } as typeof registry;
     const dataDir = join(root, "data");
-    services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")) };
+    services = { ...standardServices({ secretsSource: env, dataDir }), artifacts: fileArtifactsCapability(join(dataDir, "artifacts")), graph: ws.graph };
     const visited = NAMES.filter((n) => n !== "Overfit Concept Janitor").map((n) => ({ ref_id: ids[n], name: n, node_type: "Concept" }));
     const f = (name: string, action: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ ref_id: ids[name], name, issue: "vague", problem: "p", evidence: "x", suggestion: "s", severity: "medium", action, ...extra });
     agentAnswer = () => ({

@@ -1,4 +1,4 @@
-import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, type StrutCapabilities } from "strut";
+import { z, defineStep, withAccessedNodes, type StepContext, type StrutCapabilities, type Neo4jBackend } from "strut";
 
 /**
  * janitor/plan — the gate between what the janitor agent PROPOSES and what
@@ -39,24 +39,17 @@ import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, t
  * replace_text that names no property gets the one allowed property where
  * `find` occurs exactly once; none or several is refused.
  *
- * `graphCtx` is strut's `graph/*` preamble, inlined (seeded steps import
- * only "strut"): the same config and options, so the same cached backend.
+ * `graphCtx` is the deployment's graph as strut wires it onto the services
+ * bag (`ctx.services.graph`, what the `graph/*` steps read through) —
+ * never opened from env here and never closed: it is the process's one
+ * connection (2026-10-28, swarm38: a step that opened the graph and closed
+ * it took the whole deployment down with "Pool is closed").
  */
-async function graphCtx(ctx: StepContext<StrutCapabilities>) {
-  const secrets = ctx.services?.secrets;
-  const uri = (await secrets?.get("NEO4J_URI")) || `bolt://${(await secrets?.get("NEO4J_HOST")) || "localhost:7687"}`;
-  const emb = ((await secrets?.get("STRUT_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
-  const ont = ((await secrets?.get("STRUT_GRAPH_SEED_ONTOLOGY")) ?? "").toLowerCase();
-  return openGraphBackend(
-    {
-      uri,
-      user: (await secrets?.get("NEO4J_USER")) || "neo4j",
-      password: (await secrets?.get("NEO4J_PASSWORD")) || "testtest",
-      namespace: (await secrets?.get("STRUT_GRAPH_NAMESPACE")) || "default",
-      database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
-    },
-    { embeddings: !["off", "0", "false"].includes(emb), seedOntology: ["1", "true", "on"].includes(ont) },
-  );
+function graphCtx(ctx: StepContext<StrutCapabilities>): Neo4jBackend {
+  const g = ctx.services?.graph;
+  if (!g) throw new Error("no_graph: no graph on the services bag (ctx.services.graph)");
+  if (g.kind !== "neo4j") throw new Error(`no_graph: these reads are Cypher over bolt; this graph is ${g.kind}`);
+  return g;
 }
 
 /** A node as the graph holds it NOW — with the system properties the read steps strip. */
@@ -499,7 +492,7 @@ export default defineStep({
     if (cfg.mandate_ref_id) protect.add(cfg.mandate_ref_id);
     const ids = findings.flatMap((f) => [f?.ref_id, f?.action?.new_parent_ref_id]).filter((r): r is string => typeof r === "string" && r.length > 0);
     const c = ctx as StepContext<StrutCapabilities>;
-    const live = ids.length ? await readLive(await graphCtx(c), ids) : new Map<string, LiveNode>();
+    const live = ids.length ? await readLive(graphCtx(c), ids) : new Map<string, LiveNode>();
     const plan = planChanges(findings, live, {
       visited: (cfg.visited as Array<{ ref_id: string }>).filter((v) => v && typeof v.ref_id === "string"),
       targets: cfg.targets,
