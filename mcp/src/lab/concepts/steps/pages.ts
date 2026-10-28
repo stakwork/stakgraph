@@ -26,6 +26,20 @@ import type { ConceptServices } from "../services.js";
  * these names (`foreign`) is left alone and reported, never overwritten.
  * The first sweep after this lands finds no stamp, which is the migration.
  *
+ * WHAT A REPOSITORY PAGE IS MADE FROM. The doc files are the bootstrap's
+ * PICK — the files its agent named, from the clone it explored, as describing
+ * the repository as a whole (doc-files.ts), recorded on the repo in
+ * ConceptsMetadata — read at HEAD through the contents API (a clone exists
+ * only on that first run). A repository bootstrapped before the pick existed
+ * has no record, and falls back in order: the root listing matched against
+ * the common names (`docNames`, case-insensitive, any extension, the `docs/`
+ * folder too); and when that finds nothing README-like, the bootstrap's pick
+ * run ALONE on a fresh clone, once — its record, empty or not, stops the
+ * asking. Whatever the source, the repository's SHAPE is always read too:
+ * the manifests at the root (package.json, Cargo.toml, …) and the root
+ * listing itself, so a repository with no prose still gets a true page. All
+ * of it is deterministic once picked, which is what the hash rule needs.
+ *
  * The pages carry no `repo` property: every reader of features filters on
  * it (`getAllConcepts(repo)`, hive's list, `collect-for-eval`), so the two
  * new levels are invisible to all of them. Nodes and edges go through
@@ -34,15 +48,21 @@ import type { ConceptServices } from "../services.js";
  * sees them exactly as it sees a seeded page. The prompts are the calling
  * workflow's `params` (the experiment surface), never baked in here.
  *
- * Output: { repoPage, products, reparented, unparented?, usage }, each page
- * one of written | unchanged | edited | foreign | empty | skipped.
+ * Output: { repoPage, products, reparented, unparented?, docs: { source,
+ * files }, usage }, each page one of written | unchanged | edited | foreign |
+ * empty | skipped; `source` record | listing | identified | none.
  */
 
 export const STAMP_PREFIX = "lab/concepts/";
 export const PRODUCTS = "Products";
 const TYPE = "Concept";
 const EDGE = "PARENT_OF";
-const DEFAULT_DOC_FILES = ["README.md", "AGENTS.md", "CLAUDE.md"];
+/** The names a repository's docs go by, matched case-insensitively against the root listing, any extension. */
+const DEFAULT_DOC_NAMES = ["README", "AGENTS", "CLAUDE", "CONTRIBUTING", "ARCHITECTURE"];
+/** The manifests that say what a repository is when nothing else does: read whichever the root holds, head only. */
+const MANIFESTS = ["package.json", "Cargo.toml", "pyproject.toml", "go.mod", "Gemfile", "composer.json", "pom.xml", "build.gradle", "setup.py", "requirements.txt"];
+const ROOT_LISTING = "(root listing)";
+const LISTING_CAP = 200;
 /** The root's stamp before it has been written from its children: never a hash, so the first run with any child rewrites it. */
 const PENDING = "000000000000";
 /** What the root says until its children give it something to say. */
@@ -51,6 +71,16 @@ export const PRODUCTS_PLACEHOLDER: Page = { description: "What this workspace bu
 export interface DocFile {
   name: string;
   body: string;
+  /** `doc`: a file that describes the repository (the pick, or a listing match); `shape`: a manifest or the root listing. */
+  kind?: "doc" | "shape";
+}
+export type DocSource = "record" | "listing" | "identified" | "none";
+export interface DocResolution {
+  docs: DocFile[];
+  source: DocSource;
+  /** The doc files read (`kind: doc`), by path. */
+  files: string[];
+  usage?: Record<string, unknown>;
 }
 export interface FeatureLine {
   name: string;
@@ -153,9 +183,15 @@ export function sumUsage(list: Array<Record<string, unknown> | undefined>): Usag
 }
 
 export function repoPrompt(repoName: string, docs: DocFile[], features: FeatureLine[]): string {
+  const prose = docs.filter((d) => d.kind !== "shape").sort(byName);
+  const shape = docs.filter((d) => d.kind === "shape").sort(byName);
   const parts = [`Repository: ${repoName}`, "", "## The repository's own docs"];
-  if (docs.length) for (const d of [...docs].sort(byName)) parts.push("", `### ${d.name}`, "", d.body);
-  else parts.push("", "(none of the doc files were found at the repository root)");
+  if (prose.length) for (const d of prose) parts.push("", `### ${d.name}`, "", d.body);
+  else parts.push("", "(the repository has no file that describes it as a whole; go by its shape and its features)");
+  if (shape.length) {
+    parts.push("", "## Its shape");
+    for (const d of shape) parts.push("", `### ${d.name}`, "", d.body);
+  }
   parts.push("", "## Its features, as the knowledge graph has them", "");
   parts.push(features.length ? [...features].sort(byName).map((f) => `- ${f.name} — ${f.description}`).join("\n") : "(none yet)");
   return parts.join("\n");
@@ -214,36 +250,115 @@ async function childrenOf(graph: GraphBackend, ref: string): Promise<ChildPage[]
 }
 
 type Github = ReturnType<ConceptServices["github"]>;
+interface Entry {
+  name: string;
+  path: string;
+  type: string;
+}
 
-/** The doc files at HEAD through the contents API: a clone exists only for a brand-new repository. */
-async function readDocFiles(github: Github, owner: string, repo: string, files: string[], maxChars: number): Promise<DocFile[]> {
-  const out: DocFile[] = [];
-  for (const path of files) {
-    try {
-      const res = await github.rest.repos.getContent({ owner, repo, path });
-      const d = res.data as { type?: string; content?: string; encoding?: string };
-      if (Array.isArray(res.data) || d.type !== "file" || typeof d.content !== "string") continue;
-      const body = Buffer.from(d.content, d.encoding === "base64" ? "base64" : "utf8").toString("utf8");
-      out.push({ name: path, body: body.length > maxChars ? `${body.slice(0, maxChars)}\n\n[cut at ${maxChars} chars]` : body });
-    } catch (err) {
-      if ((err as { status?: number }).status === 404) continue;
-      throw err;
+const notFound = (err: unknown) => (err as { status?: number }).status === 404;
+
+/** A directory at HEAD through the contents API; null when it is not there (or not a directory). */
+async function listDir(github: Github, owner: string, repo: string, path: string): Promise<Entry[] | null> {
+  try {
+    const res = await github.rest.repos.getContent({ owner, repo, path });
+    if (!Array.isArray(res.data)) return null;
+    return res.data.map((e) => ({ name: String(e.name), path: String(e.path), type: String(e.type) }));
+  } catch (err) {
+    if (notFound(err)) return null;
+    throw err;
+  }
+}
+
+/** One file at HEAD, cut at `maxChars`; null when it is not there (or not a file). */
+async function readFile(github: Github, owner: string, repo: string, path: string, maxChars: number, kind: DocFile["kind"]): Promise<DocFile | null> {
+  try {
+    const res = await github.rest.repos.getContent({ owner, repo, path });
+    const d = res.data as { type?: string; content?: string; encoding?: string };
+    if (Array.isArray(res.data) || d.type !== "file" || typeof d.content !== "string") return null;
+    const body = Buffer.from(d.content, d.encoding === "base64" ? "base64" : "utf8").toString("utf8");
+    return { name: path, body: body.length > maxChars ? `${body.slice(0, maxChars)}\n\n[cut at ${maxChars} chars]` : body, kind };
+  } catch (err) {
+    if (notFound(err)) return null;
+    throw err;
+  }
+}
+
+/** The files among `entries` whose stem (the name without its last extension) is one of `stems`, case-insensitively, as paths. */
+export function matchDocNames(entries: Array<{ name: string; path?: string; type: string }>, stems: string[]): string[] {
+  const want = new Set(stems.map((s) => s.toLowerCase()));
+  return entries
+    .filter((e) => e.type === "file" && want.has(e.name.replace(/\.[^.]{1,8}$/, "").toLowerCase()))
+    .map((e) => e.path ?? e.name)
+    .sort();
+}
+
+/**
+ * What the repository's page is made from (the header's "WHAT A REPOSITORY
+ * PAGE IS MADE FROM"): the recorded pick, else the listing's matches, else —
+ * once — the bootstrap's pick run alone; and always the shape.
+ */
+async function resolveDocs(
+  services: ConceptServices,
+  github: Github,
+  owner: string,
+  repo: string,
+  token: string | undefined,
+  cfg: { docNames: string[]; maxDocChars: number; maxManifestChars: number; identify: boolean },
+): Promise<DocResolution> {
+  const repoName = `${owner}/${repo}`;
+  const root = await listDir(github, owner, repo, "");
+  let picked: string[];
+  let source: DocSource;
+  let usage: Record<string, unknown> | undefined;
+  const record = await services.storage.getDocFiles(repoName);
+  if (record !== null) {
+    picked = record;
+    source = "record";
+  } else {
+    picked = matchDocNames(root ?? [], cfg.docNames);
+    const docsDir = (root ?? []).find((e) => e.type === "dir" && e.name.toLowerCase() === "docs");
+    if (docsDir) picked.push(...matchDocNames((await listDir(github, owner, repo, docsDir.path)) ?? [], [...cfg.docNames, "INDEX"]));
+    source = picked.length ? "listing" : "none";
+    if (!picked.length && cfg.identify && root && typeof services.identifyDocs === "function") {
+      const r = await services.identifyDocs(owner, repo, token);
+      picked = r.docFiles;
+      usage = r.usage as unknown as Record<string, unknown>;
+      source = "identified";
     }
   }
-  return out;
+  const docs: DocFile[] = [];
+  for (const p of picked) {
+    const f = await readFile(github, owner, repo, p, cfg.maxDocChars, "doc");
+    if (f) docs.push(f);
+  }
+  if (root) {
+    for (const e of root) {
+      if (e.type !== "file" || !MANIFESTS.includes(e.name)) continue;
+      const f = await readFile(github, owner, repo, e.path, cfg.maxManifestChars, "shape");
+      if (f) docs.push(f);
+    }
+    const names = root.map((e) => (e.type === "dir" ? `${e.name}/` : e.name)).sort();
+    docs.push({ name: ROOT_LISTING, body: names.slice(0, LISTING_CAP).join("\n") + (names.length > LISTING_CAP ? `\n… ${names.length - LISTING_CAP} more` : ""), kind: "shape" });
+  }
+  return { docs, source, files: docs.filter((d) => d.kind === "doc").map((d) => d.name), ...(usage ? { usage } : {}) };
 }
 
 export default defineStep({
   type: "concepts/pages",
   description:
-    "The pages above a repository's feature Concepts: its own page (docs distilled from README / AGENTS.md / CLAUDE.md at HEAD) under a `Products` root (what the team builds), joined by PARENT_OF, every feature parented under the repository. Each page is rewritten only when the hash of what it is made from differs from the stamp on it; a page someone edited is left and reported. Required config: repoPageSystem, productsSystem — the calling workflow's `params`. Output: { repoPage, products, reparented, unparented?, usage }.",
+    "The pages above a repository's feature Concepts: its own page (distilled from the doc files the bootstrap named — else the root's README-like files, else a one-time pick on a clone — plus its manifests and root listing, at HEAD) under a `Products` root (what the team builds), joined by PARENT_OF, every feature parented under the repository. Each page is rewritten only when the hash of what it is made from differs from the stamp on it; a page someone edited is left and reported. Required config: repoPageSystem, productsSystem — the calling workflow's `params`. Output: { repoPage, products, reparented, unparented?, docs: { source, files }, usage }.",
   input: z.object({
     owner: z.string(),
     repo: z.string(),
-    /** The files at the repository root a page is distilled from, in order. */
-    docFiles: z.array(z.string()).default(DEFAULT_DOC_FILES),
-    /** Each file is cut here before it reaches the model. */
+    /** The names a repository's docs go by, for a repo with no recorded pick: matched against the root (and docs/) listing, case-insensitively, any extension. */
+    docNames: z.array(z.string()).default(DEFAULT_DOC_NAMES),
+    /** Each doc file is cut here before it reaches the model. */
     maxDocChars: z.number().int().positive().default(40_000),
+    /** Each manifest the same. */
+    maxManifestChars: z.number().int().positive().default(4_000),
+    /** With no recorded pick and nothing README-like at the root: clone and have the bootstrap's agent name the doc files, once. */
+    identify: z.boolean().default(true),
     repoPageSystem: z.string(),
     productsSystem: z.string(),
     /** The root page's name. `Products` everywhere but a test over a shared graph. */
@@ -260,9 +375,10 @@ export default defineStep({
 
     const repoName = `${cfg.owner}/${cfg.repo}`;
     const token = await services.secrets?.get("GITHUB_TOKEN");
-    const docs = await readDocFiles(services.github(token), cfg.owner, cfg.repo, cfg.docFiles, cfg.maxDocChars);
+    const resolved = await resolveDocs(services, services.github(token), cfg.owner, cfg.repo, token, cfg);
+    const docs = resolved.docs;
     const features = (await services.storage.getAllConcepts(repoName)).map((c) => ({ name: c.name, description: c.description ?? "", ref_id: c.ref_id }));
-    const usages: Array<Record<string, unknown> | undefined> = [];
+    const usages: Array<Record<string, unknown> | undefined> = [resolved.usage];
 
     // 1. The repository's page.
     const inputHash = repoInputHash(docs, features);
@@ -317,6 +433,6 @@ export default defineStep({
       }
     }
 
-    return { repoPage, products, reparented, ...(unparented.length ? { unparented } : {}), usage: sumUsage(usages) };
+    return { repoPage, products, reparented, ...(unparented.length ? { unparented } : {}), docs: { source: resolved.source, files: resolved.files }, usage: sumUsage(usages) };
   },
 });

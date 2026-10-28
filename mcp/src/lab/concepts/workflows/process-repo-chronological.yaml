@@ -56,16 +56,19 @@ steps:
 
   # The pages ABOVE the features (strut's plans/concept-tree.md): this
   # repository's own page under the `Products` root, every feature parented
-  # under it. A page is rewritten only when what it is made from changed —
-  # the doc files at HEAD and the features' names and descriptions; the
-  # root, its children's pages — told by the hash stamped on it, so most
-  # sweeps write nothing here. The prompts are params below.
+  # under it. The page is distilled from the doc files the bootstrap's agent
+  # named (recorded on the repo; for a repo bootstrapped before that, the
+  # root's README-like files, else a one-time pick on a clone) plus the
+  # repository's manifests and root listing, read at HEAD. Rewritten only
+  # when what it is made from changed — those files and the features' names
+  # and descriptions; the root, its children's pages — told by the hash
+  # stamped on it, so most sweeps write nothing here. Prompts are params.
   - id: pages
     type: concepts/pages
     config:
       owner: "{{ input.owner }}"
       repo: "{{ input.repo }}"
-      docFiles: "{{ params.docFiles }}"
+      docNames: "{{ params.docNames }}"
       repoPageSystem: "{{ params.repoPageSystem }}"
       productsSystem: "{{ params.productsSystem }}"
 
@@ -86,13 +89,14 @@ steps:
       repo: "{{ input.repo }}"
 
 # ── params: the pages above the features (the experiment surface) ───────────
-# `docFiles`: what a repository's page is distilled from, at HEAD, in order.
-# The two prompts answer with one `Description:` line (the page's one-liner,
-# what the root's list and the orchestrator read) and then the page.
+# `docNames`: for a repository with no recorded pick, the names its docs go
+# by — matched against the root (and docs/) listing, case-insensitively, any
+# extension. The two prompts answer with one `Description:` line (the page's
+# one-liner, what the root's list and the orchestrator read) and the page.
 params:
-  docFiles: [README.md, AGENTS.md, CLAUDE.md]
+  docNames: [README, AGENTS, CLAUDE, CONTRIBUTING, ARCHITECTURE]
   repoPageSystem: |-
-    You write the page a workspace's agents read before they touch a repository. You are given the repository's own docs (its README, AGENTS.md, CLAUDE.md — whichever it has) and the list of its features as the knowledge graph has them.
+    You write the page a workspace's agents read before they touch a repository. You are given the repository's own docs (its README, AGENTS.md, CLAUDE.md — whichever it has), its shape (the manifests at its root and the root listing), and the list of its features as the knowledge graph has them.
 
     Write for an agent that is about to work in it: what the repository is and is for, how it is run and tested, the shape of the code it must know, the conventions that matter, and where the full docs are (the files by path). Distill; never copy. Never list the features: they are listed beside the page. Markdown, at most 6000 characters, no preamble.
 

@@ -76,7 +76,14 @@ export interface ConceptServices {
     repoPath: string,
     promptConfig: { system: string; template: string },
     lookbackDays?: number,
-  ): Promise<{ concepts: Concept[]; usage: Usage }>;
+  ): Promise<{ concepts: Concept[]; usage: Usage; docFiles?: string[] }>;
+
+  /** Clone (or update) the repository and have the bootstrap's agent name
+   *  the files that describe it as a whole (doc-files.ts), recording the
+   *  pick on the repo. `concepts/pages` runs it once, for a repository
+   *  bootstrapped before the pick existed whose root holds nothing
+   *  README-like. */
+  identifyDocs(owner: string, repo: string, token?: string): Promise<{ docFiles: string[]; usage: Usage }>;
 
   /** Agentically generate documentation for a newly-created concept. */
   exploreConcept(concept: Concept, repoPath: string): Promise<void>;
@@ -191,7 +198,14 @@ export async function buildConceptServices(
         undefined,
         lookbackDays,
       );
-      return { concepts: result.features, usage: result.usage };
+      return { concepts: result.features, usage: result.usage, ...(result.docFiles ? { docFiles: result.docFiles } : {}) };
+    },
+
+    async identifyDocs(owner, repo, token) {
+      const { cloneOrUpdateRepo } = await import("../../repo/clone.js");
+      const { identifyDocFiles } = await import("./bootstrap.js");
+      const repoPath = await cloneOrUpdateRepo(`https://github.com/${owner}/${repo}`, undefined, token || envToken);
+      return identifyDocFiles(owner, repo, repoPath, storage);
     },
 
     async exploreConcept(concept, repoPath) {

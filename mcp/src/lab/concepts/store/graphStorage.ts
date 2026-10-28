@@ -800,6 +800,50 @@ export class GraphStorage extends Storage {
     }
   }
 
+  // The repository's doc files (doc-files.ts), beside the checkpoint.
+
+  async getDocFiles(repo: string): Promise<string[] | null> {
+    const session = this.resilientSession();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
+        RETURN m.docFiles as docFiles
+        `,
+        { namespace: "default", repo }
+      );
+      const raw = result.records[0]?.get("docFiles");
+      if (typeof raw !== "string") return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string") : null;
+    } catch (error) {
+      console.error("Error reading docFiles:", error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setDocFiles(repo: string, files: string[]): Promise<void> {
+    const session = this.resilientSession();
+    try {
+      const now = nowEpochMs();
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:ConceptsMetadata {namespace: $namespace, repo: $repo})
+        SET m.docFiles = $docFiles,
+            m.ref_id = COALESCE(m.ref_id, $refId),
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph),
+            m.updated_at = $dateAddedToGraph
+        RETURN m
+        `,
+        { namespace: "default", repo, docFiles: JSON.stringify(files), refId: uuidv4(), dateAddedToGraph: now }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
   // Themes - now per-repo
 
   async addThemes(repo: string, themes: string[]): Promise<void> {

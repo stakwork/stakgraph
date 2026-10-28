@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeNodeKey, closeGraphBackends } from "strut";
 import type { NodeSchema } from "strut";
+import { normalizeDocPaths } from "../doc-files.js";
 import pages, {
   PRODUCTS_PLACEHOLDER,
+  matchDocNames,
   parsePage,
   parseStamp,
   planPage,
@@ -74,12 +76,43 @@ describe("the model's answer", () => {
     assert.deepEqual(parsePage("# Title\n\nBody."), { description: "Title", docs: "# Title\n\nBody." });
   });
 
-  it("the prompts carry the docs and the features, sorted, and the children's pages", () => {
-    const p = repoPrompt("o/r", [{ name: "README.md", body: "readme" }], [{ name: "B", description: "bb" }, { name: "A", description: "aa" }]);
+  it("the prompts carry the docs, then the shape, then the features, sorted, and the children's pages", () => {
+    const p = repoPrompt(
+      "o/r",
+      [
+        { name: "package.json", body: "{}", kind: "shape" },
+        { name: "README.md", body: "readme", kind: "doc" },
+      ],
+      [
+        { name: "B", description: "bb" },
+        { name: "A", description: "aa" },
+      ],
+    );
     assert.match(p, /### README\.md\n\nreadme/);
+    assert.ok(p.indexOf("## The repository's own docs") < p.indexOf("## Its shape"), "docs before the shape");
+    assert.ok(p.indexOf("### package.json") > p.indexOf("## Its shape"));
     assert.ok(p.indexOf("- A — aa") < p.indexOf("- B — bb"));
-    assert.match(repoPrompt("o/r", [], []), /none of the doc files/);
+    assert.match(repoPrompt("o/r", [], []), /no file that describes it as a whole/);
     assert.match(productsPrompt([{ name: "o/r", description: "d", docs: "x" }]), /## o\/r\n\nd\n\nx/);
+  });
+
+  it("matchDocNames: a file whose stem is one of the names, any case, any extension; never a directory", () => {
+    const entries = [
+      { name: "Readme.rst", path: "Readme.rst", type: "file" },
+      { name: "AGENTS.md", path: "AGENTS.md", type: "file" },
+      { name: "readme", path: "docs/readme", type: "file" },
+      { name: "README.en.md", path: "README.en.md", type: "file" },
+      { name: "CLAUDE", path: "CLAUDE", type: "dir" },
+      { name: "index.ts", path: "index.ts", type: "file" },
+    ];
+    assert.deepEqual(matchDocNames(entries, ["README", "AGENTS", "CLAUDE"]), ["AGENTS.md", "Readme.rst", "docs/readme"]);
+  });
+
+  it("normalizeDocPaths: strings the clone holds as files, relative, no `..`, deduped, capped at 8", () => {
+    const exists = (p: string) => p !== "missing.md";
+    assert.deepEqual(normalizeDocPaths(["./README.md", "/docs/a.md", "docs/a.md", "../x.md", "missing.md", 7, " AGENTS.md "], exists), ["README.md", "docs/a.md", "AGENTS.md"]);
+    assert.deepEqual(normalizeDocPaths("README.md", exists), []);
+    assert.equal(normalizeDocPaths(Array.from({ length: 12 }, (_, i) => `d${i}.md`), () => true).length, 8);
   });
 
   it("sumUsage adds the five fields and ignores the rest", () => {
@@ -141,22 +174,54 @@ function fakeGraph() {
   return { graph, nodes, edges, byName };
 }
 
-function harness(opts: { files?: Record<string, string>; features?: Array<{ name: string; description: string; ref_id?: string }>; graph?: unknown } = {}) {
+function harness(
+  opts: {
+    files?: Record<string, string>;
+    features?: Array<{ name: string; description: string; ref_id?: string }>;
+    graph?: unknown;
+    /** The recorded pick, as the bootstrap left it: absent = never recorded. */
+    record?: string[];
+    /** What the one-time identify pass answers; absent = no such service. */
+    identify?: string[];
+  } = {},
+) {
   const calls: Array<{ system: string; prompt: string }> = [];
   const files = opts.files ?? {};
+  const records = new Map<string, string[]>();
+  if (opts.record) records.set("o/r", opts.record);
+  const identified: string[] = [];
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  // The contents API: a path that is a file comes back base64; a directory (the root is "") as its entries.
+  const getContent = async ({ path }: { path: string }) => {
+    if (files[path] != null) return { data: { type: "file", encoding: "base64", content: Buffer.from(files[path]!).toString("base64") } };
+    const prefix = path ? `${path}/` : "";
+    const names = new Map<string, string>();
+    for (const k of Object.keys(files)) {
+      if (!k.startsWith(prefix)) continue;
+      const rest = k.slice(prefix.length);
+      const [head] = rest.split("/");
+      names.set(head!, rest.includes("/") ? "dir" : "file");
+    }
+    if (!names.size) throw notFound();
+    return { data: [...names].map(([name, type]) => ({ name, path: `${prefix}${name}`, type })) };
+  };
   const services = {
     graph: opts.graph,
-    storage: { getAllConcepts: async () => opts.features ?? [] },
-    github: () => ({
-      rest: {
-        repos: {
-          getContent: async ({ path }: { path: string }) => {
-            if (files[path] == null) throw Object.assign(new Error("not found"), { status: 404 });
-            return { data: { type: "file", encoding: "base64", content: Buffer.from(files[path]!).toString("base64") } };
+    storage: {
+      getAllConcepts: async () => opts.features ?? [],
+      getDocFiles: async (repo: string) => records.get(repo) ?? null,
+      setDocFiles: async (repo: string, list: string[]) => void records.set(repo, list),
+    },
+    github: () => ({ rest: { repos: { getContent } } }),
+    ...(opts.identify
+      ? {
+          identifyDocs: async (owner: string, repo: string) => {
+            identified.push(`${owner}/${repo}`);
+            records.set(`${owner}/${repo}`, opts.identify!);
+            return { docFiles: opts.identify!, usage: { input: 100, output: 1, total: 101 } };
           },
-        },
-      },
-    }),
+        }
+      : {}),
     summarizer: {
       generatePage: async (a: { system: string; prompt: string }) => {
         calls.push(a);
@@ -166,7 +231,7 @@ function harness(opts: { files?: Record<string, string>; features?: Array<{ name
   };
   const cfg = (over: Record<string, unknown> = {}) => pages.input.parse({ owner: "o", repo: "r", repoPageSystem: "repo", productsSystem: "products", ...over });
   const run = (over?: Record<string, unknown>) => pages.run(cfg(over), { services } as never);
-  return { run, calls, files };
+  return { run, calls, files, records, identified };
 }
 
 describe("concepts/pages over a fake graph", () => {
@@ -189,15 +254,19 @@ describe("concepts/pages over a fake graph", () => {
     ];
     const h = harness({ graph: g.graph, files: { "README.md": "# r\n\nA repo.", "AGENTS.md": "Work like this." }, features });
 
-    // 1. First sweep: the migration — both pages written, every feature parented.
+    // 1. First sweep: the migration — both pages written, every feature parented. No recorded pick (a repo
+    //    bootstrapped before it existed): the root listing finds the docs, and the shape rides along.
     let out = await h.run();
     assert.equal(out.repoPage, "written");
     assert.equal(out.products, "written");
     assert.equal(out.reparented, 2);
+    assert.deepEqual(out.docs, { source: "listing", files: ["AGENTS.md", "README.md"] });
     assert.deepEqual(out.usage, { input: 20, cache_read: 0, cache_write: 0, output: 10, total: 30 });
     assert.equal(h.calls.length, 2);
     assert.match(h.calls[0]!.prompt, /### AGENTS\.md\n\nWork like this\./);
+    assert.match(h.calls[0]!.prompt, /### \(root listing\)\n\nAGENTS\.md\nREADME\.md/);
     assert.match(h.calls[0]!.prompt, /- Auth — log in\n- Chat — talk/);
+    assert.deepEqual(h.identified, [], "the listing found prose: no clone, no agent");
     assert.match(h.calls[1]!.prompt, /## o\/r\n\nrepo page\./, "the root reads its children's pages");
     const repo = g.byName("o/r");
     assert.equal(repo.props["id"], "o/r");
@@ -227,15 +296,21 @@ describe("concepts/pages over a fake graph", () => {
     out = await h.run();
     assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "written", 6]);
 
-    // 5. Someone edited the root in the graph: left alone, reported; the repo page is unaffected.
+    // 5. The repository's shape is an input too: a new top-level folder rewrites the page.
+    h.files["kit/package.json"] = "{}";
+    out = await h.run();
+    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "written", 8]);
+    assert.match(h.calls[6]!.prompt, /\(root listing\)\n\nAGENTS\.md\nREADME\.md\nkit\//);
+
+    // 6. Someone edited the root in the graph: left alone, reported; the repo page is unaffected.
     g.byName("Products").props["docs"] = "A person's rewrite.";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["unchanged", "edited", 6]);
+    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["unchanged", "edited", 8]);
     assert.equal(g.byName("Products").props["docs"], "A person's rewrite.");
     // …and stays so even when the inputs move on.
     h.files["AGENTS.md"] = "Work like THIS.";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "edited", 7]);
+    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "edited", 9]);
   });
 
   it("a page under our name that is not ours is foreign: left alone, still a parent", async () => {
@@ -249,13 +324,68 @@ describe("concepts/pages over a fake graph", () => {
     assert.equal(g.edges.filter((e) => e.s === g.byName("Products").ref_id).length, 1, "the repo page hangs under it all the same");
   });
 
-  it("a repository with no docs and no features gets no page; the root is a placeholder until a child gives it something to say", async () => {
+  it("a repository the API cannot even list, with no features, gets no page; the root is a placeholder until a child gives it something to say", async () => {
     const g = fakeGraph();
     const h = harness({ graph: g.graph });
     const out = await h.run();
     assert.deepEqual([out.repoPage, out.products, out.reparented, h.calls.length], ["empty", "empty", 0, 0]);
+    assert.deepEqual(out.docs, { source: "none", files: [] });
     assert.equal(g.byName("Products").props["description"], PRODUCTS_PLACEHOLDER.description);
     assert.equal(g.byName("o/r"), undefined);
+  });
+
+  it("the recorded pick wins over the listing: the bootstrap's doc files are what the page is made from", async () => {
+    const g = fakeGraph();
+    const h = harness({
+      graph: g.graph,
+      files: { "README.md": "the readme", "docs/overview.md": "the overview", "docs/changelog.md": "noise", "package.json": "{\"name\":\"r\"}" },
+      record: ["docs/overview.md", "gone.md"],
+      identify: ["never"],
+    });
+    const out = await h.run();
+    assert.deepEqual(out.docs, { source: "record", files: ["docs/overview.md"] }, "a recorded path that is gone is skipped, not an error");
+    const prompt = h.calls[0]!.prompt;
+    assert.match(prompt, /### docs\/overview\.md\n\nthe overview/);
+    assert.doesNotMatch(prompt, /the readme/, "the README is not read: the pick is the pick");
+    assert.match(prompt, /## Its shape[\s\S]*### package\.json\n\n\{"name":"r"\}/, "the manifests always ride along");
+    assert.deepEqual(h.identified, []);
+  });
+
+  it("no record and nothing README-like: the bootstrap's pick runs alone, once, and its record stops the asking", async () => {
+    const g = fakeGraph();
+    const h = harness({
+      graph: g.graph,
+      files: { "src/index.ts": "export {}", "Cargo.toml": "[package]\nname = \"r\"", "notes/guide.md": "the guide" },
+      identify: ["notes/guide.md"],
+    });
+    let out = await h.run();
+    assert.deepEqual(out.docs, { source: "identified", files: ["notes/guide.md"] });
+    assert.deepEqual(h.identified, ["o/r"]);
+    assert.equal(out.usage.input, 120, "what the pass cost is in the step's usage, with the two pages'");
+    assert.match(h.calls[0]!.prompt, /### notes\/guide\.md\n\nthe guide/);
+    assert.deepEqual(h.records.get("o/r"), ["notes/guide.md"]);
+    out = await h.run();
+    assert.deepEqual([out.docs.source, out.repoPage, h.identified.length], ["record", "unchanged", 1], "the second sweep reads the record");
+  });
+
+  it("the pick that found nothing is still a record: the page comes from the shape, and nobody clones again", async () => {
+    const g = fakeGraph();
+    const h = harness({ graph: g.graph, files: { "src/index.ts": "export {}", "package.json": "{\"name\":\"bare\"}" }, identify: [] });
+    let out = await h.run();
+    assert.deepEqual([out.docs.source, out.repoPage, h.identified.length], ["identified", "written", 1]);
+    assert.match(h.calls[0]!.prompt, /no file that describes it as a whole[\s\S]*### package\.json/);
+    out = await h.run();
+    assert.deepEqual([out.docs.source, out.repoPage, h.identified.length], ["record", "unchanged", 1]);
+    assert.deepEqual(h.records.get("o/r"), []);
+  });
+
+  it("with `identify: false`, or no such service, the page is written from the shape alone", async () => {
+    const g = fakeGraph();
+    const h = harness({ graph: g.graph, files: { "src/index.ts": "export {}", "go.mod": "module r" }, identify: ["notes/x.md"] });
+    const out = await h.run({ identify: false });
+    assert.deepEqual([out.docs.source, out.repoPage, h.identified.length], ["none", "written", 0]);
+    const h2 = harness({ graph: fakeGraph().graph, files: { "go.mod": "module r" } });
+    assert.deepEqual((await h2.run()).docs, { source: "none", files: [] });
   });
 
   it("a feature with no ref_id is reported, never parented", async () => {

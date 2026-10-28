@@ -4,6 +4,7 @@ import { generateSlug, makeRepoId } from "./store/utils.js";
 import { get_context } from "../../repo/agent.js";
 import { normalizeUsage } from "../../aieo/src/usage.js";
 import { DOC_GUIDELINES } from "./llm.js";
+import { DOC_FILES_DESCRIPTION, IDENTIFY_DOCS_PROMPT, IDENTIFY_DOCS_SCHEMA, IDENTIFY_DOCS_SYSTEM, normalizeDocPaths } from "./doc-files.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -15,6 +16,8 @@ const DEFAULT_BOOTSTRAP_LOOKBACK_DAYS = 10;
 export interface BootstrapResult {
   features: Concept[];
   usage: Usage;
+  /** The files the agent named as describing the repository as a whole (doc-files.ts), recorded on the repo; absent when the prompt did not ask. */
+  docFiles?: string[];
 }
 
 /**
@@ -182,9 +185,50 @@ const BOOTSTRAP_SCHEMA = {
         required: ["name", "description", "summary", "files"],
       },
     },
+    docFiles: {
+      type: "array",
+      items: { type: "string" },
+      description: DOC_FILES_DESCRIPTION,
+    },
   },
   required: ["features"],
 };
+
+/** A path the clone holds as a regular file. */
+function fileInClone(repoPath: string): (p: string) => boolean {
+  return (p) => {
+    try {
+      return fs.statSync(path.join(repoPath, p)).isFile();
+    } catch {
+      return false;
+    }
+  };
+}
+
+/**
+ * Name the files that describe the repository as a whole, from a clone, and
+ * record them — the bootstrap's own pick, run ALONE for a repository
+ * bootstrapped before the pick existed whose root holds no README-like file
+ * (`concepts/pages` asks once; the record, empty or not, stops it asking
+ * again). Returns what was recorded and what it cost.
+ */
+export async function identifyDocFiles(
+  owner: string,
+  repo: string,
+  repoPath: string,
+  storage: Storage,
+): Promise<{ docFiles: string[]; usage: Usage }> {
+  const repoId = `${owner}/${repo}`;
+  const result = await get_context(IDENTIFY_DOCS_PROMPT, repoPath, {
+    schema: IDENTIFY_DOCS_SCHEMA,
+    systemOverride: IDENTIFY_DOCS_SYSTEM,
+    isolatedContext: true,
+  });
+  const docFiles = normalizeDocPaths((result.content as { docFiles?: unknown } | undefined)?.docFiles, fileInClone(repoPath));
+  await storage.setDocFiles(repoId, docFiles);
+  console.log(`   📄 Doc files for ${repoId}: ${docFiles.length ? docFiles.join(", ") : "none"}`);
+  return { docFiles, usage: result.usage };
+}
 
 /**
  * Bootstrap a brand-new repo by exploring the codebase and creating
@@ -237,7 +281,19 @@ export async function bootstrapConcepts(
       summary: string;
       files: string[];
     }>;
+    docFiles?: unknown;
   };
+
+  // The files that describe the repository as a whole, when the prompt asked
+  // for them: recorded on the repo (an empty list too — "looked, found none"),
+  // so `concepts/pages` distils the repository's page from exactly these on
+  // every sweep. A path the clone does not hold as a file is dropped.
+  let docFiles: string[] | undefined;
+  if (Array.isArray(decision.docFiles)) {
+    docFiles = normalizeDocPaths(decision.docFiles, fileInClone(repoPath));
+    await storage.setDocFiles(repoId, docFiles);
+    console.log(`   📄 Doc files: ${docFiles.length ? docFiles.join(", ") : "none"}`);
+  }
 
   // 3. Create and save features
   const now = new Date();
@@ -289,6 +345,7 @@ export async function bootstrapConcepts(
   return {
     features,
     usage: result.usage,
+    ...(docFiles ? { docFiles } : {}),
   };
 }
 
