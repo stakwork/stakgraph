@@ -17,6 +17,11 @@ const GATED = [
   "graph/delete-node",
 ];
 
+/** What strut's own template gates, ahead of the lab's delta: `app/grant`,
+ *  a person's yes to an app talking to this assistant (strut
+ *  src/apps/grants.ts). */
+const STRUT_GATED = ["app/grant"];
+
 interface Params {
   tools: string[];
   approve: string[];
@@ -28,10 +33,10 @@ async function merged(): Promise<{ name: string; params: Params; steps: Array<{ 
 }
 
 describe("orchestrator seed (the lab's delta on strut's template)", () => {
-  it("gates exactly the seven graph writes, every one also granted", async () => {
+  it("gates exactly the seven graph writes (beside strut's own), every one also granted", async () => {
     const { name, params } = await merged();
     assert.equal(name, ORCHESTRATOR_WORKFLOW);
-    assert.deepEqual([...params.approve].sort(), [...GATED].sort());
+    assert.deepEqual([...params.approve].sort(), [...STRUT_GATED, ...GATED].sort());
     assert.deepEqual([...GRAPH_WRITES].sort(), [...GATED].sort());
     assert.deepEqual(ORCHESTRATOR_SEED.approve, [...GRAPH_WRITES]);
     // The agent step warns and gates nothing for an `approve` type outside
@@ -46,7 +51,7 @@ describe("orchestrator seed (the lab's delta on strut's template)", () => {
     // No glob: `graph/*` would hand out create-schema and edit-edge ungated.
     assert.deepEqual(params.tools.filter((t) => t.includes("*")), []);
     // Strut's own grants survive the merge.
-    for (const t of ["memory/recall", "job/start", "job/continue", "job/list"]) assert.ok(params.tools.includes(t), `strut's ${t} dropped`);
+    for (const t of ["job/start", "job/continue", "job/list", "app/grant"]) assert.ok(params.tools.includes(t), `strut's ${t} dropped`);
     // What the orchestrator must NOT have: the job agent's shell-bearing
     // surfaces, authoring, and strut-only ungated writes.
     for (const t of ["graph/create-schema", "graph/edit-edge", "meta/publish-workflow", "meta/create-step", "pod/*"]) {
