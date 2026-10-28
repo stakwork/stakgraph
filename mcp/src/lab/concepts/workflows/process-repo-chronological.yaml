@@ -55,7 +55,7 @@ steps:
       conceptIds: "{{ collect.modifiedConceptIds }}"
 
   # The pages ABOVE the features (strut's plans/concept-tree.md): this
-  # repository's own page under the `Products` root, every feature parented
+  # repository's own page under the `Codebase` root, every feature parented
   # under it. The page is distilled from the doc files the bootstrap's agent
   # named (recorded on the repo; for a repo bootstrapped before that, the
   # root's README-like files, else a one-time pick on a clone) plus the
@@ -70,7 +70,7 @@ steps:
       repo: "{{ input.repo }}"
       docNames: "{{ params.docNames }}"
       repoPageSystem: "{{ params.repoPageSystem }}"
-      productsSystem: "{{ params.productsSystem }}"
+      codebaseSystem: "{{ params.codebaseSystem }}"
 
   # The sweep's spend (every change's decision, then the summaries, then the
   # pages), onto the repo's running total — `cumulativeUsage` on GET
@@ -101,7 +101,7 @@ params:
     Write for an agent that is about to work in it: what the repository is and is for, how it is run and tested, the shape of the code it must know, the conventions that matter, and where the full docs are (the files by path). Distill; never copy. Never list the features: they are listed beside the page. Markdown, at most 6000 characters, no preamble.
 
     Answer with one line `Description: <one line on what the repository is>`, then a blank line, then the page.
-  productsSystem: |-
+  codebaseSystem: |-
     You write the overview a workspace's assistant reads to place a request: what this team builds. You are given one page per repository.
 
     Say what the product is, how the repositories relate — which is the product, which the infrastructure, which serves which — and which repository a kind of request is about, in the words a person would use for it. Never list the repositories: they are listed beside the page. Markdown, at most 6000 characters, no preamble.

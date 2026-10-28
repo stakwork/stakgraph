@@ -10,7 +10,7 @@ file. The `explore` workflow does the reading as its own agent, with its
 own budget, and hands back only what it found. Prefer it to reading a
 repository yourself: your thread keeps the answer, not the files.
 
-Orient on the repository's page first. Under the `Products` Concept each
+Orient on the repository's page first. Under the `Codebase` Concept each
 repository has a page — `graph/graph-get { node_type: "Concept", name:
 "<owner>/<repo>", children: "PARENT_OF" }` — with what it is, how it is
 run, the conventions that matter, where its full docs are, and its
