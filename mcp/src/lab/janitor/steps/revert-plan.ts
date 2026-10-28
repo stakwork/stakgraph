@@ -1,4 +1,4 @@
-import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, type StrutCapabilities } from "strut";
+import { z, defineStep, withAccessedNodes, type StepContext, type StrutCapabilities, type Neo4jBackend } from "strut";
 
 /**
  * janitor/revert-plan — the inverse of an apply run's `applied.json`, as a
@@ -11,24 +11,17 @@ import { z, defineStep, openGraphBackend, withAccessedNodes, type StepContext, t
  * artifacts. The revert run's own readback writes its own `applied.json`,
  * so a revert can itself be reverted.
  *
- * `graphCtx` is strut's `graph/*` preamble, inlined (seeded steps import
- * only "strut").
+ * `graphCtx` is the deployment's graph as strut wires it onto the services
+ * bag (`ctx.services.graph`, what the `graph/*` steps read through) —
+ * never opened from env here and never closed: it is the process's one
+ * connection (2026-10-28, swarm38: a step that opened the graph and closed
+ * it took the whole deployment down with "Pool is closed").
  */
-async function graphCtx(ctx: StepContext<StrutCapabilities>) {
-  const secrets = ctx.services?.secrets;
-  const uri = (await secrets?.get("NEO4J_URI")) || `bolt://${(await secrets?.get("NEO4J_HOST")) || "localhost:7687"}`;
-  const emb = ((await secrets?.get("STRUT_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
-  const ont = ((await secrets?.get("STRUT_GRAPH_SEED_ONTOLOGY")) ?? "").toLowerCase();
-  return openGraphBackend(
-    {
-      uri,
-      user: (await secrets?.get("NEO4J_USER")) || "neo4j",
-      password: (await secrets?.get("NEO4J_PASSWORD")) || "testtest",
-      namespace: (await secrets?.get("STRUT_GRAPH_NAMESPACE")) || "default",
-      database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
-    },
-    { embeddings: !["off", "0", "false"].includes(emb), seedOntology: ["1", "true", "on"].includes(ont) },
-  );
+function graphCtx(ctx: StepContext<StrutCapabilities>): Neo4jBackend {
+  const g = ctx.services?.graph;
+  if (!g) throw new Error("no_graph: no graph on the services bag (ctx.services.graph)");
+  if (g.kind !== "neo4j") throw new Error(`no_graph: these reads are Cypher over bolt; this graph is ${g.kind}`);
+  return g;
 }
 
 export interface LiveState {
@@ -223,7 +216,7 @@ export default defineStep({
     const ids = changeIds(cfg.changes);
     const wanted = ids ? all.filter((x) => ids.has(x.id)) : all;
     const unknown = ids ? [...ids].filter((id) => !all.some((x) => x.id === id)) : [];
-    const live = wanted.length ? await readState(await graphCtx(c), wanted.map((x) => x.ref_id)) : new Map<string, LiveState>();
+    const live = wanted.length ? await readState(graphCtx(c), wanted.map((x) => x.ref_id)) : new Map<string, LiveState>();
     const plan = revertPlan(wanted, live);
     for (const id of unknown) plan.skipped.push({ id, ref_id: "", name: "", reason: "unknown_change", detail: `run ${cfg.run_id} applied no change "${id}"` });
     const out = {

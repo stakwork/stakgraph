@@ -1,4 +1,4 @@
-import { z, defineStep, openGraphBackend, type StepContext, type StrutCapabilities } from "strut";
+import { z, defineStep, type StepContext, type StrutCapabilities, type Neo4jBackend } from "strut";
 
 /**
  * Which repositories this graph holds parsed, beside the ones a launch
@@ -7,24 +7,17 @@ import { z, defineStep, openGraphBackend, type StepContext, type StrutCapabiliti
  * (File / Function / Endpoint nodes with descriptions) for an ingested one,
  * the files alone for one that is only on disk.
  *
- * `graphCtx` is strut's `graph/*` preamble, inlined (seeded steps import only
- * "strut"): the same config and options, so the same cached backend.
+ * `graphCtx` is the deployment's graph as strut wires it onto the services
+ * bag (`ctx.services.graph`, what the `graph/*` steps read through) —
+ * never opened from env here and never closed: it is the process's one
+ * connection (2026-10-28, swarm38: a step that opened the graph and closed
+ * it took the whole deployment down with "Pool is closed").
  */
-async function graphCtx(ctx: StepContext<StrutCapabilities>) {
-  const secrets = ctx.services?.secrets;
-  const uri = (await secrets?.get("NEO4J_URI")) || `bolt://${(await secrets?.get("NEO4J_HOST")) || "localhost:7687"}`;
-  const emb = ((await secrets?.get("STRUT_GRAPH_EMBEDDINGS")) ?? "").toLowerCase();
-  const ont = ((await secrets?.get("STRUT_GRAPH_SEED_ONTOLOGY")) ?? "").toLowerCase();
-  return openGraphBackend(
-    {
-      uri,
-      user: (await secrets?.get("NEO4J_USER")) || "neo4j",
-      password: (await secrets?.get("NEO4J_PASSWORD")) || "testtest",
-      namespace: (await secrets?.get("STRUT_GRAPH_NAMESPACE")) || "default",
-      database: (await secrets?.get("NEO4J_DATABASE")) || undefined,
-    },
-    { embeddings: !["off", "0", "false"].includes(emb), seedOntology: ["1", "true", "on"].includes(ont) },
-  );
+function graphCtx(ctx: StepContext<StrutCapabilities>): Neo4jBackend {
+  const g = ctx.services?.graph;
+  if (!g) throw new Error("no_graph: no graph on the services bag (ctx.services.graph)");
+  if (g.kind !== "neo4j") throw new Error(`no_graph: these reads are Cypher over bolt; this graph is ${g.kind}`);
+  return g;
 }
 
 /** `https://github.com/stakwork/hive(.git)` → `stakwork/hive` (repo_agent's normalizeRepoRef). */
@@ -83,7 +76,7 @@ export default defineStep({
     let graph: Array<{ repo: string; ref_id?: string }> = [];
     let error: string | undefined;
     try {
-      const b = await graphCtx(ctx);
+      const b = graphCtx(ctx);
       const rows = await b.bolt.read((tx) =>
         tx.run("MATCH (r:Repository) WHERE r.deleted_at IS NULL RETURN r.ref_id AS ref_id, r.name AS name, r.source_link AS source_link"),
       );
