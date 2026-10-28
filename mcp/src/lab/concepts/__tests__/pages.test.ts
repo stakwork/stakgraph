@@ -161,6 +161,15 @@ function fakeGraph() {
         nodes.set(ref, { ref_id: ref, props: { ...nodes.get(ref)!.props, ...data } });
         return { ref_id: ref, node_key: key, node_type: "Concept", outcome: "updated" };
       },
+      // strut's soft delete: the node stamped, its edges hard-deleted.
+      deleteNode: async (ref: string) => {
+        const node = nodes.get(ref);
+        if (!node) return null;
+        node.props["deleted_at"] = Date.now();
+        const before = edges.length;
+        for (let i = edges.length - 1; i >= 0; i--) if (edges[i]!.s === ref || edges[i]!.t === ref) edges.splice(i, 1);
+        return { edges: before - edges.length };
+      },
     },
     edges: {
       write: async ({ edge, source_ref_id: s, target_ref_id: t }: { edge: string; source_ref_id: string; target_ref_id: string }) => {
@@ -168,10 +177,17 @@ function fakeGraph() {
         if (created) edges.push({ edge, s, t });
         return { created, ref_id: "", edge_key: "", source_ref_id: s, target_ref_id: t };
       },
+      delete: async ({ edge, source_ref_id: s, target_ref_id: t }: { edge: string; source_ref_id: string; target_ref_id: string }) => {
+        const i = edges.findIndex((e) => e.edge === edge && e.s === s && e.t === t);
+        if (i < 0) throw new Error(`no ${edge} edge ${s} → ${t}`);
+        edges.splice(i, 1);
+        return { source_ref_id: s, target_ref_id: t };
+      },
     },
   };
   const byName = (name: string) => nodes.get(keys.get(composeNodeKey(SCHEMA, { name }))!)!;
-  return { graph, nodes, edges, byName };
+  const kids = (name: string) => edges.filter((e) => e.s === byName(name)?.ref_id).map((e) => String(nodes.get(e.t)!.props["name"])).sort();
+  return { graph, nodes, edges, byName, kids };
 }
 
 function harness(
@@ -324,6 +340,76 @@ describe("concepts/pages over a fake graph", () => {
     assert.equal(g.edges.filter((e) => e.s === g.byName("Codebase").ref_id).length, 1, "the repo page hangs under it all the same");
   });
 
+  it("the root's old name, ours: every repository page moves to Codebase, the old root is deleted, and the overview is written once over all", async () => {
+    const g = fakeGraph();
+    // What #1819 left: our `Products` over two repository pages.
+    const r = harness({ graph: g.graph, files: { "README.md": "r" } });
+    const s = harness({ graph: g.graph, files: { "README.md": "s" } });
+    await r.run({ root: "Products" });
+    await s.run({ repo: "s", root: "Products" });
+    assert.deepEqual(g.kids("Products"), ["o/r", "o/s"]);
+
+    const h = harness({ graph: g.graph, files: { "README.md": "r" } });
+    let out = await h.run();
+    assert.deepEqual(out.migrated, { moved: ["o/r", "o/s"], retired: ["Products"], kept: [] });
+    assert.deepEqual(g.kids("Codebase"), ["o/r", "o/s"], "o/s too, though this sweep was o/r's");
+    assert.ok(g.byName("Products").props["deleted_at"], "soft-deleted");
+    assert.deepEqual(g.kids("Products"), []);
+    assert.equal(out.codebase, "written");
+    assert.equal(h.calls.length, 1, "the repo page was unchanged; one call, the overview");
+    assert.match(h.calls[0]!.prompt, /## o\/r[\s\S]*## o\/s/);
+
+    out = await h.run();
+    assert.equal(out.migrated, undefined, "done: the old name finds nothing");
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["unchanged", "unchanged", 1]);
+  });
+
+  it("a hand-written page under the old name keeps its text and its own children; only our pages leave it", async () => {
+    const g = fakeGraph();
+    // swarm38: a person's `Products` with a page of their own under it, and our repo page hung there by #1819.
+    const theirs = await g.graph.nodes.write({ data: { name: "Products", description: "Theirs.", docs: "Hand-written." } }, "create");
+    const child = await g.graph.nodes.write({ data: { name: "Stadeum", description: "a platform" } }, "create");
+    await g.graph.edges.write({ edge: "PARENT_OF", source_ref_id: theirs.ref_id, target_ref_id: child.ref_id });
+    await harness({ graph: g.graph, files: { "README.md": "r" } }).run({ root: "Products" });
+    assert.deepEqual(g.kids("Products"), ["Stadeum", "o/r"]);
+
+    const h = harness({ graph: g.graph, files: { "README.md": "r" } });
+    let out = await h.run();
+    assert.deepEqual(out.migrated, { moved: ["o/r"], retired: [], kept: [{ name: "Products", reason: "foreign" }] });
+    assert.deepEqual(g.kids("Products"), ["Stadeum"]);
+    assert.deepEqual(g.kids("Codebase"), ["o/r"]);
+    assert.equal(g.byName("Products").props["docs"], "Hand-written.");
+    assert.equal(g.byName("Products").props["deleted_at"], undefined);
+
+    out = await h.run();
+    assert.equal(out.migrated, undefined, "not news every sweep");
+  });
+
+  it("our old root, edited by a person or with a page of theirs under it, stays: our pages leave it", async () => {
+    for (const [touch, reason] of [["edit", "edited"], ["child", "other children"]] as const) {
+      const g = fakeGraph();
+      await harness({ graph: g.graph, files: { "README.md": "r" } }).run({ root: "Products" });
+      const old = g.byName("Products");
+      if (touch === "edit") old.props["docs"] = "A person's rewrite.";
+      else {
+        const c = await g.graph.nodes.write({ data: { name: "Roadmap", description: "theirs" } }, "create");
+        await g.graph.edges.write({ edge: "PARENT_OF", source_ref_id: old.ref_id, target_ref_id: c.ref_id });
+      }
+      const out = await harness({ graph: g.graph, files: { "README.md": "r" } }).run();
+      assert.deepEqual(out.migrated, { moved: ["o/r"], retired: [], kept: [{ name: "Products", reason }] }, touch);
+      assert.equal(g.byName("Products").props["deleted_at"], undefined, touch);
+      assert.deepEqual(g.kids("Codebase"), ["o/r"], touch);
+    }
+  });
+
+  it("an old root of ours with nothing under it, a placeholder, is deleted too", async () => {
+    const g = fakeGraph();
+    await harness({ graph: g.graph }).run({ root: "Products" });
+    assert.equal(g.byName("Products").props["description"], CODEBASE_PLACEHOLDER.description);
+    const out = await harness({ graph: g.graph }).run();
+    assert.deepEqual(out.migrated, { moved: [], retired: ["Products"], kept: [] });
+  });
+
   it("a repository the API cannot even list, with no features, gets no page; the root is a placeholder until a child gives it something to say", async () => {
     const g = fakeGraph();
     const h = harness({ graph: g.graph });
@@ -413,6 +499,7 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
   const repo = `pages-${tag}`;
   const repoName = `${owner}/${repo}`;
   const root = `Codebase ${tag}`;
+  const oldRoot = `Products ${tag}`;
   let ws: import("strut").WorkspaceStore;
   let dataDir: string;
   const g = () => ws.graph! as import("strut").Neo4jBackend;
@@ -423,7 +510,7 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
   });
   after(async () => {
     if (ws?.graph) {
-      await g().bolt.run(`MATCH (n:Concept) WHERE n.name = $root OR n.name = $repo OR n.repo = $repo DETACH DELETE n`, { root, repo: repoName });
+      await g().bolt.run(`MATCH (n:Concept) WHERE n.name IN [$root, $oldRoot, $repo] OR n.repo = $repo DETACH DELETE n`, { root, oldRoot, repo: repoName });
       await closeGraphBackends();
     }
     await rm(dataDir, { recursive: true, force: true });
@@ -438,8 +525,17 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
       { name: `Auth ${tag}`, description: "log in", ref_id: f2.ref_id },
     ];
     const h = harness({ graph: g(), files: { "README.md": "# live\n\nA repo." }, features });
-    let out = await h.run({ owner, repo, root });
+    // First under the old name, as #1819 wrote it; then the rename's first sweep migrates it.
+    let out = await h.run({ owner, repo, root: oldRoot, retiredRoots: [] });
     assert.deepEqual([out.repoPage, out.codebase, out.reparented, out.unparented], ["written", "written", 2, undefined]);
+    out = await h.run({ owner, repo, root, retiredRoots: [oldRoot] });
+    assert.deepEqual(out.migrated, { moved: [repoName], retired: [oldRoot], kept: [] });
+    assert.equal(out.codebase, "written");
+    const old = await g().bolt.run(
+      `MATCH (o:Concept {name: $oldRoot}) OPTIONAL MATCH (o)-[e:PARENT_OF]->() RETURN o.deleted_at IS NOT NULL AS deleted, count(e) AS edges`,
+      { oldRoot },
+    );
+    assert.deepEqual([old[0]!.deleted, Number(old[0]!.edges)], [true, 0], "soft-deleted, its links gone");
 
     const rows = await g().bolt.run(
       `MATCH (p:Concept {name: $root})-[:PARENT_OF]->(r:Concept {name: $repo})-[:PARENT_OF]->(f:Concept)
@@ -454,15 +550,16 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
     assert.equal(parseStamp(row.rootStamp)?.name, root);
     assert.deepEqual((row.kids as string[]).sort(), [`Auth ${tag}`, `Chat ${tag}`]);
 
-    out = await h.run({ owner, repo, root });
-    assert.deepEqual([out.repoPage, out.codebase, out.reparented, h.calls.length], ["unchanged", "unchanged", 0, 2]);
+    out = await h.run({ owner, repo, root, retiredRoots: [oldRoot] });
+    assert.equal(out.migrated, undefined);
+    assert.deepEqual([out.repoPage, out.codebase, out.reparented, h.calls.length], ["unchanged", "unchanged", 0, 3]);
 
     // A person edits the repo page in the graph: the next sweep leaves it and says so — and the root
     // follows, since a child's text is one of ITS inputs: the overview reflects the person's edit.
     await g().bolt.run(`MATCH (r:Concept {name: $repo}) SET r.docs = 'Edited by hand.'`, { repo: repoName });
     h.files["README.md"] = "# live\n\nReworded.";
-    out = await h.run({ owner, repo, root });
-    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["edited", "written", 3]);
-    assert.match(h.calls[2]!.prompt, /Edited by hand\./);
+    out = await h.run({ owner, repo, root, retiredRoots: [oldRoot] });
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["edited", "written", 4]);
+    assert.match(h.calls[3]!.prompt, /Edited by hand\./);
   });
 });
