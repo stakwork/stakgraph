@@ -16,7 +16,7 @@ import type { ConceptServices } from "../services.js";
  */
 export default defineStep({
   type: "concepts/bootstrap-explore",
-  description: "Seed initial concepts by exploring the cloned repo (for new repos). Required config: systemPrompt, promptTemplate — supplied by the calling workflow's `params` block (the prompt experiment surface). Optional: lookbackDays (checkpoint lookback, default 10). Output: { concepts, usage }.",
+  description: "Seed initial concepts by exploring the cloned repo (for new repos). Required config: systemPrompt, promptTemplate — supplied by the calling workflow's `params` block (the prompt experiment surface). Optional: lookbackDays (checkpoint lookback, default 10). Output: { concepts, usage, docFiles? }.",
   input: z.object({
     owner: z.string(),
     repo: z.string(),
@@ -28,13 +28,15 @@ export default defineStep({
   output: z.any(),
   async run(cfg, ctx) {
     const { bootstrap } = ctx.services as ConceptServices;
-    const { concepts, usage } = await bootstrap(
+    const { concepts, usage, docFiles } = await bootstrap(
       cfg.owner,
       cfg.repo,
       cfg.repoPath,
       { system: cfg.systemPrompt, template: cfg.promptTemplate },
       cfg.lookbackDays,
     );
-    return { concepts, usage };
+    // `docFiles`: what the agent named as describing the repository as a
+    // whole, recorded on the repo for `concepts/pages` (doc-files.ts).
+    return { concepts, usage, ...(docFiles ? { docFiles } : {}) };
   },
 });

@@ -22,6 +22,16 @@ export class Summarizer {
   ) {}
 
   /**
+   * One free-text generation for the Concept pages above the features
+   * (`concepts/pages`): a system text and a prompt — both the calling
+   * workflow's `params` — the text and what it cost back.
+   */
+  async generatePage(args: { system: string; prompt: string }): Promise<{ text: string; usage: Usage }> {
+    const result = await callGenerateText({ provider: this.provider, apiKey: this.apiKey, prompt: args.prompt, system: args.system });
+    return { text: result.text.trim(), usage: result.usage };
+  }
+
+  /**
    * Generate documentation for a single feature
    */
   async summarizeConcept(

@@ -163,3 +163,5 @@ params:
     - Step-by-step flows unless absolutely essential
 
     Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two. Focus on what users DO with the product, not how operators manage it.
+
+    Beside the features, give **docFiles**: the files that describe the repository AS A WHOLE — what it is and is for, how it is run and tested, how to work in it (a README, AGENTS.md or CLAUDE.md, CONTRIBUTING, an architecture or design doc, a docs index) — as paths from the repository root, the most useful first, at most 8. Never a feature's own doc, never source, never a changelog; an empty list when there is none. The page an agent reads before it touches this repository is distilled from exactly these files.

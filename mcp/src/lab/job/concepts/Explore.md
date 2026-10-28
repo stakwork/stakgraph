@@ -10,6 +10,14 @@ file. The `explore` workflow does the reading as its own agent, with its
 own budget, and hands back only what it found. Prefer it to reading a
 repository yourself: your thread keeps the answer, not the files.
 
+Orient on the repository's page first. Under the `Products` Concept each
+repository has a page — `graph/graph-get { node_type: "Concept", name:
+"<owner>/<repo>", children: "PARENT_OF" }` — with what it is, how it is
+run, the conventions that matter, where its full docs are, and its
+features listed under it. Start the question from it and name the
+feature when one fits. A workspace with no such page has nothing to
+orient on: the explorer reads from scratch.
+
 Look before you explore. Your directory may already hold a note from an
 earlier turn: they live under `notes/`. Work in another job may have one
 too (`job/list { q }`, then `job/get` and `job/read`). When a note answers

@@ -38,6 +38,13 @@ export abstract class Storage {
   abstract getChronologicalCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null>;
   abstract setChronologicalCheckpoint(repo: string, checkpoint: ChronologicalCheckpoint): Promise<void>;
 
+  // The files that describe the repository as a whole (doc-files.ts), as the
+  // bootstrap agent picked them from a clone — what `concepts/pages` distils
+  // the repository's page from. `null`: never recorded (a repo bootstrapped
+  // before the pick existed); `[]`: looked, found none.
+  abstract getDocFiles(repo: string): Promise<string[] | null>;
+  abstract setDocFiles(repo: string, files: string[]): Promise<void>;
+
   // Themes - per-repo
   abstract addThemes(repo: string, themes: string[]): Promise<void>;
   abstract getRecentThemes(repo: string): Promise<string[]>;

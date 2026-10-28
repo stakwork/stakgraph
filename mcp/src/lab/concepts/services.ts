@@ -4,6 +4,7 @@ import { LLMClient } from "./llm.js";
 import { Summarizer } from "./summarizer.js";
 import { getApiKeyForProvider, type Provider } from "../../aieo/src/provider.js";
 import type { Concept, Usage } from "./types.js";
+import type { GraphBackend } from "strut";
 import { env } from "../../env.js";
 
 /**
@@ -42,6 +43,12 @@ export interface ContainedNode {
 
 export interface ConceptServices {
   storage: Storage;
+  /** strut's graph backend, the one behind the lab's graph workspace —
+   *  put on the bag by createStrut (`ctx.services.graph`, what the graph/*
+   *  steps read), never built here. `concepts/pages` writes the Concept
+   *  pages above the features through it, so every reader sees them as it
+   *  sees a seeded page. Absent on a bag built outside createStrut. */
+  graph?: GraphBackend;
   /** An Octokit for a GitHub token — the run's `GITHUB_TOKEN` secret, which
    *  the step reads — or the deployment's env token when none. Built per
    *  token and cached. Never built at boot: a boot-time client would be
@@ -69,7 +76,14 @@ export interface ConceptServices {
     repoPath: string,
     promptConfig: { system: string; template: string },
     lookbackDays?: number,
-  ): Promise<{ concepts: Concept[]; usage: Usage }>;
+  ): Promise<{ concepts: Concept[]; usage: Usage; docFiles?: string[] }>;
+
+  /** Clone (or update) the repository and have the bootstrap's agent name
+   *  the files that describe it as a whole (doc-files.ts), recording the
+   *  pick on the repo. `concepts/pages` runs it once, for a repository
+   *  bootstrapped before the pick existed whose root holds nothing
+   *  README-like. */
+  identifyDocs(owner: string, repo: string, token?: string): Promise<{ docFiles: string[]; usage: Usage }>;
 
   /** Agentically generate documentation for a newly-created concept. */
   exploreConcept(concept: Concept, repoPath: string): Promise<void>;
@@ -184,7 +198,14 @@ export async function buildConceptServices(
         undefined,
         lookbackDays,
       );
-      return { concepts: result.features, usage: result.usage };
+      return { concepts: result.features, usage: result.usage, ...(result.docFiles ? { docFiles: result.docFiles } : {}) };
+    },
+
+    async identifyDocs(owner, repo, token) {
+      const { cloneOrUpdateRepo } = await import("../../repo/clone.js");
+      const { identifyDocFiles } = await import("./bootstrap.js");
+      const repoPath = await cloneOrUpdateRepo(`https://github.com/${owner}/${repo}`, undefined, token || envToken);
+      return identifyDocFiles(owner, repo, repoPath, storage);
     },
 
     async exploreConcept(concept, repoPath) {

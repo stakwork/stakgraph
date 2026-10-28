@@ -54,17 +54,56 @@ steps:
     config:
       conceptIds: "{{ collect.modifiedConceptIds }}"
 
-  # The sweep's spend (every change's decision, then the summaries), onto the
-  # repo's running total — `cumulativeUsage` on GET /gitree/concepts.
+  # The pages ABOVE the features (strut's plans/concept-tree.md): this
+  # repository's own page under the `Products` root, every feature parented
+  # under it. The page is distilled from the doc files the bootstrap's agent
+  # named (recorded on the repo; for a repo bootstrapped before that, the
+  # root's README-like files, else a one-time pick on a clone) plus the
+  # repository's manifests and root listing, read at HEAD. Rewritten only
+  # when what it is made from changed — those files and the features' names
+  # and descriptions; the root, its children's pages — told by the hash
+  # stamped on it, so most sweeps write nothing here. Prompts are params.
+  - id: pages
+    type: concepts/pages
+    config:
+      owner: "{{ input.owner }}"
+      repo: "{{ input.repo }}"
+      docNames: "{{ params.docNames }}"
+      repoPageSystem: "{{ params.repoPageSystem }}"
+      productsSystem: "{{ params.productsSystem }}"
+
+  # The sweep's spend (every change's decision, then the summaries, then the
+  # pages), onto the repo's running total — `cumulativeUsage` on GET
+  # /gitree/concepts.
   - id: record
     type: concepts/record-usage
     config:
       owner: "{{ input.owner }}"
       repo: "{{ input.repo }}"
-      usage: ["{{ collect.usage }}", "{{ summarize.usage }}"]
+      usage: ["{{ collect.usage }}", "{{ summarize.usage }}", "{{ pages.usage }}"]
 
   - id: link
     type: concepts/link-files
     config:
       owner: "{{ input.owner }}"
       repo: "{{ input.repo }}"
+
+# ── params: the pages above the features (the experiment surface) ───────────
+# `docNames`: for a repository with no recorded pick, the names its docs go
+# by — matched against the root (and docs/) listing, case-insensitively, any
+# extension. The two prompts answer with one `Description:` line (the page's
+# one-liner, what the root's list and the orchestrator read) and the page.
+params:
+  docNames: [README, AGENTS, CLAUDE, CONTRIBUTING, ARCHITECTURE]
+  repoPageSystem: |-
+    You write the page a workspace's agents read before they touch a repository. You are given the repository's own docs (its README, AGENTS.md, CLAUDE.md — whichever it has), its shape (the manifests at its root and the root listing), and the list of its features as the knowledge graph has them.
+
+    Write for an agent that is about to work in it: what the repository is and is for, how it is run and tested, the shape of the code it must know, the conventions that matter, and where the full docs are (the files by path). Distill; never copy. Never list the features: they are listed beside the page. Markdown, at most 6000 characters, no preamble.
+
+    Answer with one line `Description: <one line on what the repository is>`, then a blank line, then the page.
+  productsSystem: |-
+    You write the overview a workspace's assistant reads to place a request: what this team builds. You are given one page per repository.
+
+    Say what the product is, how the repositories relate — which is the product, which the infrastructure, which serves which — and which repository a kind of request is about, in the words a person would use for it. Never list the repositories: they are listed beside the page. Markdown, at most 6000 characters, no preamble.
+
+    Answer with one line `Description: <one line on what the team builds>`, then a blank line, then the page.
