@@ -112,6 +112,8 @@ interface GenerateTextArgs {
   provider: Provider;
   apiKey: string;
   prompt: string;
+  /** A system prompt, when the call has one (the Concept pages). */
+  system?: string;
   thinkingSpeed?: ThinkingSpeed;
 }
 
@@ -131,6 +133,7 @@ export async function callGenerateText(args: GenerateTextArgs): Promise<{
   // Use the existing callModel function
   const { text, usage } = await generateText({
     model,
+    ...(args.system ? { system: args.system } : {}),
     messages,
     providerOptions: providerOptions as any,
   });
