@@ -5,10 +5,10 @@ import type { ConceptServices } from "../services.js";
 
 /**
  * The two levels ABOVE a repository's feature Concepts (strut's
- * plans/concept-tree.md): one page per repository under a `Products` root,
+ * plans/concept-tree.md): one page per repository under a `Codebase` root,
  * each joined by PARENT_OF the way every strut Concept reader walks it.
  *
- *   Products                      one per workspace; what the team builds
+ *   Codebase                      one per workspace; what the team builds
  *   └── owner/repo                one per repository; what it is, how it is run
  *       └── <feature>             the Concepts the sweep already makes
  *
@@ -25,6 +25,15 @@ import type { ConceptServices } from "../services.js";
  * a page a person edited in the graph (`edited`) or wrote under one of
  * these names (`foreign`) is left alone and reported, never overwritten.
  * The first sweep after this lands finds no stamp, which is the migration.
+ *
+ * WHY `Codebase`. A Concept's key is its name lowercased with spaces and
+ * punctuation removed, so the root is whatever page of that name the
+ * workspace holds — and a workspace's own knowledge (a shop's catalogue, a
+ * firm's practice areas) is Concepts too. `Products` met a hand-written page
+ * on the first swarm it ran on and would meet a domain page in any business
+ * workspace; `Codebase` only means software, so a page of that name someone
+ * already wrote is this overview, and keeping its text while the repository
+ * pages hang under it is right.
  *
  * WHAT A REPOSITORY PAGE IS MADE FROM. The doc files are the bootstrap's
  * PICK — the files its agent named, from the clone it explored, as describing
@@ -48,13 +57,13 @@ import type { ConceptServices } from "../services.js";
  * sees them exactly as it sees a seeded page. The prompts are the calling
  * workflow's `params` (the experiment surface), never baked in here.
  *
- * Output: { repoPage, products, reparented, unparented?, docs: { source,
+ * Output: { repoPage, codebase, reparented, unparented?, docs: { source,
  * files }, usage }, each page one of written | unchanged | edited | foreign |
  * empty | skipped; `source` record | listing | identified | none.
  */
 
 export const STAMP_PREFIX = "lab/concepts/";
-export const PRODUCTS = "Products";
+export const CODEBASE = "Codebase";
 const TYPE = "Concept";
 const EDGE = "PARENT_OF";
 /** The names a repository's docs go by, matched case-insensitively against the root listing, any extension. */
@@ -66,7 +75,7 @@ const LISTING_CAP = 200;
 /** The root's stamp before it has been written from its children: never a hash, so the first run with any child rewrites it. */
 const PENDING = "000000000000";
 /** What the root says until its children give it something to say. */
-export const PRODUCTS_PLACEHOLDER: Page = { description: "What this workspace builds.", docs: "" };
+export const CODEBASE_PLACEHOLDER: Page = { description: "What this workspace builds.", docs: "" };
 
 export interface DocFile {
   name: string;
@@ -197,7 +206,7 @@ export function repoPrompt(repoName: string, docs: DocFile[], features: FeatureL
   return parts.join("\n");
 }
 
-export function productsPrompt(children: ChildPage[]): string {
+export function codebasePrompt(children: ChildPage[]): string {
   return ["The repositories, one page each:", ...[...children].sort(byName).flatMap((c) => ["", `## ${c.name}`, "", c.description, "", c.docs])].join("\n");
 }
 
@@ -347,7 +356,7 @@ async function resolveDocs(
 export default defineStep({
   type: "concepts/pages",
   description:
-    "The pages above a repository's feature Concepts: its own page (distilled from the doc files the bootstrap named — else the root's README-like files, else a one-time pick on a clone — plus its manifests and root listing, at HEAD) under a `Products` root (what the team builds), joined by PARENT_OF, every feature parented under the repository. Each page is rewritten only when the hash of what it is made from differs from the stamp on it; a page someone edited is left and reported. Required config: repoPageSystem, productsSystem — the calling workflow's `params`. Output: { repoPage, products, reparented, unparented?, docs: { source, files }, usage }.",
+    "The pages above a repository's feature Concepts: its own page (distilled from the doc files the bootstrap named — else the root's README-like files, else a one-time pick on a clone — plus its manifests and root listing, at HEAD) under a `Codebase` root (what the team builds), joined by PARENT_OF, every feature parented under the repository. Each page is rewritten only when the hash of what it is made from differs from the stamp on it; a page someone edited is left and reported. Required config: repoPageSystem, codebaseSystem — the calling workflow's `params`. Output: { repoPage, codebase, reparented, unparented?, docs: { source, files }, usage }.",
   input: z.object({
     owner: z.string(),
     repo: z.string(),
@@ -360,14 +369,14 @@ export default defineStep({
     /** With no recorded pick and nothing README-like at the root: clone and have the bootstrap's agent name the doc files, once. */
     identify: z.boolean().default(true),
     repoPageSystem: z.string(),
-    productsSystem: z.string(),
-    /** The root page's name. `Products` everywhere but a test over a shared graph. */
-    root: z.string().default(PRODUCTS),
+    codebaseSystem: z.string(),
+    /** The root page's name. `Codebase` everywhere but a test over a shared graph. */
+    root: z.string().default(CODEBASE),
   }),
   output: z.any(),
   async run(cfg, ctx) {
     const services = ctx.services as ConceptServices;
-    const skipped = (reason: string) => ({ repoPage: "skipped" as PageReport, products: "skipped" as PageReport, reason, reparented: 0, usage: sumUsage([]) });
+    const skipped = (reason: string) => ({ repoPage: "skipped" as PageReport, codebase: "skipped" as PageReport, reason, reparented: 0, usage: sumUsage([]) });
     const graph = services.graph;
     if (!graph) return skipped("no graph on the services bag");
     const schema = await graph.schemas.schema(TYPE);
@@ -415,24 +424,24 @@ export default defineStep({
     // 3. The root, over every repository page under it.
     let root = await findPage(graph, schema, cfg.root);
     if (!root || root.deleted) {
-      await writePage(graph, cfg.root, PRODUCTS_PLACEHOLDER, PENDING, {}, !!root);
+      await writePage(graph, cfg.root, CODEBASE_PLACEHOLDER, PENDING, {}, !!root);
       root = await findPage(graph, schema, cfg.root);
     }
-    let products: PageReport = "skipped";
+    let codebase: PageReport = "skipped";
     if (root) {
       if (repoRef) await graph.edges.write({ edge: EDGE, source_ref_id: root.ref_id, target_ref_id: repoRef });
       const children = await childrenOf(graph, root.ref_id);
       const rootHash = rootInputHash(children);
       const rootAction = planPage(root, rootHash);
-      products = rootAction === "create" || rootAction === "rewrite" ? "empty" : rootAction;
+      codebase = rootAction === "create" || rootAction === "rewrite" ? "empty" : rootAction;
       if ((rootAction === "create" || rootAction === "rewrite") && children.length) {
-        const { text, usage } = await services.summarizer.generatePage({ system: cfg.productsSystem, prompt: productsPrompt(children) });
+        const { text, usage } = await services.summarizer.generatePage({ system: cfg.codebaseSystem, prompt: codebasePrompt(children) });
         usages.push(usage as unknown as Record<string, unknown>);
         await writePage(graph, cfg.root, parsePage(text), rootHash, {}, true);
-        products = "written";
+        codebase = "written";
       }
     }
 
-    return { repoPage, products, reparented, ...(unparented.length ? { unparented } : {}), docs: { source: resolved.source, files: resolved.files }, usage: sumUsage(usages) };
+    return { repoPage, codebase, reparented, ...(unparented.length ? { unparented } : {}), docs: { source: resolved.source, files: resolved.files }, usage: sumUsage(usages) };
   },
 });

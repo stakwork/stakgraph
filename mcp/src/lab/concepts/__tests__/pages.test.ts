@@ -7,12 +7,12 @@ import { composeNodeKey, closeGraphBackends } from "strut";
 import type { NodeSchema } from "strut";
 import { normalizeDocPaths } from "../doc-files.js";
 import pages, {
-  PRODUCTS_PLACEHOLDER,
+  CODEBASE_PLACEHOLDER,
   matchDocNames,
   parsePage,
   parseStamp,
   planPage,
-  productsPrompt,
+  codebasePrompt,
   repoInputHash,
   repoPrompt,
   rootInputHash,
@@ -93,7 +93,7 @@ describe("the model's answer", () => {
     assert.ok(p.indexOf("### package.json") > p.indexOf("## Its shape"));
     assert.ok(p.indexOf("- A — aa") < p.indexOf("- B — bb"));
     assert.match(repoPrompt("o/r", [], []), /no file that describes it as a whole/);
-    assert.match(productsPrompt([{ name: "o/r", description: "d", docs: "x" }]), /## o\/r\n\nd\n\nx/);
+    assert.match(codebasePrompt([{ name: "o/r", description: "d", docs: "x" }]), /## o\/r\n\nd\n\nx/);
   });
 
   it("matchDocNames: a file whose stem is one of the names, any case, any extension; never a directory", () => {
@@ -229,7 +229,7 @@ function harness(
       },
     },
   };
-  const cfg = (over: Record<string, unknown> = {}) => pages.input.parse({ owner: "o", repo: "r", repoPageSystem: "repo", productsSystem: "products", ...over });
+  const cfg = (over: Record<string, unknown> = {}) => pages.input.parse({ owner: "o", repo: "r", repoPageSystem: "repo", codebaseSystem: "codebase", ...over });
   const run = (over?: Record<string, unknown>) => pages.run(cfg(over), { services } as never);
   return { run, calls, files, records, identified };
 }
@@ -239,7 +239,7 @@ describe("concepts/pages over a fake graph", () => {
     const h = harness();
     const out = await h.run();
     assert.equal(out.repoPage, "skipped");
-    assert.equal(out.products, "skipped");
+    assert.equal(out.codebase, "skipped");
     assert.deepEqual(h.calls, []);
   });
 
@@ -258,7 +258,7 @@ describe("concepts/pages over a fake graph", () => {
     //    bootstrapped before it existed): the root listing finds the docs, and the shape rides along.
     let out = await h.run();
     assert.equal(out.repoPage, "written");
-    assert.equal(out.products, "written");
+    assert.equal(out.codebase, "written");
     assert.equal(out.reparented, 2);
     assert.deepEqual(out.docs, { source: "listing", files: ["AGENTS.md", "README.md"] });
     assert.deepEqual(out.usage, { input: 20, cache_read: 0, cache_write: 0, output: 10, total: 30 });
@@ -272,8 +272,8 @@ describe("concepts/pages over a fake graph", () => {
     assert.equal(repo.props["id"], "o/r");
     assert.equal(repo.props["repo"], undefined, "no repo property: invisible to every feature reader");
     assert.equal(parseStamp(repo.props["unique_source_id"])?.name, "o/r");
-    const root = g.byName("Products");
-    assert.equal(root.props["description"], "products page.");
+    const root = g.byName("Codebase");
+    assert.equal(root.props["description"], "codebase page.");
     assert.deepEqual(
       g.edges.map((e) => `${e.edge}:${e.s}>${e.t}`).sort(),
       [`PARENT_OF:${repo.ref_id}>${f1.ref_id}`, `PARENT_OF:${repo.ref_id}>${f2.ref_id}`, `PARENT_OF:${root.ref_id}>${repo.ref_id}`].sort(),
@@ -281,56 +281,56 @@ describe("concepts/pages over a fake graph", () => {
 
     // 2. The same inputs: nothing.
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, out.reparented, h.calls.length], ["unchanged", "unchanged", 0, 2]);
+    assert.deepEqual([out.repoPage, out.codebase, out.reparented, h.calls.length], ["unchanged", "unchanged", 0, 2]);
 
     // 3. A doc file changed at HEAD: the repo page is rewritten, and the root follows because its child's text changed.
     h.files["README.md"] = "# r\n\nA repo, reworded.";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "written", 4]);
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["written", "written", 4]);
 
     // 4. The features' docs changing is NOT an input (the sweep rewrites those every run); a description changing is.
     g.nodes.get(f1.ref_id)!.props["docs"] = "long new docs";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products], ["unchanged", "unchanged"]);
+    assert.deepEqual([out.repoPage, out.codebase], ["unchanged", "unchanged"]);
     features[0]!.description = "chat, with threads";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "written", 6]);
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["written", "written", 6]);
 
     // 5. The repository's shape is an input too: a new top-level folder rewrites the page.
     h.files["kit/package.json"] = "{}";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "written", 8]);
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["written", "written", 8]);
     assert.match(h.calls[6]!.prompt, /\(root listing\)\n\nAGENTS\.md\nREADME\.md\nkit\//);
 
     // 6. Someone edited the root in the graph: left alone, reported; the repo page is unaffected.
-    g.byName("Products").props["docs"] = "A person's rewrite.";
+    g.byName("Codebase").props["docs"] = "A person's rewrite.";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["unchanged", "edited", 8]);
-    assert.equal(g.byName("Products").props["docs"], "A person's rewrite.");
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["unchanged", "edited", 8]);
+    assert.equal(g.byName("Codebase").props["docs"], "A person's rewrite.");
     // …and stays so even when the inputs move on.
     h.files["AGENTS.md"] = "Work like THIS.";
     out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["written", "edited", 9]);
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["written", "edited", 9]);
   });
 
   it("a page under our name that is not ours is foreign: left alone, still a parent", async () => {
     const g = fakeGraph();
-    await g.graph.nodes.write({ data: { name: "Products", description: "Theirs.", docs: "Hand-written." } }, "create");
+    await g.graph.nodes.write({ data: { name: "Codebase", description: "Theirs.", docs: "Hand-written." } }, "create");
     const f = await g.graph.nodes.write({ data: { name: "Chat", description: "talk", repo: "o/r" } }, "create");
     const h = harness({ graph: g.graph, files: { "README.md": "r" }, features: [{ name: "Chat", description: "talk", ref_id: f.ref_id }] });
     const out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, out.reparented], ["written", "foreign", 1]);
-    assert.equal(g.byName("Products").props["docs"], "Hand-written.");
-    assert.equal(g.edges.filter((e) => e.s === g.byName("Products").ref_id).length, 1, "the repo page hangs under it all the same");
+    assert.deepEqual([out.repoPage, out.codebase, out.reparented], ["written", "foreign", 1]);
+    assert.equal(g.byName("Codebase").props["docs"], "Hand-written.");
+    assert.equal(g.edges.filter((e) => e.s === g.byName("Codebase").ref_id).length, 1, "the repo page hangs under it all the same");
   });
 
   it("a repository the API cannot even list, with no features, gets no page; the root is a placeholder until a child gives it something to say", async () => {
     const g = fakeGraph();
     const h = harness({ graph: g.graph });
     const out = await h.run();
-    assert.deepEqual([out.repoPage, out.products, out.reparented, h.calls.length], ["empty", "empty", 0, 0]);
+    assert.deepEqual([out.repoPage, out.codebase, out.reparented, h.calls.length], ["empty", "empty", 0, 0]);
     assert.deepEqual(out.docs, { source: "none", files: [] });
-    assert.equal(g.byName("Products").props["description"], PRODUCTS_PLACEHOLDER.description);
+    assert.equal(g.byName("Codebase").props["description"], CODEBASE_PLACEHOLDER.description);
     assert.equal(g.byName("o/r"), undefined);
   });
 
@@ -412,7 +412,7 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
   const owner = "lab";
   const repo = `pages-${tag}`;
   const repoName = `${owner}/${repo}`;
-  const root = `Products ${tag}`;
+  const root = `Codebase ${tag}`;
   let ws: import("strut").WorkspaceStore;
   let dataDir: string;
   const g = () => ws.graph! as import("strut").Neo4jBackend;
@@ -439,7 +439,7 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
     ];
     const h = harness({ graph: g(), files: { "README.md": "# live\n\nA repo." }, features });
     let out = await h.run({ owner, repo, root });
-    assert.deepEqual([out.repoPage, out.products, out.reparented, out.unparented], ["written", "written", 2, undefined]);
+    assert.deepEqual([out.repoPage, out.codebase, out.reparented, out.unparented], ["written", "written", 2, undefined]);
 
     const rows = await g().bolt.run(
       `MATCH (p:Concept {name: $root})-[:PARENT_OF]->(r:Concept {name: $repo})-[:PARENT_OF]->(f:Concept)
@@ -455,14 +455,14 @@ describe("concepts/pages (live)", { skip: !URI }, () => {
     assert.deepEqual((row.kids as string[]).sort(), [`Auth ${tag}`, `Chat ${tag}`]);
 
     out = await h.run({ owner, repo, root });
-    assert.deepEqual([out.repoPage, out.products, out.reparented, h.calls.length], ["unchanged", "unchanged", 0, 2]);
+    assert.deepEqual([out.repoPage, out.codebase, out.reparented, h.calls.length], ["unchanged", "unchanged", 0, 2]);
 
     // A person edits the repo page in the graph: the next sweep leaves it and says so — and the root
     // follows, since a child's text is one of ITS inputs: the overview reflects the person's edit.
     await g().bolt.run(`MATCH (r:Concept {name: $repo}) SET r.docs = 'Edited by hand.'`, { repo: repoName });
     h.files["README.md"] = "# live\n\nReworded.";
     out = await h.run({ owner, repo, root });
-    assert.deepEqual([out.repoPage, out.products, h.calls.length], ["edited", "written", 3]);
+    assert.deepEqual([out.repoPage, out.codebase, h.calls.length], ["edited", "written", 3]);
     assert.match(h.calls[2]!.prompt, /Edited by hand\./);
   });
 });
