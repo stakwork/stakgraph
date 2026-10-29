@@ -256,6 +256,10 @@ function isUiAsset(req: Request): boolean {
  * CATALOG TOKEN (strut plans/marketplace.md §12.1): what a workspace's
  * strut that subscribes to the org's central strut holds — hive mints it
  * here with `POST /publisher/tokens` — worth the packages and nothing else.
+ * Or the same two routes marked `?public=1` (§13, "One publisher, two
+ * keys"): the PUBLIC catalog, sealed by the publisher's second key, and the
+ * archives it lists — open to anyone, and strut serves nothing but what that
+ * card lists whatever its gate's mode.
  *
  * The path is parsed as `isUiAsset` parses it, so a path that resolves
  * elsewhere does not pass.
@@ -264,12 +268,10 @@ function isTokenRead(req: Request): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   try {
     const url = new URL(`http://localhost${req.url}`);
+    const packages = /^\/packages\/(?:catalog|[^/]+\/[^/]+\/archive)$/.test(url.pathname);
+    if (packages && url.searchParams.has("public")) return true;
     if (!url.searchParams.has("t")) return false;
-    return (
-      /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) ||
-      /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname) ||
-      /^\/packages\/(?:catalog|[^/]+\/[^/]+\/archive)$/.test(url.pathname)
-    );
+    return /^\/artifacts\/[^/]+(\/|$)/.test(url.pathname) || /^\/jobs\/[^/]+\/files(\/|$)/.test(url.pathname) || packages;
   } catch {
     return false;
   }
