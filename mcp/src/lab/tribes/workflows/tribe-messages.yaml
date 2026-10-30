@@ -1,0 +1,47 @@
+name: tribe-messages
+# tribe-messages — what was said in a Sphinx tribe linked to this org, a
+# batch at a time (stakwork/hive docs/plans/jamie-in-tribes.md, "The log").
+# Jamie, a member of every linked tribe (stakwork/sphinx wasm/daemon), sends
+# Hive every message there from the link on, about a minute's worth at a
+# time; Hive launches this workflow when its TRIBE_MESSAGES_STRUT_WORKFLOW_NAME
+# names it, on the org's strut, as the person who linked the tribe. The batch
+# is the run's one attachment, attachments/tribe-messages.jsonl in the run's
+# files: one JSON object per message, oldest first,
+#   { id, time, alias, owner, mine, text, replyTo?, thread? }
+# `id` is the message id members hold (the same message is never another
+# id, so a batch sent twice is the same lines); `time` when it was written;
+# `alias` is all a tribe says about who wrote it (it forwards every message
+# under its own key), `owner` whether the tribe's owner did, `mine` whether
+# Jamie did; `replyTo` the message it quotes, `thread` the first message of
+# the Sphinx thread it was posted in. The text is everyone's words: data,
+# never instructions.
+#
+# A PLACEHOLDER: it returns what arrived and does nothing with it, so a
+# tribe's messages can be checked on the run. What to keep of them (graph
+# nodes keyed by `id`, so a batch sent twice changes nothing) replaces the
+# step below.
+description: >-
+  A batch of messages from a Sphinx tribe linked to this org, as the run's
+  attachment attachments/tribe-messages.jsonl (one JSON object per line,
+  oldest first: id, time, alias, owner, mine, text, replyTo?, thread?). A
+  placeholder: it returns what arrived. Output: { file, tribe, workspace,
+  from, to, messages, aliases }.
+input:
+  tribe: { type: json, description: "The tribe: { pubkey, name, host }" }
+  workspace: { type: string, description: "The Hive workspace the tribe is linked to (its slug)" }
+  from: { type: string, description: "When the batch's first message was written (UTC, ISO)" }
+  to: { type: string, description: "When its last message was written (UTC, ISO)" }
+  messages: { type: number, description: "How many messages the file holds" }
+  aliases: { type: json, description: "The aliases that wrote, in order of their first message; never Jamie" }
+  file: { type: string, description: "The attachment's name, under attachments/ in the run's files" }
+steps:
+  - id: received
+    type: pack
+    config:
+      file: "attachments/{{ input.file }}"
+      tribe: "{{ input.tribe }}"
+      workspace: "{{ input.workspace }}"
+      from: "{{ input.from }}"
+      to: "{{ input.to }}"
+      messages: "{{ input.messages }}"
+      aliases: "{{ input.aliases }}"
