@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import express from "express";
 import { getRequestListener } from "@hono/node-server";
 import { createStrut, MemoryRunStore, WorkspaceManager, type Strut } from "strut";
-import { labAuth, upgradeLabRoom } from "./mount.js";
+import { labAuth, retryable, upgradeLabRoom } from "./mount.js";
 import { labActorOf, resolveLabActor, resolveLabScope } from "./actor.js";
 import { mintToken, signApiToken, signEventsToken, verifyApiToken } from "../repo/events.js";
 
@@ -532,5 +532,51 @@ describe("mintToken", () => {
     assert.equal((await mint({}, { authorization: `Bearer ${jwt}` })).status, 401);
     const peerJwt = signApiToken("60d", undefined, "lab:peer");
     assert.equal((await mint({ scope: "lab:peer" }, { authorization: `Bearer ${peerJwt}` })).status, 401, "a peer token never renews itself");
+  });
+});
+
+describe("retryable", () => {
+  it("makes the promise once and shares it, pending and resolved", async () => {
+    let made = 0;
+    let resolve!: (v: string) => void;
+    const get = retryable(() => {
+      made++;
+      return new Promise<string>((r) => (resolve = r));
+    });
+    const a = get();
+    const b = get();
+    assert.equal(a, b, "callers while it is pending share one attempt");
+    resolve("lab");
+    assert.equal(await a, "lab");
+    assert.equal(await get(), "lab");
+    assert.equal(made, 1);
+  });
+
+  it("forgets a rejection: the next call makes it again (a lab boot that failed while Neo4j was down)", async () => {
+    let made = 0;
+    let neo4jUp = false;
+    const get = retryable(async () => {
+      made++;
+      if (!neo4jUp) throw new Error("The database has encountered a critical error");
+      return "lab";
+    });
+    const first = get();
+    assert.equal(get(), first, "one attempt in flight at a time");
+    await assert.rejects(first, /critical error/);
+    await assert.rejects(get(), /critical error/);
+    neo4jUp = true;
+    assert.equal(await get(), "lab");
+    assert.equal(await get(), "lab");
+    assert.equal(made, 3, "two failed attempts, one that held");
+  });
+
+  it("a caller retrying from its own catch gets a new attempt", async () => {
+    let made = 0;
+    const get = retryable(async () => {
+      if (made++ === 0) throw new Error("down");
+      return "up";
+    });
+    const retried = await get().catch(() => get());
+    assert.equal(retried, "up");
   });
 });
