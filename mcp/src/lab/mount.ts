@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { getRequestListener } from "@hono/node-server";
-import { createAudioUpgradeHandler, scrubProcessEnv, type AudioUpgradeHandler, type Strut } from "strut";
+import { createAudioUpgradeHandler, scrubProcessEnv, type Strut } from "strut";
 import { createLabStrut } from "./createLabStrut.js";
 import { env, freezeEnv } from "../env.js";
 import { stashLabActor, stashLabScope, type LabScope } from "./actor.js";
@@ -11,13 +11,39 @@ import { verifyApiToken, type ApiTokenPayload, type ApiTokenScope } from "../rep
 /** The one lab strut, built on first use (HTTP request, dictation upgrade,
  *  or a `/gitree/process` / `/repo/describe` launch — lab/proxy.ts). The
  *  env is scrubbed first (below): nothing runs a step before the lab is
- *  built, and strut must be built over the scrubbed env (see `scrubEnv`). */
-let labStrutP: ReturnType<typeof createLabStrut> | null = null;
-export function labStrut() {
-  return (labStrutP ??= (async () => {
-    scrubEnv();
-    return createLabStrut({ serveUi: true });
-  })());
+ *  built, and strut must be built over the scrubbed env (see `scrubEnv`).
+ *  A boot that fails is tried again by the next caller (`retryable`). */
+export const labStrut = retryable(async () => {
+  scrubEnv();
+  return createLabStrut({ serveUi: true });
+});
+
+/**
+ * `make()`'s promise, made on the first call and handed to every call while
+ * it is pending or once it resolved — but never kept once it REJECTS: the
+ * next call makes it again. A lab that failed to boot (Neo4j down, still
+ * starting, or panicked) otherwise stays failed until the process restarts,
+ * answering every request with the boot's error long after Neo4j is back
+ * (swarmVdvxsd, 2026-10-30). One attempt is in flight at a time.
+ *
+ * Safe to retry because a failed `createLabStrut` leaves nothing running:
+ * what can fail (opening the graph, `createStrut`'s own setup) comes before
+ * `createStrut` starts its timers and scheduler, and what follows it warns
+ * instead of throwing.
+ */
+export function retryable<T>(make: () => Promise<T>): () => Promise<T> {
+  let p: Promise<T> | null = null;
+  return () => {
+    if (p) return p;
+    const mine = make();
+    p = mine;
+    // Attached before any caller's handler, so a caller that retries from
+    // its own `catch` already finds `p` cleared.
+    mine.catch(() => {
+      if (p === mine) p = null;
+    });
+    return mine;
+  };
 }
 
 /** What mcp sets on `process.env` itself, on purpose, for every git child
@@ -49,8 +75,13 @@ const KEEP_FOR_GIT = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"];
  * `STRUT_ENV_SCRUB=0` turns it off (strut's own switch, the same name), for
  * a swarm where something unexpected still reads the env; `STRUT_ENV_KEEP=A,B`
  * keeps named variables, as in strut.
+ *
+ * Once per process: a boot tried again (`labStrut`) finds it done.
  */
+let envScrubbed = false;
 function scrubEnv(): void {
+  if (envScrubbed) return;
+  envScrubbed = true;
   if (env["STRUT_ENV_SCRUB"] === "0") {
     console.log("[env] STRUT_ENV_SCRUB=0: process.env left as it is");
     return;
@@ -69,14 +100,13 @@ function scrubEnv(): void {
 type NodeListener = (req: any, res: any) => void;
 
 function bridge(factory: () => Promise<{ app: { fetch: any } }>) {
-  let listenerP: Promise<NodeListener> | null = null;
+  const listener = retryable(() =>
+    factory().then((strut) => getRequestListener(strut.app.fetch) as NodeListener),
+  );
   return (req: Request, res: Response, next: NextFunction) => {
-    const p =
-      listenerP ??
-      (listenerP = factory().then(
-        (strut) => getRequestListener(strut.app.fetch) as NodeListener,
-      ));
-    p.then((listener) => listener(req, res)).catch(next);
+    listener()
+      .then((l) => l(req, res))
+      .catch(next);
   };
 }
 
@@ -343,13 +373,13 @@ export function upgradeLabRoom(
  * no actor: it makes no LLM call and launches nothing.
  */
 export function attachLabSockets(server: Server): void {
-  let handlerP: Promise<AudioUpgradeHandler | null> | null = null;
-  const handler = () =>
-    (handlerP ??= labStrut().then((strut) =>
+  const handler = retryable(() =>
+    labStrut().then((strut) =>
       strut.stt
         ? createAudioUpgradeHandler(strut.stt, { basePath: "/lab", authorize: () => true })
         : null,
-    ));
+    ),
+  );
   const reject = rejectUpgrade;
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? "/", "http://localhost");
