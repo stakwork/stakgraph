@@ -34,6 +34,7 @@ import { seedExploreSteps, seedExploreWorkflows } from "./explore/seed.js";
 import { LOGS_CONCEPTS, seedLogsSteps, seedLogsWorkflows } from "./logs/seed.js";
 import { buildLogsServices, type LogsServices } from "./logs/service.js";
 import { seedCallsWorkflows } from "./calls/seed.js";
+import { seedTribesWorkflows } from "./tribes/seed.js";
 import { anchorConcepts } from "./concept-anchor.js";
 import { retireSteps, retireWorkflows } from "./seed-opts.js";
 import { buildGaiaServices, type GaiaServices } from "./gaia/service.js";
@@ -234,6 +235,11 @@ export async function createLabStrut(
   // call's whole transcript when the call ends. A placeholder for now. YAML
   // only.
   await seedCallsWorkflows(workspace);
+  // tribes — what Hive runs here about the Sphinx tribes linked to its org:
+  // `tribe-messages`, the workflow its TRIBE_MESSAGES_STRUT_WORKFLOW_NAME
+  // names, which gets what was said in one, a batch at a time. A placeholder
+  // for now. YAML only.
+  await seedTribesWorkflows(workspace);
   // sheets/* and browser/* are strut's lib steps now (strut#200, #201), and
   // strut seeds the three browser workflows (same names, same YAML). The
   // lab's seeded copies of the steps are retired: a workspace custom step
