@@ -37,9 +37,9 @@ import type { ConceptSet, JobSeedOptions } from "strut";
  */
 export const JOB_SEED: JobSeedOptions = {
   tools: ["pod/*"],
-  system: `This strut belongs to one Hive workspace: your message's first line names
-it, \`@<slug>\`. Every other workspace of the org is a peer, with its own
-strut, graph and repositories, named by its slug: \`@<slug>\`.
+  system: `You work in one Hive workspace: your message's first line names it,
+\`@<slug>\`. Every other workspace of the org is a peer, with its own graph
+and repositories, named by its slug: \`@<slug>\`.
 \`strut/run-workflow { peer: "<slug>", workflow, input }\` runs a workflow
 there and returns its output; its files stay there. When a request names a
 workspace, that is where its code lives.`,

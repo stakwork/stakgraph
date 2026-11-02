@@ -162,7 +162,7 @@ async function main() {
     if (v.warnings.length) console.log(`  warnings:`, v.warnings.map((w: any) => `${w.path}: ${w.message}`));
     const flow = await workspace.getWorkflow(JOB);
     assert.deepEqual(flow.params?.["tools"], TOOLS, "strut's grants, then the lab's");
-    assert.match(String(flow.params?.["system"]), /^You are working on a JOB[\s\S]*open the `Job` Concept[\s\S]*This strut belongs to one Hive workspace/, "strut's prompt, then the lab's section");
+    assert.match(String(flow.params?.["system"]), /^You are working on a JOB[\s\S]*open the `Job` Concept[\s\S]*You work in one Hive workspace/, "strut's prompt, then the lab's section");
     assert.ok(flow.inputBlock?.["prompt"], "the input block declares prompt");
     assert.equal(flow.inputBlock?.["workspace"]?.required, false, "the input block declares workspace, optional");
     assert.equal(flow.inputBlock?.["session"]?.required, false, "the input block declares session, optional");
@@ -204,7 +204,7 @@ async function main() {
     assert.equal(turns.length, 1);
     assert.equal(turns[0]!.cwd, join(dir, "jobs", job), "cwd is the job's directory");
     assert.equal(turns[0]!.session, job, "session is the job id");
-    assert.equal(turns[0]!.prompt, "Workspace: @acme, the one this strut belongs to. Plan dark mode.", "the home workspace, by slug, heads the prompt");
+    assert.equal(turns[0]!.prompt, "Workspace: @acme, the one this job runs in. Plan dark mode.", "the home workspace, by slug, heads the prompt");
     // The params reached the step with their types intact.
     const cfg = turns[0]!.config;
     assert.deepEqual(cfg["agentTools"], TOOLS, "params.tools reaches the step as agentTools");
@@ -213,7 +213,7 @@ async function main() {
     assert.equal(cfg["cacheTtl"], "1h");
     assert.equal(cfg["model"], "claude-sonnet-5-5");
     assert.match(String(cfg["system"]), /^You are working on a JOB/);
-    assert.match(String(cfg["system"]), /This strut belongs to one Hive workspace[\s\S]*that is where its code lives\.\n$/, "the lab's section reached the step");
+    assert.match(String(cfg["system"]), /You work in one Hive workspace[\s\S]*that is where its code lives\.\n$/, "the lab's section reached the step");
     assert.equal(String(cfg["system"]).match(/Never install or launch a\s+browser yourself/g)?.length, 1, "the browser-explore rule once: strut's");
     assert.equal((cfg["schema"] as any)?.required?.join(","), "text,artifacts");
     console.log(`✔ turn 1: 202 { runId: ${firstBody.runId}, callback: true } → callback artifacts[0] = ${JSON.stringify(post1.artifacts[0])}`);

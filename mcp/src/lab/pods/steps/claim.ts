@@ -69,7 +69,7 @@ export default defineStep({
     "On a run with a job the pod is a HOLD on the job, its `frontend` the hold's url (a check on the job reads it as {{ input.urls.pod }}), and the other pod/* steps " +
     "find it there: pass them no podId, control or sealed for the job's own pod. On a run without a job, pass `control` and `sealed` (the pod's password, sealed; " +
     "the password itself is never shown) to every other pod/* step. A held pod stays claimed across turns until pod/release, or until the job is deleted or idle past " +
-    `STRUT_WORKDIR_TTL_DAYS, when strut releases it — or until another job's claim finds the pool empty while this job has had no run for ${IDLE_MINUTES} minutes: ` +
+    `STRUT_WORKDIR_TTL_DAYS, when the strut server releases it — or until another job's claim finds the pool empty while this job has had no run for ${IDLE_MINUTES} minutes: ` +
     "then that claim takes the pod (`took` names the job it came from). Claim once per job and report `frontend` and `ide` as artifacts of kind `url`, so the person can watch; " +
     "claim again when a pod step says the job no longer holds its pod or the pod rejected its password. Fails `no pod available` when the pool is empty and no idle job's pod can be taken: try later. " +
     "`fresh: true` claims only a pod created after the workspace's last pool-config push, built from the config as it is now — the pod a promoted fix is " +
@@ -77,7 +77,7 @@ export default defineStep({
     "`generation` says which a pod is: `new` (created after the last push), `old`, or null from a hive that does not say. " +
     "On a run with a job hive records the job as the pod's claimant (its pod list shows the job and who started it), and pod/release lets go of it only while it still is.",
   input: z.object({
-    workspace: z.string().min(1).describe("The hive workspace the pod belongs to, by its slug (no `@`) or id: the workspace whose code is changing. A job's first line names its own: `Hive workspace: @<slug>`"),
+    workspace: z.string().min(1).describe("The hive workspace the pod belongs to, by its slug (no `@`) or id: the workspace whose code is changing. A job's first line names its own: `Workspace: @<slug>`"),
     fresh: z.boolean().default(false).describe("Only a pod created after the workspace's last pool-config push: to check a change pod/config-set made"),
   }),
   output: z.object({

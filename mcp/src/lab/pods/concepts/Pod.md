@@ -11,7 +11,7 @@ the app's dev server (`frontend`), an IDE (`ide`), and a coding agent of its
 own that works in there. The `pod/*` tools drive it. A pod belongs to one
 workspace and holds that workspace's repositories: claim for the workspace
 whose code is changing, by its slug without the `@` — the one the request
-names, else this strut's own, on your message's first line.
+names, else this one, on your message's first line.
 
 Claim ONCE per job: `pod/claim { workspace }`. The other pod tools find the
 job's pod on their own: give them no `podId`, `control` or `sealed` (name
@@ -119,7 +119,7 @@ decide, with the tools you have:
 Release the pod with `pod/release { workspace, podId }` — the workspace
 you claimed it for — when the job is done
 with it — every pull request from it is merged or closed, or the person
-says so. Otherwise keep it: strut releases it itself when the job is
+says so. Otherwise keep it: the strut server releases it itself when the job is
 deleted or sits idle for days, and another job may take it after 15 idle
 minutes (above). If a pod tool says this job does not hold the pod, or the
 pod rejected its password, the pod is gone: claim again. A `no pod
